@@ -1,0 +1,171 @@
+# 09 — Feature Priorities
+
+This is the ranked list. Build in this order. Don't skip ahead; each tier
+depends on the prior tier being solid.
+
+## Tier 0: Vertical slice (week 1–2)
+
+The goal is to prove the loop end-to-end on a tiny corpus before scaling
+anything. **50 papers** from one subject (math.AG is cleanest).
+
+- [ ] Repo skeleton: `server/`, `ingest/`, `shim/`, `docker-compose.yml`,
+      `pyproject.toml`.
+- [ ] Manual one-paper ingestion path: download `/e-print/` source for a
+      hand-picked paper, run LaTeXML locally, save HTML5+MathML.
+- [ ] Naive chunker: split on `\section` only; macro normalization stub.
+- [ ] LanceDB write: one table, one embedding column, no hybrid.
+- [ ] Streamable HTTP MCP server with one tool: `search_papers`.
+- [ ] stdio shim that proxies to the HTTP server.
+- [ ] Register in `~/.claude.json`; verify a Claude Code agent can call
+      `search_papers` and get back something coherent.
+
+**Exit criterion:** a Claude agent in this repo can answer "find the theorem
+about X in this corpus" with a non-trivial chunk_id and snippet.
+
+## Tier 1: Math fidelity (week 3–4)
+
+Make the parser actually correct for math.
+
+- [ ] Replace LaTeXML local with **ar5iv-cache-first** strategy.
+- [ ] Macro normalization layer (LaTeXML expanded output → canonical MathML
+      → embedding text).
+- [ ] Per-paper preamble extraction.
+- [ ] Theorem+proof pairing in the chunker.
+- [ ] Equation atoms as a separate LanceDB table.
+- [ ] Hierarchical indexing (paper / section / theorem levels).
+- [ ] `level` parameter on `search_papers`.
+- [ ] Hybrid search: BM25 over `body_raw_latex` (LaTeX analyzer) + dense
+      over `embedding_prose` + dense over `embedding_latex`. RRF fusion.
+- [ ] Reranker (`bge-reranker-v2-m3`).
+
+**Exit criterion:** retrieval over 1,000 papers reliably surfaces the right
+theorem for queries phrased in 3 different ways (synonyms, LaTeX, English).
+
+## Tier 2: Multi-agent caching (week 5)
+
+Make the server cache-friendly.
+
+- [ ] Deterministic chunk IDs (`arxiv:<paper>:<sha256>`) everywhere.
+- [ ] Canonical JSON serialization (sorted keys, no timestamps).
+- [ ] Tool definition byte-stability test (`sha256(tool_schema) == EXPECTED`).
+- [ ] Tier-1 exact-query cache.
+- [ ] Tier-2 semantic-query cache (FAISS over recent query embeddings).
+- [ ] Tier-3 rerank-set cache.
+- [ ] Singleflight wrapper on embedder, reranker, summarizer.
+- [ ] Summary-cache (Haiku output).
+- [ ] Cache observability: `/debug/cache-stats` endpoint + Prometheus metrics.
+- [ ] Document the orchestrator-side rule for normalizing tool-use IDs.
+
+**Exit criterion:** spawn 4 Claude Code sub-agents querying the same corpus;
+verify cache hit rates ≥40% on Tier 1 and ≥60% on Tier 3 across the run.
+
+## Tier 3: Citation graph (week 6)
+
+- [ ] Kùzu schema migrations.
+- [ ] OpenAlex bulk ingestion for math.AG / math.NT.
+- [ ] INSPIRE-HEP per-paper enrichment for hep-th / math-ph.
+- [ ] `cite_neighbors` tool.
+- [ ] `dependency_graph` tool (intra-paper `\ref{}` extraction).
+- [ ] Co-citation cluster query.
+
+**Exit criterion:** "papers cited by Theorem 3.4 of arXiv:2401.01234" returns
+a coherent dependency list including across-paper citations.
+
+## Tier 4: Specialized indices (week 7–8)
+
+The features that turn this from a generic retrieval system into something
+math-pipeline-specific.
+
+- [ ] **Definitions index** (`get_definitions` tool): per-paper notation
+      table, exposed as a first-class tool.
+- [ ] **Theorem-name exact-match index** (`find_lemma_by_name`): SQLite FTS5
+      / Tantivy over canonical theorem names.
+- [ ] **Equation similarity** (`find_equation`): MathML tree-edit-distance
+      plus dense embedding fusion.
+- [ ] **Version diff** (`paper_diff`): compare v1 vs v3 of the same paper at
+      theorem-level granularity.
+- [ ] **Macro expansion utility** (`expand_macro`).
+
+**Exit criterion:** the tactician sub-agent uses at least 3 of these tools
+during a single proof attempt and produces a better proof draft than without
+them (qualitative judgment by user).
+
+## Tier 5: Scale to full v1 corpus (week 9–10)
+
+- [ ] Academic Torrents seed download (math.AG + math.NT + math-ph + hep-th).
+- [ ] Bulk parse + chunk + embed (~1–2 days GPU time).
+- [ ] OAI-PMH delta loop in production.
+- [ ] Daily ingestion cron + atomic version swap.
+- [ ] Backup runbook (restic to local NAS or B2).
+- [ ] Restore drill executed once.
+
+**Exit criterion:** corpus contains ≥150K papers across all four subjects;
+retrieval works at full scale; daily delta lands without manual intervention.
+
+## Tier 6: Quality of life (ongoing)
+
+- [ ] Author-disambiguated index via ORCID (from INSPIRE/OpenAlex).
+- [ ] Withdrawal/replacement flag in metadata + tool result tagging.
+- [ ] TikZ-cd diagram extraction for math.AG.
+- [ ] Proof-skeleton classifier (induction / contradiction / spectral
+      sequence). Small fine-tuned model trained on Mathlib.
+- [ ] Multi-paper deduplication (cross-listing, withdraw-and-resubmit cases).
+- [ ] **ColBERT-v2 late-interaction** for theorem-level chunks. ~10× storage
+      cost; do this when retrieval-quality data shows where single-vector
+      dense fails.
+
+## Tier 7 (v2): The autoformalizer integration
+
+This is where arXMCP starts paying off as a math-pipeline substrate.
+
+- [ ] Lean 4 toolchain integration (LeanDojo bindings).
+- [ ] `mathlib_lookup` tool: maps arXMCP theorem-name hits to Mathlib lemma
+      names and statements where they exist.
+- [ ] Subgoal-decomposition orchestrator: a sub-agent that takes a Lean
+      `sorry` and uses arXMCP retrieval to find candidate Mathlib lemmas
+      and arXiv proofs of similar facts.
+- [ ] Lean kernel as the only critic in the pipeline (no LLM critic).
+
+This tier is the "DeepSeek-Prover-V2 pattern, but with arXMCP as the
+retrieval substrate." Out of scope for v1 of arXMCP itself, but motivates
+all of v1's design choices.
+
+## Things to explicitly NOT build in v1
+
+- **Multi-host scaling, replication, leader election.** Single workstation.
+- **Authentication, multi-tenancy, audit logs.** localhost-only.
+- **A web UI.** The MCP tool surface is the UI.
+- **PDF figure extraction.** Tier 6 if at all.
+- **OCR of pre-2007 scanned papers.** Mark as degraded coverage.
+- **Translation of non-English papers.** Filter at OAI-PMH harvest.
+- **Comments / discussion / blog tracking.** Out of scope.
+- **An LLM "critic" tool.** Lean is the critic. An LLM critic is theater.
+- **Live arXiv listings scraping.** Use OAI-PMH.
+
+## Decision points to revisit later
+
+- **ColBERT-v2 vs single-vector dense:** decide after Tier 4 based on
+  retrieval-quality data. ColBERT pays off only if single-vector is the
+  bottleneck.
+- **Self-hosted vs API embedder for queries:** decide after Tier 5 based on
+  cost and latency. Self-hosted is the safe default; API gives marginally
+  better paraphrase handling.
+- **Equation-similarity as first-class vs derived from chunks:** decide
+  after Tier 4 based on how often `find_equation` is actually called.
+- **Whether to include a `summarize` tool that returns LLM-generated
+  summaries**, vs always returning raw evidence. Tier 4 calls a Haiku
+  summarizer for `search_papers`; promote to a standalone tool only if
+  agents start needing summaries of arbitrary chunk sets.
+
+## Feature evaluation rubric
+
+When considering a new feature post-v1, ask:
+
+1. Does it solve a problem an agent has actually hit (not a theoretical one)?
+2. Does it preserve the determinism contract for tool results?
+3. Does it run locally without a paid service in the critical path?
+4. Does it add ≤2 dependencies?
+5. Will it survive a model swap (new embedder / new reranker)?
+6. Does it require a corpus rebuild? If yes, can it be opt-in for power users?
+
+Three or more "no" answers → reject or defer.
