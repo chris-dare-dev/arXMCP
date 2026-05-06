@@ -46,7 +46,8 @@ back). Keys are alphabetical when serialized.
 | `updated_at` | ISO-8601 UTC | every write | last mutation |
 | `phase` | enum (9) | `checkpoint.py` | current phase |
 | `phase_history` | array | `checkpoint.py` | `{phase, entered_at, left_at}` rows; `left_at` of current phase is `null` |
-| `milestone_brief` | string | init | full text of the milestone (from `--brief` or roadmap grep) |
+| `milestone_brief` | string | init | full text of the milestone (from `--brief`, `--brief-from`, or auto-discovery) |
+| `brief_source` | string | init | path to the source file the brief was extracted from (empty if `--brief` inline). Audit trail. |
 | `research_mode` | enum | Phase 1 | `standard` (2× Sonnet), `deep` (1× Opus), `single` (1× Sonnet) |
 | `research_briefs` | array | Phase 1 | `[{agent_id, brief_path, summary}]` from each researcher |
 | `research_synthesis` | path or null | Phase 1 | path to merged-brief file (orchestrator-written) |

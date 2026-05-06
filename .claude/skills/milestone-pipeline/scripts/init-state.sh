@@ -16,11 +16,18 @@ set -euo pipefail
 
 usage() {
     cat <<EOF >&2
-usage: init-state.sh <ID> [--brief "text"] [--repo-root /path]
+usage: init-state.sh <ID> [--brief "text"] [--brief-from /path/to/file.md] [--repo-root /path]
 
-  <ID>            milestone identifier (e.g. E01_S01)
-  --brief TEXT    inline milestone brief (overrides roadmap lookup)
-  --repo-root P   override repo-root detection
+  <ID>             milestone identifier (e.g. E01_S01 or citation-graph-m1)
+  --brief TEXT     inline milestone brief (overrides any disk lookup)
+  --brief-from P   explicit path to a markdown file with '### <ID> — Title'
+                   (overrides auto-discovery; useful for archived plans
+                   or non-default locations)
+  --repo-root P    override repo-root detection
+
+Auto-discovery searches BOTH .claude/roadmap/*.md and plans/*.md for a
+'### <ID> — ' heading. On collision (same ID in both) the script exits
+1 with both paths printed.
 EOF
     exit 2
 }
@@ -30,11 +37,13 @@ case "$1" in -h|--help) usage ;; esac
 
 MILESTONE_ID="$1"; shift
 BRIEF=""
+BRIEF_FROM=""
 REPO_ROOT_OVERRIDE=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --brief) BRIEF="${2:-}"; shift 2 ;;
+        --brief-from) BRIEF_FROM="${2:-}"; shift 2 ;;
         --repo-root) REPO_ROOT_OVERRIDE="${2:-}"; shift 2 ;;
         *) echo "error: unknown arg: $1" >&2; usage ;;
     esac
@@ -78,19 +87,53 @@ with open('$STATE_FILE') as f: print(json.load(f).get('phase','(unknown)'))
     exit 0
 fi
 
-# Resolve brief: explicit --brief wins, otherwise grep the roadmap.
+# Resolve brief. Priority: --brief (inline) > --brief-from (explicit path) >
+# auto-discovery in .claude/roadmap/ AND plans/. On collision (same ID found
+# in both directories) fail loudly with both paths so the user resolves the
+# ambiguity at planning time, not as a debugging mystery later.
+BRIEF_SOURCE=""
+
+if [[ -z "$BRIEF" && -n "$BRIEF_FROM" ]]; then
+    if [[ ! -f "$BRIEF_FROM" ]]; then
+        echo "error: --brief-from path not found: $BRIEF_FROM" >&2
+        exit 1
+    fi
+    BRIEF=$(awk -v id="$MILESTONE_ID" '
+        $0 ~ "^### " id " " { printing=1; print; next }
+        printing && /^### / { exit }
+        printing { print }
+    ' "$BRIEF_FROM")
+    if [[ -z "$BRIEF" ]]; then
+        echo "error: no '### $MILESTONE_ID — ' heading found in $BRIEF_FROM" >&2
+        exit 1
+    fi
+    BRIEF_SOURCE="$BRIEF_FROM"
+fi
+
 if [[ -z "$BRIEF" ]]; then
-    ROADMAP_DIR="$REPO_ROOT_RESOLVED/.claude/roadmap"
-    if [[ -d "$ROADMAP_DIR" ]]; then
-        # Block extraction: from "### <ID> —" to next "### " or EOF.
-        brief_block=$(awk -v id="$MILESTONE_ID" '
+    SEARCH_DIRS=()
+    [[ -d "$REPO_ROOT_RESOLVED/.claude/roadmap" ]] && SEARCH_DIRS+=("$REPO_ROOT_RESOLVED/.claude/roadmap")
+    [[ -d "$REPO_ROOT_RESOLVED/plans" ]] && SEARCH_DIRS+=("$REPO_ROOT_RESOLVED/plans")
+
+    HITS=()
+    for dir in "${SEARCH_DIRS[@]}"; do
+        block=$(awk -v id="$MILESTONE_ID" '
             $0 ~ "^### " id " " { printing=1; print; next }
             printing && /^### / { exit }
             printing { print }
-        ' "$ROADMAP_DIR"/*.md 2>/dev/null || true)
-        if [[ -n "$brief_block" ]]; then
-            BRIEF="$brief_block"
+        ' "$dir"/*.md 2>/dev/null || true)
+        if [[ -n "$block" ]]; then
+            HITS+=("$dir")
+            BRIEF="$block"
+            BRIEF_SOURCE="$dir"
         fi
+    done
+
+    if [[ ${#HITS[@]} -gt 1 ]]; then
+        echo "error: milestone ID '$MILESTONE_ID' found in multiple sources:" >&2
+        for h in "${HITS[@]}"; do echo "         - $h" >&2; done
+        echo "       resolve by passing --brief-from <path> explicitly, or by renaming one." >&2
+        exit 1
     fi
 fi
 
@@ -105,7 +148,7 @@ mkdir -p "$STATE_DIR"
 NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 # Use python to write JSON safely (handles brief escaping correctly).
-BRIEF="$BRIEF" MILESTONE_ID="$MILESTONE_ID" NOW="$NOW" STATE_FILE="$STATE_FILE" \
+BRIEF="$BRIEF" BRIEF_SOURCE="$BRIEF_SOURCE" MILESTONE_ID="$MILESTONE_ID" NOW="$NOW" STATE_FILE="$STATE_FILE" \
 python3 <<'PY'
 import json, os, sys
 state = {
@@ -115,6 +158,7 @@ state = {
     "phase": "init",
     "phase_history": [{"phase": "init", "entered_at": os.environ["NOW"], "left_at": None}],
     "milestone_brief": os.environ.get("BRIEF", ""),
+    "brief_source": os.environ.get("BRIEF_SOURCE", ""),
     "research_mode": "standard",
     "research_briefs": [],
     "research_synthesis": None,
