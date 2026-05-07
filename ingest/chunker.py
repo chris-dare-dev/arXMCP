@@ -802,6 +802,16 @@ def _chunk_paper_impl(paper_id: str) -> list[ChunkRecord]:
 
     all_chunks = theorem_chunks + section_chunks
 
+    # E02_S02 wire-in: stamp every emitted chunk with the preamble reference
+    # hash so the embedder can deterministically reconstruct the embedding
+    # input as ``preamble_text + "\n\n" + body_text``. If the preamble is
+    # missing or extraction fails, leave ``preamble_ref=None`` (the chunker
+    # remains functional; the embedder logs and continues).
+    preamble_ref = _resolve_preamble_ref(paper_id)
+    if preamble_ref is not None:
+        for chunk in all_chunks:
+            chunk.preamble_ref = preamble_ref
+
     # Write output JSON. Closes F3: clear any stale chunk JSON files from a
     # prior run before writing the new set, so a re-run with fewer chunks
     # cannot leave dead idxN.json files in the directory for the embedder
@@ -826,6 +836,39 @@ def _chunk_paper_impl(paper_id: str) -> list[ChunkRecord]:
 # ---------------------------------------------------------------------------
 # Failure logging
 # ---------------------------------------------------------------------------
+
+
+def _resolve_preamble_ref(paper_id: str) -> str | None:
+    """Look up the per-paper preamble hash from E02_S02's preamble extractor.
+
+    Performs the lookup lazily — the import happens inside the function so
+    that ``ingest.chunker`` does not unconditionally pull in the preamble
+    module (and its tools/ import) at module import time. Returns ``None``
+    when the preamble is missing or the extractor raises a per-paper
+    failure; the chunker continues to emit chunks with
+    ``preamble_ref=None``, matching the pre-E02_S02 behaviour.
+    """
+    try:
+        from ingest.preamble import (
+            PER_PAPER_FAILURE_EXCEPTIONS as PREAMBLE_FAILURES,
+        )
+        from ingest.preamble import extract_preamble
+    except ImportError:
+        # Preamble module not on the import path — defensive; should not
+        # happen in a normal install but keeps chunker importable in
+        # partial environments (e.g. tests that patch sys.modules).
+        return None
+
+    try:
+        doc = extract_preamble(paper_id)
+    except PREAMBLE_FAILURES as exc:
+        logger.warning(
+            "[%s] preamble extraction failed; preamble_ref will be null: %s",
+            paper_id,
+            exc,
+        )
+        return None
+    return doc.preamble_hash
 
 
 def _log_chunk_failure(paper_id: str, elapsed_s: float, message: str) -> None:

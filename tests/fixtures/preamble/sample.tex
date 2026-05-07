@@ -1,0 +1,48 @@
+\documentclass{amsart}
+\usepackage{amsmath, amssymb}
+
+% Real, common math.AG-style macros — covers the directive families
+% the extractor must handle.
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\Z}{\mathbb{Z}}
+\newcommand{\Spec}[1]{\operatorname{Spec}(#1)}
+\renewcommand{\baselinestretch}{1.05}
+\providecommand{\Hom}{\operatorname{Hom}}
+
+\DeclareMathOperator{\Pic}{Pic}
+\DeclareMathOperator*{\colim}{colim}
+
+\def\sheaf#1{\mathcal{#1}}
+\edef\thisversion{v1.2}
+\gdef\globalfoo{globalbar}
+\xdef\xglobal{baz}
+
+\let\oldepsilon=\epsilon
+\let\varnothing\emptyset
+
+% This comment must be stripped — it contains a fake \newcommand{\fake}{x}
+% that should NOT appear in the macros list.
+
+% Escape edge cases:
+% the literal \% percent sign should not start a comment
+% ie \%50 below stays in the body of any macro that contains it.
+
+\newcommand{\halfoff}{50\%~off}
+
+% Multi-line definition (brace-balanced over 3 lines):
+\newcommand{\bigtheorem}{
+  Let $X$ be a smooth projective variety.
+  Then for any line bundle $L$ on $X$,
+  the cohomology $H^i(X, L)$ is finite-dimensional.
+}
+
+\title{A test fixture for the preamble extractor}
+\author{E02\_S02 test suite}
+
+\begin{document}
+\maketitle
+\section{Body content}
+The body of the document. The preamble extractor stops at \verb|\begin{document}|
+in real papers, but for this fixture we don't care — extraction scans the
+whole file and macros only appear in the preamble region.
+\end{document}
