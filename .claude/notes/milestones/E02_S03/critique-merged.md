@@ -189,4 +189,19 @@ The module uses stdlib `re`. Behavior is stable across Python 3.10–3.13 for th
 
 ## Rectification status
 
-(empty — pending rectification phase)
+Re-verify gate: 0 of 3 CRITICAL+HIGH findings invalidated (0% — well below 40% threshold).
+
+- F1 — fixed in rect commit `7566026` (docstring updated; balanced-brace regex makes documented behaviour real); test `tests/test_tokenizer.py::TestF1ComplexScriptDocstring`.
+- F2 — fixed in rect commit `7566026` (Unicode-aware word class `[^\W\d_]`; preserves `étale`, `Poincaré`, `Hörmander`, `Möbius`, `Schrödinger`, `Hölder`, `fibré`); tests `tests/test_tokenizer.py::TestF2UnicodeWords`.
+- F3 — fixed in rect commit `7566026` (`test_all_kinds_have_body_tokens_populated` covers ≥4 distinct kinds; proof-window assertions added).
+- F5 — fixed in rect commit `7566026` (id-branch requires balanced braces or single bare alphanumeric); tests `tests/test_tokenizer.py::TestF5BalancedBraceScript`.
+- F6 — fixed in rect commit `7566026` (`TOKENIZER_VERSION = "v1.0"` + golden-output SHA-256 pin); test `TestF6GoldenOutputRegression`.
+- F7 — fixed in rect commit `7566026` (perf bound 5ms → 2ms); test `TestF7TightPerfBound::test_under_2ms_per_chunk`.
+- F11 — fixed in rect commit `7566026` (word-branch regex disallows trailing hyphens); tests `TestF11NoTrailingHyphenTokens`.
+- F12 — fixed in rect commit `7566026` (moved `tokenize_body` import to module top of `ingest/chunker.py`).
+- F4 — DEFERRED (MEDIUM): empty-string `body_tokens` semantics; clarify when E04_S04 lands.
+- F8 — DEFERRED (MEDIUM): explicit prose+alttext integration test follow-up.
+- F9 — DEFERRED (MEDIUM): `\@addtoreset` 2-arg phantom-token leak (rare in arXiv source).
+- F10 — DEFERRED (MEDIUM): leading-digit identifiers; revisit if K3-surface searches show poor recall.
+- F13 — DEFERRED (LOW): `label_thm1` test kept as-is.
+- F14 — DEFERRED (LOW): Python `re` version stability documented in module docstring.
