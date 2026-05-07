@@ -43,6 +43,8 @@ import logging
 import os
 import re
 import time
+import unicodedata
+import uuid
 from pathlib import Path
 
 # Reuse the chunker's paper_id validator + log-field sanitiser to avoid
@@ -260,22 +262,46 @@ def _extract_macros(tex_source: str) -> list[str]:
 def _write_preamble_json(out_path: Path, doc: PreambleDoc) -> None:
     """Atomically write ``preamble.json`` via temp-then-rename.
 
-    Avoids leaving readers seeing a half-written file during a re-run.
+    Closes F4 (concurrent same-paper races) and F5 (temp file leak on
+    exception): the tmp filename includes the current PID and a fresh UUID
+    suffix so concurrent extractor runs do not collide on a shared
+    ``preamble.json.tmp`` path, and the tmp is cleaned up via
+    ``try/finally`` if ``os.replace`` fails (only the unsuccessful path
+    needs cleanup; on success the tmp has already been renamed away).
     """
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = out_path.with_suffix(out_path.suffix + ".tmp")
+    tmp = out_path.with_suffix(
+        f"{out_path.suffix}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp"
+    )
     payload = json.dumps(doc.to_dict(), ensure_ascii=False, sort_keys=True) + "\n"
-    tmp.write_text(payload, encoding="utf-8")
-    os.replace(tmp, out_path)
+    try:
+        tmp.write_text(payload, encoding="utf-8")
+        os.replace(tmp, out_path)
+    finally:
+        # On the success path, os.replace moved tmp to out_path so this
+        # is a no-op. On the failure path, ensure no half-written tmp
+        # leaks into the corpus directory.
+        import contextlib
+        with contextlib.suppress(OSError):
+            tmp.unlink(missing_ok=True)
 
 
 def _read_existing_preamble(out_path: Path) -> PreambleDoc | None:
+    """Load a previously-written PreambleDoc, returning ``None`` on any error.
+
+    Closes F2: ``TypeError`` is caught alongside ``KeyError`` /
+    ``json.JSONDecodeError`` / ``OSError``. Without it, a corrupt cache
+    whose ``macros`` field is a string (not a list) would slip through
+    ``list(data["macros"])`` because Python iterates strings character-by-
+    character — producing one-letter "macros" and a wrong hash. Returning
+    ``None`` here forces a clean re-extraction.
+    """
     if not out_path.exists():
         return None
     try:
         data = json.loads(out_path.read_text(encoding="utf-8"))
         return PreambleDoc.from_dict(data)
-    except (json.JSONDecodeError, KeyError, OSError):
+    except (json.JSONDecodeError, KeyError, OSError, TypeError, ValueError):
         return None
 
 
@@ -309,10 +335,25 @@ def extract_preamble(paper_id: str) -> PreambleDoc:
                 f"raw .tex source not found at {raw_paper_dir}; "
                 "run tools/fetch_seed.py first"
             )
-        main_tex = find_main_tex(raw_paper_dir, paper_id)
+        main_tex = _select_root_tex(raw_paper_dir, paper_id)
         if main_tex is None:
             raise FileNotFoundError(
                 f"no .tex file found under {raw_paper_dir} for paper {paper_id}"
+            )
+        # Closes F1: confine the resolved .tex path to the paper's raw
+        # directory. Tarballs are user-controlled content; a malicious
+        # tarball could include a symlink `paper.tex -> /etc/passwd`.
+        # is_relative_to checks containment AFTER full resolution, which
+        # collapses any traversal sequences a symlink target could carry.
+        resolved_main = main_tex.resolve()
+        resolved_root = raw_paper_dir.resolve()
+        if (
+            main_tex.is_symlink()
+            or not resolved_main.is_relative_to(resolved_root)
+        ):
+            raise ValueError(
+                f"refusing to read .tex outside paper dir for {paper_id}: "
+                f"{main_tex} (Threat 1, 08-security-observability-ops.md)"
             )
         return _extract_preamble_impl(paper_id, main_tex)
     except PER_PAPER_FAILURE_EXCEPTIONS as exc:
@@ -322,6 +363,35 @@ def extract_preamble(paper_id: str) -> PreambleDoc:
             "[%s] extract_preamble failed: %s", paper_id, exc, exc_info=True
         )
         raise
+
+
+def _select_root_tex(raw_paper_dir: Path, paper_id: str) -> Path | None:
+    """Pick the root .tex for a paper, preferring top-level files.
+
+    Closes F10: ``find_main_tex`` from ``tools/arxiv_fetch.py`` uses
+    ``rglob('*.tex')`` which can pick up a vendored ``samples/template.tex``
+    or ``examples/foo.tex`` over the actual paper. We restrict to top-level
+    candidates first; only fall back to ``find_main_tex`` (recursive) if
+    the paper truly has no top-level .tex.
+    """
+    top_level = sorted(p for p in raw_paper_dir.glob("*.tex") if p.is_file())
+    if top_level:
+        # Mirror find_main_tex's preference order, restricted to the top level.
+        by_paper_id = raw_paper_dir / f"{paper_id}.tex"
+        if by_paper_id in top_level:
+            return by_paper_id
+        if len(top_level) == 1:
+            return top_level[0]
+        for tex in top_level:
+            try:
+                head = tex.read_text(encoding="utf-8", errors="replace")[:4096]
+            except OSError:
+                continue
+            if "\\documentclass" in head:
+                return tex
+        return top_level[0]
+    # No top-level .tex — fall back to the legacy recursive heuristic.
+    return find_main_tex(raw_paper_dir, paper_id)
 
 
 def _extract_preamble_impl(paper_id: str, main_tex: Path) -> PreambleDoc:
@@ -336,7 +406,20 @@ def _extract_preamble_impl(paper_id: str, main_tex: Path) -> PreambleDoc:
         return cached
 
     # (Re)extract.
-    tex_source = source_bytes.decode("utf-8", errors="replace")
+    # Closes F7: refuse silent corruption from non-UTF-8 sources. The
+    # raised UnicodeDecodeError is a subclass of ValueError, so the
+    # outer PER_PAPER_FAILURE_EXCEPTIONS envelope catches and logs it.
+    try:
+        tex_source = source_bytes.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError(
+            f"non-UTF-8 .tex source for {paper_id}: {exc}"
+        ) from exc
+    # Closes F6: BP1 byte-identical caching demands canonical Unicode form.
+    # NFC normalisation collapses precomposed vs decomposed characters
+    # (e.g. é U+00E9 vs e + U+0301) so the same textual content produces
+    # the same preamble_text and preamble_hash across hosts.
+    tex_source = unicodedata.normalize("NFC", tex_source)
     macros = _extract_macros(tex_source)
     preamble_text = "\n".join(macros)
     preamble_hash = hashlib.sha256(preamble_text.encode("utf-8")).hexdigest()[:16]

@@ -842,22 +842,17 @@ def _resolve_preamble_ref(paper_id: str) -> str | None:
     """Look up the per-paper preamble hash from E02_S02's preamble extractor.
 
     Performs the lookup lazily — the import happens inside the function so
-    that ``ingest.chunker`` does not unconditionally pull in the preamble
-    module (and its tools/ import) at module import time. Returns ``None``
-    when the preamble is missing or the extractor raises a per-paper
-    failure; the chunker continues to emit chunks with
-    ``preamble_ref=None``, matching the pre-E02_S02 behaviour.
+    that ``ingest.chunker`` does not pay the preamble module's cost at
+    import time. The lazy import is NOT wrapped in ``except ImportError``:
+    a real packaging failure should surface as a crash, not silently
+    produce chunks with ``preamble_ref=None`` for the entire corpus
+    (closes F3 from the E02_S02 critique). Tests that need to bypass
+    preamble lookup should patch ``_resolve_preamble_ref`` itself.
     """
-    try:
-        from ingest.preamble import (
-            PER_PAPER_FAILURE_EXCEPTIONS as PREAMBLE_FAILURES,
-        )
-        from ingest.preamble import extract_preamble
-    except ImportError:
-        # Preamble module not on the import path — defensive; should not
-        # happen in a normal install but keeps chunker importable in
-        # partial environments (e.g. tests that patch sys.modules).
-        return None
+    from ingest.preamble import (
+        PER_PAPER_FAILURE_EXCEPTIONS as PREAMBLE_FAILURES,
+    )
+    from ingest.preamble import extract_preamble
 
     try:
         doc = extract_preamble(paper_id)

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
 from pathlib import Path
 from unittest.mock import patch
@@ -560,3 +561,293 @@ class TestChunkerIntegration:
         # Every chunk must have preamble_ref=None (graceful fallback)
         for chunk in chunks:
             assert chunk.preamble_ref is None
+
+
+# ===========================================================================
+# Regression guards from Phase 3 critique (F1–F10)
+# ===========================================================================
+
+
+class TestF1SymlinkConfinement:
+    """F1 (HIGH): refuse to read .tex outside the paper's raw dir."""
+
+    def test_symlink_to_outside_raises(self, tmp_path):
+        paper_id = "2307.00001"
+        # Stage a paper directory containing a symlink that escapes
+        outside_target = tmp_path / "secret.txt"
+        outside_target.write_text(r"\newcommand{\stolen}{x}", encoding="utf-8")
+        raw_dir = tmp_path / "raw"
+        paper_dir = raw_dir / paper_id
+        paper_dir.mkdir(parents=True)
+        bad_symlink = paper_dir / f"{paper_id}.tex"
+        bad_symlink.symlink_to(outside_target)
+        with (
+            patch("ingest.preamble.RAW_DIR", raw_dir),
+            patch("ingest.preamble.PREAMBLE_DIR", tmp_path / "preamble"),
+            patch("ingest.preamble.PREAMBLE_LOG_PATH", tmp_path / "preamble.log"),
+            pytest.raises(ValueError, match="Threat 1"),
+        ):
+            extract_preamble(paper_id)
+
+    def test_real_file_still_works(self, tmp_path):
+        paper_id = "2307.00001"
+        _stage_paper(tmp_path, paper_id, FIXTURE_TEX.read_text())
+        doc = _patched_extract(tmp_path, paper_id)
+        assert doc.paper_id == paper_id
+
+
+class TestF2CacheCorruption:
+    """F2 (HIGH): _read_existing_preamble must reject malformed cache."""
+
+    def test_macros_as_string_returns_none(self, tmp_path):
+        from ingest.preamble import _read_existing_preamble
+        bad = tmp_path / "preamble.json"
+        bad.write_text(
+            json.dumps({
+                "paper_id": "2307.00001",
+                "source_hash": "x" * 64,
+                "macros": "oops not a list",
+                "preamble_text": "oops",
+                "preamble_hash": "0" * 16,
+            }),
+            encoding="utf-8",
+        )
+        # Without the F2 fix: from_dict's list("oops not a list") would
+        # silently produce one-letter "macros". The fix raises TypeError
+        # which _read_existing_preamble catches → returns None.
+        assert _read_existing_preamble(bad) is None
+
+    def test_macros_with_non_string_entries_returns_none(self, tmp_path):
+        from ingest.preamble import _read_existing_preamble
+        bad = tmp_path / "preamble.json"
+        bad.write_text(
+            json.dumps({
+                "paper_id": "2307.00001",
+                "source_hash": "x" * 64,
+                "macros": ["ok", 123, None],
+                "preamble_text": "ok\n123\nNone",
+                "preamble_hash": "0" * 16,
+            }),
+            encoding="utf-8",
+        )
+        assert _read_existing_preamble(bad) is None
+
+    def test_corrupt_cache_triggers_reextraction(self, tmp_path):
+        # Stage paper, extract once (cache valid), then corrupt cache,
+        # extract again — extractor should detect corruption and re-extract.
+        paper_id = "2307.00001"
+        _stage_paper(tmp_path, paper_id, FIXTURE_TEX.read_text())
+        doc1 = _patched_extract(tmp_path, paper_id)
+        # Corrupt the cache
+        cache = tmp_path / "preamble" / paper_id / "preamble.json"
+        cache.write_text(
+            json.dumps({
+                "paper_id": paper_id,
+                "source_hash": doc1.source_hash,
+                "macros": "corrupt",
+                "preamble_text": "corrupt",
+                "preamble_hash": "deadbeef00000000",
+            }),
+            encoding="utf-8",
+        )
+        doc2 = _patched_extract(tmp_path, paper_id)
+        # Re-extracted cleanly — the corrupt cache did not poison output
+        assert doc2.preamble_hash == doc1.preamble_hash
+        assert doc2.macros == doc1.macros
+
+
+class TestF3ChunkerImportFailureSurfaces:
+    """F3 (HIGH): chunker's preamble lookup does NOT silently swallow
+    a real import failure for the preamble module."""
+
+    def test_resolve_preamble_ref_has_no_except_importerror(self):
+        # Static source check: the body of _resolve_preamble_ref must not
+        # contain `except ImportError`. Pre-fix, the chunker silently
+        # returned None on any ImportError (including real packaging
+        # failures), masking corpus-wide preamble_ref=None bugs.
+        from pathlib import Path
+        chunker_src = (
+            Path(__file__).parent.parent / "ingest" / "chunker.py"
+        ).read_text()
+        # Find the function body
+        marker = "def _resolve_preamble_ref"
+        idx = chunker_src.index(marker)
+        # Look at the next ~50 lines (whole function body)
+        body = chunker_src[idx : idx + 2000]
+        # Search for the actual code construct (with colon and indentation),
+        # not the bare string — the function's docstring legitimately
+        # references the phrase "except ImportError" in prose.
+        import re as _re
+        pattern = _re.compile(r"^\s*except\s+ImportError\s*[:(]", _re.MULTILINE)
+        assert pattern.search(body) is None, (
+            "_resolve_preamble_ref must not swallow ImportError; a real "
+            "packaging failure should surface, not silently null-stamp "
+            "every chunk's preamble_ref. Closes F3."
+        )
+
+
+class TestF4F5AtomicWriteCleanup:
+    """F4 (MEDIUM): per-process tmp suffix prevents same-paper races.
+    F5 (MEDIUM): tmp file does not leak when os.replace fails."""
+
+    def test_tmp_suffix_is_unique_per_call(self, tmp_path, monkeypatch):
+        from ingest.preamble import _write_preamble_json
+        from ingest.preamble_types import PreambleDoc
+        seen: list[Path] = []
+
+        real_replace = os.replace
+
+        def capture_replace(src, dst):
+            seen.append(Path(src))
+            real_replace(src, dst)
+
+        monkeypatch.setattr("ingest.preamble.os.replace", capture_replace)
+        doc = PreambleDoc(
+            paper_id="2307.00001",
+            source_hash="a" * 64,
+            macros=[r"\newcommand{\R}{}"],
+            preamble_text=r"\newcommand{\R}{}",
+            preamble_hash="0" * 16,
+        )
+        out = tmp_path / "preamble.json"
+        _write_preamble_json(out, doc)
+        _write_preamble_json(out, doc)
+        assert len(seen) == 2
+        # Two distinct tmp filenames despite same out_path
+        assert seen[0] != seen[1]
+
+    def test_tmp_cleaned_up_when_replace_fails(self, tmp_path, monkeypatch):
+        from ingest.preamble import _write_preamble_json
+        from ingest.preamble_types import PreambleDoc
+
+        def boom(src, dst):
+            raise OSError("simulated rename failure")
+
+        monkeypatch.setattr("ingest.preamble.os.replace", boom)
+        doc = PreambleDoc(
+            paper_id="2307.00001",
+            source_hash="a" * 64,
+            macros=[r"\newcommand{\R}{}"],
+            preamble_text=r"\newcommand{\R}{}",
+            preamble_hash="0" * 16,
+        )
+        out = tmp_path / "preamble.json"
+        with pytest.raises(OSError):
+            _write_preamble_json(out, doc)
+        # No leftover .tmp files in the output directory
+        leftover = list(tmp_path.glob("*.tmp"))
+        assert leftover == []
+
+
+class TestF6NFCNormalization:
+    """F6 (MEDIUM): preamble_text uses NFC Unicode normalization."""
+
+    def test_nfc_and_nfd_produce_identical_hash(self, tmp_path):
+        # Same macro using two Unicode forms for "é"
+        nfc = "\\newcommand{\\étale}{etale}"     # precomposed (U+00E9)
+        nfd = "\\newcommand{\\étale}{etale}"   # decomposed (e + U+0301)
+        # Pre-fix: hashes would differ. Post-fix: both normalise to NFC.
+        for paper_id, src in [("2307.00100", nfc), ("2307.00101", nfd)]:
+            _stage_paper(tmp_path, paper_id, src)
+        d1 = _patched_extract(tmp_path, "2307.00100")
+        d2 = _patched_extract(tmp_path, "2307.00101")
+        assert d1.preamble_hash == d2.preamble_hash, (
+            f"NFC vs NFD must produce identical hashes; "
+            f"got {d1.preamble_hash} vs {d2.preamble_hash}"
+        )
+
+
+class TestF7StrictUTF8Decode:
+    """F7 (MEDIUM): non-UTF-8 source raises ValueError, not silent U+FFFD."""
+
+    def test_invalid_utf8_raises_and_logs(self, tmp_path):
+        paper_id = "2307.00001"
+        raw_dir = tmp_path / "raw"
+        paper_dir = raw_dir / paper_id
+        paper_dir.mkdir(parents=True)
+        # Latin-1 byte 0xe9 is not valid UTF-8 in this sequence
+        (paper_dir / f"{paper_id}.tex").write_bytes(b"\\newcommand{\\R}{\xe9}")
+        log_path = tmp_path / "preamble.log"
+        with (
+            patch("ingest.preamble.RAW_DIR", raw_dir),
+            patch("ingest.preamble.PREAMBLE_DIR", tmp_path / "preamble"),
+            patch("ingest.preamble.PREAMBLE_LOG_PATH", log_path),
+            pytest.raises(ValueError),
+        ):
+            extract_preamble(paper_id)
+        # Failure must be logged for weekly ops review
+        assert log_path.exists()
+
+
+class TestF8HashCollisionAcrossPapers:
+    """F8 (MEDIUM): identical preamble across papers yields identical ref."""
+
+    def test_identical_preamble_across_papers_yields_same_ref(self, tmp_path):
+        tex = r"\newcommand{\R}{\mathbb{R}}"
+        _stage_paper(tmp_path, "2307.00001", tex)
+        _stage_paper(tmp_path, "2307.00002", tex)
+        d1 = _patched_extract(tmp_path, "2307.00001")
+        d2 = _patched_extract(tmp_path, "2307.00002")
+        assert d1.preamble_hash == d2.preamble_hash
+        # Source hashes should also match (same .tex content) — but
+        # the paper_ids on the docs must differ.
+        assert d1.source_hash == d2.source_hash
+        assert d1.paper_id != d2.paper_id
+
+
+class TestF9BraceScannerEscapedBackslash:
+    """F9 (MEDIUM): `\\\\{` (escaped backslash + open brace) regression."""
+
+    def test_escaped_backslash_followed_by_open_brace(self):
+        # The text is literally: { a \\ { b } c }
+        # \\ is an escaped backslash (skip 2 chars), then { increments depth,
+        # } decrements, } at end closes. The full body must be returned.
+        from ingest.preamble import _scan_balanced_body
+        text = r"{a\\{b}c}"
+        end = _scan_balanced_body(text, 1)
+        assert end == len(text)
+
+
+class TestF10TopLevelTexPreferred:
+    """F10 (MEDIUM): vendored samples/template.tex must NOT shadow the
+    paper's own .tex when both exist."""
+
+    def test_top_level_tex_preferred_over_samples(self, tmp_path):
+        from ingest.preamble import _select_root_tex
+        paper_id = "2307.00001"
+        raw_dir = tmp_path / "raw"
+        paper_dir = raw_dir / paper_id
+        paper_dir.mkdir(parents=True)
+        # Top-level paper file
+        main = paper_dir / "main.tex"
+        main.write_text(
+            r"\documentclass{article}" "\n" r"\newcommand{\paperonly}{x}",
+            encoding="utf-8",
+        )
+        # Vendored sample
+        samples = paper_dir / "samples"
+        samples.mkdir()
+        template = samples / "template.tex"
+        template.write_text(
+            r"\documentclass{article}" "\n" r"\newcommand{\templateonly}{y}",
+            encoding="utf-8",
+        )
+        chosen = _select_root_tex(paper_dir, paper_id)
+        assert chosen == main, (
+            f"_select_root_tex must prefer top-level main.tex over "
+            f"samples/template.tex; got {chosen}"
+        )
+
+    def test_falls_back_to_recursive_if_no_top_level(self, tmp_path):
+        from ingest.preamble import _select_root_tex
+        paper_id = "2307.00001"
+        raw_dir = tmp_path / "raw"
+        paper_dir = raw_dir / paper_id
+        paper_dir.mkdir(parents=True)
+        # Only nested .tex
+        nested_dir = paper_dir / "src"
+        nested_dir.mkdir()
+        nested = nested_dir / "main.tex"
+        nested.write_text(r"\documentclass{article}", encoding="utf-8")
+        chosen = _select_root_tex(paper_dir, paper_id)
+        assert chosen == nested

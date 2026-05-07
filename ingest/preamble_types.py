@@ -58,11 +58,24 @@ class PreambleDoc:
 
     @classmethod
     def from_dict(cls, data: dict) -> PreambleDoc:
-        """Inverse of ``to_dict``: load a previously serialised PreambleDoc."""
+        """Inverse of ``to_dict``: load a previously serialised PreambleDoc.
+
+        Raises ``TypeError`` if ``macros`` is not a list of strings — without
+        this guard, ``list(data["macros"])`` would silently iterate a
+        corrupt-cache string character-by-character and produce one-letter
+        "macros". Closes F2 from the E02_S02 critique.
+        """
+        macros_raw = data["macros"]
+        if not isinstance(macros_raw, list):
+            raise TypeError(
+                f"PreambleDoc.macros must be a list, got {type(macros_raw).__name__}"
+            )
+        if not all(isinstance(m, str) for m in macros_raw):
+            raise TypeError("PreambleDoc.macros must contain only str entries")
         return cls(
             paper_id=data["paper_id"],
             source_hash=data["source_hash"],
-            macros=list(data["macros"]),
+            macros=list(macros_raw),
             preamble_text=data["preamble_text"],
             preamble_hash=data["preamble_hash"],
         )
