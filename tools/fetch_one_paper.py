@@ -24,6 +24,7 @@ from tools.arxiv_fetch import (
     fetch_eprint,
     parse_with_latexml,
 )
+from tools.fetch_seed import PER_PAPER_FAILURE_EXCEPTIONS
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 RAW_DIR = REPO_ROOT / "var" / "arxmcp" / "corpus" / "raw"
@@ -51,7 +52,11 @@ def main() -> int:
         print(f"PARSE SKIPPED: no .tex file in {fetch.raw_dir}", file=sys.stderr)
         return 1
 
-    parse = parse_with_latexml(fetch.main_tex, PARSED_DIR, args.paper_id)
+    try:
+        parse = parse_with_latexml(fetch.main_tex, PARSED_DIR, args.paper_id)
+    except PER_PAPER_FAILURE_EXCEPTIONS as e:
+        print(f"PARSE FAILED for {args.paper_id}: {type(e).__name__}: {e}", file=sys.stderr)
+        return 1
     print(f"parsed {args.paper_id}: {parse.message}")
     return 0 if parse.success else 1
 
