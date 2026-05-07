@@ -327,4 +327,13 @@ _None — no file:line region was flagged by ≥ 2 critics._
 
 ## Rectification status (filled by Phase 4)
 
-<!-- Phase 4 appends one bullet per finding; do not pre-populate. -->
+Re-verify gate: 0 of 1 CRITICAL+HIGH findings invalidated (0% — well below 40% threshold).
+
+- F1 — fixed in rect commit `8e96118` (cleanup glob moved to top of `_chunk_paper_impl`; runs unconditionally on entry; `*.tmp` sweep added — also closes F6); regression test `tests/test_chunker_ids.py::TestF1FailureLeavesEmptyDir::test_failure_clears_prior_artifacts`.
+- F2 — fixed in rect commit `8e96118` (duplicate-chunk_id branch distinguishes identical content (silent dedup) from genuine collision (raise with precise "SHA-256 prefix collision" message)); regression tests `tests/test_chunker_ids.py::TestF2DuplicateContentDeduped` and `TestF2CollisionRaises`.
+- F3 — DOCUMENTED in rect commit `8e96118` (option b from the critique): chunker module docstring and `ChunkRecord.body_text` docstring explicitly call out the NFC-on-hash / un-normalized-on-store asymmetry and the discipline downstream consumers must follow. NFC-on-store would change every emitted byte for the whole corpus and re-trigger E03_S01 embedding; documentation is the cheaper stable choice for v1.
+- F4 — fixed in rect commit `8e96118` (`TestSingleVersionDefinition::test_v1_0_literal_count_in_ingest_package` broadened to entire `ingest/` package; both `"v1.0"` and `'v1.0'` quote forms; allowlist captures `CHUNKER_VERSION` and `TOKENIZER_VERSION` canonical assignments).
+- F5 — fixed in rect commit `8e96118` (`TestF5FreshProcessDeterminism` spawns two fresh interpreters with `PYTHONHASHSEED=random`; asserts within-process AND cross-process chunk_id equality).
+- F6 — fixed in rect commit `8e96118` (the `*.tmp` sweep added at function entry catches leftover tmp files; F1's regression test stages a stale `.tmp` and asserts removal).
+- F7 — fixed in rect commit `8e96118` (chunker.py module docstring rewritten to describe the content-addressable formula directly; `chunker_types.py` field docstrings rewritten for current shipped behaviour).
+- F8 — fixed in rect commit `8e96118` (`_compute_chunk_id` first-line docstring updated to reflect the NFC step in the hash input).
