@@ -21,6 +21,7 @@ from tools.arxiv_fetch import (
     MAX_RESPONSE_BYTES,
     FetchResult,
     ParseResult,
+    _extract_eprint_response,
     _safe_extract,
     fetch_eprint,
     parse_with_latexml,
@@ -352,6 +353,53 @@ class TestF8ResponseSizeCap:
             pytest.raises(RuntimeError, match="cap exceeded mid-read"),
         ):
             fetch_eprint("2307.01156", tmp_path)
+
+
+class TestEprintSniff:
+    """Smoke-test follow-up: live arXiv response had a non-tar Content-Type
+    but the gzip-decompressed body WAS a tar. The dispatch must sniff bytes,
+    not trust Content-Type."""
+
+    @staticmethod
+    def _gzip(b: bytes) -> bytes:
+        import gzip
+        import io as _io
+        buf = _io.BytesIO()
+        with gzip.GzipFile(fileobj=buf, mode="wb") as gz:
+            gz.write(b)
+        return buf.getvalue()
+
+    def _make_tar_bytes(self, files: dict[str, bytes]) -> bytes:
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w:") as tar:
+            for name, content in files.items():
+                info = tarfile.TarInfo(name=name)
+                info.size = len(content)
+                tar.addfile(info, io.BytesIO(content))
+        return buf.getvalue()
+
+    def test_dispatches_to_tar_when_decompressed_body_is_tar(self, tmp_path: Path):
+        tar_bytes = self._make_tar_bytes(
+            {"paper.tex": b"\\documentclass{amsart}\\begin{document}x\\end{document}"}
+        )
+        gzipped = self._gzip(tar_bytes)
+        kind = _extract_eprint_response(gzipped, tmp_path, "2307.01156")
+        assert kind == "tar"
+        assert (tmp_path / "paper.tex").exists()
+
+    def test_dispatches_to_tex_when_decompressed_body_is_plain_text(self, tmp_path: Path):
+        tex_bytes = b"\\documentclass{amsart}\\begin{document}hello\\end{document}\n"
+        gzipped = self._gzip(tex_bytes)
+        kind = _extract_eprint_response(gzipped, tmp_path, "2307.01156")
+        assert kind == "tex"
+        assert (tmp_path / "2307.01156.tex").read_bytes() == tex_bytes
+
+    def test_handles_already_uncompressed_body(self, tmp_path: Path):
+        """Tolerate the rare case where the response is not gzip-encoded."""
+        tex_bytes = b"\\documentclass{amsart}\\begin{document}hello\\end{document}\n"
+        kind = _extract_eprint_response(tex_bytes, tmp_path, "2307.01156")
+        assert kind == "tex"
+        assert (tmp_path / "2307.01156.tex").read_bytes() == tex_bytes
 
 
 class TestF5PolitenessContract:

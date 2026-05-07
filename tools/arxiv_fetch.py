@@ -45,7 +45,7 @@ class FetchResult:
     main_tex: Path | None
     http_status: int
     bytes_downloaded: int
-    archive_kind: str  # "tar" | "gzip"
+    archive_kind: str  # "tar" (multi-file submission) | "tex" (single-file)
 
 
 @dataclass(frozen=True)
@@ -91,12 +91,13 @@ def validate_paper_id(paper_id: str) -> None:
 
 
 def is_tar_archive(content_type: str | None) -> bool:
-    """Decide whether an `/e-print/` response is a tarball or a bare gzip.
+    """Decide whether a Content-Type string declares a tar archive.
 
-    arXiv returns `application/x-eprint-tar` for multi-file submissions
-    and `application/x-eprint` (bare gzip) for single-file ones. The
-    response also carries `Content-Encoding: x-gzip` in both cases, so
-    Content-Type is the discriminator.
+    Kept as a helper for callers that want a Content-Type hint, but the
+    fetch path no longer dispatches on it: live responses sometimes
+    arrive with a non-tar Content-Type and a tar body. See
+    `_extract_eprint_response` for the bytes-based sniff that is now
+    authoritative.
     """
     if not content_type:
         return False
@@ -221,7 +222,6 @@ def fetch_eprint(
     )
 
     with urllib.request.urlopen(request, timeout=timeout) as resp:  # noqa: S310
-        content_type = resp.headers.get("Content-Type", "")
         content_length = resp.headers.get("Content-Length")
         if content_length is not None:
             try:
@@ -242,21 +242,7 @@ def fetch_eprint(
         http_status = resp.status
 
     bytes_downloaded = len(body)
-    archive_path = raw_dir / "_archive.bin"
-    archive_path.write_bytes(body)
-
-    if is_tar_archive(content_type):
-        with tarfile.open(archive_path, "r:gz") as tar:
-            _safe_extract(tar, raw_dir)
-        archive_kind = "tar"
-    else:
-        import gzip
-        decompressed = gzip.decompress(body)
-        target_tex = raw_dir / f"{paper_id}.tex"
-        target_tex.write_bytes(decompressed)
-        archive_kind = "gzip"
-
-    archive_path.unlink()
+    archive_kind = _extract_eprint_response(body, raw_dir, paper_id)
 
     return FetchResult(
         paper_id=paper_id,
@@ -266,6 +252,36 @@ def fetch_eprint(
         bytes_downloaded=bytes_downloaded,
         archive_kind=archive_kind,
     )
+
+
+def _extract_eprint_response(body: bytes, raw_dir: Path, paper_id: str) -> str:
+    """Decompress an /e-print/ response and dispatch to tar or single-tex.
+
+    arXiv responses are gzip-encoded. The inner content is either a tar
+    archive (multi-file submission) or a bare .tex file (single-file
+    submission). Content-Type does NOT reliably distinguish them — some
+    multi-file submissions arrive with a non-tar Content-Type but the
+    gzip-decompressed body IS a tar (caught during E01_S01-S03 Phase 4
+    smoke test on 2605.03890). Sniff the decompressed bytes by trying
+    `tarfile.open` first and falling back to bare-tex on TarError.
+    """
+    import gzip
+    import io
+
+    try:
+        decompressed = gzip.decompress(body)
+    except gzip.BadGzipFile:
+        # Already raw bytes — rare path, but tolerate it.
+        decompressed = body
+
+    try:
+        with tarfile.open(fileobj=io.BytesIO(decompressed), mode="r:") as tar:
+            _safe_extract(tar, raw_dir)
+        return "tar"
+    except tarfile.TarError:
+        target_tex = raw_dir / f"{paper_id}.tex"
+        target_tex.write_bytes(decompressed)
+        return "tex"
 
 
 def _safe_extract(tar: tarfile.TarFile, dest: Path) -> None:
