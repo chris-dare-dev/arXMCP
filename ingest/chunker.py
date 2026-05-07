@@ -214,8 +214,10 @@ def _get_tokenizer():
     """Return the BGE-M3 tokenizer, loading it on first call.
 
     We intentionally load only the tokenizer (vocab + config), NOT the full
-    model weights.  This keeps the import cheap (~5 MB cached download) and
-    avoids pulling PyTorch into the ingestion process.
+    model weights, in this module — keeping the chunker import cheap (~5 MB
+    cached download) and confining the heavyweight ``torch`` + safetensors
+    weight load to ``ingest.embedder`` (E03_S01). The chunker itself does
+    not import ``torch``.
     """
     global _tokenizer
     if _tokenizer is None:

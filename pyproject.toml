@@ -10,10 +10,26 @@ dependencies = [
     # beautifulsoup4: HTML5 parse-tree walker for LaTeXML output (no C deps;
     #   uses html.parser backend bundled with Python). Added for E02_S01.
     "beautifulsoup4>=4.12",
-    # transformers: BGE-M3 tokenizer for token-budget enforcement in the
-    #   chunker. Loads tokenizer vocab only (~5 MB cached); NOT full model
-    #   weights, so torch is NOT required. Added for E02_S01.
+    # transformers: BGE-M3 tokenizer (E02_S01) AND model loader (E03_S01).
+    #   The chunker uses tokenizer-only paths; the embedder loads the full
+    #   model weights via ``transformers.AutoModel.from_pretrained``.
     "transformers>=4.40",
+    # torch: BGE-M3 forward pass for the dual-column embedder (E03_S01).
+    #   CPU inference is the default; GPU acceleration is an E11 concern.
+    #   Standard PyPI ``torch`` is fine for CPU and pulls ~1.5 GB of wheels;
+    #   a future infra ticket may switch to the CPU-specific extra-index URL
+    #   ``--extra-index-url https://download.pytorch.org/whl/cpu`` to drop
+    #   CUDA wheels.
+    "torch>=2.0",
+    # safetensors: Threat 6 (08-security-observability-ops.md) requires the
+    #   safetensors weight format and refuses ``.bin`` / pickle files. The
+    #   ``transformers`` model loader picks safetensors automatically when
+    #   this dependency is installed and the repo ships safetensors files.
+    "safetensors>=0.4",
+    # numpy: NPZ-store backing for the per-paper embedding vectors written
+    #   by ``ingest/embedder.py``. Read by E04_S01's ``ingest/store.py``
+    #   when assembling LanceDB rows.
+    "numpy>=1.24",
 ]
 
 [project.optional-dependencies]
