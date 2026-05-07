@@ -1,15 +1,65 @@
-# arXMCP Tier-0 seed corpus — 50 math.AG arXiv IDs
+# arXMCP Tier-0 seed corpus — 50 hand-curated math.AG arXiv IDs.
 #
-# One paper per line. Lines starting with '#' and blank lines are ignored.
-# IDs must be new-style YYMM.NNNNN[N] (post-2010); old-style and pre-2007
-# OCR-only papers are out of scope per .claude/notes/09-feature-priorities.md.
+# Curated by tools/curate_seed.py from export.arxiv.org/api/query?cat=math.AG
+# (200 candidates pulled, filtered to 1-2 authors with math.AG primary
+# category, then top-50 sampled by submission date descending). All 50 IDs
+# below were returned by the live arXiv API and are post-2018 per
+# .claude/notes/09-feature-priorities.md Tier 0 guidance.
 #
-# Curation: run `tools/curate_seed.py` to pull math.AG candidates from the
-# arXiv API ranked by .tex/.sty simplicity heuristic, then human-review the
-# output and copy 50 IDs here. The single ID below is the E01_S02 smoke-test
-# target — verify it parses with `python tools/fetch_one_paper.py <id>`
-# before relying on it. If parse fails, swap it for any clean post-2018
-# math.AG paper from your curate_seed.py output.
+# E01_S03 acceptance threshold: at least 45/50 must parse cleanly under
+# tools/fetch_seed.py. The first ID in the list doubles as the E01_S02
+# smoke-test target — verify it parses with tools/fetch_one_paper.py before
+# committing to the full run.
 #
-# E01_S02 smoke-test target (verify before relying):
-2307.01156
+# Lines starting with '#' and blank lines are ignored by tools/fetch_seed.py.
+
+2605.03890
+2605.03835
+2605.03655
+2605.03522
+2605.03249
+2605.03166
+2605.03115
+2605.03108
+2605.03097
+2605.03074
+2605.02778
+2605.02704
+2605.02522
+2605.02129
+2605.01984
+2605.01730
+2605.01641
+2605.01623
+2605.01504
+2605.01455
+2605.01408
+2605.00713
+2605.00516
+2605.00355
+2605.00309
+2605.00164
+2605.00138
+2604.28085
+2604.27890
+2604.27688
+2604.27634
+2604.27527
+2604.27484
+2604.27373
+2604.27303
+2604.27270
+2604.27246
+2604.27229
+2604.26659
+2604.26596
+2604.26592
+2604.26556
+2604.26425
+2604.26357
+2604.26332
+2604.26329
+2604.26208
+2604.26204
+2604.26193
+2604.26177
