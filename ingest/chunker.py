@@ -50,7 +50,7 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from bs4 import BeautifulSoup, Tag
+from bs4 import BeautifulSoup, NavigableString, Tag
 
 from ingest.chunker_types import ChunkRecord
 
@@ -86,6 +86,43 @@ _THEOREM_CLASS_RE = re.compile(r"\bltx_theorem_(\w+)\b")
 _AUTO_ID_RE = re.compile(r"^S\d+(?:\.SS\d+)*(?:\.SSS\d+)*\.Thm\w+\d+$")
 # Parenthetical display name inside theorem heading: Theorem 3.1 (Name)
 _PAREN_NAME_RE = re.compile(r"\(([^)]+)\)")
+
+# Closes F2: paper_id must match new-style YYMM.NNNNN[N][vN] or old-style
+# subject/NNNNNNN[vN]; everything else is rejected before any path concat.
+# Threat 1 in 08-security-observability-ops.md.
+_PAPER_ID_RE = re.compile(
+    r"^\d{4}\.\d{4,5}(v\d+)?$|^[a-z][a-z\-]*/\d{7}(v\d+)?$"
+)
+
+
+class InvalidPaperIDError(ValueError):
+    """Raised when a paper_id fails the validation regex."""
+
+
+def _validate_paper_id(paper_id: str) -> None:
+    """Reject paper_ids that could enable path traversal or log injection."""
+    if not isinstance(paper_id, str) or not _PAPER_ID_RE.match(paper_id):
+        raise InvalidPaperIDError(
+            f"paper_id {paper_id!r} does not match new-style YYMM.NNNNN[vN] "
+            "or old-style subject/NNNNNNN[vN]"
+        )
+
+
+def _sanitize_log_field(s: str) -> str:
+    """Strip TSV-breaking characters (tab, newline, carriage return)."""
+    return s.replace("\t", " ").replace("\n", " ").replace("\r", " ")
+
+
+# Closes F8: targeted exception envelope for per-paper failures, mirroring
+# tools/arxiv_fetch.py's PER_PAPER_FAILURE_EXCEPTIONS pattern (commits
+# c486b26, 01c6579). Programmer bugs (AttributeError, KeyError, TypeError,
+# RecursionError) propagate so dev-time regressions surface.
+PER_PAPER_FAILURE_EXCEPTIONS = (OSError, ValueError, FileNotFoundError)
+
+
+# Closes F13: recursion depth bound so adversarial nested HTML cannot trip
+# the Python recursion limit and silently drop the paper.
+_MAX_CONTAINER_DEPTH = 50
 
 # Section div classes, ordered from outermost to innermost
 _SECTION_DIV_CLASSES = [
@@ -209,8 +246,40 @@ def _get_classes(tag: Tag) -> list[str]:
 
 
 def _element_text(tag: Tag) -> str:
-    """Extract all text from a BS4 tag, collapsing whitespace."""
-    return " ".join(tag.get_text(separator=" ").split())
+    """Extract all text from a BS4 tag, preserving math content.
+
+    Closes F1 (CRITICAL math fidelity violation): a naive ``get_text()`` call
+    discards LaTeXML's ``<math alttext="...">`` payload and keeps only the
+    rendered Unicode glyphs from ``<mi>`` etc., destroying the very content
+    the project exists to preserve. We walk the subtree, replace each
+    ``<math>`` element with the verbatim ``alttext`` LaTeX wrapped in
+    ``$...$`` delimiters, and only fall back to inner-text when ``alttext``
+    is absent.
+
+    Cite: 01-mission-and-context.md § "Why current arXiv-context tools fail
+    for research math" (mission DP1: math fidelity over coverage).
+    """
+    parts: list[str] = []
+
+    def _walk(node):
+        if isinstance(node, Tag):
+            if node.name == "math":
+                alttext = node.get("alttext")
+                if alttext:
+                    parts.append(f"${alttext}$")
+                    return
+                # Fallback: inner text without recursing again
+                fallback = node.get_text(separator=" ")
+                if fallback.strip():
+                    parts.append(f"${fallback.strip()}$")
+                return
+            for child in node.children:
+                _walk(child)
+        elif isinstance(node, NavigableString):
+            parts.append(str(node))
+
+    _walk(tag)
+    return " ".join("".join(parts).split())
 
 
 def _is_structural_sibling(tag: Tag) -> bool:
@@ -247,17 +316,18 @@ def _extract_section_path(tag: Tag) -> list[str]:
         )
         if not is_section_el:
             continue
-        # Find the title heading of this section
-        title_tag = ancestor.find(
-            True,
-            class_=lambda c: c and "ltx_title" in c.split(),
-            recursive=False,
-        )
+        # Find the title heading of this section. Closes F10: explicit
+        # ``isinstance(c, str)`` guard — bs4's class predicate is invoked
+        # with ``c`` as a single class string in current versions, but the
+        # documented behavior allows ``c`` to be the full list. The string
+        # guard is safe across both calling conventions.
+        def _has_ltx_title(c) -> bool:
+            return isinstance(c, str) and "ltx_title" in c.split()
+
+        title_tag = ancestor.find(True, class_=_has_ltx_title, recursive=False)
         if title_tag is None:
             # Try one level deeper (some LaTeXML versions nest the heading)
-            title_tag = ancestor.find(
-                True, class_=lambda c: c and "ltx_title" in c.split()
-            )
+            title_tag = ancestor.find(True, class_=_has_ltx_title)
         if title_tag:
             title_text = " ".join(title_tag.get_text(separator=" ").split())
             if title_text and title_text not in path:
@@ -291,13 +361,24 @@ def _extract_theorem_name(tag: Tag) -> str | None:
     """
     heading_candidates = []
 
-    # Try h1–h6 with ltx_title class
-    for heading in tag.find_all(re.compile(r"^h[1-6]$"), class_="ltx_title"):
-        heading_candidates.append(heading)
+    # Try h1–h6 with ltx_title class. Closes F9: only direct children of
+    # the theorem div, not nested theorems' headings. recursive=False on
+    # the immediate scan; bs4 doesn't accept recursive on a regex tag, so
+    # we filter the children manually.
+    for child in tag.children:
+        if not isinstance(child, Tag):
+            continue
+        if child.name and re.match(r"^h[1-6]$", child.name):
+            classes = _get_classes(child)
+            if any(isinstance(c, str) and "ltx_title" in c.split() for c in classes):
+                heading_candidates.append(child)
 
-    # Try span with ltx_tag_theorem
-    for span in tag.find_all("span", class_="ltx_tag_theorem"):
-        heading_candidates.append(span)
+    # Try span with ltx_tag_theorem (also direct children only)
+    for child in tag.children:
+        if not isinstance(child, Tag):
+            continue
+        if child.name == "span" and _has_class(child, "ltx_tag_theorem"):
+            heading_candidates.append(child)
 
     for candidate in heading_candidates:
         text = _element_text(candidate)
@@ -331,11 +412,24 @@ def _window_proof_text(proof_text: str) -> list[str]:
     Each window contains at most ``PROOF_MAX_TOKENS`` (448) tokens.
     Consecutive windows overlap by ``PROOF_WINDOW_OVERLAP`` (64) tokens.
 
-    Returns a list of decoded window strings.  If the proof fits in a single
-    window the list contains exactly one element (the original text, possibly
-    slightly altered by encode→decode round-tripping on whitespace).
+    Closes F6: windows are character-substring slices of ``proof_text``,
+    NOT encode/decode round-trips. Decoding WordPiece subwords mutates
+    whitespace and breaks the determinism contract that E02_S04's
+    content-addressable hashes depend on. We get token-indexed character
+    offsets via the BGE-M3 fast tokenizer's ``return_offsets_mapping=True``
+    and slice the original string by those offsets.
+
+    Returns a list of substring windows. If the proof fits in a single
+    window, returns ``[proof_text]`` unchanged.
     """
-    token_ids = _encode_tokens(proof_text)
+    tokenizer = _get_tokenizer()
+    enc = tokenizer(
+        proof_text,
+        add_special_tokens=False,
+        return_offsets_mapping=True,
+    )
+    token_ids = enc["input_ids"]
+    offsets = enc["offset_mapping"]
     if len(token_ids) <= PROOF_MAX_TOKENS:
         return [proof_text]
 
@@ -343,13 +437,37 @@ def _window_proof_text(proof_text: str) -> list[str]:
     start = 0
     while start < len(token_ids):
         end = min(start + PROOF_MAX_TOKENS, len(token_ids))
-        window_ids = token_ids[start:end]
-        windows.append(_decode_tokens(window_ids))
+        # Substring from the first token's start to the last token's end.
+        char_start = offsets[start][0]
+        char_end = offsets[end - 1][1]
+        windows.append(proof_text[char_start:char_end])
         if end >= len(token_ids):
             break
         start = end - PROOF_WINDOW_OVERLAP
 
     return windows
+
+
+def _truncate_to_token_budget(text: str, max_tokens: int) -> tuple[str, bool]:
+    """Truncate ``text`` to at most ``max_tokens`` BGE-M3 tokens.
+
+    Closes F5/F6: returns a substring slice (not an encode/decode round-trip)
+    plus a ``truncated`` flag so the chunk record can surface the loss to
+    downstream consumers. ``truncated=False`` means the text was already
+    within budget.
+    """
+    tokenizer = _get_tokenizer()
+    enc = tokenizer(
+        text,
+        add_special_tokens=False,
+        return_offsets_mapping=True,
+    )
+    token_ids = enc["input_ids"]
+    offsets = enc["offset_mapping"]
+    if len(token_ids) <= max_tokens:
+        return text, False
+    char_end = offsets[max_tokens - 1][1]
+    return text[:char_end], True
 
 
 # ---------------------------------------------------------------------------
@@ -361,13 +479,26 @@ def _extract_chunks_from_container(
     container: Tag,
     paper_id: str,
     counter: list[int],  # mutable int-in-list so we can mutate across calls
+    depth: int = 0,
 ) -> list[ChunkRecord]:
     """Extract chunks from the direct children of ``container``.
 
     This is the sibling-pairing logic described in the research synthesis:
     each ``ltx_theorem_*`` div is paired with the next sibling ``ltx_proof``
     div unless a blocking structural sibling intervenes.
+
+    Closes F13: ``depth`` is bounded by ``_MAX_CONTAINER_DEPTH`` so that
+    adversarial nested HTML (e.g. an arxiv submission with thousands of
+    nested ``<div>``s) cannot trip Python's recursion limit and silently
+    drop the paper via the per-paper exception envelope.
     """
+    if depth > _MAX_CONTAINER_DEPTH:
+        logger.warning(
+            "[%s] container nesting exceeded %d levels; truncating descent",
+            paper_id,
+            _MAX_CONTAINER_DEPTH,
+        )
+        return []
     chunks: list[ChunkRecord] = []
 
     children = [c for c in container.children if isinstance(c, Tag)]
@@ -418,14 +549,18 @@ def _extract_chunks_from_container(
         if thm_match is None:
             # Recurse into nested sections / containers
             if child.name in {"section", "div", "article"}:
-                chunks.extend(_extract_chunks_from_container(child, paper_id, counter))
+                chunks.extend(
+                    _extract_chunks_from_container(child, paper_id, counter, depth + 1)
+                )
             elif child.name not in {
                 "p", "table", "figure", "ul", "ol", "dl",
                 "h1", "h2", "h3", "h4", "h5", "h6",
                 "math", "span", "a",
             }:
                 # Unknown structural element — recurse defensively
-                chunks.extend(_extract_chunks_from_container(child, paper_id, counter))
+                chunks.extend(
+                    _extract_chunks_from_container(child, paper_id, counter, depth + 1)
+                )
             i += 1
             continue
 
@@ -457,17 +592,19 @@ def _extract_chunks_from_container(
         # Emit statement chunk
         # ----------------------------------------------------------------
         kind = _env_kind(env_name)
-        # Enforce stmt budget
-        stmt_tokens = _count_tokens(stmt_text)
-        if stmt_tokens > STMT_MAX_TOKENS:
+        # Enforce stmt budget. Closes F5: surface truncation via the
+        # ``truncated`` flag on the chunk record so downstream consumers can
+        # distinguish a complete statement from a truncated one. Closes F6:
+        # use character-offset slicing, not encode/decode round-trip.
+        stmt_text, stmt_truncated = _truncate_to_token_budget(
+            stmt_text, STMT_MAX_TOKENS
+        )
+        if stmt_truncated:
             logger.warning(
-                "[%s] statement chunk exceeds %d tokens (%d); truncating",
+                "[%s] statement chunk exceeded %d tokens; truncated",
                 paper_id,
                 STMT_MAX_TOKENS,
-                stmt_tokens,
             )
-            stmt_ids = _encode_tokens(stmt_text)[:STMT_MAX_TOKENS]
-            stmt_text = _decode_tokens(stmt_ids)
 
         stmt_idx = counter[0]
         counter[0] += 1
@@ -480,6 +617,7 @@ def _extract_chunks_from_container(
                 theorem_name=theorem_name,
                 theorem_label=theorem_label,
                 body_text=stmt_text,
+                truncated=stmt_truncated,
             )
         )
 
@@ -534,52 +672,65 @@ def _extract_section_chunks(
 
     all_section_classes = _SECTION_DIV_CLASSES  # already has ltx_ prefix
 
-    for sec_class in all_section_classes:
-        for section in soup.find_all(True, class_=sec_class):
-            section_path = _extract_section_path(section)
+    # Closes F4: a single document-order traversal collects every section
+    # element. Iterating per-class would emit all ltx_section chunks before
+    # any ltx_subsection chunk, scrambling document order and breaking the
+    # determinism contract that E02_S04's chunk_id hashing depends on.
+    def _is_section_class(c) -> bool:
+        if isinstance(c, str):
+            return c in all_section_classes
+        return False
 
-            # Collect prose paragraphs that are NOT inside a theorem/proof env
-            para_texts: list[str] = []
-            for child in section.children:
-                if not isinstance(child, Tag):
-                    continue
-                child_classes = _get_classes(child)
-                # Stop at theorem-like environments — they're handled above
-                if any(_THEOREM_CLASS_RE.match(c) for c in child_classes):
-                    break
-                if _has_class(child, "ltx_proof"):
-                    break
-                # Collect <p> tags and similar prose containers
-                if child.name in {"p", "div"} and not any(
-                    c in all_section_classes for c in child_classes
-                ):
-                    text = _element_text(child)
-                    if text:
-                        para_texts.append(text)
+    for section in soup.find_all(True, class_=_is_section_class):
+        section_path = _extract_section_path(section)
 
-            prose = " ".join(para_texts).strip()
-            if len(prose) < MIN_SECTION_TEXT_CHARS:
+        # Collect prose paragraphs that are NOT inside a theorem/proof env
+        para_texts: list[str] = []
+        for child in section.children:
+            if not isinstance(child, Tag):
                 continue
+            child_classes = _get_classes(child)
+            # Stop at theorem-like environments — they're handled above
+            if any(_THEOREM_CLASS_RE.match(c) for c in child_classes):
+                break
+            if _has_class(child, "ltx_proof"):
+                break
+            # Collect <p> tags and similar prose containers
+            if child.name in {"p", "div"} and not any(
+                c in all_section_classes for c in child_classes
+            ):
+                text = _element_text(child)
+                if text:
+                    para_texts.append(text)
 
-            # Token-cap the section prose
-            prose_tokens = _count_tokens(prose)
-            if prose_tokens > STMT_MAX_TOKENS:
-                ids = _encode_tokens(prose)[:STMT_MAX_TOKENS]
-                prose = _decode_tokens(ids)
+        prose = " ".join(para_texts).strip()
+        if len(prose) < MIN_SECTION_TEXT_CHARS:
+            continue
 
-            idx = counter[0]
-            counter[0] += 1
-            chunks.append(
-                ChunkRecord(
-                    chunk_id=f"arxiv:{paper_id}:idx{idx}",
-                    paper_id=paper_id,
-                    kind="section",
-                    section_path=section_path,
-                    theorem_name=None,
-                    theorem_label=None,
-                    body_text=prose,
-                )
+        # Token-cap the section prose. Closes F5/F6: substring slicing via
+        # offset-mapping, with a ``truncated`` flag surfaced on the chunk.
+        prose, prose_truncated = _truncate_to_token_budget(prose, STMT_MAX_TOKENS)
+        if prose_truncated:
+            logger.warning(
+                "[%s] section prose chunk exceeded %d tokens; truncated",
+                paper_id,
+                STMT_MAX_TOKENS,
             )
+
+        idx = counter[0]
+        counter[0] += 1
+        chunks.append(
+            ChunkRecord(
+                chunk_id=f"arxiv:{paper_id}:idx{idx}",
+                paper_id=paper_id,
+                kind="section",
+                section_path=section_path,
+                theorem_name=None,
+                theorem_label=None,
+                body_text=prose,
+                truncated=prose_truncated,
+            )
+        )
 
     return chunks
 
@@ -608,10 +759,19 @@ def chunk_paper(paper_id: str) -> list[ChunkRecord]:
     Writes ``var/arxmcp/corpus/chunks/<paper_id>/<chunk_idx>.json`` for each
     chunk.  Creates the directory if it does not exist.
     """
+    # Closes F2: validate paper_id before any path concat or logging.
+    # Validation runs OUTSIDE the per-paper exception envelope so an invalid
+    # paper_id surfaces to the caller rather than being silently logged with
+    # itself as the offending field.
+    _validate_paper_id(paper_id)
+
     start = time.monotonic()
     try:
         return _chunk_paper_impl(paper_id)
-    except Exception as exc:  # noqa: BLE001
+    except PER_PAPER_FAILURE_EXCEPTIONS as exc:
+        # Closes F8: catch only the resilience-pattern exception set, NOT a
+        # bare `except Exception`. Programmer bugs (AttributeError, KeyError,
+        # TypeError) propagate to surface during dev.
         elapsed = time.monotonic() - start
         _log_chunk_failure(paper_id, elapsed, str(exc))
         logger.error("[%s] chunk_paper failed: %s", paper_id, exc, exc_info=True)
@@ -642,9 +802,14 @@ def _chunk_paper_impl(paper_id: str) -> list[ChunkRecord]:
 
     all_chunks = theorem_chunks + section_chunks
 
-    # Write output JSON
+    # Write output JSON. Closes F3: clear any stale chunk JSON files from a
+    # prior run before writing the new set, so a re-run with fewer chunks
+    # cannot leave dead idxN.json files in the directory for the embedder
+    # to consume.
     out_dir = CHUNKS_DIR / paper_id
     out_dir.mkdir(parents=True, exist_ok=True)
+    for stale in out_dir.glob("*.json"):
+        stale.unlink()
 
     for chunk in all_chunks:
         # Extract the monotonic index from the placeholder chunk_id
@@ -668,9 +833,16 @@ def _log_chunk_failure(paper_id: str, elapsed_s: float, message: str) -> None:
 
     Format mirrors ``fetch_seed.py``'s ``seed.log``:
     ``<paper_id>\\t<status>\\t<elapsed_s>\\t<message>``
+
+    Closes F7: paper_id and message are sanitized to strip embedded tab and
+    newline characters that would otherwise break downstream TSV parsing
+    in the weekly parser-failures review.
     """
     CHUNK_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    row = f"{paper_id}\tfail\t{elapsed_s:.1f}\t{message}\n"
+    row = (
+        f"{_sanitize_log_field(paper_id)}\tfail\t{elapsed_s:.1f}\t"
+        f"{_sanitize_log_field(message)}\n"
+    )
     try:
         with CHUNK_LOG_PATH.open("a", encoding="utf-8") as fh:
             fh.write(row)

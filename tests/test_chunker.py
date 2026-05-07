@@ -52,12 +52,16 @@ from ingest.chunker import (  # noqa: E402
     PROOF_MAX_TOKENS,
     PROOF_WINDOW_OVERLAP,
     STMT_MAX_TOKENS,
+    InvalidPaperIDError,
     _count_tokens,
+    _element_text,
     _encode_tokens,
     _extract_chunks_from_container,
     _extract_section_path,
     _extract_theorem_label,
     _extract_theorem_name,
+    _sanitize_log_field,
+    _validate_paper_id,
     _window_proof_text,
     chunk_paper,
 )
@@ -798,3 +802,383 @@ class TestStatementTokenBudget:
                 assert count <= STMT_MAX_TOKENS, (
                     f"stmt chunk {chunk.chunk_id} has {count} tokens > {STMT_MAX_TOKENS}"
                 )
+
+
+# ===========================================================================
+# Regression guards from Phase 3 critique (F1–F13)
+# ===========================================================================
+
+
+class TestF1MathMLPreservation:
+    """F1 (CRITICAL): _element_text must preserve LaTeX from <math alttext="">."""
+
+    def test_alttext_preserved_inline(self):
+        from bs4 import BeautifulSoup
+        html = (
+            '<div><p>Let <math alttext="\\mathcal{F}">'
+            '<mi class="ltx_font_mathcaligraphic">ℱ</mi></math> be a sheaf.</p></div>'
+        )
+        soup = BeautifulSoup(html, "html.parser")
+        div = soup.find("div")
+        text = _element_text(div)
+        assert "\\mathcal{F}" in text, (
+            f"alttext LaTeX must survive _element_text; got: {text!r}"
+        )
+
+    def test_no_dollar_count_regression(self):
+        from bs4 import BeautifulSoup
+        html = (
+            '<div>'
+            '<math alttext="\\mathcal{F}">x</math> '
+            '<math alttext="\\int_0^1 f \\, dx">y</math>'
+            '</div>'
+        )
+        soup = BeautifulSoup(html, "html.parser")
+        div = soup.find("div")
+        text = _element_text(div)
+        # Each math element wraps to "$...$" with both opening and closing $.
+        assert text.count("$") == 4, (
+            f"two math elements => four dollar markers; got: {text!r}"
+        )
+        assert "\\int_0^1 f \\, dx" in text
+
+    def test_fallback_when_no_alttext(self):
+        from bs4 import BeautifulSoup
+        html = '<div><math><mi>X</mi></math></div>'
+        soup = BeautifulSoup(html, "html.parser")
+        div = soup.find("div")
+        text = _element_text(div)
+        # No alttext: fall back to inner text, still wrapped in $
+        assert "$" in text
+        assert "X" in text
+
+
+class TestF2PaperIDValidation:
+    """F2 (CRITICAL): paper_id regex blocks path traversal and bad strings."""
+
+    def test_valid_new_style(self):
+        _validate_paper_id("2307.01156")
+        _validate_paper_id("2307.01156v2")
+        _validate_paper_id("9912.12345")
+
+    def test_valid_old_style(self):
+        _validate_paper_id("math/0301001")
+        _validate_paper_id("hep-th/0301001v3")
+
+    def test_rejects_path_traversal(self):
+        with pytest.raises(InvalidPaperIDError):
+            _validate_paper_id("../../etc/passwd")
+
+    def test_rejects_slashes_in_new_style(self):
+        with pytest.raises(InvalidPaperIDError):
+            _validate_paper_id("a/b")
+
+    def test_rejects_newline(self):
+        with pytest.raises(InvalidPaperIDError):
+            _validate_paper_id("foo\nbar")
+
+    def test_rejects_tab(self):
+        with pytest.raises(InvalidPaperIDError):
+            _validate_paper_id("foo\tbar")
+
+    def test_rejects_empty(self):
+        with pytest.raises(InvalidPaperIDError):
+            _validate_paper_id("")
+
+    def test_chunk_paper_invalid_id_does_not_create_files(self, tmp_path):
+        chunks_dir = tmp_path / "chunks"
+        chunks_dir.mkdir()
+        with (
+            patch("ingest.chunker.CHUNKS_DIR", chunks_dir),
+            pytest.raises(InvalidPaperIDError),
+        ):
+            chunk_paper("../etc/passwd")
+        # No file created anywhere under chunks_dir
+        assert list(chunks_dir.rglob("*")) == []
+
+
+class TestF3StaleFileCleanup:
+    """F3 (HIGH): re-run must clear stale chunk JSON files from prior run."""
+
+    def test_stale_files_removed_before_write(self, tmp_path):
+        paper_id = "2307.00001"
+        parsed_dir = tmp_path / "parsed"
+        chunks_dir = tmp_path / "chunks"
+        paper_parsed = parsed_dir / paper_id
+        paper_parsed.mkdir(parents=True)
+        (paper_parsed / "index.html").write_bytes(
+            (FIXTURE_DIR / paper_id / "index.html").read_bytes()
+        )
+        # Pre-populate output dir with a stale file
+        out_dir = chunks_dir / paper_id
+        out_dir.mkdir(parents=True)
+        sentinel = out_dir / "idx99.json"
+        sentinel.write_text('{"stale": true}\n')
+        assert sentinel.exists()
+
+        with (
+            patch("ingest.chunker.PARSED_DIR", parsed_dir),
+            patch("ingest.chunker.CHUNKS_DIR", chunks_dir),
+        ):
+            chunks = chunk_paper(paper_id)
+
+        assert len(chunks) > 0
+        assert not sentinel.exists(), "stale idx99.json must be removed on re-run"
+
+
+class TestF4SectionDocumentOrder:
+    """F4 (HIGH): section chunks emitted in document order, not class-bucketed."""
+
+    def test_section_chunks_interleave_subsections(self, tmp_path):
+        # Build a fixture with Sec1 → SubSec1.1 → Sec2 → SubSec2.1
+        # Each containing only prose (so they all become section chunks).
+        paper_id = "2307.99001"
+        prose1 = "First section prose " + ("alpha " * 30)
+        prose11 = "First subsection prose " + ("beta " * 30)
+        prose2 = "Second section prose " + ("gamma " * 30)
+        prose21 = "Second subsection prose " + ("delta " * 30)
+        html = f"""<!DOCTYPE html>
+<html><body><article class="ltx_document">
+  <section class="ltx_section" id="S1">
+    <h2 class="ltx_title ltx_title_section">1. Sec One</h2>
+    <p class="ltx_p">{prose1}</p>
+    <section class="ltx_subsection" id="S1.SS1">
+      <h3 class="ltx_title ltx_title_subsection">1.1 Sub One</h3>
+      <p class="ltx_p">{prose11}</p>
+    </section>
+  </section>
+  <section class="ltx_section" id="S2">
+    <h2 class="ltx_title ltx_title_section">2. Sec Two</h2>
+    <p class="ltx_p">{prose2}</p>
+    <section class="ltx_subsection" id="S2.SS1">
+      <h3 class="ltx_title ltx_title_subsection">2.1 Sub Two</h3>
+      <p class="ltx_p">{prose21}</p>
+    </section>
+  </section>
+</article></body></html>
+"""
+        parsed_dir = tmp_path / "parsed"
+        chunks_dir = tmp_path / "chunks"
+        paper_parsed = parsed_dir / paper_id
+        paper_parsed.mkdir(parents=True)
+        (paper_parsed / "index.html").write_text(html, encoding="utf-8")
+        with (
+            patch("ingest.chunker.PARSED_DIR", parsed_dir),
+            patch("ingest.chunker.CHUNKS_DIR", chunks_dir),
+        ):
+            chunks = chunk_paper(paper_id)
+
+        section_chunks = [c for c in chunks if c.kind == "section"]
+        # Identify each section by the unique prose marker (alpha/beta/gamma/delta)
+        markers = []
+        for c in section_chunks:
+            if "alpha" in c.body_text:
+                markers.append("alpha")
+            elif "beta" in c.body_text:
+                markers.append("beta")
+            elif "gamma" in c.body_text:
+                markers.append("gamma")
+            elif "delta" in c.body_text:
+                markers.append("delta")
+        # Document order: Sec1 (alpha) → SubSec1 (beta) → Sec2 (gamma) → SubSec2 (delta).
+        # Class-bucketed (the bug) would be: alpha, gamma, beta, delta.
+        idx = {m: i for i, m in enumerate(markers)}
+        assert idx["alpha"] < idx["beta"], f"document order violated: {markers}"
+        assert idx["beta"] < idx["gamma"], f"document order violated: {markers}"
+        assert idx["gamma"] < idx["delta"], f"document order violated: {markers}"
+
+
+class TestF5StmtTruncationFlag:
+    """F5 (HIGH): silent truncation must surface via the truncated flag."""
+
+    def test_long_stmt_truncated_flag_set(self, tmp_path):
+        # Construct a synthetic theorem with a very long statement
+        paper_id = "2307.99005"
+        long_stmt = " ".join(f"word{i}" for i in range(2000))  # >> 512 tokens
+        html = f"""<!DOCTYPE html>
+<html><body><article class="ltx_document">
+  <section class="ltx_section" id="S1">
+    <h2 class="ltx_title ltx_title_section">1. Long Stmt</h2>
+    <div class="ltx_theorem ltx_theorem_theorem" id="long-stmt">
+      <h6 class="ltx_title">Theorem 1.1.</h6>
+      <div class="ltx_para"><p class="ltx_p">{long_stmt}</p></div>
+    </div>
+  </section>
+</article></body></html>
+"""
+        parsed_dir = tmp_path / "parsed"
+        chunks_dir = tmp_path / "chunks"
+        paper_parsed = parsed_dir / paper_id
+        paper_parsed.mkdir(parents=True)
+        (paper_parsed / "index.html").write_text(html, encoding="utf-8")
+        with (
+            patch("ingest.chunker.PARSED_DIR", parsed_dir),
+            patch("ingest.chunker.CHUNKS_DIR", chunks_dir),
+        ):
+            chunks = chunk_paper(paper_id)
+        stmts = [c for c in chunks if c.kind == "theorem" or c.kind == "stmt"]
+        assert len(stmts) >= 1
+        # At least one stmt must be flagged truncated
+        assert any(c.truncated for c in stmts), (
+            f"long stmt must set truncated=True; got truncated values: "
+            f"{[c.truncated for c in stmts]}"
+        )
+
+    def test_normal_stmt_not_truncated(self, tmp_path):
+        paper_id = "2307.00001"
+        parsed_dir = tmp_path / "parsed"
+        chunks_dir = tmp_path / "chunks"
+        paper_parsed = parsed_dir / paper_id
+        paper_parsed.mkdir(parents=True)
+        (paper_parsed / "index.html").write_bytes(
+            (FIXTURE_DIR / paper_id / "index.html").read_bytes()
+        )
+        with (
+            patch("ingest.chunker.PARSED_DIR", parsed_dir),
+            patch("ingest.chunker.CHUNKS_DIR", chunks_dir),
+        ):
+            chunks = chunk_paper(paper_id)
+        for c in chunks:
+            assert c.truncated is False
+
+
+class TestF6CharOffsetWindowing:
+    """F6 (HIGH): proof windows must be substring slices of the source text."""
+
+    def test_short_proof_returns_unchanged(self):
+        text = "Short proof body that fits in one window."
+        windows = _window_proof_text(text)
+        assert windows == [text], "single-window result must be the exact input"
+
+    def test_long_proof_concatenates_to_substring_of_source(self):
+        # Build text long enough to require >= 2 windows
+        words = [f"alpha{i}" for i in range(2000)]
+        text = " ".join(words)
+        windows = _window_proof_text(text)
+        assert len(windows) >= 2
+        # Every window must be a substring of the original text — proves the
+        # offset-mapping path, not encode/decode round-trip.
+        for w in windows:
+            assert w in text, (
+                f"window must be substring of source; window starts: {w[:50]!r}"
+            )
+
+
+class TestF7TSVLogSanitization:
+    """F7 (MEDIUM): log rows must not contain embedded tab/newline."""
+
+    def test_sanitize_strips_tab(self):
+        assert "\t" not in _sanitize_log_field("a\tb")
+
+    def test_sanitize_strips_newline(self):
+        assert "\n" not in _sanitize_log_field("a\nb")
+        assert "\r" not in _sanitize_log_field("a\rb")
+
+    def test_failure_log_with_problematic_message(self, tmp_path):
+        # Force a chunk_paper failure with a problematic exception message
+        log_path = tmp_path / "chunk.log"
+        chunks_dir = tmp_path / "chunks"
+        parsed_dir = tmp_path / "parsed"
+        chunks_dir.mkdir()
+        parsed_dir.mkdir()
+
+        def raise_with_tabs(_paper_id):
+            raise OSError("error\twith\ttabs\nand\nnewlines")
+
+        with (
+            patch("ingest.chunker.PARSED_DIR", parsed_dir),
+            patch("ingest.chunker.CHUNKS_DIR", chunks_dir),
+            patch("ingest.chunker.CHUNK_LOG_PATH", log_path),
+            patch("ingest.chunker._chunk_paper_impl", side_effect=raise_with_tabs),
+        ):
+            chunk_paper("2307.00001")
+
+        log_lines = log_path.read_text().strip().split("\n")
+        assert len(log_lines) == 1
+        # Every row must have exactly 4 tab-separated fields
+        assert log_lines[0].count("\t") == 3
+
+
+class TestF8ProgrammerBugsPropagate:
+    """F8 (MEDIUM): non-resilience-pattern exceptions must propagate."""
+
+    def test_attribute_error_propagates(self, tmp_path):
+        chunks_dir = tmp_path / "chunks"
+        parsed_dir = tmp_path / "parsed"
+        chunks_dir.mkdir()
+        parsed_dir.mkdir()
+
+        def raise_attr(_paper_id):
+            raise AttributeError("simulated programmer bug")
+
+        with (
+            patch("ingest.chunker.PARSED_DIR", parsed_dir),
+            patch("ingest.chunker.CHUNKS_DIR", chunks_dir),
+            patch("ingest.chunker._chunk_paper_impl", side_effect=raise_attr),
+            pytest.raises(AttributeError),
+        ):
+            chunk_paper("2307.00001")
+
+    def test_value_error_caught(self, tmp_path):
+        chunks_dir = tmp_path / "chunks"
+        parsed_dir = tmp_path / "parsed"
+        chunks_dir.mkdir()
+        parsed_dir.mkdir()
+
+        def raise_value(_paper_id):
+            raise ValueError("simulated parser failure")
+
+        with (
+            patch("ingest.chunker.PARSED_DIR", parsed_dir),
+            patch("ingest.chunker.CHUNKS_DIR", chunks_dir),
+            patch("ingest.chunker._chunk_paper_impl", side_effect=raise_value),
+        ):
+            result = chunk_paper("2307.00001")
+        assert result == []
+
+
+class TestF9TheoremNameNoNestedLeak:
+    """F9 (MEDIUM): theorem_name must come from the OUTER heading only."""
+
+    def test_nested_theorem_name_does_not_leak_outward(self):
+        from bs4 import BeautifulSoup
+        # An outer theorem with no parenthetical name; inner has (NestedName).
+        html = """
+        <div class="ltx_theorem ltx_theorem_theorem" id="outer">
+          <h6 class="ltx_title">Theorem 1.1.</h6>
+          <div class="ltx_theorem ltx_theorem_lemma" id="inner">
+            <h6 class="ltx_title">Lemma 1.2 (NestedName).</h6>
+          </div>
+        </div>
+        """
+        soup = BeautifulSoup(html, "html.parser")
+        outer = soup.find("div", id="outer")
+        # The outer theorem's name must be None (no parenthetical on its own
+        # heading), NOT 'NestedName' from the inner lemma.
+        name = _extract_theorem_name(outer)
+        assert name is None, f"nested name leaked outward: {name!r}"
+
+
+class TestF13RecursionDepthBound:
+    """F13 (MEDIUM): adversarial nested HTML must not blow the stack."""
+
+    def test_deep_nesting_does_not_raise(self, tmp_path):
+        paper_id = "2307.99013"
+        # 200 levels of nested <div> — well past _MAX_CONTAINER_DEPTH=50
+        body = "<p>some text</p>"
+        for _ in range(200):
+            body = f'<div class="container">{body}</div>'
+        html = f'<!DOCTYPE html><html><body>{body}</body></html>'
+        parsed_dir = tmp_path / "parsed"
+        chunks_dir = tmp_path / "chunks"
+        paper_parsed = parsed_dir / paper_id
+        paper_parsed.mkdir(parents=True)
+        (paper_parsed / "index.html").write_text(html, encoding="utf-8")
+        with (
+            patch("ingest.chunker.PARSED_DIR", parsed_dir),
+            patch("ingest.chunker.CHUNKS_DIR", chunks_dir),
+        ):
+            # Must return without raising RecursionError
+            result = chunk_paper(paper_id)
+        # Empty list is a valid outcome — we just need no crash.
+        assert isinstance(result, list)

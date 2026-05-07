@@ -68,6 +68,11 @@ class ChunkRecord:
     body_tokens: list[str] | None = field(default=None)
     preamble_ref: str | None = field(default=None)
     chunker_version: str = field(default="v1.0")
+    # Closes F5 (HIGH): surface silent truncation to downstream consumers
+    # rather than letting them mistake a sliced statement for a complete one.
+    # ``True`` when the chunker had to truncate ``body_text`` to fit the
+    # 512-token (stmt) or 448-token (proof window) BGE-M3 budget.
+    truncated: bool = field(default=False)
 
     def to_dict(self) -> dict:
         """Serialise to a JSON-safe dict with keys in sorted order."""
@@ -82,4 +87,5 @@ class ChunkRecord:
             "section_path": self.section_path,
             "theorem_label": self.theorem_label,
             "theorem_name": self.theorem_name,
+            "truncated": self.truncated,
         }
