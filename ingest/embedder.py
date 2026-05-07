@@ -1,4 +1,4 @@
-"""Dual-column BGE-M3 embedder (E03_S01).
+"""Dual-column BGE-M3 embedder (E03_S01) + idempotent re-embed (E03_S02).
 
 Reads per-paper chunks written by the structural chunker
 (``ingest.chunker``) from
@@ -31,6 +31,36 @@ between runs would invalidate cached embeddings without a version bump.
 ``unicodedata.normalize("NFC", ...)`` to the combined embedding input
 and calls ``model.eval()`` to disable XLM-RoBERTa dropout, ensuring
 byte-stable vectors across runs.
+
+**Idempotent re-embed (E03_S02).** Each successful per-paper encode
+also writes a sidecar
+``var/arxmcp/corpus/embeddings/<paper_id>/embeddings_manifest.json``
+recording ``{chunker_version, embedder_version, embedded_chunks,
+paper_id}``. On re-run, the embedder reads the sidecar (a single
+``json.loads``, no NPZ open), and skips the paper iff:
+
+  1. the sidecar exists, AND
+  2. ``sidecar.chunker_version == EXPECTED_CHUNKER_VERSION``, AND
+  3. ``sidecar.embedder_version == EMBEDDER_VERSION``, AND
+  4. every ``chunk_id`` in the current ``chunk_manifest.json`` is
+     present in ``sidecar.embedded_chunks``.
+
+If any condition fails, the entire paper is re-encoded (NPZ rewrite
+is atomic via tmp + ``os.replace``; ``np.savez`` does not support
+partial archive updates). The brief's "MVCC writer serializes writes"
+language refers to E04_S02's LanceDB writer, which is not yet built;
+the actual concurrency safety here comes from POSIX-atomic
+``os.replace``. Two processes embedding the same paper concurrently
+each produce a complete NPZ + sidecar pair via tmp + rename — last
+writer wins, neither reader ever sees a partial file, and BP1
+byte-stability means both writers' outputs would be identical on
+identical input.
+
+The "MVCC handshake" the brief describes is implemented as the
+``chunker_version`` field in the sidecar: a ``CHUNKER_VERSION`` bump
+in ``ingest/chunker_types.py`` automatically forces re-embed
+because :data:`EXPECTED_CHUNKER_VERSION` is an alias for that
+constant (see D2 of the E03_S02 research synthesis).
 """
 
 from __future__ import annotations
@@ -51,6 +81,16 @@ from ingest.chunker import (
     _sanitize_log_field,
     _validate_paper_id,
 )
+
+# E03_S02: alias rather than redefine. ``CHUNKER_VERSION`` lives in
+# ``chunker_types`` as the SINGLE source of truth (locked by
+# ``tests/test_chunker_ids.py::TestSingleVersionDefinition``). Defining
+# ``EXPECTED_CHUNKER_VERSION`` as a fresh string literal here would
+# either fail that regression check or, if exempted, drift on the next
+# bump. The brief's "defined as a constant in exactly one place" is
+# satisfied because the literal continues to live only in
+# ``chunker_types``.
+from ingest.chunker_types import CHUNKER_VERSION as EXPECTED_CHUNKER_VERSION
 from ingest.preamble import load_preamble
 
 logger = logging.getLogger(__name__)
@@ -448,6 +488,136 @@ def _write_embeddings_npz(
 
 
 # ---------------------------------------------------------------------------
+# E03_S02: per-paper embeddings sidecar (idempotent re-embed handshake)
+# ---------------------------------------------------------------------------
+
+# Constant filename for the sidecar — co-located with ``embeddings.npz``
+# under ``var/arxmcp/corpus/embeddings/<paper_id>/``. The naming mirrors
+# ``chunk_manifest.json`` so a future maintainer immediately understands
+# the role from the path alone.
+EMBEDDINGS_MANIFEST_NAME = "embeddings_manifest.json"
+
+
+def _write_embeddings_manifest(
+    out_path: Path,
+    *,
+    paper_id: str,
+    embedded_chunks: list[dict],
+) -> None:
+    """Atomically write the per-paper embeddings sidecar (E03_S02).
+
+    Schema (alphabetical keys, sorted by ``json.dumps(sort_keys=True)``,
+    no timestamps — load-bearing for BP1 byte-stability across hosts):
+
+    .. code-block:: json
+
+        {
+          "chunker_version": "<EXPECTED_CHUNKER_VERSION>",
+          "embedded_chunks": [
+            {"chunk_id": "arxiv:2307.01156:a1b2c3d4e5f60718", "kind": "stmt"},
+            ...
+          ],
+          "embedder_version": "<EMBEDDER_VERSION>",
+          "paper_id": "2307.01156"
+        }
+
+    The ``embedded_chunks`` list is written in document order (the same
+    order as ``chunk_manifest.json``) so BP1 byte-stability holds: two
+    runs with identical inputs produce a byte-identical sidecar.
+
+    Writes via tmp + ``os.replace`` to mirror
+    :func:`_write_embeddings_npz`'s atomic discipline. The sidecar is
+    written **after** the NPZ; a reader that finds an NPZ but no
+    sidecar treats the paper as not-yet-up-to-date and re-embeds (this
+    is also the migration path from pre-E03_S02 NPZs).
+
+    The ``chunker_version`` field carries :data:`EXPECTED_CHUNKER_VERSION`
+    (alias for ``CHUNKER_VERSION``); ``embedder_version`` carries
+    :data:`EMBEDDER_VERSION` (model SHA prefix). Both are required by
+    :func:`_paper_is_up_to_date` for the skip decision.
+    """
+    sidecar = {
+        "chunker_version": EXPECTED_CHUNKER_VERSION,
+        "embedded_chunks": embedded_chunks,
+        "embedder_version": EMBEDDER_VERSION,
+        "paper_id": paper_id,
+    }
+    payload = json.dumps(sidecar, ensure_ascii=False, sort_keys=True) + "\n"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = out_path.with_suffix(
+        f"{out_path.suffix}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp"
+    )
+    try:
+        tmp.write_text(payload, encoding="utf-8")
+        os.replace(tmp, out_path)
+    finally:
+        with contextlib.suppress(OSError):
+            tmp.unlink(missing_ok=True)
+
+
+def _read_embeddings_manifest(out_path: Path) -> dict | None:
+    """Return the sidecar dict, or ``None`` if absent / corrupt.
+
+    A corrupt sidecar (any exception during read or parse) is treated
+    as absent — the paper will be re-embedded, regenerating a clean
+    sidecar in the process. This is the same self-healing discipline
+    ``preamble._read_existing_preamble`` uses (see preamble.py F2 fix).
+    """
+    if not out_path.exists():
+        return None
+    try:
+        return json.loads(out_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+        # Corrupt sidecar => re-embed (regenerates a clean sidecar).
+        return None
+
+
+def _paper_is_up_to_date(
+    paper_id: str, manifest_chunk_ids: set[str]
+) -> bool:
+    """Return True iff the paper can be skipped on this run.
+
+    Implements D6/D7 of the E03_S02 research synthesis. A paper is
+    considered up to date iff:
+
+    1. the sidecar exists, AND
+    2. ``sidecar.chunker_version == EXPECTED_CHUNKER_VERSION``, AND
+    3. ``sidecar.embedder_version == EMBEDDER_VERSION``, AND
+    4. every chunk_id in ``manifest_chunk_ids`` is in the sidecar's
+       ``embedded_chunks``.
+
+    Any failure of any condition triggers re-embed. The
+    ``embedder_version`` check is an additive correctness improvement
+    over the brief's literal ``chunker_version``-only language: a
+    ``BGE_M3_COMMIT_SHA`` bump produces vectors in a different
+    embedding space, and silently mixing them with old vectors would
+    poison the index.
+
+    The brief's "embedding column populated" check is implemented as
+    "every manifest chunk_id is in the sidecar's embedded_chunks" — the
+    sidecar is only written after the NPZ write succeeds, so a chunk
+    appearing in the sidecar implies its vector is in the NPZ.
+    """
+    sidecar_path = EMBEDDINGS_DIR / paper_id / EMBEDDINGS_MANIFEST_NAME
+    sidecar = _read_embeddings_manifest(sidecar_path)
+    if sidecar is None:
+        return False
+    if sidecar.get("chunker_version") != EXPECTED_CHUNKER_VERSION:
+        return False
+    if sidecar.get("embedder_version") != EMBEDDER_VERSION:
+        return False
+    embedded = sidecar.get("embedded_chunks", [])
+    if not isinstance(embedded, list):
+        return False
+    embedded_ids = {entry.get("chunk_id") for entry in embedded if isinstance(entry, dict)}
+    # All current chunks must be covered. Extra chunks in the sidecar
+    # (chunks that no longer exist in the manifest) are tolerated — the
+    # paper is still up to date for everything the manifest cares about.
+    # E04_S02 will GC orphaned vectors; it is not E03_S02's job.
+    return manifest_chunk_ids.issubset(embedded_ids)
+
+
+# ---------------------------------------------------------------------------
 # Per-paper ChunkRecord loader
 # ---------------------------------------------------------------------------
 
@@ -618,6 +788,33 @@ def _embed_paper_impl(paper_id: str, batch_size: int) -> EmbedStats:
         _append_embed_stats(stats)
         return stats
 
+    # E03_S02 idempotent re-embed: pre-flight skip check. If the
+    # sidecar manifest says every chunk in the current chunk_manifest is
+    # already embedded under both the expected chunker_version AND the
+    # current EMBEDDER_VERSION, skip the encode entirely. The check is
+    # a single JSON parse — no NPZ open, no model load.
+    manifest_chunk_ids = {c["chunk_id"] for c in chunks}
+    if _paper_is_up_to_date(paper_id, manifest_chunk_ids):
+        elapsed = time.monotonic() - start
+        stats = EmbedStats(
+            paper_id=paper_id,
+            chunks_processed=0,
+            chunks_skipped=len(chunks),
+            truncated_count=0,
+            elapsed_s=elapsed,
+            status="ok",
+        )
+        logger.debug(
+            "[%s] up to date (chunker_version=%s, embedder_version=%s, "
+            "%d chunks); skipping",
+            paper_id,
+            EXPECTED_CHUNKER_VERSION,
+            EMBEDDER_VERSION,
+            len(chunks),
+        )
+        _append_embed_stats(stats)
+        return stats
+
     # F3 fallback: when load_preamble returns None (extraction failed),
     # preamble_text becomes "" and the embedder encodes body_text alone.
     preamble_doc = load_preamble(paper_id)
@@ -696,6 +893,24 @@ def _embed_paper_impl(paper_id: str, batch_size: int) -> EmbedStats:
         embedding_stmt=embedding_stmt,
         chunk_ids_proof=chunk_ids_proof,
         embedding_proof=embedding_proof,
+    )
+
+    # E03_S02: sidecar manifest written AFTER the NPZ. A reader that
+    # finds an NPZ but no sidecar treats the paper as not-yet-up-to-date
+    # and re-embeds (also the migration path from pre-E03_S02 NPZs).
+    # ``embedded_chunks`` is in document order (matches manifest order)
+    # so BP1 byte-stability holds across hosts. Each entry carries the
+    # chunk's kind so E04_S01 can reconstruct the routing without
+    # re-reading the chunk JSONs.
+    sidecar_path = EMBEDDINGS_DIR / paper_id / EMBEDDINGS_MANIFEST_NAME
+    embedded_chunks = [
+        {"chunk_id": chunks[i]["chunk_id"], "kind": chunks[i]["kind"]}
+        for i in range(len(chunks))
+    ]
+    _write_embeddings_manifest(
+        sidecar_path,
+        paper_id=paper_id,
+        embedded_chunks=embedded_chunks,
     )
 
     elapsed = time.monotonic() - start
@@ -782,6 +997,21 @@ def embed_corpus(
     # dashboards can ingest "embed_corpus completed" events directly.
     elapsed_s = time.monotonic() - run_started
     _append_run_summary(results, elapsed_s)
+
+    # E03_S02 acceptance criterion: re-running on an unchanged corpus
+    # writes 0 rows and logs "all up to date". Fire at corpus level so
+    # ops sees a single message rather than per-paper noise. The
+    # condition is "every paper was a clean skip and no chunks were
+    # processed."
+    total_processed = sum(r.chunks_processed for r in results)
+    total_skipped = sum(r.chunks_skipped for r in results)
+    if results and total_processed == 0 and total_skipped > 0:
+        logger.info(
+            "Skipped %d/%d chunks — all up to date.",
+            total_skipped,
+            total_skipped,
+        )
+
     return results
 
 
@@ -800,10 +1030,16 @@ def _append_run_summary(
     """
     paper_count = len(results)
     chunk_count = sum(r.chunks_processed for r in results)
+    chunks_skipped = sum(r.chunks_skipped for r in results)
     fail_count = sum(1 for r in results if r.status == "fail")
+    # E03_S02 D5: aggregate ``chunks_skipped`` exposed at run boundary so
+    # an "all up to date" run is observable from the audit trail. Per-
+    # paper rows already carry chunks_skipped individually; this is the
+    # corpus-level roll-up.
     summary = {
         "bge_m3_commit_sha": BGE_M3_COMMIT_SHA,
         "chunk_count": chunk_count,
+        "chunks_skipped": chunks_skipped,
         "elapsed_s": round(elapsed_s, 3),
         "embedder_version": EMBEDDER_VERSION,
         "event": "run_summary",
