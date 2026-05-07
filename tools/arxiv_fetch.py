@@ -32,6 +32,11 @@ LATEXML_TIMEOUT_SECONDS = 300
 PAPER_ID_RE = re.compile(r"^[0-9]{4}\.[0-9]{4,5}$")
 MIN_PARSED_HTML_BYTES = 1024
 
+# Threat 7 in 08-security-observability-ops.md: refuse responses larger
+# than this. A real arXiv source tarball >100 MB is suspicious; we use
+# 200 MB as the operational cap.
+MAX_RESPONSE_BYTES = 200 * 1024 * 1024
+
 
 @dataclass(frozen=True)
 class FetchResult:
@@ -217,7 +222,23 @@ def fetch_eprint(
 
     with urllib.request.urlopen(request, timeout=timeout) as resp:  # noqa: S310
         content_type = resp.headers.get("Content-Type", "")
-        body = resp.read()
+        content_length = resp.headers.get("Content-Length")
+        if content_length is not None:
+            try:
+                declared = int(content_length)
+            except ValueError:
+                declared = -1
+            if declared > MAX_RESPONSE_BYTES:
+                raise RuntimeError(
+                    f"response too large for {paper_id}: "
+                    f"Content-Length {declared} > cap {MAX_RESPONSE_BYTES}"
+                )
+        body = resp.read(MAX_RESPONSE_BYTES + 1)
+        if len(body) > MAX_RESPONSE_BYTES:
+            raise RuntimeError(
+                f"response too large for {paper_id}: "
+                f">{MAX_RESPONSE_BYTES} bytes (cap exceeded mid-read)"
+            )
         http_status = resp.status
 
     bytes_downloaded = len(body)
