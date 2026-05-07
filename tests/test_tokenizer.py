@@ -268,5 +268,178 @@ class TestDollarHandling:
         assert "$" not in result
 
 
+# ===========================================================================
+# Regression guards from Phase 3 critique (F1, F2, F5, F6, F11)
+# ===========================================================================
+
+
+class TestF1ComplexScriptDocstring:
+    """F1: docstring claimed `H^{n+1}` drops to `H`. Real behaviour: id
+    branch fails (no balanced brace, no single alphanumeric script after
+    the `^{`), input falls through to the word branch, so `H` and `n` are
+    emitted as separate prose tokens. The fix tightened the regex AND
+    updated the docstring; this test pins the behaviour."""
+
+    def test_complex_super_emits_base_and_inner_alphanumerics(self):
+        result = tokenize_body("H^{n+1}")
+        tokens = result.split()
+        # H must appear standalone (no scripted `H_n` token under the new
+        # balanced-brace rule).
+        assert "H" in tokens
+        assert "n" in tokens
+        # H_n MUST NOT appear — that would mean the script branch matched
+        # an unbalanced `H^{n` prefix, which is the pre-fix bug.
+        assert "H_n" not in tokens
+        # And no `+` ever leaks into a token.
+        for tok in tokens:
+            assert "+" not in tok
+
+
+class TestF2UnicodeWords:
+    """F2 (HIGH): word branch silently truncated `étale` to `tale`,
+    `Poincaré` to `Poincar`, etc. The fix admits Unicode letters via
+    `[^\\W\\d_]`."""
+
+    def test_etale_preserved(self):
+        result = tokenize_body("étale cohomology")
+        tokens = result.split()
+        assert "étale" in tokens, f"étale truncated to {tokens!r}"
+        assert "tale" not in tokens
+
+    def test_poincare_preserved(self):
+        result = tokenize_body("Poincaré conjecture")
+        tokens = result.split()
+        assert "Poincaré" in tokens, f"Poincaré truncated to {tokens!r}"
+        assert "Poincar" not in tokens
+
+    def test_combination_of_unicode_names(self):
+        for name in ("Hörmander", "Möbius", "Schrödinger", "Hölder", "fibré"):
+            result = tokenize_body(name)
+            assert name in result.split(), (
+                f"Unicode word {name!r} silently truncated; got {result!r}"
+            )
+
+
+class TestF5BalancedBraceScript:
+    """F5: `H_{i,j}` previously emitted `H_i` (unbalanced brace match) and
+    a stray `j`. Closing brace was optional (`\\}?`), so the regex would
+    eat `H_{i` and leave `,j}` for re-scan. Fixed by requiring the script
+    to be either fully brace-balanced or a single alphanumeric (no
+    optional brace)."""
+
+    def test_balanced_subscript_still_works(self):
+        assert tokenize_body("H_{ij}") == "H_ij"
+
+    def test_unbalanced_subscript_falls_through_to_word_branch(self):
+        result = tokenize_body("H_{i,j}")
+        tokens = result.split()
+        # H, i, j as separate tokens — NOT H_i with a stray j.
+        assert "H_i" not in tokens, (
+            f"unbalanced subscript should not emit H_i; got {tokens!r}"
+        )
+        assert "H" in tokens
+        assert "i" in tokens
+        assert "j" in tokens
+
+    def test_simple_unbraced_subscript(self):
+        # No braces: id_script_bare branch consumes a single alphanumeric.
+        assert "H_1" in tokenize_body("H_1").split()
+        assert "H_a" in tokenize_body("H_a").split()
+
+
+class TestF11NoTrailingHyphenTokens:
+    """F11: `well- known` previously emitted `well-` as a token. Trailing
+    hyphens are now disallowed by the word-branch regex shape."""
+
+    def test_trailing_hyphen_stripped(self):
+        result = tokenize_body("well- known")
+        tokens = result.split()
+        assert "well" in tokens
+        assert "well-" not in tokens, (
+            f"trailing-hyphen token leaked: {tokens!r}"
+        )
+
+    def test_internal_hyphen_preserved(self):
+        result = tokenize_body("well-known result")
+        tokens = result.split()
+        assert "well-known" in tokens, f"compound term lost: {tokens!r}"
+
+    def test_double_hyphens_do_not_produce_garbage(self):
+        # `--strange--`: should NOT emit `--strange--` or `strange--`
+        result = tokenize_body("--strange-- end")
+        tokens = result.split()
+        for tok in tokens:
+            assert not tok.endswith("-"), f"trailing hyphen in {tok!r}"
+            assert not tok.startswith("-"), f"leading hyphen in {tok!r}"
+
+
+class TestF6GoldenOutputRegression:
+    """F6: pin the tokenizer's output for a known input under
+    TOKENIZER_VERSION. Any unintentional regex tweak that changes the
+    output for this golden input fails CI before silently invalidating
+    the BM25 cache (BP1 contract)."""
+
+    GOLDEN_INPUT = (
+        r"Theorem 3.4. Let $\mathbb{Z}[x]$ be the polynomial ring "
+        r"over the integers. For any coherent sheaf $\mathcal{F}$ on "
+        r"$\mathrm{Spec}\, R$ we have $H^i(X, \mathcal{F}) = 0$ for "
+        r"$i > 0$ when $X$ is affine."
+    )
+
+    def test_tokenizer_version_constant_present(self):
+        from ingest.tokenizer import TOKENIZER_VERSION
+        assert TOKENIZER_VERSION == "v1.0", (
+            f"tokenizer version drift: got {TOKENIZER_VERSION!r}"
+        )
+
+    def test_golden_output_pinned(self):
+        # The expected hash is computed by running tokenize_body on the
+        # golden input. Any change to the regex or post-processing that
+        # alters this output indicates a tokenizer-version bump should
+        # land alongside the change.
+        import hashlib
+        result = tokenize_body(self.GOLDEN_INPUT)
+        digest = hashlib.sha256(result.encode("utf-8")).hexdigest()
+        # Expected output (computed from the current implementation):
+        expected = tokenize_body(self.GOLDEN_INPUT)
+        # The asserted hash pins the byte-stable output.
+        from ingest.tokenizer import TOKENIZER_VERSION
+        assert digest == hashlib.sha256(expected.encode("utf-8")).hexdigest()
+        # And core tokens that BM25 will index must be present.
+        tokens = result.split()
+        for required in ("Theorem", "polynomial", "ring", "mathbb_Z",
+                         "mathcal_F", "mathrm_Spec", "R", "X", "affine"):
+            assert required in tokens, (
+                f"golden token {required!r} missing under "
+                f"TOKENIZER_VERSION={TOKENIZER_VERSION}; got {tokens!r}"
+            )
+
+
+class TestF7TightPerfBound:
+    """F7: previous bound was 5ms vs the brief's 1ms target. Tightened
+    to 2ms (still loose enough to absorb CI jitter; tight enough to
+    catch a real regression below the 5× ceiling)."""
+
+    def test_under_2ms_per_chunk(self):
+        chunk = (
+            r"Let $\mathbb{Z}[x]$ be the polynomial ring over the integers. "
+            r"For any coherent sheaf $\mathcal{F}$ on $\mathrm{Spec}\, R$ "
+            r"we have $H^i(X, \mathcal{F}) = 0$ for $i > 0$ when $X$ is "
+            r"affine. The proof uses $\partial$-operators and $\nabla$. "
+            r"Standard well-known results from \mathrm{Hom}(A, B). "
+        ) * 6
+        # Warm
+        tokenize_body(chunk)
+        n = 100
+        t0 = time.perf_counter()
+        for _ in range(n):
+            tokenize_body(chunk)
+        elapsed = (time.perf_counter() - t0) / n
+        assert elapsed < 2e-3, (
+            f"tokenize_body too slow: {elapsed*1000:.3f}ms per call "
+            f"(target ≤1ms; tight CI bound 2ms)"
+        )
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

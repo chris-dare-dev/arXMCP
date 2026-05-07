@@ -302,6 +302,29 @@ class TestMultiKindEnvironments:
         section_chunks = [c for c in chunks if c.kind == "section"]
         assert len(section_chunks) >= 1
 
+    def test_all_kinds_have_body_tokens_populated(self, tmp_path):
+        # Closes F3: every chunk kind in this multi-kind fixture must have
+        # body_tokens populated as a non-empty string. Pre-fix, only
+        # TestTwoTheoremGolden exercised body_tokens, missing definition,
+        # remark, lemma, corollary, example, and section kinds.
+        chunks = self._run(tmp_path)
+        kinds_seen = set()
+        for chunk in chunks:
+            assert isinstance(chunk.body_tokens, str), (
+                f"chunk {chunk.chunk_id} (kind={chunk.kind}) body_tokens is "
+                f"{type(chunk.body_tokens).__name__}"
+            )
+            if chunk.body_text.strip():
+                assert chunk.body_tokens, (
+                    f"chunk {chunk.chunk_id} (kind={chunk.kind}) has "
+                    f"body_text but empty body_tokens"
+                )
+            kinds_seen.add(chunk.kind)
+        # Sanity: the multi-kind fixture exercises at least 4 distinct kinds.
+        assert len(kinds_seen) >= 4, (
+            f"expected ≥4 chunk kinds in multi-kind fixture, got {kinds_seen}"
+        )
+
 
 # ===========================================================================
 # TestProofWindowSplitting
@@ -407,6 +430,17 @@ class TestProofWindowSplitting:
         )
         for pc in proof_chunks:
             assert _count_tokens(pc.body_text) <= PROOF_MAX_TOKENS
+        # Closes F3 (proof-window coverage): every emitted proof window
+        # must carry non-empty body_tokens after the E02_S03 wire-in.
+        for pc in proof_chunks:
+            assert isinstance(pc.body_tokens, str), (
+                f"proof window {pc.chunk_id} body_tokens is "
+                f"{type(pc.body_tokens).__name__}"
+            )
+            assert pc.body_tokens, (
+                f"proof window {pc.chunk_id} body_text non-empty but "
+                f"body_tokens empty"
+            )
 
 
 # ===========================================================================

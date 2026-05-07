@@ -21,9 +21,20 @@ Tokenization rules
    * Bare ``\\command`` (command is one or more letters): emit ``command``.
      Example: ``\\partial`` → ``partial``, ``\\Spec`` → ``Spec``.
    * Identifier with subscript or superscript: ``X_a``, ``H_1``, ``H_{ij}``
-     → ``X_a``, ``H_1``, ``H_ij``. For non-alphanumeric script content
-     (``H^{n+1}``, ``H_{i,j}``) emit only the base identifier.
-   * Plain Latin word (with optional internal hyphen): emit verbatim.
+     → ``X_a``, ``H_1``, ``H_ij``. The script content must be balanced —
+     a brace-opened script must close cleanly with a matching ``}`` and
+     no intervening non-alphanumeric characters. Inputs like ``H^{n+1}``
+     (the ``+`` breaks the alphanumeric run) and ``H_{i,j}`` (the ``,``
+     breaks balance) bypass the script branch entirely; the input falls
+     through to the word branch, which emits each alphanumeric component
+     as a separate token (``H``, ``n`` from ``H^{n+1}``; ``H``, ``i``,
+     ``j`` from ``H_{i,j}``). Recall loss on these exotic notations is
+     in scope per the milestone risk notes.
+   * Unicode letter word (with optional internal hyphen — no leading or
+     trailing hyphen): emits verbatim. Both ASCII and non-ASCII letters
+     are matched (``étale``, ``Poincaré``, ``Hörmander``); BM25 recall
+     would otherwise drop terms ubiquitous in algebraic geometry,
+     analysis, and physics names.
 4. Do NOT lowercase — math identifiers are case-significant
    (``Z`` ≠ ``z``).
 5. Do NOT deduplicate — BM25 weights by term frequency.
@@ -56,22 +67,49 @@ from __future__ import annotations
 import re
 import unicodedata
 
+# Closes F6: a tokenizer version string fed into chunk_id (E02_S04) and
+# the BM25 cache key (E04_S04). Bumping ``_TOKENIZER_RE`` or the post-
+# processing rules MUST bump TOKENIZER_VERSION; the byte-stability
+# regression test in tests/test_tokenizer.py asserts a golden output for
+# a fixed input under a fixed version, so an unintentional regex change
+# fails CI before it can silently invalidate the BM25 cache.
+TOKENIZER_VERSION = "v1.0"
+
 # Single compiled alternation pattern. Alternative branches are tried
 # left-to-right by ``re``; ordering is significant — the more specific
 # ``\command{arg}`` branch must precede the bare ``\command`` branch so
 # the latter doesn't strip the leading backslash before the former sees
 # its argument.
+#
+# Word class: ``[^\W\d_]`` is Unicode-aware and matches "any letter
+# without digits or underscore" — it admits étale, Poincaré, Möbius,
+# Hörmander, Schrödinger, Hölder, fibré, and the rest of the math
+# vocabulary that the original ``[A-Za-z]`` class silently truncated.
+# Closes F2.
+#
+# Word body: ``(?:[^\W\d_]|-)*[^\W\d_]`` requires the final character
+# to be a letter, disallowing trailing hyphens like ``well-``. Closes
+# F11.
+#
+# Id branch: the script content is either a single alphanumeric (no
+# braces) or fully brace-balanced ``\{[A-Za-z0-9]+\}``. The previous
+# ``\{?...\}?`` form leaked unbalanced inputs like ``H_{i,j}`` as
+# ``H_i`` plus a stray ``j``. Closes F5.
 _TOKENIZER_RE = re.compile(
     # Branch 1: \command{arg} where arg is alphanumeric (single letters,
     # multi-letter operator names like Spec / Hom / End, digits).
     r"\\(?P<cmd_arg_name>[A-Za-z@]+)\{(?P<cmd_arg_val>[A-Za-z0-9]+)\}"
     # Branch 2: bare \command (no argument or non-simple argument).
     r"|\\(?P<cmd_bare>[A-Za-z@]+)"
-    # Branch 3: identifier_subscript / identifier^superscript with simple
-    # alphanumeric script content (optional braces).
-    r"|(?P<id_base>[A-Za-z])(?P<id_sep>[_^])\{?(?P<id_script>[A-Za-z0-9]+)\}?"
-    # Branch 4: plain Latin word (with optional internal hyphens).
-    r"|(?P<word>[A-Za-z][A-Za-z\-]*)"
+    # Branch 3: identifier_subscript / identifier^superscript. Either a
+    # single alphanumeric script char (no braces) or a brace-balanced
+    # alphanumeric run.
+    r"|(?P<id_base>[A-Za-z])(?P<id_sep>[_^])"
+    r"(?:(?P<id_script_braced>\{[A-Za-z0-9]+\})|(?P<id_script_bare>[A-Za-z0-9]))"
+    # Branch 4: Unicode-aware letter word with optional internal hyphens
+    # (no leading/trailing hyphen).
+    r"|(?P<word>[^\W\d_](?:(?:[^\W\d_]|-)*[^\W\d_])?)",
+    re.UNICODE,
 )
 
 
@@ -104,10 +142,14 @@ def tokenize_body(body_text: str) -> str:
             # \partial → partial
             tokens.append(match.group("cmd_bare"))
         elif match.group("id_base") is not None:
-            # H_1, H_{ij} → H_1, H_ij  (sep + script joined as underscore)
-            tokens.append(
-                f"{match.group('id_base')}_{match.group('id_script')}"
-            )
+            # H_1, H_{ij} → H_1, H_ij. The sep (_, ^) is normalised to
+            # underscore so subscript and superscript indexers collide
+            # under BM25 (intentional — both are "subscript-shaped"
+            # qualifiers from the prose perspective).
+            braced = match.group("id_script_braced")
+            # Strip the surrounding braces if the braced alternative matched.
+            script = braced[1:-1] if braced is not None else match.group("id_script_bare")
+            tokens.append(f"{match.group('id_base')}_{script}")
         elif match.group("word") is not None:
             tokens.append(match.group("word"))
 

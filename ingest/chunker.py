@@ -53,6 +53,7 @@ from typing import TYPE_CHECKING
 from bs4 import BeautifulSoup, NavigableString, Tag
 
 from ingest.chunker_types import ChunkRecord
+from ingest.tokenizer import tokenize_body
 
 if TYPE_CHECKING:
     pass
@@ -816,7 +817,6 @@ def _chunk_paper_impl(paper_id: str) -> list[ChunkRecord]:
     # Pure local computation; no I/O. tokenize_body is deterministic
     # (NFC normalization + module-level compiled regex) so chunks remain
     # byte-stable across runs (BP1 contract).
-    from ingest.tokenizer import tokenize_body
     for chunk in all_chunks:
         chunk.body_tokens = tokenize_body(chunk.body_text)
 
