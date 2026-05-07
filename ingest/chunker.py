@@ -812,6 +812,14 @@ def _chunk_paper_impl(paper_id: str) -> list[ChunkRecord]:
         for chunk in all_chunks:
             chunk.preamble_ref = preamble_ref
 
+    # E02_S03 wire-in: pre-tokenize body_text into the BM25 token stream.
+    # Pure local computation; no I/O. tokenize_body is deterministic
+    # (NFC normalization + module-level compiled regex) so chunks remain
+    # byte-stable across runs (BP1 contract).
+    from ingest.tokenizer import tokenize_body
+    for chunk in all_chunks:
+        chunk.body_tokens = tokenize_body(chunk.body_text)
+
     # Write output JSON. Closes F3: clear any stale chunk JSON files from a
     # prior run before writing the new set, so a re-run with fewer chunks
     # cannot leave dead idxN.json files in the directory for the embedder

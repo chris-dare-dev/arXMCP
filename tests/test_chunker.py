@@ -159,10 +159,22 @@ class TestTwoTheoremGolden:
         for chunk in chunks:
             assert chunk.chunker_version == "v1.0"
 
-    def test_body_tokens_null(self, tmp_path):
+    def test_body_tokens_populated(self, tmp_path):
+        # E02_S03 wired tokenize_body into _chunk_paper_impl. Every chunk's
+        # body_tokens is now a whitespace-joined string (was previously
+        # `None` until that wire-in landed).
         chunks = self._run(tmp_path)
         for chunk in chunks:
-            assert chunk.body_tokens is None
+            assert isinstance(chunk.body_tokens, str), (
+                f"chunk {chunk.chunk_id} body_tokens is "
+                f"{type(chunk.body_tokens).__name__}, expected str"
+            )
+            # body_tokens must be non-empty when body_text has content
+            if chunk.body_text.strip():
+                assert chunk.body_tokens, (
+                    f"chunk {chunk.chunk_id} has body_text but empty "
+                    f"body_tokens"
+                )
 
     def test_preamble_ref_null(self, tmp_path):
         chunks = self._run(tmp_path)

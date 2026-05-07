@@ -65,7 +65,11 @@ class ChunkRecord:
     theorem_name: str | None
     theorem_label: str | None
     body_text: str
-    body_tokens: list[str] | None = field(default=None)
+    # E02_S03 populates this with a whitespace-joined string produced by
+    # `ingest.tokenizer.tokenize_body`. The annotation is `str | None`
+    # (NOT `list[str] | None`) to match the LanceDB schema's `string`
+    # column type — E04_S04's BM25 indexer does `body_tokens.split()`.
+    body_tokens: str | None = field(default=None)
     preamble_ref: str | None = field(default=None)
     chunker_version: str = field(default="v1.0")
     # Closes F5 (HIGH): surface silent truncation to downstream consumers
