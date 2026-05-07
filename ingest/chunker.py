@@ -218,12 +218,30 @@ def _get_tokenizer():
     cached download) and confining the heavyweight ``torch`` + safetensors
     weight load to ``ingest.embedder`` (E03_S01). The chunker itself does
     not import ``torch``.
+
+    Closes F7 from the E03_S01 adversary critique: the tokenizer is
+    pinned to :data:`ingest.embedder.BGE_M3_COMMIT_SHA` to satisfy
+    Threat 6 (08-security-observability-ops.md). Without ``revision=...``
+    the tokenizer would float on whatever HuggingFace serves for the
+    ``main`` tag — silent rotation of the tokenizer-only files (with
+    model weights unchanged) would drift ``body_tokens`` across runs
+    while ``chunker_version`` stays the same, which is a dormant
+    cache-poisoning bomb for BP1 byte-stability.
     """
     global _tokenizer
     if _tokenizer is None:
+        # Lazy import inside the function body, mirroring the embedder's
+        # pattern. This also avoids a top-of-file circular import:
+        # ingest.embedder imports from ingest.chunker (paper_id
+        # validators), so a top-level import the other way would close
+        # the cycle.
         from transformers import AutoTokenizer  # noqa: PLC0415
 
-        _tokenizer = AutoTokenizer.from_pretrained("BAAI/bge-m3")
+        from ingest.embedder import BGE_M3_COMMIT_SHA  # noqa: PLC0415
+
+        _tokenizer = AutoTokenizer.from_pretrained(
+            "BAAI/bge-m3", revision=BGE_M3_COMMIT_SHA
+        )
     return _tokenizer
 
 

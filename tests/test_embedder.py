@@ -125,11 +125,24 @@ def _make_chunk(
 def _fake_model_factory(emit_dim: int = EMBEDDING_DIM):
     """Return a (tokenizer, model) pair that mimics BGE-M3 for tests.
 
-    The fake model produces deterministic, NON-zero embeddings derived
-    from an integer seed per input row, and the explicit
-    ``F.normalize`` call in ``_encode_batch`` should L2-normalize them.
-    Importantly, the fake model attribute access is via MagicMock so
-    that ``output.last_hidden_state[:, 0, :]`` works.
+    Closes F6 from the E03_S01 adversary critique: the fake model now
+    produces ROW-DISTINCT vectors (not colinear scalar multiples). Each
+    row uses a different seeded ``torch.randn`` so post-L2-normalization
+    vectors are distinguishable, allowing tests to assert
+    ``not allclose(vectors[i], vectors[j])``. The previous fake's rows
+    were ``(i+1) * arange(hidden)``, which are positive scalar multiples
+    of the same direction and L2-normalize to the SAME unit vector — a
+    bug-camouflaging behavior that let "all rows are identical"
+    regressions slip through.
+
+    The tokenizer ``__call__`` handles BOTH call shapes the embedder
+    uses:
+    - the encode call: ``tokenizer(texts, padding=True, truncation=True,
+      max_length=N, return_tensors="pt")``
+    - the F3 pre-pass: ``tokenizer(texts, padding=False, truncation=
+      False, return_length=True)``
+    The pre-pass uses ``len(text.split())`` as a proxy for the token
+    length so token-budget tests can drive the truncation path.
     """
     import torch
 
@@ -142,12 +155,23 @@ def _fake_model_factory(emit_dim: int = EMBEDDING_DIM):
             n = len(text.split()) + (2 if add_special_tokens else 0)
             return list(range(n))
 
-        def __call__(self, texts, padding, truncation, max_length, return_tensors):
-            assert padding is True
-            assert truncation is True
-            assert max_length == MAX_TOKENS
-            assert return_tensors == "pt"
+        def __call__(self, texts, **kwargs):
             self.calls.append(list(texts))
+            # F3 pre-pass: return per-text length list, no tensors.
+            if kwargs.get("return_length"):
+                return {
+                    "length": [
+                        len(t.split()) + 2  # +2 for special tokens
+                        for t in texts
+                    ],
+                }
+            # Encode call: produces tensors. The shapes don't have to
+            # match what BGE-M3 would actually produce — only the model
+            # forward pass cares about the batch dim.
+            assert kwargs.get("padding") is True
+            assert kwargs.get("truncation") is True
+            assert kwargs.get("max_length") == MAX_TOKENS
+            assert kwargs.get("return_tensors") == "pt"
             batch = len(texts)
             seq_len = 4
             return {
@@ -156,19 +180,21 @@ def _fake_model_factory(emit_dim: int = EMBEDDING_DIM):
             }
 
     class _FakeOutput:
-        def __init__(self, batch: int, hidden: int):
-            # Each row is a distinct seed * arange so vectors differ.
-            base = (
-                torch.arange(batch, dtype=torch.float32).reshape(-1, 1, 1)
-                + 1.0
-            )
-            arange = torch.arange(hidden, dtype=torch.float32).reshape(1, 1, hidden)
-            # Shape: (batch, seq_len, hidden); we only need [:, 0, :] later.
-            self.last_hidden_state = base * arange.repeat(1, 4, 1)
+        def __init__(self, batch: int, hidden: int, seed_base: int):
+            # Closes F6: each row is a fresh seeded random vector so
+            # post-normalization vectors are distinguishable.
+            rows = []
+            for i in range(batch):
+                gen = torch.Generator().manual_seed(seed_base + i)
+                rows.append(
+                    torch.randn(1, 4, hidden, generator=gen, dtype=torch.float32)
+                )
+            self.last_hidden_state = torch.cat(rows, dim=0)
 
     class _FakeModel:
         def __init__(self):
             self.eval_called = False
+            self._call_count = 0
 
         def eval(self):
             self.eval_called = True
@@ -176,7 +202,13 @@ def _fake_model_factory(emit_dim: int = EMBEDDING_DIM):
 
         def __call__(self, **kwargs):
             batch = kwargs["input_ids"].shape[0]
-            return _FakeOutput(batch, emit_dim)
+            # Use a different seed_base per call so successive batches
+            # produce different vectors even for identical inputs (this
+            # is fine because the tests don't rely on byte-equality
+            # between batches).
+            seed_base = 1000 * (self._call_count + 1)
+            self._call_count += 1
+            return _FakeOutput(batch, emit_dim, seed_base)
 
     return _FakeTokenizer(), _FakeModel()
 
@@ -340,8 +372,38 @@ class TestRouting:
         chunk_ids_proof = list(npz["chunk_ids_proof"])
         assert len(chunk_ids_stmt) == 2
         assert len(chunk_ids_proof) == 0
-        # And the proof column is a (0, 1024) sentinel, not absent.
+        # Closes F9: empty proof column is a (0, 1024) zero-row sentinel,
+        # NOT absent from the NPZ. Consumers must check
+        # ``len(chunk_ids_proof) > 0`` not key presence.
         assert npz["embedding_proof"].shape == (0, EMBEDDING_DIM)
+        # Closes F8: embedding_eq is reserved for E10_S03 and the
+        # embedder must NEVER populate it. Lock the negative invariant
+        # so a future refactor of _write_embeddings_npz that adds an
+        # embedding_eq array gets caught by the test suite.
+        assert "embedding_eq" not in npz.files
+
+    def test_npz_keys_are_alphabetical(self, tmp_path):
+        # Closes F5: ``np.savez`` writes archive members in kwargs
+        # insertion order. Lock that the four arrays land in
+        # alphabetical order so byte-stable NPZ files are an invariant.
+        paper_id = "2307.00004"
+        _stage_chunk_dir(
+            tmp_path,
+            paper_id,
+            [
+                _make_chunk(paper_id, "stmt", "Body A", suffix="0" * 16),
+                _make_chunk(paper_id, "proof", "Body B", suffix="1" * 16),
+            ],
+        )
+        _, embeddings_dir, _ = _patched_embed(tmp_path, paper_id)
+        npz = np.load(embeddings_dir / paper_id / "embeddings.npz", allow_pickle=True)
+        assert npz.files == sorted(npz.files)
+        assert npz.files == [
+            "chunk_ids_proof",
+            "chunk_ids_stmt",
+            "embedding_proof",
+            "embedding_stmt",
+        ]
 
     def test_other_kinds_route_to_embedding_stmt(self, tmp_path):
         # lemma / corollary / remark / example are emitted by the chunker
@@ -454,7 +516,10 @@ class TestStatsLogging:
         assert row["embedder_version"] == EMBEDDER_VERSION
         assert isinstance(row["elapsed_s"], (int, float))
 
-    def test_failure_writes_fail_status(self, tmp_path):
+    def test_failure_writes_fail_status_to_jsonl(self, tmp_path):
+        # Closes F1 from the E03_S01 critique: failed runs MUST also
+        # write to embed-stats.jsonl, not just to embed.log. Operators
+        # querying the JSONL audit trail must catch every paper attempt.
         paper_id = "2307.00031"
         # Stage a corrupt chunk_manifest.json by hand.
         paper_dir = tmp_path / "chunks" / paper_id
@@ -473,11 +538,58 @@ class TestStatsLogging:
             patch("ingest.embedder.EMBED_LOG_PATH", log_path),
         ):
             stats = embed_paper(paper_id)
-        # Failure goes to embed.log (TSV), not embed-stats.jsonl, but the
-        # returned EmbedStats reflects status="fail".
+        # Stats reflect the failure.
         assert stats.status == "fail"
         assert stats.error is not None
+        # Goes to BOTH the TSV log AND the structured JSONL.
         assert log_path.exists()
+        assert stats_path.exists()
+        line = stats_path.read_text(encoding="utf-8").strip()
+        row = json.loads(line)
+        assert row["status"] == "fail"
+        assert row["paper_id"] == paper_id
+        # Closes F4: error_class enum lets ops distinguish failure modes
+        # without grepping the free-text error field. A corrupt manifest
+        # file gets the manifest_corrupt class.
+        assert row["error_class"] == "manifest_corrupt"
+
+    def test_error_class_chunk_missing(self, tmp_path):
+        # Closes F4: when the manifest references a chunk file that does
+        # not exist on disk, the error_class must be chunk_missing (a P0
+        # corpus-corruption signal), distinct from manifest-absent
+        # (which takes the silent-skip path).
+        paper_id = "2307.00032"
+        paper_dir = tmp_path / "chunks" / paper_id
+        paper_dir.mkdir(parents=True)
+        (paper_dir / "chunk_manifest.json").write_text(
+            json.dumps(
+                {
+                    "chunker_version": "v1.0",
+                    "chunks": [
+                        {
+                            "chunk_id": f"arxiv:{paper_id}:" + "f" * 16,
+                            "kind": "stmt",
+                        }
+                    ],
+                    "paper_id": paper_id,
+                },
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+        chunks_dir = tmp_path / "chunks"
+        embeddings_dir = tmp_path / "embeddings"
+        stats_path = tmp_path / "ops" / "embed-stats.jsonl"
+        log_path = tmp_path / "ops" / "embed.log"
+        with (
+            patch("ingest.embedder.CHUNKS_DIR", chunks_dir),
+            patch("ingest.embedder.EMBEDDINGS_DIR", embeddings_dir),
+            patch("ingest.embedder.EMBED_STATS_PATH", stats_path),
+            patch("ingest.embedder.EMBED_LOG_PATH", log_path),
+        ):
+            stats = embed_paper(paper_id)
+        assert stats.status == "fail"
+        assert stats.error_class == "chunk_missing"
 
 
 # ===========================================================================
@@ -525,6 +637,31 @@ class TestThreat6:
         assert args[0] == "BAAI/bge-m3"
         assert kwargs.get("revision") == BGE_M3_COMMIT_SHA
         embedder_mod._tokenizer = None
+
+    def test_chunker_tokenizer_loaded_with_pinned_revision(self):
+        """Closes F7 from the E03_S01 critique: ``ingest.chunker._get_tokenizer``
+        must also pin to BGE_M3_COMMIT_SHA to satisfy Threat 6. Without it,
+        body_tokens drifts across runs as HuggingFace rotates the
+        tokenizer-only files for the floating ``main`` tag, while
+        ``chunker_version`` stays the same — a dormant cache-poisoning bomb
+        for BP1 byte-stability.
+        """
+        import ingest.chunker as chunker_mod
+
+        chunker_mod._tokenizer = None
+        fake_tok = MagicMock()
+        with patch(
+            "transformers.AutoTokenizer.from_pretrained", return_value=fake_tok
+        ) as load_call:
+            chunker_mod._get_tokenizer()
+        load_call.assert_called_once()
+        kwargs = load_call.call_args.kwargs
+        args = load_call.call_args.args
+        assert args[0] == "BAAI/bge-m3"
+        assert kwargs.get("revision") == BGE_M3_COMMIT_SHA, (
+            "chunker tokenizer must pin to BGE_M3_COMMIT_SHA (Threat 6, F7)"
+        )
+        chunker_mod._tokenizer = None
 
 
 # ===========================================================================
@@ -680,3 +817,121 @@ class TestEmbedCorpus:
             corpus_path=str(tmp_path / "missing"),
         )
         assert results == []
+
+    def test_run_summary_appended_to_jsonl(self, tmp_path):
+        # Closes F2 from the E03_S01 critique: embed_corpus must append
+        # one event="run_summary" JSONL line per call so dashboards can
+        # ingest a single "embed_corpus completed" event with aggregate
+        # paper_count, chunk_count, wall-clock seconds, and the pinned
+        # BGE_M3_COMMIT_SHA — distinct from per-paper rows.
+        for paper_id in ("2307.00060", "2307.00061"):
+            _stage_chunk_dir(
+                tmp_path,
+                paper_id,
+                [_make_chunk(paper_id, "stmt", "Body", suffix="0" * 16)],
+            )
+        chunks_dir = tmp_path / "chunks"
+        embeddings_dir = tmp_path / "embeddings"
+        stats_path = tmp_path / "ops" / "embed-stats.jsonl"
+        log_path = tmp_path / "ops" / "embed.log"
+        fake_tokenizer, fake_model = _fake_model_factory()
+        from ingest.preamble_types import PreambleDoc
+
+        preamble = PreambleDoc(
+            paper_id="x",
+            source_hash="0" * 64,
+            macros=[],
+            preamble_text="",
+            preamble_hash="0" * 16,
+        )
+        with (
+            patch("ingest.embedder.CHUNKS_DIR", chunks_dir),
+            patch("ingest.embedder.EMBEDDINGS_DIR", embeddings_dir),
+            patch("ingest.embedder.EMBED_STATS_PATH", stats_path),
+            patch("ingest.embedder.EMBED_LOG_PATH", log_path),
+            patch("ingest.embedder.load_preamble", return_value=preamble),
+            patch("ingest.embedder._get_tokenizer", return_value=fake_tokenizer),
+            patch("ingest.embedder._get_model", return_value=fake_model),
+        ):
+            embed_corpus(corpus_path=str(chunks_dir))
+        lines = [
+            json.loads(line)
+            for line in stats_path.read_text(encoding="utf-8").strip().splitlines()
+        ]
+        # 2 per-paper rows + 1 run_summary = 3 total.
+        assert len(lines) == 3
+        # Per-paper rows do not carry the "event" discriminator.
+        per_paper = [row for row in lines if "event" not in row]
+        run_summaries = [row for row in lines if row.get("event") == "run_summary"]
+        assert len(per_paper) == 2
+        assert len(run_summaries) == 1
+        summary = run_summaries[0]
+        assert summary["paper_count"] == 2
+        assert summary["chunk_count"] == 2
+        assert summary["fail_count"] == 0
+        assert summary["bge_m3_commit_sha"] == BGE_M3_COMMIT_SHA
+        assert summary["embedder_version"] == EMBEDDER_VERSION
+        assert isinstance(summary["elapsed_s"], (int, float))
+
+    def test_per_paper_failure_isolation(self, tmp_path):
+        # Closes F14 from the E03_S01 critique: a properly named
+        # per-paper-isolation test that stages multiple papers and forces
+        # one to fail mid-corpus, then asserts the others still complete
+        # AND the run_summary correctly reports fail_count.
+        for paper_id in ("2307.00070", "2307.00071"):
+            _stage_chunk_dir(
+                tmp_path,
+                paper_id,
+                [_make_chunk(paper_id, "stmt", "Body", suffix="0" * 16)],
+            )
+        chunks_dir = tmp_path / "chunks"
+        embeddings_dir = tmp_path / "embeddings"
+        stats_path = tmp_path / "ops" / "embed-stats.jsonl"
+        log_path = tmp_path / "ops" / "embed.log"
+        fake_tokenizer, fake_model = _fake_model_factory()
+        from ingest.preamble_types import PreambleDoc
+
+        preamble = PreambleDoc(
+            paper_id="x",
+            source_hash="0" * 64,
+            macros=[],
+            preamble_text="",
+            preamble_hash="0" * 16,
+        )
+        # Make the FIRST paper raise OSError when its chunks are loaded;
+        # the second paper should still succeed.
+        original_load_chunks = embedder_mod._load_chunks
+
+        def _selectively_failing_load_chunks(paper_id: str) -> list[dict]:
+            if paper_id == "2307.00070":
+                raise OSError("simulated I/O failure")
+            return original_load_chunks(paper_id)
+
+        with (
+            patch("ingest.embedder.CHUNKS_DIR", chunks_dir),
+            patch("ingest.embedder.EMBEDDINGS_DIR", embeddings_dir),
+            patch("ingest.embedder.EMBED_STATS_PATH", stats_path),
+            patch("ingest.embedder.EMBED_LOG_PATH", log_path),
+            patch("ingest.embedder.load_preamble", return_value=preamble),
+            patch("ingest.embedder._get_tokenizer", return_value=fake_tokenizer),
+            patch("ingest.embedder._get_model", return_value=fake_model),
+            patch(
+                "ingest.embedder._load_chunks",
+                side_effect=_selectively_failing_load_chunks,
+            ),
+        ):
+            results = embed_corpus(corpus_path=str(chunks_dir))
+        # Both papers attempted — failure of one does NOT abort the
+        # batch.
+        assert len(results) == 2
+        by_paper = {r.paper_id: r for r in results}
+        assert by_paper["2307.00070"].status == "fail"
+        assert by_paper["2307.00071"].status == "ok"
+        # Run summary captures fail_count.
+        lines = [
+            json.loads(line)
+            for line in stats_path.read_text(encoding="utf-8").strip().splitlines()
+        ]
+        summary = next(row for row in lines if row.get("event") == "run_summary")
+        assert summary["fail_count"] == 1
+        assert summary["paper_count"] == 2

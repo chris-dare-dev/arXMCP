@@ -116,9 +116,41 @@ EMBED_LOG_PATH = (
 PER_PAPER_FAILURE_EXCEPTIONS = (OSError, ValueError, FileNotFoundError)
 
 
+class _ChunkFileMissingError(FileNotFoundError):
+    """A manifest entry referenced a chunk file that is not on disk.
+
+    Distinct from the bare ``FileNotFoundError`` that a genuinely-absent
+    manifest would produce (the latter takes the silent-skip path in
+    ``_load_chunks``). Closes F4 from the E03_S01 adversary critique by
+    giving ops a way to distinguish "chunker hasn't run yet" from "corpus
+    state is internally inconsistent" via the ``error_class`` field on
+    :class:`EmbedStats`.
+    """
+
+
+class _ManifestCorruptError(ValueError):
+    """The chunk_manifest.json file exists but cannot be parsed."""
+
+
+class _ChunkJsonCorruptError(ValueError):
+    """A per-chunk JSON file exists but cannot be parsed."""
+
+
 # ---------------------------------------------------------------------------
 # Per-paper EmbedStats row (one JSON line per paper in embed-stats.jsonl)
 # ---------------------------------------------------------------------------
+
+
+# Closes F4 from E03_S01 critique: distinguish "manifest absent / chunker
+# hasn't run yet" (a routine wait-state) from genuine corpus corruption
+# (a manifest references a chunk file that does not exist on disk). Both
+# previously surfaced as a generic ``status="fail"`` row with free-text
+# ``error``; ops now has a queryable enum field instead of grep targets.
+EMBED_ERROR_CLASS_NONE = "none"
+EMBED_ERROR_CLASS_CHUNK_MISSING = "chunk_missing"
+EMBED_ERROR_CLASS_MANIFEST_CORRUPT = "manifest_corrupt"
+EMBED_ERROR_CLASS_JSON_CORRUPT = "json_corrupt"
+EMBED_ERROR_CLASS_OTHER = "other"
 
 
 @dataclass
@@ -126,8 +158,16 @@ class EmbedStats:
     """Per-paper embed run summary.
 
     One :class:`EmbedStats` is appended to
-    ``var/arxmcp/ops/embed-stats.jsonl`` per paper run. The aggregate
-    return of :func:`embed_corpus` is the list of all per-paper stats.
+    ``var/arxmcp/ops/embed-stats.jsonl`` per paper run **regardless of
+    outcome** — closes F1 from the E03_S01 adversary critique by
+    ensuring the JSONL audit trail captures every paper attempt, not
+    just successes. The aggregate return of :func:`embed_corpus` is the
+    list of all per-paper stats followed by one ``run_summary`` JSONL
+    line (closes F2).
+
+    The ``error_class`` field carries a small enum so ops can
+    distinguish manifest-missing / chunk-missing / json-corrupt failures
+    without grepping the ``error`` text (closes F4).
     """
 
     paper_id: str
@@ -139,6 +179,7 @@ class EmbedStats:
     bge_m3_commit_sha: str = field(default=BGE_M3_COMMIT_SHA)
     status: str = field(default="ok")
     error: str | None = field(default=None)
+    error_class: str = field(default=EMBED_ERROR_CLASS_NONE)
 
     def to_dict(self) -> dict:
         return {
@@ -148,6 +189,7 @@ class EmbedStats:
             "elapsed_s": round(self.elapsed_s, 3),
             "embedder_version": self.embedder_version,
             "error": self.error,
+            "error_class": self.error_class,
             "paper_id": self.paper_id,
             "status": self.status,
             "truncated_count": self.truncated_count,
@@ -198,7 +240,7 @@ def _get_model():
     global _model
     if _model is None:
         try:
-            import torch  # noqa: F401, PLC0415
+            import torch  # noqa: PLC0415
             from transformers import AutoModel  # noqa: PLC0415
         except ImportError as exc:  # pragma: no cover — dependency check
             raise ImportError(
@@ -215,9 +257,8 @@ def _get_model():
         # Default torch CPU thread count can be 1 on some configurations;
         # explicit setting eliminates the surprise. CPU-only by design —
         # never call .cuda() / .to("cuda"); GPU acceleration is an E11
-        # concern.
-        import torch  # noqa: PLC0415
-
+        # concern. Closes F11: ``torch`` is already imported above; no
+        # need to re-import inside this branch.
         torch.set_num_threads(os.cpu_count() or 4)
     return _model
 
@@ -252,13 +293,28 @@ def _build_embed_input(preamble_text: str, body_text: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _encode_batch(texts: list[str]) -> tuple[object, int]:
+def _encode_batch(
+    texts: list[str], chunk_ids: list[str] | None = None
+) -> tuple[object, int]:
     """Encode a list of texts to L2-normalized 1024-dim vectors.
 
     Returns ``(embeddings, truncated_count)`` where ``embeddings`` is a
     numpy ``float32`` array of shape ``(len(texts), EMBEDDING_DIM)`` and
     ``truncated_count`` is the number of inputs whose token sequence had
     to be truncated to fit ``MAX_TOKENS``.
+
+    Closes F3 from the E03_S01 adversary critique: the truncation count
+    is now derived from the SAME tokenizer call style that produces the
+    encode tensor, via a ``truncation=False, return_length=True``
+    pre-pass. The previous implementation made two distinct tokenizer
+    calls (one ``tokenizer.encode`` per text in a Python loop, then a
+    batch ``tokenizer(...)`` with truncation) that were not guaranteed
+    to produce identical token-id lengths for non-trivial inputs.
+
+    Closes F10: when ``chunk_ids`` is supplied, a per-chunk DEBUG log
+    fires on truncation so operators can identify which specific chunk
+    overflowed (the paper-level WARNING summary still fires once per
+    paper at the call site).
 
     Critical: raw ``transformers.AutoModel`` does NOT apply L2
     normalization by default — unlike ``BGEM3FlagModel.encode()``. The
@@ -272,14 +328,31 @@ def _encode_batch(texts: list[str]) -> tuple[object, int]:
     tokenizer = _get_tokenizer()
     model = _get_model()
 
-    # Pre-count truncations BEFORE the actual encode, so the warning fires
-    # with the input still in hand. Uses the same tokenizer as the encode
-    # call so the count is accurate.
+    # Closes F3: single no-truncation pre-pass that returns un-clipped
+    # length per text, matching the call-style of the actual encode
+    # below. ``return_length=True`` makes ``length`` a per-input list
+    # in the returned batch encoding.
+    pre = tokenizer(
+        texts,
+        padding=False,
+        truncation=False,
+        return_length=True,
+    )
+    lengths = pre["length"]
     truncated_count = 0
-    for text in texts:
-        ids = tokenizer.encode(text, add_special_tokens=True)
-        if len(ids) > MAX_TOKENS:
+    for i, length in enumerate(lengths):
+        if length > MAX_TOKENS:
             truncated_count += 1
+            # Closes F10: per-chunk DEBUG log so ops can identify which
+            # chunk overflowed. Paper-level WARNING summary still fires
+            # at the call site for the higher-signal path.
+            if chunk_ids is not None:
+                logger.debug(
+                    "truncation: chunk_id=%s tokens=%d cap=%d",
+                    chunk_ids[i],
+                    length,
+                    MAX_TOKENS,
+                )
 
     encoded = tokenizer(
         texts,
@@ -314,17 +387,31 @@ def _write_embeddings_npz(
 ) -> None:
     """Atomically write per-paper ``embeddings.npz`` via temp-then-rename.
 
-    The NPZ contains four arrays:
+    The NPZ contains four arrays, written in **alphabetical key order**
+    (closes F5 from the E03_S01 critique — ``np.savez`` writes archive
+    members in kwargs insertion order, so file bytes are deterministic
+    only if the kwargs order is fixed; alphabetical matches the
+    BP1-byte-stability discipline in 07-multi-agent-caching.md):
 
-    - ``chunk_ids_stmt``: 1-D string array, len N_stmt
-    - ``embedding_stmt``: float32 array, shape ``(N_stmt, EMBEDDING_DIM)``
     - ``chunk_ids_proof``: 1-D string array, len N_proof
+    - ``chunk_ids_stmt``: 1-D string array, len N_stmt
     - ``embedding_proof``: float32 array, shape ``(N_proof, EMBEDDING_DIM)``
+    - ``embedding_stmt``: float32 array, shape ``(N_stmt, EMBEDDING_DIM)``
 
     Splitting the chunk_id arrays per-column (rather than a single
     ``chunk_ids`` plus aligned dual-column matrices) lets E04_S01 directly
     iterate ``zip(chunk_ids_stmt, embedding_stmt)`` without carrying
     null-vector rows. Closes the routing-table contract from D5.
+
+    **Empty-paper / single-column edge cases (closes F9):** when a paper
+    has zero proof chunks (or zero stmt chunks), the corresponding
+    array is written as a ``(0, EMBEDDING_DIM)`` zero-row array — NOT
+    omitted from the NPZ. Consumers MUST check ``len(chunk_ids_*) > 0``
+    or equivalently ``embedding_*.shape[0] > 0`` before iterating, and
+    must NOT rely on key presence (``"embedding_proof" in npz.files``)
+    as a signal of absence. The zero-row sentinel is preferred over
+    omitting the key because it makes the NPZ schema invariant across
+    papers.
 
     Atomic write pattern matches ``preamble._write_preamble_json``:
     PID + UUID-suffixed tmp path, ``np.savez``, ``os.replace``,
@@ -343,13 +430,16 @@ def _write_embeddings_npz(
         # and the os.replace below would then fail on a missing path.
         # Open the tmp ourselves and hand np.savez a file object so it
         # writes exactly where we asked.
+        # Closes F5: kwargs in alphabetical order — ``np.savez`` writes
+        # archive members in kwargs insertion order, so this ordering is
+        # load-bearing for byte-stable NPZ files.
         with tmp.open("wb") as fh:
             np.savez(
                 fh,
-                chunk_ids_stmt=np.asarray(chunk_ids_stmt, dtype=object),
-                embedding_stmt=embedding_stmt,
                 chunk_ids_proof=np.asarray(chunk_ids_proof, dtype=object),
+                chunk_ids_stmt=np.asarray(chunk_ids_stmt, dtype=object),
                 embedding_proof=embedding_proof,
+                embedding_stmt=embedding_stmt,
             )
         os.replace(tmp, out_path)
     finally:
@@ -376,11 +466,15 @@ def _load_chunks(paper_id: str) -> list[dict]:
     paper_dir = CHUNKS_DIR / paper_id
     manifest_path = paper_dir / "chunk_manifest.json"
     if not manifest_path.exists():
+        # Manifest absent — chunker has not run yet for this paper. This
+        # is a routine wait-state, NOT a failure: the corpus driver may
+        # invoke embed for paper_ids before the chunker has produced
+        # output. Closes F4: silent skip with empty list, no exception.
         return []
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError) as exc:
-        raise ValueError(
+        raise _ManifestCorruptError(
             f"could not read chunk_manifest.json for {paper_id}: {exc}"
         ) from exc
 
@@ -392,13 +486,16 @@ def _load_chunks(paper_id: str) -> list[dict]:
         hash_suffix = chunk_id.rsplit(":", 1)[-1]
         chunk_path = paper_dir / f"{hash_suffix}.json"
         if not chunk_path.exists():
-            raise FileNotFoundError(
+            # The manifest references a chunk file that is not on disk.
+            # This is genuine corpus corruption (a P0 ops signal),
+            # distinct from manifest-absent. Closes F4.
+            raise _ChunkFileMissingError(
                 f"chunk file {chunk_path} listed in manifest is missing"
             )
         try:
             chunks.append(json.loads(chunk_path.read_text(encoding="utf-8")))
         except json.JSONDecodeError as exc:
-            raise ValueError(
+            raise _ChunkJsonCorruptError(
                 f"corrupt chunk JSON at {chunk_path}: {exc}"
             ) from exc
     return chunks
@@ -467,7 +564,19 @@ def embed_paper(paper_id: str, batch_size: int = EMBED_BATCH_DEFAULT) -> EmbedSt
         elapsed = time.monotonic() - start
         _log_embed_failure(paper_id, elapsed, str(exc))
         logger.error("[%s] embed_paper failed: %s", paper_id, exc, exc_info=True)
-        return EmbedStats(
+        # Closes F4: map specific exception subclasses to error_class
+        # enum values so ops can distinguish "chunker hasn't run yet"
+        # (manifest absent path takes the silent-skip branch and never
+        # reaches here) from "corpus state is inconsistent".
+        if isinstance(exc, _ChunkFileMissingError):
+            error_class = EMBED_ERROR_CLASS_CHUNK_MISSING
+        elif isinstance(exc, _ManifestCorruptError):
+            error_class = EMBED_ERROR_CLASS_MANIFEST_CORRUPT
+        elif isinstance(exc, _ChunkJsonCorruptError):
+            error_class = EMBED_ERROR_CLASS_JSON_CORRUPT
+        else:
+            error_class = EMBED_ERROR_CLASS_OTHER
+        stats = EmbedStats(
             paper_id=paper_id,
             chunks_processed=0,
             chunks_skipped=0,
@@ -475,7 +584,14 @@ def embed_paper(paper_id: str, batch_size: int = EMBED_BATCH_DEFAULT) -> EmbedSt
             elapsed_s=elapsed,
             status="fail",
             error=str(exc),
+            error_class=error_class,
         )
+        # Closes F1: failed runs MUST also write to embed-stats.jsonl so
+        # ops queries against the JSONL audit trail catch every paper
+        # attempt, not just the successes. The TSV embed.log is a
+        # human-friendly grep target; the JSONL is the structured one.
+        _append_embed_stats(stats)
+        return stats
 
 
 def _embed_paper_impl(paper_id: str, batch_size: int) -> EmbedStats:
@@ -528,7 +644,9 @@ def _embed_paper_impl(paper_id: str, batch_size: int) -> EmbedStats:
     truncated_total = 0
     for batch_start in range(0, len(embed_inputs), batch_size):
         batch_texts = embed_inputs[batch_start : batch_start + batch_size]
-        vectors, truncated_in_batch = _encode_batch(batch_texts)
+        # Pass chunk_ids slice for F10 per-chunk DEBUG log on truncation.
+        batch_ids = chunk_ids_in_order[batch_start : batch_start + batch_size]
+        vectors, truncated_in_batch = _encode_batch(batch_texts, chunk_ids=batch_ids)
         all_vectors.append(vectors)
         truncated_total += truncated_in_batch
     all_array = np.concatenate(all_vectors, axis=0)
@@ -636,6 +754,7 @@ def embed_corpus(
             continue
         paper_ids.append(entry.name)
 
+    run_started = time.monotonic()
     results: list[EmbedStats] = []
     for paper_id in paper_ids:
         # Validation runs OUTSIDE the per-paper exception envelope inside
@@ -654,4 +773,47 @@ def embed_corpus(
             continue
         results.append(embed_paper(paper_id, batch_size=batch_size))
 
+    # Closes F2 from E03_S01 critique: brief says "embed-stats.jsonl
+    # entry written per run, including paper count, chunk count,
+    # wall-clock seconds, and the pinned BGE_M3_COMMIT_SHA." The
+    # per-paper rows already carry this for individual papers, but the
+    # run boundary itself was unobservable to ops. Append one
+    # ``event="run_summary"`` JSONL line per ``embed_corpus`` call so
+    # dashboards can ingest "embed_corpus completed" events directly.
+    elapsed_s = time.monotonic() - run_started
+    _append_run_summary(results, elapsed_s)
     return results
+
+
+def _append_run_summary(
+    results: list[EmbedStats], elapsed_s: float
+) -> None:
+    """Append a corpus-level run-summary JSONL line.
+
+    Closes F2: ops dashboards now have a single event per
+    :func:`embed_corpus` call with aggregate ``paper_count``,
+    ``chunk_count``, ``wall_clock_seconds``, and the pinned
+    ``BGE_M3_COMMIT_SHA``. Per-paper rows are unchanged; this line is
+    additional, not a replacement, distinguished from per-paper rows by
+    its ``event="run_summary"`` discriminator (the only top-level field
+    not present on per-paper rows).
+    """
+    paper_count = len(results)
+    chunk_count = sum(r.chunks_processed for r in results)
+    fail_count = sum(1 for r in results if r.status == "fail")
+    summary = {
+        "bge_m3_commit_sha": BGE_M3_COMMIT_SHA,
+        "chunk_count": chunk_count,
+        "elapsed_s": round(elapsed_s, 3),
+        "embedder_version": EMBEDDER_VERSION,
+        "event": "run_summary",
+        "fail_count": fail_count,
+        "paper_count": paper_count,
+    }
+    EMBED_STATS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    line = json.dumps(summary, ensure_ascii=False, sort_keys=True) + "\n"
+    try:
+        with EMBED_STATS_PATH.open("a", encoding="utf-8") as fh:
+            fh.write(line)
+    except OSError:
+        logger.error("could not write run_summary to %s", EMBED_STATS_PATH)
