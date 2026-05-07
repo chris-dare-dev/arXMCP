@@ -128,10 +128,13 @@ class TestAtomFeedParsing:
         assert candidates[0].primary_category == "math.AG"
         assert candidates[1].primary_category == "math.NT"
 
-    def test_truncates_abstract_head(self):
+    def test_abstract_head_carries_full_text_truncates_in_tsv(self):
         candidates = parse_atom_feed(self.SAMPLE_FEED.encode())
-        assert len(candidates[0].abstract_head) <= 120
+        assert len(candidates[0].abstract_head) > 120
         assert "smooth projective" in candidates[0].abstract_head
+        assert "étale base change" in candidates[0].abstract_head
+        tsv_abstract = candidates[0].as_tsv_row().split("\t")[-1]
+        assert len(tsv_abstract) == 120
 
 
 class TestFilterCandidates:

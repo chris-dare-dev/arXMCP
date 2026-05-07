@@ -60,7 +60,7 @@ class Candidate:
                 str(self.submitted_year),
                 str(self.n_authors),
                 self.primary_category,
-                self.abstract_head,
+                self.abstract_head[:120],
             ]
         )
 
@@ -96,7 +96,7 @@ def parse_atom_feed(xml_bytes: bytes) -> list[Candidate]:
         primary_cat = primary.attrib.get("term", "") if primary is not None else ""
 
         summary = (entry.findtext("atom:summary", default="", namespaces=ATOM_NS) or "").strip()
-        abstract_head = " ".join(summary.split())[:120]
+        abstract_head = " ".join(summary.split())
 
         out.append(
             Candidate(
