@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"/><title>Malformed HTML graceful degradation test</title></head>
+<body>
+<article class="ltx_document">
+  <section class="ltx_section" id="S1">
+    <h2 class="ltx_title ltx_title_section">1. Incomplete Section</h2>
+
+    <!-- Theorem with unclosed div — html.parser should handle gracefully -->
+    <div class="ltx_theorem ltx_theorem_theorem" id="S1.Thmtheorem1">
+      <h6 class="ltx_title ltx_runin ltx_font_bold ltx_title_theorem">Theorem 1.1.</h6>
+      <div class="ltx_para">
+        <p class="ltx_p">This theorem has well-formed content even if surrounding HTML is imperfect.</p>
+      </div>
+    </div>
+
+    <div class="ltx_proof">
+      <h6 class="ltx_title ltx_runin ltx_font_italic ltx_title_proof">Proof.</h6>
+      <div class="ltx_para">
+        <!-- Empty proof body — should still emit a chunk -->
+      </div>
+    </div>
+
+    <!-- Definition with no closing tag — html.parser auto-closes -->
+    <div class="ltx_theorem ltx_theorem_definition" id="S1.Thmdefn1">
+      <h6 class="ltx_title ltx_runin ltx_font_bold ltx_title_definition">Definition 1.2.</h6>
+      <div class="ltx_para">
+        <p class="ltx_p">A morphism is called flat if it is locally of flat type.
+  </section>
+</article>
+</body>
+</html>

@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"/><title>Multi-kind Environments Paper</title></head>
+<body>
+<article class="ltx_document">
+  <section class="ltx_section" id="S1">
+    <h2 class="ltx_title ltx_title_section">1. Definitions and Lemmas</h2>
+
+    <div class="ltx_para">
+      <p class="ltx_p">In this section we establish notation and recall basic definitions
+      from sheaf theory that will be used throughout the paper. Our conventions
+      follow standard references, with one exception noted below in Remark 1.2.
+      The reader familiar with this material may safely skip to the next section.</p>
+    </div>
+
+    <!-- Definition (no paired proof) -->
+    <div class="ltx_theorem ltx_theorem_definition" id="S1.Thmdefn1">
+      <h6 class="ltx_title ltx_runin ltx_font_bold ltx_title_definition">Definition 1.1.</h6>
+      <div class="ltx_para">
+        <p class="ltx_p">A <em class="ltx_emph ltx_font_italic">sheaf</em> on a topological space X is
+        a functor satisfying the gluing axiom and the locality axiom.</p>
+      </div>
+    </div>
+
+    <!-- Remark (no paired proof) -->
+    <div class="ltx_theorem ltx_theorem_remark" id="S1.Thmremark1">
+      <h6 class="ltx_title ltx_runin ltx_font_bold ltx_title_remark">Remark 1.2.</h6>
+      <div class="ltx_para">
+        <p class="ltx_p">Note that presheaves do not satisfy the gluing axiom in general.</p>
+      </div>
+    </div>
+
+    <!-- Lemma with explicit label and paired proof -->
+    <div class="ltx_theorem ltx_theorem_lemma" id="key-lemma">
+      <h6 class="ltx_title ltx_runin ltx_font_bold ltx_title_lemma">Lemma 1.3 (Key Lemma).</h6>
+      <div class="ltx_para">
+        <p class="ltx_p">Every injective sheaf is flasque.</p>
+      </div>
+    </div>
+
+    <div class="ltx_proof">
+      <h6 class="ltx_title ltx_runin ltx_font_italic ltx_title_proof">Proof.</h6>
+      <div class="ltx_para">
+        <p class="ltx_p">Let F be an injective sheaf. We show every restriction map is surjective.
+        Consider any open inclusion U subset V. By injectivity of F, the map
+        Hom(j_! Z_U, F) to Hom(Z_V, F) is surjective. This gives the claim.</p>
+      </div>
+    </div>
+
+    <!-- Corollary with auto id, no proof -->
+    <div class="ltx_theorem ltx_theorem_corollary" id="S1.Thmcorollary1">
+      <h6 class="ltx_title ltx_runin ltx_font_bold ltx_title_corollary">Corollary 1.4.</h6>
+      <div class="ltx_para">
+        <p class="ltx_p">Injective resolutions of sheaves always exist.</p>
+      </div>
+    </div>
+
+    <!-- Example with auto id, no proof -->
+    <div class="ltx_theorem ltx_theorem_example" id="S1.Thmexample1">
+      <h6 class="ltx_title ltx_runin ltx_font_bold ltx_title_example">Example 1.5.</h6>
+      <div class="ltx_para">
+        <p class="ltx_p">The constant sheaf Z on a manifold is a canonical example.</p>
+      </div>
+    </div>
+
+    <!-- Section prose -->
+    <p class="ltx_p">In this section we develop the foundations of sheaf theory required
+    for the main results. The reader familiar with Grothendieck's six operations may
+    skip ahead to Section 2 where we apply these tools.</p>
+  </section>
+
+  <section class="ltx_section" id="S2">
+    <h2 class="ltx_title ltx_title_section">2. Main Theorem</h2>
+
+    <div class="ltx_theorem ltx_theorem_theorem" id="main-thm">
+      <h6 class="ltx_title ltx_runin ltx_font_bold ltx_title_theorem">Theorem 2.1 (Main Theorem).</h6>
+      <div class="ltx_para">
+        <p class="ltx_p">Under the hypotheses of the previous section, the derived pushforward
+        commutes with flat base change.</p>
+      </div>
+    </div>
+
+    <!-- Orphan proof: no preceding theorem sibling in this direct scope -->
+    <!-- Intentionally placing a remark BETWEEN theorem and proof -->
+    <div class="ltx_theorem ltx_theorem_remark" id="S2.Thmremark1">
+      <h6 class="ltx_title ltx_runin ltx_font_bold ltx_title_remark">Remark 2.2.</h6>
+      <div class="ltx_para">
+        <p class="ltx_p">The base change condition is necessary as shown by a counterexample.</p>
+      </div>
+    </div>
+
+    <!-- This proof follows a remark — the theorem.is unmatched -->
+    <div class="ltx_proof">
+      <h6 class="ltx_title ltx_runin ltx_font_italic ltx_title_proof">Proof of Theorem 2.1.</h6>
+      <div class="ltx_para">
+        <p class="ltx_p">We use the flat base change theorem. The key steps are: (1) reduce to
+        the affine case, (2) apply the Kunneth formula, (3) use cohomology and base change.</p>
+      </div>
+    </div>
+  </section>
+</article>
+</body>
+</html>

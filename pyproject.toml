@@ -6,6 +6,16 @@ requires-python = ">=3.11"
 readme = "README.md"
 license = { text = "MIT" }
 
+dependencies = [
+    # beautifulsoup4: HTML5 parse-tree walker for LaTeXML output (no C deps;
+    #   uses html.parser backend bundled with Python). Added for E02_S01.
+    "beautifulsoup4>=4.12",
+    # transformers: BGE-M3 tokenizer for token-budget enforcement in the
+    #   chunker. Loads tokenizer vocab only (~5 MB cached); NOT full model
+    #   weights, so torch is NOT required. Added for E02_S01.
+    "transformers>=4.40",
+]
+
 [project.optional-dependencies]
 dev = [
     "ruff>=0.5",
