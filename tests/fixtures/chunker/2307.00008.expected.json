@@ -12,9 +12,9 @@
   ],
   "kind_counts": {
     "definition": 3,
-    "proof": 0,
-    "section": 2,
-    "stmt": 0
+    "example": 1,
+    "remark": 1,
+    "section": 2
   },
   "paper_id": "2307.00008"
 }

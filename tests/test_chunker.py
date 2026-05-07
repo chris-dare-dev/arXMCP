@@ -1304,43 +1304,88 @@ class TestFixtureSuite:
 
     @pytest.mark.parametrize("paper_id", _FIXTURE_SUITE_IDS)
     def test_kind_counts_match(self, paper_id, tmp_path):
+        # Closes F4: ``kind_counts`` now pins the FULL distribution of
+        # emitted kinds, not just stmt/proof/section/definition. Drift in
+        # lemma/corollary/remark/example/proposition/conjecture counts
+        # would previously have been invisible at the kind level.
+        from collections import Counter
         expected = _load_expected_fixture(paper_id)
         chunks = self._run(tmp_path, paper_id)
-        # The fixture's kind_counts dict pins exactly four canonical kinds.
-        # Other kinds (lemma, corollary, remark, example, proposition,
-        # conjecture, ...) are emitted but not pinned per-fixture.
-        actual = {"stmt": 0, "proof": 0, "section": 0, "definition": 0}
-        for c in chunks:
-            if c.kind in actual:
-                actual[c.kind] += 1
+        actual = dict(Counter(c.kind for c in chunks))
         assert actual == expected["kind_counts"], (
             f"{paper_id} kind_counts mismatch:\n  got      {actual}\n"
             f"  expected {expected['kind_counts']}"
         )
 
     @pytest.mark.parametrize("paper_id", _FIXTURE_SUITE_IDS)
-    def test_expected_chunk_ids_present(self, paper_id, tmp_path):
+    def test_expected_chunk_ids_in_document_order(self, paper_id, tmp_path):
+        # Closes F3: list-equality (not subset). The expected_chunk_ids
+        # array in expected.json is in document order; the chunker output
+        # must match exactly. A reorder (e.g. F4-style class-bucketing
+        # regression) would previously have been invisible to this test
+        # because the prior subset check used a set comparison.
         expected = _load_expected_fixture(paper_id)
         chunks = self._run(tmp_path, paper_id)
-        emitted = {c.chunk_id for c in chunks}
-        # Every committed chunk_id must appear in the chunker output.
-        # This is the byte-stability lock: if any chunk_id changes, the
-        # test fails with a precise diff.
-        for expected_id in expected["expected_chunk_ids"]:
-            assert expected_id in emitted, (
-                f"{paper_id}: expected chunk_id {expected_id!r} not found "
-                f"in emitted ids — chunker output drift?"
-            )
+        emitted = [c.chunk_id for c in chunks]
+        assert emitted == expected["expected_chunk_ids"], (
+            f"{paper_id}: chunk_id document-order mismatch.\n"
+            f"  emitted:  {emitted}\n"
+            f"  expected: {expected['expected_chunk_ids']}"
+        )
 
-    @pytest.mark.parametrize("paper_id", _FIXTURE_SUITE_IDS)
-    def test_chunker_version_matches_constant(self, paper_id, tmp_path):
+    def test_chunker_version_matches_constant_globally(self):
+        # Closes F8: previously parametrized over all 10 fixtures, which
+        # produced 10 redundant failure reports for one underlying issue
+        # on a CHUNKER_VERSION bump. One assertion now reports the full
+        # mismatch list and exits.
         from ingest.chunker_types import CHUNKER_VERSION
-        expected = _load_expected_fixture(paper_id)
-        assert expected["chunker_version"] == CHUNKER_VERSION, (
-            f"{paper_id}.expected.json has chunker_version "
-            f"{expected['chunker_version']!r}; current CHUNKER_VERSION is "
-            f"{CHUNKER_VERSION!r}. Fixture must be regenerated when the "
-            f"constant bumps; see docs/chunker-fixtures.md."
+        mismatches = []
+        for paper_id in _FIXTURE_SUITE_IDS:
+            expected = _load_expected_fixture(paper_id)
+            if expected["chunker_version"] != CHUNKER_VERSION:
+                mismatches.append(
+                    f"{paper_id}: fixture chunker_version="
+                    f"{expected['chunker_version']!r}"
+                )
+        assert not mismatches, (
+            f"chunker_version drift in fixtures (current CHUNKER_VERSION="
+            f"{CHUNKER_VERSION!r}); regenerate per docs/chunker-fixtures.md"
+            f":\n  " + "\n  ".join(mismatches)
+        )
+
+    def test_2307_00006_section_path_three_levels_deep(self, tmp_path):
+        # Closes F2: chunk_id hash does NOT include section_path, so a
+        # section-path regression on the deeply-nested fixture would be
+        # invisible to byte-stability checks. This direct assertion pins
+        # the 3-element section_path on the deepest theorem.
+        chunks = self._run(tmp_path, "2307.00006")
+        # Find the stmt chunk for the buried theorem
+        stmt = next((c for c in chunks if c.kind == "stmt"), None)
+        assert stmt is not None, "2307.00006 must emit a stmt chunk"
+        assert stmt.section_path == [
+            "1. Deep section nesting",
+            "1.1 Outer subsection",
+            "1.1.1 Inner subsubsection",
+        ], (
+            f"2307.00006 buried theorem section_path mismatch: "
+            f"got {stmt.section_path!r}"
+        )
+
+    def test_2307_00010_alttext_uses_real_latex(self, tmp_path):
+        # Closes F1 (regression guard): verify the alttext fixture
+        # actually contains real LaTeX (single-backslash) in body_text,
+        # not the literal double-backslash sequence the prior version
+        # accidentally locked in. Uses raw string to disambiguate.
+        chunks = self._run(tmp_path, "2307.00010")
+        all_body = " ".join(c.body_text for c in chunks)
+        assert r"$\langle\cdot,\cdot\rangle$" in all_body, (
+            "2307.00010 must preserve single-backslash LaTeX in body_text "
+            "(F1 regression guard): the fixture's <math alttext> "
+            "attributes must use real LaTeX commands, not double-escaped."
+        )
+        assert r"\\langle" not in all_body, (
+            "2307.00010 must NOT contain double-backslash LaTeX literals — "
+            "those are an authoring bug, not real LaTeXML output."
         )
 
     def test_multi_window_proof_fixture_exists(self, tmp_path):

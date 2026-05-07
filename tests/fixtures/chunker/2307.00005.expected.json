@@ -9,10 +9,10 @@
     "arxiv:2307.00005:19d65dc3786ee794"
   ],
   "kind_counts": {
-    "definition": 0,
+    "conjecture": 1,
     "proof": 1,
-    "section": 1,
-    "stmt": 0
+    "proposition": 2,
+    "section": 1
   },
   "paper_id": "2307.00005"
 }

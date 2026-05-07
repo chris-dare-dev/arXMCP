@@ -16,7 +16,7 @@ A real-corpus fixture suite would require a stable LaTeXML version pin (LaTeXML 
 | `2307.00002` | Multi-kind environments + orphan proof + section prose | 1 | 2 | 1 | 1 | lemma, corollary, remark, example |
 | `2307.00003` | Short-proof fallback (placeholder body — paired but does NOT split) | 1 | 1 | 0 | 0 | — |
 | `2307.00004` | Malformed HTML graceful degradation | 1 | 1 | 0 | 1 | — |
-| `2307.00005` | Proposition + conjecture environment kinds | 0 | 1 | 1 | 0 | proposition, conjecture |
+| `2307.00005` | Proposition + conjecture environment kinds | 0 | 1 | 1 | 0 | proposition × 2, conjecture × 1 |
 | `2307.00006` | Deeply nested section path (3 levels) | 1 | 1 | 3 | 0 | — |
 | `2307.00007` | **Multi-window proof** (long proof body splits into ≥2 windows) | 1 | 3 | 1 | 0 | — |
 | `2307.00008` | **No proof environments** (definition-heavy, zero `\proof`) | 0 | 0 | 2 | 3 | example, remark |
@@ -38,50 +38,50 @@ Each fixture's golden output lives at `tests/fixtures/chunker/<paper_id>.expecte
     ...
   ],
   "kind_counts": {
-    "definition": 0,
     "proof": 2,
-    "section": 0,
     "stmt": 2
   },
   "paper_id": "2307.00001"
 }
 ```
 
-`kind_counts` pins exactly the four canonical kinds (`stmt`, `proof`, `section`, `definition`). Other kinds (lemma, corollary, remark, etc.) are emitted by the chunker but not pinned per-fixture — they're stable across runs by virtue of `chunk_id`'s content-addressable derivation, so the `expected_chunk_ids` list still locks them in.
+`kind_counts` pins the **full distribution** of emitted kinds for that fixture (`stmt`, `proof`, `section`, `definition`, plus any of `lemma`, `corollary`, `remark`, `example`, `proposition`, `conjecture`, etc. that the fixture exercises). Pinning every kind makes drift visible in the test failure message rather than only via chunk_id mismatches (closes F4 from the E02_S05 critique). `expected_chunk_ids` is in document order; the fixture-suite test asserts list-equality, not subset membership, so a reorder regression also fails fast (closes F3).
 
 ## Bootstrapping a new fixture
 
 1. **Author** the HTML at `tests/fixtures/chunker/<paper_id>/index.html`. Use a synthetic paper ID (`2307.000NN`) that doesn't collide with existing ones. Keep the HTML minimal — just enough to exercise the target scenario.
-2. **Generate** the `expected.json` by running the chunker once with `_resolve_preamble_doc` patched to None (no `.tex` source for synthetic IDs):
+2. **Generate** the `expected.json` by running the chunker once with `_resolve_preamble_doc` patched to None (no `.tex` source for synthetic IDs). Use `tempfile.TemporaryDirectory` so the staging area is cleaned up automatically (closes F7 from the E02_S05 critique):
 
    ```python
    from unittest.mock import patch
    from pathlib import Path
+   from collections import Counter
    import shutil, json, tempfile
    from ingest.chunker import chunk_paper, CHUNKER_VERSION
 
    paper_id = "2307.000NN"
-   tmp = Path(tempfile.mkdtemp())
-   parsed = tmp / "parsed" / paper_id
-   parsed.mkdir(parents=True)
-   shutil.copy(f"tests/fixtures/chunker/{paper_id}/index.html",
-               parsed / "index.html")
-   with (
-       patch("ingest.chunker.PARSED_DIR", tmp / "parsed"),
-       patch("ingest.chunker.CHUNKS_DIR", tmp / "chunks"),
-       patch("ingest.chunker._resolve_preamble_doc", return_value=None),
-   ):
-       chunks = chunk_paper(paper_id)
+   with tempfile.TemporaryDirectory() as tmp_str:
+       tmp = Path(tmp_str)
+       parsed = tmp / "parsed" / paper_id
+       parsed.mkdir(parents=True)
+       shutil.copy(f"tests/fixtures/chunker/{paper_id}/index.html",
+                   parsed / "index.html")
+       with (
+           patch("ingest.chunker.PARSED_DIR", tmp / "parsed"),
+           patch("ingest.chunker.CHUNKS_DIR", tmp / "chunks"),
+           patch("ingest.chunker._resolve_preamble_doc", return_value=None),
+       ):
+           chunks = chunk_paper(paper_id)
 
-   kind_counts = {"stmt": 0, "proof": 0, "section": 0, "definition": 0}
-   for c in chunks:
-       if c.kind in kind_counts:
-           kind_counts[c.kind] += 1
+   # Full kind distribution per F4: every emitted kind is pinned, not
+   # just the four canonical ones. Drift in lemma/corollary/remark/example
+   # is now visible in the test failure message.
+   kind_counts = dict(Counter(c.kind for c in chunks))
    expected = {
        "paper_id": paper_id,
        "chunk_count": len(chunks),
        "kind_counts": kind_counts,
-       "expected_chunk_ids": [c.chunk_id for c in chunks],
+       "expected_chunk_ids": [c.chunk_id for c in chunks],  # in document order
        "chunker_version": CHUNKER_VERSION,
    }
    Path(f"tests/fixtures/chunker/{paper_id}.expected.json").write_text(
@@ -97,10 +97,11 @@ Each fixture's golden output lives at `tests/fixtures/chunker/<paper_id>.expecte
 
 If a chunker change legitimately alters chunk_ids (e.g. a `chunker_version` bump from `"v1.0"` to `"v1.1"`):
 
+0. **Do NOT modify any committed `index.html` files** (closes F6 from the E02_S05 critique). Regeneration only refreshes `<paper_id>.expected.json` from the existing committed HTML — re-authoring the HTML by hand defeats determinism. To change a fixture's input, follow the bootstrap procedure above as if it were a new fixture and update both files in lockstep with the eval-harness queries.
 1. **Bump** `CHUNKER_VERSION` in `ingest/chunker_types.py`.
 2. **Re-bootstrap** all 10 `expected.json` files using the procedure above (loop over `_FIXTURE_SUITE_IDS`).
 3. **Update** the eval harness (`tests/eval/fixtures/queries.json` from E05_S01) in lockstep — any query that references a chunk_id now invalidated must point to the new id.
-4. **Land** all three changes (chunker, fixture goldens, eval queries) in **one commit** so the repo is never in a state where `pytest tests/test_chunker.py::TestFixtureSuite::test_chunker_version_matches_constant` fails.
+4. **Land** all three changes (chunker, fixture goldens, eval queries) in **one commit** so the repo is never in a state where `pytest tests/test_chunker.py::TestFixtureSuite::test_chunker_version_matches_constant_globally` fails.
 
 ## CI integration
 
@@ -109,3 +110,22 @@ If a chunker change legitimately alters chunk_ids (e.g. a `chunker_version` bump
 ## LaTeXML version note
 
 Because all 10 fixtures are hand-crafted HTML (not LaTeXML output), **LaTeXML version drift is irrelevant for this suite**. The risk note in the milestone brief about pinning the LaTeXML version applies only to a future real-corpus fixture suite, which would need to record the LaTeXML version in this document and in `pyproject.toml`.
+
+## Cold-start CI note (BGE-M3 tokenizer download)
+
+The fixture suite imports `ingest.chunker`, which lazily loads the BGE-M3 tokenizer on first call to `_get_tokenizer()` (at `ingest/chunker.py`). On a CI runner with no `~/.cache/huggingface` cache, this triggers a one-time download (~5 MB) for the tokenizer files. On a constrained CI network this can add 10–30s to the first run; subsequent runs use the cache. Closes F5 from the E02_S05 critique.
+
+For fully-offline CI (no internet from the test runners), pre-populate the cache during the bootstrap step:
+
+```bash
+python -c "from ingest.chunker import _get_tokenizer; _get_tokenizer()"
+export HF_HUB_OFFLINE=1
+```
+
+The first command downloads vocab + config; the env var prevents subsequent network access. The 60-second budget then comfortably holds even on cold runners.
+
+## Coverage gaps (deliberate, deferred)
+
+`TestFixtureSuite._run` patches `_resolve_preamble_doc` to return `None` for every fixture, so all chunk_ids are computed with `preamble_text=""`. This forecloses any fixture exercising the preamble-prepended branch of `_compute_chunk_id`. Closes F9 from the E02_S05 critique by documenting (rather than fixing) the gap; a follow-up could add a single preamble-aware fixture by NOT patching `_resolve_preamble_doc` and instead pre-populating the per-paper `preamble.json` under a patched `PREAMBLE_DIR`.
+
+Section_path correctness is locked for fixture 2307.00006 by `test_2307_00006_section_path_three_levels_deep` (closes F2 from the E02_S05 critique). Document order is locked globally by `test_expected_chunk_ids_in_document_order` using list-equality across all fixtures (closes F3).
