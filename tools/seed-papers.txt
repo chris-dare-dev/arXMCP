@@ -1,0 +1,15 @@
+# arXMCP Tier-0 seed corpus — 50 math.AG arXiv IDs
+#
+# One paper per line. Lines starting with '#' and blank lines are ignored.
+# IDs must be new-style YYMM.NNNNN[N] (post-2010); old-style and pre-2007
+# OCR-only papers are out of scope per .claude/notes/09-feature-priorities.md.
+#
+# Curation: run `tools/curate_seed.py` to pull math.AG candidates from the
+# arXiv API ranked by .tex/.sty simplicity heuristic, then human-review the
+# output and copy 50 IDs here. The single ID below is the E01_S02 smoke-test
+# target — verify it parses with `python tools/fetch_one_paper.py <id>`
+# before relying on it. If parse fails, swap it for any clean post-2018
+# math.AG paper from your curate_seed.py output.
+#
+# E01_S02 smoke-test target (verify before relying):
+2307.01156
