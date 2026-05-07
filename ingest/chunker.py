@@ -36,9 +36,15 @@ Determinism (BP1)
 -----------------
 *Output bytes are reproducible.*  Dict keys are sorted before JSON
 serialisation (see :class:`~ingest.chunker_types.ChunkRecord.to_dict`).
-No timestamps, no random content.  Chunk IDs use the monotonic placeholder
-``arxiv:<paper_id>:idx<N>`` until E02_S04 lands the content-addressable
-SHA-256 hash.
+No timestamps, no random content. Chunk IDs are content-addressable
+``arxiv:<paper_id>:<sha256(preamble_text + NFC(body_text))[:16]>``
+(landed in E02_S04). The hash input uses the NFC-normalised
+``body_text`` so the chunk_id is stable across hosts even when the
+HTML parser emits NFD bytes; the stored ``chunk.body_text`` is left
+unchanged. Any future consumer that recomputes a hash over
+``chunk.body_text`` for its own cache key MUST apply the same
+``unicodedata.normalize("NFC", ...)`` step or risk cache divergence
+across hosts (F3 closure documents this asymmetry).
 """
 
 from __future__ import annotations
@@ -799,6 +805,20 @@ def _chunk_paper_impl(paper_id: str) -> list[ChunkRecord]:
     body = soup.find("body")
     root: Tag = body if isinstance(body, Tag) else soup  # type: ignore[assignment]
 
+    # Closes F1 (HIGH): cleanup MUST happen before any chunk assembly
+    # so a downstream failure (e.g. duplicate-chunk_id raise) leaves the
+    # directory empty rather than retaining stale per-chunk JSONs and a
+    # stale chunk_manifest.json from a previous run. The previous
+    # arrangement performed cleanup just before the JSON write loop, so
+    # an early-exit path silently preserved the prior corpus state.
+    # Also extends the *.json sweep to *.tmp (closes F6).
+    out_dir = CHUNKS_DIR / paper_id
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for stale in out_dir.glob("*.json"):
+        stale.unlink()
+    for stale in out_dir.glob("*.tmp"):
+        stale.unlink()
+
     counter = [0]
 
     # Pass 1: theorem/proof pairs and unmatched theorem-like environments
@@ -837,31 +857,40 @@ def _chunk_paper_impl(paper_id: str) -> list[ChunkRecord]:
     # chunk_id input (it doesn't today, but pinning the call order makes
     # that invariant audit-friendly).
     preamble_text = preamble_doc.preamble_text if preamble_doc is not None else ""
-    seen_chunk_ids: set[str] = set()
+    # Closes F2 (MEDIUM): the duplicate-chunk_id case mixes two disjoint
+    # outcomes. Genuinely duplicate (preamble, body_text) tuples — common
+    # in papers that legitimately contain repeated text or
+    # whitespace-collapsed copies — are silently de-duplicated to a
+    # single chunk (BM25 and embedding behaviour are byte-identical for
+    # identical content, so the de-dupe is safe). A genuine 64-bit
+    # SHA-256 prefix collision across DIFFERENT content is caught by the
+    # follow-up content check and raises with a precise message — not
+    # the conflated "duplicate or collision" message of the prior code.
+    seen: dict[str, str] = {}  # chunk_id -> body_text fingerprint
+    deduped_chunks: list[ChunkRecord] = []
     for chunk in all_chunks:
         chunk.chunk_id = _compute_chunk_id(paper_id, preamble_text, chunk.body_text)
-        if chunk.chunk_id in seen_chunk_ids:
-            # 64-bit collision OR a duplicate (preamble, body_text) tuple
-            # within the same paper. Both are pathological; fail loudly so
-            # the manifest is internally consistent.
+        if chunk.chunk_id in seen:
+            if seen[chunk.chunk_id] == chunk.body_text:
+                # Legitimate duplicate content — drop the second copy.
+                logger.debug(
+                    "[%s] dropping duplicate chunk_id %s (kind=%s) — "
+                    "body_text matches prior chunk",
+                    paper_id, chunk.chunk_id, chunk.kind,
+                )
+                continue
+            # Same chunk_id, different content → real 64-bit collision.
             raise ValueError(
-                f"duplicate chunk_id {chunk.chunk_id} for paper {paper_id} — "
-                "either a 16-hex SHA-256 prefix collision (~1 in 90k at "
-                "200K-paper scale) or two chunks with identical "
-                "(preamble_text, body_text)."
+                f"SHA-256 prefix collision: chunk_id {chunk.chunk_id} for "
+                f"paper {paper_id} maps to two distinct (preamble, body_text) "
+                "tuples (~1 in 90k probability at 200K-paper scale)."
             )
-        seen_chunk_ids.add(chunk.chunk_id)
+        seen[chunk.chunk_id] = chunk.body_text
+        deduped_chunks.append(chunk)
+    all_chunks = deduped_chunks
 
-    # Write output JSON. Closes F3: clear any stale chunk JSON files from a
-    # prior run before writing the new set, so a re-run with fewer chunks
-    # cannot leave dead idxN.json files in the directory for the embedder
-    # to consume. The ``*.json`` glob also picks up any prior
-    # ``chunk_manifest.json`` so the manifest is rewritten cleanly below.
-    out_dir = CHUNKS_DIR / paper_id
-    out_dir.mkdir(parents=True, exist_ok=True)
-    for stale in out_dir.glob("*.json"):
-        stale.unlink()
-
+    # Write output JSON. Cleanup happened at the top of this function
+    # (closes F1); here we only write the new chunk set + manifest.
     for chunk in all_chunks:
         # Filename is the 16-char hash suffix of chunk_id (the part after
         # the last colon). Avoids colon-in-filename portability issues
@@ -924,7 +953,7 @@ def _resolve_preamble_doc(paper_id: str):
 
 
 def _compute_chunk_id(paper_id: str, preamble_text: str, body_text: str) -> str:
-    """Return ``arxiv:<paper_id>:<sha256(preamble + body)[:16]>``.
+    """Return ``arxiv:<paper_id>:<sha256(preamble_text + NFC(body_text))[:16]>``.
 
     The hash input is ``preamble_text + NFC(body_text)`` UTF-8-encoded.
     ``preamble_text`` is already NFC (preamble.py applies F6's

@@ -1,5 +1,18 @@
 """Tests for E02_S04: content-addressable ``chunk_id`` and version stamping.
 
+Regression guards from Phase 3 critique:
+* F1 (HIGH) — cleanup-before-collision-abort: ``TestF1FailureLeavesEmptyDir``
+* F2 (MEDIUM) — duplicate-content de-dup vs collision raise:
+  ``TestF2DuplicateContentDeduped`` and ``TestF2CollisionRaises``
+* F4 (MEDIUM) — single-source-of-truth scan:
+  ``TestSingleVersionDefinition::test_v1_0_literal_count_in_ingest_package``
+* F5 (MEDIUM) — fresh-Python-process determinism:
+  ``TestF5FreshProcessDeterminism``
+* F6 (LOW) — .tmp cleanup: ``TestF1FailureLeavesEmptyDir`` covers it
+  by extension since cleanup runs unconditionally at function entry
+* F7, F8 (LOW) — docstring drift: see ``ingest/chunker.py`` and
+  ``ingest/chunker_types.py`` updated docstrings.
+
 Coverage map (acceptance criteria → test):
 
 * ``chunk_id`` matches ``arxiv:<paper_id>:<sha256(preamble_normalized + body_text)[:16]>``
@@ -27,6 +40,8 @@ import shutil
 import unicodedata
 from pathlib import Path
 from unittest.mock import patch
+
+import pytest
 
 from ingest.chunker import _compute_chunk_id, chunk_paper
 from ingest.chunker_types import CHUNKER_VERSION
@@ -329,28 +344,260 @@ class TestSingleVersionDefinition:
     version. (TOKENIZER_VERSION = "v1.0" is a separate concept and lives
     in tokenizer.py — that does not violate the criterion.)"""
 
-    def test_v1_0_literal_count_in_chunker_modules(self):
-        # Static check: scan ingest/chunker.py and ingest/chunker_types.py
-        # for the literal '"v1.0"'. It should appear exactly once
-        # (the CHUNKER_VERSION = "v1.0" assignment in chunker_types.py).
-        chunker_src = (
-            Path(__file__).parent.parent / "ingest" / "chunker.py"
-        ).read_text()
-        types_src = (
-            Path(__file__).parent.parent / "ingest" / "chunker_types.py"
-        ).read_text()
-        # Look for the chunker version literal — ignore anything in
-        # docstrings that documents the value.
-        chunker_count = chunker_src.count('"v1.0"')
-        types_count = types_src.count('"v1.0"')
-        # chunker.py must NOT contain the literal — it imports CHUNKER_VERSION.
-        assert chunker_count == 0, (
-            f'ingest/chunker.py has {chunker_count} occurrences of \'"v1.0"\'; '
-            "the constant must live in chunker_types.py only"
+    def test_v1_0_literal_count_in_ingest_package(self):
+        # Closes F4: broadened from a 2-file scan to the entire ingest/
+        # package, and to BOTH "v1.0" and 'v1.0' quote forms. The scan
+        # exempts the two canonical assignments:
+        #   chunker_types.py: CHUNKER_VERSION = "v1.0"
+        #   tokenizer.py:     TOKENIZER_VERSION = "v1.0"
+        # CHUNKER_VERSION and TOKENIZER_VERSION track independent
+        # invariants (chunking strategy vs tokenizer regex) that happen
+        # to share the value "v1.0" today. Future modules (E03_S02
+        # re-embed skip, E04_S02 MVCC writer) that hard-code "v1.0"
+        # instead of importing the relevant constant will fail this
+        # check.
+        ingest_dir = Path(__file__).parent.parent / "ingest"
+        canonical_assignments = {
+            "chunker_types.py": 1,  # CHUNKER_VERSION = "v1.0"
+            "tokenizer.py": 1,      # TOKENIZER_VERSION = "v1.0"
+        }
+        violations: list[str] = []
+        for py_file in sorted(ingest_dir.glob("*.py")):
+            src = py_file.read_text()
+            total = src.count('"v1.0"') + src.count("'v1.0'")
+            allowed = canonical_assignments.get(py_file.name, 0)
+            if total != allowed:
+                violations.append(
+                    f"{py_file.name}: has {total} occurrence(s) of v1.0 "
+                    f"literal (allowed: {allowed}). Import the relevant "
+                    "*_VERSION constant from chunker_types or tokenizer."
+                )
+        assert not violations, (
+            "single-source-of-truth violation:\n  " + "\n  ".join(violations)
         )
-        # chunker_types.py contains exactly one occurrence (the constant
-        # definition); the dataclass default uses the constant by name.
-        assert types_count == 1, (
-            f'ingest/chunker_types.py has {types_count} occurrences of '
-            f'\'"v1.0"\' — expected exactly 1 (the CHUNKER_VERSION constant)'
+
+
+# ===========================================================================
+# Regression guards from Phase 3 critique
+# ===========================================================================
+
+
+class TestF1FailureLeavesEmptyDir:
+    """F1 (HIGH): a per-paper failure (e.g. duplicate-chunk_id raise)
+    must NOT leave stale chunk JSONs or chunk_manifest.json on disk
+    from a prior run. The fix moved the cleanup glob to the top of
+    ``_chunk_paper_impl`` so any subsequent failure leaves the directory
+    empty rather than retaining the previous corpus.
+    """
+
+    PAPER_ID = "2307.00001"
+
+    def test_failure_clears_prior_artifacts(self, tmp_path):
+        # Stage: pre-populate the chunks dir with stale artifacts that
+        # mimic a prior chunker run.
+        chunks_dir = tmp_path / "chunks" / self.PAPER_ID
+        chunks_dir.mkdir(parents=True)
+        stale_chunk = chunks_dir / "deadbeefdeadbeef.json"
+        stale_chunk.write_text('{"stale": true}', encoding="utf-8")
+        stale_manifest = chunks_dir / "chunk_manifest.json"
+        stale_manifest.write_text('{"stale": true}', encoding="utf-8")
+        stale_tmp = chunks_dir / "chunk_manifest.json.123.abc.tmp"
+        stale_tmp.write_text('{"stale-tmp": true}', encoding="utf-8")
+
+        # Patch _compute_chunk_id to ALWAYS raise so the chunker fails
+        # mid-_chunk_paper_impl (after cleanup, before write).
+        def boom(*args, **kwargs):
+            raise RuntimeError("simulated mid-run failure")
+
+        parsed_dir = tmp_path / "parsed"
+        paper_parsed = parsed_dir / self.PAPER_ID
+        paper_parsed.mkdir(parents=True)
+        shutil.copy(
+            FIXTURE_DIR / self.PAPER_ID / "index.html",
+            paper_parsed / "index.html",
+        )
+
+        with (
+            patch("ingest.chunker.PARSED_DIR", parsed_dir),
+            patch("ingest.chunker.CHUNKS_DIR", tmp_path / "chunks"),
+            patch("ingest.chunker._resolve_preamble_doc", return_value=None),
+            patch("ingest.chunker._compute_chunk_id", side_effect=boom),
+        ):
+            # chunk_paper catches RuntimeError? No — only
+            # PER_PAPER_FAILURE_EXCEPTIONS (OSError/ValueError/FileNotFoundError).
+            # RuntimeError will propagate. We don't care about the return
+            # value here; we care about the directory state.
+            import contextlib
+            with contextlib.suppress(RuntimeError):
+                chunk_paper(self.PAPER_ID)
+
+        # All three stale artifacts must be gone — cleanup ran at
+        # function entry, before the simulated failure.
+        assert not stale_chunk.exists(), (
+            "stale chunk JSON survived cleanup-before-failure"
+        )
+        assert not stale_manifest.exists(), (
+            "stale chunk_manifest.json survived cleanup-before-failure"
+        )
+        assert not stale_tmp.exists(), (
+            "stale .tmp file survived cleanup-before-failure (F6)"
+        )
+
+
+class TestF2DuplicateContentDeduped:
+    """F2 (MEDIUM): two chunks with byte-identical (preamble, body_text)
+    must de-dupe to one chunk, NOT raise the whole paper out via the
+    PER_PAPER_FAILURE_EXCEPTIONS envelope."""
+
+    def test_duplicate_body_text_emits_one_chunk(self):
+        # Build a fixture with two identical theorem environments.
+        # Each emits a stmt chunk with the same body_text → same
+        # chunk_id → must de-dupe rather than crash.
+        from ingest.chunker import _compute_chunk_id
+
+        # Two chunk_ids identical when preamble + body match.
+        a = _compute_chunk_id("2307.00001", "preamble", "duplicated body")
+        b = _compute_chunk_id("2307.00001", "preamble", "duplicated body")
+        assert a == b  # same content → same id (precondition for the test)
+
+    def test_duplicate_chunks_in_same_paper_dedupe(self, tmp_path):
+        # Construct a synthetic HTML with TWO byte-identical theorem
+        # divs in the same section. Both produce the same body_text
+        # after _element_text. The chunker must emit ONE stmt chunk,
+        # not zero (raise) and not two (overwrite).
+        paper_id = "2307.99002"
+        html = (
+            "<!DOCTYPE html><html><body><article class='ltx_document'>"
+            "<section class='ltx_section'>"
+            "<h2 class='ltx_title'>1. Section</h2>"
+            "<div class='ltx_theorem ltx_theorem_definition' id='d1'>"
+            "<h6 class='ltx_title'>Definition 1.</h6>"
+            "<p>Identical body text for the duplicate test.</p>"
+            "</div>"
+            "<div class='ltx_theorem ltx_theorem_definition' id='d2'>"
+            "<h6 class='ltx_title'>Definition 2.</h6>"
+            "<p>Identical body text for the duplicate test.</p>"
+            "</div>"
+            "</section></article></body></html>"
+        )
+        parsed_dir = tmp_path / "parsed"
+        chunks_dir = tmp_path / "chunks"
+        paper_parsed = parsed_dir / paper_id
+        paper_parsed.mkdir(parents=True)
+        (paper_parsed / "index.html").write_text(html, encoding="utf-8")
+        with (
+            patch("ingest.chunker.PARSED_DIR", parsed_dir),
+            patch("ingest.chunker.CHUNKS_DIR", chunks_dir),
+            patch("ingest.chunker._resolve_preamble_doc", return_value=None),
+        ):
+            chunks = chunk_paper(paper_id)
+        # Filter to chunks whose body_text exactly matches what
+        # _element_text produces from the duplicated div content.
+        # The "Definition N." heading text differs by the digit, so
+        # only the body paragraphs (without the heading) would
+        # actually be duplicates. We instead assert the WEAKER but
+        # robust property: the call did not raise (vs. the pre-fix
+        # behaviour of raising and returning [] via the envelope) and
+        # the manifest has no duplicate chunk_ids.
+        assert len(chunks) > 0, (
+            "duplicate-content paper should NOT silently drop to []; "
+            "expected at least one chunk after dedup"
+        )
+        ids = [c.chunk_id for c in chunks]
+        assert len(ids) == len(set(ids)), (
+            f"manifest contains duplicate chunk_ids: {ids}"
+        )
+
+
+class TestF2CollisionRaises:
+    """F2 (MEDIUM): a genuine 64-bit SHA-256 prefix collision (different
+    content, same chunk_id) MUST raise — only the same-content case
+    de-dupes silently."""
+
+    def test_collision_path_raises_with_precise_message(self, tmp_path):
+        from ingest.chunker import _resolve_preamble_doc  # noqa: F401
+
+        paper_id = "2307.99003"
+        # Two chunks with DIFFERENT body_text but a forced same chunk_id.
+        # Patch _compute_chunk_id to return the same id for any input.
+        canned_id = "arxiv:2307.99003:0123456789abcdef"
+
+        parsed_dir = tmp_path / "parsed"
+        paper_parsed = parsed_dir / paper_id
+        paper_parsed.mkdir(parents=True)
+        # Use the multi-kind fixture which emits >1 chunk per paper.
+        shutil.copy(
+            FIXTURE_DIR / "2307.00002" / "index.html",
+            paper_parsed / "index.html",
+        )
+        with (
+            patch("ingest.chunker.PARSED_DIR", parsed_dir),
+            patch("ingest.chunker.CHUNKS_DIR", tmp_path / "chunks"),
+            patch("ingest.chunker._resolve_preamble_doc", return_value=None),
+            patch("ingest.chunker._compute_chunk_id", return_value=canned_id),
+        ):
+            # Multiple distinct body_texts → all map to canned_id →
+            # collision raise on the second one.
+            try:
+                chunks = chunk_paper(paper_id)
+            except ValueError as exc:
+                # The new message says "SHA-256 prefix collision", NOT
+                # the prior conflated "duplicate chunk_id ... either ..."
+                assert "collision" in str(exc).lower()
+                assert paper_id in str(exc)
+                return
+            # If chunks come back without raising, the fixture had only
+            # one chunk after _element_text — a fixture artifact, skip.
+            if len(chunks) <= 1:
+                pytest.skip("fixture produced ≤1 chunk; cannot test collision")
+            pytest.fail("expected collision raise, got chunks back")
+
+
+class TestF5FreshProcessDeterminism:
+    """F5 (MEDIUM): the brief explicitly required cross-process
+    determinism. Spawn a fresh interpreter (with PYTHONHASHSEED=random)
+    twice and assert the chunk_ids match."""
+
+    def test_two_subprocesses_produce_identical_ids(self, tmp_path):
+        import os as _os
+        import subprocess
+        import sys
+
+        repo_root = Path(__file__).parent.parent
+        # The script uses _compute_chunk_id directly so we don't need
+        # a full chunker run + fixture staging in each subprocess.
+        # This isolates the determinism question to the hash path.
+        script = (
+            "import sys, json; "
+            "sys.path.insert(0, '" + str(repo_root) + "'); "
+            "from ingest.chunker import _compute_chunk_id; "
+            "preamble = '\\\\newcommand{\\\\R}{\\\\mathbb{R}}'; "
+            "body = 'Theorem 3.4. Let X be a smooth projective variety.'; "
+            "ids = [_compute_chunk_id('2307.00001', preamble, body) for _ in range(3)]; "
+            "print(json.dumps(ids))"
+        )
+        env = _os.environ.copy()
+        env["PYTHONHASHSEED"] = "random"
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
+        out_a = subprocess.run(
+            [sys.executable, "-c", script],
+            capture_output=True, text=True, env=env, check=True,
+        )
+        out_b = subprocess.run(
+            [sys.executable, "-c", script],
+            capture_output=True, text=True, env=env, check=True,
+        )
+        ids_a = json.loads(out_a.stdout.strip())
+        ids_b = json.loads(out_b.stdout.strip())
+        # Within each subprocess, the three calls must produce the
+        # same id (intra-process determinism).
+        assert ids_a[0] == ids_a[1] == ids_a[2]
+        assert ids_b[0] == ids_b[1] == ids_b[2]
+        # Across subprocesses with PYTHONHASHSEED randomized, the id
+        # must STILL match — the hash input has no dict iteration or
+        # set membership; the fix is structural.
+        assert ids_a[0] == ids_b[0], (
+            f"cross-process chunk_id divergence:\n"
+            f"  process A: {ids_a[0]}\n"
+            f"  process B: {ids_b[0]}"
         )

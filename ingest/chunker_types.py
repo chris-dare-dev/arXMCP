@@ -35,8 +35,11 @@ class ChunkRecord:
     Attributes
     ----------
     chunk_id:
-        Monotonic placeholder ``arxiv:<paper_id>:idx<N>`` until E02_S04
-        replaces it with a content-addressable SHA-256 prefix.
+        Content-addressable identifier
+        ``arxiv:<paper_id>:<sha256(preamble_text + NFC(body_text))[:16]>``
+        (landed in E02_S04). The 16-hex-char prefix is stable across
+        re-runs of the same paper and changes deterministically when
+        either the preamble or the body content changes.
     paper_id:
         Canonical arXiv ID without version suffix, e.g. ``2307.01156``.
     kind:
@@ -61,15 +64,28 @@ class ChunkRecord:
         Statement chunks contain the theorem statement text; proof chunks
         contain a window of the proof body (≤448 BGE-M3 tokens so that a
         64-token statement header can be prepended at embedding time).
+        NOTE: stored bytes are NOT NFC-normalised — the chunk_id hash
+        (E02_S04) applies NFC for cross-host stability, but the stored
+        body_text preserves the parser's exact output. Downstream
+        consumers that hash body_text for their own cache keys must
+        apply ``unicodedata.normalize("NFC", ...)`` to match the
+        chunk_id discipline (F3 closure).
     body_tokens:
-        Reserved for E02_S03 (BM25 token list).  Written as ``None`` by
-        this milestone.
+        Whitespace-joined math-aware token stream produced by E02_S03's
+        ``ingest.tokenizer.tokenize_body``. The string the BM25 index
+        (E04_S04) splits at query time. ``None`` only when the chunker
+        emitted before E02_S03 wired this field in (legacy artifacts).
     preamble_ref:
-        Reserved for E02_S02 (reference to the per-paper preamble chunk).
-        Written as ``None`` by this milestone.
+        First 16 hex chars of ``SHA-256(preamble_text)`` for the paper's
+        per-paper preamble (E02_S02). The embedder uses this to look up
+        the preamble text and prepend it during embedding-input
+        construction. ``None`` when preamble extraction failed for the
+        paper (F3 fallback in E02_S02).
     chunker_version:
-        Monotonic version string.  Bump when chunking strategy changes so
-        that downstream re-embedding and index rotation can be triggered.
+        Stable version string for the chunking strategy. Defaults to
+        :data:`CHUNKER_VERSION` (defined above). Bump the constant when
+        chunking changes; downstream re-embedding (E03_S02) and LanceDB
+        MVCC rotation (E04_S02) consume this field to detect stale rows.
     """
 
     chunk_id: str
