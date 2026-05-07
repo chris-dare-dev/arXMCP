@@ -130,7 +130,9 @@ Run our local LaTeXML only on ar5iv cache misses. Saves weeks of CPU.
        │                                                                   │
        │   [ Citation enrichment from INSPIRE / OpenAlex ─────► Kùzu ]     │
        │                                                                   │
-       └─────────────────► [ atomic version swap → MCP server ]            │
+       └──────────────────►  [ write new LanceDB dataset version;            │
+                              update corpus-version.json (no symlinks) ]   │
+                                    (see E04_S02 in roadmap/E04-vector-store.md)
                                                                            │
        [ OAI-PMH harvest ] ──────────────────────────────────────────────► ┘
        (nightly, /set filter, resumption tokens)
@@ -156,12 +158,15 @@ Run our local LaTeXML only on ar5iv cache misses. Saves weeks of CPU.
     chunks/                # canonical chunk JSON (content-addressable, sharded by sha256[:2])
   index/
     lancedb/
-      v0001/               # corpus version 1
-      v0002/
-      ...
-      current -> v0007     # symlink the MCP server reads
+      chunks/              # single LanceDB dataset; internal versions managed by LanceDB MVCC
+      corpus-version.json  # marker file: {"version": N, "chunker_version": ..., "embedder_version": ...}
+      bm25/
+        v1/                # BM25 index for corpus version 1 (bm25.pkl + chunk_ids.json)
+        v2/
     kuzu/
       citations.kuzu       # graph DB file
+    # NOTE: No manual version subdirectories (v0001/, v0002/, etc.) and no symlinks.
+    # LanceDB MVCC manages corpus versions natively. See E04_S02 in roadmap/E04-vector-store.md.
   cache/
     ar5iv/                 # cached HTML responses, keyed by arxiv_id
     embeddings/            # content-hash → vector cache (sqlite)

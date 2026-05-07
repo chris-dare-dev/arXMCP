@@ -67,8 +67,8 @@ system regardless of what else you get right.
                                        ▼
                   [ LanceDB (vectors+BM25, version-pinned) ]   [ Kùzu (citation graph) ]
                                        ▲
-                                       │ atomic version swap
-                                       │
+                                       │ new dataset version written; readers call
+                                       │ dataset.checkout(version=N) — no symlinks
         [ Ingestion service (separate process, single-writer) ]
                 │             │              │
                 ▼             ▼              ▼
@@ -133,9 +133,12 @@ Three versioned things:
 3. **Chunker version** (`v1.0`, etc.). Bumped when chunk strategy changes. Re-chunking
    means re-embedding.
 
-When any of these changes, build a new index alongside the old one and atomic-swap
-a symlink/alias the MCP server reads. **Never mutate in place.** Keep N=7 prior
-versions for rollback.
+When any of these changes, build a new index alongside the old one. LanceDB's
+native MVCC (`dataset.checkout(version=N)`) provides snapshot isolation — the
+ingestion service appends a new dataset version; readers pin their version at
+startup via `corpus-version.json`. **Never mutate in place. No manual symlink swaps**
+(see E04_S02 in `.claude/roadmap/E04-vector-store.md`). Keep N=7 prior LanceDB
+dataset versions for rollback.
 
 ## Non-goals for v1
 

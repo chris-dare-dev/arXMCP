@@ -50,6 +50,14 @@ Key obligations we must meet:
 
 ## Tool surface (v1)
 
+> **Updated 2026-05-06 (see E06_S03 in `.claude/roadmap/E06-mcp-server.md`).**
+> The tool surface is rationalized to exactly **7 tools**. The former 9-tool
+> design had redundancy: `list_papers` is absorbed into `search_papers(level="paper")`;
+> `expand_macro` is absorbed into `get_definitions(paper_id, term?)`; `dependency_graph`
+> is absorbed into `cite_neighbors(chunk_id, depth, direction="depends_on")`;
+> `paper_diff` is deferred to Tier 4. Do not re-add standalone `list_papers`,
+> `expand_macro`, `dependency_graph`, or `paper_diff` tools in v1.
+
 All tools accept JSON arguments; all return `{content: [...], structuredContent: {...}}`
 where `structuredContent` is the canonical, byte-stable, cache-friendly payload.
 
@@ -82,6 +90,13 @@ Hybrid search across the corpus. The workhorse tool.
 
 Returns:
 
+> **Updated 2026-05-06 (see E06_S04 in `.claude/roadmap/E06-mcp-server.md`,
+> closes MEDIUM: snippet+summary duplication).** The `summary` field is **dropped**.
+> Each result carries only a ≤150-char inline `snippet` taken directly from
+> `body_canonical` (no LLM rewriting). Agents that need the full body call
+> `get_chunk(chunk_id)`. This design does NOT depend on the Anthropic Citations API
+> or on Claude Code following `resource_link` — agents retrieve full text explicitly.
+
 ```json
 {
   "structuredContent": {
@@ -92,8 +107,7 @@ Returns:
         "version": 3,
         "label": "Theorem 3.4",
         "score": 0.873,
-        "snippet": "Let $X$ be a smooth projective variety...",   // ≤200 chars
-        "summary": "Proves flatness of X under condition Y; depends on Lemma 2.1.",
+        "snippet": "Let $X$ be a smooth projective variety...",   // ≤150 chars; from body_canonical
         "section_path": ["3. Main results", "3.2 The flat case"]
       }
     ],
@@ -107,9 +121,11 @@ Returns:
 }
 ```
 
-Default response is summary + snippet inline. Full chunk body is fetched via
-`resource_link`. This keeps per-result inline tokens small (~300 tokens vs
-~2000). For 4 agents fanning out the same retrieval, the savings compound.
+Each result has a ≤150-char `snippet` inline for triage. Full chunk body is
+fetched via an explicit `get_chunk(chunk_id)` call. `resource_link` is included
+in `content` for MCP-spec-compliant clients but the agent runtime does not
+rely on clients following it. This keeps per-result inline tokens small and
+avoids unbounded context materialization.
 
 ### `get_chunk`
 
@@ -174,31 +190,18 @@ Mathlib-style exact-match lookup.
   "type": "object",
   "properties": {
     "name": {"type": "string", "description": "e.g. 'Yoneda lemma', 'Riemann-Roch'"},
+    "paper_id": {"type": "string", "description": "Optional: restrict search to a single paper"},
     "fuzzy": {"type": "boolean", "default": true}
   },
   "required": ["name"]
 }
 ```
 
-### `paper_diff`
+### `paper_diff` — DEFERRED to Tier 4
 
-Compare two versions of the same paper.
-
-```jsonschema
-{
-  "type": "object",
-  "properties": {
-    "paper_id": {"type": "string"},
-    "from_version": {"type": "integer"},
-    "to_version": {"type": "integer"},
-    "scope": {"type": "string", "enum": ["abstract", "theorems", "full"], "default": "theorems"}
-  },
-  "required": ["paper_id", "from_version", "to_version"]
-}
-```
-
-Autoformalizers care about this: v1 often has the cleaner statement, v3 has the
-corrected proof.
+> **Not in v1 tool surface (see E06_S03).** `paper_diff` is deferred to Tier 4.
+> Autoformalizers that need version comparison should call `get_paper(paper_id, version=N)`
+> twice and diff locally. Do not implement this tool until Tier 4.
 
 ### `get_paper`
 
@@ -215,50 +218,41 @@ Metadata lookup.
 }
 ```
 
-### `cite_neighbors` (citation graph)
+### `cite_neighbors` (citation graph + intra-paper dependency)
+
+> **Updated 2026-05-06 (see E06_S03).** `dependency_graph` is absorbed here via
+> `direction="depends_on"`. The standalone `dependency_graph` tool is removed.
 
 ```jsonschema
 {
   "type": "object",
   "properties": {
-    "paper_id": {"type": "string"},
-    "direction": {"type": "string", "enum": ["citers", "cited", "co_cited", "co_citing"], "default": "cited"},
+    "chunk_id": {"type": "string", "description": "A chunk ID (theorem or paper)"},
+    "direction": {
+      "type": "string",
+      "enum": ["citers", "cited", "co_cited", "co_citing", "depends_on"],
+      "default": "cited",
+      "description": "Use direction='depends_on' for intra-paper theorem dependency traversal (absorbs former dependency_graph tool)"
+    },
     "depth": {"type": "integer", "minimum": 1, "maximum": 3, "default": 1},
     "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 30}
-  },
-  "required": ["paper_id"]
-}
-```
-
-### `dependency_graph` (intra-paper)
-
-```jsonschema
-{
-  "type": "object",
-  "properties": {
-    "chunk_id": {"type": "string", "description": "A theorem chunk"},
-    "depth": {"type": "integer", "minimum": 1, "maximum": 5, "default": 2}
   },
   "required": ["chunk_id"]
 }
 ```
 
-Returns the lemmas this proof depends on, recursively.
+`direction="depends_on"` returns the lemmas a proof chunk depends on, recursively
+(same semantics as the former `dependency_graph` tool).
 
-### `expand_macro`
+### `dependency_graph` — ABSORBED into `cite_neighbors`
 
-Utility tool for the autoformalizer.
+> **Not in v1 tool surface (see E06_S03).** Use `cite_neighbors(chunk_id, direction="depends_on")`.
 
-```jsonschema
-{
-  "type": "object",
-  "properties": {
-    "paper_id": {"type": "string"},
-    "macro": {"type": "string", "description": "e.g. '\\AA'"}
-  },
-  "required": ["paper_id", "macro"]
-}
-```
+### `expand_macro` — ABSORBED into `get_definitions`
+
+> **Not in v1 tool surface (see E06_S03).** Use
+> `get_definitions(paper_id, term="\\AA")` to expand a macro. The `term` parameter
+> narrows the full notation table to a single symbol.
 
 ## Resource surface (MCP resources)
 
@@ -342,14 +336,19 @@ query-time embedding) are read at startup if set.
 
 ## Server lifecycle
 
-1. **Startup:** load embedder + reranker into memory; open LanceDB at the
-   `current` symlink and pin the resolved version for the process lifetime;
-   open Kùzu read-only; warm caches; pass readiness check.
-2. **Hot reload of corpus:** the ingestion service signals (via filesystem or
-   a unix socket) that a new corpus version is available. The MCP server
-   does NOT auto-switch — it continues using its pinned version. Restart the
-   server to pick up the new corpus. (Rationale: agents in the middle of a
-   session expect index stability.)
+> **Updated 2026-05-06 (see E06_S01 in `.claude/roadmap/E06-mcp-server.md`).** The
+> `current` symlink is no longer used. Version is pinned by reading the integer from
+> `corpus-version.json` and calling `dataset.checkout(version=N)`. See also E04_S02.
+
+1. **Startup:** load embedder into memory; load reranker only when
+   `ARXMCP_ENABLE_RERANK=true`; read `corpus-version.json` to obtain
+   `corpus_version: int`; open LanceDB via `dataset.checkout(version=corpus_version)`
+   and pin that read-only view for the process lifetime; open Kùzu read-only;
+   warm caches; pass readiness check. **No symlink resolution.**
+2. **Hot reload of corpus:** the ingestion service writes a new `corpus-version.json`.
+   The MCP server does NOT auto-switch — it continues using its pinned version.
+   Restart the server to pick up the new corpus. (Rationale: agents in the middle of
+   a session expect index stability.)
 3. **Shutdown:** drain in-flight requests with a 30-second deadline; close
    LanceDB and Kùzu cleanly; flush metrics.
 

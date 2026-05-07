@@ -191,7 +191,7 @@ never at INFO or above.
 | Failure | Detection | Response |
 |---|---|---|
 | Embedder model API outage (when using hosted) | Timeout + 5xx counter exceeds threshold | Fall back to local embedder; tag results `degraded=true` so reranker can deprioritize cross-model hits |
-| LanceDB corrupt on restart | Open fails | Fall back to previous version (symlink swap to v0006); alert |
+| LanceDB corrupt on restart | Open fails | Fall back to previous dataset version via `dataset.checkout(version=N-1)` (see E04_S02 in roadmap/E04-vector-store.md); alert. No symlink swap. |
 | MCP OOM from large result | Memory pressure | Hard cap `k <= 50`; hard cap response bytes 256 KB; refuse beyond |
 | Reranker model load slow on cold start | Readiness probe fails | Pre-warm at server startup; readiness probe blocks shim until ready |
 | LaTeXML hang | Subprocess timeout | Kill, mark paper as parser-failure, continue |
@@ -228,8 +228,8 @@ Restore drill: quarterly. Document the runbook.
 00:00 UTC   OAI-PMH delta harvest starts
 00:15       New paper IDs queued for /e-print/ fetch
 00:15-04:00 Fetch + parse + chunk + embed new papers
-04:00       LanceDB write new corpus version
-04:05       Atomic symlink swap (no impact on running MCP server until restart)
+04:00       LanceDB write new corpus version (new dataset version via MVCC append)
+04:05       Update corpus-version.json atomically (no symlink swap; see E04_S02 in roadmap/E04-vector-store.md)
 04:10       Daily snapshot (restic) starts
 05:00       Snapshot done; metrics report mailed (if configured)
 

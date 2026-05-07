@@ -42,21 +42,31 @@ referenced_chunks     list<string>
 equation_atoms        list<string>
 char_offsets_start    int
 char_offsets_end      int
-embedding_text        string
-embedding_prose       fixed_size_list<float32, D>     # prose-only embedding
-embedding_latex       fixed_size_list<float32, D>     # raw-LaTeX-with-macros embedding
-embedding_colbert     fixed_size_list<float32, ?>     # late-interaction (optional, theorem-level only)
+embedding_stmt        fixed_size_list<float32, 1024>  # preamble+statement, ≤512 tok; set for kind=stmt
+embedding_proof       fixed_size_list<float32, 1024>  # preamble+stmt_header+proof window, ≤512 tok, 64-tok overlap; set for kind=proof
+embedding_eq          fixed_size_list<float32, 1024>  # reserved; NULL until E10_S03
 chunker_version       string
 embed_model           string
 created_at            int64
 ```
 
+> **Updated 2026-05-06 (see E04_S01 in `.claude/roadmap/E04-vector-store.md`).**
+> The original `embedding_prose` / `embedding_latex` dual columns are replaced by
+> `embedding_stmt` (nullable; set for `kind="stmt"` chunks) and `embedding_proof`
+> (nullable; set for `kind="proof"` chunks). Embedding dimension is fixed at 1024
+> (BGE-M3). The old column names and approach are superseded.
+
 Indexes:
-- HNSW on `embedding_prose` (M=16, efConstruction=200).
-- HNSW on `embedding_latex` (M=16, efConstruction=200).
-- BM25 / Tantivy on `body_canonical` and `body_raw_latex` (separate analyzers —
-  the LaTeX analyzer preserves backslash tokens like `\Spec`).
-- B-tree on `paper_id`, `version`, `level`, `kind`.
+- HNSW on `embedding_stmt` (M=16, efConstruction=200).
+- HNSW on `embedding_proof` (M=16, efConstruction=200).
+- BM25 over `body_tokens` using Python `rank_bm25` (BM25Okapi); index stored at
+  `var/arxmcp/index/bm25/v<N>/`. `body_tokens` is a space-joined token stream
+  produced at chunk-write time by a Python regex pre-tokenizer (E02_S03) that
+  preserves backslash tokens like `\Spec`, `mathrm_Pic`, etc. Standard whitespace
+  split is all that BM25 needs over pre-tokenized input. **No Tantivy LaTeX
+  analyzer** — Tantivy ships no such analyzer; the approach was fictional.
+  See E02_S03 / E04_S04 in `.claude/roadmap/E04-vector-store.md`.
+- B-tree (scalar index) on `paper_id`, `version`, `level`, `kind`.
 
 ### Table: `equations`
 
@@ -131,25 +141,27 @@ n_equations          int
 n_definitions        int
 ```
 
-## Versioning and atomic swaps
+## Versioning via LanceDB MVCC
 
-LanceDB datasets support versioning natively. Ingestion writes a new version;
-the MCP server reads via a symlink:
+> **Updated 2026-05-06 (see E04_S02 in `.claude/roadmap/E04-vector-store.md`).**
+> Manual symlink swaps (`current -> v0007`) are **explicitly prohibited** under
+> the new design. Use LanceDB's native MVCC mechanism instead.
 
-```
-/var/arxmcp/index/lancedb/
-  v0001/
-  v0002/
-  ...
-  v0007/
-  current -> v0007        # symlink the MCP server pins at session start
-```
+LanceDB exposes native versioning: every `write` operation on a dataset creates
+a new integer version (starting from 1). Readers pin a specific version by
+calling `dataset.checkout(version=N)`, which returns a read-only snapshot of
+the dataset as it existed after version N was written. This provides snapshot
+isolation — the ingestion service writes new versions without disrupting
+running reader sessions.
 
-The MCP server resolves `current` once at session start and uses the resolved
-version for the whole session. Daily ingestion swaps the symlink atomically;
-running sessions are unaffected because they pinned the old version.
+The ingestion pipeline (E04_S01–S02) returns the new version integer from
+`write_chunks()` and records it in `var/arxmcp/index/lancedb/corpus-version.json`.
+The MCP server reads `corpus-version.json` at startup and calls
+`dataset.checkout(version=N)` once; that pinned view is used for the entire
+process lifetime. **No symlinks are created or modified.**
 
-Keep N=7 prior versions for rollback. Older versions are GC'd by a nightly job.
+Keep N=7 prior LanceDB dataset versions for rollback; a compaction job GCs
+older versions after readers have migrated (see E11).
 
 ## Citation graph: Kùzu
 
@@ -245,32 +257,43 @@ ORDER BY strength DESC LIMIT 30;
 
 ## Embedding strategy
 
-### Durable index uses self-hosted embedders
+### Durable index uses BGE-M3, end-to-end
 
-**Hard rule: never use a hosted embedding API for the durable corpus index.** If
-Voyage retires `voyage-3`, we re-embed everything. Use one of:
+> **Updated 2026-05-06 (see E03_S01 in `.claude/roadmap/E03-embedder.md`,
+> closing critique H8).** Using a different model at query time than at index
+> time (cross-model encoding) drops nDCG 30–60% and is rejected as a footgun.
+> The new design uses **BGE-M3 self-hosted for both index and query** — same
+> model end-to-end. API embedders (Voyage, Cohere, OpenAI) are **rejected** for
+> both durable index and query-time encoding.
 
-- **`BAAI/bge-m3`** — strong on multilingual + math; MIT license; ~2GB.
-  Recommended default.
-- **`intfloat/e5-mistral-7b-instruct`** — best open-weights for technical
-  retrieval; ~14GB; needs decent GPU.
-- **`Salesforce/SFR-Embedding-Mistral`** — competitive with e5-mistral.
+**Hard rule:** `BAAI/bge-m3` is the sole embedder for arXMCP v1, used for both
+corpus indexing and query-time encoding. It is strong on multilingual + math,
+MIT licensed, ~2GB. It keeps the system air-gappable and eliminates the
+cross-model alignment problem.
 
-API embedders (Voyage, Cohere, OpenAI) are acceptable for **query-time encoding
-only** if we want better paraphrase handling than the local embedder gives.
-Even then, prefer self-hosted to keep the system air-gappable.
+Alternatives `intfloat/e5-mistral-7b-instruct` and `Salesforce/SFR-Embedding-Mistral`
+remain documented below for reference if the embedder is ever swapped, but any
+swap requires a full corpus re-embed (new LanceDB version) and must be applied
+consistently to both index and query path.
 
 ### Dual-representation indexing
 
-Each chunk gets two embeddings:
+> **Updated 2026-05-06 (see E02_S01 / E03_S01 / E04_S01 in the roadmap).** The
+> original design gave every chunk two embeddings (prose-only + raw-LaTeX). The
+> new design splits by chunk *kind*, closing critique H3 (BGE-M3 mean-pooling at
+> 8k tokens flattens embeddings when full theorem+proof is used as a single unit).
 
-1. **Prose-only (`embedding_prose`):** math stripped to `[MATH]` tokens or
-   rendered to unicode-math. For semantic similarity ("papers about Hodge
-   structures").
-2. **Raw-LaTeX-with-expanded-macros (`embedding_latex`):** preserves command
-   structure. For exact-form matching ("papers that compute `\dim H^1(\mathcal{F})`").
+The dual encoding is now **kind-gated**:
 
-Retrieval fuses both via Reciprocal Rank Fusion at query time.
+1. **`embedding_stmt` (set for `kind="stmt"` chunks):** preamble + statement text,
+   ≤512 tokens. For semantic similarity queries ("papers about Hodge structures").
+2. **`embedding_proof` (set for `kind="proof"` chunks):** preamble + statement
+   header + proof window, ≤512 tokens with 64-token overlap. For proof-technique
+   queries ("papers that prove flatness via base change").
+
+Chunks of other kinds (section, definition) receive `embedding_stmt`; `embedding_proof`
+is NULL for non-proof chunks. Retrieval fuses both via Reciprocal Rank Fusion at
+query time over `embedding_stmt` ANN and `embedding_proof` ANN results.
 
 ### ColBERT for long technical chunks (v1.5 feature)
 
@@ -290,16 +313,22 @@ the same prose embedder over `presentation_latex + context_sentence`.
 
 ## Hybrid search at query time
 
-Three-phase ranking, modeled on Vespa's tiered approach:
+> **Updated 2026-05-06 (see E07_S01 / E07_S02 / E07_S03 in
+> `.claude/roadmap/E07-hybrid-retrieval.md`).** The old four-stream design (two
+> BM25 streams + two ANN streams) is replaced by the three-phase pipeline below.
+> Cohere Rerank is dropped; self-hosted BGE-reranker-v2-m3 only.
 
-1. **Phase 1 (cheap, broad):** BM25 over `body_raw_latex` (LaTeX analyzer
-   preserves `\Spec`, `\mathrm{Pic}`, etc.) PLUS BM25 over `body_canonical`
-   (English analyzer). Take top-200.
-2. **Phase 2 (medium):** ANN search over `embedding_prose` and `embedding_latex`,
-   k=200 each. Reciprocal Rank Fusion across all four candidate lists. Take top-50.
-3. **Phase 3 (expensive):** Reranker (`bge-reranker-v2-m3` local; or Cohere
-   Rerank v3 if budget allows). Take top-k where k is the user's requested k
-   (default 10, max 50).
+Three-phase ranking:
+
+1. **Phase 1 (cheap, broad):** BM25 over `body_tokens` using Python `rank_bm25`.
+   The `body_tokens` field is a pre-tokenized stream (E02_S03) that preserves
+   backslash tokens like `\Spec`, `mathrm_Pic`, etc. Take top-200.
+2. **Phase 2 (medium):** Dual ANN search — one query embedding over
+   `embedding_stmt` and one over `embedding_proof`, top-50 each. Reciprocal Rank
+   Fusion (k=60) across the Phase-1 BM25 list and both ANN lists. Take top-50.
+3. **Phase 3 (expensive):** `bge-reranker-v2-m3` local cross-encoder. Gated by
+   `ARXMCP_ENABLE_RERANK` environment variable (default `false`). When disabled,
+   Phase-2 RRF order is returned directly. Take top-k (default 10, max 50).
 
 Each phase has its own cache layer (see [07-multi-agent-caching.md](07-multi-agent-caching.md)).
 
