@@ -1,17 +1,31 @@
 """ChunkRecord dataclass for the theorem-aware structural chunker (E02_S01).
 
-Fields ``body_tokens`` and ``preamble_ref`` are populated by later milestones:
+Field history:
 - ``preamble_ref``: E02_S02 (per-paper preamble extraction)
 - ``body_tokens``:  E02_S03 (BM25 tokenization)
 - ``chunk_id``:     E02_S04 (content-addressable SHA-256 hash)
+- ``CHUNKER_VERSION`` constant: E02_S04 (single source of truth for the
+  version string; bumping it signals the LanceDB MVCC writer (E04_S02) and
+  the re-embedder (E03_S02) that existing rows are stale).
 
-Until E02_S04 lands, ``chunk_id`` contains a monotonic placeholder of the form
-``arxiv:<paper_id>:idx<N>``.
+CHUNKER_VERSION lives here (not in ``ingest.chunker``) so the dataclass
+default can reference it without creating a circular import:
+``ingest.chunker`` already imports ``ChunkRecord`` from this module; the
+inverse import would close a cycle.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+
+# Single source of truth for the chunker version string. Bump this
+# constant in lockstep with any change to chunking strategy
+# (theorem/proof detection, windowing, section extraction). The value
+# flows into every ChunkRecord's ``chunker_version`` field via the
+# dataclass default below, into the per-paper ``chunk_manifest.json``
+# (written by ``ingest.chunker``), and is what E04_S02's MVCC writer
+# uses to detect stale rows.
+CHUNKER_VERSION = "v1.0"
 
 
 @dataclass
@@ -71,7 +85,7 @@ class ChunkRecord:
     # column type — E04_S04's BM25 indexer does `body_tokens.split()`.
     body_tokens: str | None = field(default=None)
     preamble_ref: str | None = field(default=None)
-    chunker_version: str = field(default="v1.0")
+    chunker_version: str = field(default=CHUNKER_VERSION)
     # Closes F5 (HIGH): surface silent truncation to downstream consumers
     # rather than letting them mistake a sliced statement for a complete one.
     # ``True`` when the chunker had to truncate ``body_text`` to fit the

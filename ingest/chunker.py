@@ -43,16 +43,22 @@ SHA-256 hash.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
+import os
 import re
 import time
+import unicodedata
+import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from bs4 import BeautifulSoup, NavigableString, Tag
 
-from ingest.chunker_types import ChunkRecord
+# CHUNKER_VERSION lives in chunker_types to avoid a circular import — the
+# dataclass default in ChunkRecord references it directly.
+from ingest.chunker_types import CHUNKER_VERSION, ChunkRecord
 from ingest.tokenizer import tokenize_body
 
 if TYPE_CHECKING:
@@ -803,15 +809,16 @@ def _chunk_paper_impl(paper_id: str) -> list[ChunkRecord]:
 
     all_chunks = theorem_chunks + section_chunks
 
-    # E02_S02 wire-in: stamp every emitted chunk with the preamble reference
-    # hash so the embedder can deterministically reconstruct the embedding
-    # input as ``preamble_text + "\n\n" + body_text``. If the preamble is
-    # missing or extraction fails, leave ``preamble_ref=None`` (the chunker
-    # remains functional; the embedder logs and continues).
-    preamble_ref = _resolve_preamble_ref(paper_id)
-    if preamble_ref is not None:
+    # E02_S02 wire-in: resolve the per-paper preamble (full PreambleDoc, not
+    # just the hash) so we can both stamp ``preamble_ref`` (the hash) and
+    # feed ``preamble_text`` into the E02_S04 content-addressable
+    # ``chunk_id``. When extraction fails, ``preamble_doc`` is None, the
+    # chunker remains functional, and the chunk_id hash falls back to an
+    # empty preamble contribution (F3 graceful degradation).
+    preamble_doc = _resolve_preamble_doc(paper_id)
+    if preamble_doc is not None:
         for chunk in all_chunks:
-            chunk.preamble_ref = preamble_ref
+            chunk.preamble_ref = preamble_doc.preamble_hash
 
     # E02_S03 wire-in: pre-tokenize body_text into the BM25 token stream.
     # Pure local computation; no I/O. tokenize_body is deterministic
@@ -820,23 +827,60 @@ def _chunk_paper_impl(paper_id: str) -> list[ChunkRecord]:
     for chunk in all_chunks:
         chunk.body_tokens = tokenize_body(chunk.body_text)
 
+    # E02_S04 wire-in: replace the monotonic ``arxiv:<paper_id>:idx<N>``
+    # placeholder with the content-addressable
+    # ``arxiv:<paper_id>:<sha256(preamble_text + body_text)[:16]>``.
+    # See ``_compute_chunk_id`` for the empty-preamble fallback and the
+    # NFC discipline. The hash must be assigned in a SEPARATE pass that
+    # runs AFTER ``preamble_ref`` and ``body_tokens`` are populated so the
+    # tokenizer wire-in cannot accidentally feed normalized bytes into the
+    # chunk_id input (it doesn't today, but pinning the call order makes
+    # that invariant audit-friendly).
+    preamble_text = preamble_doc.preamble_text if preamble_doc is not None else ""
+    seen_chunk_ids: set[str] = set()
+    for chunk in all_chunks:
+        chunk.chunk_id = _compute_chunk_id(paper_id, preamble_text, chunk.body_text)
+        if chunk.chunk_id in seen_chunk_ids:
+            # 64-bit collision OR a duplicate (preamble, body_text) tuple
+            # within the same paper. Both are pathological; fail loudly so
+            # the manifest is internally consistent.
+            raise ValueError(
+                f"duplicate chunk_id {chunk.chunk_id} for paper {paper_id} — "
+                "either a 16-hex SHA-256 prefix collision (~1 in 90k at "
+                "200K-paper scale) or two chunks with identical "
+                "(preamble_text, body_text)."
+            )
+        seen_chunk_ids.add(chunk.chunk_id)
+
     # Write output JSON. Closes F3: clear any stale chunk JSON files from a
     # prior run before writing the new set, so a re-run with fewer chunks
     # cannot leave dead idxN.json files in the directory for the embedder
-    # to consume.
+    # to consume. The ``*.json`` glob also picks up any prior
+    # ``chunk_manifest.json`` so the manifest is rewritten cleanly below.
     out_dir = CHUNKS_DIR / paper_id
     out_dir.mkdir(parents=True, exist_ok=True)
     for stale in out_dir.glob("*.json"):
         stale.unlink()
 
     for chunk in all_chunks:
-        # Extract the monotonic index from the placeholder chunk_id
-        idx_str = chunk.chunk_id.split(":idx")[-1]
-        out_path = out_dir / f"{idx_str}.json"
+        # Filename is the 16-char hash suffix of chunk_id (the part after
+        # the last colon). Avoids colon-in-filename portability issues
+        # and aligns the on-disk artifact with its content-addressable
+        # identity.
+        hash_suffix = chunk.chunk_id.rsplit(":", 1)[-1]
+        out_path = out_dir / f"{hash_suffix}.json"
         out_path.write_text(
             json.dumps(chunk.to_dict(), ensure_ascii=False, sort_keys=True) + "\n",
             encoding="utf-8",
         )
+
+    # E02_S04: write the per-paper chunk manifest after all chunk JSONs
+    # have landed. Used by the eval harness (E05_S01) to validate that
+    # curated chunk_id references in the labeled query set still exist
+    # after a re-chunk. Atomic write via tmp + os.replace mirrors the
+    # pattern from preamble.py (closes F4/F5 from E02_S02 by
+    # construction).
+    _write_chunk_manifest(out_dir / "chunk_manifest.json", paper_id, all_chunks)
 
     return all_chunks
 
@@ -846,8 +890,8 @@ def _chunk_paper_impl(paper_id: str) -> list[ChunkRecord]:
 # ---------------------------------------------------------------------------
 
 
-def _resolve_preamble_ref(paper_id: str) -> str | None:
-    """Look up the per-paper preamble hash from E02_S02's preamble extractor.
+def _resolve_preamble_doc(paper_id: str):
+    """Look up the per-paper PreambleDoc from E02_S02's preamble extractor.
 
     Performs the lookup lazily — the import happens inside the function so
     that ``ingest.chunker`` does not pay the preamble module's cost at
@@ -855,7 +899,12 @@ def _resolve_preamble_ref(paper_id: str) -> str | None:
     a real packaging failure should surface as a crash, not silently
     produce chunks with ``preamble_ref=None`` for the entire corpus
     (closes F3 from the E02_S02 critique). Tests that need to bypass
-    preamble lookup should patch ``_resolve_preamble_ref`` itself.
+    preamble lookup should patch ``_resolve_preamble_doc`` itself.
+
+    Returns the full ``PreambleDoc`` so callers can extract both
+    ``preamble_hash`` (for the chunk's ``preamble_ref`` field) and
+    ``preamble_text`` (for the E02_S04 content-addressable ``chunk_id``
+    hash) from a single ``extract_preamble`` call.
     """
     from ingest.preamble import (
         PER_PAPER_FAILURE_EXCEPTIONS as PREAMBLE_FAILURES,
@@ -863,15 +912,84 @@ def _resolve_preamble_ref(paper_id: str) -> str | None:
     from ingest.preamble import extract_preamble
 
     try:
-        doc = extract_preamble(paper_id)
+        return extract_preamble(paper_id)
     except PREAMBLE_FAILURES as exc:
         logger.warning(
-            "[%s] preamble extraction failed; preamble_ref will be null: %s",
+            "[%s] preamble extraction failed; preamble_ref will be null "
+            "and chunk_id hash will treat preamble as empty: %s",
             paper_id,
             exc,
         )
         return None
-    return doc.preamble_hash
+
+
+def _compute_chunk_id(paper_id: str, preamble_text: str, body_text: str) -> str:
+    """Return ``arxiv:<paper_id>:<sha256(preamble + body)[:16]>``.
+
+    The hash input is ``preamble_text + NFC(body_text)`` UTF-8-encoded.
+    ``preamble_text`` is already NFC (preamble.py applies F6's
+    normalization at extraction time); ``body_text`` is NFC-normalised
+    here for the hash but the stored ``chunk.body_text`` is left
+    unchanged. This is the same discipline ``tokenize_body`` uses.
+
+    The 16-hex-char prefix is 64 bits of entropy. At the project's 200K-
+    paper end state (~20M chunks), the birthday-bound collision
+    probability is ≈ 1.1×10⁻⁵ — negligible for a retrieval system, and
+    we additionally fail loudly on any duplicate ``chunk_id`` per paper
+    (see ``_chunk_paper_impl``).
+
+    When the per-paper preamble is missing (extraction failed; F3
+    fallback), ``preamble_text`` is ``""``. The hash then depends only
+    on ``body_text``, which still keeps the chunk_id content-addressable
+    and stable across re-runs of the same paper.
+    """
+    body_normalized = unicodedata.normalize("NFC", body_text)
+    digest = hashlib.sha256(
+        (preamble_text + body_normalized).encode("utf-8")
+    ).hexdigest()[:16]
+    return f"arxiv:{paper_id}:{digest}"
+
+
+def _write_chunk_manifest(
+    manifest_path: Path, paper_id: str, chunks: list[ChunkRecord]
+) -> None:
+    """Atomically write the per-paper chunk manifest.
+
+    Schema (sorted JSON keys, no timestamps — BP1 byte-stable):
+
+        {
+            "chunker_version": <CHUNKER_VERSION>,
+            "chunks": [
+                {"chunk_id": "arxiv:...:<hash>", "kind": "stmt"},
+                ...
+            ],
+            "paper_id": "2307.01156"
+        }
+
+    Used by E05_S01's eval harness to validate that curated ``chunk_id``
+    references in the labeled query set still exist after a re-chunk.
+    Mirrors the atomic-write pattern from ``preamble._write_preamble_json``
+    (PID + UUID-suffixed tmp; ``os.replace``; ``try/finally`` cleanup).
+    """
+    manifest = {
+        "chunker_version": CHUNKER_VERSION,
+        "chunks": [
+            {"chunk_id": c.chunk_id, "kind": c.kind} for c in chunks
+        ],
+        "paper_id": paper_id,
+    }
+    payload = json.dumps(manifest, ensure_ascii=False, sort_keys=True) + "\n"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = manifest_path.with_suffix(
+        f"{manifest_path.suffix}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp"
+    )
+    try:
+        tmp.write_text(payload, encoding="utf-8")
+        os.replace(tmp, manifest_path)
+    finally:
+        import contextlib
+        with contextlib.suppress(OSError):
+            tmp.unlink(missing_ok=True)
 
 
 def _log_chunk_failure(paper_id: str, elapsed_s: float, message: str) -> None:

@@ -660,8 +660,8 @@ class TestF3ChunkerImportFailureSurfaces:
     """F3 (HIGH): chunker's preamble lookup does NOT silently swallow
     a real import failure for the preamble module."""
 
-    def test_resolve_preamble_ref_has_no_except_importerror(self):
-        # Static source check: the body of _resolve_preamble_ref must not
+    def test_resolve_preamble_doc_has_no_except_importerror(self):
+        # Static source check: the body of _resolve_preamble_doc must not
         # contain `except ImportError`. Pre-fix, the chunker silently
         # returned None on any ImportError (including real packaging
         # failures), masking corpus-wide preamble_ref=None bugs.
@@ -670,7 +670,7 @@ class TestF3ChunkerImportFailureSurfaces:
             Path(__file__).parent.parent / "ingest" / "chunker.py"
         ).read_text()
         # Find the function body
-        marker = "def _resolve_preamble_ref"
+        marker = "def _resolve_preamble_doc"
         idx = chunker_src.index(marker)
         # Look at the next ~50 lines (whole function body)
         body = chunker_src[idx : idx + 2000]
@@ -680,7 +680,7 @@ class TestF3ChunkerImportFailureSurfaces:
         import re as _re
         pattern = _re.compile(r"^\s*except\s+ImportError\s*[:(]", _re.MULTILINE)
         assert pattern.search(body) is None, (
-            "_resolve_preamble_ref must not swallow ImportError; a real "
+            "_resolve_preamble_doc must not swallow ImportError; a real "
             "packaging failure should surface, not silently null-stamp "
             "every chunk's preamble_ref. Closes F3."
         )

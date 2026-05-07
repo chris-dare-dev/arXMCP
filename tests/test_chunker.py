@@ -181,22 +181,40 @@ class TestTwoTheoremGolden:
         for chunk in chunks:
             assert chunk.preamble_ref is None
 
-    def test_chunk_ids_monotonic(self, tmp_path):
+    def test_chunk_ids_content_addressable_format(self, tmp_path):
+        # E02_S04 replaced the monotonic ``idx{N}`` placeholder with a
+        # content-addressable hash. Each chunk_id matches
+        # ``arxiv:<paper_id>:<16-hex>``.
+        import re
         chunks = self._run(tmp_path)
-        for i, chunk in enumerate(chunks):
-            assert chunk.chunk_id == f"arxiv:{self.PAPER_ID}:idx{i}"
+        pattern = re.compile(
+            rf"^arxiv:{re.escape(self.PAPER_ID)}:[0-9a-f]{{16}}$"
+        )
+        for chunk in chunks:
+            assert pattern.match(chunk.chunk_id), (
+                f"chunk_id {chunk.chunk_id!r} does not match the "
+                f"content-addressable format"
+            )
+
+    def _chunk_jsons(self, chunks_dir):
+        # E02_S04 added chunk_manifest.json alongside the per-chunk files.
+        # Tests asserting on chunk-shaped JSON must exclude it.
+        return [
+            p for p in sorted(chunks_dir.glob("*.json"))
+            if p.name != "chunk_manifest.json"
+        ]
 
     def test_output_files_written(self, tmp_path):
         chunks = self._run(tmp_path)
         chunks_dir = tmp_path / "chunks" / self.PAPER_ID
         assert chunks_dir.exists()
-        written = sorted(chunks_dir.glob("*.json"))
+        written = self._chunk_jsons(chunks_dir)
         assert len(written) == len(chunks)
 
     def test_output_json_keys_sorted(self, tmp_path):
         self._run(tmp_path)
         chunks_dir = tmp_path / "chunks" / self.PAPER_ID
-        for json_file in chunks_dir.glob("*.json"):
+        for json_file in self._chunk_jsons(chunks_dir):
             data = json.loads(json_file.read_text())
             keys = list(data.keys())
             assert keys == sorted(keys), f"keys not sorted in {json_file.name}"
@@ -209,7 +227,7 @@ class TestTwoTheoremGolden:
             "theorem_name", "theorem_label", "body_text",
             "body_tokens", "preamble_ref", "chunker_version",
         }
-        for json_file in chunks_dir.glob("*.json"):
+        for json_file in self._chunk_jsons(chunks_dir):
             data = json.loads(json_file.read_text())
             assert required <= set(data.keys()), (
                 f"missing fields in {json_file.name}: {required - set(data.keys())}"
