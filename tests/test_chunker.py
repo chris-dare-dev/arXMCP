@@ -1246,3 +1246,145 @@ class TestF13RecursionDepthBound:
             result = chunk_paper(paper_id)
         # Empty list is a valid outcome — we just need no crash.
         assert isinstance(result, list)
+
+
+# ===========================================================================
+# E02_S05 fixture suite — 10 hand-crafted golden-output fixtures
+# ===========================================================================
+
+# Reading: ``tests/fixtures/chunker/<paper_id>.expected.json`` per fixture is
+# the locked-in golden output. The bootstrap procedure (run the chunker once
+# with ``_resolve_preamble_doc`` patched to None, record the output, commit)
+# is documented in ``docs/chunker-fixtures.md``. A chunker change that
+# legitimately alters chunk_ids forces a deliberate re-run of that procedure
+# AND a coordinated update to E05's eval queries.
+#
+# Existing fixtures (pre-E02_S05): 2307.0000{1,2,3,4}.
+# Added in E02_S05: 2307.0000{5,6,7,8,9,10}.
+# - 2307.00005: proposition + conjecture kinds
+# - 2307.00006: deeply nested section path (3 levels)
+# - 2307.00007: multi-window proof (long body, ≥1 split)
+# - 2307.00008: definition-heavy, NO proof environments
+# - 2307.00009: appendix section after main
+# - 2307.00010: <math alttext> preservation throughout body
+
+_FIXTURE_SUITE_IDS = [
+    "2307.00001", "2307.00002", "2307.00003", "2307.00004",
+    "2307.00005", "2307.00006", "2307.00007", "2307.00008",
+    "2307.00009", "2307.00010",
+]
+
+
+def _load_expected_fixture(paper_id: str) -> dict:
+    expected_path = (
+        Path(__file__).parent / "fixtures" / "chunker" / f"{paper_id}.expected.json"
+    )
+    return json.loads(expected_path.read_text(encoding="utf-8"))
+
+
+class TestFixtureSuite:
+    """E02_S05 golden-output suite: locks in chunker behavior across 10
+    diverse hand-crafted fixtures. The brief calls for "10 of the 50 seed
+    papers"; with the seed corpus not materialized in this worktree, we
+    use 10 hand-crafted fixtures that exercise the same scenario diversity
+    (theorem+proof pairs, multi-kind environments, multi-window proofs,
+    definition-heavy papers, appendix ordering, MathML alttext preservation,
+    deeply nested sections, malformed HTML, and conjecture/proposition
+    kinds). The implementation summary documents this substitution.
+    """
+
+    @pytest.mark.parametrize("paper_id", _FIXTURE_SUITE_IDS)
+    def test_chunk_count_matches(self, paper_id, tmp_path):
+        expected = _load_expected_fixture(paper_id)
+        chunks = self._run(tmp_path, paper_id)
+        assert len(chunks) == expected["chunk_count"], (
+            f"{paper_id} chunk count mismatch: got {len(chunks)}, "
+            f"expected {expected['chunk_count']}"
+        )
+
+    @pytest.mark.parametrize("paper_id", _FIXTURE_SUITE_IDS)
+    def test_kind_counts_match(self, paper_id, tmp_path):
+        expected = _load_expected_fixture(paper_id)
+        chunks = self._run(tmp_path, paper_id)
+        # The fixture's kind_counts dict pins exactly four canonical kinds.
+        # Other kinds (lemma, corollary, remark, example, proposition,
+        # conjecture, ...) are emitted but not pinned per-fixture.
+        actual = {"stmt": 0, "proof": 0, "section": 0, "definition": 0}
+        for c in chunks:
+            if c.kind in actual:
+                actual[c.kind] += 1
+        assert actual == expected["kind_counts"], (
+            f"{paper_id} kind_counts mismatch:\n  got      {actual}\n"
+            f"  expected {expected['kind_counts']}"
+        )
+
+    @pytest.mark.parametrize("paper_id", _FIXTURE_SUITE_IDS)
+    def test_expected_chunk_ids_present(self, paper_id, tmp_path):
+        expected = _load_expected_fixture(paper_id)
+        chunks = self._run(tmp_path, paper_id)
+        emitted = {c.chunk_id for c in chunks}
+        # Every committed chunk_id must appear in the chunker output.
+        # This is the byte-stability lock: if any chunk_id changes, the
+        # test fails with a precise diff.
+        for expected_id in expected["expected_chunk_ids"]:
+            assert expected_id in emitted, (
+                f"{paper_id}: expected chunk_id {expected_id!r} not found "
+                f"in emitted ids — chunker output drift?"
+            )
+
+    @pytest.mark.parametrize("paper_id", _FIXTURE_SUITE_IDS)
+    def test_chunker_version_matches_constant(self, paper_id, tmp_path):
+        from ingest.chunker_types import CHUNKER_VERSION
+        expected = _load_expected_fixture(paper_id)
+        assert expected["chunker_version"] == CHUNKER_VERSION, (
+            f"{paper_id}.expected.json has chunker_version "
+            f"{expected['chunker_version']!r}; current CHUNKER_VERSION is "
+            f"{CHUNKER_VERSION!r}. Fixture must be regenerated when the "
+            f"constant bumps; see docs/chunker-fixtures.md."
+        )
+
+    def test_multi_window_proof_fixture_exists(self, tmp_path):
+        """Acceptance criterion: at least one fixture exercises a
+        multi-window proof. 2307.00007 has a long proof body that splits
+        into ≥2 proof chunks under the 448-token PROOF_MAX_TOKENS budget."""
+        chunks = self._run(tmp_path, "2307.00007")
+        proof_chunks = [c for c in chunks if c.kind == "proof"]
+        assert len(proof_chunks) >= 2, (
+            f"2307.00007 must split into ≥2 proof chunks (multi-window "
+            f"acceptance criterion); got {len(proof_chunks)}"
+        )
+
+    def test_no_proof_fixture_exists(self, tmp_path):
+        """Acceptance criterion: at least one fixture has no explicit
+        proof environments. 2307.00008 is definition-heavy with zero
+        ``ltx_proof`` divs in the source HTML."""
+        chunks = self._run(tmp_path, "2307.00008")
+        proof_chunks = [c for c in chunks if c.kind == "proof"]
+        assert len(proof_chunks) == 0, (
+            f"2307.00008 must produce zero proof chunks (no-proof "
+            f"acceptance criterion); got {len(proof_chunks)}"
+        )
+        # Sanity: it should still emit chunks (definitions, sections, etc.).
+        assert len(chunks) > 0
+
+    @staticmethod
+    def _run(tmp_path: Path, paper_id: str):
+        import shutil as _shutil
+        from unittest.mock import patch as _patch
+
+        from ingest.chunker import chunk_paper as _chunk_paper
+
+        fixture = (
+            Path(__file__).parent / "fixtures" / "chunker" / paper_id / "index.html"
+        )
+        parsed_dir = tmp_path / "parsed"
+        chunks_dir = tmp_path / "chunks"
+        paper_parsed = parsed_dir / paper_id
+        paper_parsed.mkdir(parents=True)
+        _shutil.copy(fixture, paper_parsed / "index.html")
+        with (
+            _patch("ingest.chunker.PARSED_DIR", parsed_dir),
+            _patch("ingest.chunker.CHUNKS_DIR", chunks_dir),
+            _patch("ingest.chunker._resolve_preamble_doc", return_value=None),
+        ):
+            return _chunk_paper(paper_id)

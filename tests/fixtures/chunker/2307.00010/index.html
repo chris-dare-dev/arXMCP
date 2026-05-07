@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"/><title>MathML alttext Preservation Fixture</title></head>
+<body>
+<article class="ltx_document">
+  <section class="ltx_section" id="S1">
+    <h2 class="ltx_title ltx_title_section">1. Math-heavy content</h2>
+
+    <div class="ltx_para">
+      <p class="ltx_p">This fixture exercises the F1 closure from E02_S01 — the
+      <math alttext="\\langle\\cdot,\\cdot\\rangle" class="ltx_Math"><mi>⟨⋅,⋅⟩</mi></math>
+      element must surface its alttext LaTeX into body_text rather than only
+      the rendered Unicode glyphs. Without F1, body_text would be just
+      <math alttext="\\bullet" class="ltx_Math"><mi>•</mi></math> with no
+      mathematical-notation context.</p>
+    </div>
+
+    <div class="ltx_theorem ltx_theorem_theorem" id="thm-rr-fixture">
+      <h6 class="ltx_title ltx_runin ltx_font_bold ltx_title_theorem">Theorem 1.1 (Riemann–Roch fixture).</h6>
+      <div class="ltx_para">
+        <p class="ltx_p">For a smooth projective curve
+        <math alttext="X" class="ltx_Math"><mi>X</mi></math> of genus
+        <math alttext="g" class="ltx_Math"><mi>g</mi></math> and a divisor
+        <math alttext="D" class="ltx_Math"><mi>D</mi></math> of degree
+        <math alttext="d" class="ltx_Math"><mi>d</mi></math>, we have
+        <math alttext="h^0(D) - h^1(D) = d - g + 1" class="ltx_Math"
+              display="block"><mrow><msup><mi>h</mi><mn>0</mn></msup><mo>=</mo></mrow></math>.</p>
+      </div>
+    </div>
+
+    <div class="ltx_proof">
+      <h6 class="ltx_title ltx_runin ltx_font_italic ltx_title_proof">Proof.</h6>
+      <div class="ltx_para">
+        <p class="ltx_p">By Serre duality
+        <math alttext="h^1(D) = h^0(K - D)" class="ltx_Math"
+              display="inline"><mi>K</mi></math>, where
+        <math alttext="K" class="ltx_Math"><mi>K</mi></math> is the canonical
+        divisor. The result follows from a dimension count.</p>
+      </div>
+    </div>
+
+    <div class="ltx_theorem ltx_theorem_definition" id="def-canonical">
+      <h6 class="ltx_title ltx_runin ltx_font_bold ltx_title_definition">Definition 1.2 (Canonical divisor).</h6>
+      <div class="ltx_para">
+        <p class="ltx_p">The canonical divisor
+        <math alttext="K_X" class="ltx_Math"><msub><mi>K</mi><mi>X</mi></msub></math>
+        on a smooth projective variety
+        <math alttext="X" class="ltx_Math"><mi>X</mi></math> is the divisor of a
+        non-zero rational section of the canonical bundle
+        <math alttext="\\omega_X = \\bigwedge^{\\dim X} \\Omega_X^1" class="ltx_Math"
+              display="inline"><msub><mi>ω</mi><mi>X</mi></msub></math>.</p>
+      </div>
+    </div>
+  </section>
+</article>
+</body>
+</html>

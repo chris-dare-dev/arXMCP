@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"/><title>Deeply Nested Subsection Path Fixture</title></head>
+<body>
+<article class="ltx_document">
+  <section class="ltx_section" id="S1">
+    <h2 class="ltx_title ltx_title_section">1. Deep section nesting</h2>
+
+    <div class="ltx_para">
+      <p class="ltx_p">The chunker must walk through three levels of section
+      nesting and produce the correct breadcrumb section path on every theorem
+      buried inside the deepest subsubsection.</p>
+    </div>
+
+    <section class="ltx_subsection" id="S1.SS1">
+      <h3 class="ltx_title ltx_title_subsection">1.1 Outer subsection</h3>
+
+      <div class="ltx_para">
+        <p class="ltx_p">Subsection-level prose that mirrors the section-level
+        prose above. This text is here to ensure a section chunk is emitted at
+        this level too.</p>
+      </div>
+
+      <section class="ltx_subsubsection" id="S1.SS1.SSS1">
+        <h4 class="ltx_title ltx_title_subsubsection">1.1.1 Inner subsubsection</h4>
+
+        <div class="ltx_para">
+          <p class="ltx_p">Subsubsection prose introducing the deepest theorem.
+          The chunker must record `["1. Deep section nesting", "1.1 Outer
+          subsection", "1.1.1 Inner subsubsection"]` as the section_path for
+          the theorem below.</p>
+        </div>
+
+        <div class="ltx_theorem ltx_theorem_theorem" id="deepest-thm">
+          <h6 class="ltx_title ltx_runin ltx_font_bold ltx_title_theorem">Theorem 1.1.1 (Buried).</h6>
+          <div class="ltx_para">
+            <p class="ltx_p">Let $X$ be a topological space embedded three levels
+            deep in the section hierarchy. Then the section_path on this
+            theorem chunk records all three ancestors.</p>
+          </div>
+        </div>
+
+        <div class="ltx_proof">
+          <h6 class="ltx_title ltx_runin ltx_font_italic ltx_title_proof">Proof.</h6>
+          <div class="ltx_para">
+            <p class="ltx_p">Trivial — the proof is left as an exercise for the
+            chunker's section_path walker.</p>
+          </div>
+        </div>
+      </section>
+    </section>
+  </section>
+</article>
+</body>
+</html>

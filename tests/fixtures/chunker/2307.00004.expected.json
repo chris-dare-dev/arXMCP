@@ -1,0 +1,16 @@
+{
+  "chunk_count": 3,
+  "chunker_version": "v1.0",
+  "expected_chunk_ids": [
+    "arxiv:2307.00004:08a66772ae3b99ef",
+    "arxiv:2307.00004:c257f998587f1610",
+    "arxiv:2307.00004:c39116a3fecd02f1"
+  ],
+  "kind_counts": {
+    "definition": 1,
+    "proof": 1,
+    "section": 0,
+    "stmt": 1
+  },
+  "paper_id": "2307.00004"
+}

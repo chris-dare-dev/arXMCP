@@ -1,0 +1,20 @@
+{
+  "chunk_count": 7,
+  "chunker_version": "v1.0",
+  "expected_chunk_ids": [
+    "arxiv:2307.00008:f367794048a94037",
+    "arxiv:2307.00008:cc84cfbd498155b2",
+    "arxiv:2307.00008:7dc650b7c1b5fa17",
+    "arxiv:2307.00008:b1f8799af30834cf",
+    "arxiv:2307.00008:a88774c798394717",
+    "arxiv:2307.00008:ea5be2eb37f88e88",
+    "arxiv:2307.00008:7f1fd9c9acc5bb52"
+  ],
+  "kind_counts": {
+    "definition": 3,
+    "proof": 0,
+    "section": 2,
+    "stmt": 0
+  },
+  "paper_id": "2307.00008"
+}

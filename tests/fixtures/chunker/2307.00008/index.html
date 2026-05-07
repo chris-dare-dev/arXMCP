@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"/><title>Definition-Heavy Paper Fixture (no proof environments)</title></head>
+<body>
+<article class="ltx_document">
+  <section class="ltx_section" id="S1">
+    <h2 class="ltx_title ltx_title_section">1. Notation and definitions</h2>
+
+    <div class="ltx_para">
+      <p class="ltx_p">This paper consists entirely of definitions and observations
+      — no formal proofs appear. The chunker should emit definition and section
+      chunks with zero proof chunks. This exercises the no-proof acceptance
+      criterion for the fixture suite.</p>
+    </div>
+
+    <div class="ltx_theorem ltx_theorem_definition" id="def-sheaf">
+      <h6 class="ltx_title ltx_runin ltx_font_bold ltx_title_definition">Definition 1.1 (Sheaf).</h6>
+      <div class="ltx_para">
+        <p class="ltx_p">A presheaf $\mathcal{F}$ on a topological space $X$ is a
+        sheaf if it satisfies the gluing and locality axioms for every open
+        cover.</p>
+      </div>
+    </div>
+
+    <div class="ltx_theorem ltx_theorem_definition" id="def-stalk">
+      <h6 class="ltx_title ltx_runin ltx_font_bold ltx_title_definition">Definition 1.2 (Stalk).</h6>
+      <div class="ltx_para">
+        <p class="ltx_p">The stalk of a sheaf $\mathcal{F}$ at a point $x \in X$
+        is the colimit $\mathcal{F}_x = \mathrm{colim}_{U \ni x} \mathcal{F}(U)$
+        over open neighborhoods of $x$.</p>
+      </div>
+    </div>
+
+    <div class="ltx_theorem ltx_theorem_definition" id="def-morphism">
+      <h6 class="ltx_title ltx_runin ltx_font_bold ltx_title_definition">Definition 1.3 (Morphism of sheaves).</h6>
+      <div class="ltx_para">
+        <p class="ltx_p">A morphism $\phi : \mathcal{F} \to \mathcal{G}$ of
+        sheaves is a natural transformation of the underlying presheaves
+        compatible with all restriction maps.</p>
+      </div>
+    </div>
+
+    <div class="ltx_theorem ltx_theorem_remark" id="rem-functor">
+      <h6 class="ltx_title ltx_runin ltx_font_bold ltx_title_remark">Remark 1.4.</h6>
+      <div class="ltx_para">
+        <p class="ltx_p">The category of sheaves on $X$ is abelian; this is the
+        starting point of homological algebra in algebraic geometry.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="ltx_section" id="S2">
+    <h2 class="ltx_title ltx_title_section">2. Standard examples</h2>
+
+    <div class="ltx_para">
+      <p class="ltx_p">A second section with prose that the chunker emits as a
+      section chunk. No proofs appear in this section either.</p>
+    </div>
+
+    <div class="ltx_theorem ltx_theorem_example" id="ex-constant">
+      <h6 class="ltx_title ltx_runin ltx_font_bold ltx_title_example">Example 2.1.</h6>
+      <div class="ltx_para">
+        <p class="ltx_p">The constant sheaf $\underline{\mathbb{Z}}$ assigns the
+        group $\mathbb{Z}$ to every connected open set.</p>
+      </div>
+    </div>
+  </section>
+</article>
+</body>
+</html>

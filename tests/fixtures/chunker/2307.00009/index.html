@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"/><title>Appendix-After-Main Section Order Fixture</title></head>
+<body>
+<article class="ltx_document">
+  <section class="ltx_section" id="S1">
+    <h2 class="ltx_title ltx_title_section">1. Main results</h2>
+
+    <div class="ltx_para">
+      <p class="ltx_p">The main section introduces the central theorem and its
+      proof. The fixture's purpose is to verify that the chunker emits chunks
+      in document order even when an appendix follows the main sections.</p>
+    </div>
+
+    <div class="ltx_theorem ltx_theorem_theorem" id="main-thm">
+      <h6 class="ltx_title ltx_runin ltx_font_bold ltx_title_theorem">Theorem 1.1 (Main result).</h6>
+      <div class="ltx_para">
+        <p class="ltx_p">Every finitely generated module over a principal ideal
+        domain is a direct sum of cyclic modules.</p>
+      </div>
+    </div>
+
+    <div class="ltx_proof">
+      <h6 class="ltx_title ltx_runin ltx_font_italic ltx_title_proof">Proof.</h6>
+      <div class="ltx_para">
+        <p class="ltx_p">Apply the structure theorem from Section 2 of the
+        appendix. The argument is by Smith normal form.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="ltx_section" id="S2">
+    <h2 class="ltx_title ltx_title_section">2. Appendix: Smith normal form</h2>
+
+    <div class="ltx_para">
+      <p class="ltx_p">The appendix records the auxiliary lemma used in Section 1.
+      Order matters: the chunker must emit Section 1 chunks before Section 2
+      chunks, even though "Appendix" labels are alphabetically earlier than
+      "Main results" in some collations.</p>
+    </div>
+
+    <div class="ltx_theorem ltx_theorem_lemma" id="snf-lemma">
+      <h6 class="ltx_title ltx_runin ltx_font_bold ltx_title_lemma">Lemma 2.1 (Smith normal form).</h6>
+      <div class="ltx_para">
+        <p class="ltx_p">Every matrix with entries in a principal ideal domain
+        is equivalent to a diagonal matrix via row and column operations.</p>
+      </div>
+    </div>
+
+    <div class="ltx_proof">
+      <h6 class="ltx_title ltx_runin ltx_font_italic ltx_title_proof">Proof.</h6>
+      <div class="ltx_para">
+        <p class="ltx_p">Standard; see any algebra textbook.</p>
+      </div>
+    </div>
+  </section>
+</article>
+</body>
+</html>

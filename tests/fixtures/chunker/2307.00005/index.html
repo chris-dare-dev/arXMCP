@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"/><title>Proposition + Conjecture Kinds Fixture</title></head>
+<body>
+<article class="ltx_document">
+  <section class="ltx_section" id="S1">
+    <h2 class="ltx_title ltx_title_section">1. Propositions and conjectures</h2>
+
+    <div class="ltx_para">
+      <p class="ltx_p">In this section we collect the propositions and conjectures
+      that motivate the rest of the paper. Each is stated without proof; the
+      proofs (where available) appear in subsequent sections.</p>
+    </div>
+
+    <!-- Proposition with paired proof -->
+    <div class="ltx_theorem ltx_theorem_proposition" id="prop-flat">
+      <h6 class="ltx_title ltx_runin ltx_font_bold ltx_title_proposition">Proposition 1.1 (Flatness criterion).</h6>
+      <div class="ltx_para">
+        <p class="ltx_p">A finitely generated module $M$ over a Noetherian ring $R$
+        is flat if and only if $\mathrm{Tor}_1^R(M, N) = 0$ for every finitely
+        generated $R$-module $N$.</p>
+      </div>
+    </div>
+
+    <div class="ltx_proof">
+      <h6 class="ltx_title ltx_runin ltx_font_italic ltx_title_proof">Proof.</h6>
+      <div class="ltx_para">
+        <p class="ltx_p">The forward direction follows from the long exact sequence
+        of $\mathrm{Tor}$. For the converse, write $N$ as a quotient of a free
+        module and apply the snake lemma.</p>
+      </div>
+    </div>
+
+    <!-- Conjecture (no proof — open problem) -->
+    <div class="ltx_theorem ltx_theorem_conjecture" id="S1.Thmconjecture1">
+      <h6 class="ltx_title ltx_runin ltx_font_bold ltx_title_conjecture">Conjecture 1.2 (Hodge conjecture, restricted).</h6>
+      <div class="ltx_para">
+        <p class="ltx_p">For a smooth projective variety $X$ over $\mathbb{C}$, every
+        rational $(p,p)$-class is algebraic.</p>
+      </div>
+    </div>
+
+    <!-- Another proposition with auto-id -->
+    <div class="ltx_theorem ltx_theorem_proposition" id="S1.Thmproposition2">
+      <h6 class="ltx_title ltx_runin ltx_font_bold ltx_title_proposition">Proposition 1.3.</h6>
+      <div class="ltx_para">
+        <p class="ltx_p">The étale cohomology of a smooth projective curve of genus
+        $g$ satisfies a Poincaré duality.</p>
+      </div>
+    </div>
+  </section>
+</article>
+</body>
+</html>
