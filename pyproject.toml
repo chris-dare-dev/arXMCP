@@ -1,0 +1,28 @@
+[project]
+name = "arxmcp"
+version = "0.1.0"
+description = "Local-first MCP server exposing a research-mathematics arXiv corpus to multi-agent Claude pipelines"
+requires-python = ">=3.11"
+readme = "README.md"
+license = { text = "MIT" }
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.5",
+    "pytest>=8.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = [
+    ".claude",
+    "var",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
