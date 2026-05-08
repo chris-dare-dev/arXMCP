@@ -130,23 +130,9 @@ def _make_corpus(n: int = 10) -> list[ChunkRecord]:
 
 
 # ===========================================================================
-# Test isolation: each test uses its own tmp_path → fresh LanceDB
+# Test isolation: each test uses its own tmp_path → fresh LanceDB.
+# The store-stats redirect now lives in tests/conftest.py (F8 fix).
 # ===========================================================================
-
-
-@pytest.fixture(autouse=True)
-def _patched_store_paths(tmp_path, monkeypatch):
-    """Redirect store-stats.jsonl into the test's tmp_path.
-
-    LanceDB writes go to the explicit ``lancedb_path`` parameter, which
-    each test passes ``tmp_path / "lancedb"`` for. The store-stats log
-    path is patched here so the integration tests do not append to the
-    real var/arxmcp/ops/store-stats.jsonl on a developer machine.
-    """
-    import ingest.store as store_mod
-
-    monkeypatch.setattr(store_mod, "STORE_STATS_PATH", tmp_path / "ops" / "store-stats.jsonl")
-    yield
 
 
 # ===========================================================================
@@ -600,3 +586,196 @@ class TestLoadEmbedRecord:
         monkeypatch.setattr("ingest.store.EMBEDDINGS_DIR", tmp_path / "embeddings")
         with pytest.raises(ValueError, match="no sidecar manifest"):
             load_embed_record(paper_id)
+
+
+# ===========================================================================
+# Phase 4 rectification regression tests (F1, F2, F4, F6, F10)
+# ===========================================================================
+
+
+class TestPaperIdValidation:
+    def test_load_embed_record_rejects_path_traversal(self):
+        """Closes F1 from the E04_S01 critique: ``load_embed_record``
+        must call ``_validate_paper_id`` BEFORE any path concat. A
+        traversal-shaped paper_id like ``"../../../etc/passwd"`` must
+        raise rather than silently traverse out of EMBEDDINGS_DIR."""
+        from ingest.chunker import InvalidPaperIDError
+        from ingest.store import load_embed_record
+
+        with pytest.raises(InvalidPaperIDError):
+            load_embed_record("../../../etc/passwd")
+        with pytest.raises(InvalidPaperIDError):
+            load_embed_record("not-a-paper-id")
+        with pytest.raises(InvalidPaperIDError):
+            load_embed_record("")
+
+
+class TestWithinListDuplicateRejected:
+    def test_duplicate_chunk_id_in_stmt_list_raises(self):
+        # Closes F2 from the E04_S01 critique: a chunk_id that appears
+        # twice in chunk_ids_stmt (or chunk_ids_proof) silently
+        # collapses in the dict-comprehension lookup downstream and
+        # discards one vector. Validate at the EmbedRecord boundary.
+        # Build two unit vectors so the L2-norm check (F4) doesn't
+        # fire first.
+        rng = np.random.default_rng(98)
+        rows = rng.standard_normal((2, EMBEDDING_DIM)).astype(np.float32)
+        rows /= np.linalg.norm(rows, axis=1, keepdims=True)
+        with pytest.raises(ValueError, match="duplicate chunk_id.*chunk_ids_stmt"):
+            EmbedRecord(
+                chunk_ids_stmt=["dup", "dup"],
+                embedding_stmt=rows,
+                embedder_version=EMBEDDER_VERSION,
+            )
+
+    def test_duplicate_chunk_id_in_proof_list_raises(self):
+        # Build two unit vectors via a normalized identity-like
+        # construction so the L2-norm check (F4) doesn't fire first.
+        rng = np.random.default_rng(99)
+        rows = rng.standard_normal((2, EMBEDDING_DIM)).astype(np.float32)
+        rows /= np.linalg.norm(rows, axis=1, keepdims=True)
+        with pytest.raises(ValueError, match="duplicate chunk_id.*chunk_ids_proof"):
+            EmbedRecord(
+                chunk_ids_proof=["dup", "dup"],
+                embedding_proof=rows,
+                embedder_version=EMBEDDER_VERSION,
+            )
+
+
+class TestL2NormEnforcement:
+    def test_unnormalized_stmt_vectors_raise(self):
+        # Closes F4 from the E04_S01 critique: BGE-M3 outputs are
+        # L2-normalized; the store's HNSW index uses ``distance_type='l2'``
+        # so un-normalized vectors silently corrupt ANN ranking.
+        # Validate at the EmbedRecord boundary.
+        bad = np.full((1, EMBEDDING_DIM), 2.0, dtype=np.float32)  # norm = 2*sqrt(N) >> 1
+        with pytest.raises(ValueError, match="un-normalized vectors"):
+            EmbedRecord(
+                chunk_ids_stmt=["arxiv:2307.00301:" + "0" * 16],
+                embedding_stmt=bad,
+                embedder_version=EMBEDDER_VERSION,
+            )
+
+    def test_unnormalized_proof_vectors_raise(self):
+        bad = np.full((1, EMBEDDING_DIM), 0.5, dtype=np.float32)
+        with pytest.raises(ValueError, match="un-normalized vectors"):
+            EmbedRecord(
+                chunk_ids_proof=["arxiv:2307.00302:" + "0" * 16],
+                embedding_proof=bad,
+                embedder_version=EMBEDDER_VERSION,
+            )
+
+    def test_zero_vectors_rejected(self):
+        # Zero vectors have norm 0 — must NOT pass the L2-norm check.
+        # (BGE-M3 never emits zero vectors; this catches a pathological
+        # caller.)
+        with pytest.raises(ValueError, match="un-normalized vectors"):
+            EmbedRecord(
+                chunk_ids_stmt=["arxiv:2307.00303:" + "0" * 16],
+                embedding_stmt=np.zeros((1, EMBEDDING_DIM), dtype=np.float32),
+                embedder_version=EMBEDDER_VERSION,
+            )
+
+    def test_normalized_vectors_pass(self):
+        # Sanity: normalized vectors construct cleanly.
+        rng = np.random.default_rng(7)
+        v = rng.standard_normal(EMBEDDING_DIM).astype(np.float32)
+        v /= np.linalg.norm(v)
+        EmbedRecord(
+            chunk_ids_stmt=["arxiv:2307.00304:" + "0" * 16],
+            embedding_stmt=v.reshape(1, -1),
+            embedder_version=EMBEDDER_VERSION,
+        )
+
+
+class TestMixedInsertAndUpdate:
+    def test_first_n_then_n_plus_m(self, tmp_path):
+        """Closes F6 from the E04_S01 critique: idempotency tests
+        previously covered only same-input-twice and single-row
+        update. The realistic ingest case is "second batch is a
+        superset of the first" — verify the upsert produces N+M
+        rows total."""
+        from ingest.store import write_chunks
+
+        # First batch: 5 chunks.
+        first_batch = _make_corpus(5)
+        first_emb = _make_synthetic_embeddings(first_batch, seed=11)
+        write_chunks(first_batch, first_emb, lancedb_path=tmp_path / "lancedb")
+        # Second batch: same 5 + 3 new chunks (different suffixes).
+        new_chunks = []
+        for i in range(3):
+            paper_id = f"2307.0020{i}"
+            new_chunks.append(
+                _make_chunk(
+                    paper_id, "stmt", f"new chunk {i}",
+                    suffix=f"new{i:013x}",
+                )
+            )
+        second_batch = first_batch + new_chunks
+        second_emb = _make_synthetic_embeddings(second_batch, seed=12)
+        write_chunks(second_batch, second_emb, lancedb_path=tmp_path / "lancedb")
+        # Total rows = 5 + 3 = 8.
+        import lancedb
+
+        db = lancedb.connect(str(tmp_path / "lancedb"))
+        tbl = db.open_table(CHUNKS_TABLE_NAME)
+        assert tbl.count_rows() == 8
+
+
+class TestKindValidation:
+    def test_invalid_kind_raises(self, tmp_path):
+        """Closes F10 from the E04_S01 critique: a chunker bug or
+        driver typo like ``"theroem"`` (instead of ``"theorem"``) must
+        surface at write time, not silently land in the dataset."""
+        from ingest.store import write_chunks
+
+        chunk = _make_chunk("2307.00400", "stmt", "body", suffix="0" * 16)
+        chunk.kind = "theroem"  # typo — not in _ALLOWED_KINDS
+        embeddings = _make_synthetic_embeddings([chunk], seed=14)
+        # The synthetic-embeddings helper routes by kind == "proof"
+        # (everything else goes to stmt), so the typo'd kind ends up in
+        # the stmt list. It should raise on write.
+        with pytest.raises(ValueError, match="not in the allowed set"):
+            write_chunks([chunk], embeddings, lancedb_path=tmp_path / "lancedb")
+
+    def test_all_chunker_kinds_pass(self, tmp_path):
+        """Sanity: every kind the chunker actually emits is in
+        ``_ALLOWED_KINDS``. Build one chunk per kind and confirm the
+        write succeeds. This catches a future chunker change that adds
+        a new kind without updating the allowed set in store.py."""
+        from ingest.chunker import _THEOREM_ENV_KINDS
+        from ingest.store import write_chunks
+
+        kinds = sorted(set(_THEOREM_ENV_KINDS.values()) | {"stmt", "proof", "section"})
+        chunks = [
+            _make_chunk(f"2307.0050{i}", k, f"body {i}", suffix=f"{i:016x}")
+            for i, k in enumerate(kinds)
+        ]
+        embeddings = _make_synthetic_embeddings(chunks, seed=15)
+        write_chunks(chunks, embeddings, lancedb_path=tmp_path / "lancedb")
+        import lancedb
+
+        db = lancedb.connect(str(tmp_path / "lancedb"))
+        tbl = db.open_table(CHUNKS_TABLE_NAME)
+        assert tbl.count_rows() == len(kinds)
+
+
+class TestStructuredIndicesCreated:
+    def test_indices_created_is_dict_in_stats(self, tmp_path):
+        """Closes F14 from the E04_S01 critique: ``indices_created``
+        in the ops log is now a ``dict[str, bool]`` so consumers can
+        filter individual outcomes without parsing strings."""
+        import ingest.store as store_mod
+        from ingest.store import write_chunks
+
+        chunks = _make_corpus(3)
+        embeddings = _make_synthetic_embeddings(chunks, seed=16)
+        write_chunks(chunks, embeddings, lancedb_path=tmp_path / "lancedb")
+        line = store_mod.STORE_STATS_PATH.read_text(encoding="utf-8").strip()
+        row = json.loads(line)
+        assert isinstance(row["indices_created"], dict)
+        # Both HNSW indices must have succeeded (F3: hard-error semantics).
+        assert row["indices_created"].get("hnsw_stmt") is True
+        assert row["indices_created"].get("hnsw_proof") is True
+        # Scalar index either succeeded or was logged as False.
+        assert row["indices_created"].get("scalar_paper_id") in (True, False)

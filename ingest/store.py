@@ -3,8 +3,12 @@
 Reads :class:`ingest.chunker_types.ChunkRecord` rows + an
 :class:`ingest.schema.EmbedRecord` (loaded from the embedder's NPZ
 store), and writes/upserts them into the canonical LanceDB ``chunks``
-table at ``var/arxmcp/index/lancedb/<dataset>``. The schema is the
-single source of truth in :mod:`ingest.schema`; this module never
+dataset at ``var/arxmcp/index/lancedb/`` (table name ``chunks``;
+LanceDB's on-disk layout puts the actual files under
+``var/arxmcp/index/lancedb/chunks.lance/`` — closes F9 from the
+E04_S01 critique by acknowledging that the brief's literal-path
+language elides the LanceDB-internal ``.lance`` suffix). The schema is
+the single source of truth in :mod:`ingest.schema`; this module never
 re-declares it.
 
 **Idempotent upsert.** :func:`write_chunks` uses LanceDB's
@@ -40,18 +44,16 @@ additional filesystem-atomicity wrapper is needed beyond the directory
 
 from __future__ import annotations
 
-import contextlib
 import json
 import logging
-import os
 import time
-import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
 import pyarrow as pa
 
+from ingest.chunker import _validate_paper_id
 from ingest.chunker_types import ChunkRecord
 from ingest.embedder import (
     EMBEDDING_DIM,
@@ -83,6 +85,37 @@ STORE_STATS_PATH = REPO_ROOT / "var" / "arxmcp" / "ops" / "store-stats.jsonl"
 # ---------------------------------------------------------------------------
 
 
+# Closes F10 from the E04_S01 critique: ``kind`` accepts arbitrary
+# strings at the schema layer (PyArrow has no native enum); a runtime
+# guard against typos at write time catches "theroem" etc. before the
+# bad row lands in the dataset.
+_ALLOWED_KINDS = frozenset(
+    {
+        "stmt",
+        "proof",
+        "section",
+        "definition",
+        "lemma",
+        "proposition",
+        "corollary",
+        "remark",
+        "example",
+        "claim",
+        "conjecture",
+        "fact",
+        "hypothesis",
+        "observation",
+        "problem",
+        "question",
+        "exercise",
+        "assumption",
+        "convention",
+        "notation",
+        "theorem",
+    }
+)
+
+
 @dataclass
 class WriteStats:
     """Per-call summary of a :func:`write_chunks` invocation.
@@ -90,6 +123,13 @@ class WriteStats:
     Append-mode written to ``var/arxmcp/ops/store-stats.jsonl`` so ops
     can audit which write produced which dataset version. Mirrors the
     embed-stats.jsonl shape from E03_S01.
+
+    Closes F14 from the E04_S01 critique: ``indices_created`` is a
+    ``dict[str, bool]`` keyed by canonical index name (``"hnsw_stmt"``,
+    ``"hnsw_proof"``, ``"scalar_paper_id"``) so machine consumers (an
+    ops dashboard, a CI gate) can filter individual outcomes without
+    parsing strings. The previous list-of-strings shape was BP1-
+    compliant at serialization time but not query-friendly.
     """
 
     chunk_count: int = 0
@@ -97,13 +137,13 @@ class WriteStats:
     lancedb_version: int = 0
     rows_inserted: int = 0
     rows_updated: int = 0
-    indices_created: list[str] = field(default_factory=list)
+    indices_created: dict[str, bool] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
             "chunk_count": self.chunk_count,
             "elapsed_s": round(self.elapsed_s, 3),
-            "indices_created": list(self.indices_created),
+            "indices_created": dict(self.indices_created),
             "lancedb_version": self.lancedb_version,
             "rows_inserted": self.rows_inserted,
             "rows_updated": self.rows_updated,
@@ -125,7 +165,15 @@ def load_embed_record(paper_id: str) -> EmbedRecord | None:
     present but the sidecar is absent or corrupt: the sidecar is the
     only place ``embedder_version`` is stored, and the LanceDB schema
     requires that column.
+
+    Closes F1 from the E04_S01 adversary critique: ``paper_id`` is
+    validated via ``_validate_paper_id`` before any path concatenation.
+    The chunker / embedder / preamble loaders all gate on this exact
+    helper (Threat 1 in 08-security-observability-ops.md); a public
+    function that interpolates ``paper_id`` into a filesystem path
+    must do the same.
     """
+    _validate_paper_id(paper_id)
     paper_dir = EMBEDDINGS_DIR / paper_id
     npz_path = paper_dir / EMBEDDINGS_NPZ_NAME
     sidecar_path = paper_dir / EMBEDDINGS_MANIFEST_NAME
@@ -224,6 +272,16 @@ def _build_arrow_table(
                 f"chunk {chunk.chunk_id} has body_tokens=None; "
                 "E02_S03 is required and must have populated this field"
             )
+        # Closes F10 from the E04_S01 critique: ``kind`` is not enforced
+        # by PyArrow (no native enum), so a chunker bug or driver typo
+        # like ``"theroem"`` could land in the dataset and silently
+        # break the dual-encoding routing rule. Validate against the
+        # closed set the chunker emits.
+        if chunk.kind not in _ALLOWED_KINDS:
+            raise ValueError(
+                f"chunk {chunk.chunk_id} has kind={chunk.kind!r} which "
+                f"is not in the allowed set {sorted(_ALLOWED_KINDS)!r}"
+            )
         emb_stmt = stmt_lookup.get(chunk.chunk_id)
         emb_proof = proof_lookup.get(chunk.chunk_id)
         # Convert numpy arrays to Python lists for PyArrow's
@@ -261,45 +319,86 @@ def _build_arrow_table(
 # ---------------------------------------------------------------------------
 
 
-def _create_indices(tbl) -> list[str]:
-    """Create the HNSW + scalar indices on ``tbl``. Best-effort.
+def _count_non_null(tbl, column: str) -> int:
+    """Return the number of non-null rows in ``column``.
 
-    Returns the list of indices that were successfully created (or
-    refreshed). A failure on any individual index is logged at WARNING
-    and skipped — the write itself has already succeeded so we'd rather
-    surface partial-index state than fail the whole pipeline.
+    Used to decide whether to attempt HNSW index creation: KMeans
+    training requires at least 1 vector. A zero-non-null column is a
+    valid state (e.g. a paper with only stmt chunks has zero
+    ``embedding_proof`` rows) — not an error.
+    """
+    arrow_tbl = tbl.to_arrow()
+    if arrow_tbl.num_rows == 0:
+        return 0
+    return arrow_tbl.num_rows - arrow_tbl.column(column).null_count
 
-    HNSW config: ``IVF_HNSW_SQ`` with ``m=16, ef_construction=200`` per
-    the ``05-storage-and-indexing.md`` spec. The lancedb 0.30 API
+
+def _create_indices(tbl) -> dict[str, bool]:
+    """Create the HNSW + scalar indices on ``tbl``.
+
+    Closes F3 from the E04_S01 critique: HNSW vector index failures
+    are now HARD failures because the brief's AC asserts they exist
+    after a write. Previously a LanceDB API drift in the kwarg names
+    (e.g. ``m`` → ``hnsw_m``) would silently log a WARNING, complete
+    the write, and ship un-indexed production tables.
+
+    Edge case (still F3-compliant): a column with ZERO non-null rows
+    cannot be indexed (KMeans can't train on an empty vector set).
+    This is a legitimate state — a paper with only stmt chunks has
+    zero ``embedding_proof`` rows — not an API failure. We pre-check
+    the column's non-null count and skip with ``False`` in the
+    structured ``indices_created`` dict so the empty-column state
+    is observable in ops logs rather than masked as a "success."
+
+    The scalar index (``paper_id``) remains best-effort because it's
+    a performance optimization, not an AC; its failure is logged
+    and recorded but does not raise.
+
+    Returns a ``dict[str, bool]`` keyed by canonical index name —
+    ``True`` for success, ``False`` when the column had no non-null
+    rows OR when the scalar index hit a transient error.
+
+    HNSW config: ``IVF_HNSW_SQ`` with ``m=16, ef_construction=200``
+    and ``num_partitions=1`` (closes F13: pinned explicitly so a
+    future LanceDB change to the auto-promotion threshold can't
+    break the small-corpus integration test). The lancedb 0.30 API
     surfaces these as direct kwargs on ``create_index`` (the older
     ``config=HnswSq(...)`` form was removed). Distance type left at
-    the LanceDB default (l2); BGE-M3 vectors are L2-normalized so l2
-    and cosine produce identical rankings.
+    the LanceDB default (l2); BGE-M3 vectors are L2-normalized so
+    l2 and cosine produce identical rankings.
     """
-    created: list[str] = []
-    for column in ("embedding_stmt", "embedding_proof"):
-        try:
-            tbl.create_index(
-                vector_column_name=column,
-                index_type="IVF_HNSW_SQ",
-                m=16,
-                ef_construction=200,
-                replace=True,
-            )
-            created.append(f"hnsw:{column}")
-        except Exception as exc:
-            # LanceDB API drift, empty column, or other transient issue.
-            # Log + skip rather than fail the whole write.
-            logger.warning(
-                "could not create HNSW index on %s: %s",
+    created: dict[str, bool] = {}
+    for column, key in (
+        ("embedding_stmt", "hnsw_stmt"),
+        ("embedding_proof", "hnsw_proof"),
+    ):
+        # Empty columns can't be indexed (KMeans needs ≥1 vector).
+        if _count_non_null(tbl, column) == 0:
+            logger.info(
+                "skipping HNSW index on %s: column has zero non-null rows",
                 column,
-                exc,
             )
+            created[key] = False
+            continue
+        # F3: vector indices are AC-required; failures here bubble up.
+        # Future API drift will surface as a clear AttributeError or
+        # ValueError from LanceDB rather than as silent WARNING-and-
+        # ship-broken.
+        tbl.create_index(
+            vector_column_name=column,
+            index_type="IVF_HNSW_SQ",
+            num_partitions=1,
+            m=16,
+            ef_construction=200,
+            replace=True,
+        )
+        created[key] = True
     try:
         tbl.create_scalar_index("paper_id", replace=True)
-        created.append("scalar:paper_id")
+        created["scalar_paper_id"] = True
     except Exception as exc:
         logger.warning("could not create scalar index on paper_id: %s", exc)
+        created["scalar_paper_id"] = False
     return created
 
 
@@ -353,6 +452,16 @@ def write_chunks(
     import lancedb  # noqa: PLC0415
 
     start = time.monotonic()
+    # Closes F7 from the E04_S01 critique: an empty chunks list is more
+    # likely a programmer bug (the driver loaded zero chunks for a
+    # paper) than a deliberate no-op. Log INFO so the gap is observable
+    # rather than silently writing a zero-row table-creation path.
+    if not chunks:
+        logger.info(
+            "write_chunks called with empty chunks list — no rows will be "
+            "written. Verify the upstream driver is not silently dropping "
+            "chunks."
+        )
     target_path = Path(lancedb_path) if lancedb_path is not None else DEFAULT_LANCEDB_PATH
     target_path.mkdir(parents=True, exist_ok=True)
 
@@ -383,10 +492,15 @@ def write_chunks(
             .when_not_matched_insert_all()
             .execute(arrow_table)
         )
-        # MergeResult shape varies across lancedb versions; prefer the
-        # documented attributes when present.
-        rows_inserted = getattr(merge_result, "num_inserted_rows", 0) or 0
-        rows_updated = getattr(merge_result, "num_updated_rows", 0) or 0
+        # Closes F5 from the E04_S01 critique: direct attribute access
+        # on ``MergeResult`` so a future LanceDB rename surfaces as a
+        # clear ``AttributeError`` at write time, not as a silently
+        # wrong ``rows_inserted=0`` recorded forever in the ops log.
+        # If LanceDB ever retires the attribute (vs. renaming),
+        # downstream code is the right place to surface that — not
+        # here in observability.
+        rows_inserted = int(merge_result.num_inserted_rows)
+        rows_updated = int(merge_result.num_updated_rows)
 
     # Refresh indices best-effort (logs warnings on individual failures).
     indices_created = _create_indices(tbl)
@@ -409,29 +523,10 @@ def write_chunks(
     return dataset_version
 
 
-# ---------------------------------------------------------------------------
-# Test/diagnostic helpers (NOT part of the public API)
-# ---------------------------------------------------------------------------
-
-
-def _atomic_write_json(path: Path, data: dict) -> None:
-    """Atomic JSON write helper — mirrors preamble.py's discipline.
-
-    Currently unused by the public API (the LanceDB write path uses
-    LanceDB's own MVCC); reserved for future side-files written by the
-    store. Kept for parity with the rest of the ingest package.
-    """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(
-        f"{path.suffix}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp"
-    )
-    payload = json.dumps(data, ensure_ascii=False, sort_keys=True) + "\n"
-    try:
-        tmp.write_text(payload, encoding="utf-8")
-        os.replace(tmp, path)
-    finally:
-        with contextlib.suppress(OSError):
-            tmp.unlink(missing_ok=True)
+# Closes F11 from the E04_S01 critique: ``_atomic_write_json`` was
+# dead code on land. Removed; if a future side-file needs atomic
+# writes, copy the pattern from ``ingest.preamble._write_preamble_json``
+# (the canonical implementation) rather than re-introducing it here.
 
 
 __all__ = [

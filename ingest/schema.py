@@ -188,16 +188,76 @@ class EmbedRecord:
             raise ValueError(
                 f"embedding_proof dtype must be float32, got {self.embedding_proof.dtype}"
             )
+
+        # Closes F2 from the E04_S01 critique: each chunk_id must be
+        # unique WITHIN each list. Duplicates would silently collapse
+        # in the dict-comprehension lookup downstream and discard one
+        # vector — the same silent-data-corruption class the
+        # cross-list overlap guard catches, but in the within-list
+        # direction.
+        #
+        # Order matters: we check ID-set invariants (duplicate +
+        # overlap) BEFORE the L2-norm check below. Domain-validity
+        # errors (a chunk_id appearing twice) are more fundamentally
+        # wrong than data-quality errors (an un-normalized vector),
+        # and surfacing them first gives clearer error messages on
+        # malformed inputs.
+        stmt_set = set(self.chunk_ids_stmt)
+        if len(stmt_set) != len(self.chunk_ids_stmt):
+            from collections import Counter
+
+            dup = [
+                k for k, n in Counter(self.chunk_ids_stmt).items() if n > 1
+            ]
+            raise ValueError(
+                f"duplicate chunk_id(s) in chunk_ids_stmt: {sorted(dup)}"
+            )
+        proof_set = set(self.chunk_ids_proof)
+        if len(proof_set) != len(self.chunk_ids_proof):
+            from collections import Counter
+
+            dup = [
+                k for k, n in Counter(self.chunk_ids_proof).items() if n > 1
+            ]
+            raise ValueError(
+                f"duplicate chunk_id(s) in chunk_ids_proof: {sorted(dup)}"
+            )
+
         # Each chunk_id must appear in exactly one of the two lists
         # (never both — the embedder's routing rule is exclusive).
-        stmt_set = set(self.chunk_ids_stmt)
-        proof_set = set(self.chunk_ids_proof)
         overlap = stmt_set & proof_set
         if overlap:
             raise ValueError(
                 f"chunk_ids in BOTH stmt and proof lists "
                 f"(routing rule violated): {sorted(overlap)}"
             )
+
+        # Closes F4 from the E04_S01 critique: BGE-M3 produces
+        # L2-normalized vectors and the store's HNSW index runs with
+        # ``distance_type='l2'``; un-normalized vectors silently corrupt
+        # ANN ranking quality. Validate at the EmbedRecord boundary so
+        # a regressed embedder (or a future caller passing raw vectors)
+        # surfaces the failure at construction rather than at
+        # query-time. ``atol=1e-3`` tolerates float32 round-off from the
+        # pooling layer.
+        for col_name, arr in (
+            ("embedding_stmt", self.embedding_stmt),
+            ("embedding_proof", self.embedding_proof),
+        ):
+            if arr.shape[0] == 0:
+                continue
+            norms = np.linalg.norm(arr, axis=1)
+            if not np.allclose(norms, 1.0, atol=1e-3):
+                worst_idx = int(np.argmax(np.abs(norms - 1.0)))
+                worst_norm = float(norms[worst_idx])
+                raise ValueError(
+                    f"{col_name} contains un-normalized vectors "
+                    f"(row {worst_idx} has L2 norm {worst_norm:.6f}, "
+                    f"expected 1.0 ± 1e-3). BGE-M3 outputs are "
+                    f"L2-normalized; pass vectors through "
+                    f"torch.nn.functional.normalize(p=2, dim=-1) before "
+                    f"constructing EmbedRecord."
+                )
 
 
 __all__ = [
