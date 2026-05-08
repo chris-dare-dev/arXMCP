@@ -30,6 +30,14 @@ dependencies = [
     #   by ``ingest/embedder.py``. Read by E04_S01's ``ingest/store.py``
     #   when assembling LanceDB rows.
     "numpy>=1.24",
+    # lancedb: vector store for the chunks table (E04_S01). Embedded
+    #   storage under ``var/arxmcp/index/lancedb/``; native MVCC + HNSW
+    #   index support. PyArrow-backed schema discipline.
+    "lancedb>=0.6",
+    # pyarrow: schema definition for the LanceDB ``chunks`` table
+    #   (E04_S01). The single source of truth for all downstream readers
+    #   lives in ``ingest/schema.py`` as a ``pa.schema(...)`` object.
+    "pyarrow>=14.0",
 ]
 
 [project.optional-dependencies]
