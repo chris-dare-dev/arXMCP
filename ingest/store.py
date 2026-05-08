@@ -41,6 +41,19 @@ produce two separate dataset versions, never a corrupt half-write. No
 additional filesystem-atomicity wrapper is needed beyond the directory
 ``mkdir(parents=True, exist_ok=True)``.
 
+**Single-writer assumption (F11 from the E04_S02 critique).** The
+function is designed for a SINGLE writer per LanceDB dataset. Between
+``merge_insert`` and ``_create_indices``, a concurrent writer-B
+landing its own merge against the same dataset would shift
+``tbl.version`` such that writer-A's returned integer points to
+writer-B's post-merge state, not writer-A's own post-index state.
+Callers running concurrent ingest from multiple processes against
+the same dataset must serialize writes externally (e.g. a flock on
+``<lancedb_path>/.write-lock``). The Tier-0 ingestion pipeline has
+exactly one writer (the corpus driver), so this is a documented
+constraint rather than an enforced one. Multi-writer support is an
+E11 concern.
+
 **MVCC handshake (E04_S02).** No symlink swaps. LanceDB version int IS
 the corpus_version. Writers use the current dataset; readers call
 dataset.checkout(version=N). (The reader-side wrapper lives in

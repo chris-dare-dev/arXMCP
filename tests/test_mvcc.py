@@ -30,8 +30,11 @@ from server.corpus import open_chunks_table
 # Reuse the synthetic-corpus helpers from test_store.py rather than
 # duplicating the bodies. Direct module import is the cleanest bridge —
 # the helpers are pure (no side effects on import) and test_store.py
-# defines them at module scope.
+# defines them at module scope. Closes F8 from the E04_S02 critique:
+# ``_make_chunk`` lives in this import block too rather than via an
+# awkward ``__import__`` indirection.
 from tests.test_store import (
+    _make_chunk,
     _make_corpus,
     _make_synthetic_embeddings,
 )
@@ -83,7 +86,7 @@ class TestVersionPinning:
         for i in range(5):
             paper_id = f"2307.0030{i}"
             new_chunks.append(
-                __import__("tests.test_store", fromlist=["_make_chunk"])._make_chunk(
+                _make_chunk(
                     paper_id, "stmt", f"new chunk {i}",
                     suffix=f"new{i:013x}",
                 )
@@ -96,13 +99,17 @@ class TestVersionPinning:
 
         assert v_a < v_b, f"second write must produce a newer version (v_a={v_a}, v_b={v_b})"
 
-        # checkout(v_a) returns the dataset as it was after the first write.
+        # Closes F4 from the E04_S02 critique: open BOTH handles first,
+        # THEN assert. The previous ordering (open A → assert A → open
+        # B → assert B) would silently pass even if opening B
+        # invalidated A's view (which would happen if lancedb cached
+        # a shared Connection / Table object across calls).
         tbl_a = open_chunks_table(tmp_path / "lancedb", version=v_a)
-        assert tbl_a.count_rows() == 10, (
-            f"checkout(v_a={v_a}) should return 10 rows; got {tbl_a.count_rows()}"
-        )
-        # checkout(v_b) returns the dataset after the second write (10 + 5 = 15).
         tbl_b = open_chunks_table(tmp_path / "lancedb", version=v_b)
+        assert tbl_a.count_rows() == 10, (
+            f"checkout(v_a={v_a}) should return 10 rows AFTER "
+            f"opening v_b; got {tbl_a.count_rows()}"
+        )
         assert tbl_b.count_rows() == 15, (
             f"checkout(v_b={v_b}) should return 15 rows; got {tbl_b.count_rows()}"
         )
@@ -124,7 +131,10 @@ class TestVersionPinning:
         chunks = _make_corpus(3)
         embeddings = _make_synthetic_embeddings(chunks, seed=13)
         write_chunks(chunks, embeddings, lancedb_path=tmp_path / "lancedb")
-        with pytest.raises(ValueError, match="not accessible"):
+        # Closes F6 from the E04_S02 critique: match the requested
+        # version integer (a stable contract) rather than the
+        # implementation-specific "not accessible" wording.
+        with pytest.raises(ValueError, match="999999"):
             open_chunks_table(tmp_path / "lancedb", version=999_999)
 
     def test_missing_path_raises_file_not_found(self, tmp_path):
@@ -190,15 +200,24 @@ class TestNoSymlinks:
     def test_no_symlinks_under_lancedb_root(self, tmp_path):
         """Brief AC4: no symlinks created under ``var/arxmcp/index/lancedb/``
         by any ingest or server code. The native LanceDB layout is
-        ``<lancedb_path>/<table>.lance/`` — never a symlink."""
+        ``<lancedb_path>/<table>.lance/`` — never a symlink.
+
+        Closes F5 from the E04_S02 critique: collect entries first
+        and assert ``len > 0`` so the test fails loudly if a future
+        refactor of ``write_chunks`` produces no on-disk files.
+        """
         from ingest.store import write_chunks
 
         chunks = _make_corpus(3)
         embeddings = _make_synthetic_embeddings(chunks, seed=16)
         write_chunks(chunks, embeddings, lancedb_path=tmp_path / "lancedb")
-        # Walk every entry under tmp_path/lancedb and assert none are
-        # symlinks. Using ``rglob('*')`` includes nested files.
-        for entry in (tmp_path / "lancedb").rglob("*"):
+        entries = list((tmp_path / "lancedb").rglob("*"))
+        assert len(entries) > 0, (
+            "LanceDB root contains zero entries after write_chunks; "
+            "the symlink check would pass vacuously"
+        )
+        # Walk every entry and assert none are symlinks.
+        for entry in entries:
             assert not entry.is_symlink(), (
                 f"unexpected symlink under LanceDB root: {entry}"
             )
@@ -268,3 +287,169 @@ class TestSingleSourceOfTruth:
 
         # server.corpus imports the symbol; verify it's the same object.
         assert server.corpus.CHUNKS_TABLE_NAME is ingest.schema.CHUNKS_TABLE_NAME
+
+    def test_corpus_imports_default_path_from_store(self):
+        """Closes F3 from the E04_S02 critique: server.corpus and
+        ingest.store share the same ``DEFAULT_LANCEDB_PATH`` constant.
+        Asymmetric defaults would force every reader to hard-code the
+        path."""
+        import ingest.store
+        import server.corpus
+
+        assert (
+            server.corpus.DEFAULT_LANCEDB_PATH
+            is ingest.store.DEFAULT_LANCEDB_PATH
+        )
+
+    def test_corpus_docstring_states_mvcc_handshake(self):
+        """Closes F16 from the E04_S02 critique: extend the docstring
+        contract scan to cover ``server.corpus`` too. The verbatim AC5
+        sentence MUST appear in both the writer (ingest.store) and
+        the reader (server.corpus) — drift in either direction would
+        be silent without this test."""
+        import server.corpus as corpus_mod
+
+        doc = corpus_mod.__doc__ or ""
+        doc_collapsed = " ".join(doc.split())
+        required = (
+            "No symlink swaps. LanceDB version int IS the corpus_version. "
+            "Writers use the current dataset; readers call "
+            "dataset.checkout(version=N)."
+        )
+        assert required in doc_collapsed, (
+            "server/corpus.py docstring must contain the AC5 MVCC handshake "
+            "sentence so doc-drift between reader and writer is regression-locked"
+        )
+
+
+# ===========================================================================
+# TestHandleIndependence — F1: two pinned handles must not stamp on each other
+# ===========================================================================
+
+
+class TestHandleIndependence:
+    def test_two_handles_with_different_versions_are_independent(self, tmp_path):
+        """Closes F1 from the E04_S02 critique: opening one handle at
+        v_a and another at v_b, then asserting both still report their
+        own pinned counts. This locks the docstring claim that each
+        ``open_chunks_table`` call returns a fresh handle.
+
+        If LanceDB ever changes its connection-caching behavior such
+        that the second ``checkout(v_b)`` mutates the first handle,
+        this test catches it.
+        """
+        from ingest.store import write_chunks
+
+        first_batch = _make_corpus(7)
+        first_emb = _make_synthetic_embeddings(first_batch, seed=21)
+        v_a = write_chunks(
+            first_batch, first_emb, lancedb_path=tmp_path / "lancedb"
+        )
+        new_chunks = [
+            _make_chunk(
+                f"2307.0040{i}", "stmt", f"new {i}", suffix=f"hi{i:014x}"
+            )
+            for i in range(4)
+        ]
+        second_batch = first_batch + new_chunks
+        second_emb = _make_synthetic_embeddings(second_batch, seed=22)
+        v_b = write_chunks(
+            second_batch, second_emb, lancedb_path=tmp_path / "lancedb"
+        )
+
+        # Open BOTH handles, then verify each maintains its own pin.
+        tbl_a = open_chunks_table(tmp_path / "lancedb", version=v_a)
+        tbl_b = open_chunks_table(tmp_path / "lancedb", version=v_b)
+        # Object identity: distinct Connection objects should produce
+        # distinct Table objects.
+        assert tbl_a is not tbl_b
+        # Each handle reports its own pinned version.
+        assert tbl_a.version == v_a
+        assert tbl_b.version == v_b
+        # And its own row count.
+        assert tbl_a.count_rows() == 7
+        assert tbl_b.count_rows() == 11
+
+        # And — the F1 stress: opening tbl_b did NOT mutate tbl_a's view.
+        # Re-read tbl_a's count after tbl_b was created.
+        assert tbl_a.count_rows() == 7
+        assert tbl_a.version == v_a
+
+
+# ===========================================================================
+# TestNoneVsLatestEquivalence — F10: version=None and version=<live> agree
+# ===========================================================================
+
+
+class TestNoneVsLatestEquivalence:
+    def test_checkout_at_live_tip_equals_checkout_none(self, tmp_path):
+        """Closes F10 from the E04_S02 critique: ``version=None`` skips
+        the ``checkout`` call, while ``version=<live>`` invokes it.
+        These should produce semantically equivalent handles in
+        lancedb 0.30.x; lock the equivalence so a future LanceDB
+        change to ``checkout`` semantics surfaces here.
+        """
+        from ingest.store import write_chunks
+
+        chunks = _make_corpus(4)
+        embeddings = _make_synthetic_embeddings(chunks, seed=23)
+        v = write_chunks(chunks, embeddings, lancedb_path=tmp_path / "lancedb")
+        tbl_none = open_chunks_table(tmp_path / "lancedb", version=None)
+        tbl_explicit = open_chunks_table(tmp_path / "lancedb", version=v)
+        assert tbl_none.count_rows() == tbl_explicit.count_rows() == 4
+        assert tbl_none.version == tbl_explicit.version == v
+
+
+# ===========================================================================
+# TestNarrowExceptionCatch — F2: OSError / RuntimeError must propagate
+# ===========================================================================
+
+
+class TestNarrowExceptionCatch:
+    def test_oserror_propagates_unchanged(self, tmp_path, monkeypatch):
+        """Closes F2 from the E04_S02 critique: if ``checkout`` raises
+        an OSError (disk full / permission denied / file vanished),
+        ``open_chunks_table`` MUST propagate it unchanged rather than
+        masking it as ``ValueError("version not accessible")``. Triage
+        clarity matters under failure conditions.
+
+        Patches the concrete ``LanceTable.checkout`` (the lancedb 0.30
+        subclass returned by ``connect`` + ``open_table``) so the
+        OSError surfaces from inside the function under test.
+        """
+        from ingest.store import write_chunks
+
+        chunks = _make_corpus(2)
+        embeddings = _make_synthetic_embeddings(chunks, seed=24)
+        write_chunks(chunks, embeddings, lancedb_path=tmp_path / "lancedb")
+
+        # The concrete Table subclass in local mode is LanceTable;
+        # patch its ``checkout`` directly so the override is hit.
+        from lancedb.table import LanceTable
+
+        def _raising_checkout(self, version):
+            raise OSError("simulated disk full")
+
+        monkeypatch.setattr(LanceTable, "checkout", _raising_checkout)
+        with pytest.raises(OSError, match="disk full"):
+            open_chunks_table(tmp_path / "lancedb", version=2)
+
+    def test_runtimeerror_propagates_unchanged(self, tmp_path, monkeypatch):
+        """Companion to the OSError test: a LanceDB-internal
+        RuntimeError (e.g. corruption, panic) must also propagate
+        unchanged rather than being masked as a generic
+        version-not-accessible ValueError."""
+        from lancedb.table import LanceTable
+
+        from ingest.store import write_chunks
+
+        chunks = _make_corpus(2)
+        embeddings = _make_synthetic_embeddings(chunks, seed=25)
+        write_chunks(chunks, embeddings, lancedb_path=tmp_path / "lancedb")
+
+        def _raising_checkout(self, version):
+            raise RuntimeError("simulated lance panic")
+
+        monkeypatch.setattr(LanceTable, "checkout", _raising_checkout)
+        with pytest.raises(RuntimeError, match="lance panic"):
+            open_chunks_table(tmp_path / "lancedb", version=2)
