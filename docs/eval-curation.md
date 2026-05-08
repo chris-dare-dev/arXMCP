@@ -30,14 +30,34 @@ you see it, stop and re-curate. Do **not** edit the fixture's
 `chunker_version` field to silence the error; that would invalidate
 the stored chunk_ids without you noticing.
 
+**On the value of `chunker_version` at re-curation time.** When the
+chunker constant bumps (e.g. `CHUNKER_VERSION = "v1.1"`), the
+correctly-curated fixture carries `"chunker_version": "v1.1"` —
+**not** the literal `"v1.0"` from the seed file. Read the value from
+`ingest/chunker_types.py` at re-curation time; do not type the version
+string by hand. The validator's `test_chunker_version_locked` asserts
+fixture-equals-constant at ship time, but the curator is the one who
+keeps them in lockstep across `CHUNKER_VERSION` bumps.
+
 ## Prerequisites
 
-1. The 50-paper seed corpus has been chunked. Run:
+1. The 50-paper seed corpus has been chunked. Run, from the repo root:
    ```
-   tools/fetch_seed.py
-   # then the chunker — see ingest/chunker.py public API
+   # 1. Fetch seed papers from arXiv (requires ARXMCP_CONTACT_EMAIL):
+   python tools/fetch_seed.py
+
+   # 2. Chunk every fetched paper:
+   python -c "
+   from pathlib import Path
+   from ingest.chunker import chunk_paper
+   for line in Path('tools/seed-papers.txt').read_text().splitlines():
+       paper_id = line.strip()
+       if paper_id and not paper_id.startswith('#'):
+           chunk_paper(paper_id)
+   "
    ```
-   At completion, `var/arxmcp/corpus/chunks/<paper_id>/chunk_manifest.json`
+   The seed paper list lives in-tree at `tools/seed-papers.txt`. At
+   completion, `var/arxmcp/corpus/chunks/<paper_id>/chunk_manifest.json`
    exists for each paper.
 2. The chunked output is reviewable. The curator reads each
    manifest's `chunks` list (chunk_id + kind) AND the corresponding
@@ -146,8 +166,9 @@ The fixture file format (per
 
 **Never include** a `created_at` per-query field, an `_curation_status`
 flag, or any other key not in the brief schema. The validator rejects
-unknown top-level keys at the next schema bump; per-query unknown
-keys are currently allowed but discouraged for byte-stability.
+unknown top-level keys outright (see `_validate_header` —
+`extra = data.keys() - required` raises). Per-query unknown keys are
+currently allowed but discouraged for byte-stability.
 
 ## Validating your work
 
@@ -192,9 +213,9 @@ Two responses:
 
 1. **Pick a different query** (preferred). The 20-query budget has
    slack — drop a marginal query rather than label a 2 as a 3.
-2. **Add the paper** to the seed corpus. Coordinate with whoever owns
-   `tools/seed-papers.txt`; this changes the corpus, so plan it
-   deliberately.
+2. **Add the paper** to the seed corpus. The seed list lives in-tree
+   at `tools/seed-papers.txt`; edit it deliberately, then re-run
+   `python tools/fetch_seed.py` and re-chunk before re-curating.
 
 Do **not** rationalize "this is a 3 because I want this query in".
 The validator can't catch that, and it silently corrupts every nDCG@5

@@ -82,7 +82,16 @@ def _write_manifest(
 
 
 def _make_chunk_id(paper_id: str, suffix: str) -> str:
-    """Build an ``arxiv:<paper_id>:<16-hex>`` chunk_id."""
+    """Build an ``arxiv:<paper_id>:<16-hex>`` chunk_id.
+
+    Closes F13 from the E05_S01 critique: ``suffix`` must contain
+    only hex characters. A non-hex suffix (e.g. ``"z"``, ``"foo"``)
+    would produce a 16-char string that fails ``_CHUNK_ID_RE`` and a
+    misleading test failure downstream.
+    """
+    assert suffix and all(c in "0123456789abcdef" for c in suffix), (
+        f"suffix must be non-empty hex; got {suffix!r}"
+    )
     suffix = (suffix * 16)[:16]  # right-pad / truncate to exactly 16 hex
     return f"arxiv:{paper_id}:{suffix}"
 
@@ -544,3 +553,205 @@ class TestManifestErrors:
             FixtureValidationError, match="could not read chunk manifest"
         ):
             validate(fixture, chunks_dir)
+
+    def test_invalid_paper_id_directory_skipped(self, tmp_path):
+        """F5: a directory whose name does not match ``_PAPER_ID_RE``
+        is skipped by the manifest scan. The chunk_ids it declares
+        must NOT contribute to AC-3 resolution."""
+        chunks_dir = tmp_path / "chunks"
+        kind_index = _make_full_corpus(chunks_dir)
+        # Plant a malformed-name directory with a manifest that
+        # claims a chunk_id (which would otherwise resolve).
+        rogue_dir = chunks_dir / "evil; rm -rf /"
+        rogue_dir.mkdir()
+        rogue_cid = _make_chunk_id("2307.99999", "f")
+        rogue_dir.joinpath("chunk_manifest.json").write_text(
+            json.dumps(
+                {
+                    "chunker_version": CHUNKER_VERSION,
+                    "chunks": [{"chunk_id": rogue_cid, "kind": "stmt"}],
+                    "paper_id": "evil",
+                },
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        # Now build a fixture that references the rogue chunk_id — it
+        # should fail AC-3 because the rogue manifest is filtered out.
+        full = _make_full_fixture(kind_index)
+        full[0]["relevant_chunks"][0]["chunk_id"] = rogue_cid
+        fixture = _write_fixture(tmp_path / "queries.json", queries=full)
+        with pytest.raises(
+            FixtureValidationError,
+            match="does not exist in any chunk_manifest.json",
+        ):
+            validate(fixture, chunks_dir)
+
+    def test_chunk_id_paper_id_mismatch_skipped(self, tmp_path):
+        """F6: a chunk_id whose embedded paper_id contradicts the
+        manifest's directory name is silently skipped (not raised).
+        The validator's safety net — and AC-3 — refuses to resolve
+        such rows."""
+        chunks_dir = tmp_path / "chunks"
+        # Plant a manifest at chunks/2307.00001/ that DECLARES a
+        # chunk_id for paper 2307.99999 (mismatch with directory).
+        mismatched_cid = _make_chunk_id("2307.99999", "a")
+        manifest_dir = chunks_dir / "2307.00001"
+        manifest_dir.mkdir(parents=True)
+        manifest_dir.joinpath("chunk_manifest.json").write_text(
+            json.dumps(
+                {
+                    "chunker_version": CHUNKER_VERSION,
+                    "chunks": [{"chunk_id": mismatched_cid, "kind": "stmt"}],
+                    "paper_id": "2307.00001",
+                },
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        # Build a 20-query fixture that ONLY references the mismatched
+        # chunk_id. Without the F6 fix, AC-3 would resolve; with it,
+        # AC-3 fails because the row is skipped.
+        queries = [
+            {
+                "query_id": f"q{i + 1:02d}",
+                "query_text": f"q {i + 1}",
+                "relevant_chunks": [
+                    {"chunk_id": mismatched_cid, "relevance": 3}
+                ],
+            }
+            for i in range(20)
+        ]
+        fixture = _write_fixture(tmp_path / "queries.json", queries=queries)
+        with pytest.raises(
+            FixtureValidationError,
+            match="does not exist in any chunk_manifest.json",
+        ):
+            validate(fixture, chunks_dir)
+
+
+# ===========================================================================
+# F3 — unknown top-level keys are rejected
+# ===========================================================================
+
+
+class TestUnknownTopLevelKeys:
+    def test_unknown_top_level_key_raises(self, tmp_path):
+        """F3: the runbook promised exclusive top-level keys; the
+        validator now delivers."""
+        bad = tmp_path / "queries.json"
+        bad.write_text(
+            json.dumps(
+                {
+                    "schema_version": "1.0",
+                    "chunker_version": CHUNKER_VERSION,
+                    "created_at": "2026-05-08",
+                    "queries": [],
+                    "_curation_status": "half",
+                }
+            ),
+            encoding="utf-8",
+        )
+        with pytest.raises(
+            FixtureValidationError,
+            match=r"unknown top-level keys \['_curation_status'\]",
+        ):
+            validate(bad, tmp_path)
+
+
+# ===========================================================================
+# F7 — created_at ISO-8601 enforcement
+# ===========================================================================
+
+
+class TestCreatedAtFormat:
+    def test_empty_created_at_raises(self, tmp_path):
+        fixture = _write_fixture(
+            tmp_path / "queries.json", queries=[], created_at=""
+        )
+        with pytest.raises(
+            FixtureValidationError, match="ISO-8601 calendar date"
+        ):
+            validate(fixture, tmp_path)
+
+    def test_non_iso_created_at_raises(self, tmp_path):
+        fixture = _write_fixture(
+            tmp_path / "queries.json", queries=[], created_at="yesterday"
+        )
+        with pytest.raises(
+            FixtureValidationError, match="ISO-8601 calendar date"
+        ):
+            validate(fixture, tmp_path)
+
+    def test_iso_created_at_passes(self, tmp_path):
+        fixture = _write_fixture(
+            tmp_path / "queries.json", queries=[], created_at="2026-05-08"
+        )
+        result = validate(fixture, tmp_path)
+        assert result.mode == "seed"
+
+
+# ===========================================================================
+# F1 — CLI subprocess test
+# ===========================================================================
+
+
+class TestCli:
+    def test_cli_seed_mode_exits_zero(self, tmp_path):
+        """F1: the implementation summary AND the runbook tell the
+        curator to run ``python tools/validate_eval_fixtures.py`` from
+        the shell. The pytest wrapper does not exercise that CLI surface
+        (argparse, stdout ``OK:`` prefix, sys.exit). Lock it here."""
+        import subprocess
+        import sys as _sys
+
+        repo_root = Path(__file__).parent.parent.parent
+        # Build a stub fixture in tmp_path so the test does not depend
+        # on the committed seed fixture's contents.
+        stub = _write_fixture(tmp_path / "queries.json", queries=[])
+        result = subprocess.run(
+            [
+                _sys.executable,
+                str(repo_root / "tools" / "validate_eval_fixtures.py"),
+                "--fixture",
+                str(stub),
+                "--chunks-dir",
+                str(tmp_path / "no_chunks"),
+            ],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert result.returncode == 0, (
+            f"CLI exited {result.returncode}; stderr={result.stderr}"
+        )
+        assert "OK:" in result.stdout
+
+    def test_cli_invalid_fixture_exits_one(self, tmp_path):
+        """The CLI exits 1 with a ``FAIL:`` prefix on validation
+        error. Locks the exit-code contract."""
+        import subprocess
+        import sys as _sys
+
+        repo_root = Path(__file__).parent.parent.parent
+        bad = tmp_path / "queries.json"
+        bad.write_text("{not json", encoding="utf-8")
+        result = subprocess.run(
+            [
+                _sys.executable,
+                str(repo_root / "tools" / "validate_eval_fixtures.py"),
+                "--fixture",
+                str(bad),
+                "--chunks-dir",
+                str(tmp_path / "no_chunks"),
+            ],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert result.returncode == 1
+        assert "FAIL:" in result.stderr

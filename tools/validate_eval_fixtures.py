@@ -59,22 +59,27 @@ from __future__ import annotations
 
 import argparse
 import json
-import logging
 import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-
-from ingest.chunker_types import CHUNKER_VERSION
-
-logger = logging.getLogger(__name__)
-
 
 # ---------------------------------------------------------------------------
 # Paths and identity constants
 # ---------------------------------------------------------------------------
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+
+# Allow running as ``python tools/validate_eval_fixtures.py`` directly
+# (the brief AC) without requiring ``pip install -e``. Prepending
+# REPO_ROOT to ``sys.path`` is idempotent: in pytest / installed-pkg
+# contexts, ``ingest`` is already importable and the prepend is a
+# no-op. Closes F1 from the E05_S01 critique (the original CLI invocation
+# crashed with ``ModuleNotFoundError: ingest`` when run from the shell).
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from ingest.chunker_types import CHUNKER_VERSION  # noqa: E402
 
 #: Default fixture path; the validator is callable with an override path.
 DEFAULT_FIXTURE_PATH = REPO_ROOT / "tests" / "eval" / "fixtures" / "queries.json"
@@ -110,6 +115,13 @@ _CHUNK_ID_RE = re.compile(
     r"[a-z][a-z\-]*/\d{7}(v\d+)?"
     r"):[0-9a-f]{16}$"
 )
+
+#: ISO-8601 calendar date (``YYYY-MM-DD``). The brief's example
+#: ``"2026-05-06"`` is exactly this shape; the runbook documents that
+#: ``created_at`` is fixed at fixture-creation time. Closes F7 from
+#: the E05_S01 critique: arbitrary strings (``""``, ``"yesterday"``)
+#: would silently pass without this regex.
+_ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 #: Allowed values for the ``relevance`` field in a fixture query's
 #: ``relevant_chunks`` entries. The brief: "Relevance is graded 0–3".
@@ -148,6 +160,14 @@ class ValidationResult:
       the "curation pending" info line.
     - On any error, :class:`FixtureValidationError` is raised; this
       type is never returned in an error state.
+
+    **F8 from the E05_S01 critique.** The ``warnings`` field is
+    currently only populated in ``seed`` mode (the "curation pending"
+    line). The CLI's warnings-print loop is a no-op on the
+    ``complete`` path. The field is preserved for E05_S02 to populate
+    with quality-of-curation advisories (e.g. "stmt-kind queries == 5,
+    the AC-7 minimum — no headroom"). Until E05_S02 lands, complete
+    mode returns ``warnings=[]``.
     """
 
     mode: str  # "seed" | "complete"
@@ -168,10 +188,21 @@ def _iter_chunk_manifest_paths(chunks_dir: Path) -> list[Path]:
     but writes nothing. Returns a sorted list for deterministic error
     ordering. An absent ``chunks_dir`` returns ``[]`` (cold-start dev
     box).
+
+    Closes F5 from the E05_S01 critique: directory names are filtered
+    against :data:`_PAPER_ID_RE` so a malformed directory (e.g. one
+    introduced by a buggy chunker or a manual mkdir) cannot contribute
+    chunk_ids to the validator's index. The chunker's own writer
+    enforces ``_validate_paper_id`` at write time; this filter is
+    defense-in-depth at read time.
     """
     if not chunks_dir.is_dir():
         return []
-    return sorted(chunks_dir.glob("*/chunk_manifest.json"))
+    return sorted(
+        p
+        for p in chunks_dir.glob("*/chunk_manifest.json")
+        if _PAPER_ID_RE.match(p.parent.name)
+    )
 
 
 def _load_chunk_kind_index(manifest_paths: list[Path]) -> dict[str, str]:
@@ -181,6 +212,15 @@ def _load_chunk_kind_index(manifest_paths: list[Path]) -> dict[str, str]:
     (missing keys, wrong types). The chunker writes manifests
     atomically with ``sort_keys=True`` so a partial / corrupt file
     indicates upstream bug, not a race.
+
+    Closes F6 from the E05_S01 critique: chunk_ids whose embedded
+    paper_id contradicts the manifest's directory name are silently
+    skipped (not raised). The chunker's own write-time invariant is
+    that a manifest at ``chunks/<paper_id>/`` only contains chunks for
+    ``<paper_id>``; the validator refuses to import inconsistent rows
+    rather than treat them as resolved chunk_ids. Combined with F5,
+    this closes the "stale-id safety net" promise even against an
+    upstream-chunker bug.
     """
     index: dict[str, str] = {}
     for manifest_path in manifest_paths:
@@ -201,6 +241,7 @@ def _load_chunk_kind_index(manifest_paths: list[Path]) -> dict[str, str]:
                 f"malformed chunk manifest {manifest_path}: "
                 "'chunks' is not a list"
             )
+        directory_paper_id = manifest_path.parent.name
         for entry in chunks_field:
             if (
                 not isinstance(entry, dict)
@@ -220,6 +261,14 @@ def _load_chunk_kind_index(manifest_paths: list[Path]) -> dict[str, str]:
                     f"chunk_id and kind must be strings, got "
                     f"({type(cid).__name__}, {type(kind).__name__})"
                 )
+            # F6: cross-check the chunk_id's embedded paper_id against
+            # the manifest's directory name. A mismatched row is
+            # skipped (not raised) — silent skip preserves "validator
+            # is read-only safety net, never makes upstream bugs into
+            # hard test failures."
+            match = _CHUNK_ID_RE.match(cid)
+            if match is None or match.group("paper_id") != directory_paper_id:
+                continue
             # Last-write-wins on duplicates is fine for the validator —
             # a duplicate within the manifest set is upstream's problem
             # to detect (chunker invariant).
@@ -271,6 +320,17 @@ def _validate_header(data: dict, fixture_path: Path) -> None:
             f"fixture {fixture_path}: missing required top-level "
             f"keys {sorted(missing)}"
         )
+    # F3: reject unknown top-level keys. The brief schema is fixed at
+    # exactly 4 keys; any drift (e.g. a curator adding an ad-hoc
+    # ``_curation_status`` field) should fail loudly. The runbook
+    # promised this; the validator now delivers it.
+    extra = data.keys() - required
+    if extra:
+        raise FixtureValidationError(
+            f"fixture {fixture_path}: unknown top-level keys "
+            f"{sorted(extra)} are not allowed. The schema admits "
+            f"exactly {sorted(required)}."
+        )
     if data["schema_version"] != "1.0":
         raise FixtureValidationError(
             f"fixture {fixture_path}: schema_version must be '1.0', "
@@ -289,6 +349,15 @@ def _validate_header(data: dict, fixture_path: Path) -> None:
         raise FixtureValidationError(
             f"fixture {fixture_path}: created_at must be a string, "
             f"got {type(data['created_at']).__name__}"
+        )
+    # F7: enforce ISO-8601 calendar date (``YYYY-MM-DD``). Empty
+    # strings and free-form text (``"yesterday"``) silently passed
+    # before this check. The brief example uses ``"2026-05-06"`` —
+    # implicit ISO-8601.
+    if not _ISO_DATE_RE.match(data["created_at"]):
+        raise FixtureValidationError(
+            f"fixture {fixture_path}: created_at must be an ISO-8601 "
+            f"calendar date (YYYY-MM-DD), got {data['created_at']!r}"
         )
     if not isinstance(data["queries"], list):
         raise FixtureValidationError(
@@ -568,8 +637,6 @@ def _main(argv: list[str] | None = None) -> int:
         help="path to chunker output root (default: %(default)s)",
     )
     args = parser.parse_args(argv)
-
-    logging.basicConfig(level=logging.INFO, format="%(message)s")
 
     try:
         result = validate(args.fixture, args.chunks_dir)
