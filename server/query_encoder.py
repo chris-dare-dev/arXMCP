@@ -52,13 +52,29 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 import unicodedata
 from concurrent.futures import ThreadPoolExecutor
+
+import numpy as np
 
 # Re-import the embedder's lazy loaders + pinned identity. NEVER define a
 # second model instance — that would double weight memory (~2.3 GB) and
 # decouple the model-version discipline. The ``BGE_M3_COMMIT_SHA`` import
 # is also load-bearing for the brief's "imports... not redefined" AC.
+#
+# Co-located process race (F3 from the E03_S03 critique): if both
+# ``ingest.embedder._get_model`` and the query-encoder path invoke the
+# first-time model load concurrently in the same process,
+# ``ingest.embedder._get_model``'s lockless check-then-set can race —
+# producing a transient ~2.3 GB extra memory blip and orphaning one
+# instance. Production splits ingestion and serving into separate Docker
+# containers per ``08-security-observability-ops.md`` so the race cannot
+# fire there. In a single-process developer harness, the operator MUST
+# warm the model BEFORE concurrency starts (call ``embed_paper`` once,
+# or ``await encode_query("warmup")`` once, before fanning out). A
+# follow-up milestone wraps the embedder loaders in a ``threading.Lock``
+# to remove this footgun.
 from ingest.embedder import (
     BGE_M3_COMMIT_SHA,
     EMBEDDING_DIM,
@@ -89,20 +105,96 @@ DEDUP_WINDOW_S = 0.1
 # not thread-safe for concurrent calls against the same instance). The
 # asyncio event loop remains responsive while the executor thread is
 # inside the C++ kernel (GIL released — see module docstring).
-_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="bge-m3-encode")
+#
+# Closes F4 from the E03_S03 critique: previously created at module
+# import time which forced thread creation in every test that imports
+# this module. Lazy-create on first call via :func:`_get_executor`; expose
+# :func:`shutdown_executor` so the server lifecycle can drain the queue
+# without waiting on long-tail encodes. ``concurrent.futures``'s
+# automatic ``atexit`` cleanup still applies if the operator never calls
+# ``shutdown_executor``.
+_executor: ThreadPoolExecutor | None = None
+_executor_lock = threading.Lock()
+
+
+def _get_executor() -> ThreadPoolExecutor:
+    """Return the singleton ``ThreadPoolExecutor``, creating it lazily.
+
+    Lock-guarded because lazy creation can race when two coroutines
+    reach the slow path before either has assigned ``_executor``.
+    """
+    global _executor
+    if _executor is None:
+        with _executor_lock:
+            if _executor is None:
+                _executor = ThreadPoolExecutor(
+                    max_workers=1, thread_name_prefix="bge-m3-encode"
+                )
+    return _executor
+
+
+def shutdown_executor(*, wait: bool = True, cancel_futures: bool = False) -> None:
+    """Shut down the encode executor (operator-driven drain hook).
+
+    Closes F4: the server lifecycle can call this from a SIGTERM
+    handler so ``docker stop`` honours its grace period instead of
+    waiting on the executor's implicit ``atexit`` cleanup. Tests can
+    also call this between modules to release the encode thread.
+
+    ``cancel_futures=True`` cancels queued (not-yet-running) tasks; an
+    already-running BGE-M3 forward pass is not cancellable.
+    """
+    global _executor
+    if _executor is None:
+        return
+    with _executor_lock:
+        if _executor is None:
+            return
+        _executor.shutdown(wait=wait, cancel_futures=cancel_futures)
+        _executor = None
+
 
 # Per-process singleflight registry: canonical query text →
 # ``asyncio.Future`` resolving to the L2-normalized 1024-dim vector.
 # Touched only inside :func:`encode_query` (single-threaded asyncio
 # event loop, no ``await`` between dict-check and dict-mutation, so no
-# lock is required — D6).
-_inflight: dict[str, asyncio.Future] = {}
+# lock is required — D6). The generic parameter ``np.ndarray`` matches
+# the future's resolved value (closes F10).
+_inflight: dict[str, asyncio.Future[np.ndarray]] = {}
 
 # Observability hook for the future ``arxmcp_embed_singleflight_dedup_total``
 # counter described in 06-mcp-server-design.md. Until a Prometheus client
 # is wired in (deferred milestone), this module-level integer is the
 # observable signal that singleflight coalesced a call.
+#
+# Closes F8 from the E03_S03 critique: the counter is mutated only from
+# the asyncio event-loop thread, but a future Prometheus scraper will
+# read it from a separate HTTP-server thread. CPython integer reads are
+# atomic (the read returns either the pre-increment or post-increment
+# value, never a torn integer), but the lock + getter
+# (:func:`get_singleflight_dedup_count`) gives the metrics layer a
+# documented contract instead of relying on a CPython implementation
+# detail. **Read via the getter, never via direct module-attr lookup
+# from another thread.** The variable name remains ``SINGLEFLIGHT_
+# DEDUP_COUNT`` for backward compatibility with the test suite that
+# already references it through ``qe_mod.SINGLEFLIGHT_DEDUP_COUNT``;
+# tests run on the event-loop thread so the direct lookup is safe
+# there.
+_dedup_count_lock = threading.Lock()
 SINGLEFLIGHT_DEDUP_COUNT = 0
+
+
+def get_singleflight_dedup_count() -> int:
+    """Thread-safe snapshot of :data:`SINGLEFLIGHT_DEDUP_COUNT`.
+
+    Closes F8 from the E03_S03 critique: cross-thread reads (e.g. a
+    Prometheus scraper running in its own thread) must use this getter
+    rather than touching the module attribute directly. From the
+    asyncio event-loop thread the direct lookup is also safe — the
+    lock simply guarantees a consistent snapshot under any scheduling.
+    """
+    with _dedup_count_lock:
+        return SINGLEFLIGHT_DEDUP_COUNT
 
 
 # ---------------------------------------------------------------------------
@@ -118,14 +210,19 @@ def _canonicalize(query_text: str) -> str:
     1. ``query_text.strip()`` — matches the Tier-1 cache
        ``canonical_form(query)`` rule from
        ``07-multi-agent-caching.md``: "do NOT lowercase, do NOT strip
-       punctuation. ``\\\\'etale`` and ``étale`` produce different
+       punctuation. ``\\'etale`` and ``étale`` produce different
        lexical matches."
     2. ``unicodedata.normalize("NFC", ...)`` — BP1 byte-stability across
        hosts; matches ``ingest.embedder._build_embed_input``.
 
-    The order matters: strip first to remove any leading/trailing
-    combining characters that would otherwise normalize to a no-op
-    on the inside.
+    Closes F14 + F15 from the E03_S03 critique: F14 — the LaTeX
+    ``\\'etale`` example uses one escape (``\\\\'``) so the docstring
+    renders as ``\\'etale``. F15 — the previous "strip first to remove
+    combining characters" claim was misleading; ``str.strip()`` removes
+    only ASCII whitespace, not combining marks. The order of operations
+    is a perf nit (strip is O(short) on the surface form; NFC is
+    O(full)) — both orderings produce identical output because
+    whitespace is invariant under NFC.
     """
     return unicodedata.normalize("NFC", query_text.strip())
 
@@ -135,7 +232,7 @@ def _canonicalize(query_text: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _encode_query_sync(query_text: str) -> object:
+def _encode_query_sync(query_text: str) -> np.ndarray:
     """Encode a single query string to a 1024-dim L2-normalized vector.
 
     Runs inside the ``ThreadPoolExecutor`` worker (D7). Calls
@@ -152,7 +249,11 @@ def _encode_query_sync(query_text: str) -> object:
     different embedding space than the indexed chunks and breaks the
     integration-test cosine-similarity AC (D3).
     """
-    import numpy as np  # noqa: PLC0415
+    # Closes F9 from the E03_S03 critique: the return type is
+    # ``np.ndarray`` (annotated above). ``numpy`` is now imported at
+    # module top so the lazy-import-inside-function pattern from E03_S01
+    # F11 isn't needed here — numpy is used at module scope for the
+    # _inflight type hint.
     import torch  # noqa: PLC0415
     import torch.nn.functional as F  # noqa: PLC0415
 
@@ -180,7 +281,7 @@ def _encode_query_sync(query_text: str) -> object:
 # ---------------------------------------------------------------------------
 
 
-async def encode_query(query_text: str) -> object:
+async def encode_query(query_text: str) -> np.ndarray:
     """Return the L2-normalized BGE-M3 embedding of ``query_text``.
 
     Singleflight: if the canonicalized query is already in flight (or
@@ -196,6 +297,17 @@ async def encode_query(query_text: str) -> object:
     The returned vector matches what the indexed chunks were embedded
     with: same model SHA, same CLS pool, same L2 normalization. Cosine
     similarity against indexed chunk vectors is therefore meaningful.
+
+    **Cancellation (closes F1 + F7 from the E03_S03 critique).** If a
+    SLOW-PATH caller is cancelled (``asyncio.CancelledError``), the
+    in-flight future stays registered: the executor thread keeps
+    running, will set the result, and any concurrent FAST-PATH waiters
+    receive it. Evicting the key on cancellation (the previous
+    behavior) would let a subsequent caller bypass the in-flight
+    future and submit a SECOND ``_encode_query_sync`` to the executor —
+    silently breaking the singleflight invariant. Other ``Exception``
+    subclasses (genuine encode failures) still trigger immediate
+    eviction so a retry does not inherit a stale exception.
     """
     global SINGLEFLIGHT_DEDUP_COUNT
 
@@ -204,11 +316,17 @@ async def encode_query(query_text: str) -> object:
 
     # FAST PATH: an identical query is already in flight (or recently
     # completed and within the 100ms eviction window). Coalesce — no
-    # new forward pass.
+    # new forward pass. Use ``asyncio.shield`` so that cancelling THIS
+    # caller's task does NOT cancel the shared in-flight future and
+    # break it for other waiters (closes F1 from the E03_S03 critique
+    # — without shield, the first cancellation would race-cancel the
+    # underlying ``run_in_executor`` future, and subsequent waiters
+    # would hit a cancelled future on their await).
     inflight_fut = _inflight.get(key)
     if inflight_fut is not None:
-        SINGLEFLIGHT_DEDUP_COUNT += 1
-        result = await inflight_fut
+        with _dedup_count_lock:
+            SINGLEFLIGHT_DEDUP_COUNT += 1
+        result = await asyncio.shield(inflight_fut)
         # Defensive copy (D12) — mutation by one waiter must not leak
         # to others.
         return result.copy()
@@ -224,24 +342,27 @@ async def encode_query(query_text: str) -> object:
     # Dict-mutation here is safe without a lock: between the .get()
     # above and this assignment there is no ``await``, so no other
     # coroutine can interleave (D6).
-    fut = loop.run_in_executor(_executor, _encode_query_sync, key)
+    fut = loop.run_in_executor(_get_executor(), _encode_query_sync, key)
     _inflight[key] = fut
 
-    try:
-        result = await fut
-    except BaseException:
-        # D10: error path evicts IMMEDIATELY (no 100ms delay) so a
-        # retry does not inherit a stale exception. The exception is
-        # already on the future (set by run_in_executor); concurrent
-        # FAST PATH waiters will see it on their own ``await``.
-        _inflight.pop(key, None)
-        raise
+    # Register the eviction callback on the future itself (closes F1):
+    # this fires when the future resolves regardless of whether any
+    # specific caller's await was cancelled. Success → schedule
+    # 100ms-delayed eviction; failure → evict immediately so a retry
+    # does not inherit the stale exception (D10 / F7).
+    def _on_done(done_fut: asyncio.Future) -> None:
+        if done_fut.cancelled() or done_fut.exception() is not None:
+            _inflight.pop(key, None)
+        else:
+            loop.call_later(DEDUP_WINDOW_S, _inflight.pop, key, None)
 
-    # SUCCESS path: schedule eviction 100ms after completion (D8).
-    # ``call_later`` runs the callback on the event loop after the
-    # delay; ``.pop(key, None)`` tolerates a concurrent eviction.
-    loop.call_later(DEDUP_WINDOW_S, _inflight.pop, key, None)
+    fut.add_done_callback(_on_done)
 
+    # Shield the await: cancelling this caller's task must NOT cancel
+    # the underlying future (closes F1 + F7). The shielded await will
+    # raise CancelledError to THIS caller while leaving ``fut`` alive
+    # for other waiters and for the eviction callback.
+    result = await asyncio.shield(fut)
     return result.copy()
 
 
@@ -261,7 +382,8 @@ def _reset_for_tests() -> None:
     """
     global SINGLEFLIGHT_DEDUP_COUNT
     _inflight.clear()
-    SINGLEFLIGHT_DEDUP_COUNT = 0
+    with _dedup_count_lock:
+        SINGLEFLIGHT_DEDUP_COUNT = 0
 
 
 # Re-export for downstream readers that want the model identity without
@@ -269,6 +391,13 @@ def _reset_for_tests() -> None:
 # alive at module level (not just inside the function) is what makes
 # the brief's "imports BGE_M3_COMMIT_SHA from ingest/embedder.py" AC
 # observable to static-analysis and import-time tests.
+#
+# F12 from the E03_S03 critique: ``SINGLEFLIGHT_DEDUP_COUNT`` is in
+# ``__all__`` for documentation/discoverability, but
+# ``from server.query_encoder import SINGLEFLIGHT_DEDUP_COUNT`` binds
+# the importing module to the int value at import time and misses
+# subsequent mutations. Cross-thread / metrics readers MUST use
+# :func:`get_singleflight_dedup_count` instead.
 __all__ = [
     "BGE_M3_COMMIT_SHA",
     "DEDUP_WINDOW_S",
@@ -276,4 +405,6 @@ __all__ = [
     "MAX_TOKENS",
     "SINGLEFLIGHT_DEDUP_COUNT",
     "encode_query",
+    "get_singleflight_dedup_count",
+    "shutdown_executor",
 ]
