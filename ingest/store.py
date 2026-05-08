@@ -74,18 +74,23 @@ and store it without arithmetic.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
+import os
 import time
+import uuid
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 
 import numpy as np
 import pyarrow as pa
 
 from ingest.chunker import _validate_paper_id
-from ingest.chunker_types import ChunkRecord
+from ingest.chunker_types import CHUNKER_VERSION, ChunkRecord
 from ingest.embedder import (
+    EMBEDDER_VERSION,
     EMBEDDING_DIM,
     EMBEDDINGS_DIR,
     EMBEDDINGS_MANIFEST_NAME,
@@ -108,6 +113,12 @@ logger = logging.getLogger(__name__)
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_LANCEDB_PATH = REPO_ROOT / "var" / "arxmcp" / "index" / "lancedb"
 STORE_STATS_PATH = REPO_ROOT / "var" / "arxmcp" / "ops" / "store-stats.jsonl"
+
+# Filename of the corpus-version marker (E04_S03). Co-located with the
+# LanceDB dataset directory so it's atomically renameable on the same
+# filesystem. The MCP server reads this file at startup to determine
+# which LanceDB dataset version to pin.
+CORPUS_VERSION_MARKER_NAME = "corpus-version.json"
 
 
 # ---------------------------------------------------------------------------
@@ -455,6 +466,107 @@ def _append_store_stats(stats: WriteStats) -> None:
 
 
 # ---------------------------------------------------------------------------
+# E04_S03: corpus_version marker file (server startup config)
+# ---------------------------------------------------------------------------
+
+
+def write_corpus_version_marker(
+    lancedb_path: str | Path | None,
+    version: int,
+    chunker_version: str,
+    embedder_version: str,
+    paper_count: int,
+    chunk_count: int,
+) -> None:
+    """Atomically write ``corpus-version.json`` next to the LanceDB dataset.
+
+    The marker file is the **authoritative server startup config**:
+    on boot, the MCP server (E06) reads it to determine which LanceDB
+    dataset version to pin via :func:`server.corpus.open_chunks_table`.
+    The ``version`` integer also serves as the cache namespace key for
+    all server-side caches (E08_S03) — see the cache contract in
+    :mod:`server.corpus`'s module docstring.
+
+    Schema (alphabetical keys, ``json.dumps(sort_keys=True)``):
+
+    .. code-block:: json
+
+        {
+          "chunk_count": 847,
+          "chunker_version": "<CHUNKER_VERSION>",
+          "created_at": "2026-05-08T14:30:00Z",
+          "embedder_version": "<EMBEDDER_VERSION>",
+          "paper_count": 50,
+          "version": 3
+        }
+
+    The ``created_at`` timestamp is debug-only and outside BP1 scope
+    (the marker file is a runtime config artifact, not a cached
+    artifact, and never enters the prompt cache or tool result
+    payload). Cache key construction in E08_S03 MUST use only
+    ``version`` — see the cache contract.
+
+    Atomic-write pattern: PID + UUID-suffixed tmp + ``os.replace`` +
+    ``try/finally`` cleanup, mirroring
+    :func:`ingest.preamble._write_preamble_json`. The tmp file is
+    co-located with the destination on the same filesystem
+    (``lancedb_path/`` is the same directory) so ``os.replace`` is
+    POSIX-atomic.
+
+    Parameters
+    ----------
+    lancedb_path:
+        Directory hosting the LanceDB dataset. Defaults to
+        :data:`DEFAULT_LANCEDB_PATH` when ``None``. The marker file is
+        written to ``<lancedb_path>/corpus-version.json``.
+    version:
+        The LanceDB dataset version integer returned by
+        :func:`write_chunks` — the post-index version (see the module
+        docstring's "MVCC handshake" section).
+    chunker_version:
+        From :data:`ingest.chunker_types.CHUNKER_VERSION`. Threaded
+        through as a parameter (rather than auto-imported) so tests
+        can inject arbitrary values; production callers (e.g.
+        :func:`write_chunks`) pass the live constant.
+    embedder_version:
+        From :data:`ingest.embedder.EMBEDDER_VERSION` — the
+        ``"bge-m3@<8-hex>"`` short form already written to LanceDB
+        rows.
+    paper_count, chunk_count:
+        Aggregates derived by the caller. ``write_chunks`` computes
+        them from the in-memory chunks list as
+        ``len({c.paper_id for c in chunks})`` and ``len(chunks)``.
+    """
+    target_path = (
+        Path(lancedb_path) if lancedb_path is not None else DEFAULT_LANCEDB_PATH
+    )
+    target_path.mkdir(parents=True, exist_ok=True)
+    out_path = target_path / CORPUS_VERSION_MARKER_NAME
+
+    # Build the JSON payload with alphabetical keys (BP1).
+    doc = {
+        "chunk_count": int(chunk_count),
+        "chunker_version": str(chunker_version),
+        "created_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "embedder_version": str(embedder_version),
+        "paper_count": int(paper_count),
+        "version": int(version),
+    }
+    payload = json.dumps(doc, ensure_ascii=False, sort_keys=True) + "\n"
+
+    # Atomic write — copy of preamble._write_preamble_json's pattern.
+    tmp = out_path.with_suffix(
+        f"{out_path.suffix}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp"
+    )
+    try:
+        tmp.write_text(payload, encoding="utf-8")
+        os.replace(tmp, out_path)
+    finally:
+        with contextlib.suppress(OSError):
+            tmp.unlink(missing_ok=True)
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -558,6 +670,32 @@ def write_chunks(
     )
     _append_store_stats(stats)
 
+    # E04_S03: write the corpus-version marker file as a postcondition
+    # of every successful ingest run. The marker is the authoritative
+    # server startup config (E06 reads it to determine which LanceDB
+    # version to pin) and the cache namespace key (E08_S03). Wrap in
+    # try/except so a marker-write failure does NOT abort the whole
+    # ingest — the LanceDB write has already succeeded; a missing
+    # marker is recoverable (server falls back to live-tip pinning).
+    try:
+        paper_count = len({c.paper_id for c in chunks})
+        write_corpus_version_marker(
+            target_path,
+            version=dataset_version,
+            chunker_version=CHUNKER_VERSION,
+            embedder_version=embeddings.embedder_version or EMBEDDER_VERSION,
+            paper_count=paper_count,
+            chunk_count=len(chunks),
+        )
+    except OSError as exc:
+        logger.error(
+            "could not write corpus-version.json marker for version %d "
+            "at %s: %s",
+            dataset_version,
+            target_path,
+            exc,
+        )
+
     return dataset_version
 
 
@@ -568,9 +706,11 @@ def write_chunks(
 
 
 __all__ = [
+    "CORPUS_VERSION_MARKER_NAME",
     "DEFAULT_LANCEDB_PATH",
     "STORE_STATS_PATH",
     "WriteStats",
     "load_embed_record",
     "write_chunks",
+    "write_corpus_version_marker",
 ]
