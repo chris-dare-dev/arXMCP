@@ -12,6 +12,24 @@ the row-aligned chunk_id list is written as ``chunk_ids.json`` next to
 it. The MCP server (E07, Sonnet B) loads the pair on first lexical
 query; it never enters the in-memory ingestion path.
 
+**Production wire-up deferral (H1 from the E04_S04 critique).** This
+module exposes :func:`build_bm25_index` but does NOT auto-call it
+from :func:`ingest.store.write_chunks`. ``write_chunks`` is called
+per-batch (potentially multiple times per ingestion run); building
+the BM25 index after every batch would be wasteful AND wrong — the
+index should be built ONCE over the final corpus state. The corpus
+driver (a future milestone, owner TBD) is responsible for sequencing:
+
+    for paper in seed_corpus:
+        chunks = chunk_paper(paper)
+        embeddings = embed_paper(paper)
+        write_chunks(chunks, embeddings, lancedb_path)  # → marker
+    build_bm25_index(lancedb_path, corpus_version=final_version)
+
+Until that driver lands, the BM25 index must be built manually after
+ingestion. E07 (Sonnet B) is the first downstream consumer and will
+either provide the driver or document the manual step.
+
 **H4 closure.** E02_S03's :func:`ingest.tokenizer.tokenize_body`
 produces a math-aware whitespace-joined token stream
 (e.g. ``\\mathrm{Spec}`` → ``mathrm_Spec``). All BM25 needs at index
@@ -40,6 +58,16 @@ remote-code-execution; the path
 (``08-security-observability-ops.md``) covers model-weight pickles
 (deny); the BM25 pickle is application data with the analogous-
 narrower attack surface (trust local, deny remote).
+
+TODO(E07): the loader (in :mod:`server` for query-time BM25) MUST
+verify file ownership matches process UID and refuse world-writable
+paths before calling ``pickle.load``. The defense-in-depth concern
+(M1 from the E04_S04 critique) is that documentation alone is not
+enforcement. Rationale: when ``var/arxmcp/index/bm25/`` lives on a
+shared filesystem (NFS, Docker bind mount, multi-tenant container)
+an attacker who can write to that path achieves RCE in the server
+process. The mitigation is a simple stat-based check at load time;
+this writer leaves a hook for the loader to honor.
 """
 
 from __future__ import annotations
@@ -99,11 +127,24 @@ class BM25Stats:
     Mirrors the ``WriteStats`` shape from :mod:`ingest.store` so ops
     dashboards can ingest both with identical key conventions
     (alphabetical keys at serialization time, no timestamps — BP1).
+
+    Closes L4 from the E04_S04 critique: when ``skipped=True``, the
+    other count fields (``chunk_count``, ``empty_chunks_skipped``,
+    ``paper_count``) are 0 — the caller did not load the existing
+    pickle to recompute them. Ops aggregators MUST filter on
+    ``skipped == False`` before averaging or summing the count fields.
+
+    Closes L5 from the E04_S04 critique: ``paper_count`` denormalizes
+    a self-contained "how many papers in this index" answer into the
+    stats line so triage doesn't have to join against
+    ``corpus-version.json``.
     """
 
     chunk_count: int = 0
     corpus_version: int = 0
     elapsed_s: float = 0.0
+    empty_chunks_skipped: int = 0
+    paper_count: int = 0
     skipped: bool = False
 
     def to_dict(self) -> dict:
@@ -111,6 +152,8 @@ class BM25Stats:
             "chunk_count": self.chunk_count,
             "corpus_version": self.corpus_version,
             "elapsed_s": round(self.elapsed_s, 3),
+            "empty_chunks_skipped": self.empty_chunks_skipped,
+            "paper_count": self.paper_count,
             "skipped": self.skipped,
         }
 
@@ -223,6 +266,22 @@ def build_bm25_index(
         ``lancedb_path`` does not exist on disk (re-raised from
         :func:`open_chunks_table`).
     """
+    # Closes L3 from the E04_S04 critique: defense-in-depth validation
+    # of the version integer. ``_bm25_version_dir(-1)`` would produce
+    # ``var/.../bm25/v-1/`` — LanceDB ``checkout(-1)`` would reject it
+    # downstream, but a stray negative value should never reach the
+    # path-construction step. Mirrors ``CorpusVersionInfo.from_dict``'s
+    # ``version >= 1`` check from E04_S03 H1.
+    if (
+        not isinstance(corpus_version, int)
+        or isinstance(corpus_version, bool)
+        or corpus_version < 1
+    ):
+        raise ValueError(
+            f"corpus_version must be a positive int (>= 1), got "
+            f"{type(corpus_version).__name__} ({corpus_version!r})"
+        )
+
     start = time.monotonic()
     version_dir = _bm25_version_dir(corpus_version)
     pkl_path = version_dir / BM25_INDEX_NAME
@@ -236,11 +295,16 @@ def build_bm25_index(
         logger.info(
             "BM25 index already exists at %s — skipping rebuild", version_dir
         )
+        # L4: skipped rows leave the count fields at 0 because the
+        # caller did not reload the existing pickle. Aggregators must
+        # filter on ``skipped == False`` before averaging.
         _append_bm25_stats(
             BM25Stats(
                 chunk_count=0,
                 corpus_version=corpus_version,
                 elapsed_s=elapsed,
+                empty_chunks_skipped=0,
+                paper_count=0,
                 skipped=True,
             )
         )
@@ -253,17 +317,38 @@ def build_bm25_index(
     arrow = tbl.to_arrow()
     raw_chunk_ids = arrow.column("chunk_id").to_pylist()
     raw_body_tokens = arrow.column("body_tokens").to_pylist()
+    raw_paper_ids = arrow.column("paper_id").to_pylist()
 
-    # Defensive ``IS NOT NULL`` filter — schema declares body_tokens
-    # non-nullable so this is belt-and-suspenders for legacy rows.
+    # Closes M2 from the E04_S04 critique: skip rows whose
+    # ``body_tokens`` is None OR an empty/whitespace-only string. Both
+    # produce empty token lists after ``.split()``, which would
+    # distort BM25's b-normalized IDFs by inflating the document
+    # count without contributing tokens. The schema declares
+    # ``body_tokens`` non-nullable but does NOT enforce non-empty;
+    # this guard is defense-in-depth against an upstream tokenizer
+    # regression that emits the empty string for an edge case.
     chunk_ids: list[str] = []
     corpus: list[list[str]] = []
-    for cid, body in zip(raw_chunk_ids, raw_body_tokens, strict=True):
+    paper_id_set: set[str] = set()
+    empty_chunks_skipped = 0
+    for cid, body, pid in zip(
+        raw_chunk_ids, raw_body_tokens, raw_paper_ids, strict=True
+    ):
         if body is None:
+            empty_chunks_skipped += 1
             continue
         tokens = body.split()
+        if not tokens:
+            empty_chunks_skipped += 1
+            logger.warning(
+                "BM25 indexer: chunk_id=%s has empty body_tokens; skipping",
+                cid,
+            )
+            continue
         chunk_ids.append(cid)
         corpus.append(tokens)
+        if pid is not None:
+            paper_id_set.add(pid)
 
     if not corpus:
         # Zero-row corpus: ``BM25Okapi([])`` produces NaN IDFs and
@@ -301,6 +386,8 @@ def build_bm25_index(
             chunk_count=len(corpus),
             corpus_version=corpus_version,
             elapsed_s=elapsed,
+            empty_chunks_skipped=empty_chunks_skipped,
+            paper_count=len(paper_id_set),
             skipped=False,
         )
     )

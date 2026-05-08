@@ -283,9 +283,21 @@ class TestQueryAccuracy:
     def test_query_disjoint_vocabulary_does_not_match_target(
         self, tmp_path, monkeypatch
     ):
-        """Sanity check: a query with NO overlap with the target chunk
-        must NOT rank the target highest. Catches a bug where the
-        index is hardcoded to return chunk 0."""
+        """M4 fix: a query whose tokens appear in a SPECIFIC decoy
+        chunk must rank that decoy top-1. The previous version asserted
+        only ``top != target`` which is satisfied by any ranking
+        permutation of the 19 decoys — a bug where the index returns
+        a constant non-zero index would still pass.
+
+        Index 16 is the ``"manifold cohomology de_rham simplicial"``
+        decoy (chunks[0] is the target, then decoy_bodies starts at
+        i=1, so decoy_bodies[15] lands at chunks[16]). The query
+        ``["manifold", "cohomology"]`` shares two tokens with
+        chunks[16] and one token (``manifold``) with chunks[2]
+        (``"differential geometry manifold tangent"``). chunks[16]
+        wins because it has TF=2 for the query terms vs chunks[2]'s
+        TF=1.
+        """
         import ingest.bm25_indexer as bm25_mod
 
         monkeypatch.setattr(
@@ -295,6 +307,7 @@ class TestQueryAccuracy:
         chunks = _curated_corpus()
         embeddings = _embeddings_for(chunks, seed=4)
         target_chunk_id = chunks[0].chunk_id
+        cohomology_decoy_chunk_id = chunks[16].chunk_id
         version = write_chunks(
             chunks, embeddings, lancedb_path=tmp_path / "lancedb"
         )
@@ -307,10 +320,15 @@ class TestQueryAccuracy:
             (version_dir / BM25_CHUNK_IDS_NAME).read_text(encoding="utf-8")
         )
 
-        # "manifold cohomology" is in the cohomology decoy chunk,
-        # not the target. The target should NOT be top-1.
+        # "manifold cohomology" appears ONLY in chunks[15]. The cohomology
+        # decoy MUST rank top-1; the target MUST NOT.
         scores = bm25.get_scores(["manifold", "cohomology"])
         top_idx = int(scores.argmax())
+        assert chunk_ids[top_idx] == cohomology_decoy_chunk_id, (
+            f"expected cohomology decoy {cohomology_decoy_chunk_id} as "
+            f"top result for ['manifold', 'cohomology']; got "
+            f"{chunk_ids[top_idx]}"
+        )
         assert chunk_ids[top_idx] != target_chunk_id
 
 
@@ -349,7 +367,17 @@ class TestIdempotency:
     def test_partial_state_triggers_rebuild(self, tmp_path, monkeypatch):
         """If only one of the two files exists (partial write from a
         prior crash), the next run rebuilds rather than honoring the
-        partial state."""
+        partial state.
+
+        L2 fix: compare ``st_ino`` rather than ``st_mtime_ns`` to
+        detect the atomic-replace. ``os.replace(tmp, dst)`` produces a
+        new inode on the same filesystem regardless of whether the
+        kernel updated mtime within the test's wall-clock window. The
+        previous mtime-based assertion required a ``time.sleep(0.01)``
+        before the rebuild, which was racy on filesystems with
+        coarse-grained mtime (e.g. APFS often rounds to seconds for
+        replace-induced writes).
+        """
         import ingest.bm25_indexer as bm25_mod
 
         monkeypatch.setattr(
@@ -369,21 +397,16 @@ class TestIdempotency:
 
         # Delete chunk_ids.json — simulate a partial-write crash.
         ids_path.unlink()
-        # Capture pkl mtime — should change after rebuild.
-        mtime_pkl_before = pkl_path.stat().st_mtime_ns
+        # Capture pkl inode — should change after rebuild because
+        # ``os.replace`` swaps the inode rather than truncating in
+        # place.
+        ino_pkl_before = pkl_path.stat().st_ino
 
         # Re-run rebuilds because not BOTH files are present.
-        # Use a busy-wait nanosecond delta for the mtime comparison
-        # — Linux mtime granularity is ~ms but nanosecond fields are
-        # populated.
-        import time as _time
-
-        _time.sleep(0.01)  # ensure mtime delta is observable
         build_bm25_index(tmp_path / "lancedb", corpus_version=version)
         assert ids_path.is_file()  # restored
-        # The pkl was atomically replaced (different inode); mtime
-        # changes.
-        assert pkl_path.stat().st_mtime_ns != mtime_pkl_before
+        # The pkl was atomically replaced — different inode.
+        assert pkl_path.stat().st_ino != ino_pkl_before
 
 
 # ===========================================================================
@@ -448,6 +471,11 @@ class TestStatsLogging:
         assert row["corpus_version"] == version
         assert row["skipped"] is False
         assert isinstance(row["elapsed_s"], (int, float))
+        # L4 + L5: empty_chunks_skipped + paper_count are present and
+        # carry the documented values for a healthy build.
+        assert row["empty_chunks_skipped"] == 0
+        # _curated_corpus has 20 chunks across 20 distinct paper_ids.
+        assert row["paper_count"] == len({c.paper_id for c in chunks})
 
     def test_stats_line_records_skipped_on_no_op_rerun(
         self, tmp_path, monkeypatch
@@ -535,6 +563,8 @@ class TestBM25StatsDataclass:
             chunk_count=20,
             corpus_version=5,
             elapsed_s=0.123,
+            empty_chunks_skipped=2,
+            paper_count=4,
             skipped=False,
         )
         d = stats.to_dict()
@@ -542,5 +572,14 @@ class TestBM25StatsDataclass:
             "chunk_count",
             "corpus_version",
             "elapsed_s",
+            "empty_chunks_skipped",
+            "paper_count",
             "skipped",
         ]
+        # All six fields present at their declared values.
+        assert d["chunk_count"] == 20
+        assert d["corpus_version"] == 5
+        assert d["elapsed_s"] == 0.123
+        assert d["empty_chunks_skipped"] == 2
+        assert d["paper_count"] == 4
+        assert d["skipped"] is False
