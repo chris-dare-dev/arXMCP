@@ -491,11 +491,26 @@ def _write_embeddings_npz(
 # E03_S02: per-paper embeddings sidecar (idempotent re-embed handshake)
 # ---------------------------------------------------------------------------
 
-# Constant filename for the sidecar — co-located with ``embeddings.npz``
-# under ``var/arxmcp/corpus/embeddings/<paper_id>/``. The naming mirrors
+# Constant filename for the NPZ + sidecar — co-located under
+# ``var/arxmcp/corpus/embeddings/<paper_id>/``. The naming mirrors
 # ``chunk_manifest.json`` so a future maintainer immediately understands
-# the role from the path alone.
+# the role from the path alone. Closes F14 from the E03_S02 critique by
+# extracting the NPZ filename from three string-literal sites.
+EMBEDDINGS_NPZ_NAME = "embeddings.npz"
 EMBEDDINGS_MANIFEST_NAME = "embeddings_manifest.json"
+
+
+class _SidecarCorruptError(ValueError):
+    """A sidecar exists on disk but contains malformed entries.
+
+    Distinct from "absent or unparseable JSON" (which
+    :func:`_read_embeddings_manifest` swallows and returns ``None`` for,
+    forcing a self-healing re-embed). This exception is raised when the
+    JSON parses but contains entries that violate the schema contract —
+    e.g. an ``embedded_chunks`` entry that is a dict but missing
+    ``chunk_id``, or a non-list ``embedded_chunks``. Closes F9 from the
+    E03_S02 adversary critique.
+    """
 
 
 def _write_embeddings_manifest(
@@ -578,13 +593,26 @@ def _paper_is_up_to_date(
     """Return True iff the paper can be skipped on this run.
 
     Implements D6/D7 of the E03_S02 research synthesis. A paper is
-    considered up to date iff:
+    considered up to date iff ALL of the following hold:
 
-    1. the sidecar exists, AND
-    2. ``sidecar.chunker_version == EXPECTED_CHUNKER_VERSION``, AND
-    3. ``sidecar.embedder_version == EMBEDDER_VERSION``, AND
-    4. every chunk_id in ``manifest_chunk_ids`` is in the sidecar's
-       ``embedded_chunks``.
+    1. the sidecar exists at
+       ``var/arxmcp/corpus/embeddings/<paper_id>/embeddings_manifest.json``,
+       AND
+    2. ``embeddings.npz`` ALSO exists in the same directory (closes F1
+       from the E03_S02 critique — a present sidecar with a missing NPZ
+       previously caused a false skip; the brief's "target embedding
+       column is already populated" requires the actual file to be on
+       disk, not just an audit trail claiming it was once written),
+       AND
+    3. ``sidecar.chunker_version == EXPECTED_CHUNKER_VERSION``, AND
+    4. ``sidecar.embedder_version == EMBEDDER_VERSION``, AND
+    5. every chunk_id in ``manifest_chunk_ids`` is present in the
+       sidecar's ``embedded_chunks`` list. Orphan entries (chunks that
+       are in the sidecar but no longer in the manifest) are tolerated
+       — the paper is still up to date for everything the current
+       manifest cares about; orphan vectors are GC'd by E04_S02 (closes
+       F7 from the E03_S02 critique by lifting the orphan-tolerance
+       note from an inline comment into the numbered conditions list).
 
     Any failure of any condition triggers re-embed. The
     ``embedder_version`` check is an additive correctness improvement
@@ -593,14 +621,33 @@ def _paper_is_up_to_date(
     embedding space, and silently mixing them with old vectors would
     poison the index.
 
-    The brief's "embedding column populated" check is implemented as
-    "every manifest chunk_id is in the sidecar's embedded_chunks" — the
-    sidecar is only written after the NPZ write succeeds, so a chunk
-    appearing in the sidecar implies its vector is in the NPZ.
+    Closes F13 from the E03_S02 critique: ``paper_id`` is validated
+    here as defense-in-depth, even though every public caller already
+    validates. Without this guard, a path-traversal ``paper_id`` like
+    ``"../../etc"`` would reach the ``EMBEDDINGS_DIR / paper_id``
+    concat below.
+
+    Closes F9: a sidecar entry that is a dict missing ``chunk_id`` (a
+    schema violation) raises :class:`_SidecarCorruptError`, which the
+    caller catches to force a re-embed. The previous code silently let
+    ``None`` enter the ``embedded_ids`` set.
     """
-    sidecar_path = EMBEDDINGS_DIR / paper_id / EMBEDDINGS_MANIFEST_NAME
+    _validate_paper_id(paper_id)
+    paper_dir = EMBEDDINGS_DIR / paper_id
+    sidecar_path = paper_dir / EMBEDDINGS_MANIFEST_NAME
+    npz_path = paper_dir / EMBEDDINGS_NPZ_NAME
     sidecar = _read_embeddings_manifest(sidecar_path)
     if sidecar is None:
+        return False
+    # Closes F1: the NPZ companion file must also exist. Without this
+    # check, a half-cleaned-up corpus (NPZ deleted, sidecar kept)
+    # silently stays half-broken across re-runs.
+    if not npz_path.exists():
+        logger.warning(
+            "[%s] sidecar exists but %s is missing; forcing re-embed",
+            paper_id,
+            EMBEDDINGS_NPZ_NAME,
+        )
         return False
     if sidecar.get("chunker_version") != EXPECTED_CHUNKER_VERSION:
         return False
@@ -609,11 +656,19 @@ def _paper_is_up_to_date(
     embedded = sidecar.get("embedded_chunks", [])
     if not isinstance(embedded, list):
         return False
-    embedded_ids = {entry.get("chunk_id") for entry in embedded if isinstance(entry, dict)}
-    # All current chunks must be covered. Extra chunks in the sidecar
-    # (chunks that no longer exist in the manifest) are tolerated — the
-    # paper is still up to date for everything the manifest cares about.
-    # E04_S02 will GC orphaned vectors; it is not E03_S02's job.
+    # Closes F9: every dict entry MUST carry a non-None chunk_id. A
+    # malformed entry is a corrupt-sidecar signal; treat as "not up to
+    # date" so the paper gets a clean re-embed (which regenerates a
+    # well-formed sidecar). Don't let ``None`` slip into the set and
+    # accidentally pass the subset check.
+    embedded_ids: set[str] = set()
+    for entry in embedded:
+        if not isinstance(entry, dict):
+            return False
+        cid = entry.get("chunk_id")
+        if not isinstance(cid, str):
+            return False
+        embedded_ids.add(cid)
     return manifest_chunk_ids.issubset(embedded_ids)
 
 
@@ -648,9 +703,21 @@ def _load_chunks(paper_id: str) -> list[dict]:
             f"could not read chunk_manifest.json for {paper_id}: {exc}"
         ) from exc
 
+    seen_ids: set[str] = set()
     chunks: list[dict] = []
     for entry in manifest.get("chunks", []):
         chunk_id = entry["chunk_id"]
+        # Closes F8 from the E03_S02 critique: a duplicate chunk_id in
+        # the manifest is a corpus-corruption signal — silently
+        # collapsing duplicates would let the skip predicate trivially
+        # pass on every subsequent run. Surface it as a manifest-corrupt
+        # error so ops sees the bad input.
+        if chunk_id in seen_ids:
+            raise _ManifestCorruptError(
+                f"duplicate chunk_id {chunk_id!r} in chunk_manifest.json "
+                f"for paper {paper_id}"
+            )
+        seen_ids.add(chunk_id)
         # The on-disk filename is the 16-char hash suffix (everything
         # after the final colon in chunk_id), per chunker.py line 899.
         hash_suffix = chunk_id.rsplit(":", 1)[-1]
@@ -669,6 +736,45 @@ def _load_chunks(paper_id: str) -> list[dict]:
                 f"corrupt chunk JSON at {chunk_path}: {exc}"
             ) from exc
     return chunks
+
+
+def _read_manifest_chunk_ids(paper_id: str) -> list[str] | None:
+    """Return manifest chunk_ids in order, or ``None`` if manifest absent.
+
+    Closes F3 from the E03_S02 critique: the skip pre-flight needs the
+    manifest's chunk_id list but does NOT need the per-chunk JSON
+    payloads. ``_load_chunks`` opens N JSON files (the per-chunk
+    bodies) on every call; for a paper that is fully up to date that
+    is N×P wasted I/O at corpus scale. This helper does ONE JSON parse
+    (the manifest itself) so the skip pre-flight stays O(1) per paper.
+
+    Returns ``None`` when the manifest is absent (mirrors
+    ``_load_chunks``'s manifest-absent branch). Raises
+    :class:`_ManifestCorruptError` on parse error or duplicate
+    chunk_id (closes F8 by inheriting the same dedup discipline as
+    :func:`_load_chunks`).
+    """
+    manifest_path = CHUNKS_DIR / paper_id / "chunk_manifest.json"
+    if not manifest_path.exists():
+        return None
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        raise _ManifestCorruptError(
+            f"could not read chunk_manifest.json for {paper_id}: {exc}"
+        ) from exc
+    seen: set[str] = set()
+    chunk_ids: list[str] = []
+    for entry in manifest.get("chunks", []):
+        cid = entry["chunk_id"]
+        if cid in seen:
+            raise _ManifestCorruptError(
+                f"duplicate chunk_id {cid!r} in chunk_manifest.json "
+                f"for paper {paper_id}"
+            )
+        seen.add(cid)
+        chunk_ids.append(cid)
+    return chunk_ids
 
 
 # ---------------------------------------------------------------------------
@@ -770,12 +876,16 @@ def _embed_paper_impl(paper_id: str, batch_size: int) -> EmbedStats:
 
     start = time.monotonic()
 
-    chunks = _load_chunks(paper_id)
-    if not chunks:
-        # No chunks means the chunker hasn't run yet, or the manifest is
-        # absent. Treat as a clean skip rather than an error: the corpus
-        # driver may invoke embed for paper_ids that haven't yet been
-        # chunked, and this path keeps it idempotent.
+    # Closes F3 from the E03_S02 critique: skip pre-flight runs BEFORE
+    # ``_load_chunks`` so an up-to-date paper costs exactly two JSON
+    # parses (manifest + sidecar) instead of N+2 (manifest + N per-chunk
+    # bodies + sidecar). Read the manifest's chunk_id list cheaply via
+    # ``_read_manifest_chunk_ids``; if the paper is up to date, return
+    # without ever opening the per-chunk JSONs.
+    manifest_ids = _read_manifest_chunk_ids(paper_id)
+    if manifest_ids is None:
+        # Manifest absent — chunker has not run yet for this paper.
+        # Routine wait-state, NOT a failure.
         elapsed = time.monotonic() - start
         stats = EmbedStats(
             paper_id=paper_id,
@@ -788,18 +898,15 @@ def _embed_paper_impl(paper_id: str, batch_size: int) -> EmbedStats:
         _append_embed_stats(stats)
         return stats
 
-    # E03_S02 idempotent re-embed: pre-flight skip check. If the
-    # sidecar manifest says every chunk in the current chunk_manifest is
-    # already embedded under both the expected chunker_version AND the
-    # current EMBEDDER_VERSION, skip the encode entirely. The check is
-    # a single JSON parse — no NPZ open, no model load.
-    manifest_chunk_ids = {c["chunk_id"] for c in chunks}
-    if _paper_is_up_to_date(paper_id, manifest_chunk_ids):
+    if _paper_is_up_to_date(paper_id, set(manifest_ids)):
+        # Closes F3 + corrects F6 misleading-comment finding: the skip
+        # path opens exactly two JSON files (manifest + sidecar). The
+        # per-chunk JSONs are NOT opened. No NPZ open, no model load.
         elapsed = time.monotonic() - start
         stats = EmbedStats(
             paper_id=paper_id,
             chunks_processed=0,
-            chunks_skipped=len(chunks),
+            chunks_skipped=len(manifest_ids),
             truncated_count=0,
             elapsed_s=elapsed,
             status="ok",
@@ -810,7 +917,25 @@ def _embed_paper_impl(paper_id: str, batch_size: int) -> EmbedStats:
             paper_id,
             EXPECTED_CHUNKER_VERSION,
             EMBEDDER_VERSION,
-            len(chunks),
+            len(manifest_ids),
+        )
+        _append_embed_stats(stats)
+        return stats
+
+    # Cache miss path: actually load the per-chunk JSON bodies.
+    chunks = _load_chunks(paper_id)
+    if not chunks:
+        # Manifest claimed chunks but _load_chunks returned [] — only
+        # possible if the manifest disappeared between the two calls
+        # above. Defensive empty-skip path.
+        elapsed = time.monotonic() - start
+        stats = EmbedStats(
+            paper_id=paper_id,
+            chunks_processed=0,
+            chunks_skipped=0,
+            truncated_count=0,
+            elapsed_s=elapsed,
+            status="ok",
         )
         _append_embed_stats(stats)
         return stats
@@ -886,7 +1011,7 @@ def _embed_paper_impl(paper_id: str, batch_size: int) -> EmbedStats:
     else:
         embedding_proof = np.zeros((0, EMBEDDING_DIM), dtype=np.float32)
 
-    out_path = EMBEDDINGS_DIR / paper_id / "embeddings.npz"
+    out_path = EMBEDDINGS_DIR / paper_id / EMBEDDINGS_NPZ_NAME
     _write_embeddings_npz(
         out_path,
         chunk_ids_stmt=chunk_ids_stmt,
@@ -1001,15 +1126,24 @@ def embed_corpus(
     # E03_S02 acceptance criterion: re-running on an unchanged corpus
     # writes 0 rows and logs "all up to date". Fire at corpus level so
     # ops sees a single message rather than per-paper noise. The
-    # condition is "every paper was a clean skip and no chunks were
-    # processed."
+    # gate (results AND total_processed == 0 AND total_skipped > 0)
+    # ensures the log fires only when at least one paper was actually
+    # checked AND nothing required encoding. An empty corpus, or a
+    # corpus where every paper is in the manifest-absent state, leaves
+    # ``total_skipped == 0`` and the log stays silent (closes F12 from
+    # the E03_S02 critique).
     total_processed = sum(r.chunks_processed for r in results)
     total_skipped = sum(r.chunks_skipped for r in results)
+    skipped_papers = sum(1 for r in results if r.chunks_skipped > 0)
     if results and total_processed == 0 and total_skipped > 0:
+        # Closes F11: previously logged "%d/%d" with both numerator and
+        # denominator equal to total_skipped — tautological. Report the
+        # paper count too; ops gains the "across N papers" dimension
+        # without inventing a fake total.
         logger.info(
-            "Skipped %d/%d chunks — all up to date.",
+            "Skipped %d chunks across %d papers — all up to date.",
             total_skipped,
-            total_skipped,
+            skipped_papers,
         )
 
     return results

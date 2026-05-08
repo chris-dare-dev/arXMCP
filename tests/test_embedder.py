@@ -206,7 +206,10 @@ def _fake_model_factory(emit_dim: int = EMBEDDING_DIM):
             # produce different vectors even for identical inputs (this
             # is fine because the tests don't rely on byte-equality
             # between batches).
-            seed_base = 1000 * (self._call_count + 1)
+            # Closes F10 from E03_S02: 1_000_000 multiplier makes
+            # cross-batch seed collision practically impossible (would
+            # need >=1M chunks in a single batch).
+            seed_base = 1_000_000 * (self._call_count + 1)
             self._call_count += 1
             return _FakeOutput(batch, emit_dim, seed_base)
 

@@ -157,7 +157,9 @@ def _fake_model_factory(emit_dim: int = EMBEDDING_DIM):
         def __call__(self, **kwargs):
             self.call_count += 1
             batch = kwargs["input_ids"].shape[0]
-            seed_base = 1000 * self.call_count
+            # Closes F10 from E03_S02: 1_000_000 multiplier so
+            # cross-batch seed collision is practically impossible.
+            seed_base = 1_000_000 * self.call_count
             return _FakeOutput(batch, emit_dim, seed_base)
 
     return _FakeTokenizer(), _FakeModel()
@@ -729,9 +731,12 @@ class TestPaperUpToDateHelper:
             )
 
     def test_returns_true_when_all_match(self, tmp_path):
-        out_path = tmp_path / "2307.00173" / EMBEDDINGS_MANIFEST_NAME
-        out_path.parent.mkdir(parents=True)
-        out_path.write_text(
+        paper_dir = tmp_path / "2307.00173"
+        paper_dir.mkdir(parents=True)
+        # Closes F1: the helper now requires the NPZ to exist alongside
+        # the sidecar; touch a stub NPZ to make this assertion pass.
+        (paper_dir / "embeddings.npz").write_bytes(b"")
+        (paper_dir / EMBEDDINGS_MANIFEST_NAME).write_text(
             json.dumps(
                 {
                     "chunker_version": EXPECTED_CHUNKER_VERSION,
@@ -751,6 +756,106 @@ class TestPaperUpToDateHelper:
         with patch("ingest.embedder.EMBEDDINGS_DIR", tmp_path):
             assert embedder_mod._paper_is_up_to_date(
                 "2307.00173", {"arxiv:2307.00173:" + "a" * 16}
+            )
+
+    def test_returns_false_when_npz_missing(self, tmp_path):
+        # Closes F1 (CRITICAL) from the E03_S02 critique: a sidecar
+        # claiming an embedding exists, with the actual NPZ missing
+        # (manual deletion, partial cleanup, fs corruption), MUST
+        # trigger re-embed — not silently skip the paper.
+        paper_dir = tmp_path / "2307.00174"
+        paper_dir.mkdir(parents=True)
+        # Sidecar claims everything is in order...
+        (paper_dir / EMBEDDINGS_MANIFEST_NAME).write_text(
+            json.dumps(
+                {
+                    "chunker_version": EXPECTED_CHUNKER_VERSION,
+                    "embedded_chunks": [
+                        {
+                            "chunk_id": "arxiv:2307.00174:" + "0" * 16,
+                            "kind": "stmt",
+                        }
+                    ],
+                    "embedder_version": EMBEDDER_VERSION,
+                    "paper_id": "2307.00174",
+                },
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+        # ...but the NPZ is missing.
+        with patch("ingest.embedder.EMBEDDINGS_DIR", tmp_path):
+            assert not embedder_mod._paper_is_up_to_date(
+                "2307.00174", {"arxiv:2307.00174:" + "0" * 16}
+            )
+
+    def test_returns_false_on_malformed_sidecar_entry(self, tmp_path):
+        # Closes F9: a sidecar entry that is a dict missing chunk_id, or
+        # a non-dict entry, or a chunk_id that isn't a string, must
+        # force a re-embed (don't let bad data pass the subset check).
+        paper_dir = tmp_path / "2307.00175"
+        paper_dir.mkdir(parents=True)
+        (paper_dir / "embeddings.npz").write_bytes(b"")
+        # Entry is a dict but missing chunk_id.
+        (paper_dir / EMBEDDINGS_MANIFEST_NAME).write_text(
+            json.dumps(
+                {
+                    "chunker_version": EXPECTED_CHUNKER_VERSION,
+                    "embedded_chunks": [{"kind": "stmt"}],  # no chunk_id!
+                    "embedder_version": EMBEDDER_VERSION,
+                    "paper_id": "2307.00175",
+                },
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+        with patch("ingest.embedder.EMBEDDINGS_DIR", tmp_path):
+            assert not embedder_mod._paper_is_up_to_date(
+                "2307.00175", {"arxiv:2307.00175:" + "0" * 16}
+            )
+
+    def test_orphan_chunks_in_sidecar_do_not_block_skip(self, tmp_path):
+        # Closes F7: when the sidecar has MORE chunks than the manifest
+        # (chunks were removed from the manifest after the last embed
+        # ran), the paper is still considered up to date for the
+        # current manifest. The orphan vectors will be GC'd by E04_S02.
+        paper_dir = tmp_path / "2307.00176"
+        paper_dir.mkdir(parents=True)
+        (paper_dir / "embeddings.npz").write_bytes(b"")
+        (paper_dir / EMBEDDINGS_MANIFEST_NAME).write_text(
+            json.dumps(
+                {
+                    "chunker_version": EXPECTED_CHUNKER_VERSION,
+                    "embedded_chunks": [
+                        {
+                            "chunk_id": "arxiv:2307.00176:" + "a" * 16,
+                            "kind": "stmt",
+                        },
+                        {
+                            "chunk_id": "arxiv:2307.00176:" + "b" * 16,
+                            "kind": "proof",
+                        },
+                        {
+                            "chunk_id": "arxiv:2307.00176:" + "c" * 16,
+                            "kind": "stmt",
+                        },
+                    ],
+                    "embedder_version": EMBEDDER_VERSION,
+                    "paper_id": "2307.00176",
+                },
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+        with patch("ingest.embedder.EMBEDDINGS_DIR", tmp_path):
+            # Manifest only carries chunks A and B; sidecar also has C
+            # (the orphan). Skip should still succeed.
+            assert embedder_mod._paper_is_up_to_date(
+                "2307.00176",
+                {
+                    "arxiv:2307.00176:" + "a" * 16,
+                    "arxiv:2307.00176:" + "b" * 16,
+                },
             )
 
 
@@ -782,3 +887,227 @@ class TestSidecarReadHelpers:
         assert data["paper_id"] == "2307.00180"
         assert data["chunker_version"] == EXPECTED_CHUNKER_VERSION
         assert data["embedder_version"] == EMBEDDER_VERSION
+
+
+# ===========================================================================
+# TestMissingNpzReembed — F1 regression at the public-API level
+# ===========================================================================
+
+
+class TestMissingNpzReembed:
+    def test_missing_npz_with_present_sidecar_forces_reembed(self, tmp_path):
+        # F1 (CRITICAL): if a user manually deletes the NPZ but leaves
+        # the sidecar (manual cleanup, fs corruption recovery, etc.),
+        # the next embed run MUST re-encode rather than silently skip.
+        paper_id = "2307.00190"
+        _stage_chunk_dir(
+            tmp_path,
+            paper_id,
+            [_make_chunk(paper_id, "stmt", "Body", suffix="0" * 16)],
+        )
+        # First run: produce both files.
+        _patched_embed_paper(tmp_path, paper_id)
+        npz_path = tmp_path / "embeddings" / paper_id / "embeddings.npz"
+        sidecar_path = (
+            tmp_path / "embeddings" / paper_id / EMBEDDINGS_MANIFEST_NAME
+        )
+        assert npz_path.exists()
+        assert sidecar_path.exists()
+        # Now delete just the NPZ (sidecar lingers, claiming up-to-date).
+        npz_path.unlink()
+        # Second run: must re-embed.
+        fake_tokenizer, fake_model = _fake_model_factory()
+        stats, _, _, _ = _patched_embed_paper(
+            tmp_path,
+            paper_id,
+            fake_tokenizer=fake_tokenizer,
+            fake_model=fake_model,
+        )
+        assert stats.chunks_processed == 1
+        assert stats.chunks_skipped == 0
+        assert fake_model.call_count > 0
+        # And the NPZ is back.
+        assert npz_path.exists()
+
+
+# ===========================================================================
+# TestSidecarByteStability — F4: BP1 byte-identical sidecars across runs
+# ===========================================================================
+
+
+class TestSidecarByteStability:
+    def test_sidecar_bytes_are_run_over_run_stable(self, tmp_path):
+        # F4: a deterministic embedder must produce a byte-identical
+        # sidecar on a repeat run (same inputs → same bytes). The
+        # current "second run is zero writes" tests prove the skip
+        # path AVOIDED writing; this proves the WRITE itself is
+        # byte-stable.
+        paper_id = "2307.00200"
+        _stage_chunk_dir(
+            tmp_path,
+            paper_id,
+            [
+                _make_chunk(paper_id, "stmt", "Body A", suffix="a" * 16),
+                _make_chunk(paper_id, "proof", "Body B", suffix="b" * 16),
+                _make_chunk(paper_id, "section", "Body C", suffix="c" * 16),
+            ],
+        )
+        _patched_embed_paper(tmp_path, paper_id)
+        sidecar_path = (
+            tmp_path / "embeddings" / paper_id / EMBEDDINGS_MANIFEST_NAME
+        )
+        first_bytes = sidecar_path.read_bytes()
+        # Force a re-write by deleting the sidecar (so the skip path
+        # doesn't short-circuit), then run again.
+        sidecar_path.unlink()
+        # Also delete the NPZ so the helper sees both as missing — but
+        # actually a present NPZ would not impact the sidecar bytes.
+        # Delete it for symmetry with the F1 fix invariant: NPZ alone
+        # without sidecar must trigger re-embed.
+        (tmp_path / "embeddings" / paper_id / "embeddings.npz").unlink()
+        _patched_embed_paper(tmp_path, paper_id)
+        second_bytes = sidecar_path.read_bytes()
+        # BP1: byte-identical.
+        assert first_bytes == second_bytes
+
+
+# ===========================================================================
+# TestDuplicateChunkIdRejected — F8 corruption-detection
+# ===========================================================================
+
+
+class TestDuplicateChunkIdRejected:
+    def test_duplicate_chunk_id_in_manifest_raises_corrupt(self, tmp_path):
+        # F8: a duplicate chunk_id in chunk_manifest.json is a
+        # corruption signal. The embedder must surface it as a fail
+        # row rather than silently dedup.
+        paper_id = "2307.00210"
+        # Construct a manifest with duplicate chunk_id manually
+        # (helper functions deduplicate in their data structure).
+        paper_dir = tmp_path / "chunks" / paper_id
+        paper_dir.mkdir(parents=True)
+        chunk = _make_chunk(paper_id, "stmt", "Body", suffix="0" * 16)
+        (paper_dir / ("0" * 16 + ".json")).write_text(
+            json.dumps(chunk, ensure_ascii=False, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        (paper_dir / "chunk_manifest.json").write_text(
+            json.dumps(
+                {
+                    "chunker_version": CHUNKER_VERSION,
+                    "chunks": [
+                        {"chunk_id": chunk["chunk_id"], "kind": "stmt"},
+                        {
+                            "chunk_id": chunk["chunk_id"],
+                            "kind": "stmt",
+                        },  # DUPLICATE
+                    ],
+                    "paper_id": paper_id,
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        chunks_dir = tmp_path / "chunks"
+        embeddings_dir = tmp_path / "embeddings"
+        stats_path = tmp_path / "ops" / "embed-stats.jsonl"
+        log_path = tmp_path / "ops" / "embed.log"
+        with (
+            patch("ingest.embedder.CHUNKS_DIR", chunks_dir),
+            patch("ingest.embedder.EMBEDDINGS_DIR", embeddings_dir),
+            patch("ingest.embedder.EMBED_STATS_PATH", stats_path),
+            patch("ingest.embedder.EMBED_LOG_PATH", log_path),
+        ):
+            stats = embed_paper(paper_id)
+        assert stats.status == "fail"
+        assert stats.error_class == "manifest_corrupt"
+        assert "duplicate" in (stats.error or "").lower()
+
+
+# ===========================================================================
+# TestMultiProcessConcurrency — F2: multi-process AC coverage
+# ===========================================================================
+
+
+class TestMultiProcessConcurrency:
+    def test_concurrent_processes_do_not_corrupt(self, tmp_path):
+        # F2: AC #5 says "two embedder PROCESSES run concurrently". The
+        # threading-only test in TestConcurrency does not exercise
+        # multi-process os.replace atomicity (the GIL serializes
+        # threaded np.savez anyway). Use subprocess.Popen so both
+        # writers are real OS processes — multiprocessing.Process can't
+        # serialize a function defined inside a test method on Python
+        # 3.13's spawn context.
+        import subprocess
+        import sys
+        import textwrap
+
+        out_dir = tmp_path / "embeddings" / "2307.00220"
+        out_dir.mkdir(parents=True)
+        npz_path = out_dir / "embeddings.npz"
+        sidecar_path = out_dir / EMBEDDINGS_MANIFEST_NAME
+
+        # The writer script runs in a fresh Python interpreter; it
+        # imports from ingest.embedder (the project's own package on
+        # the path) and races against a sibling instance for 5
+        # iterations of (NPZ + sidecar) writes. ``os.replace`` is
+        # POSIX-atomic; both writers should produce a clean final
+        # state regardless of interleaving.
+        writer_script = textwrap.dedent(
+            f"""
+            import sys
+            from pathlib import Path
+            sys.path.insert(0, {str(Path(__file__).parent.parent)!r})
+            import numpy as np
+            from ingest.embedder import (
+                EMBEDDING_DIM,
+                _write_embeddings_manifest,
+                _write_embeddings_npz,
+            )
+            chunk_ids = ["arxiv:2307.00220:" + "0" * 16]
+            emb = np.zeros((1, EMBEDDING_DIM), dtype=np.float32)
+            for _ in range(5):
+                _write_embeddings_npz(
+                    Path({str(npz_path)!r}),
+                    chunk_ids_stmt=chunk_ids,
+                    embedding_stmt=emb,
+                    chunk_ids_proof=[],
+                    embedding_proof=np.zeros((0, EMBEDDING_DIM), dtype=np.float32),
+                )
+                _write_embeddings_manifest(
+                    Path({str(sidecar_path)!r}),
+                    paper_id="2307.00220",
+                    embedded_chunks=[{{"chunk_id": chunk_ids[0], "kind": "stmt"}}],
+                )
+            """
+        )
+        p1 = subprocess.Popen(
+            [sys.executable, "-c", writer_script],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        p2 = subprocess.Popen(
+            [sys.executable, "-c", writer_script],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        rc1 = p1.wait(timeout=60)
+        rc2 = p2.wait(timeout=60)
+        # Both processes finished cleanly.
+        stderr1 = p1.stderr.read().decode("utf-8", errors="replace") if p1.stderr else ""
+        stderr2 = p2.stderr.read().decode("utf-8", errors="replace") if p2.stderr else ""
+        assert rc1 == 0, f"writer 1 failed (rc={rc1}): {stderr1}"
+        assert rc2 == 0, f"writer 2 failed (rc={rc2}): {stderr2}"
+        # Both files exist and parse cleanly.
+        assert npz_path.exists()
+        assert sidecar_path.exists()
+        npz = np.load(npz_path, allow_pickle=True)
+        assert npz["embedding_stmt"].shape == (1, EMBEDDING_DIM)
+        sidecar = json.loads(sidecar_path.read_text(encoding="utf-8"))
+        assert sidecar["paper_id"] == "2307.00220"
+        # No tmp leaks from either process — ``try/finally`` cleanup
+        # in both writers must run even on the os.replace race.
+        leftover = list(out_dir.glob("*.tmp"))
+        assert leftover == []
