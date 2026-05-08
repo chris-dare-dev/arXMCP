@@ -39,3 +39,26 @@ def _patched_store_stats_path(tmp_path, monkeypatch):
         tmp_path / "ops" / "store-stats.jsonl",
     )
     yield
+
+
+@pytest.fixture(autouse=True)
+def _patched_bm25_stats_path(tmp_path, monkeypatch):
+    """Redirect ``ingest.bm25_indexer.BM25_STATS_PATH`` into ``tmp_path``.
+
+    Mirrors ``_patched_store_stats_path`` for the BM25 ops log so
+    integration tests cannot pollute the developer's checkout-local
+    ``var/arxmcp/ops/bm25-stats.jsonl`` on every run.
+    """
+    try:
+        import ingest.bm25_indexer as bm25_mod
+    except ImportError:
+        # rank-bm25 may not be installed in every test environment;
+        # the patch is a no-op when the module can't be imported.
+        yield
+        return
+    monkeypatch.setattr(
+        bm25_mod,
+        "BM25_STATS_PATH",
+        tmp_path / "ops" / "bm25-stats.jsonl",
+    )
+    yield

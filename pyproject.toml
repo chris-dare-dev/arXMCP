@@ -38,6 +38,13 @@ dependencies = [
     #   (E04_S01). The single source of truth for all downstream readers
     #   lives in ``ingest/schema.py`` as a ``pa.schema(...)`` object.
     "pyarrow>=14.0",
+    # rank-bm25: pure-Python BM25 index (E04_S04). MIT-licensed, no
+    #   compiled deps, ~400 LOC. Closes H4 (no Tantivy LaTeX analyzer
+    #   fiction); BM25 indexes the pre-tokenized ``body_tokens`` field
+    #   produced by E02_S03's regex tokenizer. Pickle-serialized index
+    #   is an in-process Tier-0 optimization; Tier-5 needs a scalable
+    #   replacement (E11).
+    "rank-bm25>=0.2",
 ]
 
 [project.optional-dependencies]
