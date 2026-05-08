@@ -90,7 +90,6 @@ import pyarrow as pa
 from ingest.chunker import _validate_paper_id
 from ingest.chunker_types import CHUNKER_VERSION, ChunkRecord
 from ingest.embedder import (
-    EMBEDDER_VERSION,
     EMBEDDING_DIM,
     EMBEDDINGS_DIR,
     EMBEDDINGS_MANIFEST_NAME,
@@ -487,6 +486,16 @@ def write_corpus_version_marker(
     all server-side caches (E08_S03) — see the cache contract in
     :mod:`server.corpus`'s module docstring.
 
+    .. warning::
+
+       Path-traversal validation (Threat 1 from
+       ``08-security-observability-ops.md``) is **deferred to E06's
+       tool-input boundary** (TODO(E06)) — same discipline as
+       :func:`server.corpus.open_chunks_table`. This function trusts
+       ``lancedb_path`` as config-derived. Callers passing
+       user-supplied paths MUST validate against an allowlisted
+       corpus root first (closes M2 from the E04_S03 critique).
+
     Schema (alphabetical keys, ``json.dumps(sort_keys=True)``):
 
     .. code-block:: json
@@ -673,24 +682,41 @@ def write_chunks(
     # E04_S03: write the corpus-version marker file as a postcondition
     # of every successful ingest run. The marker is the authoritative
     # server startup config (E06 reads it to determine which LanceDB
-    # version to pin) and the cache namespace key (E08_S03). Wrap in
-    # try/except so a marker-write failure does NOT abort the whole
-    # ingest — the LanceDB write has already succeeded; a missing
-    # marker is recoverable (server falls back to live-tip pinning).
+    # version to pin) and the cache namespace key (E08_S03).
+    #
+    # Closes M1 from the E04_S03 critique: the swallow widens from
+    # ``OSError`` to ``Exception``. The documented contract is
+    # "marker-write failure must not abort ingest"; an OSError-only
+    # narrowing was leaving non-OSError post-commit failures
+    # (TypeError, ValueError) unhandled, splitting LanceDB-state from
+    # the user-visible exception. A widened catch matches the stated
+    # best-effort contract — the LanceDB row write has already
+    # committed and the dataset_version is what the caller needs.
+    #
+    # Closes M6: ``embedder_version`` is passed straight through from
+    # ``embeddings.embedder_version`` rather than falling back to the
+    # live ``EMBEDDER_VERSION`` constant. The fallback masked an
+    # upstream contract violation: if a caller hands write_chunks an
+    # EmbedRecord with the default-empty embedder_version, the marker
+    # would have lied about what model produced the rows. The
+    # ``EmbedRecord.__post_init__`` already validates non-empty
+    # construction in practice (only the default-default value is
+    # empty), and the live-tip fallback created a foot-gun where the
+    # marker disagreed with the actual rows.
     try:
         paper_count = len({c.paper_id for c in chunks})
         write_corpus_version_marker(
             target_path,
             version=dataset_version,
             chunker_version=CHUNKER_VERSION,
-            embedder_version=embeddings.embedder_version or EMBEDDER_VERSION,
+            embedder_version=embeddings.embedder_version,
             paper_count=paper_count,
             chunk_count=len(chunks),
         )
-    except OSError as exc:
+    except Exception as exc:
         logger.error(
             "could not write corpus-version.json marker for version %d "
-            "at %s: %s",
+            "at %s: %s (LanceDB row write succeeded; marker is best-effort)",
             dataset_version,
             target_path,
             exc,

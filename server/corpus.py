@@ -245,17 +245,73 @@ class CorpusVersionInfo:
 
         ``created_at`` is debug-only metadata; if a future schema
         reduction drops it the reader continues to work (returns an
-        empty string). All other fields are required and a missing /
-        wrong-type entry raises ``KeyError`` / ``ValueError``.
+        empty string). All other fields are required and validated
+        for type AND domain — a missing entry, wrong type, or
+        domain-violating value (e.g. ``version=-1``,
+        ``embedder_version=None``, ``chunker_version=5``) raises
+        ``ValueError`` with a field-naming message.
+
+        Closes H1 + L1 from the E04_S03 critique: the previous
+        permissive ``int(...)`` / ``str(...)`` casts silently accepted
+        wrong types and negative integers. The previous code also
+        raised three different exception classes (``KeyError`` for
+        missing, ``TypeError`` for ``None``, ``ValueError`` for
+        non-castable strings); this version normalizes everything to
+        a single ``ValueError`` so callers catch one type.
         """
-        return cls(
-            version=int(data["version"]),
-            chunker_version=str(data["chunker_version"]),
-            embedder_version=str(data["embedder_version"]),
-            created_at=str(data.get("created_at", "")),
-            paper_count=int(data["paper_count"]),
-            chunk_count=int(data["chunk_count"]),
-        )
+        try:
+            # Required string fields — must be non-empty strings.
+            for field_name in ("chunker_version", "embedder_version"):
+                if field_name not in data:
+                    raise KeyError(field_name)
+                value = data[field_name]
+                if not isinstance(value, str) or not value:
+                    raise ValueError(
+                        f"{field_name} must be a non-empty string, "
+                        f"got {type(value).__name__} ({value!r})"
+                    )
+            # Required int fields — must be ``int`` (NOT ``bool``,
+            # which ``isinstance(True, int)`` returns True for) AND
+            # in the allowed domain.
+            for field_name, min_value in (
+                ("version", 1),
+                ("paper_count", 0),
+                ("chunk_count", 0),
+            ):
+                if field_name not in data:
+                    raise KeyError(field_name)
+                value = data[field_name]
+                if isinstance(value, bool) or not isinstance(value, int):
+                    raise ValueError(
+                        f"{field_name} must be an int, got "
+                        f"{type(value).__name__} ({value!r})"
+                    )
+                if value < min_value:
+                    raise ValueError(
+                        f"{field_name} must be >= {min_value}, "
+                        f"got {value}"
+                    )
+            # ``created_at`` is debug-only and lenient. Default to ""
+            # when absent. When present it must be a string.
+            created_at_raw = data.get("created_at", "")
+            if not isinstance(created_at_raw, str):
+                raise ValueError(
+                    f"created_at must be a string when present, "
+                    f"got {type(created_at_raw).__name__}"
+                )
+            return cls(
+                version=data["version"],
+                chunker_version=data["chunker_version"],
+                embedder_version=data["embedder_version"],
+                created_at=created_at_raw,
+                paper_count=data["paper_count"],
+                chunk_count=data["chunk_count"],
+            )
+        except KeyError as exc:
+            # Re-raise as ValueError so callers catch ONE error type.
+            raise ValueError(
+                f"corpus-version data missing required field: {exc.args[0]!r}"
+            ) from exc
 
 
 def read_corpus_version(
@@ -280,12 +336,29 @@ def read_corpus_version(
 
     Pass ``lancedb_path=None`` to use :data:`DEFAULT_LANCEDB_PATH` —
     symmetric with :func:`open_chunks_table` and the writer.
+
+    .. warning::
+
+       Path-traversal validation (Threat 1 from
+       ``08-security-observability-ops.md``) is **deferred to E06's
+       tool-input boundary** (TODO(E06)) — same discipline as
+       :func:`open_chunks_table` and
+       :func:`ingest.store.write_corpus_version_marker`. This function
+       trusts ``lancedb_path`` as config-derived. Callers passing
+       user-supplied paths MUST validate against an allowlisted
+       corpus root first (closes M2 from the E04_S03 critique).
     """
     resolved_path = (
         Path(lancedb_path) if lancedb_path is not None else DEFAULT_LANCEDB_PATH
     )
     marker_path = resolved_path / CORPUS_VERSION_MARKER_NAME
-    if not marker_path.exists():
+    # Closes M5 from the E04_S03 critique: ``is_file()`` is the right
+    # absent-or-not-a-file check. ``exists()`` would treat a directory
+    # at the marker location (e.g. left behind by a failed atomic
+    # rename, or a deliberate symlink loop) as "exists" and fall
+    # through to ``read_text``, which raises ``IsADirectoryError`` —
+    # an ``OSError`` outside the documented ``ValueError`` contract.
+    if not marker_path.is_file():
         return None
     try:
         data = json.loads(marker_path.read_text(encoding="utf-8"))
@@ -293,9 +366,11 @@ def read_corpus_version(
         raise ValueError(
             f"corpus-version.json at {marker_path} is not valid JSON: {exc}"
         ) from exc
+    # ``from_dict`` now normalizes every error to ``ValueError`` (L1
+    # close), so the wrapper just enriches the message with the path.
     try:
         return CorpusVersionInfo.from_dict(data)
-    except (KeyError, TypeError, ValueError) as exc:
+    except ValueError as exc:
         raise ValueError(
             f"corpus-version.json at {marker_path} is malformed: {exc}"
         ) from exc

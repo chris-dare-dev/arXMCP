@@ -90,7 +90,10 @@ class TestCorpusVersionInfoDataclass:
         info = CorpusVersionInfo.from_dict(data)
         assert info.created_at == ""
 
-    def test_from_dict_strict_on_required_fields(self):
+    def test_from_dict_missing_required_field_raises_value_error(self):
+        # Closes L1 from the E04_S03 critique: missing required fields
+        # now raise ValueError (not KeyError) so callers catch a single
+        # exception type.
         data = {
             "version": 4,
             # missing chunker_version
@@ -98,7 +101,86 @@ class TestCorpusVersionInfoDataclass:
             "paper_count": 1,
             "chunk_count": 1,
         }
-        with pytest.raises(KeyError):
+        with pytest.raises(ValueError, match="chunker_version"):
+            CorpusVersionInfo.from_dict(data)
+
+    def test_from_dict_rejects_negative_version(self):
+        # Closes H1 from the E04_S03 critique: domain validation. A
+        # corrupt marker with version=-1 must raise, not silently
+        # deserialize and lose the corruption signal.
+        data = {
+            "version": -1,
+            "chunker_version": "v1.0",
+            "embedder_version": "bge-m3@abc12345",
+            "paper_count": 1,
+            "chunk_count": 1,
+        }
+        with pytest.raises(ValueError, match="version must be >="):
+            CorpusVersionInfo.from_dict(data)
+
+    def test_from_dict_rejects_negative_paper_count(self):
+        # Closes H1: domain validation. paper_count must be >= 0.
+        data = {
+            "version": 1,
+            "chunker_version": "v1.0",
+            "embedder_version": "bge-m3@abc12345",
+            "paper_count": -5,
+            "chunk_count": 1,
+        }
+        with pytest.raises(ValueError, match="paper_count must be >="):
+            CorpusVersionInfo.from_dict(data)
+
+    def test_from_dict_rejects_string_version(self):
+        # Closes H1: type validation. A JSON parser would never
+        # produce ``"3"`` from ``3``, but a hand-edited or migrated
+        # file could.
+        data = {
+            "version": "3",
+            "chunker_version": "v1.0",
+            "embedder_version": "bge-m3@abc12345",
+            "paper_count": 1,
+            "chunk_count": 1,
+        }
+        with pytest.raises(ValueError, match="version must be an int"):
+            CorpusVersionInfo.from_dict(data)
+
+    def test_from_dict_rejects_none_embedder_version(self):
+        # Closes H1: ``str(None) == "None"`` previously slipped
+        # through the cast and produced a marker with the literal
+        # string ``"None"`` as the embedder_version.
+        data = {
+            "version": 1,
+            "chunker_version": "v1.0",
+            "embedder_version": None,
+            "paper_count": 1,
+            "chunk_count": 1,
+        }
+        with pytest.raises(ValueError, match="embedder_version must"):
+            CorpusVersionInfo.from_dict(data)
+
+    def test_from_dict_rejects_int_chunker_version(self):
+        # Closes H1: ``str(5) == "5"`` previously stringified an int.
+        data = {
+            "version": 1,
+            "chunker_version": 5,
+            "embedder_version": "bge-m3@abc12345",
+            "paper_count": 1,
+            "chunk_count": 1,
+        }
+        with pytest.raises(ValueError, match="chunker_version must"):
+            CorpusVersionInfo.from_dict(data)
+
+    def test_from_dict_rejects_bool_as_version(self):
+        # Closes H1: ``isinstance(True, int)`` is True in Python, so
+        # the bool-int distinction must be tested explicitly.
+        data = {
+            "version": True,  # technically a Python int, but absurd
+            "chunker_version": "v1.0",
+            "embedder_version": "bge-m3@abc12345",
+            "paper_count": 1,
+            "chunk_count": 1,
+        }
+        with pytest.raises(ValueError, match="version must be an int"):
             CorpusVersionInfo.from_dict(data)
 
 
@@ -251,6 +333,17 @@ class TestReadMarker:
         # for the MCP server.
         assert read_corpus_version(tmp_path) is None
 
+    def test_returns_none_when_marker_is_a_directory(self, tmp_path):
+        # Closes M5 from the E04_S03 critique: a directory at the
+        # marker location (e.g. left behind by a failed atomic
+        # rename, or a malicious symlink) used to fall through to
+        # ``read_text`` and raise ``IsADirectoryError`` (an
+        # ``OSError`` outside the documented ``ValueError`` /
+        # ``None`` contract). With ``is_file()`` the function
+        # cleanly returns ``None``.
+        (tmp_path / CORPUS_VERSION_MARKER_NAME).mkdir()
+        assert read_corpus_version(tmp_path) is None
+
     def test_raises_on_corrupt_json(self, tmp_path):
         marker = tmp_path / CORPUS_VERSION_MARKER_NAME
         marker.write_text("{not valid json", encoding="utf-8")
@@ -313,6 +406,35 @@ class TestCacheContract:
 
 
 # ===========================================================================
+# TestThreat1Deferral — M2: Threat 1 / TODO(E06) note on new public surfaces
+# ===========================================================================
+
+
+class TestThreat1Deferral:
+    def test_writer_docstring_carries_threat1_deferral(self):
+        """Closes M2: ``write_corpus_version_marker`` accepts a
+        filesystem path and must carry the Threat 1 deferral marker
+        the rest of the corpus reader/writer surfaces use, so a future
+        maintainer reading the function in isolation sees the
+        validation contract."""
+        from ingest.store import write_corpus_version_marker
+
+        doc = write_corpus_version_marker.__doc__ or ""
+        doc_collapsed = " ".join(doc.split())
+        assert "Threat 1" in doc_collapsed
+        assert "TODO(E06)" in doc_collapsed
+
+    def test_reader_docstring_carries_threat1_deferral(self):
+        """Closes M2: same discipline for ``read_corpus_version``."""
+        from server.corpus import read_corpus_version
+
+        doc = read_corpus_version.__doc__ or ""
+        doc_collapsed = " ".join(doc.split())
+        assert "Threat 1" in doc_collapsed
+        assert "TODO(E06)" in doc_collapsed
+
+
+# ===========================================================================
 # TestWriteOnIngest — write_chunks calls write_corpus_version_marker
 # ===========================================================================
 
@@ -332,16 +454,20 @@ class TestWriteOnIngest:
         assert info.version == version
 
     def test_marker_carries_correct_aggregates(self, tmp_path):
-        # Build a corpus across 3 distinct papers, 10 chunks total.
-        chunks = _make_corpus(10)  # _make_corpus rotates through 3 paper IDs
+        # Closes M3 from the E04_S03 critique: derive expected values
+        # from the chunks list itself rather than hardcoding the magic
+        # number 3 against ``_make_corpus``'s internal ``i % 3``
+        # rotation. A future ``_make_corpus`` edit (e.g., to ``i % 5``)
+        # will not silently break this test.
+        chunks = _make_corpus(10)
         embeddings = _make_synthetic_embeddings(chunks, seed=2)
+        expected_paper_count = len({c.paper_id for c in chunks})
+        expected_chunk_count = len(chunks)
         write_chunks(chunks, embeddings, lancedb_path=tmp_path / "lancedb")
         info = read_corpus_version(tmp_path / "lancedb")
         assert info is not None
-        # paper_count derives from len({c.paper_id for c in chunks})
-        # which is 3 in _make_corpus; chunk_count is len(chunks).
-        assert info.chunk_count == 10
-        assert info.paper_count == 3
+        assert info.chunk_count == expected_chunk_count
+        assert info.paper_count == expected_paper_count
         # chunker_version + embedder_version must reflect live constants.
         assert info.chunker_version == CHUNKER_VERSION
         assert info.embedder_version == EMBEDDER_VERSION
