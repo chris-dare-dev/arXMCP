@@ -40,6 +40,23 @@ writers at the dataset level — two simultaneous ``write_chunks`` calls
 produce two separate dataset versions, never a corrupt half-write. No
 additional filesystem-atomicity wrapper is needed beyond the directory
 ``mkdir(parents=True, exist_ok=True)``.
+
+**MVCC handshake (E04_S02).** No symlink swaps. LanceDB version int IS
+the corpus_version. Writers use the current dataset; readers call
+dataset.checkout(version=N). (The reader-side wrapper lives in
+:func:`server.corpus.open_chunks_table`.)
+
+The integer returned by :func:`write_chunks` is the LanceDB dataset
+version AFTER ``_create_indices`` has run — i.e. the post-index version,
+not the post-merge version. This is intentional: callers pin readers to
+this integer, and a reader that pins to the post-index version gets
+indexed ANN queries (HNSW present). A pre-index pin (``merge_result.
+version``) would still return correct rows but fall back to brute-force
+scan, which is unacceptable at corpus scale. The ``_create_indices``
+implementation may produce 1–3 extra LanceDB versions per write
+(depending on which embedding columns have rows and whether the scalar
+index succeeds); callers should treat the returned integer as opaque
+and store it without arithmetic.
 """
 
 from __future__ import annotations
@@ -507,6 +524,14 @@ def write_chunks(
 
     # Resolve the new dataset version. ``tbl.version`` is a stable
     # attribute since lancedb 0.6+; fall back to 0 if unavailable.
+    #
+    # E04_S02 invariant: this is the POST-index version (after
+    # ``_create_indices`` ran), not ``merge_result.version``
+    # (post-merge, pre-index). Callers pin readers to this integer
+    # so MVCC checkouts return an INDEXED view of the data — a
+    # reader pinning to the pre-index version would get correct
+    # rows but fall back to brute-force ANN. See the module
+    # docstring's "MVCC handshake" section.
     dataset_version = int(getattr(tbl, "version", 0) or 0)
 
     elapsed_s = time.monotonic() - start
