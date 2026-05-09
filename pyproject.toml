@@ -11,8 +11,16 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools]
 # Restrict the install graph to the actual Python packages. This is
 # the canonical fix for the "multiple top-level packages discovered
-# in a flat-layout" setuptools error.
-packages = ["server", "ingest", "tools"]
+# in a flat-layout" setuptools error. ``shim`` is added in E06_S02
+# so the ``arxmcp-shim`` console-script entry point below resolves.
+packages = ["server", "ingest", "tools", "shim"]
+
+[project.scripts]
+# E06_S02 stdio shim. Installed on $PATH by ``pip install -e .`` /
+# ``pipx install arxmcp``. Claude Code's ``~/.claude.json`` registers
+# this command name verbatim; renaming would force every operator to
+# update their MCP server registration.
+arxmcp-shim = "shim.arxmcp_shim:main"
 
 [project]
 name = "arxmcp"

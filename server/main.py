@@ -378,7 +378,16 @@ def create_app(config: Config | None = None) -> FastAPI:
         # has to exist now so the Streamable HTTP endpoint responds
         # to ``tools/list`` (with an empty list) and is ready for
         # tool registration in the next milestone.
-        mcp_server = FastMCP("arxmcp")
+        # ``json_response=True`` makes responses single-shot
+        # ``application/json`` rather than ``text/event-stream`` (SSE).
+        # Required by the E06_S02 stdio shim, which is a pure
+        # single-frame request/response proxy and does NOT parse SSE.
+        # The design constitution
+        # (``.claude/notes/06-mcp-server-design.md`` line 46) is
+        # explicit: "No protocol-level streaming of tool results.
+        # notifications/progress is a heartbeat, not a partial-result
+        # channel." We don't need the SSE pipe.
+        mcp_server = FastMCP("arxmcp", json_response=True)
         mount_mcp(app, mcp_server)
         # F2 fix: stash on app.state so the lifespan can thread the
         # session-manager lifespan into ours.
