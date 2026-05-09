@@ -353,8 +353,33 @@ def create_app(config: Config | None = None) -> FastAPI:
     )
     app.state.config = cfg
 
-    # Universal body-size cap (pure ASGI — closes F1).
+    # E06_S05: security-hardening middleware stack.
+    #
+    # ``add_middleware`` adds in LIFO request order — the LAST call
+    # wraps the request FIRST. So mount innermost-first here:
+    #
+    #   request flow: SecurityHeaders -> OriginValidation
+    #                 -> RequestBodySizeLimit -> BodySizeCap -> handler
+    #
+    # SecurityHeaders is OUTERMOST so even error responses from inner
+    # middlewares (e.g. OriginValidation's 403, BodySizeCap's 413)
+    # carry the X-Content-Type-Options + X-Frame-Options headers.
+    # OriginValidation is BEFORE the request-body limit so an
+    # evil-origin POST is rejected without buffering its body.
+    from server.middleware import (
+        OriginValidationMiddleware,
+        RequestBodySizeLimitMiddleware,
+        SecurityHeadersMiddleware,
+    )
+
+    # Universal response body-size cap (pure ASGI — closes F1).
     app.add_middleware(BodySizeCapMiddleware, byte_cap=cfg.result_byte_cap)
+    # 1 MB cap on incoming request bodies (E06_S05).
+    app.add_middleware(RequestBodySizeLimitMiddleware)
+    # Origin validation: MCP 2025-06-18 spec MUST.
+    app.add_middleware(OriginValidationMiddleware)
+    # X-Content-Type-Options + X-Frame-Options on every response.
+    app.add_middleware(SecurityHeadersMiddleware)
 
     # Health + readiness routes.
     app.include_router(health_router)
@@ -434,11 +459,30 @@ if __name__ == "__main__":
     # are honored. Use this entry point (``python -m server.main``)
     # rather than the bare ``uvicorn server.main:app`` form for
     # env-var-aware binding.
+    #
+    # E06_S05: wrap Config() + the env-var scan so a bad bind host
+    # (or any other config validation failure) emits a FATAL log
+    # AND exits with code 1, not a multi-screen pydantic stack. This
+    # mirrors :func:`_build_module_app`'s wrapping for the uvicorn-
+    # CLI path so both entry points fail identically. Closes the
+    # brief AC: "Starting server with ARXMCP_BIND_HOST=0.0.0.0
+    # exits with code 1 and a log message."
     import uvicorn
 
-    cfg = Config()
-    _scan_unknown_arxmcp_env_vars(cfg)
-    logging.basicConfig(level=cfg.log_level)
+    # Configure logging BEFORE Config() so the FATAL log lands on
+    # stderr even when the failure is in Config() itself.
+    logging.basicConfig(level=os.environ.get("ARXMCP_LOG_LEVEL", "INFO"))
+    try:
+        cfg = Config()
+        _scan_unknown_arxmcp_env_vars(cfg)
+    except Exception as exc:
+        logger.error("FATAL during config load: %s", exc)
+        sys.stderr.write(f"FATAL: {exc}\n")
+        sys.exit(1)
+
+    # Re-apply log_level in case Config() chose something other than
+    # the env-var fallback.
+    logging.getLogger().setLevel(cfg.log_level)
     logger.info(
         "Starting arxmcp-server on %s:%d", cfg.bind_host, cfg.bind_port
     )
