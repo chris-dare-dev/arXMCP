@@ -66,9 +66,10 @@ import asyncio
 import hashlib
 import logging
 import os
+import struct
 from collections.abc import Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 if TYPE_CHECKING:
     import numpy as np
@@ -78,6 +79,19 @@ if TYPE_CHECKING:
     )
 
 logger = logging.getLogger(__name__)
+
+
+class RerankerHandle(NamedTuple):
+    """F9 fix from the E07_S03 critique: replace the bare 2-tuple
+    ``(model, tokenizer)`` with a named tuple so destructuring is
+    explicit and a future 3rd-element addition fails with a clear
+    ``ValueError`` (and an obvious source-of-truth to update).
+
+    Backwards-compatible: still iterable as a 2-tuple, so
+    ``model, tokenizer = handle`` works."""
+
+    model: Any
+    tokenizer: Any
 
 
 # ---------------------------------------------------------------------------
@@ -121,18 +135,6 @@ RERANKER_MAX_LENGTH: int = 512
 #: ``server/handlers/search.py:MAX_K`` so a misconfigured caller
 #: cannot ask for more candidates than the upstream cap.
 MAX_K: int = 50
-
-
-# ---------------------------------------------------------------------------
-# Errors
-# ---------------------------------------------------------------------------
-
-
-class RerankerLoadError(RuntimeError):
-    """Raised when the reranker model cannot be loaded.
-
-    Lifted to a startup-time error by :func:`server.resources._load_reranker_or_raise`,
-    which wraps as :class:`server.resources.RerankerUnavailableError`."""
 
 
 # ---------------------------------------------------------------------------
@@ -236,18 +238,53 @@ def _build_singleflight_key(
     vector + candidate set hit the singleflight even if they
     received the candidates in different RRF-derived orders (rare;
     RRF itself is deterministic, but defensive).
+
+    F2 fix from the E07_S03 critique: chunk_id encoding is
+    LENGTH-PREFIXED, not separator-based. A naive
+    ``b"\\n".join(...)`` would collide if any chunk_id contained
+    a literal newline (today's format ``arxiv:<paper_id>:<16-hex>``
+    excludes them, but the cache key MUST be collision-resistant
+    regardless of upstream id-format mutations). The 8-byte
+    big-endian unsigned-long length prefix matches CBOR's encoding
+    discipline — collision-free for arbitrary byte content.
+
+    F7 fix: the previous docstring claimed "joined by NUL" but the
+    code used ``\\n``. Now both are wrong AND obsolete: we use
+    length-prefix encoding instead.
     """
     h = hashlib.sha256()
-    # Query embedding bytes — float32 1024-dim L2-normalized.
-    h.update(query_vec.tobytes())
-    h.update(b"\x00")  # field separator (any byte not in the field)
-    # Sorted chunk_ids, joined by NUL.
+    # Query embedding bytes — float32 1024-dim L2-normalized. Length-
+    # prefix the raw vector bytes too so a future dim change doesn't
+    # silently collide with an old key from a smaller vector.
+    vec_bytes = query_vec.tobytes()
+    h.update(struct.pack(">Q", len(vec_bytes)))
+    h.update(vec_bytes)
+    # Length-prefix the count of chunk_ids, then each id with its
+    # own length prefix. Collision-free regardless of id content.
     sorted_ids = sorted(cid for cid, _score in candidates)
-    h.update(b"\n".join(cid.encode("utf-8") for cid in sorted_ids))
-    h.update(b"\x00")
-    # Reranker version.
-    h.update(RERANKER_VERSION.encode("utf-8"))
+    h.update(struct.pack(">Q", len(sorted_ids)))
+    for cid in sorted_ids:
+        cid_bytes = cid.encode("utf-8")
+        h.update(struct.pack(">Q", len(cid_bytes)))
+        h.update(cid_bytes)
+    # Reranker version, length-prefixed.
+    version_bytes = RERANKER_VERSION.encode("utf-8")
+    h.update(struct.pack(">Q", len(version_bytes)))
+    h.update(version_bytes)
     return h.hexdigest()
+
+
+def _escape_lance_str(s: str) -> str:
+    """Escape single quotes for LanceDB SQL-style WHERE clauses.
+
+    DRY-WAIVED: duplicated from :func:`server.handlers.chunk._escape_lance_str`
+    to avoid a layering inversion (a retrieval phase importing from
+    a handler). The two definitions MUST stay in lockstep — if a
+    future LanceDB SQL escape rule changes, update both. F4 fix
+    from the E07_S03 critique: the previous drop-on-quote behavior
+    diverged from the project-wide escape pattern; this restores
+    consistency."""
+    return s.replace("'", "''")
 
 
 def _fetch_body_texts(
@@ -260,31 +297,24 @@ def _fetch_body_texts(
     contract — ids in the BM25 list that don't exist in the live
     table) are simply absent from the returned dict; the caller
     drops them from the rerank set.
+
+    F4 fix from the E07_S03 critique: chunk_ids are SQL-escaped
+    (single quote → doubled) via :func:`_escape_lance_str`, NOT
+    dropped. Mirrors the project-wide pattern from
+    ``server/handlers/chunk.py:120-122`` and
+    ``server/handlers/paper.py``. Today's chunk_id format
+    ``arxiv:<paper_id>:<16-hex>`` cannot contain quotes so this is
+    defensive; a future format change won't silently cause
+    cross-handler inconsistency.
     """
     if not chunk_ids:
         return {}
-    # Quote chunk_ids for the SQL IN clause. chunk_id format is
-    # ``arxiv:<paper_id>:<16-hex>`` — no internal quotes to escape,
-    # but defense-in-depth: refuse any id containing a single quote.
-    safe_ids: list[str] = []
-    for cid in chunk_ids:
-        if "'" in cid:
-            logger.warning(
-                "_fetch_body_texts: dropping chunk_id %r containing "
-                "a single quote (defense-in-depth against SQL "
-                "injection through a tampered candidate list)",
-                cid,
-            )
-            continue
-        safe_ids.append(cid)
-    if not safe_ids:
-        return {}
-    csv = ", ".join(f"'{cid}'" for cid in safe_ids)
+    csv = ", ".join(f"'{_escape_lance_str(cid)}'" for cid in chunk_ids)
     arrow = (
         chunks_table.search()
         .where(f"chunk_id IN ({csv})")
         .select(["chunk_id", "body_text"])
-        .limit(len(safe_ids))
+        .limit(len(chunk_ids))
         .to_arrow()
     )
     cids = arrow.column("chunk_id").to_pylist()
@@ -465,8 +495,23 @@ class RerankPhase:
             input RRF score in the second slot.
 
             **On-path** (``enabled=True``): cross-encoder scores
-            replace the RRF scores; the order can differ from the
-            input order.
+            (``sigmoid(logit)``, in [0, 1]) replace the RRF scores;
+            the order can differ from the input order.
+
+            **F5 fix from the E07_S03 critique — score-semantics
+            contract.** The second tuple slot has DIFFERENT semantic
+            range in each branch:
+              - off-path: RRF score (~0.01..0.05, sum of 1/(k+rank))
+              - on-path: sigmoid logit (0..1, cross-encoder relevance)
+            Downstream consumers that publish this score on the wire
+            (E07_S04 handler integration) MUST inspect
+            :attr:`enabled` to disambiguate, OR re-normalize. The
+            dual-meaning is intentional for v1: off-path callers
+            already know the score is RRF-derived (they just got it
+            from Phase 2), and on-path callers gain the more
+            informative cross-encoder score. A future score-
+            normalization decision lands with E07_S04's wire-surface
+            contract.
 
         Raises
         ------
@@ -558,6 +603,6 @@ __all__ = [
     "RERANKER_MODEL_ID",
     "RERANKER_VERSION",
     "RerankPhase",
-    "RerankerLoadError",
+    "RerankerHandle",
     "maybe_log_sha_drift",
 ]

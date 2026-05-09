@@ -21,7 +21,6 @@ from server.retrieval.bm25 import (
 )
 from server.retrieval.rerank import (
     BGE_RERANKER_COMMIT_SHA,
-    RerankerLoadError,
     RerankPhase,
 )
 from server.retrieval.rrf import RRF_K, reciprocal_rank_fusion
@@ -33,6 +32,5 @@ __all__ = [
     "BM25IndexUnavailableError",
     "BM25Phase",
     "RerankPhase",
-    "RerankerLoadError",
     "reciprocal_rank_fusion",
 ]

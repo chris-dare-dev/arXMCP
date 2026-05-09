@@ -292,6 +292,19 @@ def _get_model():
             revision=BGE_M3_COMMIT_SHA,
             # Threat 6: refuse model-card-supplied custom modeling code.
             trust_remote_code=False,
+            # NOTE: ``use_safetensors=True`` would close Threat 6's
+            # second mitigation (refuse .bin / pickle weights), but
+            # the pinned BGE-M3 SHA ``5617a9f6...`` ships only
+            # ``pytorch_model.bin`` — adding the kwarg would fail the
+            # load. Bumping the SHA to a safetensors-bearing revision
+            # would invalidate every cached embedding under
+            # ``var/arxmcp/corpus/embeddings`` (E04_S02 MVCC re-encode
+            # required), which is out of scope for E07_S03's
+            # rectification budget. The reranker IS safetensors-only
+            # (see ``server/resources.py:_load_reranker_or_raise``).
+            # Tracked: a future ingest milestone should bump
+            # BGE_M3_COMMIT_SHA to a safetensors-bearing revision and
+            # add ``use_safetensors=True`` here.
         )
         _model.eval()
         # Default torch CPU thread count can be 1 on some configurations;

@@ -170,28 +170,25 @@ class _FakeTokenizer:
 
 
 class _FakeRerankerModel:
-    """Cross-encoder stub: returns a logit per pair. Score is the
-    length of the (lowercased) intersection of the query's
-    whitespace tokens and the body's whitespace tokens — a crude
-    "word overlap" signal so different queries produce different
-    rankings."""
+    """Cross-encoder stub: returns deterministic per-row logits.
+
+    F8 fix from the E07_S03 critique: ``_call_count`` is now
+    actually incremented in ``__call__`` and asserted by the dedup
+    test. Catches a regression where the singleflight returns the
+    right answer for the wrong reason (e.g. the model was invoked
+    twice but coincidentally returned the same ranking)."""
 
     def __init__(self, query_text_for_test: str = "") -> None:
-        self._call_count = 0
+        self.call_count = 0
 
     def eval(self) -> None:
         return None
 
     def __call__(self, **inputs):
         import torch  # noqa: PLC0415
-        # The fake works by reading the input_ids batch dimension;
-        # actual scoring happens via a closure trick in the test.
-        # For deterministic-but-varied scores we hash the input_ids
-        # row sums (which depend on padding) — unrealistic but
-        # produces stable ordering for tests.
+
+        self.call_count += 1
         n = inputs["input_ids"].shape[0]
-        # Random but deterministic scores per row so the resulting
-        # order is non-trivial.
         rng = np.random.default_rng(42)
         scores = rng.standard_normal(n).astype(np.float32)
         return type("Out", (), {
@@ -408,8 +405,18 @@ class TestSingleflightCacheBypass:
         """Two concurrent ``rerank`` calls with the same (query_vec,
         candidates) hit the singleflight: only ONE forward pass
         happens; the second call coalesces and ``dedup_count``
-        increments by 1."""
+        increments by 1.
+
+        F8 fix: also assert ``model.call_count == 1`` directly. Pins
+        the contract that the cross-encoder forward pass runs at
+        most once per dedup window, regardless of caller count."""
         phase = _phase_on_with_fake_model
+        # Reset call count so the assertion is independent of any
+        # other test using this fixture (each test gets a fresh
+        # phase, but defensive).
+        model, _tok = phase._model_handle
+        model.call_count = 0
+
         candidates = [
             ("arxiv:2307.00001:" + "0" * 16, 0.5),
             ("arxiv:2307.00002:" + "1" * 16, 0.4),
@@ -430,6 +437,15 @@ class TestSingleflightCacheBypass:
         assert after - before == 1, (
             f"singleflight should coalesce 2 concurrent identical "
             f"reranks; got {after - before} dedup hits"
+        )
+        # F8 regression: the actual forward pass MUST have run at
+        # most once. A passing dedup_count alone would not catch a
+        # bug where the model was invoked twice but produced the
+        # same ranking both times.
+        assert model.call_count == 1, (
+            f"cross-encoder model invoked {model.call_count} times "
+            f"for 2 concurrent identical reranks; expected exactly 1 "
+            f"(singleflight should have collapsed)"
         )
         # Both callers receive the SAME ranking.
         assert r1 == r2
@@ -553,22 +569,27 @@ class TestFetchBodyTexts:
         tbl = _open_chunks_table(lancedb_path, version)
         assert _fetch_body_texts(tbl, []) == {}
 
-    def test_quote_in_chunk_id_dropped_defensively(
-        self, _seeded_lancedb, caplog
+    def test_quote_in_chunk_id_escaped_not_dropped(
+        self, _seeded_lancedb,
     ):
-        """Defense-in-depth: a chunk_id containing a single quote
-        is dropped rather than passed to the SQL IN clause
-        (would otherwise be a SQL-injection vector)."""
-        import logging
-
+        """F4 fix from the E07_S03 critique: chunk_ids containing
+        single quotes are SQL-escaped (single quote → doubled), NOT
+        dropped. Mirrors the project-wide escape pattern from
+        ``server/handlers/chunk.py:120``. The escaped query is safe
+        against injection and produces no rows for a malicious id
+        (no such id exists in the corpus).
+        """
         lancedb_path, version = _seeded_lancedb
         tbl = _open_chunks_table(lancedb_path, version)
-        with caplog.at_level(logging.WARNING):
-            result = _fetch_body_texts(
-                tbl, ["arxiv:malicious';DROP TABLE chunks;--:" + "f" * 16],
-            )
+        # The injection-shaped chunk_id is NOT in the table (no such
+        # row); the escape doubles the quote so the IN clause doesn't
+        # break out of the literal. Result: empty dict (no rows).
+        # The test PASSES if the search runs without raising AND
+        # returns no rows for the bogus id.
+        result = _fetch_body_texts(
+            tbl, ["arxiv:malicious';DROP TABLE chunks;--:" + "f" * 16],
+        )
         assert result == {}
-        assert any("single quote" in r.getMessage() for r in caplog.records)
 
 
 # ===========================================================================
@@ -605,83 +626,71 @@ class TestShaConstants:
 
 
 class TestShaDriftCheck:
-    def test_no_cache_logs_info_no_warning(self, tmp_path, caplog):
+    """F6 fix from the E07_S03 critique: uses ``monkeypatch.setenv``
+    instead of manual ``os.environ`` mutation. pytest-managed
+    teardown is guaranteed even on KeyboardInterrupt."""
+
+    def test_no_cache_logs_info_no_warning(
+        self, tmp_path, caplog, monkeypatch
+    ):
         """If the local cache is empty, drift check logs INFO not
         WARNING."""
         import logging
 
-        # Point HF_HOME at empty tmp dir.
-        os.environ["HF_HOME"] = str(tmp_path)
-        try:
-            with caplog.at_level(logging.INFO, logger="server.retrieval.rerank"):
-                maybe_log_sha_drift(BGE_RERANKER_COMMIT_SHA)
-        finally:
-            del os.environ["HF_HOME"]
+        monkeypatch.setenv("HF_HOME", str(tmp_path))
+        with caplog.at_level(logging.INFO, logger="server.retrieval.rerank"):
+            maybe_log_sha_drift(BGE_RERANKER_COMMIT_SHA)
         warns = [r for r in caplog.records if r.levelname == "WARNING"]
         assert warns == []
 
     def test_matched_sha_logs_info_no_warning(
-        self, tmp_path, caplog
+        self, tmp_path, caplog, monkeypatch
     ):
         import logging
 
-        # Build a fake cache with the matching SHA dir.
         snap = (
             tmp_path / "hub" / "models--BAAI--bge-reranker-v2-m3"
             / "snapshots" / BGE_RERANKER_COMMIT_SHA
         )
         snap.mkdir(parents=True)
-        os.environ["HF_HOME"] = str(tmp_path)
-        try:
-            with caplog.at_level(logging.INFO, logger="server.retrieval.rerank"):
-                maybe_log_sha_drift(BGE_RERANKER_COMMIT_SHA)
-        finally:
-            del os.environ["HF_HOME"]
+        monkeypatch.setenv("HF_HOME", str(tmp_path))
+        with caplog.at_level(logging.INFO, logger="server.retrieval.rerank"):
+            maybe_log_sha_drift(BGE_RERANKER_COMMIT_SHA)
         warns = [r for r in caplog.records if r.levelname == "WARNING"]
         assert warns == []
 
-    def test_drift_logs_warning(self, tmp_path, caplog):
+    def test_drift_logs_warning(self, tmp_path, caplog, monkeypatch):
         import logging
 
-        # Build a fake cache with a DIFFERENT SHA dir.
         wrong_sha = "0" * 40
         snap = (
             tmp_path / "hub" / "models--BAAI--bge-reranker-v2-m3"
             / "snapshots" / wrong_sha
         )
         snap.mkdir(parents=True)
-        os.environ["HF_HOME"] = str(tmp_path)
-        try:
-            with caplog.at_level(
-                logging.WARNING, logger="server.retrieval.rerank"
-            ):
-                maybe_log_sha_drift(BGE_RERANKER_COMMIT_SHA)
-        finally:
-            del os.environ["HF_HOME"]
+        monkeypatch.setenv("HF_HOME", str(tmp_path))
+        with caplog.at_level(
+            logging.WARNING, logger="server.retrieval.rerank"
+        ):
+            maybe_log_sha_drift(BGE_RERANKER_COMMIT_SHA)
         warns = [r for r in caplog.records if r.levelname == "WARNING"]
         assert warns
         assert any("SHA drift" in r.getMessage() for r in warns)
 
 
 class TestHuggingfaceCacheLookup:
-    def test_no_cache_returns_none(self, tmp_path):
-        os.environ["HF_HOME"] = str(tmp_path)
-        try:
-            assert _huggingface_cache_snapshot_sha(RERANKER_MODEL_ID) is None
-        finally:
-            del os.environ["HF_HOME"]
+    def test_no_cache_returns_none(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HF_HOME", str(tmp_path))
+        assert _huggingface_cache_snapshot_sha(RERANKER_MODEL_ID) is None
 
-    def test_cached_sha_returned(self, tmp_path):
+    def test_cached_sha_returned(self, tmp_path, monkeypatch):
         snap = (
             tmp_path / "hub" / "models--BAAI--bge-reranker-v2-m3"
             / "snapshots" / BGE_RERANKER_COMMIT_SHA
         )
         snap.mkdir(parents=True)
-        os.environ["HF_HOME"] = str(tmp_path)
-        try:
-            sha = _huggingface_cache_snapshot_sha(RERANKER_MODEL_ID)
-        finally:
-            del os.environ["HF_HOME"]
+        monkeypatch.setenv("HF_HOME", str(tmp_path))
+        sha = _huggingface_cache_snapshot_sha(RERANKER_MODEL_ID)
         assert sha == BGE_RERANKER_COMMIT_SHA
 
 
@@ -692,32 +701,29 @@ class TestHuggingfaceCacheLookup:
 
 class TestResourcesIntegration:
     """End-to-end probe: ``Resources.startup`` populates
-    ``r.rerank_phase`` (off-path by default; passes through)."""
+    ``r.rerank_phase`` (off-path by default; passes through).
+
+    F6 fix: uses ``monkeypatch.setattr`` instead of manual try/finally
+    on the BGE-M3 stub patches."""
 
     def test_resources_startup_populates_rerank_phase_off(
-        self, _seeded_lancedb
+        self, _seeded_lancedb, monkeypatch
     ):
-        # Mock BGE-M3 so we don't pay the model download in CI.
         import server.query_encoder as qe_mod
         from server.config import Config
         from server.resources import Resources
 
-        original_get_model = qe_mod._get_model
-        original_get_tok = qe_mod._get_tokenizer
-        qe_mod._get_model = lambda: object()
-        qe_mod._get_tokenizer = lambda: object()
-        try:
-            lancedb_path, _version = _seeded_lancedb
-            cfg = Config(
-                lancedb_path=lancedb_path, enable_rerank=False
-            )
-            r = asyncio.run(Resources.startup(cfg))
-            assert r.rerank_phase is not None
-            assert r.rerank_phase.enabled is False
-            assert r.reranker_model is None
-        finally:
-            qe_mod._get_model = original_get_model
-            qe_mod._get_tokenizer = original_get_tok
+        monkeypatch.setattr(qe_mod, "_get_model", lambda: object())
+        monkeypatch.setattr(qe_mod, "_get_tokenizer", lambda: object())
+
+        lancedb_path, _version = _seeded_lancedb
+        cfg = Config(
+            lancedb_path=lancedb_path, enable_rerank=False
+        )
+        r = asyncio.run(Resources.startup(cfg))
+        assert r.rerank_phase is not None
+        assert r.rerank_phase.enabled is False
+        assert r.reranker_model is None
 
 
 # ===========================================================================

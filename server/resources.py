@@ -469,6 +469,7 @@ async def _load_reranker_or_raise() -> Any:
     from server.retrieval.rerank import (
         BGE_RERANKER_COMMIT_SHA,
         RERANKER_MODEL_ID,
+        RerankerHandle,
         maybe_log_sha_drift,
     )
 
@@ -483,21 +484,37 @@ async def _load_reranker_or_raise() -> Any:
                 RERANKER_MODEL_ID,
                 revision=BGE_RERANKER_COMMIT_SHA,
                 trust_remote_code=False,
+                # Tokenizer files are JSON / sentencepiece / vocab —
+                # no pickle surface. The kwarg has no effect on the
+                # tokenizer load but is documented for symmetry with
+                # the model load below.
             )
             model = AutoModelForSequenceClassification.from_pretrained(
                 RERANKER_MODEL_ID,
                 revision=BGE_RERANKER_COMMIT_SHA,
                 trust_remote_code=False,
+                # F1 fix from the E07_S03 critique: enforce safetensors
+                # to close the pickle-RCE vector. Threat 6 in
+                # 08-security-observability-ops.md mandates "Use
+                # safetensors format only; refuse .bin / pickle weights."
+                # If a future SHA upgrade ships only .bin, this
+                # raises loudly — the correct security failure mode.
+                use_safetensors=True,
             )
         except Exception as exc:  # noqa: BLE001
             raise RerankerUnavailableError(
                 f"BGE-reranker-v2-m3 failed to load (revision="
                 f"{BGE_RERANKER_COMMIT_SHA}): {exc}. ENABLE_RERANK=true "
                 f"requires the model to be available; either set "
-                f"ENABLE_RERANK=false (default) or fix the load."
+                f"ENABLE_RERANK=false (default) or fix the load. "
+                f"Note: use_safetensors=True is enforced (Threat 6); "
+                f"a .bin-only model upgrade will fail this load."
             ) from exc
         model.eval()
-        return (model, tokenizer)
+        # F9 fix from the E07_S03 critique: return as a NamedTuple
+        # so destructuring is explicit and a future 3-element
+        # addition fails with a clear error.
+        return RerankerHandle(model=model, tokenizer=tokenizer)
 
     loop = asyncio.get_running_loop()
     handle = await loop.run_in_executor(None, _load)
