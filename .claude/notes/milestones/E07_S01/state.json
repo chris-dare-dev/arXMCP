@@ -1,0 +1,45 @@
+{
+  "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/worktrees/gallant-blackburn-b89422/.claude/roadmap",
+  "created_at": "2026-05-09T18:05:05Z",
+  "critics_run": [],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "low": 0,
+    "medium": 0
+  },
+  "critique_path": null,
+  "deferred_findings": [],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_required": [],
+  "fixed_findings": [],
+  "id": "E07_S01",
+  "implementation_base": "88229522bd503a623f46c34f79c11cd6e1b488fa",
+  "implementation_branch": null,
+  "implementation_commit_range": null,
+  "implementation_commits": [],
+  "implementation_path": null,
+  "implementation_specialist": "inline",
+  "invalidated_findings": [],
+  "milestone_brief": "### E07_S01 \u2014 Phase 1: BM25 over body_tokens\n\n**Status:** NEW\n**Tier:** 1\n**Effort:** M\n**Dependencies:** E04_S04\n\n**Description.** Implement the broad, cheap first phase of hybrid retrieval: BM25 full-text search over the `body_tokens` column in the LanceDB `chunks` table. This column is populated by Sonnet A's E02_S03 (pre-tokenization) and indexed by E04_S04 with `rank_bm25` plus a standard English analyzer (the new design explicitly rejects the fictional Tantivy \"LaTeX analyzer\" \u2014 closes critique H4). The pre-tokenizer preserves LaTeX command tokens like `\\Spec`, `\\mathrm{Pic}`, `\\mathcal{F}` as identifier-like tokens (`Spec`, `mathrm_Pic`, `mathcal_F`) before BM25 indexing. Phase 1 returns the top-200 candidates as `(chunk_id, bm25_score)` tuples, sorted descending by score.\n\nThe BM25 query is constructed from the raw query string without lowercasing or punctuation stripping \u2014 `\\'etale` and `\u00e9tale` produce different lexical matches and must not be conflated at this stage. This mirrors the two-key normalization rule in the retrieval cache: the lookup key may normalize aggressively, but the actual query passed to BM25 must be byte-faithful (`.claude/notes/07-multi-agent-caching.md` lines 141\u2013145).\n\nPhase 1 also applies any scalar pre-filters from the `filters` argument before the BM25 scan: `categories`, `year_min`, `year_max`, `authors`, `include_withdrawn`. LanceDB supports combined scalar + FTS predicates; use them to avoid a post-hoc filter that discards candidates after BM25 has already ranked them. The top-200 candidate list is the input to Phase 2 and must be materialized as a Python list (not a lazy iterator) before being handed off.\n\nThe `BM25Phase` class is instantiated once at server startup (from `server/resources.py`) and is thread-safe for concurrent reads. It accepts the pinned LanceDB dataset version resolved at startup (via `dataset.checkout(version=N)` per E04_S02) and must not re-read `corpus-version.json` on every query.\n\n**Deliverables.**\n- `server/retrieval/bm25.py` \u2014 `BM25Phase` class: `query(text, filters, top_n=200) -> list[tuple[str, float]]`\n- `tests/retrieval/test_bm25.py` \u2014 unit test: at least 5 known-good queries against the seed corpus, assert top result is the expected chunk; assert filters narrow results correctly\n\n**Acceptance criteria.**\n- [ ] `BM25Phase.query(\"\u00e9tale cohomology\")` returns a non-empty list within 500ms against the seed corpus\n- [ ] `BM25Phase.query(\"\\\\Spec\", filters={\"categories\": [\"math.AG\"]})` returns only math.AG chunks\n- [ ] Returned list length is \u2264 200\n- [ ] `chunk_id` values in the returned list are valid (present in the LanceDB table)\n- [ ] `pytest tests/retrieval/test_bm25.py` passes\n\n**Out of scope.** Dense ANN (Phase 2). Reranking (Phase 3). Query normalization beyond byte-faithful passthrough.\n\n**Risk notes.**\n- LaTeX-aware tokenization is Sonnet A's E04_S04 deliverable; if that index is absent, Phase 1 falls back to the prose `body_canonical` BM25 index and logs a warning.\n\n**Labels.** `area:retrieval`, `kind:feature`, `tier:1`\n\n---",
+  "phase": "implement-running",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-09T18:05:05Z",
+      "left_at": null,
+      "phase": "init"
+    }
+  ],
+  "rectification_commit": null,
+  "regression_tests_added": [],
+  "research_brief_paths": [
+    ".claude/notes/milestones/E07_S01/research-brief-1.md",
+    ".claude/notes/milestones/E07_S01/research-brief-2.md"
+  ],
+  "research_briefs": [],
+  "research_mode": "parallel",
+  "research_synthesis": null,
+  "research_synthesis_path": ".claude/notes/milestones/E07_S01/research-synthesis.md",
+  "updated_at": "2026-05-09T18:10:45Z"
+}

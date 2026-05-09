@@ -226,6 +226,8 @@ class Resources:
     rerank_semaphore: asyncio.Semaphore
     rerank_singleflight: Singleflight
     reranker_model: Any | None = None  # populated when enable_rerank=True
+    # server.retrieval.BM25Phase; duck-typed to keep this import light.
+    bm25_phase: Any | None = None
     process_start_time_seconds: float = field(default_factory=time.time)
     warm: bool = False
 
@@ -307,6 +309,25 @@ class Resources:
             reranker_model = await _load_reranker_or_raise()
             logger.info("Resources.startup: BGE-reranker-v2-m3 warm")
 
+        # 4b. BM25 Phase 1 (E07_S01). Loads the per-corpus-version
+        # ``bm25.pkl`` artifact built by ``ingest.bm25_indexer``;
+        # auto-builds if missing (closes E04_S04 H1). The startup
+        # path file-safety-checks the pickle before loading
+        # (closes E04_S04 TODO(E07)). Failure raises
+        # :class:`server.retrieval.BM25IndexUnavailableError` which
+        # is a ``ResourceStartupError`` subclass — server refuses to
+        # open ``/readyz``.
+        from server.retrieval import BM25Phase
+
+        bm25_phase = await BM25Phase.startup(
+            lancedb_path=config.lancedb_path,
+            corpus_version=corpus_info.version,
+        )
+        logger.info(
+            "Resources.startup: BM25Phase warm (corpus_size=%d)",
+            bm25_phase.corpus_size,
+        )
+
         # 5. Concurrency primitives.
         embed_semaphore = asyncio.Semaphore(config.max_concurrent_embeddings)
         rerank_semaphore = asyncio.Semaphore(config.max_concurrent_reranks)
@@ -320,6 +341,7 @@ class Resources:
             rerank_semaphore=rerank_semaphore,
             rerank_singleflight=rerank_singleflight,
             reranker_model=reranker_model,
+            bm25_phase=bm25_phase,
             warm=True,
         )
         logger.info("Resources.startup: warm")
