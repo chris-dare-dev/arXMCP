@@ -13,6 +13,41 @@ from __future__ import annotations
 
 import pytest
 
+# ---------------------------------------------------------------------------
+# Custom pytest options (E05_S02)
+# ---------------------------------------------------------------------------
+
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    """Register the ``--ndcg-min`` flag for the retrieval-quality test.
+
+    The eval harness (``tests/eval/test_retrieval_quality.py``) uses
+    this threshold to gate the Tier-0 → Tier-1 transition. Default is
+    ``0.70`` (the Tier-0 ANN-only target). E07_S04 raises this to
+    ``0.80`` for the hybrid + reranker pipeline (Tier-1 → Tier-2).
+
+    Surfaced as a fixture (``ndcg_min`` below) so tests read the
+    threshold via dependency injection rather than reaching into
+    ``request.config.getoption`` ad-hoc.
+    """
+    parser.addoption(
+        "--ndcg-min",
+        action="store",
+        default=0.70,
+        type=float,
+        help=(
+            "minimum acceptable nDCG@5 mean for the retrieval-quality "
+            "test. Default 0.70 (Tier-0 ANN-only); E07 raises to 0.80 "
+            "for hybrid + reranker."
+        ),
+    )
+
+
+@pytest.fixture
+def ndcg_min(request: pytest.FixtureRequest) -> float:
+    """Return the configured ``--ndcg-min`` threshold."""
+    return float(request.config.getoption("--ndcg-min"))
+
 
 @pytest.fixture(autouse=True)
 def _patched_store_stats_path(tmp_path, monkeypatch):
