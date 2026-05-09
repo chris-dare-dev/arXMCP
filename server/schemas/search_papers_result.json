@@ -1,0 +1,77 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "description": "Canonical structuredContent shape returned by the search_papers MCP tool. Frozen by E06_S04. The byte-stability test in E06_S06 hashes this file's bytes and pins the SHA-256; any drift is a deliberate bump.",
+  "properties": {
+    "corpus_version": {
+      "description": "The integer corpus_version pinned at server startup (per E04_S03's corpus-version.json marker). Echoed in every tool result envelope so the agent can correlate cached results.",
+      "type": "integer"
+    },
+    "embed_model": {
+      "description": "Identifier of the embedding model used at retrieval time. v1: 'bge-m3'. Pinned constant — bumps invalidate downstream caches.",
+      "type": "string"
+    },
+    "excluded_kinds": {
+      "description": "Chunk kinds NOT included in the result set. v1: ['proof'] — the dual-encoding schema puts proof bodies in embedding_proof which is not yet retrievable until E07's dual-column RRF lands. Programmatic detector for the v1 limitation.",
+      "items": {"type": "string"},
+      "type": "array"
+    },
+    "filter_warnings": {
+      "description": "Human-readable warnings about filter / cursor args that were accepted but not yet processed. v1 ignores the filters and cursor args (deferred to E07_S04); when set, this array carries one string per ignored arg.",
+      "items": {"type": "string"},
+      "type": "array"
+    },
+    "next_cursor": {
+      "description": "Opaque pagination cursor for the next page of results. v1: always null (pagination deferred to E07_S04).",
+      "type": ["string", "null"]
+    },
+    "results": {
+      "description": "Per-chunk result rows, sorted (score_desc, chunk_id_asc). Each row is the canonical search-result object frozen by this milestone.",
+      "items": {
+        "additionalProperties": false,
+        "description": "One search result. NOT a chunk — agents call get_chunk(chunk_id) to fetch the full body. The snippet is a byte-for-byte slice of body_text (max 150 chars), no LLM rewriting.",
+        "properties": {
+          "chunk_id": {
+            "description": "Content-addressable chunk_id (arxiv:<paper_id>:<16-hex>). Stable across re-chunks of the same source bytes.",
+            "pattern": "^arxiv:(\\d{4}\\.\\d{4,5}(v\\d+)?|[a-z][a-z\\-]*/\\d{7}(v\\d+)?):[0-9a-f]{16}$",
+            "type": "string"
+          },
+          "label": {
+            "description": "Human-readable theorem label (e.g. 'Theorem 3.4'). Built from theorem_name + theorem_label. Empty string when neither is populated.",
+            "type": "string"
+          },
+          "paper_id": {
+            "description": "arXiv paper id without 'arxiv:' prefix. May or may not carry a version suffix (vN) depending on what the chunker indexed.",
+            "type": "string"
+          },
+          "score": {
+            "description": "Cosine similarity in [0.0, 1.0] (computed as 1 - L2_distance / 2 over L2-normalized BGE-M3 vectors). Higher is more similar.",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "type": "number"
+          },
+          "section_path": {
+            "description": "Section breadcrumb from the chunk's source paper (e.g. ['Section 3', 'Subsection 3.1']). Empty list when the chunk has no section context.",
+            "items": {"type": "string"},
+            "type": "array"
+          },
+          "snippet": {
+            "description": "First 150 characters of the chunk's canonical body text (column body_text in the LanceDB chunks table; conceptually body_canonical per design note 04). NO LLM rewriting, NO ellipsis. Agents that need the full body call get_chunk(chunk_id).",
+            "maxLength": 150,
+            "type": "string"
+          }
+        },
+        "required": ["chunk_id", "label", "paper_id", "score", "section_path", "snippet"],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "retrieval_mode": {
+      "description": "Active retrieval mode. v1: 'dense_only' (BGE-M3 ANN over embedding_stmt). E07 will add 'hybrid_rrf' when BM25 + RRF lands; later 'hybrid_rrf_reranked' once the BGE-reranker is wired.",
+      "type": "string"
+    }
+  },
+  "required": ["corpus_version", "embed_model", "excluded_kinds", "filter_warnings", "next_cursor", "results", "retrieval_mode"],
+  "title": "search_papers result envelope",
+  "type": "object"
+}

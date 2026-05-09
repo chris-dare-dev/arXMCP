@@ -13,19 +13,50 @@ Aggregation per ``level``:
   chunk per paper.
 
 Sort: ``(score_desc, chunk_id_asc)`` per the determinism contract.
-``snippet`` is ≤150 chars taken from the start of ``body_text``
-(synthesis D2 of E06_S04 will lock the truncation rule but the
-shape is stable here).
+
+**Snippet contract (E06_S04).** ``snippet`` is the first
+:data:`SNIPPET_MAX_CHARS` (=150) characters of the chunk's
+canonical body text (column ``body_text`` in the LanceDB chunks
+table; conceptually ``body_canonical`` per design note 04). NO
+LLM rewriting, NO ellipsis beyond the character cap. The
+``summary`` field documented in earlier notes drafts is
+permanently dropped (would duplicate snippet, requires Haiku call
+that breaks BP1 byte-stability when prompt versions change).
+
+**`resource_link` content blocks (E06_S04).** Per the MCP 2025-06-18
+spec's ``CallToolResult.content`` array semantics, this handler
+returns BOTH a ``structuredContent`` (machine-readable, the dict
+envelope) AND a ``content`` array carrying:
+
+1. ``content[0]``: ``TextContent`` with the JSON-pretty-print of
+   structuredContent — preserves the wire-overhead-factor=2
+   measurement that ``enforce_byte_cap`` depends on, AND keeps the
+   FastMCP default surface for clients that read ``content[0].text``.
+2. ``content[1..N]``: one ``ResourceLink`` block per result row,
+   in the same ``(score_desc, chunk_id_asc)`` order, with
+   ``uri = "arxmcp://chunks/<chunk_id>"``. The MCP spec permits
+   resource_link blocks in tool results; spec-compliant clients
+   may follow the link to fetch the chunk.
+
+The resource_link blocks are advisory — the agent runtime (E08)
+does NOT rely on the client following them. Agents that ignore
+them call :func:`server.handlers.chunk.handle_get_chunk` to
+materialize a full body. Citations API integration is explicitly
+NOT a dependency (Citations API validates document blocks in the
+messages array, not MCP tool results — see
+``docs/snippet-contract.md``).
 """
 
 from __future__ import annotations
 
+import json
 from typing import Annotated, Any, Literal
 
-from pydantic import Field
+from mcp.types import CallToolResult, ResourceLink, TextContent
+from pydantic import AnyUrl, Field
 
 from server.query_encoder import encode_query
-from server.tools import envelope, get_resources
+from server.tools import CHUNK_RESOURCE_URI_SCHEME, envelope, get_resources
 
 #: Hard upper bound on per-tool ``k``. Mirrors the design note's
 #: per-tool argument validation rule (k in [1, 50]).
@@ -102,7 +133,7 @@ async def handle_search_papers(
             "cursor arg is accepted but pagination is deferred to E07_S04"
         )
 
-    return envelope(
+    structured = envelope(
         {
             "embed_model": "bge-m3",
             # F5: explicit warning about proof-chunk exclusion at v1.
@@ -113,6 +144,46 @@ async def handle_search_papers(
             "retrieval_mode": "dense_only",
         }
     )
+    # E06_S04: assemble the wire ``content`` array — pretty-printed
+    # JSON of structuredContent (the FastMCP default surface) +
+    # one ResourceLink per result row.
+    content = _build_content_blocks(structured, rows)
+    return CallToolResult(content=content, structuredContent=structured)
+
+
+def _build_content_blocks(
+    structured: dict[str, Any], rows: list[dict[str, Any]]
+) -> list[Any]:
+    """Build the ``content`` array per the E06_S04 contract.
+
+    Block 0 is a TextContent carrying ``json.dumps(structured,
+    indent=2, sort_keys=True)`` — same shape FastMCP's default
+    dict-handler emits, so the wire-overhead-factor=2 measurement
+    in ``enforce_byte_cap`` stays correct AND clients that only
+    read ``content[0].text`` see the full payload.
+
+    Blocks 1..N are ResourceLink blocks in the same order as
+    ``rows`` (which is already sorted ``(score_desc,
+    chunk_id_asc)``). Each link's URI is
+    ``arxmcp://chunks/<chunk_id>`` per the design note's resource
+    URI scheme.
+    """
+    blocks: list[Any] = [
+        TextContent(
+            type="text",
+            text=json.dumps(structured, indent=2, sort_keys=True, ensure_ascii=False),
+        )
+    ]
+    for row in rows:
+        cid = row["chunk_id"]
+        blocks.append(
+            ResourceLink(
+                type="resource_link",
+                uri=AnyUrl(f"{CHUNK_RESOURCE_URI_SCHEME}{cid}"),
+                name=cid,
+            )
+        )
+    return blocks
 
 
 # ---------------------------------------------------------------------------
