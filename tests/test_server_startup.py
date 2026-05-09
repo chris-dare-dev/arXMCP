@@ -467,13 +467,29 @@ class TestStartupRefusals:
             asyncio.run(Resources.startup(cfg))
 
     def test_enable_rerank_without_model_raises(
-        self, seeded_lancedb, mocked_bge_m3
+        self, seeded_lancedb, mocked_bge_m3, monkeypatch
     ):
         """Synthesis D6: server REFUSES TO START when
         ARXMCP_ENABLE_RERANK=true but the reranker model is
-        unavailable. Today (pre-E07) the reranker is ALWAYS
-        unavailable, so any startup with enable_rerank=True fails by
-        design — that's the correct signal."""
+        unavailable.
+
+        E07_S03 ships the real reranker loader (replacing the
+        E06_S01 stub that always raised). To preserve the original
+        test intent (load failure → fatal), we patch
+        ``server.resources._load_reranker_or_raise`` itself to
+        raise — same outcome as the pre-E07_S03 stub:
+        ``RerankerUnavailableError`` propagates out of
+        ``Resources.startup`` and the server refuses to open
+        ``/readyz``."""
+        import server.resources as res_mod
+
+        async def _force_raise():
+            raise RerankerUnavailableError(
+                "simulated reranker load failure (test fixture)"
+            )
+
+        monkeypatch.setattr(res_mod, "_load_reranker_or_raise", _force_raise)
+
         cfg = Config(
             lancedb_path=seeded_lancedb,
             enable_rerank=True,

@@ -105,6 +105,19 @@ class Config(BaseSettings):
     #: the embedder + LanceDB are warm.
     enable_rerank: bool = False
 
+    #: Pinned commit SHA for the BGE-reranker-v2-m3 model (E07_S03).
+    #: The actual loader at :func:`server.resources._load_reranker_or_raise`
+    #: passes ``revision=server.retrieval.rerank.BGE_RERANKER_COMMIT_SHA``
+    #: (the module constant, NOT this Config value) to
+    #: ``transformers.AutoModelForSequenceClassification.from_pretrained``
+    #: — the constant is the canonical pin so an env-var override
+    #: cannot silently swap models. This Config field is for the
+    #: startup drift check + the audit trail. Default mirrors the
+    #: constant; an operator who deliberately wants to test a
+    #: different ref can override via env var, and the SHA-drift
+    #: warning will then fire.
+    rerank_model_sha: str = "953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e"
+
     # --- Concurrency -----------------------------------------------------
 
     #: Throughput cap on DISTINCT-query embedding calls per

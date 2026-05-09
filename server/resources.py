@@ -232,6 +232,11 @@ class Resources:
     # retrieval over embedding_stmt + embedding_proof columns plus RRF
     # fusion with the BM25 candidates from ``bm25_phase``.
     ann_phase: Any | None = None
+    # server.retrieval.RerankPhase; duck-typed (E07_S03). Phase-3
+    # cross-encoder reranker over the ANNPhase top-50 candidates,
+    # gated by ARXMCP_ENABLE_RERANK (default off). On-path uses the
+    # rerank_singleflight + rerank_semaphore for two-tier concurrency.
+    rerank_phase: Any | None = None
     process_start_time_seconds: float = field(default_factory=time.time)
     warm: bool = False
 
@@ -357,6 +362,26 @@ class Resources:
         rerank_semaphore = asyncio.Semaphore(config.max_concurrent_reranks)
         rerank_singleflight = Singleflight()
 
+        # 5b. Phase-3 RerankPhase (E07_S03). Gated by
+        # ARXMCP_ENABLE_RERANK (default off). On the off-path the
+        # phase is constructed with model_handle=None and rerank()
+        # is a passthrough — no model load required for v1
+        # (Tier-0/1 deployments). On the on-path the model_handle
+        # carries the (model, tokenizer) pair from step 4.
+        from server.retrieval.rerank import RerankPhase
+
+        rerank_phase = RerankPhase(
+            chunks_table=chunks_table,
+            rerank_singleflight=rerank_singleflight,
+            rerank_semaphore=rerank_semaphore,
+            enabled=config.enable_rerank,
+            model_handle=reranker_model,
+        )
+        logger.info(
+            "Resources.startup: RerankPhase ready (enabled=%s)",
+            config.enable_rerank,
+        )
+
         instance = cls(
             config=config,
             corpus_info=corpus_info,
@@ -367,6 +392,7 @@ class Resources:
             reranker_model=reranker_model,
             bm25_phase=bm25_phase,
             ann_phase=ann_phase,
+            rerank_phase=rerank_phase,
             warm=True,
         )
         logger.info("Resources.startup: warm")
@@ -423,23 +449,63 @@ class Resources:
 
 
 async def _load_reranker_or_raise() -> Any:
-    """Load the BGE-reranker-v2-m3 model; raise on failure.
+    """Load the BGE-reranker-v2-m3 model + tokenizer; raise on failure.
 
     Synthesis D6: when ``enable_rerank=True``, model load failure is
-    FATAL. The reranker integration itself lands in E07; this
-    function is a placeholder that fails consistently until E07
-    ships the actual loader.
+    FATAL. Returns ``(model, tokenizer)`` — both objects opaque to
+    this module; consumed by :class:`server.retrieval.rerank.RerankPhase`.
 
-    The actual reranker integration in E07 will replace this
-    function's body with the real model load (transformers +
-    sentence-transformers, similar to ``ingest.embedder``).
+    Off-loaded to the default executor since
+    :meth:`AutoModelForSequenceClassification.from_pretrained` is
+    sync I/O (downloads + reads safetensors). Mirrors the discipline
+    in ``Resources.startup`` for the LanceDB handle and BGE-M3
+    embedder loads.
+
+    Threat 6 (``08-security-observability-ops.md``): pass
+    ``trust_remote_code=False`` so a tampered ``modeling_*.py`` in
+    the cache cannot achieve RCE, and ``revision=BGE_RERANKER_COMMIT_SHA``
+    so transformers fetches the pinned ref (rather than HEAD).
     """
-    raise RerankerUnavailableError(
-        "BGE-reranker-v2-m3 is not yet integrated (E07 will ship it). "
-        "Set ARXMCP_ENABLE_RERANK=false until E07 lands. The brief's "
-        "fail-fast contract (synthesis D6) makes this an explicit "
-        "FATAL rather than a silent fallback to a disabled reranker."
+    from server.retrieval.rerank import (
+        BGE_RERANKER_COMMIT_SHA,
+        RERANKER_MODEL_ID,
+        maybe_log_sha_drift,
     )
+
+    def _load() -> Any:
+        from transformers import (  # noqa: PLC0415
+            AutoModelForSequenceClassification,
+            AutoTokenizer,
+        )
+
+        try:
+            tokenizer = AutoTokenizer.from_pretrained(
+                RERANKER_MODEL_ID,
+                revision=BGE_RERANKER_COMMIT_SHA,
+                trust_remote_code=False,
+            )
+            model = AutoModelForSequenceClassification.from_pretrained(
+                RERANKER_MODEL_ID,
+                revision=BGE_RERANKER_COMMIT_SHA,
+                trust_remote_code=False,
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise RerankerUnavailableError(
+                f"BGE-reranker-v2-m3 failed to load (revision="
+                f"{BGE_RERANKER_COMMIT_SHA}): {exc}. ENABLE_RERANK=true "
+                f"requires the model to be available; either set "
+                f"ENABLE_RERANK=false (default) or fix the load."
+            ) from exc
+        model.eval()
+        return (model, tokenizer)
+
+    loop = asyncio.get_running_loop()
+    handle = await loop.run_in_executor(None, _load)
+    # Brief: SHA drift is a WARNING, not FATAL. Logged after the
+    # successful load (the load itself enforces ``revision=`` by
+    # fetching from the Hub if the local cache mismatches).
+    maybe_log_sha_drift(BGE_RERANKER_COMMIT_SHA)
+    return handle
 
 
 __all__ = [
