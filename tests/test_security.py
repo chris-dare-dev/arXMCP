@@ -50,9 +50,12 @@ from server.config import Config
 from server.health import reset_metrics_for_tests
 from server.main import create_app
 from server.middleware import (
+    LOOPBACK_HOST_HEADER_HOSTS,
     LOOPBACK_ORIGIN_HOSTS,
+    MAX_ECHOED_ORIGIN_LEN,
     REQUEST_BODY_MAX_BYTES,
     _origin_is_allowed,
+    _validate_host_header,
 )
 
 # ===========================================================================
@@ -384,26 +387,129 @@ class TestRequestBodyLimit:
             assert body["error"] == "payload_too_large"
             assert body["max_bytes"] == REQUEST_BODY_MAX_BYTES
 
-    def test_oversize_body_rejected_when_no_content_length(
+    def test_oversize_body_when_handler_does_not_read_rejected_413(
         self, _seeded_lancedb, _mocked_bge
     ):
-        """A POST with chunked body (no Content-Length) that exceeds
-        the cap is rejected with 413 once the cap is breached."""
+        """F1 regression: a POST whose body exceeds the cap is rejected
+        EVEN IF the handler does not call ``await req.body()``. The
+        original implementation only counted bytes when the handler
+        read the body — handlers that ignored the body bypassed the
+        cap silently. The eager pre-read fix forces the middleware to
+        drain the body before invoking the handler.
+
+        Reproducer: a route that returns 200 without reading the body,
+        called with a 1.6 MB payload. Pre-fix: returned 200. Post-fix:
+        returns 413."""
         cfg = Config(lancedb_path=_seeded_lancedb)
         app = create_app(cfg)
 
-        @app.post("/__test_body_sink")
-        async def sink(payload: bytes):  # noqa: ARG001
-            return {"received": len(payload)}
+        @app.post("/__test_body_ignored")
+        async def ignored() -> dict:
+            # Deliberately does NOT read the body.
+            return {"ok": True}
 
         with TestClient(app) as client:
-            # TestClient sets Content-Length automatically; force
-            # large body that triggers Path 1 (over-cap C-L).
             r = client.post(
-                "/__test_body_sink",
+                "/__test_body_ignored",
                 content=b"x" * (REQUEST_BODY_MAX_BYTES + 100),
             )
-            assert r.status_code == 413
+            assert r.status_code == 413, (
+                f"F1 regression — handler that ignores body must still "
+                f"trip the cap. Got status={r.status_code} body={r.text[:200]}"
+            )
+
+    def test_oversize_chunked_body_rejected_413(
+        self, _seeded_lancedb, _mocked_bge
+    ):
+        """F2 regression: a POST with chunked transfer encoding (no
+        Content-Length) that exceeds the cap is rejected. The ORIGINAL
+        test of this name silently re-tested Path 1 because TestClient
+        sets Content-Length when the body is bytes; this version uses
+        a generator body to force chunked encoding."""
+        cfg = Config(lancedb_path=_seeded_lancedb)
+        app = create_app(cfg)
+
+        @app.post("/__test_body_sink_chunked")
+        async def sink() -> dict:
+            return {"ok": True}
+
+        def gen():
+            # Yield ~64KB chunks until past the cap. httpx + TestClient
+            # use Transfer-Encoding: chunked when the body is an
+            # iterable.
+            chunk = b"x" * 65536
+            n = 0
+            while n < REQUEST_BODY_MAX_BYTES + 65536:
+                yield chunk
+                n += len(chunk)
+
+        with TestClient(app) as client:
+            r = client.post(
+                "/__test_body_sink_chunked",
+                content=gen(),
+            )
+            assert r.status_code == 413, (
+                f"F2 regression — chunked body over cap must trip 413. "
+                f"Got status={r.status_code} body={r.text[:200]}"
+            )
+
+    def test_under_cap_body_passes(self, _seeded_lancedb, _mocked_bge):
+        """Sanity: an under-cap POST is forwarded to the handler and
+        the handler sees the full body. Guards against an over-eager
+        pre-read that loses bytes."""
+        cfg = Config(lancedb_path=_seeded_lancedb)
+        app = create_app(cfg)
+
+        @app.post("/__test_under_cap")
+        async def echo(payload: dict) -> dict:
+            return {"received": len(payload.get("data", ""))}
+
+        with TestClient(app) as client:
+            body_str = "x" * 1000
+            r = client.post(
+                "/__test_under_cap", json={"data": body_str}
+            )
+            assert r.status_code == 200, f"got {r.status_code}: {r.text}"
+            assert r.json() == {"received": 1000}
+
+    def test_malformed_content_length_rejected_400(
+        self, _seeded_lancedb, _mocked_bge
+    ):
+        """F10 regression: a malformed (non-integer) Content-Length
+        is a smuggling signal, not a benign typo. Reject with 400
+        rather than silently treating as 'no length'."""
+        cfg = Config(lancedb_path=_seeded_lancedb)
+        app = create_app(cfg)
+        with TestClient(app) as client:
+            r = client.post(
+                "/healthz",
+                content=b"hi",
+                headers={
+                    "Content-Length": "not-an-integer",
+                    "Content-Type": "application/octet-stream",
+                },
+            )
+            assert r.status_code == 400
+            assert r.json()["error"] == "malformed_content_length"
+
+    def test_negative_content_length_rejected_400(
+        self, _seeded_lancedb, _mocked_bge
+    ):
+        """F10 regression: a negative Content-Length is also a
+        smuggling signal."""
+        cfg = Config(lancedb_path=_seeded_lancedb)
+        app = create_app(cfg)
+        with TestClient(app) as client:
+            r = client.post(
+                "/healthz",
+                content=b"hi",
+                headers={
+                    "Content-Length": "-100",
+                    "Content-Type": "application/octet-stream",
+                },
+            )
+            assert r.status_code == 400
+            assert r.json()["error"] == "malformed_content_length"
 
 
 # ===========================================================================
@@ -491,6 +597,400 @@ class TestSessionId:
         assert len(sids) >= 2
         assert sids[0] != sids[1], (
             "two distinct sessions returned the same id — RNG broken?"
+        )
+
+
+# ===========================================================================
+# F3 regression — Host header validation
+# ===========================================================================
+
+
+class TestHostValidation:
+    """F3: Threat 5 (DNS rebinding) requires Host header validation
+    in addition to Origin validation. The middleware extends the
+    same protection across all routes (FastMCP only protects /mcp).
+    """
+
+    def test_evil_host_rejected_421(self, warm_app):
+        """An attacker-controlled domain in the Host header is the
+        DNS-rebinding payload. Reject with 421 (matches FastMCP's
+        signal)."""
+        r = warm_app.get("/healthz", headers={"Host": "attacker.example.com"})
+        assert r.status_code == 421
+        body = r.json()
+        assert body["error"] == "host_forbidden"
+
+    def test_127_host_passes(self, warm_app):
+        r = warm_app.get("/healthz", headers={"Host": "127.0.0.1:7733"})
+        assert r.status_code == 200
+
+    def test_localhost_host_passes(self, warm_app):
+        r = warm_app.get("/healthz", headers={"Host": "localhost:7733"})
+        assert r.status_code == 200
+
+    def test_ipv6_loopback_host_passes(self, warm_app):
+        r = warm_app.get("/healthz", headers={"Host": "[::1]:7733"})
+        assert r.status_code == 200
+
+    def test_testserver_host_passes(self, warm_app):
+        """Test ergonomics: TestClient sends Host: testserver. We
+        accept it (testserver is not a DNS-resolvable hostname so
+        it cannot be the target of DNS rebinding)."""
+        r = warm_app.get("/healthz", headers={"Host": "testserver"})
+        assert r.status_code == 200
+
+
+class TestHostHeaderHelper:
+    """Unit tests for ``_validate_host_header``."""
+
+    @pytest.mark.parametrize("host", [
+        "127.0.0.1",
+        "127.0.0.1:7733",
+        "localhost",
+        "localhost:8080",
+        "[::1]",
+        "[::1]:7733",
+        "testserver",  # TestClient default
+        "TestServer",  # case-insensitive
+    ])
+    def test_loopback_hosts_accepted(self, host):
+        assert _validate_host_header(host, allowed_port=None) is True
+
+    @pytest.mark.parametrize("host", [
+        "evil.com",
+        "attacker.example.com",
+        "127.0.0.2",
+        "10.0.0.1",
+        "[::1].evil.com",  # malformed
+        "[::1",  # malformed - no closing bracket
+        "[::1]garbage",  # garbage after bracket
+    ])
+    def test_non_loopback_hosts_rejected(self, host):
+        assert _validate_host_header(host, allowed_port=None) is False
+
+    def test_port_match_enforced_when_specified(self):
+        assert _validate_host_header("127.0.0.1:7733", allowed_port=7733) is True
+        assert _validate_host_header("127.0.0.1:8080", allowed_port=7733) is False
+
+    def test_constant_includes_testserver(self):
+        """The Host allow-list MUST include testserver for TestClient
+        compatibility AND the loopback set."""
+        assert "testserver" in LOOPBACK_HOST_HEADER_HOSTS
+        assert "127.0.0.1" in LOOPBACK_HOST_HEADER_HOSTS
+        assert "localhost" in LOOPBACK_HOST_HEADER_HOSTS
+        assert "::1" in LOOPBACK_HOST_HEADER_HOSTS
+
+
+# ===========================================================================
+# F4 regression — pin upstream session-id generator identity
+# ===========================================================================
+
+
+class TestUpstreamSessionIdGenerator:
+    """F4: the loose ``≥32 hex chars`` test would not catch a
+    regression where upstream ``mcp`` swaps to a non-CSRNG generator
+    (uuid1, MD5(time), monotonic counter). Pin the upstream source
+    so a refactor that changes it fails THIS test rather than
+    silently shipping weaker session ids."""
+
+    def test_streamable_http_manager_uses_uuid4(self):
+        """If upstream changes the session-id generator, this test
+        fails loudly so we re-evaluate entropy guarantees."""
+        import inspect
+
+        import mcp.server.streamable_http_manager as mod
+
+        src = inspect.getsource(mod)
+        assert "uuid4()" in src, (
+            "upstream mcp lib appears to have changed its session-id "
+            "generator from uuid4(). Re-verify entropy guarantees and "
+            "the deviation note in the implementation summary before "
+            "updating this test. Source path: "
+            f"{inspect.getfile(mod)}"
+        )
+
+
+# ===========================================================================
+# F5 regression — log level default + DEBUG-no-body
+# ===========================================================================
+
+
+class TestLogLevelHardening:
+    """Brief item 4: ``ARXMCP_LOG_LEVEL`` defaults to INFO; DEBUG-
+    level logs must never emit chunk body content."""
+
+    def test_log_level_default_is_info(self):
+        """A future refactor that flips the default to DEBUG would
+        regress brief item 4 (paper bodies in logs)."""
+        cfg = Config()
+        assert cfg.log_level == "INFO", (
+            f"ARXMCP_LOG_LEVEL default must be INFO; got "
+            f"{cfg.log_level!r}. DEBUG-level logs may emit chunk body "
+            f"content; INFO is the safe default."
+        )
+
+    def test_debug_logs_do_not_emit_chunk_body_content(
+        self, _seeded_lancedb, _mocked_bge, caplog
+    ):
+        """End-to-end check: load the corpus, run a search at DEBUG
+        log level, assert no chunk body bytes appear in captured logs.
+
+        The seeded corpus has chunks with ``body_text='chunk body 1'``
+        and ``body_text='chunk body 2'``. We assert neither sentinel
+        appears in any DEBUG log record. A regression here would mean
+        a logger was inadvertently configured to dump body content."""
+        import logging
+
+        cfg = Config(lancedb_path=_seeded_lancedb)
+        app = create_app(cfg)
+        with caplog.at_level(logging.DEBUG), TestClient(app) as client:
+            r = client.get("/healthz")
+            assert r.status_code == 200
+            r = client.get("/readyz")
+            assert r.status_code == 200
+        # Sentinel strings the seed corpus put in body_text.
+        sentinels = ("chunk body 1", "chunk body 2")
+        for record in caplog.records:
+            msg = record.getMessage()
+            for sentinel in sentinels:
+                assert sentinel not in msg, (
+                    f"DEBUG log emitted chunk body content "
+                    f"({sentinel!r} in record from "
+                    f"{record.name}:{record.levelname}). "
+                    f"Brief item 4: DEBUG-level logs MUST never emit "
+                    f"chunk body content."
+                )
+
+
+# ===========================================================================
+# F6 regression — security event WARN logs on rejections
+# ===========================================================================
+
+
+class TestSecurityEventLogging:
+    """F6: every reject path must emit a WARN log so ops can alert."""
+
+    def test_origin_reject_emits_warn_log(self, warm_app, caplog):
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="server.middleware.security"):
+            r = warm_app.get("/healthz", headers={"Origin": "https://evil.com"})
+        assert r.status_code == 403
+        msgs = [
+            r.getMessage()
+            for r in caplog.records
+            if r.name == "server.middleware.security"
+        ]
+        assert any("origin rejected" in m for m in msgs), (
+            f"expected 'origin rejected' WARN log; got {msgs}"
+        )
+
+    def test_host_reject_emits_warn_log(self, warm_app, caplog):
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="server.middleware.security"):
+            r = warm_app.get("/healthz", headers={"Host": "attacker.example.com"})
+        assert r.status_code == 421
+        msgs = [
+            r.getMessage()
+            for r in caplog.records
+            if r.name == "server.middleware.security"
+        ]
+        assert any("host rejected" in m for m in msgs), (
+            f"expected 'host rejected' WARN log; got {msgs}"
+        )
+
+    def test_oversize_content_length_emits_warn_log(
+        self, _seeded_lancedb, _mocked_bge, caplog
+    ):
+        import logging
+
+        cfg = Config(lancedb_path=_seeded_lancedb)
+        app = create_app(cfg)
+        with (
+            caplog.at_level(
+                logging.WARNING, logger="server.middleware.security"
+            ),
+            TestClient(app) as client,
+        ):
+            r = client.post(
+                "/healthz",
+                content=b"x" * 100,
+                headers={
+                    "Content-Length": str(REQUEST_BODY_MAX_BYTES + 1),
+                    "Content-Type": "application/octet-stream",
+                },
+            )
+        assert r.status_code == 413
+        msgs = [
+            r.getMessage()
+            for r in caplog.records
+            if r.name == "server.middleware.security"
+        ]
+        assert any("content-length" in m for m in msgs), (
+            f"expected 'content-length' WARN log; got {msgs}"
+        )
+
+
+# ===========================================================================
+# F7 regression — middleware order pinned by test
+# ===========================================================================
+
+
+class TestMiddlewareOrder:
+    """F7: the implementation summary claims OriginValidation runs
+    BEFORE the request-body limit so an evil-origin POST is rejected
+    without buffering its body. Without a test, a future refactor
+    that flips ``add_middleware`` order silently inverts the property.
+    """
+
+    def test_evil_origin_with_oversize_body_returns_403_not_413(
+        self, warm_app
+    ):
+        """Send an evil-origin POST with a Content-Length declaring a
+        size over the cap. If Origin runs first (correct), we get 403.
+        If body limit runs first (regression), we get 413."""
+        r = warm_app.post(
+            "/healthz",
+            content=b"x" * 100,
+            headers={
+                "Origin": "https://evil.com",
+                "Content-Length": str(REQUEST_BODY_MAX_BYTES + 1),
+                "Content-Type": "application/octet-stream",
+            },
+        )
+        assert r.status_code == 403, (
+            f"middleware order regression — Origin must run before "
+            f"body limit. Got status={r.status_code} body={r.text[:200]}"
+        )
+
+
+# ===========================================================================
+# F8 regression — brief AC literal endpoint is /mcp
+# ===========================================================================
+
+
+class TestBriefAcLiteralEndpoint:
+    """F8: the brief AC literally specifies ``/mcp`` as the test
+    endpoint. Earlier tests probe ``/healthz`` because the middleware
+    is universal — but a regression that mistakenly scopes the
+    middleware to non-``/mcp`` paths would not be caught. Pin the
+    /mcp path."""
+
+    def test_evil_origin_on_mcp_returns_403(self, warm_app):
+        """Brief AC #1 — literal endpoint."""
+        r = warm_app.post(
+            "/mcp/",
+            json={"jsonrpc": "2.0", "id": 1, "method": "initialize"},
+            headers={
+                "Origin": "https://evil.com",
+                "Accept": "application/json, text/event-stream",
+                "Content-Type": "application/json",
+                "Host": "127.0.0.1:7733",
+            },
+        )
+        assert r.status_code == 403
+        assert r.json()["error"] == "origin_forbidden"
+
+    def test_no_origin_on_mcp_proceeds(self, warm_app):
+        """Brief AC #2 — literal endpoint. Must not get 403 for the
+        Origin reason."""
+        r = warm_app.post(
+            "/mcp/",
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "1.0"},
+                },
+            },
+            headers={
+                "Accept": "application/json, text/event-stream",
+                "Content-Type": "application/json",
+                "Host": "127.0.0.1:7733",
+            },
+        )
+        # Anything other than 403 means Origin validation didn't fire.
+        # The actual MCP-layer status (200/202) depends on session
+        # handshake, which is exercised in test_server_startup.py.
+        assert r.status_code != 403, (
+            f"no-Origin request to /mcp must not be 403; got "
+            f"status={r.status_code} body={r.text[:200]}"
+        )
+
+
+# ===========================================================================
+# F9 regression — userinfo on Origin → reject
+# ===========================================================================
+
+
+class TestOriginUserinfoRejected:
+    """F9: a non-empty userinfo on an Origin header
+    (``http://localhost@evil.com``) is anomalous and should be
+    rejected even if the resolved host happens to be loopback."""
+
+    def test_userinfo_in_origin_with_loopback_host_rejected(self, warm_app):
+        # urlparse('http://localhost@127.0.0.1').hostname == '127.0.0.1'
+        # but the userinfo 'localhost' is anomalous → reject.
+        r = warm_app.get(
+            "/healthz",
+            headers={"Origin": "http://localhost@127.0.0.1"},
+        )
+        assert r.status_code == 403
+
+    def test_userinfo_with_password_rejected(self, warm_app):
+        r = warm_app.get(
+            "/healthz",
+            headers={"Origin": "http://user:pass@127.0.0.1"},
+        )
+        assert r.status_code == 403
+
+
+# ===========================================================================
+# F12 regression — case insensitivity pinned
+# ===========================================================================
+
+
+class TestOriginCaseInsensitive:
+    """F12: ``urlparse`` lowercases scheme + hostname; pin the
+    behavior with a parametrized test so a future swap to a manual
+    parser cannot regress the case-insensitive guarantee."""
+
+    @pytest.mark.parametrize("origin", [
+        "HTTP://localhost",
+        "http://LOCALHOST",
+        "HTTP://127.0.0.1",
+        "http://[::1]",
+    ])
+    def test_uppercase_variants_accepted(self, origin):
+        assert _origin_is_allowed(origin) is True
+
+
+# ===========================================================================
+# F13 regression — origin truncation in error response
+# ===========================================================================
+
+
+class TestOriginTruncatedInResponse:
+    """F13: attacker-supplied origins are truncated in the 403 body
+    to prevent amplification-style probes."""
+
+    def test_long_origin_truncated_in_response_body(self, warm_app):
+        # Construct an origin > 256 chars. urlparse handles long
+        # paths fine; we want a long total origin string.
+        long_path = "/a" * 200  # 400 chars
+        long_origin = f"https://evil.com{long_path}"
+        assert len(long_origin) > MAX_ECHOED_ORIGIN_LEN
+        r = warm_app.get("/healthz", headers={"Origin": long_origin})
+        assert r.status_code == 403
+        body = r.json()
+        # The echoed origin is at most MAX_ECHOED_ORIGIN_LEN chars.
+        assert len(body["origin"]) <= MAX_ECHOED_ORIGIN_LEN, (
+            f"echoed origin not truncated: len={len(body['origin'])}, "
+            f"cap={MAX_ECHOED_ORIGIN_LEN}"
         )
 
 

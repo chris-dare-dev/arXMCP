@@ -38,13 +38,21 @@ evil-origin POST is rejected without buffering its body.
 
 **Defense-in-depth note.** The ``mcp`` library's
 :class:`TransportSecurityMiddleware` (at
-``mcp/server/transport_security.py``) already rejects bad-Origin /
-bad-Host requests on ``/mcp`` with 403 / 421 respectively. Our
-:class:`OriginValidationMiddleware` does NOT replace that; it adds
-the same rejection across the WHOLE FastAPI app (so ``/metrics``
-and the health endpoints behind a malicious origin are also
-protected). Both layers apply — DO NOT disable the FastMCP
-built-in.
+``mcp/server/transport_security.py``) rejects bad-Origin /
+bad-Host requests on ``/mcp`` with 403 / 421 respectively, **but
+only when** :func:`mcp.server.fastmcp.FastMCP.__init__` auto-enables
+it (which happens when the configured ``host`` is in
+``("127.0.0.1", "localhost", "::1")``; see
+``mcp/server/fastmcp/server.py:178``). Because
+:func:`server.config.Config.reject_non_loopback` already pins the
+host to a loopback value, FastMCP's protection IS active in the
+v1 server — but the dependency is implicit. **Operators must NOT
+construct FastMCP with a non-loopback host even in tests, or the
+``/mcp`` layer of defense disappears.** The Origin/Host middlewares
+in this module add the same rejection across the WHOLE FastAPI app
+(``/metrics``, the health endpoints, and any future routes), so
+the post-Config layer of defense remains regardless. F11 fix from
+the E06_S05 critique.
 
 **MCP spec quotes.** From the 2025-06-18 Streamable HTTP spec:
 
@@ -63,9 +71,14 @@ The second SHOULD is satisfied by the existing
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 from urllib.parse import urlparse
+
+# Dedicated security logger so ops can route security events
+# separately. F6: every reject path emits a WARN line.
+logger = logging.getLogger("server.middleware.security")
 
 # ---------------------------------------------------------------------------
 # Module-level constants
@@ -77,6 +90,20 @@ from urllib.parse import urlparse
 #: surprising rejection differences between ``/mcp`` and the rest of
 #: the app.
 LOOPBACK_ORIGIN_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+
+#: Hosts permitted in the ``Host`` header. Superset of
+#: :data:`LOOPBACK_ORIGIN_HOSTS` plus ``"testserver"`` — the
+#: FastAPI/Starlette TestClient default.
+#:
+#: ``testserver`` is not a real DNS-resolvable hostname; no browser
+#: ever sends ``Host: testserver`` over a real network. Accepting it
+#: preserves existing test ergonomics without weakening the
+#: DNS-rebinding defense (which protects against attacker-controlled
+#: domains resolving to 127.0.0.1, not against a fake host name no
+#: client uses in production).
+LOOPBACK_HOST_HEADER_HOSTS = frozenset(
+    {*LOOPBACK_ORIGIN_HOSTS, "testserver"}
+)
 
 #: Schemes permitted in the ``Origin`` header. http only; the server
 #: is localhost-only and does not terminate TLS in v1. ``https`` would
@@ -119,6 +146,14 @@ def _get_header(headers: list[tuple[bytes, bytes]], name: bytes) -> bytes | None
     return None
 
 
+#: Maximum number of bytes of an attacker-supplied Origin we echo
+#: back in the 403 error body. F13: prevents amplification-style
+#: probes. 256 is enough for legitimate origins (which are typically
+#: < 50 chars) and short enough that the response stays well under
+#: the typical 16 KB header limit.
+MAX_ECHOED_ORIGIN_LEN = 256
+
+
 def _origin_is_allowed(origin: str) -> bool:
     """Return True if ``origin`` is in the loopback allow-list.
 
@@ -130,6 +165,12 @@ def _origin_is_allowed(origin: str) -> bool:
     lowercase constants. IPv6 hosts are returned without brackets by
     ``urlparse('http://[::1]:1234').hostname``, which matches our
     ``"::1"`` constant.
+
+    **F9 fix:** rejects userinfo-bearing origins
+    (``http://user:pass@host``). ``urlparse`` correctly extracts
+    ``host`` from ``http://localhost@127.0.0.1`` as ``127.0.0.1``,
+    which is loopback — but the userinfo is anomalous and likely
+    a smuggling probe. Reject defensively.
     """
     try:
         parsed = urlparse(origin)
@@ -137,10 +178,71 @@ def _origin_is_allowed(origin: str) -> bool:
         return False
     if parsed.scheme not in LOOPBACK_ORIGIN_SCHEMES:
         return False
+    # F9: anomalous userinfo on Origin → reject. urlparse exposes
+    # parsed.username / .password; both None for normal origins.
+    if parsed.username is not None or parsed.password is not None:
+        return False
     host = parsed.hostname  # already lowercased; brackets stripped
     if host is None:
         return False
     return host in LOOPBACK_ORIGIN_HOSTS
+
+
+def _validate_host_header(host_value: str, allowed_port: int | None) -> bool:
+    """Return True if a ``Host`` header is acceptable.
+
+    F3: Threat 5 (DNS rebinding) requires Host header validation in
+    addition to Origin validation. ``08-security-observability-ops.md``
+    line 74: "validate the ``Host`` header is ``127.0.0.1`` or
+    ``localhost`` with the configured port."
+
+    A valid Host has the form ``<hostname>[:<port>]``. We accept:
+    - hostname in :data:`LOOPBACK_HOST_HEADER_HOSTS` (127.0.0.1,
+      localhost, ::1, testserver — the last for TestClient
+      compatibility; see the constant's docstring) — IPv6 hosts in
+      Host headers carry brackets per RFC 7230 (``[::1]:7733``);
+      we strip them before lookup.
+    - port equal to ``allowed_port`` if specified, OR any port if
+      ``allowed_port`` is None (test mode).
+
+    A missing Host header should be impossible from any HTTP/1.1
+    client (it's MUST in RFC 7230 §5.4); we treat absence as pass
+    so HTTP/0.9-style probes don't break.
+    """
+    if not host_value:
+        return True  # empty / missing — pass (impossible from real HTTP/1.1)
+    # Split host:port. IPv6 hosts have brackets we must preserve when
+    # finding the port separator.
+    raw = host_value.strip().lower()
+    host: str
+    port_str: str | None
+    if raw.startswith("["):
+        # IPv6 form: [::1] or [::1]:7733
+        end_bracket = raw.find("]")
+        if end_bracket == -1:
+            return False  # malformed
+        host = raw[1:end_bracket]
+        rest = raw[end_bracket + 1 :]
+        if rest == "":
+            port_str = None
+        elif rest.startswith(":"):
+            port_str = rest[1:]
+        else:
+            return False  # garbage after ]
+    elif ":" in raw:
+        host, port_str = raw.rsplit(":", 1)
+    else:
+        host = raw
+        port_str = None
+    if host not in LOOPBACK_HOST_HEADER_HOSTS:
+        return False
+    if allowed_port is not None and port_str is not None:
+        try:
+            if int(port_str) != allowed_port:
+                return False
+        except ValueError:
+            return False
+    return True
 
 
 async def _send_json_error(
@@ -193,10 +295,11 @@ class OriginValidationMiddleware:
     - ``Origin`` present and in the loopback allow-list → pass
       through.
     - ``Origin`` present and NOT in the allow-list → 403 with a
-      JSON error body. The body names the offending origin so
-      operators can debug a misconfigured client; we do NOT echo
-      the full header value to avoid log injection (the JSON
-      ``json.dumps`` already escapes any embedded quotes).
+      JSON error body. F6: a WARN log line records the rejection
+      (origin value + remote client) so ops can alert on
+      DNS-rebinding probes. F13: the echoed origin in the error
+      body is truncated to :data:`MAX_ECHOED_ORIGIN_LEN` chars to
+      prevent amplification-style probes.
     """
 
     def __init__(self, app: Callable[..., Awaitable[None]]) -> None:
@@ -224,6 +327,19 @@ class OriginValidationMiddleware:
             await self.app(scope, receive, send)
             return
 
+        # F6: WARN log on rejection. Include client IP for alert
+        # routing. We log the full origin for ops; the response body
+        # truncates to defend against amplification.
+        client = scope.get("client")
+        client_ip = client[0] if client else "unknown"
+        logger.warning(
+            "origin rejected: client=%s origin=%r path=%s",
+            client_ip, origin_str, scope.get("path", ""),
+        )
+
+        # F13: truncate origin in response body to avoid amplification.
+        echoed = origin_str[:MAX_ECHOED_ORIGIN_LEN]
+
         # Reject with 403 + JSON body. The MCP spec does not mandate
         # a specific body shape; we use ``{error, message}`` to match
         # :class:`server.main.BodySizeCapMiddleware`'s 413 shape.
@@ -238,7 +354,86 @@ class OriginValidationMiddleware:
                     "MCP 2025-06-18 spec MUST: servers validate Origin "
                     "to prevent DNS rebinding attacks."
                 ),
-                "origin": origin_str,
+                "origin": echoed,
+            },
+        )
+
+
+# ---------------------------------------------------------------------------
+# HostValidationMiddleware (F3 — Threat 5 / DNS rebinding)
+# ---------------------------------------------------------------------------
+
+
+class HostValidationMiddleware:
+    """Reject requests whose ``Host`` header is not loopback.
+
+    F3 fix from the E06_S05 critique: Threat 5
+    (``08-security-observability-ops.md`` line 74) mandates DNS
+    rebinding defense via Host header validation in addition to
+    Origin validation. FastMCP's built-in
+    :class:`TransportSecurityMiddleware` validates Host only on
+    ``/mcp``; this middleware extends the same protection across
+    ``/healthz``, ``/readyz``, ``/metrics``, and any future routes.
+
+    Returns 421 Misdirected Request on bad Host (matches FastMCP's
+    signal) so well-behaved clients can detect the difference between
+    Origin and Host failures.
+
+    A request with no ``Host`` header passes through. RFC 7230 §5.4
+    makes Host MUST for HTTP/1.1, so absent-Host should be impossible
+    in practice; permitting it preserves compatibility with HTTP/0.9
+    probes and test harnesses that don't set the header.
+    """
+
+    def __init__(
+        self,
+        app: Callable[..., Awaitable[None]],
+        allowed_port: int | None = None,
+    ) -> None:
+        self.app = app
+        # ``allowed_port=None`` accepts any port — test harnesses
+        # use this to avoid coupling tests to the live bind port.
+        self.allowed_port = allowed_port
+
+    async def __call__(self, scope: dict, receive: Callable, send: Callable) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        headers: list[tuple[bytes, bytes]] = scope.get("headers", [])
+        host_b = _get_header(headers, b"host")
+
+        if host_b is None:
+            await self.app(scope, receive, send)
+            return
+
+        try:
+            host_str = host_b.decode("latin-1")
+        except UnicodeDecodeError:
+            host_str = ""
+
+        if _validate_host_header(host_str, self.allowed_port):
+            await self.app(scope, receive, send)
+            return
+
+        client = scope.get("client")
+        client_ip = client[0] if client else "unknown"
+        logger.warning(
+            "host rejected: client=%s host=%r path=%s",
+            client_ip, host_str, scope.get("path", ""),
+        )
+
+        echoed = host_str[:MAX_ECHOED_ORIGIN_LEN]
+        await _send_json_error(
+            send,
+            status=421,
+            body={
+                "error": "host_forbidden",
+                "message": (
+                    "Host header is not in the loopback allow-list. "
+                    "DNS rebinding defense (Threat 5)."
+                ),
+                "host": echoed,
             },
         )
 
@@ -297,23 +492,48 @@ class SecurityHeadersMiddleware:
 # ---------------------------------------------------------------------------
 
 
+#: HTTP methods whose body the cap-middleware does NOT pre-read.
+#: Per RFC 7231 these methods don't carry a payload semantically; if a
+#: client sends one anyway, our cap doesn't enforce because the body is
+#: irrelevant to the handler. (We still reject over-cap Content-Length
+#: at the early-rejection path regardless of method.)
+_BODY_NOT_EXPECTED_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "DELETE", "TRACE"})
+
+
 class RequestBodySizeLimitMiddleware:
     """Cap incoming request bodies at ``max_bytes``.
 
     uvicorn has no ``limit_request_body`` knob (verified in
     ``uvicorn/config.py`` — only ``limit_max_requests`` exists), so
-    the cap MUST live in middleware. Two paths:
+    the cap MUST live in middleware.
 
-    1. ``Content-Length`` is present and exceeds the cap → reject
-       immediately with 413 BEFORE forwarding any
-       ``http.request`` events. The downstream app never sees the
-       request.
-    2. ``Content-Length`` is absent (chunked transfer) or
-       under-promises → wrap ``receive`` and accumulate the body.
-       If the running total exceeds the cap, replace subsequent
-       ``http.request`` events with an empty terminal event AND
-       send a 413; this is the only safe path because we may have
-       already started the request body's iteration.
+    **Closes F1 from the E06_S05 critique.** The original implementation
+    wrapped ``receive`` and counted bytes only when the handler called
+    ``await req.body()``. Handlers that ignore the body (e.g.
+    ``/healthz`` returning ``{"status":"ok"}`` without consuming
+    request bytes) bypassed the cap silently — uvicorn had already
+    buffered the wire bytes and our 413 never fired. Real reproducer:
+    POST 1.6 MB chunked to ``/healthz`` returned 200, not 413.
+
+    The fix is **eager pre-read**: for any method that may carry a
+    body, the middleware drains ``receive`` BEFORE invoking the inner
+    app, accumulating bytes into a buffer. If the running total
+    exceeds ``max_bytes``, we send 413 directly and never invoke the
+    inner app. Otherwise we replay the buffered events via a
+    synthetic receive callable.
+
+    Cost: 1 MB of additional buffering per request — bounded by the
+    cap itself. The MCP JSON-RPC handlers parse the full body before
+    responding, so we lose no streaming the inner app actually used.
+
+    Three rejection paths:
+
+    1. **Over-cap Content-Length** — reject 413 before any body read.
+    2. **Malformed Content-Length** (negative, non-integer) — reject
+       400. Closes F10. A malformed C-L is a smuggling signal, not a
+       benign typo.
+    3. **Body bytes accumulate past the cap during pre-read** — reject
+       413 mid-stream and stop forwarding to the inner app.
 
     Parameters
     ----------
@@ -337,15 +557,51 @@ class RequestBodySizeLimitMiddleware:
             await self.app(scope, receive, send)
             return
 
-        # Path 1: Content-Length declared and over the cap → reject
-        # before reading the body.
-        content_length_b = _get_header(scope.get("headers", []), b"content-length")
+        # Rejection path 1+2: Content-Length declared.
+        headers = scope.get("headers", [])
+        content_length_b = _get_header(headers, b"content-length")
         if content_length_b is not None:
             try:
                 declared = int(content_length_b.decode("ascii"))
             except (ValueError, UnicodeDecodeError):
-                declared = -1
+                # F10: malformed C-L → 400, NOT silently treated as
+                # "no length". Smuggling signal.
+                logger.warning(
+                    "request rejected: malformed content-length header %r",
+                    content_length_b,
+                )
+                await _send_json_error(
+                    send,
+                    status=400,
+                    body={
+                        "error": "malformed_content_length",
+                        "message": (
+                            "Content-Length header is malformed (must be a "
+                            "non-negative integer)"
+                        ),
+                    },
+                )
+                return
+            if declared < 0:
+                logger.warning(
+                    "request rejected: negative content-length %d", declared,
+                )
+                await _send_json_error(
+                    send,
+                    status=400,
+                    body={
+                        "error": "malformed_content_length",
+                        "message": (
+                            f"Content-Length must be non-negative; got {declared}"
+                        ),
+                    },
+                )
+                return
             if declared > self.max_bytes:
+                logger.warning(
+                    "request rejected: content-length %d exceeds cap %d",
+                    declared, self.max_bytes,
+                )
                 await _send_json_error(
                     send,
                     status=413,
@@ -361,41 +617,40 @@ class RequestBodySizeLimitMiddleware:
                 )
                 return
 
-        # Path 2: wrap receive and count.
-        body_seen = 0
-        cap_exceeded = False
+        # For methods that semantically don't carry a body (GET/HEAD/
+        # OPTIONS/DELETE/TRACE), pass through. The Content-Length cap
+        # above already protects against a lying request that claims a
+        # body via header.
+        method = scope.get("method", "").upper()
+        if method in _BODY_NOT_EXPECTED_METHODS:
+            await self.app(scope, receive, send)
+            return
 
-        async def wrapped_receive() -> dict:
-            nonlocal body_seen, cap_exceeded
-            if cap_exceeded:
-                # Synthesize a terminal disconnect so the wrapped app
-                # stops asking for more.
-                return {"type": "http.disconnect"}
+        # F1 fix: eager pre-read. Drain ``receive`` BEFORE invoking
+        # the inner app, count bytes, send 413 directly if over cap.
+        # Replay buffered events to the inner app on success.
+        buffered_events: list[dict] = []
+        body_seen = 0
+        while True:
             event = await receive()
+            if event["type"] == "http.disconnect":
+                # Client gave up before sending the full body. Pass
+                # the disconnect through — the inner app will see it.
+                buffered_events.append(event)
+                break
             if event["type"] != "http.request":
-                return event
+                # Unknown event types pass through (defensive — the
+                # ASGI spec only defines http.request and
+                # http.disconnect on the receive side for HTTP scope).
+                buffered_events.append(event)
+                continue
             chunk = event.get("body", b"")
             body_seen += len(chunk)
             if body_seen > self.max_bytes:
-                cap_exceeded = True
-                # Truncate the body and signal end. The downstream
-                # handler will receive a partial body; we'll then send
-                # the 413 response below the wrapped call.
-                return {
-                    "type": "http.request",
-                    "body": b"",
-                    "more_body": False,
-                }
-            return event
-
-        # Track whether we sent our own 413; if so, swallow the
-        # downstream's response events.
-        our_response_sent = False
-
-        async def wrapped_send(event: dict) -> None:
-            nonlocal our_response_sent
-            if cap_exceeded and not our_response_sent:
-                our_response_sent = True
+                logger.warning(
+                    "request rejected: body bytes exceeded cap %d (saw %d+)",
+                    self.max_bytes, body_seen,
+                )
                 await _send_json_error(
                     send,
                     status=413,
@@ -410,18 +665,32 @@ class RequestBodySizeLimitMiddleware:
                     },
                 )
                 return
-            if our_response_sent:
-                # Already responded with our 413 — drop downstream events.
-                return
-            await send(event)
+            buffered_events.append(event)
+            if not event.get("more_body", False):
+                # End of body — exit the drain loop.
+                break
 
-        await self.app(scope, wrapped_receive, wrapped_send)
+        # Replay buffered events through a synthetic receive. Once
+        # exhausted, return http.disconnect (the standard ASGI
+        # signal that no more body is coming).
+        replay_iter = iter(buffered_events)
+
+        async def replayed_receive() -> dict:
+            try:
+                return next(replay_iter)
+            except StopIteration:
+                return {"type": "http.disconnect"}
+
+        await self.app(scope, replayed_receive, send)
 
 
 __all__ = [
+    "LOOPBACK_HOST_HEADER_HOSTS",
     "LOOPBACK_ORIGIN_HOSTS",
     "LOOPBACK_ORIGIN_SCHEMES",
+    "MAX_ECHOED_ORIGIN_LEN",
     "REQUEST_BODY_MAX_BYTES",
+    "HostValidationMiddleware",
     "OriginValidationMiddleware",
     "RequestBodySizeLimitMiddleware",
     "SecurityHeadersMiddleware",

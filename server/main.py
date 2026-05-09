@@ -367,6 +367,7 @@ def create_app(config: Config | None = None) -> FastAPI:
     # OriginValidation is BEFORE the request-body limit so an
     # evil-origin POST is rejected without buffering its body.
     from server.middleware import (
+        HostValidationMiddleware,
         OriginValidationMiddleware,
         RequestBodySizeLimitMiddleware,
         SecurityHeadersMiddleware,
@@ -376,6 +377,13 @@ def create_app(config: Config | None = None) -> FastAPI:
     app.add_middleware(BodySizeCapMiddleware, byte_cap=cfg.result_byte_cap)
     # 1 MB cap on incoming request bodies (E06_S05).
     app.add_middleware(RequestBodySizeLimitMiddleware)
+    # Host header validation: Threat 5 / DNS rebinding defense
+    # (closes F3 from E06_S05 critique). FastMCP validates Host on
+    # /mcp; this middleware extends the same protection across the
+    # whole FastAPI app. ``allowed_port=None`` accepts any port so
+    # tests work; production binds to cfg.bind_port and the FastMCP
+    # built-in pins the port on /mcp specifically.
+    app.add_middleware(HostValidationMiddleware, allowed_port=None)
     # Origin validation: MCP 2025-06-18 spec MUST.
     app.add_middleware(OriginValidationMiddleware)
     # X-Content-Type-Options + X-Frame-Options on every response.
