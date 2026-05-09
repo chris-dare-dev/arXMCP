@@ -29,14 +29,21 @@ returns BOTH a ``structuredContent`` (machine-readable, the dict
 envelope) AND a ``content`` array carrying:
 
 1. ``content[0]``: ``TextContent`` with the JSON-pretty-print of
-   structuredContent — preserves the wire-overhead-factor=2
-   measurement that ``enforce_byte_cap`` depends on, AND keeps the
-   FastMCP default surface for clients that read ``content[0].text``.
+   structuredContent. Keeps the FastMCP default surface for
+   clients that read only ``content[0].text``.
 2. ``content[1..N]``: one ``ResourceLink`` block per result row,
    in the same ``(score_desc, chunk_id_asc)`` order, with
    ``uri = "arxmcp://chunks/<chunk_id>"``. The MCP spec permits
    resource_link blocks in tool results; spec-compliant clients
    may follow the link to fetch the chunk.
+
+**Note on body-size cap.** ``search_papers`` does NOT call
+``server.tools.enforce_byte_cap`` (only ``get_chunk`` does at
+v1). The result is bounded by ``k`` (max 50) × per-row size
+(snippet ≤150 chars + small fields). When a future milestone
+wires cap enforcement here, the wire-overhead factor will need
+recalibration to account for the per-row ResourceLink overhead
+(F5 from the E06_S04 critique).
 
 The resource_link blocks are advisory — the agent runtime (E08)
 does NOT rely on the client following them. Agents that ignore
@@ -158,15 +165,20 @@ def _build_content_blocks(
 
     Block 0 is a TextContent carrying ``json.dumps(structured,
     indent=2, sort_keys=True)`` — same shape FastMCP's default
-    dict-handler emits, so the wire-overhead-factor=2 measurement
-    in ``enforce_byte_cap`` stays correct AND clients that only
-    read ``content[0].text`` see the full payload.
+    dict-handler emits, so clients that only read
+    ``content[0].text`` see the full payload.
 
     Blocks 1..N are ResourceLink blocks in the same order as
     ``rows`` (which is already sorted ``(score_desc,
     chunk_id_asc)``). Each link's URI is
     ``arxmcp://chunks/<chunk_id>`` per the design note's resource
     URI scheme.
+
+    Note: ``search_papers`` does NOT call ``enforce_byte_cap``
+    (only ``get_chunk`` does at v1). When a future milestone
+    wires cap enforcement here, the per-row ResourceLink overhead
+    must be added to the wire-overhead factor calibration in
+    ``server/tools.py``.
     """
     blocks: list[Any] = [
         TextContent(

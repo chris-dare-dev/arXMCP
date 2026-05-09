@@ -243,16 +243,21 @@ class TestDocContract:
         assert DOC_PATH.is_file(), f"docs/snippet-contract.md missing at {DOC_PATH}"
 
     def test_doc_disclaims_citations_api(self):
+        """F3 close: the brief AC requires the LITERAL string 'No
+        dependency on Anthropic Citations API'. The earlier
+        paraphrase-tolerant check would have passed even if the
+        literal sentence was edited away. The doc currently uses
+        the literal phrase as the section heading; this test
+        enforces it stays that way."""
         text = DOC_PATH.read_text(encoding="utf-8")
-        # The brief AC requires the literal string "No dependency on
-        # Anthropic Citations API". Whitespace-tolerant check so the
-        # doc can be reflowed.
+        # Whitespace-collapsed substring match so the sentence can
+        # wrap across source lines, but no paraphrase tolerance.
         normalized = " ".join(text.split())
-        assert "No dependency on Anthropic Citations API" in normalized or (
-            "decoupled from Anthropic's Citations API" in normalized
-        ), (
-            "docs/snippet-contract.md must explicitly disclaim the "
-            "Anthropic Citations API dependency per E06_S04 AC"
+        required = "No dependency on Anthropic Citations API"
+        assert required in normalized, (
+            f"docs/snippet-contract.md must contain the literal AC "
+            f"sentence {required!r} (whitespace-tolerant). "
+            f"Paraphrases do not satisfy E06_S04 AC #5."
         )
 
     def test_doc_states_150_char_cap(self):
@@ -297,3 +302,163 @@ class TestSchemaConformance:
         schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
         # Should NOT raise.
         validate(instance=sc, schema=schema)
+
+
+# ===========================================================================
+# Rectification regression tests (F1, F2, F4, F7, F8)
+# ===========================================================================
+
+
+class TestRegexSourceOfTruth:
+    """F1 close: the schema's chunk_id pattern must equal
+    ``ingest.identifiers.CHUNK_ID_PATTERN`` byte-for-byte. E06_S03
+    F11 collapsed the regex to a single source of truth; this test
+    ensures the JSON Schema file does not silently re-introduce the
+    drift surface.
+    """
+
+    def test_schema_chunk_id_pattern_matches_canonical(self):
+        from ingest.identifiers import CHUNK_ID_PATTERN
+
+        schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+        pat = schema["properties"]["results"]["items"]["properties"]["chunk_id"]["pattern"]
+        assert pat == f"^{CHUNK_ID_PATTERN}$", (
+            f"schema chunk_id pattern drifted from "
+            f"ingest.identifiers.CHUNK_ID_PATTERN; see E06_S03 F11. "
+            f"schema={pat!r}, expected=^{CHUNK_ID_PATTERN}$"
+        )
+
+
+class TestNoLLMInSnippetPath:
+    """F2 close: prove no LLM is called for the snippet by asserting
+    no anthropic / openai client module is loaded as a side effect
+    of importing the search handler. AC #2's "snippet derived from
+    body_canonical text, not from any LLM call" is the goal; this
+    is the strongest cheap proof we can offer (a future regression
+    that calls Haiku would import anthropic at handler load)."""
+
+    def test_no_llm_client_in_search_module(self):
+        import importlib
+        import sys
+
+        for mod in ("anthropic", "openai", "cohere"):
+            sys.modules.pop(mod, None)
+        importlib.import_module("server.handlers.search")
+        for mod in ("anthropic", "openai", "cohere"):
+            assert mod not in sys.modules, (
+                f"server.handlers.search imported {mod!r} — AC #2 "
+                f"forbids LLM calls in the snippet path"
+            )
+
+
+class TestEdgeCaseShapes:
+    """F4 close: zero-result + cap-edge cases were untested; the
+    schema's bounds (snippet ≤150, additionalProperties: false,
+    score in [0,1]) only fired against the 5-chunk happy path.
+    """
+
+    def test_snippet_function_at_cap(self):
+        """``_snippet`` returns exactly the first 150 chars when
+        body_text length == cap, and exactly 150 when length > cap.
+        """
+        from server.handlers.search import SNIPPET_MAX_CHARS, _snippet
+
+        # length == cap → returned unchanged
+        body_at = "a" * SNIPPET_MAX_CHARS
+        assert _snippet(body_at) == body_at
+        assert len(_snippet(body_at)) == SNIPPET_MAX_CHARS
+
+        # length == cap + 1 → truncated to exactly 150
+        body_over = "a" * (SNIPPET_MAX_CHARS + 1)
+        assert len(_snippet(body_over)) == SNIPPET_MAX_CHARS
+        assert _snippet(body_over) == body_over[:SNIPPET_MAX_CHARS]
+
+    def test_snippet_function_handles_none_and_empty(self):
+        from server.handlers.search import _snippet
+
+        assert _snippet(None) == ""
+        assert _snippet("") == ""
+
+    def test_distance_to_score_clamped_to_unit_interval(self):
+        """``_distance_to_score`` should not emit values outside
+        [0, 1]. The function clamps the lower bound but the upper
+        bound depends on the L2 distance being non-negative
+        (BGE-M3 unit vectors guarantee this; defensive check only).
+        """
+        from server.handlers.search import _distance_to_score
+
+        # Identical vectors: dist=0 → score=1.0
+        assert _distance_to_score(0.0) == 1.0
+        # Orthogonal: dist=sqrt(2) ≈ 1.414 → score ≈ 0.293
+        assert 0.0 <= _distance_to_score(1.414) <= 1.0
+        # Antipodal: dist=2 → score=0.0
+        assert _distance_to_score(2.0) == 0.0
+        # Defensive: clamp below 0
+        assert _distance_to_score(3.0) == 0.0
+        # None → 0.0 (defensive)
+        assert _distance_to_score(None) == 0.0
+
+    def test_format_label_handles_all_none(self):
+        """Empty string when both theorem_name and theorem_label
+        are None — schema declares label as required."""
+        from server.handlers.search import _format_label
+
+        assert _format_label(None, None) == ""
+        assert _format_label("Riemann-Roch", None) == "Riemann-Roch"
+        assert _format_label(None, "3.4") == "3.4"
+        assert _format_label("Lemma", "3.4") == "Lemma 3.4"
+
+
+class TestSnippetCapConsistency:
+    """F8 close: cross-file consistency between the SNIPPET_MAX_CHARS
+    constant, the schema's maxLength, and the doc's mention of
+    ``150``. A regression in ONE file is caught here."""
+
+    def test_cap_constant_matches_schema_max_length(self):
+        from server.handlers.search import SNIPPET_MAX_CHARS
+
+        schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+        snippet_schema = schema["properties"]["results"]["items"]["properties"]["snippet"]
+        cap_in_schema = snippet_schema["maxLength"]
+        assert cap_in_schema == SNIPPET_MAX_CHARS, (
+            f"snippet cap drifted: handler={SNIPPET_MAX_CHARS}, "
+            f"schema maxLength={cap_in_schema}"
+        )
+
+    def test_doc_mentions_the_exact_cap(self):
+        """``test_doc_states_150_char_cap`` checks ``"150" in text``;
+        this tightens to ``"150 character"`` so a future "150 ms" /
+        "150 papers" drift is caught."""
+        text = DOC_PATH.read_text(encoding="utf-8").lower()
+        accepted = ("150 character", "150-character", "150-char", "150 char")
+        assert any(s in text for s in accepted), (
+            "docs/snippet-contract.md must mention the 150-character "
+            "cap explicitly (a bare '150' could refer to anything)"
+        )
+
+
+class TestSchemaVersionPin:
+    """F7 close: schema's ``version`` field must equal
+    ``server.tools.TOOL_SCHEMA_VERSION``. A bump in one without
+    the other is a contract drift."""
+
+    def test_schema_version_matches_tool_schema_version(self):
+        from server.tools import TOOL_SCHEMA_VERSION
+
+        schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+        assert "version" in schema, (
+            "schema must carry a top-level ``version`` field equal "
+            "to server.tools.TOOL_SCHEMA_VERSION"
+        )
+        assert schema["version"] == TOOL_SCHEMA_VERSION, (
+            f"schema version {schema['version']} != "
+            f"server.tools.TOOL_SCHEMA_VERSION {TOOL_SCHEMA_VERSION}"
+        )
+
+    def test_schema_has_id_for_canonical_url(self):
+        """E06_S06 hash-pinning anchors on the schema's identity;
+        ``$id`` provides a canonical URL even when the file is
+        copied or renamed."""
+        schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+        assert "$id" in schema
+        assert schema["$id"].startswith("https://arxmcp/schemas/")
