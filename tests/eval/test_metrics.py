@@ -20,6 +20,7 @@ Coverage map:
 
 from __future__ import annotations
 
+import json
 import math
 
 import pytest
@@ -177,6 +178,22 @@ class TestNdcgAtK:
         with pytest.raises(ValueError, match="must be a dict"):
             ndcg_at_k(["a"], [("a", 3)], k=1)
 
+    def test_duplicate_retrieved_raises(self):
+        """F1: duplicate chunk_ids in retrieved must be rejected.
+        Without rejection, the standalone metric returns nDCG > 1.0
+        (DCG double-counts the duplicated rel; IDCG does not)."""
+        with pytest.raises(
+            ValueError, match="contains duplicate chunk_ids"
+        ):
+            ndcg_at_k(["a", "a", "b"], {"a": 3, "b": 1}, k=3)
+
+    def test_duplicate_retrieved_outside_k_does_not_raise(self):
+        """The dup-check is scoped to the top-k slice. A duplicate at
+        rank > k does not contribute to DCG and should not trip the
+        guard (slice-then-set semantics are the contract)."""
+        # Duplicate is at rank 4; k=3 trims it off → no error.
+        ndcg_at_k(["a", "b", "c", "a"], {"a": 3, "b": 2, "c": 1}, k=3)
+
 
 # ===========================================================================
 # Recall@k
@@ -275,6 +292,22 @@ class TestThresholdCheck:
         with pytest.raises(ValueError, match="ndcg_min must be a real number"):
             assert_threshold(0.85, True)  # type: ignore[arg-type]
 
+    def test_nan_score_rejected(self):
+        """F6: NaN comparisons return False, so a NaN ndcg5_mean would
+        silently PASS the < threshold check and a real corpus
+        regression would ship as a green test."""
+        with pytest.raises(ValueError, match="ndcg5_mean must be finite"):
+            assert_threshold(float("nan"), 0.70)
+
+    def test_inf_score_rejected(self):
+        """+inf would pass the < threshold check vacuously."""
+        with pytest.raises(ValueError, match="ndcg5_mean must be finite"):
+            assert_threshold(float("inf"), 0.70)
+
+    def test_nan_threshold_rejected(self):
+        with pytest.raises(ValueError, match="ndcg_min must be finite"):
+            assert_threshold(0.85, float("nan"))
+
 
 # ===========================================================================
 # _mean helper
@@ -292,3 +325,163 @@ class TestMean:
 
     def test_iterator_input(self):
         assert _mean(iter([1.0, 2.0])) == 1.5
+
+
+# ===========================================================================
+# F4 — score_and_write integration tests (RUN-cell helper)
+# ===========================================================================
+
+
+class TestScoreAndWrite:
+    """Lock the AC2 threshold-failure path AND the per-query-JSONL +
+    aggregate-JSON write contract. Closes F4 of the E05_S02 critique:
+    the original implementation tested ``assert_threshold`` in
+    isolation but had no test that the live ``test_retrieval_quality``
+    actually passes the right arguments to it.
+
+    These tests drive ``score_and_write`` directly with synthetic
+    per-query rows (no encoder, no LanceDB) so they run on every
+    ``make test``.
+    """
+
+    def _synthetic_rows(
+        self, *, ndcg_pattern: list[float], recall_pattern: list[float]
+    ) -> list[dict]:
+        """Build N rows where each row carries a controlled
+        ``ndcg5`` / ``recall10`` value. The mean of ``ndcg_pattern``
+        becomes the aggregate ``ndcg5_mean``."""
+        return [
+            {
+                "ndcg5": ndcg,
+                "query_id": f"q{i + 1:02d}",
+                "query_text": f"synthetic query {i + 1}",
+                "recall10": recall,
+                "retrieved_chunk_ids": [
+                    f"arxiv:2307.{i + 1:05d}:{'a' * 16}"
+                ],
+            }
+            for i, (ndcg, recall) in enumerate(
+                zip(ndcg_pattern, recall_pattern, strict=True)
+            )
+        ]
+
+    def test_above_threshold_writes_files_and_returns(self, tmp_path):
+        from tests.eval.test_retrieval_quality import score_and_write
+
+        rows = self._synthetic_rows(
+            ndcg_pattern=[0.9, 0.85, 0.95],
+            recall_pattern=[1.0, 1.0, 0.5],
+        )
+        score_and_write(
+            per_query_rows=rows,
+            corpus_version=42,
+            ndcg_min=0.70,
+            output_dir=tmp_path,
+        )
+        results_path = tmp_path / "results-42.jsonl"
+        aggregate_path = tmp_path / "aggregate-42.json"
+        assert results_path.is_file()
+        assert aggregate_path.is_file()
+
+        # Aggregate schema: brief-locked 5 keys, alphabetical.
+        agg = json.loads(aggregate_path.read_text(encoding="utf-8"))
+        assert list(agg.keys()) == [
+            "corpus_version",
+            "ndcg5_mean",
+            "query_count",
+            "recall10_mean",
+            "timestamp",
+        ]
+        assert agg["corpus_version"] == 42
+        assert agg["query_count"] == 3
+        assert agg["ndcg5_mean"] == pytest.approx(0.9)
+        assert agg["recall10_mean"] == pytest.approx(2.5 / 3)
+
+        # JSONL: one line per row, alphabetical keys per row.
+        lines = results_path.read_text(encoding="utf-8").strip().splitlines()
+        assert len(lines) == 3
+        first = json.loads(lines[0])
+        assert list(first.keys()) == [
+            "ndcg5",
+            "query_id",
+            "query_text",
+            "recall10",
+            "retrieved_chunk_ids",
+        ]
+
+    def test_below_threshold_raises(self, tmp_path):
+        """AC2: synthetic ``ndcg5_mean = 0.3`` must fail the 0.50
+        threshold via ``ThresholdNotMetError``. This locks the
+        integration of ``assert_threshold`` into the actual harness
+        (the original critique was that the helper was tested in
+        isolation but the integration was unverified)."""
+        from tests.eval.metrics import ThresholdNotMetError
+        from tests.eval.test_retrieval_quality import score_and_write
+
+        rows = self._synthetic_rows(
+            ndcg_pattern=[0.3, 0.3, 0.3],
+            recall_pattern=[0.0, 0.0, 0.0],
+        )
+        with pytest.raises(ThresholdNotMetError, match="below the threshold"):
+            score_and_write(
+                per_query_rows=rows,
+                corpus_version=7,
+                ndcg_min=0.50,
+                output_dir=tmp_path,
+            )
+        # IMPORTANT: even on threshold-fail, the result files must be
+        # written (the drift baseline is the diagnostic output —
+        # operators need the per-query JSONL to triage the failure).
+        assert (tmp_path / "results-7.jsonl").is_file()
+        assert (tmp_path / "aggregate-7.json").is_file()
+
+    def test_at_threshold_passes(self, tmp_path):
+        """The threshold check is ``<``, so equality passes.
+
+        Uses 0.5 (exactly representable in IEEE 754) so the mean of
+        ``[0.5, 0.5, 0.5]`` is exactly 0.5 and the test isolates the
+        equality-passes invariant from floating-point rounding.
+        ``0.7`` is NOT exactly representable; ``mean([0.7, 0.7, 0.7])``
+        is ``0.6999999999999999`` — which is the correct behavior of
+        the ``<`` threshold check (a real corpus producing 0.69... is
+        below 0.70 and SHOULD fail).
+        """
+        from tests.eval.test_retrieval_quality import score_and_write
+
+        rows = self._synthetic_rows(
+            ndcg_pattern=[0.5, 0.5, 0.5],
+            recall_pattern=[1.0, 1.0, 1.0],
+        )
+        # Should NOT raise.
+        score_and_write(
+            per_query_rows=rows,
+            corpus_version=99,
+            ndcg_min=0.5,
+            output_dir=tmp_path,
+        )
+        agg = json.loads(
+            (tmp_path / "aggregate-99.json").read_text(encoding="utf-8")
+        )
+        assert agg["ndcg5_mean"] == 0.5
+
+
+# ===========================================================================
+# F3 lock — column-name single source of truth
+# ===========================================================================
+
+
+class TestColumnNamesSourceOfTruth:
+    def test_test_module_uses_imported_constant(self):
+        """Closes F3: ``EMBEDDING_COLUMN_NAMES`` is exported from
+        ``ingest.schema``; the eval harness imports it rather than
+        literalizing the column-name strings."""
+        from ingest.schema import EMBEDDING_COLUMN_NAMES
+        from tests.eval.test_retrieval_quality import EMBEDDING_COLUMNS
+
+        assert EMBEDDING_COLUMNS is EMBEDDING_COLUMN_NAMES
+        # Sanity: the actual schema column list contains both names.
+        from ingest.schema import CHUNKS_SCHEMA_V1
+
+        schema_field_names = {f.name for f in CHUNKS_SCHEMA_V1}
+        for col in EMBEDDING_COLUMN_NAMES:
+            assert col in schema_field_names

@@ -114,14 +114,35 @@ def ndcg_at_k(
     from the ``k`` largest relevance grades in
     ``relevance_by_chunk_id`` (sorted descending, padded with zeros
     if fewer than ``k`` chunks are graded).
+
+    **Duplicates in `retrieved_chunk_ids[:k]` are rejected** (closes
+    F1 from the E05_S02 critique). Without rejection, a caller
+    accidentally passing the same chunk_id at two ranks would
+    double-count its gain into DCG while iDCG (which uses the
+    relevance multiset, not the retrieved positions) would not see
+    the duplication — producing nDCG > 1.0 and silently inflating
+    the score. The production call site in
+    ``test_retrieval_quality.py`` dedupes upstream via the
+    ``per_chunk_min_distance`` dict, but the standalone metric must
+    not trust callers.
     """
     if not isinstance(k, int) or isinstance(k, bool) or k < 1:
         raise ValueError(f"k must be a positive int (>= 1); got {k!r}")
     _validate_grades(relevance_by_chunk_id)
 
+    top_k = list(retrieved_chunk_ids[:k])
+    if len(set(top_k)) != len(top_k):
+        # Duplicate chunk_id at two ranks would inflate DCG without
+        # affecting IDCG. Refuse rather than silently double-count.
+        raise ValueError(
+            f"retrieved_chunk_ids[:k={k}] contains duplicate chunk_ids; "
+            f"dedup upstream (e.g. via dict[chunk_id, score]) before "
+            f"calling ndcg_at_k. Got: {top_k!r}"
+        )
+
     # DCG over the actual ranked retrieval, capped at k.
     dcg = 0.0
-    for rank_idx, chunk_id in enumerate(retrieved_chunk_ids[:k], start=1):
+    for rank_idx, chunk_id in enumerate(top_k, start=1):
         rel = relevance_by_chunk_id.get(chunk_id, 0)
         dcg += rel / math.log2(rank_idx + 1)
 
@@ -215,6 +236,20 @@ def assert_threshold(ndcg5_mean: float, ndcg_min: float) -> None:
         raise ValueError(
             f"ndcg5_mean must be a real number; got "
             f"{type(ndcg5_mean).__name__} ({ndcg5_mean!r})"
+        )
+    # F6 close: reject NaN / inf explicitly. Any comparison with NaN
+    # returns False (so ``ndcg5_mean < ndcg_min`` would silently
+    # PASS the threshold check on a NaN-corrupted score). +inf would
+    # also pass vacuously. Both are real-corpus regressions
+    # masquerading as success.
+    if not math.isfinite(ndcg5_mean):
+        raise ValueError(
+            f"ndcg5_mean must be finite; got {ndcg5_mean!r} "
+            f"(NaN or inf would silently pass the < threshold check)"
+        )
+    if not math.isfinite(ndcg_min):
+        raise ValueError(
+            f"ndcg_min must be finite; got {ndcg_min!r}"
         )
     if ndcg5_mean < ndcg_min:
         raise ThresholdNotMetError(

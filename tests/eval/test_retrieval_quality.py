@@ -64,6 +64,7 @@ from pathlib import Path
 
 import pytest
 
+from ingest.schema import EMBEDDING_COLUMN_NAMES
 from tests.eval.metrics import (
     _mean,
     assert_threshold,
@@ -97,8 +98,11 @@ FINAL_TOP_K = 10
 #: Cutoff for nDCG.
 NDCG_K = 5
 
-#: The two embedding columns to search (E04_S01 schema).
-EMBEDDING_COLUMNS = ("embedding_stmt", "embedding_proof")
+#: The two embedding columns to search. Imported from
+#: :data:`ingest.schema.EMBEDDING_COLUMN_NAMES` per F3 of the E05_S02
+#: critique — the column-name strings live in exactly one place
+#: (single-source-of-truth: a future schema rename touches one constant).
+EMBEDDING_COLUMNS = EMBEDDING_COLUMN_NAMES
 
 
 # ---------------------------------------------------------------------------
@@ -106,15 +110,18 @@ EMBEDDING_COLUMNS = ("embedding_stmt", "embedding_proof")
 # ---------------------------------------------------------------------------
 
 
-def test_retrieval_quality(ndcg_min: float) -> None:  # noqa: PLR0915
-    """Top-level eval harness — see module docstring for the full
-    behavior matrix.
+def test_retrieval_quality(ndcg_min: float) -> None:
+    """Top-level eval harness — see module docstring for the behavior
+    matrix.
 
-    The function is one large body rather than per-step helpers
-    because (a) the matrix is short, (b) splitting hurts traceability
-    when the test fails (one stack frame is easier to read than five),
-    and (c) every step has a unit-test counterpart in
-    ``test_metrics.py`` already locking the math.
+    The body is split into two helpers: :func:`_run_queries_against_corpus`
+    runs the ANN loop (the data-blocked path that needs the live
+    encoder + LanceDB), and :func:`score_and_write` consumes the
+    per-query rows and writes the result files. The split is mainly
+    for F4 of the E05_S02 critique: ``score_and_write`` is unit-tested
+    in :mod:`tests.eval.test_metrics` against synthetic per-query rows
+    so the AC2 threshold-failure path has a real regression guard
+    that exercises the same code path the live test takes.
     """
     # --- Cold-start gate -------------------------------------------------
     # Import deferred so a fully-cold dev box (no LanceDB installed)
@@ -169,75 +176,140 @@ def test_retrieval_quality(ndcg_min: float) -> None:  # noqa: PLR0915
     # --- RUN cell --------------------------------------------------------
     corpus_version = corpus_info.version
     tbl = open_chunks_table(version=corpus_version)
+    per_query_rows = _run_queries_against_corpus(queries, tbl, encode_query)
+    score_and_write(
+        per_query_rows=per_query_rows,
+        corpus_version=corpus_version,
+        ndcg_min=ndcg_min,
+        output_dir=EVAL_OPS_DIR,
+    )
 
-    per_query_rows: list[dict] = []
-    ndcg_scores: list[float] = []
-    recall_scores: list[float] = []
 
-    for query in queries:
-        query_id = query["query_id"]
-        query_text = query["query_text"]
-        ground_truth = {
-            entry["chunk_id"]: entry["relevance"]
-            for entry in query["relevant_chunks"]
-        }
+# ---------------------------------------------------------------------------
+# RUN-cell helpers (factored for unit-testability per F4)
+# ---------------------------------------------------------------------------
 
-        query_vec = asyncio.run(encode_query(query_text))
 
-        # Dual-column ANN: one search per embedding column. MIN
-        # distance per chunk_id, sorted ascending, top FINAL_TOP_K.
-        per_chunk_min_distance: dict[str, float] = {}
-        for col in EMBEDDING_COLUMNS:
-            arrow = (
-                tbl.search(query_vec, vector_column_name=col)
-                .limit(PER_COLUMN_TOP_K)
-                .to_arrow()
+def _run_queries_against_corpus(
+    queries: list[dict],
+    tbl,  # noqa: ANN001 — lancedb.table.Table; importing for typing pulls heavy deps
+    encode_query,  # noqa: ANN001 — Awaitable[(str) -> np.ndarray]
+) -> list[dict]:
+    """Encode each query, run dual-column ANN, return per-query rows.
+
+    Closes F2 from the E05_S02 critique: encode every query inside a
+    SINGLE event loop rather than calling ``asyncio.run`` per query.
+    The previous one-loop-per-query pattern leaked stale ``Future``
+    objects into ``server.query_encoder._inflight`` (the singleflight
+    cache) — when a second query had identical canonical text, the
+    FAST PATH would await a Future bound to a closed loop and raise
+    ``RuntimeError``. Single-loop-per-test eliminates the stale-Future
+    surface entirely.
+
+    Closes F7 from the E05_S02 critique: per-query KeyError now
+    surfaces as a ``pytest.fail`` with a clear pointer to the
+    fixture validator (E05_S01) rather than a naked traceback that
+    leaves the operator guessing.
+    """
+    loop = asyncio.new_event_loop()
+    try:
+        per_query_rows: list[dict] = []
+        for query_idx, query in enumerate(queries):
+            try:
+                query_id = query["query_id"]
+                query_text = query["query_text"]
+                ground_truth = {
+                    entry["chunk_id"]: entry["relevance"]
+                    for entry in query["relevant_chunks"]
+                }
+            except (KeyError, TypeError) as exc:
+                pytest.fail(
+                    f"queries[{query_idx}] is malformed ({exc!r}); run "
+                    f"`python tools/validate_eval_fixtures.py` to "
+                    f"diagnose. The eval harness trusts the fixture's "
+                    f"shape and the validator is the safety net."
+                )
+
+            query_vec = loop.run_until_complete(encode_query(query_text))
+
+            # Dual-column ANN: one search per embedding column.
+            # MIN-distance per chunk_id (D3 of synthesis), sorted
+            # ascending, top FINAL_TOP_K. In practice the schema
+            # enforces exactly one of stmt/proof per row, so dedup is
+            # rarely active — defense-in-depth.
+            per_chunk_min_distance: dict[str, float] = {}
+            for col in EMBEDDING_COLUMNS:
+                arrow = (
+                    tbl.search(query_vec, vector_column_name=col)
+                    .limit(PER_COLUMN_TOP_K)
+                    .to_arrow()
+                )
+                cids = arrow.column("chunk_id").to_pylist()
+                distances = arrow.column("_distance").to_pylist()
+                for cid, dist in zip(cids, distances, strict=True):
+                    if cid is None or dist is None:
+                        continue
+                    prev = per_chunk_min_distance.get(cid)
+                    if prev is None or dist < prev:
+                        per_chunk_min_distance[cid] = dist
+
+            ranked = sorted(
+                per_chunk_min_distance.items(),
+                key=lambda kv: kv[1],
             )
-            cids = arrow.column("chunk_id").to_pylist()
-            distances = arrow.column("_distance").to_pylist()
-            for cid, dist in zip(cids, distances, strict=True):
-                if cid is None or dist is None:
-                    continue
-                # MIN-distance dedup (D3): a chunk's best-channel
-                # match wins. In practice, schema enforces exactly
-                # one of stmt/proof per row, so collisions are rare;
-                # this is defense-in-depth against future schema
-                # changes (also locked by ``min(...)`` semantics).
-                prev = per_chunk_min_distance.get(cid)
-                if prev is None or dist < prev:
-                    per_chunk_min_distance[cid] = dist
+            retrieved_chunk_ids = [cid for cid, _ in ranked[:FINAL_TOP_K]]
 
-        ranked = sorted(
-            per_chunk_min_distance.items(),
-            key=lambda kv: kv[1],  # ascending distance == descending similarity
-        )
-        retrieved_chunk_ids = [cid for cid, _ in ranked[:FINAL_TOP_K]]
+            ndcg5 = ndcg_at_k(retrieved_chunk_ids, ground_truth, k=NDCG_K)
+            recall10 = recall_at_k(
+                retrieved_chunk_ids, ground_truth, k=FINAL_TOP_K
+            )
 
-        ndcg5 = ndcg_at_k(retrieved_chunk_ids, ground_truth, k=NDCG_K)
-        recall10 = recall_at_k(retrieved_chunk_ids, ground_truth, k=FINAL_TOP_K)
-        ndcg_scores.append(ndcg5)
-        recall_scores.append(recall10)
+            per_query_rows.append(
+                {
+                    "ndcg5": ndcg5,
+                    "query_id": query_id,
+                    "query_text": query_text,
+                    "recall10": recall10,
+                    "retrieved_chunk_ids": retrieved_chunk_ids,
+                }
+            )
+        return per_query_rows
+    finally:
+        loop.close()
 
-        per_query_rows.append(
-            {
-                "ndcg5": ndcg5,
-                "query_id": query_id,
-                "query_text": query_text,
-                "recall10": recall10,
-                "retrieved_chunk_ids": retrieved_chunk_ids,
-            }
-        )
 
-    ndcg5_mean = _mean(ndcg_scores)
-    recall10_mean = _mean(recall_scores)
+def score_and_write(
+    per_query_rows: list[dict],
+    corpus_version: int,
+    ndcg_min: float,
+    output_dir: Path,
+) -> None:
+    """Aggregate, write the result files, and assert the threshold.
 
-    # --- Write the result files (only on the RUN cell) -------------------
-    EVAL_OPS_DIR.mkdir(parents=True, exist_ok=True)
-    results_path = EVAL_OPS_DIR / f"results-{corpus_version}.jsonl"
-    aggregate_path = EVAL_OPS_DIR / f"aggregate-{corpus_version}.json"
+    Factored out per F4 of the E05_S02 critique so the AC2 path is
+    unit-testable without a live corpus.
+    :func:`tests.eval.test_metrics.TestScoreAndWrite` exercises this
+    function with synthetic ``per_query_rows`` to confirm: (a) the
+    JSONL + aggregate files land at the expected paths with the
+    expected schema, and (b) ``ndcg5_mean < ndcg_min`` raises
+    :class:`tests.eval.metrics.ThresholdNotMetError`.
 
-    # JSONL: append-mode (mirrors store-stats / bm25-stats discipline);
-    # one line per query, sort_keys for deterministic byte output.
+    The aggregate file is the drift-detection baseline that E11_S04's
+    watchdog will compare against on a schedule.
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+    results_path = output_dir / f"results-{corpus_version}.jsonl"
+    aggregate_path = output_dir / f"aggregate-{corpus_version}.json"
+
+    ndcg5_mean = _mean(row["ndcg5"] for row in per_query_rows)
+    recall10_mean = _mean(row["recall10"] for row in per_query_rows)
+
+    # JSONL: write-once per corpus_version (truncate-write); the filename
+    # embeds the version so re-runs with the same version overwrite
+    # cleanly. NOT append-mode — the store-stats / bm25-stats append
+    # discipline is for monotonic ops logs, not per-corpus-version
+    # baselines. (Closes F5 from the E05_S02 critique — the original
+    # comment misnamed this as append-mode.)
     with results_path.open("w", encoding="utf-8") as fh:
         for row in per_query_rows:
             fh.write(
@@ -247,7 +319,7 @@ def test_retrieval_quality(ndcg_min: float) -> None:  # noqa: PLR0915
     aggregate = {
         "corpus_version": corpus_version,
         "ndcg5_mean": ndcg5_mean,
-        "query_count": len(queries),
+        "query_count": len(per_query_rows),
         "recall10_mean": recall10_mean,
         "timestamp": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
@@ -256,9 +328,9 @@ def test_retrieval_quality(ndcg_min: float) -> None:  # noqa: PLR0915
         json.dumps(aggregate, ensure_ascii=False, sort_keys=True) + "\n",
     )
 
-    # --- AC1 / AC2: threshold gate ---------------------------------------
-    # Raises ThresholdNotMetError on failure; pytest treats that as a
-    # standard test failure (subclass of AssertionError).
+    # AC1 / AC2: threshold gate. Raises ThresholdNotMetError on
+    # failure (subclass of AssertionError, so pytest treats it as a
+    # standard test failure with rich diff).
     assert_threshold(ndcg5_mean=ndcg5_mean, ndcg_min=ndcg_min)
 
 

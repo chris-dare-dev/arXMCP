@@ -46,6 +46,15 @@ from ingest.embedder import EMBEDDING_DIM
 # inline is a bug.
 CHUNKS_TABLE_NAME = "chunks"
 
+# Names of the two dual-encoding embedding columns. Pinned here so the
+# E05_S02 retrieval-quality test (and any future reader that needs to
+# enumerate searchable vector columns) imports rather than literalizes
+# the column-name strings. Closes F3 from the E05_S02 critique. The
+# tuple ordering is the canonical search order: stmt first, proof
+# second, mirroring the ``EmbedRecord`` field ordering and the
+# ``CHUNKS_SCHEMA_V1`` declaration order below.
+EMBEDDING_COLUMN_NAMES = ("embedding_stmt", "embedding_proof")
+
 
 # ---------------------------------------------------------------------------
 # Schema v1 — the canonical ``chunks`` table layout
