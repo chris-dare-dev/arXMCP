@@ -58,17 +58,24 @@ Try: make eval PYTHON=python3.$(MIN_PY_MINOR)'"
 
 # Start the long-running arxmcp-server (E06_S01). Binds to 127.0.0.1
 # only (Threat 4); container deployments expose the port via host
-# port-mapping. Override the bind via ARXMCP_BIND_PORT and the LanceDB
-# path via ARXMCP_LANCEDB_PATH; full env-var list in server/config.py.
+# port-mapping. Honors ARXMCP_BIND_HOST and ARXMCP_BIND_PORT (and
+# all other ARXMCP_* env vars per server/config.py).
 #
 # The server eager-loads BGE-M3 at startup (~5-30s) before /readyz
 # flips to 200. Use the docker image (docker/Dockerfile.server) for
 # production; this target is for local dev.
+#
+# Closes IS3 from the E06_S01 critique: invokes ``python -m
+# server.main`` (rather than the bare ``uvicorn server.main:app``
+# CLI form) so the env-var bind overrides actually apply. The
+# ``__main__`` block in server/main.py reads Config and passes
+# bind_host / bind_port into uvicorn.run(). The CLI form would
+# silently ignore ARXMCP_BIND_PORT.
 up:
 	@$(PYTHON) -c "import sys; assert sys.version_info >= (3, $(MIN_PY_MINOR)), \
 		f'arXMCP requires Python >= 3.$(MIN_PY_MINOR); got {sys.version_info[:2]}. \
 Try: make up PYTHON=python3.$(MIN_PY_MINOR)'"
-	$(PYTHON) -m uvicorn server.main:app --host 127.0.0.1 --port 7733 --lifespan on
+	$(PYTHON) -m server.main
 
 ingest:
 	@echo "make ingest — not yet implemented (the seed corpus tooling lives in tools/)"

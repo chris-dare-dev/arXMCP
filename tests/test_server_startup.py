@@ -150,19 +150,30 @@ class TestHealthEndpoints:
         Resources still returns 200. The brief AC: *"GET /healthz
         returns 200 before readiness."*
 
-        We construct the app but do NOT enter the TestClient context
-        manager (no lifespan firing); ``/healthz`` should still
-        respond 200 because liveness is independent of warm state.
+        Closes F6 from the E06_S01 critique — the original test
+        body opened a TestClient context manager (which fires the
+        lifespan) and ``pass``-ed without making any request. This
+        version constructs the app, then probes ``/healthz`` via a
+        TestClient that does NOT enter its context manager (so no
+        lifespan fires), and asserts both (a) status 200, (b) the
+        body is the documented liveness payload, AND (c) the
+        ``app.state.resources`` attribute is unset at the time
+        ``/healthz`` was hit.
         """
+        from fastapi.testclient import TestClient as _TC
+
         cfg = Config(lancedb_path=seeded_lancedb)
         app = create_app(cfg)
-        # No TestClient context manager: we route the request through
-        # the ASGI app directly via a non-lifespan client.
-        from starlette.testclient import TestClient as _TestClient
-
-        with _TestClient(app, raise_server_exceptions=False) as _:
-            # Even before lifespan-warm, /healthz should be 200.
-            pass
+        # Sanity: no resources attached yet (no lifespan fired).
+        assert getattr(app.state, "resources", None) is None
+        client = _TC(app)
+        r = client.get("/healthz")
+        assert r.status_code == 200
+        assert r.json() == {"status": "ok"}
+        # Re-confirm the lifespan did NOT fire as a side effect of
+        # the bare GET — this is the load-bearing invariant for the
+        # AC "/healthz returns 200 BEFORE readiness".
+        assert getattr(app.state, "resources", None) is None
 
 
 # ===========================================================================
@@ -182,6 +193,30 @@ class TestReadinessTransition:
         assert body["warm"]["lancedb"] is True
         # Reranker disabled by default → not warm.
         assert body["warm"]["reranker"] is False
+
+    def test_readyz_reaches_200_within_30s(self, seeded_lancedb, mocked_bge_m3):
+        """AC: server reaches /readyz 200 within 30 seconds.
+
+        Closes F7 from the E06_S01 critique. The brief AC is a
+        BUDGET assertion, not an "eventually 200" assertion. With
+        mocked BGE-M3 the lifespan completes in milliseconds; a
+        regression that made the embedder load take 35 s would NOT
+        trip the bare ``test_readyz_200_when_warm`` test. This
+        version times the lifespan + first /readyz round-trip and
+        asserts elapsed < 30s.
+        """
+        cfg = Config(lancedb_path=seeded_lancedb)
+        app = create_app(cfg)
+        reset_metrics_for_tests()
+        start = time.monotonic()
+        with TestClient(app) as client:
+            r = client.get("/readyz")
+            assert r.status_code == 200
+        elapsed = time.monotonic() - start
+        assert elapsed < 30.0, (
+            f"Lifespan + first /readyz exceeded the 30s budget: "
+            f"elapsed={elapsed:.3f}s"
+        )
 
     def test_readyz_503_when_resources_absent(self, seeded_lancedb, mocked_bge_m3):
         """If the lifespan has not run, ``/readyz`` returns 503 with
@@ -312,12 +347,22 @@ class TestPortConflict:
             t = threading.Thread(target=_runner, daemon=True)
             t.start()
             t.join(timeout=5.0)
-            # Either the thread captured an OSError/SystemExit, OR
-            # uvicorn handled it internally and exited the loop. The
-            # AC's bar is "clear error, not silent hang" — the
-            # 5-second join is the silent-hang detector.
+            # The 5-second join is the silent-hang detector.
             assert not t.is_alive(), (
                 "uvicorn hung instead of failing on port conflict"
+            )
+            # F8 fix: assert on the captured exception type, not
+            # just thread liveness. A future uvicorn that silently
+            # exits 0 on EADDRINUSE would pass the liveness check
+            # but break the AC's "clear error" promise.
+            assert err_box, (
+                "uvicorn exited without raising; expected an OSError "
+                "/ SystemExit on port conflict"
+            )
+            exc_type, exc_msg = err_box[0]
+            assert exc_type in {"OSError", "SystemExit"}, (
+                f"expected OSError or SystemExit on port conflict; "
+                f"got {exc_type}: {exc_msg}"
             )
         finally:
             s.close()
@@ -523,6 +568,194 @@ class TestSingleflight:
                 await sf.run("k", factory)
 
         asyncio.run(go())
+
+    def test_slow_path_cancel_does_not_break_fast_waiters(self):
+        """F3 close: cancelling the slow-path caller must NOT cancel
+        the shared task; fast-path waiters still receive the result.
+
+        Reproduces the bug F1-from-E03_S03 closed for the embedder
+        singleflight, but for this generic class.
+        """
+        sf = Singleflight()
+        invocations = []
+
+        async def factory():
+            invocations.append(1)
+            await asyncio.sleep(0.05)
+            return "result"
+
+        async def go():
+            # Start the slow-path caller, give it time to register
+            # the in-flight task, then start a fast-path waiter,
+            # cancel the slow-path, and assert the fast-path still
+            # gets the result.
+            slow = asyncio.create_task(sf.run("k", factory))
+            await asyncio.sleep(0.005)  # let slow path register
+            fast = asyncio.create_task(sf.run("k", factory))
+            await asyncio.sleep(0.005)  # let fast path register
+            slow.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await slow
+            # fast-path must still complete with the result
+            result = await fast
+            assert result == "result"
+            assert len(invocations) == 1
+            # dedup count incremented because fast-path saw the
+            # in-flight task.
+            assert sf.dedup_count == 1
+
+        asyncio.run(go())
+
+
+# ===========================================================================
+# F1 — BodySizeCapMiddleware actually fires
+# ===========================================================================
+
+
+class TestBodySizeCap:
+    """Closes F1 from the E06_S01 critique: the original
+    ``BodySizeCapMiddleware`` was a silent no-op because Starlette
+    wraps responses in ``_StreamingResponse`` whose payload lives in
+    ``body_iterator``, not ``body``. The pure-ASGI rewrite intercepts
+    the body events directly and short-circuits with 413."""
+
+    @pytest.fixture
+    def small_cap_app(self, seeded_lancedb, mocked_bge_m3):
+        """An app with byte_cap=10 so a routine response trips the
+        413 rewrite. Mounts a debug ``/__test_oversize`` route that
+        returns 100 bytes."""
+        cfg = Config(lancedb_path=seeded_lancedb, result_byte_cap=10)
+        app = create_app(cfg)
+
+        @app.get("/__test_oversize")
+        async def oversize() -> dict:
+            return {"data": "x" * 200}  # JSON body well over 10 bytes
+
+        @app.get("/__test_under")
+        async def under() -> dict:
+            return {"ok": 1}  # JSON body well under 10 bytes... actually ~10
+
+        with TestClient(app) as client:
+            yield client
+
+    def test_oversize_response_returns_413(self, small_cap_app):
+        r = small_cap_app.get("/__test_oversize")
+        assert r.status_code == 413
+        body = r.json()
+        assert body["error"] == "payload_too_large"
+        assert body["byte_cap"] == 10
+
+    def test_exempt_path_bypasses_cap(self, small_cap_app):
+        """``/healthz`` returns its normal 200 even with byte_cap=10
+        (the response body is ``{"status": "ok"}`` ≈ 16 bytes, over
+        the cap)."""
+        r = small_cap_app.get("/healthz")
+        assert r.status_code == 200
+
+    def test_metrics_path_bypasses_cap(self, small_cap_app):
+        """Prometheus exposition ALWAYS exceeds 10 bytes; must not
+        be capped."""
+        r = small_cap_app.get("/metrics")
+        assert r.status_code == 200
+
+
+# ===========================================================================
+# F2 — MCP /mcp endpoint serves tools/list end-to-end
+# ===========================================================================
+
+
+class TestMcpEndToEnd:
+    """Closes F2 from the E06_S01 critique: the MCP session-manager
+    lifespan must be threaded into the parent FastAPI lifespan, OR
+    the first /mcp request raises ``RuntimeError: Task group is not
+    initialized``. The original implementation lacked this; this
+    test exercises a real round-trip with zero tools registered."""
+
+    def test_tools_list_returns_empty(self, warm_app):
+        """POST /mcp/ with an initialize JSON-RPC request returns
+        a non-500 (i.e. the MCP session manager IS running).
+
+        The mcp library's own DNS-rebinding protection rejects
+        TestClient's default ``testserver`` Host header with 421;
+        we pass ``Host: 127.0.0.1:7733`` to satisfy the protection.
+        The exact tools/list round-trip (session-id handshake,
+        SSE framing) is exercised end-to-end in E06_S03 once tools
+        are registered. The minimum bar this milestone enforces:
+        the session manager IS running, so initialize doesn't
+        raise the "Task group is not initialized" error.
+        """
+        init_resp = warm_app.post(
+            "/mcp/",
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "1.0"},
+                },
+            },
+            headers={
+                "Accept": "application/json, text/event-stream",
+                "Content-Type": "application/json",
+                "Host": "127.0.0.1:7733",
+            },
+        )
+        # 200/202 = OK. The bug we're closing was: every POST to
+        # /mcp/ returned 500 "Task group is not initialized" because
+        # the session-manager lifespan never ran. Anything other
+        # than that 500 means F2 is closed.
+        assert init_resp.status_code != 500, (
+            f"MCP /mcp endpoint returned 500 — likely the F2 'Task "
+            f"group not initialized' regression. Body: "
+            f"{init_resp.text[:300]}"
+        )
+        # Belt + suspenders: the response body must NOT mention
+        # "Task group" — that would mean the session-manager
+        # lifespan threading regressed even with a non-500 status.
+        assert "Task group" not in init_resp.text, (
+            f"MCP response body mentions 'Task group' — F2 may have "
+            f"regressed. Body: {init_resp.text[:300]}"
+        )
+
+
+# ===========================================================================
+# F4 — startup-time scan for unknown ARXMCP_* env vars
+# ===========================================================================
+
+
+class TestEnvVarScan:
+    """Closes F4 from the E06_S01 critique:
+    pydantic-settings's ``extra="forbid"`` only fires for direct
+    ``__init__`` kwargs, NOT for env-var input. So a typo like
+    ``ARXMCP_BIND_HOST_TYPO`` was silently ignored. The startup-
+    time scan in :func:`server.main._scan_unknown_arxmcp_env_vars`
+    catches it."""
+
+    def test_unknown_env_var_rejected(self, monkeypatch):
+        from server.main import _scan_unknown_arxmcp_env_vars
+
+        monkeypatch.setenv("ARXMCP_DOES_NOT_EXIST", "x")
+        with pytest.raises(ValueError, match="unknown ARXMCP_"):
+            _scan_unknown_arxmcp_env_vars(Config(bind_host="127.0.0.1"))
+
+    def test_known_env_vars_pass(self, monkeypatch):
+        """Setting the canonical env vars must NOT trip the scan."""
+        from server.main import _scan_unknown_arxmcp_env_vars
+
+        monkeypatch.setenv("ARXMCP_BIND_HOST", "127.0.0.1")
+        monkeypatch.setenv("ARXMCP_BIND_PORT", "7733")
+        # Should not raise.
+        _scan_unknown_arxmcp_env_vars(Config())
+
+    def test_create_app_rejects_unknown_env(self, monkeypatch, seeded_lancedb):
+        """create_app() invokes the scan; an unknown env var fails
+        app construction, not lifespan startup."""
+        monkeypatch.setenv("ARXMCP_BOGUS_VAR", "1")
+        cfg = Config(lancedb_path=seeded_lancedb)
+        with pytest.raises(ValueError, match="unknown ARXMCP_"):
+            create_app(cfg)
 
 
 # Suppress unused-import warning — `time` is used in the docstring example.

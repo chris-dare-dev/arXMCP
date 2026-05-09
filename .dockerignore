@@ -1,0 +1,47 @@
+# Exclude paths from the Docker build context (E06_S01).
+#
+# Closes IS2 from the E06_S01 critique. Without this file, every
+# `docker build .` ships the entire working directory as the build
+# context — including `.git/`, `var/arxmcp/` (potentially GBs of
+# LanceDB blobs), and `.claude/` (project notes + state). Concrete
+# benefits:
+#
+# 1. Build performance: the context tar is bounded.
+# 2. Image-bloat defense in depth: a future `COPY . .` regression
+#    would still not include `var/`.
+# 3. Secret-leakage defense: `.git/objects` excluded means a rotated
+#    secret stays out of every build context.
+
+.git/
+.gitignore
+.dockerignore
+
+# Project notes, milestone state, sub-agent outputs.
+.claude/
+
+# Runtime data (LanceDB blobs, downloaded papers, parser failures,
+# embedding NPZs). Operators bind-mount their own data at run time.
+var/
+
+# Tests, docs, infra not needed for the runtime image.
+tests/
+docs/
+infra/
+shim/
+
+# Python build / cache artifacts.
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+.venv/
+.ruff_cache/
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+
+# Editor / OS files.
+.DS_Store
+*.swp
+.vscode/
+.idea/

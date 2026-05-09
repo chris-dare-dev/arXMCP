@@ -152,38 +152,48 @@ class Singleflight:
         concurrent callers with the same key.
 
         ``coro_factory`` is a no-arg callable returning a coroutine
-        (NOT a coroutine itself). This is the same contract as
-        :func:`asyncio.shield`'s wrapper pattern — the factory is
-        invoked at most once per in-flight key.
+        (NOT a coroutine itself). The factory is invoked at most
+        once per in-flight key.
+
+        **Cancellation safety (closes F3 from the E06_S01 critique).**
+        We submit the factory's coroutine as a separate
+        :class:`asyncio.Task` and have BOTH the slow-path runner
+        AND every fast-path waiter await it via
+        :func:`asyncio.shield`. Cancelling any individual caller
+        only unwinds that caller's await; the shared task keeps
+        running, sets its result, and remaining waiters receive it.
+        This mirrors the ``loop.run_in_executor``-based discipline
+        in :func:`server.query_encoder.encode_query` — both isolate
+        the underlying work from caller-driven cancellation.
         """
         # Fast path: a future is already in flight for this key.
         async with self._lock:
-            inflight = self._inflight.get(key)
-            if inflight is not None:
+            inflight_task = self._inflight.get(key)
+            if inflight_task is not None:
                 self._dedup_count += 1
-                fast_path = True
-            else:
-                fast_path = False
-                fut: asyncio.Future = asyncio.get_running_loop().create_future()
-                self._inflight[key] = fut
-        if fast_path:
-            # Use ``shield`` so cancelling THIS caller does NOT
-            # cancel the shared in-flight future for other waiters.
-            return await asyncio.shield(inflight)
+                # Shield protects THIS caller's cancellation from
+                # propagating to the shared task; the shared task
+                # keeps running.
+                return await asyncio.shield(inflight_task)
+            # Slow path: WE schedule the task. Create the task
+            # FIRST, then register it under the key so concurrent
+            # fast-path lookups see it.
+            task = asyncio.get_running_loop().create_task(coro_factory())
+            self._inflight[key] = task
 
-        # Slow path: WE are the singleton runner.
-        try:
-            result = await coro_factory()
-            fut.set_result(result)
-        except BaseException as exc:  # noqa: BLE001 — we re-raise after recording
-            fut.set_exception(exc)
-            raise
-        finally:
-            # Evict regardless of success/failure so a subsequent call
-            # with the same key doesn't await a stale completed future.
-            async with self._lock:
-                self._inflight.pop(key, None)
-        return await fut
+        # Eviction is best-effort: schedule it via the task's done
+        # callback so it fires once even if the slow-path caller is
+        # cancelled (the task itself runs to completion under the
+        # shield).
+        def _evict(_t: asyncio.Task) -> None:
+            self._inflight.pop(key, None)
+
+        task.add_done_callback(_evict)
+        # The slow-path caller awaits the same shielded task as fast-
+        # path waiters. ``asyncio.shield`` here lets the slow caller
+        # be cancelled without killing the underlying task — other
+        # waiters still get their result.
+        return await asyncio.shield(task)
 
     @property
     def dedup_count(self) -> int:
@@ -265,10 +275,19 @@ class Resources:
             corpus_info.embedder_version,
         )
 
-        # 2. LanceDB handle — open ONCE at the pinned version.
-        chunks_table = open_chunks_table(
-            lancedb_path=config.lancedb_path,
-            version=corpus_info.version,
+        # 2. LanceDB handle — open ONCE at the pinned version. F13
+        # fix: `open_chunks_table` is a synchronous file-I/O call
+        # (LanceDB dataset open). Run in the default executor so we
+        # don't block the event loop during startup. The discipline
+        # mirrors step 3 (the embedder load) which is already
+        # off-loaded.
+        loop = asyncio.get_running_loop()
+        chunks_table = await loop.run_in_executor(
+            None,
+            lambda: open_chunks_table(
+                lancedb_path=config.lancedb_path,
+                version=corpus_info.version,
+            ),
         )
         logger.info(
             "Resources.startup: opened LanceDB chunks at version=%d",
@@ -277,7 +296,6 @@ class Resources:
 
         # 3. Eager BGE-M3 load (forces query_encoder's singletons to
         #    populate; subsequent calls hit cached model + tokenizer).
-        loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, _get_tokenizer)
         await loop.run_in_executor(None, _get_model)
         logger.info("Resources.startup: BGE-M3 embedder warm")

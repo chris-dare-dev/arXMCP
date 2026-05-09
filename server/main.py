@@ -11,8 +11,11 @@ The long-running ``arxmcp-server`` process. Wires:
   :func:`server.mcp_mount.mount_mcp` (no tools registered yet —
   E06_S03 lands the tool implementations).
 
-**Run via uvicorn**: ``uvicorn server.main:app --host 127.0.0.1
---port 7733`` or, equivalently, ``make up``.
+**Run via uvicorn**: ``python -m server.main`` (preferred — honors
+``ARXMCP_BIND_HOST`` / ``ARXMCP_BIND_PORT`` via :class:`Config`) or,
+equivalently, ``make up``. The ``uvicorn server.main:app`` CLI form
+also works but does NOT honor the env-var bind overrides — closes
+IS3+IS4 from the E06_S01 critique.
 
 **Lifespan-style startup/shutdown**, NOT the deprecated
 ``@app.on_event("startup")`` decorator (FastAPI ≥0.93). The
@@ -21,12 +24,30 @@ startup, post-yield is shutdown. The brief mandates a 30-second
 shutdown drain — :meth:`Resources.shutdown` is wrapped in
 ``asyncio.wait_for(..., timeout=30)``.
 
-**Body-size middleware (synthesis D13)**. A custom
-``BaseHTTPMiddleware`` enforces the 256 KB inline-payload cap on
-every response EXCEPT ``/metrics`` (Prometheus exposition can grow
-large) and the health endpoints (negligible size). Tool implementations
-in E06_S03 will rely on this universal cap rather than each tool
-remembering its own size budget.
+The lifespan ALSO threads the MCP library's session-manager
+lifespan into the parent's lifespan (closes F2 from the E06_S01
+critique). ``FastMCP.streamable_http_app()`` returns a Starlette
+sub-app whose lifespan opens a task group used by every request;
+mounting the sub-app via ``app.mount`` does NOT propagate that
+lifespan to the parent FastAPI app, so without the explicit
+threading the first request to ``/mcp`` raises ``RuntimeError:
+Task group is not initialized``. We capture the FastMCP instance
+on ``app.state.mcp_server`` and ``async with
+mcp_server.session_manager.run()`` from inside the parent
+lifespan.
+
+**Body-size middleware (synthesis D13, F1 fix).** A pure-ASGI
+middleware enforces the 256 KB inline-payload cap on every
+response EXCEPT ``/metrics`` (Prometheus exposition can grow
+large), the health endpoints (negligible size), and the ``/mcp``
+endpoint (Streamable HTTP carries SSE streams that defeat
+buffering). The original ``BaseHTTPMiddleware`` implementation was
+a silent no-op because Starlette wraps every response in a
+``_StreamingResponse`` whose body lives in ``body_iterator``, not
+``body`` — see F1 in the E06_S01 critique. The new pure-ASGI
+implementation observes ``http.response.body`` events and
+short-circuits with a 413 if the cumulative bytes exceed the cap
+on a non-exempt path.
 
 **Why eager startup is load-bearing**. ``/readyz`` returns 503 until
 the embedder + LanceDB are warm. Lazy load would make the first
@@ -39,7 +60,9 @@ seconds."
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import os
 import sys
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
@@ -47,9 +70,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI
 from prometheus_client import make_asgi_app
-from starlette.middleware.base import BaseHTTPMiddleware
 
 from server.config import Config
 from server.health import (
@@ -58,78 +80,177 @@ from server.health import (
 from server.health import (
     router as health_router,
 )
-from server.resources import Resources, ResourceStartupError
+from server.resources import Resources
 
 logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Body-size middleware (256 KB cap on tool responses)
+# Body-size middleware (256 KB cap on tool responses) — pure ASGI
 # ---------------------------------------------------------------------------
 
 
-#: Paths exempt from the 256 KB cap. Prometheus exposition and the
-#: health endpoints can exceed the cap legitimately (especially
-#: ``/metrics`` with large registries).
-_BYTE_CAP_EXEMPT_PATHS = frozenset({"/healthz", "/readyz", "/metrics"})
+#: Path PREFIXES exempt from the 256 KB cap.
+#:
+#: - ``/metrics``: Prometheus exposition can legitimately exceed the
+#:   cap on registries with many time series.
+#: - ``/healthz`` + ``/readyz``: tiny response bodies.
+#: - ``/mcp``: the Streamable HTTP transport carries SSE streams
+#:   whose total size cannot be measured without buffering the
+#:   entire stream (which defeats the streaming benefit). MCP-spec
+#:   tools that need to return large payloads MUST use
+#:   ``resource_link`` per the spec — that resource_link IS the
+#:   "<256 KB pointer to the larger payload" pattern. The cap fires
+#:   on the resource-resolved fetch, not on the SSE chunks.
+_BYTE_CAP_EXEMPT_PREFIXES = ("/healthz", "/readyz", "/metrics", "/mcp")
 
 
-class BodySizeCapMiddleware(BaseHTTPMiddleware):
-    """Universal cap on response body bytes (synthesis D13).
+def _is_exempt_path(path: str) -> bool:
+    """Return True if ``path`` should bypass the body-size cap."""
+    return any(path == p or path.startswith(p + "/") for p in _BYTE_CAP_EXEMPT_PREFIXES)
 
-    Enforced as middleware so every tool response goes through a
-    single check, rather than each tool remembering its own size
-    budget. Per-tool caps are easier to forget; the universal cap
-    makes the contract enforceable.
 
-    The cap value comes from :attr:`Config.result_byte_cap` (default
-    256 KB). Exempt paths (see :data:`_BYTE_CAP_EXEMPT_PATHS`) bypass
-    the check entirely; on a non-exempt path that exceeds the cap,
-    the response is rewritten to a 413 (Payload Too Large) with a
-    JSON body explaining the failure.
+class BodySizeCapMiddleware:
+    """Pure-ASGI middleware enforcing the 256 KB inline-result cap.
 
-    **Streaming responses are passed through.** The MCP spec's SSE
-    streaming path returns ``text/event-stream`` and is inherently
-    streaming — measuring its accumulated bytes would require
-    buffering the entire stream, defeating the streaming benefit.
-    The size cap applies to single-response (non-streaming) JSON
-    payloads only. Tool implementations that need to return large
-    payloads MUST use ``resource_link`` per the MCP spec.
+    Closes F1 from the E06_S01 critique. The previous
+    ``BaseHTTPMiddleware`` implementation was a silent no-op because
+    Starlette wraps every response in a ``_StreamingResponse`` whose
+    payload lives in ``body_iterator``, NOT a ``body`` attribute —
+    so ``getattr(response, "body", None)`` always returned ``None``
+    and the size check never fired.
+
+    The pure-ASGI form intercepts ``http.response.start`` and
+    ``http.response.body`` events. We accumulate body bytes; if the
+    total exceeds ``byte_cap`` on a non-exempt path, we abort the
+    upstream response (drop further body events) and emit a 413 in
+    its place.
+
+    **Limitation.** A response that has already sent the
+    ``http.response.start`` event downstream cannot have its status
+    changed (HTTP semantics — once headers are sent, status is
+    locked). So we BUFFER the start event until the first body
+    chunk arrives, by which point we know the true content length
+    (or at least an over-cap signal). If the body is delivered in
+    one chunk and stays under the cap, we forward both events
+    unchanged. If we exceed the cap mid-stream, we synthesize a 413
+    response. This adds one event of latency for the small-payload
+    path; acceptable for a 256 KB cap.
     """
 
     def __init__(self, app, byte_cap: int) -> None:
-        super().__init__(app)
+        self.app = app
         self.byte_cap = byte_cap
 
-    async def dispatch(self, request: Request, call_next):
-        response: Response = await call_next(request)
-        if request.url.path in _BYTE_CAP_EXEMPT_PATHS:
-            return response
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            # Lifespan, websocket — pass through unchanged.
+            await self.app(scope, receive, send)
+            return
 
-        # Streaming responses (SSE, file streams) don't expose a
-        # finite ``body`` attribute; pass them through.
-        body = getattr(response, "body", None)
-        if body is None:
-            return response
+        path = scope.get("path", "")
+        if _is_exempt_path(path):
+            await self.app(scope, receive, send)
+            return
 
-        if len(body) > self.byte_cap:
-            from fastapi.responses import JSONResponse
+        # Stateful interceptor: buffer the start event, count body
+        # bytes, abort with 413 if we exceed the cap.
+        start_event: dict | None = None
+        body_bytes = 0
+        sent_start = False
+        cap_exceeded = False
 
-            return JSONResponse(
-                status_code=413,
-                content={
-                    "error": "payload_too_large",
-                    "message": (
-                        f"response body of {len(body)} bytes exceeds "
-                        f"the configured cap of {self.byte_cap} "
-                        f"bytes; tools returning large payloads must "
-                        f"use resource_link per the MCP 2025-06-18 spec"
-                    ),
-                    "byte_cap": self.byte_cap,
-                    "body_size": len(body),
-                },
-            )
-        return response
+        async def wrapped_send(event):
+            nonlocal start_event, body_bytes, sent_start, cap_exceeded
+            if cap_exceeded:
+                # We've already sent a 413; swallow any further events
+                # from the upstream handler.
+                return
+            if event["type"] == "http.response.start":
+                # Hold onto it until the first body event arrives so
+                # we can rewrite to 413 if needed.
+                start_event = event
+                return
+            if event["type"] != "http.response.body":
+                # Trailers etc — pass through.
+                await send(event)
+                return
+
+            chunk = event.get("body", b"")
+            body_bytes += len(chunk)
+
+            if body_bytes > self.byte_cap:
+                # Over the cap. Emit a 413 response and stop.
+                cap_exceeded = True
+                payload = json.dumps(
+                    {
+                        "error": "payload_too_large",
+                        "message": (
+                            f"response body of >={body_bytes} bytes exceeds "
+                            f"the configured cap of {self.byte_cap} bytes; "
+                            f"tools returning large payloads must use "
+                            f"resource_link per the MCP 2025-06-18 spec"
+                        ),
+                        "byte_cap": self.byte_cap,
+                    }
+                ).encode("utf-8")
+                await send(
+                    {
+                        "type": "http.response.start",
+                        "status": 413,
+                        "headers": [
+                            (b"content-type", b"application/json"),
+                            (b"content-length", str(len(payload)).encode("ascii")),
+                        ],
+                    }
+                )
+                await send(
+                    {
+                        "type": "http.response.body",
+                        "body": payload,
+                        "more_body": False,
+                    }
+                )
+                return
+
+            # Under cap so far. Flush the held start event then this
+            # body event.
+            if not sent_start:
+                assert start_event is not None
+                await send(start_event)
+                sent_start = True
+            await send(event)
+
+        await self.app(scope, receive, wrapped_send)
+
+
+# ---------------------------------------------------------------------------
+# ARXMCP_* env-var validator (closes F4)
+# ---------------------------------------------------------------------------
+
+
+def _scan_unknown_arxmcp_env_vars(config: Config) -> None:
+    """Reject any ``ARXMCP_*`` env var not declared on :class:`Config`.
+
+    Closes F4 from the E06_S01 critique. ``pydantic-settings``'s
+    ``extra="forbid"`` only fires for direct ``__init__`` kwargs —
+    NOT for env-var input. So a typo like ``ARXMCP_BIND_HOST_TYPO``
+    or a documented-but-unimplemented var like ``ARXMCP_OTEL_ENDPOINT``
+    is silently ignored. This scan walks ``os.environ`` for every
+    ``ARXMCP_*`` key and asserts it maps to a declared field.
+    """
+    declared = {f"ARXMCP_{name.upper()}" for name in Config.model_fields}
+    unknown = []
+    for env_name in os.environ:
+        if env_name.startswith("ARXMCP_") and env_name not in declared:
+            unknown.append(env_name)
+    if unknown:
+        raise ValueError(
+            f"unknown ARXMCP_* environment variables: {sorted(unknown)}. "
+            f"Declared variables: {sorted(declared)}. A typo here would "
+            f"silently bypass the documented config — fix or remove the "
+            f"variable."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -142,28 +263,41 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Startup → yield → shutdown.
 
     Startup: build :class:`Resources`, attach to ``app.state.resources``.
-    Shutdown: 30-second drain via :meth:`Resources.shutdown`.
+    Also threads the MCP session-manager lifespan into the parent
+    lifespan (F2 fix); without that, MCP requests raise
+    ``RuntimeError: Task group is not initialized`` on the first
+    call.
 
-    A startup failure (missing corpus marker, reranker model
-    unavailable, LanceDB open failure) raises
-    :class:`ResourceStartupError`. The lifespan logs ``FATAL: ...``
-    and re-raises so uvicorn exits non-zero — ``/readyz`` never
-    opens.
+    Shutdown: 30-second drain via :meth:`Resources.shutdown`. Any
+    startup failure raises and uvicorn exits non-zero — ``/readyz``
+    never opens. Closes F9 from the E06_S01 critique by catching
+    not just :class:`ResourceStartupError` but the broader
+    ``Exception`` (LanceDB raises ``FileNotFoundError`` /
+    ``ValueError`` outside the ``ResourceStartupError`` hierarchy).
     """
     config: Config = app.state.config
+
+    # F9 fix: catch the broad Exception so LanceDB errors get the
+    # FATAL prefix too.
     try:
         resources = await Resources.startup(config)
-    except ResourceStartupError as exc:
-        logger.error("FATAL: %s", exc)
+    except Exception as exc:
+        logger.error("FATAL: Resources.startup failed: %s", exc)
         raise
 
     app.state.resources = resources
-    # Prime the Prometheus metrics with the freshly-warm state so the
-    # first ``/metrics`` scrape sees the correct values.
     refresh_metrics_from_singleton_state(resources)
 
+    # F2 fix: thread the MCP session-manager lifespan into ours. The
+    # mcp_server is attached to app.state by ``mount_mcp``.
+    mcp_server = getattr(app.state, "mcp_server", None)
+
     try:
-        yield
+        if mcp_server is not None:
+            async with mcp_server.session_manager.run():
+                yield
+        else:
+            yield
     finally:
         try:
             await asyncio.wait_for(resources.shutdown(), timeout=30.0)
@@ -190,6 +324,11 @@ def create_app(config: Config | None = None) -> FastAPI:
     """
     cfg = config if config is not None else Config()
 
+    # F4 fix: scan os.environ for unknown ARXMCP_* vars BEFORE we
+    # build the app. Belt + suspenders for typos that pydantic-
+    # settings silently ignores.
+    _scan_unknown_arxmcp_env_vars(cfg)
+
     app = FastAPI(
         title="arxmcp-server",
         description=(
@@ -207,21 +346,17 @@ def create_app(config: Config | None = None) -> FastAPI:
     )
     app.state.config = cfg
 
-    # Universal body-size cap.
+    # Universal body-size cap (pure ASGI — closes F1).
     app.add_middleware(BodySizeCapMiddleware, byte_cap=cfg.result_byte_cap)
 
     # Health + readiness routes.
     app.include_router(health_router)
 
     # Metrics ASGI sub-app. We wrap with a tiny middleware that
-    # refreshes the gauges from the resources state at scrape time —
-    # otherwise the gauges would only carry whatever the lifespan
-    # primed at startup. The wrapper does NOT itself enforce the
-    # body-size cap (the universal middleware exempts ``/metrics``).
+    # refreshes the gauges from the resources state at scrape time.
     metrics_app = make_asgi_app()
 
     async def metrics_wrapper(scope, receive, send):
-        # Refresh from the live resources, if attached.
         resources: Resources | None = getattr(
             app.state, "resources", None
         )
@@ -245,6 +380,9 @@ def create_app(config: Config | None = None) -> FastAPI:
         # tool registration in the next milestone.
         mcp_server = FastMCP("arxmcp")
         mount_mcp(app, mcp_server)
+        # F2 fix: stash on app.state so the lifespan can thread the
+        # session-manager lifespan into ours.
+        app.state.mcp_server = mcp_server
     except ImportError as exc:
         logger.error(
             "FATAL: mcp library not installed (%s); install via "
@@ -278,9 +416,16 @@ app = _build_module_app() if __name__ != "__main__" else None
 
 
 if __name__ == "__main__":
+    # IS3+IS4 fix: the ``__main__`` path uses Config to source the
+    # bind host/port, so ``ARXMCP_BIND_HOST`` / ``ARXMCP_BIND_PORT``
+    # are honored. Use this entry point (``python -m server.main``)
+    # rather than the bare ``uvicorn server.main:app`` form for
+    # env-var-aware binding.
     import uvicorn
 
     cfg = Config()
+    _scan_unknown_arxmcp_env_vars(cfg)
+    logging.basicConfig(level=cfg.log_level)
     logger.info(
         "Starting arxmcp-server on %s:%d", cfg.bind_host, cfg.bind_port
     )
@@ -295,6 +440,7 @@ if __name__ == "__main__":
 
 __all__ = [
     "BodySizeCapMiddleware",
+    "_scan_unknown_arxmcp_env_vars",
     "app",
     "create_app",
     "lifespan",

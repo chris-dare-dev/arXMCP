@@ -82,8 +82,19 @@ def mount_mcp(
     # Configure FastMCP's internal path to "/" so the sub-app route
     # is at the root of its own ASGI app. This MUST happen BEFORE
     # ``streamable_http_app()`` is invoked.
+    #
+    # F11 fix: save and restore the prior ``streamable_http_path``
+    # so a caller passing the same ``mcp_server`` to multiple
+    # ``mount_mcp`` calls doesn't see the settings stuck at "/".
+    # The ``streamable_http_app()`` call captures the current value
+    # internally; restoring afterwards leaves the settings object
+    # unchanged from the caller's perspective.
+    prior_path = mcp_server.settings.streamable_http_path
     mcp_server.settings.streamable_http_path = "/"
-    sub_app = mcp_server.streamable_http_app()
+    try:
+        sub_app = mcp_server.streamable_http_app()
+    finally:
+        mcp_server.settings.streamable_http_path = prior_path
     app.mount(path, sub_app)
     logger.info(
         "MCP Streamable HTTP app mounted; endpoint path=%s "

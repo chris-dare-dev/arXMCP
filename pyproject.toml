@@ -1,3 +1,19 @@
+[build-system]
+# Closes F5+IS1 from the E06_S01 critique. Without an explicit
+# build-system + tool.setuptools.packages declaration, setuptools'
+# auto-discovery refuses to build because the flat layout has
+# >1 top-level dir (var/, shim/, infra/, docker/, ingest/, server/,
+# tests/, tools/). The ``pip install -e .`` in docker/Dockerfile.server
+# AND in ``make bootstrap`` would both fail without this.
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+# Restrict the install graph to the actual Python packages. This is
+# the canonical fix for the "multiple top-level packages discovered
+# in a flat-layout" setuptools error.
+packages = ["server", "ingest", "tools"]
+
 [project]
 name = "arxmcp"
 version = "0.1.0"

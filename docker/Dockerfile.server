@@ -3,26 +3,30 @@
 # arxmcp-server runtime image (E06_S01).
 #
 # Multi-stage build:
-#   1. ``builder``  — full Python toolchain; installs the project and its
-#                     compiled deps (torch, lancedb, pyarrow). The wheel
-#                     cache is mounted via BuildKit so successive builds
-#                     reuse pip's HTTP cache.
-#   2. ``runtime``  — slim Python image; copies the populated venv from
-#                     the builder, drops to a non-root user, installs
-#                     ``tini`` as PID 1, exposes 7733, and starts uvicorn.
+#   1. ``builder``  — full Python toolchain; builds a wheel from the
+#                     project source (NOT an editable install — see
+#                     IS1 close from the E06_S01 critique).
+#   2. ``runtime``  — slim Python image; installs the wheel into a
+#                     dedicated venv, drops to a non-root user,
+#                     installs ``tini`` as PID 1, exposes 7733, and
+#                     starts the server via ``python -m server.main``
+#                     so the ARXMCP_* env vars are honored (IS3+IS4
+#                     close).
 #
-# Threat 6 (``08-security-observability-ops.md``): we use safetensors-only
-# model loading and the BGE-M3 commit SHA pinned in
-# ``ingest/embedder.py``. The reranker model (E07) honors the same
-# discipline.
+# Threat 6 (``08-security-observability-ops.md``): we use safetensors-
+# only model loading and the BGE-M3 commit SHA pinned in
+# ``ingest/embedder.py``.
 #
-# Run with ``docker run --rm -p 127.0.0.1:7733:7733 \
-#   -v "$PWD/var/arxmcp:/app/var/arxmcp" arxmcp-server:dev``.
+# Run with:
+#
+#   docker build -f docker/Dockerfile.server -t arxmcp-server:dev .
+#   docker run --rm -p 127.0.0.1:7733:7733 \
+#     -v "$PWD/var/arxmcp:/app/var/arxmcp" arxmcp-server:dev
 #
 # Out of scope per the brief: the docker-compose file (lands in E06_S05).
 
 # ---------------------------------------------------------------------------
-# Stage 1 — builder
+# Stage 1 — builder (build the project wheel)
 # ---------------------------------------------------------------------------
 
 FROM python:3.11-slim AS builder
@@ -42,19 +46,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /build
 
-# Copy only the dep manifest first so dep-install layer caches across
+# Copy the dep manifest first so dep-install layer caches across
 # source edits.
-COPY pyproject.toml ./
+COPY pyproject.toml README.md ./
 
-# Install into a venv we then copy whole into the runtime image.
-RUN python -m venv /opt/venv \
-    && /opt/venv/bin/pip install --upgrade pip \
-    && /opt/venv/bin/pip install -e .
-
-# Now copy the source tree (this layer changes on every commit).
+# Then copy the source tree (this layer changes on every commit).
 COPY server/ ./server/
 COPY ingest/ ./ingest/
 COPY tools/ ./tools/
+
+# IS1 close: build a wheel rather than ``pip install -e .``. The
+# editable install bakes ``/build`` into the venv's .pth file; when
+# the runtime stage moves the source to ``/app``, imports break.
+# A wheel is path-independent and survives the stage transition.
+# We also pre-install the runtime deps into ``/opt/venv`` here so
+# the runtime stage just needs to install the project wheel.
+RUN python -m venv /opt/venv \
+    && /opt/venv/bin/pip install --upgrade pip wheel build \
+    && /opt/venv/bin/pip install . \
+    && /opt/venv/bin/pip wheel --no-deps --wheel-dir /wheels .
 
 # ---------------------------------------------------------------------------
 # Stage 2 — runtime
@@ -64,13 +74,13 @@ FROM python:3.11-slim AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PATH="/opt/venv/bin:$PATH" \
-    ARXMCP_BIND_HOST=127.0.0.1 \
-    ARXMCP_BIND_PORT=7733
+    PATH="/opt/venv/bin:$PATH"
 
-# ``tini`` as PID 1 so SIGTERM reaches uvicorn and the lifespan
-# shutdown drain (30 s budget) runs cleanly. ``curl`` for the
-# HEALTHCHECK probe.
+# ``tini`` as PID 1 so SIGTERM reaches the server entry point and the
+# lifespan shutdown drain (30 s budget) runs cleanly. Pure-Python
+# urllib could replace ``curl`` at the cost of slightly slower
+# probes (acceptable for a 30 s healthcheck cadence) — kept ``curl``
+# for now per IS8's ship-as-is recommendation.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         tini \
         curl \
@@ -83,43 +93,53 @@ RUN groupadd --gid 1000 arxmcp \
 
 WORKDIR /app
 
-# Copy the venv built in stage 1 (full transitive deps, including the
-# project installed in editable mode).
+# Copy the populated venv + the project wheel from the builder.
 COPY --from=builder /opt/venv /opt/venv
+COPY --from=builder /wheels /wheels
 
-# Copy source tree and the in-tree project metadata.
-COPY --from=builder /build/server ./server
-COPY --from=builder /build/ingest ./ingest
-COPY --from=builder /build/tools ./tools
+# Install the project wheel (IS1 close). Path-independent — the
+# venv now resolves ``import server.*`` from inside site-packages,
+# not from the source tree. The source tree COPY below is for
+# in-container debugging / inspection only.
+RUN /opt/venv/bin/pip install --no-cache-dir --no-deps /wheels/*.whl \
+    && rm -rf /wheels
+
+# Source tree for in-container inspection (NOT used for imports).
+COPY server/ ./server/
+COPY ingest/ ./ingest/
 COPY pyproject.toml README.md ./
 
-# Create the var/arxmcp tree and chown to the non-root user. Operators
-# bind-mount their own data over this at runtime.
+# Create the var/arxmcp tree. IS6: scope chown to /app/var only —
+# source tree stays root-owned (still readable to ``arxmcp``).
 RUN mkdir -p /app/var/arxmcp/index/lancedb \
             /app/var/arxmcp/corpus/chunks \
             /app/var/arxmcp/ops \
-    && chown -R arxmcp:arxmcp /app
+    && chown -R arxmcp:arxmcp /app/var
+
+# IS7: declare the writable mount point for the read-only-FS posture
+# operators may want at deploy time (``docker run --read-only -v
+# .../var/arxmcp:/app/var/arxmcp``).
+VOLUME /app/var/arxmcp
 
 USER arxmcp
 
 EXPOSE 7733
 
-# 30-second health budget — well under uvicorn's default startup, but
-# the eager BGE-M3 load can take longer on first run. Operators with
-# slow model downloads should set ``--start-period=2m`` at deploy time.
-HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+# IS5 partial fix: 5-minute start-period covers a fresh BGE-M3
+# download on a typical home broadband (~2.3 GB safetensors). Warm
+# HF caches still complete in ~5 s. Operators on faster links can
+# tighten this via deployment manifests; the in-image default
+# matches the worst-case first-run path.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5m --retries=3 \
     CMD curl -fsS http://127.0.0.1:7733/readyz || exit 1
 
-# tini handles signal forwarding to uvicorn so ``docker stop`` triggers
-# the FastAPI lifespan shutdown drain.
+# tini handles signal forwarding to the server entry point so
+# ``docker stop`` triggers the FastAPI lifespan shutdown drain.
 ENTRYPOINT ["/usr/bin/tini", "--"]
 
-# uvicorn is a long-running process; the brief mandates single-worker
-# (``workers=1``) because multi-worker would defeat the shared-cache
-# semantics that make the long-running design correct in the first
-# place.
-CMD ["uvicorn", "server.main:app", \
-     "--host", "127.0.0.1", \
-     "--port", "7733", \
-     "--lifespan", "on", \
-     "--no-access-log"]
+# IS3+IS4 fix: invoke ``python -m server.main`` (which honors
+# ARXMCP_BIND_HOST / ARXMCP_BIND_PORT via Config) rather than
+# hardcoding ``--host`` / ``--port`` on a uvicorn CLI. Operators
+# overriding the bind via ``-e ARXMCP_BIND_PORT=7700`` get the
+# server bound at the override.
+CMD ["python", "-m", "server.main"]
