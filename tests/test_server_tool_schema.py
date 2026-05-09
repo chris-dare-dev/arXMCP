@@ -88,54 +88,31 @@ from server.tools import ALL_TOOLS, TOOL_SCHEMA_VERSION, reset_resources_for_tes
 #: A drift here means a contributor changed a tool name, description,
 #: argument schema, or the per-tool ``_meta`` shape — all of which
 #: invalidate every sub-agent's BP1 prompt cache. The drift is
-#: intentional only when paired with a ``TOOL_SCHEMA_VERSION`` bump.
+#: intentional only when paired with a ``TOOL_SCHEMA_VERSION`` bump
+#: (cross-checked by :data:`EXPECTED_TOOL_SCHEMA_VERSION_AT_HASH`
+#: below — F2 fix from the E06_S06 critique).
 EXPECTED_TOOL_SCHEMA_SHA256: str = (  # UPDATE-ANCHOR — do not delete
     "4623e8988f8346da38eaa882303da7a4ef5a4c9a6c13211d867a04c50018fd41"
 )
+
+#: The :data:`server.tools.TOOL_SCHEMA_VERSION` value that produced
+#: :data:`EXPECTED_TOOL_SCHEMA_SHA256`. F2 fix from the E06_S06
+#: critique: hash drift MUST imply a version bump. The
+#: ``--update-tool-schema-hash`` flag refuses to proceed if the
+#: hash has drifted but ``TOOL_SCHEMA_VERSION`` still equals this
+#: pinned value — forcing the contributor to bump the version FIRST.
+#:
+#: Decorative-version risk closed: if a contributor bumps a tool
+#: description without bumping ``TOOL_SCHEMA_VERSION``, the flag
+#: refuses, and they cannot ship the new hash without also editing
+#: ``server/tools.py``'s ``TOOL_SCHEMA_VERSION`` constant.
+EXPECTED_TOOL_SCHEMA_VERSION_AT_HASH: int = 1  # VERSION-ANCHOR — do not delete
 
 
 # ---------------------------------------------------------------------------
 # Fixtures (mirror the pattern in tests/test_tools_all.py to avoid
 # cross-import F811 on shared fixture names)
 # ---------------------------------------------------------------------------
-
-
-def _seed_minimal_corpus(lancedb_path: Path) -> None:
-    """Seed a 1-chunk corpus so ``Resources.startup`` has a valid
-    ``corpus-version.json`` marker. The actual chunk content does
-    not matter — the hash is computed over schema bytes, not data."""
-    import numpy as np
-
-    from ingest.chunker_types import CHUNKER_VERSION, ChunkRecord
-    from ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
-    from ingest.schema import EmbedRecord
-    from ingest.store import write_chunks
-
-    chunks = [
-        ChunkRecord(
-            chunk_id=f"arxiv:2307.00001:{'0' * 16}",
-            paper_id="2307.00001",
-            kind="stmt",
-            section_path=[],
-            theorem_name=None,
-            theorem_label=None,
-            body_text="seed",
-            body_tokens="seed",
-            preamble_ref=None,
-            chunker_version=CHUNKER_VERSION,
-        )
-    ]
-    rng = np.random.default_rng(0)
-    v = rng.standard_normal(EMBEDDING_DIM).astype(np.float32)
-    v /= np.linalg.norm(v)
-    embeddings = EmbedRecord(
-        chunk_ids_stmt=[c.chunk_id for c in chunks],
-        embedding_stmt=np.stack([v], axis=0),
-        chunk_ids_proof=[],
-        embedding_proof=np.zeros((0, EMBEDDING_DIM), dtype=np.float32),
-        embedder_version=EMBEDDER_VERSION,
-    )
-    write_chunks(chunks, embeddings, lancedb_path=lancedb_path)
 
 
 @pytest.fixture
@@ -148,23 +125,29 @@ def _mocked_bge(monkeypatch):
     yield
 
 
-@pytest.fixture
-def _live_tools(tmp_path, _mocked_bge) -> list[Any]:
-    """Construct the live FastMCP server and return its registered
-    tools as a list of ``mcp.types.Tool`` objects.
+def _build_app_and_list_tools(tmp_path: Path) -> list[Any]:
+    """Construct ``create_app(cfg)`` and return its registered tools.
 
-    Does NOT enter the TestClient lifespan — ``list_tools`` queries
-    the in-memory tool registry that ``register_all`` populates at
-    ``create_app`` time, so we don't need warm Resources. This makes
-    the test fast (~30 ms) and decoupled from the BGE-M3 download
-    path."""
-    lancedb_path = tmp_path / "lancedb"
-    _seed_minimal_corpus(lancedb_path)
-    cfg = Config(lancedb_path=lancedb_path)
+    F5 fix from the E06_S06 critique: NO corpus seed. ``list_tools``
+    queries the in-memory tool registry populated by ``register_all``
+    at ``create_app`` time; ``Resources.startup`` is never invoked
+    because we don't enter the TestClient lifespan. So we don't need
+    a corpus marker, numpy, or any ingest imports.
+
+    Pointing ``lancedb_path`` at a non-existent directory is fine
+    for the same reason — LanceDB is never opened."""
+    cfg = Config(lancedb_path=tmp_path / "no_lancedb_needed")
     reset_resources_for_tests()
     reset_metrics_for_tests()
     app = create_app(cfg)
     return asyncio.run(app.state.mcp_server.list_tools())
+
+
+@pytest.fixture
+def _live_tools(tmp_path, _mocked_bge) -> list[Any]:
+    """Construct the live FastMCP server and return its registered
+    tools as a list of ``mcp.types.Tool`` objects."""
+    return _build_app_and_list_tools(tmp_path)
 
 
 # ---------------------------------------------------------------------------
@@ -180,13 +163,17 @@ def _serialize_tools(tools: list[Any]) -> str:
     return value is deterministic across Python versions and
     platforms — see module docstring for the field-by-field
     rationale.
+
+    F6 fix from the E06_S06 critique: hash the FULL ``ListToolsResult``
+    envelope, not just ``{"tools": [...]}``. When E07_S04 pagination
+    lands and ``nextCursor`` becomes non-None, OR a future top-level
+    ``_meta`` injection happens, the hash captures it — without
+    requiring a separate test or schema bump for "the envelope".
     """
-    payload = {
-        "tools": [
-            t.model_dump(mode="json", by_alias=True, exclude_none=True)
-            for t in tools
-        ]
-    }
+    from mcp.types import ListToolsResult
+
+    result = ListToolsResult(tools=tools)
+    payload = result.model_dump(mode="json", by_alias=True, exclude_none=True)
     return json.dumps(
         payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True
     )
@@ -209,11 +196,47 @@ def compute_tool_schema_hash(tools: list[Any]) -> str:
 
 
 _PINNED_HASH_PATTERN = re.compile(
-    # Anchor on the UPDATE-ANCHOR sentinel comment so this pattern
-    # never accidentally matches another 64-hex literal in the file.
-    r'(EXPECTED_TOOL_SCHEMA_SHA256:\s*str\s*=\s*\(\s*'
+    # F8 fix: anchored to start-of-line via ``re.MULTILINE`` so a
+    # docstring example or onboarding doc that uses the literal
+    # ``EXPECTED_TOOL_SCHEMA_SHA256`` outside an assignment cannot
+    # produce a second match. The UPDATE-ANCHOR sentinel + start-of-
+    # line anchor together guarantee uniqueness.
+    r'^(EXPECTED_TOOL_SCHEMA_SHA256:\s*str\s*=\s*\(\s*'
     r'#\s*UPDATE-ANCHOR\s*[^\n]*\n\s*")[0-9a-f]{64}("\s*\))',
+    re.MULTILINE,
 )
+
+_PINNED_VERSION_PATTERN = re.compile(
+    # Mirror anchor for the EXPECTED_TOOL_SCHEMA_VERSION_AT_HASH
+    # constant. Used by ``_rewrite_pinned_version`` when
+    # --update-tool-schema-hash is run with --allow-version-bump.
+    r'^(EXPECTED_TOOL_SCHEMA_VERSION_AT_HASH:\s*int\s*=\s*)\d+'
+    r'(\s*#\s*VERSION-ANCHOR\s*[^\n]*)$',
+    re.MULTILINE,
+)
+
+
+def _read_current_pin() -> tuple[str, int]:
+    """Return the ``(hash, version_at_hash)`` pair currently pinned in this
+    file. Reads from disk so a session that already ran
+    ``--update-tool-schema-hash`` sees the fresh values, not the
+    stale module-import-time ones."""
+    text = Path(__file__).resolve().read_text(encoding="utf-8")
+    h_match = _PINNED_HASH_PATTERN.search(text)
+    v_match = _PINNED_VERSION_PATTERN.search(text)
+    if h_match is None or v_match is None:
+        raise RuntimeError(
+            "could not find UPDATE-ANCHOR / VERSION-ANCHOR sentinels "
+            f"in {Path(__file__).name}"
+        )
+    pinned_hash = text[
+        h_match.start() + len(h_match.group(1)) : h_match.end() - len(h_match.group(2))
+    ]
+    # The version literal is between groups 1 and 2.
+    pinned_version_str = text[
+        v_match.start() + len(v_match.group(1)) : v_match.end() - len(v_match.group(2))
+    ]
+    return pinned_hash, int(pinned_version_str)
 
 
 def _rewrite_pinned_hash(new_hash: str) -> bool:
@@ -232,6 +255,13 @@ def _rewrite_pinned_hash(new_hash: str) -> bool:
             "could not find the UPDATE-ANCHOR pattern in "
             f"{path} — has the file structure drifted?"
         )
+    # F8 belt+suspenders: assert exactly one match, here at the
+    # rewrite site rather than only in a sibling test.
+    if len(_PINNED_HASH_PATTERN.findall(text)) != 1:
+        raise RuntimeError(
+            "found multiple UPDATE-ANCHOR matches; refusing to rewrite. "
+            "Inspect the file for duplicate sentinels."
+        )
     current = text[match.start() + len(match.group(1)) : match.end() - len(match.group(2))]
     if current == new_hash:
         return False
@@ -244,6 +274,52 @@ def _rewrite_pinned_hash(new_hash: str) -> bool:
     )
     path.write_text(new_text, encoding="utf-8")
     return True
+
+
+def _rewrite_pinned_version(new_version: int) -> bool:
+    """Rewrite :data:`EXPECTED_TOOL_SCHEMA_VERSION_AT_HASH` in this
+    file. Mirrors :func:`_rewrite_pinned_hash`.
+
+    Called by ``--update-tool-schema-hash`` after a successful hash
+    rewrite, to keep the (hash, version) pair atomic."""
+    path = Path(__file__).resolve()
+    text = path.read_text(encoding="utf-8")
+    match = _PINNED_VERSION_PATTERN.search(text)
+    if match is None:
+        raise RuntimeError(
+            f"could not find the VERSION-ANCHOR pattern in {path}"
+        )
+    current = text[
+        match.start() + len(match.group(1)) : match.end() - len(match.group(2))
+    ]
+    if int(current) == new_version:
+        return False
+    new_text = (
+        text[: match.start()]
+        + match.group(1)
+        + str(new_version)
+        + match.group(2)
+        + text[match.end() :]
+    )
+    path.write_text(new_text, encoding="utf-8")
+    return True
+
+
+def _running_in_ci() -> bool:
+    """Return True if any of the standard CI env vars are set.
+
+    F4 fix: ``--update-tool-schema-hash`` is a developer-only flag.
+    If it ever fires in CI (committed config typo, runaway pytest
+    plugin), we MUST fail rather than skip — a skipped test on a
+    misconfigured CI is worse than no test at all."""
+    import os
+
+    # Generic + GitHub Actions + GitLab CI + CircleCI + Travis +
+    # Jenkins. Any one set means "we're in CI."
+    return any(
+        os.environ.get(k) == "true" or os.environ.get(k) == "1"
+        for k in ("CI", "GITHUB_ACTIONS", "GITLAB_CI", "CIRCLECI", "TRAVIS")
+    ) or "JENKINS_URL" in os.environ
 
 
 # ===========================================================================
@@ -265,24 +341,73 @@ class TestPinnedHash:
     def test_live_tools_match_pinned_hash(self, _live_tools, request):
         """Compute the live hash; if equal to the pinned constant,
         pass. If the user passed ``--update-tool-schema-hash``,
-        rewrite the constant in place and pass.
+        rewrite both the hash and the version-at-hash pin, then fail
+        with a "commit and rerun" message.
 
-        The flag is registered in ``tests/conftest.py``."""
+        F4 fix: refuse to honor the flag in CI. F2 fix: require a
+        ``TOOL_SCHEMA_VERSION`` bump alongside any hash drift."""
+        from server.tools import TOOL_SCHEMA_VERSION as live_version
+
         live_hash = compute_tool_schema_hash(_live_tools)
+        pinned_hash, pinned_version = _read_current_pin()
 
         if request.config.getoption("--update-tool-schema-hash"):
-            changed = _rewrite_pinned_hash(live_hash)
-            if changed:
-                pytest.skip(
-                    f"updated EXPECTED_TOOL_SCHEMA_SHA256 to {live_hash}; "
-                    f"re-run pytest WITHOUT --update-tool-schema-hash to "
-                    f"verify the new hash is stable."
+            # F4: refuse in CI.
+            if _running_in_ci():
+                pytest.fail(
+                    "--update-tool-schema-hash must NOT be used in CI. "
+                    "This flag rewrites a source file and is intended "
+                    "for local developer use only. A CI run with this "
+                    "flag set would mask a real schema drift behind a "
+                    "skipped test."
                 )
-            # No change — fall through to the normal assertion.
 
-        assert live_hash == EXPECTED_TOOL_SCHEMA_SHA256, (
+            # F2: hash drift WITHOUT a version bump is the decorative-
+            # version anti-pattern. Force the contributor to bump
+            # TOOL_SCHEMA_VERSION first.
+            if live_hash != pinned_hash and live_version == pinned_version:
+                pytest.fail(
+                    "\n\nTool schema bytes have drifted but "
+                    "TOOL_SCHEMA_VERSION is unchanged.\n"
+                    f"  pinned hash:    {pinned_hash}\n"
+                    f"  live hash:      {live_hash}\n"
+                    f"  pinned version: {pinned_version}\n"
+                    f"  live version:   {live_version}\n\n"
+                    f"A hash drift INVALIDATES the BP1 prompt cache "
+                    f"for every sub-agent (see "
+                    f".claude/notes/07-multi-agent-caching.md lines "
+                    f"40-49). To make the change visible to consumers, "
+                    f"bump server.tools.TOOL_SCHEMA_VERSION FIRST, "
+                    f"then re-run --update-tool-schema-hash.\n"
+                )
+
+            # OK to update both pins atomically.
+            hash_changed = _rewrite_pinned_hash(live_hash)
+            ver_changed = _rewrite_pinned_version(live_version)
+            if hash_changed or ver_changed:
+                pytest.fail(
+                    f"updated EXPECTED_TOOL_SCHEMA_SHA256={live_hash} and "
+                    f"EXPECTED_TOOL_SCHEMA_VERSION_AT_HASH={live_version}.\n"
+                    f"Commit the changes and re-run pytest WITHOUT "
+                    f"--update-tool-schema-hash to verify the new pin "
+                    f"is stable."
+                )
+            # Both already current — fall through to the normal
+            # assertion (which will pass).
+
+        # F2: enforce version pin matches in normal-mode runs too.
+        assert live_version == pinned_version, (
+            f"server.tools.TOOL_SCHEMA_VERSION ({live_version}) does "
+            f"not match the pinned version ({pinned_version}). Either "
+            f"the version was bumped without rerunning "
+            f"--update-tool-schema-hash, or the pinned version was "
+            f"corrupted. Run pytest --update-tool-schema-hash to "
+            f"refresh both pins."
+        )
+
+        assert live_hash == pinned_hash, (
             f"\n\nTool schema bytes drifted.\n"
-            f"  expected: {EXPECTED_TOOL_SCHEMA_SHA256}\n"
+            f"  expected: {pinned_hash}\n"
             f"  actual:   {live_hash}\n\n"
             f"This means a tool name, description, argument schema, or "
             f"per-tool _meta shape changed since the pin was last "
@@ -293,7 +418,7 @@ class TestPinnedHash:
             f"  1. Bump server.tools.TOOL_SCHEMA_VERSION\n"
             f"  2. Run: pytest tests/test_server_tool_schema.py "
             f"--update-tool-schema-hash\n"
-            f"  3. Commit the new pinned hash.\n"
+            f"  3. Commit the new pinned hash + version.\n"
         )
 
 
@@ -335,6 +460,72 @@ class TestSchemaVersionMetaSurface:
             assert t.meta.get("tool_schema_version") == TOOL_SCHEMA_VERSION
 
 
+class TestCanonicalSortContract:
+    """F1 fix from the E06_S06 critique (partial — see commit body).
+
+    The critic correctly observed that ``json.dumps(sort_keys=True)``
+    RECURSIVELY sorts nested dicts, so the hash captures the
+    *canonical sorted form*, NOT the raw wire form FastMCP emits
+    (which preserves source-code parameter order via pydantic).
+    A contributor who reorders parameters in a handler signature
+    changes the raw wire bytes but NOT the hash.
+
+    **Architectural resolution.** The cache-stable contract per
+    ``.claude/notes/07-multi-agent-caching.md:42`` is "Sort
+    properties alphabetically AT serialization time" — a contract
+    on the *orchestrator's outbound serializer*. The hash captures
+    that canonical sorted form. As long as the orchestrator sorts
+    before sending (E08 obligation), our hash IS the wire bytes.
+
+    **Why we cannot enforce source-order alphabetical.** The
+    natural fix would be to assert ``list(props.keys()) ==
+    sorted(props.keys())`` for every tool. But Python forbids
+    "non-default argument follows default argument," so e.g.
+    ``find_lemma_by_name(name, paper_id=None, k=10)`` cannot be
+    reordered to alphabetical (``k, name, paper_id``) without
+    reworking the entire signature to keyword-only args. We
+    accept this gap and document it instead.
+
+    These tests pin the architectural invariant so a future
+    contributor who breaks it (e.g. by removing ``sort_keys=True``
+    in :func:`_serialize_tools`) hits a fast assertion, not a slow
+    cache-invalidation incident.
+    """
+
+    def test_canonical_form_uses_sort_keys(self, _live_tools):
+        """Two tool lists with permuted property orders MUST hash to
+        the same value. This pins the assumption: hash represents
+        the canonical sorted form, not source-code order. Removing
+        ``sort_keys=True`` would break this and silently invalidate
+        every sub-agent's cache on a parameter reorder."""
+        # Build a permuted parallel: reverse properties on each tool's
+        # inputSchema. The hash MUST be unchanged if sort_keys is
+        # active in _serialize_tools.
+        permuted = []
+        for t in _live_tools:
+            new_t = t.model_copy()
+            schema = dict(new_t.inputSchema or {})
+            props = schema.get("properties", {})
+            if props:
+                # Reverse the order of properties in the dict.
+                schema["properties"] = dict(reversed(list(props.items())))
+            new_t.inputSchema = schema
+            permuted.append(new_t)
+        # Both should hash identically because sort_keys re-sorts at
+        # serialize time. If a future change drops sort_keys, this
+        # test catches the regression at the form level, before the
+        # hash drifts in production.
+        original = compute_tool_schema_hash(_live_tools)
+        permuted_hash = compute_tool_schema_hash(permuted)
+        assert original == permuted_hash, (
+            "Permuting property order changed the canonical hash. "
+            "_serialize_tools must use sort_keys=True so the hash "
+            "represents the canonical sorted wire form. Without "
+            "sort_keys, source-code parameter reorders would silently "
+            "invalidate every sub-agent's BP1 prompt cache."
+        )
+
+
 class TestUpdateProcedure:
     """Brief AC #2: changing a tool description causes the test to fail.
 
@@ -342,36 +533,52 @@ class TestUpdateProcedure:
     isolation here without recursively shelling out to pytest."""
 
     def test_changing_tool_description_changes_hash(
-        self, _live_tools, monkeypatch
+        self, tmp_path, _mocked_bge, monkeypatch
     ):
-        """Replace one tool's description with a different string;
-        recompute the hash; assert it differs from the pinned value.
+        """Replace one tool's source-of-truth ``ToolMeta`` with a
+        different description, re-create the app (forcing
+        ``register_all`` to flow the new description through FastMCP),
+        and assert the hash differs.
 
-        We monkeypatch via the registered ``Tool`` object's
-        ``description`` attribute. The MCP ``Tool`` model is a
-        pydantic ``BaseModel`` — we use ``model_copy(update=...)``
-        to get a fresh instance with a tweaked description without
-        mutating frozen state."""
-        import copy
+        F7 fix from the E06_S06 critique: the original test mutated
+        the post-registration ``Tool`` object via ``model_copy``,
+        which bypassed the registration code path. A regression
+        where ``register_all`` accidentally hardcoded a description
+        or swapped ``description`` for ``name`` would not be caught.
+        This version monkeypatches ``server.tools.SEARCH_PAPERS`` to
+        a new ``ToolMeta`` and re-runs the registration, exercising
+        the actual production path."""
+        import server.tools as tools_mod
 
-        # Build a parallel tool list with one description tweaked.
-        tools = list(_live_tools)
-        if not tools:
-            pytest.skip("no tools registered")
-        tweaked = copy.copy(tools[0])
-        # Tool is a pydantic model; setattr works because it's not
-        # frozen. Wrapped in model_copy for safety.
-        tweaked = tweaked.model_copy(
-            update={"description": "BUMP — not the real description"}
+        # Baseline: live hash with the un-monkeypatched ToolMeta.
+        baseline_tools = _build_app_and_list_tools(tmp_path)
+        baseline_hash = compute_tool_schema_hash(baseline_tools)
+
+        # Bump description on the source ToolMeta. ToolMeta is
+        # frozen=True so we build a new instance with a different
+        # description but the SAME name (so register_all's
+        # name-keyed handler dict still works).
+        bumped_meta = tools_mod.ToolMeta(
+            name=tools_mod.SEARCH_PAPERS.name,
+            description="BUMP — not the real description",
         )
-        tools[0] = tweaked
+        monkeypatch.setattr(tools_mod, "SEARCH_PAPERS", bumped_meta)
+        # ALL_TOOLS is a tuple capturing the original SEARCH_PAPERS
+        # by reference; rebuild it so register_all sees the bumped
+        # meta. (The other 6 ToolMetas are unchanged.)
+        bumped_all = tuple(
+            bumped_meta if tm.name == bumped_meta.name else tm
+            for tm in tools_mod.ALL_TOOLS
+        )
+        monkeypatch.setattr(tools_mod, "ALL_TOOLS", bumped_all)
 
-        original_hash = compute_tool_schema_hash(_live_tools)
-        bumped_hash = compute_tool_schema_hash(tools)
-        assert bumped_hash != original_hash, (
-            "tweaking a tool description did NOT change the hash — "
-            "the description bytes are not flowing into the hash. "
-            "Inspect _serialize_tools."
+        bumped_tools = _build_app_and_list_tools(tmp_path / "_bumped")
+        bumped_hash = compute_tool_schema_hash(bumped_tools)
+        assert bumped_hash != baseline_hash, (
+            "Bumping a ToolMeta description and re-running "
+            "register_all did NOT change the hash — the description "
+            "is not flowing through registration. Inspect "
+            "register_all in server/tools.py."
         )
 
     def test_rewrite_helper_idempotent_when_hash_unchanged(self, tmp_path):
