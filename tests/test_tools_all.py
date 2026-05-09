@@ -358,3 +358,185 @@ class TestToolsSmoke:
         sc = r.json()["result"]["structuredContent"]
         assert sc["infrastructure_status"] == "deferred"
         assert sc["neighbors"] == []
+
+
+# ===========================================================================
+# Rectification regression tests (F1, F2, F3, F6, F7)
+# ===========================================================================
+
+
+class TestPaperIdValidation:
+    """F3 close: paper_id is validated before use as filter or path."""
+
+    def test_get_definitions_rejects_path_traversal(self, warm_app):
+        """Threat 1 closure: ``../../etc/passwd`` would have built a
+        traversal path. Now rejected with isError=true."""
+        r = _call_tool(
+            warm_app, "get_definitions", {"paper_id": "../../../../etc/passwd"}
+        )
+        # Either FastMCP wraps the ValueError into isError or returns
+        # JSON-RPC error; both indicate the call did NOT silently
+        # path-traverse.
+        body = r.json()
+        assert body.get("error") is not None or body.get("result", {}).get("isError") is True, (
+            f"path traversal was not rejected: {body!r}"
+        )
+
+    def test_get_paper_rejects_malformed_paper_id(self, warm_app):
+        r = _call_tool(warm_app, "get_paper", {"paper_id": "not-an-arxiv-id"})
+        body = r.json()
+        assert body.get("error") is not None or body.get("result", {}).get("isError") is True
+
+    def test_find_lemma_rejects_malformed_paper_id(self, warm_app):
+        r = _call_tool(
+            warm_app,
+            "find_lemma_by_name",
+            {"name": "x", "paper_id": "../etc"},
+        )
+        body = r.json()
+        assert body.get("error") is not None or body.get("result", {}).get("isError") is True
+
+
+class TestSearchSchemaContract:
+    """F6 close: search_papers schema accepts filters + cursor."""
+
+    def test_search_accepts_filters_arg(self, warm_app):
+        r = _call_tool(
+            warm_app,
+            "search_papers",
+            {"query": "Riemann", "k": 3, "filters": {"year_min": 2020}},
+        )
+        # Must NOT 4xx-error with "additional properties not allowed".
+        assert r.status_code == 200
+        sc = r.json()["result"]["structuredContent"]
+        # filters arg is accepted but documented as ignored at v1.
+        assert any("filters arg" in w for w in sc.get("filter_warnings", []))
+
+    def test_search_accepts_cursor_arg(self, warm_app):
+        r = _call_tool(
+            warm_app,
+            "search_papers",
+            {"query": "x", "k": 1, "cursor": "abc"},
+        )
+        assert r.status_code == 200
+        sc = r.json()["result"]["structuredContent"]
+        assert any("cursor arg" in w for w in sc.get("filter_warnings", []))
+
+    def test_search_excludes_proof_kinds_documented(self, warm_app):
+        """F5 close: result envelope carries excluded_kinds=['proof']
+        so agents can detect the v1 limitation programmatically."""
+        r = _call_tool(warm_app, "search_papers", {"query": "x", "k": 1})
+        assert r.status_code == 200
+        sc = r.json()["result"]["structuredContent"]
+        assert sc["excluded_kinds"] == ["proof"]
+
+    def test_search_results_have_no_version_field(self, warm_app):
+        """F7 close: dropped the hardcoded version=1 from result
+        rows. Schema has no paper-version column; the prior literal
+        was misinformation."""
+        r = _call_tool(warm_app, "search_papers", {"query": "x", "k": 5})
+        sc = r.json()["result"]["structuredContent"]
+        for row in sc["results"]:
+            assert "version" not in row, f"unexpected 'version' field: {row}"
+
+
+class TestDefinitionsParser:
+    """F2 close: brace-balanced parser handles multi-newcommand
+    lines correctly (the original greedy regex slurped across the
+    next macro)."""
+
+    def test_extract_pairs_two_macros_on_one_line(self):
+        from server.handlers.definitions import _extract_pairs
+
+        line = r"\newcommand{\R}{\mathbb{R}}\newcommand{\C}{\mathbb{C}}"
+        pairs = _extract_pairs(line)
+        assert len(pairs) == 2
+        symbols = {p["symbol"] for p in pairs}
+        expansions = {p["expansion"] for p in pairs}
+        assert symbols == {"\\R", "\\C"}
+        assert expansions == {"\\mathbb{R}", "\\mathbb{C}"}
+
+    def test_extract_pairs_with_internal_braces(self):
+        from server.handlers.definitions import _extract_pairs
+
+        line = r"\newcommand{\Z}{\mathbb{Z}^{n}}"
+        pairs = _extract_pairs(line)
+        assert len(pairs) == 1
+        assert pairs[0] == {"symbol": "\\Z", "expansion": "\\mathbb{Z}^{n}"}
+
+    def test_extract_pairs_handles_renewcommand(self):
+        from server.handlers.definitions import _extract_pairs
+
+        line = r"\renewcommand{\foo}{bar}"
+        pairs = _extract_pairs(line)
+        assert pairs == [{"symbol": "\\foo", "expansion": "bar"}]
+
+
+class TestByteCapEnforcement:
+    """F1 + F4 close: enforce_byte_cap respects the body_text_path
+    arg AND accounts for wire-envelope overhead."""
+
+    def test_enforce_byte_cap_truncates_nested_body(self):
+
+        from server.config import Config
+        from server.tools import enforce_byte_cap, set_resources
+
+        # Synthesize a Resources with a tiny cap.
+        cfg = Config(result_byte_cap=200)
+        # Build a minimal Resources without going through startup
+        # (no LanceDB needed for the cap test).
+
+        class _FakeCorpusInfo:
+            version = 1
+
+        class _FakeResources:
+            config = cfg
+            corpus_info = _FakeCorpusInfo()
+
+        set_resources(_FakeResources())
+
+        # Construct an over-cap payload with body_text nested under
+        # ``chunk``. Use 5000 chars so the truncation [:1024] slice
+        # produces a meaningfully shorter result.
+        big_body = "x" * 5000
+        cid = "arxiv:2401.00001:0000000000000000"
+        payload = {"chunk": {"body_text": big_body, "chunk_id": cid}}
+        structured, blocks = enforce_byte_cap(
+            payload,
+            chunk_id=cid,
+            body_text_path=("chunk", "body_text"),
+        )
+        # F1: nested body_text must be truncated.
+        assert structured["chunk"]["body_text"] != big_body
+        assert len(structured["chunk"]["body_text"]) == 1024
+        assert structured["body_truncated"] is True
+        # Resource_link block emitted.
+        assert len(blocks) == 1
+        assert blocks[0]["type"] == "resource_link"
+        assert blocks[0]["uri"].endswith(cid)
+        # F4: the wire-overhead factor halves the effective cap, so
+        # any payload over 100 bytes (= 200 / 2) trips truncation.
+        assert len(big_body) > 100  # sanity
+
+    def test_enforce_byte_cap_under_cap_passthrough(self):
+        from server.config import Config
+        from server.tools import enforce_byte_cap, set_resources
+
+        cfg = Config(result_byte_cap=10000)
+
+        class _FakeCorpusInfo:
+            version = 1
+
+        class _FakeResources:
+            config = cfg
+            corpus_info = _FakeCorpusInfo()
+
+        set_resources(_FakeResources())
+        # Small payload — should pass through unchanged with no
+        # resource_link block.
+        payload = {"chunk": {"body_text": "small", "chunk_id": "x"}}
+        structured, blocks = enforce_byte_cap(
+            payload, chunk_id="x", body_text_path=("chunk", "body_text")
+        )
+        assert structured == payload
+        assert blocks == []

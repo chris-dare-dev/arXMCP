@@ -15,6 +15,7 @@ from typing import Annotated, Any
 
 from pydantic import Field
 
+from ingest.identifiers import is_valid_paper_id
 from server.tools import envelope, get_resources
 
 MAX_K = 50
@@ -29,6 +30,12 @@ async def handle_find_lemma_by_name(
     ] = None,
     k: Annotated[int, Field(ge=1, le=MAX_K, description="Top-k cutoff")] = 10,
 ) -> dict[str, Any]:
+    # F3 fix from the E06_S03 critique: validate the optional
+    # paper_id arg before using it as a filter.
+    if paper_id is not None and not is_valid_paper_id(paper_id):
+        raise ValueError(
+            f"paper_id {paper_id!r} does not match the arXiv id format"
+        )
     r = get_resources()
     arrow = r.chunks_table.to_arrow()
     chunk_ids = arrow.column("chunk_id").to_pylist()

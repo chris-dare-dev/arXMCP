@@ -20,7 +20,6 @@ shape is stable here).
 
 from __future__ import annotations
 
-import asyncio
 from typing import Annotated, Any, Literal
 
 from pydantic import Field
@@ -47,13 +46,22 @@ async def handle_search_papers(
         Field(description="Aggregation level for results"),
     ] = "theorem",
     k: Annotated[int, Field(ge=1, le=MAX_K, description="Top-k cutoff")] = 10,
+    filters: Annotated[
+        dict[str, Any] | None,
+        Field(description="Reserved for E07_S04; ignored at v1 with filter_warnings"),
+    ] = None,
+    cursor: Annotated[
+        str | None,
+        Field(description="Reserved for E07_S04 pagination; ignored at v1"),
+    ] = None,
 ) -> dict[str, Any]:
     """Search the corpus and return ranked chunk results.
 
-    ``filters`` and ``cursor`` are accepted in the schema but
-    ignored at v1 (no filterable columns yet; pagination deferred
-    to E07_S04). The ``filter_warnings`` field in the result
-    documents this until full support lands.
+    Closes F6 from the E06_S03 critique: ``filters`` and ``cursor``
+    are accepted in the schema (matching the brief's promised
+    signature) but ignored at v1. The ``filter_warnings`` field
+    documents the partial support until E07_S04 wires real
+    filtering + pagination.
     """
     r = get_resources()
     # Encode query (singleflight + semaphore — two-tier concurrency).
@@ -82,10 +90,24 @@ async def handle_search_papers(
     rows.sort(key=lambda r: (-r["score"], r["chunk_id"]))
     rows = rows[:k]
 
+    # F6: surface ignored filter/cursor warnings explicitly so the
+    # agent runtime can detect partial support.
+    filter_warnings: list[str] = []
+    if filters:
+        filter_warnings.append(
+            "filters arg is accepted but not yet processed (deferred to E07_S04)"
+        )
+    if cursor is not None:
+        filter_warnings.append(
+            "cursor arg is accepted but pagination is deferred to E07_S04"
+        )
+
     return envelope(
         {
             "embed_model": "bge-m3",
-            "filter_warnings": [],  # v1: no filters processed
+            # F5: explicit warning about proof-chunk exclusion at v1.
+            "excluded_kinds": ["proof"],
+            "filter_warnings": filter_warnings,
             "next_cursor": None,    # v1: no pagination
             "results": rows,
             "retrieval_mode": "dense_only",
@@ -116,6 +138,13 @@ def _arrow_to_rows(arrow) -> list[dict[str, Any]]:  # noqa: ANN001
     ):
         if cid is None:
             continue
+        # F7 fix from the E06_S03 critique: dropped the
+        # hardcoded ``version: 1`` field. The chunks schema has no
+        # paper-version column; the prior code emitted a literal
+        # ``1`` regardless of the paper's actual arXiv version
+        # (``v1``, ``v2``, ...) which is misinformation. The
+        # paper_id may carry the version suffix; agents that need
+        # it parse it from there.
         rows.append(
             {
                 "chunk_id": cid,
@@ -124,7 +153,6 @@ def _arrow_to_rows(arrow) -> list[dict[str, Any]]:  # noqa: ANN001
                 "score": _distance_to_score(dist),
                 "section_path": list(sp) if sp is not None else [],
                 "snippet": _snippet(bt),
-                "version": 1,  # paper version; no schema column yet
             }
         )
     return rows
@@ -173,6 +201,3 @@ def _dedup_keep_best(
     return list(best.values())
 
 
-# Suppress F401 for asyncio — kept as the import path for handlers
-# that need explicit asyncio behavior beyond the ``async def`` shape.
-_ = asyncio

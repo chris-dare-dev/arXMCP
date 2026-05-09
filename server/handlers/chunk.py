@@ -15,22 +15,12 @@ expansion (E07_S03 reranker output) and equation atoms
 
 from __future__ import annotations
 
-import re
 from typing import Annotated, Any
 
 from pydantic import Field
 
+from ingest.identifiers import is_valid_chunk_id
 from server.tools import enforce_byte_cap, envelope, get_resources
-
-#: ``arxiv:<paper_id>:<16-hex>`` format check. Mirrors
-#: :data:`ingest.chunker._PAPER_ID_RE` but tightened to the
-#: chunk_id form. Validation here is defense-in-depth — Pydantic's
-#: pattern field gives the same protection at FastMCP's schema layer
-#: but a hand-validation fallback covers the case where a future
-#: schema-derivation tweak loosens the contract.
-_CHUNK_ID_RE = re.compile(
-    r"^arxiv:(\d{4}\.\d{4,5}(v\d+)?|[a-z][a-z\-]*/\d{7}(v\d+)?):[0-9a-f]{16}$"
-)
 
 
 async def handle_get_chunk(
@@ -46,7 +36,7 @@ async def handle_get_chunk(
     is malformed. Returns ``{found: false, ...}`` if the chunk_id
     is well-formed but not in the corpus.
     """
-    if not _CHUNK_ID_RE.match(chunk_id):
+    if not is_valid_chunk_id(chunk_id):
         raise ValueError(
             f"chunk_id {chunk_id!r} does not match "
             f"arxiv:<paper_id>:<16-hex> format"
@@ -88,9 +78,17 @@ async def handle_get_chunk(
         "found": True,
         "include_equations_applied": False,  # v1: deferred to E10_S03
         "include_referenced_applied": False,  # v1: deferred to E07_S03
-        "_unused_args": _record_unused_args(include_referenced, include_equations),
+        "unused_args": _record_unused_args(include_referenced, include_equations),
     }
-    structured, content_blocks = enforce_byte_cap(payload, chunk_id=chunk_id)
+    # F1 fix from E06_S03 critique: tell enforce_byte_cap that
+    # body_text is nested under ``chunk``, not at the top level.
+    # Without the explicit path, the cap would silently fail to
+    # truncate get_chunk responses.
+    structured, content_blocks = enforce_byte_cap(
+        payload,
+        chunk_id=chunk_id,
+        body_text_path=("chunk", "body_text"),
+    )
     if content_blocks:
         # FastMCP's add_tool handlers return structuredContent; the
         # content blocks are appended via FastMCP's automatic

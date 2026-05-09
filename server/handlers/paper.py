@@ -24,6 +24,7 @@ from typing import Annotated, Any
 
 from pydantic import Field
 
+from ingest.identifiers import is_valid_paper_id
 from server.tools import envelope, get_resources
 
 
@@ -31,6 +32,12 @@ async def handle_get_paper(
     paper_id: Annotated[str, Field(min_length=1, description="arXiv paper id")],
     version: Annotated[int | None, Field(description="Reserved; v1 ignores")] = None,
 ) -> dict[str, Any]:
+    # F3 fix from the E06_S03 critique: validate before using
+    # paper_id in a SQL-style WHERE clause.
+    if not is_valid_paper_id(paper_id):
+        raise ValueError(
+            f"paper_id {paper_id!r} does not match the arXiv id format"
+        )
     r = get_resources()
 
     # Filter to rows matching paper_id. LanceDB doesn't expose a

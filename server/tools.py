@@ -108,8 +108,10 @@ SEARCH_PAPERS = ToolMeta(
         "per chunk; level='section' deduplicates by (paper_id, section); "
         "level='paper' returns one row per paper. NOTE: v1 ships dense-only "
         "ANN retrieval over BGE-M3 statement embeddings; the BM25 + RRF "
-        "hybrid path lands in E07. The result-level retrieval_mode field "
-        "exposes the active mode."
+        "hybrid path lands in E07. WARNING: v1 indexes statement chunks "
+        "only — proof chunks are not retrievable until E07's dual-column "
+        "RRF lands. The result envelope's retrieval_mode and "
+        "excluded_kinds fields document the active mode."
     ),
 )
 
@@ -130,8 +132,11 @@ FIND_EQUATION = ToolMeta(
         "Search for chunks containing equations similar to the supplied "
         "LaTeX or MathML. v1 ships dense-only fallback (the equation TED "
         "index lands in E10_S03); the LaTeX is embedded as a query and "
-        "matched against statement embeddings. The retrieval_mode field "
-        "in the result documents the active mode."
+        "matched against statement embeddings. WARNING: BGE-M3 is trained "
+        "on natural language, not LaTeX — the v1 fallback may produce "
+        "near-arbitrary rankings for pure-LaTeX queries. Agents needing "
+        "real equation similarity should defer use until E10_S03 lands "
+        "the TED index. The retrieval_mode field documents the active mode."
     ),
 )
 
@@ -270,33 +275,55 @@ def _sort_dict(d: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+#: Effective cap multiplier applied at measure time. Closes F4 from
+#: the E06_S03 critique: the wire ``CallToolResult`` carries the
+#: structured payload AS WELL AS a ``content[0].text`` block with a
+#: pretty-printed (indent=2) repeat of the same dict; the actual
+#: wire bytes are roughly 2× the inner JSON. Multiplying the inner
+#: measurement by 2 guarantees the wire bytes stay under the
+#: operator-configured cap.
+_WIRE_OVERHEAD_FACTOR = 2
+
+
 def enforce_byte_cap(
-    structured_content: dict[str, Any], chunk_id: str | None = None
+    structured_content: dict[str, Any],
+    chunk_id: str | None = None,
+    body_text_path: tuple[str, ...] = ("body_text",),
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Enforce the per-tool body-size cap (synthesis D9).
 
     Returns a 2-tuple of ``(structured_content, content_blocks)``.
     On the happy path (under cap), ``content_blocks`` is empty.
-    When the serialized payload exceeds
-    :attr:`Config.result_byte_cap`, the content_blocks list carries
-    a ``resource_link`` block pointing at the chunk's URI so the
-    agent can follow the link for the full body. The
-    structured_content is mutated to flip ``body_truncated=True``
-    and replace ``body_text`` with a 1024-char sentinel.
 
-    Returning a tuple (rather than mutating in place) lets each
-    handler decide whether to surface the resource_link in its
-    own ``content`` array.
+    When the serialized payload exceeds
+    :attr:`Config.result_byte_cap` (after applying the
+    :data:`_WIRE_OVERHEAD_FACTOR` correction for the wire envelope),
+    the content_blocks list carries a ``resource_link`` block
+    pointing at the chunk's URI so the agent can follow the link
+    for the full body. The body at ``body_text_path`` (default
+    top-level ``"body_text"``) is replaced with a 1024-char
+    truncation, and ``body_truncated=True`` is flipped at the top
+    level.
+
+    Closes F1 from the E06_S03 critique: the original
+    implementation only checked the top-level ``"body_text"`` key;
+    handlers that nest the body under a sub-dict (like
+    ``get_chunk``'s ``payload["chunk"]["body_text"]``) silently
+    bypassed the cap. The ``body_text_path`` parameter lets each
+    handler tell the helper where the body actually lives.
+
+    Closes F4 from the E06_S03 critique: the cap measurement now
+    accounts for the wire envelope's roughly-2× overhead.
     """
     serialized = json.dumps(structured_content, ensure_ascii=False, sort_keys=True)
     cap = get_resources().config.result_byte_cap
-    if len(serialized.encode("utf-8")) <= cap:
+    if len(serialized.encode("utf-8")) * _WIRE_OVERHEAD_FACTOR <= cap:
         return structured_content, []
 
-    # Over cap. Truncate body_text if present, surface resource_link.
-    truncated = dict(structured_content)
-    if "body_text" in truncated and isinstance(truncated["body_text"], str):
-        truncated["body_text"] = truncated["body_text"][:1024]
+    # Over cap. Truncate body_text at body_text_path; surface
+    # resource_link.
+    truncated = json.loads(json.dumps(structured_content))  # deep copy
+    _truncate_at_path(truncated, body_text_path)
     truncated["body_truncated"] = True
     blocks: list[dict[str, Any]] = []
     if chunk_id is not None:
@@ -308,6 +335,20 @@ def enforce_byte_cap(
             }
         )
     return _sort_dict(truncated), blocks
+
+
+def _truncate_at_path(d: dict[str, Any], path: tuple[str, ...]) -> None:
+    """Walk ``d`` along ``path`` and truncate the leaf string to
+    1024 chars in place. Silent no-op if any intermediate key is
+    missing or the leaf is not a string."""
+    cur: Any = d
+    for key in path[:-1]:
+        if not isinstance(cur, dict) or key not in cur:
+            return
+        cur = cur[key]
+    leaf = path[-1]
+    if isinstance(cur, dict) and isinstance(cur.get(leaf), str):
+        cur[leaf] = cur[leaf][:1024]
 
 
 # ---------------------------------------------------------------------------
