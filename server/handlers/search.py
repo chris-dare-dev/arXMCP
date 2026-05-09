@@ -258,7 +258,14 @@ def _snippet(body_text: str | None) -> str:
 
 
 def _distance_to_score(dist: float | None) -> float:
-    """L2 distance on unit vectors → cosine similarity in [0, 1]."""
+    """LanceDB squared-L2 distance → cosine similarity in [0, 1].
+
+    LanceDB returns *squared* L2 distance on ``_distance`` for the
+    L2 metric (verified empirically — see the rectification note in
+    :func:`server.retrieval.ann._distance_to_score`). For unit
+    vectors ``||a-b||² = 2 - 2·cos(a, b)``, so ``cos = 1 - dist/2``
+    is the correct conversion. Do NOT "fix" to ``1 - sqrt(dist)/2``
+    — that would silently break ranking quality."""
     if dist is None:
         return 0.0
     return max(0.0, 1.0 - float(dist) / 2.0)

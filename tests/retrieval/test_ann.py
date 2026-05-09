@@ -584,22 +584,18 @@ class TestSingleflightContract:
     """
 
     def test_single_query_does_not_increment_dedup(
-        self, _ann_phase_dual
+        self, _ann_phase_dual, monkeypatch
     ):
         """One encode call → no duplicates → dedup counter unchanged.
 
-        This test does NOT mock encode_query — it uses the REAL
-        singleflight wrapper from server.query_encoder so the dedup
-        counter behavior is observable end-to-end. We patch the
-        underlying _encode_query_sync to avoid loading BGE-M3."""
+        F7 fix from the E07_S02 critique: uses ``monkeypatch.setattr``
+        instead of manual try/finally so pytest's teardown is
+        guaranteed even on KeyboardInterrupt."""
         import server.query_encoder as qe_mod
 
         qe_mod._reset_for_tests()
         before = qe_mod.get_singleflight_dedup_count()
 
-        # Patch the executor-side sync encode to a fast stub that
-        # returns a deterministic L2-normalized vector. Keeps the
-        # singleflight wrapper in play.
         def _fake_sync(query_text: str) -> np.ndarray:
             seed = abs(hash(query_text)) % (2**32)
             rng = np.random.default_rng(seed)
@@ -607,19 +603,14 @@ class TestSingleflightContract:
             v /= np.linalg.norm(v)
             return v
 
-        original = qe_mod._encode_query_sync
-        qe_mod._encode_query_sync = _fake_sync
-        try:
-            asyncio.run(
-                _ann_phase_dual.query(
-                    "single-call query", bm25_candidates=[]
-                )
+        monkeypatch.setattr(qe_mod, "_encode_query_sync", _fake_sync)
+        asyncio.run(
+            _ann_phase_dual.query(
+                "single-call query", bm25_candidates=[]
             )
-        finally:
-            qe_mod._encode_query_sync = original
+        )
 
         after = qe_mod.get_singleflight_dedup_count()
-        # No duplicates → counter unchanged.
         assert after == before, (
             f"singleflight dedup counter unexpectedly incremented "
             f"({before} → {after}) on a single ANNPhase.query call. "
@@ -629,22 +620,21 @@ class TestSingleflightContract:
         )
 
     def test_concurrent_identical_queries_dedup_to_one(
-        self, _ann_phase_dual
+        self, _ann_phase_dual, monkeypatch
     ):
         """Two concurrent ANNPhase.query calls with the SAME query
         text → singleflight coalesces → counter += 1 (one dedup hit).
 
         Proves the encode call DOES route through the singleflight
         wrapper (i.e. ANNPhase isn't calling some lower-level encode
-        bypass)."""
+        bypass).
+
+        F7 fix: uses ``monkeypatch.setattr`` for guaranteed teardown."""
         import server.query_encoder as qe_mod
 
         qe_mod._reset_for_tests()
         before = qe_mod.get_singleflight_dedup_count()
 
-        # Slow-path stub so the two concurrent calls actually
-        # OVERLAP — without a slight delay the second call may
-        # complete after the first's dedup window.
         import time as _time
 
         def _slow_sync(query_text: str) -> np.ndarray:
@@ -655,33 +645,63 @@ class TestSingleflightContract:
             v /= np.linalg.norm(v)
             return v
 
-        original = qe_mod._encode_query_sync
-        qe_mod._encode_query_sync = _slow_sync
-        try:
+        monkeypatch.setattr(qe_mod, "_encode_query_sync", _slow_sync)
 
-            async def go():
-                return await asyncio.gather(
-                    _ann_phase_dual.query(
-                        "concurrent dedup query", bm25_candidates=[]
-                    ),
-                    _ann_phase_dual.query(
-                        "concurrent dedup query", bm25_candidates=[]
-                    ),
-                )
+        async def go():
+            return await asyncio.gather(
+                _ann_phase_dual.query(
+                    "concurrent dedup query", bm25_candidates=[]
+                ),
+                _ann_phase_dual.query(
+                    "concurrent dedup query", bm25_candidates=[]
+                ),
+            )
 
-            r1, r2 = asyncio.run(go())
-        finally:
-            qe_mod._encode_query_sync = original
+        r1, r2 = asyncio.run(go())
 
         after = qe_mod.get_singleflight_dedup_count()
-        # Two concurrent identical calls → exactly 1 dedup hit.
         assert after - before == 1, (
             f"expected singleflight to coalesce 2 concurrent identical "
             f"queries to 1 forward pass (dedup counter +1); got "
             f"{after - before} (before={before}, after={after})"
         )
-        # Both calls produce identical results.
         assert r1 == r2
+
+    def test_ann_phase_query_routes_through_encode_query(
+        self, _ann_phase_dual, monkeypatch
+    ):
+        """F2 fix: directly verify that ``ANNPhase.query`` calls
+        ``encode_query`` (not some lower-level bypass like
+        ``_encode_query_sync`` directly).
+
+        Replace ``encode_query`` itself with a counter; assert it
+        was invoked exactly once per ANNPhase.query call. Catches
+        a future refactor that imports ``_encode_query_sync`` for
+        "speed" and bypasses the singleflight."""
+        import server.retrieval.ann as ann_mod
+
+        call_count = {"n": 0}
+
+        async def _counting_encode(query_text: str) -> np.ndarray:
+            call_count["n"] += 1
+            seed = abs(hash(query_text)) % (2**32)
+            rng = np.random.default_rng(seed)
+            v = rng.standard_normal(EMBEDDING_DIM).astype(np.float32)
+            v /= np.linalg.norm(v)
+            return v
+
+        monkeypatch.setattr(ann_mod, "encode_query", _counting_encode)
+
+        asyncio.run(
+            _ann_phase_dual.query("routing test", bm25_candidates=[])
+        )
+        assert call_count["n"] == 1, (
+            f"ANNPhase.query MUST call encode_query exactly once; "
+            f"got {call_count['n']} calls. A future refactor that "
+            f"bypasses encode_query (e.g. by calling "
+            f"_encode_query_sync directly) would break the "
+            f"singleflight routing — keep this test green."
+        )
 
 
 # ===========================================================================
@@ -717,3 +737,292 @@ class TestResourcesIntegration:
         finally:
             qe_mod._get_model = original_get_model
             qe_mod._get_tokenizer = original_get_tok
+
+
+# ===========================================================================
+# F1 regression — LanceDB returns squared L2 distance for the L2 metric
+# ===========================================================================
+
+
+class TestLanceDBDistanceSemantics:
+    """F1 fix from the E07_S02 critique: pin the LanceDB return-value
+    contract AND the score-conversion formula together. A future
+    LanceDB upgrade that changed the distance semantics, OR a
+    well-meaning maintainer that "fixed" the formula, would fail
+    this test loudly."""
+
+    def test_lancedb_returns_squared_l2_for_unit_vectors(self, tmp_path):
+        """Build a 3-row corpus of {v, v_orth, -v} unit vectors,
+        query with v, assert ``_distance == [0, 2, 4]``.
+
+        Confirms LanceDB's L2 metric returns SQUARED distance (not
+        raw L2 distance). For unit vectors:
+          ||v - v||²     = 0
+          ||v - v_orth||² = 2 - 2·0 = 2
+          ||v - (-v)||²   = 2 - 2·(-1) = 4
+        """
+        import lancedb
+        import pyarrow as pa
+
+        db = lancedb.connect(str(tmp_path / "lancedb_distance_test"))
+        schema = pa.schema(
+            [
+                pa.field("id", pa.string()),
+                pa.field("vec", pa.list_(pa.float32(), 3)),
+            ]
+        )
+        v = np.array([1.0, 0.0, 0.0], dtype=np.float32)
+        v_orth = np.array([0.0, 1.0, 0.0], dtype=np.float32)
+        v_anti = np.array([-1.0, 0.0, 0.0], dtype=np.float32)
+        data = [
+            {"id": "v", "vec": v.tolist()},
+            {"id": "v_orth", "vec": v_orth.tolist()},
+            {"id": "v_anti", "vec": v_anti.tolist()},
+        ]
+        tbl = db.create_table("t", data=data, schema=schema)
+        arrow = (
+            tbl.search(v.tolist(), vector_column_name="vec")
+            .limit(3)
+            .to_arrow()
+        )
+        ids = arrow.column("id").to_pylist()
+        distances = arrow.column("_distance").to_pylist()
+
+        # Best-first ordering.
+        assert ids == ["v", "v_orth", "v_anti"]
+        # SQUARED L2 distances. If LanceDB ever switches to raw L2,
+        # the values would be [0, sqrt(2)≈1.414, 2] — this test
+        # catches that change loudly.
+        assert distances[0] == pytest.approx(0.0)
+        assert distances[1] == pytest.approx(2.0)
+        assert distances[2] == pytest.approx(4.0)
+
+    def test_distance_to_score_inverts_lancedb_distances_correctly(
+        self,
+    ):
+        """The full pipeline: LanceDB distances [0, 2, 4] →
+        cosines [1.0, 0.0, 0.0]. (The -1 cosine is clamped to 0
+        since this score is a bounded similarity in [0, 1].)"""
+        assert _distance_to_score(0.0) == pytest.approx(1.0)
+        assert _distance_to_score(2.0) == pytest.approx(0.0)
+        assert _distance_to_score(4.0) == pytest.approx(0.0)
+
+
+# ===========================================================================
+# F3 regression — schema validation at __init__ rejects typos upfront
+# ===========================================================================
+
+
+class TestSchemaValidation:
+    """F3 fix: ANNPhase.__init__ validates that every column listed
+    in EMBEDDING_COLUMNS exists on the chunks_table schema. A typo
+    in a hardcoded column name (or a schema drift) was previously
+    silently absorbed by the per-query ``except Exception`` —
+    this test pins the upfront failure."""
+
+    def test_missing_column_raises_at_init(
+        self, _seeded_dual_lancedb, monkeypatch
+    ):
+        """Patch EMBEDDING_COLUMNS to include a typo column;
+        construction MUST raise ValueError at init."""
+        import server.retrieval.ann as ann_mod
+
+        lancedb_path, version = _seeded_dual_lancedb
+        tbl = _open_chunks_table(lancedb_path, version)
+
+        monkeypatch.setattr(
+            ann_mod,
+            "EMBEDDING_COLUMNS",
+            ("embedding_stmt", "embedding_typooooo"),
+        )
+        with pytest.raises(ValueError, match="missing from chunks_table schema"):
+            ann_mod.ANNPhase(chunks_table=tbl)
+
+
+# ===========================================================================
+# F5 regression — phantom BM25 chunk_ids propagate through RRF
+# ===========================================================================
+
+
+class TestPhantomBm25Ids:
+    """F5 fix: ANNPhase does NOT cross-check that BM25 chunk_ids
+    exist in the live chunks table — the BM25Phase.startup
+    cross-check (E07_S01 F4) is the canonical guard. This test
+    pins the documented behavior: if a phantom id IS passed in,
+    it appears in the RRF output unmodified (no crash, no
+    silent drop). Downstream consumers must tolerate phantoms."""
+
+    def test_phantom_bm25_id_appears_in_output(
+        self, _ann_phase_dual, _mocked_bge
+    ):
+        phantom = "arxiv:9999.99999:" + "f" * 16
+        result = asyncio.run(
+            _ann_phase_dual.query(
+                "any query",
+                bm25_candidates=[(phantom, 1.0)],
+                top_n=50,
+            )
+        )
+        result_ids = {cid for cid, _ in result}
+        assert phantom in result_ids, (
+            f"phantom BM25 chunk_id {phantom!r} should appear in RRF "
+            f"output (the documented contract — see ANNPhase.query "
+            f"docstring); got {result_ids}"
+        )
+
+
+# ===========================================================================
+# F6 regression — latency budget on dual-corpus query
+# ===========================================================================
+
+
+class TestLatencyBudget:
+    """F6 fix: pin a generous 500ms budget on ANNPhase.query against
+    the dual-corpus fixture. Catches catastrophic O(n²) regressions
+    in the LanceDB integration without making the test flaky on
+    slow CI runners."""
+
+    def test_query_under_500ms_against_dual_corpus(
+        self, _ann_phase_dual, _mocked_bge
+    ):
+        import time
+
+        # Warm-up call (first query may pay one-time index init).
+        asyncio.run(
+            _ann_phase_dual.query("warm-up", bm25_candidates=[])
+        )
+
+        deadline_s = 0.500
+        # 3 calls; assert max stays under the budget.
+        for i in range(3):
+            start = time.monotonic()
+            asyncio.run(
+                _ann_phase_dual.query(
+                    f"latency test {i}", bm25_candidates=[]
+                )
+            )
+            elapsed = time.monotonic() - start
+            assert elapsed < deadline_s, (
+                f"ANNPhase.query exceeded the {deadline_s * 1000:.0f}ms "
+                f"latency budget on the 8-row dual corpus: "
+                f"elapsed={elapsed * 1000:.1f}ms. Likely a regression "
+                f"in the LanceDB ANN search path or a Python-loop "
+                f"hot-path accidentally introduced."
+            )
+
+
+# ===========================================================================
+# F9 regression — top_n > corpus_size truncates safely
+# ===========================================================================
+
+
+class TestTopNLargerThanCorpus:
+    """F9 fix: a caller passing top_n > number of unique candidates
+    should get back the union (not crash, not allocate a huge
+    buffer)."""
+
+    def test_top_n_larger_than_corpus_returns_union_size(
+        self, _ann_phase_dual, _mocked_bge
+    ):
+        # The dual corpus has 8 chunks total. Pass top_n=100.
+        result = asyncio.run(
+            _ann_phase_dual.query(
+                "Spec", bm25_candidates=[], top_n=100
+            )
+        )
+        # Must not crash; must return at most 8 (the corpus union).
+        assert len(result) <= 8
+
+
+# ===========================================================================
+# F10 regression — query_text validation at the ANNPhase boundary
+# ===========================================================================
+
+
+class TestQueryTextValidation:
+    """F10 fix: ANNPhase.query rejects empty / whitespace-only queries
+    AND oversized queries at its own boundary, independent of the
+    FastAPI handler's Pydantic validator."""
+
+    def test_empty_query_rejected(self, _ann_phase_dual, _mocked_bge):
+        with pytest.raises(ValueError, match="non-whitespace"):
+            asyncio.run(
+                _ann_phase_dual.query("", bm25_candidates=[])
+            )
+
+    def test_whitespace_only_query_rejected(
+        self, _ann_phase_dual, _mocked_bge
+    ):
+        with pytest.raises(ValueError, match="non-whitespace"):
+            asyncio.run(
+                _ann_phase_dual.query("   \t\n  ", bm25_candidates=[])
+            )
+
+    def test_oversized_query_rejected(
+        self, _ann_phase_dual, _mocked_bge
+    ):
+        oversized = "x" * 10_001
+        with pytest.raises(
+            ValueError, match="exceeds the 10,000-char"
+        ):
+            asyncio.run(
+                _ann_phase_dual.query(oversized, bm25_candidates=[])
+            )
+
+    def test_just_under_cap_query_accepted(
+        self, _ann_phase_dual, _mocked_bge
+    ):
+        """A 10000-char query should pass (the cap is exclusive of
+        the limit)."""
+        valid = "abcde fghij " * 833  # ~10,000 chars
+        valid = valid[:10_000]
+        # Should not raise; returns some result.
+        asyncio.run(
+            _ann_phase_dual.query(valid, bm25_candidates=[])
+        )
+
+
+# ===========================================================================
+# F14 regression — no per-query WARN log on stmt-only corpus
+# ===========================================================================
+
+
+class TestStmtOnlyCorpusLogQuiet:
+    """F14 fix: stmt-only corpus is the production reality at v1.
+    Each query previously logged a WARNING when the empty-proof
+    column raised — multi-agent fan-out × every query → log spam.
+    The init-cached ``_searchable_columns`` set now skips the
+    empty column entirely, so no per-query warning fires."""
+
+    def test_stmt_only_corpus_no_per_query_warning(
+        self, _ann_phase_stmt_only, _mocked_bge, caplog
+    ):
+        import logging
+
+        with caplog.at_level(
+            logging.WARNING, logger="server.retrieval.ann"
+        ):
+            asyncio.run(
+                _ann_phase_stmt_only.query(
+                    "first query", bm25_candidates=[]
+                )
+            )
+            asyncio.run(
+                _ann_phase_stmt_only.query(
+                    "second query", bm25_candidates=[]
+                )
+            )
+
+        # The init may emit a one-time warning if BOTH columns are
+        # empty (not the case here — stmt has rows). On a stmt-only
+        # corpus, no per-query WARN should fire.
+        per_query_warns = [
+            r for r in caplog.records
+            if "ANN search on column" in r.getMessage()
+        ]
+        assert per_query_warns == [], (
+            f"expected zero per-query WARNs on stmt-only corpus; got "
+            f"{[r.getMessage() for r in per_query_warns]}. The "
+            f"init-cached _searchable_columns should skip the empty "
+            f"proof column entirely."
+        )

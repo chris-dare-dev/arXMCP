@@ -404,8 +404,12 @@ def _create_indices(tbl) -> dict[str, bool]:
     break the small-corpus integration test). The lancedb 0.30 API
     surfaces these as direct kwargs on ``create_index`` (the older
     ``config=HnswSq(...)`` form was removed). Distance type left at
-    the LanceDB default (l2); BGE-M3 vectors are L2-normalized so
-    l2 and cosine produce identical rankings.
+    the LanceDB default (l2). NOTE: LanceDB returns the *squared* L2
+    distance on the ``_distance`` column for this metric (verified
+    empirically — see :func:`server.retrieval.ann._distance_to_score`
+    docstring). BGE-M3 vectors are L2-normalized so the squared-L2
+    ranking is monotone with cosine ranking; the conversion
+    ``cos = 1 - dist/2`` is exact for unit vectors.
     """
     created: dict[str, bool] = {}
     for column, key in (
