@@ -14,12 +14,17 @@ to ≥ 0.80 with the full hybrid + reranker pipeline active.
 
 from __future__ import annotations
 
+from server.retrieval.ann import ANNPhase
 from server.retrieval.bm25 import (
     BM25IndexUnavailableError,
     BM25Phase,
 )
+from server.retrieval.rrf import RRF_K, reciprocal_rank_fusion
 
 __all__ = [
+    "RRF_K",
+    "ANNPhase",
     "BM25IndexUnavailableError",
     "BM25Phase",
+    "reciprocal_rank_fusion",
 ]

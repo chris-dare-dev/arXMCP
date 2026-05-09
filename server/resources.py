@@ -228,6 +228,10 @@ class Resources:
     reranker_model: Any | None = None  # populated when enable_rerank=True
     # server.retrieval.BM25Phase; duck-typed to keep this import light.
     bm25_phase: Any | None = None
+    # server.retrieval.ANNPhase; duck-typed (E07_S02). Phase-2 dual-ANN
+    # retrieval over embedding_stmt + embedding_proof columns plus RRF
+    # fusion with the BM25 candidates from ``bm25_phase``.
+    ann_phase: Any | None = None
     process_start_time_seconds: float = field(default_factory=time.time)
     warm: bool = False
 
@@ -338,6 +342,16 @@ class Resources:
             bm25_phase.corpus_size,
         )
 
+        # 4c. ANN Phase 2 (E07_S02). Cheap construction — just caches
+        # the chunks_table reference. The two HNSW indexes were built
+        # by ``ingest.store.write_chunks`` (one per embedding column);
+        # this phase just queries them at request time. Fuses with
+        # ``bm25_phase``'s candidates via RRF.
+        from server.retrieval import ANNPhase
+
+        ann_phase = ANNPhase(chunks_table=chunks_table)
+        logger.info("Resources.startup: ANNPhase ready")
+
         # 5. Concurrency primitives.
         embed_semaphore = asyncio.Semaphore(config.max_concurrent_embeddings)
         rerank_semaphore = asyncio.Semaphore(config.max_concurrent_reranks)
@@ -352,6 +366,7 @@ class Resources:
             rerank_singleflight=rerank_singleflight,
             reranker_model=reranker_model,
             bm25_phase=bm25_phase,
+            ann_phase=ann_phase,
             warm=True,
         )
         logger.info("Resources.startup: warm")
