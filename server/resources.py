@@ -311,17 +311,27 @@ class Resources:
 
         # 4b. BM25 Phase 1 (E07_S01). Loads the per-corpus-version
         # ``bm25.pkl`` artifact built by ``ingest.bm25_indexer``;
-        # auto-builds if missing (closes E04_S04 H1). The startup
-        # path file-safety-checks the pickle before loading
-        # (closes E04_S04 TODO(E07)). Failure raises
+        # auto-builds if missing (closes E04_S04 H1). Startup path
+        # opens via fstat-then-load to close TOCTOU (E07_S01 F1),
+        # checks the parent directory (F2), and cross-checks the
+        # chunk_ids against the LIVE LanceDB table (F4) so a
+        # tampered or stale artifact is rejected at startup rather
+        # than producing phantom candidates. Failure raises
         # :class:`server.retrieval.BM25IndexUnavailableError` which
-        # is a ``ResourceStartupError`` subclass — server refuses to
-        # open ``/readyz``.
+        # propagates through the lifespan's broad exception
+        # handler — server refuses to open ``/readyz``.
         from server.retrieval import BM25Phase
 
+        # Materialize the live chunk_id set from the table we just
+        # opened in step 2. The full scan is bounded by corpus size
+        # and is the same I/O pattern build_bm25_index uses.
+        live_chunk_ids = set(
+            chunks_table.to_arrow().column("chunk_id").to_pylist()
+        )
         bm25_phase = await BM25Phase.startup(
             lancedb_path=config.lancedb_path,
             corpus_version=corpus_info.version,
+            live_chunk_ids=live_chunk_ids,
         )
         logger.info(
             "Resources.startup: BM25Phase warm (corpus_size=%d)",

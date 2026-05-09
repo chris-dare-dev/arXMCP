@@ -181,12 +181,26 @@ def _append_bm25_stats(stats: BM25Stats) -> None:
 # ---------------------------------------------------------------------------
 
 
+#: Mode bits for the BM25 artifact files. F3 fix from the E07_S01
+#: critique: explicit 0o600 instead of inheriting whatever umask the
+#: process runs under (some container init configurations leave umask
+#: at 0o000, which would land the freshly-built pickle world-writable
+#: and immediately fail :func:`server.retrieval.bm25._assert_pickle_file_safe`
+#: at the very next operation).
+_BM25_ARTIFACT_MODE = 0o600
+
+
 def _atomic_write_bytes(out_path: Path, payload: bytes) -> None:
     """Atomically write ``payload`` to ``out_path`` (binary).
 
     PID + UUID-suffixed tmp + ``os.replace`` + ``try/finally`` cleanup.
     Same pattern as :func:`ingest.preamble._write_preamble_json` but
     for bytes (the BM25 pickle).
+
+    F3 fix: explicit ``chmod _BM25_ARTIFACT_MODE`` (0o600) before the
+    rename. The mode bit survives the rename. Without this, a permissive
+    umask would land the pickle world-readable / world-writable —
+    the latter would fail the loader's file-safety check immediately.
     """
     out_path.parent.mkdir(parents=True, exist_ok=True)
     tmp = out_path.with_suffix(
@@ -194,6 +208,9 @@ def _atomic_write_bytes(out_path: Path, payload: bytes) -> None:
     )
     try:
         tmp.write_bytes(payload)
+        # F3: explicit mode BEFORE the rename. POSIX-only; no-op on Windows.
+        if os.name == "posix":
+            os.chmod(tmp, _BM25_ARTIFACT_MODE)
         os.replace(tmp, out_path)
     finally:
         with contextlib.suppress(OSError):
@@ -203,7 +220,8 @@ def _atomic_write_bytes(out_path: Path, payload: bytes) -> None:
 def _atomic_write_text(out_path: Path, payload: str) -> None:
     """Atomically write UTF-8 ``payload`` to ``out_path``.
 
-    Sibling of :func:`_atomic_write_bytes` for the JSON sidecar.
+    Sibling of :func:`_atomic_write_bytes` for the JSON sidecar. F3
+    fix: explicit ``chmod 0o600`` before the rename.
     """
     out_path.parent.mkdir(parents=True, exist_ok=True)
     tmp = out_path.with_suffix(
@@ -211,6 +229,8 @@ def _atomic_write_text(out_path: Path, payload: str) -> None:
     )
     try:
         tmp.write_text(payload, encoding="utf-8")
+        if os.name == "posix":
+            os.chmod(tmp, _BM25_ARTIFACT_MODE)
         os.replace(tmp, out_path)
     finally:
         with contextlib.suppress(OSError):

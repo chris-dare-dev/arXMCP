@@ -23,8 +23,12 @@ an attacker who can write to that path achieves RCE in the server
 process via ``pickle.load``. This module enforces the mitigation:
 :func:`_assert_pickle_file_safe` stat-checks file ownership and
 refuses world-writable paths BEFORE calling ``pickle.load``. Closes
-the TODO(E07) hook left by E04_S04. (Threat 6 from
-``08-security-observability-ops.md``.)
+the TODO(E07) hook left by E04_S04. (BM25 pickles are an
+application-data analog of the model-weight pickle threat
+documented under Threat 6 in
+``.claude/notes/08-security-observability-ops.md`` — Threat 6
+itself is about HuggingFace model weights, but the BM25 pickle
+shares the same load-untrusted-bytes risk surface.)
 
 **Auto-build at startup.** E04_S04 critique H1 flagged that nothing
 in production code calls :func:`build_bm25_index`. This module
@@ -150,56 +154,149 @@ class BM25IndexUnsafeError(BM25IndexUnavailableError):
 # ---------------------------------------------------------------------------
 
 
-def _assert_pickle_file_safe(path: Path) -> None:
-    """Raise :class:`BM25IndexUnsafeError` if ``path`` is unsafe to
-    ``pickle.load``.
+def _assert_stat_safe(st: os.stat_result, path_for_msg: Path) -> None:
+    """Raise :class:`BM25IndexUnsafeError` if a stat result fails the
+    file-safety check.
+
+    Extracted as a pure function so callers can apply the check to
+    EITHER an :func:`os.stat` result OR an :func:`os.fstat` result on
+    an open file descriptor. The fd path is the production path
+    (closes F1 — the TOCTOU window between ``stat`` and ``open``);
+    the path-based form is used for the parent-directory check (F2).
 
     Two checks (both must pass):
 
-    1. **Ownership match.** ``os.stat(path).st_uid`` must equal the
-       process's effective UID. If the file is owned by a different
-       user, an attacker with write access to that user's tree could
-       have crafted the pickle for RCE.
-    2. **Not world-writable.** ``mode & 0o002 == 0``. A
-       world-writable pickle is trivially attacker-controllable on a
-       shared filesystem regardless of ownership.
-
-    The check is skipped on Windows (no POSIX UID semantics). The
-    arXMCP server is local-first / Docker on Linux + macOS; Windows
-    support is explicitly out of scope.
+    1. **Ownership match.** ``st.st_uid == os.geteuid()``. Different-uid
+       ownership means an attacker with write access to that user's
+       tree could have crafted the file.
+    2. **Not world-writable.** ``mode & 0o002 == 0``. A world-writable
+       file is trivially attacker-controllable on a shared filesystem
+       regardless of ownership.
     """
     if os.name != "posix":
-        # No POSIX UID/mode semantics — trust local on this platform.
+        return  # no POSIX uid/mode semantics
+
+    euid = os.geteuid()
+    if st.st_uid != euid:
+        raise BM25IndexUnsafeError(
+            f"BM25 file at {path_for_msg} is owned by uid={st.st_uid} but "
+            f"the server runs as uid={euid}; refusing to load. An attacker "
+            f"with write access to that user's tree could craft a "
+            f"malicious artifact (BM25 pickles are an application-data "
+            f"analog of the model-weight pickle threat documented under "
+            f"Threat 6 in .claude/notes/08-security-observability-ops.md). "
+            f"To fix: chown the file to {euid}, or rebuild the index "
+            f"from trusted-local data."
+        )
+
+    if st.st_mode & stat.S_IWOTH:
+        raise BM25IndexUnsafeError(
+            f"BM25 file at {path_for_msg} is world-writable "
+            f"(mode={oct(st.st_mode)}); refusing to load. A world-writable "
+            f"file is attacker-controllable regardless of ownership. To "
+            f"fix: chmod o-w {path_for_msg}."
+        )
+
+
+def _assert_dir_safe(dir_path: Path) -> None:
+    """Raise :class:`BM25IndexUnsafeError` if ``dir_path`` is unsafe.
+
+    F2 fix: a per-file ownership/mode check is insufficient if the
+    parent directory is world-writable or owned by another uid — the
+    attacker can ``unlink + write`` a fresh file with their chosen
+    mode/owner. We check the parent dir with the same primitive plus
+    the sticky-bit exemption (so ``/tmp``-style world-writable
+    directories with sticky bit set are tolerated; in practice the
+    BM25 index root is under ``var/`` and should be neither, but the
+    exemption keeps the test fixture path workable).
+    """
+    if os.name != "posix":
         return
 
     try:
-        st = os.stat(path)
+        st = os.stat(dir_path)
     except FileNotFoundError as exc:
-        # Re-raise as the more-specific BM25IndexUnavailableError so
-        # the caller can distinguish "missing" from "unsafe".
         raise BM25IndexUnavailableError(
-            f"BM25 pickle missing at {path}"
+            f"BM25 directory missing at {dir_path}"
         ) from exc
 
     euid = os.geteuid()
     if st.st_uid != euid:
         raise BM25IndexUnsafeError(
-            f"BM25 pickle at {path} is owned by uid={st.st_uid} but the "
-            f"server runs as uid={euid}; refusing to pickle.load. An "
-            f"attacker with write access to that user's tree could craft "
-            f"a malicious pickle (Threat 6 — see "
-            f".claude/notes/08-security-observability-ops.md). To fix: "
-            f"chown the file to {euid}, or rebuild the index from "
-            f"trusted-local data."
+            f"BM25 directory {dir_path} is owned by uid={st.st_uid} but "
+            f"the server runs as uid={euid}; refusing to load. A "
+            f"different-uid parent directory means the attacker can "
+            f"unlink+replace the artifact regardless of its file mode. "
+            f"To fix: chown {dir_path} to {euid}."
         )
 
-    if st.st_mode & stat.S_IWOTH:
+    if (st.st_mode & stat.S_IWOTH) and not (st.st_mode & stat.S_ISVTX):
+        # World-writable AND not sticky — attacker can swap any file inside.
         raise BM25IndexUnsafeError(
-            f"BM25 pickle at {path} is world-writable (mode={oct(st.st_mode)}); "
-            f"refusing to pickle.load. A world-writable pickle is "
-            f"attacker-controllable regardless of ownership. To fix: "
-            f"chmod o-w {path}."
+            f"BM25 directory {dir_path} is world-writable without the "
+            f"sticky bit (mode={oct(st.st_mode)}); refusing to load. "
+            f"A world-writable parent dir lets an attacker unlink the "
+            f"trusted artifact and replace it. To fix: chmod o-w "
+            f"{dir_path} (recommended 0o700)."
         )
+
+
+def _open_safely_for_load(path: Path) -> tuple[int, os.stat_result]:
+    """Open ``path`` and verify safety atomically via fstat — closes
+    F1 (TOCTOU between stat and open).
+
+    Opens with ``O_RDONLY | O_NOFOLLOW`` (refuses symlinks too, which
+    a separate-stat path would also miss), fstats the open fd, runs
+    the safety checks against the fstat result, and returns the fd +
+    stat for the caller to ``os.fdopen`` and read. The fd is the
+    canonical reference to "the file we just stat-checked"; no
+    subsequent path-based open can be victim of a between-syscall
+    swap.
+
+    Returns
+    -------
+    (fd, stat_result) : tuple[int, os.stat_result]
+        The caller owns the fd — must close it (typically via
+        ``os.fdopen(fd, "rb")`` which closes on context exit).
+    """
+    if not path.is_file():
+        # Cheap upfront check; the open below would also fail but
+        # this gives a more specific error message.
+        raise BM25IndexUnavailableError(f"BM25 file missing at {path}")
+
+    flags = os.O_RDONLY
+    if os.name == "posix":
+        # NOFOLLOW: refuse symlinks. A symlink to /etc/shadow would
+        # otherwise let an attacker exfiltrate any readable file.
+        flags |= os.O_NOFOLLOW
+    fd = os.open(path, flags)
+    try:
+        st = os.fstat(fd)
+        _assert_stat_safe(st, path)
+    except Exception:
+        os.close(fd)
+        raise
+    return fd, st
+
+
+def _assert_pickle_file_safe(path: Path) -> None:
+    """Backwards-compatible facade kept for the test surface.
+
+    Production paths use :func:`_open_safely_for_load` instead, which
+    closes the TOCTOU window. This function still does a
+    stat-then-check (the legacy semantics), so a test that asserts
+    "this file passes the safety check" still works. New production
+    code should NOT call this — call :func:`_open_safely_for_load`
+    and read from the fd.
+    """
+    if not path.is_file():
+        # Re-raise as BM25IndexUnavailableError to preserve the
+        # legacy test contract distinguishing missing from unsafe.
+        raise BM25IndexUnavailableError(f"BM25 pickle missing at {path}")
+    if os.name != "posix":
+        return
+    st = os.stat(path)
+    _assert_stat_safe(st, path)
 
 
 # ---------------------------------------------------------------------------
@@ -273,15 +370,32 @@ class BM25Phase:
         cls,
         lancedb_path: str | Path,
         corpus_version: int,
+        live_chunk_ids: set[str] | None = None,
     ) -> BM25Phase:
         """Async constructor: resolve artifact path, auto-build if
-        missing, file-safety-check, ``pickle.load``, return ready
-        instance.
+        missing, file-safety-check (TOCTOU-safe via fstat), load,
+        cross-check chunk_ids against the live LanceDB table, return
+        ready instance.
 
         Off-loads the build + load to the default executor since
         both are synchronous file I/O that would otherwise block the
-        startup event loop. Mirrors the LanceDB / BGE-M3 load
-        discipline in :meth:`server.resources.Resources.startup`.
+        startup event loop.
+
+        Parameters
+        ----------
+        lancedb_path: str | Path
+            Path to the LanceDB dataset root.
+        corpus_version: int
+            Pinned corpus version. The artifact at
+            ``var/.../bm25/v<corpus_version>/`` is loaded.
+        live_chunk_ids: set[str] | None
+            F4 fix from the E07_S01 critique: optionally cross-check
+            that every chunk_id in ``chunk_ids.json`` exists in the
+            live LanceDB chunks table. When provided, missing ids
+            cause :class:`BM25IndexUnavailableError`. Recommended in
+            production (Resources.startup passes it after opening
+            the chunks table); optional in tests that don't have a
+            chunks table to cross-check against.
 
         Raises
         ------
@@ -295,7 +409,11 @@ class BM25Phase:
         """
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
-            None, cls._sync_startup, lancedb_path, corpus_version
+            None,
+            cls._sync_startup,
+            lancedb_path,
+            corpus_version,
+            live_chunk_ids,
         )
 
     @classmethod
@@ -303,6 +421,7 @@ class BM25Phase:
         cls,
         lancedb_path: str | Path,
         corpus_version: int,
+        live_chunk_ids: set[str] | None = None,
     ) -> BM25Phase:
         """Sync implementation of :meth:`startup`. Extracted so tests
         can construct without running a loop."""
@@ -333,19 +452,31 @@ class BM25Phase:
                 f"{BM25_CHUNK_IDS_NAME}"
             )
 
-        # File safety (closes E04_S04 TODO(E07)). Both files run
-        # through the check — chunk_ids.json is JSON not pickle, so
-        # the world-writable risk is lower, but a malicious tampered
-        # JSON could still misalign chunk_ids with the pickle and
-        # cause silent index corruption. Cheap to check both.
-        _assert_pickle_file_safe(pkl_path)
-        _assert_pickle_file_safe(ids_path)
+        # F2 fix: parent-directory safety — refuse if the directory
+        # is world-writable (without sticky bit) or owned by a
+        # different uid. Without this, an attacker who controls the
+        # parent dir can unlink+swap any file regardless of file mode.
+        _assert_dir_safe(version_dir)
 
-        # Load.
-        with open(pkl_path, "rb") as fh:
-            bm25 = pickle.load(fh)  # noqa: S301 — file safety asserted above
-        with open(ids_path, encoding="utf-8") as fh:
-            chunk_ids = json.load(fh)
+        # F1 fix: open + fstat + safety-check + load, all on the same
+        # file descriptor. Closes the TOCTOU window between
+        # stat-by-name and open-by-name. Same fd is then handed to
+        # pickle.load via os.fdopen.
+        pkl_fd, _pkl_st = _open_safely_for_load(pkl_path)
+        try:
+            with os.fdopen(pkl_fd, "rb") as fh:
+                bm25 = pickle.load(fh)  # noqa: S301 — fd safety verified above
+        except Exception:
+            # If pickle.load raises mid-read, the with-statement closed
+            # the fd already; nothing more to clean up here.
+            raise
+
+        ids_fd, _ids_st = _open_safely_for_load(ids_path)
+        try:
+            with os.fdopen(ids_fd, encoding="utf-8") as fh:
+                chunk_ids = json.load(fh)
+        except Exception:
+            raise
 
         # Sanity: corpus_size and chunk_ids length must match. A
         # mismatch means the artifact pair is from different builds
@@ -358,6 +489,27 @@ class BM25Phase:
                 f"must be rebuilt from a single ``build_bm25_index`` "
                 f"invocation."
             )
+
+        # F4 fix: cross-check chunk_ids against the LIVE LanceDB
+        # table when the caller provides the live id set. Catches
+        # phantom-id tampering AND a corrupted-build that wrote
+        # chunk_ids that don't exist in the table any longer (e.g.
+        # corpus rebuilt without rebuilding BM25). Set membership is
+        # O(N).
+        if live_chunk_ids is not None:
+            missing = set(chunk_ids) - live_chunk_ids
+            if missing:
+                # Show at most 5 ids in the error to keep the
+                # message readable on a large-corpus mismatch.
+                sample = sorted(missing)[:5]
+                raise BM25IndexUnavailableError(
+                    f"BM25 chunk_ids contains {len(missing)} ids not "
+                    f"present in the live LanceDB table at "
+                    f"corpus_version={corpus_version}. The artifact is "
+                    f"stale or tampered — rebuild via "
+                    f"``build_bm25_index``. Sample missing ids: "
+                    f"{sample}"
+                )
 
         logger.info(
             "BM25Phase loaded: corpus_version=%d, corpus_size=%d, path=%s",
@@ -452,6 +604,27 @@ class BM25Phase:
 
         # 5. Apply supported filters (post-fetch).
         candidates = _apply_supported_filters(candidates, filters or {})
+
+        # 5b. F13 fix: if a supported filter dropped EVERYTHING, the
+        # over-fetch budget was insufficient. Retry once with a full-
+        # corpus sort. At seed scale this is free; at 200K scale
+        # it's a single-digit-ms cost on a rare path. Bounded to one
+        # retry — no infinite loop possible.
+        if (
+            has_supported_filter
+            and not candidates
+            and fetch_n < n_candidates
+        ):
+            full_order = np.argsort(-scores)
+            full_candidates: list[tuple[str, float]] = []
+            for idx in full_order:
+                score = float(scores[idx])
+                if score <= 0.0:
+                    break
+                full_candidates.append((self._chunk_ids[int(idx)], score))
+            candidates = _apply_supported_filters(
+                full_candidates, filters or {}
+            )
 
         # 6. Truncate to top_n.
         return (candidates[:top_n], warnings)
