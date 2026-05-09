@@ -3,14 +3,13 @@
 This file is the single authoritative source for arXMCP's tier
 promotion conditions. Every transition is a **machine-checkable**
 statement: a single command whose exit code answers "are we ready to
-promote?" Subjective criteria — "looks coherent", "demo transcript
-seems good", "vibes-check" — do not appear here, by design.
+promote?" Qualitative criteria do not appear in the gate specs
+below, by design.
 
 This document supersedes the qualitative Tier-0 exit criterion
 sketched in [`.claude/notes/09-feature-priorities.md`](.claude/notes/09-feature-priorities.md)
-(line 36) and the planned `E01_S10` "vibes-check Claude Code
-session transcript" milestone (which is not built — see the
-"History" section at the bottom).
+(line 36) and the planned `E01_S10` milestone (which is not built —
+see the "History" section at the bottom).
 
 ---
 
@@ -28,18 +27,14 @@ quantitative gates here; they're scope cutovers (multi-category
 ingest, full backfill) governed by their epics' acceptance
 criteria.
 
-**Reranker activation in E07 is conditional on nDCG@5 ≥ 0.80 after
-BM25 hybrid is active.** If the hybrid pipeline alone reaches the
-0.80 bar, the reranker can be deferred to Tier-2 polish work; if
-hybrid + reranker together still misses 0.80, the retrieval
-pipeline is debugged before Tier-2 begins. This conditional matters
+**Reranker activation in E07 is conditional on nDCG@5 ≥ 0.80 after BM25 hybrid is active.** If the hybrid pipeline alone reaches the 0.80 bar, the reranker can be deferred to Tier-2 polish work; if hybrid + reranker together still misses 0.80, the retrieval pipeline is debugged before Tier-2 begins. This conditional matters
 because the reranker is the heaviest component of the query path
 (GPU recommended); shipping it without measurable gain would be
 overhead with no payoff.
 
 ---
 
-## Tier-0 → Tier-1 gate (the active one)
+## Tier-0 → Tier-1 gate
 
 ### Command
 
@@ -53,8 +48,11 @@ Or via Make:
 make eval
 ```
 
-`make eval` is exactly the same invocation; it exists so contributors
-don't have to memorize the pytest path.
+`make eval` runs the same pytest invocation, plus the Python ≥ 3.11
+guard from `make test`. Use `make eval` unless you need to pass extra
+pytest flags directly. (Closes F8 from the E05_S03 critique — the two
+are NOT bytewise equivalent; `make eval` is strictly stricter on
+Python version.)
 
 ### Expected output — pass
 
@@ -69,19 +67,12 @@ tests/eval/test_retrieval_quality.py .                                   [100%]
 
 ### Expected output — fail (below threshold)
 
-```
-============================= test session starts ==============================
-collected 1 item
-
-tests/eval/test_retrieval_quality.py F                                   [100%]
-
-=================================== FAILURES ===================================
-__________________________ test_retrieval_quality ______________________________
-tests.eval.metrics.ThresholdNotMetError: nDCG@5 mean 0.62NN is below the
-threshold 0.7000. Either retrieval quality regressed or the threshold needs
-re-tuning. See var/arxmcp/ops/eval/results-*.jsonl for per-query detail.
-============================== 1 failed in N.NNs ===============================
-```
+The failure ends with a `ThresholdNotMetError` carrying the message
+`nDCG@5 mean X.XXXX is below the threshold Y.YYYY. Either retrieval
+quality regressed or the threshold needs re-tuning.` Pytest reports
+`1 failed in N.NNs`. The exact traceback formatting depends on
+pytest's terminal-output options; do not pattern-match the prefix
+bytewise.
 
 Per-query breakdown lives in
 `var/arxmcp/ops/eval/results-<corpus_version>.jsonl` (one JSON line
@@ -177,10 +168,16 @@ The MCP server's caching telemetry (E08, Sonnet B) emits per-tool
 hit/miss counts to `var/arxmcp/ops/cache-stats.jsonl`. A 24-hour
 window is the smallest sample that's large enough to escape the
 cold-start regime (the prompt cache fills in the first few hours)
-and small enough to be representative of recent traffic. Lower bound
-30 % comes from the multi-agent caching design note
-(`07-multi-agent-caching.md`) — anything below that means the
-cache-key discipline (BP1 byte-stability) has drifted.
+and small enough to be representative of recent traffic.
+
+The 30 % lower bound is set in this milestone (E05_S03) and the E05
+epic header at [`.claude/roadmap/E05-eval-harness.md`](.claude/roadmap/E05-eval-harness.md)
+as a placeholder Tier-2 → Tier-3 condition. E08 (Sonnet B) will
+re-derive the threshold against real telemetry and may revise it
+when the caching layer ships. This file is updated when E08 lands.
+(Closes F3 from the E05_S03 critique — the original wording
+fabricated a citation to `07-multi-agent-caching.md` which does not
+contain the 30 % number.)
 
 The exact aggregation command lands in E08; this file is updated
 when it does.
@@ -215,19 +212,23 @@ E01_S10 was originally specified as a manual "vibes-check" Claude
 Code session transcript demonstrating end-to-end retrieval. That
 qualitative criterion was retired in favor of the quantitative
 nDCG@5 gate when E05 was scoped. The roadmap entry at
-`.claude/roadmap/E01-shipped.md` (search for "E01_S10") records the
-supersession formally; this document is the active replacement.
+[`.claude/roadmap/E01-shipped.md`](.claude/roadmap/E01-shipped.md)
+(search for "E01_S10") records the supersession formally; this
+document is the active replacement.
 
-The 0.70 / 0.80 threshold values come from the project's design
-constitution ([`.claude/notes/09-feature-priorities.md`](.claude/notes/09-feature-priorities.md)
-§ "Tier 0 exit criterion" and the E05 epic header in
-[`.claude/roadmap/E05-eval-harness.md`](.claude/roadmap/E05-eval-harness.md)).
+The 0.70 / 0.80 threshold values come from the E05 epic header at
+[`.claude/roadmap/E05-eval-harness.md`](.claude/roadmap/E05-eval-harness.md)
+(the live roadmap entry that scopes the eval harness; the older
+[`.claude/notes/09-feature-priorities.md`](.claude/notes/09-feature-priorities.md)
+captures the qualitative Tier-0 criterion that this document
+supersedes — the numerical thresholds are NOT in that note).
 
----
-
-## Owner approval
-
-Per the E05_S03 risk note, this document **must be reviewed and
-approved by the project owner before Tier-1 work begins**. Owner
-sign-off is recorded in the commit-trailer of the `feat(eval)`
-commit that lands this file.
+The brief's risk note calls for owner review before any Tier-1
+milestone (E06, E07) begins. That review is a process gate
+external to this commit; an `Approved-by:` trailer on a follow-up
+commit, or a separate sign-off in the project tracker, is the
+right place to record it. The implementer of this milestone
+cannot self-approve. (Closes F4 from the E05_S03 critique — the
+original Owner-approval section pointed at the landing commit's
+trailer, which the landing commit could not retroactively
+satisfy.)

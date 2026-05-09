@@ -41,7 +41,7 @@ From [`.claude/notes/README.md`](.claude/notes/README.md):
 
 ## Tier exit gates
 
-Promotion between tiers is gated by **machine-checkable** conditions, not subjective demos. The single authoritative source is [`TIER-GATES.md`](TIER-GATES.md). The active gate today is Tier-0 → Tier-1: `make eval` must report `1 passed` (not `1 skipped`) for ANN-only retrieval at nDCG@5 ≥ 0.70.
+Promotion between tiers is gated by **machine-checkable** conditions, not subjective demos. The single authoritative source is [`TIER-GATES.md`](TIER-GATES.md). For the Tier-0 → Tier-1 gate, `make eval` must report `1 passed` (not `1 skipped`); failure means nDCG@5 fell below the 0.70 ANN-only threshold.
 
 ## Quick start
 

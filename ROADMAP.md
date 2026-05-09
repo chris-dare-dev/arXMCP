@@ -1,5 +1,15 @@
 # arXMCP Roadmap
 
+> **SUPERSEDED 2026-05-08.** The authoritative roadmap is now
+> [`.claude/roadmap/README.md`](.claude/roadmap/README.md), which
+> uses the current epic numbering (E05 = Eval Harness, E07 = Hybrid
+> Retrieval, E08 = Agent Runtime + Caching). This file uses the
+> older numbering (E05 = Storage & Indexing, E07 = MCP Server
+> Surface, E08 = Multi-Agent Caching) and is preserved for
+> historical reference only. New work follows the per-epic specs
+> under `.claude/roadmap/`. Tier promotion conditions live in
+> [`TIER-GATES.md`](TIER-GATES.md).
+
 ## Overview
 
 arXMCP is a local-first, Docker-deployable Model Context Protocol (MCP) server that exposes a research-mathematics arXiv corpus (math.AG, math.NT, math-ph, hep-th) to multi-agent Claude pipelines (sketcher → autoformalizer → tactician → fixer). It is the substrate that plays the role NotebookLM plays in the Gemini ecosystem — but for Claude Code, with full multi-agent prompt-cache reuse, math-aware parsing (LaTeXML + macro expansion), and zero dependence on paid cloud services. The intended consumer is a single mathematician driving an agentic proof workflow on one workstation.
