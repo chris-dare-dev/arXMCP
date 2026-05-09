@@ -39,12 +39,17 @@ From [`.claude/notes/README.md`](.claude/notes/README.md):
 - **Local-first** — must run in Docker on a single workstation
 - **Math fidelity over coverage** — 50K papers correct beats 500K with PyPDF mangling
 
+## Tier exit gates
+
+Promotion between tiers is gated by **machine-checkable** conditions, not subjective demos. The single authoritative source is [`TIER-GATES.md`](TIER-GATES.md). The active gate today is Tier-0 → Tier-1: `make eval` must report `1 passed` (not `1 skipped`) for ANN-only retrieval at nDCG@5 ≥ 0.70.
+
 ## Quick start
 
 ```sh
 make help           # list available targets
 make bootstrap      # set up the dev environment
 make test           # run ruff + pytest
+make eval           # run the Tier-0 retrieval-quality gate (TIER-GATES.md)
 ```
 
 The corpus directory `var/arxmcp/` is gitignored and created at bootstrap time.

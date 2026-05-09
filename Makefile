@@ -1,4 +1,4 @@
-.PHONY: help bootstrap test up ingest
+.PHONY: help bootstrap test eval up ingest
 
 # Override with `make test PYTHON=python3.13` if your default python3 is too old.
 PYTHON ?= python3
@@ -9,6 +9,7 @@ help:
 	@echo ""
 	@echo "  make bootstrap   Set up dev env and create var/arxmcp/ tree"
 	@echo "  make test        Run ruff + pytest"
+	@echo "  make eval        Run the Tier-0 retrieval-quality gate (see TIER-GATES.md)"
 	@echo "  make up          Start the MCP server (E01_S08; not yet implemented)"
 	@echo "  make ingest      Run the ingestion pipeline (E11; not yet implemented)"
 	@echo ""
@@ -44,6 +45,16 @@ test:
 Try: make test PYTHON=python3.$(MIN_PY_MINOR)'"
 	$(PYTHON) -m ruff check .
 	$(PYTHON) -m pytest
+
+# The Tier-0 → Tier-1 exit gate. See TIER-GATES.md for the full
+# behavior matrix (pass / fail / SKIP) and the operator's prerequisite
+# checklist. SKIP is NOT a pass for promotion — verify the test
+# reports `1 passed`, not `1 skipped`, before declaring Tier-0 done.
+eval:
+	@$(PYTHON) -c "import sys; assert sys.version_info >= (3, $(MIN_PY_MINOR)), \
+		f'arXMCP requires Python >= 3.$(MIN_PY_MINOR); got {sys.version_info[:2]}. \
+Try: make eval PYTHON=python3.$(MIN_PY_MINOR)'"
+	$(PYTHON) -m pytest tests/eval/test_retrieval_quality.py --ndcg-min=0.70
 
 up:
 	@echo "make up — not yet implemented (lands in E01_S08)"
