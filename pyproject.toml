@@ -45,6 +45,30 @@ dependencies = [
     #   is an in-process Tier-0 optimization; Tier-5 needs a scalable
     #   replacement (E11).
     "rank-bm25>=0.2",
+    # mcp: Model Context Protocol Python SDK (E06_S01). Provides
+    #   ``FastMCP`` and ``streamable_http_app()`` for the MCP
+    #   2025-06-18 spec's mandated Streamable HTTP transport. Pinned
+    #   to a tested minor because the 1.x line has had attribute
+    #   renames (``sse_app`` → ``streamable_http_app``); a future
+    #   bump is a one-line change inside ``server/_mcp_mount.py``.
+    "mcp>=1.27,<2",
+    # fastapi: ASGI framework for the long-running ``arxmcp-server``
+    #   (E06_S01). 0.115+ is the modern lifespan-context-manager API
+    #   (``@app.on_event`` is deprecated and is NOT used).
+    "fastapi>=0.115",
+    # uvicorn[standard]: ASGI server runner. ``[standard]`` pulls
+    #   ``uvloop`` + ``httptools`` for the C-accelerated event loop
+    #   path. Single-worker by design — multi-worker would defeat
+    #   shared-cache semantics (the same trap as stdio MCP).
+    "uvicorn[standard]>=0.30",
+    # pydantic-settings: env-var loading for ``ARXMCP_*`` config.
+    #   Field-level validators reject ``ARXMCP_BIND_HOST=0.0.0.0``
+    #   at config parse time, satisfying E06_S01's loopback AC.
+    "pydantic-settings>=2.4",
+    # prometheus-client: ``/metrics`` exposition (E06_S01). Default
+    #   single-process registry; multiprocess mode is explicitly NOT
+    #   used (the server is single-process by design).
+    "prometheus-client>=0.20",
 ]
 
 [project.optional-dependencies]

@@ -10,7 +10,7 @@ help:
 	@echo "  make bootstrap   Set up dev env and create var/arxmcp/ tree"
 	@echo "  make test        Run ruff + pytest"
 	@echo "  make eval        Run the Tier-0 retrieval-quality gate (see TIER-GATES.md)"
-	@echo "  make up          Start the MCP server (E01_S08; not yet implemented)"
+	@echo "  make up          Start the arxmcp-server on 127.0.0.1:7733 (E06_S01)"
 	@echo "  make ingest      Run the ingestion pipeline (E11; not yet implemented)"
 	@echo ""
 	@echo "Override the python interpreter with: make test PYTHON=python3.13"
@@ -56,9 +56,19 @@ eval:
 Try: make eval PYTHON=python3.$(MIN_PY_MINOR)'"
 	$(PYTHON) -m pytest tests/eval/test_retrieval_quality.py --ndcg-min=0.70
 
+# Start the long-running arxmcp-server (E06_S01). Binds to 127.0.0.1
+# only (Threat 4); container deployments expose the port via host
+# port-mapping. Override the bind via ARXMCP_BIND_PORT and the LanceDB
+# path via ARXMCP_LANCEDB_PATH; full env-var list in server/config.py.
+#
+# The server eager-loads BGE-M3 at startup (~5-30s) before /readyz
+# flips to 200. Use the docker image (docker/Dockerfile.server) for
+# production; this target is for local dev.
 up:
-	@echo "make up — not yet implemented (lands in E01_S08)"
-	@exit 1
+	@$(PYTHON) -c "import sys; assert sys.version_info >= (3, $(MIN_PY_MINOR)), \
+		f'arXMCP requires Python >= 3.$(MIN_PY_MINOR); got {sys.version_info[:2]}. \
+Try: make up PYTHON=python3.$(MIN_PY_MINOR)'"
+	$(PYTHON) -m uvicorn server.main:app --host 127.0.0.1 --port 7733 --lifespan on
 
 ingest:
 	@echo "make ingest — not yet implemented (the seed corpus tooling lives in tools/)"
