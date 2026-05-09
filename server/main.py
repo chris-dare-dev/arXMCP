@@ -288,6 +288,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.resources = resources
     refresh_metrics_from_singleton_state(resources)
 
+    # E06_S03: tool handlers reach the live Resources via a
+    # module-level reference set here. Synthesis D8 — handlers
+    # raise ResourcesNotReadyError if invoked before this fires.
+    from server.tools import set_resources
+
+    set_resources(resources)
+
     # F2 fix: thread the MCP session-manager lifespan into ours. The
     # mcp_server is attached to app.state by ``mount_mcp``.
     mcp_server = getattr(app.state, "mcp_server", None)
@@ -373,24 +380,21 @@ def create_app(config: Config | None = None) -> FastAPI:
         from mcp.server.fastmcp import FastMCP
 
         from server._mcp_mount import mount_mcp
+        from server.tools import register_all as register_all_tools
 
-        # Empty FastMCP server — tools land in E06_S03. The mount
-        # has to exist now so the Streamable HTTP endpoint responds
-        # to ``tools/list`` (with an empty list) and is ready for
-        # tool registration in the next milestone.
         # ``json_response=True`` makes responses single-shot
         # ``application/json`` rather than ``text/event-stream`` (SSE).
-        # Required by the E06_S02 stdio shim, which is a pure
-        # single-frame request/response proxy and does NOT parse SSE.
-        # The design constitution
-        # (``.claude/notes/06-mcp-server-design.md`` line 46) is
-        # explicit: "No protocol-level streaming of tool results.
-        # notifications/progress is a heartbeat, not a partial-result
-        # channel." We don't need the SSE pipe.
+        # Required by the E06_S02 stdio shim. Design constitution
+        # (``.claude/notes/06-mcp-server-design.md`` line 46): "No
+        # protocol-level streaming of tool results."
         mcp_server = FastMCP("arxmcp", json_response=True)
+        # E06_S03: tools MUST be registered BEFORE mount_mcp because
+        # streamable_http_app() snapshots the registered tools at
+        # mount time (synthesis D11).
+        register_all_tools(mcp_server)
         mount_mcp(app, mcp_server)
-        # F2 fix: stash on app.state so the lifespan can thread the
-        # session-manager lifespan into ours.
+        # F2 fix (E06_S01): stash on app.state so the lifespan can
+        # thread the session-manager lifespan into ours.
         app.state.mcp_server = mcp_server
     except ImportError as exc:
         logger.error(
