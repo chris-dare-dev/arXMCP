@@ -41,6 +41,20 @@ def pytest_addoption(parser: pytest.Parser) -> None:
             "for hybrid + reranker."
         ),
     )
+    parser.addoption(
+        "--update-tool-schema-hash",
+        action="store_true",
+        default=False,
+        help=(
+            "Regenerate EXPECTED_TOOL_SCHEMA_SHA256 in "
+            "tests/test_server_tool_schema.py to match the live "
+            "tools/list bytes. Use after an INTENTIONAL tool schema "
+            "change (description / argument schema / TOOL_SCHEMA_VERSION "
+            "bump). CI never sets this flag — a hash drift in CI is a "
+            "BP1 prompt-cache invalidation signal (see "
+            ".claude/notes/07-multi-agent-caching.md lines 40-49)."
+        ),
+    )
 
 
 @pytest.fixture
