@@ -661,13 +661,25 @@ def _normalize_source(value: str) -> str:
     operator copy-pasting the brief got an ``invalid choice`` error.
     Accept both casings, canonicalize internally to ``"openalex"``
     so downstream dispatch logic doesn't have to care.
+
+    E09_S02 added a separate ``ingest.inspire_ingest`` module for
+    INSPIRE-HEP enrichment (per the split-writer F4 closure). This
+    CLI explicitly does NOT dispatch to INSPIRE — pointing operators
+    at the right module is more useful than silently no-op'ing on
+    ``--source inspire``.
     """
     folded = value.strip().lower()
+    if folded == "inspire":
+        raise argparse.ArgumentTypeError(
+            "INSPIRE-HEP enrichment uses a separate CLI; run "
+            "`python -m ingest.inspire_ingest` instead. The "
+            "`graph_ingest` CLI dispatches to OpenAlex only."
+        )
     if folded != "openalex":
         # argparse converts ValueError into a friendly usage error.
         raise argparse.ArgumentTypeError(
-            f"unsupported source: {value!r}. Only 'openalex' / 'openAlex' "
-            "is supported in E09_S01; INSPIRE-HEP lands in E09_S02."
+            f"unsupported source: {value!r}. The graph_ingest CLI "
+            "supports 'openalex' / 'openAlex' only."
         )
     return "openalex"
 

@@ -43,7 +43,22 @@ import kuzu
 #: E09_S01 critique cites ``07-multi-agent-caching.md``: any schema
 #: mutation MUST bump a version constant so cached responses derived
 #: from the schema don't go stale silently.
-KUZU_SCHEMA_VERSION = 1
+#:
+#: Version history:
+#:   1 — E09_S01 — initial papers + cites + _schema_meta.
+#:   2 — E09_S02 — adds nullable ``doi`` / ``journal_ref`` /
+#:                 ``inspire_id`` columns to ``papers`` for INSPIRE-HEP
+#:                 enrichment.
+KUZU_SCHEMA_VERSION = 2
+
+#: Nullable columns that ``apply_schema`` adds to ``papers`` via
+#: ``ALTER TABLE`` when not already present. Used by the v2 migration
+#: introspect-and-ADD loop in ``apply_schema``.
+PAPERS_V2_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("doi", "STRING"),
+    ("journal_ref", "STRING"),
+    ("inspire_id", "STRING"),
+)
 
 #: SQL DDL statements applied in order. Each is idempotent
 #: (``IF NOT EXISTS``) so a re-run on an already-migrated database is
@@ -102,6 +117,16 @@ def apply_schema(db_path: Path) -> None:
         conn = kuzu.Connection(db)
         for statement in SCHEMA_STATEMENTS:
             conn.execute(statement)
+        # E09_S02 — apply v2 ALTER TABLE migrations idempotently.
+        # Kùzu 0.11 does not support ``ADD COLUMN IF NOT EXISTS``; we
+        # introspect via ``CALL TABLE_INFO`` and only add columns that
+        # are not yet present. This keeps re-runs a no-op (matches the
+        # spirit of the v1 ``CREATE … IF NOT EXISTS`` statements).
+        existing = _introspect_columns(conn, "papers")
+        for col_name, col_type in PAPERS_V2_COLUMNS:
+            if col_name in existing:
+                continue
+            conn.execute(f"ALTER TABLE papers ADD {col_name} {col_type}")
         # Stamp the schema-version row idempotently. F6 fix from the
         # E09_S01 critique. ``MERGE`` upserts so a re-run with a bumped
         # version writes the new value; existing readers pick up the
@@ -118,6 +143,21 @@ def apply_schema(db_path: Path) -> None:
         # (matters on Windows where the open file handle blocks parent rmtree
         # in pytest tmp_path teardown).
         del db
+
+
+def _introspect_columns(conn: kuzu.Connection, table_name: str) -> set[str]:
+    """Return the set of column names on ``table_name``.
+
+    Uses Kùzu's ``CALL TABLE_INFO('<table>')`` which returns rows of
+    shape ``[idx, name, type, default, is_pk]``. The name column is
+    index 1.
+    """
+    result = conn.execute(f"CALL TABLE_INFO('{table_name}') RETURN *")
+    columns: set[str] = set()
+    while result.has_next():
+        row = result.get_next()
+        columns.add(row[1])
+    return columns
 
 
 def read_schema_version(db_path: Path) -> int | None:
