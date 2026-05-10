@@ -96,9 +96,11 @@ Round 1:
 
 Round 2 (parallel, 1 MCP round = N concurrent tool_use blocks):
   bodies = await asyncio.gather(
-      get_chunk(neighbor.chunk_id)
-      for neighbor in result
-      if neighbor.chunk_id is not None     # see "chunk_id=None" below
+      *[
+          get_chunk(neighbor.chunk_id)
+          for neighbor in result
+          if neighbor.chunk_id is not None    # see "chunk_id=None" below
+      ]
   )
   # Each body: {"chunk": {"body_text": "Theorem 3.1. ...", ...}, "found": True, ...}
 

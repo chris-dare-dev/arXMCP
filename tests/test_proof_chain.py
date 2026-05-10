@@ -45,7 +45,15 @@ from tests._graph_helpers import build_synthetic_kuzu_graph, build_synthetic_lan
 # ---------------------------------------------------------------------------
 
 N_PAPERS = 50
-EDGES_PER_PAPER = 3
+# F1 fix from the E09_S04 critique: densified from 3 → 10 edges per
+# paper so the synthetic graph approximates real OpenAlex+INSPIRE
+# citation density (math.AG papers typically reference 10-60 others).
+# 50 papers × 10 = 500 edges; depth=2 BFS from any node can reach up
+# to ~100 papers before the max_results=50 cap fires. This stresses
+# the BFS + dedup path more meaningfully than the original 150-edge
+# fixture while still completing well under the 500ms perf gate.
+EDGES_PER_PAPER = 10
+EXPECTED_EDGE_COUNT = N_PAPERS * EDGES_PER_PAPER  # 500; pin via fixture assertion
 PAPER_ID_PREFIX = "2605."
 PAPER_ID_START = 90000
 
@@ -63,7 +71,14 @@ def graph_corpus(tmp_path: Path) -> dict:
     LanceDB chunks fixture — this paper exists as a node in Kùzu but
     has no chunk in LanceDB, exercising the ``chunk_id=None``
     branch (AC#5).
+
+    F3 fix from the E09_S04 critique: the fixture asserts that the
+    entry paper (P_0) cites the missing paper (P_{N-1}) so the AC#7
+    test's `missing in by_pid` assertion can't silently pass if a
+    future helper refactor changes the edge-wiring semantics.
     """
+    import kuzu
+
     kuzu_path = tmp_path / "kuzu"
     paper_ids = build_synthetic_kuzu_graph(
         db_path=kuzu_path,
@@ -74,9 +89,46 @@ def graph_corpus(tmp_path: Path) -> dict:
         paper_id_start=PAPER_ID_START,
     )
 
+    # F3 fixture-time assertion: edge wiring is what AC#7 depends on.
+    db = kuzu.Database(str(kuzu_path))
+    try:
+        conn = kuzu.Connection(db)
+        edge_count_result = conn.execute(
+            "MATCH ()-[r:cites]->() RETURN COUNT(*)"
+        )
+        edge_count = edge_count_result.get_next()[0]
+        assert edge_count == EXPECTED_EDGE_COUNT, (
+            f"synthetic graph has {edge_count} edges; expected "
+            f"{EXPECTED_EDGE_COUNT} ({N_PAPERS} × {EDGES_PER_PAPER}). "
+            "F1 guard: a future change to build_synthetic_kuzu_graph "
+            "that silently lowers edge density would weaken the perf "
+            "gate."
+        )
+        entry_cites_result = conn.execute(
+            "MATCH (s:papers {paper_id: $s})-[:cites]->(n:papers) "
+            "RETURN n.paper_id",
+            {"s": paper_ids[0]},
+        )
+        entry_direct_neighbors = set()
+        while entry_cites_result.has_next():
+            entry_direct_neighbors.add(entry_cites_result.get_next()[0])
+    finally:
+        del db
+
+    chunks_missing_paper = paper_ids[-1]
+    # F3 guard: AC#7 relies on entry → missing-paper being a direct
+    # (or 2-hop) edge. With EDGES_PER_PAPER=10 and mod-wrap, P_0
+    # cites P_{N-1} (it's i-1 mod N). Assert at fixture time so a
+    # future helper refactor surfaces a structural-change failure
+    # here rather than as a silent AC#7 pass.
+    assert chunks_missing_paper in entry_direct_neighbors, (
+        f"AC#7 test depends on entry paper {paper_ids[0]} citing the "
+        f"missing-from-LanceDB paper {chunks_missing_paper}; current "
+        f"direct neighbors: {sorted(entry_direct_neighbors)}"
+    )
+
     # Build LanceDB chunks for every paper EXCEPT the last one — that
     # one will return chunk_id=None per AC#7.
-    chunks_missing_paper = paper_ids[-1]
     rows = []
     for i, paper_id in enumerate(paper_ids):
         if paper_id == chunks_missing_paper:
@@ -90,6 +142,13 @@ def graph_corpus(tmp_path: Path) -> dict:
                 # Real body_text so AC#2's "non-null" assertion is
                 # meaningful — we use a synthetic but recognizable
                 # string so the test can pin the lookup wiring.
+                # F7 fix: the assertion in
+                # test_round_2_returns_non_null_body_text_for_all_chunks
+                # now substring-matches "Statement of theorem for"
+                # which is contained here. A field-swap regression
+                # (handler returns chunk_id in place of body_text)
+                # would fail because chunk_ids don't contain that
+                # substring.
                 "body_text": f"Statement of theorem for {paper_id}. "
                 f"Synthetic body for proof-chain test (paper index {i}).",
             }
@@ -137,7 +196,13 @@ def fake_resources(graph_corpus: dict):
     try:
         yield fake
     finally:
+        # F4 fix from the E09_S04 critique: drop the LanceDB handle
+        # explicitly before clearing the singleton so file
+        # descriptors / Arrow buffers are released deterministically
+        # (avoids GC-ordering flakes on Windows CI in long suites).
         reset_resources_for_tests()
+        del chunks_table
+        del db
 
 
 def _run(coro):
@@ -224,9 +289,20 @@ class TestRound2BulkGetChunk:
         for body in bodies:
             assert body["found"] is True
             assert body["chunk"] is not None
-            assert body["chunk"]["body_text"], (
+            body_text = body["chunk"]["body_text"]
+            assert body_text, (
                 "AC#2: body_text must be non-null/non-empty for all "
                 "round-2 chunks"
+            )
+            # F7 fix from the E09_S04 critique: substring-pin to the
+            # synthetic body's signature phrase so a field-swap
+            # regression (handler returning, say, chunk_id in place
+            # of body_text) trips the assertion. Without this, ANY
+            # non-empty string would pass — too weak for AC#2.
+            assert "Statement of theorem for" in body_text, (
+                f"body_text does not contain the synthetic signature "
+                f"phrase; got: {body_text[:80]!r}. A field-swap "
+                "regression would silently pass without this guard."
             )
 
 
@@ -364,26 +440,48 @@ class TestDocumentationPins:
     def test_doc_states_total_round_count(self):
         """AC#4: the doc states 'Total round count = 2. This fits the
         3-round cap from E08. Round 1 (cite_neighbors) + Round 2
-        (bulk parallel get_chunk) = 2 rounds.'"""
+        (bulk parallel get_chunk) = 2 rounds.'
+
+        F8 fix from the E09_S04 critique: normalize whitespace
+        before substring-matching so a markdown reflow that wraps
+        the phrase across lines doesn't fail this test.
+        """
         text = self.DOC_PATH.read_text(encoding="utf-8")
-        # Tolerant of formatting variations (backticks, line breaks)
-        # — pin the load-bearing phrases.
-        assert "Total round count = 2" in text
-        assert "3-round cap from E08" in text
-        assert "Round 1" in text and "Round 2" in text
-        assert "cite_neighbors" in text and "get_chunk" in text
+        text_norm = " ".join(text.split())
+        # Pin the load-bearing AC#4 phrases against the normalized
+        # form so line-wrap reformatting can't trip them.
+        assert "Total round count = 2" in text_norm
+        assert "3-round cap from E08" in text_norm
+        assert "Round 1" in text_norm and "Round 2" in text_norm
+        assert "cite_neighbors" in text_norm and "get_chunk" in text_norm
 
     def test_doc_documents_chunk_id_none_fallback(self):
-        """AC#5: the doc documents the chunk_id=None fallback (with
-        the v1-search-filter caveat)."""
+        """AC#5: the doc documents the chunk_id=None fallback.
+
+        F2 fix from the E09_S04 critique: the AC#5 mandate is that
+        the fallback 'counts as a third round and exhausts the
+        budget.' The previous test had a 3-way disjunction that
+        accepted 'deferred to E07_S04' as a substitute — but that
+        phrase is about the v1 gap, not about the AC#5 invariant.
+        Require the round-budget framing explicitly.
+        """
         text = self.DOC_PATH.read_text(encoding="utf-8")
+        text_norm = " ".join(text.split())
         assert (
-            "chunk_id=None" in text
-            or "chunk_id` is `None`" in text
-            or "chunk_id is None" in text
+            "chunk_id=None" in text_norm
+            or "chunk_id` is `None`" in text_norm
+            or "chunk_id is None" in text_norm
         )
-        assert "search_papers" in text
-        assert "third round" in text or "exhausts" in text or "deferred to E07_S04" in text
+        assert "search_papers" in text_norm
+        # F2: pin the round-budget AC#5 framing — at least ONE of
+        # "third round" or "exhausts" must be present; "deferred"
+        # alone is insufficient.
+        assert "third round" in text_norm or "exhausts" in text_norm, (
+            "AC#5 mandates that the doc state the chunk_id=None "
+            "fallback counts as a third round and exhausts the "
+            "budget. F2 tightening: 'deferred to E07_S04' is about "
+            "the v1 gap, not the round-budget invariant."
+        )
 
     def test_doc_includes_worked_example(self):
         text = self.DOC_PATH.read_text(encoding="utf-8")
