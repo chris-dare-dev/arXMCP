@@ -69,6 +69,35 @@ def is_valid_chunk_id(value: str) -> bool:
     return isinstance(value, str) and CHUNK_ID_RE.match(value) is not None
 
 
+def paper_id_from_chunk_id(chunk_id: str) -> str:
+    """Extract the paper_id segment from a chunk_id.
+
+    The ``chunk_id`` format is ``arxiv:<paper_id>:<16-hex>``. This
+    function delegates to the same ``CHUNK_ID_RE`` used by
+    ``is_valid_chunk_id`` so any drift surfaces as a parsing failure
+    here AND validation failure there — single source of truth.
+
+    Added for E09_S03 (the ``cite_neighbors`` graph query takes a
+    ``chunk_id`` and needs to derive the ``paper_id`` for the Kùzu
+    lookup; previously every caller would have inlined the regex).
+
+    Raises ``ValueError`` for malformed input — keeps the call sites
+    one-liner and surfaces invalid input at the boundary rather than
+    deep in a graph query.
+    """
+    if not isinstance(chunk_id, str):
+        raise ValueError(
+            f"chunk_id must be a string, got {type(chunk_id).__name__}"
+        )
+    match = CHUNK_ID_RE.match(chunk_id)
+    if not match:
+        raise ValueError(
+            f"chunk_id {chunk_id!r} is not well-formed; expected "
+            "arxiv:<paper_id>:<16-hex>"
+        )
+    return match.group(1)
+
+
 __all__ = [
     "CHUNK_ID_PATTERN",
     "CHUNK_ID_RE",
@@ -76,4 +105,5 @@ __all__ = [
     "PAPER_ID_RE",
     "is_valid_chunk_id",
     "is_valid_paper_id",
+    "paper_id_from_chunk_id",
 ]

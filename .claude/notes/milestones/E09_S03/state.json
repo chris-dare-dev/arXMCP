@@ -1,0 +1,66 @@
+{
+  "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/roadmap",
+  "created_at": "2026-05-10T20:30:58Z",
+  "critics_run": [],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "low": 0,
+    "medium": 0
+  },
+  "critique_path": null,
+  "deferred_findings": [],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_required": [],
+  "fixed_findings": [],
+  "id": "E09_S03",
+  "implementation_base": "e5ecbee0625f5921cadaece6cc33c4df87d01741",
+  "implementation_branch": null,
+  "implementation_commit_range": null,
+  "implementation_commits": [],
+  "implementation_path": "inline",
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "### E09_S03 \u2014 `cite_neighbors(chunk_id, depth=2, direction)` graph traversal\n\n**Status:** NEW\n**Tier:** 3\n**Effort:** M\n**Dependencies:** E09_S01, E09_S02, E06 (Sonnet B \u2014 `get_chunk` tool must be available for round 2 of the agent pattern)\n\n**Description.** The `cite_neighbors` function is the primary graph query API. Given a `chunk_id` (which is mapped to a `paper_id` via a simple lookup), it performs a breadth-first graph traversal in the K\u00f9zu database up to `depth` hops, returning a structured result list. This function is exposed as an MCP tool in E06 (Sonnet B adds it to the server tool surface); this milestone implements the underlying graph query.\n\n**Function signature:**\n```python\ndef cite_neighbors(\n    chunk_id: str,\n    depth: int = 2,\n    direction: Literal[\"cites\", \"cited_by\", \"depends_on\"] = \"cites\",\n    max_results: int = 50,\n    kuzudb_path: str = \"var/arxmcp/index/kuzudb/\"\n) -> list[CitationNeighbor]\n```\n\n**`CitationNeighbor` dataclass:**\n```python\n@dataclass\nclass CitationNeighbor:\n    chunk_id: str       # representative chunk_id for this paper (the first stmt chunk)\n    paper_id: str       # arXiv ID\n    edge_kind: str      # \"cites\", \"cited_by\", or \"ref\" (intra-paper)\n    hop_distance: int   # 1 = direct neighbor, 2 = neighbor's neighbor\n    source: str         # \"openAlex\", \"inspire\", or \"intra-paper\"\n    confidence: float   # from the cites rel table\n```\n\n**Direction semantics:**\n- `direction=\"cites\"`: returns papers that the source paper cites (outgoing edges), up to `depth` hops.\n- `direction=\"cited_by\"`: returns papers that cite the source paper (incoming edges), up to `depth` hops.\n- `direction=\"depends_on\"`: traces intra-paper `\\ref{}` chains from the chunk's `theorem_label` to other chunks in the same paper (the `cites` edges with `source=\"intra-paper\"` created by a separate intra-paper ref-chain pass \u2014 see below). When `direction=\"depends_on\"` and a result chunk is in a different paper, it falls back to `direction=\"cites\"` for cross-paper hops.\n\n**Intra-paper ref chain:** the milestone also includes a one-time pass at ingest time that reads each chunk's `theorem_label` and scans the paper's LaTeXML HTML for `\\ref{<theorem_label>}` occurrences in other chunks. A `cites` edge with `source=\"intra-paper\"` is added between the citing chunk's paper node and the cited theorem's paper node (the same paper, since `\\ref{}` is typically intra-paper). This is a lightweight static analysis pass, not a proof-checker.\n\nThe K\u00f9zu query for `direction=\"cites\"` at `depth=2` is:\n```cypher\nMATCH (p:papers {paper_id: $paper_id})-[:cites*1..2]->(n:papers)\nRETURN n.paper_id, length(path) AS hop\n```\n\nResults are mapped to `CitationNeighbor` records by looking up the first `kind=\"stmt\"` chunk for each `paper_id` in the LanceDB table. If no stmt chunk exists (the paper is in the graph but not in the chunked corpus), `chunk_id` is returned as `None` and the agent must call `get_chunk` with just `paper_id` instead.\n\n**Deliverables.**\n- `server/graph_queries.py` \u2014 `cite_neighbors()` implementation\n- `server/graph_types.py` \u2014 `CitationNeighbor` dataclass\n- `ingest/intra_paper_refs.py` \u2014 intra-paper `\\ref{}` chain ingest pass\n- `pytest tests/test_graph_queries.py` \u2014 unit test: 5-paper fixture graph, assert `cite_neighbors` returns correct neighbors at depth=1 and depth=2\n\n**Acceptance criteria.**\n- [ ] `cite_neighbors(chunk_id, depth=1, direction=\"cites\")` returns all direct citation neighbors.\n- [ ] `cite_neighbors(chunk_id, depth=2, direction=\"cites\")` returns hop-1 and hop-2 neighbors with correct `hop_distance` values.\n- [ ] `direction=\"cited_by\"` returns incoming edges (papers that cite the source).\n- [ ] `direction=\"depends_on\"` returns intra-paper `\\ref{}` chain results.\n- [ ] Results are capped at `max_results=50` to prevent unbounded returns on highly-cited papers.\n- [ ] Each result includes `chunk_id`, `paper_id`, `edge_kind`, `hop_distance`, `source`, `confidence`.\n- [ ] Papers in the graph but not in the chunked corpus return `chunk_id=None`.\n- [ ] Unit test passes on a 5-paper fixture graph with known edges.\n\n**Out of scope.** MCP tool registration (`cite_neighbors` as an MCP tool \u2014 that is E06_S04, Sonnet B). Cross-paper proof chain agent workflow documentation (E09_S04). Equation-level dependency graphs (E10).\n\n**Risk notes.**\n- **Closes H7 partial.** This milestone implements the `cite_neighbors` function. H7 is fully closed when E09_S04 documents and validates the 2-round agent pattern that uses `cite_neighbors` + bulk `get_chunk`.\n- `depth=2` can return up to O(D\u00b2) neighbors for a paper with D direct citations. Highly-cited papers (e.g. Grothendieck's T\u00f4hoku paper) may have thousands of direct citations; the `max_results` cap prevents memory issues but means the traversal is incomplete. Document this limitation explicitly.\n\n**Labels.** `area:graph`, `kind:feature`, `tier:3`.\n\n---",
+  "phase": "implement-running",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-10T20:30:58Z",
+      "left_at": "2026-05-10T20:31:05Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-10T20:31:05Z",
+      "left_at": "2026-05-10T20:44:19Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-10T20:44:19Z",
+      "left_at": "2026-05-10T20:45:02Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-05-10T20:45:02Z",
+      "left_at": null,
+      "phase": "implement-running"
+    }
+  ],
+  "rectification_commit": null,
+  "regression_tests_added": [],
+  "research_briefs": [
+    {
+      "agent": "sonnet-1",
+      "path": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/E09_S03/research-brief-1.md",
+      "status": "ok"
+    },
+    {
+      "agent": "sonnet-2",
+      "path": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/E09_S03/research-brief-2.md",
+      "status": "ok"
+    }
+  ],
+  "research_mode": "standard",
+  "research_synthesis": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/E09_S03/research-synthesis.md",
+  "updated_at": "2026-05-10T20:45:02Z"
+}
