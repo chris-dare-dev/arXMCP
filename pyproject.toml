@@ -106,6 +106,12 @@ dependencies = [
     #   search time. CPU-only; the project's local-first deployment
     #   does not depend on a GPU runtime. License: MIT.
     "faiss-cpu>=1.7",
+    # kuzu: embedded graph database for the citation graph (E09_S01).
+    #   Pinned EXACTLY to 0.11.3 (the final stable release) because the
+    #   upstream project was archived on 2025-10-10. License: MIT. A
+    #   future fork migration (Kineviz bighorn / Vela-Engineering) is
+    #   tracked separately; do not bump this pin without re-evaluating.
+    "kuzu==0.11.3",
 ]
 
 [project.optional-dependencies]
