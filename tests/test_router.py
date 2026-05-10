@@ -304,23 +304,33 @@ class TestPatternFileSourceOfTruth:
     require modifying ``router.py``. The router code is
     pattern-list-agnostic; only the YAML file owns the patterns."""
 
-    def test_no_hardcoded_patterns_in_router_module(self):
-        """Sanity: the router module has zero literal regex strings
-        for the four priority intents. (Module-level constants for
-        canonicalization are fine; what we want to catch is a
-        future change that hardcodes ``r"\\bprove\\b"`` in
-        ``router.py`` instead of the YAML.)"""
-        router_src = Path(
-            "server/router.py"
-        ).resolve()
-        text = router_src.read_text(encoding="utf-8")
-        # The brief's example patterns must NOT appear as Python
-        # string literals in the source (they live in the YAML).
-        for needle in (r"\bprove\b", r"\bdefin", r"\blean\b"):
-            assert needle not in text, (
-                f"Pattern {needle!r} appears literally in router.py "
-                f"— it should live in router_patterns.yaml so adding "
-                f"a new pattern doesn't require touching this file."
+    def test_no_yaml_pattern_string_appears_in_router_source(self):
+        """F3 fix from the E08_S01 critique: derive the needle list
+        from the YAML at test time so EVERY pattern is checked, not
+        just 3. A future YAML edit that adds a new pattern is
+        automatically covered.
+
+        F5 fix: use ``Path(server.router.__file__)`` instead of a
+        CWD-relative path so the test passes regardless of where
+        pytest is invoked from."""
+        import yaml
+
+        import server.router as router_mod
+
+        router_src = Path(router_mod.__file__).resolve()
+        router_text = router_src.read_text(encoding="utf-8")
+
+        yaml_text = PATTERNS_PATH.read_text(encoding="utf-8")
+        entries = yaml.safe_load(yaml_text)
+        assert entries, "YAML has no entries"
+
+        for entry in entries:
+            regex_str = entry["regex"]
+            assert regex_str not in router_text, (
+                f"YAML pattern {regex_str!r} appears literally in "
+                f"router.py — it should live ONLY in "
+                f"router_patterns.yaml so adding a new pattern doesn't "
+                f"require touching this file (brief AC #6)."
             )
 
     def test_patterns_path_resolves(self):
@@ -363,7 +373,9 @@ class TestImportTimeValidation:
             "- tag: LOOKUP\n  regex: 'foo'\n",  # missing 'rationale'
             encoding="utf-8",
         )
-        with pytest.raises(RuntimeError, match="missing required keys"):
+        # F8 fix renamed the error from "missing required keys" to
+        # "keys must be exactly" so it covers BOTH missing and extra.
+        with pytest.raises(RuntimeError, match="keys must be exactly"):
             _load_and_compile(bad)
 
     def test_unknown_tag_raises(self, tmp_path):
@@ -496,3 +508,266 @@ class TestCanonicalization:
         assert _canonicalize(None) == ""
         assert _canonicalize(42) == ""
         assert _canonicalize(["foo"]) == ""
+
+
+# ===========================================================================
+# F1 regression — ReDoS guard at import
+# ===========================================================================
+
+
+class TestReDoSGuard:
+    """F1 fix from the E08_S01 critique: a future YAML edit adding
+    a catastrophically-backtracking pattern must fail at import,
+    not blow the 1ms latency budget at request time."""
+
+    def test_catastrophic_backtracking_pattern_rejected(self, tmp_path):
+        """``(a*)*b`` is the textbook ReDoS pattern: O(2^n) on
+        ``'a' * n`` input. The static check MUST reject it."""
+        bad = tmp_path / "redos.yaml"
+        bad.write_text(
+            "- tag: LOOKUP\n"
+            "  regex: '(a*)*b'\n"
+            "  rationale: 'reasonable-looking but pathological'\n",
+            encoding="utf-8",
+        )
+        with pytest.raises(RuntimeError, match="ReDoS static check"):
+            _load_and_compile(bad)
+
+    def test_other_nested_quantifier_shapes_rejected(self, tmp_path):
+        """All four canonical nested-quantifier shapes are caught."""
+        for bad_pattern in ("(a+)+b", "(a?)*b", "(.*)+x", "(.+)*x"):
+            bad = tmp_path / f"redos_{abs(hash(bad_pattern))}.yaml"
+            bad.write_text(
+                f"- tag: LOOKUP\n"
+                f"  regex: '{bad_pattern}'\n"
+                f"  rationale: 'pathological'\n",
+                encoding="utf-8",
+            )
+            with pytest.raises(RuntimeError, match="ReDoS static check"):
+                _load_and_compile(bad)
+
+    def test_normal_pattern_passes_redos_probe(self, tmp_path):
+        """A reasonable pattern (no nested quantifiers, bounded
+        backtrack) must pass the probe."""
+        good = tmp_path / "good.yaml"
+        good.write_text(
+            "- tag: LOOKUP\n"
+            "  regex: '\\bdefin(e|ition)\\b'\n"
+            "  rationale: 'bounded backtrack; passes the probe'\n",
+            encoding="utf-8",
+        )
+        # Should not raise.
+        result = _load_and_compile(good)
+        assert len(result) == 1
+
+
+# ===========================================================================
+# F2 regression — bytes input decodes to UTF-8
+# ===========================================================================
+
+
+class TestBytesInput:
+    """F2 fix from the E08_S01 critique: the orchestrator
+    (E08_S04+) consumes router output from a wire-borne MCP
+    request; bytes-shaped input is a common shape and silently
+    routing to DEFAULT_TAG would mask upstream bugs."""
+
+    def test_bytes_classify_decodes_utf8(self):
+        """``classify(b"prove this")`` must route to SYNTHESIS,
+        same as the str equivalent."""
+        assert classify(b"prove this") is RouteTag.SYNTHESIS
+
+    def test_bytes_classify_what_is(self):
+        assert classify(b"What is the definition of monoid?") is RouteTag.LOOKUP
+
+    def test_bytearray_classify_decodes_utf8(self):
+        assert classify(bytearray(b"verify this proof")) is RouteTag.VERIFICATION
+
+    def test_invalid_utf8_bytes_does_not_raise(self):
+        """Invalid UTF-8 bytes degrade gracefully via
+        ``errors='replace'`` (the U+FFFD replacement char doesn't
+        match any router pattern → DEFAULT_TAG via no-match)."""
+        result = classify(b"\xff\xfe\xfd\xfc")
+        assert result is DEFAULT_TAG  # no-match path
+
+    def test_bytes_with_unicode_decodes(self):
+        """UTF-8-encoded ``étale`` decodes correctly."""
+        encoded = "What is the étale fundamental group?".encode()
+        assert classify(encoded) is RouteTag.LOOKUP
+
+
+# ===========================================================================
+# F4 regression — block-order monotonicity check
+# ===========================================================================
+
+
+class TestBlockOrderInvariant:
+    """F4 fix from the E08_S01 critique: a YAML edit appending an
+    AUTOFORMALIZATION pattern at the bottom (silently demoting it
+    below LOOKUP and SYNTHESIS) must fail at import."""
+
+    def test_appended_high_priority_pattern_rejected(self, tmp_path):
+        """LOOKUP first, then AUTOFORMALIZATION at index 1 →
+        non-monotonic priority → import fails."""
+        bad = tmp_path / "bad_order.yaml"
+        bad.write_text(
+            "- tag: LOOKUP\n"
+            "  regex: 'foo'\n"
+            "  rationale: 'first lookup'\n"
+            "- tag: AUTOFORMALIZATION\n"
+            "  regex: 'bar'\n"
+            "  rationale: 'should be at top, not after lookup'\n",
+            encoding="utf-8",
+        )
+        with pytest.raises(RuntimeError, match="block-order violation"):
+            _load_and_compile(bad)
+
+    def test_correct_block_order_passes(self, tmp_path):
+        """AUTOFORMALIZATION → VERIFICATION → LOOKUP → SYNTHESIS
+        in that order is the canonical priority and must pass."""
+        good = tmp_path / "ordered.yaml"
+        good.write_text(
+            "- tag: AUTOFORMALIZATION\n"
+            "  regex: 'a'\n"
+            "  rationale: 'top priority'\n"
+            "- tag: VERIFICATION\n"
+            "  regex: 'b'\n"
+            "  rationale: 'second'\n"
+            "- tag: LOOKUP\n"
+            "  regex: 'c'\n"
+            "  rationale: 'third'\n"
+            "- tag: SYNTHESIS\n"
+            "  regex: 'd'\n"
+            "  rationale: 'fourth'\n",
+            encoding="utf-8",
+        )
+        result = _load_and_compile(good)
+        assert len(result) == 4
+
+    def test_live_yaml_satisfies_block_order(self):
+        """The live ``server/router_patterns.yaml`` MUST satisfy
+        the priority block-order invariant. Sanity check: this
+        passing today would have failed if the implementer had
+        gotten the YAML order wrong."""
+        # If we got here, _load_and_compile already ran at import
+        # without raising — the invariant holds.
+        from server.router import _COMPILED_PATTERNS
+
+        assert len(_COMPILED_PATTERNS) > 0
+
+
+# ===========================================================================
+# F6 regression — unicode-heavy latency
+# ===========================================================================
+
+
+class TestUnicodeLatency:
+    """F6 fix from the E08_S01 critique: AC #4 promises <1 ms for
+    ANY 200-char prefix. Decomposed Unicode (e + combining acute
+    accent) is more expensive to NFC-normalize than ASCII; a
+    naive future change could regress here while passing the
+    ASCII test."""
+
+    def test_classify_under_1ms_on_decomposed_unicode(self):
+        # Each "é " (decomposed: e + U+0301, then space) is 3 chars.
+        # 67 occurrences = 201 chars; truncate to 200.
+        decomposed = "é " * 67
+        decomposed = decomposed[:200]
+        assert len(decomposed) == 200
+
+        # Warm up.
+        classify(decomposed)
+
+        n = 1000
+        elapsed_total_s = timeit.timeit(
+            lambda: classify(decomposed), number=n,
+        )
+        mean_per_call_ms = (elapsed_total_s / n) * 1000.0
+
+        assert mean_per_call_ms < 1.0, (
+            f"classify exceeded 1ms budget on decomposed-unicode "
+            f"input: mean = {mean_per_call_ms:.3f} ms (over {n} "
+            f"iterations). NFC normalization cost may be the "
+            f"bottleneck; investigate."
+        )
+
+
+# ===========================================================================
+# F7 regression — rationale type validation
+# ===========================================================================
+
+
+class TestRationaleValidation:
+    """F7 fix from the E08_S01 critique: empty / null / non-string
+    ``rationale`` defeats the audit-trail premise. Reject at
+    import."""
+
+    def test_empty_rationale_raises(self, tmp_path):
+        bad = tmp_path / "empty_rationale.yaml"
+        bad.write_text(
+            "- tag: LOOKUP\n"
+            "  regex: 'foo'\n"
+            "  rationale: ''\n",
+            encoding="utf-8",
+        )
+        with pytest.raises(RuntimeError, match="non-empty string"):
+            _load_and_compile(bad)
+
+    def test_null_rationale_raises(self, tmp_path):
+        bad = tmp_path / "null_rationale.yaml"
+        bad.write_text(
+            "- tag: LOOKUP\n"
+            "  regex: 'foo'\n"
+            "  rationale: null\n",
+            encoding="utf-8",
+        )
+        with pytest.raises(RuntimeError, match="non-empty string"):
+            _load_and_compile(bad)
+
+    def test_int_rationale_raises(self, tmp_path):
+        bad = tmp_path / "int_rationale.yaml"
+        bad.write_text(
+            "- tag: LOOKUP\n"
+            "  regex: 'foo'\n"
+            "  rationale: 42\n",
+            encoding="utf-8",
+        )
+        with pytest.raises(RuntimeError, match="non-empty string"):
+            _load_and_compile(bad)
+
+    def test_whitespace_only_rationale_raises(self, tmp_path):
+        bad = tmp_path / "ws_rationale.yaml"
+        # Use a YAML literal block scalar so the whitespace-only
+        # value is unambiguous (YAML's '\n' inside single-quotes is
+        # the literal backslash-n, not a newline).
+        bad.write_text(
+            "- tag: LOOKUP\n"
+            "  regex: 'foo'\n"
+            "  rationale: \"   \"\n",
+            encoding="utf-8",
+        )
+        with pytest.raises(RuntimeError, match="non-empty string"):
+            _load_and_compile(bad)
+
+
+# ===========================================================================
+# F8 regression — extra-key rejection
+# ===========================================================================
+
+
+class TestExtraKeyRejection:
+    """F8 fix from the E08_S01 critique: a YAML entry with an
+    unrecognized field (e.g. ``priority: 99``) silently ignored
+    creates editorial confusion. Reject at import."""
+
+    def test_extra_key_raises(self, tmp_path):
+        bad = tmp_path / "extra_key.yaml"
+        bad.write_text(
+            "- tag: LOOKUP\n"
+            "  regex: 'foo'\n"
+            "  rationale: 'x'\n"
+            "  priority: 99\n",  # nope
+            encoding="utf-8",
+        )
+        with pytest.raises(RuntimeError, match="extra="):
+            _load_and_compile(bad)

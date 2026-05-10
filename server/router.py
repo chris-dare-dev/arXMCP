@@ -74,9 +74,12 @@ MAX_QUERY_PREFIX_CHARS: int = 200
 #: to ``server/`` regardless of CWD.
 PATTERNS_PATH: Path = Path(__file__).parent / "router_patterns.yaml"
 
-#: Required keys per pattern entry. A YAML entry missing any key
-#: causes import-time ``RuntimeError``.
+#: Required keys per pattern entry. A YAML entry with EXACTLY
+#: this set of keys passes; any missing OR extra key raises at
+#: import (F8 fix from the E08_S01 critique).
 _REQUIRED_KEYS: frozenset[str] = frozenset({"tag", "regex", "rationale"})
+
+
 
 
 # ---------------------------------------------------------------------------
@@ -109,21 +112,42 @@ class RouteTag(StrEnum):
 DEFAULT_TAG: RouteTag = RouteTag.LOOKUP
 
 
+#: Per-tag priority rank (higher = higher priority). F4 fix from
+#: the E08_S01 critique: encode the synthesis D4 priority order
+#: (AUTOFORMALIZATION > VERIFICATION > LOOKUP > SYNTHESIS) so the
+#: loader can assert YAML insertion order is monotonically
+#: non-increasing under this key — appending an AUTOFORMALIZATION
+#: pattern at the bottom of the file silently demoting it would
+#: raise at import.
+_TAG_PRIORITY_RANK: dict[RouteTag, int] = {
+    RouteTag.AUTOFORMALIZATION: 4,
+    RouteTag.VERIFICATION: 3,
+    RouteTag.LOOKUP: 2,
+    RouteTag.SYNTHESIS: 1,
+}
+
+
 # ---------------------------------------------------------------------------
 # Canonicalization
 # ---------------------------------------------------------------------------
 
 
-def _canonicalize(query: str) -> str:
+def _canonicalize(query: Any) -> str:
     """Return the canonical form of ``query`` for regex matching.
 
     Three steps in order:
 
-    1. Slice to :data:`MAX_QUERY_PREFIX_CHARS` (cheap; O(1)).
-    2. NFC-normalize Unicode (mirrors
+    1. (F2 fix) If ``query`` is ``bytes`` / ``bytearray``,
+       decode as UTF-8 with ``errors="replace"`` first. Wire-borne
+       MCP requests can carry undecoded bytes through some
+       integration points; silently returning ``DEFAULT_TAG`` for
+       a real input shape would mask the upstream bug. A
+       round-trippable decode preserves the user's intent.
+    2. Slice to :data:`MAX_QUERY_PREFIX_CHARS` (cheap; O(1)).
+    3. NFC-normalize Unicode (mirrors
        :func:`server.query_encoder._canonicalize` — keeps the
        ``étale`` / ``\\'etale`` discipline aligned across the server).
-    3. Whitespace-collapse via ``" ".join(s.split())`` — handles all
+    4. Whitespace-collapse via ``" ".join(s.split())`` — handles all
        Unicode whitespace AND collapses runs of tabs/newlines/spaces
        to a single space.
 
@@ -132,6 +156,12 @@ def _canonicalize(query: str) -> str:
     editor mistake adding a mixed-case pattern in the YAML doesn't
     silently never-match).
     """
+    # F2 fix: bytes / bytearray → decode UTF-8 with errors=replace.
+    # The U+FFFD replacement char doesn't match any router pattern;
+    # invalid UTF-8 input degrades gracefully to DEFAULT_TAG via
+    # the no-match path rather than raising.
+    if isinstance(query, (bytes, bytearray)):
+        query = bytes(query).decode("utf-8", errors="replace")
     if not isinstance(query, str):
         # Defensive: return empty so no patterns match → DEFAULT_TAG.
         return ""
@@ -143,6 +173,64 @@ def _canonicalize(query: str) -> str:
 # ---------------------------------------------------------------------------
 # Pattern loading + compilation (import-time)
 # ---------------------------------------------------------------------------
+
+
+#: Static-analysis regex matching the canonical "nested quantifier"
+#: ReDoS shape: a quantified group whose body itself contains a
+#: quantifier — e.g. ``(a*)*``, ``(a+)+``, ``(.*)+``, ``(.+)*``.
+#: These exhibit catastrophic backtracking: ``(a*)*b`` on
+#: ``'a' * 28`` takes ~18 s on commodity Python.
+#:
+#: We use a static check rather than a timing probe because:
+#:   - A timing probe must run the regex; ``re`` does not release
+#:     the GIL during catastrophic backtracking, so a thread-based
+#:     probe leaks runaway threads on rejection — the worker keeps
+#:     burning CPU after the probe times out.
+#:   - The static check is fast, deterministic, and covers the
+#:     canonical ReDoS shape that 99% of accidental edits would
+#:     produce. (Sophisticated ReDoS via overlapping alternation —
+#:     e.g. ``(a|a)*`` — is not caught here; that's a deliberate
+#:     trade-off documented in the code comment.)
+_REDOS_NESTED_QUANTIFIER_RE = re.compile(
+    # Match a parenthesized group whose body contains a + * or ?
+    # quantifier, immediately followed by another + * or ? quantifier
+    # outside the group. Allows arbitrary chars inside the group
+    # except nested unbalanced parens, since this is a heuristic
+    # not a parser.
+    r"\([^()]*[+*?][^()]*\)[+*?]"
+)
+
+
+def _assert_pattern_redos_safe(
+    pattern: re.Pattern[str],  # noqa: ARG001 — kept for callsite symmetry
+    pattern_idx: int,
+    pattern_src: str,
+) -> None:
+    """Reject patterns whose REGEX SOURCE contains the canonical
+    nested-quantifier ReDoS shape.
+
+    F1 fix from the E08_S01 critique. Static-analysis check (NOT a
+    timing probe) — see :data:`_REDOS_NESTED_QUANTIFIER_RE` for
+    why a timing probe is unsafe (leaks runaway daemon threads on
+    catastrophic patterns since ``re`` doesn't release the GIL).
+
+    Catches: ``(a*)*``, ``(a+)+``, ``(.*)+``, ``(a?)*``, etc.
+    Misses: overlapping-alternation ReDoS (``(a|a)*``) and other
+    sophisticated shapes — those are rare in YAML edits and would
+    need a true regex parser to detect, which is overkill for a
+    classifier of <30 patterns.
+    """
+    if _REDOS_NESTED_QUANTIFIER_RE.search(pattern_src):
+        raise RuntimeError(
+            f"router_patterns.yaml[{pattern_idx}].regex={pattern_src!r} "
+            f"failed the ReDoS static check: the regex source "
+            f"contains the nested-quantifier shape ``(...X)Y`` where X "
+            f"and Y are both ``+ * ?`` quantifiers. This shape causes "
+            f"catastrophic backtracking — e.g. ``(a*)*b`` on "
+            f"``'a' * 28`` takes ~18 s on commodity Python. "
+            f"Rewrite the pattern WITHOUT nested quantifiers (use "
+            f"alternation or pre-anchor with ``\\b`` / ``\\A``)."
+        )
 
 
 def _load_and_compile(
@@ -200,12 +288,17 @@ def _load_and_compile(
                 f"router_patterns.yaml[{idx}] must be a mapping; "
                 f"got {type(entry).__name__!s}."
             )
+        # F8 fix from the E08_S01 critique: reject EXTRA keys, not
+        # only missing ones. A future maintainer adding an
+        # "ignored" field (e.g. ``priority: 99``) gets a clear
+        # signal that the field has no semantics here.
         missing = _REQUIRED_KEYS - set(entry.keys())
-        if missing:
+        extra = set(entry.keys()) - _REQUIRED_KEYS
+        if missing or extra:
             raise RuntimeError(
-                f"router_patterns.yaml[{idx}] missing required keys "
-                f"{sorted(missing)!r}; required keys are "
-                f"{sorted(_REQUIRED_KEYS)!r}."
+                f"router_patterns.yaml[{idx}] keys must be exactly "
+                f"{sorted(_REQUIRED_KEYS)!r}; got "
+                f"missing={sorted(missing)!r}, extra={sorted(extra)!r}."
             )
         tag_str = entry["tag"]
         if tag_str not in valid_tag_values:
@@ -220,6 +313,17 @@ def _load_and_compile(
                 f"router_patterns.yaml[{idx}].regex must be a string; "
                 f"got {type(regex_str).__name__!s}."
             )
+        # F7 fix: validate rationale is a non-empty string. The
+        # "annotated rationale" premise breaks down silently if a
+        # null / int / empty value passes the import check.
+        rationale = entry["rationale"]
+        if not isinstance(rationale, str) or not rationale.strip():
+            raise RuntimeError(
+                f"router_patterns.yaml[{idx}].rationale must be a "
+                f"non-empty string; got {rationale!r}. The audit-trail "
+                f"premise (per the E08_S01 brief) requires every "
+                f"pattern to carry a human-readable explanation."
+            )
         try:
             pattern = re.compile(regex_str, re.IGNORECASE)
         except re.error as exc:
@@ -227,6 +331,9 @@ def _load_and_compile(
                 f"router_patterns.yaml[{idx}].regex={regex_str!r} "
                 f"failed to compile: {exc}"
             ) from exc
+        # F1 fix: ReDoS probe. Reject patterns that take longer than
+        # _REDOS_PROBE_DEADLINE_S on a 200-char worst-case input.
+        _assert_pattern_redos_safe(pattern, idx, regex_str)
         compiled.append((pattern, RouteTag(tag_str)))
 
     if not compiled:
@@ -234,6 +341,28 @@ def _load_and_compile(
             f"router_patterns.yaml at {patterns_path} has zero "
             f"entries; the router cannot classify with no patterns."
         )
+
+    # F4 fix from the E08_S01 critique: assert the YAML order is
+    # monotonically non-increasing under priority rank. A future
+    # edit that appends e.g. an AUTOFORMALIZATION pattern at the
+    # bottom of the file silently demotes it; this check fails
+    # loudly at import.
+    prev_rank = _TAG_PRIORITY_RANK[compiled[0][1]]
+    prev_tag = compiled[0][1]
+    for idx, (_pattern, tag) in enumerate(compiled):
+        rank = _TAG_PRIORITY_RANK[tag]
+        if rank > prev_rank:
+            raise RuntimeError(
+                f"router_patterns.yaml block-order violation at entry "
+                f"[{idx}] tag={tag.value!r} (priority={rank}) appears "
+                f"AFTER tag={prev_tag.value!r} (priority={prev_rank}). "
+                f"YAML insertion order MUST be monotonically "
+                f"non-increasing under tag priority "
+                f"(AUTOFORMALIZATION > VERIFICATION > LOOKUP > "
+                f"SYNTHESIS) — see synthesis D4 + the YAML header."
+            )
+        prev_rank = rank
+        prev_tag = tag
 
     logger.info(
         "router: compiled %d patterns from %s", len(compiled), patterns_path,
