@@ -198,6 +198,12 @@ def refresh_metrics_from_singleton_state(resources: Resources) -> None:
         EMBED_SINGLEFLIGHT_DEDUP_COUNTER.inc(delta)
         _LAST_DEDUP_COUNT = current
 
+    # E08_S03: refresh the cache byte-usage gauges. Cheap (three
+    # integer sums); a missing cache singleton is a no-op.
+    from server.metrics import refresh_cache_metrics
+
+    refresh_cache_metrics(getattr(resources, "cache", None))
+
 
 def reset_metrics_for_tests() -> None:
     """Test hook — reset the module-level dedup tracker.

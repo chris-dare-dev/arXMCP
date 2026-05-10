@@ -237,6 +237,13 @@ class Resources:
     # gated by ARXMCP_ENABLE_RERANK (default off). On-path uses the
     # rerank_singleflight + rerank_semaphore for two-tier concurrency.
     rerank_phase: Any | None = None
+    # server.cache.RetrievalCache (E08_S03). 3-tier retrieval cache
+    # singleton: SQLite-backed Tier-1 (exact-query memo), in-process
+    # FAISS Tier-2 (semantic-query memo at cosine ≥0.97), in-process
+    # Tier-3 (rerank-set memo). Initialized in ``startup()`` AFTER the
+    # corpus version is pinned (Tier-1 keys depend on it). Closed in
+    # ``shutdown()`` so the SQLite file is flushed cleanly.
+    cache: Any | None = None
     process_start_time_seconds: float = field(default_factory=time.time)
     warm: bool = False
 
@@ -382,6 +389,27 @@ class Resources:
             config.enable_rerank,
         )
 
+        # 6. Retrieval cache (E08_S03). 3-tier cache singleton —
+        # SQLite-backed Tier-1, in-process FAISS Tier-2, in-process
+        # LRU Tier-3. Pinned to ``corpus_info.version`` so a corpus
+        # bump unreachable-izes prior entries by hash construction.
+        # The SQLite file at ``config.cache_db_path`` is opened (or
+        # created) here; unexpired rows are loaded into the in-process
+        # mirror.
+        from server.cache import RetrievalCache, set_cache
+
+        retrieval_cache = await RetrievalCache.open(
+            cache_db_path=config.cache_db_path,
+            corpus_version=corpus_info.version,
+        )
+        set_cache(retrieval_cache)
+        logger.info(
+            "Resources.startup: RetrievalCache warm "
+            "(corpus_version=%d, sqlite=%s)",
+            corpus_info.version,
+            config.cache_db_path,
+        )
+
         instance = cls(
             config=config,
             corpus_info=corpus_info,
@@ -393,6 +421,7 @@ class Resources:
             bm25_phase=bm25_phase,
             ann_phase=ann_phase,
             rerank_phase=rerank_phase,
+            cache=retrieval_cache,
             warm=True,
         )
         logger.info("Resources.startup: warm")
@@ -418,6 +447,21 @@ class Resources:
         # resource as un-warm so /readyz flips back to 503 if any
         # straggler request hits it.
         self.warm = False
+        # E08_S03: close the cache singleton FIRST so any in-flight
+        # writes flush to SQLite before the executor drain. The cache
+        # is performance-not-correctness; a close error is logged and
+        # swallowed.
+        if self.cache is not None:
+            try:
+                await self.cache.close()
+            except Exception:  # noqa: BLE001
+                logger.exception("Resources.shutdown: cache close failed")
+        # Drop the module-level cache reference so post-shutdown calls
+        # to ``get_cache()`` return ``None`` (handlers fall through to
+        # the underlying pipeline).
+        from server.cache import set_cache
+
+        set_cache(None)
         shutdown_executor(wait=True, cancel_futures=False)
         logger.info("Resources.shutdown: BGE-M3 executor drained")
 

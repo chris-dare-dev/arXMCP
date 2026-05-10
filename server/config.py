@@ -96,6 +96,12 @@ class Config(BaseSettings):
     #: pipeline wrote.
     lancedb_path: Path = Path("var/arxmcp/index/lancedb")
 
+    #: SQLite file path for the Tier-1 retrieval cache (E08_S03).
+    #: Sibling-of-sibling to ``lancedb_path`` so a single ``var/``
+    #: tree holds both the corpus index and the cache. Parent
+    #: directory is created at ``Resources.startup()`` time.
+    cache_db_path: Path = Path("var/arxmcp/cache/retrieval.db")
+
     # --- Models ----------------------------------------------------------
 
     #: Whether to load the BGE-reranker-v2-m3 at startup. When True

@@ -99,6 +99,13 @@ dependencies = [
     #   via transformers / lancedb; declared explicitly to match
     #   the project's "no implicit deps" discipline.
     "pyyaml>=6.0",
+    # faiss-cpu: in-process flat ANN index for the Tier-2 semantic-
+    #   query cache (E08_S03). ``IndexFlatIP`` over L2-normalized
+    #   BGE-M3 vectors yields cosine via inner product. ~1000-entry
+    #   ring buffer @ dim=1024 fits in ~4 MB of memory; sub-millisecond
+    #   search time. CPU-only; the project's local-first deployment
+    #   does not depend on a GPU runtime. License: MIT.
+    "faiss-cpu>=1.7",
 ]
 
 [project.optional-dependencies]

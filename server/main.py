@@ -392,6 +392,14 @@ def create_app(config: Config | None = None) -> FastAPI:
     # Health + readiness routes.
     app.include_router(health_router)
 
+    # E08_S03: debug routes (currently just /debug/cache-stats). The
+    # router is mounted under the /debug prefix so future debug
+    # endpoints land under one operational path. NOT exempt from the
+    # body-size cap — debug payloads must stay small.
+    from server.routes.debug import router as debug_router
+
+    app.include_router(debug_router, prefix="/debug")
+
     # Metrics ASGI sub-app. We wrap with a tiny middleware that
     # refreshes the gauges from the resources state at scrape time.
     metrics_app = make_asgi_app()

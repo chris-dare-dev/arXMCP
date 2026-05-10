@@ -1,0 +1,778 @@
+"""3-tier retrieval cache (E08_S03).
+
+Singleton cache that lives inside the MCP server process and is
+shared across all concurrently-connected sub-agents. The cache is
+a PERFORMANCE layer — its failure mode is a cache miss (slower but
+correct), never a correctness failure (per
+``.claude/notes/07-multi-agent-caching.md``: *"Cache layer crash /
+OOM → Fall through to recompute; log; alert. Caching is performance,
+not correctness."*).
+
+**Three tiers** with progressively-looser equivalence:
+
+- **Tier 1 — Exact-query memo.** SQLite-backed LRU, max 10K entries,
+  1-hour TTL. Cache key includes ``corpus_version`` so a corpus
+  bump unreachable-izes every prior entry by hash construction.
+  Persists across server restarts (the SQLite file).
+- **Tier 2 — Semantic-query memo.** In-process FAISS ``IndexFlatIP``
+  over the embeddings of recent queries (deque of 1,000). A hit
+  requires cosine similarity ≥ 0.97 AND exact filter match, 15-min
+  TTL. Logs and 1%-samples every hit for human review (threshold
+  tuning data). Cold-start no-op when the ring buffer is empty.
+- **Tier 3 — Rerank-set memo.** In-process LRU keyed by the rerank
+  singleflight key (reuses
+  :func:`server.retrieval.rerank._build_singleflight_key` verbatim).
+  TTL 1 hour. Caches the reranker's deterministic output for an
+  identical (query, candidates, model) triple.
+
+**Lookup path** for ``search_papers``: Tier-1 → Tier-2 → run pipeline
+(possibly skipping Tier-3 for rerank) → write all relevant tiers.
+The lookups are sequential, NOT parallel — Tier 2 needs the query
+embedding which Tier 1 may avoid computing entirely.
+
+**Singleton lifecycle.** Owned by :class:`server.resources.Resources`;
+a module-level reference is also held in this module so handlers can
+``from server.cache import get_cache`` without taking the Resources
+import. Initialized in :meth:`Resources.startup`, closed in
+:meth:`Resources.shutdown`.
+
+**Failure-mode discipline.** Every tier lookup and write is wrapped
+in ``try/except Exception`` that logs and falls through. A FAISS
+crash, SQLite I/O error, or Prometheus library glitch must NEVER
+propagate to the caller — the worst outcome is a cache miss.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import json
+import logging
+import random
+import sys
+import time
+from collections import OrderedDict
+from collections.abc import Sequence
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+
+from server.cache_sqlite import (
+    DEFAULT_TTL_SECONDS as TIER1_TTL_SECONDS,
+)
+from server.cache_sqlite import (
+    Tier1Store,
+    derive_tier1_key,
+)
+from server.metrics import (
+    CACHE_EVICTIONS_COUNTER,
+    CACHE_HITS_COUNTER,
+    CACHE_LOOKUPS_COUNTER,
+    TIER_1,
+    TIER_2,
+    TIER_3,
+)
+
+logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Tier-2 / Tier-3 constants
+# ---------------------------------------------------------------------------
+
+#: Tier-2 TTL (15 minutes per the brief). Shorter than Tier-1
+#: because semantic equivalence is fuzzier — we want stale semantic
+#: matches to roll over faster.
+TIER2_TTL_SECONDS: float = 15 * 60.0
+
+#: Tier-3 TTL (1 hour per the brief).
+TIER3_TTL_SECONDS: float = 3600.0
+
+#: Tier-2 ring-buffer capacity. The brief: "up to 1,000 query
+#: embeddings retained in the ring buffer".
+TIER2_RING_CAPACITY: int = 1_000
+
+#: Tier-2 cosine similarity threshold (the brief: "cosine similarity
+#: > 0.97"). We use ``>= 0.97`` for inclusivity (== 0.97 IS a hit).
+TIER2_COSINE_THRESHOLD: float = 0.97
+
+#: Tier-2 hit sampling rate (the brief: "Tier-2 hits are logged and
+#: 1% sampled for human review"). Bernoulli at 1%.
+TIER2_HIT_LOG_SAMPLE_RATE: float = 0.01
+
+#: Tier-3 LRU capacity. Not specified by the brief; 1K entries
+#: matches the Tier-2 ring buffer scale. Each entry is small (a list
+#: of ranked chunk IDs + scores).
+TIER3_LRU_CAPACITY: int = 1_024
+
+#: BGE-M3 embedding dimension. Used to construct the FAISS index.
+#: Pinned here for the cache; the source of truth lives in
+#: ``server/query_encoder.py``.
+EMBEDDING_DIM: int = 1024
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _filter_fingerprint(
+    filters: dict[str, Any] | None,
+    *,
+    level: str | None = None,
+) -> str:
+    """Return the canonical filter fingerprint used by Tier-2 (and,
+    indirectly, Tier-1 via :func:`derive_tier1_key`).
+
+    ``None`` and ``{}`` produce the same fingerprint so a no-filter
+    query and an explicit-empty-filter query share a cache slot.
+
+    ``level`` is mixed into the fingerprint so Tier-2 hits across
+    different aggregation levels are NOT treated as filter-matches.
+    A ``None`` level encodes distinctly from any string value.
+    """
+    base = json.dumps(filters or {}, sort_keys=True, separators=(",", ":"))
+    return f"{base}|level={level if level is not None else 'None'}"
+
+
+def _approx_payload_bytes(payload: Any) -> int:
+    """Return an approximate byte count for a cache payload.
+
+    Tier-1 / Tier-3 byte-usage gauges feed off this. Approximate
+    is fine — the gauge is operational telemetry, not a hard limit.
+    For dict / JSON-able payloads we use ``len(json.dumps(...))``;
+    for already-serialized bytes we use ``len(b)``; for everything
+    else we fall back to ``sys.getsizeof``.
+    """
+    if isinstance(payload, (bytes, bytearray)):
+        return len(payload)
+    try:
+        return len(json.dumps(payload, sort_keys=True, ensure_ascii=False))
+    except (TypeError, ValueError):
+        return sys.getsizeof(payload)
+
+
+# ---------------------------------------------------------------------------
+# Tier-2 ring-buffer entry
+# ---------------------------------------------------------------------------
+
+
+class _Tier2Entry:
+    """One entry in the Tier-2 ring buffer.
+
+    Holds the L2-normalized query embedding (for the FAISS index),
+    the filter fingerprint (for the exact-filter-match check), the
+    payload, and the expiry timestamp. The FAISS index does NOT
+    store the entry by itself — its ``ID -> entry`` mapping lives
+    in the parallel ``OrderedDict`` so we can rebuild the index
+    cleanly on overflow.
+    """
+
+    __slots__ = ("embedding", "filter_fp", "payload", "expires_at")
+
+    def __init__(
+        self,
+        embedding: np.ndarray,
+        filter_fp: str,
+        payload: Any,
+        expires_at: float,
+    ) -> None:
+        self.embedding = embedding
+        self.filter_fp = filter_fp
+        self.payload = payload
+        self.expires_at = expires_at
+
+
+# ---------------------------------------------------------------------------
+# RetrievalCache — the singleton
+# ---------------------------------------------------------------------------
+
+
+class RetrievalCache:
+    """3-tier retrieval cache shared across all sub-agents.
+
+    Construct via the :meth:`open` async classmethod which opens the
+    SQLite file, initializes the FAISS index, and rehydrates the
+    in-process Tier-1 mirror from any unexpired SQLite rows.
+
+    Methods are ``async`` and safe to call from multiple coroutines
+    concurrently. Internal state is protected by an ``asyncio.Lock``
+    where mutation occurs.
+    """
+
+    def __init__(
+        self,
+        tier1_store: Tier1Store,
+        corpus_version: int,
+    ) -> None:
+        self._tier1_store = tier1_store
+        self._corpus_version = corpus_version
+
+        # Tier-1 in-process mirror (LRU). Stores the deserialized
+        # payload so reads avoid the JSON-decode on every hit. The
+        # mirror is bounded at the same MAX_ROWS as the SQLite cap.
+        self._tier1_mirror: OrderedDict[str, Any] = OrderedDict()
+        self._tier1_lock = asyncio.Lock()
+
+        # Tier-2: parallel deque + FAISS index. The deque holds the
+        # canonical (key, _Tier2Entry) ordering; the FAISS index is
+        # rebuilt from the deque on every overflow rotation.
+        self._tier2_buffer: OrderedDict[str, _Tier2Entry] = OrderedDict()
+        self._tier2_index: Any = None  # faiss.IndexFlatIP — lazy init
+        self._tier2_keys_in_index: list[str] = []  # parallel ordering
+        self._tier2_lock = asyncio.Lock()
+
+        # Tier-3 in-process LRU.
+        self._tier3_lru: OrderedDict[str, Any] = OrderedDict()
+        self._tier3_lock = asyncio.Lock()
+
+    # ------------------------------------------------------------------
+    # Open / close
+    # ------------------------------------------------------------------
+
+    @classmethod
+    async def open(
+        cls,
+        cache_db_path: Path,
+        corpus_version: int,
+    ) -> RetrievalCache:
+        """Open the underlying SQLite store, initialize FAISS, and
+        rehydrate the Tier-1 mirror from unexpired SQLite rows."""
+        store = await Tier1Store.open(cache_db_path)
+        cache = cls(tier1_store=store, corpus_version=corpus_version)
+        await cache._rehydrate_tier1_from_sqlite()
+        return cache
+
+    async def close(self) -> None:
+        """Flush + close the SQLite store. FAISS index released by GC."""
+        try:
+            await self._tier1_store.close()
+        except Exception:  # noqa: BLE001
+            logger.exception("RetrievalCache.close: tier1 close failed")
+
+    async def _rehydrate_tier1_from_sqlite(self) -> None:
+        """Load every unexpired SQLite row into the in-process LRU.
+
+        Per the brief: *"On server startup, unexpired Tier-1 entries
+        are loaded from the SQLite file into the in-process LRU."*
+
+        Capped at the in-process LRU's :data:`MAX_ROWS` cap — if more
+        rows are present we keep the most-recently-expiring (i.e.
+        most-recently-inserted given uniform TTL).
+        """
+        try:
+            rows = await self._tier1_store.load_all_unexpired()
+        except Exception:  # noqa: BLE001
+            logger.exception("RetrievalCache: rehydrate from sqlite failed")
+            return
+
+        # Sort by expires_at DESC so the freshest entries land first;
+        # if there are more than the in-process cap we'll evict from
+        # the tail.
+        rows.sort(key=lambda r: r[2], reverse=True)
+        for key, value, _expires_at in rows:
+            try:
+                payload = json.loads(value.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                logger.warning(
+                    "RetrievalCache: dropping malformed tier-1 row %s "
+                    "during rehydrate", key[:16] + "...",
+                )
+                continue
+            self._tier1_mirror[key] = payload
+        logger.info(
+            "RetrievalCache: rehydrated %d tier-1 entries from sqlite",
+            len(self._tier1_mirror),
+        )
+
+    # ------------------------------------------------------------------
+    # Public lookup / store API for Tier 1 + Tier 2 (search_papers)
+    # ------------------------------------------------------------------
+
+    async def lookup_search(
+        self,
+        query: str,
+        filters: dict[str, Any] | None,
+        k: int,
+        query_embedding: np.ndarray | None = None,
+        *,
+        level: str | None = None,
+    ) -> tuple[Any | None, str]:
+        """Look up a ``search_papers`` payload across Tier 1 + Tier 2.
+
+        Returns ``(payload, hit_tier)`` where ``hit_tier`` is one of
+        ``"1"``, ``"2"``, or ``""`` (miss). The caller is responsible
+        for incrementing ``arxmcp_cache_hits_total`` only on the
+        terminating hit; this method increments ``arxmcp_cache_lookups_total``
+        for every tier consulted.
+
+        ``query_embedding`` is OPTIONAL. If absent, only Tier 1 is
+        consulted (Tier 2 needs the embedding). The handler caller
+        should pass the embedding once it has computed it (i.e. after
+        the Tier-1 miss, before the ANN call).
+
+        ``level`` is the ``search_papers`` aggregation argument
+        (``"theorem" | "section" | "paper"``). Threaded through to
+        :func:`derive_tier1_key` so distinct levels do not collide.
+        Tier 2 also uses ``level`` to disambiguate the filter
+        fingerprint (the brief's "exact filter match" rule extends
+        to all tool arguments that affect result shape).
+        """
+        # Tier 1.
+        try:
+            CACHE_LOOKUPS_COUNTER.labels(tier=TIER_1).inc()
+        except Exception:  # noqa: BLE001
+            logger.debug("metrics inc failed", exc_info=True)
+        try:
+            tier1_key = derive_tier1_key(
+                query, filters, k, self._corpus_version, level=level,
+            )
+            payload = await self._tier1_get(tier1_key)
+            if payload is not None:
+                self._safe_inc(CACHE_HITS_COUNTER, TIER_1)
+                return payload, TIER_1
+        except Exception:  # noqa: BLE001
+            logger.exception("Tier-1 lookup failed; falling through")
+
+        # Tier 2 (only if embedding provided).
+        if query_embedding is None:
+            return None, ""
+        try:
+            CACHE_LOOKUPS_COUNTER.labels(tier=TIER_2).inc()
+        except Exception:  # noqa: BLE001
+            logger.debug("metrics inc failed", exc_info=True)
+        try:
+            payload = await self._tier2_lookup(query_embedding, filters, level=level)
+            if payload is not None:
+                self._safe_inc(CACHE_HITS_COUNTER, TIER_2)
+                return payload, TIER_2
+        except Exception:  # noqa: BLE001
+            logger.exception("Tier-2 lookup failed; falling through")
+
+        return None, ""
+
+    async def store_search(
+        self,
+        query: str,
+        filters: dict[str, Any] | None,
+        k: int,
+        payload: Any,
+        query_embedding: np.ndarray | None = None,
+        *,
+        level: str | None = None,
+    ) -> None:
+        """Store a ``search_papers`` payload in BOTH Tier 1 and (if
+        the embedding is available) Tier 2.
+
+        Caller passes the same ``query_embedding`` used at lookup
+        time so Tier 2 can index it for future semantic hits. If
+        the embedding is unavailable (e.g. early-Tier-1 hit path),
+        Tier 2 stays cold.
+
+        ``level`` MUST match the value passed to ``lookup_search``
+        for the corresponding miss; otherwise the lookup-key and
+        the store-key diverge and the entry is unreachable.
+        """
+        try:
+            tier1_key = derive_tier1_key(
+                query, filters, k, self._corpus_version, level=level,
+            )
+            await self._tier1_put(tier1_key, payload)
+        except Exception:  # noqa: BLE001
+            logger.exception("Tier-1 store failed; cache stays cold")
+
+        if query_embedding is not None:
+            try:
+                await self._tier2_put(query_embedding, filters, payload, level=level)
+            except Exception:  # noqa: BLE001
+                logger.exception("Tier-2 store failed; cache stays cold")
+
+    # ------------------------------------------------------------------
+    # Tier 1 internals
+    # ------------------------------------------------------------------
+
+    async def _tier1_get(self, key: str) -> Any | None:
+        async with self._tier1_lock:
+            mirror_hit = self._tier1_mirror.get(key)
+            if mirror_hit is not None:
+                # LRU bump.
+                self._tier1_mirror.move_to_end(key)
+                return mirror_hit
+        # Mirror miss → consult SQLite (which also evicts on TTL).
+        blob = await self._tier1_store.get(key)
+        if blob is None:
+            return None
+        try:
+            payload = json.loads(blob.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            logger.warning(
+                "RetrievalCache: dropping malformed tier-1 row %s "
+                "from sqlite (deserialization failed)", key[:16] + "...",
+            )
+            return None
+        # Re-populate mirror.
+        async with self._tier1_lock:
+            self._tier1_mirror[key] = payload
+            self._tier1_mirror.move_to_end(key)
+        return payload
+
+    async def _tier1_put(self, key: str, payload: Any) -> None:
+        # Serialize once for SQLite.
+        try:
+            blob = json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
+        except (TypeError, ValueError):
+            logger.warning("Tier-1 payload not JSON-serializable; skipping")
+            return
+        evicted = await self._tier1_store.put(
+            key,
+            blob,
+            ttl_seconds=TIER1_TTL_SECONDS,
+            corpus_version=self._corpus_version,
+        )
+        if evicted:
+            self._safe_inc(CACHE_EVICTIONS_COUNTER, TIER_1, evicted)
+        # Mirror update (post-SQLite write so a SQLite failure does
+        # not leave the mirror out-of-sync).
+        async with self._tier1_lock:
+            self._tier1_mirror[key] = payload
+            self._tier1_mirror.move_to_end(key)
+            # Bound the in-process mirror at the same cap.
+            from server.cache_sqlite import MAX_ROWS as TIER1_CAP
+
+            while len(self._tier1_mirror) > TIER1_CAP:
+                self._tier1_mirror.popitem(last=False)
+                # The eviction is already counted at the SQLite layer;
+                # don't double-count.
+
+    # ------------------------------------------------------------------
+    # Tier 2 internals
+    # ------------------------------------------------------------------
+
+    def _ensure_faiss_index(self) -> Any:
+        """Lazily build the FAISS IndexFlatIP. Imported here so a
+        missing faiss-cpu install fails at the cache's first-use
+        point, with a clear message."""
+        if self._tier2_index is None:
+            try:
+                import faiss  # noqa: PLC0415
+            except ImportError as exc:
+                raise RuntimeError(
+                    "faiss-cpu is required for Tier-2 cache; install via "
+                    "pip install faiss-cpu>=1.7"
+                ) from exc
+            self._tier2_index = faiss.IndexFlatIP(EMBEDDING_DIM)
+        return self._tier2_index
+
+    async def _tier2_lookup(
+        self,
+        query_embedding: np.ndarray,
+        filters: dict[str, Any] | None,
+        *,
+        level: str | None = None,
+    ) -> Any | None:
+        """Search the FAISS index for a ≥ 0.97 cosine match with the
+        same filter fingerprint and unexpired TTL.
+
+        Returns the cached payload on a hit, ``None`` on a miss or
+        cold-start (empty ring buffer)."""
+        async with self._tier2_lock:
+            if not self._tier2_buffer:
+                # Cold start no-op per the brief.
+                return None
+            index = self._ensure_faiss_index()
+            if index.ntotal == 0:
+                return None
+            # Normalize for safety even though BGE-M3 returns
+            # L2-normalized vectors.
+            qv = np.ascontiguousarray(query_embedding.reshape(1, -1).astype(np.float32))
+            # The FAISS IndexFlatIP returns inner-product scores;
+            # for L2-normalized vectors that equals cosine.
+            scores, indices = index.search(qv, 1)
+            best_score = float(scores[0][0])
+            best_idx = int(indices[0][0])
+            if best_idx < 0:
+                return None
+            if best_score < TIER2_COSINE_THRESHOLD:
+                return None
+            best_key = self._tier2_keys_in_index[best_idx]
+            entry = self._tier2_buffer.get(best_key)
+            if entry is None:
+                # Index drift — should not happen but guard.
+                return None
+            # Filter fingerprint match required by the brief.
+            if entry.filter_fp != _filter_fingerprint(filters, level=level):
+                return None
+            # TTL check.
+            if entry.expires_at < time.time():
+                # Lazy eviction — drop from buffer + rebuild on next put.
+                self._tier2_buffer.pop(best_key, None)
+                self._safe_inc(CACHE_EVICTIONS_COUNTER, TIER_2)
+                return None
+            # Hit. 1%-sample log per the brief.
+            if random.random() < TIER2_HIT_LOG_SAMPLE_RATE:
+                logger.info(
+                    "tier2_hit_sample cosine=%.4f filter_fp=%s",
+                    best_score, entry.filter_fp,
+                )
+            return entry.payload
+
+    async def _tier2_put(
+        self,
+        query_embedding: np.ndarray,
+        filters: dict[str, Any] | None,
+        payload: Any,
+        *,
+        level: str | None = None,
+    ) -> None:
+        """Append a query embedding to the ring buffer and rebuild
+        the FAISS index. On overflow, evict the oldest entry.
+
+        Embedding key is the SHA-256 of the embedding bytes — so an
+        identical query embedding overwrites the previous slot
+        (deduplicates).
+        """
+        emb = np.ascontiguousarray(query_embedding.reshape(-1).astype(np.float32))
+        # The brief uses the embedding as the "centroid" — we key the
+        # ring buffer slot by its hash so identical embeddings dedup.
+        key = hashlib.sha256(emb.tobytes()).hexdigest()
+        entry = _Tier2Entry(
+            embedding=emb,
+            filter_fp=_filter_fingerprint(filters, level=level),
+            payload=payload,
+            expires_at=time.time() + TIER2_TTL_SECONDS,
+        )
+        async with self._tier2_lock:
+            evict_count = 0
+            if key in self._tier2_buffer:
+                # Update in place (same key).
+                self._tier2_buffer[key] = entry
+                self._tier2_buffer.move_to_end(key)
+            else:
+                self._tier2_buffer[key] = entry
+                # Overflow — evict oldest.
+                while len(self._tier2_buffer) > TIER2_RING_CAPACITY:
+                    self._tier2_buffer.popitem(last=False)
+                    evict_count += 1
+            if evict_count:
+                self._safe_inc(CACHE_EVICTIONS_COUNTER, TIER_2, evict_count)
+            # Rebuild the FAISS index from scratch — O(n) at n≤1000,
+            # dim=1024 is sub-millisecond. Simpler than incremental
+            # remove (which IndexFlatIP doesn't support directly).
+            self._rebuild_tier2_index()
+
+    def _rebuild_tier2_index(self) -> None:
+        """Rebuild the FAISS index from the current ring buffer.
+
+        Holds: caller MUST hold ``self._tier2_lock``."""
+        index = self._ensure_faiss_index()
+        index.reset()
+        self._tier2_keys_in_index.clear()
+        if not self._tier2_buffer:
+            return
+        vecs = np.vstack(
+            [entry.embedding.reshape(1, -1) for entry in self._tier2_buffer.values()]
+        )
+        index.add(vecs)
+        self._tier2_keys_in_index.extend(self._tier2_buffer.keys())
+
+    # ------------------------------------------------------------------
+    # Tier 3 — rerank-set memo
+    # ------------------------------------------------------------------
+
+    async def lookup_rerank(
+        self,
+        query_embedding: np.ndarray,
+        candidates: Sequence[tuple[str, float]],
+    ) -> Any | None:
+        """Look up a Tier-3 rerank-set memo. Returns the cached
+        ranked candidate list or ``None`` on a miss.
+
+        The cache key is computed via
+        :func:`server.retrieval.rerank._build_singleflight_key` —
+        the SAME key the singleflight uses, so a Tier-3 hit means
+        the EXACT (query_embedding, candidate_set, model) triple
+        was reranked recently.
+        """
+        try:
+            CACHE_LOOKUPS_COUNTER.labels(tier=TIER_3).inc()
+        except Exception:  # noqa: BLE001
+            logger.debug("metrics inc failed", exc_info=True)
+        try:
+            from server.retrieval.rerank import _build_singleflight_key
+
+            key = _build_singleflight_key(query_embedding, candidates)
+        except Exception:  # noqa: BLE001
+            logger.exception("Tier-3 key derivation failed")
+            return None
+
+        async with self._tier3_lock:
+            entry = self._tier3_lru.get(key)
+            if entry is None:
+                return None
+            payload, expires_at = entry
+            if expires_at < time.time():
+                self._tier3_lru.pop(key, None)
+                self._safe_inc(CACHE_EVICTIONS_COUNTER, TIER_3)
+                return None
+            self._tier3_lru.move_to_end(key)
+
+        self._safe_inc(CACHE_HITS_COUNTER, TIER_3)
+        return payload
+
+    async def store_rerank(
+        self,
+        query_embedding: np.ndarray,
+        candidates: Sequence[tuple[str, float]],
+        payload: Any,
+    ) -> None:
+        """Store a Tier-3 rerank-set memo entry."""
+        try:
+            from server.retrieval.rerank import _build_singleflight_key
+
+            key = _build_singleflight_key(query_embedding, candidates)
+        except Exception:  # noqa: BLE001
+            logger.exception("Tier-3 key derivation failed; skipping store")
+            return
+
+        async with self._tier3_lock:
+            self._tier3_lru[key] = (payload, time.time() + TIER3_TTL_SECONDS)
+            self._tier3_lru.move_to_end(key)
+            evict_count = 0
+            while len(self._tier3_lru) > TIER3_LRU_CAPACITY:
+                self._tier3_lru.popitem(last=False)
+                evict_count += 1
+            if evict_count:
+                self._safe_inc(CACHE_EVICTIONS_COUNTER, TIER_3, evict_count)
+
+    # ------------------------------------------------------------------
+    # Byte-usage gauges (read by server.metrics.refresh_cache_metrics)
+    # ------------------------------------------------------------------
+
+    def tier1_bytes_used(self) -> int:
+        """Approximate Tier-1 in-process mirror byte usage."""
+        # Tier-1 mirror only — SQLite-on-disk bytes are visible via
+        # ``ls -la`` and are not reported in this gauge.
+        total = 0
+        for payload in self._tier1_mirror.values():
+            total += _approx_payload_bytes(payload)
+        return total
+
+    def tier2_bytes_used(self) -> int:
+        """Approximate Tier-2 ring-buffer + FAISS index byte usage."""
+        # Embedding bytes (deque) + payload bytes.
+        total = 0
+        for entry in self._tier2_buffer.values():
+            total += entry.embedding.nbytes
+            total += _approx_payload_bytes(entry.payload)
+        return total
+
+    def tier3_bytes_used(self) -> int:
+        """Approximate Tier-3 LRU byte usage."""
+        total = 0
+        for payload, _expires in self._tier3_lru.values():
+            total += _approx_payload_bytes(payload)
+        return total
+
+    # ------------------------------------------------------------------
+    # Stats accessor (consumed by server/routes/debug.py)
+    # ------------------------------------------------------------------
+
+    def stats(self) -> dict[str, dict[str, int]]:
+        """Return the per-tier stats dict for the
+        ``GET /debug/cache-stats`` endpoint.
+
+        Each tier maps to a dict with ``lookups_total``, ``hits_total``,
+        ``evictions_total``, ``bytes_used``. Counter values come from
+        the Prometheus registry (so the JSON view and the ``/metrics``
+        view never drift); bytes come from this object's accessors.
+        """
+        return {
+            "tier1": _tier_stats(TIER_1, self.tier1_bytes_used()),
+            "tier2": _tier_stats(TIER_2, self.tier2_bytes_used()),
+            "tier3": _tier_stats(TIER_3, self.tier3_bytes_used()),
+        }
+
+    # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _safe_inc(counter, tier_label: str, amount: int = 1) -> None:
+        """Increment a Prometheus counter without ever raising. A
+        metrics-library failure is logged and swallowed — the cache
+        is performance, not correctness."""
+        try:
+            counter.labels(tier=tier_label).inc(amount)
+        except Exception:  # noqa: BLE001
+            logger.debug("metrics inc failed", exc_info=True)
+
+
+def _tier_stats(tier_label: str, bytes_used: int) -> dict[str, int]:
+    """Read the per-tier counter values from the Prometheus registry
+    so the ``/debug/cache-stats`` view never drifts from
+    ``/metrics``."""
+    try:
+        lookups = int(CACHE_LOOKUPS_COUNTER.labels(tier=tier_label)._value.get())
+        hits = int(CACHE_HITS_COUNTER.labels(tier=tier_label)._value.get())
+        evictions = int(CACHE_EVICTIONS_COUNTER.labels(tier=tier_label)._value.get())
+    except Exception:  # noqa: BLE001
+        logger.debug("metrics read failed", exc_info=True)
+        lookups = hits = evictions = 0
+    return {
+        "lookups_total": lookups,
+        "hits_total": hits,
+        "evictions_total": evictions,
+        "bytes_used": bytes_used,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Module-level singleton + test reset
+# ---------------------------------------------------------------------------
+
+_CACHE_SINGLETON: RetrievalCache | None = None
+
+
+def get_cache() -> RetrievalCache | None:
+    """Return the process-wide cache singleton.
+
+    Returns ``None`` when the cache has not been initialized yet
+    (server still in startup, or test that did not call
+    :func:`set_cache`). Handlers must treat ``None`` as "no cache
+    available" — fall through to the underlying pipeline.
+    """
+    return _CACHE_SINGLETON
+
+
+def set_cache(cache: RetrievalCache | None) -> None:
+    """Set the process-wide cache singleton. Called by
+    :meth:`server.resources.Resources.startup` AND from
+    :func:`reset_cache_for_tests`."""
+    global _CACHE_SINGLETON
+    _CACHE_SINGLETON = cache
+
+
+def reset_cache_for_tests() -> None:
+    """Test hook — drop the singleton reference (does NOT close the
+    SQLite store; tests are responsible for cleanup via tmp_path).
+
+    Use in autouse fixtures alongside
+    :func:`server.metrics.reset_cache_metrics_for_tests` to start
+    each test with a clean cache state."""
+    set_cache(None)
+
+
+__all__ = [
+    "EMBEDDING_DIM",
+    "RetrievalCache",
+    "TIER2_COSINE_THRESHOLD",
+    "TIER2_HIT_LOG_SAMPLE_RATE",
+    "TIER2_RING_CAPACITY",
+    "TIER2_TTL_SECONDS",
+    "TIER3_LRU_CAPACITY",
+    "TIER3_TTL_SECONDS",
+    "get_cache",
+    "reset_cache_for_tests",
+    "set_cache",
+]

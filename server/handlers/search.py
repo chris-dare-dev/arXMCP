@@ -62,6 +62,7 @@ from typing import Annotated, Any, Literal
 from mcp.types import CallToolResult, ResourceLink, TextContent
 from pydantic import AnyUrl, Field
 
+from server.cache import get_cache
 from server.query_encoder import encode_query
 from server.tools import CHUNK_RESOURCE_URI_SCHEME, envelope, get_resources
 
@@ -102,9 +103,39 @@ async def handle_search_papers(
     filtering + pagination.
     """
     r = get_resources()
+
+    # E08_S03: 3-tier cache lookup BEFORE the encode + ANN path.
+    # Tier 1 is checked first (no embedding required); Tier 2 needs
+    # the query embedding, so we defer it until after the encode.
+    # ``level`` is threaded through the cache key so different
+    # aggregation levels get distinct cache entries (correctness).
+    cache = get_cache()
+    if cache is not None:
+        cached_payload, _hit_tier = await cache.lookup_search(
+            query=query, filters=filters, k=k, level=level,
+        )
+        if cached_payload is not None:
+            # Tier-1 hit — bypass Phase 1/2/3.
+            structured = cached_payload
+            rows = structured.get("results", [])
+            content = _build_content_blocks(structured, rows)
+            return CallToolResult(content=content, structuredContent=structured)
+
     # Encode query (singleflight + semaphore — two-tier concurrency).
     async with r.embed_semaphore:
         query_vec = await encode_query(query)
+
+    # Tier-2 lookup with the freshly-computed embedding.
+    if cache is not None:
+        cached_payload, _hit_tier = await cache.lookup_search(
+            query=query, filters=filters, k=k,
+            query_embedding=query_vec, level=level,
+        )
+        if cached_payload is not None:
+            structured = cached_payload
+            rows = structured.get("results", [])
+            content = _build_content_blocks(structured, rows)
+            return CallToolResult(content=content, structuredContent=structured)
 
     # Dense ANN over embedding_stmt only. embedding_proof is for
     # proof bodies; mixing without RRF would produce inconsistent
@@ -151,6 +182,20 @@ async def handle_search_papers(
             "retrieval_mode": "dense_only",
         }
     )
+
+    # E08_S03: cache-store on the miss path. We pass the query
+    # embedding so Tier 2 indexes it for future semantic-equivalent
+    # queries. ``level`` MUST match the lookup key (correctness).
+    if cache is not None:
+        await cache.store_search(
+            query=query,
+            filters=filters,
+            k=k,
+            payload=structured,
+            query_embedding=query_vec,
+            level=level,
+        )
+
     # E06_S04: assemble the wire ``content`` array — pretty-printed
     # JSON of structuredContent (the FastMCP default surface) +
     # one ResourceLink per result row.

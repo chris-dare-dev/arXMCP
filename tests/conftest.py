@@ -11,7 +11,24 @@ on every run. Hoisting the fixture into the package-level
 
 from __future__ import annotations
 
-import pytest
+import os
+
+# E08_S03: faiss-cpu (Tier-2 cache) and PyTorch (BGE-M3 embedder)
+# both link against an OpenMP runtime. On macOS, importing both in
+# the same process can produce "OMP: Error #15: Initializing
+# libomp.dylib, but found libiomp5.dylib already initialized" which
+# manifests as a SIGSEGV in pytest. The documented Intel-MKL
+# workaround is to set ``KMP_DUPLICATE_LIB_OK=TRUE`` BEFORE either
+# library is imported. Set it at conftest module load (which fires
+# before any test-file imports) so the env var is in place even
+# when test files are collected before the test session starts.
+#
+# This is a TEST-ONLY workaround. Production deployments use a
+# Linux container where the same OpenMP loader handles both libs
+# without conflict.
+os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
+
+import pytest  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Custom pytest options (E05_S02)
