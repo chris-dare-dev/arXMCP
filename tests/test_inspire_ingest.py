@@ -26,7 +26,6 @@ Notable test design:
 
 from __future__ import annotations
 
-import argparse
 import json
 from pathlib import Path
 from typing import Any
@@ -619,6 +618,347 @@ class TestCrossSourceEdges:
 # ---------------------------------------------------------------------------
 
 
+class TestE09S02RectificationGuards:
+    """Regression tests for findings closed by the E09_S02 rect commit.
+
+    Each test corresponds to a finding (F1, F2, F4, F5, F6, F8). The
+    tests pin the rectified behavior so a future refactor can't
+    silently re-open a closed finding.
+    """
+
+    def test_f1_inspire_remerge_preserves_doi_when_response_drops_field(
+        self, populated_db: Path
+    ):
+        """F1: a re-MERGE where the new INSPIRE response is missing
+        ``doi`` / ``journal_ref`` / ``inspire_id`` MUST NOT clobber
+        previously-stamped values. ``COALESCE`` in ON MATCH SET is the
+        fix; this test fails on the pre-fix code."""
+        # Stamp canonical INSPIRE values.
+        first = inspire_ingest._ResolvedInspire(
+            inspire_id="42",
+            doi="10.1234/CANONICAL",
+            journal_ref="JHEP (2024)",
+            references_arxiv=(),
+            arxiv_categories=("hep-th",),
+        )
+        db = kuzu.Database(str(populated_db))
+        try:
+            conn = kuzu.Connection(db)
+            inspire_ingest._merge_paper_inspire(conn, P_HEP_TH, first)
+        finally:
+            del db
+
+        # Now re-MERGE with NULL values — simulates a transient API
+        # regression returning an incomplete record.
+        second = inspire_ingest._ResolvedInspire(
+            inspire_id=None,
+            doi=None,
+            journal_ref=None,
+            references_arxiv=(),
+            arxiv_categories=("hep-th",),
+        )
+        db = kuzu.Database(str(populated_db))
+        try:
+            conn = kuzu.Connection(db)
+            inspire_ingest._merge_paper_inspire(conn, P_HEP_TH, second)
+            r = conn.execute(
+                "MATCH (p:papers {paper_id: $id}) "
+                "RETURN p.doi, p.journal_ref, p.inspire_id",
+                {"id": P_HEP_TH},
+            )
+            row = r.get_next()
+        finally:
+            del db
+        assert row[0] == "10.1234/CANONICAL", (
+            "F1 regression: doi clobbered to NULL by a re-MERGE"
+        )
+        assert row[1] == "JHEP (2024)", (
+            "F1 regression: journal_ref clobbered to NULL"
+        )
+        assert row[2] == "42", "F1 regression: inspire_id clobbered to NULL"
+
+    def test_f1_inspire_merge_overwrites_with_new_non_null(
+        self, populated_db: Path
+    ):
+        """F1 corollary: COALESCE preserves NULL values, but a re-MERGE
+        with a new non-null value still updates (the brief frames this
+        as enrichment, not freeze-on-first-write)."""
+        first = inspire_ingest._ResolvedInspire(
+            inspire_id="42",
+            doi="10.1234/OLD",
+            journal_ref=None,
+            references_arxiv=(),
+            arxiv_categories=("hep-th",),
+        )
+        db = kuzu.Database(str(populated_db))
+        try:
+            conn = kuzu.Connection(db)
+            inspire_ingest._merge_paper_inspire(conn, P_HEP_TH, first)
+            # New response has UPDATED doi.
+            second = inspire_ingest._ResolvedInspire(
+                inspire_id="42",
+                doi="10.1234/UPDATED",
+                journal_ref="JHEP (2024)",  # also new
+                references_arxiv=(),
+                arxiv_categories=("hep-th",),
+            )
+            inspire_ingest._merge_paper_inspire(conn, P_HEP_TH, second)
+            r = conn.execute(
+                "MATCH (p:papers {paper_id: $id}) RETURN p.doi, p.journal_ref",
+                {"id": P_HEP_TH},
+            )
+            row = r.get_next()
+        finally:
+            del db
+        assert row[0] == "10.1234/UPDATED"
+        assert row[1] == "JHEP (2024)"
+
+    def test_f2_enrich_accepts_old_style_hep_th_id(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        populated_db: Path,
+        checkpoint_path: Path,
+    ):
+        """F2: ``enrich()`` MUST accept old-style arXiv IDs like
+        ``hep-th/9711200`` (Maldacena AdS/CFT). The new-style-only
+        ``tools.arxiv_fetch.validate_paper_id`` rejected them; the
+        new ``_validate_paper_id_either_style`` accepts both."""
+        old_style_id = "hep-th/9711200"
+        # Pre-create the node so the citation pass has a target.
+        db = kuzu.Database(str(populated_db))
+        try:
+            conn = kuzu.Connection(db)
+            conn.execute(
+                "MERGE (p:papers {paper_id: $id}) ON CREATE SET p.title = 'Maldacena'",
+                {"id": old_style_id},
+            )
+        finally:
+            del db
+
+        def _stub(arxiv_id: str, contact_email: str) -> dict[str, Any] | None:
+            return _record(
+                control_number=99999,
+                arxiv_categories=["hep-th"],
+                refs_arxiv=[],
+                doi="10.1016/...",
+            )
+
+        monkeypatch.setattr(inspire_ingest, "_fetch_inspire_record", _stub)
+
+        # No ValueError should be raised here.
+        inspire_ingest.enrich(
+            paper_ids=[old_style_id],
+            db_path=populated_db,
+            checkpoint_path=checkpoint_path,
+            contact_email="test@example.com",
+            sleep_seconds=0,
+        )
+        # Verify the paper was actually enriched.
+        db = kuzu.Database(str(populated_db))
+        try:
+            conn = kuzu.Connection(db)
+            r = conn.execute(
+                "MATCH (p:papers {paper_id: $id}) RETURN p.inspire_id",
+                {"id": old_style_id},
+            )
+            row = r.get_next()
+        finally:
+            del db
+        assert row[0] == "99999"
+
+    def test_f2_validator_rejects_truly_invalid_ids(self):
+        """F2: the broader validator must STILL reject path-traversal
+        attempts (Threat 1) and other malformed strings."""
+        for bad in ["../../etc/passwd", "", "not-an-arxiv-id", "no-numeric-part"]:
+            with pytest.raises(ValueError):
+                inspire_ingest._validate_paper_id_either_style(bad)
+
+    def test_f4_inspire_creates_node_then_emits_edge_to_resolved_paper(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        db_path: Path,
+        checkpoint_path: Path,
+    ):
+        """F4: a paper resolved AND merged in Pass 1 must be visible to
+        Pass 2's edge-emission filter even when it was NOT in the
+        graph at ``enrich()`` start."""
+        # Empty graph initially — apply schema only.
+        kuzudb_schema.apply_schema(db_path)
+
+        a_id = "2401.20001"
+        b_id = "2401.20002"
+
+        def _stub(arxiv_id: str, contact_email: str) -> dict[str, Any] | None:
+            corpus = {
+                a_id: _record(
+                    control_number=10001,
+                    arxiv_categories=["hep-th"],
+                    refs_arxiv=[b_id],
+                ),
+                b_id: _record(
+                    control_number=10002,
+                    arxiv_categories=["hep-th"],
+                    refs_arxiv=[],
+                ),
+            }
+            return corpus[arxiv_id]
+
+        monkeypatch.setattr(inspire_ingest, "_fetch_inspire_record", _stub)
+
+        inspire_ingest.enrich(
+            paper_ids=[a_id, b_id],
+            db_path=db_path,
+            checkpoint_path=checkpoint_path,
+            contact_email="test@example.com",
+            sleep_seconds=0,
+        )
+
+        # The edge a -> b must be present even though both nodes were
+        # newly created during this run.
+        db = kuzu.Database(str(db_path))
+        try:
+            conn = kuzu.Connection(db)
+            r = conn.execute(
+                "MATCH (a:papers {paper_id: $a})-[r:cites]->(b:papers {paper_id: $b}) "
+                "RETURN r.source",
+                {"a": a_id, "b": b_id},
+            )
+            assert r.has_next(), (
+                "F4 regression: edge to a Pass-1-created node was dropped"
+            )
+        finally:
+            del db
+
+    def test_f5_fetch_inspire_record_validates_paper_id(self):
+        """F5: ``_fetch_inspire_record`` validates ``arxiv_id`` before
+        any I/O so a future direct caller cannot smuggle malicious
+        input. Defense-in-depth for Threat 1."""
+        with pytest.raises(ValueError):
+            inspire_ingest._fetch_inspire_record(
+                "../../etc/passwd", "test@example.com"
+            )
+
+    def test_f6_failure_run_flushes_checkpoint_at_batch_size(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        db_path: Path,
+        checkpoint_path: Path,
+    ):
+        """F6: a long failure run hits the checkpoint flush cadence so
+        a hard kill mid-run does not lose the in-memory failures."""
+        import urllib.error
+
+        def _always_fail(arxiv_id: str, contact_email: str) -> dict[str, Any] | None:
+            raise urllib.error.URLError(f"simulated failure for {arxiv_id}")
+
+        monkeypatch.setattr(inspire_ingest, "_fetch_inspire_record", _always_fail)
+        kuzudb_schema.apply_schema(db_path)
+
+        # Four papers, batch_size=2 — checkpoint MUST be flushed at
+        # the boundary (after the second failure).
+        ids = ["2401.30001", "2401.30002", "2401.30003", "2401.30004"]
+        # Pre-create nodes to satisfy in_corpus.
+        db = kuzu.Database(str(db_path))
+        try:
+            conn = kuzu.Connection(db)
+            for i in ids:
+                conn.execute(
+                    "MERGE (p:papers {paper_id: $id})", {"id": i}
+                )
+        finally:
+            del db
+
+        inspire_ingest.enrich(
+            paper_ids=ids,
+            db_path=db_path,
+            checkpoint_path=checkpoint_path,
+            contact_email="test@example.com",
+            sleep_seconds=0,
+            batch_size=2,
+        )
+
+        # All four IDs are in the failures list at end-of-run.
+        payload = json.loads(checkpoint_path.read_text())
+        failed_ids = {entry["arxiv_id"] for entry in payload["fetch_failures"]}
+        assert failed_ids == set(ids)
+
+    def test_f8_arxiv_categories_filter_anchor_for_post_f9(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        db_path: Path,
+        checkpoint_path: Path,
+    ):
+        """F8: forward-compat anchor for AC#1.
+
+        When the `papers.categories` column is eventually populated
+        with real arXiv categories (post-F9 fix), this test verifies
+        ``enrich()`` correctly iterates papers tagged ``hep-th`` /
+        ``math-ph``. Today the implementation iterates ALL papers and
+        gates on INSPIRE's response; this test pins that the iteration
+        path itself doesn't drop a hep-th paper."""
+        kuzudb_schema.apply_schema(db_path)
+        # Pre-populate a paper with arXiv-style categories (the
+        # post-F9 shape).
+        hep_id = "2401.40001"
+        ag_id = "2401.40002"
+        db = kuzu.Database(str(db_path))
+        try:
+            conn = kuzu.Connection(db)
+            conn.execute(
+                "MERGE (p:papers {paper_id: $id}) ON CREATE SET p.categories = 'hep-th'",
+                {"id": hep_id},
+            )
+            conn.execute(
+                "MERGE (p:papers {paper_id: $id}) ON CREATE SET p.categories = 'math.AG'",
+                {"id": ag_id},
+            )
+        finally:
+            del db
+
+        def _stub(arxiv_id: str, contact_email: str) -> dict[str, Any] | None:
+            corpus = {
+                hep_id: _record(
+                    control_number=70001,
+                    arxiv_categories=["hep-th"],
+                    refs_arxiv=[],
+                ),
+                ag_id: _record(
+                    control_number=70002,
+                    arxiv_categories=["math.AG"],
+                    refs_arxiv=[],
+                ),
+            }
+            return corpus[arxiv_id]
+
+        monkeypatch.setattr(inspire_ingest, "_fetch_inspire_record", _stub)
+
+        inspire_ingest.enrich(
+            paper_ids=[hep_id, ag_id],
+            db_path=db_path,
+            checkpoint_path=checkpoint_path,
+            contact_email="test@example.com",
+            sleep_seconds=0,
+        )
+
+        # The hep-th paper IS enriched; the math.AG paper IS NOT
+        # (post-fetch physics gate filters it out).
+        db = kuzu.Database(str(db_path))
+        try:
+            conn = kuzu.Connection(db)
+            r = conn.execute(
+                "MATCH (p:papers {paper_id: $id}) RETURN p.inspire_id",
+                {"id": hep_id},
+            )
+            assert r.get_next()[0] == "70001"
+            r = conn.execute(
+                "MATCH (p:papers {paper_id: $id}) RETURN p.inspire_id",
+                {"id": ag_id},
+            )
+            assert r.get_next()[0] is None
+        finally:
+            del db
+
+
 class TestFFindingInheritance:
     """Tests confirming each closed E09_S01 finding doesn't reopen here."""
 
@@ -840,19 +1180,6 @@ class TestResume:
 
 
 class TestCLI:
-    def test_normalize_source_accepts_casings(self):
-        for value in ("inspire", "INSPIRE", "Inspire", "InSpIrE"):
-            assert inspire_ingest._normalize_source(value) == "inspire"
-
-    def test_normalize_source_points_at_other_cli_for_openalex(self):
-        with pytest.raises(argparse.ArgumentTypeError) as excinfo:
-            inspire_ingest._normalize_source("openalex")
-        assert "graph_ingest" in str(excinfo.value)
-
-    def test_normalize_source_rejects_unknown(self):
-        with pytest.raises(argparse.ArgumentTypeError):
-            inspire_ingest._normalize_source("semanticscholar")
-
     def test_include_back_refs_flag_is_not_implemented(
         self,
         capsys: pytest.CaptureFixture[str],

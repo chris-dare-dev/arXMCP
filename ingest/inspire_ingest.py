@@ -107,14 +107,33 @@ from ingest.graph_ingest import (
     load_checkpoint,
     save_checkpoint,
 )
+from ingest.identifiers import is_valid_paper_id
 from ingest.kuzudb_schema import apply_schema
 from tools.arxiv_fetch import (
     DEFAULT_503_BACKOFF_SECONDS,
     MAX_503_BACKOFF_SECONDS,
     build_user_agent,
     parse_retry_after,
-    validate_paper_id,
 )
+
+
+def _validate_paper_id_either_style(paper_id: str) -> None:
+    """Validate an arXiv ID in either new-style (``YYMM.NNNNN``) or
+    old-style (``subject/NNNNNNN``) form.
+
+    F2 fix from the E09_S02 critique. ``tools.arxiv_fetch.validate_paper_id``
+    rejects old-style IDs by design (the seed corpus is post-2010). But
+    INSPIRE-HEP enrichment specifically targets hep-th / math-ph, where
+    a substantial fraction of the literature predates 2007 and uses
+    old-style IDs (e.g. ``hep-th/9711200`` — Maldacena AdS/CFT). The
+    enrich() entry validator must accept both forms; the source-of-truth
+    regex lives in ``ingest.identifiers`` which already covers this.
+    """
+    if not is_valid_paper_id(paper_id):
+        raise ValueError(
+            f"paper_id {paper_id!r} is not a valid arXiv ID "
+            "(expected YYMM.NNNNN[N] new-style or subject/NNNNNNN old-style)."
+        )
 
 logger = logging.getLogger(__name__)
 
@@ -218,11 +237,18 @@ def _fetch_inspire_record(
     Other HTTP errors propagate. Caps the body at
     ``INSPIRE_MAX_RESPONSE_BYTES``.
 
+    Validates ``arxiv_id`` against the new- and old-style arXiv
+    regexes BEFORE issuing any network I/O — defense-in-depth for
+    Threat 1 (``08-security-observability-ops.md``) so a future direct
+    caller bypassing ``enrich()`` can't smuggle malicious input to
+    ``urllib.parse.quote``. F5 fix from the E09_S02 critique.
+
     THIS FUNCTION IS THE INTEGRATION-TEST MOCK TARGET. Tests use
     ``monkeypatch.setattr(inspire_ingest, "_fetch_inspire_record",
     _stub)`` to substitute a fixture-driven stub. Never let live
     calls leak into CI.
     """
+    _validate_paper_id_either_style(arxiv_id)
     url = _build_record_url(arxiv_id)
     backoff = DEFAULT_503_BACKOFF_SECONDS
     attempts = 0
@@ -443,6 +469,15 @@ def _merge_paper_inspire(
     resolver has run first and the node already exists, but for
     test isolation we tolerate the no-OpenAlex case (the node is
     created with NULL on every OpenAlex-owned column).
+
+    F1 fix from the E09_S02 critique: ``ON MATCH SET`` uses
+    ``COALESCE($new, p.col)`` so a re-MERGE with a NULL field does
+    NOT clobber a previously-stamped value. The brief frames INSPIRE
+    enrichment as additive; a transient API regression returning a
+    record without ``dois`` would otherwise destroy curated DOIs.
+    The ``ON CREATE SET`` clause writes the new values directly
+    (the previous value is NULL by definition on a fresh node, so
+    COALESCE is unnecessary on create).
     """
     conn.execute(
         """
@@ -452,9 +487,9 @@ def _merge_paper_inspire(
             p.journal_ref = $journal_ref,
             p.inspire_id = $inspire_id
         ON MATCH SET
-            p.doi = $doi,
-            p.journal_ref = $journal_ref,
-            p.inspire_id = $inspire_id
+            p.doi = COALESCE($doi, p.doi),
+            p.journal_ref = COALESCE($journal_ref, p.journal_ref),
+            p.inspire_id = COALESCE($inspire_id, p.inspire_id)
         """,
         {
             "paper_id": paper_id,
@@ -509,7 +544,7 @@ def enrich(
 
     paper_id_list = list(paper_ids)
     for arxiv_id in paper_id_list:
-        validate_paper_id(arxiv_id)
+        _validate_paper_id_either_style(arxiv_id)
 
     apply_schema(db_path)
     db = kuzu.Database(str(db_path))
@@ -541,8 +576,18 @@ def enrich(
             try:
                 work = fetch_fn(arxiv_id, contact_email)
             except urllib.error.URLError as exc:
+                # F6 fix: increment ``new_in_pass`` on the failure path
+                # too so a long failure run hits the checkpoint cadence
+                # and a hard kill doesn't lose the in-memory failures
+                # dict.
                 logger.error("inspire fetch failed for %s: %s", arxiv_id, exc)
                 fetch_failures[arxiv_id] = str(exc)
+                new_in_pass += 1
+                if new_in_pass % batch_size == 0:
+                    state["resolved"] = _serialize_resolved(resolved)
+                    state["edges_done"] = sorted(edges_done)
+                    state["fetch_failures"] = _serialize_failures(fetch_failures)
+                    save_checkpoint(checkpoint_path, state)
                 continue
             fetch_failures.pop(arxiv_id, None)
             ri = _resolved_from_inspire(work)
@@ -552,6 +597,16 @@ def enrich(
             # a blank resolved entry and are NOT written. Cached so
             # the resolver doesn't re-fetch on resume.
             if not (set(ri.arxiv_categories) & PHYSICS_CATEGORIES):
+                # F3 deferred (E09_S02 critique): reclassification
+                # semantics. If a paper was previously enriched (real
+                # INSPIRE row in the graph) and is now classified as
+                # non-physics on a re-run, this branch caches a blank
+                # ``_ResolvedInspire`` and SKIPS calling
+                # ``_merge_paper_inspire``. The previously-stamped
+                # INSPIRE columns therefore SURVIVE in the graph.
+                # That is the intended behavior — INSPIRE enrichment
+                # is additive; a re-classification does not retract
+                # earlier curation.
                 resolved[arxiv_id] = _ResolvedInspire(
                     inspire_id=None,
                     doi=None,
@@ -568,6 +623,13 @@ def enrich(
                 state["edges_done"] = sorted(edges_done)
                 state["fetch_failures"] = _serialize_failures(fetch_failures)
                 save_checkpoint(checkpoint_path, state)
+
+        # F4 fix from the E09_S02 critique: refresh the in-corpus set
+        # after Pass 1 because ``_merge_paper_inspire`` may have
+        # created new nodes (the docstring's tolerated test-isolation
+        # case). Without the refresh, those newly-created nodes are
+        # silently excluded from edge emission below.
+        in_corpus = _existing_paper_ids(conn)
 
         # F8 collision detection: warn if two arXiv IDs resolve to
         # the same INSPIRE record. Mirrors the oa_work_id collision
@@ -633,41 +695,13 @@ def enrich(
 # ---------------------------------------------------------------------------
 
 
-def _normalize_source(value: str) -> str:
-    """Argparse ``type=`` for the ``--source`` flag.
-
-    Mirrors the F1 fix from the E09_S01 critique: case-insensitive,
-    rejects unknown values cleanly. The INSPIRE CLI accepts only
-    ``inspire`` (any casing); operators reaching for OpenAlex are
-    pointed at the other CLI.
-    """
-    folded = value.strip().lower()
-    if folded == "openalex":
-        raise argparse.ArgumentTypeError(
-            "OpenAlex ingest uses a separate CLI; run "
-            "`python -m ingest.graph_ingest` instead. The "
-            "`inspire_ingest` CLI dispatches to INSPIRE-HEP only."
-        )
-    if folded != "inspire":
-        raise argparse.ArgumentTypeError(
-            f"unsupported source: {value!r}. The inspire_ingest CLI "
-            "supports 'inspire' / 'INSPIRE' / 'Inspire' only."
-        )
-    return "inspire"
-
-
 def main(argv: list[str] | None = None) -> int:
+    # F7 fix from the E09_S02 critique: dropped the ``--source`` flag.
+    # The script's identity IS INSPIRE — a flag advertising selectivity
+    # the CLI does not deliver is a foot-gun. The OpenAlex ingest is a
+    # separate ``python -m ingest.graph_ingest`` CLI; operators reach
+    # for the right one by module path, not by flag.
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--source",
-        type=_normalize_source,
-        default="inspire",
-        help=(
-            "citation-edge source. Accepts 'inspire' / 'INSPIRE' / "
-            "'Inspire' (canonicalized to 'inspire'). The OpenAlex "
-            "ingest is a separate CLI: `python -m ingest.graph_ingest`."
-        ),
-    )
     parser.add_argument(
         "--seed-file",
         type=Path,
