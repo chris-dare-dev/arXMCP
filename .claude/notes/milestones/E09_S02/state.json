@@ -16,11 +16,24 @@
     "medium": 6
   },
   "critique_path": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/E09_S02/critique-merged.md",
-  "deferred_findings": [],
+  "deferred_findings": [
+    "F9",
+    "F10"
+  ],
   "external_writes_authorized": false,
   "external_writes_completed": false,
   "external_writes_required": [],
-  "fixed_findings": [],
+  "fixed_findings": [
+    "F1",
+    "F2",
+    "F3",
+    "F4",
+    "F5",
+    "F6",
+    "F7",
+    "F8",
+    "F11"
+  ],
   "id": "E09_S02",
   "implementation_base": "5c4bc9c9b12e09234a14599be64c1fdf6fa71fa2",
   "implementation_branch": "main",
@@ -32,7 +45,7 @@
   "implementation_specialist": null,
   "invalidated_findings": [],
   "milestone_brief": "### E09_S02 \u2014 INSPIRE-HEP per-paper enrichment (hep-th/math-ph)\n\n**Status:** NEW\n**Tier:** 3\n**Effort:** M\n**Dependencies:** E09_S01\n\n**Description.** OpenAlex citation coverage for `hep-th` and `math-ph` papers is significantly weaker than INSPIRE-HEP, which is the community standard for high-energy physics literature. This milestone enriches the citation graph with INSPIRE-HEP data for papers in the `hep-th` and `math-ph` arXiv categories.\n\nINSPIRE-HEP exposes a REST API (`https://inspirehep.net/api/literature`) that accepts arXiv IDs as identifiers and returns structured citation records including both `references` (papers the target cites) and `citations` (papers that cite the target). The API is public and requires no authentication; the rate limit is approximately 5 requests/second.\n\nThe enrichment script `ingest/inspire_ingest.py` iterates over all `papers` nodes in the K\u00f9zu graph with `categories LIKE \"%hep-th%\" OR categories LIKE \"%math-ph%\"`, queries INSPIRE-HEP for each, and adds any new `cites` edges discovered (marked with `source=\"inspire\"`). Existing edges from OpenAlex are not overwritten \u2014 this is additive enrichment. The `confidence` field is set to 1.0 for INSPIRE-HEP confirmed citations (INSPIRE-HEP curates citation data manually for high-energy physics).\n\nThe script also enriches paper metadata: INSPIRE-HEP returns DOIs, journal references, and collaboration affiliations that OpenAlex may not have. This metadata is written to supplementary columns in the `papers` node table (nullable columns added via schema migration).\n\nINSPIRE-HEP enrichment is run after OpenAlex ingest (E09_S01) completes. It is not a blocking dependency for `cite_neighbors` functionality (E09_S03); `cite_neighbors` works with whatever edges are in the graph, regardless of source. Enrichment just improves graph completeness for physics-category papers.\n\n**Deliverables.**\n- `ingest/inspire_ingest.py` \u2014 INSPIRE-HEP enrichment script with checkpoint\n- Schema migration: add nullable `doi`, `journal_ref`, `inspire_id` columns to `papers` table\n- `pytest tests/test_inspire_ingest.py` \u2014 integration test with mocked INSPIRE-HEP API\n\n**Acceptance criteria.**\n- [ ] For all seed corpus papers with `hep-th` or `math-ph` in their categories, INSPIRE-HEP is queried.\n- [ ] New `cites` edges from INSPIRE-HEP data are added with `source=\"inspire\"`.\n- [ ] Existing `source=\"openAlex\"` edges are not duplicated or overwritten.\n- [ ] `doi` and `inspire_id` columns are populated where INSPIRE-HEP returns them.\n- [ ] Integration test passes with mocked API.\n- [ ] Rate limiting: INSPIRE-HEP requests are throttled to \u22645/second.\n\n**Out of scope.** OpenAlex re-ingest or update (E09_S01). Intra-paper reference chain tracing (E09_S03). Citation graph GC or freshness updates (E11).\n\n**Risk notes.**\n- INSPIRE-HEP API stability: the REST API has been stable since 2021, but the field names in the response schema can change. Pin the response parsing to a documented API version and add regression tests against a snapshot of the response format.\n- For math-ph papers, INSPIRE-HEP and OpenAlex may both have good coverage; in that case, INSPIRE-HEP adds citation confidence (curated vs. inferred) rather than coverage.\n\n**Labels.** `area:graph`, `kind:feature`, `tier:3`.\n\n---",
-  "phase": "rectify-running",
+  "phase": "complete",
   "phase_history": [
     {
       "entered_at": "2026-05-10T19:02:18Z",
@@ -71,12 +84,26 @@
     },
     {
       "entered_at": "2026-05-10T19:30:18Z",
-      "left_at": null,
+      "left_at": "2026-05-10T19:36:25Z",
       "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-05-10T19:36:25Z",
+      "left_at": null,
+      "phase": "complete"
     }
   ],
-  "rectification_commit": null,
-  "regression_tests_added": [],
+  "rectification_commit": "4cd2c7f0175d12bf33e049138c5eda55da00483f",
+  "regression_tests_added": [
+    "tests/test_inspire_ingest.py::TestE09S02RectificationGuards::test_f1_inspire_remerge_preserves_doi_when_response_drops_field",
+    "tests/test_inspire_ingest.py::TestE09S02RectificationGuards::test_f1_inspire_merge_overwrites_with_new_non_null",
+    "tests/test_inspire_ingest.py::TestE09S02RectificationGuards::test_f2_enrich_accepts_old_style_hep_th_id",
+    "tests/test_inspire_ingest.py::TestE09S02RectificationGuards::test_f2_validator_rejects_truly_invalid_ids",
+    "tests/test_inspire_ingest.py::TestE09S02RectificationGuards::test_f4_inspire_creates_node_then_emits_edge_to_resolved_paper",
+    "tests/test_inspire_ingest.py::TestE09S02RectificationGuards::test_f5_fetch_inspire_record_validates_paper_id",
+    "tests/test_inspire_ingest.py::TestE09S02RectificationGuards::test_f6_failure_run_flushes_checkpoint_at_batch_size",
+    "tests/test_inspire_ingest.py::TestE09S02RectificationGuards::test_f8_arxiv_categories_filter_anchor_for_post_f9"
+  ],
   "research_briefs": [
     {
       "agent": "sonnet-1",
@@ -91,5 +118,5 @@
   ],
   "research_mode": "standard",
   "research_synthesis": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/E09_S02/research-synthesis.md",
-  "updated_at": "2026-05-10T19:30:18Z"
+  "updated_at": "2026-05-10T19:36:25Z"
 }
