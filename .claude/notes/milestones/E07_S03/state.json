@@ -1,29 +1,45 @@
 {
   "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/worktrees/gallant-blackburn-b89422/.claude/roadmap",
   "created_at": "2026-05-09T21:07:26Z",
-  "critics_run": [],
+  "critics_run": [
+    "adversary"
+  ],
   "critique_finding_counts": {
     "critical": 0,
-    "high": 0,
-    "low": 0,
-    "medium": 0
+    "high": 2,
+    "low": 3,
+    "medium": 4
   },
-  "critique_path": null,
-  "deferred_findings": [],
+  "critique_path": ".claude/notes/milestones/E07_S03/critique-adversary.md",
+  "deferred_findings": [
+    "F1-embedder"
+  ],
   "external_writes_authorized": false,
   "external_writes_completed": false,
   "external_writes_required": [],
-  "fixed_findings": [],
+  "fixed_findings": [
+    "F1-rerank",
+    "F2",
+    "F3",
+    "F4",
+    "F5",
+    "F6",
+    "F7",
+    "F8",
+    "F9"
+  ],
   "id": "E07_S03",
   "implementation_base": "52642f6d07b4bb9519f105992171f6160e56132c",
   "implementation_branch": null,
-  "implementation_commit_range": null,
-  "implementation_commits": [],
-  "implementation_path": null,
+  "implementation_commit_range": "52642f6d07b4bb9519f105992171f6160e56132c..c987fe447d7fa4b883b6dbba322e1023450e19f7",
+  "implementation_commits": [
+    "c987fe447d7fa4b883b6dbba322e1023450e19f7"
+  ],
+  "implementation_path": ".claude/notes/milestones/E07_S03/implementation-summary.md",
   "implementation_specialist": "inline",
   "invalidated_findings": [],
   "milestone_brief": "### E07_S03 \u2014 Phase 3: BGE-reranker with env-flag gate\n\n**Status:** NEW\n**Tier:** 1\n**Effort:** M\n**Dependencies:** E07_S02\n\n**Description.** Implement Phase 3 neural reranking using `BAAI/bge-reranker-v2-m3`, loaded from a pinned commit SHA recorded in `server/config.py`. The reranker scores each of the Phase-2 top-50 candidates against the original query using a cross-encoder pass, producing a final ranking. The top-k candidates (where k is the caller's requested `k`, default 10, max 50) are returned as `(chunk_id, rerank_score)` tuples.\n\nPhase 3 is gated by the `ARXMCP_ENABLE_RERANK` environment variable, which defaults to `false` in all Tier-0 and Tier-1 deployments. When the flag is false, `search_papers` returns the Phase-2 RRF-ordered top-k directly, skipping the reranker entirely. The activation path is: E07_S04 demonstrates that nDCG@5 \u2265 0.80 requires the reranker, at which point the flag is enabled in production. If nDCG@5 \u2265 0.80 is already reached without reranking, the flag stays off and Phase 3 remains dormant.\n\nConcurrent reranker calls are gated by `max_concurrent_reranks=4` (the semaphore initialized in `server/resources.py` E06_S01). The reranker call is wrapped in the `Singleflight` pattern keyed on `(query_embedding_hash, sorted_candidate_id_tuple_hash, reranker_version)` \u2014 this is Tier 3 of the retrieval cache (`.claude/notes/07-multi-agent-caching.md` lines 150\u2013158). A cache hit on Tier 3 bypasses the reranker entirely and returns the cached ranking in microseconds.\n\nThe pinned commit SHA for the reranker model is stored as `ARXMCP_RERANK_MODEL_SHA` in config and validated at startup (when reranking is enabled) by comparing the local model directory's git ref against the pinned value. A mismatch is a startup warning, not a fatal error \u2014 the server continues but logs the drift.\n\n**Deliverables.**\n- `server/retrieval/rerank.py` \u2014 `RerankPhase` class: `rerank(query_text, candidates, top_k) -> list[tuple[str, float]]`; no-op passthrough when `ARXMCP_ENABLE_RERANK=false`\n- `server/config.py` \u2014 updated with `ARXMCP_ENABLE_RERANK: bool = False` and `ARXMCP_RERANK_MODEL_SHA: str`\n- `tests/retrieval/test_rerank.py` \u2014 unit test: with flag off, returns Phase-2 order unchanged; with flag on (requires model), returns a different order on a query where BM25/ANN ranking is known to be suboptimal\n\n**Acceptance criteria.**\n- [ ] With `ARXMCP_ENABLE_RERANK=false`, `RerankPhase.rerank(...)` returns input candidates in original order\n- [ ] With `ARXMCP_ENABLE_RERANK=true`, reranker loads and scores all 50 candidates within 5 seconds\n- [ ] Tier-3 cache hit bypasses the reranker (verifiable via cache-stats endpoint)\n- [ ] `pytest tests/retrieval/test_rerank.py -k \"not requires_model\"` passes without the model downloaded\n\n**Out of scope.** Cohere Rerank API (self-hosted only in v1). Fine-tuning the reranker. Online learning from agent feedback.\n\n**Risk notes.**\n- Reranker activation is explicitly tied to the E07_S04 nDCG@5 gate \u2014 enabling it preemptively without a quality signal is wasteful and adds latency.\n\n**Labels.** `area:retrieval`, `kind:feature`, `tier:1`\n\n---",
-  "phase": "implement-running",
+  "phase": "complete",
   "phase_history": [
     {
       "entered_at": "2026-05-09T21:07:26Z",
@@ -31,8 +47,14 @@
       "phase": "init"
     }
   ],
-  "rectification_commit": null,
-  "regression_tests_added": [],
+  "rectification_commit": "e98fa39cd1134a1154516ed17babdcc3f04ddd16",
+  "regression_tests_added": [
+    "test_quote_in_chunk_id_escaped_not_dropped (replaced drop-test)",
+    "test_concurrent_identical_rerank_dedups (extended with model.call_count assertion)",
+    "TestShaDriftCheck (3 tests refactored to monkeypatch)",
+    "TestHuggingfaceCacheLookup (2 tests refactored)",
+    "TestResourcesIntegration (refactored to monkeypatch)"
+  ],
   "research_brief_paths": [
     ".claude/notes/milestones/E07_S03/research-brief-1.md",
     ".claude/notes/milestones/E07_S03/research-brief-2.md"
@@ -41,5 +63,5 @@
   "research_mode": "parallel",
   "research_synthesis": null,
   "research_synthesis_path": ".claude/notes/milestones/E07_S03/research-synthesis.md",
-  "updated_at": "2026-05-09T21:30:08Z"
+  "updated_at": "2026-05-09T22:18:37Z"
 }

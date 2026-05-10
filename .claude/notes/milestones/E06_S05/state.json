@@ -1,29 +1,49 @@
 {
   "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/worktrees/gallant-blackburn-b89422/.claude/roadmap",
   "created_at": "2026-05-09T16:49:37Z",
-  "critics_run": [],
+  "critics_run": [
+    "adversary"
+  ],
   "critique_finding_counts": {
-    "critical": 0,
-    "high": 0,
-    "low": 0,
-    "medium": 0
+    "critical": 1,
+    "high": 4,
+    "low": 3,
+    "medium": 6
   },
-  "critique_path": null,
-  "deferred_findings": [],
+  "critique_path": ".claude/notes/milestones/E06_S05/critique-adversary.md",
+  "deferred_findings": [
+    "F14"
+  ],
   "external_writes_authorized": false,
   "external_writes_completed": false,
   "external_writes_required": [],
-  "fixed_findings": [],
+  "fixed_findings": [
+    "F1",
+    "F2",
+    "F3",
+    "F4",
+    "F5",
+    "F6",
+    "F7",
+    "F8",
+    "F9",
+    "F10",
+    "F11",
+    "F12",
+    "F13"
+  ],
   "id": "E06_S05",
   "implementation_base": "17d881db322921444aaffecfd774cb968c3c93b1",
   "implementation_branch": null,
-  "implementation_commit_range": null,
-  "implementation_commits": [],
-  "implementation_path": null,
+  "implementation_commit_range": "17d881db322921444aaffecfd774cb968c3c93b1..739d87467f2e6fbe6e3264342058b21a5bdc59c4",
+  "implementation_commits": [
+    "739d87467f2e6fbe6e3264342058b21a5bdc59c4"
+  ],
+  "implementation_path": ".claude/notes/milestones/E06_S05/implementation-summary.md",
   "implementation_specialist": "inline",
   "invalidated_findings": [],
   "milestone_brief": "### E06_S05 \u2014 Security hardening: Origin validation and localhost binding\n\n**Status:** NEW\n**Tier:** 1\n**Effort:** S\n**Dependencies:** E06_S01\n\n**Description.** The MCP specification (2025-06-18) mandates that HTTP MCP servers validate the `Origin` header and bind only to localhost. This milestone implements both requirements and adds defense-in-depth measures appropriate for a local-only deployment.\n\nOrigin validation: any request carrying an `Origin` header whose host component is not `localhost` or `127.0.0.1` receives a 403 Forbidden response with a JSON error body. Requests without an `Origin` header (e.g., direct curl calls) are permitted \u2014 CLI tools and the stdio shim do not set `Origin`. The validation runs as a FastAPI middleware, applied before any route handler.\n\nLocalhost binding: the server config rejects `ARXMCP_BIND_HOST` values other than `127.0.0.1` and `::1` at startup \u2014 it will not silently fall back to `0.0.0.0`. Any attempt to bind to a non-loopback address is a startup error with a clear log message.\n\nAdditional hardening: (1) `X-Content-Type-Options: nosniff` and `X-Frame-Options: DENY` headers on all responses; (2) request body size limit of 1 MB enforced by FastAPI; (3) the `Mcp-Session-Id` generated per session uses `secrets.token_hex(32)` (not UUID4, which has insufficient entropy for a session identifier); (4) `ARXMCP_LOG_LEVEL` defaults to INFO; DEBUG-level logs must never emit chunk body content.\n\n**Deliverables.**\n- `server/middleware.py` \u2014 `OriginValidationMiddleware` FastAPI middleware\n- `server/config.py` \u2014 updated to reject non-loopback `ARXMCP_BIND_HOST` values\n- `tests/test_security.py` \u2014 asserts 403 on non-localhost Origin; asserts startup rejects `0.0.0.0`\n\n**Acceptance criteria.**\n- [ ] `curl -H \"Origin: https://evil.com\" http://127.0.0.1:7733/mcp` returns HTTP 403\n- [ ] `curl http://127.0.0.1:7733/mcp` (no Origin header) proceeds normally\n- [ ] Starting server with `ARXMCP_BIND_HOST=0.0.0.0` exits with code 1 and a log message\n- [ ] `tests/test_security.py` passes\n\n**Out of scope.** Authentication tokens. TLS (localhost-only deployment). Rate limiting per-IP (separate ops concern).\n\n**Risk notes.**\n- `.claude/notes/06-mcp-server-design.md` lines 38\u201343 state both Origin pinning and localhost binding are spec obligations, not optional hardening.\n\n**Labels.** `area:security`, `kind:hardening`, `tier:1`\n\n---",
-  "phase": "implement-running",
+  "phase": "complete",
   "phase_history": [
     {
       "entered_at": "2026-05-09T16:49:37Z",
@@ -31,8 +51,25 @@
       "phase": "init"
     }
   ],
-  "rectification_commit": null,
-  "regression_tests_added": [],
+  "rectification_commit": "4328dce1b9e27bdbf965e2960dd86d5e21951f68",
+  "regression_tests_added": [
+    "TestRequestBodyLimit::test_oversize_body_when_handler_does_not_read_rejected_413",
+    "TestRequestBodyLimit::test_oversize_chunked_body_rejected_413",
+    "TestRequestBodyLimit::test_under_cap_body_passes",
+    "TestRequestBodyLimit::test_malformed_content_length_rejected_400",
+    "TestRequestBodyLimit::test_negative_content_length_rejected_400",
+    "TestHostValidation",
+    "TestHostHeaderHelper",
+    "TestUpstreamSessionIdGenerator::test_streamable_http_manager_uses_uuid4",
+    "TestLogLevelHardening::test_log_level_default_is_info",
+    "TestLogLevelHardening::test_debug_logs_do_not_emit_chunk_body_content",
+    "TestSecurityEventLogging",
+    "TestMiddlewareOrder::test_evil_origin_with_oversize_body_returns_403_not_413",
+    "TestBriefAcLiteralEndpoint",
+    "TestOriginUserinfoRejected",
+    "TestOriginCaseInsensitive",
+    "TestOriginTruncatedInResponse::test_long_origin_truncated_in_response_body"
+  ],
   "research_brief_paths": [
     ".claude/notes/milestones/E06_S05/research-brief-1.md"
   ],
@@ -40,5 +77,5 @@
   "research_mode": "single",
   "research_synthesis": null,
   "research_synthesis_path": ".claude/notes/milestones/E06_S05/research-synthesis.md",
-  "updated_at": "2026-05-09T16:55:09Z"
+  "updated_at": "2026-05-09T17:23:40Z"
 }

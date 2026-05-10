@@ -1,29 +1,49 @@
 {
   "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/worktrees/gallant-blackburn-b89422/.claude/roadmap",
   "created_at": "2026-05-09T18:43:57Z",
-  "critics_run": [],
+  "critics_run": [
+    "adversary"
+  ],
   "critique_finding_counts": {
     "critical": 0,
-    "high": 0,
-    "low": 0,
-    "medium": 0
+    "high": 2,
+    "low": 4,
+    "medium": 7
   },
-  "critique_path": null,
-  "deferred_findings": [],
+  "critique_path": ".claude/notes/milestones/E07_S02/critique-adversary.md",
+  "deferred_findings": [
+    "F8",
+    "F11",
+    "F12",
+    "F13"
+  ],
   "external_writes_authorized": false,
   "external_writes_completed": false,
   "external_writes_required": [],
-  "fixed_findings": [],
+  "fixed_findings": [
+    "F1",
+    "F2",
+    "F3",
+    "F4",
+    "F5",
+    "F6",
+    "F7",
+    "F9",
+    "F10",
+    "F14"
+  ],
   "id": "E07_S02",
   "implementation_base": "b20ef45b177189bdd3bcbf022e6c55ee2788403e",
   "implementation_branch": null,
-  "implementation_commit_range": null,
-  "implementation_commits": [],
-  "implementation_path": null,
+  "implementation_commit_range": "b20ef45b177189bdd3bcbf022e6c55ee2788403e..db089024a1e00470ffd3c5f2865499922ffe6d4a",
+  "implementation_commits": [
+    "db089024a1e00470ffd3c5f2865499922ffe6d4a"
+  ],
+  "implementation_path": ".claude/notes/milestones/E07_S02/implementation-summary.md",
   "implementation_specialist": "inline",
   "invalidated_findings": [],
   "milestone_brief": "### E07_S02 \u2014 Phase 2: dual-ANN with Reciprocal Rank Fusion\n\n**Status:** NEW\n**Tier:** 1\n**Effort:** M\n**Dependencies:** E04_S03, E07_S01\n\n**Description.** Implement Phase 2 dense ANN search over both embedding columns in the `chunks` table: `embedding_stmt` (prose-only, math stripped to `[MATH]` tokens) and `embedding_proof` (raw LaTeX with expanded macros). Each column is searched independently with HNSW ANN, returning the top-50 candidates per column. The two ranked lists \u2014 plus the top-200 BM25 list from Phase 1 \u2014 are fused using Reciprocal Rank Fusion (RRF) with k=60.\n\nRRF score for a candidate `c` across ranked lists `L_1 \u2026 L_n`:\n\n```\nrrf_score(c) = sum over i of 1 / (k + rank_i(c))\n```\n\nwhere `rank_i(c)` is the 1-based position of `c` in list `L_i`, or infinity if absent. After fusion, the top-50 candidates by `rrf_score` are returned as `(chunk_id, fused_score)` tuples. These 50 candidates are the input to Phase 3.\n\nQuery-time embedding follows the same dual-representation strategy as index-time: the query text is embedded twice \u2014 once with the prose encoder (math tokens stripped) and once with the LaTeX encoder (macros preserved). Both embeddings are computed via the shared `Singleflight`-wrapped embedder in `server/resources.py`. The two query vectors are used to search their respective HNSW indexes.\n\nThe `ANNPhase` class is initialized once at server startup. It accepts the 200-candidate BM25 list and the query text, runs both ANN searches, fuses with RRF, and returns the top-50. The class must handle the edge case where the BM25 list is empty (e.g., highly symbolic queries with no body-token matches) by falling back to the ANN results only.\n\n**Deliverables.**\n- `server/retrieval/ann.py` \u2014 `ANNPhase` class: `query(query_text, bm25_candidates, top_n=50) -> list[tuple[str, float]]`\n- `server/retrieval/rrf.py` \u2014 `reciprocal_rank_fusion(lists, k=60) -> list[tuple[str, float]]` utility\n- `tests/retrieval/test_ann.py` \u2014 unit tests: dual embedding produces two non-identical result lists; RRF output is a strict superset of neither input list alone; score ordering is descending\n\n**Acceptance criteria.**\n- [ ] `ANNPhase.query(\"perverse sheaves on flag varieties\", bm25_candidates=[])` returns \u2265 1 result (pure ANN fallback path works)\n- [ ] RRF output contains candidates from both the BM25 list and both ANN lists\n- [ ] `fused_score` values are descending in the returned list\n- [ ] Both embedding calls go through the shared Singleflight wrapper (verifiable via the singleflight hit counter in `/debug/cache-stats`)\n- [ ] `pytest tests/retrieval/test_ann.py` passes\n\n**Out of scope.** Reranking (Phase 3). ColBERT late-interaction (v1.5 feature per `.claude/notes/05-storage-and-indexing.md` lines 275\u2013283).\n\n**Risk notes.**\n- The dual-embedding strategy relies on E04_S03 having populated both `embedding_stmt` and `embedding_proof` columns. If only one column is present, the ANNPhase must degrade gracefully to single-ANN + BM25 RRF.\n\n**Labels.** `area:retrieval`, `kind:feature`, `tier:1`\n\n---",
-  "phase": "implement-running",
+  "phase": "complete",
   "phase_history": [
     {
       "entered_at": "2026-05-09T18:43:57Z",
@@ -31,8 +51,18 @@
       "phase": "init"
     }
   ],
-  "rectification_commit": null,
-  "regression_tests_added": [],
+  "rectification_commit": "52642f6d07b4bb9519f105992171f6160e56132c",
+  "regression_tests_added": [
+    "TestLanceDBDistanceSemantics::test_lancedb_returns_squared_l2_for_unit_vectors",
+    "TestLanceDBDistanceSemantics::test_distance_to_score_inverts_lancedb_distances_correctly",
+    "TestSchemaValidation::test_missing_column_raises_at_init",
+    "TestPhantomBm25Ids::test_phantom_bm25_id_appears_in_output",
+    "TestLatencyBudget::test_query_under_500ms_against_dual_corpus",
+    "TestTopNLargerThanCorpus::test_top_n_larger_than_corpus_returns_union_size",
+    "TestQueryTextValidation (4 tests)",
+    "TestStmtOnlyCorpusLogQuiet::test_stmt_only_corpus_no_per_query_warning",
+    "TestSingleflightContract::test_ann_phase_query_routes_through_encode_query"
+  ],
   "research_brief_paths": [
     ".claude/notes/milestones/E07_S02/research-brief-1.md",
     ".claude/notes/milestones/E07_S02/research-brief-2.md"
@@ -41,5 +71,5 @@
   "research_mode": "parallel",
   "research_synthesis": null,
   "research_synthesis_path": ".claude/notes/milestones/E07_S02/research-synthesis.md",
-  "updated_at": "2026-05-09T18:50:03Z"
+  "updated_at": "2026-05-09T19:17:50Z"
 }

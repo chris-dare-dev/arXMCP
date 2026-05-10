@@ -1,0 +1,131 @@
+{
+  "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/worktrees/gallant-blackburn-b89422/.claude/roadmap",
+  "created_at": "2026-05-07T12:48:05Z",
+  "critics_run": [
+    {
+      "model": "opus",
+      "name": "adversary",
+      "path": ".claude/notes/milestones/E02_S03/critique-adversary.md",
+      "verdict": "REQUEST CHANGES"
+    }
+  ],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 3,
+    "low": 3,
+    "medium": 8
+  },
+  "critique_path": ".claude/notes/milestones/E02_S03/critique-merged.md",
+  "deferred_findings": [
+    "F4",
+    "F8",
+    "F9",
+    "F10",
+    "F13",
+    "F14"
+  ],
+  "external_writes_authorized": true,
+  "external_writes_completed": true,
+  "external_writes_required": [
+    {
+      "target": "ingest/tokenizer.py, ingest/chunker.py, ingest/chunker_types.py, tests/test_tokenizer.py, tests/test_chunker.py",
+      "type": "filesystem",
+      "why": "new module + wire-in + tests (committed)"
+    }
+  ],
+  "fixed_findings": [
+    "F1",
+    "F2",
+    "F3",
+    "F5",
+    "F6",
+    "F7",
+    "F11",
+    "F12"
+  ],
+  "id": "E02_S03",
+  "implementation_base": "27206d4",
+  "implementation_branch": "claude/gallant-blackburn-b89422",
+  "implementation_commit_range": "27206d4..0f465e0",
+  "implementation_commits": [
+    "0f465e0"
+  ],
+  "implementation_path": "inline",
+  "implementation_path_summary": ".claude/notes/milestones/E02_S03/implementation-summary.md",
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "### E02_S03 \u2014 `body_tokens` regex pre-tokenizer\n\n**Status:** NEW\n**Tier:** 0\n**Effort:** M\n**Dependencies:** E02_S01\n\n**Description.** At chunk-write time, a Python regex pass over `body_text` produces a whitespace-joined token stream stored in the `body_tokens` field of each chunk JSON. The tokenizer is a simple but math-aware regex: it extracts Latin words (including hyphenated compound terms), strips backslashes from LaTeX command names and emits the command root (e.g. `\\mathrm` \u2192 `mathrm`, `\\partial` \u2192 `partial`), and extracts identifier-like fragments from math mode (e.g. `H_1` \u2192 `H_1`, `\\mathbb{Z}` \u2192 `mathbb_Z`). Subscripts and superscripts are joined with underscores to preserve token identity. The result is a string like `\"Spec mathrm_Pic partial_t H_1 coherent sheaf\"`.\n\nThis `body_tokens` string is the field that BM25 will index in E04_S04. Using a Python regex pre-tokenizer (rather than a fictional custom Tantivy LaTeX analyzer) is a deliberate design decision: it is self-contained, testable, deterministic, and ships without any dependency on Rust or a custom analyzer that does not exist. The approach is documented in the module docstring.\n\nThe tokenizer is exposed as a standalone function `tokenize_body(body_text: str) -> str` in `ingest/tokenizer.py` so it can be unit-tested independently and reused by the BM25 indexer in E04_S04. It is also wired into `ingest/chunker.py` so that every chunk emitted after this milestone has `body_tokens` populated (not `null`).\n\nPerformance target: tokenization of a 512-token chunk should complete in under 1ms on a 2020-era laptop CPU. The regex is compiled once at module load.\n\n**Deliverables.**\n- `ingest/tokenizer.py` \u2014 `tokenize_body(body_text: str) -> str`\n- Updated `ingest/chunker.py` \u2014 calls `tokenize_body` and writes result to `body_tokens`\n- `pytest tests/test_tokenizer.py` \u2014 unit tests for known LaTeX input \u2192 expected token stream pairs\n- Updated chunk JSON schema: `body_tokens` field populated with token string\n\n**Acceptance criteria.**\n- [ ] `tokenize_body(\"Let $\\\\mathbb{Z}[x]$ be the polynomial ring\")` returns a string containing `mathbb_Z` and `polynomial`.\n- [ ] `tokenize_body(\"By \\\\mathrm{Spec}\\\\, R\")` returns a string containing `mathrm_Spec` and `R`.\n- [ ] Backslashes are stripped from all LaTeX command names in the token stream.\n- [ ] Running the chunker on all 50 seed papers with this milestone active produces non-null `body_tokens` on every chunk.\n- [ ] Tokenizer performance: \u2264 1ms per 512-token chunk on a reference machine (documented in test).\n- [ ] Module docstring states: \"No custom Tantivy LaTeX analyzer is used; see H4 remediation in `.claude/roadmap/README.md`.\"\n\n**Out of scope.** BM25 index construction (E04_S04). Equation-level tokenization for the equation index (E10_S03 \u2014 that epic uses MathML tree-edit distance, not BM25). Full macro expansion before tokenization (Tier 2).\n\n**Risk notes.**\n- **Closes H4** (regex pre-tokenizer replaces fictional Tantivy LaTeX analyzer). The BM25 index in E04_S04 operates over this field with standard English BM25 \u2014 no custom analyzer required. The closure is recorded here so reviewers know where to look.\n- The regex approach trades recall on exotic LaTeX for simplicity and determinism. At Tier-0 corpus scale (50 papers), recall loss is acceptable. A smarter tokenizer can be swapped in later without schema changes (only `body_tokens` values change, which triggers a version bump and re-index via E04_S02 MVCC).\n\n**Labels.** `area:parser`, `kind:feature`, `tier:0`.\n\n---",
+  "phase": "complete",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-07T12:48:05Z",
+      "left_at": "2026-05-07T12:48:26Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-07T12:48:26Z",
+      "left_at": "2026-05-07T12:56:23Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-07T12:56:23Z",
+      "left_at": "2026-05-07T12:56:23Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-05-07T12:56:23Z",
+      "left_at": "2026-05-07T13:03:27Z",
+      "phase": "implement-running"
+    },
+    {
+      "entered_at": "2026-05-07T13:03:27Z",
+      "left_at": "2026-05-07T13:03:27Z",
+      "phase": "implement-complete"
+    },
+    {
+      "entered_at": "2026-05-07T13:03:27Z",
+      "left_at": "2026-05-07T13:10:29Z",
+      "phase": "critique-running"
+    },
+    {
+      "entered_at": "2026-05-07T13:10:29Z",
+      "left_at": "2026-05-07T13:10:29Z",
+      "phase": "critique-complete"
+    },
+    {
+      "entered_at": "2026-05-07T13:10:29Z",
+      "left_at": "2026-05-07T13:21:56Z",
+      "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-05-07T13:21:56Z",
+      "left_at": null,
+      "phase": "complete"
+    }
+  ],
+  "rectification_commit": "7566026",
+  "regression_tests_added": [
+    "tests/test_tokenizer.py::TestF1ComplexScriptDocstring",
+    "tests/test_tokenizer.py::TestF2UnicodeWords",
+    "tests/test_tokenizer.py::TestF5BalancedBraceScript",
+    "tests/test_tokenizer.py::TestF6GoldenOutputRegression",
+    "tests/test_tokenizer.py::TestF7TightPerfBound",
+    "tests/test_tokenizer.py::TestF11NoTrailingHyphenTokens",
+    "tests/test_chunker.py::TestMultiKindEnvironments::test_all_kinds_have_body_tokens_populated"
+  ],
+  "research_briefs": [
+    {
+      "agent": "researcher-1",
+      "model": "sonnet",
+      "path": ".claude/notes/milestones/E02_S03/research-brief-1.md"
+    },
+    {
+      "agent": "researcher-2",
+      "model": "sonnet",
+      "path": ".claude/notes/milestones/E02_S03/research-brief-2.md"
+    }
+  ],
+  "research_mode": "standard",
+  "research_synthesis": ".claude/notes/milestones/E02_S03/research-synthesis.md",
+  "updated_at": "2026-05-07T13:21:56Z"
+}

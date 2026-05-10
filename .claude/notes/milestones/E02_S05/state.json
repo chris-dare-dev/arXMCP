@@ -1,0 +1,124 @@
+{
+  "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/worktrees/gallant-blackburn-b89422/.claude/roadmap",
+  "created_at": "2026-05-07T14:05:12Z",
+  "critics_run": [
+    {
+      "model": "opus",
+      "name": "adversary",
+      "path": ".claude/notes/milestones/E02_S05/critique-adversary.md",
+      "verdict": "SHIP-WITH-FIXES"
+    }
+  ],
+  "critique_finding_counts": {
+    "critical": 1,
+    "high": 3,
+    "low": 1,
+    "medium": 5
+  },
+  "critique_path": ".claude/notes/milestones/E02_S05/critique-merged.md",
+  "deferred_findings": [],
+  "external_writes_authorized": true,
+  "external_writes_completed": true,
+  "external_writes_required": [
+    {
+      "target": "tests/fixtures/chunker/2307.000{05..10}/index.html, *.expected.json, tests/test_chunker.py, docs/chunker-fixtures.md",
+      "type": "filesystem",
+      "why": "new fixtures + golden files + parametrized test + docs (committed)"
+    }
+  ],
+  "fixed_findings": [
+    "F1",
+    "F2",
+    "F3",
+    "F4",
+    "F5",
+    "F6",
+    "F7",
+    "F8",
+    "F9",
+    "F10"
+  ],
+  "id": "E02_S05",
+  "implementation_base": "0528501",
+  "implementation_branch": "claude/gallant-blackburn-b89422",
+  "implementation_commit_range": "0528501..767174b",
+  "implementation_commits": [
+    "767174b"
+  ],
+  "implementation_path": "inline",
+  "implementation_path_summary": ".claude/notes/milestones/E02_S05/implementation-summary.md",
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "### E02_S05 \u2014 Chunker fixture suite\n\n**Status:** NEW\n**Tier:** 0\n**Effort:** M\n**Dependencies:** E02_S01, E02_S02, E02_S03, E02_S04\n\n**Description.** A golden-output fixture suite that locks in the chunker's behavior against 10 of the 50 seed papers. For each fixture paper, the expected outputs are hand-curated: expected chunk count, expected `kind` distribution (e.g. 12 stmt + 12 proof + 4 section + 2 definition), and at least one expected `chunk_id` per paper verified by running the finalized chunker and recording its output. These fixtures are committed to the repository and must pass on every CI run.\n\nThe fixture suite serves two purposes. First, it provides regression protection: if a chunker change breaks determinism or theorem-pairing logic, `pytest tests/test_chunker.py` fails with a diff showing which paper's output changed and how. Second, it bootstraps the eval harness in E05_S01: because the eval harness references specific `chunk_id`s in `tests/eval/fixtures/queries.json`, those IDs must be stable \u2014 this fixture suite proves they are stable by construction.\n\nThe 10 fixture papers should be chosen to exercise diverse scenarios: papers with many theorems, papers with appendix-only proofs, papers with no explicit proof environments (definition-heavy), and at least one paper with a multi-window proof (a proof that exceeds 512 tokens and is split into overlapping windows). Hand-curation of expected chunk counts requires running the chunker once and then reviewing the output for correctness before committing.\n\nThe fixture files are stored at `tests/fixtures/chunker/<paper_id>.expected.json` with schema `{paper_id, chunk_count, kind_counts: {stmt, proof, section, definition}, expected_chunk_ids: [\"arxiv:...\"], chunker_version: \"v1.0\"}`.\n\n**Deliverables.**\n- `tests/fixtures/chunker/<paper_id>.expected.json` \u2014 10 fixture files\n- `pytest tests/test_chunker.py` \u2014 runs chunker against all 10 fixtures, asserts golden output match\n- CI integration: `make test` runs `pytest tests/test_chunker.py`\n- `docs/chunker-fixtures.md` \u2014 brief notes on which papers cover which scenarios and why they were chosen\n\n**Acceptance criteria.**\n- [ ] 10 fixture files committed, one per paper.\n- [ ] Each fixture file contains at least one `chunk_id` that can be looked up in the chunker output.\n- [ ] `pytest tests/test_chunker.py` passes on a clean checkout (i.e., chunk IDs are reproducible byte-identically).\n- [ ] At least one fixture paper exercises a multi-window proof (proof body > 512 BGE-M3 tokens).\n- [ ] At least one fixture paper has no explicit `\\begin{proof}` (exercises the section/definition path).\n- [ ] `pytest tests/test_chunker.py` completes in under 60 seconds on a laptop (chunking 10 papers is fast).\n- [ ] CI (`make test`) includes this test suite.\n\n**Out of scope.** Eval harness query curation (E05_S01 \u2014 references these `chunk_id`s but curates the query\u2013relevance pairs separately). Embedding fixture papers (E03 scope).\n\n**Risk notes.**\n- These fixtures are the ground truth that E05_S01 depends on. If a later chunker change legitimately alters `chunk_id`s (e.g. a `chunker_version` bump), the fixture files must be regenerated and the eval fixture queries updated in lockstep. Document this update procedure in `docs/chunker-fixtures.md`.\n- Papers where LaTeXML output differs between LaTeXML versions may produce non-deterministic parse trees. Pin the LaTeXML version in `pyproject.toml` or the fixture notes.\n\n**Labels.** `area:parser`, `kind:test`, `tier:0`.\n# E03 \u2014 Embedder (NEW)\n\n**Epic dependencies:** E02 (chunker produces `body_text`, `preamble_ref`, `chunker_version` on all chunks).\n\n**Goal:** Encode each chunk's embedding-input view (preamble text prepended to `body_text`) with a self-hosted BGE-M3 model pinned to a specific commit SHA, writing results into two LanceDB columns \u2014 `embedding_stmt` for statement chunks and `embedding_proof` for proof-window chunks \u2014 plus a reserved nullable `embedding_eq` column for the equation index (E10). The embedder is idempotent, handles concurrent query encoding via a singleflight wrapper, and documents GIL interaction explicitly. No Voyage or any other provider is used; BGE-M3 serves both index-time and query-time encoding.\n\n**Effort:** ~1.5 weeks calendar (M+S+M across three milestones).\n\n**References:** `05-storage-and-indexing.md` \u00a7 Embedding strategy (BGE-M3, 1024-dim, dual columns, HNSW parameters), `08-security-observability-ops.md` \u00a7 Threat 6 (pinned model SHA, supply-chain security), `04-parsing-and-chunking.md` \u00a7 Token budgets (512-tok max per embedding input).\n\n---",
+  "phase": "complete",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-07T14:05:12Z",
+      "left_at": "2026-05-07T14:05:33Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-07T14:05:33Z",
+      "left_at": "2026-05-07T14:11:47Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-07T14:11:47Z",
+      "left_at": "2026-05-07T14:11:47Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-05-07T14:11:47Z",
+      "left_at": "2026-05-07T14:18:19Z",
+      "phase": "implement-running"
+    },
+    {
+      "entered_at": "2026-05-07T14:18:19Z",
+      "left_at": "2026-05-07T14:18:19Z",
+      "phase": "implement-complete"
+    },
+    {
+      "entered_at": "2026-05-07T14:18:19Z",
+      "left_at": "2026-05-07T14:32:27Z",
+      "phase": "critique-running"
+    },
+    {
+      "entered_at": "2026-05-07T14:32:27Z",
+      "left_at": "2026-05-07T14:32:27Z",
+      "phase": "critique-complete"
+    },
+    {
+      "entered_at": "2026-05-07T14:32:27Z",
+      "left_at": "2026-05-07T14:37:37Z",
+      "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-05-07T14:37:37Z",
+      "left_at": null,
+      "phase": "complete"
+    }
+  ],
+  "rectification_commit": "e66077c",
+  "regression_tests_added": [
+    "tests/test_chunker.py::TestFixtureSuite::test_2307_00010_alttext_uses_real_latex",
+    "tests/test_chunker.py::TestFixtureSuite::test_2307_00006_section_path_three_levels_deep",
+    "tests/test_chunker.py::TestFixtureSuite::test_expected_chunk_ids_in_document_order",
+    "tests/test_chunker.py::TestFixtureSuite::test_kind_counts_match (broadened)",
+    "tests/test_chunker.py::TestFixtureSuite::test_chunker_version_matches_constant_globally"
+  ],
+  "research_briefs": [
+    {
+      "agent": "researcher-1",
+      "model": "sonnet",
+      "path": ".claude/notes/milestones/E02_S05/research-brief-1.md"
+    },
+    {
+      "agent": "researcher-2",
+      "model": "sonnet",
+      "path": ".claude/notes/milestones/E02_S05/research-brief-2.md"
+    }
+  ],
+  "research_mode": "standard",
+  "research_synthesis": ".claude/notes/milestones/E02_S05/research-synthesis.md",
+  "updated_at": "2026-05-07T14:37:37Z"
+}

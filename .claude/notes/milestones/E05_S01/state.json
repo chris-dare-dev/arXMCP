@@ -1,0 +1,89 @@
+{
+  "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/worktrees/gallant-blackburn-b89422/.claude/roadmap",
+  "created_at": "2026-05-08T22:37:13Z",
+  "critics_run": [],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 3,
+    "low": 4,
+    "medium": 8
+  },
+  "critique_path": null,
+  "deferred_findings": [],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_required": [],
+  "fixed_findings": [],
+  "id": "E05_S01",
+  "implementation_base": null,
+  "implementation_branch": null,
+  "implementation_commit_range": "5a14fa5..1f18f8c",
+  "implementation_commits": [],
+  "implementation_path": null,
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "### E05_S01 \u2014 `tests/eval/fixtures/queries.json` \u2014 20 hand-labeled query triples\n\n**Status:** NEW\n**Tier:** 0\n**Effort:** M\n**Dependencies:** E02_S04, E02_S05\n\n**Description.** The eval fixture file contains 20 `(query, chunk_id, relevance)` triples curated by a human against the 50-paper seed corpus. Each triple asserts that for a given natural-language query string, a specific chunk (identified by its content-addressable `chunk_id` from E02_S04) is relevant to that query, with a graded relevance score.\n\n**Fixture schema (`tests/eval/fixtures/queries.json`):**\n```json\n{\n  \"schema_version\": \"1.0\",\n  \"chunker_version\": \"v1.0\",\n  \"created_at\": \"2026-05-06\",\n  \"queries\": [\n    {\n      \"query_id\": \"q01\",\n      \"query_text\": \"Riemann-Roch theorem for algebraic curves\",\n      \"relevant_chunks\": [\n        {\"chunk_id\": \"arxiv:2301.00001:abc123def456789a\", \"relevance\": 3},\n        {\"chunk_id\": \"arxiv:2301.00002:ff1122334455667a\", \"relevance\": 1}\n      ]\n    }\n  ]\n}\n```\n\nRelevance is graded 0\u20133: 3 = highly relevant (the chunk is the primary answer), 2 = relevant (the chunk directly addresses the query), 1 = partially relevant (useful context), 0 = not relevant (not in the fixture; absent chunks are assumed grade 0). At least one grade-3 chunk must exist per query.\n\nThe milestone ships when `queries.json` is committed and validated. Validation is automated: a helper script `tools/validate_eval_fixtures.py` checks that every `chunk_id` in the fixture exists in the chunker output (by reading `chunk_manifest.json` files from E02_S04), that `chunker_version` matches the current chunker, and that query IDs are unique. This script is run as part of `make test`.\n\n**Important:** the user owns curation. The milestone is blocked on a human reviewing chunker output for 50 papers and writing 20 query-relevance pairs. The milestone ships when the JSON is committed and validated \u2014 the implementer cannot automate the curation itself (that would make the eval circular). The fixture curation process is documented in `docs/eval-curation.md`.\n\nThe 20 queries should span the math.AG domain: theorems (Riemann-Roch, Grothendieck-Riemann-Roch, Serre duality), constructions (Picard group, derived category of coherent sheaves, Hilbert scheme), and proof techniques (spectral sequences, resolution of singularities). Diverse query phrasing (formal, informal, fragment-style) improves harness coverage.\n\n**Deliverables.**\n- `tests/eval/fixtures/queries.json` \u2014 20 hand-labeled query triples\n- `tools/validate_eval_fixtures.py` \u2014 validation script\n- `docs/eval-curation.md` \u2014 curation process documentation\n- `make test` integration: runs `python tools/validate_eval_fixtures.py` as part of the test suite\n\n**Acceptance criteria.**\n- [ ] `queries.json` contains exactly 20 query entries.\n- [ ] Each query has at least one grade-3 `chunk_id`.\n- [ ] Every `chunk_id` in the fixture exists in the chunker output (verified by `validate_eval_fixtures.py`).\n- [ ] `chunker_version` in the fixture header matches `\"v1.0\"`.\n- [ ] `validate_eval_fixtures.py` exits 0 on a clean checkout with a valid corpus.\n- [ ] `validate_eval_fixtures.py` exits non-zero if a `chunk_id` in the fixture does not exist in any `chunk_manifest.json`.\n- [ ] At least 5 queries reference `kind=\"stmt\"` chunks and at least 5 reference `kind=\"proof\"` chunks.\n\n**Out of scope.** Running the retrieval evaluation (E05_S02). Automated query generation (an LLM-generated fixture would make the eval circular; all curation is manual). Queries for math.NT, hep-th, math-ph categories (Tier 1+ multi-category ingest).\n\n**Risk notes.**\n- The `chunk_id` stability guarantee from E02_S04 and E02_S05 is what makes this fixture viable. If `chunk_id`s are not reproducible, the fixture becomes stale on every chunker run and curation effort is wasted. `validate_eval_fixtures.py` catching stale IDs is the safety net.\n- The fixture should be updated in lockstep with any `chunker_version` bump. `docs/eval-curation.md` must document this update procedure so it is not skipped.\n\n**Labels.** `area:eval`, `kind:data`, `tier:0`.\n\n---",
+  "phase": "complete",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-08T22:37:13Z",
+      "left_at": "2026-05-08T22:38:33Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-08T22:38:33Z",
+      "left_at": "2026-05-08T22:45:14Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-08T22:45:14Z",
+      "left_at": "2026-05-08T22:45:14Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-05-08T22:45:14Z",
+      "left_at": "2026-05-08T22:52:53Z",
+      "phase": "implement-running"
+    },
+    {
+      "entered_at": "2026-05-08T22:52:53Z",
+      "left_at": "2026-05-08T22:52:53Z",
+      "phase": "implement-complete"
+    },
+    {
+      "entered_at": "2026-05-08T22:52:53Z",
+      "left_at": "2026-05-08T23:01:50Z",
+      "phase": "critique-running"
+    },
+    {
+      "entered_at": "2026-05-08T23:01:50Z",
+      "left_at": "2026-05-08T23:01:50Z",
+      "phase": "critique-complete"
+    },
+    {
+      "entered_at": "2026-05-08T23:01:50Z",
+      "left_at": "2026-05-08T23:07:18Z",
+      "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-05-08T23:07:18Z",
+      "left_at": null,
+      "phase": "complete"
+    }
+  ],
+  "rectification_commit": null,
+  "regression_tests_added": [
+    "TestCli::test_cli_seed_mode_exits_zero",
+    "TestCli::test_cli_invalid_fixture_exits_one",
+    "TestUnknownTopLevelKeys::test_unknown_top_level_key_raises",
+    "TestManifestErrors::test_invalid_paper_id_directory_skipped",
+    "TestManifestErrors::test_chunk_id_paper_id_mismatch_skipped",
+    "TestCreatedAtFormat::test_empty_created_at_raises",
+    "TestCreatedAtFormat::test_non_iso_created_at_raises",
+    "TestCreatedAtFormat::test_iso_created_at_passes"
+  ],
+  "research_briefs": [],
+  "research_mode": "standard",
+  "research_synthesis": null,
+  "updated_at": "2026-05-08T23:07:18Z"
+}

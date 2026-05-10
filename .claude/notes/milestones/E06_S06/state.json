@@ -1,29 +1,46 @@
 {
   "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/worktrees/gallant-blackburn-b89422/.claude/roadmap",
   "created_at": "2026-05-09T17:28:35Z",
-  "critics_run": [],
+  "critics_run": [
+    "adversary"
+  ],
   "critique_finding_counts": {
     "critical": 0,
-    "high": 0,
-    "low": 0,
-    "medium": 0
+    "high": 2,
+    "low": 3,
+    "medium": 6
   },
-  "critique_path": null,
-  "deferred_findings": [],
+  "critique_path": ".claude/notes/milestones/E06_S06/critique-adversary.md",
+  "deferred_findings": [
+    "F3",
+    "F9",
+    "F10",
+    "F11"
+  ],
   "external_writes_authorized": false,
   "external_writes_completed": false,
   "external_writes_required": [],
-  "fixed_findings": [],
+  "fixed_findings": [
+    "F1",
+    "F2",
+    "F4",
+    "F5",
+    "F6",
+    "F7",
+    "F8"
+  ],
   "id": "E06_S06",
   "implementation_base": "4328dce1b9e27bdbf965e2960dd86d5e21951f68",
   "implementation_branch": null,
-  "implementation_commit_range": null,
-  "implementation_commits": [],
-  "implementation_path": null,
+  "implementation_commit_range": "4328dce1b9e27bdbf965e2960dd86d5e21951f68..80dd2ab8a3517f6b4e11a39b2eaf1d32dcd3d94e",
+  "implementation_commits": [
+    "80dd2ab8a3517f6b4e11a39b2eaf1d32dcd3d94e"
+  ],
+  "implementation_path": ".claude/notes/milestones/E06_S06/implementation-summary.md",
   "implementation_specialist": "inline",
   "invalidated_findings": [],
   "milestone_brief": "### E06_S06 \u2014 Tool schema byte-stability test\n\n**Status:** NEW\n**Tier:** 1\n**Effort:** S\n**Dependencies:** E06_S03\n\n**Description.** A casual edit to a tool description or argument schema blows every sub-agent's prompt cache (BP1 = system + tools block). This milestone makes that breakage explicit and deliberate: a pytest test computes `sha256(canonical_json(tools_list_response))` and asserts equality with a pinned hex constant checked into source control. Changing any tool schema without updating the pinned constant causes CI to fail loudly.\n\nThe canonical JSON serialization uses `json.dumps(obj, sort_keys=True, separators=(\",\", \":\"))` \u2014 no whitespace, alphabetically sorted keys. The `tools/list` response is fetched from a live server instance started in a pytest fixture. The sha256 is computed over the UTF-8-encoded bytes of the canonical JSON string.\n\nThe pinned constant lives in `tests/test_server_tool_schema.py` as a module-level string literal with a comment explaining the update procedure: run `pytest --update-tool-schema-hash` to recompute and overwrite. The update procedure is itself tested \u2014 bumping a tool description must produce a new hash that differs from the old one.\n\nThis test enforces BP1 stability (`.claude/notes/07-multi-agent-caching.md` lines 40\u201349) at the CI layer. It is part of the mandatory pre-merge check.\n\n**Deliverables.**\n- `tests/test_server_tool_schema.py` \u2014 hash assertion test + `--update-tool-schema-hash` flag support\n- `server/tools.py` \u2014 updated with `tool_schema_version: int = 1` field in the `tools/list` response\n\n**Acceptance criteria.**\n- [ ] `pytest tests/test_server_tool_schema.py` passes with the pinned hash\n- [ ] Changing a tool description causes the test to fail\n- [ ] Running `pytest --update-tool-schema-hash` regenerates the pinned constant correctly\n- [ ] `tool_schema_version: 1` appears in the `tools/list` response\n\n**Out of scope.** Automatic schema migration. Versioning of individual tools independently.\n\n**Risk notes.**\n- Tool schema byte-stability is the foundational guarantee for BP1 prompt cache reuse across the 4-agent fan-out (`.claude/notes/07-multi-agent-caching.md` lines 40\u201349).\n\n**Labels.** `area:server`, `kind:test`, `tier:1`\n# E07 \u2014 Hybrid Retrieval\n\nEpic dependencies: E04 (LanceDB chunks table with `body_tokens` BM25 index and dual embedding columns shipped), E05 (retrieval eval harness with nDCG@5 metric shipped)\n\nGoal: Implement the 3-phase hybrid retrieval pipeline (BM25 \u2192 dual-ANN + RRF \u2192 BGE-reranker) that backs `search_papers`. The pipeline must be modular (each phase independently testable), gated on environment flags, and validated against the E05 eval harness at nDCG@5 \u2265 0.80 before exiting Tier 1.\n\nEffort: M + M + M + M = L total\n\nReferences: `.claude/notes/05-storage-and-indexing.md` lines 293\u2013304, `.claude/notes/07-multi-agent-caching.md` lines 111\u2013158\n\n---",
-  "phase": "implement-running",
+  "phase": "complete",
   "phase_history": [
     {
       "entered_at": "2026-05-09T17:28:35Z",
@@ -31,8 +48,12 @@
       "phase": "init"
     }
   ],
-  "rectification_commit": null,
-  "regression_tests_added": [],
+  "rectification_commit": "88229522bd503a623f46c34f79c11cd6e1b488fa",
+  "regression_tests_added": [
+    "TestCanonicalSortContract::test_canonical_form_uses_sort_keys",
+    "TestPinnedHash::test_live_tools_match_pinned_hash (extended with version-bump enforcement + CI guard)",
+    "TestUpdateProcedure::test_changing_tool_description_changes_hash (rewritten to exercise register_all)"
+  ],
   "research_brief_paths": [
     ".claude/notes/milestones/E06_S06/research-brief-1.md"
   ],
@@ -40,5 +61,5 @@
   "research_mode": "single",
   "research_synthesis": null,
   "research_synthesis_path": ".claude/notes/milestones/E06_S06/research-synthesis.md",
-  "updated_at": "2026-05-09T17:32:20Z"
+  "updated_at": "2026-05-09T17:53:54Z"
 }

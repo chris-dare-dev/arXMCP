@@ -1,0 +1,112 @@
+{
+  "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/worktrees/gallant-blackburn-b89422/.claude/roadmap",
+  "created_at": "2026-05-08T03:11:01Z",
+  "critics_run": [
+    "adversary"
+  ],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "low": 7,
+    "medium": 8
+  },
+  "critique_path": ".claude/notes/milestones/E03_S03/critique-adversary.md",
+  "deferred_findings": [
+    "F5",
+    "F11"
+  ],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_required": [],
+  "fixed_findings": [
+    "F1",
+    "F2",
+    "F3",
+    "F4",
+    "F6",
+    "F7",
+    "F8",
+    "F9",
+    "F10",
+    "F12",
+    "F13",
+    "F14",
+    "F15"
+  ],
+  "id": "E03_S03",
+  "implementation_base": null,
+  "implementation_branch": "claude/gallant-blackburn-b89422",
+  "implementation_commit_range": "fa8c843..9424d17",
+  "implementation_commits": [
+    "9424d17"
+  ],
+  "implementation_path": "server/query_encoder.py",
+  "implementation_specialist": "inline",
+  "invalidated_findings": [],
+  "milestone_brief": "### E03_S03 \u2014 Singleflight wrapper for query encoding\n\n**Status:** NEW\n**Tier:** 0\n**Effort:** M\n**Dependencies:** E03_S01\n\n**Description.** The MCP server (E06, Sonnet B) encodes each incoming `search_papers` query string using BGE-M3 before running ANN against the LanceDB table. Under concurrent load \u2014 for example, when multiple sub-agents in a multi-agent proof pipeline submit queries within the same 100ms window \u2014 naive per-request encoding would submit redundant forward passes to the model. The singleflight wrapper coalesces these: if two concurrent calls to `encode_query(query_text)` arrive with the same query string within 100ms of each other, only one BGE-M3 forward pass is issued and the result is shared.\n\nImplementation uses a per-process dictionary mapping `query_text \u2192 asyncio.Future[np.ndarray]`. The first caller for a given query creates the Future and submits the encode task to a `ThreadPoolExecutor`. Subsequent callers within the deduplication window `await` the same Future. When the encode task completes, the Future is resolved and all waiters receive the result. Completed entries are evicted after 100ms (a `asyncio.get_event_loop().call_later` cleanup).\n\nGIL interaction: BGE-M3's forward pass is implemented in PyTorch. PyTorch releases the GIL during the C++/CUDA kernel execution (both CPU and GPU paths). This means a `ThreadPoolExecutor` is sufficient and correct for concurrent encoding \u2014 the GIL is not held during the numerically expensive portion of the forward pass. This is documented explicitly in the module docstring with a reference to `torch.no_grad()` and PyTorch's GIL release semantics.\n\nThe singleflight wrapper is implemented in `server/query_encoder.py` (a server-layer module, not `ingest/`), because it is a runtime concern, not an ingestion concern. It imports `BGE_M3_COMMIT_SHA` from `ingest/embedder.py` to ensure the same model version is used.\n\n**Deliverables.**\n- `server/query_encoder.py` \u2014 `encode_query(query_text: str) -> np.ndarray` (async, singleflight)\n- `ThreadPoolExecutor` with 1 worker (model is not thread-safe for concurrent forward passes; the executor serializes BGE-M3 calls while allowing async overlap of the await)\n- `pytest tests/test_query_encoder.py` \u2014 test: send 10 concurrent encode calls with the same string, assert the model forward pass is invoked exactly once (mock the model)\n- Module docstring: GIL release documentation and rationale for ThreadPoolExecutor\n\n**Acceptance criteria.**\n- [ ] 10 concurrent `encode_query(\"test query\")` calls result in exactly 1 BGE-M3 forward pass (verified by mock call count in test).\n- [ ] Each concurrent caller receives the identical numpy array (same object or byte-identical copy).\n- [ ] Deduplication window is 100ms; a call arriving 101ms after the first is treated as a new request.\n- [ ] Module docstring includes: \"BGE-M3 forward pass releases the GIL inside PyTorch's C++ backend; ThreadPoolExecutor is therefore safe for concurrent callers.\"\n- [ ] `BGE_M3_COMMIT_SHA` is imported from `ingest/embedder.py` \u2014 not redefined.\n- [ ] Integration test (without mock): two calls with the same query string return vectors with cosine similarity \u2265 0.9999 (floating-point identical up to rounding).\n\n**Out of scope.** Query-time BM25 lexical matching (E04_S04, E07 Sonnet B). Reranker (E07 Sonnet B). Server-side caching of full `search_papers` results by corpus_version (E08_S03, Sonnet B).\n\n**Risk notes.**\n- **Closes MEDIUM: singleflight on embedder + GIL.** The critique finding flagged both the missing deduplication and the incorrect assumption that Python threads cannot parallelize BGE-M3 calls. This milestone addresses both: the singleflight prevents redundant work, and the GIL documentation corrects the assumption.\n- The ThreadPoolExecutor worker count is 1 to prevent true concurrent forward passes (BGE-M3 is not safe for concurrent calls to the same model instance). Parallelism is achieved at the async level (callers await the single in-flight future), not at the model level.\n\n**Labels.** `area:embedder`, `kind:feature`, `tier:0`.\n# E04 \u2014 Vector Store (NEW)\n\n**Epic dependencies:** E02 (chunk JSON with `body_text`, `body_tokens`, `chunk_id`, `chunker_version`), E03 (embedding vectors in `embedding_stmt`, `embedding_proof`).\n\n**Goal:** Define the authoritative LanceDB table schema, manage corpus versions via native MVCC (no manual symlink swaps), propagate a `corpus_version` integer through the ingestion pipeline, and build the BM25 index over `body_tokens`. Together these four milestones constitute the complete on-disk index state that all downstream readers \u2014 the MCP server, the eval harness, and the citation graph \u2014 pin to a specific version.\n\n**Effort:** ~2 weeks calendar (M+M+S+M across four milestones).\n\n**References:** `05-storage-and-indexing.md` \u00a7 LanceDB, \u00a7 Vector + lexical index, \u00a7 MVCC versioning; `08-security-observability-ops.md` \u00a7 Caching (corpus_version as cache key); `09-feature-priorities.md` (Tier 0 storage requirements).\n\n---",
+  "phase": "complete",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-08T03:11:01Z",
+      "left_at": "2026-05-08T03:11:22Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-08T03:11:22Z",
+      "left_at": "2026-05-08T03:23:28Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-08T03:23:28Z",
+      "left_at": "2026-05-08T03:23:28Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-05-08T03:23:28Z",
+      "left_at": "2026-05-08T03:36:40Z",
+      "phase": "implement-running"
+    },
+    {
+      "entered_at": "2026-05-08T03:36:40Z",
+      "left_at": "2026-05-08T03:36:40Z",
+      "phase": "implement-complete"
+    },
+    {
+      "entered_at": "2026-05-08T03:36:40Z",
+      "left_at": "2026-05-08T03:45:35Z",
+      "phase": "critique-running"
+    },
+    {
+      "entered_at": "2026-05-08T03:45:35Z",
+      "left_at": "2026-05-08T03:45:35Z",
+      "phase": "critique-complete"
+    },
+    {
+      "entered_at": "2026-05-08T03:45:35Z",
+      "left_at": "2026-05-08T03:59:42Z",
+      "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-05-08T03:59:42Z",
+      "left_at": null,
+      "phase": "complete"
+    }
+  ],
+  "rectification_commit": "8f127cf",
+  "regression_tests_added": [
+    "test_cancellation_does_not_break_singleflight",
+    "test_executor_lazy_created",
+    "test_shutdown_executor_releases_thread",
+    "test_getter_returns_current_value",
+    "test_getter_is_thread_safe",
+    "test_dict_set_happens_exactly_once_under_high_fan_in",
+    "test_frozen_vector_path_is_documented"
+  ],
+  "research_briefs": [
+    ".claude/notes/milestones/E03_S03/research-brief-1.md",
+    ".claude/notes/milestones/E03_S03/research-brief-2.md"
+  ],
+  "research_mode": "standard",
+  "research_synthesis": ".claude/notes/milestones/E03_S03/research-synthesis.md",
+  "updated_at": "2026-05-08T03:59:42Z"
+}

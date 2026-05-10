@@ -1,0 +1,143 @@
+{
+  "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/worktrees/gallant-blackburn-b89422/.claude/roadmap",
+  "created_at": "2026-05-07T11:58:46Z",
+  "critics_run": [
+    {
+      "model": "opus",
+      "name": "adversary",
+      "path": ".claude/notes/milestones/E02_S02/critique-adversary.md",
+      "verdict": "SHIP-WITH-FIXES"
+    }
+  ],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 3,
+    "low": 4,
+    "medium": 7
+  },
+  "critique_path": ".claude/notes/milestones/E02_S02/critique-merged.md",
+  "deferred_findings": [
+    "F11",
+    "F12",
+    "F13",
+    "F14"
+  ],
+  "external_writes_authorized": true,
+  "external_writes_completed": true,
+  "external_writes_required": [
+    {
+      "target": "var/arxmcp/corpus/preamble/",
+      "type": "filesystem",
+      "why": "extractor output (gitignored)"
+    },
+    {
+      "target": "var/arxmcp/ops/parser-failures/preamble.log",
+      "type": "filesystem",
+      "why": "TSV failure log (gitignored)"
+    },
+    {
+      "target": "ingest/preamble.py, ingest/preamble_types.py, tests/test_preamble.py, tests/fixtures/preamble/, ingest/chunker.py mods",
+      "type": "filesystem",
+      "why": "new/modified source files (committed)"
+    }
+  ],
+  "fixed_findings": [
+    "F1",
+    "F2",
+    "F3",
+    "F4",
+    "F5",
+    "F6",
+    "F7",
+    "F8",
+    "F9",
+    "F10"
+  ],
+  "id": "E02_S02",
+  "implementation_base": "ef66061",
+  "implementation_branch": "claude/gallant-blackburn-b89422",
+  "implementation_commit_range": "ef66061..f1e0dcc",
+  "implementation_commits": [
+    "f1e0dcc"
+  ],
+  "implementation_path": "inline",
+  "implementation_path_summary": ".claude/notes/milestones/E02_S02/implementation-summary.md",
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "### E02_S02 \u2014 Preamble extractor\n\n**Status:** NEW\n**Tier:** 0\n**Effort:** M\n**Dependencies:** E02_S01\n\n**Description.** The preamble extractor reads the original `.tex` source from `var/arxmcp/corpus/raw/<paper_id>/` and extracts all macro-definition lines: `\\newcommand`, `\\renewcommand`, `\\DeclareMathOperator`, `\\def`, and `\\let` directives. These are normalized (whitespace collapsed, comments stripped) and written to `var/arxmcp/corpus/preamble/<paper_id>/preamble.json` as a list of strings. A deterministic preamble text is also written: the sorted, deduplicated macro lines joined by newlines. This preamble text is prepended to each chunk's `body_text` in the embedding-input view \u2014 it is not merged into `body_text` itself, so the stored `body_text` remains the raw chunk content.\n\nThe chunker from E02_S01 is updated to read `preamble.json` and populate the `preamble_ref` field of each chunk with the SHA-256 hash of the normalized preamble text (16 hex chars). This reference lets the embedder (E03_S01) reconstruct the embedding input deterministically from `body_text` + the referenced preamble \u2014 supporting BP1 byte-identical caching per `08-security-observability-ops.md`.\n\nThis milestone explicitly rejects Anthropic's Contextual Retrieval approach (generating an LLM-written context paragraph per chunk). Contextual retrieval is non-deterministic (LLM output varies across runs), breaks BP1 byte-identical caching, adds latency and cost proportional to corpus size, and introduces a circular dependency on the Anthropic API during ingestion. The preamble-prepend approach is deterministic, free, and math-domain-appropriate: the macro definitions are exactly the context that downstream chunk consumers (math-proof agents) need.\n\nThe extractor is designed to be idempotent: re-running on a paper whose `preamble.json` already exists is a no-op unless the raw `.tex` has changed (detected by comparing a hash of the source file against a `source_hash` field in `preamble.json`).\n\n**Deliverables.**\n- `ingest/preamble.py` \u2014 public API: `extract_preamble(paper_id: str) -> PreambleDoc`\n- `ingest/preamble_types.py` \u2014 `PreambleDoc` dataclass: `{paper_id, source_hash, macros: list[str], preamble_text: str, preamble_hash: str}`\n- `var/arxmcp/corpus/preamble/<paper_id>/preamble.json` \u2014 serialized output\n- Updated `ingest/chunker.py` \u2014 reads `preamble.json` and populates `preamble_ref`\n- `pytest tests/test_preamble.py` \u2014 tests extraction against a fixture `.tex` file\n\n**Acceptance criteria.**\n- [ ] Preamble extractor produces a `preamble.json` for each of the 50 seed papers.\n- [ ] `preamble_text` is deterministic across runs on the same source file (sorted, deduplicated, whitespace-normalized).\n- [ ] `preamble_ref` in chunk JSON matches `SHA-256(preamble_text)[:16]`.\n- [ ] Re-running the extractor on an unchanged paper is a no-op (output unchanged, `source_hash` matches).\n- [ ] Unit test: a fixture `.tex` with 3 `\\newcommand` and 1 `\\DeclareMathOperator` produces a `macros` list of length 4 in deterministic order.\n- [ ] Module docstring explicitly states: \"Anthropic contextual retrieval is rejected \u2014 preamble is deterministic; see `04-parsing-and-chunking.md` \u00a7 Preamble extraction.\"\n\n**Out of scope.** Full macro expansion / normalization (applying macros to transform `body_text`) \u2014 that is a Tier 2 concern per `04-parsing-and-chunking.md`. This milestone only extracts and stores the raw macro definitions.\n\n**Risk notes.**\n- **Closes MEDIUM: contextual retrieval vs preamble overlap.** The design choice is recorded here with explicit rationale so it is not re-litigated in future reviews.\n- Papers with multiple `.tex` files require choosing the \"root\" file; the extractor should use the same heuristic as `fetch_one_paper.py` (largest `.tex` by byte count, or the one `\\documentclass` appears in).\n\n**Labels.** `area:parser`, `kind:feature`, `tier:0`.\n\n---",
+  "phase": "complete",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-07T11:58:46Z",
+      "left_at": "2026-05-07T11:59:12Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-07T11:59:12Z",
+      "left_at": "2026-05-07T12:04:40Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-07T12:04:40Z",
+      "left_at": "2026-05-07T12:04:55Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-05-07T12:04:55Z",
+      "left_at": "2026-05-07T12:13:51Z",
+      "phase": "implement-running"
+    },
+    {
+      "entered_at": "2026-05-07T12:13:51Z",
+      "left_at": "2026-05-07T12:14:35Z",
+      "phase": "implement-complete"
+    },
+    {
+      "entered_at": "2026-05-07T12:14:35Z",
+      "left_at": "2026-05-07T12:36:37Z",
+      "phase": "critique-running"
+    },
+    {
+      "entered_at": "2026-05-07T12:36:37Z",
+      "left_at": "2026-05-07T12:36:37Z",
+      "phase": "critique-complete"
+    },
+    {
+      "entered_at": "2026-05-07T12:36:37Z",
+      "left_at": "2026-05-07T12:47:30Z",
+      "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-05-07T12:47:30Z",
+      "left_at": null,
+      "phase": "complete"
+    }
+  ],
+  "rectification_commit": "27206d4",
+  "regression_tests_added": [
+    "tests/test_preamble.py::TestF1SymlinkConfinement",
+    "tests/test_preamble.py::TestF2CacheCorruption",
+    "tests/test_preamble.py::TestF3ChunkerImportFailureSurfaces",
+    "tests/test_preamble.py::TestF4F5AtomicWriteCleanup",
+    "tests/test_preamble.py::TestF6NFCNormalization",
+    "tests/test_preamble.py::TestF7StrictUTF8Decode",
+    "tests/test_preamble.py::TestF8HashCollisionAcrossPapers",
+    "tests/test_preamble.py::TestF9BraceScannerEscapedBackslash",
+    "tests/test_preamble.py::TestF10TopLevelTexPreferred"
+  ],
+  "research_briefs": [
+    {
+      "agent": "researcher-1",
+      "model": "sonnet",
+      "path": ".claude/notes/milestones/E02_S02/research-brief-1.md"
+    },
+    {
+      "agent": "researcher-2",
+      "model": "sonnet",
+      "path": ".claude/notes/milestones/E02_S02/research-brief-2.md"
+    }
+  ],
+  "research_mode": "standard",
+  "research_synthesis": ".claude/notes/milestones/E02_S02/research-synthesis.md",
+  "updated_at": "2026-05-07T12:47:30Z"
+}

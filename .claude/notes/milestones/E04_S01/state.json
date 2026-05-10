@@ -1,0 +1,117 @@
+{
+  "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/worktrees/gallant-blackburn-b89422/.claude/roadmap",
+  "created_at": "2026-05-08T14:25:50Z",
+  "critics_run": [
+    "adversary"
+  ],
+  "critique_finding_counts": {
+    "critical": 1,
+    "high": 3,
+    "low": 5,
+    "medium": 6
+  },
+  "critique_path": ".claude/notes/milestones/E04_S01/critique-adversary.md",
+  "deferred_findings": [
+    "F12"
+  ],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_required": [],
+  "fixed_findings": [
+    "F1",
+    "F2",
+    "F3",
+    "F4",
+    "F5",
+    "F6",
+    "F7",
+    "F8",
+    "F9",
+    "F10",
+    "F11",
+    "F13",
+    "F14"
+  ],
+  "id": "E04_S01",
+  "implementation_base": null,
+  "implementation_branch": "claude/gallant-blackburn-b89422",
+  "implementation_commit_range": "8f127cf..db0a4de",
+  "implementation_commits": [
+    "db0a4de"
+  ],
+  "implementation_path": "ingest/store.py",
+  "implementation_specialist": "inline",
+  "invalidated_findings": [
+    "F15"
+  ],
+  "milestone_brief": "### E04_S01 \u2014 `var/arxmcp/index/lancedb/chunks` table v1 schema\n\n**Status:** NEW\n**Tier:** 0\n**Effort:** M\n**Dependencies:** E02_S04, E03_S01\n\n**Description.** This milestone defines the canonical LanceDB table schema for the `chunks` dataset. The table is created at `var/arxmcp/index/lancedb/chunks` on first ingest and extended via LanceDB's native append/overwrite API on subsequent runs. The schema is the single source of truth for all downstream readers; it must not be altered without a corresponding MVCC version bump.\n\n**Schema (v1):**\n\n| Column | Type | Notes |\n|---|---|---|\n| `chunk_id` | `string` | `arxiv:<paper_id>:<sha256[:16]>` |\n| `paper_id` | `string` | arXiv ID, e.g. `2301.00001` |\n| `kind` | `string` | `stmt`, `proof`, `section`, `definition` |\n| `section_path` | `list<string>` | Breadcrumb path from document root |\n| `theorem_name` | `string` (nullable) | Display name if present |\n| `theorem_label` | `string` (nullable) | `\\label{}` value if present |\n| `body_text` | `string` | Raw chunk body (preamble NOT included) |\n| `body_tokens` | `string` | Space-joined BM25 token stream from E02_S03 |\n| `embedding_stmt` | `fixed_size_list<float32>[1024]` (nullable) | Set for `kind=stmt` and fallback kinds |\n| `embedding_proof` | `fixed_size_list<float32>[1024]` (nullable) | Set for `kind=proof` only |\n| `embedding_eq` | `fixed_size_list<float32>[1024]` (nullable) | Reserved; NULL until E10_S03 |\n| `chunker_version` | `string` | e.g. `\"v1.0\"` |\n| `embedder_version` | `string` | e.g. `\"bge-m3@<sha>\"` |\n| `preamble_ref` | `string` (nullable) | SHA256[:16] of normalized preamble |\n\nHNSW vector indices are created on `embedding_stmt` and `embedding_proof` with parameters M=16, efConstruction=200, per `05-storage-and-indexing.md` \u00a7 Vector index. A scalar index is created on `paper_id` for efficient per-paper filtering. No index is created on `embedding_eq` until E10_S03 populates the column.\n\nThe table writer module is `ingest/store.py`. It exposes `write_chunks(chunks: list[ChunkRecord], embeddings: EmbedRecord, lancedb_path: str) -> int` which returns the new LanceDB dataset version number. The first call creates the dataset; subsequent calls append or overwrite based on the `chunk_id` key.\n\n**Deliverables.**\n- `ingest/store.py` \u2014 table creation and upsert logic; `write_chunks()` API\n- `ingest/schema.py` \u2014 PyArrow schema definition for the `chunks` table (imported by `store.py` and by tests)\n- HNSW indices on `embedding_stmt` and `embedding_proof` created after write\n- Scalar index on `paper_id`\n- `pytest tests/test_store.py` \u2014 integration test: write 10 fixture chunks, assert row count, assert schema, assert HNSW index exists\n\n**Acceptance criteria.**\n- [ ] Table created at `var/arxmcp/index/lancedb/chunks` on first `write_chunks` call.\n- [ ] Schema matches the v1 column list above exactly (column names, types, nullability).\n- [ ] HNSW indices exist on `embedding_stmt` and `embedding_proof` after a write.\n- [ ] `embedding_eq` is present in schema and null on all rows written by E03_S01.\n- [ ] `write_chunks` is idempotent on duplicate `chunk_id`: second write updates existing row, no duplicate rows.\n- [ ] Integration test: 10 chunks written, `lancedb.connect(...).open_table(\"chunks\").count_rows()` returns 10.\n- [ ] PyArrow schema definition is imported from a single `schema.py` module \u2014 not re-defined inline.\n\n**Out of scope.** MVCC version pinning by readers (E04_S02). BM25 index (E04_S04). `corpus_version` marker file (E04_S03).\n\n**Risk notes.**\n- **Closes H3** (dual-column schema is the final structural fix): `embedding_stmt` and `embedding_proof` as separate nullable columns enforce the dual-encoding contract at the storage layer. A single `embedding` column (as in the superseded E01_S06) could not enforce which chunks have been encoded in which modality.\n- Nullable columns for `embedding_eq` must be declared in PyArrow as `pa.field(\"embedding_eq\", pa.list_(pa.float32(), 1024), nullable=True)` \u2014 omitting nullability would cause Arrow errors on insertion.\n\n**Labels.** `area:storage`, `kind:feature`, `tier:0`.\n\n---",
+  "phase": "complete",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-08T14:25:50Z",
+      "left_at": "2026-05-08T14:26:03Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-08T14:26:03Z",
+      "left_at": "2026-05-08T14:35:11Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-08T14:35:11Z",
+      "left_at": "2026-05-08T14:35:11Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-05-08T14:35:11Z",
+      "left_at": "2026-05-08T14:43:16Z",
+      "phase": "implement-running"
+    },
+    {
+      "entered_at": "2026-05-08T14:43:16Z",
+      "left_at": "2026-05-08T14:43:59Z",
+      "phase": "implement-complete"
+    },
+    {
+      "entered_at": "2026-05-08T14:43:59Z",
+      "left_at": "2026-05-08T14:51:16Z",
+      "phase": "critique-running"
+    },
+    {
+      "entered_at": "2026-05-08T14:51:16Z",
+      "left_at": "2026-05-08T14:51:16Z",
+      "phase": "critique-complete"
+    },
+    {
+      "entered_at": "2026-05-08T14:51:16Z",
+      "left_at": "2026-05-08T14:59:59Z",
+      "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-05-08T14:59:59Z",
+      "left_at": null,
+      "phase": "complete"
+    }
+  ],
+  "rectification_commit": "b688f03",
+  "regression_tests_added": [
+    "test_load_embed_record_rejects_path_traversal",
+    "test_duplicate_chunk_id_in_stmt_list_raises",
+    "test_duplicate_chunk_id_in_proof_list_raises",
+    "test_unnormalized_stmt_vectors_raise",
+    "test_unnormalized_proof_vectors_raise",
+    "test_zero_vectors_rejected",
+    "test_normalized_vectors_pass",
+    "test_first_n_then_n_plus_m",
+    "test_invalid_kind_raises",
+    "test_all_chunker_kinds_pass",
+    "test_indices_created_is_dict_in_stats"
+  ],
+  "research_briefs": [
+    ".claude/notes/milestones/E04_S01/research-brief-1.md",
+    ".claude/notes/milestones/E04_S01/research-brief-2.md"
+  ],
+  "research_mode": "standard",
+  "research_synthesis": ".claude/notes/milestones/E04_S01/research-synthesis.md",
+  "updated_at": "2026-05-08T14:59:59Z"
+}

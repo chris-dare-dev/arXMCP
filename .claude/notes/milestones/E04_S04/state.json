@@ -1,0 +1,87 @@
+{
+  "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/worktrees/gallant-blackburn-b89422/.claude/roadmap",
+  "created_at": "2026-05-08T20:54:21Z",
+  "critics_run": [
+    "adversary"
+  ],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 1,
+    "low": 5,
+    "medium": 4
+  },
+  "critique_path": ".claude/notes/milestones/E04_S04/critique-adversary.md",
+  "deferred_findings": [],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_required": [],
+  "fixed_findings": [],
+  "id": "E04_S04",
+  "implementation_base": null,
+  "implementation_branch": "claude/gallant-blackburn-b89422",
+  "implementation_commit_range": "01adfce..61ed46c",
+  "implementation_commits": [
+    "61ed46c"
+  ],
+  "implementation_path": "ingest/bm25_indexer.py",
+  "implementation_specialist": "inline",
+  "invalidated_findings": [],
+  "milestone_brief": "### E04_S04 \u2014 BM25 index over `body_tokens`\n\n**Status:** NEW\n**Tier:** 0\n**Effort:** M\n**Dependencies:** E02_S03, E04_S01, E04_S02, E04_S03\n\n**Description.** Build a per-corpus-version BM25 index over the `body_tokens` field of all chunks. The BM25 index is stored on disk at `var/arxmcp/index/bm25/v<N>/` where `N` is the LanceDB corpus version. A pure Python implementation is used \u2014 either the `rank_bm25` library (BM25Okapi class) or a 30-line custom implementation using standard BM25 formula. No Rust, no Tantivy, no custom analyzer. Standard English tokenization (split on whitespace, lowercase, no stemming) is applied over the `body_tokens` field \u2014 because `body_tokens` has already been pre-tokenized by E02_S03 into a math-aware representation, a simple whitespace split is all that BM25 needs.\n\nThe BM25 index is built by reading all rows from the pinned LanceDB corpus version: `SELECT chunk_id, body_tokens FROM chunks WHERE body_tokens IS NOT NULL`. The `body_tokens` string for each chunk is split on whitespace to produce the token list. The BM25 corpus is the collection of these token lists, one per chunk. The chunk_id list (aligned with the BM25 corpus) is also persisted so that BM25 scores can be mapped back to chunk_ids.\n\nPersistence format: the BM25 corpus state is serialized to `var/arxmcp/index/bm25/v<N>/bm25.pkl` using Python's `pickle` (or `joblib` for larger corpora). The aligned chunk_id list is stored as `var/arxmcp/index/bm25/v<N>/chunk_ids.json`. Both files must be present for a BM25 index to be considered valid for version N.\n\nThe BM25 indexer is exposed as `ingest/bm25_indexer.py` with API `build_bm25_index(lancedb_path: str, corpus_version: int) -> None`. The MCP server loads the BM25 index lazily on first lexical query (E07, Sonnet B).\n\n**Deliverables.**\n- `ingest/bm25_indexer.py` \u2014 `build_bm25_index(lancedb_path: str, corpus_version: int) -> None`\n- `var/arxmcp/index/bm25/v<N>/bm25.pkl` \u2014 serialized BM25 state\n- `var/arxmcp/index/bm25/v<N>/chunk_ids.json` \u2014 aligned chunk_id list\n- `pytest tests/test_bm25.py` \u2014 test: build BM25 index from 20 fixture chunks, query \"Spec mathrm_Pic\", assert top result is the expected chunk\n\n**Acceptance criteria.**\n- [ ] BM25 index built from all non-null `body_tokens` rows in the pinned corpus version.\n- [ ] `bm25.pkl` and `chunk_ids.json` are written to `var/arxmcp/index/bm25/v<N>/`.\n- [ ] BM25 query over \"Spec mathrm_Pic\" returns the chunk containing those tokens with highest BM25 score.\n- [ ] Building the index is idempotent: re-running on the same corpus version is a no-op if files already exist.\n- [ ] Module docstring states: \"Standard Python BM25 over pre-tokenized body_tokens. No Tantivy, no custom analyzer. See H4 remediation.\"\n- [ ] BM25 index build time for 50 papers logged to `var/arxmcp/ops/bm25-stats.jsonl`.\n\n**Out of scope.** Hybrid BM25 + ANN fusion at query time (E07, Sonnet B). BM25 index GC of old versions (E11). LaTeX-aware stemming (deferred; pure whitespace split over pre-tokenized `body_tokens` is sufficient at Tier 0).\n\n**Risk notes.**\n- **Closes H4 fully** (in combination with E02_S03): E02_S03 produced `body_tokens` via a Python regex pre-tokenizer; this milestone indexes those tokens with standard BM25. The fictional Tantivy LaTeX analyzer is never referenced again. The module docstring records this closure.\n- `pickle` serialization is acceptable for Tier-0 corpus size (50 papers, ~1K chunks, BM25 index is a few MB). At Tier-5 scale (200K papers), the indexer must be replaced with a scalable solution (noted in E11); `pickle` is explicitly an in-process optimization, not a production indexing architecture.\n\n**Labels.** `area:storage`, `kind:feature`, `tier:0`.\n# E05 \u2014 Eval Harness (NEW)\n\n**Epic dependencies:** E02 (stable, content-addressable `chunk_id`s via E02_S04 and fixture suite via E02_S05), E03 (embeddings written to LanceDB), E04 (LanceDB table queryable via ANN, corpus_version pinned).\n\n**Goal:** Define and enforce the quantitative exit gate for Tier-0. The eval harness is not a nice-to-have quality metric \u2014 it is the *definition* of done for the Tier-0 vertical slice. Without a passing harness run (nDCG@5 \u2265 0.70 ANN-only), no Tier-1 work begins. With a passing run at \u2265 0.80 after hybrid + reranker land (E07, Sonnet B), Tier-1 is declared complete and Tier-2 begins. The harness also provides the drift-detection baseline for production monitoring (E11_S04).\n\n**Effort:** ~1 week calendar (M+M+S across three milestones).\n\n**References:** `09-feature-priorities.md` \u00a7 Tier 0 exit criterion (nDCG@5 threshold), `05-storage-and-indexing.md` \u00a7 Retrieval quality metrics (nDCG@5, Recall@10 definitions), `08-security-observability-ops.md` \u00a7 Observability (drift detection).\n\n---",
+  "phase": "complete",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-08T20:54:21Z",
+      "left_at": "2026-05-08T20:54:30Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-08T20:54:30Z",
+      "left_at": "2026-05-08T20:59:50Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-08T20:59:50Z",
+      "left_at": "2026-05-08T20:59:50Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-05-08T20:59:50Z",
+      "left_at": "2026-05-08T21:04:52Z",
+      "phase": "implement-running"
+    },
+    {
+      "entered_at": "2026-05-08T21:04:52Z",
+      "left_at": "2026-05-08T21:04:52Z",
+      "phase": "implement-complete"
+    },
+    {
+      "entered_at": "2026-05-08T21:04:52Z",
+      "left_at": "2026-05-08T21:09:41Z",
+      "phase": "critique-running"
+    },
+    {
+      "entered_at": "2026-05-08T21:09:41Z",
+      "left_at": "2026-05-08T21:09:41Z",
+      "phase": "critique-complete"
+    },
+    {
+      "entered_at": "2026-05-08T21:09:41Z",
+      "left_at": null,
+      "phase": "rectify-running"
+    }
+  ],
+  "rectification_commit": "5a14fa5",
+  "regression_tests_added": [
+    "TestBM25StatsDataclass.test_to_dict_alphabetical_keys (6-key lock)",
+    "TestStatsLogging.test_stats_line_appended_on_build (paper_count + empty_chunks_skipped)",
+    "TestQueryAccuracy.test_query_disjoint_vocabulary_does_not_match_target (chunks[16] top-1)",
+    "TestIdempotency.test_partial_state_triggers_rebuild (st_ino comparison)"
+  ],
+  "research_briefs": [
+    ".claude/notes/milestones/E04_S04/research-brief-1.md",
+    ".claude/notes/milestones/E04_S04/research-brief-2.md"
+  ],
+  "research_mode": "standard",
+  "research_synthesis": ".claude/notes/milestones/E04_S04/research-synthesis.md",
+  "updated_at": "2026-05-08T21:17:56Z"
+}

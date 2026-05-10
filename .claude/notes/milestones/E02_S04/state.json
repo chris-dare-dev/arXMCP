@@ -1,0 +1,127 @@
+{
+  "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/worktrees/gallant-blackburn-b89422/.claude/roadmap",
+  "created_at": "2026-05-07T13:23:44Z",
+  "critics_run": [
+    {
+      "model": "opus",
+      "name": "adversary",
+      "path": ".claude/notes/milestones/E02_S04/critique-adversary.md",
+      "verdict": "SHIP-WITH-FIXES"
+    }
+  ],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 1,
+    "low": 3,
+    "medium": 4
+  },
+  "critique_path": ".claude/notes/milestones/E02_S04/critique-merged.md",
+  "deferred_findings": [],
+  "external_writes_authorized": true,
+  "external_writes_completed": true,
+  "external_writes_required": [
+    {
+      "target": "ingest/chunker.py, ingest/chunker_types.py, tests/test_chunker_ids.py, tests/test_chunker.py mods",
+      "type": "filesystem",
+      "why": "hash logic + manifest write + tests (committed)"
+    },
+    {
+      "target": "var/arxmcp/corpus/chunks/<paper_id>/ (renamed files + new manifest)",
+      "type": "filesystem",
+      "why": "runtime output (gitignored)"
+    }
+  ],
+  "fixed_findings": [
+    "F1",
+    "F2",
+    "F3",
+    "F4",
+    "F5",
+    "F6",
+    "F7",
+    "F8"
+  ],
+  "id": "E02_S04",
+  "implementation_base": "802520d",
+  "implementation_branch": "claude/gallant-blackburn-b89422",
+  "implementation_commit_range": "802520d..62f36df",
+  "implementation_commits": [
+    "62f36df"
+  ],
+  "implementation_path": "inline",
+  "implementation_path_summary": ".claude/notes/milestones/E02_S04/implementation-summary.md",
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "### E02_S04 \u2014 Chunker version stamping and content-addressable `chunk_id`\n\n**Status:** NEW\n**Tier:** 0\n**Effort:** S\n**Dependencies:** E02_S01, E02_S02, E02_S03\n\n**Description.** This milestone replaces the monotonic placeholder `chunk_id` from E02_S01 with a content-addressable identifier and stamps every chunk with a `chunker_version` that downstream systems use to detect staleness. The `chunk_id` format is `arxiv:<paper_id>:<sha256(preamble_normalized + body_text)[:16]>` \u2014 the hash is computed over the concatenation of the normalized preamble text (from `preamble.json`) and the raw `body_text`. This makes `chunk_id` stable across re-runs of the chunker on the same paper, as long as the preamble and body content are unchanged, and it changes deterministically when either changes.\n\nThe `chunker_version` field is set to the string `\"v1.0\"`. Bumping this value (to `\"v1.1\"` etc.) is the signal to the LanceDB MVCC writer (E04_S02) and the re-embedder (E03_S02) that existing rows are stale and must be replaced. The version string is defined as a module-level constant in `ingest/chunker.py` so it appears in exactly one place.\n\nThis milestone also adds a `chunk_manifest.json` file per paper at `var/arxmcp/corpus/chunks/<paper_id>/chunk_manifest.json` listing all `chunk_id`s emitted for that paper, their `kind`, and the `chunker_version`. The manifest is used by the eval harness (E05_S01) to validate that curated `chunk_id` references in `tests/eval/fixtures/queries.json` still exist after a re-chunk.\n\n**Deliverables.**\n- Updated `ingest/chunker.py` \u2014 `chunk_id` computed from preamble + body hash; `chunker_version = \"v1.0\"` constant\n- `var/arxmcp/corpus/chunks/<paper_id>/chunk_manifest.json` \u2014 per-paper manifest\n- `pytest tests/test_chunker_ids.py` \u2014 asserts that re-running chunker on same paper yields identical `chunk_id`s\n\n**Acceptance criteria.**\n- [ ] `chunk_id` matches `arxiv:<paper_id>:<sha256(preamble_normalized + body_text)[:16]>` exactly.\n- [ ] Re-running chunker on an unchanged paper produces byte-identical `chunk_id`s.\n- [ ] Modifying `body_text` (simulated in test by changing a word) produces a different `chunk_id`.\n- [ ] `chunker_version: \"v1.0\"` appears on every chunk; it is defined as a single constant in `chunker.py`.\n- [ ] `chunk_manifest.json` exists for every paper in the seed corpus after a full chunker run.\n- [ ] `CHUNKER_VERSION` constant is the only place the version string `\"v1.0\"` is defined.\n\n**Out of scope.** MVCC version bump handling (E04_S02). Re-embed skip logic (E03_S02). Eval harness query fixture curation (E05_S01).\n\n**Risk notes.**\n- The content-addressable `chunk_id` is the linchpin of BP1 byte-identical caching (`08-security-observability-ops.md` \u00a7 Caching). If the hash input is not fully deterministic (e.g. dict key ordering), cache hits will be missed. The test must simulate a fresh Python process to catch any non-determinism from object ordering.\n\n**Labels.** `area:parser`, `kind:feature`, `tier:0`.\n\n---",
+  "phase": "complete",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-07T13:23:44Z",
+      "left_at": "2026-05-07T13:24:05Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-07T13:24:05Z",
+      "left_at": "2026-05-07T13:29:37Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-07T13:29:37Z",
+      "left_at": "2026-05-07T13:29:37Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-05-07T13:29:37Z",
+      "left_at": "2026-05-07T13:48:08Z",
+      "phase": "implement-running"
+    },
+    {
+      "entered_at": "2026-05-07T13:48:08Z",
+      "left_at": "2026-05-07T13:48:08Z",
+      "phase": "implement-complete"
+    },
+    {
+      "entered_at": "2026-05-07T13:48:08Z",
+      "left_at": "2026-05-07T13:55:39Z",
+      "phase": "critique-running"
+    },
+    {
+      "entered_at": "2026-05-07T13:55:39Z",
+      "left_at": "2026-05-07T13:55:39Z",
+      "phase": "critique-complete"
+    },
+    {
+      "entered_at": "2026-05-07T13:55:39Z",
+      "left_at": "2026-05-07T14:04:21Z",
+      "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-05-07T14:04:21Z",
+      "left_at": null,
+      "phase": "complete"
+    }
+  ],
+  "rectification_commit": "8e96118",
+  "regression_tests_added": [
+    "tests/test_chunker_ids.py::TestF1FailureLeavesEmptyDir",
+    "tests/test_chunker_ids.py::TestF2DuplicateContentDeduped",
+    "tests/test_chunker_ids.py::TestF2CollisionRaises",
+    "tests/test_chunker_ids.py::TestF5FreshProcessDeterminism",
+    "tests/test_chunker_ids.py::TestSingleVersionDefinition::test_v1_0_literal_count_in_ingest_package"
+  ],
+  "research_briefs": [
+    {
+      "agent": "researcher-1",
+      "model": "sonnet",
+      "path": ".claude/notes/milestones/E02_S04/research-brief-1.md"
+    },
+    {
+      "agent": "researcher-2",
+      "model": "sonnet",
+      "path": ".claude/notes/milestones/E02_S04/research-brief-2.md"
+    }
+  ],
+  "research_mode": "standard",
+  "research_synthesis": ".claude/notes/milestones/E02_S04/research-synthesis.md",
+  "updated_at": "2026-05-07T14:04:21Z"
+}

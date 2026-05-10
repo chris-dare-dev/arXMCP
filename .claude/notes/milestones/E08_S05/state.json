@@ -15,11 +15,23 @@
     "medium": 4
   },
   "critique_path": ".claude/notes/milestones/E08_S05/critique-merged.md",
-  "deferred_findings": [],
+  "deferred_findings": [
+    "F5",
+    "F6",
+    "F7",
+    "F9",
+    "F10"
+  ],
   "external_writes_authorized": false,
   "external_writes_completed": false,
   "external_writes_required": [],
-  "fixed_findings": [],
+  "fixed_findings": [
+    "F1",
+    "F2",
+    "F3",
+    "F4",
+    "F8"
+  ],
   "id": "E08_S05",
   "implementation_base": "2d0a95e0022e2c4229aeea9b2bcb68b643f699a5",
   "implementation_branch": null,
@@ -31,7 +43,7 @@
   "implementation_specialist": null,
   "invalidated_findings": [],
   "milestone_brief": "@-",
-  "phase": "rectify-running",
+  "phase": "complete",
   "phase_history": [
     {
       "entered_at": "2026-05-10T14:56:13Z",
@@ -39,8 +51,14 @@
       "phase": "init"
     }
   ],
-  "rectification_commit": null,
-  "regression_tests_added": [],
+  "rectification_commit": "144b1ccdd88d92827ad0ee3313bab71dc2808e02",
+  "regression_tests_added": [
+    "test_f1_forbidden_cell_lookup_raises_value_error",
+    "test_f1_forbidden_cell_table_entry_is_sentinel",
+    "test_f2_haiku_and_sonnet_appear_only_in_model_selector",
+    "test_policy_version_pinned",
+    "test_policy_doc_has_cache_invalidation_section"
+  ],
   "research_brief_paths": [
     ".claude/notes/milestones/E08_S05/research-brief-1.md"
   ],
@@ -48,5 +66,5 @@
   "research_mode": "single",
   "research_synthesis": null,
   "research_synthesis_path": ".claude/notes/milestones/E08_S05/research-synthesis.md",
-  "updated_at": "2026-05-10T15:16:09Z"
+  "updated_at": "2026-05-10T15:24:06Z"
 }

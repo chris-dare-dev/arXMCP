@@ -15,11 +15,26 @@
     "medium": 5
   },
   "critique_path": ".claude/notes/milestones/E08_S04/critique-merged.md",
-  "deferred_findings": [],
+  "deferred_findings": [
+    "F11",
+    "F12",
+    "F13"
+  ],
   "external_writes_authorized": false,
   "external_writes_completed": false,
   "external_writes_required": [],
-  "fixed_findings": [],
+  "fixed_findings": [
+    "F1",
+    "F2",
+    "F3",
+    "F4",
+    "F5",
+    "F6",
+    "F7",
+    "F8",
+    "F9",
+    "F10"
+  ],
   "id": "E08_S04",
   "implementation_base": "a08a7c01c4f706171a1219c7fa44fb69ab99d68f",
   "implementation_branch": null,
@@ -31,7 +46,7 @@
   "implementation_specialist": null,
   "invalidated_findings": [],
   "milestone_brief": "@-",
-  "phase": "rectify-running",
+  "phase": "complete",
   "phase_history": [
     {
       "entered_at": "2026-05-10T14:02:48Z",
@@ -39,8 +54,20 @@
       "phase": "init"
     }
   ],
-  "rectification_commit": null,
-  "regression_tests_added": [],
+  "rectification_commit": "2d0a95e0022e2c4229aeea9b2bcb68b643f699a5",
+  "regression_tests_added": [
+    "test_f1_growing_history_preserves_old_canonical_ids",
+    "test_f1_partial_history_call_collides_documented_anti_pattern",
+    "test_f4_block_with_both_id_and_tool_use_id_maps_each_independently",
+    "test_f10_non_list_input_raises_type_error",
+    "test_f2_spoofed_non_hex_session_id_skips_cap",
+    "test_f2_uppercase_hex_session_id_is_rejected_as_format",
+    "test_f2_valid_format_session_id_engages_cap",
+    "test_f6_lru_eviction_drops_oldest_when_registry_full",
+    "test_f6_lru_eviction_promotes_recently_used_entry",
+    "test_f7_middleware_order_session_cap_inside_request_body_size_limit",
+    "test_f9_cap_rejection_increments_prometheus_counter"
+  ],
   "research_brief_paths": [
     ".claude/notes/milestones/E08_S04/research-brief-1.md",
     ".claude/notes/milestones/E08_S04/research-brief-2.md"
@@ -49,5 +76,5 @@
   "research_mode": "standard",
   "research_synthesis": null,
   "research_synthesis_path": ".claude/notes/milestones/E08_S04/research-synthesis.md",
-  "updated_at": "2026-05-10T14:30:34Z"
+  "updated_at": "2026-05-10T14:42:07Z"
 }

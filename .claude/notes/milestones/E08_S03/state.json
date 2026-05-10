@@ -15,7 +15,10 @@
     "medium": 9
   },
   "critique_path": ".claude/notes/milestones/E08_S03/critique-merged.md",
-  "deferred_findings": [],
+  "deferred_findings": [
+    "F17",
+    "F20"
+  ],
   "external_writes_authorized": false,
   "external_writes_completed": false,
   "external_writes_required": [
@@ -26,7 +29,26 @@
       "why": "Tier-2 FAISS flat index runtime dep"
     }
   ],
-  "fixed_findings": [],
+  "fixed_findings": [
+    "F1",
+    "F2",
+    "F3",
+    "F4",
+    "F5",
+    "F6",
+    "F7",
+    "F8",
+    "F9",
+    "F10",
+    "F11",
+    "F12",
+    "F13",
+    "F14",
+    "F15",
+    "F16",
+    "F18",
+    "F19"
+  ],
   "id": "E08_S03",
   "implementation_base": "559d6135cac85104a1a5e36010502fe60410e61a",
   "implementation_branch": null,
@@ -38,7 +60,7 @@
   "implementation_specialist": null,
   "invalidated_findings": [],
   "milestone_brief": "@-",
-  "phase": "rectify-running",
+  "phase": "complete",
   "phase_history": [
     {
       "entered_at": "2026-05-10T04:55:56Z",
@@ -46,8 +68,21 @@
       "phase": "init"
     }
   ],
-  "rectification_commit": null,
-  "regression_tests_added": [],
+  "rectification_commit": "a08a7c01c4f706171a1219c7fa44fb69ab99d68f",
+  "regression_tests_added": [
+    "test_f1_canonical_key_is_length_prefixed_collision_resistant",
+    "test_f1_canonical_key_components_uses_length_prefix",
+    "test_f2_tier1_mirror_enforces_ttl_on_read",
+    "test_f3_tier3_wired_into_rerank_phase",
+    "test_f4_cache_db_path_redirected_into_tmp_path",
+    "test_f5_debug_cache_stats_endpoint_returns_valid_json",
+    "test_f6_metrics_endpoint_includes_cache_metric_families",
+    "test_f8_rehydrate_caps_at_mirror_max",
+    "test_f9_tier2_searches_top_k_not_top_1",
+    "test_f11_non_serializable_payload_increments_skip_counter",
+    "test_f12_filter_fingerprint_uses_canonical_components",
+    "test_f13_lookup_and_store_aliases_exist"
+  ],
   "research_brief_paths": [
     ".claude/notes/milestones/E08_S03/research-brief-1.md",
     ".claude/notes/milestones/E08_S03/research-brief-2.md"
@@ -56,5 +91,5 @@
   "research_mode": "standard",
   "research_synthesis": null,
   "research_synthesis_path": ".claude/notes/milestones/E08_S03/research-synthesis.md",
-  "updated_at": "2026-05-10T05:32:32Z"
+  "updated_at": "2026-05-10T05:44:34Z"
 }

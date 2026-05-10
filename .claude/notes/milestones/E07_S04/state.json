@@ -1,29 +1,45 @@
 {
   "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/worktrees/gallant-blackburn-b89422/.claude/roadmap",
   "created_at": "2026-05-10T02:46:21Z",
-  "critics_run": [],
+  "critics_run": [
+    "adversary"
+  ],
   "critique_finding_counts": {
     "critical": 0,
-    "high": 0,
-    "low": 0,
-    "medium": 0
+    "high": 1,
+    "low": 3,
+    "medium": 6
   },
-  "critique_path": null,
-  "deferred_findings": [],
+  "critique_path": ".claude/notes/milestones/E07_S04/critique-adversary.md",
+  "deferred_findings": [
+    "F4"
+  ],
   "external_writes_authorized": false,
   "external_writes_completed": false,
   "external_writes_required": [],
-  "fixed_findings": [],
+  "fixed_findings": [
+    "F1",
+    "F2",
+    "F3",
+    "F5",
+    "F6",
+    "F7",
+    "F8",
+    "F9",
+    "F10"
+  ],
   "id": "E07_S04",
   "implementation_base": "e98fa39cd1134a1154516ed17babdcc3f04ddd16",
   "implementation_branch": null,
-  "implementation_commit_range": null,
-  "implementation_commits": [],
-  "implementation_path": null,
+  "implementation_commit_range": "e98fa39cd1134a1154516ed17babdcc3f04ddd16..5afbee8804272ccf2c6ca0930087fd1f0e9db25f",
+  "implementation_commits": [
+    "5afbee8804272ccf2c6ca0930087fd1f0e9db25f"
+  ],
+  "implementation_path": ".claude/notes/milestones/E07_S04/implementation-summary.md",
   "implementation_specialist": "inline",
   "invalidated_findings": [],
   "milestone_brief": "### E07_S04 \u2014 End-to-end eval: promote nDCG@5 to \u22650.80\n\n**Status:** NEW\n**Tier:** 1\n**Effort:** M\n**Dependencies:** E07_S03, E05_S03\n\n**Description.** Run the full 3-phase hybrid pipeline against E05's retrieval quality harness and promote the system to Tier-1 exit status when nDCG@5 \u2265 0.80 on the hand-labeled query set. This milestone is the gate that enables the 200K-paper scale cutover in E11.\n\nThe E05 harness has a fixed set of 20 hand-labeled queries with known-relevant chunk IDs. Each query is run through the full pipeline (Phase 1 BM25 \u2192 Phase 2 ANN+RRF \u2192 optionally Phase 3 rerank), and nDCG@5 is computed over the top-5 returned chunks. The threshold is 0.80. If Phase-3 reranking is required to cross 0.80, then `ARXMCP_ENABLE_RERANK` is set to `true` in the production config and documented in a brief findings note.\n\nThe pytest invocation is:\n\n```\npytest tests/eval/test_retrieval_quality.py --hybrid --rerank --ndcg-min=0.80\n```\n\nThis test is marked `@pytest.mark.eval` and excluded from the default test run \u2014 it requires the full seed corpus and (optionally) the reranker model. It is run manually before declaring E07 complete and again as part of E11's scale-cutover readiness check.\n\nThe findings from this milestone must be captured in `docs/retrieval-quality-report.md`: which phase contributes how much nDCG lift, whether the reranker is necessary, and the latency profile (p50/p95 per phase at k=10).\n\n**Deliverables.**\n- `tests/eval/test_retrieval_quality.py` \u2014 updated to accept `--hybrid` and `--rerank` flags and the `--ndcg-min` threshold argument\n- `docs/retrieval-quality-report.md` \u2014 nDCG@5 per phase, latency p50/p95, reranker necessity finding\n- `server/config.py` \u2014 `ARXMCP_ENABLE_RERANK` set to its production value based on findings\n\n**Acceptance criteria.**\n- [ ] `pytest tests/eval/test_retrieval_quality.py --hybrid --rerank --ndcg-min=0.80` passes\n- [ ] nDCG@5 is \u2265 0.80 on the 20-query hand-labeled set\n- [ ] `docs/retrieval-quality-report.md` states clearly whether the reranker is required\n- [ ] Latency p95 for the full pipeline (with rerank if enabled) is \u2264 2 seconds at k=10 on the seed corpus\n\n**Out of scope.** Expanding the eval query set beyond 20 queries (E11_S04 adds drift detection over the full corpus). A/B testing between retrieval configurations.\n\n**Risk notes.**\n- This milestone is the single explicit Tier-1 exit gate. E11_S05 references this nDCG@5 threshold as the activation criterion for the 200K scale cutover (closes H9 indirectly via E11_S05).\n\n**Labels.** `area:retrieval`, `kind:eval`, `tier:1`\n# E08 \u2014 Agent Runtime + Caching\n\nEpic dependencies: E06 (MCP server with 7 tools shipped), E07 (hybrid retrieval at nDCG@5 \u2265 0.80)\n\nGoal: Implement the orchestration layer that routes queries to the correct agent role, encodes roles as user-turn prefixes rather than system prompts, manages prompt-cache breakpoints, enforces hard caps on retrieval rounds and chunk materialization, and operates a 3-tier retrieval cache inside the MCP server. The result is a 4-agent fan-out pipeline that costs ~1.3\u20131.5\u00d7 a single-agent call rather than 4\u00d7.\n\nEffort: M + M + L + M + S = XL total\n\nReferences: `.claude/notes/07-multi-agent-caching.md` lines 1\u2013329, `.claude/notes/06-mcp-server-design.md` lines 278\u2013295\n\n---",
-  "phase": "implement-running",
+  "phase": "complete",
   "phase_history": [
     {
       "entered_at": "2026-05-10T02:46:21Z",
@@ -31,8 +47,14 @@
       "phase": "init"
     }
   ],
-  "rectification_commit": null,
-  "regression_tests_added": [],
+  "rectification_commit": "7ee930145323ed1533460fcd39dc209af2fb7913",
+  "regression_tests_added": [
+    "TestHybridAggregate::test_hybrid_rows_emit_latency_and_pipeline",
+    "TestHybridAggregate::test_latency_violation_writes_files_then_raises",
+    "TestHybridAggregate::test_both_acs_violated_reports_both",
+    "TestHybridAggregate::test_latency_assertion_off_when_not_requested",
+    "TestLatencyBudgetPin::test_latency_budget_pinned_at_2_seconds"
+  ],
   "research_brief_paths": [
     ".claude/notes/milestones/E07_S04/research-brief-1.md",
     ".claude/notes/milestones/E07_S04/research-brief-2.md"
@@ -41,5 +63,5 @@
   "research_mode": "parallel",
   "research_synthesis": null,
   "research_synthesis_path": ".claude/notes/milestones/E07_S04/research-synthesis.md",
-  "updated_at": "2026-05-10T02:52:49Z"
+  "updated_at": "2026-05-10T03:14:07Z"
 }

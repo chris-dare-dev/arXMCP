@@ -1,0 +1,112 @@
+{
+  "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/worktrees/gallant-blackburn-b89422/.claude/roadmap",
+  "created_at": "2026-05-08T15:10:25Z",
+  "critics_run": [
+    "adversary"
+  ],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 3,
+    "low": 4,
+    "medium": 9
+  },
+  "critique_path": ".claude/notes/milestones/E04_S02/critique-adversary.md",
+  "deferred_findings": [],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_required": [],
+  "fixed_findings": [
+    "F1",
+    "F2",
+    "F3",
+    "F4",
+    "F5",
+    "F6",
+    "F8",
+    "F9",
+    "F10",
+    "F11",
+    "F12",
+    "F13",
+    "F14",
+    "F15",
+    "F16"
+  ],
+  "id": "E04_S02",
+  "implementation_base": null,
+  "implementation_branch": "claude/gallant-blackburn-b89422",
+  "implementation_commit_range": "b688f03..b9d6b13",
+  "implementation_commits": [
+    "b9d6b13"
+  ],
+  "implementation_path": "server/corpus.py",
+  "implementation_specialist": "inline",
+  "invalidated_findings": [
+    "F7"
+  ],
+  "milestone_brief": "### E04_S02 \u2014 MVCC via `dataset.checkout(version=N)`\n\n**Status:** NEW\n**Tier:** 0\n**Effort:** M\n**Dependencies:** E04_S01\n\n**Description.** LanceDB exposes a native versioning mechanism: every `write` operation on a dataset creates a new integer version (starting from 1). Readers can pin a specific version by calling `dataset.checkout(version=N)`, which returns a read-only view of the dataset as it existed after version N was written. This mechanism is the correct way to implement concurrent read-write safety; manual symlink swaps (`lancedb/current \u2192 lancedb/v0003/`) are explicitly prohibited.\n\nThis milestone wires the MVCC mechanism into the ingestion pipeline. Each `write_chunks` call (E04_S01) returns the new dataset version number. This version is written to the `corpus-version.json` marker file (E04_S03). The MCP server reads this version on startup and passes it to `dataset.checkout(version=N)` before issuing any ANN queries. The eval harness (E05) does the same.\n\nRe-ingestion after a `chunker_version` bump (e.g. from `\"v1.0\"` to `\"v1.1\"`) works as follows: the ingestion pipeline appends new-version rows to the LanceDB dataset, creating a new dataset version N+1. Old rows with `chunker_version=\"v1.0\"` are not deleted immediately \u2014 they are still accessible via `dataset.checkout(version=N)`. A compaction job (outside this milestone's scope; noted in E11) can GC old versions after readers have migrated.\n\nWriters must not call `dataset.checkout(version=N)` \u2014 checkout is read-only. Writers always operate on the current (latest) dataset version via the standard LanceDB write API. This distinction is documented in `ingest/store.py`'s module docstring.\n\nThere are no manual symlinks in `var/arxmcp/index/lancedb/`. If a symlink exists from E01_S06's superseded v0001 directory convention, it is ignored (the LanceDB native path is `var/arxmcp/index/lancedb/chunks`, not a versioned subdirectory).\n\n**Deliverables.**\n- Updated `ingest/store.py` \u2014 `write_chunks` returns `int` (new dataset version)\n- `server/corpus.py` \u2014 `open_chunks_table(lancedb_path: str, version: int) -> lancedb.Table` (wraps `dataset.checkout`)\n- `pytest tests/test_mvcc.py` \u2014 test: write v1, then write v2 (adding one row), verify `checkout(1)` returns old row count and `checkout(2)` returns new row count\n\n**Acceptance criteria.**\n- [ ] `write_chunks` returns the new LanceDB dataset version integer on each call.\n- [ ] `open_chunks_table(path, version=1)` returns the dataset as it was after the first write.\n- [ ] `open_chunks_table(path, version=2)` returns the dataset after the second write.\n- [ ] No symlinks created under `var/arxmcp/index/lancedb/` by any ingest or server code.\n- [ ] Module docstring in `ingest/store.py` states: \"No symlink swaps. LanceDB version int IS the corpus_version. Writers use the current dataset; readers call dataset.checkout(version=N).\"\n- [ ] MVCC test passes: write 10 chunks (v1), write 5 more (v2), assert checkout(v1).count == 10 and checkout(v2).count == 15 (or reflects LanceDB's actual append semantics).\n\n**Out of scope.** Version GC / compaction (E11). BM25 index versioning (E04_S04 follows the same convention but independently). Reader version-pinning in the MCP server (E06, Sonnet B, uses `open_chunks_table`).\n\n**Risk notes.**\n- **Closes MEDIUM: symlink atomic swap.** The critique flagged that symlink swaps are non-atomic on most filesystems (POSIX `rename(2)` is atomic but symlink-repoint is not on some OS/FS combinations). LanceDB's built-in MVCC is atomic and crash-safe; this milestone eliminates the entire class of problem.\n- LanceDB's `checkout` API may use different method names across versions (e.g. `as_of` in some releases). Pin the LanceDB version in `pyproject.toml` and verify the API name in tests.\n\n**Labels.** `area:storage`, `kind:feature`, `tier:0`.\n\n---",
+  "phase": "complete",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-08T15:10:25Z",
+      "left_at": "2026-05-08T15:10:42Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-08T15:10:42Z",
+      "left_at": "2026-05-08T15:18:43Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-08T15:18:43Z",
+      "left_at": "2026-05-08T15:18:43Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-05-08T15:18:43Z",
+      "left_at": "2026-05-08T15:23:06Z",
+      "phase": "implement-running"
+    },
+    {
+      "entered_at": "2026-05-08T15:23:06Z",
+      "left_at": "2026-05-08T15:23:06Z",
+      "phase": "implement-complete"
+    },
+    {
+      "entered_at": "2026-05-08T15:23:06Z",
+      "left_at": "2026-05-08T15:28:00Z",
+      "phase": "critique-running"
+    },
+    {
+      "entered_at": "2026-05-08T15:28:00Z",
+      "left_at": "2026-05-08T15:28:00Z",
+      "phase": "critique-complete"
+    },
+    {
+      "entered_at": "2026-05-08T15:28:00Z",
+      "left_at": "2026-05-08T15:34:02Z",
+      "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-05-08T15:34:02Z",
+      "left_at": null,
+      "phase": "complete"
+    }
+  ],
+  "rectification_commit": "3a3e849",
+  "regression_tests_added": [
+    "test_two_handles_with_different_versions_are_independent",
+    "test_oserror_propagates_unchanged",
+    "test_runtimeerror_propagates_unchanged",
+    "test_corpus_imports_default_path_from_store",
+    "test_corpus_docstring_states_mvcc_handshake",
+    "test_checkout_at_live_tip_equals_checkout_none"
+  ],
+  "research_briefs": [
+    ".claude/notes/milestones/E04_S02/research-brief-1.md",
+    ".claude/notes/milestones/E04_S02/research-brief-2.md"
+  ],
+  "research_mode": "standard",
+  "research_synthesis": ".claude/notes/milestones/E04_S02/research-synthesis.md",
+  "updated_at": "2026-05-08T15:34:02Z"
+}

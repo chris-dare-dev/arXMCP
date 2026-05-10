@@ -1,0 +1,112 @@
+{
+  "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/worktrees/gallant-blackburn-b89422/.claude/roadmap",
+  "created_at": "2026-05-07T20:48:30Z",
+  "critics_run": [
+    "adversary"
+  ],
+  "critique_finding_counts": {
+    "critical": 1,
+    "high": 4,
+    "low": 3,
+    "medium": 7
+  },
+  "critique_path": ".claude/notes/milestones/E03_S02/critique-adversary.md",
+  "deferred_findings": [],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_required": [],
+  "fixed_findings": [
+    "F1",
+    "F2",
+    "F3",
+    "F4",
+    "F6",
+    "F7",
+    "F8",
+    "F9",
+    "F10",
+    "F11",
+    "F12",
+    "F13",
+    "F14"
+  ],
+  "id": "E03_S02",
+  "implementation_base": null,
+  "implementation_branch": "claude/gallant-blackburn-b89422",
+  "implementation_commit_range": "8ee41be..6f183be",
+  "implementation_commits": [
+    "6f183be"
+  ],
+  "implementation_path": "ingest/embedder.py",
+  "implementation_specialist": "inline",
+  "invalidated_findings": [
+    "F5",
+    "F15"
+  ],
+  "milestone_brief": "### E03_S02 \u2014 Idempotent re-embed\n\n**Status:** NEW\n**Tier:** 0\n**Effort:** S\n**Dependencies:** E03_S01, E02_S04\n\n**Description.** The embedder must be safe to re-run without duplicating work or corrupting existing embeddings. This milestone adds skip logic: before encoding a chunk, the embedder checks whether the target embedding column is already populated AND whether the chunk's `chunker_version` matches the expected input version for the current embedder. If both conditions hold, the chunk is skipped.\n\nThe expected input version is defined as a constant `EXPECTED_CHUNKER_VERSION = \"v1.0\"` in `ingest/embedder.py`. If a chunk has `chunker_version != EXPECTED_CHUNKER_VERSION`, it must be re-embedded even if a vector is already present (because the chunk content may have changed). This version coupling is the MVCC handshake: a `chunker_version` bump (e.g. to `\"v1.1\"`) forces re-embed of all affected rows via the MVCC writer in E04_S02.\n\nThe skip logic is implemented as a pre-flight query over the LanceDB table: `SELECT chunk_id, chunker_version FROM chunks WHERE embedding_stmt IS NOT NULL OR embedding_proof IS NOT NULL`. This is fast (scalar scan, no vector load) and produces the set of already-embedded chunk IDs. The main encode loop skips any `chunk_id` in this set with a matching `chunker_version`.\n\nRe-running the embedder on a stable corpus (no chunker version bump, no new papers) should produce zero LanceDB write operations and log a summary: `\"Skipped N/N chunks \u2014 all up to date.\"` This idempotency is tested explicitly.\n\n**Deliverables.**\n- Updated `ingest/embedder.py` \u2014 skip logic added to `embed_corpus`\n- `EXPECTED_CHUNKER_VERSION` constant in `embedder.py`\n- `pytest tests/test_embedder_idempotent.py` \u2014 test: run embed twice, assert second run writes 0 rows\n\n**Acceptance criteria.**\n- [ ] Re-running on an unchanged corpus writes 0 rows and logs \"all up to date\".\n- [ ] Changing a chunk's `chunker_version` to a mismatched value in a test fixture causes that chunk to be re-embedded on the next run.\n- [ ] New chunks added since the last embed run are embedded on the next run (existing chunks with correct version are skipped).\n- [ ] `EXPECTED_CHUNKER_VERSION` is defined as a constant in exactly one place.\n- [ ] No race condition: if two embedder processes run concurrently on the same corpus, neither corrupts the other's rows (LanceDB's MVCC writer serializes writes; document this in the module docstring).\n\n**Out of scope.** MVCC version management (E04_S02). BM25 index re-build on version bump (E04_S04). GPU acceleration (E11).\n\n**Risk notes.**\n- The idempotency guarantee is load-bearing for E11's scale-out: at 200K papers, re-embedding from scratch on every ingestion run would be prohibitively slow. The version-aware skip logic must be in place before E11 begins.\n\n**Labels.** `area:embedder`, `kind:feature`, `tier:0`.\n\n---",
+  "phase": "complete",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-07T20:48:30Z",
+      "left_at": "2026-05-07T20:48:46Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-07T20:48:46Z",
+      "left_at": "2026-05-07T20:56:47Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-07T20:56:47Z",
+      "left_at": "2026-05-07T20:56:47Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-05-07T20:56:47Z",
+      "left_at": "2026-05-07T21:04:06Z",
+      "phase": "implement-running"
+    },
+    {
+      "entered_at": "2026-05-07T21:04:06Z",
+      "left_at": "2026-05-07T21:04:54Z",
+      "phase": "implement-complete"
+    },
+    {
+      "entered_at": "2026-05-07T21:04:54Z",
+      "left_at": "2026-05-07T21:11:43Z",
+      "phase": "critique-running"
+    },
+    {
+      "entered_at": "2026-05-07T21:11:43Z",
+      "left_at": "2026-05-07T21:11:43Z",
+      "phase": "critique-complete"
+    },
+    {
+      "entered_at": "2026-05-07T21:11:43Z",
+      "left_at": "2026-05-08T02:57:30Z",
+      "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-05-08T02:57:30Z",
+      "left_at": null,
+      "phase": "complete"
+    }
+  ],
+  "rectification_commit": "fa8c843",
+  "regression_tests_added": [
+    "test_returns_false_when_npz_missing",
+    "test_missing_npz_with_present_sidecar_forces_reembed",
+    "test_concurrent_processes_do_not_corrupt",
+    "test_sidecar_bytes_are_run_over_run_stable",
+    "test_orphan_chunks_in_sidecar_do_not_block_skip",
+    "test_duplicate_chunk_id_in_manifest_raises_corrupt",
+    "test_returns_false_on_malformed_sidecar_entry"
+  ],
+  "research_briefs": [
+    ".claude/notes/milestones/E03_S02/research-brief-1.md",
+    ".claude/notes/milestones/E03_S02/research-brief-2.md"
+  ],
+  "research_mode": "standard",
+  "research_synthesis": ".claude/notes/milestones/E03_S02/research-synthesis.md",
+  "updated_at": "2026-05-08T02:57:30Z"
+}

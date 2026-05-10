@@ -1,0 +1,94 @@
+{
+  "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/worktrees/gallant-blackburn-b89422/.claude/roadmap",
+  "created_at": "2026-05-09T13:27:42Z",
+  "critics_run": [],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 2,
+    "low": 11,
+    "medium": 5
+  },
+  "critique_path": null,
+  "deferred_findings": [],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_required": [],
+  "fixed_findings": [],
+  "id": "E06_S03",
+  "implementation_base": null,
+  "implementation_branch": null,
+  "implementation_commit_range": "ceae98d..205c8ad",
+  "implementation_commits": [],
+  "implementation_path": null,
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "### E06_S03 \u2014 Implement all 7 tools\n\n**Status:** NEW\n**Tier:** 1\n**Effort:** L\n**Dependencies:** E06_S01, E07_S01, E07_S02\n\n**Description.** Wire up exactly 7 MCP tools. The v1 tool surface is deliberately minimal and has been rationalized from an earlier 9-tool design: `list_papers` is absorbed into `search_papers(level=\"paper\")`; `expand_macro` is absorbed into `get_definitions(paper_id, term?)`; `dependency_graph` is absorbed into `cite_neighbors(chunk_id, depth, direction=\"depends_on\")`; `paper_diff` is deferred to Tier 4 and out of v1.\n\nThe 7 tools and their primary argument shapes are:\n1. `search_papers(query, level?, k?, filters?, cursor?)` \u2014 hybrid BM25+ANN search; `level` \u2208 {paper, section, theorem}, default theorem; collapses the former `list_papers` when `level=\"paper\"`.\n2. `get_chunk(chunk_id, include_referenced?, include_equations?)` \u2014 fetch full chunk body by ID.\n3. `find_equation(latex_or_mathml, k?)` \u2014 equation similarity search (backed by E10_S03 when available; graceful fallback to dense-only before that epic lands).\n4. `get_definitions(paper_id, term?)` \u2014 per-paper notation table; when `term` is given, returns the macro expansion; without `term`, returns the full table; absorbs `expand_macro`.\n5. `find_lemma_by_name(name, paper_id?)` \u2014 SQLite FTS5 theorem-name lookup.\n6. `get_paper(paper_id, version?)` \u2014 metadata lookup from the `papers` table.\n7. `cite_neighbors(chunk_id, depth?, direction?)` \u2014 citation graph traversal; `direction` \u2208 {citers, cited, co_cited, co_citing, depends_on}; `direction=\"depends_on\"` replicates the former `dependency_graph` tool behavior.\n\nTool schemas are defined as frozen Python dataclasses in `server/tools.py` and serialized with alphabetically sorted JSON keys. Tool descriptions are string constants \u2014 never interpolated at request time. The `tool_schema_version` integer field is included in `tools/list` responses and must be bumped deliberately on any schema change.\n\nAll tool results include `corpus_version: int` in `structuredContent`. All results are sorted deterministically: primary key is `score_desc`, tiebreak is `chunk_id_asc`. No timestamps appear in any tool result.\n\n**Deliverables.**\n- `server/tools.py` \u2014 frozen dataclass schemas + handler dispatch table for all 7 tools\n- `server/handlers/search.py` \u2014 `search_papers` handler calling E07 hybrid pipeline\n- `server/handlers/chunk.py` \u2014 `get_chunk` handler\n- `server/handlers/equation.py` \u2014 `find_equation` handler with graceful fallback\n- `server/handlers/definitions.py` \u2014 `get_definitions` handler\n- `server/handlers/lemma.py` \u2014 `find_lemma_by_name` handler\n- `server/handlers/paper.py` \u2014 `get_paper` handler\n- `server/handlers/citations.py` \u2014 `cite_neighbors` handler with `direction` dispatch\n- `tests/test_tools_all.py` \u2014 smoke test: each tool returns a valid response against the seed corpus\n\n**Acceptance criteria.**\n- [ ] `tools/list` returns exactly 7 tools \u2014 no more, no fewer\n- [ ] Each tool's JSON schema validates correctly against JSON Schema Draft-07\n- [ ] `search_papers(level=\"paper\")` returns paper-level results (not chunks)\n- [ ] `get_definitions(paper_id=\"2401.01234\")` returns a full notation table\n- [ ] `get_definitions(paper_id=\"2401.01234\", term=\"\\\\mathcal{A}\")` returns the expansion for that symbol only\n- [ ] `cite_neighbors(chunk_id=..., direction=\"depends_on\")` returns intra-paper theorem dependencies\n- [ ] All 7 tool smoke tests pass against the 50-paper seed corpus\n\n**Out of scope.** `paper_diff` (Tier 4, deferred). LLM-generated summaries in tool results (E06_S04 explicitly drops these). Full equation TED index (E10_S03).\n\n**Risk notes.**\n- Closing MEDIUM: 7+ tools bloat \u2014 the rationalized surface (7 tools, 3 absorptions) prevents agent confusion from an over-wide tool palette (`.claude/notes/06-mcp-server-design.md` lines 51\u2013244).\n\n**Labels.** `area:server`, `kind:feature`, `tier:1`\n\n---",
+  "phase": "complete",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-09T13:27:42Z",
+      "left_at": "2026-05-09T13:28:10Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-09T13:28:10Z",
+      "left_at": "2026-05-09T13:37:07Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-09T13:37:07Z",
+      "left_at": "2026-05-09T13:37:07Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-05-09T13:37:07Z",
+      "left_at": "2026-05-09T13:52:07Z",
+      "phase": "implement-running"
+    },
+    {
+      "entered_at": "2026-05-09T13:52:07Z",
+      "left_at": "2026-05-09T13:52:08Z",
+      "phase": "implement-complete"
+    },
+    {
+      "entered_at": "2026-05-09T13:52:08Z",
+      "left_at": "2026-05-09T14:06:22Z",
+      "phase": "critique-running"
+    },
+    {
+      "entered_at": "2026-05-09T14:06:22Z",
+      "left_at": "2026-05-09T14:06:22Z",
+      "phase": "critique-complete"
+    },
+    {
+      "entered_at": "2026-05-09T14:06:22Z",
+      "left_at": "2026-05-09T14:18:04Z",
+      "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-05-09T14:18:04Z",
+      "left_at": null,
+      "phase": "complete"
+    }
+  ],
+  "rectification_commit": null,
+  "regression_tests_added": [
+    "TestPaperIdValidation::test_get_definitions_rejects_path_traversal (F3)",
+    "TestPaperIdValidation::test_get_paper_rejects_malformed_paper_id (F3)",
+    "TestPaperIdValidation::test_find_lemma_rejects_malformed_paper_id (F3)",
+    "TestSearchSchemaContract::test_search_accepts_filters_arg (F6)",
+    "TestSearchSchemaContract::test_search_accepts_cursor_arg (F6)",
+    "TestSearchSchemaContract::test_search_excludes_proof_kinds_documented (F5)",
+    "TestSearchSchemaContract::test_search_results_have_no_version_field (F7)",
+    "TestDefinitionsParser::test_extract_pairs_two_macros_on_one_line (F2)",
+    "TestDefinitionsParser::test_extract_pairs_with_internal_braces (F2)",
+    "TestDefinitionsParser::test_extract_pairs_handles_renewcommand (F2)",
+    "TestByteCapEnforcement::test_enforce_byte_cap_truncates_nested_body (F1+F4)",
+    "TestByteCapEnforcement::test_enforce_byte_cap_under_cap_passthrough (F1)",
+    "tests/test_identifiers.py 13 tests locking F11 single-source-of-truth"
+  ],
+  "research_briefs": [],
+  "research_mode": "standard",
+  "research_synthesis": null,
+  "updated_at": "2026-05-09T14:18:04Z"
+}

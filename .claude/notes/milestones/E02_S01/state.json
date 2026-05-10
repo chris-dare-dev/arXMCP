@@ -1,0 +1,155 @@
+{
+  "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/worktrees/gallant-blackburn-b89422/.claude/roadmap",
+  "created_at": "2026-05-07T11:03:09Z",
+  "critics_run": [
+    {
+      "model": "opus",
+      "name": "adversary",
+      "path": ".claude/notes/milestones/E02_S01/critique-adversary.md",
+      "verdict": "SHIP-WITH-FIXES"
+    }
+  ],
+  "critique_finding_counts": {
+    "critical": 2,
+    "high": 4,
+    "low": 2,
+    "medium": 7
+  },
+  "critique_path": ".claude/notes/milestones/E02_S01/critique-merged.md",
+  "deferred_findings": [
+    "F11",
+    "F12",
+    "F14",
+    "F15"
+  ],
+  "external_writes_authorized": true,
+  "external_writes_completed": true,
+  "external_writes_required": [
+    {
+      "target": "var/arxmcp/corpus/chunks/",
+      "type": "filesystem",
+      "why": "chunker output (gitignored)"
+    },
+    {
+      "target": "var/arxmcp/ops/parser-failures/chunk.log",
+      "type": "filesystem",
+      "why": "per-paper warnings (gitignored)"
+    },
+    {
+      "target": "pyproject.toml",
+      "type": "filesystem",
+      "why": "add beautifulsoup4 and transformers deps"
+    },
+    {
+      "target": "ingest/chunker.py, ingest/chunker_types.py, tests/test_chunker.py, tests/fixtures/chunker/",
+      "type": "filesystem",
+      "why": "new source files (committed)"
+    },
+    {
+      "target": "https://huggingface.co/BAAI/bge-m3 (tokenizer vocab ~5MB)",
+      "type": "network-once",
+      "why": "AutoTokenizer.from_pretrained first-call download; cached idempotent"
+    }
+  ],
+  "fixed_findings": [
+    "F1",
+    "F2",
+    "F3",
+    "F4",
+    "F5",
+    "F6",
+    "F7",
+    "F8",
+    "F9",
+    "F10",
+    "F13"
+  ],
+  "id": "E02_S01",
+  "implementation_base": "005657b",
+  "implementation_branch": "claude/gallant-blackburn-b89422",
+  "implementation_commit_range": "005657b..c0a7d55",
+  "implementation_commits": [
+    "c0a7d55"
+  ],
+  "implementation_path": "inline",
+  "implementation_path_summary": ".claude/notes/milestones/E02_S01/implementation-summary.md",
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "### E02_S01 \u2014 Theorem-aware structural chunker\n\n**Status:** NEW\n**Tier:** 0\n**Effort:** L\n**Dependencies:** E01_S03\n\n**Description.** The core chunker walks the LaTeXML HTML5 parse tree for each paper (input from `var/arxmcp/corpus/parsed/<paper_id>/`) and pairs `\\begin{theorem}...\\end{theorem}` environments with their immediately following `\\begin{proof}...\\end{proof}`. Each matched pair yields two chunks: a statement chunk (`kind=\"stmt\"`) containing the theorem statement and a proof-window chunk (`kind=\"proof\"`) containing the proof body. Unmatched environments (definitions, lemmas, corollaries, remarks, standalone sections) are emitted as single chunks with appropriate `kind` values (`\"definition\"`, `\"section\"`, etc.).\n\nToken counting targets the BGE-M3 maximum of 512 tokens per embedding input. Statement chunks include the preamble text prepended in the embedding-input view (see E02_S02) and must not exceed 512 tokens after prepend. Proof chunks are windowed: if the proof body after preamble prepend + 64-token statement header exceeds 512 tokens, the proof is split into overlapping windows of 512 tokens with 64-token overlap between consecutive windows, each emitted as a separate `kind=\"proof\"` chunk. Tokenization for budget purposes uses the BGE-M3 tokenizer (HuggingFace `AutoTokenizer`); the chunker imports the tokenizer but does NOT load the full model \u2014 just the vocab for counting.\n\nOutput is written as JSON files at `var/arxmcp/corpus/chunks/<paper_id>/<chunk_idx>.json`. Each file contains the fields defined in the schema below. The `body_tokens` and `preamble_ref` fields are deferred to E02_S03 and E02_S02 respectively; the chunker writes them as `null` initially and they are populated by those milestones. The `chunk_id` field is deferred to E02_S04 (content-addressable hash); the chunker writes a monotonic placeholder `arxiv:<paper_id>:idx<chunk_idx>` until E02_S04 lands.\n\nThis milestone must emit enough metadata per chunk \u2014 including `theorem_name`, `theorem_label`, and `section_path` \u2014 to support theorem-name deduplication in E10_S02 (Sonnet B). Specifically: if a theorem has a `\\label{}`, emit it as `theorem_label`; if it has a display name (e.g. `Theorem 3.1 (Riemann\u2013Roch)`), parse and emit the name as `theorem_name`. This metadata is not deduplicated here; that is explicitly E10_S02's scope.\n\n**Deliverables.**\n- `ingest/chunker.py` \u2014 main chunker module; public API: `chunk_paper(paper_id: str) -> list[ChunkRecord]`\n- `ingest/chunker_types.py` \u2014 `ChunkRecord` dataclass with all fields\n- `var/arxmcp/corpus/chunks/<paper_id>/<chunk_idx>.json` \u2014 output schema:\n  ```json\n  {\n    \"chunk_id\": \"arxiv:<paper_id>:idx<N>\",\n    \"paper_id\": \"<paper_id>\",\n    \"kind\": \"stmt|proof|section|definition\",\n    \"section_path\": [\"Introduction\", \"\u00a72 Main Results\"],\n    \"theorem_name\": \"Riemann\u2013Roch Theorem\",\n    \"theorem_label\": \"thm:rr\",\n    \"body_text\": \"...\",\n    \"body_tokens\": null,\n    \"preamble_ref\": null,\n    \"chunker_version\": \"v1.0\"\n  }\n  ```\n- `pytest tests/test_chunker.py` \u2014 golden-output fixture test\n\n**Acceptance criteria.**\n- [ ] Chunker produces two chunks (`kind=\"stmt\"` + `kind=\"proof\"`) for each matched theorem+proof pair.\n- [ ] No single chunk's embedding-input view (preamble + body) exceeds 512 BGE-M3 tokens.\n- [ ] Proof windows use 64-token overlap when proof body exceeds budget.\n- [ ] `chunker_version: \"v1.0\"` is present on every emitted chunk.\n- [ ] `theorem_label` and `theorem_name` are emitted when extractable from LaTeXML markup.\n- [ ] Running on all 50 seed papers produces at least 300 total chunks (theorem-aware chunking is finer-grained than section-only).\n- [ ] Unit test: two-theorem fixture paper emits exactly 4 chunks (2 stmt + 2 proof) with expected `kind` and `section_path` values.\n- [ ] Output files written only under `var/arxmcp/corpus/chunks/`; no other side effects.\n\n**Out of scope.** Content-addressable `chunk_id` hashing (E02_S04); `body_tokens` BM25 field (E02_S03); preamble prepend (E02_S02); theorem-name deduplication (E10_S02).\n\n**Risk notes.**\n- **Closes H3** (dual 512-tok columns): by emitting separate `stmt` and `proof` chunks each budget-capped at 512 tokens, the chunker enforces that neither embedding input can overflow BGE-M3. This is where the H3 fix originates; E03_S01 and E04_S01 carry it forward.\n- Theorem-name and label metadata emitted here prevents a second parse pass in E10_S02 (MEDIUM: theorem-name dedup naive). The dedup logic itself is out of scope here.\n- LaTeXML parse quality varies; the chunker should log warnings (not raise) on unparseable environments and continue to the next paper, consistent with the resilience pattern in `01c6579`.\n\n**Labels.** `area:parser`, `kind:feature`, `tier:0`.\n\n---",
+  "phase": "complete",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-07T11:03:09Z",
+      "left_at": "2026-05-07T11:06:52Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-07T11:06:52Z",
+      "left_at": "2026-05-07T11:21:56Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-07T11:21:56Z",
+      "left_at": "2026-05-07T11:23:18Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-05-07T11:23:18Z",
+      "left_at": "2026-05-07T11:40:12Z",
+      "phase": "implement-running"
+    },
+    {
+      "entered_at": "2026-05-07T11:40:12Z",
+      "left_at": "2026-05-07T11:40:32Z",
+      "phase": "implement-complete"
+    },
+    {
+      "entered_at": "2026-05-07T11:40:32Z",
+      "left_at": "2026-05-07T11:48:53Z",
+      "phase": "critique-running"
+    },
+    {
+      "entered_at": "2026-05-07T11:48:53Z",
+      "left_at": "2026-05-07T11:49:14Z",
+      "phase": "critique-complete"
+    },
+    {
+      "entered_at": "2026-05-07T11:49:14Z",
+      "left_at": "2026-05-07T11:57:11Z",
+      "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-05-07T11:57:11Z",
+      "left_at": null,
+      "phase": "complete"
+    }
+  ],
+  "rectification_commit": "ef66061",
+  "regression_tests_added": [
+    "tests/test_chunker.py::TestF1MathMLPreservation",
+    "tests/test_chunker.py::TestF2PaperIDValidation",
+    "tests/test_chunker.py::TestF3StaleFileCleanup",
+    "tests/test_chunker.py::TestF4SectionDocumentOrder",
+    "tests/test_chunker.py::TestF5StmtTruncationFlag",
+    "tests/test_chunker.py::TestF6CharOffsetWindowing",
+    "tests/test_chunker.py::TestF7TSVLogSanitization",
+    "tests/test_chunker.py::TestF8ProgrammerBugsPropagate",
+    "tests/test_chunker.py::TestF9TheoremNameNoNestedLeak",
+    "tests/test_chunker.py::TestF13RecursionDepthBound"
+  ],
+  "research_briefs": [
+    {
+      "agent": "researcher-1",
+      "model": "sonnet",
+      "path": ".claude/notes/milestones/E02_S01/research-brief-1.md"
+    },
+    {
+      "agent": "researcher-2",
+      "model": "sonnet",
+      "path": ".claude/notes/milestones/E02_S01/research-brief-2.md"
+    }
+  ],
+  "research_mode": "standard",
+  "research_synthesis": ".claude/notes/milestones/E02_S01/research-synthesis.md",
+  "updated_at": "2026-05-07T11:57:11Z"
+}

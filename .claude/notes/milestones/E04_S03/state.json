@@ -1,0 +1,113 @@
+{
+  "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/worktrees/gallant-blackburn-b89422/.claude/roadmap",
+  "created_at": "2026-05-08T19:55:31Z",
+  "critics_run": [
+    "adversary"
+  ],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 1,
+    "low": 5,
+    "medium": 7
+  },
+  "critique_path": ".claude/notes/milestones/E04_S03/critique-adversary.md",
+  "deferred_findings": [
+    "M4",
+    "M7",
+    "L2",
+    "L3",
+    "L4",
+    "L5"
+  ],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_required": [],
+  "fixed_findings": [
+    "H1",
+    "M1",
+    "M2",
+    "M3",
+    "M5",
+    "M6",
+    "L1"
+  ],
+  "id": "E04_S03",
+  "implementation_base": null,
+  "implementation_branch": "claude/gallant-blackburn-b89422",
+  "implementation_commit_range": "3a3e849..6d12138",
+  "implementation_commits": [
+    "6d12138"
+  ],
+  "implementation_path": "ingest/store.py",
+  "implementation_specialist": "inline",
+  "invalidated_findings": [],
+  "milestone_brief": "### E04_S03 \u2014 `corpus_version` marker file and cache invalidation contract\n\n**Status:** NEW\n**Tier:** 0\n**Effort:** S\n**Dependencies:** E04_S01, E04_S02\n\n**Description.** Each ingestion run writes a JSON marker file at `var/arxmcp/index/lancedb/corpus-version.json` capturing the complete state of the current corpus version. The MCP server reads this file on startup to determine which LanceDB dataset version to pin, and uses the `corpus_version` integer as a cache namespace key for all server-side caches (implemented in E08_S03 by Sonnet B).\n\n**Marker file schema:**\n```json\n{\n  \"version\": 3,\n  \"chunker_version\": \"v1.0\",\n  \"embedder_version\": \"bge-m3@abc1234\",\n  \"created_at\": \"2026-05-06T12:34:56Z\",\n  \"paper_count\": 50,\n  \"chunk_count\": 847\n}\n```\n\nThe `version` field is the LanceDB dataset version integer returned by `write_chunks`. It is the primary key used by the MCP server and eval harness to call `dataset.checkout(version=N)`. The `chunker_version` and `embedder_version` fields are informational and also used to invalidate caches: any cache entry keyed on an older `(corpus_version, chunker_version, embedder_version)` tuple is stale.\n\nThe cache invalidation contract (specified here for Sonnet B to implement in E08_S03): server-side caches MUST include `corpus_version` in their cache keys. When the MCP server starts and reads a new `corpus-version.json` with a higher `version` than its last-seen value, it clears all in-process caches keyed on the old version. This prevents stale cache hits after a corpus update without requiring a server restart.\n\nThe marker file is written atomically: the ingestion script writes to `corpus-version.json.tmp` and then renames to `corpus-version.json`. On POSIX, `rename(2)` is atomic; on Windows, a two-step copy-and-rename is used (documented in the module).\n\n**Deliverables.**\n- `ingest/store.py` \u2014 `write_corpus_version_marker(lancedb_path: str, version: int, chunker_version: str, embedder_version: str, paper_count: int, chunk_count: int)` function\n- `var/arxmcp/index/lancedb/corpus-version.json` \u2014 written on each ingest run\n- `server/corpus.py` \u2014 `read_corpus_version(lancedb_path: str) -> CorpusVersionInfo` dataclass\n- Cache contract comment in `server/corpus.py`: \"Downstream caches (E08_S03) must include corpus_version in their keys.\"\n- `pytest tests/test_corpus_version.py` \u2014 test: write marker, read it back, assert fields match\n\n**Acceptance criteria.**\n- [ ] `corpus-version.json` is written on every successful ingest run.\n- [ ] `version` field matches the LanceDB dataset version returned by `write_chunks`.\n- [ ] File write is atomic (tmp + rename).\n- [ ] `read_corpus_version` reads and deserializes the marker file into a typed dataclass.\n- [ ] Cache contract comment is present in `server/corpus.py`.\n- [ ] Test: write two successive ingest runs, assert `version` increments.\n\n**Out of scope.** Server-side cache implementation (E08_S03, Sonnet B). Cache eviction logic (Sonnet B). BM25 index versioning (E04_S04).\n\n**Risk notes.**\n- **Closes MEDIUM: corpus_version cache invalidation.** This milestone specifies the marker file contract and the cache key inclusion requirement. Sonnet B implements the server-side cache in E08_S03 and must honor the contract defined here. Any change to the marker file schema should be treated as a breaking contract change.\n\n**Labels.** `area:storage`, `kind:feature`, `tier:0`.\n\n---",
+  "phase": "complete",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-08T19:55:31Z",
+      "left_at": "2026-05-08T19:55:37Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-08T19:55:37Z",
+      "left_at": "2026-05-08T20:01:07Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-08T20:01:07Z",
+      "left_at": "2026-05-08T20:01:07Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-05-08T20:01:07Z",
+      "left_at": "2026-05-08T20:06:40Z",
+      "phase": "implement-running"
+    },
+    {
+      "entered_at": "2026-05-08T20:06:40Z",
+      "left_at": "2026-05-08T20:06:40Z",
+      "phase": "implement-complete"
+    },
+    {
+      "entered_at": "2026-05-08T20:06:40Z",
+      "left_at": "2026-05-08T20:12:24Z",
+      "phase": "critique-running"
+    },
+    {
+      "entered_at": "2026-05-08T20:12:24Z",
+      "left_at": "2026-05-08T20:12:24Z",
+      "phase": "critique-complete"
+    },
+    {
+      "entered_at": "2026-05-08T20:12:24Z",
+      "left_at": "2026-05-08T20:17:42Z",
+      "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-05-08T20:17:42Z",
+      "left_at": null,
+      "phase": "complete"
+    }
+  ],
+  "rectification_commit": "01adfce",
+  "regression_tests_added": [
+    "test_from_dict_missing_required_field_raises_value_error",
+    "test_from_dict_rejects_negative_version",
+    "test_from_dict_rejects_negative_paper_count",
+    "test_from_dict_rejects_string_version",
+    "test_from_dict_rejects_none_embedder_version",
+    "test_from_dict_rejects_int_chunker_version",
+    "test_from_dict_rejects_bool_as_version",
+    "test_returns_none_when_marker_is_a_directory",
+    "test_writer_docstring_carries_threat1_deferral",
+    "test_reader_docstring_carries_threat1_deferral"
+  ],
+  "research_briefs": [
+    ".claude/notes/milestones/E04_S03/research-brief-1.md",
+    ".claude/notes/milestones/E04_S03/research-brief-2.md"
+  ],
+  "research_mode": "standard",
+  "research_synthesis": ".claude/notes/milestones/E04_S03/research-synthesis.md",
+  "updated_at": "2026-05-08T20:17:42Z"
+}

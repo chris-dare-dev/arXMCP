@@ -1,0 +1,89 @@
+{
+  "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/worktrees/gallant-blackburn-b89422/.claude/roadmap",
+  "created_at": "2026-05-09T01:24:18Z",
+  "critics_run": [],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "low": 8,
+    "medium": 6
+  },
+  "critique_path": null,
+  "deferred_findings": [],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_required": [],
+  "fixed_findings": [],
+  "id": "E05_S03",
+  "implementation_base": null,
+  "implementation_branch": null,
+  "implementation_commit_range": "b2c3b6a..4449a1d",
+  "implementation_commits": [],
+  "implementation_path": null,
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "### E05_S03 \u2014 Tier-0 exit gate documentation\n\n**Status:** NEW\n**Tier:** 0\n**Effort:** S\n**Dependencies:** E05_S01, E05_S02\n\n**Description.** This milestone makes the Tier-0 exit gate explicit, unambiguous, and visible at the top level of the roadmap. It defines the promotion conditions for each tier transition as machine-checkable statements, not prose aspirations. The gate replaces the qualitative \"vibes-check\" demo from E01_S10.\n\n**Tier exit gates (authoritative \u2014 defined here, referenced in `README.md`):**\n\n| Transition | Gate condition | Milestone |\n|---|---|---|\n| Tier-0 \u2192 Tier-1 | `pytest tests/eval/test_retrieval_quality.py --ndcg-min=0.70` passes on ANN-only (no BM25, no reranker) | E05_S02 |\n| Tier-1 \u2192 Tier-2 | `pytest tests/eval/test_retrieval_quality.py --ndcg-min=0.80` passes with BM25 hybrid + reranker active (E07) | E07_S04 (Sonnet B) |\n| Tier-2 \u2192 Tier-3 | E08 caching telemetry healthy: cache hit rate \u2265 30% on a 24-hour production traffic sample | E08 (Sonnet B) |\n| Tier-5 cutover | 200K paper backfill complete + drift watchdog stable (nDCG@5 within 5% of baseline) | E11_S05 (Sonnet B) |\n\nThe Tier-0 \u2192 Tier-1 condition is ANN-only because BM25 hybrid retrieval (E07) and the reranker (E07) are Tier-1 deliverables, not Tier-0 deliverables. Reranker activation is conditional on the Tier-1 metric gate: if nDCG@5 does not reach 0.80 after adding BM25 + reranker, activation is blocked and the retrieval pipeline is debugged before Tier-2 begins.\n\nThis milestone ships a `TIER-GATES.md` file in the root of the repository (not in `.claude/`) that is the single authoritative source for tier promotion conditions. It is linked from the roadmap `README.md`. The file includes the command to run and the expected output for each gate, so any contributor can verify tier readiness without reading the full roadmap.\n\n**Deliverables.**\n- `TIER-GATES.md` \u2014 root-level file with tier promotion conditions and commands\n- Update to `Makefile`: `make eval` target that runs `pytest tests/eval/test_retrieval_quality.py`\n- Update to `README.md`: link to `TIER-GATES.md`\n\n**Acceptance criteria.**\n- [ ] `TIER-GATES.md` exists at repo root and defines all four tier transitions with exact pytest commands.\n- [ ] `make eval` runs `pytest tests/eval/test_retrieval_quality.py --ndcg-min=0.70`.\n- [ ] `TIER-GATES.md` states: \"Reranker activation in E07 is conditional on nDCG@5 \u2265 0.80 after BM25 hybrid is active.\"\n- [ ] Root `README.md` links to `TIER-GATES.md`.\n- [ ] No subjective acceptance criteria (no \"demo transcript\" or \"looks coherent\" language).\n\n**Out of scope.** Tier-1 and higher gates are specified here but implemented in Sonnet B's epics. This milestone only documents and wires the Tier-0 gate.\n\n**Risk notes.**\n- This milestone is the formal retirement of E01_S10 (vibes-check demo). The transition from qualitative to quantitative exit criteria is a process change as much as a code change. `TIER-GATES.md` must be reviewed and approved by the project owner before Tier-1 work begins.\n\n**Labels.** `area:eval`, `kind:docs`, `tier:0`.\n# E06 \u2014 MCP Server\n\nEpic dependencies: E04 (LanceDB chunks table shipped), E05 (retrieval eval harness shipped)\n\nGoal: Ship a production-ready Streamable HTTP MCP server bound to `127.0.0.1:7733`, exposing exactly 7 tools over the arXiv corpus. The server must satisfy byte-stable caching constraints, enforce localhost-only security, and carry a stdio shim so Claude Code sub-agents can connect without configuration friction.\n\nEffort: L + M + L + M + S + S = XL total\n\nReferences: `.claude/notes/06-mcp-server-design.md` lines 1\u2013366, `.claude/notes/07-multi-agent-caching.md` lines 40\u201360\n\n---",
+  "phase": "complete",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-09T01:24:18Z",
+      "left_at": "2026-05-09T01:24:33Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-09T01:24:33Z",
+      "left_at": "2026-05-09T01:27:31Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-09T01:27:31Z",
+      "left_at": "2026-05-09T01:27:31Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-05-09T01:27:31Z",
+      "left_at": "2026-05-09T01:31:27Z",
+      "phase": "implement-running"
+    },
+    {
+      "entered_at": "2026-05-09T01:31:27Z",
+      "left_at": "2026-05-09T01:31:27Z",
+      "phase": "implement-complete"
+    },
+    {
+      "entered_at": "2026-05-09T01:31:27Z",
+      "left_at": "2026-05-09T01:40:09Z",
+      "phase": "critique-running"
+    },
+    {
+      "entered_at": "2026-05-09T01:40:09Z",
+      "left_at": "2026-05-09T01:40:09Z",
+      "phase": "critique-complete"
+    },
+    {
+      "entered_at": "2026-05-09T01:40:09Z",
+      "left_at": "2026-05-09T01:45:38Z",
+      "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-05-09T01:45:38Z",
+      "left_at": null,
+      "phase": "complete"
+    }
+  ],
+  "rectification_commit": null,
+  "regression_tests_added": [
+    "TestTierGatesExists::test_file_at_repo_root",
+    "TestTierGatesExists::test_lists_all_four_transitions",
+    "TestMakeEvalTarget::test_eval_target_in_phony",
+    "TestMakeEvalTarget::test_eval_recipe_invokes_correct_pytest_path",
+    "TestRerankerActivationSentence::test_verbatim_sentence_present",
+    "TestRerankerActivationSentence::test_sentence_is_on_one_source_line",
+    "TestReadmeLinksTierGates::test_markdown_link_present",
+    "TestNoSubjectiveCriteria::test_subjective_markers_only_appear_in_history"
+  ],
+  "research_briefs": [],
+  "research_mode": "single",
+  "research_synthesis": null,
+  "updated_at": "2026-05-09T01:45:38Z"
+}

@@ -1,0 +1,92 @@
+{
+  "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/worktrees/gallant-blackburn-b89422/.claude/roadmap",
+  "created_at": "2026-05-09T02:01:15Z",
+  "critics_run": [],
+  "critique_finding_counts": {
+    "critical": 3,
+    "high": 7,
+    "low": 12,
+    "medium": 8
+  },
+  "critique_path": null,
+  "deferred_findings": [],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_required": [],
+  "fixed_findings": [],
+  "id": "E06_S01",
+  "implementation_base": null,
+  "implementation_branch": null,
+  "implementation_commit_range": "80dfac3..ad8b956",
+  "implementation_commits": [],
+  "implementation_path": null,
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "### E06_S01 \u2014 FastAPI server skeleton with Streamable HTTP transport\n\n**Status:** NEW\n**Tier:** 1\n**Effort:** L\n**Dependencies:** E04_S03, E04_S04\n\n**Description.** Stand up the long-running `arxmcp-server` process: a FastAPI application wired to the `mcp` Python library using the Streamable HTTP transport as defined in the MCP specification dated 2025-06-18 (`https://modelcontextprotocol.io/specification/2025-06-18`). The server binds exclusively to `127.0.0.1` on port 7733 (overridable via `ARXMCP_BIND_PORT`). On startup it reads `corpus-version.json` to obtain `corpus_version: int`, calls `dataset.checkout(version=corpus_version)` on the LanceDB chunks dataset (per E04_S02 \u2014 manual symlink swaps are explicitly prohibited), and pins that version for the entire process lifetime \u2014 running sessions are never surprised by a mid-flight corpus swap.\n\nThe server owns three expensive resources that must be initialized once and reused: (1) the embedder (bge-m3 loaded into GPU/CPU memory), (2) the reranker (BGE-reranker-v2-m3, loaded only when `ARXMCP_ENABLE_RERANK=true`), and (3) a read-only LanceDB connection. Bounded asyncio semaphores gate concurrent access: `max_concurrent_embeddings=8`, `max_concurrent_reranks=4`. A `Singleflight` asyncio class (pattern documented in `.claude/notes/07-multi-agent-caching.md` lines 197\u2013223) wraps the embedder so that N concurrent agents asking the same query produce exactly one in-flight embedding call.\n\nThe `Mcp-Session-Id` header must be globally unique and cryptographically secure (UUID4 at minimum) \u2014 it feeds per-session rate-limit and observability instrumentation. Tool input validation is a MUST per the MCP spec's Tools section; use Pydantic models as the validation layer, not ad-hoc checks. Tool result payloads are capped at 256 KB inline; larger payloads must be returned via `resource_link`.\n\nShutdown drains in-flight requests with a 30-second asyncio deadline, then closes LanceDB and flushes Prometheus metrics. Health endpoints: `GET /healthz` (liveness, always 200 if process is up); `GET /readyz` (readiness, 200 only after embedder, LanceDB, and reranker are warm); `GET /metrics` (Prometheus exposition).\n\n**Deliverables.**\n- `server/main.py` \u2014 FastAPI app, lifespan context manager, MCP lib wiring, Streamable HTTP mount\n- `server/config.py` \u2014 pydantic-settings Config class reading all `ARXMCP_*` env vars with defaults\n- `server/resources.py` \u2014 startup initialization of embedder, reranker, LanceDB; Singleflight wrapper\n- `server/health.py` \u2014 `/healthz`, `/readyz`, `/metrics` routes\n- `tests/test_server_startup.py` \u2014 asserts server reaches readiness within 30s in a test fixture\n- `docker/Dockerfile.server` \u2014 multi-stage build; non-root user; exposes 7733\n\n**Acceptance criteria.**\n- [ ] `pytest tests/test_server_startup.py` passes: server reaches `/readyz` 200 within 30 seconds\n- [ ] `GET /healthz` returns 200 before readiness (pure liveness check)\n- [ ] `GET /readyz` returns 503 until embedder + LanceDB are initialized, then 200\n- [ ] `ARXMCP_BIND_HOST` env var forces binding; binding to `0.0.0.0` is rejected at config parse time\n- [ ] Starting two server processes on the same port raises a clear error (not a silent hang)\n- [ ] `corpus_version` integer is logged at startup and matches `corpus-version.json`\n\n**Out of scope.** Tool implementations (E06_S03). Shim binary (E06_S02). Security hardening (E06_S05). Authentication (explicitly out of v1 per notes line 358).\n\n**Risk notes.**\n- Streamable HTTP transport is the MCP 2025-06-18 spec's mandated transport; stdio for the server would defeat shared-cache semantics (`.claude/notes/06-mcp-server-design.md` lines 5\u201317).\n- `corpus_version` pinning at startup is load-bearing for all cache key correctness (`.claude/notes/07-multi-agent-caching.md` lines 113\u2013128).\n\n**Labels.** `area:server`, `kind:feature`, `tier:1`\n\n---",
+  "phase": "complete",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-09T02:01:15Z",
+      "left_at": "2026-05-09T02:01:31Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-09T02:01:31Z",
+      "left_at": "2026-05-09T02:09:07Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-09T02:09:07Z",
+      "left_at": "2026-05-09T02:09:07Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-05-09T02:09:07Z",
+      "left_at": "2026-05-09T02:57:34Z",
+      "phase": "implement-running"
+    },
+    {
+      "entered_at": "2026-05-09T02:57:34Z",
+      "left_at": "2026-05-09T02:57:34Z",
+      "phase": "implement-complete"
+    },
+    {
+      "entered_at": "2026-05-09T02:57:34Z",
+      "left_at": "2026-05-09T03:10:39Z",
+      "phase": "critique-running"
+    },
+    {
+      "entered_at": "2026-05-09T03:10:39Z",
+      "left_at": "2026-05-09T03:10:39Z",
+      "phase": "critique-complete"
+    },
+    {
+      "entered_at": "2026-05-09T03:10:39Z",
+      "left_at": "2026-05-09T03:21:18Z",
+      "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-05-09T03:21:18Z",
+      "left_at": null,
+      "phase": "complete"
+    }
+  ],
+  "rectification_commit": null,
+  "regression_tests_added": [
+    "TestHealthEndpoints::test_healthz_works_before_resources_attach (rewritten F6)",
+    "TestReadinessTransition::test_readyz_reaches_200_within_30s (F7)",
+    "TestBodySizeCap::test_oversize_response_returns_413 (F1)",
+    "TestBodySizeCap::test_exempt_path_bypasses_cap (F1)",
+    "TestBodySizeCap::test_metrics_path_bypasses_cap (F1)",
+    "TestMcpEndToEnd::test_tools_list_returns_empty (F2)",
+    "TestEnvVarScan::test_unknown_env_var_rejected (F4)",
+    "TestEnvVarScan::test_known_env_vars_pass (F4)",
+    "TestEnvVarScan::test_create_app_rejects_unknown_env (F4)",
+    "TestSingleflight::test_slow_path_cancel_does_not_break_fast_waiters (F3)",
+    "TestPortConflict::test_address_in_use_propagates (strengthened F8)"
+  ],
+  "research_briefs": [],
+  "research_mode": "standard",
+  "research_synthesis": null,
+  "updated_at": "2026-05-09T03:21:18Z"
+}

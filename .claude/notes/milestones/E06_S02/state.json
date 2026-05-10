@@ -1,0 +1,90 @@
+{
+  "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/worktrees/gallant-blackburn-b89422/.claude/roadmap",
+  "created_at": "2026-05-09T03:40:28Z",
+  "critics_run": [],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 3,
+    "low": 4,
+    "medium": 7
+  },
+  "critique_path": null,
+  "deferred_findings": [],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_required": [],
+  "fixed_findings": [],
+  "id": "E06_S02",
+  "implementation_base": null,
+  "implementation_branch": null,
+  "implementation_commit_range": "3dcc12c..4fed7fa",
+  "implementation_commits": [],
+  "implementation_path": null,
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "### E06_S02 \u2014 Stdio shim binary\n\n**Status:** NEW\n**Tier:** 1\n**Effort:** S\n**Dependencies:** E06_S01\n\n**Description.** Claude Code and its sub-agents expect an MCP server registered in `~/.claude.json` under `mcpServers` as a stdio command. The `arxmcp-shim` binary bridges this expectation: it is a ~50-line stateless stdio proxy that reads JSON-RPC frames from stdin and forwards them verbatim over HTTP to `arxmcp-server`, then writes the response back to stdout. It accepts a single `--server <url>` flag (default `http://127.0.0.1:7733`).\n\nOn startup the shim performs a single `GET /readyz` probe. If the probe fails within 5 seconds, the shim prints a human-readable error to stderr and exits with code 1, giving the Claude Code UI a clear signal that the server is not running. This prevents the silent \"tool not found\" failure mode.\n\nThe shim is a single-file Python script (or Go binary if startup latency proves too high) installable via `pip install arxmcp` or `pipx install arxmcp`. The installed entry point is `arxmcp-shim`. Document the exact `~/.claude.json` snippet in `docs/install.md` \u2014 copy-paste, no editing required.\n\nBecause the shim is stateless and carries no authentication material, it is safe to run as a long-lived process or to be respawned per-session by Claude Code's MCP harness. Each sub-agent spawns its own shim instance; all shim instances hit the same shared `arxmcp-server` and benefit from the shared retrieval cache.\n\n**Deliverables.**\n- `shim/arxmcp_shim.py` \u2014 the ~50-line proxy; `#!/usr/bin/env python3`; no dependencies beyond stdlib\n- `shim/setup.cfg` (or `pyproject.toml` entry point) \u2014 installs `arxmcp-shim` on `$PATH`\n- `docs/install.md` \u2014 step-by-step: `pipx install arxmcp`; paste the JSON snippet; run `arxmcp-server`\n- `tests/test_shim.py` \u2014 integration test: shim forwards a `tools/list` call and returns results\n\n**Acceptance criteria.**\n- [ ] `arxmcp-shim --server http://127.0.0.1:7733` forwards `tools/list` correctly end-to-end\n- [ ] Shim exits with code 1 and a readable stderr message when `/readyz` probe fails\n- [ ] Shim binary is \u226460 lines excluding comments and blank lines\n- [ ] `docs/install.md` contains a verbatim `~/.claude.json` snippet matching `.claude/notes/06-mcp-server-design.md` lines 19\u201329\n\n**Out of scope.** TLS (localhost only). Authentication. Any stateful session logic.\n\n**Risk notes.**\n- The shim must forward JSON-RPC verbatim; any re-serialization risks breaking byte-stability of tool schemas.\n\n**Labels.** `area:server`, `kind:feature`, `tier:1`\n\n---",
+  "phase": "complete",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-09T03:40:28Z",
+      "left_at": "2026-05-09T03:40:49Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-09T03:40:49Z",
+      "left_at": "2026-05-09T03:44:59Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-09T03:44:59Z",
+      "left_at": "2026-05-09T03:44:59Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-05-09T03:44:59Z",
+      "left_at": "2026-05-09T04:04:25Z",
+      "phase": "implement-running"
+    },
+    {
+      "entered_at": "2026-05-09T04:04:25Z",
+      "left_at": "2026-05-09T04:04:25Z",
+      "phase": "implement-complete"
+    },
+    {
+      "entered_at": "2026-05-09T04:04:25Z",
+      "left_at": "2026-05-09T04:12:45Z",
+      "phase": "critique-running"
+    },
+    {
+      "entered_at": "2026-05-09T04:12:45Z",
+      "left_at": "2026-05-09T04:12:45Z",
+      "phase": "critique-complete"
+    },
+    {
+      "entered_at": "2026-05-09T04:12:45Z",
+      "left_at": "2026-05-09T04:18:40Z",
+      "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-05-09T04:18:40Z",
+      "left_at": null,
+      "phase": "complete"
+    }
+  ],
+  "rectification_commit": null,
+  "regression_tests_added": [
+    "TestServerUrlValidation::test_rejects_non_loopback_server (F1)",
+    "TestServerUrlValidation::test_rejects_public_ip_server (F1)",
+    "TestServerUrlValidation::test_rejects_url_without_hostname (F4)",
+    "TestServerUrlValidation::test_rejects_https_server (F1)",
+    "TestServerUrlValidation::test_accepts_localhost (F1 positive case)",
+    "TestUpstreamErrorMapping::test_non_200_synthesizes_jsonrpc_error_envelope (F3)",
+    "TestUpstreamErrorMapping::test_413_payload_too_large_is_envelope (F3)",
+    "TestProtocolVersionHeader::test_protocol_version_header_present (F8)",
+    "TestProtocolVersionHeader::test_protocol_version_via_custom_handler (F8)"
+  ],
+  "research_briefs": [],
+  "research_mode": "single",
+  "research_synthesis": null,
+  "updated_at": "2026-05-09T04:18:40Z"
+}

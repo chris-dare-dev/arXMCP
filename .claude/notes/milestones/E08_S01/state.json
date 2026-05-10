@@ -1,29 +1,48 @@
 {
   "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/worktrees/gallant-blackburn-b89422/.claude/roadmap",
   "created_at": "2026-05-10T03:25:25Z",
-  "critics_run": [],
+  "critics_run": [
+    "adversary"
+  ],
   "critique_finding_counts": {
     "critical": 0,
-    "high": 0,
-    "low": 0,
-    "medium": 0
+    "high": 2,
+    "low": 3,
+    "medium": 7
   },
-  "critique_path": null,
-  "deferred_findings": [],
+  "critique_path": ".claude/notes/milestones/E08_S01/critique-adversary.md",
+  "deferred_findings": [
+    "F9",
+    "F10",
+    "F11",
+    "F12",
+    "F13"
+  ],
   "external_writes_authorized": false,
   "external_writes_completed": false,
   "external_writes_required": [],
-  "fixed_findings": [],
+  "fixed_findings": [
+    "F1",
+    "F2",
+    "F3",
+    "F4",
+    "F5",
+    "F6",
+    "F7",
+    "F8"
+  ],
   "id": "E08_S01",
   "implementation_base": "7ee930145323ed1533460fcd39dc209af2fb7913",
   "implementation_branch": null,
-  "implementation_commit_range": null,
-  "implementation_commits": [],
-  "implementation_path": null,
+  "implementation_commit_range": "7ee930145323ed1533460fcd39dc209af2fb7913..31ba2114bb9c9f093de3487787735a4ca0c6bd57",
+  "implementation_commits": [
+    "31ba2114bb9c9f093de3487787735a4ca0c6bd57"
+  ],
+  "implementation_path": ".claude/notes/milestones/E08_S01/implementation-summary.md",
   "implementation_specialist": "inline",
   "invalidated_findings": [],
   "milestone_brief": "### E08_S01 \u2014 Query router: Python regex classifier\n\n**Status:** NEW\n**Tier:** 2\n**Effort:** M\n**Dependencies:** E06_S03\n\n**Description.** Implement `server/router.py`, a fast query classifier that reads the first 200 characters of the user query and uses Python regular expressions to assign it to one of four agent roles: Lookup, Synthesis, Verification, or Autoformalization. There is no LLM planner, no embedding similarity, and no external API call in this path \u2014 the router must be synchronous and return within 1ms.\n\nThe classification logic uses a priority-ordered list of compiled regex patterns. The patterns operate on the lowercased, whitespace-normalized first 200 characters of the query. Examples of classification signals:\n\n- **Lookup**: patterns like `r\"\\bdefin(e|ition)\\b\"`, `r\"\\bwhat is\\b\"`, `r\"\\blemma \\d\"`, `r\"\\btheorem \\d\"`, `r\"\\bnotation\\b\"` \u2014 the agent needs a specific named object from the corpus.\n- **Synthesis**: patterns like `r\"\\bprove\\b\"`, `r\"\\bsketch\\b\"`, `r\"\\bshow that\\b\"`, `r\"\\bderive\\b\"` \u2014 the agent must assemble a proof strategy across multiple retrieved chunks.\n- **Verification**: patterns like `r\"\\bcheck\\b\"`, `r\"\\bverify\\b\"`, `r\"\\bcorrect\\b\"`, `r\"\\bvalid\\b\"` \u2014 the agent receives a candidate proof step and must validate it.\n- **Autoformalization**: patterns like `r\"\\blean\\b\"`, `r\"\\bmathlib\\b\"`, `r\"\\bformalize\\b\"`, `r\"\\btranslate.*lean\"` \u2014 the agent must produce Lean 4 syntax.\n\nThe router returns a `RouteTag` enum value. The `RouteTag` is consumed by the orchestrator to select the appropriate role prefix (E08_S02) and model (E08_S05). The router is not the final arbiter of agent behavior \u2014 if the regex fires incorrectly, the agent's role-prefix still constrains its behavior. Misrouting is a quality issue, not a correctness issue.\n\nThe pattern list is loaded from `server/router_patterns.yaml`, which is version-controlled and annotated with the rationale for each pattern. This makes the classifier reviewable and editable without touching Python source. A test suite covers all four tags with canonical examples and common edge cases.\n\n**Deliverables.**\n- `server/router.py` \u2014 `classify(query: str) -> RouteTag` function; `RouteTag` enum with four values\n- `server/router_patterns.yaml` \u2014 annotated pattern list; ordered by priority; includes rationale comments\n- `tests/test_router.py` \u2014 at minimum 5 canonical examples per RouteTag; at least 3 ambiguous cases with documented expected behavior\n\n**Acceptance criteria.**\n- [ ] `classify(\"What is the definition of an \u00e9tale morphism?\")` returns `RouteTag.LOOKUP`\n- [ ] `classify(\"Prove that the Hodge conjecture holds for abelian varieties of CM type\")` returns `RouteTag.SYNTHESIS`\n- [ ] `classify(\"Formalize Yoneda lemma in Lean 4\")` returns `RouteTag.AUTOFORMALIZATION`\n- [ ] `classify(...)` returns within 1ms for any 200-character prefix (measured via `timeit`)\n- [ ] `pytest tests/test_router.py` passes\n- [ ] Adding a new pattern to `router_patterns.yaml` does not require modifying `router.py`\n\n**Out of scope.** LLM-based intent classification. Embedding similarity routing. Multi-label routing (one tag per query in v1).\n\n**Risk notes.**\n- Closes H1: replacing an LLM planner with a Python regex router eliminates the latency and cost of a planning LLM call on every query, and makes routing behavior deterministic and auditable.\n\n**Labels.** `area:runtime`, `kind:feature`, `tier:2`\n\n---",
-  "phase": "implement-running",
+  "phase": "complete",
   "phase_history": [
     {
       "entered_at": "2026-05-10T03:25:25Z",
@@ -31,8 +50,16 @@
       "phase": "init"
     }
   ],
-  "rectification_commit": null,
-  "regression_tests_added": [],
+  "rectification_commit": "4ac435d98715544bd49029567dbdcdff7de78a43",
+  "regression_tests_added": [
+    "TestReDoSGuard (2 tests)",
+    "TestBytesInput (5 tests)",
+    "TestBlockOrderInvariant (3 tests)",
+    "TestUnicodeLatency (1 test)",
+    "TestRationaleValidation (4 tests)",
+    "TestExtraKeyRejection (1 test)",
+    "TestPatternFileSourceOfTruth (renamed; YAML-derived needles + CWD-independent path)"
+  ],
   "research_brief_paths": [
     ".claude/notes/milestones/E08_S01/research-brief-1.md",
     ".claude/notes/milestones/E08_S01/research-brief-2.md"
@@ -41,5 +68,5 @@
   "research_mode": "parallel",
   "research_synthesis": null,
   "research_synthesis_path": ".claude/notes/milestones/E08_S01/research-synthesis.md",
-  "updated_at": "2026-05-10T03:31:54Z"
+  "updated_at": "2026-05-10T04:17:42Z"
 }

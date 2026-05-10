@@ -1,0 +1,111 @@
+{
+  "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/worktrees/gallant-blackburn-b89422/.claude/roadmap",
+  "created_at": "2026-05-07T19:23:56Z",
+  "critics_run": [
+    "adversary"
+  ],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 2,
+    "low": 5,
+    "medium": 8
+  },
+  "critique_path": ".claude/notes/milestones/E03_S01/critique-adversary.md",
+  "deferred_findings": [
+    "F12",
+    "F13",
+    "F15"
+  ],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_required": [],
+  "fixed_findings": [
+    "F1",
+    "F2",
+    "F3",
+    "F4",
+    "F5",
+    "F6",
+    "F7",
+    "F8",
+    "F9",
+    "F10",
+    "F11",
+    "F14"
+  ],
+  "id": "E03_S01",
+  "implementation_base": null,
+  "implementation_branch": "claude/gallant-blackburn-b89422",
+  "implementation_commit_range": "e66077c..8ee41be",
+  "implementation_commits": [
+    "8ee41be"
+  ],
+  "implementation_path": "ingest/embedder.py",
+  "implementation_specialist": "inline",
+  "invalidated_findings": [],
+  "milestone_brief": "### E03_S01 \u2014 `ingest/embedder.py` dual-column BGE-M3 encoder\n\n**Status:** NEW\n**Tier:** 0\n**Effort:** M\n**Dependencies:** E02_S01, E02_S02, E02_S04, E04_S01\n\n**Description.** The embedder loads `BAAI/bge-m3` from a pinned HuggingFace commit SHA (the SHA is defined as a constant `BGE_M3_COMMIT_SHA` in `ingest/embedder.py` and must match the SHA pinned in the project's security manifest per `08-security-observability-ops.md` Threat 6). Loading from a floating tag like `\"BAAI/bge-m3\"` without a SHA is forbidden \u2014 it allows silent model substitution between runs, which would invalidate cached embeddings without a version bump.\n\nEncoding proceeds in batches over all chunks in the LanceDB table (E04_S01). For each chunk, the embedding input is constructed as: `preamble_text + \"\\n\\n\" + body_text`, where `preamble_text` is read from `var/arxmcp/corpus/preamble/<paper_id>/preamble.json` via the `preamble_ref` hash. This view is what BGE-M3 encodes \u2014 it is never stored as a separate column; `body_text` in the table always contains only the raw chunk body.\n\nRouting: for a chunk with `kind=\"stmt\"`, the 1024-dimensional output vector is written to `embedding_stmt`; `embedding_proof` is left NULL. For `kind=\"proof\"`, the vector is written to `embedding_proof`; `embedding_stmt` is left NULL. For `kind=\"section\"` or `kind=\"definition\"`, the vector is written to `embedding_stmt` (the primary search column) and `embedding_proof` is left NULL. A third column `embedding_eq` (1024-dim, nullable FixedSizeList<float32, 1024>) is reserved for the equation embedding index (E10_S03) \u2014 the embedder writes it as NULL for all rows and must not populate it.\n\nBatch size defaults to 32 chunks. On CPU, this produces acceptable throughput for the 50-paper seed corpus. GPU acceleration is an E11 concern. The embedder logs per-paper throughput (chunks/sec) to `var/arxmcp/ops/embed-stats.jsonl` for comparison against E11's scale targets.\n\n**Deliverables.**\n- `ingest/embedder.py` \u2014 public API: `embed_corpus(lancedb_path: str, corpus_path: str, batch_size: int = 32) -> EmbedStats`\n- `BGE_M3_COMMIT_SHA` constant defined in `embedder.py` (must match security manifest)\n- `var/arxmcp/ops/embed-stats.jsonl` \u2014 per-run throughput log\n- `pytest tests/test_embedder.py` \u2014 integration test: embed 5 chunks, assert vector shape (1024,), assert correct column routing\n\n**Acceptance criteria.**\n- [ ] Model loaded from pinned commit SHA, not floating tag. `BGE_M3_COMMIT_SHA` is defined exactly once.\n- [ ] `kind=\"stmt\"` chunks have non-null `embedding_stmt` and null `embedding_proof` after a run.\n- [ ] `kind=\"proof\"` chunks have non-null `embedding_proof` and null `embedding_stmt` after a run.\n- [ ] `embedding_eq` is null on all rows after a run (reserved for E10).\n- [ ] All embedding vectors have shape `(1024,)` and are L2-normalized (BGE-M3 default).\n- [ ] Embedding input = `preamble_text + \"\\n\\n\" + body_text` does not exceed 512 BGE-M3 tokens (enforced by an assertion that logs a warning and truncates to 512 tokens rather than raising \u2014 truncation should be extremely rare if E02_S01 budget enforcement is correct).\n- [ ] `embed-stats.jsonl` entry written per run, including paper count, chunk count, wall-clock seconds, and the pinned `BGE_M3_COMMIT_SHA`.\n- [ ] Integration test passes without GPU (CPU-only mode).\n\n**Out of scope.** Idempotent skip logic (E03_S02). Singleflight for query encoding (E03_S03). HNSW index creation (E04_S01). Query-time encoding (E06 / Sonnet B).\n\n**Risk notes.**\n- **Closes H3** (dual 512-tok columns): the two-column routing enforced here, combined with E02_S01's token budget enforcement and E04_S01's schema, is the complete fix. Reviewers can confirm H3 closure by tracing: E02_S01 (chunk budget) \u2192 E03_S01 (column routing) \u2192 E04_S01 (schema).\n- **Closes H8** (BGE-M3 same model for index and query, no Voyage): this milestone uses BGE-M3 for index-time encoding. E06 (Sonnet B) uses the same `BGE_M3_COMMIT_SHA` constant for query-time encoding. Using a different model for index vs query would invalidate all cosine similarity scores. The constant is shared via `ingest/embedder.py` import to enforce this.\n\n**Labels.** `area:embedder`, `kind:feature`, `tier:0`.\n\n---",
+  "phase": "complete",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-07T19:23:56Z",
+      "left_at": "2026-05-07T19:27:03Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-07T19:27:03Z",
+      "left_at": "2026-05-07T19:36:43Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-07T19:36:43Z",
+      "left_at": "2026-05-07T19:37:11Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-05-07T19:37:11Z",
+      "left_at": "2026-05-07T19:56:02Z",
+      "phase": "implement-running"
+    },
+    {
+      "entered_at": "2026-05-07T19:56:02Z",
+      "left_at": "2026-05-07T19:57:13Z",
+      "phase": "implement-complete"
+    },
+    {
+      "entered_at": "2026-05-07T19:57:13Z",
+      "left_at": "2026-05-07T20:03:01Z",
+      "phase": "critique-running"
+    },
+    {
+      "entered_at": "2026-05-07T20:03:01Z",
+      "left_at": "2026-05-07T20:03:15Z",
+      "phase": "critique-complete"
+    },
+    {
+      "entered_at": "2026-05-07T20:03:15Z",
+      "left_at": "2026-05-07T20:11:17Z",
+      "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-05-07T20:11:17Z",
+      "left_at": null,
+      "phase": "complete"
+    }
+  ],
+  "rectification_commit": "490c850",
+  "regression_tests_added": [
+    "test_failure_writes_fail_status_to_jsonl",
+    "test_error_class_chunk_missing",
+    "test_npz_keys_are_alphabetical",
+    "test_chunker_tokenizer_loaded_with_pinned_revision",
+    "test_run_summary_appended_to_jsonl",
+    "test_per_paper_failure_isolation"
+  ],
+  "research_briefs": [
+    ".claude/notes/milestones/E03_S01/research-brief-1.md",
+    ".claude/notes/milestones/E03_S01/research-brief-2.md"
+  ],
+  "research_mode": "standard",
+  "research_synthesis": ".claude/notes/milestones/E03_S01/research-synthesis.md",
+  "updated_at": "2026-05-07T20:11:17Z"
+}

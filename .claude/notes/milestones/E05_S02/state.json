@@ -1,0 +1,90 @@
+{
+  "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/worktrees/gallant-blackburn-b89422/.claude/roadmap",
+  "created_at": "2026-05-08T23:36:34Z",
+  "critics_run": [],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 2,
+    "low": 4,
+    "medium": 5
+  },
+  "critique_path": null,
+  "deferred_findings": [],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_required": [],
+  "fixed_findings": [],
+  "id": "E05_S02",
+  "implementation_base": null,
+  "implementation_branch": null,
+  "implementation_commit_range": "1bca8a9..0843095",
+  "implementation_commits": [],
+  "implementation_path": null,
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "### E05_S02 \u2014 `tests/eval/test_retrieval_quality.py` \u2014 nDCG@5 + Recall@10 measurement\n\n**Status:** NEW\n**Tier:** 0\n**Effort:** M\n**Dependencies:** E05_S01, E03_S01, E04_S01, E04_S02\n\n**Description.** The retrieval quality test reads `queries.json`, issues each query as an ANN search against the LanceDB `chunks` table (pinned to the current corpus version via `open_chunks_table`), retrieves the top-10 results from `embedding_stmt` and `embedding_proof` (merged and deduped by score), and scores the ranked list against the ground-truth relevance grades using nDCG@5 and Recall@10.\n\n**Metric definitions:**\n- **nDCG@5**: Normalized Discounted Cumulative Gain at rank 5, using graded relevance (0\u20133). `DCG@5 = \u03a3 (rel_i / log2(i+1))` for i=1..5, normalized by ideal DCG@5.\n- **Recall@10**: fraction of grade-3 (\"highly relevant\") chunks for each query that appear in the top-10 ANN results, averaged over all queries.\n\nThe test writes per-query results to `var/arxmcp/ops/eval/results-<corpus_version>.jsonl` (one JSON line per query: `{query_id, query_text, retrieved_chunk_ids, ndcg5, recall10}`). It also writes an aggregate metric file `var/arxmcp/ops/eval/aggregate-<corpus_version>.json` with `{corpus_version, ndcg5_mean, recall10_mean, query_count, timestamp}`. These files are the drift-detection baseline referenced by E11_S04.\n\nThe test fails if `ndcg5_mean` drops below the threshold passed via `pytest --ndcg-min=0.70` (default 0.70 for Tier-0 ANN-only). This pytest argument is implemented as a custom option in `conftest.py`. The threshold can be raised to 0.80 when testing the full hybrid + reranker pipeline (E07, Sonnet B) \u2014 this is the Tier-1 exit criterion.\n\nANN search uses both `embedding_stmt` and `embedding_proof` columns: two ANN queries are issued (one per column), top-k results are merged and sorted by score, deduped by `chunk_id`, and the top 10 are taken. The query embedding uses `encode_query` from `server/query_encoder.py` (E03_S03) \u2014 the same model and same SHA as index time.\n\n**Deliverables.**\n- `tests/eval/test_retrieval_quality.py` \u2014 pytest test using `--ndcg-min` flag\n- `tests/conftest.py` \u2014 `--ndcg-min` option registration\n- `var/arxmcp/ops/eval/results-<corpus_version>.jsonl` \u2014 per-query results (written, not committed)\n- `var/arxmcp/ops/eval/aggregate-<corpus_version>.json` \u2014 aggregate metrics (written, not committed)\n- Metric computation utilities in `tests/eval/metrics.py` (nDCG, Recall)\n\n**Acceptance criteria.**\n- [ ] `pytest tests/eval/test_retrieval_quality.py --ndcg-min=0.70` passes on the 50-paper seed corpus after E03 and E04 are complete.\n- [ ] `pytest tests/eval/test_retrieval_quality.py --ndcg-min=0.50` fails if nDCG@5 is below 0.50 (threshold enforcement verified in test).\n- [ ] Per-query JSONL and aggregate JSON are written to `var/arxmcp/ops/eval/` on each run.\n- [ ] ANN search uses the pinned corpus version from `read_corpus_version()` (E04_S03).\n- [ ] Both `embedding_stmt` and `embedding_proof` columns are searched; results are merged.\n- [ ] `tests/eval/metrics.py` contains standalone `ndcg_at_k` and `recall_at_k` functions with their own unit tests.\n- [ ] Test runtime under 120 seconds for 20 queries against 50-paper corpus.\n\n**Out of scope.** BM25 hybrid retrieval (E07, Sonnet B). Reranker (E07, Sonnet B). Drift detection alerting and CI scheduling (E11_S04 \u2014 this milestone writes the baseline; E11_S04 compares against it on a schedule). Queries beyond math.AG (Tier 1+).\n\n**Risk notes.**\n- **Closes MEDIUM: drift detection (initial implementation).** This milestone produces the baseline metric files that E11_S04's drift watchdog compares against. The initial implementation is a one-shot test; E11_S04 productionizes it as a scheduled job. The file naming convention (`aggregate-<corpus_version>.json`) is forward-compatible with E11's multi-version comparison logic.\n- nDCG@5 \u2265 0.70 for ANN-only (no BM25, no reranker) on a 50-paper math-domain corpus is an ambitious threshold. If the corpus is too small to generate challenging queries, the threshold may be trivially met; if chunking quality is poor, it may not be met at all. The fixture curation (E05_S01) should include at least 5 queries where the relevant chunk is NOT the highest cosine-similarity result, to ensure the threshold is meaningful.\n\n**Labels.** `area:eval`, `kind:test`, `tier:0`.\n\n---",
+  "phase": "complete",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-08T23:36:34Z",
+      "left_at": "2026-05-08T23:36:50Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-08T23:36:50Z",
+      "left_at": "2026-05-09T01:00:14Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-09T01:00:14Z",
+      "left_at": "2026-05-09T01:00:14Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-05-09T01:00:14Z",
+      "left_at": "2026-05-09T01:07:10Z",
+      "phase": "implement-running"
+    },
+    {
+      "entered_at": "2026-05-09T01:07:10Z",
+      "left_at": "2026-05-09T01:07:11Z",
+      "phase": "implement-complete"
+    },
+    {
+      "entered_at": "2026-05-09T01:07:11Z",
+      "left_at": "2026-05-09T01:16:48Z",
+      "phase": "critique-running"
+    },
+    {
+      "entered_at": "2026-05-09T01:16:48Z",
+      "left_at": "2026-05-09T01:16:48Z",
+      "phase": "critique-complete"
+    },
+    {
+      "entered_at": "2026-05-09T01:16:48Z",
+      "left_at": "2026-05-09T01:22:55Z",
+      "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-05-09T01:22:55Z",
+      "left_at": null,
+      "phase": "complete"
+    }
+  ],
+  "rectification_commit": null,
+  "regression_tests_added": [
+    "TestNdcgAtK::test_duplicate_retrieved_raises",
+    "TestNdcgAtK::test_duplicate_retrieved_outside_k_does_not_raise",
+    "TestThresholdCheck::test_nan_score_rejected",
+    "TestThresholdCheck::test_inf_score_rejected",
+    "TestThresholdCheck::test_nan_threshold_rejected",
+    "TestScoreAndWrite::test_above_threshold_writes_files_and_returns",
+    "TestScoreAndWrite::test_below_threshold_raises",
+    "TestScoreAndWrite::test_at_threshold_passes",
+    "TestColumnNamesSourceOfTruth::test_test_module_uses_imported_constant"
+  ],
+  "research_briefs": [],
+  "research_mode": "standard",
+  "research_synthesis": null,
+  "updated_at": "2026-05-09T01:22:55Z"
+}
