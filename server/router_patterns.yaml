@@ -1,0 +1,159 @@
+# Query-router pattern list (E08_S01).
+#
+# Loaded by server/router.py via ``yaml.safe_load`` at import time.
+# Compiled to a tuple of (re.Pattern, RouteTag) module-level constants
+# — first-match wins. Editing this file does NOT require modifying
+# server/router.py (per brief AC #6).
+#
+# ============================================================================
+# Priority order (TOP DOWN — first match wins)
+# ============================================================================
+#
+#   1. AUTOFORMALIZATION  — Lean target = hard mode-switch; highest priority
+#                           so "Prove X in Lean" → AUTOFORMALIZATION beats
+#                           the implicit Synthesis verb.
+#   2. VERIFICATION       — More specific than Lookup; "Verify the definition
+#                           of X" is a validation request, not a name-lookup.
+#   3. LOOKUP             — Most "what is X" / "definition of X" queries
+#                           want retrieval. Beats Synthesis because most
+#                           "what is the proof of X" queries are people
+#                           asking FOR Y's proof to be retrieved (Lookup),
+#                           not assembled (Synthesis).
+#   4. SYNTHESIS          — Reserved for explicit derivation verbs.
+#
+# Default tag on no-match (NOT in this file): RouteTag.LOOKUP — see
+# server/router.py module docstring for rationale.
+#
+# ============================================================================
+# Schema (per-entry)
+# ============================================================================
+#
+#   tag:        one of {LOOKUP, SYNTHESIS, VERIFICATION, AUTOFORMALIZATION}
+#               — must match a RouteTag enum value (typo → import-time fail)
+#   regex:      Python regex string, single-quoted to avoid YAML escape
+#               issues with backslashes. Compiled with re.IGNORECASE.
+#   rationale:  one-line explanation of why this pattern triggers this tag
+#               (reviewable; rationale is part of the audit trail).
+#
+# Patterns operate on the lowercased, NFC-normalized, whitespace-collapsed
+# first 200 characters of the query. ``\b`` is Unicode-aware on str
+# patterns by default in Python 3, so ``\bétale\b`` works.
+#
+# ============================================================================
+
+# ---------------------------------------------------------------------------
+# AUTOFORMALIZATION (priority 1) — Lean / Mathlib / formalize signals
+# ---------------------------------------------------------------------------
+
+- tag: AUTOFORMALIZATION
+  regex: '\blean\b'
+  rationale: |
+    Lean is the formal-verification target language. Any query mentioning
+    Lean is a hard mode-switch to the Autoformalizer agent.
+
+- tag: AUTOFORMALIZATION
+  regex: '\bmathlib\b'
+  rationale: |
+    Mathlib is the Lean 4 mathematical library; mention triggers Lean
+    syntax production by the Autoformalizer.
+
+- tag: AUTOFORMALIZATION
+  regex: '\bformalize\b'
+  rationale: |
+    Explicit formalization request — translate informal math to formal
+    syntax (Lean 4 by convention).
+
+- tag: AUTOFORMALIZATION
+  regex: '\btranslate\b.*\blean\b'
+  rationale: |
+    "Translate X to Lean" — Autoformalizer with a translation framing.
+    Pattern matches across intervening tokens.
+
+# ---------------------------------------------------------------------------
+# VERIFICATION (priority 2) — validation / correctness signals
+# ---------------------------------------------------------------------------
+
+- tag: VERIFICATION
+  regex: '\bverify\b'
+  rationale: |
+    Explicit verification request — agent receives a candidate and
+    must validate it.
+
+- tag: VERIFICATION
+  regex: '\bcheck\b'
+  rationale: |
+    "Check that X" / "check this proof" — validation framing.
+
+- tag: VERIFICATION
+  regex: '\bvalid(ate)?\b'
+  rationale: |
+    "Validate the proof step" / "is this valid?" — same validation intent.
+
+- tag: VERIFICATION
+  regex: '\bcorrect\b'
+  rationale: |
+    "Is X correct?" / "the correct definition of X" — validation lens
+    on the candidate. Note: "correctness proof" may also fire here;
+    classified as Verification since the user is asking for a check.
+
+# ---------------------------------------------------------------------------
+# LOOKUP (priority 3) — named-object retrieval signals
+# ---------------------------------------------------------------------------
+
+- tag: LOOKUP
+  regex: '\bwhat\s+is\b'
+  rationale: |
+    Definitional retrieval. Placed above SYNTHESIS so "what is the proof
+    of X" routes to Lookup (user wants the retrieved proof).
+
+- tag: LOOKUP
+  regex: '\bdefin(e|ition)\b'
+  rationale: |
+    "Define X" / "definition of X" — name → object retrieval.
+
+- tag: LOOKUP
+  regex: '\b(lemma|theorem|corollary|proposition)\s+\d'
+  rationale: |
+    "Theorem 3.4" / "Lemma 2.1" — numbered named-object retrieval.
+
+- tag: LOOKUP
+  regex: '\bnotation\b'
+  rationale: |
+    "What does notation X mean" — symbol/notation lookup.
+
+- tag: LOOKUP
+  regex: '\bstate(ment)?\s+of\b'
+  rationale: |
+    "State the Yoneda lemma" / "statement of theorem X" — retrieve the
+    statement from the corpus.
+
+# ---------------------------------------------------------------------------
+# SYNTHESIS (priority 4) — derivation / proof-assembly signals
+# ---------------------------------------------------------------------------
+
+- tag: SYNTHESIS
+  regex: '\bprove\b'
+  rationale: |
+    Explicit proof request — assemble a proof strategy across multiple
+    chunks.
+
+- tag: SYNTHESIS
+  regex: '\bproof\b'
+  rationale: |
+    "Give a proof of X" — reserved for cases the LOOKUP "what is the
+    proof of" pattern doesn't already grab.
+
+- tag: SYNTHESIS
+  regex: '\bshow\s+that\b'
+  rationale: |
+    "Show that X is true" — derivation framing.
+
+- tag: SYNTHESIS
+  regex: '\bderive\b'
+  rationale: |
+    "Derive X from Y" — derivation framing.
+
+- tag: SYNTHESIS
+  regex: '\bsketch\b'
+  rationale: |
+    "Sketch a proof of X" — proof-strategy synthesis.

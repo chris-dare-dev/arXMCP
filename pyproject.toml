@@ -93,6 +93,12 @@ dependencies = [
     #   single-process registry; multiprocess mode is explicitly NOT
     #   used (the server is single-process by design).
     "prometheus-client>=0.20",
+    # PyYAML: parser for ``server/router_patterns.yaml`` (E08_S01).
+    #   Loaded via ``yaml.safe_load`` only (CVE-2017-18342 — never
+    #   ``yaml.load`` without a Loader). Already a transitive dep
+    #   via transformers / lancedb; declared explicitly to match
+    #   the project's "no implicit deps" discipline.
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]
