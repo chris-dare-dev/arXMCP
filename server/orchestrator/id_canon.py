@@ -91,11 +91,48 @@ def canonicalize_turn(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ``{old_id: new_id}`` mapping in encounter order, and returns a
     deep copy of the input with IDs rewritten.
 
+    .. warning::
+
+        **The orchestrator MUST call this function over the WHOLE
+        accumulated message history each time, NOT over only the
+        newly-added messages.** F1 fix from the E08_S04 critique:
+        the counter is per-call (resets on every invocation). This
+        is consistent with the brief's "per-session monotonically
+        increasing" wording IF AND ONLY IF every call sees the
+        full history, so the same accumulated list produces the
+        same canonical IDs deterministically.
+
+        ❌ WRONG (introduces ID collisions across transitions)::
+
+            # Transition 1
+            ctx = canonicalize_turn([turn_a])
+            # Transition 2 — caller appends turn_b RAW, then calls:
+            ctx.append(turn_b)
+            ctx_partial = canonicalize_turn([turn_b])  # ← only new turn
+            # turn_b's tool_use_id collides with turn_a's id!
+
+        ✅ RIGHT (passes full accumulated history each time)::
+
+            # Transition 1
+            ctx = canonicalize_turn(history + [turn_a])
+            # Transition 2 — pass the FULL accumulated history:
+            ctx = canonicalize_turn(ctx + [turn_b])
+            # turn_a's IDs are preserved; turn_b's IDs are
+            # appended to the same counter sequence.
+
+        The idempotency property is what makes the "full history"
+        pattern safe: re-canonicalizing already-canonical IDs is a
+        no-op, so passing the full history each call costs only the
+        deep-copy work, not extra ID renumbering.
+
     Parameters
     ----------
     messages : list[dict]
         The Anthropic Messages-API conversation history. NOT
-        mutated; a deep copy is returned.
+        mutated; a deep copy is returned. MUST be the FULL
+        accumulated history (see warning above). MUST be a ``list``
+        — passing ``tuple`` or other sequence types raises
+        ``TypeError`` (F10 fix from the E08_S04 critique).
 
     Returns
     -------
@@ -106,6 +143,14 @@ def canonicalize_turn(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         positional — the first encountered ID becomes
         ``"toolu_00000000"``, the second becomes
         ``"toolu_00000001"``, and so on.
+
+    Raises
+    ------
+    TypeError
+        If ``messages`` is not a ``list``. The function's contract
+        is documented as ``list[dict]`` and the deep-copy preserves
+        type — passing a tuple would silently return a tuple,
+        violating the type contract.
 
     Notes
     -----
@@ -127,12 +172,21 @@ def canonicalize_turn(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     every subsequent reference. This preserves the API-required
     pairing invariant.
 
+    **Block with both ``id`` and ``tool_use_id``.** F4 fix from the
+    E08_S04 critique: when a block has BOTH fields (atypical /
+    malformed input), each field is mapped independently — the
+    ``id`` value gets one canonical id; the ``tool_use_id`` value
+    gets another. The pre-fix version short-circuited via
+    ``or`` and silently rewrote ``tool_use_id`` to the canonical
+    of ``id``, destroying the pairing for any later reference to
+    the original ``tool_use_id``.
+
     **Robustness.** Blocks without an id (malformed input) are left
     untouched. Blocks with a type outside
     :data:`ID_CARRYING_BLOCK_TYPES` are left untouched. Messages
     without a ``content`` field are skipped. The function never
-    raises on input shape; it produces a best-effort canonicalized
-    copy.
+    raises on input shape (only on the strict ``list`` type check
+    above); it produces a best-effort canonicalized copy.
 
     Examples
     --------
@@ -155,11 +209,35 @@ def canonicalize_turn(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     >>> canonicalize_turn(result) == result
     True
     """
+    # F10 fix from the E08_S04 critique: strict type check. The
+    # function's contract is ``list[dict]``; a tuple input would
+    # silently return a tuple via copy.deepcopy, violating the
+    # documented return type.
+    if not isinstance(messages, list):
+        raise TypeError(
+            f"canonicalize_turn requires a list[dict] input; got "
+            f"{type(messages).__name__}. Wrap as ``list(messages)`` "
+            f"if the caller has a different sequence type."
+        )
+
     # Deep copy so the caller's original list is preserved.
     canonicalized = copy.deepcopy(messages)
 
     counter = 0
     id_map: dict[str, str] = {}
+
+    def _canonicalize(old_id: str) -> str:
+        """Look up or assign the canonical form for ``old_id``.
+
+        Closure over ``counter`` / ``id_map`` so a single helper
+        serves both ``id`` and ``tool_use_id`` rewrites without
+        risking the pre-F4 bug where one field's value was used
+        for the other field's mapping."""
+        nonlocal counter
+        if old_id not in id_map:
+            id_map[old_id] = CANONICAL_ID_FORMAT.format(counter=counter)
+            counter += 1
+        return id_map[old_id]
 
     for msg in canonicalized:
         if not isinstance(msg, dict):
@@ -173,28 +251,24 @@ def canonicalize_turn(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
             if block.get("type") not in ID_CARRYING_BLOCK_TYPES:
                 continue
 
-            # Extract the original ID. ``tool_use`` blocks use the
-            # ``id`` field; ``tool_result`` blocks use the
-            # ``tool_use_id`` field. The reference pseudocode reads
-            # whichever is present (a block won't have both).
-            old_id = block.get("id") or block.get("tool_use_id")
-            if old_id is None:
-                continue
-
-            # Map to canonical form. Encounter order determines the
-            # counter value; subsequent references to the same
-            # original ID reuse the existing mapping (preserving
-            # the tool_use ↔ tool_result pairing).
-            if old_id not in id_map:
-                id_map[old_id] = CANONICAL_ID_FORMAT.format(counter=counter)
-                counter += 1
-            new_id = id_map[old_id]
-
-            # Rewrite whichever ID field the block carries.
-            if "id" in block:
-                block["id"] = new_id
-            if "tool_use_id" in block:
-                block["tool_use_id"] = new_id
+            # F4 fix from the E08_S04 critique: handle ``id`` and
+            # ``tool_use_id`` INDEPENDENTLY. The pre-fix code did
+            # ``old_id = block.get("id") or block.get("tool_use_id")``
+            # which short-circuited — when both fields are present
+            # (atypical malformed input), only ``id`` was mapped
+            # AND ``tool_use_id`` was silently rewritten to that
+            # same canonical id, destroying the pairing for any
+            # later reference to the original ``tool_use_id``.
+            #
+            # We now map each field separately. A block normally
+            # only carries one of the two (``tool_use`` blocks
+            # carry ``id``; ``tool_result`` blocks carry
+            # ``tool_use_id``); the two-field case is preserved
+            # losslessly by mapping each independently.
+            if "id" in block and block["id"] is not None:
+                block["id"] = _canonicalize(block["id"])
+            if "tool_use_id" in block and block["tool_use_id"] is not None:
+                block["tool_use_id"] = _canonicalize(block["tool_use_id"])
 
     return canonicalized
 

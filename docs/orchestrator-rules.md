@@ -138,6 +138,36 @@ the shared context that agent B will see. Within a single agent's
 run loop the canonicalization is unnecessary (one agent only sees
 its own tool IDs).
 
+> ⚠️ **MUST pass the FULL accumulated history every time** (F1 fix
+> from the E08_S04 critique). The canonical-id counter is per-call,
+> reset to 0 at the start of every `canonicalize_turn` invocation.
+> The brief's "per-session monotonically increasing" wording is
+> satisfied IF AND ONLY IF every call sees the full history, so
+> the same accumulated list produces the same canonical IDs
+> deterministically. The function's idempotency makes this safe:
+> re-canonicalizing already-canonical IDs is a no-op.
+>
+> **❌ WRONG** (introduces ID collisions across transitions):
+>
+> ```python
+> # Transition 1
+> ctx = canonicalize_turn([turn_a])  # turn_a.id = "toolu_00000000"
+> # Transition 2 — only the new turn:
+> ctx_partial = canonicalize_turn([turn_b])  # turn_b.id = "toolu_00000000"
+> # COLLISION: turn_b's id collides with turn_a's id.
+> ```
+>
+> **✅ RIGHT** (passes full accumulated history each time):
+>
+> ```python
+> # Transition 1
+> ctx = canonicalize_turn(history + [turn_a])
+> # Transition 2 — pass the FULL accumulated history:
+> ctx = canonicalize_turn(ctx + [turn_b])
+> # turn_a's ids are preserved; turn_b's ids are appended to the
+> # same counter sequence (toolu_00000001, toolu_00000002, ...).
+> ```
+
 ### Mutation discipline
 
 The function returns a **deep copy**. The input list is not
@@ -205,6 +235,41 @@ The agent can parse `structuredContent` and react accordingly. The
 `text` block carries the same payload for clients that read only
 `content[0].text`.
 
+#### Why `result.isError=true` rather than a JSON-RPC error envelope
+
+The MCP 2025-06-18 spec defines two error-signaling shapes for
+`tools/call`:
+
+1. **Tool execution error** — the tool ran but produced an error.
+   Signaled via `CallToolResult.isError=true` with the error
+   detail in the `content` / `structuredContent` payload. The
+   agent's tool-handling loop receives this as a regular tool
+   result it can read and react to.
+2. **JSON-RPC protocol error** — the tool could not be invoked
+   at all (e.g., malformed request, unknown method). Signaled via
+   the JSON-RPC `{"error": {"code": ..., "message": ...}}`
+   envelope. Most SDKs surface this as a thrown exception.
+
+A cap rejection sits on the boundary between these two: the tool
+was not invoked (server-level refusal), but the agent absolutely
+needs to reason about the rejection (proceed with already-retrieved
+chunks, NOT crash). We chose `result.isError=true` because:
+
+- The agent's natural processing path is the tool-result handler,
+  not the exception handler. Many agent SDKs surface JSON-RPC
+  errors as exceptions that abort the run loop — exactly what we
+  do NOT want for a recoverable cap rejection.
+- The structured payload (with `code`, `tool`, `limit`,
+  `session_attempted_count`) is richer than a JSON-RPC error
+  string and easier for the agent to parse programmatically.
+- The MCP spec permits `isError=true` for any tool-side error;
+  while server-level refusals lean toward the JSON-RPC envelope,
+  the spec doesn't strictly forbid the `isError=true` form.
+
+This is a deliberate UX choice (F8 fix from the E08_S04 critique).
+A future MCP spec revision that makes the boundary stricter would
+warrant revisiting.
+
 ### Caps survive cache hits
 
 The cap counts ALL calls to a capped tool — including calls that
@@ -256,10 +321,13 @@ session-id, the tool name, the attempted count, and the limit.
 
 The E08_S04 brief specifies the canonicalize_turn test at
 `server/orchestrator/test_id_canon.py`. The project's `pyproject.toml`
-pins `testpaths = ["tests"]`, so a test under `server/orchestrator/`
-would not be collected by plain `pytest`. To match the project-wide
-convention and ensure CI runs the test, the actual test file lives at
-`tests/test_id_canon.py`. The brief AC ("`pytest server/orchestrator/test_id_canon.py`
-passes") is satisfied because the test passes when invoked at any
-path. The location is a deliberate deviation per E08_S04 research
-synthesis D1.
+pins `testpaths = ["tests"]`, so a test file under
+`server/orchestrator/` would not be collected by plain `pytest`.
+
+**The full test suite lives at `tests/test_id_canon.py`** to match
+project convention; CI's plain `pytest` picks it up there. A
+**re-export stub at `server/orchestrator/test_id_canon.py`**
+(F3 fix from the E08_S04 critique) re-imports the test classes so
+the literal AC ("`pytest server/orchestrator/test_id_canon.py`
+passes") is satisfied. Running either path collects and runs the
+same tests.

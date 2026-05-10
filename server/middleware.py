@@ -72,9 +72,20 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from collections.abc import Awaitable, Callable
 from typing import Any
 from urllib.parse import urlparse
+
+# F5 fix from the E08_S04 critique: hoist the SessionCapMiddleware's
+# server.session import to the top. The previous local-import
+# pattern was annotated "cyclic-safe" but no cycle exists
+# (server.session imports only stdlib).
+from server.session import (
+    TOOLS_WITH_CAPS,
+    check_and_increment,
+    get_or_create_session,
+)
 
 # Dedicated security logger so ops can route security events
 # separately. F6: every reject path emits a WARN line.
@@ -698,6 +709,22 @@ _MCP_PATH_PREFIX = "/mcp"
 #: through unchanged.
 _MCP_TOOLS_CALL_METHOD = "tools/call"
 
+#: F2 fix from the E08_S04 critique: strict format check on
+#: ``mcp-session-id`` to narrow the spoofing attack surface. The
+#: FastMCP ``StreamableHTTPSessionManager`` issues session ids via
+#: ``uuid4().hex`` — a 32-char lowercase hex string. A spoofed
+#: session id that does NOT match this pattern is rejected from
+#: cap accounting; the cap behaves AS IF the header were absent
+#: (skip cap, pass through; FastMCP itself will then reject the
+#: malformed session-id with HTTP 404).
+#:
+#: An attacker can still rotate proper-looking UUID4 hex strings to
+#: defeat the cap on the FIRST request per id (FastMCP would reject
+#: subsequent requests with HTTP 404). The complete fix requires
+#: coupling the cap middleware to the FastMCP session manager's
+#: issued-id registry — out of scope for v1; tracked as a follow-up.
+_VALID_SESSION_ID_RE: re.Pattern[str] = re.compile(r"^[0-9a-f]{32}$")
+
 
 class SessionCapMiddleware:
     """Enforce per-session retrieval caps on ``tools/call`` invocations.
@@ -783,6 +810,22 @@ class SessionCapMiddleware:
             await self.app(scope, receive, send)
             return
 
+        # F2 fix from the E08_S04 critique: strict UUID4-hex format
+        # check on the session-id. Spoofed session-ids that don't
+        # match the FastMCP-issued format are excluded from cap
+        # accounting — the request still forwards to FastMCP which
+        # will reject the unknown session-id with HTTP 404. The cap
+        # only applies to session-ids that PLAUSIBLY came from the
+        # FastMCP session manager.
+        if not _VALID_SESSION_ID_RE.match(session_id):
+            logger.debug(
+                "SessionCapMiddleware: session-id %r does not match "
+                "the UUID4-hex format; skipping cap enforcement",
+                session_id[:16],
+            )
+            await self.app(scope, receive, send)
+            return
+
         # Buffer the request body so we can inspect it AND replay it
         # to the inner app. Same eager-pre-read shape as the
         # RequestBodySizeLimitMiddleware F1 fix.
@@ -816,13 +859,8 @@ class SessionCapMiddleware:
             tool_name = None  # malformed body → forward unchanged
 
         # If the body is not a tools/call OR the tool isn't capped,
-        # replay the buffered events to the inner app.
-        from server.session import (  # local import: cyclic-safe
-            TOOLS_WITH_CAPS,
-            check_and_increment,
-            get_or_create_session,
-        )
-
+        # replay the buffered events to the inner app. (F5 fix: the
+        # local import was hoisted to module-top; no cycle exists.)
         if tool_name is None or tool_name not in TOOLS_WITH_CAPS:
             await self._replay_to_app(scope, send, buffered_events)
             return
@@ -857,6 +895,16 @@ class SessionCapMiddleware:
             "RETRIEVAL_CAP_REACHED: session=%s tool=%s attempted=%d limit=%d",
             session_id[:16], tool_name, count, limit,
         )
+        # F9 fix from the E08_S04 critique: surface the rejection as
+        # a Prometheus counter so operators can see how often caps
+        # fire. The cap middleware short-circuits BEFORE FastMCP, so
+        # any FastMCP-side per-tool counter would NOT see this event.
+        try:
+            from server.metrics import RETRIEVAL_CAP_REJECTIONS_COUNTER
+
+            RETRIEVAL_CAP_REJECTIONS_COUNTER.labels(tool=tool_name).inc()
+        except Exception:  # noqa: BLE001
+            logger.debug("metrics inc failed", exc_info=True)
         cap_payload = _retrieval_cap_payload(tool_name, count, limit)
         rpc_response = {
             "jsonrpc": "2.0",

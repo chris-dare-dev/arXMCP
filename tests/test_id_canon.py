@@ -375,3 +375,117 @@ class TestFourAgentFanoutExample:
             ("id", "toolu_00000003"),
             ("tool_use_id", "toolu_00000003"),
         ]
+
+
+# ===========================================================================
+# E08_S04 critique rectification guards (F1, F4, F10)
+# ===========================================================================
+
+
+import pytest  # noqa: E402
+
+
+class TestRectificationGuards:
+    """Regression guards for the E08_S04 critique findings F1
+    (counter contract), F4 (id+tool_use_id co-occurrence), and F10
+    (strict list type check)."""
+
+    def test_f1_growing_history_preserves_old_canonical_ids(self):
+        """F1 fix: when the orchestrator passes the FULL accumulated
+        history each transition, previously-canonicalized ids stay
+        stable. This is the contract documented in the docstring's
+        ``When to call`` section.
+
+        Simulates a two-transition orchestration:
+        - Transition 1: history = [turn_a]
+        - Transition 2: history = [turn_a, turn_b] (full)
+
+        After transition 2, turn_a's ids must be the SAME as after
+        transition 1. The cross-agent prompt prefix only stays
+        cacheable if this holds."""
+        turn_a_use = _tool_use("toolu_01A", name="search_papers")
+        turn_a_result = _tool_result("toolu_01A")
+        turn_b_use = _tool_use("toolu_02B", name="get_chunk")
+
+        # Transition 1
+        ctx_after_t1 = canonicalize_turn([
+            _msg("assistant", [turn_a_use]),
+            _msg("user", [turn_a_result]),
+        ])
+        t1_id = ctx_after_t1[0]["content"][0]["id"]
+        t1_result_id = ctx_after_t1[1]["content"][0]["tool_use_id"]
+        assert t1_id == "toolu_00000000"
+        assert t1_result_id == "toolu_00000000"
+
+        # Transition 2 — pass the FULL history to canonicalize_turn.
+        # We simulate the orchestrator-side append by combining
+        # ctx_after_t1 with the new turn_b. The full-history call
+        # MUST keep turn_a's ids unchanged.
+        full_history = ctx_after_t1 + [
+            _msg("assistant", [turn_b_use]),
+        ]
+        ctx_after_t2 = canonicalize_turn(full_history)
+        # turn_a's ids unchanged.
+        assert ctx_after_t2[0]["content"][0]["id"] == t1_id
+        assert ctx_after_t2[1]["content"][0]["tool_use_id"] == t1_result_id
+        # turn_b's id appended to the same counter sequence.
+        assert ctx_after_t2[2]["content"][0]["id"] == "toolu_00000001"
+
+    def test_f1_partial_history_call_collides_documented_anti_pattern(self):
+        """F1 negative-path: calling canonicalize_turn over only the
+        NEW turn (without the full accumulated history) collides
+        with previously-canonicalized ids — the documented
+        ``❌ WRONG`` anti-pattern. This test proves the anti-pattern
+        DOES collide so a future contributor doesn't think the
+        contract can be relaxed."""
+        # First transition canonicalized turn_a → toolu_00000000.
+        # Second transition (BAD: only-new-turn) canonicalizes
+        # turn_b → toolu_00000000 also. COLLISION.
+        bad_partial = canonicalize_turn([
+            _msg("assistant", [_tool_use("toolu_02B", name="get_chunk")]),
+        ])
+        assert bad_partial[0]["content"][0]["id"] == "toolu_00000000"
+        # If the orchestrator concatenates this with a full-history
+        # ctx that ALSO has toolu_00000000, the cross-id pairing
+        # is destroyed. Hence the docstring's "MUST pass full
+        # history each time" warning.
+
+    def test_f4_block_with_both_id_and_tool_use_id_maps_each_independently(self):
+        """F4 fix: when a block carries BOTH ``id`` and
+        ``tool_use_id`` (atypical malformed input), each field is
+        mapped independently. The pre-fix code short-circuited via
+        ``or`` and silently rewrote ``tool_use_id`` to the canonical
+        of ``id``, destroying the pairing for any later reference
+        to the original ``tool_use_id``."""
+        # Block carries id=A AND tool_use_id=B (different values).
+        messages = [
+            _msg("assistant", [{
+                "type": "tool_use",
+                "id": "toolu_FIELD_ID",
+                "tool_use_id": "toolu_FIELD_TUI",
+                "name": "x", "input": {},
+            }]),
+            # Later reference to the tool_use_id value.
+            _msg("user", [_tool_result("toolu_FIELD_TUI")]),
+        ]
+        out = canonicalize_turn(messages)
+        # Two distinct source ids → two distinct canonical ids.
+        block = out[0]["content"][0]
+        assert block["id"] == "toolu_00000000"
+        assert block["tool_use_id"] == "toolu_00000001"
+        # The later tool_result reference to FIELD_TUI maps to the
+        # SAME canonical as the original tool_use_id field (preserves
+        # the semantic pairing).
+        assert out[1]["content"][0]["tool_use_id"] == "toolu_00000001"
+
+    def test_f10_non_list_input_raises_type_error(self):
+        """F10 fix: strict type check on the input. Passing a tuple
+        previously round-tripped via copy.deepcopy and returned a
+        tuple — violating the documented ``list[dict]`` return type.
+        Now raises TypeError."""
+        with pytest.raises(TypeError, match="list\\[dict\\] input"):
+            canonicalize_turn(({"role": "assistant", "content": []},))  # type: ignore[arg-type]
+        with pytest.raises(TypeError):
+            canonicalize_turn("not a list")  # type: ignore[arg-type]
+        with pytest.raises(TypeError):
+            canonicalize_turn(None)  # type: ignore[arg-type]

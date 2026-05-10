@@ -128,6 +128,25 @@ CACHE_PAYLOAD_SKIPS_COUNTER: Counter = Counter(
 
 
 # ---------------------------------------------------------------------------
+# Retrieval-cap metric (E08_S04)
+# ---------------------------------------------------------------------------
+
+#: F9 fix from the E08_S04 critique: count RETRIEVAL_CAP_REACHED
+#: rejections per tool. The cap middleware short-circuits BEFORE
+#: FastMCP, so FastMCP-side per-tool counters do NOT see cap
+#: rejections. Without this counter, operators can't tell how often
+#: the caps fire — a key signal for tuning the limits.
+RETRIEVAL_CAP_REJECTIONS_COUNTER: Counter = Counter(
+    "arxmcp_retrieval_cap_rejections_total",
+    "Total number of `tools/call` requests rejected by the per-MCP-"
+    "session retrieval cap. Labeled by tool name (`search_papers` or "
+    "`get_chunk`). When this rises, the configured caps may be too "
+    "tight or an upstream agent may be in a runaway-retrieval loop.",
+    labelnames=["tool"],
+)
+
+
+# ---------------------------------------------------------------------------
 # Tier label constants — string-typed so label space stays canonical
 # ---------------------------------------------------------------------------
 
@@ -195,6 +214,9 @@ def reset_cache_metrics_for_tests() -> None:
     # Reset the payload-skip counter for every reason label seen so far.
     for reason in ("non_serializable",):
         CACHE_PAYLOAD_SKIPS_COUNTER.labels(reason=reason)._value.set(0)
+    # Reset the retrieval-cap rejections counter (E08_S04).
+    for tool in ("search_papers", "get_chunk"):
+        RETRIEVAL_CAP_REJECTIONS_COUNTER.labels(tool=tool)._value.set(0)
 
 
 __all__ = [
@@ -204,6 +226,7 @@ __all__ = [
     "CACHE_HITS_COUNTER",
     "CACHE_LOOKUPS_COUNTER",
     "CACHE_PAYLOAD_SKIPS_COUNTER",
+    "RETRIEVAL_CAP_REJECTIONS_COUNTER",
     "TIER_1",
     "TIER_2",
     "TIER_3",

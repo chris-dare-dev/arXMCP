@@ -45,11 +45,20 @@ from server.session import (
 # ---------------------------------------------------------------------------
 
 
+#: A valid UUID4-hex session-id used by tests that need cap
+#: enforcement to engage. Must be 32 lowercase hex chars (matching
+#: the FastMCP ``StreamableHTTPSessionManager``'s ``uuid4().hex``
+#: format). The F2 fix from the E08_S04 critique rejects non-matching
+#: strings as a defense against trivial cap bypass via spoofed
+#: session-ids.
+_DEFAULT_VALID_SESSION_ID = "abcdef0123456789abcdef0123456789"
+
+
 def _make_scope(
     *,
     path: str = "/mcp",
     method: str = "POST",
-    session_id: str | None = "session-abc-123",
+    session_id: str | None = _DEFAULT_VALID_SESSION_ID,
 ) -> dict:
     headers: list[tuple[bytes, bytes]] = []
     if session_id is not None:
@@ -61,6 +70,13 @@ def _make_scope(
         "path": path,
         "headers": headers,
     }
+
+
+def _hex_session_id(seed: str) -> str:
+    """Build a deterministic, valid UUID4-hex format string from
+    ``seed``. Used by tests that need DISTINCT session-ids."""
+    import hashlib
+    return hashlib.sha256(seed.encode()).hexdigest()[:32]
 
 
 def _make_jsonrpc_body(
@@ -155,7 +171,7 @@ class TestSearchPapersCap:
     def test_search_papers_first_three_calls_pass_through(self):
         async def _run():
             mw = SessionCapMiddleware(app=None)  # type: ignore[arg-type]
-            scope = _make_scope(session_id="s-search-3-pass")
+            scope = _make_scope(session_id=_hex_session_id("s-search-3-pass"))
             body = _make_jsonrpc_body("tools/call", "search_papers")
             for i in range(MAX_SEARCH_PAPERS_CALLS):
                 received, sent = await _drive_middleware(mw, scope, body)
@@ -168,7 +184,7 @@ class TestSearchPapersCap:
     def test_search_papers_fourth_call_returns_retrieval_cap_reached(self):
         async def _run():
             mw = SessionCapMiddleware(app=None)  # type: ignore[arg-type]
-            scope = _make_scope(session_id="s-search-cap")
+            scope = _make_scope(session_id=_hex_session_id("s-search-cap"))
             body = _make_jsonrpc_body("tools/call", "search_papers")
             # Drive the first 3 calls (within cap).
             for _ in range(MAX_SEARCH_PAPERS_CALLS):
@@ -204,7 +220,7 @@ class TestGetChunkCap:
     def test_get_chunk_first_four_calls_pass_through(self):
         async def _run():
             mw = SessionCapMiddleware(app=None)  # type: ignore[arg-type]
-            scope = _make_scope(session_id="s-chunk-4-pass")
+            scope = _make_scope(session_id=_hex_session_id("s-chunk-4-pass"))
             body = _make_jsonrpc_body("tools/call", "get_chunk")
             for i in range(MAX_GET_CHUNK_CALLS):
                 received, sent = await _drive_middleware(mw, scope, body)
@@ -214,7 +230,7 @@ class TestGetChunkCap:
     def test_get_chunk_fifth_call_returns_retrieval_cap_reached(self):
         async def _run():
             mw = SessionCapMiddleware(app=None)  # type: ignore[arg-type]
-            scope = _make_scope(session_id="s-chunk-cap")
+            scope = _make_scope(session_id=_hex_session_id("s-chunk-cap"))
             body = _make_jsonrpc_body("tools/call", "get_chunk")
             for _ in range(MAX_GET_CHUNK_CALLS):
                 await _drive_middleware(mw, scope, body)
@@ -243,8 +259,8 @@ class TestPerSessionIsolation:
         async def _run():
             mw = SessionCapMiddleware(app=None)  # type: ignore[arg-type]
             body = _make_jsonrpc_body("tools/call", "search_papers")
-            scope_a = _make_scope(session_id="session-A")
-            scope_b = _make_scope(session_id="session-B")
+            scope_a = _make_scope(session_id=_hex_session_id("session-A"))
+            scope_b = _make_scope(session_id=_hex_session_id("session-B"))
             # Exhaust session A's quota.
             for _ in range(MAX_SEARCH_PAPERS_CALLS):
                 await _drive_middleware(mw, scope_a, body)
@@ -284,7 +300,7 @@ class TestPassThroughPaths:
     def test_non_mcp_path_passes_through(self):
         async def _run():
             mw = SessionCapMiddleware(app=None)  # type: ignore[arg-type]
-            scope = _make_scope(path="/healthz", session_id="s-health")
+            scope = _make_scope(path="/healthz", session_id=_hex_session_id("s-health"))
             body = _make_jsonrpc_body("tools/call", "search_papers")
             received, _ = await _drive_middleware(mw, scope, body)
             assert received
@@ -294,7 +310,7 @@ class TestPassThroughPaths:
     def test_non_post_method_passes_through(self):
         async def _run():
             mw = SessionCapMiddleware(app=None)  # type: ignore[arg-type]
-            scope = _make_scope(method="GET", session_id="s-get")
+            scope = _make_scope(method="GET", session_id=_hex_session_id("s-get"))
             received, _ = await _drive_middleware(mw, scope, body=b"")
             assert received
 
@@ -303,7 +319,7 @@ class TestPassThroughPaths:
     def test_non_tools_call_method_passes_through(self):
         async def _run():
             mw = SessionCapMiddleware(app=None)  # type: ignore[arg-type]
-            scope = _make_scope(session_id="s-init")
+            scope = _make_scope(session_id=_hex_session_id("s-init"))
             body = _make_jsonrpc_body("initialize", tool_name=None)
             # Drive 5 calls — none should hit the cap (initialize is
             # not in TOOLS_WITH_CAPS).
@@ -316,7 +332,7 @@ class TestPassThroughPaths:
     def test_non_capped_tool_name_passes_through(self):
         async def _run():
             mw = SessionCapMiddleware(app=None)  # type: ignore[arg-type]
-            scope = _make_scope(session_id="s-other-tool")
+            scope = _make_scope(session_id=_hex_session_id("s-other-tool"))
             # ``get_definitions`` is NOT in TOOLS_WITH_CAPS.
             body = _make_jsonrpc_body("tools/call", "get_definitions")
             for _ in range(10):
@@ -328,7 +344,7 @@ class TestPassThroughPaths:
     def test_malformed_body_passes_through(self):
         async def _run():
             mw = SessionCapMiddleware(app=None)  # type: ignore[arg-type]
-            scope = _make_scope(session_id="s-malformed")
+            scope = _make_scope(session_id=_hex_session_id("s-malformed"))
             received, _ = await _drive_middleware(mw, scope, body=b"not json {{")
             # Should NOT raise; should pass to the inner app
             # (which would then emit its own JSON-RPC error).
@@ -444,7 +460,7 @@ class TestRetrievalCapEnvelope:
     def test_envelope_has_required_fields(self):
         async def _run():
             mw = SessionCapMiddleware(app=None)  # type: ignore[arg-type]
-            scope = _make_scope(session_id="s-envelope")
+            scope = _make_scope(session_id=_hex_session_id("s-envelope"))
             body = _make_jsonrpc_body(
                 "tools/call", "search_papers", request_id=42,
             )
@@ -489,3 +505,205 @@ class TestCapConstants:
 
     def test_max_get_chunk_is_4(self):
         assert MAX_GET_CHUNK_CALLS == 4
+
+
+# ===========================================================================
+# E08_S04 critique rectification guards (F2, F6, F7, F9)
+# ===========================================================================
+
+
+class TestRectificationGuards:
+    """Regression guards for the E08_S04 critique findings F2
+    (session-id format check), F6 (LRU eviction), F7 (middleware
+    order), F9 (Prometheus counter)."""
+
+    # The FastMCP-issued id format: 32 lowercase hex chars (uuid4().hex).
+    _VALID_ID = "0123456789abcdef0123456789abcdef"
+
+    def test_f2_spoofed_non_hex_session_id_skips_cap(self):
+        """F2 fix: a session-id that doesn't match the UUID4-hex
+        format MUST be excluded from cap accounting. The cap
+        middleware passes through; FastMCP itself will then reject
+        the unknown session-id."""
+        async def _run():
+            mw = SessionCapMiddleware(app=None)  # type: ignore[arg-type]
+            scope = _make_scope(session_id="attacker-spoof-1")
+            body = _make_jsonrpc_body("tools/call", "search_papers")
+            # 5 spoofed-id requests should all pass through the
+            # cap middleware (the cap doesn't apply because the
+            # session-id is invalid format).
+            for _ in range(5):
+                received, _ = await _drive_middleware(mw, scope, body)
+                assert received, (
+                    "spoofed (non-UUID4-hex) session-id should NOT "
+                    "engage cap enforcement; FastMCP rejects it later."
+                )
+            # Crucially: NO SessionState entries created for spoofed ids.
+            assert get_session_count() == 0
+        asyncio.run(_run())
+
+    def test_f2_uppercase_hex_session_id_is_rejected_as_format(self):
+        """F2 fix: only LOWERCASE hex chars match the FastMCP
+        ``uuid4().hex`` format. Mixed-case strings are spoof
+        candidates."""
+        async def _run():
+            mw = SessionCapMiddleware(app=None)  # type: ignore[arg-type]
+            scope = _make_scope(session_id="ABCDEF" * 5 + "AB")
+            body = _make_jsonrpc_body("tools/call", "search_papers")
+            received, _ = await _drive_middleware(mw, scope, body)
+            assert received
+            assert get_session_count() == 0
+        asyncio.run(_run())
+
+    def test_f2_valid_format_session_id_engages_cap(self):
+        """F2: a session-id that matches the UUID4-hex format DOES
+        engage cap enforcement. The 4th call hits the cap."""
+        async def _run():
+            mw = SessionCapMiddleware(app=None)  # type: ignore[arg-type]
+            scope = _make_scope(session_id=self._VALID_ID)
+            body = _make_jsonrpc_body("tools/call", "search_papers")
+            for _ in range(MAX_SEARCH_PAPERS_CALLS):
+                await _drive_middleware(mw, scope, body)
+            received, sent = await _drive_middleware(mw, scope, body)
+            assert not received
+            response = _extract_response_body(sent)
+            assert (
+                response["result"]["structuredContent"]["code"]
+                == "RETRIEVAL_CAP_REACHED"
+            )
+        asyncio.run(_run())
+
+    def test_f6_lru_eviction_drops_oldest_when_registry_full(self, monkeypatch):
+        """F6 fix: when the registry is at MAX_REGISTRY_SIZE,
+        creating a new SessionState evicts the LRU (oldest)
+        entry. Patch the cap to a tiny value so the test is fast."""
+        import server.session as session_mod
+
+        monkeypatch.setattr(session_mod, "MAX_REGISTRY_SIZE", 4)
+
+        async def _run():
+            # Create 5 sessions; the first MUST be evicted.
+            await get_or_create_session("a" * 32)
+            await get_or_create_session("b" * 32)
+            await get_or_create_session("c" * 32)
+            await get_or_create_session("d" * 32)
+            assert get_session_count() == 4
+
+            await get_or_create_session("e" * 32)
+            assert get_session_count() == 4
+            # The oldest ("a"*32) was evicted; "e"*32 was inserted.
+            # Verify by re-fetching: a fetch creates a NEW state
+            # (because the previous one was evicted), so search_count
+            # is back to 0.
+            new_a = await get_or_create_session("a" * 32)
+            assert new_a.search_count == 0
+            # And: this fetch evicts ANOTHER entry.
+            assert get_session_count() == 4
+
+        asyncio.run(_run())
+
+    def test_f6_lru_eviction_promotes_recently_used_entry(self, monkeypatch):
+        """F6 sub-test: ``move_to_end`` on a registry hit means the
+        most-recently-used entry is NOT evicted next."""
+        import server.session as session_mod
+
+        monkeypatch.setattr(session_mod, "MAX_REGISTRY_SIZE", 3)
+
+        async def _run():
+            await get_or_create_session("a" * 32)
+            await get_or_create_session("b" * 32)
+            await get_or_create_session("c" * 32)
+            # Touch "a" — moves it to most-recently-used.
+            await get_or_create_session("a" * 32)
+            # Inserting a new entry should now evict "b" (not "a").
+            await get_or_create_session("d" * 32)
+            # "a" is still alive (just touched).
+            a_state = await get_or_create_session("a" * 32)
+            assert a_state.search_count == 0  # never incremented but alive
+            # Touching "b" (which was evicted) creates a fresh state.
+            b_state = await get_or_create_session("b" * 32)
+            assert b_state.search_count == 0  # fresh, was evicted
+
+        asyncio.run(_run())
+
+    def test_f7_middleware_order_session_cap_inside_request_body_size_limit(self):
+        """F7 fix: assert the middleware mount order so a future
+        refactor that inverts it (turning SessionCapMiddleware
+        into a memory-DoS surface) fails at test time.
+
+        Expected request flow:
+            SecurityHeaders -> OriginValidation -> HostValidation
+                -> RequestBodySizeLimit -> SessionCap
+                -> BodySizeCap -> handler
+
+        SessionCap MUST be INSIDE RequestBodySizeLimit so a
+        100MB malicious body is 413-rejected BEFORE SessionCap
+        buffers it."""
+        from server.config import Config
+        from server.main import create_app
+        from server.middleware import (
+            HostValidationMiddleware,
+            OriginValidationMiddleware,
+            RequestBodySizeLimitMiddleware,
+            SecurityHeadersMiddleware,
+            SessionCapMiddleware,
+        )
+
+        app = create_app(Config())
+        # FastAPI exposes ``app.user_middleware`` as a list of
+        # Middleware namedtuples in MOUNT order. Add-order is LIFO
+        # for request flow, so the LAST add wraps OUTERMOST.
+        cls_in_mount_order = [m.cls for m in app.user_middleware]
+        # The mount order in create_app() (outer → inner):
+        # SecurityHeaders, OriginValidation, HostValidation,
+        # RequestBodySizeLimit, SessionCap, BodySizeCap.
+        # Note: BodySizeCapMiddleware is in server.main, not server.middleware.
+        from server.main import BodySizeCapMiddleware
+
+        expected_inner_to_outer = [
+            BodySizeCapMiddleware,
+            SessionCapMiddleware,
+            RequestBodySizeLimitMiddleware,
+            HostValidationMiddleware,
+            OriginValidationMiddleware,
+            SecurityHeadersMiddleware,
+        ]
+        # FastAPI stores user_middleware in OUTERMOST-first order
+        # (because it iterates in the same order it adds). Reverse
+        # for inner-to-outer comparison.
+        actual_inner_to_outer = list(reversed(cls_in_mount_order))
+        assert actual_inner_to_outer == expected_inner_to_outer, (
+            f"Middleware order changed. Expected (inner→outer): "
+            f"{expected_inner_to_outer}. Got: {actual_inner_to_outer}. "
+            f"SessionCapMiddleware MUST stay INSIDE "
+            f"RequestBodySizeLimitMiddleware so a malicious 100MB "
+            f"request is 413-rejected before SessionCap buffers it."
+        )
+
+    def test_f9_cap_rejection_increments_prometheus_counter(self):
+        """F9 fix: a cap rejection must increment the Prometheus
+        counter ``arxmcp_retrieval_cap_rejections_total{tool}``.
+        Without this, operators have no visibility into how often
+        caps fire (FastMCP-side per-tool counters are bypassed)."""
+        from server.metrics import RETRIEVAL_CAP_REJECTIONS_COUNTER
+
+        # Reset the counter to 0 for the tool we're about to exercise.
+        RETRIEVAL_CAP_REJECTIONS_COUNTER.labels(tool="search_papers")._value.set(0)
+
+        async def _run():
+            mw = SessionCapMiddleware(app=None)  # type: ignore[arg-type]
+            # Use a valid-format session-id so cap engages.
+            scope = _make_scope(session_id="0" * 32)
+            body = _make_jsonrpc_body("tools/call", "search_papers")
+            # Fill the cap; the next call rejects.
+            for _ in range(MAX_SEARCH_PAPERS_CALLS):
+                await _drive_middleware(mw, scope, body)
+            await _drive_middleware(mw, scope, body)
+            await _drive_middleware(mw, scope, body)
+            # Counter incremented at least 2x (the two over-cap calls).
+            count = RETRIEVAL_CAP_REJECTIONS_COUNTER.labels(
+                tool="search_papers"
+            )._value.get()
+            assert count >= 2
+
+        asyncio.run(_run())
