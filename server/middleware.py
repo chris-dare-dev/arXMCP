@@ -684,6 +684,249 @@ class RequestBodySizeLimitMiddleware:
         await self.app(scope, replayed_receive, send)
 
 
+# ---------------------------------------------------------------------------
+# SessionCapMiddleware (E08_S04 — hard retrieval caps)
+# ---------------------------------------------------------------------------
+
+
+#: Path prefix for the FastMCP transport. The cap middleware is a
+#: no-op on every other path (health, metrics, debug, future routes).
+_MCP_PATH_PREFIX = "/mcp"
+
+#: JSON-RPC method whose body we inspect for tool-name matching.
+#: Other methods (``initialize``, ``ping``, ``tools/list``, ...) pass
+#: through unchanged.
+_MCP_TOOLS_CALL_METHOD = "tools/call"
+
+
+class SessionCapMiddleware:
+    """Enforce per-session retrieval caps on ``tools/call`` invocations.
+
+    E08_S04 Rule 2: max 3 ``search_papers`` and 4 ``get_chunk`` calls
+    per ``Mcp-Session-Id``. When a cap is reached, the middleware
+    short-circuits with a ``RETRIEVAL_CAP_REACHED`` structured error
+    in the JSON-RPC response — the agent sees a tool-result-like
+    payload it can parse and react to (proceed with already-retrieved
+    chunks).
+
+    **Where in the stack.** Mounted on the FastAPI app between
+    ``OriginValidationMiddleware`` (must pass origin check before
+    we waste time parsing the body) and ``BodySizeCapMiddleware``
+    (so a cap-rejection response is itself capped). The cap is
+    enforced on POST requests to ``/mcp`` whose JSON-RPC body has
+    ``"method": "tools/call"`` AND whose ``params.name`` is one of
+    the cap-tracked tools (per :data:`server.session.TOOLS_WITH_CAPS`).
+
+    **Body buffering.** The middleware MUST read the JSON-RPC body
+    BEFORE forwarding to the FastMCP app to inspect the method +
+    tool name. This means we eager-buffer the request body (same
+    pattern :class:`RequestBodySizeLimitMiddleware` uses for its
+    F1 fix) and replay it through a synthetic ``receive`` callable
+    on the pass-through path. The buffering cost is bounded by the
+    upstream :class:`RequestBodySizeLimitMiddleware`'s 1 MB cap.
+
+    **Missing session-id.** If ``mcp-session-id`` is absent from
+    the request headers (which happens on the ``initialize`` call
+    AND for stateless clients that don't carry the header on every
+    request), the middleware skips cap enforcement and forwards
+    unchanged. This matches the project's "cache is performance,
+    not correctness" framing — a stateless client that bypasses the
+    cap is by definition not in a runaway-loop scenario (no shared
+    state to loop with).
+
+    **Body parsing failures.** If the JSON-RPC body is malformed,
+    not JSON, or doesn't have the expected shape, the middleware
+    forwards unchanged so the FastMCP layer can return its own
+    error. This middleware is purely additive — it never breaks a
+    request that would otherwise succeed at the FastMCP layer.
+
+    **Batched JSON-RPC.** If the body is a JSON array (batch call)
+    rather than a single object, we conservatively pass through.
+    FastMCP itself rejects batches per the MCP 2025-06-18 spec, so
+    enforcing caps on batched calls would duplicate validation.
+
+    **Failure-mode discipline.** Any internal exception (failed
+    body decode, failed session lookup, etc.) is logged and
+    forwarded through. The cap is a defensive ceiling — failing
+    open is the right behavior (the worst case is one runaway loop;
+    the best case is a request that legitimately should pass).
+    """
+
+    def __init__(self, app: Callable[..., Awaitable[None]]) -> None:
+        self.app = app
+
+    async def __call__(self, scope: dict, receive: Callable, send: Callable) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        # Only inspect POST /mcp (FastMCP's tools/call surface).
+        method = scope.get("method", "").upper()
+        path: str = scope.get("path", "")
+        if method != "POST" or not (
+            path == _MCP_PATH_PREFIX or path.startswith(_MCP_PATH_PREFIX + "/")
+        ):
+            await self.app(scope, receive, send)
+            return
+
+        # Extract mcp-session-id. If absent, skip cap enforcement.
+        headers: list[tuple[bytes, bytes]] = scope.get("headers", [])
+        session_id_b = _get_header(headers, b"mcp-session-id")
+        if session_id_b is None:
+            await self.app(scope, receive, send)
+            return
+        try:
+            session_id = session_id_b.decode("ascii")
+        except UnicodeDecodeError:
+            # Malformed header — don't cap; FastMCP will reject if
+            # the value is genuinely bad.
+            await self.app(scope, receive, send)
+            return
+
+        # Buffer the request body so we can inspect it AND replay it
+        # to the inner app. Same eager-pre-read shape as the
+        # RequestBodySizeLimitMiddleware F1 fix.
+        buffered_events: list[dict] = []
+        body_bytes = bytearray()
+        while True:
+            event = await receive()
+            if event["type"] == "http.disconnect":
+                buffered_events.append(event)
+                break
+            if event["type"] != "http.request":
+                buffered_events.append(event)
+                continue
+            chunk = event.get("body", b"")
+            body_bytes.extend(chunk)
+            buffered_events.append(event)
+            if not event.get("more_body", False):
+                break
+
+        # Try to parse the JSON-RPC body. Failures fall through.
+        tool_name: str | None = None
+        request_id: Any = None
+        try:
+            parsed = json.loads(body_bytes.decode("utf-8"))
+            if isinstance(parsed, dict) and parsed.get("method") == _MCP_TOOLS_CALL_METHOD:
+                request_id = parsed.get("id")
+                params = parsed.get("params") or {}
+                if isinstance(params, dict):
+                    tool_name = params.get("name")
+        except (ValueError, UnicodeDecodeError):
+            tool_name = None  # malformed body → forward unchanged
+
+        # If the body is not a tools/call OR the tool isn't capped,
+        # replay the buffered events to the inner app.
+        from server.session import (  # local import: cyclic-safe
+            TOOLS_WITH_CAPS,
+            check_and_increment,
+            get_or_create_session,
+        )
+
+        if tool_name is None or tool_name not in TOOLS_WITH_CAPS:
+            await self._replay_to_app(scope, send, buffered_events)
+            return
+
+        # Look up / create the session, check + increment the cap.
+        try:
+            state = await get_or_create_session(session_id)
+            allowed, count, limit = await check_and_increment(state, tool_name)
+        except Exception:  # noqa: BLE001
+            # Failure-mode discipline: cap layer must not break the
+            # request. Log + forward. If a cap is silently bypassed
+            # in this path, the worst case is one runaway loop.
+            logger.exception(
+                "SessionCapMiddleware: cap check failed for "
+                "session=%s tool=%s; forwarding without cap",
+                session_id[:16], tool_name,
+            )
+            await self._replay_to_app(scope, send, buffered_events)
+            return
+
+        if allowed:
+            # Within cap — replay the request.
+            await self._replay_to_app(scope, send, buffered_events)
+            return
+
+        # OVER cap — short-circuit with a structured RETRIEVAL_CAP_REACHED
+        # JSON-RPC response. The agent sees this as a regular tool
+        # result with isError=True and structuredContent carrying the
+        # cap details, so it can react (proceed with the chunks
+        # already retrieved).
+        logger.info(
+            "RETRIEVAL_CAP_REACHED: session=%s tool=%s attempted=%d limit=%d",
+            session_id[:16], tool_name, count, limit,
+        )
+        cap_payload = _retrieval_cap_payload(tool_name, count, limit)
+        rpc_response = {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": json.dumps(cap_payload, sort_keys=True),
+                    }
+                ],
+                "structuredContent": cap_payload,
+                "isError": True,
+            },
+        }
+        body_out = json.dumps(rpc_response, sort_keys=True).encode("utf-8")
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [
+                    (b"content-type", b"application/json"),
+                    (b"content-length", str(len(body_out)).encode("ascii")),
+                ],
+            }
+        )
+        await send(
+            {
+                "type": "http.response.body",
+                "body": body_out,
+                "more_body": False,
+            }
+        )
+
+    async def _replay_to_app(
+        self,
+        scope: dict,
+        send: Callable[..., Awaitable[None]],
+        buffered_events: list[dict],
+    ) -> None:
+        """Forward the buffered request body to the inner app via a
+        synthetic receive callable. Same replay shape as
+        :class:`RequestBodySizeLimitMiddleware`'s F1 fix."""
+        replay_iter = iter(buffered_events)
+
+        async def replayed_receive() -> dict:
+            try:
+                return next(replay_iter)
+            except StopIteration:
+                return {"type": "http.disconnect"}
+
+        await self.app(scope, replayed_receive, send)
+
+
+def _retrieval_cap_payload(tool_name: str, attempted: int, limit: int) -> dict[str, Any]:
+    """Build the structured payload for a RETRIEVAL_CAP_REACHED
+    response. Shared so the wire shape is single-source-of-truth."""
+    return {
+        "code": "RETRIEVAL_CAP_REACHED",
+        "message": (
+            f"{tool_name} cap of {limit} call(s) per MCP session reached "
+            f"(attempt #{attempted}). Proceed with the chunks already "
+            f"retrieved or open a new session."
+        ),
+        "tool": tool_name,
+        "limit": limit,
+        "session_attempted_count": attempted,
+    }
+
+
 __all__ = [
     "LOOPBACK_HOST_HEADER_HOSTS",
     "LOOPBACK_ORIGIN_HOSTS",
@@ -694,4 +937,5 @@ __all__ = [
     "OriginValidationMiddleware",
     "RequestBodySizeLimitMiddleware",
     "SecurityHeadersMiddleware",
+    "SessionCapMiddleware",
 ]

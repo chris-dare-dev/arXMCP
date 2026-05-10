@@ -235,6 +235,37 @@ def _patched_bm25_index_root(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _reset_session_state_for_tests():
+    """Drop the per-MCP-session retrieval-cap registry before+after
+    each test (E08_S04).
+
+    The registry is a module-level singleton in ``server/session.py``.
+    Without this fixture, a session's counter from a previous test
+    leaks into the next one, producing non-deterministic behavior
+    when two tests use the same Mcp-Session-Id (or none — both
+    headerless test bodies are skip-cap paths but explicit reset is
+    safer).
+
+    Mirrors the discipline of ``_isolate_cache_state`` in
+    ``tests/test_cache.py`` — both registries are process-lifetime
+    singletons that demand explicit per-test isolation.
+    """
+    try:
+        from server.session import reset_session_state_for_tests
+    except ImportError:
+        # ``server.session`` may not be importable from every test
+        # environment (the module could fail to import if a future
+        # refactor breaks an unrelated dep). The fixture must NEVER
+        # break test collection; if the import fails we yield with
+        # no-op cleanup and let the underlying test surface the bug.
+        yield
+        return
+    reset_session_state_for_tests()
+    yield
+    reset_session_state_for_tests()
+
+
+@pytest.fixture(autouse=True)
 def _patched_cache_db_path(tmp_path, monkeypatch):
     """Redirect ``Config.cache_db_path`` default into ``tmp_path``.
 

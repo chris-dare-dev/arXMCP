@@ -371,10 +371,18 @@ def create_app(config: Config | None = None) -> FastAPI:
         OriginValidationMiddleware,
         RequestBodySizeLimitMiddleware,
         SecurityHeadersMiddleware,
+        SessionCapMiddleware,
     )
 
     # Universal response body-size cap (pure ASGI — closes F1).
     app.add_middleware(BodySizeCapMiddleware, byte_cap=cfg.result_byte_cap)
+    # E08_S04: per-session retrieval-cap enforcement. Mounted INSIDE
+    # the body-size cap so a RETRIEVAL_CAP_REACHED response is itself
+    # capped, but OUTSIDE the FastMCP /mcp ASGI sub-app so the
+    # middleware sees the inbound JSON-RPC body before FastMCP
+    # dispatches. A request that fails the cap is short-circuited
+    # before any handler runs.
+    app.add_middleware(SessionCapMiddleware)
     # 1 MB cap on incoming request bodies (E06_S05).
     app.add_middleware(RequestBodySizeLimitMiddleware)
     # Host header validation: Threat 5 / DNS rebinding defense
