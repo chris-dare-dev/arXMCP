@@ -17,10 +17,10 @@ The orchestrator dispatches every Anthropic Messages API call as a
 |---|---|---|
 | `LOOKUP` | `RETRIEVAL` | `claude-haiku-4-5` |
 | `LOOKUP` | `DRAFT` | `claude-haiku-4-5` |
-| `LOOKUP` | `LEAN_WRITE` | `claude-haiku-4-5` |
+| `LOOKUP` | `LEAN_WRITE` | **FORBIDDEN** (raises `ValueError`) |
 | `SYNTHESIS` | `RETRIEVAL` | `claude-haiku-4-5` |
 | `SYNTHESIS` | `DRAFT` | `claude-haiku-4-5` |
-| `SYNTHESIS` | `LEAN_WRITE` | `claude-haiku-4-5` |
+| `SYNTHESIS` | `LEAN_WRITE` | **FORBIDDEN** (raises `ValueError`) |
 | `VERIFICATION` | `RETRIEVAL` | `claude-haiku-4-5` |
 | `VERIFICATION` | `DRAFT` | `claude-haiku-4-5` |
 | `VERIFICATION` | `LEAN_WRITE` | `claude-sonnet-4-6` |
@@ -32,6 +32,14 @@ The pattern: **Haiku is the default; Sonnet is the exception**, used
 exclusively for the Autoformalizer's terminal `LEAN_WRITE` turn (and
 its `VERIFICATION`-routed equivalent). All retrieval and draft work
 runs on Haiku.
+
+**Forbidden cells** (F1 fix from the E08_S05 critique): `LEAN_WRITE`
+turns for non-Autoformalizer roles (`LOOKUP`, `SYNTHESIS`) are
+ILLEGAL. Calling `select_model(LOOKUP, LEAN_WRITE)` raises
+`ValueError`. Reasoning: those roles do not produce Lean output, so
+a `LEAN_WRITE` dispatch with a non-Autoformalizer route tag signals
+a caller bug. The pre-fix table silently returned Haiku for those
+cells, masking the bug. Failing loud catches misroutes early.
 
 ### Why Sonnet for `LEAN_WRITE`
 
@@ -174,10 +182,65 @@ of 2026-05.
 | Autoformalization | 11 Haiku turns + 1 Sonnet `LEAN_WRITE` (~3K input, 1K output) | ~$0.075 |
 | Verification (routed to Autoformalization) | Same as Autoformalization | ~$0.075 |
 
+### Worked example (Lookup-only row)
+
+(F8 fix from the E08_S05 critique — show the arithmetic so a
+future contributor updating Anthropic's pricing knows which
+numbers to flex.)
+
+- 4 agents × 3 turns/agent = **12 Haiku turns** total
+- Per turn: 2,000 input tokens + 500 output tokens
+- Haiku 4.5 rates: $1 / MTok input, $5 / MTok output
+- Per-turn cost = $0.002 (input) + $0.0025 (output) = **$0.0045**
+- Per-query cost = 12 × $0.0045 = **$0.054**
+
+For Autoformalization: 11 Haiku turns ($0.0495) + 1 Sonnet
+`LEAN_WRITE` (3K input @ $3/MTok = $0.009, 1K output @ $15/MTok =
+$0.015 → $0.024) = **$0.0735 ≈ $0.075**.
+
 Cache hit rates significantly reduce these numbers in practice.
 Per `.claude/notes/07-multi-agent-caching.md`, BP1 (system + tools)
 provides 80–95% input-token cache hits across the 4-agent fan-out
 when prompt-cache discipline is honored (E08_S02 + E08_S04).
+
+## Cache-invalidation discipline
+
+(F3 fix from the E08_S05 critique.)
+
+The Anthropic prompt cache is keyed on **model ID + prefix bytes**
+(per `.claude/notes/07-multi-agent-caching.md` line 21–30). Any
+change to a cell in `_SELECTION_TABLE` (e.g. promoting
+`(SYNTHESIS, RETRIEVAL)` from Haiku to Sonnet for a quality
+experiment) flips the model ID for that pair, which **invalidates
+every cached prefix for that pair across all four agents**.
+
+The change can land in a routine PR without anyone realizing the
+cache-warming infrastructure now needs to re-warm from cold. To
+prevent silent invalidation:
+
+1. **Bump `POLICY_VERSION`** in
+   `server/orchestrator/model_selector.py` whenever any cell in
+   `_SELECTION_TABLE` changes value. Use semantic-version-style
+   numbering: bump the patch digit for documentation-only changes,
+   the minor digit for cell flips that don't change the model
+   universe (e.g., promoting one cell from Haiku to Sonnet), and
+   the major digit when a new model ID is added (e.g., the future
+   Opus-as-LEAN_WRITE-only experiment).
+2. **Add a CHANGELOG row to this document** under the table below
+   with the date and rationale.
+3. **PR description must cite the cache impact**: "This PR flips
+   `(X, Y)` from `<old>` to `<new>`. The Anthropic prompt cache
+   for that pair will be cold for the cache TTL window after merge."
+
+A pinning test (`tests/test_model_selector.py::TestPolicyVersion`)
+asserts `POLICY_VERSION` matches the expected value. Bumping the
+constant is a deliberate, reviewable signal in the PR diff.
+
+### CHANGELOG
+
+| `POLICY_VERSION` | Date | Change |
+|---|---|---|
+| `1.0` | 2026-05-10 | Initial v1 policy: Haiku default, Sonnet for `(AUTOFORMALIZATION\|VERIFICATION, LEAN_WRITE)`, Opus deferred. `(LOOKUP\|SYNTHESIS, LEAN_WRITE)` forbidden (F1 fix). |
 
 ### Caveat — Haiku minimum cacheable prefix
 

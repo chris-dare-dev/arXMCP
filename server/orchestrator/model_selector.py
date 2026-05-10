@@ -46,6 +46,17 @@ prompts.
 
 **Rationale and per-query token-budget estimates** live in
 ``docs/model-policy.md``.
+
+**Integration status (F4 fix from E08_S05 critique).** As of
+E08_S05, this module is NOT yet called by any orchestrator code —
+the orchestrator dispatch loop lands in E08_S06+. The integration
+test that asserts ``select_model`` is the only model-ID source
+must land WITH that future milestone. Until then,
+``tests/test_model_selector.py::TestForbiddenStrings`` provides
+two lower-precision guards: a ban on the Opus API ID everywhere
+in ``server/`` (AC #4) AND a ban on the Haiku and Sonnet IDs
+outside this module (F2 fix). Both will trip if a future caller
+hardcodes a model ID instead of calling ``select_model``.
 """
 
 from __future__ import annotations
@@ -75,6 +86,17 @@ MODEL_HAIKU_4_5: str = "claude-haiku-4-5"
 #: also a pinned snapshot" convention starting with Claude 4.6,
 #: this string is BOTH the alias and the pinned snapshot.
 MODEL_SONNET_4_6: str = "claude-sonnet-4-6"
+
+#: F3 fix from the E08_S05 critique: policy version. ANY change to a
+#: cell in :data:`_SELECTION_TABLE` invalidates the Anthropic prompt
+#: cache for that ``(RouteTag, TurnType)`` pair across all four
+#: agents (cache key is ``model + prefix bytes`` per
+#: ``.claude/notes/07-multi-agent-caching.md``). PRs that touch
+#: ``_SELECTION_TABLE`` MUST bump this constant AND add a CHANGELOG
+#: entry to ``docs/model-policy.md::Cache-invalidation discipline``.
+#: A test pins this constant; the rectifier's intent is that bumping
+#: the constant be a deliberate, reviewable signal in PR diff.
+POLICY_VERSION: str = "1.0"
 
 # NOTE: by AC #4, the Opus API ID string MUST NOT appear anywhere
 # in server/ source files. Do not add a "MODEL_OPUS_*" constant
@@ -119,6 +141,17 @@ class TurnType(StrEnum):
 # Selection table — the single source of truth
 # ---------------------------------------------------------------------------
 
+#: F1 fix from the E08_S05 critique: sentinel value marking
+#: ``(RouteTag, TurnType)`` cells that are COVERED by the totality
+#: invariant but are NOT legal combinations. ``select_model`` raises
+#: ``ValueError`` when the lookup hits this sentinel — instead of
+#: silently returning Haiku for nonsense pairs like
+#: ``(LOOKUP, LEAN_WRITE)``. The pre-fix table had those cells
+#: returning Haiku, which would mask a future caller bug that
+#: misroutes a non-Autoformalizer query down the LEAN_WRITE path.
+_FORBIDDEN: object = object()
+
+
 #: The 12-cell selection table (4 RouteTags × 3 TurnTypes). The
 #: table is TOTAL: every (RouteTag, TurnType) pair is present.
 #: Adding a new RouteTag or TurnType without extending this table
@@ -127,6 +160,10 @@ class TurnType(StrEnum):
 #: The table encodes the model policy:
 #: - LEAN_WRITE → Sonnet for Autoformalizer AND for Verification
 #:   (Verification queries route to Autoformalizer execution).
+#: - LEAN_WRITE for non-autoformalization roles (LOOKUP, SYNTHESIS)
+#:   is FORBIDDEN — those roles do not produce Lean. The cells are
+#:   filled with ``_FORBIDDEN`` so ``select_model`` raises
+#:   ``ValueError`` rather than silently returning Haiku.
 #: - All other (role × turn type) combinations → Haiku.
 #:
 #: Rationale: the Lean-syntax write is the single turn whose output
@@ -134,15 +171,16 @@ class TurnType(StrEnum):
 #: quality reduces kernel-rejection retries, paying for itself.
 #: Every other turn does prose / tool-orchestration work where Haiku
 #: is sufficient.
-_SELECTION_TABLE: Mapping[tuple[RouteTag, TurnType], str] = MappingProxyType({
-    # LOOKUP role — all turns Haiku.
+_SELECTION_TABLE: Mapping[tuple[RouteTag, TurnType], str | object] = MappingProxyType({
+    # LOOKUP role — Haiku for retrieval/draft; LEAN_WRITE FORBIDDEN
+    # (Lookup queries don't produce Lean).
     (RouteTag.LOOKUP, TurnType.RETRIEVAL): MODEL_HAIKU_4_5,
     (RouteTag.LOOKUP, TurnType.DRAFT): MODEL_HAIKU_4_5,
-    (RouteTag.LOOKUP, TurnType.LEAN_WRITE): MODEL_HAIKU_4_5,
-    # SYNTHESIS role — all turns Haiku.
+    (RouteTag.LOOKUP, TurnType.LEAN_WRITE): _FORBIDDEN,
+    # SYNTHESIS role — same shape as LOOKUP.
     (RouteTag.SYNTHESIS, TurnType.RETRIEVAL): MODEL_HAIKU_4_5,
     (RouteTag.SYNTHESIS, TurnType.DRAFT): MODEL_HAIKU_4_5,
-    (RouteTag.SYNTHESIS, TurnType.LEAN_WRITE): MODEL_HAIKU_4_5,
+    (RouteTag.SYNTHESIS, TurnType.LEAN_WRITE): _FORBIDDEN,
     # VERIFICATION role — routed to Autoformalizer execution at
     # dispatch time. Mirrors AUTOFORMALIZATION exactly.
     (RouteTag.VERIFICATION, TurnType.RETRIEVAL): MODEL_HAIKU_4_5,
@@ -187,7 +225,7 @@ def select_model(route_tag: RouteTag, turn_type: TurnType) -> str:
     'claude-haiku-4-5'
     """
     try:
-        return _SELECTION_TABLE[(route_tag, turn_type)]
+        result = _SELECTION_TABLE[(route_tag, turn_type)]
     except KeyError:
         raise ValueError(
             f"No model selected for (route_tag={route_tag!r}, "
@@ -197,6 +235,21 @@ def select_model(route_tag: RouteTag, turn_type: TurnType) -> str:
             f"server.orchestrator.model_selector._SELECTION_TABLE "
             f"in lockstep."
         ) from None
+    # F1 fix from the E08_S05 critique: nonsense (RouteTag, TurnType)
+    # combinations like (LOOKUP, LEAN_WRITE) are marked _FORBIDDEN
+    # in the table. Raise loudly rather than silently returning a
+    # plausible-looking Haiku ID — fail-loud catches caller bugs that
+    # misroute non-Autoformalizer queries down the LEAN_WRITE path.
+    if result is _FORBIDDEN:
+        raise ValueError(
+            f"({route_tag!r}, {turn_type!r}) is not a legal "
+            f"combination — only AUTOFORMALIZATION and VERIFICATION "
+            f"produce LEAN_WRITE turns (Verification routes to "
+            f"Autoformalizer execution per docs/model-policy.md). "
+            f"Caller bug: a non-Autoformalizer role was dispatched "
+            f"to a LEAN_WRITE turn."
+        )
+    return result  # type: ignore[return-value]
 
 
 # ---------------------------------------------------------------------------
@@ -227,21 +280,26 @@ if _actual_keys != _expected_keys:
     )
 
 # Belt-and-suspenders: the values must be one of the two exported
-# model IDs (no surprise model strings sneaking in via a typo).
-_valid_models = frozenset({MODEL_HAIKU_4_5, MODEL_SONNET_4_6})
-_actual_values = set(_SELECTION_TABLE.values())
-if not _actual_values.issubset(_valid_models):
+# model IDs OR the _FORBIDDEN sentinel (no surprise model strings
+# sneaking in via a typo, no surprise sentinels either).
+_valid_values: frozenset[object] = frozenset(
+    {MODEL_HAIKU_4_5, MODEL_SONNET_4_6, _FORBIDDEN}
+)
+_actual_values: set[object] = set(_SELECTION_TABLE.values())
+if not _actual_values.issubset(_valid_values):
+    extra = _actual_values - _valid_values
     raise RuntimeError(
-        f"_SELECTION_TABLE references model IDs not in the v1 "
-        f"policy. extra={sorted(_actual_values - _valid_models)!r}. "
-        f"Allowed: {sorted(_valid_models)!r}. Per AC #4, the Opus "
-        f"API ID MUST NOT appear in server/."
+        f"_SELECTION_TABLE references values not in the v1 "
+        f"policy. extra={sorted(repr(v) for v in extra)!r}. "
+        f"Allowed: MODEL_HAIKU_4_5, MODEL_SONNET_4_6, _FORBIDDEN. "
+        f"Per AC #4, the Opus API ID MUST NOT appear in server/."
     )
 
 
 __all__ = [
     "MODEL_HAIKU_4_5",
     "MODEL_SONNET_4_6",
+    "POLICY_VERSION",
     "TurnType",
     "select_model",
 ]

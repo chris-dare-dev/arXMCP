@@ -35,6 +35,7 @@ import pytest
 from server.orchestrator.model_selector import (
     MODEL_HAIKU_4_5,
     MODEL_SONNET_4_6,
+    POLICY_VERSION,
     TurnType,
     select_model,
 )
@@ -192,11 +193,24 @@ class TestSelectionTableTotality:
 
     @pytest.mark.parametrize("route_tag", list(RouteTag))
     @pytest.mark.parametrize("turn_type", list(TurnType))
-    def test_every_pair_returns_a_known_model_id(self, route_tag, turn_type):
-        """Every (RouteTag, TurnType) cross-product returns one of
-        the two whitelisted model IDs. No KeyError, no surprise
-        third model."""
-        result = select_model(route_tag, turn_type)
+    def test_every_pair_returns_known_model_or_raises_forbidden(
+        self, route_tag, turn_type,
+    ):
+        """Every (RouteTag, TurnType) cross-product either returns
+        one of the two whitelisted model IDs OR raises ValueError
+        (the F1 fix: nonsense pairs are FORBIDDEN, not silently
+        served Haiku). No KeyError, no surprise third model."""
+        try:
+            result = select_model(route_tag, turn_type)
+        except ValueError as exc:
+            # F1: forbidden pairs raise ValueError. Verify the
+            # message names BOTH the route_tag and the turn_type
+            # so the caller can debug.
+            assert "not a legal" in str(exc), (
+                f"ValueError for ({route_tag}, {turn_type}) should "
+                f"mention 'not a legal'; got: {exc}"
+            )
+            return
         assert result in {MODEL_HAIKU_4_5, MODEL_SONNET_4_6}, (
             f"select_model({route_tag!r}, {turn_type!r}) returned "
             f"{result!r}, which is NOT one of the v1 model IDs. "
@@ -228,14 +242,18 @@ class TestDefaultIsHaiku:
     For every other (RouteTag, TurnType) pair, the answer must be
     Haiku."""
 
-    def test_lookup_lean_write_is_haiku(self):
-        """LOOKUP doesn't produce Lean — its LEAN_WRITE turn (if it
-        ever happens, defensive-only) gets Haiku."""
-        assert select_model(RouteTag.LOOKUP, TurnType.LEAN_WRITE) == MODEL_HAIKU_4_5
+    def test_lookup_lean_write_is_forbidden(self):
+        """F1 fix from the E08_S05 critique: LOOKUP doesn't produce
+        Lean — `(LOOKUP, LEAN_WRITE)` is FORBIDDEN and raises
+        `ValueError` rather than silently returning Haiku. The
+        pre-fix behavior masked future caller bugs."""
+        with pytest.raises(ValueError, match="not a legal"):
+            select_model(RouteTag.LOOKUP, TurnType.LEAN_WRITE)
 
-    def test_synthesis_lean_write_is_haiku(self):
-        """SYNTHESIS doesn't produce Lean either."""
-        assert select_model(RouteTag.SYNTHESIS, TurnType.LEAN_WRITE) == MODEL_HAIKU_4_5
+    def test_synthesis_lean_write_is_forbidden(self):
+        """F1 fix: SYNTHESIS doesn't produce Lean either."""
+        with pytest.raises(ValueError, match="not a legal"):
+            select_model(RouteTag.SYNTHESIS, TurnType.LEAN_WRITE)
 
     @pytest.mark.parametrize(
         "route_tag",
@@ -358,4 +376,145 @@ class TestClosedAtNInvariantSurvivesDashO:
             "Found a bare `assert` form of the closed-at-N invariant "
             "in model_selector.py — this would no-op under `python -O`. "
             "Use `if ... raise RuntimeError(...)` instead."
+        )
+
+
+# ===========================================================================
+# E08_S05 critique rectification guards (F1, F2, F3)
+# ===========================================================================
+
+
+#: F2 fix: the canonical model_selector module path. The forbidden-
+#: string test allows haiku/sonnet IDs ONLY in this file.
+_MODEL_SELECTOR_REL_PATH = "orchestrator/model_selector.py"
+
+
+class TestRectificationGuards:
+    """Regression guards for the E08_S05 critique findings F1
+    (forbidden cells), F2 (symmetric SSoT enforcement), and F3
+    (policy-version pin)."""
+
+    @pytest.mark.parametrize(
+        "model_id,name", [
+            (MODEL_HAIKU_4_5, "MODEL_HAIKU_4_5"),
+            (MODEL_SONNET_4_6, "MODEL_SONNET_4_6"),
+        ],
+    )
+    def test_f2_haiku_and_sonnet_appear_only_in_model_selector(
+        self, model_id, name,
+    ):
+        """F2 fix from the E08_S05 critique: enforce the
+        single-source-of-truth property for ALL model IDs, not just
+        Opus. A future contributor pasting
+        ``model="claude-sonnet-4-6"`` directly into a
+        ``messages.create`` call must trip this test.
+
+        Allows the model ID strings ONLY in
+        ``server/orchestrator/model_selector.py`` (the SSoT). The
+        Opus ID is forbidden everywhere (see the existing
+        TestForbiddenStrings::test_no_claude_opus_in_server_python_files
+        test)."""
+        offenders: list[tuple[Path, int, str]] = []
+        for py_file in SERVER_DIR.rglob("*.py"):
+            if "__pycache__" in py_file.parts:
+                continue
+            rel = py_file.relative_to(SERVER_DIR)
+            # Allow the model ID strings ONLY in the SSoT module.
+            if str(rel) == _MODEL_SELECTOR_REL_PATH:
+                continue
+            text = py_file.read_text(encoding="utf-8")
+            for line_no, line in enumerate(text.splitlines(), start=1):
+                if model_id in line:
+                    offenders.append(
+                        (py_file, line_no, line.strip())
+                    )
+        assert not offenders, (
+            f"F2 violation: {model_id!r} (constant {name}) found "
+            f"OUTSIDE server/orchestrator/model_selector.py. The "
+            f"brief mandates that select_model() be the single "
+            f"source of truth for model IDs; hardcoded references "
+            f"break this guarantee. Offending lines:\n"
+            + "\n".join(
+                f"  {path.relative_to(SERVER_DIR.parent)}:{n}: {line}"
+                for path, n, line in offenders
+            )
+        )
+
+    def test_f1_forbidden_cell_lookup_raises_value_error(self):
+        """F1 fix: `(LOOKUP, LEAN_WRITE)` and `(SYNTHESIS, LEAN_WRITE)`
+        are FORBIDDEN — `select_model` raises `ValueError` rather
+        than silently returning Haiku. The error message must
+        identify the offending pair so caller bugs are easy to
+        diagnose."""
+        with pytest.raises(ValueError) as exc_info:
+            select_model(RouteTag.LOOKUP, TurnType.LEAN_WRITE)
+        msg = str(exc_info.value)
+        assert "LOOKUP" in msg
+        assert "LEAN_WRITE" in msg
+        assert "not a legal" in msg
+
+        with pytest.raises(ValueError) as exc_info:
+            select_model(RouteTag.SYNTHESIS, TurnType.LEAN_WRITE)
+        msg = str(exc_info.value)
+        assert "SYNTHESIS" in msg
+        assert "LEAN_WRITE" in msg
+
+    def test_f1_forbidden_cell_table_entry_is_sentinel(self):
+        """The pre-fix table had `(LOOKUP, LEAN_WRITE) = "claude-haiku-4-5"`
+        which silently passed. The post-fix table uses a sentinel
+        value distinct from any model ID. Verify by inspection
+        that the table entry for the two forbidden cells is the
+        sentinel."""
+        from server.orchestrator.model_selector import (
+            _FORBIDDEN,
+            _SELECTION_TABLE,
+        )
+
+        assert _SELECTION_TABLE[(RouteTag.LOOKUP, TurnType.LEAN_WRITE)] is _FORBIDDEN
+        assert _SELECTION_TABLE[(RouteTag.SYNTHESIS, TurnType.LEAN_WRITE)] is _FORBIDDEN
+        # And: the legitimate cells should NOT be the sentinel.
+        assert _SELECTION_TABLE[(RouteTag.AUTOFORMALIZATION, TurnType.LEAN_WRITE)] is not _FORBIDDEN
+        assert _SELECTION_TABLE[(RouteTag.VERIFICATION, TurnType.LEAN_WRITE)] is not _FORBIDDEN
+
+
+class TestPolicyVersion:
+    """F3 fix from the E08_S05 critique: pin the POLICY_VERSION
+    constant. Bumping the constant is a deliberate, reviewable
+    signal in the PR diff that ANY change to ``_SELECTION_TABLE``
+    cells (which would invalidate the Anthropic prompt cache for
+    that pair) was intentional. The test failure message points
+    the contributor to docs/model-policy.md::Cache-invalidation
+    discipline for the bump procedure."""
+
+    EXPECTED_VERSION = "1.0"
+
+    def test_policy_version_pinned(self):
+        """If you intentionally changed `_SELECTION_TABLE`, also
+        bump POLICY_VERSION + add a CHANGELOG row to
+        docs/model-policy.md. Then update EXPECTED_VERSION here.
+        See docs/model-policy.md::Cache-invalidation discipline."""
+        assert POLICY_VERSION == self.EXPECTED_VERSION, (
+            f"POLICY_VERSION = {POLICY_VERSION!r} but the test "
+            f"pin says {self.EXPECTED_VERSION!r}. If you intentionally "
+            f"changed `_SELECTION_TABLE`, ALSO bump POLICY_VERSION + "
+            f"add a CHANGELOG row to docs/model-policy.md. If you "
+            f"only changed POLICY_VERSION (e.g., to fix a typo) "
+            f"without changing `_SELECTION_TABLE`, just update "
+            f"EXPECTED_VERSION in this test file."
+        )
+
+    def test_policy_doc_has_cache_invalidation_section(self):
+        """F3: the cache-invalidation discipline section must exist
+        in the policy doc. A regression that drops the section
+        would let table changes ship without the cache-warming
+        cost being acknowledged."""
+        text = POLICY_DOC_PATH.read_text(encoding="utf-8")
+        assert "Cache-invalidation discipline" in text, (
+            "docs/model-policy.md must contain a 'Cache-invalidation "
+            "discipline' section per F3 fix from the E08_S05 critique."
+        )
+        # The section must mention POLICY_VERSION.
+        assert "POLICY_VERSION" in text, (
+            "Cache-invalidation section must mention POLICY_VERSION "
+            "(the constant that signals intent in PR diffs)."
         )
