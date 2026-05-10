@@ -120,11 +120,20 @@ def _extract_intrapaper_labels(html_text: str) -> set[str]:
     ``<label>`` does NOT contain a ``/`` and does NOT begin with
     ``http`` (those forms are external / cross-paper links). Returns
     a deduped set so we don't emit one edge per occurrence.
+
+    F9 fix from the E09_S03 critique: explicitly excludes anchors
+    that ALSO carry ``ltx_bibref`` in their class set. LaTeXML
+    renders ``\\cite{}`` with ``class="ltx_ref ltx_bibref"`` — the
+    ``ltx_ref`` selector matches both theorem refs and bib refs;
+    the bib-ref filter is what keeps ``raw_ref_count`` honest
+    (theorem refs only).
     """
     soup = BeautifulSoup(html_text, "html.parser")
     labels: set[str] = set()
-    # Use string-class match because BS4's class= filter is exact.
     for anchor in soup.find_all("a", class_=lambda c: c and LTX_REF_CSS_CLASS in c):
+        classes = anchor.get("class") or []
+        if "ltx_bibref" in classes:
+            continue
         href = anchor.get("href")
         if not href or not isinstance(href, str):
             continue
@@ -181,7 +190,7 @@ def _read_parsed_html(parsed_dir: Path, paper_id: str) -> str | None:
 def _resolved_labels_for_paper(
     paper_id: str,
     candidate_labels: set[str],
-    lancedb_path: Path,
+    chunks_table: Any | None,
 ) -> set[str]:
     """Filter ``candidate_labels`` to those backed by a chunk with
     matching ``theorem_label`` in the LanceDB chunks table.
@@ -191,21 +200,19 @@ def _resolved_labels_for_paper(
     would mix labels from different papers and require Python-side
     grouping anyway.
 
-    When ``lancedb_path`` doesn't exist (e.g. in unit tests that
-    avoid materializing a LanceDB table), every label is treated as
-    UNRESOLVED — the function returns an empty set and the caller
-    emits no edge for that paper. This matches the synthesis's
-    "best-effort" framing.
+    F6 fix from the E09_S03 critique: takes an OPEN ``chunks_table``
+    handle rather than a path. The caller (``ingest()``) opens the
+    table ONCE for the whole pass; previously every paper triggered
+    a fresh ``open_chunks_table`` call which is expensive at any
+    non-trivial scale (corpus-version marker check + handle
+    materialization per paper).
+
+    When ``chunks_table`` is ``None`` (e.g. tests that don't
+    materialize LanceDB), every label is treated as UNRESOLVED.
     """
     if not candidate_labels:
         return set()
-    if not Path(lancedb_path).exists():
-        return set()
-    from server.corpus import open_chunks_table
-
-    try:
-        table = open_chunks_table(lancedb_path=str(lancedb_path), version=None)
-    except FileNotFoundError:
+    if chunks_table is None:
         return set()
 
     labels_csv = ",".join(f"'{_escape_sql(label)}'" for label in sorted(candidate_labels))
@@ -215,7 +222,7 @@ def _resolved_labels_for_paper(
         f"AND theorem_label IN ({labels_csv})"
     )
     arrow = (
-        table.search()
+        chunks_table.search()
         .where(where, prefilter=True)
         .limit(len(candidate_labels) * 2)
         .to_arrow()
@@ -225,6 +232,22 @@ def _resolved_labels_for_paper(
         if raw_label:
             found.add(raw_label)
     return found
+
+
+def _open_chunks_table_or_none(lancedb_path: Path) -> Any | None:
+    """Open the LanceDB chunks table or return None if missing.
+
+    Helper for callers that want graceful degradation when LanceDB
+    isn't materialized (e.g. unit tests, first-run operators).
+    """
+    if not Path(lancedb_path).exists():
+        return None
+    from server.corpus import open_chunks_table
+
+    try:
+        return open_chunks_table(lancedb_path=str(lancedb_path), version=None)
+    except FileNotFoundError:
+        return None
 
 
 def _escape_sql(value: str) -> str:
@@ -256,13 +279,16 @@ def _load_checkpoint(path: Path) -> dict[str, Any]:
 def process_paper(
     paper_id: str,
     parsed_dir: Path,
-    lancedb_path: Path,
+    chunks_table: Any | None,
     conn: kuzu.Connection,
 ) -> _IntraPaperResult:
     """Scan one paper for intra-paper refs and emit a self-edge if any.
 
     Returns an ``_IntraPaperResult`` summarizing the scan; the caller
     aggregates these into the checkpoint state.
+
+    F6 fix: ``chunks_table`` is an OPEN table handle, not a path.
+    The caller opens the table once for the whole ``ingest()`` pass.
 
     Raises ``RuntimeError`` for unrecoverable per-paper failures
     (missing HTML, IO error). The caller catches and records to
@@ -272,7 +298,7 @@ def process_paper(
     if html is None:
         raise RuntimeError(f"parsed HTML missing or unreadable for {paper_id}")
     raw_labels = _extract_intrapaper_labels(html)
-    valid_labels = _resolved_labels_for_paper(paper_id, raw_labels, lancedb_path)
+    valid_labels = _resolved_labels_for_paper(paper_id, raw_labels, chunks_table)
     if valid_labels:
         # Self-edge: paper P refers to itself via intra-paper labels.
         _merge_cite(
@@ -313,6 +339,12 @@ def ingest(
             )
 
     apply_schema(db_path)
+    # F6 fix: open the LanceDB chunks table ONCE for the whole pass
+    # rather than per-paper inside ``_resolved_labels_for_paper``.
+    # Re-opening per paper triggered a corpus-version marker check
+    # and table-handle materialization on every iteration — fine at
+    # 50 papers, 10×–100× wall-clock overhead at production scale.
+    chunks_table = _open_chunks_table_or_none(lancedb_path)
     db = kuzu.Database(str(db_path))
     try:
         conn = kuzu.Connection(db)
@@ -330,7 +362,7 @@ def ingest(
             if paper_id in processed:
                 continue
             try:
-                result = process_paper(paper_id, parsed_dir, lancedb_path, conn)
+                result = process_paper(paper_id, parsed_dir, chunks_table, conn)
             except RuntimeError as exc:
                 logger.warning(
                     "intra-paper scan failed for %s: %s", paper_id, exc

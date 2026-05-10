@@ -415,6 +415,209 @@ class TestInputValidation:
 # ---------------------------------------------------------------------------
 
 
+class TestE09S03RectificationGuards:
+    """Regression tests for findings closed by the E09_S03 rect commit.
+
+    Each test corresponds to a finding (F1, F3, F4, F5, F8). Pin the
+    rectified behavior so a future refactor can't silently re-open
+    a closed finding.
+    """
+
+    def _build_lancedb(
+        self,
+        tmp_path: Path,
+        rows: list[dict],
+    ) -> Path:
+        """Helper: materialize a tiny LanceDB chunks table.
+
+        Used by F1 + F5 tests that need to exercise the
+        real-LanceDB-but-paper-missing branches.
+        """
+        import lancedb
+        import pyarrow as pa
+
+        from ingest.schema import CHUNKS_SCHEMA_V1
+
+        lancedb_path = tmp_path / "lancedb"
+        db = lancedb.connect(str(lancedb_path))
+        placeholder_required = {
+            "section_path": [],
+            "body_text": "",
+            "body_tokens": "",
+            "chunker_version": "test",
+            "embedder_version": "test",
+        }
+        payload: dict = {field.name: [] for field in CHUNKS_SCHEMA_V1}
+        for row in rows:
+            full_row = {**placeholder_required, **row}
+            for field in CHUNKS_SCHEMA_V1:
+                payload[field.name].append(full_row.get(field.name))
+        table = pa.Table.from_pydict(payload, schema=CHUNKS_SCHEMA_V1)
+        db.create_table("chunks", data=table, mode="create")
+        return lancedb_path
+
+    def test_f1_chunk_id_none_for_paper_missing_from_real_lancedb(
+        self, kuzu_db: Path, tmp_path: Path
+    ):
+        """F1: AC#7 must hold when the LanceDB EXISTS but the result
+        paper is genuinely absent from it. The pre-rect test only
+        exercised the ``lancedb_path=None`` shortcut."""
+        # Build a LanceDB containing chunks for ONLY P_B; depth=1
+        # cites returns P_B and P_C, so P_C must come back with
+        # chunk_id=None while P_B has a real chunk_id.
+        lancedb_path = self._build_lancedb(
+            tmp_path,
+            rows=[
+                {
+                    "chunk_id": f"arxiv:{P_B}:0000000000000001",
+                    "paper_id": P_B,
+                    "kind": "stmt",
+                    "theorem_label": None,
+                },
+            ],
+        )
+        result = _run(
+            cite_neighbors(
+                CHUNK_A,
+                depth=1,
+                direction="cites",
+                kuzudb_path=kuzu_db,
+                lancedb_path=lancedb_path,
+            )
+        )
+        by_pid = {n.paper_id: n.chunk_id for n in result}
+        assert by_pid[P_B] == f"arxiv:{P_B}:0000000000000001"
+        assert by_pid[P_C] is None
+
+    def test_f3_cited_by_depth_2_arrow_reversal(self, kuzu_db: Path):
+        """F3: depth=2 cited_by exercises the arrow-reversal in
+        ``_build_query`` end-to-end. The fixture has only one
+        incoming edge to A (E→A), so depth=2 returns just E (no
+        hop-2 incoming). Asserting that explicitly is non-vacuous —
+        if dedup were broken or the arrow flipped wrong, the result
+        list would change."""
+        result = _run(
+            cite_neighbors(
+                CHUNK_A,
+                depth=2,
+                direction="cited_by",
+                kuzudb_path=kuzu_db,
+                lancedb_path=None,
+            )
+        )
+        assert [(n.paper_id, n.hop_distance) for n in result] == [(P_E, 1)]
+        assert result[0].edge_kind == "cited_by"
+
+    def test_f4_depends_on_depth_2_dedups_self_loop_paths(
+        self, kuzu_db: Path
+    ):
+        """F4: depth=2 depends_on with the A→A self-loop. The dedup
+        keeps the smallest hop_distance; A is hop=1 (direct
+        self-loop), B and C are hop=1 (direct cites edges, NOT via
+        A→A→B). Pinning the dedup behavior on the self-loop branch."""
+        result = _run(
+            cite_neighbors(
+                CHUNK_A,
+                depth=2,
+                direction="depends_on",
+                kuzudb_path=kuzu_db,
+                lancedb_path=None,
+            )
+        )
+        by_pid = {n.paper_id: n for n in result}
+        # A is in the result via the intra-paper self-loop (hop=1).
+        assert P_A in by_pid
+        assert by_pid[P_A].hop_distance == 1
+        assert by_pid[P_A].edge_kind == "ref"
+        # B and C are direct cites — hop_distance=1, not 2.
+        assert by_pid[P_B].hop_distance == 1
+        assert by_pid[P_C].hop_distance == 1
+        # D is reachable at hop=2 via A→B→D and A→C→D — appears once.
+        assert by_pid[P_D].hop_distance == 2
+        d_count = sum(1 for n in result if n.paper_id == P_D)
+        assert d_count == 1
+
+    def test_f5_priority_list_falls_back_to_lemma(
+        self, kuzu_db: Path, tmp_path: Path
+    ):
+        """F5: a paper with NO ``kind="stmt"`` chunk falls back to
+        the next priority kind (``lemma``)."""
+        lancedb_path = self._build_lancedb(
+            tmp_path,
+            rows=[
+                {
+                    "chunk_id": f"arxiv:{P_B}:0000000000000001",
+                    "paper_id": P_B,
+                    "kind": "lemma",  # NO stmt; lemma is the fallback
+                    "theorem_label": None,
+                },
+            ],
+        )
+        result = _run(
+            cite_neighbors(
+                CHUNK_A,
+                depth=1,
+                direction="cites",
+                kuzudb_path=kuzu_db,
+                lancedb_path=lancedb_path,
+            )
+        )
+        by_pid = {n.paper_id: n.chunk_id for n in result}
+        # The lemma chunk is the representative.
+        assert by_pid[P_B] == f"arxiv:{P_B}:0000000000000001"
+
+    def test_f5_priority_list_prefers_stmt_over_lemma(
+        self, kuzu_db: Path, tmp_path: Path
+    ):
+        """F5: when both ``stmt`` AND ``lemma`` chunks exist for a
+        paper, the lookup picks the ``stmt`` chunk."""
+        lancedb_path = self._build_lancedb(
+            tmp_path,
+            rows=[
+                {
+                    "chunk_id": f"arxiv:{P_B}:0000000000000002",
+                    "paper_id": P_B,
+                    "kind": "lemma",
+                    "theorem_label": None,
+                },
+                {
+                    "chunk_id": f"arxiv:{P_B}:0000000000000001",
+                    "paper_id": P_B,
+                    "kind": "stmt",
+                    "theorem_label": None,
+                },
+            ],
+        )
+        result = _run(
+            cite_neighbors(
+                CHUNK_A,
+                depth=1,
+                direction="cites",
+                kuzudb_path=kuzu_db,
+                lancedb_path=lancedb_path,
+            )
+        )
+        by_pid = {n.paper_id: n.chunk_id for n in result}
+        # stmt chunk wins over lemma.
+        assert by_pid[P_B] == f"arxiv:{P_B}:0000000000000001"
+
+    def test_f8_invalid_direction_raises_early(self, kuzu_db: Path):
+        """F8: a typo or prompt-injection in the direction argument
+        must raise ``ValueError``, not silently degrade to
+        cites-like behavior."""
+        with pytest.raises(ValueError) as excinfo:
+            _run(
+                cite_neighbors(
+                    CHUNK_A,
+                    depth=1,
+                    direction="other",  # type: ignore[arg-type]
+                    kuzudb_path=kuzu_db,
+                    lancedb_path=None,
+                )
+            )
+        assert "direction" in str(excinfo.value)
+
+
 class TestPaperIdFromChunkId:
     def test_extracts_paper_id(self):
         from ingest.identifiers import paper_id_from_chunk_id

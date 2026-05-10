@@ -319,7 +319,9 @@ async def cite_neighbors(
             ``ValueError`` for malformed input.
         depth: 1 or 2.
         direction: ``"cites"`` (outgoing), ``"cited_by"`` (incoming),
-            or ``"depends_on"`` (intra-paper-chain-aware).
+            or ``"depends_on"`` (intra-paper-chain-aware). Raises
+            ``ValueError`` for unknown values (F8 fix from the
+            E09_S03 critique).
         max_results: hard cap on the result list length (after dedupe
             and direction filters).
         kuzudb_path: directory of the Kùzu DB. Default is the design
@@ -332,9 +334,31 @@ async def cite_neighbors(
 
     Returns: a list of ``CitationNeighbor``, ordered by
     ``(hop_distance ASC, paper_id ASC)``.
+
+    .. warning::
+
+        Path-traversal validation (Threat 1 from
+        ``08-security-observability-ops.md``) is **deferred to E06's
+        tool-input boundary**. This function trusts ``kuzudb_path``
+        and ``lancedb_path`` as config-derived. The MCP-tool wrapper
+        that lands in E06_S04 / E09_S04 MUST NOT pass agent-supplied
+        JSON arguments through to either path — derive them from
+        ``Resources`` / ``Config`` instead. F2 from the E09_S03
+        critique flagged this as a HIGH-severity contract risk;
+        the project pattern is to keep library functions trusting
+        and lock the contract at the tool-input boundary (mirrors
+        ``server.corpus.open_chunks_table``'s warning).
     """
     if max_results <= 0:
         return []
+    if direction not in ("cites", "cited_by", "depends_on"):
+        # F8 fix from the E09_S03 critique: typed at the signature
+        # level (Literal) but Python doesn't enforce at runtime; an
+        # unknown value would silently route to "cites"-like behavior.
+        raise ValueError(
+            "direction must be one of 'cites', 'cited_by', "
+            f"'depends_on'; got {direction!r}"
+        )
     paper_id = paper_id_from_chunk_id(chunk_id)
 
     db = kuzu.Database(str(Path(kuzudb_path)))

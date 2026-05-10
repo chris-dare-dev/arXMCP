@@ -161,7 +161,11 @@ class TestExtractor:
         # chunk has theorem_label='bib1'.
         assert "thm-main" in labels
         assert "lem-aux" in labels
-        assert "bib1" in labels  # extractor doesn't filter bib refs
+        # F9 fix from the E09_S03 critique: the fixture's bib1 anchor
+        # carries ``class="ltx_ref ltx_bibref"`` (LaTeXML's
+        # \\cite{} rendering); the post-fix extractor filters it out
+        # so ``raw_ref_count`` reflects theorem refs only.
+        assert "bib1" not in labels
 
     def test_excludes_external_links(self):
         labels = _extract_intrapaper_labels(HTML_WITH_REFS)
@@ -177,6 +181,18 @@ class TestExtractor:
         assert _extract_intrapaper_labels("<html></html>") == set()
         assert _extract_intrapaper_labels(HTML_NO_REFS) == set()
 
+    def test_f9_excludes_ltx_bibref_class(self):
+        """F9 fix from the E09_S03 critique: anchors with ``class``
+        containing ``ltx_bibref`` are LaTeXML's ``\\cite{}`` rendering
+        and must NOT be conflated with theorem refs."""
+        html = """<html><body>
+        <a class="ltx_ref ltx_bibref" href="#cite-foo">[Foo+24]</a>
+        <a class="ltx_ref" href="#thm-1">Theorem 1</a>
+        </body></html>"""
+        labels = _extract_intrapaper_labels(html)
+        assert "thm-1" in labels
+        assert "cite-foo" not in labels
+
 
 # ---------------------------------------------------------------------------
 # LanceDB resolved-label lookup
@@ -187,24 +203,30 @@ class TestResolvedLabels:
     def test_returns_only_chunk_backed_labels(
         self, lancedb_with_labels: Path
     ):
-        # Two of the candidates have backing chunks; bib1 does not.
+        # F6: helper now takes an OPEN chunks_table handle, not a path.
+        from ingest.intra_paper_refs import _open_chunks_table_or_none
+
+        table = _open_chunks_table_or_none(lancedb_with_labels)
         candidates = {"thm-main", "lem-aux", "bib1"}
-        resolved = _resolved_labels_for_paper(
-            P_HAS_REFS, candidates, lancedb_with_labels
-        )
+        resolved = _resolved_labels_for_paper(P_HAS_REFS, candidates, table)
         assert resolved == {"thm-main", "lem-aux"}
 
     def test_empty_candidate_set_returns_empty(self, lancedb_with_labels: Path):
-        resolved = _resolved_labels_for_paper(
-            P_HAS_REFS, set(), lancedb_with_labels
-        )
+        from ingest.intra_paper_refs import _open_chunks_table_or_none
+
+        table = _open_chunks_table_or_none(lancedb_with_labels)
+        resolved = _resolved_labels_for_paper(P_HAS_REFS, set(), table)
         assert resolved == set()
 
-    def test_missing_lancedb_returns_empty(self, tmp_path: Path):
-        resolved = _resolved_labels_for_paper(
-            P_HAS_REFS, {"thm-main"}, tmp_path / "no-such-lancedb"
-        )
+    def test_none_chunks_table_returns_empty(self):
+        # F6: passing None (no LanceDB available) returns empty.
+        resolved = _resolved_labels_for_paper(P_HAS_REFS, {"thm-main"}, None)
         assert resolved == set()
+
+    def test_open_chunks_table_or_none_handles_missing_path(self, tmp_path: Path):
+        from ingest.intra_paper_refs import _open_chunks_table_or_none
+
+        assert _open_chunks_table_or_none(tmp_path / "no-such-lancedb") is None
 
 
 # ---------------------------------------------------------------------------
