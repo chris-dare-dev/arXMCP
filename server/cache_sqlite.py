@@ -6,6 +6,16 @@ across server restarts so Tier-1 entries survive process restarts
 within their TTL window. On startup, unexpired rows are loaded into
 the in-process LRU mirror that ``server/cache.py`` maintains.
 
+**Eviction policy on the SQLite side: TTL-priority (FIFO under
+uniform-TTL inserts), NOT true LRU.** F7 fix from the E08_S03
+critique: the eviction query orders by ``expires_at ASC`` so the
+oldest-expiring rows go first. With every entry sharing the same
+``DEFAULT_TTL_SECONDS = 3600.0``, this is FIFO-by-insert order.
+Adding `last_accessed_at` + an `UPDATE` on every read would give
+true LRU but doubles SQLite write I/O; we accept the FIFO trade-off
+for v1 (the in-process mirror is true LRU via ``OrderedDict.move_to_end``,
+and the SQLite layer mostly fills the rehydrate-after-restart role).
+
 **File layout** lives under ``Config.cache_db_path`` (default
 ``var/arxmcp/cache/retrieval.db``). Parent directory is created at
 ``Resources.startup()`` time.
@@ -43,6 +53,7 @@ import hashlib
 import json
 import logging
 import sqlite3
+import struct
 import time
 from pathlib import Path
 from typing import Any
@@ -121,15 +132,59 @@ def derive_tier1_key(
     same query with no filters and the same query with explicit
     ``filters={}`` MUST hit the same cache entry.
     """
+    return hashlib.sha256(canonical_key_components(
+        query=query,
+        filters=filters,
+        k=k,
+        corpus_version=corpus_version,
+        level=level,
+    )).hexdigest()
+
+
+def canonical_key_components(
+    *,
+    query: str,
+    filters: dict[str, Any] | None,
+    k: int,
+    corpus_version: int,
+    level: str | None = None,
+) -> bytes:
+    """Return the byte-stable canonical encoding of the (query, filters,
+    k, corpus_version, level) tuple. F12 fix from the E08_S03 critique:
+    extracted as a single helper so Tier-1 and Tier-2 cannot drift on
+    the encoding of the same semantic components.
+
+    F1 fix from the E08_S03 critique: components are LENGTH-PREFIXED
+    rather than separator-concatenated. The original
+    ``f"{q}|{f}|{k}|{cv}|{lvl}"`` form was vulnerable to collision via
+    a query containing the literal ``|`` separator (the same failure
+    mode that ``server/retrieval/rerank.py:_build_singleflight_key``'s
+    F2 fix mitigated). Each component is encoded as
+    ``<8-byte big-endian length><utf-8 bytes>`` — collision-free for
+    arbitrary byte content.
+
+    The output is the canonical PRE-HASH bytes; hash with ``sha256`` to
+    derive the Tier-1 lookup key, OR concatenate with a tier-specific
+    suffix to derive a Tier-2 fingerprint.
+    """
     canonical = canonical_query_form(query)
     filters_json = json.dumps(filters or {}, sort_keys=True, separators=(",", ":"))
     # ``level=None`` encodes as the literal string "None" — distinct
     # from any tool-argument string ("theorem", "section", "paper").
     level_token = "None" if level is None else level
-    payload = (
-        f"{canonical}|{filters_json}|{k}|{corpus_version}|{level_token}"
-    ).encode()
-    return hashlib.sha256(payload).hexdigest()
+
+    parts = [
+        canonical.encode("utf-8"),
+        filters_json.encode("utf-8"),
+        str(k).encode("ascii"),
+        str(corpus_version).encode("ascii"),
+        level_token.encode("utf-8"),
+    ]
+    out = bytearray()
+    for part in parts:
+        out += struct.pack(">Q", len(part))
+        out += part
+    return bytes(out)
 
 
 # ---------------------------------------------------------------------------
@@ -394,6 +449,7 @@ __all__ = [
     "MAX_ROWS",
     "SCHEMA_VERSION",
     "Tier1Store",
+    "canonical_key_components",
     "canonical_query_form",
     "derive_tier1_key",
 ]

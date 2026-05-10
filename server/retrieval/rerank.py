@@ -63,6 +63,7 @@ with the rest. Document; don't crash.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import logging
 import os
@@ -537,6 +538,33 @@ class RerankPhase:
 
         key = _build_singleflight_key(query_vec, candidates)
 
+        # E08_S03 Tier-3 lookup. The cache key is the SAME bytes the
+        # singleflight uses, so a Tier-3 hit means an identical
+        # (query_embedding, candidate_set, model) triple has been
+        # reranked recently AND the result is still within TTL. The
+        # cached ranking is bit-identical to a fresh rerank by the
+        # determinism contract on the cross-encoder. F3 fix from the
+        # E08_S03 critique: previously the cache was implemented but
+        # never wired into this caller, leaving the brief's
+        # 40–60% multi-agent hit rate claim unattainable.
+        try:
+            from server.cache import get_cache  # local import: no
+            # cyclic dependency at server.cache → server.retrieval
+            # import order.
+
+            cache = get_cache()
+        except Exception:  # noqa: BLE001
+            cache = None
+        if cache is not None:
+            try:
+                hit = await cache.lookup_rerank(query_vec, candidates)
+            except Exception:  # noqa: BLE001
+                hit = None
+            if hit is not None:
+                # Bit-identical to a fresh rerank — return the slice
+                # without consulting the singleflight or the model.
+                return list(hit[:top_k])
+
         async with self._rerank_semaphore:
             # The singleflight returns the SAME list object to all
             # waiters (no defensive copy in the generic Singleflight,
@@ -547,6 +575,14 @@ class RerankPhase:
             ranked = await self._rerank_singleflight.run(
                 key, lambda: self._do_rerank(query_text, candidates),
             )
+        # E08_S03 Tier-3 store. Cache the FULL ranked list (not the
+        # top_k slice) so a future caller with the same triple but
+        # a larger top_k can still hit. ``store_rerank`` is fault-
+        # tolerant — a cache write error is logged and swallowed
+        # (performance-not-correctness; never propagate).
+        if cache is not None:
+            with contextlib.suppress(Exception):
+                await cache.store_rerank(query_vec, candidates, list(ranked))
         return ranked[:top_k]
 
     async def _do_rerank(

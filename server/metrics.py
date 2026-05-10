@@ -108,6 +108,24 @@ CACHE_BYTES_GAUGE: Gauge = Gauge(
     labelnames=["tier"],
 )
 
+#: F11 fix from the E08_S03 critique: count cache-write skips for
+#: payloads that are not JSON-serializable (e.g. a future tool emits
+#: a Pydantic model or ``datetime`` that lands in ``structuredContent``).
+#: Without this counter, the cache silently goes cold for such tools
+#: and operators have no telemetry to debug from. Labelnames:
+#: ``reason`` (currently only ``"non_serializable"``; future skip
+#: reasons can extend the label space without bumping the metric
+#: family name).
+CACHE_PAYLOAD_SKIPS_COUNTER: Counter = Counter(
+    "arxmcp_cache_payload_skips_total",
+    "Total number of cache writes skipped because the payload could "
+    "not be canonicalized (typically: non-JSON-serializable). When "
+    "this rises above zero, a tool's structuredContent is causing "
+    "silent cache cold-out — debug by running the tool and "
+    "inspecting the WARNING log line that precedes each increment.",
+    labelnames=["reason"],
+)
+
 
 # ---------------------------------------------------------------------------
 # Tier label constants — string-typed so label space stays canonical
@@ -174,6 +192,9 @@ def reset_cache_metrics_for_tests() -> None:
         CACHE_HITS_COUNTER.labels(tier=tier)._value.set(0)
         CACHE_EVICTIONS_COUNTER.labels(tier=tier)._value.set(0)
         CACHE_BYTES_GAUGE.labels(tier=tier).set(0)
+    # Reset the payload-skip counter for every reason label seen so far.
+    for reason in ("non_serializable",):
+        CACHE_PAYLOAD_SKIPS_COUNTER.labels(reason=reason)._value.set(0)
 
 
 __all__ = [
@@ -182,6 +203,7 @@ __all__ = [
     "CACHE_EVICTIONS_COUNTER",
     "CACHE_HITS_COUNTER",
     "CACHE_LOOKUPS_COUNTER",
+    "CACHE_PAYLOAD_SKIPS_COUNTER",
     "TIER_1",
     "TIER_2",
     "TIER_3",

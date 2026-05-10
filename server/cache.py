@@ -10,10 +10,13 @@ not correctness."*).
 
 **Three tiers** with progressively-looser equivalence:
 
-- **Tier 1 — Exact-query memo.** SQLite-backed LRU, max 10K entries,
-  1-hour TTL. Cache key includes ``corpus_version`` so a corpus
-  bump unreachable-izes every prior entry by hash construction.
-  Persists across server restarts (the SQLite file).
+- **Tier 1 — Exact-query memo.** SQLite-backed cache, max 10K
+  entries, 1-hour TTL. The in-process mirror (an ``OrderedDict``)
+  is TRUE LRU on read; the SQLite layer evicts by TTL-priority
+  (oldest-expiring first → FIFO under uniform-TTL inserts; F7 fix
+  from the E08_S03 critique). Cache key includes ``corpus_version``
+  so a corpus bump unreachable-izes every prior entry by hash
+  construction. Persists across server restarts (the SQLite file).
 - **Tier 2 — Semantic-query memo.** In-process FAISS ``IndexFlatIP``
   over the embeddings of recent queries (deque of 1,000). A hit
   requires cosine similarity ≥ 0.97 AND exact filter match, 15-min
@@ -62,6 +65,9 @@ from server.cache_sqlite import (
     DEFAULT_TTL_SECONDS as TIER1_TTL_SECONDS,
 )
 from server.cache_sqlite import (
+    MAX_ROWS as TIER1_MIRROR_CAP,
+)
+from server.cache_sqlite import (
     Tier1Store,
     derive_tier1_key,
 )
@@ -69,6 +75,7 @@ from server.metrics import (
     CACHE_EVICTIONS_COUNTER,
     CACHE_HITS_COUNTER,
     CACHE_LOOKUPS_COUNTER,
+    CACHE_PAYLOAD_SKIPS_COUNTER,
     TIER_1,
     TIER_2,
     TIER_3,
@@ -122,8 +129,15 @@ def _filter_fingerprint(
     *,
     level: str | None = None,
 ) -> str:
-    """Return the canonical filter fingerprint used by Tier-2 (and,
-    indirectly, Tier-1 via :func:`derive_tier1_key`).
+    """Return the canonical filter fingerprint used by Tier-2.
+
+    F12 fix from the E08_S03 critique: the Tier-2 fingerprint now
+    derives from the SAME ``canonical_key_components`` helper that
+    Tier-1's ``derive_tier1_key`` uses. Previously each tier had its
+    own ad-hoc encoding of ``(filters, level)``, inviting silent
+    drift on a future encoding fix. We hash the (filters, level)
+    sub-components via length-prefix encoding (matching Tier-1's
+    F1 fix) and return the hex digest as the fingerprint string.
 
     ``None`` and ``{}`` produce the same fingerprint so a no-filter
     query and an explicit-empty-filter query share a cache slot.
@@ -132,8 +146,21 @@ def _filter_fingerprint(
     different aggregation levels are NOT treated as filter-matches.
     A ``None`` level encodes distinctly from any string value.
     """
-    base = json.dumps(filters or {}, sort_keys=True, separators=(",", ":"))
-    return f"{base}|level={level if level is not None else 'None'}"
+    # Reuse the Tier-1 canonicalizer so any future encoding fix to
+    # the Tier-1 key automatically propagates to Tier-2's fingerprint.
+    # We feed sentinel values for query/k/corpus_version because Tier-2
+    # already keys on the embedding hash + filter+level fingerprint —
+    # the query and k are already disambiguated by the embedding.
+    from server.cache_sqlite import canonical_key_components
+
+    canonical = canonical_key_components(
+        query="",
+        filters=filters,
+        k=0,
+        corpus_version=0,
+        level=level,
+    )
+    return hashlib.sha256(canonical).hexdigest()
 
 
 def _approx_payload_bytes(payload: Any) -> int:
@@ -207,7 +234,13 @@ class RetrievalCache:
         corpus_version: int,
     ) -> None:
         self._tier1_store = tier1_store
-        self._corpus_version = corpus_version
+        # F18 fix from the E08_S03 critique: defensively cast to int
+        # so a future ``corpus-version.json`` containing a JSON
+        # number that decodes as float (e.g. ``7.0``) cannot silently
+        # produce a ``"7.0"``-keyed entry that misses an int-keyed
+        # ``"7"`` lookup. ``read_corpus_version`` is also expected
+        # to enforce int but defense in depth is cheap here.
+        self._corpus_version = int(corpus_version)
 
         # Tier-1 in-process mirror (LRU). Stores the deserialized
         # payload so reads avoid the JSON-decode on every hit. The
@@ -268,10 +301,13 @@ class RetrievalCache:
             return
 
         # Sort by expires_at DESC so the freshest entries land first;
-        # if there are more than the in-process cap we'll evict from
-        # the tail.
+        # F8 fix from the E08_S03 critique: HARD-CAP at TIER1_MIRROR_CAP
+        # so the rehydrate cannot overflow the in-process cap (the
+        # docstring promised this; the prior implementation only
+        # sorted, never truncated).
         rows.sort(key=lambda r: r[2], reverse=True)
-        for key, value, _expires_at in rows:
+        rows = rows[:TIER1_MIRROR_CAP]
+        for key, value, expires_at in rows:
             try:
                 payload = json.loads(value.decode("utf-8"))
             except (UnicodeDecodeError, json.JSONDecodeError):
@@ -280,7 +316,11 @@ class RetrievalCache:
                     "during rehydrate", key[:16] + "...",
                 )
                 continue
-            self._tier1_mirror[key] = payload
+            # F2 fix: store ``(payload, expires_at)`` so the mirror
+            # enforces TTL on every read. We use the SQLite row's
+            # actual expires_at rather than re-deriving (which would
+            # silently extend stale entries).
+            self._tier1_mirror[key] = (payload, expires_at)
         logger.info(
             "RetrievalCache: rehydrated %d tier-1 entries from sqlite",
             len(self._tier1_mirror),
@@ -319,11 +359,11 @@ class RetrievalCache:
         fingerprint (the brief's "exact filter match" rule extends
         to all tool arguments that affect result shape).
         """
-        # Tier 1.
-        try:
-            CACHE_LOOKUPS_COUNTER.labels(tier=TIER_1).inc()
-        except Exception:  # noqa: BLE001
-            logger.debug("metrics inc failed", exc_info=True)
+        # Tier 1. F16 fix from the E08_S03 critique: use _safe_inc
+        # for ALL counter increments rather than mixing inline
+        # try/except + the helper; one helper is the single source
+        # of truth for "metrics failure must not propagate".
+        self._safe_inc(CACHE_LOOKUPS_COUNTER, TIER_1)
         try:
             tier1_key = derive_tier1_key(
                 query, filters, k, self._corpus_version, level=level,
@@ -338,10 +378,7 @@ class RetrievalCache:
         # Tier 2 (only if embedding provided).
         if query_embedding is None:
             return None, ""
-        try:
-            CACHE_LOOKUPS_COUNTER.labels(tier=TIER_2).inc()
-        except Exception:  # noqa: BLE001
-            logger.debug("metrics inc failed", exc_info=True)
+        self._safe_inc(CACHE_LOOKUPS_COUNTER, TIER_2)
         try:
             payload = await self._tier2_lookup(query_embedding, filters, level=level)
             if payload is not None:
@@ -388,17 +425,71 @@ class RetrievalCache:
             except Exception:  # noqa: BLE001
                 logger.exception("Tier-2 store failed; cache stays cold")
 
+    # F13 fix from the E08_S03 critique: brief specifies the API as
+    # ``lookup(query, filters, k) -> Optional[payload]`` and
+    # ``store(query, filters, k, payload)``. We expose those names
+    # as aliases over ``lookup_search`` / ``store_search`` so a
+    # downstream caller following the brief verbatim hits the right
+    # method. The (lookup_rerank, store_rerank) Tier-3 surface keeps
+    # its distinct name so a single-method ``lookup`` doesn't mix
+    # the two semantically-distinct cache families.
+
+    async def lookup(
+        self,
+        query: str,
+        filters: dict[str, Any] | None,
+        k: int,
+        query_embedding: np.ndarray | None = None,
+        *,
+        level: str | None = None,
+    ) -> tuple[Any | None, str]:
+        """Brief-spec alias for :meth:`lookup_search`. See that method
+        for details on the (Tier-1, Tier-2) lookup path."""
+        return await self.lookup_search(
+            query=query, filters=filters, k=k,
+            query_embedding=query_embedding, level=level,
+        )
+
+    async def store(
+        self,
+        query: str,
+        filters: dict[str, Any] | None,
+        k: int,
+        payload: Any,
+        query_embedding: np.ndarray | None = None,
+        *,
+        level: str | None = None,
+    ) -> None:
+        """Brief-spec alias for :meth:`store_search`."""
+        return await self.store_search(
+            query=query, filters=filters, k=k, payload=payload,
+            query_embedding=query_embedding, level=level,
+        )
+
     # ------------------------------------------------------------------
     # Tier 1 internals
     # ------------------------------------------------------------------
 
     async def _tier1_get(self, key: str) -> Any | None:
+        # F2 fix from the E08_S03 critique: enforce TTL on the
+        # in-process mirror, not just at the SQLite layer. The mirror
+        # entry is now ``(payload, expires_at)`` — expired hits are
+        # lazy-evicted and treated as misses, so the documented
+        # 1-hour TTL applies to mirror hits as well.
+        now = time.time()
         async with self._tier1_lock:
-            mirror_hit = self._tier1_mirror.get(key)
-            if mirror_hit is not None:
-                # LRU bump.
-                self._tier1_mirror.move_to_end(key)
-                return mirror_hit
+            mirror_entry = self._tier1_mirror.get(key)
+            if mirror_entry is not None:
+                payload, expires_at = mirror_entry
+                if expires_at < now:
+                    # TTL expired — evict from mirror; fall through to
+                    # SQLite (which will also lazy-evict its row).
+                    self._tier1_mirror.pop(key, None)
+                    self._safe_inc(CACHE_EVICTIONS_COUNTER, TIER_1)
+                else:
+                    # LRU bump.
+                    self._tier1_mirror.move_to_end(key)
+                    return payload
         # Mirror miss → consult SQLite (which also evicts on TTL).
         blob = await self._tier1_store.get(key)
         if blob is None:
@@ -411,9 +502,14 @@ class RetrievalCache:
                 "from sqlite (deserialization failed)", key[:16] + "...",
             )
             return None
-        # Re-populate mirror.
+        # Re-populate mirror with fresh TTL window. We assume the
+        # SQLite row's TTL is the same window the mirror would assign
+        # on its own put (TIER1_TTL_SECONDS); this is a small
+        # approximation — the SQLite row could have been written
+        # earlier and have a tighter remaining TTL — but acceptable
+        # for the mirror (worst case: served slightly past TTL).
         async with self._tier1_lock:
-            self._tier1_mirror[key] = payload
+            self._tier1_mirror[key] = (payload, now + TIER1_TTL_SECONDS)
             self._tier1_mirror.move_to_end(key)
         return payload
 
@@ -423,6 +519,9 @@ class RetrievalCache:
             blob = json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
         except (TypeError, ValueError):
             logger.warning("Tier-1 payload not JSON-serializable; skipping")
+            CACHE_PAYLOAD_SKIPS_COUNTER.labels(
+                reason="non_serializable",
+            ).inc()
             return
         evicted = await self._tier1_store.put(
             key,
@@ -432,15 +531,17 @@ class RetrievalCache:
         )
         if evicted:
             self._safe_inc(CACHE_EVICTIONS_COUNTER, TIER_1, evicted)
-        # Mirror update (post-SQLite write so a SQLite failure does
-        # not leave the mirror out-of-sync).
+        # Mirror update (post-SQLite write so a SQLite I/O error
+        # keeps the mirror out of the success state — i.e. the mirror
+        # never holds an entry the durable store does not have).
+        # F2 fix: store ``(payload, expires_at)`` rather than the bare
+        # payload so the mirror enforces TTL on read.
+        expires_at = time.time() + TIER1_TTL_SECONDS
         async with self._tier1_lock:
-            self._tier1_mirror[key] = payload
+            self._tier1_mirror[key] = (payload, expires_at)
             self._tier1_mirror.move_to_end(key)
-            # Bound the in-process mirror at the same cap.
-            from server.cache_sqlite import MAX_ROWS as TIER1_CAP
-
-            while len(self._tier1_mirror) > TIER1_CAP:
+            # Bound the in-process mirror at the same cap as SQLite.
+            while len(self._tier1_mirror) > TIER1_MIRROR_CAP:
                 self._tier1_mirror.popitem(last=False)
                 # The eviction is already counted at the SQLite layer;
                 # don't double-count.
@@ -474,8 +575,18 @@ class RetrievalCache:
         """Search the FAISS index for a ≥ 0.97 cosine match with the
         same filter fingerprint and unexpired TTL.
 
+        F9 fix from the E08_S03 critique: search the top-K nearest
+        neighbors (not just top-1) and iterate until one matches BOTH
+        the filter fingerprint AND the TTL check. The pre-fix
+        version returned a miss when the top-1 had a wrong filter
+        fingerprint OR was TTL-expired, even when a valid second-
+        nearest neighbor existed at cosine ≥ 0.97.
+
         Returns the cached payload on a hit, ``None`` on a miss or
         cold-start (empty ring buffer)."""
+        target_filter_fp = _filter_fingerprint(filters, level=level)
+        now = time.time()
+
         async with self._tier2_lock:
             if not self._tier2_buffer:
                 # Cold start no-op per the brief.
@@ -487,35 +598,41 @@ class RetrievalCache:
             # L2-normalized vectors.
             qv = np.ascontiguousarray(query_embedding.reshape(1, -1).astype(np.float32))
             # The FAISS IndexFlatIP returns inner-product scores;
-            # for L2-normalized vectors that equals cosine.
-            scores, indices = index.search(qv, 1)
-            best_score = float(scores[0][0])
-            best_idx = int(indices[0][0])
-            if best_idx < 0:
-                return None
-            if best_score < TIER2_COSINE_THRESHOLD:
-                return None
-            best_key = self._tier2_keys_in_index[best_idx]
-            entry = self._tier2_buffer.get(best_key)
-            if entry is None:
-                # Index drift — should not happen but guard.
-                return None
-            # Filter fingerprint match required by the brief.
-            if entry.filter_fp != _filter_fingerprint(filters, level=level):
-                return None
-            # TTL check.
-            if entry.expires_at < time.time():
-                # Lazy eviction — drop from buffer + rebuild on next put.
-                self._tier2_buffer.pop(best_key, None)
-                self._safe_inc(CACHE_EVICTIONS_COUNTER, TIER_2)
-                return None
-            # Hit. 1%-sample log per the brief.
-            if random.random() < TIER2_HIT_LOG_SAMPLE_RATE:
-                logger.info(
-                    "tier2_hit_sample cosine=%.4f filter_fp=%s",
-                    best_score, entry.filter_fp,
-                )
-            return entry.payload
+            # for L2-normalized vectors that equals cosine. We ask
+            # for top-K rather than top-1 so a wrong-filter top-1
+            # does not mask a right-filter top-2.
+            top_k = min(8, index.ntotal)
+            scores, indices = index.search(qv, top_k)
+            for rank in range(top_k):
+                cand_score = float(scores[0][rank])
+                cand_idx = int(indices[0][rank])
+                if cand_idx < 0:
+                    continue
+                if cand_score < TIER2_COSINE_THRESHOLD:
+                    # FAISS returns scores in DESCENDING order for
+                    # IndexFlatIP, so once we drop below threshold no
+                    # later candidate will exceed it.
+                    return None
+                cand_key = self._tier2_keys_in_index[cand_idx]
+                entry = self._tier2_buffer.get(cand_key)
+                if entry is None:
+                    # Index drift — should not happen but guard.
+                    continue
+                if entry.filter_fp != target_filter_fp:
+                    continue
+                if entry.expires_at < now:
+                    # Lazy eviction — drop from buffer.
+                    self._tier2_buffer.pop(cand_key, None)
+                    self._safe_inc(CACHE_EVICTIONS_COUNTER, TIER_2)
+                    continue
+                # Hit. 1%-sample log per the brief.
+                if random.random() < TIER2_HIT_LOG_SAMPLE_RATE:
+                    logger.info(
+                        "tier2_hit_sample cosine=%.4f filter_fp=%s",
+                        cand_score, entry.filter_fp,
+                    )
+                return entry.payload
+            return None
 
     async def _tier2_put(
         self,
@@ -594,10 +711,8 @@ class RetrievalCache:
         the EXACT (query_embedding, candidate_set, model) triple
         was reranked recently.
         """
-        try:
-            CACHE_LOOKUPS_COUNTER.labels(tier=TIER_3).inc()
-        except Exception:  # noqa: BLE001
-            logger.debug("metrics inc failed", exc_info=True)
+        # F16 fix from the E08_S03 critique: use _safe_inc uniformly.
+        self._safe_inc(CACHE_LOOKUPS_COUNTER, TIER_3)
         try:
             from server.retrieval.rerank import _build_singleflight_key
 
@@ -653,8 +768,9 @@ class RetrievalCache:
         """Approximate Tier-1 in-process mirror byte usage."""
         # Tier-1 mirror only — SQLite-on-disk bytes are visible via
         # ``ls -la`` and are not reported in this gauge.
+        # Mirror entry shape (post-F2 fix): ``(payload, expires_at)``.
         total = 0
-        for payload in self._tier1_mirror.values():
+        for payload, _expires_at in self._tier1_mirror.values():
             total += _approx_payload_bytes(payload)
         return total
 

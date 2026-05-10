@@ -26,9 +26,27 @@ import os
 # This is a TEST-ONLY workaround. Production deployments use a
 # Linux container where the same OpenMP loader handles both libs
 # without conflict.
-os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
+#
+# F10 fix from the E08_S03 critique: ``os.environ.setdefault`` would
+# leak the env var into every subprocess pytest spawns AND would
+# survive past the pytest session. We now use ``setdefault`` so a
+# pre-existing operator setting wins, AND a session-finish hook
+# clears it if WE were the one that set it. The brief "test-only"
+# label is now backed by a finalizer.
+_KMP_KEY = "KMP_DUPLICATE_LIB_OK"
+_KMP_WAS_PRESET_BY_USER = _KMP_KEY in os.environ
+os.environ.setdefault(_KMP_KEY, "TRUE")
 
 import pytest  # noqa: E402
+
+
+def pytest_sessionfinish(session, exitstatus) -> None:  # noqa: ARG001
+    """F10 fix from the E08_S03 critique: clear KMP_DUPLICATE_LIB_OK
+    at session end if WE set it (a pre-existing operator setting is
+    preserved). Closes the "leaks into subprocesses" concern by
+    bounding the env var's lifetime to the pytest session."""
+    if not _KMP_WAS_PRESET_BY_USER:
+        os.environ.pop(_KMP_KEY, None)
 
 # ---------------------------------------------------------------------------
 # Custom pytest options (E05_S02)
@@ -212,5 +230,33 @@ def _patched_bm25_index_root(tmp_path, monkeypatch):
         bm25_mod,
         "BM25_INDEX_ROOT",
         tmp_path / "bm25_index_root",
+    )
+    yield
+
+
+@pytest.fixture(autouse=True)
+def _patched_cache_db_path(tmp_path, monkeypatch):
+    """Redirect ``Config.cache_db_path`` default into ``tmp_path``.
+
+    F4 fix from the E08_S03 critique: ``Config.cache_db_path`` defaults
+    to ``var/arxmcp/cache/retrieval.db`` (a checkout-relative path).
+    Without this fixture every integration test that constructs
+    ``Resources`` would write Tier-1 SQLite entries under the
+    developer's working directory AND those entries survive across
+    test runs — a CI / local re-run would see Tier-1 hits from a
+    previous run, producing test non-determinism.
+
+    Mirrors the discipline of ``_patched_store_stats_path``,
+    ``_patched_bm25_stats_path``, and ``_patched_bm25_index_root`` —
+    the conftest's standing pattern for module-level on-disk paths.
+
+    The patch redirects the pydantic-settings default by setting the
+    corresponding environment variable BEFORE any ``Config()`` is
+    constructed in the test. ``ARXMCP_CACHE_DB_PATH`` is the env-var
+    form (per ``Config.model_config.env_prefix = 'ARXMCP_'``).
+    """
+    monkeypatch.setenv(
+        "ARXMCP_CACHE_DB_PATH",
+        str(tmp_path / "cache" / "retrieval.db"),
     )
     yield
