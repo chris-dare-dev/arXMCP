@@ -1,0 +1,45 @@
+{
+  "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/worktrees/gallant-blackburn-b89422/.claude/roadmap",
+  "created_at": "2026-05-10T04:19:59Z",
+  "critics_run": [],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "low": 0,
+    "medium": 0
+  },
+  "critique_path": null,
+  "deferred_findings": [],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_required": [],
+  "fixed_findings": [],
+  "id": "E08_S02",
+  "implementation_base": "4ac435d98715544bd49029567dbdcdff7de78a43",
+  "implementation_branch": null,
+  "implementation_commit_range": null,
+  "implementation_commits": [],
+  "implementation_path": null,
+  "implementation_specialist": "inline",
+  "invalidated_findings": [],
+  "milestone_brief": "### E08_S02 \u2014 Role-as-user-turn-prefix and BP1/BP2 breakpoint placement\n\n**Status:** NEW\n**Tier:** 2\n**Effort:** M\n**Dependencies:** E08_S01\n\n**Description.** Encode each agent role as a 50-token prefix injected at the start of the FIRST user turn, not as a per-role system prompt. This design choice is load-bearing for prompt-cache efficiency: BP1 (system prompt + tool definitions) is byte-identical across all four roles (Lookup, Synthesis, Verification, Autoformalization), enabling the longest and most valuable cache prefix to be shared across the entire 4-agent fan-out. A per-role system prompt would produce four distinct BP1 prefixes and eliminate cross-role cache hits.\n\nThe role prefix is a brief, imperative instruction in the user voice. It must fit within 50 tokens (measured by the Claude tokenizer). Example prefix for Autoformalization:\n\n```\n[Role: Autoformalizer] Translate the following mathematical content to Lean 4 using Mathlib conventions. Produce only valid Lean 4 syntax. Do not paraphrase or summarize.\n```\n\nThe four role-prefix templates are defined in `server/prompts.md` (human-readable reference) and `server/prompts.py` (importable string constants). The templates are frozen constants \u2014 they must not be interpolated at runtime with dynamic values, because that would invalidate BP1. Any parameter that needs to vary (e.g., the specific problem statement) goes AFTER the role prefix, not inside it.\n\nCache breakpoint placement:\n- **BP1** (1-hour TTL): end of the system prompt + tool definitions block. Identical across all agents. Use the extended-cache-ttl beta header.\n- **BP2** (1-hour TTL): end of the problem statement. Stable across the 4-agent fan-out for a single query session. Placed after the role prefix and the problem statement together.\n- **No BP3**: there is no third breakpoint for \"seed retrieval results.\" Heterogeneous roles issue heterogeneous tool calls and their retrieval results diverge immediately \u2014 a shared BP3 would be invalid and would waste a breakpoint slot. The 4-breakpoint-per-request budget is preserved for future use.\n\nDocument the full breakpoint strategy, including the rationale for dropping BP3, in `server/prompts.md`. Include a diagram showing the message structure for a typical Synthesis agent turn.\n\n**Deliverables.**\n- `server/prompts.py` \u2014 four frozen role-prefix string constants; one constant per RouteTag\n- `server/prompts.md` \u2014 human-readable documentation of all role prefixes, breakpoint placement, rationale for dropping BP3, and the message structure diagram\n- `tests/test_prompts.py` \u2014 asserts each role prefix is \u2264 50 tokens; asserts no runtime interpolation occurs (templates are literal strings); asserts BP1 prefix is byte-identical across all four roles\n\n**Acceptance criteria.**\n- [ ] Each role prefix is \u2264 50 tokens (Claude Sonnet 4.6 tokenizer)\n- [ ] `server/prompts.py` contains exactly 4 role-prefix constants, one per `RouteTag`\n- [ ] `tests/test_prompts.py` passes\n- [ ] `server/prompts.md` explicitly states: \"BP3 is dropped; heterogeneous roles never share seed retrieval bytes\"\n- [ ] A 4-agent fan-out integration test confirms BP1 is byte-identical across all roles (hash equality check)\n\n**Out of scope.** Per-role system prompts (permanently dropped). Dynamic role-prefix interpolation. More than 4 roles in v1.\n\n**Risk notes.**\n- Closes H2: dropping BP3 eliminates the invalid assumption that heterogeneous agents can share a \"seed retrieval\" breakpoint, preventing wasted breakpoint slots and incorrect cache reuse.\n- Closes MEDIUM: role-specific system prompts \u2014 encoding role as a user-turn prefix makes BP1 byte-identical across the fan-out, achieving the 80\u201395% input-token cache hit rate described in `.claude/notes/07-multi-agent-caching.md` lines 320\u2013326.\n\n**Labels.** `area:runtime`, `kind:design`, `tier:2`\n\n---",
+  "phase": "implement-running",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-10T04:19:59Z",
+      "left_at": null,
+      "phase": "init"
+    }
+  ],
+  "rectification_commit": null,
+  "regression_tests_added": [],
+  "research_brief_paths": [
+    ".claude/notes/milestones/E08_S02/research-brief-1.md",
+    ".claude/notes/milestones/E08_S02/research-brief-2.md"
+  ],
+  "research_briefs": [],
+  "research_mode": "parallel",
+  "research_synthesis": null,
+  "research_synthesis_path": ".claude/notes/milestones/E08_S02/research-synthesis.md",
+  "updated_at": "2026-05-10T04:26:14Z"
+}
