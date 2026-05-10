@@ -22,7 +22,14 @@
     "medium": 7
   },
   "critique_path": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/E01_S01-S03/critique-merged.md",
-  "deferred_findings": [],
+  "deferred_findings": [
+    "F9",
+    "F10",
+    "F11",
+    "IS4",
+    "IS5",
+    "IS6"
+  ],
   "external_writes_authorized": false,
   "external_writes_completed": false,
   "external_writes_required": [
@@ -45,7 +52,19 @@
       "why": "NOT required by brief; orchestrator+user discretion"
     }
   ],
-  "fixed_findings": [],
+  "fixed_findings": [
+    "F1",
+    "F2",
+    "F4",
+    "F5",
+    "F6",
+    "F7",
+    "F8",
+    "IS1",
+    "IS2",
+    "IS3",
+    "IS7"
+  ],
   "id": "E01_S01-S03",
   "implementation_base": "953709e344c233404c62d9ea3afa18a20cc79ca8",
   "implementation_branch": "main",
@@ -102,8 +121,17 @@
       "phase": "rectify-running"
     }
   ],
-  "rectification_commit": null,
-  "regression_tests_added": [],
+  "rectification_commit": "a79a802",
+  "regression_tests_added": [
+    "tests/test_rectifications.py::TestF1MainTexSelection",
+    "tests/test_rectifications.py::TestF2ExceptionEscape",
+    "tests/test_rectifications.py::TestF3UndersizedSeedList",
+    "tests/test_rectifications.py::TestIS3IdempotencyGate",
+    "tests/test_rectifications.py::TestF6SafeExtract",
+    "tests/test_rectifications.py::TestF6ParseWithLatexml",
+    "tests/test_rectifications.py::TestF8ResponseSizeCap",
+    "tests/test_rectifications.py::TestF5PolitenessContract"
+  ],
   "research_briefs": [
     {
       "path": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/E01_S01-S03/research-brief-1.md",
@@ -116,5 +144,5 @@
   ],
   "research_mode": "standard",
   "research_synthesis": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/E01_S01-S03/research-synthesis.md",
-  "updated_at": "2026-05-07T00:36:16Z"
+  "updated_at": "2026-05-07T00:42:39Z"
 }
