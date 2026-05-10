@@ -55,12 +55,70 @@ def pytest_addoption(parser: pytest.Parser) -> None:
             ".claude/notes/07-multi-agent-caching.md lines 40-49)."
         ),
     )
+    parser.addoption(
+        "--hybrid",
+        action="store_true",
+        default=False,
+        help=(
+            "Run the eval harness against the FULL hybrid pipeline "
+            "(BM25 → ANN+RRF) instead of the dense-only ANN path. "
+            "Default off; the existing Tier-0 eval invocation "
+            "(`make eval`) stays dense-only. The Tier-1 → Tier-2 "
+            "exit gate (E07_S04) flips this on. Test-side flag only; "
+            "production retrieval is gated by ARXMCP_ENABLE_RERANK on "
+            "the server config."
+        ),
+    )
+    parser.addoption(
+        "--rerank",
+        action="store_true",
+        default=False,
+        help=(
+            "Add Phase-3 BGE-reranker-v2-m3 cross-encoder pass on top "
+            "of the hybrid pipeline (requires --hybrid; --rerank without "
+            "--hybrid raises pytest.UsageError). The BGE-reranker model "
+            "is ~2.3 GB; this flag also requires "
+            "ARXMCP_RUN_REAL_BGE_RERANKER=1 (matches the env-gate "
+            "convention from tests/retrieval/test_rerank.py); when the "
+            "env var is unset, the test SKIPs."
+        ),
+    )
 
 
 @pytest.fixture
 def ndcg_min(request: pytest.FixtureRequest) -> float:
     """Return the configured ``--ndcg-min`` threshold."""
     return float(request.config.getoption("--ndcg-min"))
+
+
+@pytest.fixture
+def hybrid(request: pytest.FixtureRequest) -> bool:
+    """Return whether the eval harness should run the FULL hybrid
+    pipeline (BM25 → ANN+RRF) instead of dense-only ANN. Per
+    research-synthesis.md D2 (E07_S04). Default False so the
+    existing Tier-0 invocation is unchanged."""
+    return bool(request.config.getoption("--hybrid"))
+
+
+@pytest.fixture
+def rerank(request: pytest.FixtureRequest) -> bool:
+    """Return whether to add Phase-3 BGE-reranker on top of hybrid.
+
+    D3 (E07_S04 synthesis): ``--rerank`` without ``--hybrid`` is a
+    user error — reranking only-RRF candidates is the design;
+    asking to rerank dense-only candidates is incoherent. Raise
+    ``pytest.UsageError`` at fixture-setup time so the operator
+    sees the problem before any test runs.
+    """
+    rerank_set = bool(request.config.getoption("--rerank"))
+    hybrid_set = bool(request.config.getoption("--hybrid"))
+    if rerank_set and not hybrid_set:
+        raise pytest.UsageError(
+            "--rerank requires --hybrid. Reranking only operates on "
+            "Phase-2 RRF candidates; pass both flags to enable the "
+            "full 3-phase pipeline."
+        )
+    return rerank_set
 
 
 @pytest.fixture(autouse=True)
