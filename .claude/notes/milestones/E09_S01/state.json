@@ -16,36 +16,24 @@
     "medium": 5
   },
   "critique_path": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/E09_S01/critique-merged.md",
-  "deferred_findings": [],
+  "deferred_findings": [
+    "F9",
+    "F11"
+  ],
   "external_writes_authorized": false,
   "external_writes_completed": false,
-  "external_writes_required": [
-    {
-      "blocking": false,
-      "target": "kuzu==0.11.3",
-      "type": "pyproject_dep_add",
-      "why": "archived upstream; last stable; local file edit"
-    },
-    {
-      "blocking": false,
-      "target": "var/arxmcp/index/kuzudb/",
-      "type": "local_filesystem",
-      "why": "Kuzu DB on operator machine; gitignored"
-    },
-    {
-      "blocking": false,
-      "target": "var/arxmcp/ops/graph-ingest-checkpoint.json",
-      "type": "local_filesystem",
-      "why": "checkpoint state on operator machine; gitignored"
-    },
-    {
-      "blocking": false,
-      "target": "https://api.openalex.org/works/...",
-      "type": "http_get_operator_only",
-      "why": "seed-corpus resolution; NEVER in CI; tests mock"
-    }
+  "external_writes_required": [],
+  "fixed_findings": [
+    "F1",
+    "F2",
+    "F3",
+    "F4",
+    "F5",
+    "F6",
+    "F7",
+    "F8",
+    "F10"
   ],
-  "fixed_findings": [],
   "id": "E09_S01",
   "implementation_base": "fbda41594325f414d98792da7893140bdc927619",
   "implementation_branch": "main",
@@ -57,7 +45,7 @@
   "implementation_specialist": null,
   "invalidated_findings": [],
   "milestone_brief": "### E09_S01 \u2014 K\u00f9zu schema migrations and OpenAlex bulk ingest (math.AG/math.NT)\n\n**Status:** NEW\n**Tier:** 3\n**Effort:** L\n**Dependencies:** E04_S01 (stable paper_id set), E08 (Sonnet B \u2014 server layer must be stable before graph is added)\n\n**Description.** Initialize the K\u00f9zu graph database at `var/arxmcp/index/kuzudb/` and define the graph schema. K\u00f9zu is a high-performance embedded graph database (MIT license) with a Cypher-like query language; it is used here rather than a general-purpose graph database because it can be embedded in the Python process alongside LanceDB, requires no separate server, and supports efficient graph traversal at Tier-3 corpus scales (tens of thousands of papers and hundreds of thousands of citation edges).\n\n**Graph schema:**\n```cypher\nCREATE NODE TABLE papers (\n  paper_id STRING,\n  title STRING,\n  abstract STRING,\n  authors STRING,\n  year INT32,\n  categories STRING,\n  oa_work_id STRING,   -- OpenAlex work ID\n  PRIMARY KEY (paper_id)\n);\n\nCREATE REL TABLE cites (\n  FROM papers TO papers,\n  source STRING,       -- \"openAlex\" | \"inspire\" | \"intra-paper\"\n  confidence FLOAT     -- 1.0 for confirmed, lower for inferred\n);\n```\n\nOpenAlex bulk ingest reads from the OpenAlex API (`https://api.openalex.org/works`) using filtered queries for `primary_topic.field.id = \"fields/mathematics\"` and `concepts.id = \"C66938386\"` (algebraic geometry) or `C15736585` (number theory). The ingest script uses the OpenAlex \"polite pool\" by including `mailto:` in the `User-Agent` header (same pattern as arXiv TOS compliance in E01_S02). Rate limit: 10 requests/second in the polite pool.\n\nFor each paper in the seed corpus (the 50 arXiv IDs from E01_S03), the ingest script fetches the OpenAlex work record, extracts the `referenced_works` list (cited papers), and writes `cites` edges for each referenced work that is also in the corpus. In Tier 3, the corpus expands to all math.AG and math.NT papers in OpenAlex (not just the 50-paper seed), which may number in the tens of thousands; the ingest script must handle pagination and checkpointing.\n\nThe ingest script is `ingest/graph_ingest.py` with a CLI: `python -m ingest.graph_ingest --source openAlex --category math.AG math.NT --checkpoint var/arxmcp/ops/graph-ingest-checkpoint.json`. Checkpointing is essential at Tier-3 scale: if the ingest fails midway through tens of thousands of papers, it should resume from the last checkpoint rather than starting over.\n\n**Deliverables.**\n- `ingest/graph_ingest.py` \u2014 OpenAlex bulk ingest with checkpoint support\n- `ingest/kuzudb_schema.py` \u2014 schema migration script; idempotent (safe to run multiple times)\n- `var/arxmcp/index/kuzudb/` \u2014 initialized K\u00f9zu database\n- `pytest tests/test_graph_ingest.py` \u2014 test: ingest 5 fixture papers with mocked OpenAlex responses, assert node and edge counts\n\n**Acceptance criteria.**\n- [ ] K\u00f9zu schema created at `var/arxmcp/index/kuzudb/` with `papers` node table and `cites` rel table.\n- [ ] Schema migration is idempotent (running twice does not create duplicate tables or raise errors).\n- [ ] For each of the 50 seed papers, a `papers` node exists in the graph.\n- [ ] `cites` edges are written for all OpenAlex-confirmed citation pairs within the corpus.\n- [ ] Checkpoint file written after each batch of 100 papers processed.\n- [ ] Ingest resumes from checkpoint correctly: if interrupted after K papers, re-running skips the first K papers.\n- [ ] `User-Agent` header includes `arXMCP/0.1 (mailto:...)` for OpenAlex polite pool compliance.\n- [ ] Integration test passes with mocked OpenAlex API (no live network calls in CI).\n\n**Out of scope.** INSPIRE-HEP ingest (E09_S02). `cite_neighbors` query API (E09_S03). Intra-paper `\\ref{}` chain tracing (E09_S03). Cross-paper proof chain workflow documentation (E09_S04).\n\n**Risk notes.**\n- K\u00f9zu is a relatively young project (first stable release 2023). Pin the K\u00f9zu version in `pyproject.toml` and include a note that the Cypher dialect may differ from Neo4j Cypher. Test against the pinned version only.\n- OpenAlex coverage for math.AG papers is strong for post-2000 arXiv papers but sparser for older literature. Papers not found in OpenAlex are still added as `papers` nodes (from the arXiv metadata) but may have no `cites` edges. This is acceptable at Tier 3; INSPIRE-HEP enrichment (E09_S02) fills some gaps for physics-adjacent papers.\n\n**Labels.** `area:graph`, `kind:feature`, `tier:3`.\n\n---",
-  "phase": "rectify-running",
+  "phase": "complete",
   "phase_history": [
     {
       "entered_at": "2026-05-10T17:50:22Z",
@@ -96,12 +84,28 @@
     },
     {
       "entered_at": "2026-05-10T18:24:48Z",
-      "left_at": null,
+      "left_at": "2026-05-10T18:33:06Z",
       "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-05-10T18:33:06Z",
+      "left_at": null,
+      "phase": "complete"
     }
   ],
-  "rectification_commit": null,
-  "regression_tests_added": [],
+  "rectification_commit": "95fd3cf32f198ae1ac43793a4709db162a078dd8",
+  "regression_tests_added": [
+    "tests/test_graph_ingest.py::TestRectificationGuards::test_f1_source_accepts_camelcase_alias",
+    "tests/test_graph_ingest.py::TestRectificationGuards::test_f1_source_rejects_unknown_value",
+    "tests/test_graph_ingest.py::TestRectificationGuards::test_f2_response_cap_is_tight_for_openalex_shape",
+    "tests/test_graph_ingest.py::TestRectificationGuards::test_f3_fetch_failure_tracked_and_retried_on_resume",
+    "tests/test_graph_ingest.py::TestRectificationGuards::test_f3_cli_returns_nonzero_on_pending_failures",
+    "tests/test_graph_ingest.py::TestRectificationGuards::test_f5_seed_reader_uses_shared_helper",
+    "tests/test_graph_ingest.py::TestRectificationGuards::test_f5_local_read_seed_ids_helper_removed",
+    "tests/test_graph_ingest.py::TestSchemaMigration::test_stamps_schema_version",
+    "tests/test_graph_ingest.py::TestSchemaMigration::test_read_schema_version_none_when_db_absent",
+    "tests/test_graph_ingest.py::TestRectificationGuards::test_f8_oa_work_id_collision_logged"
+  ],
   "research_briefs": [
     {
       "agent": "sonnet-1",
@@ -116,5 +120,5 @@
   ],
   "research_mode": "standard",
   "research_synthesis": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/E09_S01/research-synthesis.md",
-  "updated_at": "2026-05-10T18:24:48Z"
+  "updated_at": "2026-05-10T18:33:06Z"
 }
