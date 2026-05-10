@@ -157,7 +157,13 @@ class TestSchemaMigration:
         assert tables.get("cites") == "REL"
 
     def test_idempotent(self, db_path: Path):
-        """AC#2: Schema migration is idempotent (run twice = no error)."""
+        """AC#2: Schema migration is idempotent (run twice = no error).
+
+        The expected table set is exactly ``papers``, ``cites``, and
+        ``_schema_meta`` (the version-stamp table added by F6) — three
+        re-runs produce no duplicate tables and no extra rows in
+        ``_schema_meta``.
+        """
         kuzudb_schema.apply_schema(db_path)
         # Re-run; must not raise. Implementation uses CREATE … IF NOT EXISTS.
         kuzudb_schema.apply_schema(db_path)
@@ -165,17 +171,44 @@ class TestSchemaMigration:
         db = kuzu.Database(str(db_path))
         try:
             conn = kuzu.Connection(db)
-            r = conn.execute("CALL show_tables() RETURN COUNT(*)")
-            row = r.get_next()
-            assert row[0] == 2  # exactly 2 tables, no duplicates
+            r = conn.execute("CALL show_tables() RETURN name")
+            names = set()
+            while r.has_next():
+                names.add(r.get_next()[0])
+            assert names == {"papers", "cites", "_schema_meta"}
+            # And the meta table has exactly one row, not three.
+            r2 = conn.execute("MATCH (m:_schema_meta) RETURN COUNT(*)")
+            assert r2.get_next()[0] == 1
         finally:
             del db
 
     def test_creates_parent_directory(self, tmp_path: Path):
+        """F10 fix from the E09_S01 critique: the assertion was previously
+        ``nested.exists() or nested.parent.exists()`` — the ``or`` made the
+        test trivially pass since the parent is always created.
+        Tighten to require Kùzu materialize the DB directory itself."""
         nested = tmp_path / "deeply" / "nested" / "kuzu"
         kuzudb_schema.apply_schema(nested)
-        # The Kùzu directory itself is materialized.
-        assert nested.exists() or nested.parent.exists()
+        assert nested.exists()
+
+    def test_stamps_schema_version(self, db_path: Path):
+        """F6 regression guard: ``apply_schema`` writes the
+        ``KUZU_SCHEMA_VERSION`` constant to the persisted ``_schema_meta``
+        node, and ``read_schema_version`` round-trips it. Re-running
+        ``apply_schema`` re-writes the same value (idempotent)."""
+        kuzudb_schema.apply_schema(db_path)
+        assert (
+            kuzudb_schema.read_schema_version(db_path)
+            == kuzudb_schema.KUZU_SCHEMA_VERSION
+        )
+        kuzudb_schema.apply_schema(db_path)
+        assert (
+            kuzudb_schema.read_schema_version(db_path)
+            == kuzudb_schema.KUZU_SCHEMA_VERSION
+        )
+
+    def test_read_schema_version_none_when_db_absent(self, tmp_path: Path):
+        assert kuzudb_schema.read_schema_version(tmp_path / "missing") is None
 
 
 # ---------------------------------------------------------------------------
@@ -653,3 +686,223 @@ class TestCLI:
         assert rc == 2
         captured = capsys.readouterr()
         assert "no IDs" in captured.err
+
+
+# ---------------------------------------------------------------------------
+# Rectification guards from the E09_S01 critique
+# ---------------------------------------------------------------------------
+
+
+class TestRectificationGuards:
+    """Regression tests for findings closed by the rect commit.
+
+    Each test corresponds to a finding (F1, F2, F3, F8). The tests pin
+    the rectified behavior so a future refactor can't silently re-open
+    a closed finding.
+    """
+
+    def test_f1_source_accepts_camelcase_alias(
+        self,
+        stub_fetcher: list[str],
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ):
+        """F1: the brief uses ``--source openAlex``; both casings must
+        canonicalize to ``"openalex"`` and run cleanly through main()."""
+        monkeypatch.setenv("ARXMCP_CONTACT_EMAIL", "test@example.com")
+        seed_file = tmp_path / "seed.txt"
+        seed_file.write_text("\n".join(CORPUS_IDS) + "\n", encoding="utf-8")
+        for source_form in ("openAlex", "openalex", "OPENALEX"):
+            rc = graph_ingest.main(
+                [
+                    "--source",
+                    source_form,
+                    "--seed-file",
+                    str(seed_file),
+                    "--checkpoint",
+                    str(tmp_path / f"ck-{source_form}.json"),
+                    "--kuzudb",
+                    str(tmp_path / f"kuzu-{source_form}"),
+                ]
+            )
+            assert rc == 0, f"--source {source_form} should accept; got rc={rc}"
+
+    def test_f1_source_rejects_unknown_value(
+        self,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ):
+        monkeypatch.setenv("ARXMCP_CONTACT_EMAIL", "test@example.com")
+        seed_file = tmp_path / "seed.txt"
+        seed_file.write_text(f"{P1}\n", encoding="utf-8")
+        with pytest.raises(SystemExit) as excinfo:
+            graph_ingest.main(
+                [
+                    "--source",
+                    "inspire",
+                    "--seed-file",
+                    str(seed_file),
+                    "--checkpoint",
+                    str(tmp_path / "ck.json"),
+                    "--kuzudb",
+                    str(tmp_path / "kuzu"),
+                ]
+            )
+        assert excinfo.value.code == 2  # argparse usage error
+
+    def test_f2_response_cap_is_tight_for_openalex_shape(self):
+        """F2: the OpenAlex JSON cap must be far smaller than the arXiv
+        tarball cap (200 MB). Real OpenAlex Work responses are ~10 KB;
+        anything > 10 MB is a misroute, not a real response."""
+        assert graph_ingest.OPENALEX_MAX_RESPONSE_BYTES <= 10 * 1024 * 1024
+        # The arXiv tarball cap should NOT be the value we use for OpenAlex.
+        from tools.arxiv_fetch import MAX_RESPONSE_BYTES as ARXIV_CAP
+
+        assert graph_ingest.OPENALEX_MAX_RESPONSE_BYTES < ARXIV_CAP
+
+    def test_f3_fetch_failure_tracked_and_retried_on_resume(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        fixture_corpus: dict[str, dict[str, Any] | None],
+        db_path: Path,
+        checkpoint_path: Path,
+    ):
+        """F3: on URLError during the resolution pass, the paper is
+        recorded in state['fetch_failures'] and the post-run state still
+        has it pending. A subsequent ingest call retries it."""
+        import urllib.error
+
+        # Stage 1: P3 raises URLError on first call; subsequent calls
+        # for any paper return the canonical fixture.
+        seen_p3_calls = {"count": 0}
+
+        def _failing_stub(arxiv_id: str, contact_email: str) -> dict[str, Any] | None:
+            if arxiv_id == P3 and seen_p3_calls["count"] == 0:
+                seen_p3_calls["count"] += 1
+                raise urllib.error.URLError("simulated DNS failure")
+            return fixture_corpus[arxiv_id]
+
+        monkeypatch.setattr(graph_ingest, "_fetch_openalex_work", _failing_stub)
+
+        state1 = graph_ingest.ingest(
+            seed_ids=CORPUS_IDS,
+            db_path=db_path,
+            checkpoint_path=checkpoint_path,
+            contact_email="test@example.com",
+            sleep_seconds=0,
+        )
+        # P3 should NOT be in resolved (URLError prevented the merge).
+        assert P3 not in state1["resolved"]
+        # P3 SHOULD be tracked in fetch_failures.
+        failures = {entry["arxiv_id"] for entry in state1["fetch_failures"]}
+        assert P3 in failures
+
+        # Stage 2: re-run; the in-memory counter for P3 has been
+        # incremented already, so the second call returns the fixture.
+        # The resume must retry P3 and resolve it.
+        state2 = graph_ingest.ingest(
+            seed_ids=CORPUS_IDS,
+            db_path=db_path,
+            checkpoint_path=checkpoint_path,
+            contact_email="test@example.com",
+            sleep_seconds=0,
+        )
+        assert P3 in state2["resolved"]
+        # Failure list should be empty after the successful retry.
+        assert state2["fetch_failures"] == []
+
+    def test_f3_cli_returns_nonzero_on_pending_failures(
+        self,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
+        fixture_corpus: dict[str, dict[str, Any] | None],
+        tmp_path: Path,
+    ):
+        """F3: the CLI must surface unresolved fetch failures with a
+        non-zero exit code so the operator notices and re-runs."""
+        import urllib.error
+
+        def _always_fail_for_p1(
+            arxiv_id: str, contact_email: str
+        ) -> dict[str, Any] | None:
+            if arxiv_id == P1:
+                raise urllib.error.URLError("simulated outage")
+            return fixture_corpus[arxiv_id]
+
+        monkeypatch.setattr(graph_ingest, "_fetch_openalex_work", _always_fail_for_p1)
+        monkeypatch.setenv("ARXMCP_CONTACT_EMAIL", "test@example.com")
+
+        # Skip the polite-pool sleep for the test.
+        monkeypatch.setattr(graph_ingest, "OPENALEX_POLITE_SLEEP_SECONDS", 0)
+
+        seed_file = tmp_path / "seed.txt"
+        seed_file.write_text("\n".join(CORPUS_IDS) + "\n", encoding="utf-8")
+
+        rc = graph_ingest.main(
+            [
+                "--seed-file",
+                str(seed_file),
+                "--checkpoint",
+                str(tmp_path / "ck.json"),
+                "--kuzudb",
+                str(tmp_path / "kuzu"),
+            ]
+        )
+        # Non-zero exit because P1 still has a pending failure.
+        assert rc == 1
+        captured = capsys.readouterr()
+        assert "transient network errors" in captured.err
+
+    def test_f8_oa_work_id_collision_logged(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+        db_path: Path,
+        checkpoint_path: Path,
+    ):
+        """F8: two arXiv papers resolving to the same OpenAlex Work ID
+        must produce a warning log; first-wins is the documented
+        behavior."""
+        # Two papers with the SAME oa_work_id. Real-world cause: a
+        # withdrawn/replaced version mapping to the same Work as its
+        # successor.
+        shared_oa = "https://openalex.org/W4242424"
+        collision_corpus = {
+            P1: _work(oa_id=shared_oa, title="First", refs=[]),
+            P2: _work(oa_id=shared_oa, title="Second", refs=[]),
+        }
+
+        def _stub(arxiv_id: str, contact_email: str) -> dict[str, Any] | None:
+            return collision_corpus[arxiv_id]
+
+        monkeypatch.setattr(graph_ingest, "_fetch_openalex_work", _stub)
+
+        with caplog.at_level("WARNING", logger="ingest.graph_ingest"):
+            graph_ingest.ingest(
+                seed_ids=[P1, P2],
+                db_path=db_path,
+                checkpoint_path=checkpoint_path,
+                contact_email="test@example.com",
+                sleep_seconds=0,
+            )
+
+        warnings = [r.message for r in caplog.records if r.levelname == "WARNING"]
+        assert any(
+            "oa_work_id collision" in w and "W4242424" in w for w in warnings
+        ), f"expected collision warning, got: {warnings}"
+
+    def test_f5_seed_reader_uses_shared_helper(self):
+        """F5: ``graph_ingest`` no longer carries its own seed-list parser;
+        it imports ``read_seed_list`` from ``tools.fetch_seed`` so future
+        parser changes (e.g. BOM handling) take effect everywhere."""
+        # Module attribute presence + identity check.
+        from tools.fetch_seed import read_seed_list as canonical
+
+        assert graph_ingest.read_seed_list is canonical
+
+    def test_f5_local_read_seed_ids_helper_removed(self):
+        """F5: the ``_read_seed_ids`` private helper has been removed
+        in favor of importing the shared one. A reintroduction would
+        re-open the duplication finding."""
+        assert not hasattr(graph_ingest, "_read_seed_ids")

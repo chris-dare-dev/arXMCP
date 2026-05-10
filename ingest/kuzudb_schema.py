@@ -37,9 +37,22 @@ from pathlib import Path
 
 import kuzu
 
+#: Schema version. Bump whenever ``SCHEMA_STATEMENTS`` mutates so
+#: callers (and downstream cache layers, e.g. ``cite_neighbors`` in
+#: E09_S03) can detect drift on an existing database. F6 from the
+#: E09_S01 critique cites ``07-multi-agent-caching.md``: any schema
+#: mutation MUST bump a version constant so cached responses derived
+#: from the schema don't go stale silently.
+KUZU_SCHEMA_VERSION = 1
+
 #: SQL DDL statements applied in order. Each is idempotent
 #: (``IF NOT EXISTS``) so a re-run on an already-migrated database is
 #: a no-op rather than an error. See ``apply_schema`` for the writer.
+#:
+#: A separate ``_schema_meta`` node table holds the version constant
+#: above; a future migration that mutates ``papers`` or ``cites``
+#: bumps ``KUZU_SCHEMA_VERSION`` and writes the new value via the same
+#: idempotent ``MERGE``.
 SCHEMA_STATEMENTS: tuple[str, ...] = (
     """
     CREATE NODE TABLE IF NOT EXISTS papers (
@@ -58,6 +71,13 @@ SCHEMA_STATEMENTS: tuple[str, ...] = (
         FROM papers TO papers,
         source STRING,
         confidence FLOAT
+    )
+    """,
+    """
+    CREATE NODE TABLE IF NOT EXISTS _schema_meta (
+        key STRING,
+        value INT32,
+        PRIMARY KEY (key)
     )
     """,
 )
@@ -82,11 +102,44 @@ def apply_schema(db_path: Path) -> None:
         conn = kuzu.Connection(db)
         for statement in SCHEMA_STATEMENTS:
             conn.execute(statement)
+        # Stamp the schema-version row idempotently. F6 fix from the
+        # E09_S01 critique. ``MERGE`` upserts so a re-run with a bumped
+        # version writes the new value; existing readers pick up the
+        # change without an explicit migration step.
+        conn.execute(
+            "MERGE (m:_schema_meta {key: $key}) "
+            "ON CREATE SET m.value = $value "
+            "ON MATCH SET m.value = $value",
+            {"key": "version", "value": KUZU_SCHEMA_VERSION},
+        )
     finally:
         # kuzu.Database closes implicitly when the Python object is GC'd;
         # explicitly drop the local reference so the close runs deterministically
         # (matters on Windows where the open file handle blocks parent rmtree
         # in pytest tmp_path teardown).
+        del db
+
+
+def read_schema_version(db_path: Path) -> int | None:
+    """Return the persisted schema-version stamp, or None if absent.
+
+    Useful for cache invalidation in downstream readers (e.g. the
+    ``cite_neighbors`` MCP tool in E09_S03 will key its response cache
+    on this value alongside the corpus version).
+    """
+    if not db_path.exists():
+        return None
+    db = kuzu.Database(str(db_path))
+    try:
+        conn = kuzu.Connection(db)
+        result = conn.execute(
+            "MATCH (m:_schema_meta {key: $key}) RETURN m.value",
+            {"key": "version"},
+        )
+        if not result.has_next():
+            return None
+        return int(result.get_next()[0])
+    finally:
         del db
 
 

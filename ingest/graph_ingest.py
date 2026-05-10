@@ -104,11 +104,11 @@ from ingest.kuzudb_schema import apply_schema
 from tools.arxiv_fetch import (
     DEFAULT_503_BACKOFF_SECONDS,
     MAX_503_BACKOFF_SECONDS,
-    MAX_RESPONSE_BYTES,
     build_user_agent,
     parse_retry_after,
     validate_paper_id,
 )
+from tools.fetch_seed import read_seed_list
 
 logger = logging.getLogger(__name__)
 
@@ -129,6 +129,16 @@ OPENALEX_TIMEOUT_SECONDS = 30.0
 
 #: Maximum HTTP-error retries for transient (5xx / 429) failures.
 MAX_HTTP_RETRIES = 3
+
+#: Cap on the OpenAlex JSON response body. A real Work record is
+#: ~10 KB; 5 MiB is generous for the 99th-percentile response and
+#: tight enough to fail fast on a misbehaving / hostile server. Threat
+#: 7 (``08-security-observability-ops.md``) requires a meaningful cap;
+#: we do NOT inherit ``tools.arxiv_fetch.MAX_RESPONSE_BYTES`` (200 MB)
+#: because that constant is calibrated for arXiv source tarballs and
+#: would let a malformed CDN response allocate 20,000× more memory
+#: than the OpenAlex shape ever needs (F2 from the E09_S01 critique).
+OPENALEX_MAX_RESPONSE_BYTES = 5 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -189,11 +199,11 @@ def _fetch_openalex_work(
             with urllib.request.urlopen(  # noqa: S310
                 request, timeout=timeout
             ) as resp:
-                body = resp.read(MAX_RESPONSE_BYTES + 1)
-                if len(body) > MAX_RESPONSE_BYTES:
+                body = resp.read(OPENALEX_MAX_RESPONSE_BYTES + 1)
+                if len(body) > OPENALEX_MAX_RESPONSE_BYTES:
                     raise RuntimeError(
                         f"OpenAlex response too large for {arxiv_id}: "
-                        f">{MAX_RESPONSE_BYTES} bytes"
+                        f">{OPENALEX_MAX_RESPONSE_BYTES} bytes"
                     )
                 return json.loads(body.decode("utf-8"))
         except urllib.error.HTTPError as exc:
@@ -348,15 +358,17 @@ def _deserialize_resolved(payload: dict[str, Any]) -> dict[str, _ResolvedWork]:
 
 def load_checkpoint(path: Path) -> dict[str, Any]:
     """Load checkpoint or return a fresh skeleton if absent / unreadable."""
+    skeleton = {"resolved": {}, "edges_done": [], "fetch_failures": []}
     if not path.exists():
-        return {"resolved": {}, "edges_done": []}
+        return skeleton
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         logger.warning("checkpoint %s unreadable; starting fresh", path)
-        return {"resolved": {}, "edges_done": []}
+        return skeleton
     payload.setdefault("resolved", {})
     payload.setdefault("edges_done", [])
+    payload.setdefault("fetch_failures", [])
     return payload
 
 
@@ -366,6 +378,12 @@ def save_checkpoint(path: Path, state: dict[str, Any]) -> None:
     A crash mid-write leaves the previous checkpoint intact; the
     rename is atomic on POSIX (and on macOS, ``os.replace`` performs
     the durable swap that ``Path.write_text`` cannot guarantee).
+
+    The temp sibling lives in the same directory as the destination
+    (``path.with_suffix(path.suffix + ".tmp")``), so ``os.replace`` is
+    intra-filesystem by construction — the cross-device rename failure
+    mode is structurally avoided regardless of where the operator
+    points ``--checkpoint`` (F7 from the E09_S01 critique).
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
@@ -385,7 +403,23 @@ def save_checkpoint(path: Path, state: dict[str, Any]) -> None:
 
 
 def _merge_paper(conn: kuzu.Connection, arxiv_id: str, rw: _ResolvedWork) -> None:
-    """Idempotent ``MERGE`` upsert of one ``papers`` node."""
+    """Idempotent ``MERGE`` upsert of one ``papers`` node.
+
+    .. note::
+
+        Forward-compat hazard for E09_S02 (INSPIRE-HEP enrichment, F4
+        from the E09_S01 critique): the ``ON MATCH SET`` clauses below
+        unconditionally overwrite ``title``, ``authors``, etc. with the
+        OpenAlex values on every re-MERGE. When E09_S02 lands and adds
+        ``doi`` / ``journal_ref`` / ``inspire_id`` columns, an OpenAlex
+        re-ingest will not touch those new columns (Cypher's ``SET``
+        only writes named properties), but if INSPIRE-HEP populated a
+        canonical journal title in ``title``, this re-MERGE would
+        clobber it with the OpenAlex preprint title. E09_S02 must
+        introduce a per-field source-rank predicate (or split the
+        ``_merge_paper`` writers per-source) before adding any
+        cross-source enrichment that writes the same columns.
+    """
     conn.execute(
         """
         MERGE (p:papers {paper_id: $paper_id})
@@ -496,17 +530,25 @@ def ingest(
         state = load_checkpoint(checkpoint_path)
         resolved = _deserialize_resolved(state.get("resolved", {}))
         edges_done: set[str] = set(state.get("edges_done", []))
+        # F3 fix from the E09_S01 critique: track transient-network failures
+        # explicitly so a re-run drains them and the CLI returns nonzero
+        # while papers remain unresolved. Previously a silent ``continue``
+        # left the operator no signal.
+        fetch_failures: dict[str, str] = {
+            entry["arxiv_id"]: entry.get("error", "")
+            for entry in state.get("fetch_failures", [])
+            if isinstance(entry, dict) and "arxiv_id" in entry
+        }
 
         # PASS 1: resolution. For each seed paper not yet resolved, fetch
         # OpenAlex, project into _ResolvedWork, and MERGE the papers node.
+        # On resume, papers in ``fetch_failures`` are retried (and removed
+        # from the failures list on success); previously-resolved papers
+        # are re-MERGEd as a no-op for defense-in-depth.
         last_request_at: float | None = None
         new_in_pass = 0
         for arxiv_id in seed_ids:
             if arxiv_id in resolved:
-                # Defense-in-depth: re-MERGE the node anyway in case the
-                # checkpoint and graph have drifted (e.g. checkpoint was
-                # restored from backup but Kùzu was wiped). The MERGE is a
-                # functional no-op when both already match.
                 _merge_paper(conn, arxiv_id, resolved[arxiv_id])
                 continue
             if last_request_at is not None and sleep_seconds > 0:
@@ -517,8 +559,15 @@ def ingest(
             try:
                 work = fetch_fn(arxiv_id, contact_email)
             except urllib.error.URLError as exc:
+                # F3 fix: record the failure so a re-run retries and the
+                # CLI surfaces a nonzero exit code while papers remain
+                # unresolved. The old "log + continue" path silently lost
+                # the failure signal because ``resolved`` had no entry.
                 logger.error("openalex fetch failed for %s: %s", arxiv_id, exc)
+                fetch_failures[arxiv_id] = str(exc)
                 continue
+            # Success path — drop any prior failure for this paper.
+            fetch_failures.pop(arxiv_id, None)
             rw = _resolved_from_work(work)
             _merge_paper(conn, arxiv_id, rw)
             resolved[arxiv_id] = rw
@@ -526,12 +575,34 @@ def ingest(
             if new_in_pass % batch_size == 0:
                 state["resolved"] = _serialize_resolved(resolved)
                 state["edges_done"] = sorted(edges_done)
+                state["fetch_failures"] = _serialize_failures(fetch_failures)
                 save_checkpoint(checkpoint_path, state)
 
         # Build oa_work_id → arxiv_id reverse mapping for in-corpus filter.
-        rev_map: dict[str, str] = {
-            rw.oa_work_id: aid for aid, rw in resolved.items() if rw.oa_work_id
-        }
+        # F8 fix: detect duplicate ``oa_work_id`` collisions before they
+        # silently last-wins through the dict-comprehension. OpenAlex Work
+        # IDs are supposed to be unique per work; a collision usually
+        # indicates a withdrawn/replaced version mapping to the same Work
+        # and is worth surfacing rather than dropping silently.
+        rev_map: dict[str, str] = {}
+        oa_id_collisions: dict[str, list[str]] = {}
+        for aid, rw in resolved.items():
+            if not rw.oa_work_id:
+                continue
+            existing = rev_map.get(rw.oa_work_id)
+            if existing is not None:
+                oa_id_collisions.setdefault(rw.oa_work_id, [existing]).append(aid)
+            else:
+                rev_map[rw.oa_work_id] = aid
+        if oa_id_collisions:
+            for oa_id, aids in oa_id_collisions.items():
+                logger.warning(
+                    "oa_work_id collision: %s maps to multiple arxiv ids %s; "
+                    "first-wins resolution kept %s",
+                    oa_id,
+                    sorted(aids),
+                    rev_map[oa_id],
+                )
 
         # PASS 2: citation. Walk references and emit cites edges only when
         # the cited OA work id is in the corpus reverse map.
@@ -555,15 +626,24 @@ def ingest(
             if new_edges_pass % batch_size == 0:
                 state["resolved"] = _serialize_resolved(resolved)
                 state["edges_done"] = sorted(edges_done)
+                state["fetch_failures"] = _serialize_failures(fetch_failures)
                 save_checkpoint(checkpoint_path, state)
 
         # Final checkpoint flush.
         state["resolved"] = _serialize_resolved(resolved)
         state["edges_done"] = sorted(edges_done)
+        state["fetch_failures"] = _serialize_failures(fetch_failures)
         save_checkpoint(checkpoint_path, state)
         return state
     finally:
         del db
+
+
+def _serialize_failures(failures: dict[str, str]) -> list[dict[str, str]]:
+    """Serialize ``{arxiv_id: error}`` to a stable on-disk list shape."""
+    return [
+        {"arxiv_id": aid, "error": err} for aid, err in sorted(failures.items())
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -571,27 +651,38 @@ def ingest(
 # ---------------------------------------------------------------------------
 
 
-def _read_seed_ids(path: Path) -> list[str]:
-    """Read paper IDs from a seed file (lines starting with ``#`` are
-    comments; blank lines are skipped). Mirrors
-    ``tools.fetch_seed.read_seed_list`` to avoid pulling that module in
-    via a transitive dep on the ingest path."""
-    ids: list[str] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        ids.append(stripped)
-    return ids
+def _normalize_source(value: str) -> str:
+    """Argparse ``type=`` for ``--source`` that accepts case-insensitive
+    aliases.
+
+    F1 fix from the E09_S01 critique: the milestone brief and roadmap
+    use ``--source openAlex`` (camelCase), but the original argparse
+    declaration was ``choices=["openalex"]`` (lowercase only). An
+    operator copy-pasting the brief got an ``invalid choice`` error.
+    Accept both casings, canonicalize internally to ``"openalex"``
+    so downstream dispatch logic doesn't have to care.
+    """
+    folded = value.strip().lower()
+    if folded != "openalex":
+        # argparse converts ValueError into a friendly usage error.
+        raise argparse.ArgumentTypeError(
+            f"unsupported source: {value!r}. Only 'openalex' / 'openAlex' "
+            "is supported in E09_S01; INSPIRE-HEP lands in E09_S02."
+        )
+    return "openalex"
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--source",
-        choices=["openalex"],
+        type=_normalize_source,
         default="openalex",
-        help="citation-edge source. Only 'openalex' is supported in E09_S01.",
+        help=(
+            "citation-edge source. Accepts either casing the brief uses "
+            "('openAlex' / 'openalex'); both canonicalize to 'openalex'. "
+            "INSPIRE-HEP lands in E09_S02."
+        ),
     )
     parser.add_argument(
         "--seed-file",
@@ -649,7 +740,11 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
-    seed_ids = _read_seed_ids(args.seed_file)
+    # F5 fix: reuse ``tools.fetch_seed.read_seed_list`` rather than
+    # carrying a local copy. The two parsers were behaviorally identical
+    # and would have drifted if either added BOM handling, # suffix
+    # comments, or paper-id validation.
+    seed_ids = read_seed_list(args.seed_file)
     if not seed_ids:
         sys.stderr.write(f"ERROR: seed file {args.seed_file} contains no IDs\n")
         return 2
@@ -676,11 +771,25 @@ def main(argv: list[str] | None = None) -> int:
         logger.warning("interrupted by user; checkpoint preserved.")
         return 130
 
+    failures = state.get("fetch_failures", [])
     logger.info(
-        "done: %d papers resolved, %d papers had edges processed",
+        "done: %d papers resolved, %d papers had edges processed, "
+        "%d transient fetch failures still pending",
         len(state.get("resolved", {})),
         len(state.get("edges_done", [])),
+        len(failures),
     )
+    if failures:
+        # F3 fix: a transient-network-error path was previously logged and
+        # silently swallowed. Surface it as a non-zero exit so the
+        # operator notices and re-runs (the resume path will retry).
+        sys.stderr.write(
+            f"WARNING: {len(failures)} paper(s) hit transient network "
+            "errors during the OpenAlex resolution pass and were not "
+            "added to the graph. Re-run this command to retry; the "
+            f"checkpoint at {args.checkpoint} preserves progress.\n"
+        )
+        return 1
     return 0
 
 
