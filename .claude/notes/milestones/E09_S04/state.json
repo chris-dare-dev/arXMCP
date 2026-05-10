@@ -16,11 +16,22 @@
     "medium": 5
   },
   "critique_path": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/E09_S04/critique-merged.md",
-  "deferred_findings": [],
+  "deferred_findings": [
+    "F6"
+  ],
   "external_writes_authorized": false,
   "external_writes_completed": false,
   "external_writes_required": [],
-  "fixed_findings": [],
+  "fixed_findings": [
+    "F1",
+    "F2",
+    "F3",
+    "F4",
+    "F5",
+    "F7",
+    "F8",
+    "F9"
+  ],
   "id": "E09_S04",
   "implementation_base": "7d89e0eb80b12dec334782dbef9ecb2f22bef907",
   "implementation_branch": "main",
@@ -32,7 +43,7 @@
   "implementation_specialist": null,
   "invalidated_findings": [],
   "milestone_brief": "### E09_S04 \u2014 Cross-paper proof chain workflow (2-round agent pattern)\n\n**Status:** NEW\n**Tier:** 3\n**Effort:** M\n**Dependencies:** E09_S03, E06 (Sonnet B \u2014 `get_chunk` MCP tool), E08 (Sonnet B \u2014 3-round cap enforced)\n\n**Description.** This milestone documents and validates the specific agent interaction pattern that `cite_neighbors` enables for the multi-agent math-proof pipeline. The pattern uses exactly 2 MCP rounds, fitting within the 3-round cap enforced by E08 (Sonnet B).\n\n**The 2-round cross-paper proof chain pattern:**\n\n```\nRound 1: cite_neighbors(chunk_id=<entry_theorem>, depth=2, direction=\"cites\")\n  \u2192 Returns: list of CitationNeighbor records (up to 50, with chunk_ids)\n\nRound 2 (parallel): get_chunk(chunk_id) \u00d7 N\n  \u2192 Returns: chunk bodies for all N returned neighbors\n  (Each get_chunk call is independent; the agent issues them in parallel)\n\nTotal rounds: 2\n```\n\nThe agent (typically the \"autoformalizer\" or \"tactician\" sub-agent in the math-proof pipeline) uses the proof-chain context assembled in these 2 rounds to identify which cited results it needs to assume as lemmas, and in which order they were proved. This context is assembled into the sub-agent's context window before it attempts to formalize or prove the target theorem.\n\nThe 2-round structure is critical for the 3-round budget. The math-proof pipeline's orchestrator allocates 3 MCP rounds per sub-agent invocation: 1 round for initial retrieval (`search_papers`), 1 round for proof-chain expansion (`cite_neighbors`), and 1 round for specific chunk retrieval (`get_chunk` bulk). Within E09_S04's pattern, rounds 2+3 are merged: `cite_neighbors` returns chunk_ids, and `get_chunk` calls are issued in parallel in a single round. This keeps the total at 2 rounds for the proof-chain workflow, leaving 1 round for the initial `search_papers` call in the full orchestration flow.\n\nThis milestone ships a worked example in the epic body (below) and a runnable integration test that simulates the 2-round pattern against the 50-paper seed corpus. The integration test uses a known entry theorem chunk_id from the eval fixture (E05_S01) and asserts that the returned neighbors contain at least one expected citation.\n\n**Worked example** (included verbatim in `docs/proof-chain-workflow.md`):\n```\nQuery: \"What results does the proof of the Grothendieck-Riemann-Roch theorem cite?\"\n\nRound 1:\n  cite_neighbors(\n    chunk_id=\"arxiv:1803.01010:stmt-thm-grr\",\n    depth=2,\n    direction=\"cites\"\n  )\n  \u2192 [\n      CitationNeighbor(chunk_id=\"arxiv:0901.0101:stmt-thm-rr\", paper_id=\"0901.0101\", hop_distance=1, ...),\n      CitationNeighbor(chunk_id=\"arxiv:1205.4344:stmt-def-chern\", paper_id=\"1205.4344\", hop_distance=2, ...),\n      ...\n    ]\n\nRound 2 (parallel, 1 MCP round):\n  get_chunk(\"arxiv:0901.0101:stmt-thm-rr\")   \u2192 {body_text: \"Theorem (Riemann-Roch). ...\"}\n  get_chunk(\"arxiv:1205.4344:stmt-def-chern\") \u2192 {body_text: \"Definition (Chern character). ...\"}\n\nTotal: 2 rounds. Context assembled: entry theorem + cited lemmas + their statements.\n```\n\n**Deliverables.**\n- `docs/proof-chain-workflow.md` \u2014 the 2-round pattern documentation with worked example\n- `pytest tests/test_proof_chain.py` \u2014 integration test simulating 2-round pattern against seed corpus\n- Update to `server/graph_queries.py` \u2014 verify `cite_neighbors` returns results fast enough for 2-round budget (target: \u2264500ms for `depth=2` on the 50-paper corpus)\n\n**Acceptance criteria.**\n- [ ] `docs/proof-chain-workflow.md` documents the 2-round pattern with the worked example above.\n- [ ] `pytest tests/test_proof_chain.py` passes: round 1 returns \u22651 neighbor for a known entry chunk; round 2 (simulated parallel get_chunk) returns non-null body_text for all returned chunk_ids.\n- [ ] `cite_neighbors(depth=2)` completes in \u2264500ms on the 50-paper seed corpus.\n- [ ] Documentation states: \"Total round count = 2. This fits the 3-round cap from E08. Round 1 (`cite_neighbors`) + Round 2 (bulk parallel `get_chunk`) = 2 rounds.\"\n- [ ] Documentation explicitly notes: if a `CitationNeighbor` has `chunk_id=None` (paper in graph but not chunked), the agent must use `search_papers(paper_id=<paper_id>)` instead of `get_chunk` \u2014 that counts as a third round and exhausts the budget.\n\n**Out of scope.** Proof verification (Lean 4 kernel integration is a separate epic). Equation-level citation chains (E10). Graph freshness updates (E11). Expanding to math.NT, hep-th, math-ph in the proof-chain workflow (requires multi-category ingest from E09_S01 and E09_S02 to be complete).\n\n**Risk notes.**\n- **Closes H7 fully.** H7 (\"cross-paper proof chains unaddressed\") is closed by the combination of E09_S03 (`cite_neighbors` implementation) and this milestone (the 2-round agent pattern). The closure is confirmed when `tests/test_proof_chain.py` passes.\n- The worked example must use real `chunk_id`s from the seed corpus to be testable. The integration test must use the same IDs. If `chunk_id`s change (e.g. due to a `chunker_version` bump), the worked example and test must be updated in lockstep with E02_S05's fixture update procedure.\n- The 500ms latency target for `cite_neighbors(depth=2)` is achievable on the 50-paper corpus but must be verified on the full Tier-3 corpus (tens of thousands of papers). If K\u00f9zu graph traversal is too slow at scale, BFS can be replaced with a pre-computed adjacency list (cached at server startup) without changing the API.\n\n**Labels.** `area:graph`, `kind:feature`, `tier:3`.\n# E10 \u2014 Specialized Indices\n\nEpic dependencies: E06 (MCP server with 7 tools shipped), E03 (macro normalizer shipped, `embedding_eq` column reserved in LanceDB schema), E02 (preamble extractor shipped)\n\nGoal: Implement the three specialized indices that power the `get_definitions`, `find_lemma_by_name`, and `find_equation` tools, and add a LaTeXML version drift detector that guards the equation index against silent corruption when the LaTeXML container image is updated.\n\nEffort: M + M + L + S = XL total\n\nReferences: `.claude/notes/05-storage-and-indexing.md` lines 62\u2013107, `.claude/notes/04-parsing-and-chunking.md` (equation atom design)\n\n---",
-  "phase": "rectify-running",
+  "phase": "complete",
   "phase_history": [
     {
       "entered_at": "2026-05-10T21:41:47Z",
@@ -71,11 +82,16 @@
     },
     {
       "entered_at": "2026-05-10T22:00:39Z",
-      "left_at": null,
+      "left_at": "2026-05-10T22:05:53Z",
       "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-05-10T22:05:53Z",
+      "left_at": null,
+      "phase": "complete"
     }
   ],
-  "rectification_commit": null,
+  "rectification_commit": "25cbe3ae8fa6e2b56dfab09109a4f36717f7479b",
   "regression_tests_added": [],
   "research_briefs": [
     {
@@ -91,5 +107,5 @@
   ],
   "research_mode": "standard",
   "research_synthesis": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/E09_S04/research-synthesis.md",
-  "updated_at": "2026-05-10T22:00:39Z"
+  "updated_at": "2026-05-10T22:05:53Z"
 }
