@@ -466,6 +466,174 @@ class TestScoreAndWrite:
 
 
 # ===========================================================================
+# E07_S04 — hybrid-aggregate schema + latency-budget contract
+# ===========================================================================
+
+
+class TestHybridAggregate:
+    """E07_S04 F2 + F10 fixes: lock the new aggregate schema (when
+    hybrid rows include latency keys) AND verify the latency-fail
+    path writes the diagnostic baseline + raises.
+
+    The hybrid path adds two new top-level aggregate keys
+    (``latency_ms``, ``pipeline``); a future regression that drops
+    either would silently break E11_S04's drift watchdog AND remove
+    the latency profile from ``docs/retrieval-quality-report.md``.
+    """
+
+    def _hybrid_synthetic_rows(
+        self,
+        *,
+        ndcg_pattern: list[float],
+        total_ms_pattern: list[float],
+        pipeline: str = "hybrid",
+    ) -> list[dict]:
+        """Build hybrid-shaped rows (with per-phase latency keys)."""
+        return [
+            {
+                "ann_ms": 50.0,
+                "bm25_ms": 5.0,
+                "ndcg5": ndcg,
+                "pipeline": pipeline,
+                "query_id": f"q{i + 1:02d}",
+                "query_text": f"hybrid query {i + 1}",
+                "recall10": 1.0,
+                "rerank_ms": 0.1,  # off-path is near-zero
+                "retrieved_chunk_ids": [
+                    f"arxiv:2307.{i + 1:05d}:{'b' * 16}"
+                ],
+                "total_ms": total_ms,
+            }
+            for i, (ndcg, total_ms) in enumerate(
+                zip(ndcg_pattern, total_ms_pattern, strict=True)
+            )
+        ]
+
+    def test_hybrid_rows_emit_latency_and_pipeline(self, tmp_path):
+        """F2: aggregate JSON includes ``latency_ms`` (with per-phase
+        p50/p95/max) AND ``pipeline`` identity when hybrid rows
+        carry the latency keys."""
+        from tests.eval.test_retrieval_quality import score_and_write
+
+        rows = self._hybrid_synthetic_rows(
+            ndcg_pattern=[0.85, 0.9, 0.95],
+            total_ms_pattern=[100.0, 200.0, 1500.0],
+            pipeline="hybrid",
+        )
+        score_and_write(
+            per_query_rows=rows,
+            corpus_version=100,
+            ndcg_min=0.70,
+            output_dir=tmp_path,
+            assert_latency_p95=True,
+        )
+        agg = json.loads(
+            (tmp_path / "aggregate-100.json").read_text(encoding="utf-8")
+        )
+        # 7-key shape (alphabetical).
+        assert list(agg.keys()) == [
+            "corpus_version",
+            "latency_ms",
+            "ndcg5_mean",
+            "pipeline",
+            "query_count",
+            "recall10_mean",
+            "timestamp",
+        ]
+        # latency_ms has 4 per-phase entries each with 3 percentile keys.
+        for phase in ("bm25_ms", "ann_ms", "rerank_ms", "total_ms"):
+            assert phase in agg["latency_ms"]
+            assert set(agg["latency_ms"][phase].keys()) == {"p50", "p95", "max"}
+        # pipeline identity.
+        assert agg["pipeline"] == "hybrid"
+
+    def test_latency_violation_writes_files_then_raises(self, tmp_path):
+        """F10: a latency-budget failure MUST write the aggregate
+        + JSONL files BEFORE raising — operator needs the diagnostic
+        baseline regardless of which AC failed."""
+        from tests.eval.test_retrieval_quality import score_and_write
+
+        # Total-ms p95 will be ~2,800 ms — exceeds the 2,000 ms budget.
+        rows = self._hybrid_synthetic_rows(
+            ndcg_pattern=[0.95, 0.95, 0.95],
+            total_ms_pattern=[1500.0, 2500.0, 3000.0],
+        )
+        with pytest.raises(AssertionError, match="AC #4 violated"):
+            score_and_write(
+                per_query_rows=rows,
+                corpus_version=101,
+                ndcg_min=0.70,  # nDCG passes; only latency fails
+                output_dir=tmp_path,
+                assert_latency_p95=True,
+            )
+        # Files MUST exist on the threshold-failure path.
+        assert (tmp_path / "results-101.jsonl").is_file()
+        assert (tmp_path / "aggregate-101.json").is_file()
+
+    def test_both_acs_violated_reports_both(self, tmp_path):
+        """F8: when BOTH the latency budget AND the nDCG threshold
+        fail, the assertion message includes BOTH violations so the
+        operator sees the full picture in one shot (not two failed
+        runs)."""
+        from tests.eval.test_retrieval_quality import score_and_write
+
+        # nDCG mean = 0.30 (fails 0.50 threshold); latency p95 ~ 2.8s
+        # (fails 2.0s budget).
+        rows = self._hybrid_synthetic_rows(
+            ndcg_pattern=[0.3, 0.3, 0.3],
+            total_ms_pattern=[1500.0, 2500.0, 3000.0],
+        )
+        with pytest.raises(AssertionError, match="BOTH ACs"):
+            score_and_write(
+                per_query_rows=rows,
+                corpus_version=102,
+                ndcg_min=0.50,
+                output_dir=tmp_path,
+                assert_latency_p95=True,
+            )
+
+    def test_latency_assertion_off_when_not_requested(self, tmp_path):
+        """``assert_latency_p95=False`` (the dense-only default) MUST
+        NOT touch the latency budget — backwards-compat with E05_S02
+        invocations."""
+        from tests.eval.test_retrieval_quality import score_and_write
+
+        rows = self._hybrid_synthetic_rows(
+            ndcg_pattern=[0.95, 0.95, 0.95],
+            total_ms_pattern=[5000.0, 5000.0, 5000.0],  # would violate
+        )
+        # Should NOT raise — assert_latency_p95 default is False.
+        score_and_write(
+            per_query_rows=rows,
+            corpus_version=103,
+            ndcg_min=0.70,
+            output_dir=tmp_path,
+        )
+
+
+class TestLatencyBudgetPin:
+    """E07_S04 F3: pin ``LATENCY_P95_MAX_SECONDS`` so a future edit
+    triggers a deliberate-bump test failure (mirrors the
+    ``EXPECTED_TOOL_SCHEMA_SHA256`` discipline from E06_S06).
+
+    The 2.0-second value is load-bearing for the Tier-1 exit gate
+    per the brief: "Latency p95 for the full pipeline is ≤ 2 seconds
+    at k=10 on the seed corpus." A silent edit deviates from the
+    spec; this test catches it.
+    """
+
+    def test_latency_budget_pinned_at_2_seconds(self):
+        from tests.eval.test_retrieval_quality import LATENCY_P95_MAX_SECONDS
+
+        assert LATENCY_P95_MAX_SECONDS == 2.0, (
+            f"E07_S04 AC #4 budget changed from 2.0 to "
+            f"{LATENCY_P95_MAX_SECONDS}. If this is intentional, "
+            f"update docs/retrieval-quality-report.md AND this test "
+            f"in lockstep — the brief mandates 2 seconds at k=10."
+        )
+
+
+# ===========================================================================
 # F3 lock — column-name single source of truth
 # ===========================================================================
 

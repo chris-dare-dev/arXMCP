@@ -372,7 +372,30 @@ def _run_hybrid_against_corpus(
     # synthesis D5 + D7, ``enable_rerank`` flag is passed to Config
     # so the on/off behavior is determined at construction. We
     # construct against the SAME corpus version the test pinned.
-    cfg = Config(enable_rerank=rerank_enabled)
+    # F5 fix from the E07_S04 critique: catch ``pydantic.ValidationError``
+    # so an operator with stray ``ARXMCP_*`` env vars (e.g. an
+    # ``ARXMCP_BIND_HOST=0.0.0.0`` in their ``.envrc``) sees a clear
+    # diagnostic rather than a raw pydantic stack. The eval doesn't
+    # need ``bind_host`` etc. — only ``enable_rerank`` matters — but
+    # ``Config()`` reads ALL declared ARXMCP_* env vars at instantiation.
+    try:
+        cfg = Config(enable_rerank=rerank_enabled)
+    except Exception as exc:
+        pytest.fail(
+            f"Eval harness Config() failed; an ARXMCP_* env var in your "
+            f"shell may be invalid for the loopback / value-range "
+            f"validators. Original error:\n  {exc}\n\n"
+            f"To work around, unset the offending env var before running "
+            f"the eval (only ARXMCP_RUN_REAL_BGE_RERANKER and "
+            f"ARXMCP_LANCEDB_PATH are typically required)."
+        )
+
+    # F1 fix from the E07_S04 critique: explicit ``resources = None``
+    # sentinel so the ``finally`` block can skip shutdown when startup
+    # raised before binding the name. The previous broad
+    # ``contextlib.suppress(NameError, Exception)`` masked
+    # ``asyncio.TimeoutError`` and other shutdown failures.
+    resources = None
     loop = asyncio.new_event_loop()
     try:
         # Resources.startup is async — drive on the same event loop
@@ -455,13 +478,41 @@ def _run_hybrid_against_corpus(
             )
         return per_query_rows
     finally:
-        # Drain the resources cleanly so the executor + LanceDB
-        # handles release. shutdown() is async; run on the same loop.
-        # Suppress: ``resources`` may not be defined if startup raised.
-        with contextlib.suppress(NameError, Exception):
-            loop.run_until_complete(
-                asyncio.wait_for(resources.shutdown(), timeout=30.0)
-            )
+        # F1 fix: narrow the shutdown error path. Skip when
+        # ``resources`` is unbound (startup raised); surface
+        # ``TimeoutError`` as a warning (don't mask it as a silent
+        # success). All other shutdown exceptions propagate so the
+        # operator sees real cleanup failures. F9 fix: drop the
+        # redundant ``NameError`` from the suppress list (handled
+        # by the ``is not None`` guard above).
+        if resources is not None:
+            try:
+                loop.run_until_complete(
+                    asyncio.wait_for(resources.shutdown(), timeout=30.0)
+                )
+            except TimeoutError:
+                # 30s drain budget exceeded — surface as a warning so
+                # ops can investigate without failing the eval (the
+                # query loop already finished).
+                import warnings as _warnings  # noqa: PLC0415
+
+                _warnings.warn(
+                    "Resources.shutdown exceeded the 30s drain budget "
+                    "during eval cleanup; the eval results are valid "
+                    "but the next process may inherit half-released "
+                    "handles.",
+                    stacklevel=2,
+                )
+        # F6 fix: reset the query-encoder singleflight registry so a
+        # downstream test in the same pytest session does not await a
+        # stale future bound to this now-closed loop. Mirrors
+        # tests/retrieval/test_ann.py:_reset_for_tests calls.
+        try:
+            from server import query_encoder as _qe  # noqa: PLC0415
+
+            _qe._reset_for_tests()
+        except ImportError:
+            pass
         loop.close()
 
 
@@ -537,17 +588,16 @@ def score_and_write(
         json.dumps(aggregate, ensure_ascii=False, sort_keys=True) + "\n",
     )
 
-    # AC1 / AC2: nDCG threshold gate. Raises ThresholdNotMetError on
-    # failure (subclass of AssertionError).
-    assert_threshold(ndcg5_mean=ndcg5_mean, ndcg_min=ndcg_min)
-
-    # E07_S04 AC #4: latency budget. Asserted only when the hybrid
-    # branch ran (dense-only rows have no latency rows; latency
-    # there is the E05_S02 baseline, NOT the E07_S04 budget).
+    # F8 fix from the E07_S04 critique: check latency BEFORE the nDCG
+    # threshold so an operator triaging a failed gate sees BOTH
+    # signals when both ACs are violated. The aggregate JSON has
+    # already been written, so neither assertion blocks the diagnostic
+    # baseline.
+    latency_violation_msg: str | None = None
     if assert_latency_p95 and has_latency:
         total_p95_s = aggregate["latency_ms"]["total_ms"]["p95"] / 1000.0
         if total_p95_s > LATENCY_P95_MAX_SECONDS:
-            raise AssertionError(
+            latency_violation_msg = (
                 f"E07_S04 AC #4 violated: total p95 latency "
                 f"{total_p95_s:.3f}s exceeds budget "
                 f"{LATENCY_P95_MAX_SECONDS:.1f}s at k={FINAL_TOP_K}. "
@@ -556,6 +606,24 @@ def score_and_write(
                 f"slow phase or revisit the budget in "
                 f"docs/retrieval-quality-report.md."
             )
+
+    # AC1 / AC2: nDCG threshold gate. Catch the ThresholdNotMetError
+    # so we can chain it with the latency violation if both fired.
+    ndcg_violation: BaseException | None = None
+    try:
+        assert_threshold(ndcg5_mean=ndcg5_mean, ndcg_min=ndcg_min)
+    except AssertionError as exc:
+        ndcg_violation = exc
+
+    if latency_violation_msg and ndcg_violation:
+        raise AssertionError(
+            f"BOTH ACs violated:\n  - {ndcg_violation}\n  - "
+            f"{latency_violation_msg}"
+        )
+    if latency_violation_msg:
+        raise AssertionError(latency_violation_msg)
+    if ndcg_violation:
+        raise ndcg_violation
 
 
 def _percentile(values: list[float], pct: float) -> float:

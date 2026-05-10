@@ -132,6 +132,25 @@ carries the latency percentiles and pipeline identity. After each
 run, copy the per-phase nDCG@5 + latency tables above into this
 file and either confirm `ARXMCP_ENABLE_RERANK=False` or flip it.
 
+### Cold-start cost per invocation
+
+Every `pytest` invocation builds a fresh `Resources` instance:
+LanceDB open + BGE-M3 warm + BM25 build + (with `--rerank`) ~2.3 GB
+reranker download/load. For an operator iterating on `--ndcg-min`
+thresholds (e.g. 0.78 → 0.80 → 0.82 to chart the sensitivity
+curve), each invocation pays this full cold-start cost.
+
+Practical timing on commodity hardware:
+- Without `--rerank`: ~10–30 seconds per invocation (BGE-M3 warm
+  dominates).
+- With `--rerank` (cold model cache): ~2–5 minutes (model download
+  + warmup).
+- With `--rerank` (warm cache): ~30–60 seconds (model load).
+
+Budget operator time accordingly. A future improvement (see
+"Open follow-ups" below) would session-scope `Resources` so
+multi-threshold runs share one startup.
+
 ## Open follow-ups
 
 - **Curate the 20-query fixture** (separate deliverable, blocks the
