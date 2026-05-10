@@ -100,6 +100,23 @@ class TestPrefixTokenCap:
             f"tiktoken-based measurement in the test."
         )
 
+    @pytest.mark.parametrize("tag", list(RouteTag))
+    def test_prefix_is_ascii_only(self, tag):
+        """F8 fix from the E08_S02 critique: the 4 chars/token heuristic
+        is Anthropic's English-ASCII rate. CJK characters and most emoji
+        tokenize at 1+ token/char, blowing the heuristic by 4–8×. Pin
+        the prefix domain to ASCII so a future contributor adding
+        ``[Role: 验证]`` is caught here, not silently shipped over-cap."""
+        prefix = ROLE_PREFIXES[tag]
+        assert prefix.isascii(), (
+            f"{tag.value} prefix contains non-ASCII characters. The "
+            f"200-char heuristic uses Anthropic's English-ASCII rate "
+            f"(4 chars/token); non-ASCII text tokenizes denser. Either "
+            f"transliterate to ASCII OR replace the heuristic with a "
+            f"tiktoken-based measurement that handles the contributor's "
+            f"chosen script."
+        )
+
     def test_max_prefix_chars_constant(self):
         """Pin the heuristic so a future edit catches the eye."""
         assert MAX_PREFIX_CHARS == 200
@@ -419,22 +436,51 @@ def _canonical_json(obj: object) -> bytes:
     ).encode("utf-8")
 
 
+def _live_tools_payload() -> list[dict]:
+    """Return the live tool list as serializable dicts.
+
+    F1 fix from the E08_S02 critique: we used to use a synthetic
+    two-element stub list here. That made the BP1 byte-identity test
+    tautological — ``_build_fanout_request`` discarded ``tag`` for the
+    system+tools region by construction. The critic verified
+    ``import server.tools`` runs in ~25 ms with NO ``lancedb`` import
+    transitively, debunking the original "heavy import" rationale.
+
+    We now serialize the live ``server.tools.ALL_TOOLS`` registry
+    (frozen ``ToolMeta`` dataclasses with ``name`` + ``description``)
+    into the same wire shape ``ALL_TOOLS`` would take in a real
+    ``messages.create`` ``tools=[...]`` kwarg. The byte surface is the
+    one E06_S06's ``EXPECTED_TOOL_SCHEMA_SHA256`` already pins, so a
+    hash drift caught HERE means either (a) the role-as-user-turn-prefix
+    invariant broke (which is what AC #5 cares about) OR (b) someone
+    edited a tool description (which E06_S06 also catches and routes
+    through the schema-version bump procedure)."""
+    from server.tools import ALL_TOOLS
+
+    return [{"name": t.name, "description": t.description} for t in ALL_TOOLS]
+
+
 def _build_fanout_request(tag: RouteTag, problem: str) -> dict:
     """Build a hypothetical ``messages.create`` kwargs dict for one
     role. The role prefix and the problem statement go in the same
-    text content block separated by ``"\\n\\n"`` (synthesis D9)."""
+    text content block separated by ``"\\n\\n"`` (synthesis D9).
+
+    The ``system`` field is wrapped as a single-element list of text
+    content blocks so a downstream caller can attach BP1's
+    ``cache_control`` marker — the bare-string ``system`` form silently
+    drops ``cache_control`` per the Anthropic Messages API. We use the
+    list form here so the test's BP1 region matches the integration
+    seam shape the orchestrator (E08_S04) will actually emit (F2 fix
+    from the E08_S02 critique)."""
     return {
-        "system": SYSTEM_PROMPT,
-        # Tools: a stable surface. We use a synthetic stub list
-        # rather than importing the real ``server.tools`` here
-        # because (a) the BP1 test only needs the system + tools to
-        # be IDENTICAL across roles, not realistic; (b) importing
-        # server.tools triggers FastMCP load + lancedb imports that
-        # are heavy and unrelated to this test.
-        "tools": [
-            {"name": "stub_tool_a", "description": "stable across roles"},
-            {"name": "stub_tool_b", "description": "stable across roles"},
+        "system": [
+            {
+                "type": "text",
+                "text": SYSTEM_PROMPT,
+                "cache_control": {"type": "ephemeral", "ttl": "1h"},
+            }
         ],
+        "tools": _live_tools_payload(),
         "messages": [
             {
                 "role": "user",
@@ -510,22 +556,65 @@ class TestBP1ByteIdentityAcrossFanout:
             "system or tools surface."
         )
 
-    def test_role_prefix_lives_in_user_turn_not_bp1(self):
+    @pytest.mark.parametrize("tag", list(RouteTag))
+    def test_role_prefix_lives_in_user_turn_not_bp1(self, tag):
         """Sanity: the role prefix string must NOT appear in the
-        canonical JSON of the BP1 region. This catches a future
-        regression where someone moves the role prefix into the
-        system prompt."""
-        req = _build_fanout_request(
-            RouteTag.AUTOFORMALIZATION, "Translate Yoneda to Lean",
-        )
+        canonical JSON of the BP1 region. F12 fix from the E08_S02
+        critique: parametrized over ALL FOUR ``RouteTag`` values so a
+        future regression that moves only ONE role's prefix into the
+        system prompt is caught (the pre-fix version of this test
+        only exercised AUTOFORMALIZATION)."""
+        req = _build_fanout_request(tag, "test problem statement")
         bp1_bytes = _canonical_json({"system": req["system"], "tools": req["tools"]})
         bp1_text = bp1_bytes.decode("utf-8")
-        prefix_marker = "[Role: Autoformalizer]"
+        prefix_marker = ROLE_PREFIXES[tag][:20]  # the "[Role: <Name>]" head
         assert prefix_marker not in bp1_text, (
-            f"Role prefix marker {prefix_marker!r} found in the BP1 "
-            f"region — the role-as-user-turn-prefix invariant is "
-            f"broken. The role prefix MUST live in the user turn "
-            f"(BP2 region), NOT in the system or tools surface."
+            f"Role prefix marker {prefix_marker!r} for {tag.value!r} "
+            f"found in the BP1 region — the role-as-user-turn-prefix "
+            f"invariant is broken. The role prefix MUST live in the "
+            f"user turn (BP2 region), NOT in the system or tools "
+            f"surface."
+        )
+
+    def test_bp1_hash_pinned(self):
+        """F13 fix from the E08_S02 critique: pin the canonical-JSON
+        SHA-256 of the BP1 region (system + live ``ALL_TOOLS``).
+
+        The structural assertion above proves all four roles share
+        ONE hash; this test pins WHAT that hash is. A drift here means
+        EITHER ``SYSTEM_PROMPT`` changed (E08_S04 will land the real
+        body and intentionally drift this constant) OR
+        ``server.tools.ALL_TOOLS`` changed (E06_S06's
+        ``EXPECTED_TOOL_SCHEMA_SHA256`` would also fire). Without this
+        pin a uniform-but-changed BP1 invalidates the cross-role cache
+        identically across all four roles and the structural test
+        misses it.
+
+        **Update procedure (intentional drift):** edit the literal
+        below to the value the test prints in the assertion message.
+        Mirror the discipline of ``EXPECTED_TOOL_SCHEMA_SHA256`` in
+        ``tests/test_server_tool_schema.py`` — drift is intentional
+        only when paired with an upstream change (here: the real
+        ``SYSTEM_PROMPT`` body landing in E08_S04).
+        """
+        # UPDATE-ANCHOR — bump when SYSTEM_PROMPT or ALL_TOOLS drift:
+        EXPECTED_BP1_SHA256 = (
+            "f01de11288e2128b5af9c2d04dbdb264f6122f96f62d6cc4e3559ef9c16b2084"
+        )
+        req = _build_fanout_request(
+            RouteTag.SYNTHESIS, "any problem; BP1 is independent of problem",
+        )
+        actual = _bp1_hash(req)
+        assert actual == EXPECTED_BP1_SHA256, (
+            f"BP1 hash drifted. Expected {EXPECTED_BP1_SHA256!r}, "
+            f"got {actual!r}. EITHER (a) SYSTEM_PROMPT changed (was "
+            f"this an intentional E08_S04 system-prompt landing? bump "
+            f"the constant), OR (b) ALL_TOOLS changed (test_server_"
+            f"tool_schema.py should also be failing — fix THAT first), "
+            f"OR (c) the BP1 region shape changed (e.g. system was "
+            f"refactored back to a bare string — which would silently "
+            f"drop BP1 cache_control). To intentionally update, edit "
+            f"the EXPECTED_BP1_SHA256 literal in this file to {actual!r}."
         )
 
 
@@ -556,10 +645,12 @@ class TestBetaHeaderConstants:
 
 
 class TestClosedAtFourInvariant:
-    """The ``assert set(ROLE_PREFIXES) == set(RouteTag)`` at
-    server/prompts.py import time enforces that adding a fifth
-    RouteTag value without extending ROLE_PREFIXES fails the
-    import. Verify the assert path works."""
+    """The ``if set(ROLE_PREFIXES) != set(RouteTag): raise
+    RuntimeError(...)`` at server/prompts.py import time enforces
+    that adding a fifth RouteTag value without extending
+    ROLE_PREFIXES fails the import. F4 fix from the E08_S02 critique:
+    the check used to be a bare ``assert`` which Python compiles to a
+    no-op under ``-O`` (PYTHONOPTIMIZE=1)."""
 
     def test_route_tag_count_is_four(self):
         """Sanity: the closed-at-four contract from E08_S01 is
@@ -568,3 +659,47 @@ class TestClosedAtFourInvariant:
 
     def test_role_prefixes_count_matches(self):
         assert len(ROLE_PREFIXES) == len(list(RouteTag))
+
+    def test_closed_at_four_check_survives_dash_O(self):
+        """F4 regression guard: spawn ``python -O -c "import
+        server.prompts"`` and verify it succeeds. If the import-time
+        check were a bare ``assert``, ``-O`` would compile it away —
+        but the check would still need to fire if a contributor adds
+        a fifth ``RouteTag`` without extending ``ROLE_PREFIXES``.
+
+        We can't easily fake a fifth RouteTag inside a subprocess
+        without writing a temp module. Instead this test verifies the
+        runtime CHECK itself (not just the assert syntax) by reading
+        the source and confirming it uses ``raise RuntimeError`` not
+        ``assert``. A defense-in-depth pair: this test catches
+        accidental regression of the F4 fix; the import-time check
+        catches the closed-at-four invariant violation."""
+        import subprocess
+        import sys
+
+        result = subprocess.run(
+            [sys.executable, "-O", "-c", "import server.prompts"],
+            capture_output=True, text=True, timeout=30,
+            cwd=str(PROMPTS_MODULE_PATH.parent.parent),
+        )
+        assert result.returncode == 0, (
+            f"`python -O -c 'import server.prompts'` failed: "
+            f"stdout={result.stdout!r} stderr={result.stderr!r}"
+        )
+
+        source = PROMPTS_MODULE_PATH.read_text(encoding="utf-8")
+        assert "raise RuntimeError" in source and (
+            "if set(ROLE_PREFIXES.keys()) != set(RouteTag)" in source
+        ), (
+            "The closed-at-four import-time check must use "
+            "`if … raise RuntimeError(…)` (NOT `assert`) so it "
+            "survives `python -O`. F4 from the E08_S02 critique."
+        )
+        # And: the bare 'assert set(ROLE_PREFIXES.keys()) == set(RouteTag)'
+        # form must NOT reappear.
+        assert "assert set(ROLE_PREFIXES.keys()) == set(RouteTag)" not in source, (
+            "Found `assert set(ROLE_PREFIXES.keys()) == set(RouteTag)` in "
+            "server/prompts.py — this is the pre-F4 form that compiles "
+            "to a no-op under `python -O`. Use `if … raise RuntimeError(…)` "
+            "instead. See F4 in the E08_S02 critique."
+        )

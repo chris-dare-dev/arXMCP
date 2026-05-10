@@ -37,6 +37,16 @@ defense alongside the AST check.
 follows (NOT shipped here — this module is constants only):
 
     from server.prompts import ROLE_PREFIXES, SYSTEM_PROMPT
+    # BP1 — system as a list-of-content-blocks so the LAST block can
+    # carry cache_control. The bare-string form silently drops
+    # cache_control per the Anthropic Messages API and BP1 no-ops.
+    system = [
+        {"type": "text",
+         "text": SYSTEM_PROMPT,
+         "cache_control": {"type": "ephemeral", "ttl": "1h"}},
+    ]
+    # BP2 — role prefix + problem in ONE content block; cache_control
+    # at the end of the block.
     messages = [
         {"role": "user", "content": [{
             "type": "text",
@@ -44,11 +54,22 @@ follows (NOT shipped here — this module is constants only):
             "cache_control": {"type": "ephemeral", "ttl": "1h"},
         }]},
     ]
-    request = {"system": SYSTEM_PROMPT, "tools": [...], "messages": messages}
+    request = {"system": system, "tools": [...], "messages": messages}
 
 The role prefix and the problem statement live in the SAME content
 block separated by ``"\\n\\n"`` — fewer content blocks means
 fewer surface points for a future edit to break BP2.
+
+**Threat — `[Role:]` marker spoofing in user input.** Because the
+role prefix lives in the SAME content block as the user's
+``problem_statement`` (separated by ``\\n\\n``), an attacker who
+controls ``problem_statement`` can splice an extra ``[Role: …]``
+marker after the legitimate one. Per
+``server/prompts.md``'s "Security — `[Role:]` injection" section,
+the orchestrator MUST either reject or escape ``[Role:`` substrings
+in untrusted input before concatenation. This is a contract for the
+upstream (E08_S04) to enforce; it is documented but not enforced
+here because this module is pure constants.
 """
 
 from __future__ import annotations
@@ -68,6 +89,13 @@ from server.router import RouteTag
 #: header anthropic-beta: extended-cache-ttl-2025-04-11 (verify
 #: exact name)."*. Frozen here so the orchestrator (E08_S04) imports
 #: a single source of truth.
+#:
+#: TODO(E08_S04): Verify the header value against current Anthropic
+#: docs (https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching)
+#: BEFORE the orchestrator's first live call. If the header name is
+#: wrong, BP1 silently falls back to 5-min TTL and the only signal is
+#: a degradation in cache-creation metrics. Caveat copied from the
+#: source note: "verify exact name". F7 fix from E08_S02 critique.
 EXTENDED_CACHE_TTL_HEADER_NAME: str = "anthropic-beta"
 EXTENDED_CACHE_TTL_HEADER_VALUE: str = "extended-cache-ttl-2025-04-11"
 
@@ -151,12 +179,20 @@ ROLE_PREFIXES: Mapping[RouteTag, str] = MappingProxyType({
 # ``RouteTag.EQUATION_FINDER``) without updating this module breaks
 # the import loudly rather than silently routing through a KeyError
 # at first use.
-assert set(ROLE_PREFIXES.keys()) == set(RouteTag), (
-    f"ROLE_PREFIXES keys {set(ROLE_PREFIXES.keys())} do not match "
-    f"RouteTag values {set(RouteTag)}. Adding a new RouteTag "
-    f"requires extending ROLE_PREFIXES with the new role's "
-    f"≤50-token prefix in lockstep."
-)
+#
+# F4 fix from the E08_S02 critique: this is an explicit
+# ``if … raise`` rather than a bare ``assert`` because Python run with
+# ``-O`` (PYTHONOPTIMIZE=1, common in production containers that
+# strip docstrings + asserts) compiles ``assert`` to a no-op,
+# silently disabling the closed-at-four defense. Use ``RuntimeError``
+# so the import-time check survives optimization.
+if set(ROLE_PREFIXES.keys()) != set(RouteTag):
+    raise RuntimeError(
+        f"ROLE_PREFIXES keys {set(ROLE_PREFIXES.keys())} do not match "
+        f"RouteTag values {set(RouteTag)}. Adding a new RouteTag "
+        f"requires extending ROLE_PREFIXES with the new role's "
+        f"≤50-token prefix in lockstep."
+    )
 
 
 __all__ = [

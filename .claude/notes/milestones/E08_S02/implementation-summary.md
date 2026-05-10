@@ -18,7 +18,7 @@ All 24 new tests pass. Full pytest suite (1033 tests collected) green.
 
 | AC | Where it's enforced |
 |---|---|
-| Each role prefix ≤ 50 tokens | `tests/test_prompts.py::TestPrefixTokenCap` — parametrized over `RouteTag`, asserts `len(prefix) <= 200` (50 × 4 chars/token heuristic, conservative for English ASCII per Anthropic docs). All four prefixes measure 136–177 chars; comfortably under cap. |
+| Each role prefix ≤ 50 tokens | `tests/test_prompts.py::TestPrefixTokenCap` — parametrized over `RouteTag`, asserts `len(prefix) <= 200` (50 × 4 chars/token heuristic, conservative for English ASCII per Anthropic docs) AND `prefix.isascii()` (post-rectification F8 fix narrows the heuristic's domain to ASCII). Measured chars: LOOKUP=156, SYNTHESIS=157, VERIFICATION=196 (98% of cap), AUTOFORMALIZATION=170. VERIFICATION is the tightest; future edits adding any clause overshoot. |
 | Exactly 4 role-prefix constants in `server/prompts.py`, one per `RouteTag` | `ROLE_PREFIXES: Mapping[RouteTag, str]` dict literal in `server/prompts.py`; import-time `assert set(ROLE_PREFIXES.keys()) == set(RouteTag)`; tests in `TestPrefixCompleteness` cover dict size, key set, and per-tag presence. |
 | `tests/test_prompts.py` passes | `24 passed in 0.15s`. |
 | `server/prompts.md` contains the verbatim AC #4 sentence | `tests/test_prompts.py::TestDocBP3DropSentence::test_prompts_md_contains_ac4_sentence_verbatim` — byte-exact substring check for `"BP3 is dropped; heterogeneous roles never share seed retrieval bytes"`. The sentence appears twice in `prompts.md` (TL;DR bullet + "Why BP3 was dropped" header bullet) so a future doc rewrite that drops one still surfaces it from the other. |
