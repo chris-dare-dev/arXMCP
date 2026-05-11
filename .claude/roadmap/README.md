@@ -11,19 +11,25 @@ The design constitution remains `.claude/notes/01-mission-and-context.md` throug
 | ID | Title | Tier | Deps | Status | File |
 |---|---|---|---|---|---|
 | E01 | Vertical Slice | 0 | — | DONE | [E01-shipped.md](E01-shipped.md) |
-| E02 | Chunker | 0 | E01 | NEW | [E02-chunker.md](E02-chunker.md) |
-| E03 | Embedder | 0 | E02 | NEW | [E03-embedder.md](E03-embedder.md) |
-| E04 | Vector Store | 0 | E02, E03 | NEW | [E04-vector-store.md](E04-vector-store.md) |
-| E05 | Eval Harness | 0 | E02, E03, E04 | NEW | [E05-eval-harness.md](E05-eval-harness.md) |
-| E06 | MCP Server | 1 | E04 | NEW | [E06-mcp-server.md](E06-mcp-server.md) |
-| E07 | Hybrid Retrieval | 1 | E04, E06 | NEW | [E07-hybrid-retrieval.md](E07-hybrid-retrieval.md) |
-| E08 | Agent Runtime + Caching | 2 | E06, E07 | NEW | [E08-agent-runtime.md](E08-agent-runtime.md) |
-| E09 | Citation Graph | 3 | E04, E06, E07, E08 | NEW | [E09-citation-graph.md](E09-citation-graph.md) |
-| E10 | Specialized Indices | 4 | E04, E06 | NEW | [E10-specialized-indices.md](E10-specialized-indices.md) |
-| E11 | Scale Cutover | 5 | E04, E07, E10 | NEW | [E11-scale-cutover.md](E11-scale-cutover.md) |
+| E02 | Chunker | 0 | E01 | SHIPPED | [E02-chunker.md](E02-chunker.md) |
+| E03 | Embedder | 0 | E02 | SHIPPED | [E03-embedder.md](E03-embedder.md) |
+| E04 | Vector Store | 0 | E02, E03 | SHIPPED | [E04-vector-store.md](E04-vector-store.md) |
+| E05 | Eval Harness | 0 | E02, E03, E04 | SHIPPED (harness only; fixture pending) | [E05-eval-harness.md](E05-eval-harness.md) |
+| E06 | MCP Server | 1 | E04 | SHIPPED | [E06-mcp-server.md](E06-mcp-server.md) |
+| E07 | Hybrid Retrieval | 1 | E04, E06 | SHIPPED | [E07-hybrid-retrieval.md](E07-hybrid-retrieval.md) |
+| E08 | Agent Runtime + Caching | 2 | E06, E07 | SHIPPED | [E08-agent-runtime.md](E08-agent-runtime.md) |
+| E09 | Citation Graph | 3 | E04, E06, E07, E08 | SHIPPED (closes H7) | [E09-citation-graph.md](E09-citation-graph.md) |
+| E10 | Specialized Indices | 4 | E04, E06 | PENDING | [E10-specialized-indices.md](E10-specialized-indices.md) |
+| E11 | Scale Cutover | 5 | E04, E07, E10 | PENDING | [E11-scale-cutover.md](E11-scale-cutover.md) |
 | E12 | Full Corpus (folded) | 5 | E11 | SCOPED_OUT | [E12-full-corpus.md](E12-full-corpus.md) |
-| E13 | Security Hardening | 5 | E06 | NEW | [E13-security.md](E13-security.md) |
-| E14 | Observability & Ops | 5–6 | E06, E08 | NEW | [E14-observability-ops.md](E14-observability-ops.md) |
+| E13 | Security Hardening | 5 | E06 | PENDING | [E13-security.md](E13-security.md) |
+| E14 | Observability & Ops | 5–6 | E06, E08 | PENDING | [E14-observability-ops.md](E14-observability-ops.md) |
+
+> **Ship status sourced from `.claude/notes/milestones/<EXX_SYY>/state.json`.**
+> An epic is `SHIPPED` if every milestone under it has `phase: complete`.
+> The per-epic `*.md` files retain `Status: NEW` in their bodies as a
+> historical artifact; the table above is the authoritative current
+> status. Total tests: 1312 passing, 4 skipped (`requires_model`), as of 2026-05-10.
 
 ---
 
