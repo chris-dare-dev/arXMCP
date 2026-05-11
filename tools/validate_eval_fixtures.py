@@ -19,7 +19,7 @@ entry point at the bottom of this module exists for ad-hoc invocation.
 milestone brief ("the implementer cannot automate the curation itself
 — that would make the eval circular"), this module ships the
 *tooling*. The 20 hand-labeled triples themselves are populated by a
-human curator following ``docs/eval-curation.md``. The seed fixture
+human curator following ``.claude/docs/eval-curation.md``. The seed fixture
 that ships with this milestone has ``"queries": []`` (zero triples) —
 the validator treats that as the "curation pending" mode and exits 0
 with a clear info line. See :func:`validate` for the full behavior
@@ -490,7 +490,7 @@ def _validate_query_set_invariants(
                     f"relevant_chunks[{chunk_idx}].chunk_id {cid!r} "
                     f"does not exist in any chunk_manifest.json. "
                     f"Either re-chunk the seed corpus or re-curate "
-                    f"the fixture (see docs/eval-curation.md)."
+                    f"the fixture (see .claude/docs/eval-curation.md)."
                 )
             kind = chunk_kind_index[cid]
             if kind in queries_by_kind:
@@ -569,12 +569,12 @@ def validate(
             warnings.append(
                 "no curated queries and no corpus chunks — both pending "
                 "(run the chunker on the seed corpus, then curate per "
-                "docs/eval-curation.md)"
+                ".claude/docs/eval-curation.md)"
             )
         else:
             warnings.append(
                 f"no curated queries (corpus has {n_manifests} chunked "
-                f"papers) — curation pending per docs/eval-curation.md"
+                f"papers) — curation pending per .claude/docs/eval-curation.md"
             )
         return ValidationResult(
             mode="seed",

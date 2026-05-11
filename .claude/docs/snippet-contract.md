@@ -3,7 +3,7 @@
 This document is the single authoritative specification for the
 `search_papers` tool's result-row shape, frozen at E06_S04. The
 machine-readable JSON Schema lives at
-[`server/schemas/search_papers_result.json`](../server/schemas/search_papers_result.json);
+[`server/schemas/search_papers_result.json`](../../server/schemas/search_papers_result.json);
 this page is the human-readable summary plus the architectural
 intent behind four explicit decisions.
 
@@ -78,7 +78,7 @@ output channels:
 
 - `structuredContent`: a JSON object the agent reads
   programmatically. The frozen shape is in
-  [`search_papers_result.json`](../server/schemas/search_papers_result.json).
+  [`search_papers_result.json`](../../server/schemas/search_papers_result.json).
 - `content`: an array of content blocks the agent or client may
   display. v1 emits:
   - `content[0]`: a `TextContent` with the JSON-pretty-print of
@@ -129,11 +129,11 @@ on any client-side API beyond MCP itself.
 
 ## Related
 
-- [`server/schemas/search_papers_result.json`](../server/schemas/search_papers_result.json)
+- [`server/schemas/search_papers_result.json`](../../server/schemas/search_papers_result.json)
   — machine-readable JSON Schema for the result shape.
-- [`server/handlers/search.py`](../server/handlers/search.py) —
+- [`server/handlers/search.py`](../../server/handlers/search.py) —
   the handler implementation.
-- [`tests/test_snippet_contract.py`](../tests/test_snippet_contract.py)
+- [`tests/test_snippet_contract.py`](../../tests/test_snippet_contract.py)
   — the AC lock tests.
 - `.claude/notes/06-mcp-server-design.md` — design constitution
   for the MCP tool surface.

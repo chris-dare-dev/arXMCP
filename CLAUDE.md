@@ -1,20 +1,46 @@
 # CLAUDE.md — Context for Claude agents working in arXMCP
 
-This file is read at session start by every Claude agent in this repo. It
+This file is loaded at session start by every Claude agent in this repo. It
 captures the project's mission, current state, working conventions, and the
-landmines learned across the milestones that landed E01–E09. **If you're a
-new agent picking up this codebase, read this top-to-bottom before
-touching code.**
+landmines learned across E01–E09. **If you're a new agent picking up this
+codebase, read this top-to-bottom before touching code.**
 
 ---
 
-## 1. What this project is
+## 1. Repo doc layout (READ FIRST)
 
-**arXMCP** is a local-first MCP (Model Context Protocol) server that exposes a
-research-mathematics arXiv corpus to multi-agent Claude pipelines. The intended
-consumer is a Claude **sketcher → autoformalizer → tactician → fixer**
-pipeline attacking research-level mathematics — every sub-agent shares one
-substrate of grounded context through this server.
+This repo enforces a strict doc-placement rule:
+
+| Location | What's allowed |
+|---|---|
+| **Repo root** | Only `README.md`, `CLAUDE.md`, `CHANGES.md`, `SECURITY.md`, `OWNERS.md`. Nothing else. |
+| **Subdirs other than `.claude/`** | Only `README.md` and `CLAUDE.md` (if useful for that subdir). No other Markdown. |
+| **`docs/`** | ONLY user-facing documentation referenced by the root `README.md`. Today: just `docs/install.md`. |
+| **`.claude/`** | All other Markdown agents create — design notes, roadmap, milestones, agent-internal references, scans, gate specs. Free real estate; organize as `.claude/notes/`, `.claude/docs/`, `.claude/roadmap/`, etc. |
+
+**Concrete consequences:**
+
+- The root `README.md` is restricted to **what the project does, how to
+  use it, its layout, hard constraints**. NOT a place to link the
+  roadmap, list epics, or describe outstanding work.
+- Anything roadmap-flavored or work-tracking goes under `.claude/`.
+- Agent-internal documents (model policy, orchestrator rules, snippet
+  contracts, proof-chain workflow, tier gates) live under
+  `.claude/docs/` — they used to be in `docs/` but moved during the
+  2026-05-10 doc consolidation.
+
+When you create a new Markdown file, default to `.claude/` unless the
+content is BOTH operator-facing AND linked from the root README.
+
+---
+
+## 2. What this project is
+
+**arXMCP** is a local-first MCP (Model Context Protocol) server that exposes
+a research-mathematics arXiv corpus to multi-agent Claude pipelines. The
+intended consumer is a Claude **sketcher → autoformalizer → tactician →
+fixer** pipeline attacking research-level mathematics — every sub-agent
+shares one substrate of grounded context through this server.
 
 The full design rationale lives in
 [`.claude/notes/01-mission-and-context.md`](.claude/notes/01-mission-and-context.md).
@@ -27,7 +53,7 @@ Target arXiv categories: `math.AG`, `math.NT`, `math-ph`, `hep-th`.
 
 ---
 
-## 2. Status snapshot (2026-05-10)
+## 3. Status snapshot (2026-05-10)
 
 | Epic | Status | What landed |
 |---|---|---|
@@ -46,17 +72,18 @@ Target arXiv categories: `math.AG`, `math.NT`, `math-ph`, `hep-th`.
 | E13 — Security audit | ⏳ PENDING | Threat-model audit across 7 tools beyond what E06_S05 shipped |
 | E14 — Observability/ops | ⏳ PENDING | docker-compose layout, OTel tracing, alerting runbooks |
 
-**Test count:** 1312 passing, 4 skipped (`requires_model`), `ruff check .` clean.
+**Test count:** 1311 passing, 4 skipped (`requires_model`), `ruff check .` clean.
 
 For per-milestone ground truth, see
 [`.claude/notes/milestones/<EXX_SYY>/state.json`](.claude/notes/milestones/).
-Files with `phase: complete` are shipped.
+Files with `phase: complete` are shipped. The authoritative roadmap index is
+[`.claude/roadmap/README.md`](.claude/roadmap/README.md).
 
 ---
 
-## 3. Working conventions — READ THIS BEFORE COMMITTING
+## 4. Working conventions — READ BEFORE COMMITTING
 
-### 3.1 This is a single-user, single-workstation project
+### 4.1 This is a single-user, single-workstation project
 
 - **All work lands on `main` directly.** No feature branches, no pull
   requests, no code review handoff. Commit + push.
@@ -65,13 +92,13 @@ Files with `phase: complete` are shipped.
 - **Worktrees are fine** (e.g. for parallel milestone-pipeline researchers)
   but the final commits land on `main`.
 
-### 3.2 Use the `milestone-pipeline` skill for non-trivial work
+### 4.2 Use the `milestone-pipeline` skill for non-trivial work
 
 Any roadmap milestone (`E<NN>_S<MM>`) or comparable-effort ad-hoc task MUST
 run through [`/milestone-pipeline`](.claude/skills/milestone-pipeline/SKILL.md).
 The four phases are non-negotiable: **Research → Implement → Critique →
-Rectify**. Skipping a phase is the named anti-pattern in the skill's
-own SKILL.md.
+Rectify**. Skipping a phase is the named anti-pattern in the skill's own
+SKILL.md.
 
 The state machine lives at
 `.claude/notes/milestones/<ID>/state.json` and is strict-forward-only
@@ -79,16 +106,15 @@ through `init → research-running → research-complete → implement-running �
 implement-complete → critique-running → critique-complete → rectify-running
 → complete`.
 
-The discipline is documented in
-[`.claude/skills/milestone-pipeline/SKILL.md`](.claude/skills/milestone-pipeline/SKILL.md).
 Trivial edits (one-liners, formatting fixes) can skip the skill — but if a
 change touches more than ~3 files or adds new tests, run the pipeline.
 
-### 3.3 Commit conventions
+### 4.3 Commit conventions
 
 - **Conventional commits.** Subject ≤50 chars after the type prefix.
   Types in this repo: `feat`, `rect`, `chore`, `docs`. Scopes match
-  subsystems: `server`, `ingest`, `shim`, `infra`, `tests`, `skill`, `notes`.
+  subsystems: `server`, `ingest`, `shim`, `infra`, `tests`, `skill`, `notes`,
+  `repo`.
 - **Three-commit-per-milestone pattern.** Every milestone produces:
   1. `feat(<scope>): <topic> (E<NN>_S<MM>)` — the implementation commit
   2. `rect(<scope>): close <N> <severity> from E<NN>_S<MM> critique` —
@@ -115,7 +141,7 @@ change touches more than ~3 files or adds new tests, run the pipeline.
   COMMIT_EOF
   ```
 
-### 3.4 Push when the user asks; not before
+### 4.4 Push when the user asks; not before
 
 - **Push is per-event authorization.** A user "yes, push" once does NOT
   authorize future pushes. Re-ask each time.
@@ -123,16 +149,16 @@ change touches more than ~3 files or adds new tests, run the pipeline.
   without explicit user request and there is no scenario in this project
   that requires it.
 
-### 3.5 Test + lint discipline
+### 4.5 Test + lint discipline
 
 - **Before any commit:** `make test` (runs `ruff check .` then `pytest`).
-  1316+ tests must pass, ruff must be clean.
+  1311+ tests must pass, ruff must be clean.
 - **Pytest in this project uses `uv`:**
   ```bash
   /Users/chris.dare/Library/Python/3.9/bin/uv run python -m pytest [args]
   ```
-  The system `pytest` may pick up the wrong Python (3.9 vs project's 3.12).
-  Use `uv run` to be safe.
+  The system `pytest` may pick up the wrong Python (3.9 vs the project's
+  3.12). Use `uv run` to be safe.
 - **Use `--tb=no -p no:warnings`** when you only care about the
   pass/fail count and want a clean terminal:
   ```bash
@@ -143,49 +169,51 @@ change touches more than ~3 files or adds new tests, run the pipeline.
   (the Tier-0→Tier-1 gate; skipped via cold-start matrix when fixture or
   corpus is missing).
 
-### 3.6 Coding conventions
+### 4.6 Doc placement (re-stated; this is load-bearing)
+
+- **Never put a Markdown file in `server/`, `ingest/`, `tests/`, `tools/`,
+  `shim/`, `docker/`, or `infra/`** unless it's a navigational
+  `README.md` / `CLAUDE.md` for that subdir.
+- **All new agent-internal documents go under `.claude/`** — typically
+  `.claude/docs/` (per-feature references), `.claude/notes/` (design
+  constitution), or `.claude/notes/milestones/<ID>/` (per-milestone
+  research / critique / implementation summary).
+- **Don't bring back `ROADMAP.md` at the root** — the authoritative
+  roadmap is `.claude/roadmap/README.md`.
+
+### 4.7 Coding conventions
 
 - **`assert` is BANNED for invariants** — Python `-O` strips them. Use
-  `if … raise RuntimeError(…)` instead. Pinned by tests in
-  `tests/test_rectifications.py`.
+  `if … raise RuntimeError(…)` instead.
 - **Pure-ASGI middleware required.** `BaseHTTPMiddleware` is project-banned
   (E06_S01 F1 — it silently no-ops response interception for SSE paths).
-  Every middleware in `server/middleware.py` uses the
-  `__call__(self, scope, receive, send)` shape.
 - **No `anthropic` SDK at runtime.** The server is a tool provider; the
-  LLM lives in the calling agent. Pinned by
-  `tests/test_snippet_contract.py:340-351`.
+  LLM lives in the calling agent.
 - **No-fork policy.** Nothing lifted from existing `arxiv-mcp` repos. Use
   ideas, not code.
 - **`server/` source NEVER references `claude-opus`.** Model selection in
-  the orchestrator is Haiku/Sonnet only. Pinned by
-  `tests/test_model_selector.py::TestForbiddenStrings`.
+  the orchestrator is Haiku/Sonnet only.
 
 ---
 
-## 4. Directory layout — what lives where
+## 5. Directory layout — what lives where
 
 ```
 arXMCP/
-├── README.md                user-facing landing page (audience-layered TOC)
+├── README.md                user-facing landing page (project / how-to-use / layout)
 ├── CLAUDE.md                this file
-├── TIER-GATES.md            machine-checkable tier-promotion gates (still authoritative)
+├── CHANGES.md               changelog (epic-grain)
+├── SECURITY.md              security reporting + threat-model pointer
+├── OWNERS.md                ownership / contact
 ├── Makefile                 make help / bootstrap / test / eval / up / ingest
-├── pyproject.toml           Python ≥3.11; per-line dep comments are README-grade material
+├── pyproject.toml           Python ≥3.11; per-line dep comments are agent-grade material
 ├── uv.lock                  uv lockfile
 ├── docker/
 │   └── Dockerfile.server    multi-stage; non-root user; tini; HEALTHCHECK on /readyz
 ├── infra/
 │   └── README.md            placeholder for docker-compose (E14)
-├── docs/
-│   ├── install.md           operator setup + Claude Code MCP registration
-│   ├── eval-curation.md     manual runbook for hand-labeling the 20-query fixture
-│   ├── chunker-fixtures.md  E02_S05 fixture regeneration runbook
-│   ├── snippet-contract.md  150-char snippet contract for search_papers
-│   ├── orchestrator-rules.md tool-use ID canonicalization + per-session caps
-│   ├── model-policy.md      (RouteTag, TurnType) → model table
-│   ├── proof-chain-workflow.md   2-round cross-paper proof-chain pattern (E09_S04)
-│   └── retrieval-quality-report.md   nDCG@5 + latency report (PRELIMINARY)
+├── docs/                    operator-facing ONLY
+│   └── install.md           operator setup + Claude Code MCP registration
 ├── server/                  long-running MCP server (FastAPI + Streamable HTTP)
 │   ├── main.py              FastAPI app factory + lifespan
 │   ├── config.py            ARXMCP_* env vars; rejects 0.0.0.0 at parse time
@@ -202,7 +230,6 @@ arXMCP/
 │   ├── router.py            regex-based query router (4 RouteTags)
 │   ├── router_patterns.yaml 18 named patterns
 │   ├── prompts.py           role-prefix constants (BP1+BP2 cache breakpoints)
-│   ├── prompts.md           BP1/BP2 cache discipline doc
 │   ├── corpus.py            LanceDB MVCC chunks-table reader
 │   ├── health.py            /healthz + /readyz
 │   └── metrics.py           Prometheus counters
@@ -228,7 +255,7 @@ arXMCP/
 │   ├── curate_seed.py       math.AG candidate pre-filter
 │   ├── validate_eval_fixtures.py  eval-fixture structural validator
 │   └── seed-papers.txt      50 hand-curated math.AG arXiv IDs
-├── tests/                   1312 pytest tests + 4 skipped (requires_model)
+├── tests/                   1311 pytest tests + 4 skipped (requires_model)
 │   ├── conftest.py          autouse fixtures (path redirects, KMP_DUPLICATE_LIB_OK)
 │   ├── _graph_helpers.py    shared synthetic Kùzu/LanceDB fixture builders (E09_S04)
 │   ├── eval/                retrieval-quality gate (nDCG@5, Recall@10)
@@ -236,14 +263,25 @@ arXMCP/
 │   └── fixtures/            chunker + preamble golden fixtures
 ├── var/                     gitignored data tree (created by `make bootstrap`)
 │   └── arxmcp/              corpus/, index/, cache/, ops/
-└── .claude/
+└── .claude/                 ALL agent-internal docs live here
+    ├── TIER-GATES.md        machine-checkable tier-promotion gates
+    ├── docs/                per-feature internal references (moved from docs/ 2026-05-10)
+    │   ├── chunker-fixtures.md
+    │   ├── eval-curation.md
+    │   ├── model-policy.md
+    │   ├── orchestrator-rules.md
+    │   ├── proof-chain-workflow.md
+    │   ├── retrieval-quality-report.md
+    │   └── snippet-contract.md
     ├── notes/               design constitution (10 numbered notes + HANDOFF + milestones/)
     │   ├── README.md         reading-order index
     │   ├── 01..10-*.md       numbered design notes
-    │   ├── HANDOFF.md        in-session handoff snapshot (refreshed as needed)
+    │   ├── prompts-bp-discipline.md   E08_S02 prompt-cache breakpoint doc
+    │   ├── HANDOFF.md        in-session handoff snapshot
+    │   ├── scans/            repo-wide research scans (history)
     │   └── milestones/       per-milestone state.json + research/critique artifacts
-    ├── roadmap/             14 per-epic plans (E01–E14)
-    │   ├── README.md         authoritative epic index
+    ├── roadmap/             14 per-epic plans (E01–E14) + authoritative index
+    │   ├── README.md         authoritative epic index (NOT the root)
     │   └── E<NN>-*.md        per-epic specs
     └── skills/
         └── milestone-pipeline/  the 4-phase milestone discipline
@@ -254,7 +292,7 @@ arXMCP/
 
 ---
 
-## 5. Capabilities you can rely on
+## 6. Capabilities you can rely on
 
 These all work TODAY (no stubs):
 
@@ -268,7 +306,7 @@ These all work TODAY (no stubs):
   server.graph_queries.cite_neighbors(...)` works against the Kùzu graph.
   The matching MCP tool handler is a v1 STUB; call the library directly
   for proof-chain workflows (see
-  [`docs/proof-chain-workflow.md`](docs/proof-chain-workflow.md)).
+  [`.claude/docs/proof-chain-workflow.md`](.claude/docs/proof-chain-workflow.md)).
 - **3-tier retrieval cache** with Prometheus metrics at `/metrics`.
 - **Per-session retrieval caps** via `Mcp-Session-Id` header.
 - **Citation graph ingest** — `python -m ingest.graph_ingest` (OpenAlex),
@@ -279,7 +317,7 @@ These all work TODAY (no stubs):
 
 ---
 
-## 6. Known stubs / deferrals
+## 7. Known stubs / deferrals
 
 Things that LOOK shipped but aren't fully wired — don't be surprised:
 
@@ -306,15 +344,11 @@ Things that LOOK shipped but aren't fully wired — don't be surprised:
   driver lands in E11.
 - **Retrieval-quality eval gate** has the harness shipped (`make eval`)
   but the curated 20-query fixture is still being hand-labeled per
-  [`docs/eval-curation.md`](docs/eval-curation.md). The Tier-0 → Tier-1
-  promotion is therefore still pending in this repo's history.
+  [`.claude/docs/eval-curation.md`](.claude/docs/eval-curation.md).
 
 ---
 
-## 7. Gotchas — landmines learned across E01-E09
-
-These have bitten and are documented because the test surface enforces them
-now:
+## 8. Gotchas — landmines learned across E01-E09
 
 1. **macOS pytest segfault with `faiss-cpu` + PyTorch.** The
    `KMP_DUPLICATE_LIB_OK=TRUE` workaround in `tests/conftest.py` is
@@ -333,15 +367,15 @@ now:
    `--category` flag in `ingest/graph_ingest.py` raises
    `NotImplementedError`.
 
-4. **`var/arxmcp/index/kuzu/` vs `var/arxmcp/index/kuzudb/`.** Three
-   epic briefs (E09_S01, E09_S03, E09_S04) use `kuzudb/`; the design
-   notes + Makefile bootstrap use `kuzu/`. We ship `kuzu/`. The brief
-   wording is documented drift.
+4. **`var/arxmcp/index/kuzu/` vs `var/arxmcp/index/kuzudb/`.** Three epic
+   briefs (E09_S01, E09_S03, E09_S04) use `kuzudb/`; the design notes +
+   Makefile bootstrap use `kuzu/`. We ship `kuzu/`. The brief wording is
+   documented drift.
 
 5. **Tool-use ID canonicalization MUST run over the FULL accumulated
    history each turn.** Pass only the new-turn slice and you get
-   collisions across transitions. The contract is documented in
-   `docs/orchestrator-rules.md` and pinned by tests.
+   collisions across transitions. Contract pinned by tests; see
+   [`.claude/docs/orchestrator-rules.md`](.claude/docs/orchestrator-rules.md).
 
 6. **`SYSTEM_PROMPT` in `server/prompts.py` is still a placeholder.**
    The role prefixes are real; the global system prompt isn't yet
@@ -350,21 +384,21 @@ now:
 
 7. **HEREDOC commits.** Bash mangles `$(cat <<'EOF' … EOF)` form when
    the commit body contains apostrophes (`don't`, `won't`). Use
-   `git commit -F - <<'COMMIT_EOF' … COMMIT_EOF` (stdin form) — that
-   survives apostrophes.
+   `git commit -F - <<'COMMIT_EOF' … COMMIT_EOF` (stdin form).
 
 8. **`uv run pytest` vs system `pytest`.** The system `pytest` is
    Python 3.9; the project requires 3.11+. Use
-   `/Users/chris.dare/Library/Python/3.9/bin/uv run python -m pytest`
-   so the venv's Python 3.12 is used.
+   `/Users/chris.dare/Library/Python/3.9/bin/uv run python -m pytest`.
 
-9. **The `claude/gallant-blackburn-b89422` branch / worktree** that
-   appears in some HANDOFF docs is historical context from earlier
-   sessions; the current work all lives on `main`.
+9. **Doc-layout consolidation (2026-05-10).** TIER-GATES, all of `docs/*`
+   except `install.md`, and `server/prompts.md` moved into `.claude/`.
+   The README is now project-scope-only. Tests that hard-pin doc paths
+   were updated in lockstep. Don't reintroduce Markdown into `server/`,
+   `ingest/`, etc.
 
 ---
 
-## 8. Common tasks for new agents
+## 9. Common tasks for new agents
 
 ### Run a milestone end-to-end
 
@@ -372,11 +406,10 @@ now:
 /milestone-pipeline E10_S01
 ```
 
-Where `E10_S01` is the milestone ID. The skill reads the brief from
-`.claude/roadmap/E<NN>-<slug>.md`, dispatches Phase-1 researchers in
-parallel, drives Phase-2 implementation, Phase-3 critique, and Phase-4
-rectification, and emits a `feat(...)` + `rect(...)` + `chore(...)`
-commit triple.
+The skill reads the brief from `.claude/roadmap/E<NN>-<slug>.md`, dispatches
+Phase-1 researchers in parallel, drives Phase-2 implementation, Phase-3
+critique, and Phase-4 rectification, and emits a `feat(...)` + `rect(...)` +
+`chore(...)` commit triple.
 
 ### Check status of an in-flight milestone
 
@@ -387,13 +420,7 @@ commit triple.
 ### Verify the full project is green
 
 ```bash
-make test
-```
-
-Or directly:
-
-```bash
-/Users/chris.dare/Library/Python/3.9/bin/uv run python -m ruff check .
+make test                                                    # ruff + pytest
 /Users/chris.dare/Library/Python/3.9/bin/uv run python -m pytest --tb=no
 ```
 
@@ -404,7 +431,7 @@ export ARXMCP_CONTACT_EMAIL=you@example.com
 make up
 ```
 
-Health checks: `curl http://127.0.0.1:7733/healthz` (always 200),
+Health: `curl http://127.0.0.1:7733/healthz` (always 200),
 `curl http://127.0.0.1:7733/readyz` (200 once BGE-M3 + LanceDB warm).
 
 ### Add a new tool to the MCP surface
@@ -417,12 +444,12 @@ Health checks: `curl http://127.0.0.1:7733/healthz` (always 200),
    stay byte-stable for BP1 prompt-cache discipline. Use
    `pytest --update-tool-schema-hash` to regenerate.
 5. Add tests under `tests/test_handlers_<tool>.py`.
-6. Update `docs/snippet-contract.md` if the new tool returns a result row
-   with snippet semantics.
+6. Update [`.claude/docs/snippet-contract.md`](.claude/docs/snippet-contract.md)
+   if the new tool returns a result row with snippet semantics.
 
 ---
 
-## 9. Where to look first when something breaks
+## 10. Where to look first when something breaks
 
 | Symptom | First file to read |
 |---|---|
@@ -436,12 +463,14 @@ Health checks: `curl http://127.0.0.1:7733/healthz` (always 200),
 
 ---
 
-## 10. Quick links to the design constitution
+## 11. Quick links to the design constitution
 
 The `.claude/notes/` files are the **why** (architectural rationale);
-`.claude/roadmap/` files are the **how** (epic-level plans). When a design
+`.claude/roadmap/` files are the **how** (epic-level plans);
+`.claude/docs/` files are per-feature internal references. When a design
 question arises, quote the note by filename — don't paraphrase.
 
+- [`.claude/notes/README.md`](.claude/notes/README.md) — reading order
 - [`.claude/notes/01-mission-and-context.md`](.claude/notes/01-mission-and-context.md) — Why arXMCP exists
 - [`.claude/notes/02-architecture-overview.md`](.claude/notes/02-architecture-overview.md) — System shape
 - [`.claude/notes/03-ingestion-pipeline.md`](.claude/notes/03-ingestion-pipeline.md) — arXiv → LaTeXML → chunker → embedder → LanceDB
@@ -451,16 +480,25 @@ question arises, quote the note by filename — don't paraphrase.
 - [`.claude/notes/07-multi-agent-caching.md`](.claude/notes/07-multi-agent-caching.md) — **THE cache discipline note**
 - [`.claude/notes/08-security-observability-ops.md`](.claude/notes/08-security-observability-ops.md) — Threat model + ops
 - [`.claude/notes/10-references-and-prior-art.md`](.claude/notes/10-references-and-prior-art.md) — Bibliography
+- [`.claude/notes/prompts-bp-discipline.md`](.claude/notes/prompts-bp-discipline.md) — BP1/BP2 breakpoint placement (E08_S02)
+- [`.claude/roadmap/README.md`](.claude/roadmap/README.md) — Authoritative epic index
+- [`.claude/TIER-GATES.md`](.claude/TIER-GATES.md) — Tier-promotion machine-checkable gates
+- [`.claude/docs/orchestrator-rules.md`](.claude/docs/orchestrator-rules.md) — Tool-use ID canonicalization + per-session caps
+- [`.claude/docs/model-policy.md`](.claude/docs/model-policy.md) — `(RouteTag, TurnType) → model` table
+- [`.claude/docs/proof-chain-workflow.md`](.claude/docs/proof-chain-workflow.md) — 2-round proof-chain pattern
+- [`.claude/docs/snippet-contract.md`](.claude/docs/snippet-contract.md) — 150-char snippet contract
+- [`.claude/docs/chunker-fixtures.md`](.claude/docs/chunker-fixtures.md) — Chunker fixture regeneration runbook
+- [`.claude/docs/eval-curation.md`](.claude/docs/eval-curation.md) — Eval-fixture hand-labeling runbook
+- [`.claude/docs/retrieval-quality-report.md`](.claude/docs/retrieval-quality-report.md) — nDCG@5 report (PRELIMINARY)
 
 Note: `.claude/notes/09-feature-priorities.md` is **SUPERSEDED** by
-[`.claude/roadmap/README.md`](.claude/roadmap/README.md) (the index there
-is authoritative for "what's next").
+[`.claude/roadmap/README.md`](.claude/roadmap/README.md).
 
 ---
 
-## 11. The user
+## 12. The user
 
-- The primary user is `chris.dare@nalej.com`.
+- The primary user is `chris.dare@nalej.com`. See [`OWNERS.md`](OWNERS.md).
 - They invoke milestones with `/milestone-pipeline E<NN>_S<MM>`.
 - They expect **autonomous execution** (auto-mode) and **minimal
   interruption** — make reasonable assumptions and proceed.

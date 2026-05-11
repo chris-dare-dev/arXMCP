@@ -48,9 +48,10 @@ from server.router import RouteTag
 #: Path to ``server/`` for the forbidden-string scan.
 SERVER_DIR: Path = Path(__file__).resolve().parent.parent / "server"
 
-#: Path to the policy doc.
+#: Path to the policy doc. Moved 2026-05-10 from ``docs/`` to ``.claude/docs/``
+#: as part of the repo-wide doc-layout consolidation (root-MD restriction).
 POLICY_DOC_PATH: Path = (
-    Path(__file__).resolve().parent.parent / "docs" / "model-policy.md"
+    Path(__file__).resolve().parent.parent / ".claude" / "docs" / "model-policy.md"
 )
 
 #: The verbatim section title required by AC #5.

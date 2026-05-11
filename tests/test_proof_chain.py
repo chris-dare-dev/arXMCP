@@ -430,11 +430,16 @@ class TestDocumentationPins:
     — if a future edit removes the AC-pinned sentence, the test
     surfaces it."""
 
-    DOC_PATH = Path(__file__).resolve().parent.parent / "docs" / "proof-chain-workflow.md"
+    # Moved 2026-05-10 from ``docs/`` to ``.claude/docs/`` per the
+    # repo-wide doc-layout consolidation.
+    DOC_PATH = (
+        Path(__file__).resolve().parent.parent
+        / ".claude" / "docs" / "proof-chain-workflow.md"
+    )
 
     def test_doc_exists(self):
         assert self.DOC_PATH.exists(), (
-            f"docs/proof-chain-workflow.md (AC#1) missing at {self.DOC_PATH}"
+            f".claude/docs/proof-chain-workflow.md (AC#1) missing at {self.DOC_PATH}"
         )
 
     def test_doc_states_total_round_count(self):

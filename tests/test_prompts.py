@@ -69,10 +69,14 @@ PROMPTS_MODULE_PATH: Path = (
     Path(__file__).resolve().parent.parent / "server" / "prompts.py"
 )
 
-#: Path to the prompts docs (used by the AC #4 verbatim-sentence
-#: test).
+#: Path to the prompts BP-discipline doc (used by the AC #4 verbatim-
+#: sentence test). Moved 2026-05-10 from ``server/prompts.md`` to
+#: ``.claude/notes/prompts-bp-discipline.md`` per the repo-wide
+#: doc-layout consolidation (no Markdown in non-``.claude/``
+#: directories beyond README/CLAUDE).
 PROMPTS_DOC_PATH: Path = (
-    Path(__file__).resolve().parent.parent / "server" / "prompts.md"
+    Path(__file__).resolve().parent.parent
+    / ".claude" / "notes" / "prompts-bp-discipline.md"
 )
 
 #: The verbatim sentence required by AC #4. Byte-exact, NOT

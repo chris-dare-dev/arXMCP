@@ -34,7 +34,9 @@ from tests.test_tools_all import _call_tool, _seed_corpus
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCHEMA_PATH = REPO_ROOT / "server" / "schemas" / "search_papers_result.json"
-DOC_PATH = REPO_ROOT / "docs" / "snippet-contract.md"
+# Moved 2026-05-10 from ``docs/`` to ``.claude/docs/`` per the repo-wide
+# doc-layout consolidation.
+DOC_PATH = REPO_ROOT / ".claude" / "docs" / "snippet-contract.md"
 
 
 # ===========================================================================

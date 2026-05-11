@@ -2,7 +2,7 @@
 
 **Audience:** sub-agent prompt authors building math-proof pipelines
 (autoformalizer, tactician, lemma-suggester roles).
-**Milestone:** [E09_S04](../.claude/roadmap/E09-citation-graph.md).
+**Milestone:** [E09_S04](../roadmap/E09-citation-graph.md).
 **Closes:** H7 (cross-paper proof chains) — final closure when
 combined with E09_S03's `cite_neighbors` implementation.
 
@@ -57,7 +57,7 @@ proof generation) does not need new MCP calls.
 The chunk IDs below use **synthetic 16-hex suffixes** for
 readability. The production format is
 `arxiv:<paper_id>:<sha256(preamble + NFC(body))[:16]>` —
-see [`ingest/identifiers.py`](../ingest/identifiers.py) and
+see [`ingest/identifiers.py`](../../ingest/identifiers.py) and
 [`docs/chunker-fixtures.md`](chunker-fixtures.md) (the E02_S05
 regeneration runbook). The seed corpus is post-2026 math.AG, so
 the IDs and paper hashes are illustrative; substitute real IDs
@@ -110,7 +110,7 @@ Total: 2 rounds. Context assembled = entry theorem + cited lemmas +
 
 The agent unfolds `bodies` into its context window using the
 prompt-cache-friendly ordering established in
-[07-multi-agent-caching.md](../.claude/notes/07-multi-agent-caching.md)
+[07-multi-agent-caching.md](../notes/07-multi-agent-caching.md)
 § BP2 (sort by `paper_id` lexicographically so re-runs with the
 same neighbor set get prefix-cache hits).
 
@@ -130,7 +130,7 @@ The brief's prescription was:
 > budget."
 
 **This is currently not implementable at v1.**
-[`server/handlers/search.py`](../server/handlers/search.py) takes
+[`server/handlers/search.py`](../../server/handlers/search.py) takes
 a `filters: dict[str, Any] | None` argument that is **accepted but
 ignored at v1** (deferred to E07_S04). The handler surfaces a
 `filter_warnings` entry on the response listing each ignored filter
@@ -188,7 +188,7 @@ work.
 ## Security note — MCP-tool wrapper boundary
 
 The library function
-[`cite_neighbors`](../server/graph_queries.py) carries an explicit
+[`cite_neighbors`](../../server/graph_queries.py) carries an explicit
 warning that path-traversal validation is **deferred to the MCP-tool
 wrapper boundary**:
 
@@ -203,11 +203,11 @@ to the `get_chunk` handler's LanceDB path. Both paths MUST be
 derived from `Resources` / `Config` — never from agent input.
 
 The wrapper that exposes `cite_neighbors` on `tools/list`
-([`server/handlers/citations.py`](../server/handlers/citations.py))
+([`server/handlers/citations.py`](../../server/handlers/citations.py))
 is a **v1 stub** today — it returns `{neighbors: [],
 infrastructure_status: "deferred"}` and ignores its `chunk_id`
 argument. The real library
-([`server/graph_queries.py`](../server/graph_queries.py)) is
+([`server/graph_queries.py`](../../server/graph_queries.py)) is
 exercised directly in the test for this milestone; handler-wiring
 is deferred to a future milestone (likely E06_S04) where the
 path-validation contract can be formalized at the boundary.
@@ -216,11 +216,11 @@ path-validation contract can be formalized at the boundary.
 
 ## Reference
 
-- Library: [`server/graph_queries.py::cite_neighbors`](../server/graph_queries.py)
-- Result type: [`server/graph_types.py::CitationNeighbor`](../server/graph_types.py)
-- Handler (`get_chunk`): [`server/handlers/chunk.py`](../server/handlers/chunk.py)
-- Handler stub (`cite_neighbors`): [`server/handlers/citations.py`](../server/handlers/citations.py)
-- Integration test: [`tests/test_proof_chain.py`](../tests/test_proof_chain.py)
-- Round-budget context: [`.claude/notes/07-multi-agent-caching.md`](../.claude/notes/07-multi-agent-caching.md)
+- Library: [`server/graph_queries.py::cite_neighbors`](../../server/graph_queries.py)
+- Result type: [`server/graph_types.py::CitationNeighbor`](../../server/graph_types.py)
+- Handler (`get_chunk`): [`server/handlers/chunk.py`](../../server/handlers/chunk.py)
+- Handler stub (`cite_neighbors`): [`server/handlers/citations.py`](../../server/handlers/citations.py)
+- Integration test: [`tests/test_proof_chain.py`](../../tests/test_proof_chain.py)
+- Round-budget context: [`.claude/notes/07-multi-agent-caching.md`](../notes/07-multi-agent-caching.md)
 - Chunk-id format + regeneration: [`docs/chunker-fixtures.md`](chunker-fixtures.md) (E02_S05)
-- Epic: [`.claude/roadmap/E09-citation-graph.md`](../.claude/roadmap/E09-citation-graph.md)
+- Epic: [`.claude/roadmap/E09-citation-graph.md`](../roadmap/E09-citation-graph.md)

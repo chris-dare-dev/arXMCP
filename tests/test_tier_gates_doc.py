@@ -1,15 +1,18 @@
 """Lock the E05_S03 acceptance criteria as CI-enforced contracts.
 
-E05_S03 ships ``TIER-GATES.md`` (root), a ``make eval`` target, and
-a ``README.md`` link. The brief's 5 ACs are otherwise enforceable
-only by reviewer eye — F5 of the E05_S03 critique flagged this and
-pointed at the E04_S04 precedent
-(``tests/test_bm25.py::test_docstring_h4_remediation_sentence``)
-where a verbatim AC sentence is locked by a string-equality check.
+E05_S03 originally shipped ``TIER-GATES.md`` at the repo root.
+A 2026-05-10 repo-wide doc-layout consolidation moved it under
+``.claude/`` so the root contains only user-facing files (README,
+CLAUDE, CHANGES, SECURITY, OWNERS). The brief's 5 ACs remain
+load-bearing; the path constants below were updated in lockstep
+with the move, and the "README links to TIER-GATES.md" AC was
+DROPPED — TIER-GATES.md is now agent-internal, no longer user-
+facing, and the README is restricted to project description /
+how-to-use / layout content.
 
-This module mirrors that precedent and adds 4 sibling tests for the
-remaining ACs (table presence, README link, no subjective language,
-``make eval`` target shape).
+This module enforces the surviving ACs: existence, four-transition
+coverage, verbatim reranker-activation sentence, ``make eval`` shape,
+no subjective markers in spec regions.
 """
 
 from __future__ import annotations
@@ -18,23 +21,26 @@ import re
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-TIER_GATES_PATH = REPO_ROOT / "TIER-GATES.md"
-README_PATH = REPO_ROOT / "README.md"
+# Moved 2026-05-10 from repo root to ``.claude/`` per the doc-layout
+# consolidation (root-MD restriction).
+TIER_GATES_PATH = REPO_ROOT / ".claude" / "TIER-GATES.md"
 MAKEFILE_PATH = REPO_ROOT / "Makefile"
 
 
 # ---------------------------------------------------------------------------
-# AC #1 — TIER-GATES.md exists at repo root and defines all four transitions
+# AC #1 — TIER-GATES.md exists and defines all four transitions
 # ---------------------------------------------------------------------------
 
 
 class TestTierGatesExists:
-    def test_file_at_repo_root(self):
-        """AC #1: ``TIER-GATES.md`` exists at the repo root (NOT under
-        ``.claude/`` per the brief's verbatim instruction)."""
+    def test_file_exists(self):
+        """AC #1 (revised post-doc-consolidation): ``TIER-GATES.md``
+        exists at the agent-context location ``.claude/TIER-GATES.md``.
+        The original AC said "at the repo root"; the repo-wide
+        doc-layout consolidation moved it under ``.claude/`` and
+        updated this assertion in lockstep."""
         assert TIER_GATES_PATH.is_file(), (
-            f"TIER-GATES.md must exist at repo root; expected at "
-            f"{TIER_GATES_PATH}"
+            f"TIER-GATES.md must exist at {TIER_GATES_PATH}"
         )
 
     def test_lists_all_four_transitions(self):
@@ -140,23 +146,15 @@ class TestRerankerActivationSentence:
 
 
 # ---------------------------------------------------------------------------
-# AC #4 — README links to TIER-GATES.md
+# AC #4 — DROPPED (2026-05-10): README no longer links to TIER-GATES.md
 # ---------------------------------------------------------------------------
-
-
-class TestReadmeLinksTierGates:
-    def test_markdown_link_present(self):
-        """AC #4: ``README.md`` carries a real markdown link to
-        ``TIER-GATES.md`` — not a bare filename mention. Both
-        ``[`TIER-GATES.md`](TIER-GATES.md)`` and
-        ``[TIER-GATES.md](TIER-GATES.md)`` are accepted."""
-        content = README_PATH.read_text(encoding="utf-8")
-        # Match either `[TIER-GATES.md](TIER-GATES.md)` or
-        # `[`TIER-GATES.md`](TIER-GATES.md)` (the existing repo style).
-        link_re = re.compile(r"\[`?TIER-GATES\.md`?\]\(TIER-GATES\.md\)")
-        assert link_re.search(content) is not None, (
-            "README.md must link to TIER-GATES.md as a markdown link"
-        )
+#
+# The original AC #4 required ``README.md`` to carry a markdown link to
+# ``TIER-GATES.md``. The 2026-05-10 doc-layout consolidation restricted the
+# root README to project-description / how-to-use / layout content only;
+# TIER-GATES.md moved under ``.claude/`` (agent-internal). The "README
+# links to TIER-GATES" assertion therefore no longer applies. The gate
+# spec itself remains testable via the surviving ACs above.
 
 
 # ---------------------------------------------------------------------------

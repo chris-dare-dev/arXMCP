@@ -9,7 +9,7 @@ help:
 	@echo ""
 	@echo "  make bootstrap   Set up dev env and create var/arxmcp/ tree"
 	@echo "  make test        Run ruff + pytest"
-	@echo "  make eval        Run the Tier-0 retrieval-quality gate (see TIER-GATES.md)"
+	@echo "  make eval        Run the Tier-0 retrieval-quality gate (see .claude/TIER-GATES.md)"
 	@echo "  make up          Start the arxmcp-server on 127.0.0.1:7733 (E06_S01)"
 	@echo "  make ingest      Run the ingestion pipeline (E11; not yet implemented)"
 	@echo ""
@@ -46,7 +46,7 @@ Try: make test PYTHON=python3.$(MIN_PY_MINOR)'"
 	$(PYTHON) -m ruff check .
 	$(PYTHON) -m pytest
 
-# The Tier-0 → Tier-1 exit gate. See TIER-GATES.md for the full
+# The Tier-0 → Tier-1 exit gate. See .claude/TIER-GATES.md for the full
 # behavior matrix (pass / fail / SKIP) and the operator's prerequisite
 # checklist. SKIP is NOT a pass for promotion — verify the test
 # reports `1 passed`, not `1 skipped`, before declaring Tier-0 done.
