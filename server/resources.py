@@ -253,6 +253,11 @@ class Resources:
     # dense-only path with ``retrieval_mode="dense_only_fallback"`` for
     # MathML inputs or ``"dense_only_stmt_fallback"`` for LaTeX inputs.
     equations_table: Any | None = None
+    # Theorem-name SQLite FTS5 store (E10_S02). ``None`` when the
+    # corpus has not been indexed yet — ``find_lemma_by_name``
+    # degrades gracefully to the legacy in-memory scan over the
+    # chunks table with ``retrieval_mode="in_memory_scan_fallback"``.
+    theorem_names_db: Any | None = None
     process_start_time_seconds: float = field(default_factory=time.time)
     warm: bool = False
 
@@ -495,6 +500,33 @@ class Resources:
                 exc,
             )
 
+        # 6d. Theorem-names SQLite FTS5 store (E10_S02). Same lazy-
+        # open contract as the LanceDB optional tables — missing
+        # file is normal until the indexer runs. The find_lemma_by_name
+        # handler falls back to in-memory scan on absent store.
+        theorem_names_db: Any | None = None
+        try:
+            from server.theorem_names_store import TheoremNamesStore
+
+            tdb_path = Path(config.theorem_names_db_path)
+            if tdb_path.exists():
+                theorem_names_db = await TheoremNamesStore.open(tdb_path)
+                logger.info(
+                    "Resources.startup: opened theorem_names SQLite store at %s",
+                    tdb_path,
+                )
+            else:
+                logger.info(
+                    "Resources.startup: theorem_names DB not present at %s; "
+                    "find_lemma_by_name will use in-memory scan fallback",
+                    tdb_path,
+                )
+        except Exception as exc:  # noqa: BLE001 — non-critical enrichment
+            logger.warning(
+                "Resources.startup: could not open theorem_names store: %s",
+                exc,
+            )
+
         instance = cls(
             config=config,
             corpus_info=corpus_info,
@@ -509,6 +541,7 @@ class Resources:
             cache=retrieval_cache,
             definitions_table=definitions_table,
             equations_table=equations_table,
+            theorem_names_db=theorem_names_db,
             warm=True,
         )
         logger.info("Resources.startup: warm")
@@ -543,6 +576,16 @@ class Resources:
                 await self.cache.close()
             except Exception:  # noqa: BLE001
                 logger.exception("Resources.shutdown: cache close failed")
+        # E10_S02: close the theorem-names SQLite store. Same
+        # discipline — best-effort close, swallow errors (correctness
+        # is preserved by SQLite's WAL on the next open).
+        if self.theorem_names_db is not None:
+            try:
+                await self.theorem_names_db.close()
+            except Exception:  # noqa: BLE001
+                logger.exception(
+                    "Resources.shutdown: theorem_names_db close failed"
+                )
         # Drop the module-level cache reference so post-shutdown calls
         # to ``get_cache()`` return ``None`` (handlers fall through to
         # the underlying pipeline).

@@ -1,0 +1,64 @@
+{
+  "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/roadmap",
+  "created_at": "2026-05-14T17:50:10Z",
+  "critics_run": [],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "low": 0,
+    "medium": 0
+  },
+  "critique_path": null,
+  "deferred_findings": [],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_required": [],
+  "fixed_findings": [],
+  "id": "E10_S02",
+  "implementation_base": "7aa124f499b86417251ffb6de87d01d09df274da",
+  "implementation_branch": null,
+  "implementation_commit_range": null,
+  "implementation_commits": [],
+  "implementation_path": "inline",
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "### E10_S02 \u2014 Theorem-name index and find_lemma_by_name tool\n\n**Status:** NEW\n**Tier:** 4\n**Effort:** M\n**Dependencies:** E04_S01, E06_S03\n\n**Description.** Build the theorem-name exact-match and fuzzy-match index that backs `find_lemma_by_name(name, paper_id?)`. The core problem is deduplication: theorem names like \"Lemma 3.4\" appear in hundreds of papers and must not be conflated. The dedup key is the triple `(paper_id, theorem_name, section_path)`. Additionally, many theorems have canonical names (\"Yoneda lemma\", \"Riemann-Roch theorem\") that differ from their numbered labels within specific papers \u2014 the index must support lookup by canonical name across all papers.\n\nThe `theorem_names` SQLite FTS5 table (separate from LanceDB for its strong full-text indexing) has the following schema:\n\n```sql\nCREATE VIRTUAL TABLE theorem_names_fts USING fts5(\n    normalized_name,    -- lowercase, punctuation-stripped, e.g. \"yoneda lemma\"\n    display_name,       -- original form, e.g. \"Yoneda Lemma\"\n    paper_id,\n    chunk_id,\n    section_path,       -- JSON array\n    confidence,         -- float: how sure we are this is a named theorem\n    content=''          -- external content table for size\n);\nCREATE TABLE theorem_names (\n    dedup_key TEXT PRIMARY KEY,  -- sha256(paper_id + theorem_name + section_path_json)\n    normalized_name TEXT,\n    display_name TEXT,\n    paper_id TEXT,\n    chunk_id TEXT,\n    section_path TEXT,\n    confidence REAL\n);\n```\n\nThe `dedup_key` is a SHA-256 hash of the concatenation of `paper_id`, `theorem_name`, and `section_path` JSON. This ensures that \"Lemma 3.4\" in paper A and \"Lemma 3.4\" in paper B have different dedup keys and are stored as separate entries. A `normalized_name` field stores the lowercased, punctuation-stripped form \u2014 \"Riemann-Roch\" normalizes to \"riemannroch\" \u2014 enabling fuzzy prefix lookup via SQLite FTS5 trigram matching.\n\nThe `find_lemma_by_name` handler first attempts exact match on `normalized_name`, then FTS5 trigram fuzzy match if no exact hit. When `paper_id` is given, results are filtered to that paper. The response includes `dedup_key`, `display_name`, `paper_id`, `chunk_id`, `section_path`, and `confidence`, sorted by `confidence` descending.\n\n**Deliverables.**\n- `ingest/index_theorem_names.py` \u2014 streaming indexer: reads chunker output, extracts theorem/lemma/proposition/corollary labels, computes normalized names, writes to FTS5 table with dedup\n- `server/handlers/lemma.py` \u2014 `find_lemma_by_name` handler: exact then fuzzy; `paper_id` filter\n- `tests/test_theorem_names.py` \u2014 ingestion test: multiple papers each with a \"Lemma 3.4\" produce separate dedup entries; fuzzy search for \"Yoneda\" finds \"Yoneda Lemma\" entries\n\n**Acceptance criteria.**\n- [ ] Two papers each with a \"Lemma 3.4\" produce two separate entries in the theorem_names table\n- [ ] `find_lemma_by_name(\"Yoneda lemma\")` returns results across all indexed papers\n- [ ] `find_lemma_by_name(\"Yoneda lemma\", paper_id=\"2401.01234\")` returns only results from that paper\n- [ ] Fuzzy search: `find_lemma_by_name(\"riemanroch\")` (typo) returns \"Riemann-Roch\" entries\n- [ ] `pytest tests/test_theorem_names.py` passes\n\n**Out of scope.** Cross-paper theorem identity resolution (determining that \"Theorem 3.4\" in paper A is the same mathematical result as \"Corollary 2.1\" in paper B \u2014 this is a v2 semantic dedup problem). Author disambiguation.\n\n**Risk notes.**\n- Closes MEDIUM: theorem-name dedup \u2014 without the `(paper_id, theorem_name, section_path)` triple as the dedup key, a query for \"Lemma 3.4\" returns a useless blend of hundreds of unrelated lemmas from different papers, destroying the utility of the `find_lemma_by_name` tool.\n\n**Labels.** `area:index`, `kind:feature`, `tier:4`\n\n---",
+  "phase": "implement-running",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-14T17:50:10Z",
+      "left_at": "2026-05-14T17:50:16Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-14T17:50:16Z",
+      "left_at": "2026-05-14T17:58:29Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-14T17:58:29Z",
+      "left_at": "2026-05-14T17:58:29Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-05-14T17:58:29Z",
+      "left_at": null,
+      "phase": "implement-running"
+    }
+  ],
+  "rectification_commit": null,
+  "regression_tests_added": [],
+  "research_briefs": [
+    {
+      "path": ".claude/notes/milestones/E10_S02/research-brief-1.md",
+      "status": "ok"
+    },
+    {
+      "path": ".claude/notes/milestones/E10_S02/research-brief-2.md",
+      "status": "ok"
+    }
+  ],
+  "research_mode": "standard",
+  "research_synthesis": ".claude/notes/milestones/E10_S02/research-synthesis.md",
+  "updated_at": "2026-05-14T17:58:29Z"
+}

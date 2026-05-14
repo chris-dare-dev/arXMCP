@@ -602,15 +602,14 @@ class TestBP1ByteIdentityAcrossFanout:
         ``SYSTEM_PROMPT`` body landing in E08_S04).
         """
         # UPDATE-ANCHOR — bump when SYSTEM_PROMPT or ALL_TOOLS drift:
-        # E10_S03 bumped the FIND_EQUATION description and
-        # TOOL_SCHEMA_VERSION 2→3 to surface the Zhang-Shasha
-        # tree-edit-distance + dense-cosine fusion path behind the
-        # tool. The new hash below matches the paired
-        # EXPECTED_TOOL_SCHEMA_SHA256 update in
-        # tests/test_server_tool_schema.py (run together via
+        # E10_S02 bumped the FIND_LEMMA_BY_NAME description and
+        # TOOL_SCHEMA_VERSION 3→4 to surface the SQLite FTS5 trigram
+        # index + Python-side Jaccard fuzzy fallback. The new hash
+        # below matches the paired EXPECTED_TOOL_SCHEMA_SHA256 update
+        # in tests/test_server_tool_schema.py (run together via
         # `pytest --update-tool-schema-hash`).
         EXPECTED_BP1_SHA256 = (
-            "aabfbc16e6656a9e745b2258e5dcf90050fbea7d39fc56420e3fa1526b401e61"
+            "bb82e869b1cd97823194c54b19100f3d300c6577ce4c92d4812df550ee7fb652"
         )
         req = _build_fanout_request(
             RouteTag.SYNTHESIS, "any problem; BP1 is independent of problem",

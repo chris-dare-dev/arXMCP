@@ -102,6 +102,13 @@ class Config(BaseSettings):
     #: directory is created at ``Resources.startup()`` time.
     cache_db_path: Path = Path("var/arxmcp/cache/retrieval.db")
 
+    #: SQLite file path for the theorem-names FTS5 index (E10_S02).
+    #: Sibling to the LanceDB indices under ``var/arxmcp/index/``;
+    #: parent directory is created on first indexer run. When the
+    #: file is absent, ``find_lemma_by_name`` falls back to the
+    #: legacy in-memory scan over the chunks table.
+    theorem_names_db_path: Path = Path("var/arxmcp/index/sqlite/theorem_names.db")
+
     # --- Models ----------------------------------------------------------
 
     #: Whether to load the BGE-reranker-v2-m3 at startup. When True

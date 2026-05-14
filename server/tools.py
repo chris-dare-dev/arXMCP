@@ -61,7 +61,7 @@ logger = logging.getLogger(__name__)
 #: Bumped manually on any tool schema change. The E06_S06 byte-
 #: stability test fails if a schema bytes change without a bump here.
 #: Surfaced via per-tool ``_meta: {"tool_schema_version": ...}``.
-TOOL_SCHEMA_VERSION: int = 3
+TOOL_SCHEMA_VERSION: int = 4
 
 #: URI scheme for chunk resource_links per the design note. Used by
 #: handlers that switch to resource_link mode when payloads exceed
@@ -166,10 +166,18 @@ FIND_LEMMA_BY_NAME = ToolMeta(
     name="find_lemma_by_name",
     description=(
         "Find theorems/lemmas/propositions by their natural-language "
-        "name. v1 ships an in-memory case-insensitive substring scan "
-        "over chunks where theorem_name is non-null. The full-text "
-        "(SQLite FTS5) index lands in E10_S02; the API stays stable "
-        "across the swap."
+        "name. Three-step lookup against the SQLite FTS5 theorem-names "
+        "index (E10_S02): (1) exact match on the normalized form "
+        "(retrieval_mode='fts5_exact'), (2) FTS5 trigram substring "
+        "match (retrieval_mode='fts5_trigram'), (3) Python-side "
+        "trigram Jaccard fallback for typo-tolerant lookup "
+        "(retrieval_mode='fuzzy_jaccard'). The optional paper_id "
+        "argument restricts results to one paper. The response "
+        "carries dedup_key, display_name, paper_id, chunk_id, "
+        "section_path, and confidence per match. When the theorem-"
+        "names index is absent, the handler falls back to an "
+        "in-memory scan over chunks (retrieval_mode="
+        "'in_memory_scan_fallback')."
     ),
 )
 

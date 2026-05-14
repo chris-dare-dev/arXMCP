@@ -1,9 +1,9 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://arxmcp/schemas/search_papers_result/v3.json",
+  "$id": "https://arxmcp/schemas/search_papers_result/v4.json",
   "additionalProperties": false,
   "description": "Canonical structuredContent shape returned by the search_papers MCP tool. Frozen by E06_S04. The byte-stability test in E06_S06 hashes this file's bytes and pins the SHA-256; any drift is a deliberate bump. The ``version`` field below MUST equal server.tools.TOOL_SCHEMA_VERSION (cross-checked by tests/test_snippet_contract.py).",
-  "version": 3,
+  "version": 4,
   "properties": {
     "corpus_version": {
       "description": "The integer corpus_version pinned at server startup (per E04_S03's corpus-version.json marker). Echoed in every tool result envelope so the agent can correlate cached results.",
