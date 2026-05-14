@@ -1,0 +1,64 @@
+{
+  "brief_source": "/tmp/E10_S03b-brief.md",
+  "created_at": "2026-05-14T19:49:38Z",
+  "critics_run": [],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "low": 0,
+    "medium": 0
+  },
+  "critique_path": null,
+  "deferred_findings": [],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_required": [],
+  "fixed_findings": [],
+  "id": "E10_S03b",
+  "implementation_base": "4b4d263c23f197408c6a8c02dfdd918ae381bf3c",
+  "implementation_branch": null,
+  "implementation_commit_range": null,
+  "implementation_commits": [],
+  "implementation_path": "inline",
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "### E10_S03b \u2014 Equation extractor + embedding_eq populator (closes H5)\n\n**Status:** NEW (follow-up to E10_S03, which deferred the data-population layer)\n**Tier:** 4\n**Effort:** L\n**Dependencies:** E03_S01 (embedder), E10_S03 (equations table schema + EquationIndex)\n\n**Description.** Close the data-layer gap that E10_S03 deliberately deferred. E10_S03 shipped the algorithm/API/schema (TED + dense fusion, equations table, EquationIndex, find_equation handler dispatch) against hand-crafted MathML fixtures. The equation atom extractor and the embedding_eq populator were explicitly out of scope. This milestone fills both gaps so the equations table is populated from real corpus papers AND embedding_eq is no longer NULL \u2014 at which point find_equation's TED-fusion path is exercised against live data and H5 (sole-dense equation similarity failure) is fully closed.\n\n**Scope:**\n1. `ingest/extract_equations.py` \u2014 new module. Walks the LaTeXML HTML output for each paper (sibling to the chunker's HTML reads), extracts `<math>` elements with their surrounding context, builds equation atom records, writes to the `equations` LanceDB table. Each record carries: `equation_id` (content-addressable sha256), `paper_id`, `label` (the \"(3.7)\" parenthetical if present), `presentation_latex` (from `<math alttext>`), `mathml` (inner content of `<math>` element, namespaced), `ascii_form` (presentation_latex stripped of LaTeX commands, or empty), `context_sentence` (the sentence containing or immediately preceding the equation), `parent_chunk_id` (the closest enclosing theorem/proof/section chunk).\n2. `ingest/embed_equations.py` \u2014 new module. Reads rows from the `equations` table with embedding_eq=NULL, runs BGE-M3 over `presentation_latex + \" \" + context_sentence`, writes the resulting 1024-dim vector to embedding_eq. Idempotent per row (NULL check). Mirrors the chunks embedder's batching + L2-normalize discipline.\n3. Update `server/retrieval/equations.py::EquationIndex._dense_candidates` \u2014 when the equations table's embedding_eq column is populated, query it directly via `equations_table.search(query_vec, vector_column_name=\"embedding_eq\")`; fall back to the current chunks.embedding_stmt proxy path when embedding_eq is all-NULL. Documented mode tag.\n4. Update `find_equation` handler retrieval_mode taxonomy \u2014 `\"ted_fused_eq\"` when embedding_eq is the dense column, `\"ted_fused\"` (legacy) when embedding_stmt proxy is used.\n\n**Acceptance criteria.**\n- [ ] `python -m ingest.extract_equations <paper_id>` writes equation atom rows to the equations table for the named paper; rows have non-empty mathml and presentation_latex.\n- [ ] `python -m ingest.embed_equations` populates embedding_eq on every row where it was NULL; the column is L2-normalized.\n- [ ] `find_equation` with a MathML query against a corpus where embedding_eq is populated reports `retrieval_mode=\"ted_fused_eq\"` and returns ranked results.\n- [ ] Backward compat: when embedding_eq is all-NULL (corpus not yet re-embedded), find_equation falls back to embedding_stmt proxy with `retrieval_mode=\"ted_fused\"`.\n- [ ] H5 closed: a corpus with the seeded math.AG fixtures + embedding_eq populated should rank an integral query above a structurally-distinct summation candidate.\n\n**Out of scope.** Query-time LaTeXML subprocess pool (LaTeX-input fallback stays `dense_only_stmt_fallback`). Training a custom equation encoder (still uses BGE-M3 over `presentation_latex + context_sentence`).\n\n**Risk notes.** Closes H5 fully. E10_S03's algorithm/API layer is reused as-is.\n\n**Labels.** `area:index`, `kind:feature`, `tier:4`, `closes:H5`",
+  "phase": "implement-running",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-14T19:49:38Z",
+      "left_at": "2026-05-14T19:49:45Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-14T19:49:45Z",
+      "left_at": "2026-05-14T19:58:12Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-14T19:58:12Z",
+      "left_at": "2026-05-14T19:58:12Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-05-14T19:58:12Z",
+      "left_at": null,
+      "phase": "implement-running"
+    }
+  ],
+  "rectification_commit": null,
+  "regression_tests_added": [],
+  "research_briefs": [
+    {
+      "path": ".claude/notes/milestones/E10_S03b/research-brief-1.md",
+      "status": "ok"
+    },
+    {
+      "path": ".claude/notes/milestones/E10_S03b/research-brief-2.md",
+      "status": "ok"
+    }
+  ],
+  "research_mode": "standard",
+  "research_synthesis": ".claude/notes/milestones/E10_S03b/research-synthesis.md",
+  "updated_at": "2026-05-14T19:58:12Z"
+}

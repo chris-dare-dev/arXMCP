@@ -86,11 +86,21 @@ async def handle_find_equation(
             }
             for h in hits
         ]
+        # `last_retrieval_mode` reflects which dense path fired:
+        # ``"ted_fused_eq"`` when EquationIndex queried the
+        # equations table's ``embedding_eq`` column directly
+        # (E10_S03b), ``"ted_fused"`` when the chunks-proxy
+        # legacy path fired (corpora pre-E10_S03b). The default
+        # in the EquationIndex constructor is ``"ted_fused"`` so
+        # this defaults safely if a future code path forgets to
+        # set the attribute.
         return envelope(
             {
                 "alpha": alpha,
                 "results": rows[:k],
-                "retrieval_mode": "ted_fused",
+                "retrieval_mode": getattr(
+                    index, "last_retrieval_mode", "ted_fused"
+                ),
             }
         )
 

@@ -678,6 +678,86 @@ class TestHandlerDispatch:
         # contribute; fall back to dense_only_fallback.
         assert result["retrieval_mode"] == "dense_only_fallback"
 
+    def test_ted_fused_eq_mode_when_embedding_eq_populated(
+        self, tmp_path, monkeypatch
+    ):
+        """E10_S03b path — when embedding_eq is non-NULL on at
+        least one row, EquationIndex queries it directly and the
+        envelope reports ``retrieval_mode="ted_fused_eq"``. The
+        chunks-proxy path is bypassed.
+        """
+        from ingest.embedder import EMBEDDING_DIM
+
+        # Seed a chunks table with a single irrelevant chunk so the
+        # ANN setup is plausible; the dense pass should NEVER touch
+        # the chunks table on the embedding_eq path.
+        chunks = _build_chunks_table(
+            tmp_path,
+            chunks=[
+                {
+                    "chunk_id": "arxiv:2401.00001:0000000000000001",
+                    "paper_id": "2401.00001",
+                    "kind": "section",
+                    "section_path": [],
+                    "body_text": "irrelevant",
+                    "body_tokens": "irrelevant",
+                }
+            ],
+        )
+
+        # Two equation rows with synthetic L2-normalized embedding_eq
+        # vectors along distinct unit axes — the query vector (axis 0)
+        # ranks eq1 (axis 0) above eq2 (axis 1).
+        v_axis_0 = _unit_vec(EMBEDDING_DIM, axis=0)
+        v_axis_1 = _unit_vec(EMBEDDING_DIM, axis=1)
+        int_tree = tree_to_json(
+            parse_mathml_to_tree(_read_fixture("int_ab_gtdt.mathml"))
+        )
+        sum_tree = tree_to_json(
+            parse_mathml_to_tree(_read_fixture("sum_0_inf_an.mathml"))
+        )
+        equations = _build_equations_table(
+            tmp_path,
+            equations=[
+                {
+                    "equation_id": "arxiv:2401.00001:eq1",
+                    "paper_id": "2401.00001",
+                    "label": "E1",
+                    "presentation_latex": r"\int_a^b g(t) dt",
+                    "mathml": _read_fixture("int_ab_gtdt.mathml"),
+                    "mathml_tree_json": int_tree,
+                    "embedding_eq": v_axis_0,
+                },
+                {
+                    "equation_id": "arxiv:2401.00001:eq2",
+                    "paper_id": "2401.00001",
+                    "label": "E2",
+                    "presentation_latex": r"\sum_{n=0}^\infty a_n",
+                    "mathml": _read_fixture("sum_0_inf_an.mathml"),
+                    "mathml_tree_json": sum_tree,
+                    "embedding_eq": v_axis_1,
+                },
+            ],
+        )
+        _install_resources(chunks, equations_table=equations, tmp_path=tmp_path)
+        _mock_encode_query(monkeypatch)  # query_vec is axis 0
+        query_mathml = _read_fixture("int_01_fxdx.mathml")
+        try:
+            result = _run(
+                eq_handler_mod.handle_find_equation(
+                    latex_or_mathml=query_mathml, k=5
+                )
+            )
+        finally:
+            server_tools._RESOURCES = None
+        # The new dense path fired.
+        assert result["retrieval_mode"] == "ted_fused_eq"
+        # eq1 (axis 0 — matches query_vec) ranks above eq2 (axis 1).
+        eq_ids = [r["equation_id"] for r in result["results"]]
+        assert eq_ids.index("arxiv:2401.00001:eq1") < eq_ids.index(
+            "arxiv:2401.00001:eq2"
+        )
+
     def test_malformed_mathml_degrades_gracefully(
         self, tmp_path, monkeypatch
     ):

@@ -339,6 +339,14 @@ class EquationIndex:
         self._chunks = chunks_table
         self._alpha = alpha
         self._ann_cap = ann_candidate_cap
+        #: Populated by :meth:`query` so the handler can surface the
+        #: actual dense path that fired. ``"ted_fused_eq"`` when the
+        #: equations table's ``embedding_eq`` column was queried
+        #: directly; ``"ted_fused"`` when the legacy chunks-proxy
+        #: path was used (the latter is the v1 backward-compat
+        #: behavior preserved for corpora where ``embedding_eq`` is
+        #: still NULL everywhere). Synthesis D11.
+        self.last_retrieval_mode: str = "ted_fused"
 
     @property
     def available(self) -> bool:
@@ -436,20 +444,105 @@ class EquationIndex:
         return hits[:k]
 
     def _dense_candidates(self, query_vec: Any) -> list[_Candidate]:
-        """Run the ANN pass and join the result against the equations
-        table.
+        """Run the ANN pass and assemble the candidate set.
 
-        The dense pass currently uses ``embedding_stmt`` on the
-        chunks table because the equations table's ``embedding_eq``
-        column is reserved-but-NULL at v1. The join key is
-        ``parent_chunk_id`` so the chunk-level dense score is paired
-        with each equation atom that lives under that chunk.
+        Dual-path (synthesis D11):
+
+        * **embedding_eq path** — when the equations table has at
+          least one row with non-NULL ``embedding_eq``, query that
+          column directly via
+          ``equations_table.search(query_vec, vector_column_name="embedding_eq")``.
+          The dense signal is equation-specific. Sets
+          ``self.last_retrieval_mode = "ted_fused_eq"``.
+
+        * **chunks-proxy path** (v1 legacy) — when ``embedding_eq``
+          is all-NULL (corpus not yet re-embedded), fall back to
+          ``chunks.embedding_stmt`` ANN + join by
+          ``parent_chunk_id``. Sets
+          ``self.last_retrieval_mode = "ted_fused"``.
 
         Returns a list of :class:`_Candidate` rows sorted by
         ``cosine_score`` descending. Capped at ``self._ann_cap``.
         """
-        # Pull the top-N chunks by dense cosine; map chunk_id →
-        # cosine_score for the join.
+        if self._embedding_eq_is_populated():
+            self.last_retrieval_mode = "ted_fused_eq"
+            return self._dense_candidates_eq(query_vec)
+        self.last_retrieval_mode = "ted_fused"
+        return self._dense_candidates_chunks_proxy(query_vec)
+
+    def _embedding_eq_is_populated(self) -> bool:
+        """Return True iff at least one equation row has a non-NULL
+        ``embedding_eq`` value.
+
+        Cheap probe: pull a tiny page (`limit(1)`) filtered to rows
+        where the column is non-NULL. We use ``where`` on the same
+        Arrow-table read because LanceDB's vector search would
+        require a query_vec; the existence check should be
+        vec-independent.
+        """
+        try:
+            probe = (
+                self._equations.search()
+                .where("embedding_eq IS NOT NULL")
+                .limit(1)
+                .to_arrow()
+            )
+            return probe.num_rows > 0
+        except Exception:  # noqa: BLE001 — older LanceDB may not parse the WHERE
+            # Fall back to a full-table scan; bounded by the
+            # equations table size which is small at v1 corpus
+            # scale. The exception path is the safe place to leave
+            # a slower scan.
+            arrow = self._equations.to_arrow()
+            if arrow.num_rows == 0:
+                return False
+            col = arrow.column("embedding_eq")
+            return col.null_count < arrow.num_rows
+
+    def _dense_candidates_eq(self, query_vec: Any) -> list[_Candidate]:
+        """ANN pass against ``equations.embedding_eq`` (E10_S03b path).
+
+        No JOIN required — the equations table carries every column
+        we need. ``parent_chunk_id`` may still be NULL on individual
+        rows (extractor decision); we surface it as-is.
+        """
+        arrow = (
+            self._equations.search(
+                query_vec, vector_column_name="embedding_eq"
+            )
+            .limit(self._ann_cap)
+            .to_arrow()
+        )
+        if arrow.num_rows == 0:
+            return []
+        rows = arrow.to_pylist()
+        distances = arrow.column("_distance").to_pylist()
+        out: list[_Candidate] = []
+        for row, dist in zip(rows, distances, strict=True):
+            out.append(
+                _Candidate(
+                    equation_id=row["equation_id"],
+                    paper_id=row["paper_id"],
+                    parent_chunk_id=row.get("parent_chunk_id"),
+                    mathml_tree_json=row.get("mathml_tree_json"),
+                    cosine_score=_distance_to_cosine(dist),
+                )
+            )
+        out.sort(key=lambda c: (-c.cosine_score, c.equation_id))
+        return out[: self._ann_cap]
+
+    def _dense_candidates_chunks_proxy(
+        self, query_vec: Any
+    ) -> list[_Candidate]:
+        """Legacy v1 dense path — chunks.embedding_stmt ANN + JOIN.
+
+        Used when ``embedding_eq`` is all-NULL (typical pre-E10_S03b
+        corpora). The chunk-level dense score is paired with every
+        equation atom whose ``parent_chunk_id`` matches a top-N
+        chunk. Equation atoms with ``parent_chunk_id=None`` (the
+        E10_S03b default) score 0 on this path — they only surface
+        once ``embedding_eq`` lands and the other path fires.
+        """
         chunks_arrow = (
             self._chunks.search(
                 query_vec, vector_column_name="embedding_stmt"
@@ -484,8 +577,6 @@ class EquationIndex:
         if equations_arrow.num_rows == 0:
             return []
 
-        # Build the candidate list, paired with the chunk-level
-        # cosine score from the dense pass.
         out: list[_Candidate] = []
         eq_rows = equations_arrow.to_pylist()
         for row in eq_rows:
@@ -501,8 +592,6 @@ class EquationIndex:
                 )
             )
         out.sort(key=lambda c: (-c.cosine_score, c.equation_id))
-        # Truncate to ann_cap defensively — equations table may have
-        # multiple atoms per chunk so the join can blow past the cap.
         return out[: self._ann_cap]
 
 

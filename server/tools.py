@@ -61,7 +61,7 @@ logger = logging.getLogger(__name__)
 #: Bumped manually on any tool schema change. The E06_S06 byte-
 #: stability test fails if a schema bytes change without a bump here.
 #: Surfaced via per-tool ``_meta: {"tool_schema_version": ...}``.
-TOOL_SCHEMA_VERSION: int = 4
+TOOL_SCHEMA_VERSION: int = 5
 
 #: URI scheme for chunk resource_links per the design note. Used by
 #: handlers that switch to resource_link mode when payloads exceed
@@ -131,15 +131,18 @@ FIND_EQUATION = ToolMeta(
     description=(
         "Search for equations similar to the supplied LaTeX or MathML. "
         "MathML inputs (detected by a <math> root) route through the "
-        "Zhang-Shasha tree-edit-distance + dense-cosine fusion path "
-        "(retrieval_mode='ted_fused'); the final score is "
-        "alpha * (1 - normalized_ted) + (1 - alpha) * cosine, with "
-        "alpha tunable via ARXMCP_EQ_TED_WEIGHT (default 0.5). LaTeX "
-        "inputs fall back to dense-only ANN over the chunks table's "
-        "statement embeddings (retrieval_mode='dense_only_stmt_fallback') "
-        "because there is no query-time LaTeXML pool at v1. When the "
-        "equation atom corpus is empty (the extractor is deferred to "
-        "a follow-up milestone), MathML inputs degrade to "
+        "Zhang-Shasha tree-edit-distance + dense-cosine fusion path; "
+        "the final score is alpha * (1 - normalized_ted) + (1 - alpha) "
+        "* cosine, with alpha tunable via ARXMCP_EQ_TED_WEIGHT (default "
+        "0.5). The dense signal is the equations table's embedding_eq "
+        "column when populated (retrieval_mode='ted_fused_eq'); it "
+        "falls back to the chunks table's embedding_stmt as a proxy "
+        "when embedding_eq is all-NULL (retrieval_mode='ted_fused') for "
+        "backward compatibility with pre-E10_S03b corpora. LaTeX inputs "
+        "fall back to dense-only ANN over the chunks table's statement "
+        "embeddings (retrieval_mode='dense_only_stmt_fallback') because "
+        "there is no query-time LaTeXML pool. When the equations table "
+        "is missing entirely, MathML inputs degrade to "
         "retrieval_mode='dense_only_fallback'. The retrieval_mode field "
         "always documents the active path."
     ),
