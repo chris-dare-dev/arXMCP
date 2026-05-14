@@ -429,7 +429,11 @@ class Resources:
                 None,
                 lambda: lancedb.connect(str(Path(config.lancedb_path).resolve())),
             )
-            if DEFINITIONS_TABLE_NAME in db_conn.table_names():
+            # F5 — try open_table directly rather than relying on a
+            # version-fragile table-listing API. LanceDB raises
+            # ``ValueError`` (and on some versions ``FileNotFoundError``)
+            # when the table is absent; either is the cue to skip.
+            try:
                 definitions_table = await loop.run_in_executor(
                     None,
                     lambda: db_conn.open_table(DEFINITIONS_TABLE_NAME),
@@ -438,7 +442,7 @@ class Resources:
                     "Resources.startup: opened LanceDB %s table",
                     DEFINITIONS_TABLE_NAME,
                 )
-            else:
+            except (ValueError, FileNotFoundError):
                 logger.info(
                     "Resources.startup: %s table not present; "
                     "get_definitions will return index_status=absent",

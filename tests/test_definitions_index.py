@@ -123,6 +123,16 @@ def _patched_preamble_dir(preamble_dir: Path):
     return patch("ingest.preamble.PREAMBLE_DIR", preamble_dir)
 
 
+def _has_paper_row(tbl: Any, paper_id: str) -> bool:
+    """Return True iff the table contains at least one row for ``paper_id``.
+
+    Used by F3 regression to confirm we're testing the non-empty
+    branch of the delete short-circuit.
+    """
+    arrow = tbl.search().where(f"paper_id = '{paper_id}'").limit(1).to_arrow()
+    return arrow.num_rows > 0
+
+
 def _empty_chunks_table(lancedb_path: Path) -> None:
     """Create the lancedb_path directory but no chunks table.
 
@@ -327,10 +337,40 @@ class TestIndexer:
             index_definitions_for_paper("2401.00011", lancedb_path)
 
         tbl = open_or_create_definitions_table(lancedb_path)
-        index_names = {ix["name"] for ix in tbl.list_indices()}
-        assert "paper_id_idx" in index_names or "paper_id" in index_names
-        assert (
-            "symbol_raw_idx" in index_names or "symbol_raw" in index_names
+        indices = tbl.list_indices()
+        # F6 (E10_S01 critique) — assert that AT LEAST ONE index
+        # actually covers ``paper_id`` and AT LEAST ONE covers
+        # ``symbol_raw``. The original test matched on the index NAME
+        # alone, which would fail open if LanceDB renamed its
+        # auto-generated index suffix and continued to create the
+        # indexes on the correct columns. The columns field is the
+        # load-bearing invariant: AC4 asserts the brief's
+        # ``B-tree on (paper_id, symbol)`` index requirement.
+        indexed_columns: set[str] = set()
+        for ix in indices:
+            # LanceDB ≥ 0.6 returns ``Index`` dataclass-like objects
+            # with ``.columns`` (list[str]) and ``.name`` attributes.
+            # Older releases may return plain dicts. Handle both
+            # shapes defensively.
+            cols = getattr(ix, "columns", None)
+            if cols is None and isinstance(ix, dict):
+                cols = ix.get("columns")
+            if cols:
+                indexed_columns.update(cols)
+                continue
+            name = getattr(ix, "name", None)
+            if name is None and isinstance(ix, dict):
+                name = ix.get("name", "")
+            name = name or ""
+            if name.endswith("_idx"):
+                indexed_columns.add(name[: -len("_idx")])
+            elif name:
+                indexed_columns.add(name)
+        assert "paper_id" in indexed_columns, (
+            f"paper_id scalar index missing; indices={indices!r}"
+        )
+        assert "symbol_raw" in indexed_columns, (
+            f"symbol_raw scalar index missing; indices={indices!r}"
         )
 
     def test_paper_with_no_preamble_writes_zero_rows(self, tmp_path):
@@ -392,6 +432,62 @@ class TestIndexer:
         symbols = {r["symbol"] for r in rows}
         # The orphan \C row from the first run is gone.
         assert symbols == {"\\A", "\\B"}
+
+    def test_delete_failure_surfaces_not_swallowed(self, tmp_path):
+        """F3 regression (E10_S01 critique) — a genuine delete error
+        (permission denied, schema mismatch, etc.) must NOT be
+        swallowed under the cover of "this was just an empty-table
+        delete". Seed a paper, then monkeypatch ``tbl.delete`` to
+        raise ``PermissionError`` and verify the indexer re-raises
+        rather than logging-and-proceeding.
+
+        The empty-table case is now handled by short-circuiting on
+        the per-paper row count BEFORE invoking delete, so a delete
+        failure on a populated table is no longer ambiguous with the
+        benign empty-delete edge case.
+        """
+        from unittest.mock import patch as _patch
+
+        preamble_dir = tmp_path / "preamble"
+        lancedb_path = tmp_path / "lancedb"
+        _empty_chunks_table(lancedb_path)
+
+        # Seed one paper so the per-paper row count is > 0 on second
+        # run; then monkeypatch delete on the OPEN table.
+        _stage_preamble(preamble_dir, "2401.00050", [r"\newcommand{\R}{\mathbb{R}}"])
+        with _patched_preamble_dir(preamble_dir):
+            index_definitions_for_paper("2401.00050", lancedb_path)
+
+        tbl = open_or_create_definitions_table(lancedb_path)
+        # Confirm the seed row is present (else this test would only
+        # exercise the empty-table short-circuit path).
+        assert _has_paper_row(tbl, "2401.00050")
+
+        # Monkeypatch open_or_create_definitions_table to return a
+        # wrapped table whose delete raises. The simplest path is to
+        # patch the function at the indexer's module scope.
+        class _BadDelete:
+            def __init__(self, real):
+                self._real = real
+
+            def __getattr__(self, name):
+                if name == "delete":
+                    def _raise(*_a, **_kw):
+                        raise PermissionError("simulated permission denied")
+                    return _raise
+                return getattr(self._real, name)
+
+        bad_tbl = _BadDelete(tbl)
+
+        with (
+            _patched_preamble_dir(preamble_dir),
+            _patch(
+                "ingest.index_definitions.open_or_create_definitions_table",
+                return_value=bad_tbl,
+            ),
+            pytest.raises(PermissionError, match="simulated"),
+        ):
+            index_definitions_for_paper("2401.00050", lancedb_path)
 
     def test_two_papers_coexist(self, tmp_path):
         preamble_dir = tmp_path / "preamble"
@@ -593,6 +689,67 @@ class TestHandlerTermLookup:
             _seeded_handler(paper_id="2401.00100", term="\\hom")
         )
         assert any(d["symbol"] == "\\Hom" for d in result["definitions"])
+
+    def test_empty_string_term_falls_through_to_full_table(
+        self, tmp_path
+    ):
+        """F1 regression (E10_S01 critique) — ``term=""`` must NOT
+        enter the term branch (where the case-insensitive prefix
+        step's ``"".casefold()`` matches every row). Instead it must
+        be treated as ``term=None`` and respect the pagination cap.
+        Stage 150 macros so a single page (100) cannot cover them
+        all; verify the response has 100 rows and a non-null cursor.
+        """
+        preamble_dir = tmp_path / "preamble"
+        lancedb_path = tmp_path / "lancedb"
+        _empty_chunks_table(lancedb_path)
+
+        def _letters(i: int) -> str:
+            a = i // (26 * 26)
+            b = (i // 26) % 26
+            c = i % 26
+            return chr(ord("a") + a) + chr(ord("a") + b) + chr(ord("a") + c)
+
+        macros = [
+            r"\newcommand{\sym" + _letters(i) + r"}{body}"
+            for i in range(150)
+        ]
+        _stage_preamble(preamble_dir, "2401.00300", macros)
+
+        with _patched_preamble_dir(preamble_dir):
+            index_definitions_for_paper("2401.00300", lancedb_path)
+        table = open_or_create_definitions_table(lancedb_path)
+        _install_resources(tmp_path, table)
+        try:
+            result = _run(
+                defs_handler_mod.handle_get_definitions(
+                    paper_id="2401.00300", term=""
+                )
+            )
+            # Empty-string term must collapse to None — paginated.
+            assert len(result["definitions"]) == 100
+            assert result["next_cursor"] is not None
+            assert result["total"] == 150
+            # The term echoed back is the post-collapse None, not "".
+            assert result["term"] is None
+        finally:
+            server_tools._RESOURCES = None
+
+    def test_whitespace_only_term_falls_through_to_full_table(
+        self, _seeded_handler
+    ):
+        """F1 regression — a whitespace-only ``term`` (e.g. ``"   "``)
+        must also collapse to ``None``. Prefix-match on whitespace
+        would otherwise match no rows for any reasonable paper since
+        LaTeX command names never start with whitespace, but the
+        boundary behaviour is worth pinning explicitly.
+        """
+        result = _run(
+            _seeded_handler(paper_id="2401.00100", term="   ")
+        )
+        assert result["term"] is None
+        # Falls through to full-table mode (paper has 12 rows, single page).
+        assert result["total"] == 12
 
 
 class TestHandlerNoIndexFallback:

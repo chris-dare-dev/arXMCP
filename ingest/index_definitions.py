@@ -37,6 +37,18 @@ into two scalar indexes. The query planner can use both predicates.
 
 The handler at :mod:`server.handlers.definitions` reads from the same
 table; this module is the writer half of that contract.
+
+**CONCURRENCY:** :func:`index_definitions_for_paper` assumes a
+**single-writer-per-paper** contract — callers MUST serialize
+concurrent invocations for the same ``paper_id``. The
+delete-then-insert pair is two separate LanceDB MVCC commits, so two
+concurrent runs for the same paper can interleave as
+``A.delete → B.delete → A.add → B.add`` (yielding duplicate rows) or
+``A.add → B.delete → B.add`` (discarding A's writes). Different
+papers may be indexed in parallel without coordination. The
+production ingest driver landing in E11 must enforce this — either
+via a per-paper file-system lock or a single-worker stage in the
+pipeline DAG.
 """
 
 from __future__ import annotations
@@ -307,14 +319,42 @@ def open_or_create_definitions_table(
         )
 
     db = lancedb.connect(str(resolved))
-    if DEFINITIONS_TABLE_NAME in db.table_names():
+    # F5 (E10_S01 critique) — ``table_names()`` emits a
+    # DeprecationWarning in LanceDB ≥ 0.6 and the recommended
+    # ``list_tables()`` returns a paginated wrapper object (not a
+    # plain list), so the most version-stable existence check is to
+    # try ``open_table`` and fall through to create on the
+    # well-defined ``ValueError`` LanceDB raises for "table does not
+    # exist". This avoids the DeprecationWarning + the paginated-
+    # API gotcha in one shot.
+    try:
         return db.open_table(DEFINITIONS_TABLE_NAME)
-    # Create an empty table with the canonical schema. LanceDB accepts
-    # a schema-only ``create_table`` when the data parameter is None.
-    return db.create_table(
-        DEFINITIONS_TABLE_NAME,
-        schema=DEFINITIONS_SCHEMA_V1,
-    )
+    except (ValueError, FileNotFoundError):
+        return db.create_table(
+            DEFINITIONS_TABLE_NAME,
+            schema=DEFINITIONS_SCHEMA_V1,
+        )
+
+
+def _table_has_any_rows_for_paper(tbl: Any, paper_id: str) -> bool:
+    """Return True iff ``tbl`` contains at least one row with
+    ``paper_id == <paper_id>``.
+
+    Used as a precondition check for the delete-then-insert idempotency
+    pattern (F3 from the E10_S01 critique). Counting via a filtered
+    Arrow batch is bounded by the per-paper row count, which is in
+    the low hundreds even for pathological hep-th papers; the cost
+    is negligible compared to the embedder work upstream.
+    """
+    try:
+        batches = tbl.search().where(f"paper_id = '{paper_id}'").limit(1).to_arrow()
+        return batches.num_rows > 0
+    except Exception:
+        # An open table that fails a filtered read is a real failure;
+        # don't pretend the row count is 0 (that would suppress a
+        # subsequent delete failure too). Surface by treating as
+        # "rows might exist" so the delete runs and raises.
+        return True
 
 
 def _ensure_scalar_indexes(tbl: Any) -> dict[str, bool]:
@@ -366,16 +406,20 @@ def index_definitions_for_paper(
     # so we string-format paper_id — but paper_id has already passed
     # the regex validator at every public entry point, so injection
     # is impossible by construction).
+    #
+    # F3 (E10_S01 critique) — the original broad ``except Exception``
+    # block swallowed every error class while pretending only to
+    # absorb the "empty-table delete" edge case. A schema-mismatch
+    # or filesystem-permission failure would silently slip past and
+    # the subsequent ``tbl.add`` would either crash with an unclear
+    # error or (worse) write duplicate rows on top of un-deleted
+    # prior ones. Guard against the actual edge case (no prior rows
+    # for this paper) by short-circuiting on the row count BEFORE
+    # attempting the delete, so the delete is only invoked when it
+    # has something to do. Any exception from delete now propagates.
     safe_filter = f"paper_id = '{paper_id}'"
-    try:
+    if _table_has_any_rows_for_paper(tbl, paper_id):
         tbl.delete(safe_filter)
-    except Exception as exc:
-        # A first-write into an empty table can fail on some LanceDB
-        # versions with ``no records to delete``; treat as benign.
-        logger.debug(
-            "delete predicate raised on %s (likely empty table): %s",
-            paper_id, exc,
-        )
 
     if rows:
         arrow_table = pa.Table.from_pylist(rows, schema=DEFINITIONS_SCHEMA_V1)

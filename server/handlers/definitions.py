@@ -39,7 +39,7 @@ from typing import Annotated, Any
 from pydantic import Field
 
 from ingest.identifiers import is_valid_paper_id
-from server.tools import envelope, get_resources
+from server.tools import enforce_byte_cap, envelope, get_resources
 
 logger = logging.getLogger(__name__)
 
@@ -77,21 +77,34 @@ async def handle_get_definitions(
             f"subject/NNNNNNN[vN])"
         )
 
+    # F1 (E10_S01 critique) — treat an empty/whitespace-only term as
+    # "no term". Without this guard ``term=""`` enters the term branch
+    # and the case-insensitive prefix step's ``"".casefold()`` matches
+    # every row in the table, dumping the whole paper in a single
+    # response and bypassing the 100-entry pagination contract. The
+    # exact-symbol and exact-symbol_raw steps already short-circuit on
+    # empty input; only the prefix step misbehaves, so the cleanest
+    # fix is to collapse falsy terms to None at the boundary.
+    if term is not None and not term.strip():
+        term = None
+
     table = _get_definitions_table()
     if table is None:
         # Index not built. Surface explicitly so callers can tell the
         # difference between "definitions=[] because nothing matched"
         # and "definitions=[] because there is no index". Both keep
         # the response shape stable.
-        return envelope(
-            {
-                "definitions": [],
-                "index_status": "absent",
-                "next_cursor": None,
-                "paper_id": paper_id,
-                "term": term,
-                "total": 0,
-            }
+        return _cap(
+            envelope(
+                {
+                    "definitions": [],
+                    "index_status": "absent",
+                    "next_cursor": None,
+                    "paper_id": paper_id,
+                    "term": term,
+                    "total": 0,
+                }
+            )
         )
 
     # Pull every row for this paper. The corpus has at most a few
@@ -103,15 +116,17 @@ async def handle_get_definitions(
 
     if term is not None:
         matched = _term_lookup(rows, term)
-        return envelope(
-            {
-                "definitions": matched,
-                "index_status": "ok",
-                "next_cursor": None,
-                "paper_id": paper_id,
-                "term": term,
-                "total": len(matched),
-            }
+        return _cap(
+            envelope(
+                {
+                    "definitions": matched,
+                    "index_status": "ok",
+                    "next_cursor": None,
+                    "paper_id": paper_id,
+                    "term": term,
+                    "total": len(matched),
+                }
+            )
         )
 
     # Full-table mode: sort by symbol then paginate.
@@ -123,16 +138,44 @@ async def handle_get_definitions(
     next_off = offset + PAGE_SIZE
     next_cursor = _encode_cursor(next_off) if next_off < total else None
 
-    return envelope(
-        {
-            "definitions": page,
-            "index_status": "ok",
-            "next_cursor": next_cursor,
-            "paper_id": paper_id,
-            "term": term,
-            "total": total,
-        }
+    return _cap(
+        envelope(
+            {
+                "definitions": page,
+                "index_status": "ok",
+                "next_cursor": next_cursor,
+                "paper_id": paper_id,
+                "term": term,
+                "total": total,
+            }
+        )
     )
+
+
+def _cap(payload: dict[str, Any]) -> dict[str, Any]:
+    """F4 (E10_S01 critique) — apply the 256 KB result byte cap.
+
+    The other 7-tool surface members enforce the cap themselves per
+    the ``server/tools.py`` contract; ``get_definitions`` previously
+    skipped this step because the per-page count (100) × typical
+    macro size (~few hundred bytes) is well under cap by construction.
+    The cap is added defensively for two reasons:
+
+    1. A future operator raising ``PAGE_SIZE`` should not have to
+       remember to also wire up the cap.
+    2. Pathological ``\\DeclareMathOperator{\\X}{<huge body>}`` rows
+       are not bounded by the per-row sanity check on input.
+
+    ``enforce_byte_cap`` returns ``(structured, content_blocks)``;
+    this handler has no per-row resource-link target so the
+    ``content_blocks`` half is discarded (the byte cap path
+    truncates ``body_text`` if present and flags
+    ``body_truncated=True``; for the definitions envelope which has
+    no ``body_text`` field the result is structurally unchanged
+    unless someone adds one in a future schema bump).
+    """
+    structured, _blocks = enforce_byte_cap(payload)
+    return structured
 
 
 # ---------------------------------------------------------------------------
