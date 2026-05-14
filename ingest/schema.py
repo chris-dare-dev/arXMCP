@@ -46,6 +46,12 @@ from ingest.embedder import EMBEDDING_DIM
 # inline is a bug.
 CHUNKS_TABLE_NAME = "chunks"
 
+# Name of the per-paper definitions/notation table (E10_S01). Defined
+# alongside ``CHUNKS_TABLE_NAME`` so future readers (the
+# ``get_definitions`` handler, the optional indexer driver) import the
+# name string rather than literalize it.
+DEFINITIONS_TABLE_NAME = "definitions"
+
 # Names of the two dual-encoding embedding columns. Pinned here so the
 # E05_S02 retrieval-quality test (and any future reader that needs to
 # enumerate searchable vector columns) imports rather than literalizes
@@ -114,6 +120,45 @@ CHUNKS_SCHEMA_V1 = pa.schema(
         # ``preamble_ref`` is the SHA-256[:16] of the per-paper preamble;
         # NULL when preamble extraction failed (F3 fallback in E02_S02).
         pa.field("preamble_ref", pa.utf8(), nullable=True),
+    ]
+)
+
+
+# ---------------------------------------------------------------------------
+# Definitions table schema (E10_S01)
+# ---------------------------------------------------------------------------
+
+# Per ``.claude/notes/05-storage-and-indexing.md`` lines 92-104 the
+# definitions table captures one row per macro-definition or named
+# definition with the columns below. Every column is non-nullable: the
+# indexer is responsible for substituting sentinels (e.g. an empty
+# string for an unknown ``defining_chunk_id``) rather than relying on
+# Arrow NULLs, which keeps downstream filtering predictable and avoids
+# the "filter ignores NULLs" surprise common to scalar predicates.
+#
+# ``scope`` is intentionally stored as a free-text utf8 column rather
+# than a dictionary-encoded enum: LanceDB scalar indexes do not yet
+# support dictionary columns and string equality is fast at scale.
+# The enum domain ``{paper, section, theorem}`` is enforced at write
+# time by the indexer.
+#
+# Scalar indexes (built post-write):
+#   * ``paper_id``     — supports per-paper filters from the handler
+#   * ``symbol_raw``   — supports exact + prefix lookup on author's
+#                        macro command (``\AA``, ``\Hom``, …).
+# LanceDB ≥ 0.6 ``create_scalar_index`` does not accept multi-column
+# composite indexes; the design note's ``(paper_id, symbol)`` is
+# decomposed into the two scalar indexes above (the planner uses both
+# during ``where`` evaluation). Documented in ``ingest/index_definitions.py``.
+DEFINITIONS_SCHEMA_V1 = pa.schema(
+    [
+        pa.field("definition_id", pa.utf8(), nullable=False),
+        pa.field("paper_id", pa.utf8(), nullable=False),
+        pa.field("symbol", pa.utf8(), nullable=False),
+        pa.field("symbol_raw", pa.utf8(), nullable=False),
+        pa.field("expansion", pa.utf8(), nullable=False),
+        pa.field("defining_chunk_id", pa.utf8(), nullable=False),
+        pa.field("scope", pa.utf8(), nullable=False),
     ]
 )
 
@@ -272,5 +317,7 @@ class EmbedRecord:
 __all__ = [
     "CHUNKS_SCHEMA_V1",
     "CHUNKS_TABLE_NAME",
+    "DEFINITIONS_SCHEMA_V1",
+    "DEFINITIONS_TABLE_NAME",
     "EmbedRecord",
 ]

@@ -1,0 +1,64 @@
+{
+  "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/roadmap",
+  "created_at": "2026-05-14T15:45:42Z",
+  "critics_run": [],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "low": 0,
+    "medium": 0
+  },
+  "critique_path": null,
+  "deferred_findings": [],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_required": [],
+  "fixed_findings": [],
+  "id": "E10_S01",
+  "implementation_base": "5690da1ee0e45afa803e363a2fb69176cfcea71d",
+  "implementation_branch": null,
+  "implementation_commit_range": null,
+  "implementation_commits": [],
+  "implementation_path": "inline",
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "### E10_S01 \u2014 Definitions index and get_definitions tool\n\n**Status:** NEW\n**Tier:** 4\n**Effort:** M\n**Dependencies:** E02_S02, E06_S03\n\n**Description.** Build the per-paper notation/definition table that backs `get_definitions(paper_id, term?)` and absorbs the former `expand_macro` tool. The index is populated during ingestion from two sources: (1) `\\newcommand`, `\\renewcommand`, and `\\DeclareMathOperator` declarations extracted by Sonnet A's E02_S02 preamble extractor, and (2) explicit definition environments (`\\begin{definition}`, `\\begin{notation}`) identified by the chunker. Each entry in the `definitions` LanceDB table captures: `definition_id` (content-addressable), `paper_id`, `symbol` (canonical form, e.g., `\\mathcal{A}`), `symbol_raw` (author's form, e.g., `\\AA`), `expansion` (human-readable text), `defining_chunk_id`, and `scope` (`paper`, `section`, or `theorem`).\n\nThe `get_definitions` handler in `server/handlers/definitions.py` implements two modes of operation. Without the `term` argument: return the full notation table for the paper, sorted by `symbol` ascending, paginated at 100 entries per page with a `next_cursor` field. With the `term` argument: perform an exact match on `symbol` first, then `symbol_raw`, and if neither matches, fall back to case-insensitive prefix match. This absorbs the `expand_macro` tool completely \u2014 the autoformalizer can resolve any macro by calling `get_definitions(paper_id=\"...\", term=\"\\\\AA\")`.\n\nThe definitions index is populated as a streaming step after the chunker completes for each paper. It is idempotent: re-running for a paper that already has entries replaces them (keyed by `paper_id`). A paper with no preamble declarations produces zero entries (not an error). The LanceDB `definitions` table has B-tree indexes on `(paper_id, symbol)` and on `symbol_raw`, as specified in `.claude/notes/05-storage-and-indexing.md` lines 83\u201394.\n\n**Deliverables.**\n- `ingest/index_definitions.py` \u2014 streaming indexer: reads chunker output, extracts preamble declarations, writes to `definitions` table\n- `server/handlers/definitions.py` \u2014 two-mode handler: full-table mode and term-lookup mode\n- `tests/test_definitions_index.py` \u2014 ingestion test: a paper with known `\\newcommand` declarations produces the correct entries; term lookup finds the right expansion\n\n**Acceptance criteria.**\n- [ ] `get_definitions(paper_id=\"2401.01234\")` returns a paginated list of all notation entries for that paper\n- [ ] `get_definitions(paper_id=\"2401.01234\", term=\"\\\\mathcal{A}\")` returns the expansion of `\\mathcal{A}` from that paper's preamble\n- [ ] A paper with no `\\newcommand` declarations produces an empty list (not a 404 or error)\n- [ ] The definitions table B-tree index on `(paper_id, symbol)` is present after ingestion\n- [ ] `pytest tests/test_definitions_index.py` passes\n\n**Out of scope.** Cross-paper symbol disambiguation. Semantic expansion of definition text. Runtime preamble parsing (index is built at ingest time, not on demand).\n\n**Risk notes.**\n- The `expand_macro` tool is absorbed here, eliminating a redundant 8th tool entry and keeping the surface at exactly 7. Autoformalizers historically needed a separate `expand_macro` call; `get_definitions(term=...)` subsumes it with a richer response.\n\n**Labels.** `area:index`, `kind:feature`, `tier:4`\n\n---",
+  "phase": "implement-running",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-14T15:45:42Z",
+      "left_at": "2026-05-14T15:45:48Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-14T15:45:48Z",
+      "left_at": "2026-05-14T15:52:12Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-14T15:52:12Z",
+      "left_at": "2026-05-14T15:52:29Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-05-14T15:52:29Z",
+      "left_at": null,
+      "phase": "implement-running"
+    }
+  ],
+  "rectification_commit": null,
+  "regression_tests_added": [],
+  "research_briefs": [
+    {
+      "path": ".claude/notes/milestones/E10_S01/research-brief-1.md",
+      "status": "ok"
+    },
+    {
+      "path": ".claude/notes/milestones/E10_S01/research-brief-2.md",
+      "status": "ok"
+    }
+  ],
+  "research_mode": "standard",
+  "research_synthesis": ".claude/notes/milestones/E10_S01/research-synthesis.md",
+  "updated_at": "2026-05-14T15:52:29Z"
+}

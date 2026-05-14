@@ -317,12 +317,18 @@ class TestToolsSmoke:
         assert "results" in sc
 
     def test_get_definitions_no_preamble(self, warm_app):
-        # No preamble.json exists for this paper in the test corpus.
+        # The warm-app test corpus has no definitions table built, so
+        # the handler degrades to index_status="absent" (E10_S01).
+        # Same empty-result shape either way; callers can distinguish
+        # via index_status when needed.
         r = _call_tool(warm_app, "get_definitions", {"paper_id": "2401.00001"})
         self._assert_envelope_ok(r, "get_definitions")
         sc = r.json()["result"]["structuredContent"]
-        assert sc["extraction_status"] == "no_preamble"
-        assert sc["macros"] == []
+        assert sc["definitions"] == []
+        assert sc["next_cursor"] is None
+        assert sc["total"] == 0
+        # index_status is "absent" until ingest.index_definitions runs.
+        assert sc["index_status"] in ("absent", "ok")
 
     def test_find_lemma_by_name_smoke(self, warm_app):
         r = _call_tool(warm_app, "find_lemma_by_name", {"name": "Riemann"})
@@ -441,35 +447,42 @@ class TestSearchSchemaContract:
 
 
 class TestDefinitionsParser:
-    """F2 close: brace-balanced parser handles multi-newcommand
-    lines correctly (the original greedy regex slurped across the
-    next macro)."""
+    """F2 close (carried forward across E10_S01): the brace-balanced
+    parser handles multi-newcommand lines correctly. After E10_S01
+    the parser lives in ``ingest.index_definitions`` (the indexer is
+    the new owner of macro-line parsing); the regression assertions
+    are preserved here so a future regression in the parser surfaces
+    even if the indexer's own tests are skipped.
+    """
 
-    def test_extract_pairs_two_macros_on_one_line(self):
-        from server.handlers.definitions import _extract_pairs
+    def test_parse_two_macros_on_one_line(self):
+        from ingest.index_definitions import parse_macro_line
 
         line = r"\newcommand{\R}{\mathbb{R}}\newcommand{\C}{\mathbb{C}}"
-        pairs = _extract_pairs(line)
-        assert len(pairs) == 2
-        symbols = {p["symbol"] for p in pairs}
-        expansions = {p["expansion"] for p in pairs}
+        records = parse_macro_line(line)
+        assert len(records) == 2
+        symbols = {r["symbol"] for r in records}
+        expansions = {r["expansion"] for r in records}
         assert symbols == {"\\R", "\\C"}
         assert expansions == {"\\mathbb{R}", "\\mathbb{C}"}
 
-    def test_extract_pairs_with_internal_braces(self):
-        from server.handlers.definitions import _extract_pairs
+    def test_parse_with_internal_braces(self):
+        from ingest.index_definitions import parse_macro_line
 
         line = r"\newcommand{\Z}{\mathbb{Z}^{n}}"
-        pairs = _extract_pairs(line)
-        assert len(pairs) == 1
-        assert pairs[0] == {"symbol": "\\Z", "expansion": "\\mathbb{Z}^{n}"}
+        records = parse_macro_line(line)
+        assert len(records) == 1
+        assert records[0]["symbol"] == "\\Z"
+        assert records[0]["expansion"] == "\\mathbb{Z}^{n}"
 
-    def test_extract_pairs_handles_renewcommand(self):
-        from server.handlers.definitions import _extract_pairs
+    def test_parse_handles_renewcommand(self):
+        from ingest.index_definitions import parse_macro_line
 
         line = r"\renewcommand{\foo}{bar}"
-        pairs = _extract_pairs(line)
-        assert pairs == [{"symbol": "\\foo", "expansion": "bar"}]
+        records = parse_macro_line(line)
+        assert len(records) == 1
+        assert records[0]["symbol"] == "\\foo"
+        assert records[0]["expansion"] == "bar"
 
 
 class TestByteCapEnforcement:

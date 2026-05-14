@@ -244,6 +244,10 @@ class Resources:
     # corpus version is pinned (Tier-1 keys depend on it). Closed in
     # ``shutdown()`` so the SQLite file is flushed cleanly.
     cache: Any | None = None
+    # Per-paper definitions table (E10_S01). ``None`` when the corpus
+    # has no preamble index — ``get_definitions`` degrades gracefully
+    # to an empty-result response with ``index_status="absent"``.
+    definitions_table: Any | None = None
     process_start_time_seconds: float = field(default_factory=time.time)
     warm: bool = False
 
@@ -410,6 +414,44 @@ class Resources:
             config.cache_db_path,
         )
 
+        # 6b. Definitions table (E10_S01). Optional handle: the table
+        # is created lazily by the indexer (`ingest.index_definitions`)
+        # and only opened here if it already exists. Missing-table is
+        # not an error — the get_definitions handler reports
+        # ``index_status="absent"`` until the indexer runs.
+        definitions_table: Any | None = None
+        try:
+            import lancedb
+
+            from ingest.schema import DEFINITIONS_TABLE_NAME
+
+            db_conn = await loop.run_in_executor(
+                None,
+                lambda: lancedb.connect(str(Path(config.lancedb_path).resolve())),
+            )
+            if DEFINITIONS_TABLE_NAME in db_conn.table_names():
+                definitions_table = await loop.run_in_executor(
+                    None,
+                    lambda: db_conn.open_table(DEFINITIONS_TABLE_NAME),
+                )
+                logger.info(
+                    "Resources.startup: opened LanceDB %s table",
+                    DEFINITIONS_TABLE_NAME,
+                )
+            else:
+                logger.info(
+                    "Resources.startup: %s table not present; "
+                    "get_definitions will return index_status=absent",
+                    DEFINITIONS_TABLE_NAME,
+                )
+        except Exception as exc:
+            # Definitions are an enrichment, not a hard requirement.
+            # Log but do not block server startup.
+            logger.warning(
+                "Resources.startup: could not open definitions table: %s",
+                exc,
+            )
+
         instance = cls(
             config=config,
             corpus_info=corpus_info,
@@ -422,6 +464,7 @@ class Resources:
             ann_phase=ann_phase,
             rerank_phase=rerank_phase,
             cache=retrieval_cache,
+            definitions_table=definitions_table,
             warm=True,
         )
         logger.info("Resources.startup: warm")

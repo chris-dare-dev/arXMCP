@@ -602,8 +602,14 @@ class TestBP1ByteIdentityAcrossFanout:
         ``SYSTEM_PROMPT`` body landing in E08_S04).
         """
         # UPDATE-ANCHOR — bump when SYSTEM_PROMPT or ALL_TOOLS drift:
+        # E10_S01 bumped the GET_DEFINITIONS description and
+        # TOOL_SCHEMA_VERSION 1→2 to surface the LanceDB-backed
+        # definitions table behind the tool. The new hash below
+        # matches the paired EXPECTED_TOOL_SCHEMA_SHA256 update in
+        # tests/test_server_tool_schema.py (run together via
+        # `pytest --update-tool-schema-hash`).
         EXPECTED_BP1_SHA256 = (
-            "f01de11288e2128b5af9c2d04dbdb264f6122f96f62d6cc4e3559ef9c16b2084"
+            "4fe100be00d7c6c466a7de00a6048b95e4ac6ca770145d3e5c81531c92e1f30b"
         )
         req = _build_fanout_request(
             RouteTag.SYNTHESIS, "any problem; BP1 is independent of problem",

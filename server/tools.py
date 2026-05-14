@@ -61,7 +61,7 @@ logger = logging.getLogger(__name__)
 #: Bumped manually on any tool schema change. The E06_S06 byte-
 #: stability test fails if a schema bytes change without a bump here.
 #: Surfaced via per-tool ``_meta: {"tool_schema_version": ...}``.
-TOOL_SCHEMA_VERSION: int = 1
+TOOL_SCHEMA_VERSION: int = 2
 
 #: URI scheme for chunk resource_links per the design note. Used by
 #: handlers that switch to resource_link mode when payloads exceed
@@ -143,11 +143,17 @@ FIND_EQUATION = ToolMeta(
 GET_DEFINITIONS = ToolMeta(
     name="get_definitions",
     description=(
-        "Return the per-paper notation/macro table for the given "
-        "paper_id. With term: returns only the macro whose symbol "
-        "matches term (exact). Without term: returns the full table. "
-        "Source: the per-paper preamble.json written by the E02_S02 "
-        "preamble extractor; one entry per \\newcommand."
+        "Return the per-paper notation/definition table for the given "
+        "paper_id. With term: lookup hierarchy is exact match on "
+        "symbol, then exact match on symbol_raw (author's form), then "
+        "case-insensitive prefix match on symbol_raw. Without term: "
+        "returns the full table sorted by symbol, paginated at 100 "
+        "entries per page with an opaque next_cursor token. Source: "
+        "the LanceDB definitions table populated at ingest time from "
+        "preamble \\newcommand/\\renewcommand/\\providecommand/"
+        "\\DeclareMathOperator/\\def/\\let directives (E10_S01). "
+        "Absorbs the planned expand_macro tool; macro resolution is "
+        "available via term lookup."
     ),
 )
 

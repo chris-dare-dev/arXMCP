@@ -1,25 +1,39 @@
-"""``get_definitions`` handler — read per-paper preamble.json macros.
+"""``get_definitions`` handler — read per-paper notation table.
 
-Source: the per-paper ``preamble.json`` written by the E02_S02
-preamble extractor at
-``var/arxmcp/corpus/preamble/<paper_id>/preamble.json``. Each
-``PreambleDoc.macros`` entry is a raw line from the LaTeX source
-like ``"\\newcommand{\\R}{\\mathbb{R}}"``; we parse each into
-``(symbol, expansion)`` pairs.
+Source: the LanceDB ``definitions`` table populated by
+:mod:`ingest.index_definitions` at ingest time. Each row carries
+``(definition_id, paper_id, symbol, symbol_raw, expansion,
+defining_chunk_id, scope)``.
 
-When ``term`` is given: filter to symbols matching ``term`` exactly.
-Without ``term``: return the full table sorted by symbol.
+Two modes of operation:
 
-When the preamble file is absent (paper not yet ingested or
-preamble extraction failed — F3 fallback per E02_S02), return
-``{macros: [], extraction_status: "no_preamble"}``.
+* **Without ``term``** — return every definition for ``paper_id``
+  sorted by ``symbol`` ascending, paginated at 100 entries per page
+  with an opaque ``next_cursor`` token.
+* **With ``term``** — lookup hierarchy:
+  1. exact match on ``symbol``;
+  2. exact match on ``symbol_raw``;
+  3. case-insensitive prefix match on ``symbol_raw`` (NOT on
+     ``symbol`` — LaTeX commands are case-sensitive, so case-folding
+     the canonical form would be semantically wrong; see synthesis
+     D7).
+
+The handler returns ``{definitions: [], next_cursor: null, total: 0}``
+for unknown papers and for papers with no preamble — both cases
+collapse to "empty result, not an error" per the brief.
+
+When the ``definitions`` LanceDB table itself is missing (corpus has
+no preamble extraction artefacts), the handler degrades gracefully
+to the same empty-result shape and flags ``index_status="absent"`` in
+the envelope so callers can distinguish "indexed but empty" from
+"index never built". This keeps the tool usable during the ingest
+bootstrap path.
 """
 
 from __future__ import annotations
 
-import json
-import re
-from pathlib import Path
+import base64
+import logging
 from typing import Annotated, Any
 
 from pydantic import Field
@@ -27,37 +41,35 @@ from pydantic import Field
 from ingest.identifiers import is_valid_paper_id
 from server.tools import envelope, get_resources
 
-#: Repo-relative path to per-paper preambles. Mirrors
-#: :data:`ingest.preamble.PREAMBLE_DIR`.
-PREAMBLE_DIR_NAME = "preamble"
+logger = logging.getLogger(__name__)
 
-#: ``\newcommand{\X}{...}`` and friends. Matches \newcommand,
-#: \renewcommand, \DeclareMathOperator. Captures the symbol name
-#: (with leading backslash) and the expansion.
-#:
-#: F2 fix from the E06_S03 critique: dropped ``re.DOTALL`` and
-#: switched to non-greedy ``(.*?)`` so a multi-newcommand source
-#: line doesn't slurp across the next ``}``. Brace-balanced
-#: expansions with internal ``}`` (e.g. ``\mathbb{R}``) are still
-#: handled by the brace-walker fallback in :func:`_extract_pairs`.
-_NEWCMD_RE = re.compile(
-    r"\\(?:newcommand|renewcommand|DeclareMathOperator\*?)\s*"
-    r"(?:\[\d+\])?\s*"
-    r"\{(\\[A-Za-z]+|\\[^A-Za-z])\}\s*"
-    r"(?:\[\d+\])?\s*"
-    r"\{"
-)
+
+#: Number of definitions returned per page in the un-filtered mode.
+#: Per the milestone brief: "paginated at 100 entries per page".
+PAGE_SIZE = 100
 
 
 async def handle_get_definitions(
     paper_id: Annotated[str, Field(min_length=1, description="arXiv paper id")],
     term: Annotated[
-        str | None, Field(description="Optional symbol to look up exactly")
+        str | None,
+        Field(description="Optional symbol or symbol_raw to look up"),
+    ] = None,
+    cursor: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Opaque pagination cursor returned by a prior call as "
+                "next_cursor. Ignored when term is set (term lookups are "
+                "single-page)."
+            )
+        ),
     ] = None,
 ) -> dict[str, Any]:
-    # F3 fix from the E06_S03 critique: validate paper_id against
-    # the canonical regex BEFORE building a filesystem path. Threat
-    # 1 (path traversal) closure on the egress-side handler.
+    # Threat 1 closure: paper_id is interpolated into a LanceDB filter
+    # predicate and otherwise echoed to logs; validating against the
+    # canonical regex before any further work is the F3 discipline
+    # from the E06_S03 critique.
     if not is_valid_paper_id(paper_id):
         raise ValueError(
             f"paper_id {paper_id!r} does not match the arXiv id "
@@ -65,113 +77,158 @@ async def handle_get_definitions(
             f"subject/NNNNNNN[vN])"
         )
 
-    preamble_path = _preamble_path_for(paper_id)
-    if not preamble_path.is_file():
+    table = _get_definitions_table()
+    if table is None:
+        # Index not built. Surface explicitly so callers can tell the
+        # difference between "definitions=[] because nothing matched"
+        # and "definitions=[] because there is no index". Both keep
+        # the response shape stable.
         return envelope(
             {
-                "extraction_status": "no_preamble",
-                "macros": [],
+                "definitions": [],
+                "index_status": "absent",
+                "next_cursor": None,
                 "paper_id": paper_id,
+                "term": term,
+                "total": 0,
             }
         )
 
-    try:
-        data = json.loads(preamble_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return envelope(
-            {
-                "extraction_status": "parse_error",
-                "macros": [],
-                "paper_id": paper_id,
-            }
-        )
-
-    raw_macros = data.get("macros", []) if isinstance(data, dict) else []
-    parsed: list[dict[str, str]] = []
-    for line in raw_macros:
-        if not isinstance(line, str):
-            continue
-        parsed.extend(_extract_pairs(line))
+    # Pull every row for this paper. The corpus has at most a few
+    # hundred macros per paper (typical: under 50; pathological: a few
+    # thousand for highly notational hep-th papers), so loading all
+    # paper-scoped rows then paginating in Python is correct, simple
+    # and bounded.
+    rows = _load_paper_rows(table, paper_id)
 
     if term is not None:
-        parsed = [m for m in parsed if m["symbol"] == term]
+        matched = _term_lookup(rows, term)
+        return envelope(
+            {
+                "definitions": matched,
+                "index_status": "ok",
+                "next_cursor": None,
+                "paper_id": paper_id,
+                "term": term,
+                "total": len(matched),
+            }
+        )
 
-    parsed.sort(key=lambda m: m["symbol"])
+    # Full-table mode: sort by symbol then paginate.
+    rows.sort(key=lambda r: (r["symbol"], r["definition_id"]))
+    total = len(rows)
+
+    offset = _decode_cursor(cursor)
+    page = rows[offset : offset + PAGE_SIZE]
+    next_off = offset + PAGE_SIZE
+    next_cursor = _encode_cursor(next_off) if next_off < total else None
 
     return envelope(
         {
-            "extraction_status": "ok",
-            "macros": parsed,
+            "definitions": page,
+            "index_status": "ok",
+            "next_cursor": next_cursor,
             "paper_id": paper_id,
             "term": term,
+            "total": total,
         }
     )
 
 
-def _extract_pairs(line: str) -> list[dict[str, str]]:
-    """Extract every ``\\newcommand``/``\\renewcommand``/
-    ``\\DeclareMathOperator`` from ``line``, returning
-    ``[{symbol, expansion}, ...]``.
+# ---------------------------------------------------------------------------
+# LanceDB helpers
+# ---------------------------------------------------------------------------
 
-    Uses :data:`_NEWCMD_RE` to find the START of each macro
-    declaration, then walks brace-balanced text from the opening
-    ``{`` to capture the expansion. Closes F2: a regex with
-    greedy matching across newlines slurped the next macro's
-    body; the brace walker handles arbitrary nested braces
-    correctly.
+
+def _get_definitions_table() -> Any | None:
+    """Return the live ``definitions`` LanceDB handle, or ``None``.
+
+    The handle is set by ``Resources.startup`` if the table exists at
+    startup time. ``None`` means the indexer has never run for this
+    corpus — the handler degrades to an empty-result response.
     """
-    out: list[dict[str, str]] = []
-    pos = 0
-    while True:
-        m = _NEWCMD_RE.search(line, pos)
-        if m is None:
-            break
-        symbol = m.group(1)
-        body_start = m.end()
-        expansion, body_end = _balance_braces(line, body_start)
-        if expansion is None:
-            # Unbalanced — skip this match, advance past the prefix
-            # so the loop doesn't infinite-loop.
-            pos = m.end()
-            continue
-        out.append({"expansion": expansion, "symbol": symbol})
-        pos = body_end
-    return out
-
-
-def _balance_braces(text: str, start: int) -> tuple[str | None, int]:
-    """Return the substring inside the brace-balanced block that
-    begins right after the opening ``{`` at ``start``, plus the
-    index AFTER the matching ``}``. Returns ``(None, start)`` on
-    unbalanced input.
-    """
-    depth = 1
-    i = start
-    while i < len(text):
-        c = text[i]
-        if c == "\\" and i + 1 < len(text):
-            # Escaped character — skip the next char too.
-            i += 2
-            continue
-        if c == "{":
-            depth += 1
-        elif c == "}":
-            depth -= 1
-            if depth == 0:
-                return text[start:i], i + 1
-        i += 1
-    return None, start
-
-
-def _preamble_path_for(paper_id: str) -> Path:
-    """Mirror :func:`ingest.preamble._preamble_out_path` resolution
-    without importing it (avoids pulling LaTeXML deps into the
-    server process). Caller MUST validate ``paper_id`` first via
-    :func:`is_valid_paper_id` (Threat 1 — F3 closure)."""
     r = get_resources()
-    # Preamble dir lives under ``var/arxmcp/corpus/preamble/`` — a
-    # sibling of the LanceDB index, so we walk up from the LanceDB
-    # path to the corpus root.
-    lancedb_path = Path(r.config.lancedb_path)
-    corpus_root = lancedb_path.parent.parent / "corpus"
-    return corpus_root / PREAMBLE_DIR_NAME / paper_id / "preamble.json"
+    return getattr(r, "definitions_table", None)
+
+
+def _load_paper_rows(table: Any, paper_id: str) -> list[dict[str, str]]:
+    """Pull every definition row for ``paper_id`` as a list of dicts.
+
+    Predicate uses a static-string filter; ``paper_id`` has already
+    passed the canonical-id regex (Threat 1 closure above) so it
+    cannot inject quotes or SQL-like syntax. LanceDB's filter parser
+    rejects single-quote characters inside string literals anyway.
+    """
+    safe_filter = f"paper_id = '{paper_id}'"
+    arrow = table.search().where(safe_filter).to_arrow()
+    return arrow.to_pylist()
+
+
+def _term_lookup(
+    rows: list[dict[str, str]], term: str
+) -> list[dict[str, str]]:
+    """Apply the three-step term hierarchy.
+
+    Returns matches sorted by ``symbol`` for determinism. Empty list
+    if nothing matched at any step.
+    """
+    # Step 1: exact match on canonical symbol.
+    exact = [r for r in rows if r["symbol"] == term]
+    if exact:
+        exact.sort(key=lambda r: (r["symbol"], r["definition_id"]))
+        return exact
+
+    # Step 2: exact match on author-form symbol_raw.
+    exact_raw = [r for r in rows if r["symbol_raw"] == term]
+    if exact_raw:
+        exact_raw.sort(key=lambda r: (r["symbol"], r["definition_id"]))
+        return exact_raw
+
+    # Step 3: case-insensitive prefix on symbol_raw ONLY. LaTeX
+    # command names are case-sensitive, so case-folding ``symbol``
+    # would conflate distinct commands (``\AA`` vs ``\Aa``). Apply
+    # the fold only to ``symbol_raw`` — the matching is loose because
+    # the canonical-form hierarchy has already failed.
+    needle = term.casefold()
+    prefix = [
+        r for r in rows
+        if r["symbol_raw"].casefold().startswith(needle)
+    ]
+    prefix.sort(key=lambda r: (r["symbol"], r["definition_id"]))
+    return prefix
+
+
+# ---------------------------------------------------------------------------
+# Cursor encoding (opaque base64 over an integer offset)
+# ---------------------------------------------------------------------------
+
+
+def _encode_cursor(offset: int) -> str:
+    """Encode an integer offset as an opaque cursor token.
+
+    Base64-of-decimal is overkill for ints alone, but it keeps the
+    wire shape compatible with future cursor formats (e.g. a
+    last-symbol token) without a versioning break. The handler does
+    not promise stability of the token format across server versions
+    — callers MUST treat the cursor as opaque.
+    """
+    return base64.urlsafe_b64encode(
+        str(offset).encode("ascii")
+    ).decode("ascii")
+
+
+def _decode_cursor(cursor: str | None) -> int:
+    """Decode an opaque cursor token to an integer offset.
+
+    Returns 0 for ``None``, the empty string, or any malformed token.
+    Tolerant decoding is intentional: a stale cursor from a re-ingest
+    that shrunk the table should not 4xx the client; returning offset
+    0 yields a correct (if redundant) first page.
+    """
+    if not cursor:
+        return 0
+    try:
+        decoded = base64.urlsafe_b64decode(cursor.encode("ascii"))
+        return max(0, int(decoded.decode("ascii")))
+    except (ValueError, UnicodeDecodeError):
+        return 0
