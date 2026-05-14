@@ -511,10 +511,25 @@ class Resources:
             tdb_path = Path(config.theorem_names_db_path)
             if tdb_path.exists():
                 theorem_names_db = await TheoremNamesStore.open(tdb_path)
+                # F5 (E10_S02 critique) — log the row count so an
+                # empty store (caused by a recent schema bump or a
+                # never-completed first ingest) is distinguishable
+                # from a populated one. An empty store + cold corpus
+                # would otherwise be silently indistinguishable from
+                # "no named theorems anywhere in the corpus."
+                row_count = await theorem_names_db.row_count()
                 logger.info(
-                    "Resources.startup: opened theorem_names SQLite store at %s",
-                    tdb_path,
+                    "Resources.startup: opened theorem_names SQLite store "
+                    "at %s (rows=%d)",
+                    tdb_path, row_count,
                 )
+                if row_count == 0:
+                    logger.warning(
+                        "Resources.startup: theorem_names store is EMPTY. "
+                        "Re-run `python -m ingest.index_theorem_names` "
+                        "to populate it; until then find_lemma_by_name "
+                        "returns zero matches.",
+                    )
             else:
                 logger.info(
                     "Resources.startup: theorem_names DB not present at %s; "

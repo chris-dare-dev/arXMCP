@@ -43,7 +43,9 @@ from ingest.identifiers import is_valid_paper_id
 from server.theorem_names_store import (
     TheoremNamesStore,
     TheoremRow,
+    dedup_key,
     normalize_name,
+    serialize_section_path,
 )
 from server.tools import envelope, get_resources
 
@@ -76,13 +78,19 @@ async def handle_find_lemma_by_name(
         return await _in_memory_scan_fallback(r, name, paper_id, k)
 
     normalized = normalize_name(name)
-    # Edge case: a name that collapses to "" under normalization
-    # (e.g. all-punctuation) has nothing meaningful to look up.
+    # F4 (E10_S02 critique) close — a name that collapses to "" under
+    # normalization (e.g. all-punctuation, all-whitespace) has nothing
+    # meaningful to look up. Use a distinct ``retrieval_mode`` tag so
+    # downstream agents can tell "input was effectively garbage" apart
+    # from "exact match found nothing." This is a NEW response-shape
+    # value (not pinned in tools/list since input/output schemas live
+    # there, but the actual ``retrieval_mode`` taxonomy does not) so
+    # no hash repin is required.
     if not normalized:
         return envelope(
             {
                 "matches": [],
-                "retrieval_mode": "fts5_exact",
+                "retrieval_mode": "empty_after_normalization",
             }
         )
 
@@ -163,14 +171,22 @@ async def _in_memory_scan_fallback(
             continue
         if paper_id is not None and pid != paper_id:
             continue
+        # F3 (E10_S02 critique) close — synthesize a dedup_key in
+        # the fallback path using the same recipe as the indexer
+        # so downstream callers see a stable, non-NULL identifier
+        # regardless of which path produced the row. The
+        # ``in_memory_scan_fallback`` mode tag is the channel that
+        # tells callers this row didn't go through the SQLite index.
+        sp_list = list(sp) if sp else []
+        sp_json = serialize_section_path(sp_list)
         matches.append(
             {
                 "chunk_id": cid,
                 "confidence": 1.0,
-                "dedup_key": None,  # not available in the fallback path
+                "dedup_key": dedup_key(pid, tn, sp_json),
                 "display_name": tn,
                 "paper_id": pid,
-                "section_path": list(sp) if sp else [],
+                "section_path": sp_list,
                 "theorem_name": tn,
             }
         )

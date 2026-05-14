@@ -177,6 +177,20 @@ class TestFts5PhraseQuote:
         # are treated as literals, not as query syntax.
         assert fts5_phrase_quote("OR NOT *") == '"OR NOT *"'
 
+    def test_strips_nul_byte(self):
+        """F1 regression (E10_S02 critique) — NUL bytes in the
+        input terminate SQLite's C-string parser inside FTS5 phrase
+        literals. ``fts5_phrase_quote`` must strip the NUL before
+        wrapping so the resulting MATCH expression is parseable.
+        """
+        assert fts5_phrase_quote("yon\x00eda") == '"yoneda"'
+
+    def test_strips_control_chars(self):
+        """F1 regression — the full \\x00-\\x1f control-char range
+        is stripped for defense-in-depth.
+        """
+        assert fts5_phrase_quote("a\x01b\x1fc") == '"abc"'
+
 
 # ===========================================================================
 # TheoremNamesStore — direct unit tests against a real SQLite file
@@ -436,6 +450,12 @@ class TestTheoremNamesStore:
             # store, it returns an empty match without raising.
             result = _run(store.fts5_match('OR NOT * "', None, 10))
             assert result == []
+            # F1 regression — NUL byte in the user query previously
+            # raised sqlite3.OperationalError("unterminated string").
+            # Phrase-quote now strips controls; this returns an
+            # empty match cleanly.
+            nul_result = _run(store.fts5_match("yon\x00eda", None, 10))
+            assert isinstance(nul_result, list)
         finally:
             _run(store.close())
 
@@ -626,7 +646,13 @@ class TestHandler:
             server_tools._RESOURCES = None
         assert result["retrieval_mode"] == "in_memory_scan_fallback"
         assert len(result["matches"]) == 1
-        assert result["matches"][0]["display_name"] == "Yoneda Lemma"
+        match = result["matches"][0]
+        assert match["display_name"] == "Yoneda Lemma"
+        # F3 regression (E10_S02 critique) — fallback rows now
+        # carry a synthesized dedup_key matching the indexer's
+        # recipe, not None.
+        assert match["dedup_key"] is not None
+        assert len(match["dedup_key"]) == 16
 
     def test_ac2_yoneda_across_papers(self, tmp_path):
         """AC2 — `find_lemma_by_name("Yoneda lemma")` returns
@@ -784,21 +810,33 @@ class TestHandler:
         finally:
             server_tools._RESOURCES = None
 
-    def test_all_punctuation_name_returns_empty(self, tmp_path):
-        """A name that collapses to "" under normalization (e.g.
-        all punctuation) returns empty without raising."""
+    def test_all_punctuation_name_returns_empty_with_distinct_mode(
+        self, tmp_path
+    ):
+        """F4 regression (E10_S02 critique) — a name that collapses
+        to "" under normalization (e.g. all-punctuation or
+        all-whitespace) must use the dedicated
+        ``empty_after_normalization`` mode tag so downstream agents
+        can distinguish "garbage input" from "exact match found
+        nothing." The previous implementation reported
+        ``fts5_exact`` for this case, conflating the two outcomes.
+        """
         ct = _chunks_table_from_records(tmp_path, [])
         db_path = tmp_path / "theorem_names.db"
         store = _run(TheoremNamesStore.open(db_path))
         try:
             _install_resources(ct, theorem_names_db=store, tmp_path=tmp_path)
             try:
-                result = _run(
+                punctuation_result = _run(
                     lemma_handler_mod.handle_find_lemma_by_name(name="...!?")
+                )
+                whitespace_result = _run(
+                    lemma_handler_mod.handle_find_lemma_by_name(name=" ")
                 )
             finally:
                 server_tools._RESOURCES = None
-            assert result["matches"] == []
-            assert result["retrieval_mode"] == "fts5_exact"
+            for result in (punctuation_result, whitespace_result):
+                assert result["matches"] == []
+                assert result["retrieval_mode"] == "empty_after_normalization"
         finally:
             _run(store.close())

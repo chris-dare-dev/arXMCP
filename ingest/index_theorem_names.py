@@ -48,12 +48,19 @@ logger = logging.getLogger(__name__)
 DEFAULT_CONFIDENCE: float = 1.0
 
 
-def build_rows_from_chunks_for_paper(
+def build_rows_from_arrow(
     chunks_arrow: Any, paper_id: str
 ) -> list[TheoremRow]:
-    """Build the rows for one paper from the chunks Arrow table.
+    """Build the rows for one paper from a paper-filtered Arrow table.
 
-    Filters by ``paper_id`` and ``theorem_name IS NOT NULL``. The
+    Caller is responsible for pre-filtering ``chunks_arrow`` to
+    rows where ``paper_id`` matches (typically via LanceDB's
+    ``search().where("paper_id = ?", ...).to_arrow()`` predicate
+    push-down — see :func:`index_theorem_names_for_paper`). We
+    defensively re-filter here so a stale or unfiltered table does
+    not silently produce wrong-paper rows.
+
+    Filters ``theorem_name IS NOT NULL`` and ``not isspace()``. The
     chunks table is the single source of truth for theorem names;
     we do NOT re-parse LaTeX here.
     """
@@ -91,6 +98,11 @@ def build_rows_from_chunks_for_paper(
     return rows
 
 
+# Back-compat alias — same shape, kept for any external caller that
+# imported the old name. New code should call ``build_rows_from_arrow``.
+build_rows_from_chunks_for_paper = build_rows_from_arrow
+
+
 async def index_theorem_names_for_paper(
     paper_id: str,
     chunks_table: Any,
@@ -102,9 +114,34 @@ async def index_theorem_names_for_paper(
     ``paper_id``, then insert the freshly-built batch. Returns the
     number of rows written. A paper with zero theorem-name-bearing
     chunks produces zero writes (no error).
+
+    **F2 (E10_S02 critique) close.** The previous implementation
+    called ``chunks_table.to_arrow()`` (a full-table materialization)
+    on EVERY invocation, then iterated all rows to filter by
+    ``paper_id``. At Tier-4 (~50K chunks, ~200 papers) that's an
+    N+1 read pattern. We now push the ``paper_id = '...'`` filter
+    into the LanceDB scan via ``.search().where(..., prefilter=True)``
+    so only the paper's chunks are materialized. The fallback to
+    a full ``to_arrow()`` survives in tests that build a synthetic
+    Arrow table without a LanceDB connection.
     """
-    chunks_arrow = chunks_table.to_arrow()
-    rows = build_rows_from_chunks_for_paper(chunks_arrow, paper_id)
+    safe_filter = f"paper_id = '{paper_id}'"
+    try:
+        chunks_arrow = (
+            chunks_table.search()
+            .where(safe_filter, prefilter=True)
+            .to_arrow()
+        )
+    except (AttributeError, TypeError):
+        # Test fixtures (and any future caller) may pass a plain
+        # Arrow table without the ``.search()`` method. Fall back
+        # to materializing the whole table; ``build_rows_from_arrow``
+        # re-applies the paper_id filter defensively.
+        if hasattr(chunks_table, "to_arrow"):
+            chunks_arrow = chunks_table.to_arrow()
+        else:
+            chunks_arrow = chunks_table
+    rows = build_rows_from_arrow(chunks_arrow, paper_id)
 
     await store.delete_paper(paper_id)
     if not rows:
@@ -124,9 +161,13 @@ async def index_theorem_names_all_papers(
 ) -> dict[str, int]:
     """Walk every distinct paper_id in the chunks table and index it.
 
-    Returns a ``{paper_id: rows_written}`` map for ops logging. The
-    iteration order is the SQLite stable iteration order over the
-    distinct paper_ids retrieved from the chunks Arrow table.
+    Returns a ``{paper_id: rows_written}`` map for ops logging.
+
+    **F2 (E10_S02 critique) close.** Materialize the chunks table
+    EXACTLY ONCE, group rows by paper_id in Python, and dispatch
+    each group to ``build_rows_from_arrow`` + the SQLite store.
+    The previous implementation called ``to_arrow()`` once per
+    paper_id (N+1 reads); this version is O(1) full-table reads.
     """
     arrow = chunks_table.to_arrow()
     paper_ids = sorted(set(arrow.column("paper_id").to_pylist()))
@@ -134,9 +175,11 @@ async def index_theorem_names_all_papers(
     for pid in paper_ids:
         if not isinstance(pid, str):
             continue
-        out[pid] = await index_theorem_names_for_paper(
-            pid, chunks_table, store
-        )
+        rows = build_rows_from_arrow(arrow, pid)
+        await store.delete_paper(pid)
+        if rows:
+            await store.upsert_rows(rows)
+        out[pid] = len(rows)
     return out
 
 

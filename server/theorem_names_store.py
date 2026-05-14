@@ -151,6 +151,17 @@ def trigram_jaccard(query: str, indexed: str) -> float:
     return inter / union if union else 0.0
 
 
+#: Control characters that terminate or corrupt the SQLite C-string
+#: parser even inside a phrase-quoted FTS5 literal. NUL (``\x00``) is
+#: the load-bearing one — it triggers
+#: ``sqlite3.OperationalError("unterminated string")`` before any
+#: pattern match runs. The full ``\x00-\x1f`` range is stripped for
+#: defense in depth (none of those chars appear in legitimate
+#: theorem names; an attacker payload that carries one is the
+#: signal we want to block).
+_FTS5_CONTROL_CHARS = re.compile(r"[\x00-\x1f]+")
+
+
 def fts5_phrase_quote(text: str) -> str:
     """Wrap user input as an FTS5 phrase literal.
 
@@ -159,8 +170,17 @@ def fts5_phrase_quote(text: str) -> str:
     trigger a parse error or unintended semantics. Phrase-quoting
     tells FTS5 to treat the entire input as a literal substring.
     Embedded double-quotes are doubled per FTS5's escape rule.
+
+    **F1 (E10_S02 critique) close.** Control characters in the
+    ``\\x00-\\x1f`` range are stripped BEFORE phrase-quoting because
+    SQLite's underlying C-string parser treats NUL as
+    end-of-string and raises
+    ``OperationalError("unterminated string")``. Stripping at the
+    quote boundary is the FTS5-safe guard that other callers can
+    rely on without having to remember to normalize first.
     """
-    return '"' + text.replace('"', '""') + '"'
+    cleaned = _FTS5_CONTROL_CHARS.sub("", text)
+    return '"' + cleaned.replace('"', '""') + '"'
 
 
 # ---------------------------------------------------------------------------
@@ -216,8 +236,19 @@ class TheoremNamesStore:
 
             current = conn.execute("PRAGMA user_version").fetchone()[0]
             if current < SCHEMA_VERSION:
-                logger.info(
-                    "TheoremNamesStore: schema %d → %d; dropping at %s",
+                # F5 (E10_S02 critique) — schema bump silently drops
+                # the entire table. Log at WARNING so the operator
+                # sees this in normal log routing AND explicitly
+                # names the action required (re-run the indexer).
+                # Without the WARN, a schema bump shows up only as
+                # "0 matches for every query" with no signal of the
+                # underlying cause.
+                logger.warning(
+                    "TheoremNamesStore: schema %d → %d at %s; "
+                    "DROPPING the theorem_names table. Re-run "
+                    "`python -m ingest.index_theorem_names` to "
+                    "rebuild — until then find_lemma_by_name "
+                    "returns empty results.",
                     current, SCHEMA_VERSION, db_path,
                 )
                 conn.execute("DROP TABLE IF EXISTS theorem_names_fts")
