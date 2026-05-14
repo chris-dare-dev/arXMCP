@@ -117,7 +117,17 @@ def index_equation_trees(lancedb_path: str | Path) -> dict[str, int]:
     # LanceDB's merge_insert on the primary key updates the matched
     # rows in place and leaves untouched rows alone. ``equation_id``
     # is the natural primary key per the design constitution.
-    update_table = pa.Table.from_pylist(new_rows, schema=EQUATIONS_SCHEMA_V1)
+    #
+    # F6 (E10_S03 critique) — build the update Arrow table from the
+    # LIVE table schema rather than the hardcoded
+    # ``EQUATIONS_SCHEMA_V1`` constant. This way a future
+    # ``EQUATIONS_SCHEMA_V2`` that adds a column does not silently
+    # drop the new column when the indexer re-runs against a
+    # v1-on-disk table (or raise a schema-mismatch error on
+    # ``merge_insert``). The hardcoded constant stays the source of
+    # truth at ``open_or_create_equations_table`` (table creation
+    # time) but read paths follow the table itself.
+    update_table = pa.Table.from_pylist(new_rows, schema=table.schema)
     (
         table.merge_insert("equation_id")
         .when_matched_update_all()

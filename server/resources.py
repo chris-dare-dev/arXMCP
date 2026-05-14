@@ -424,20 +424,33 @@ class Resources:
         # and only opened here if it already exists. Missing-table is
         # not an error — the get_definitions handler reports
         # ``index_status="absent"`` until the indexer runs.
+        #
+        # F7 (E10_S03 critique) — share ONE ``lancedb.connect`` across
+        # both optional tables. The previous code opened two distinct
+        # Database handles to the same directory; LanceDB's idiom is
+        # one shared connection per process, multiple open_table calls
+        # on top of it. Negligible perf today; matters if a third
+        # optional table joins the pattern.
         definitions_table: Any | None = None
+        equations_table: Any | None = None
         try:
             import lancedb
 
-            from ingest.schema import DEFINITIONS_TABLE_NAME
+            from ingest.schema import (
+                DEFINITIONS_TABLE_NAME,
+                EQUATIONS_TABLE_NAME,
+            )
 
             db_conn = await loop.run_in_executor(
                 None,
                 lambda: lancedb.connect(str(Path(config.lancedb_path).resolve())),
             )
-            # F5 — try open_table directly rather than relying on a
-            # version-fragile table-listing API. LanceDB raises
-            # ``ValueError`` (and on some versions ``FileNotFoundError``)
-            # when the table is absent; either is the cue to skip.
+
+            # 6b-i. Definitions table. Try open_table directly rather
+            # than relying on a version-fragile table-listing API.
+            # LanceDB raises ``ValueError`` (and on some versions
+            # ``FileNotFoundError``) when the table is absent; either
+            # is the cue to skip.
             try:
                 definitions_table = await loop.run_in_executor(
                     None,
@@ -453,29 +466,11 @@ class Resources:
                     "get_definitions will return index_status=absent",
                     DEFINITIONS_TABLE_NAME,
                 )
-        except Exception as exc:  # noqa: BLE001 — definitions is non-critical
-            # Definitions are an enrichment, not a hard requirement.
-            # Log but do not block server startup.
-            logger.warning(
-                "Resources.startup: could not open definitions table: %s",
-                exc,
-            )
 
-        # 6c. Equations table (E10_S03). Same lazy-open pattern as
-        # the definitions table — missing table is normal at v1
-        # because the equation atom extractor is deferred to a
-        # future milestone. The find_equation handler degrades
-        # gracefully when this is None.
-        equations_table: Any | None = None
-        try:
-            import lancedb
-
-            from ingest.schema import EQUATIONS_TABLE_NAME
-
-            db_conn = await loop.run_in_executor(
-                None,
-                lambda: lancedb.connect(str(Path(config.lancedb_path).resolve())),
-            )
+            # 6b-ii. Equations table (E10_S03). Same pattern —
+            # missing table is normal at v1 because the equation
+            # atom extractor is deferred. The find_equation handler
+            # degrades gracefully when this is None.
             try:
                 equations_table = await loop.run_in_executor(
                     None,
@@ -492,11 +487,11 @@ class Resources:
                     "MathML inputs",
                     EQUATIONS_TABLE_NAME,
                 )
-        except Exception as exc:  # noqa: BLE001 — equations is non-critical
-            # Equations are an enrichment, not a hard requirement.
+        except Exception as exc:  # noqa: BLE001 — both tables are non-critical
+            # Optional tables are enrichments, not hard requirements.
             # Log but do not block server startup.
             logger.warning(
-                "Resources.startup: could not open equations table: %s",
+                "Resources.startup: could not open optional tables: %s",
                 exc,
             )
 

@@ -270,6 +270,41 @@ class TestParseMathML:
         t2 = parse_mathml_to_tree(without_attrs)
         assert normalized_ted(t1, t2) == 0.0
 
+    def test_uppercase_tags_normalize_to_lowercase(self):
+        """F2 regression (E10_S03 critique) — ``looks_like_mathml``
+        matches case-insensitively, so an uppercase MathML
+        serialization must produce the same tree as the lowercase
+        form (otherwise the TED score is non-zero for
+        structurally-identical equations differing only in case).
+        """
+        upper = "<MATH><MI>x</MI></MATH>"
+        lower = "<math><mi>x</mi></math>"
+        assert normalized_ted(
+            parse_mathml_to_tree(upper),
+            parse_mathml_to_tree(lower),
+        ) == 0.0
+
+    def test_mixed_content_operators_distinguished(self):
+        """F1 regression (E10_S03 critique) — tail-text inside mixed-
+        content MathML must NOT be dropped. ``<mrow><mi>x</mi> + <mi>y</mi></mrow>``
+        and ``<mrow><mi>x</mi> - <mi>y</mi></mrow>`` differ by a
+        single operator that lives as tail-text on the first child;
+        the previous implementation silently conflated them.
+        """
+        plus = parse_mathml_to_tree(
+            "<math><mrow><mi>x</mi> + <mi>y</mi></mrow></math>"
+        )
+        minus = parse_mathml_to_tree(
+            "<math><mrow><mi>x</mi> - <mi>y</mi></mrow></math>"
+        )
+        adj = parse_mathml_to_tree(
+            "<math><mrow><mi>x</mi><mi>y</mi></mrow></math>"
+        )
+        # All three are structurally distinguishable now.
+        assert normalized_ted(plus, minus) > 0.0
+        assert normalized_ted(plus, adj) > 0.0
+        assert normalized_ted(minus, adj) > 0.0
+
     def test_text_content_distinguishes_mi_elements(self):
         x = parse_mathml_to_tree("<math><mi>x</mi></math>")
         y = parse_mathml_to_tree("<math><mi>y</mi></math>")
@@ -536,6 +571,112 @@ class TestHandlerDispatch:
             i for i, r in enumerate(result["results"]) if r["equation_id"] == "arxiv:2401.00001:eq2"
         )
         assert eq1_pos < eq2_pos
+
+    def test_latex_input_returns_integral_chunk_in_top3(
+        self, tmp_path, monkeypatch
+    ):
+        """F3 regression (E10_S03 critique) — AC1 of the brief is
+        literally about a LaTeX input ``\\int_0^1 f(x) dx``. The
+        handler routes LaTeX to ``dense_only_stmt_fallback``; this
+        test pins the actual AC1 behavior end-to-end (even though
+        the path does not exercise TED).
+
+        Seeds the chunks table so the integral chunk sits along
+        axis 0 (matching the mocked encode_query unit vector) and
+        the summation chunk sits along axis 1. The ANN pass should
+        rank the integral above the summation.
+        """
+        chunks = _build_chunks_table(
+            tmp_path,
+            chunks=[
+                {
+                    "chunk_id": "arxiv:2401.00001:0000000000000001",
+                    "paper_id": "2401.00001",
+                    "kind": "section",
+                    "section_path": [],
+                    "body_text": "An integral over [0, 1]",
+                    "body_tokens": "integral",
+                    "axis": 0,
+                },
+                {
+                    "chunk_id": "arxiv:2401.00001:0000000000000002",
+                    "paper_id": "2401.00001",
+                    "kind": "section",
+                    "section_path": [],
+                    "body_text": "A summation",
+                    "body_tokens": "sum",
+                    "axis": 1,
+                },
+            ],
+        )
+        _install_resources(chunks, equations_table=None, tmp_path=tmp_path)
+        _mock_encode_query(monkeypatch)
+        try:
+            result = _run(
+                eq_handler_mod.handle_find_equation(
+                    latex_or_mathml=r"\int_0^1 f(x) dx", k=3
+                )
+            )
+        finally:
+            server_tools._RESOURCES = None
+        assert result["retrieval_mode"] == "dense_only_stmt_fallback"
+        top_chunk_ids = [r["chunk_id"] for r in result["results"][:3]]
+        # Integral chunk (axis 0) must appear in the top-3 because
+        # the mocked encode_query vector is also axis 0.
+        assert "arxiv:2401.00001:0000000000000001" in top_chunk_ids
+
+    def test_all_null_trees_falls_through_to_dense_only_fallback(
+        self, tmp_path, monkeypatch
+    ):
+        """F4 regression (E10_S03 critique) — when the equations
+        table is populated but every candidate's mathml_tree_json is
+        NULL, the TED-fusion path produces degenerate results
+        (ted_norm=1.0 on every row) and the retrieval_mode tag of
+        ``ted_fused`` would mislead callers. The handler must fall
+        back to ``dense_only_fallback`` in this case.
+        """
+        chunks = _build_chunks_table(
+            tmp_path,
+            chunks=[
+                {
+                    "chunk_id": "arxiv:2401.00001:0000000000000001",
+                    "paper_id": "2401.00001",
+                    "kind": "section",
+                    "section_path": [],
+                    "body_text": "An integral",
+                    "body_tokens": "integral",
+                    "axis": 0,
+                }
+            ],
+        )
+        # Equation row with mathml but NO mathml_tree_json (NULL).
+        equations = _build_equations_table(
+            tmp_path,
+            equations=[
+                {
+                    "equation_id": "arxiv:2401.00001:eq1",
+                    "paper_id": "2401.00001",
+                    "presentation_latex": r"\int_0^1 f(x) dx",
+                    "mathml": _read_fixture("int_01_fxdx.mathml"),
+                    "parent_chunk_id": "arxiv:2401.00001:0000000000000001",
+                    # mathml_tree_json deliberately omitted → NULL.
+                }
+            ],
+        )
+        _install_resources(chunks, equations_table=equations, tmp_path=tmp_path)
+        _mock_encode_query(monkeypatch)
+        query_mathml = _read_fixture("int_01_fxdx.mathml")
+        try:
+            result = _run(
+                eq_handler_mod.handle_find_equation(
+                    latex_or_mathml=query_mathml, k=3
+                )
+            )
+        finally:
+            server_tools._RESOURCES = None
+        # AC4 — every row's tree was NULL, so the TED path cannot
+        # contribute; fall back to dense_only_fallback.
+        assert result["retrieval_mode"] == "dense_only_fallback"
 
     def test_malformed_mathml_degrades_gracefully(
         self, tmp_path, monkeypatch

@@ -81,32 +81,46 @@ def looks_like_mathml(text: str) -> bool:
 
 
 def _local_tag(tag: str) -> str:
-    """Strip an XML namespace prefix from a tag name.
+    """Strip an XML namespace prefix and lowercase a tag name.
 
     ``defusedxml.ElementTree`` returns tags in Clark notation
     (``{namespace}local``); some inputs use the prefix form
     (``m:mfrac``). We collapse both to the bare local name so two
     equations serialized with different namespaces parse to identical
     trees.
+
+    **F2 (E10_S03 critique) — lowercase the result.** ``looks_like_mathml``
+    matches the ``<math>`` root case-insensitively, so an uppercase
+    serialization (``<MATH><MI>x</MI></MATH>``) is accepted as MathML and
+    must produce the same tree as the lowercase form. Without the
+    case-fold, ``parse_mathml_to_tree`` would emit nodes labelled
+    ``"MATH"`` / ``"MI"`` and a structurally-identical equation in
+    lowercase would score non-zero TED — a wrong-on-common-path
+    rank break.
     """
     if tag.startswith("{"):
-        return tag.split("}", 1)[1]
+        return tag.split("}", 1)[1].lower()
     if ":" in tag:
-        return tag.split(":", 1)[1]
-    return tag
+        return tag.split(":", 1)[1].lower()
+    return tag.lower()
 
 
 def parse_mathml_to_tree(mathml: str) -> zss.Node:
     """Parse a MathML string into a ``zss.Node`` tree.
 
     The label of each node is the LOCAL element tag name with
-    namespace stripped. ALL attributes are dropped (presentation
-    noise — ``mathvariant``, ``mathcolor``, ``displaystyle`` — would
-    perturb TED for purely cosmetic reasons). Text content is
-    captured as a single child node labelled with the text content;
-    this lets the TED algorithm distinguish ``<mi>x</mi>`` from
-    ``<mi>y</mi>`` without conflating ``<mi>x</mi>`` and ``<mn>x</mn>``
-    (different elements get different parents).
+    namespace stripped and case-folded to lowercase. ALL attributes
+    are dropped (presentation noise — ``mathvariant``, ``mathcolor``,
+    ``displaystyle`` — would perturb TED for purely cosmetic reasons).
+
+    Text content is captured as leaf children. The element's
+    ``text`` (text BEFORE the first child) becomes one leaf;
+    ``tail`` (text AFTER the close-tag of each child) becomes a
+    second leaf following that child — this preserves mixed-content
+    operators like ``<mrow><mi>x</mi> + <mi>y</mi></mrow>`` where the
+    operator " + " lives as tail-text on ``<mi>x</mi>``. **F1
+    (E10_S03 critique) close** — the previous implementation dropped
+    tail-text, which silently conflated ``x+y``, ``x-y``, and ``xy``.
 
     Raises ``ValueError`` on malformed MathML so the caller can fall
     back to dense-only retrieval rather than 500-ing the request.
@@ -125,21 +139,33 @@ def parse_mathml_to_tree(mathml: str) -> zss.Node:
 def _element_to_node(el: Any) -> zss.Node:
     """Recursively convert an ``ElementTree`` element to a zss.Node.
 
-    Inner-text is captured as a leaf child so ``<mi>x</mi>`` and
-    ``<mi>y</mi>`` produce structurally distinct trees. Tail-text
-    (text following the close-tag of a child) is intentionally
-    dropped — it carries no useful semantic content in MathML and
-    would inflate TED.
+    Inner-text (``el.text``) is captured as a leaf child BEFORE
+    recursing into children, matching MathML's "mixed content"
+    ordering where significant text precedes any nested element.
+
+    Tail-text (``child.tail`` — text AFTER a child's close tag) is
+    captured as a leaf child immediately AFTER the recursive node
+    for that child. This is the F1 fix: in mixed-content MathML
+    such as ``<mrow><mi>x</mi> + <mi>y</mi></mrow>``, the operator
+    " + " lives as tail-text on ``<mi>x</mi>`` and would otherwise
+    be lost. Future canonical-form MathML produced by LaTeXML wraps
+    operators in ``<mo>`` and emits no tail-text, so the new branch
+    is a no-op on that input class — only mixed-content sources
+    benefit.
     """
     node = zss.Node(_local_tag(el.tag))
-    # Capture inner text as a leaf BEFORE recursing into children,
-    # matching MathML's "mixed content" ordering where significant
-    # text precedes any nested element.
+    # Inner text before the first child.
     text = (el.text or "").strip()
     if text:
         node.addkid(zss.Node(text))
     for child in el:
         node.addkid(_element_to_node(child))
+        # F1 close — preserve tail-text as a sibling leaf after the
+        # child it follows. Empty/whitespace-only tail-text is
+        # dropped (canonical MathML emits no significant tail-text).
+        tail = (child.tail or "").strip()
+        if tail:
+            node.addkid(zss.Node(tail))
     return node
 
 
@@ -353,6 +379,15 @@ class EquationIndex:
         if not candidates:
             return []
 
+        # F4 (E10_S03 critique) — track whether ANY candidate had a
+        # parseable tree. If none did, return ``[]`` so the handler's
+        # ``if not hits: dense_only_fallback`` branch fires, rather
+        # than returning ``ted_fused``-tagged results where every
+        # row's ted_norm degenerated to 1.0 (purely cosine ranking
+        # with the cosine signal halved). The synthesis D10 taxonomy
+        # is closed-at-3 modes, so returning empty is the right
+        # signal-channel.
+        any_tree_seen = False
         hits: list[EquationHit] = []
         for cand in candidates:
             if cand.mathml_tree_json is None:
@@ -364,9 +399,16 @@ class EquationIndex:
                 try:
                     cand_tree = tree_from_json(cand.mathml_tree_json)
                     ted_norm = normalized_ted(query_tree, cand_tree)
-                except (ValueError, json.JSONDecodeError) as exc:
-                    # A corrupted tree_json column should not 500 the
-                    # request; degrade this row to cosine-only and log.
+                    any_tree_seen = True
+                except (
+                    ValueError,
+                    json.JSONDecodeError,
+                    RecursionError,
+                ) as exc:
+                    # F5 (E10_S03 critique) — also catch RecursionError.
+                    # A corrupted tree_json column or a pathologically
+                    # deep stored tree should not 500 the request;
+                    # degrade this row to cosine-only and log.
                     logger.warning(
                         "tree_from_json failed for equation_id=%s: %s",
                         cand.equation_id, exc,
@@ -383,6 +425,12 @@ class EquationIndex:
                     final_score=final,
                 )
             )
+
+        # F4 close — if no candidate had a parseable tree, the
+        # "ted_fused" mode tag would be misleading. Return empty so
+        # the handler falls back to dense_only_fallback.
+        if not any_tree_seen:
+            return []
 
         hits.sort(key=lambda h: (-h.final_score, h.equation_id))
         return hits[:k]
