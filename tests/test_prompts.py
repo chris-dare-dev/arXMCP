@@ -602,16 +602,16 @@ class TestBP1ByteIdentityAcrossFanout:
         ``SYSTEM_PROMPT`` body landing in E08_S04).
         """
         # UPDATE-ANCHOR — bump when SYSTEM_PROMPT or ALL_TOOLS drift:
-        # E10_S03b bumped the FIND_EQUATION description and
-        # TOOL_SCHEMA_VERSION 4→5 to surface the new
-        # ``ted_fused_eq`` retrieval_mode that fires when the
-        # equations table's embedding_eq column is populated
-        # (closes H5). The new hash below matches the paired
-        # EXPECTED_TOOL_SCHEMA_SHA256 update in
-        # tests/test_server_tool_schema.py (run together via
-        # `pytest --update-tool-schema-hash`).
+        # E10_S03b RECTIFICATION (F1) — bumped FIND_EQUATION
+        # description again to enumerate ``malformed_mathml_fallback``
+        # as a retrieval_mode value. The previous description omitted
+        # this mode even though the handler emits it on parse
+        # failure; a callers branching on retrieval_mode would have
+        # mishandled the case. TOOL_SCHEMA_VERSION 5→6; new hash
+        # below matches the paired EXPECTED_TOOL_SCHEMA_SHA256
+        # update via `pytest --update-tool-schema-hash`.
         EXPECTED_BP1_SHA256 = (
-            "90e7a59b2d1c153d135ffd341936939f593c0d156a04c4fc99c363f0ee19e3bc"
+            "df32d1634b4c28087c9dba883fe3cc14c8ac6a4b0f7e469776b17d9ce98b0c06"
         )
         req = _build_fanout_request(
             RouteTag.SYNTHESIS, "any problem; BP1 is independent of problem",

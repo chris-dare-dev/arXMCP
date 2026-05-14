@@ -678,6 +678,63 @@ class TestHandlerDispatch:
         # contribute; fall back to dense_only_fallback.
         assert result["retrieval_mode"] == "dense_only_fallback"
 
+    def test_find_equation_description_lists_every_retrieval_mode(self):
+        """F1 regression (E10_S03b critique) — the FIND_EQUATION tool
+        description (BP1-cached, exposed to LLM callers) must
+        enumerate EVERY ``retrieval_mode`` value the handler can
+        emit. The previous description omitted
+        ``malformed_mathml_fallback`` even though the handler emits
+        it on parse failure — a downstream agent branching on the
+        mode tag could mistake the well-formed envelope for an
+        error. This test scrapes the handler source for every
+        ``mode="..."`` literal and asserts each appears in the
+        description.
+        """
+        import re
+
+        from server.handlers import equation as handler_mod
+        from server.tools import FIND_EQUATION
+
+        src = Path(handler_mod.__file__).read_text(encoding="utf-8")
+        emitted_modes = set(
+            re.findall(r'(?:mode|retrieval_mode)\s*=\s*"([a-z_]+)"', src)
+        )
+        # Also pick up the index's ``last_retrieval_mode`` defaults.
+        from server.retrieval import equations as eq_mod
+
+        eq_src = Path(eq_mod.__file__).read_text(encoding="utf-8")
+        emitted_modes.update(
+            re.findall(
+                r'last_retrieval_mode\s*=\s*"([a-z_]+)"', eq_src
+            )
+        )
+        # Filter to actual retrieval_mode values — exclude noise like
+        # ``mode="literal"`` from unrelated code.
+        candidate_modes = {
+            m for m in emitted_modes
+            if m
+            in {
+                "ted_fused",
+                "ted_fused_eq",
+                "dense_only_fallback",
+                "dense_only_stmt_fallback",
+                "malformed_mathml_fallback",
+            }
+        }
+        assert candidate_modes, (
+            "scrape yielded no retrieval_mode candidates — regex is "
+            "out of date with the handler / index code shape"
+        )
+        for mode in candidate_modes:
+            assert mode in FIND_EQUATION.description, (
+                f"retrieval_mode={mode!r} is emitted by the handler "
+                f"or index but missing from FIND_EQUATION.description. "
+                f"Add it to the description and re-pin the tool "
+                f"schema hash (TOOL_SCHEMA_VERSION bump + "
+                f"--update-tool-schema-hash + EXPECTED_BP1_SHA256 "
+                f"refresh in tests/test_prompts.py)."
+            )
+
     def test_ted_fused_eq_mode_when_embedding_eq_populated(
         self, tmp_path, monkeypatch
     ):

@@ -61,7 +61,7 @@ logger = logging.getLogger(__name__)
 #: Bumped manually on any tool schema change. The E06_S06 byte-
 #: stability test fails if a schema bytes change without a bump here.
 #: Surfaced via per-tool ``_meta: {"tool_schema_version": ...}``.
-TOOL_SCHEMA_VERSION: int = 5
+TOOL_SCHEMA_VERSION: int = 6
 
 #: URI scheme for chunk resource_links per the design note. Used by
 #: handlers that switch to resource_link mode when payloads exceed
@@ -143,8 +143,11 @@ FIND_EQUATION = ToolMeta(
         "embeddings (retrieval_mode='dense_only_stmt_fallback') because "
         "there is no query-time LaTeXML pool. When the equations table "
         "is missing entirely, MathML inputs degrade to "
-        "retrieval_mode='dense_only_fallback'. The retrieval_mode field "
-        "always documents the active path."
+        "retrieval_mode='dense_only_fallback'. If MathML parsing "
+        "fails outright (malformed input), the handler degrades to "
+        "retrieval_mode='malformed_mathml_fallback' rather than "
+        "5xx-ing the request. The retrieval_mode field always "
+        "documents the active path."
     ),
 )
 

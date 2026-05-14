@@ -228,7 +228,29 @@ def _extract_align_group_atoms(
         if not alt_parts:
             continue
         presentation_latex = " ".join(alt_parts)
-        mathml = _serialize_mathml(tbody)
+        # F2 (E10_S03b critique) close — wrap the tbody contents in a
+        # synthetic ``<math display="block">`` so the downstream TED
+        # tree root is ``math``, matching single-equation atoms. The
+        # previous serialization used ``str(tbody)`` which made the
+        # TED root ``tbody`` and align-group atoms TED-incomparable
+        # with single-equation atoms (empirically scored 0.79 vs 0.0
+        # for trivial-equivalent content).
+        #
+        # We strip the inner per-cell ``<math>`` wrappers when
+        # stitching so a single-cell align row becomes
+        # ``<math><mrow>...</mrow></math>``, structurally identical
+        # to its ``\\begin{equation}`` counterpart with the same
+        # content. The cell wrappers are layout artifacts of the
+        # align environment, not semantically meaningful tree
+        # levels — preserving them would re-introduce the level
+        # mismatch that F2 is closing.
+        inner_parts = [
+            m.decode_contents() for m in maths
+        ]
+        mathml = (
+            '<math xmlns="http://www.w3.org/1998/Math/MathML" '
+            f'display="block">{"".join(inner_parts)}</math>'
+        )
         label = tbody_id.rsplit(".", 1)[-1]
         context = _enclosing_paragraph_text(group_table)
         eq_id = _equation_id(paper_id, mathml, label)
@@ -302,6 +324,31 @@ def _parsed_html_path(paper_id: str) -> Path:
     return PARSED_DIR / paper_id / "index.html"
 
 
+def _table_has_any_rows_for_paper(tbl: Any, paper_id: str) -> bool:
+    """Return True iff ``tbl`` contains at least one row with
+    ``paper_id == <paper_id>``.
+
+    Precondition check for the delete-then-insert idempotency pattern
+    (F5 from the E10_S03b critique). Counting via a filtered Arrow
+    batch is bounded by the per-paper row count (low hundreds for
+    pathological hep-th papers); the cost is negligible relative to
+    the HTML parse upstream.
+    """
+    try:
+        batches = (
+            tbl.search()
+            .where(f"paper_id = '{paper_id}'")
+            .limit(1)
+            .to_arrow()
+        )
+        return batches.num_rows > 0
+    except Exception:
+        # Defensive: if the filtered read itself fails, surface the
+        # failure on the subsequent delete by returning True so the
+        # delete actually runs and raises.
+        return True
+
+
 def extract_equations_for_paper(
     paper_id: str,
     lancedb_path: str | Path,
@@ -340,15 +387,19 @@ def extract_equations_for_paper(
     # the bulk insert. The same pattern E10_S01 / E10_S02 use to
     # keep per-paper writes idempotent in the face of HTML
     # re-renders that change the equation count.
+    #
+    # F5 (E10_S03b critique) close — narrow the prior broad
+    # ``except Exception`` by guarding with a row-count precondition.
+    # ``tbl.delete`` on a no-match predicate raises on some LanceDB
+    # versions (empty table or no matching rows); we now check
+    # whether ANY row for this paper exists BEFORE invoking the
+    # delete. Any genuine LanceDB error (schema mismatch, permission
+    # denied, disk full) now propagates rather than being swallowed
+    # under "first-write may raise". Same row-count-precondition
+    # pattern the E10_S01 rect uses.
     safe_filter = f"paper_id = '{paper_id}'"
-    try:
+    if _table_has_any_rows_for_paper(table, paper_id):
         table.delete(safe_filter)
-    except Exception as exc:  # noqa: BLE001 — first-write may raise
-        logger.debug(
-            "extract_equations: delete predicate raised on %s "
-            "(likely first write to an empty table): %s",
-            paper_id, exc,
-        )
 
     if not atoms:
         logger.info(

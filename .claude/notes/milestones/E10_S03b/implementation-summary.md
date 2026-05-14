@@ -5,7 +5,7 @@ extracts equation atoms from LaTeXML HTML, populates the
 `embedding_eq` column via BGE-M3, and switches `EquationIndex`'s
 dense pass to query `equations.embedding_eq` directly when it's
 populated (with graceful fallback to the chunks-proxy path for
-pre-E10_S03b corpora). **H5 is fully closed algorithmically** —
+pre-E10_S03b corpora). **H5 is closed algorithmically (behavioral closure requires the E11 corpus rebuild)** —
 the algorithm/API + data layers are both in place. Tests use
 synthetic LaTeXML HTML fixtures because the seed corpus's actual
 HTML is broken (2/50 papers, both with LaTeXML conversion failures).

@@ -81,10 +81,13 @@ class TestExtractEquationAtomsFromHtml:
         # presentation_latex (space-joined).
         e2 = next(a for a in atoms if a["label"] == "E2")
         assert e2["presentation_latex"] == "x+y =3"
-        # mathml column carries the full <tbody> so the tree
-        # captures the LHS/RHS column relationship.
-        assert e2["mathml"].lstrip().startswith("<tbody")
-        assert "<math" in e2["mathml"]
+        # mathml column carries a synthetic <math> root wrapping the
+        # stitched cell contents — F2 (E10_S03b critique) close. The
+        # inner <math> wrappers are stripped so the TED tree shape
+        # matches single-equation atoms with the same content.
+        assert e2["mathml"].lstrip().startswith("<math")
+        # The stitched mrow content from both cells is present.
+        assert "<mrow>" in e2["mathml"]
 
     def test_skips_inline_math(self):
         """Inline math outside any ltx_eqn_table is NOT an atom (v1
@@ -210,6 +213,102 @@ class TestExtractEquationsForPaper:
             "2401.00004", lancedb_path, html_path=html_path
         )
         assert n == 0
+
+    def test_align_group_mathml_has_math_root(self, tmp_path):
+        """F2 regression (E10_S03b critique) — align-group atoms
+        must serialize ``mathml`` with a ``<math>`` root, not a
+        ``<tbody>`` root. The previous implementation used
+        ``str(tbody)`` which made the TED tree root incomparable
+        with single-equation atoms; this test pins the new
+        wrapped-in-math serialization.
+        """
+        html = _read("align_group.html")
+        atoms = extract_equation_atoms_from_html(html, "2401.00002")
+        assert atoms
+        for atom in atoms:
+            # The serialized mathml must START with <math
+            # (synthetic root from F2 rect) rather than <tbody.
+            assert atom["mathml"].lstrip().startswith("<math"), (
+                f"align-group atom mathml has non-<math root: "
+                f"{atom['mathml'][:80]}"
+            )
+            # And it must still carry the inner <math> cells.
+            assert atom["mathml"].count("<math") >= 1
+
+    def test_align_group_ted_comparable_to_single_equation(self, tmp_path):
+        """F2 regression — a single-equation atom and an
+        align-group atom carrying the same inner content should
+        compute a low normalized TED. The previous implementation
+        scored ~0.79 due to the root-label mismatch
+        (``tbody`` vs ``math``); after the fix both atoms parse to
+        trees rooted at ``math`` and the structural similarity is
+        recoverable.
+        """
+        from server.retrieval.equations import (
+            normalized_ted,
+            parse_mathml_to_tree,
+        )
+
+        single_html = """
+<table class="ltx_equation ltx_eqn_table" id="S0.E1">
+<tbody><tr><td><math alttext="x" display="block" id="S0.E1.m1">
+<mrow><mi>x</mi></mrow>
+</math></td></tr></tbody></table>"""
+        group_html = """
+<table class="ltx_equationgroup ltx_eqn_table" id="S0.EG1">
+<tbody id="S0.E2"><tr><td><math alttext="x" display="inline" id="S0.E2.m1">
+<mrow><mi>x</mi></mrow>
+</math></td></tr></tbody></table>"""
+        single = extract_equation_atoms_from_html(single_html, "p1")[0]
+        group = extract_equation_atoms_from_html(group_html, "p2")[0]
+        tree_single = parse_mathml_to_tree(single["mathml"])
+        tree_group = parse_mathml_to_tree(group["mathml"])
+        # Both roots are now ``math``; the inner structure is
+        # identical (one mrow with one mi child), so TED is 0.
+        assert normalized_ted(tree_single, tree_group) == 0.0
+
+    def test_delete_failure_surfaces_not_swallowed(self, tmp_path):
+        """F5 regression (E10_S03b critique) — a genuine LanceDB
+        delete error (permission denied, schema mismatch, etc.)
+        must NOT be swallowed under the cover of "first-write
+        edge case." The empty-table edge case is now handled by
+        the row-count precondition; a delete failure on a populated
+        table is unambiguous.
+        """
+        from unittest.mock import patch as _patch
+
+        lancedb_path = _empty_lancedb_path(tmp_path / "lancedb")
+        html_path = FIXTURES / "single_equation.html"
+        # First run seeds a row so the second run's precondition
+        # check fires.
+        extract_equations_for_paper(
+            "2401.00001", lancedb_path, html_path=html_path
+        )
+
+        # Wrap the table so delete raises PermissionError on the
+        # second run.
+        real_table = open_or_create_equations_table(lancedb_path)
+
+        class _BadDelete:
+            def __init__(self, wrapped):
+                self._wrapped = wrapped
+
+            def __getattr__(self, name):
+                if name == "delete":
+                    def _raise(*_a, **_kw):
+                        raise PermissionError("simulated denied")
+                    return _raise
+                return getattr(self._wrapped, name)
+
+        with _patch(
+            "ingest.extract_equations.open_or_create_equations_table",
+            return_value=_BadDelete(real_table),
+        ), pytest.raises(PermissionError, match="simulated"):
+            extract_equations_for_paper(
+                "2401.00001",
+                lancedb_path,
+                html_path=html_path,
+            )
 
     def test_rejects_malformed_paper_id(self, tmp_path):
         lancedb_path = _empty_lancedb_path(tmp_path / "lancedb")

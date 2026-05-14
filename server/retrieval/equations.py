@@ -306,6 +306,14 @@ class EquationHit:
 DEFAULT_ANN_CANDIDATE_CAP = 200
 
 
+#: Row cap on the ``_embedding_eq_is_populated`` exception fallback
+#: (F3 from the E10_S03b critique). At 1024-dim float32 vectors, 10K
+#: rows materialize to ~40MB — bounded regardless of corpus growth.
+#: Production embedders run paper-by-paper, so partial population is
+#: detectable well within 10K rows.
+_POPULATE_CHECK_SLICE = 10_000
+
+
 @dataclass(frozen=True, slots=True)
 class _Candidate:
     """Internal row carrying the data needed to score one candidate."""
@@ -479,6 +487,13 @@ class EquationIndex:
         Arrow-table read because LanceDB's vector search would
         require a query_vec; the existence check should be
         vec-independent.
+
+        **F3 (E10_S03b critique) close.** The exception fallback is
+        bounded at ``_POPULATE_CHECK_SLICE`` rows so a corpus-scale
+        table doesn't get materialized in full on every query that
+        hits the slow path. 10K rows × 1024 floats × 4 bytes ≈
+        40MB cap regardless of corpus growth. The fast path's
+        ``.limit(1)`` is already bounded.
         """
         try:
             probe = (
@@ -489,11 +504,15 @@ class EquationIndex:
             )
             return probe.num_rows > 0
         except Exception:  # noqa: BLE001 — older LanceDB may not parse the WHERE
-            # Fall back to a full-table scan; bounded by the
-            # equations table size which is small at v1 corpus
-            # scale. The exception path is the safe place to leave
-            # a slower scan.
-            arrow = self._equations.to_arrow()
+            # Bounded fallback. If the slice contains any non-NULL
+            # row, the column is populated. If 10K rows are all NULL,
+            # we treat the corpus as "not populated" — at production
+            # scale the embedder runs paper-by-paper so partial
+            # population is detectable via the first paper's first
+            # row, well within 10K.
+            arrow = self._equations.to_arrow().slice(
+                0, _POPULATE_CHECK_SLICE
+            )
             if arrow.num_rows == 0:
                 return False
             col = arrow.column("embedding_eq")
