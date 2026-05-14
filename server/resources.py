@@ -248,6 +248,11 @@ class Resources:
     # has no preamble index — ``get_definitions`` degrades gracefully
     # to an empty-result response with ``index_status="absent"``.
     definitions_table: Any | None = None
+    # Per-equation table (E10_S03). ``None`` when the corpus has no
+    # equation index — ``find_equation`` degrades gracefully to the
+    # dense-only path with ``retrieval_mode="dense_only_fallback"`` for
+    # MathML inputs or ``"dense_only_stmt_fallback"`` for LaTeX inputs.
+    equations_table: Any | None = None
     process_start_time_seconds: float = field(default_factory=time.time)
     warm: bool = False
 
@@ -448,11 +453,50 @@ class Resources:
                     "get_definitions will return index_status=absent",
                     DEFINITIONS_TABLE_NAME,
                 )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — definitions is non-critical
             # Definitions are an enrichment, not a hard requirement.
             # Log but do not block server startup.
             logger.warning(
                 "Resources.startup: could not open definitions table: %s",
+                exc,
+            )
+
+        # 6c. Equations table (E10_S03). Same lazy-open pattern as
+        # the definitions table — missing table is normal at v1
+        # because the equation atom extractor is deferred to a
+        # future milestone. The find_equation handler degrades
+        # gracefully when this is None.
+        equations_table: Any | None = None
+        try:
+            import lancedb
+
+            from ingest.schema import EQUATIONS_TABLE_NAME
+
+            db_conn = await loop.run_in_executor(
+                None,
+                lambda: lancedb.connect(str(Path(config.lancedb_path).resolve())),
+            )
+            try:
+                equations_table = await loop.run_in_executor(
+                    None,
+                    lambda: db_conn.open_table(EQUATIONS_TABLE_NAME),
+                )
+                logger.info(
+                    "Resources.startup: opened LanceDB %s table",
+                    EQUATIONS_TABLE_NAME,
+                )
+            except (ValueError, FileNotFoundError):
+                logger.info(
+                    "Resources.startup: %s table not present; "
+                    "find_equation will use dense-only fallback for "
+                    "MathML inputs",
+                    EQUATIONS_TABLE_NAME,
+                )
+        except Exception as exc:  # noqa: BLE001 — equations is non-critical
+            # Equations are an enrichment, not a hard requirement.
+            # Log but do not block server startup.
+            logger.warning(
+                "Resources.startup: could not open equations table: %s",
                 exc,
             )
 
@@ -469,6 +513,7 @@ class Resources:
             rerank_phase=rerank_phase,
             cache=retrieval_cache,
             definitions_table=definitions_table,
+            equations_table=equations_table,
             warm=True,
         )
         logger.info("Resources.startup: warm")

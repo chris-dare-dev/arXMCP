@@ -148,6 +148,17 @@ class Config(BaseSettings):
     #: negligible).
     result_byte_cap: int = DEFAULT_RESULT_BYTE_CAP
 
+    # --- Retrieval tuning ------------------------------------------------
+
+    #: Linear-combination weight α for the equation-similarity fusion
+    #: in ``server.retrieval.equations.EquationIndex`` (E10_S03).
+    #: ``final_score = α * (1 - normalized_ted) + (1 - α) * cosine``.
+    #: α=0 collapses to pure cosine (dense-only); α=1 collapses to
+    #: pure tree-edit distance. Default 0.5 (equal weights). Operators
+    #: tuning recall vs. structural precision can shift via
+    #: ``ARXMCP_EQ_TED_WEIGHT``.
+    eq_ted_weight: float = 0.5
+
     # --- Observability ---------------------------------------------------
 
     log_level: str = "INFO"
@@ -201,6 +212,20 @@ class Config(BaseSettings):
         if v < 1:
             raise ValueError(
                 f"concurrency knob must be >= 1; got {v}"
+            )
+        return v
+
+    @field_validator("eq_ted_weight")
+    @classmethod
+    def validate_eq_ted_weight(cls, v: float) -> float:
+        """Equation fusion α must live in [0, 1]. Values outside the
+        unit interval would produce final scores that no longer track
+        either cosine or TED meaningfully."""
+        if not 0.0 <= v <= 1.0:
+            raise ValueError(
+                f"ARXMCP_EQ_TED_WEIGHT must be in [0.0, 1.0]; got {v}. "
+                f"0.0 = pure cosine (no TED), 1.0 = pure TED (no "
+                f"cosine), 0.5 = equal weights (default)."
             )
         return v
 

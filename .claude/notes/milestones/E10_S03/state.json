@@ -1,0 +1,64 @@
+{
+  "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/roadmap",
+  "created_at": "2026-05-14T16:43:15Z",
+  "critics_run": [],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "low": 0,
+    "medium": 0
+  },
+  "critique_path": null,
+  "deferred_findings": [],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_required": [],
+  "fixed_findings": [],
+  "id": "E10_S03",
+  "implementation_base": "c906d815f00ed5cdd1b1ca3ffb016268b08e15f6",
+  "implementation_branch": null,
+  "implementation_commit_range": null,
+  "implementation_commits": [],
+  "implementation_path": "inline",
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "### E10_S03 \u2014 Equation index: tree-edit distance fused with dense cosine\n\n**Status:** NEW\n**Tier:** 4\n**Effort:** L\n**Dependencies:** E03_S01, E04_S02, E06_S03\n\n**Description.** Implement the equation similarity index that backs `find_equation(latex_or_mathml, k)`. The index fuses two complementary similarity signals: (1) tree-edit distance (TED) over canonical MathML computed using the Zhang-Shasha algorithm via the `zss` Python package; and (2) dense cosine similarity over the `embedding_eq` column (the column Sonnet A reserved in E03_S01, populated with equation embeddings from the `bge-m3` model run over `presentation_latex + context_sentence`).\n\nThe Zhang-Shasha TED algorithm treats the MathML parse tree as an ordered labeled tree and computes the minimum number of node insertions, deletions, and relabelings needed to transform one tree into another. This captures structural equation similarity in a way that dense embeddings miss \u2014 `\\int_0^1 f(x) dx` and `\\int_a^b f(t) dt` are structurally identical but densely different if the embedding model doesn't generalize well over variable names. The `zss` package provides `simple_distance(tree_a, tree_b)` over `Node` objects.\n\nThe query-time pipeline for `find_equation`:\n1. Parse the input `latex_or_mathml` to canonical MathML (via the local LaTeXML subprocess pool, reusing the existing pool from `server/resources.py`).\n2. Embed the input using the equation encoder (same model as index-time).\n3. Retrieve top-200 candidates by dense cosine over `embedding_eq` (fast ANN pass).\n4. Score each candidate by `zss.simple_distance(query_tree, candidate_tree)`.\n5. Fuse the two scores using a weighted linear combination: `final_score = \u03b1 * (1 - normalized_ted) + (1 - \u03b1) * cosine_score`, where `\u03b1 = 0.5` is the default (configurable via `ARXMCP_EQ_TED_WEIGHT`).\n6. Return top-k by `final_score`.\n\nMathML parse trees are pre-computed at index time and stored in the `equations` table alongside `mathml` (the raw MathML string). A separate `mathml_tree_pickle` column stores the pickled `zss.Node` tree for fast deserialization at query time, avoiding a full re-parse of the MathML on every comparison.\n\nThe `find_equation` tool handler also accepts raw MathML as input (detected by the presence of an `<math>` root element) \u2014 this path skips the LaTeXML parsing step.\n\n**Deliverables.**\n- `server/retrieval/equations.py` \u2014 `EquationIndex` class: `query(latex_or_mathml, k) -> list[tuple[str, float]]`; TED computation; fusion\n- `ingest/index_equations.py` \u2014 indexer: reads `equations` table, computes `zss.Node` trees from MathML, writes `mathml_tree_pickle` column\n- `server/handlers/equation.py` \u2014 updated handler: delegates to `EquationIndex`; graceful fallback to dense-only if `mathml_tree_pickle` column is absent\n- `tests/test_equation_index.py` \u2014 structural similarity test: `\\int_0^1 f(x) dx` and `\\int_a^b g(t) dt` have lower TED than `\\sum_{n=0}^\\infty a_n`; fusion ranks structural match above dense-only match in a known test case\n\n**Acceptance criteria.**\n- [ ] `find_equation(\"\\\\int_0^1 f(x) dx\")` returns structurally similar integrals in the top-3\n- [ ] TED score between `\\int_0^1 f(x) dx` and `\\int_a^b g(t) dt` is lower than between either and `\\sum_{n=0}^\\infty a_n`\n- [ ] MathML input (raw `<math>...</math>`) is accepted and parsed correctly\n- [ ] Graceful fallback to dense-only when `mathml_tree_pickle` column is absent\n- [ ] `pytest tests/test_equation_index.py` passes\n\n**Out of scope.** Training a custom equation encoder (use bge-m3 over `presentation_latex + context_sentence` in v1). Equation matching across different notational conventions (v2 problem). Visual rendering of equations in tool results.\n\n**Risk notes.**\n- Closes H5: sole-dense equation similarity fails for structurally distinct but semantically similar equations (different variable names, constant bounds). TED over canonical MathML provides the structural grounding that dense similarity lacks, and the fusion produces better recall than either signal alone.\n\n**Labels.** `area:index`, `kind:feature`, `tier:4`\n\n---",
+  "phase": "implement-running",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-14T16:43:15Z",
+      "left_at": "2026-05-14T16:43:21Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-14T16:43:21Z",
+      "left_at": "2026-05-14T16:51:01Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-14T16:51:01Z",
+      "left_at": "2026-05-14T16:51:19Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-05-14T16:51:19Z",
+      "left_at": null,
+      "phase": "implement-running"
+    }
+  ],
+  "rectification_commit": null,
+  "regression_tests_added": [],
+  "research_briefs": [
+    {
+      "path": ".claude/notes/milestones/E10_S03/research-brief-1.md",
+      "status": "ok"
+    },
+    {
+      "path": ".claude/notes/milestones/E10_S03/research-brief-2.md",
+      "status": "ok"
+    }
+  ],
+  "research_mode": "standard",
+  "research_synthesis": ".claude/notes/milestones/E10_S03/research-synthesis.md",
+  "updated_at": "2026-05-14T16:51:19Z"
+}

@@ -61,7 +61,7 @@ logger = logging.getLogger(__name__)
 #: Bumped manually on any tool schema change. The E06_S06 byte-
 #: stability test fails if a schema bytes change without a bump here.
 #: Surfaced via per-tool ``_meta: {"tool_schema_version": ...}``.
-TOOL_SCHEMA_VERSION: int = 2
+TOOL_SCHEMA_VERSION: int = 3
 
 #: URI scheme for chunk resource_links per the design note. Used by
 #: handlers that switch to resource_link mode when payloads exceed
@@ -129,14 +129,19 @@ GET_CHUNK = ToolMeta(
 FIND_EQUATION = ToolMeta(
     name="find_equation",
     description=(
-        "Search for chunks containing equations similar to the supplied "
-        "LaTeX or MathML. v1 ships dense-only fallback (the equation TED "
-        "index lands in E10_S03); the LaTeX is embedded as a query and "
-        "matched against statement embeddings. WARNING: BGE-M3 is trained "
-        "on natural language, not LaTeX — the v1 fallback may produce "
-        "near-arbitrary rankings for pure-LaTeX queries. Agents needing "
-        "real equation similarity should defer use until E10_S03 lands "
-        "the TED index. The retrieval_mode field documents the active mode."
+        "Search for equations similar to the supplied LaTeX or MathML. "
+        "MathML inputs (detected by a <math> root) route through the "
+        "Zhang-Shasha tree-edit-distance + dense-cosine fusion path "
+        "(retrieval_mode='ted_fused'); the final score is "
+        "alpha * (1 - normalized_ted) + (1 - alpha) * cosine, with "
+        "alpha tunable via ARXMCP_EQ_TED_WEIGHT (default 0.5). LaTeX "
+        "inputs fall back to dense-only ANN over the chunks table's "
+        "statement embeddings (retrieval_mode='dense_only_stmt_fallback') "
+        "because there is no query-time LaTeXML pool at v1. When the "
+        "equation atom corpus is empty (the extractor is deferred to "
+        "a follow-up milestone), MathML inputs degrade to "
+        "retrieval_mode='dense_only_fallback'. The retrieval_mode field "
+        "always documents the active path."
     ),
 )
 

@@ -52,6 +52,12 @@ CHUNKS_TABLE_NAME = "chunks"
 # name string rather than literalize it.
 DEFINITIONS_TABLE_NAME = "definitions"
 
+# Name of the per-equation table (E10_S03). Separate from the chunks
+# table because the equation atom record carries fields (mathml,
+# presentation_latex, mathml_tree_json) that are equation-specific and
+# would bloat every chunk row with NULLs if folded into CHUNKS_SCHEMA_V1.
+EQUATIONS_TABLE_NAME = "equations"
+
 # Names of the two dual-encoding embedding columns. Pinned here so the
 # E05_S02 retrieval-quality test (and any future reader that needs to
 # enumerate searchable vector columns) imports rather than literalizes
@@ -159,6 +165,45 @@ DEFINITIONS_SCHEMA_V1 = pa.schema(
         pa.field("expansion", pa.utf8(), nullable=False),
         pa.field("defining_chunk_id", pa.utf8(), nullable=False),
         pa.field("scope", pa.utf8(), nullable=False),
+    ]
+)
+
+
+# ---------------------------------------------------------------------------
+# Equations table schema (E10_S03)
+# ---------------------------------------------------------------------------
+
+# Per ``.claude/notes/05-storage-and-indexing.md`` § "Table: equations"
+# the equation atom carries the columns below. The brief calls for a
+# ``mathml_tree_pickle`` column for the Zhang-Shasha trees; this
+# implementation deliberately stores trees as JSON (``mathml_tree_json``)
+# instead — pickle is a code-execution vector on read and Python-pickle
+# format drift across minor releases can silently corrupt the column
+# (see research-synthesis.md D2). The JSON form is trivial because
+# ``zss.Node`` is exactly ``{label: str, children: list[Node]}``.
+#
+# ``embedding_eq`` is reserved at v1 — every row written by E10_S03 has
+# it NULL. Populating it requires a dedicated equation encoder pass
+# that is explicitly out of scope for this milestone; the dense signal
+# in the fusion formula uses ``embedding_stmt`` on the chunks table for
+# now. The column is declared here so a future milestone can populate
+# it without a schema migration.
+EQUATIONS_SCHEMA_V1 = pa.schema(
+    [
+        pa.field("equation_id", pa.utf8(), nullable=False),
+        pa.field("paper_id", pa.utf8(), nullable=False),
+        pa.field("label", pa.utf8(), nullable=True),
+        pa.field("presentation_latex", pa.utf8(), nullable=False),
+        pa.field("mathml", pa.utf8(), nullable=False),
+        pa.field("ascii_form", pa.utf8(), nullable=True),
+        pa.field("context_sentence", pa.utf8(), nullable=True),
+        pa.field("parent_chunk_id", pa.utf8(), nullable=True),
+        pa.field("mathml_tree_json", pa.utf8(), nullable=True),
+        pa.field(
+            "embedding_eq",
+            pa.list_(pa.float32(), EMBEDDING_DIM),
+            nullable=True,
+        ),
     ]
 )
 
@@ -319,5 +364,7 @@ __all__ = [
     "CHUNKS_TABLE_NAME",
     "DEFINITIONS_SCHEMA_V1",
     "DEFINITIONS_TABLE_NAME",
+    "EQUATIONS_SCHEMA_V1",
+    "EQUATIONS_TABLE_NAME",
     "EmbedRecord",
 ]
