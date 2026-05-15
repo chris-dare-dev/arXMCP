@@ -233,32 +233,31 @@ class TestCLI:
     def test_cli_exits_zero_on_no_drift(
         self, tmp_fixture_dir, tmp_path, capsys
     ):
-        """AC happy-path: when no drift is detected, the CLI exits
-        0, prints `ok`, and does NOT write the sentinel."""
-        tex = tmp_fixture_dir / "frac.tex"
-        expected_str = expected_path_for(tex).read_text(encoding="utf-8")
+        """F1 regression (E10_S04 critique) — AC1 CLI happy path: when
+        every fixture's actual MathML matches its own baseline, the
+        CLI exits 0, prints ``ok``, and does NOT write the sentinel.
+
+        The prior version of this test asserted ``rc == 1`` because a
+        static mock returning a single baseline string only matched
+        ``frac`` (the other 4 fixtures drifted against frac's content).
+        That assertion was correct for THAT mock, but the test name +
+        docstring promised the happy path. The fix: patch
+        ``check_fixture`` directly to return a non-drifted
+        :class:`DriftResult` for every fixture, exercising the all-pass
+        CLI branch.
+        """
         sentinel = tmp_path / "drift.flag"
 
-        with patch(
-            "ops.drift_check.render_fixture", return_value="<html/>",
-        ), patch(
-            "ops.drift_check.extract_canonical_mathml",
-            return_value=expected_str,
-        ):
-            # Force every fixture's actual to match frac's baseline.
-            # The mock stub returns frac.expected for every fixture
-            # — which causes the OTHER 4 fixtures to drift. To get
-            # all-pass we read each fixture's own baseline.
-            def _per_fixture_actual(html):
-                # The fixture name is encoded in the call context —
-                # easier to read the baseline file off the fixture
-                # name via the tex_path. But since
-                # extract_canonical_mathml is mocked with a static
-                # return, we instead stub the whole comparison to
-                # always match. Drop this complexity: use a separate
-                # block per AC.
-                return ""
+        def _no_drift(tex_path):
+            return DriftResult(
+                name=tex_path.stem,
+                drifted=False,
+                actual="<math/>",
+                expected="<math/>",
+                message=f"{tex_path.stem}: ok",
+            )
 
+        with patch("ops.drift_check.check_fixture", side_effect=_no_drift):
             rc = _cli(
                 [
                     "--fixture-dir",
@@ -267,13 +266,13 @@ class TestCLI:
                     str(sentinel),
                 ]
             )
-        # With the simple static mock, every fixture's actual is
-        # ``expected_str`` (frac's baseline). frac matches; the
-        # other 4 DO drift. So the CLI exits 1, NOT 0. The "every
-        # fixture matches" scenario requires a per-fixture mock —
-        # exercised by the integration test, not here.
-        assert rc == 1
-        assert sentinel.is_file()
+
+        out, _err = capsys.readouterr()
+        assert rc == 0, "CLI must exit 0 when no fixture drifted"
+        assert not sentinel.exists(), (
+            "sentinel file must not be written on the happy path"
+        )
+        assert "ok:" in out, f"expected 'ok:' in stdout, got {out!r}"
 
     def test_cli_exits_one_on_drift(
         self, tmp_fixture_dir, tmp_path, capsys
@@ -297,6 +296,83 @@ class TestCLI:
             )
         assert rc == 1
         assert sentinel.is_file()
+
+    def test_update_fixtures_refuses_empty_actual(
+        self, tmp_fixture_dir
+    ):
+        """F2 regression (E10_S04 critique) — ``update_fixtures``
+        MUST refuse to write empty baselines from a broken LaTeXML
+        run. Without this guard, a silently-failing ``latexmlc`` that
+        exits 0 with no ``<math>`` elements would overwrite every
+        baseline with ``""``, and the next ``--check`` would silent-
+        pass because ``"" == ""``. That's the corruption mode the
+        drift detector exists to prevent.
+        """
+        from ops.drift_check import update_fixtures
+
+        with (
+            patch(
+                "ops.drift_check.render_fixture", return_value="<html/>",
+            ),
+            patch(
+                "ops.drift_check.extract_canonical_mathml", return_value="",
+            ),
+            pytest.raises(
+                RuntimeError, match="refusing to write empty baselines"
+            ),
+        ):
+            update_fixtures(tmp_fixture_dir)
+
+    def test_update_fixtures_allow_empty_override(self, tmp_fixture_dir):
+        """F2 close — the ``allow_empty=True`` escape hatch lets a
+        legitimately math-free fixture rebase. No current fixture
+        uses this, but the API stays consistent."""
+        from ops.drift_check import update_fixtures
+
+        with patch(
+            "ops.drift_check.render_fixture", return_value="<html/>",
+        ), patch(
+            "ops.drift_check.extract_canonical_mathml", return_value="",
+        ):
+            updated = update_fixtures(tmp_fixture_dir, allow_empty=True)
+        assert set(updated) == FIXTURE_NAMES
+        for tex in list_fixtures(tmp_fixture_dir):
+            assert expected_path_for(tex).read_text(encoding="utf-8") == ""
+
+    def test_check_fixture_with_missing_baseline_drifts(
+        self, tmp_path
+    ):
+        """F9 regression (E10_S04 critique) — a fixture added without
+        a matching ``.expected.mathml`` file MUST be flagged as
+        drift. ``_read_expected`` returns ``""`` when the baseline
+        is absent, so the diff against any non-empty actual
+        correctly drifts. This pins that contract so a future
+        refactor (e.g. raising on missing baseline instead) doesn't
+        ship undetected.
+        """
+        # Stage a single .tex with NO matching .expected.mathml.
+        new_tex = tmp_path / "fixtures" / "freshly_added.tex"
+        new_tex.parent.mkdir(parents=True)
+        new_tex.write_text(
+            r"\documentclass{article}\usepackage{amsmath}"
+            r"\begin{document}\begin{equation}x\end{equation}\end{document}"
+            "\n",
+            encoding="utf-8",
+        )
+
+        with patch(
+            "ops.drift_check.render_fixture", return_value="<html/>",
+        ), patch(
+            "ops.drift_check.extract_canonical_mathml",
+            return_value="<math><mi>x</mi></math>",
+        ):
+            result = check_fixture(new_tex)
+        assert result.drifted, (
+            "fixture without baseline must drift against non-empty actual"
+        )
+        assert result.expected == "", (
+            "missing baseline should yield empty expected, not raise"
+        )
 
     def test_cli_update_fixtures_writes_baselines(
         self, tmp_fixture_dir, tmp_path
@@ -377,21 +453,17 @@ class TestRunbookContent:
 # ===========================================================================
 
 
-def _have_latexmlc() -> bool:
-    return shutil.which("latexmlc") is not None
-
-
 @pytest.mark.requires_latexmlc
-@pytest.mark.skipif(
-    not _have_latexmlc(),
-    reason="latexmlc not on PATH; install via brew/apt to enable",
-)
 class TestIntegrationRealLatexmlc:
     """AC1 closure — the real cron path. Renders every checked-in
     fixture via the actual `latexmlc` binary and asserts no drift
     against the checked-in baselines.
 
-    Skipped by default. Opt in via `pytest -m requires_latexmlc`.
+    Skipped by default — opt in via `pytest -m requires_latexmlc`.
+    Inside the marker, ``_require_latexmlc()`` will raise loudly if
+    ``latexmlc`` is absent (F10 close — the previous additional
+    ``skipif`` produced silent skips even on explicit opt-in, masking
+    a "no PASS, no FAIL" outcome on CI dashboards).
     """
 
     def test_all_fixtures_match_baselines(self, fixture_dir):

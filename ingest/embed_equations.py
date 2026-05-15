@@ -54,6 +54,8 @@ def _embedding_input(row: dict[str, Any]) -> str:
 def embed_pending_equations(
     lancedb_path: str | Path,
     batch_size: int = EMBED_BATCH_DEFAULT,
+    *,
+    force: bool = False,
 ) -> dict[str, int]:
     """Populate ``embedding_eq`` for every row where it is NULL.
 
@@ -61,6 +63,14 @@ def embed_pending_equations(
     ``{processed, embedded, skipped, truncated_inputs}`` so the caller
     (ops tooling or tests) can verify what landed. Idempotent — a
     re-run on a fully-embedded table writes nothing.
+
+    **`force=True` re-embeds every row.** Used by the LaTeXML-drift
+    runbook (E10_S04 F7 close) after a LaTeXML upgrade has changed
+    ``presentation_latex`` / ``context_sentence`` values on the
+    equations table; the previously-embedded vectors are stale and
+    must be recomputed. The previous workflow required an inline
+    LanceDB Python snippet to NULL the column first — error-prone
+    under operator stress.
     """
     counts = {
         "processed": 0,
@@ -78,7 +88,7 @@ def embed_pending_equations(
     pending: list[dict[str, Any]] = []
     for row in rows:
         counts["processed"] += 1
-        if row.get("embedding_eq") is not None:
+        if not force and row.get("embedding_eq") is not None:
             counts["skipped"] += 1
             continue
         if not _embedding_input(row):
@@ -159,9 +169,21 @@ def _cli(argv: list[str]) -> int:
         default=EMBED_BATCH_DEFAULT,
         help=f"BGE-M3 batch size (default: {EMBED_BATCH_DEFAULT})",
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help=(
+            "Re-embed every row, even rows whose embedding_eq is "
+            "already populated. Use after a LaTeXML upgrade has "
+            "changed the presentation_latex / context_sentence "
+            "values on the equations table (the previously-embedded "
+            "vectors are stale). See "
+            "docs/ops/latexml-drift-runbook.md."
+        ),
+    )
     args = parser.parse_args(argv)
     counts = embed_pending_equations(
-        args.lancedb_path, batch_size=args.batch_size
+        args.lancedb_path, batch_size=args.batch_size, force=args.force
     )
     print(
         f"processed={counts['processed']} embedded={counts['embedded']} "

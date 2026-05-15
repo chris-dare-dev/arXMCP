@@ -182,6 +182,17 @@ def extract_canonical_mathml(html: str) -> str:
     same LaTeXML version, even though raw HTML is not. The
     timestamp noise lives in HTML comments and a visible
     ``ltx_page_logo`` div — neither inside ``<math>`` elements.
+
+    **F5 (E10_S04 critique) limitation.** Whitespace INSIDE the
+    ``<math>`` body is preserved verbatim. A LaTeXML upgrade that
+    changes indentation between elements (without semantic AST
+    change) WILL trigger drift. BeautifulSoup's ``html.parser``
+    alphabetizes attributes at serialization, so attribute-order
+    changes are absorbed — but inter-element whitespace is not.
+    The operator inspecting a drift diff should sanity-check
+    whether the change is whitespace-only before running the full
+    rebase pipeline. A v2 enhancement could normalize runs of
+    whitespace; v1 ships strict.
     """
     soup = BeautifulSoup(html, "html.parser")
     parts = [str(m) for m in soup.find_all("math")]
@@ -275,6 +286,8 @@ def check_all_fixtures(
 
 def update_fixtures(
     fixture_dir: Path = DEFAULT_FIXTURE_DIR,
+    *,
+    allow_empty: bool = False,
 ) -> list[str]:
     """Regenerate every ``.expected.mathml`` baseline.
 
@@ -283,16 +296,39 @@ def update_fixtures(
     then commit the result. Analogous to
     ``pytest --update-tool-schema-hash``.
 
+    **F2 (E10_S04 critique) close.** Refuses to write an empty
+    baseline by default. A broken ``latexmlc`` (silently exits 0
+    without producing math, a buggy Homebrew formula, a malformed
+    flag) would otherwise rebase every fixture to ``""``, causing
+    subsequent ``--check`` runs to silent-pass against
+    ``"" == ""`` — the exact corruption mode the drift detector
+    exists to prevent. Pass ``allow_empty=True`` to override (no
+    current v1 fixture is math-free; the escape hatch is reserved
+    for a future fixture-class that may legitimately render
+    without ``<math>``).
+
     Returns the list of fixture names that were updated (for the
     CLI summary).
     """
     updated: list[str] = []
+    empty_fixtures: list[str] = []
     for tex_path in list_fixtures(fixture_dir):
         html = render_fixture(tex_path)
         actual = extract_canonical_mathml(html)
+        if not actual and not allow_empty:
+            empty_fixtures.append(tex_path.stem)
+            continue
         out = expected_path_for(tex_path)
         out.write_text(actual, encoding="utf-8")
         updated.append(tex_path.stem)
+    if empty_fixtures:
+        raise RuntimeError(
+            "refusing to write empty baselines for "
+            f"{empty_fixtures}: latexmlc produced no <math> elements. "
+            "Verify the LaTeXML install and inspect the fixture .tex "
+            "files. Pass allow_empty=True if a math-free fixture is "
+            "intended."
+        )
     return updated
 
 

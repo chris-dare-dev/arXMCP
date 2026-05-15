@@ -163,6 +163,17 @@ RETRIEVAL_CAP_REJECTIONS_COUNTER: Counter = Counter(
 #: deferred to E14 (observability/ops). The v1 operational signal is
 #: the cron job's non-zero exit + ERROR log + sentinel file at
 #: ``var/arxmcp/ops/drift-detected.flag``.
+#:
+#: **F8 (E10_S04 critique) — production exposure deferred to E14.**
+#: At v1 the only observer of this counter is the test suite (via the
+#: documented-private ``._value`` accessor, see
+#: ``reset_drift_metrics_for_tests`` below). Future operator-facing
+#: ``/metrics`` exposure will need a scrape-time hook that reads the
+#: sentinel file and reflects its presence/count as the counter's
+#: value across the server-vs-cron process boundary. Removing the
+#: counter would break only the AC3 regression test, NOT any
+#: production observer — so it looks like dead code until E14 ships
+#: the scrape-time bridge. Leave it.
 LATEXML_DRIFT_DETECTED_COUNTER: Counter = Counter(
     "arxmcp_latexml_drift_detected_total",
     "Total number of fixture diffs that detected LaTeXML output "

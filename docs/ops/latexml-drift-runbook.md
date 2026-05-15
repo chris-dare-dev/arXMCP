@@ -6,6 +6,16 @@ non-zero, writes the sentinel file
 `arxmcp_latexml_drift_detected_total` counter is observed to have
 incremented (via `/metrics` once E14 wires production exposure).
 
+> **Container note.** This v1 drift check runs against the **host**
+> `latexmlc` binary (`brew install latexml` / `apt install latexml`).
+> The project's `docker/Dockerfile.server` does NOT install
+> LaTeXML — running this cron inside the runtime container will
+> fail with `latexmlc not found`. Container alignment (installing
+> `latexml` in the Dockerfile so the cron job matches the
+> production rendering substrate exactly) is E11 scope. At v1, the
+> operator runs the drift check on whichever machine actually
+> invoked `latexmlc` to seed the corpus — typically the host.
+
 **Why drift matters:** a LaTeXML version bump (e.g. `0.8.7` →
 `0.8.8`) silently changes the rendered MathML — whitespace,
 attribute ordering, or even structural element insertions
@@ -56,7 +66,14 @@ binary. Re-render every paper:
 #     extractor (E10_S03b). The result is fresh `mathml`,
 #     `presentation_latex`, `context_sentence` columns on the
 #     equations LanceDB table.
-for paper_id in $(ls var/arxmcp/corpus/parsed/); do
+#
+#     F6 (E10_S04 critique) — use `find` not `ls | for`. `find` is
+#     safe against whitespace in directory names, macOS `.DS_Store`
+#     files, and non-directory artifacts. The `-printf` form is GNU
+#     (Linux); the `-exec basename` form works on both GNU and BSD
+#     (macOS). We use the portable form.
+find var/arxmcp/corpus/parsed -mindepth 1 -maxdepth 1 -type d \
+    -exec basename {} \; | sort | while read -r paper_id; do
     python -m ingest.extract_equations "$paper_id"
 done
 
@@ -69,13 +86,10 @@ python -m ingest.index_equations
 #     The embedding_eq column was computed over the OLD
 #     `presentation_latex + context_sentence` strings; if those
 #     changed (typically they don't, but it's possible), re-embed.
-#     The embedder skips rows where embedding_eq is already
-#     populated — to force re-embed, NULL out the column first:
-#     `lancedb.connect(...).open_table("equations").update(
-#         where="paper_id IS NOT NULL",
-#         values={"embedding_eq": None}
-#     )` then run:
-python -m ingest.embed_equations
+#     The `--force` flag (added by E10_S04 F7 rect) re-embeds
+#     EVERY row regardless of current state; without it the
+#     embedder is idempotent (skips already-populated rows).
+python -m ingest.embed_equations --force
 ```
 
 **Timing estimates:**
