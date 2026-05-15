@@ -32,9 +32,20 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 cd "${REPO_ROOT}"
 
-# Prefer the project's pinned uv-managed venv. Operators can
-# override by exporting ARXMCP_UV before invoking this script.
-UV_BIN="${ARXMCP_UV:-/Users/chris.dare/Library/Python/3.9/bin/uv}"
+# Resolve `uv` from the operator's PATH; explicit ARXMCP_UV
+# override wins. Closes IS2 from the E11_S02 critique — the prior
+# fallback was a single-user macOS path that broke on every other
+# machine.
+if [ -n "${ARXMCP_UV:-}" ]; then
+    UV_BIN="${ARXMCP_UV}"
+elif UV_BIN="$(command -v uv 2>/dev/null)"; then
+    :
+else
+    echo "ERROR: uv not found on PATH. Install via your package " \
+         "manager (brew install uv / apt install uv) or set " \
+         "ARXMCP_UV=<absolute path to uv>." >&2
+    exit 1
+fi
 
 LOCK_PATH="${REPO_ROOT}/var/arxmcp/ops/.delta.lock"
 mkdir -p "$(dirname "${LOCK_PATH}")"

@@ -16,9 +16,11 @@ required). The suite covers all six AC items in the brief:
 
 from __future__ import annotations
 
+import io
 import json
 import textwrap
-from datetime import UTC
+import urllib.error
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -30,7 +32,9 @@ from ingest.oai_delta import (
     METADATA_PREFIX,
     OAI_PMH_ENDPOINT,
     POLITENESS_SLEEP_SECONDS,
+    _fetch_page,
     _parse_listrecords,
+    _parse_retry_after,
     _read_state,
     _resolve_resume,
     _write_state,
@@ -205,31 +209,55 @@ class TestStateFile:
 
 class TestResolveResume:
     def test_first_run_returns_yesterday_and_no_token(self):
-        from_date, token = _resolve_resume({})
+        from_date, token, set_spec = _resolve_resume({})
         # Just sanity: from_date must be a YYYY-MM-DD string, token None.
         assert len(from_date) == 10 and from_date[4] == "-"
         assert token is None
+        assert set_spec is None
 
-    def test_same_day_resume_keeps_token(self):
-        from datetime import datetime
-
+    def test_same_day_resume_keeps_token_and_set(self):
         today = datetime.now(UTC).date().isoformat()
-        from_date, token = _resolve_resume(
-            {"last_harvest_date": today, "last_resumption_token": "tok-x"}
+        from_date, token, set_spec = _resolve_resume(
+            {
+                "last_harvest_date": today,
+                "last_resumption_token": "tok-x",
+                "last_set_spec": "math:math:AG",
+            }
         )
         assert from_date == today
         assert token == "tok-x"
+        assert set_spec == "math:math:AG"
 
     def test_cross_day_resume_discards_expired_token(self):
-        from_date, token = _resolve_resume(
+        from_date, token, set_spec = _resolve_resume(
             {
                 "last_harvest_date": "2020-01-01",
                 "last_resumption_token": "expired",
+                "last_set_spec": "math:math:AG",
             }
         )
         # Token expired (date is in the past); harvest from that date.
         assert from_date == "2020-01-01"
         assert token is None
+        assert set_spec is None
+
+    def test_future_date_resets_to_yesterday(self):
+        """Closes F8: a future last_harvest_date (clock skew /
+        operator typo) resets to yesterday rather than passing a
+        future window to OAI-PMH."""
+        future = (datetime.now(UTC).date() + timedelta(days=30)).isoformat()
+        from_date, token, set_spec = _resolve_resume(
+            {
+                "last_harvest_date": future,
+                "last_resumption_token": "bogus",
+                "last_set_spec": "math:math:AG",
+            }
+        )
+        # Reset signal: from_date is NOT the future date.
+        assert from_date != future
+        assert len(from_date) == 10 and from_date[4] == "-"
+        assert token is None
+        assert set_spec is None
 
 
 # ---------------------------------------------------------------------------
@@ -570,6 +598,356 @@ class TestEndpointHygiene:
 # ---------------------------------------------------------------------------
 # CLI parsing
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Rectification regression guards
+# ---------------------------------------------------------------------------
+
+
+class TestRetryAfterParsing:
+    """Closes F1 (parse half): Retry-After header parsing."""
+
+    def test_integer_seconds(self):
+        assert _parse_retry_after("30") == 30.0
+
+    def test_whitespace_stripped(self):
+        assert _parse_retry_after("  45  ") == 45.0
+
+    def test_none_input(self):
+        assert _parse_retry_after(None) is None
+
+    def test_non_numeric_returns_none(self):
+        # HTTP-date form isn't supported; fall back to exponential.
+        assert _parse_retry_after("Wed, 21 Oct 2026 07:28:00 GMT") is None
+
+    def test_negative_clamped_to_zero(self):
+        assert _parse_retry_after("-5") == 0.0
+
+
+class TestFetchPage503Backoff:
+    """Closes F1: 503/Retry-After honored; non-503 errors propagate."""
+
+    def test_503_then_200_succeeds_after_retry(self):
+        calls: list[float] = []
+
+        class _Fake503Then200:
+            def __init__(self):
+                self.n = 0
+
+            def __call__(self, request, timeout):
+                self.n += 1
+                if self.n == 1:
+                    err = urllib.error.HTTPError(
+                        url=request.full_url,
+                        code=503,
+                        msg="Service Unavailable",
+                        hdrs={"Retry-After": "5"},
+                        fp=io.BytesIO(b""),
+                    )
+                    err.headers = {"Retry-After": "5"}
+                    raise err
+                return _FakeUrlOpenResponse(
+                    body=b"<ok/>",
+                    url=f"{OAI_PMH_ENDPOINT}?verb=ListRecords",
+                )
+
+        opener = _Fake503Then200()
+        with patch("ingest.oai_delta.urllib.request.urlopen", opener):
+            body = _fetch_page(
+                OAI_PMH_ENDPOINT,
+                {"verb": "ListRecords"},
+                timeout_seconds=5.0,
+                user_agent="test/0.1",
+                sleep=lambda t: calls.append(t),
+                monotonic=lambda: 0.0,
+                retry_cap_seconds=3600.0,
+            )
+        assert body == b"<ok/>"
+        # Retry-After=5 was honored.
+        assert calls == [5.0]
+
+    def test_non_503_error_propagates_without_retry(self):
+        sleeps: list[float] = []
+
+        def _err(request, timeout):
+            err = urllib.error.HTTPError(
+                url=request.full_url,
+                code=404,
+                msg="Not Found",
+                hdrs=None,
+                fp=io.BytesIO(b""),
+            )
+            raise err
+
+        with (
+            patch("ingest.oai_delta.urllib.request.urlopen", _err),
+            pytest.raises(urllib.error.HTTPError),
+        ):
+            _fetch_page(
+                OAI_PMH_ENDPOINT,
+                {"verb": "ListRecords"},
+                timeout_seconds=5.0,
+                user_agent="test/0.1",
+                sleep=lambda t: sleeps.append(t),
+                monotonic=lambda: 0.0,
+            )
+        # Did not retry.
+        assert sleeps == []
+
+    def test_503_retry_cap_exhaustion_raises(self):
+        """When the retry cap elapses, _fetch_page surfaces a
+        RuntimeError instead of looping forever."""
+
+        def _always_503(request, timeout):
+            err = urllib.error.HTTPError(
+                url=request.full_url,
+                code=503,
+                msg="Service Unavailable",
+                hdrs=None,
+                fp=io.BytesIO(b""),
+            )
+            err.headers = {"Retry-After": "30"}
+            raise err
+
+        # Synthetic clock: deadline of 60s; first retry consumes 30s,
+        # next retry would consume another 30s — at second iteration
+        # the deadline is exhausted.
+        clock = {"now": 0.0}
+
+        def _monotonic():
+            return clock["now"]
+
+        def _sleep(t):
+            clock["now"] += t
+
+        with (
+            patch("ingest.oai_delta.urllib.request.urlopen", _always_503),
+            pytest.raises(RuntimeError, match="retry cap"),
+        ):
+            _fetch_page(
+                OAI_PMH_ENDPOINT,
+                {"verb": "ListRecords"},
+                timeout_seconds=5.0,
+                user_agent="test/0.1",
+                sleep=_sleep,
+                monotonic=_monotonic,
+                retry_cap_seconds=60.0,
+            )
+
+
+class TestFetchPageRedirectPin:
+    """Closes F2: off-host redirects rejected."""
+
+    def test_off_host_response_url_rejected(self):
+        with patch(
+            "ingest.oai_delta.urllib.request.urlopen",
+            return_value=_FakeUrlOpenResponse(
+                body=b"<ok/>", url="https://evil.example/x"
+            ),
+        ), pytest.raises(RuntimeError, match="redirected off"):
+            _fetch_page(
+                OAI_PMH_ENDPOINT,
+                {"verb": "ListRecords"},
+                timeout_seconds=5.0,
+                user_agent="test/0.1",
+            )
+
+    def test_on_host_response_url_accepted(self):
+        with patch(
+            "ingest.oai_delta.urllib.request.urlopen",
+            return_value=_FakeUrlOpenResponse(
+                body=b"<ok/>",
+                url=f"{OAI_PMH_ENDPOINT}?verb=ListRecords",
+            ),
+        ):
+            body = _fetch_page(
+                OAI_PMH_ENDPOINT,
+                {"verb": "ListRecords"},
+                timeout_seconds=5.0,
+                user_agent="test/0.1",
+            )
+        assert body == b"<ok/>"
+
+
+class TestNoRecordsMatch:
+    """Closes F4: quiet-day `noRecordsMatch` is empty-success, not fatal."""
+
+    def test_norecordsmatch_returns_empty_no_token(self):
+        body = textwrap.dedent(
+            """<?xml version="1.0" encoding="UTF-8"?>
+            <OAI-PMH xmlns="http://www.openarchives.org/OAI/2.0/">
+              <error code="noRecordsMatch">no records</error>
+            </OAI-PMH>"""
+        ).encode()
+        records, token = _parse_listrecords(body, set_spec="math:math:AG")
+        assert records == []
+        assert token is None
+
+    def test_one_quiet_set_does_not_crash_run(self, tmp_path):
+        """A run where one set returns noRecordsMatch still
+        harvests the other sets successfully."""
+        good = _final_page(["2401.00001"])
+        quiet = textwrap.dedent(
+            """<?xml version="1.0" encoding="UTF-8"?>
+            <OAI-PMH xmlns="http://www.openarchives.org/OAI/2.0/">
+              <error code="noRecordsMatch">no records</error>
+            </OAI-PMH>"""
+        ).encode()
+        fetcher = _MockFetcher([good, quiet, good, good])
+        with patch(
+            "ingest.oai_delta.ingest_one_paper",
+            side_effect=lambda pid, **kw: _ok_paper_outcome(pid),
+        ):
+            summary = run_delta(
+                from_date="2026-05-14",
+                until_date="2026-05-14",
+                lancedb_staging_path=tmp_path / "lancedb-staging",
+                state_path=tmp_path / "state.json",
+                log_path=tmp_path / "delta.log",
+                failures_path=tmp_path / "delta.jsonl",
+                timeout_flag_path=tmp_path / "timeout.flag",
+                fetch_page=fetcher,
+                sleep_between_pages=lambda _t: None,
+            )
+        # Three of four sets returned 1 paper; the quiet one is 0.
+        assert summary.records_total == 3
+        assert summary.records_ingested == 3
+
+
+class TestSetAwareTokenRecovery:
+    """Closes F3: resume token applied only to its origin set."""
+
+    def test_token_used_only_for_origin_set(self, tmp_path):
+        """A state file with `last_set_spec=math:math:NT` MUST NOT
+        feed the token into the first set (`math:math:AG`)."""
+        state_path = tmp_path / "state.json"
+        today = datetime.now(UTC).date().isoformat()
+        _write_state(
+            state_path,
+            {
+                "last_harvest_date": today,
+                "last_resumption_token": "tok-NT",
+                "last_set_spec": "math:math:NT",
+            },
+        )
+        # 4 sets × 1 page each = 4 mock responses.
+        fetcher = _MockFetcher([_final_page(["2401.00001"])] * 4)
+        with patch(
+            "ingest.oai_delta.ingest_one_paper",
+            side_effect=lambda pid, **kw: _ok_paper_outcome(pid),
+        ):
+            run_delta(
+                # Pin until=today so the same-day resume window is
+                # valid (state.last_harvest_date==today drives
+                # effective_from=today; until defaults to yesterday
+                # which would invert the window).
+                until_date=today,
+                lancedb_staging_path=tmp_path / "lancedb-staging",
+                state_path=state_path,
+                log_path=tmp_path / "delta.log",
+                failures_path=tmp_path / "delta.jsonl",
+                timeout_flag_path=tmp_path / "timeout.flag",
+                fetch_page=fetcher,
+                sleep_between_pages=lambda _t: None,
+            )
+        # The FIRST call MUST be the windowed-form (no resumption
+        # token) because the saved token's set isn't sets[0].
+        first = fetcher.calls[0]
+        assert "resumptionToken" not in first
+        assert first["set"] == "math:math:AG"
+        # The NT-set call (index 1) MUST consume the saved token.
+        second = fetcher.calls[1]
+        assert second == {
+            "verb": "ListRecords", "resumptionToken": "tok-NT",
+        }
+
+
+class TestFromUntilValidation:
+    """Closes F9: inverted window rejected at run_delta entry."""
+
+    def test_from_greater_than_until_rejected(self, tmp_path):
+        with pytest.raises(ValueError, match="from_date"):
+            run_delta(
+                from_date="2026-05-15",
+                until_date="2026-05-14",
+                lancedb_staging_path=tmp_path / "lancedb-staging",
+                state_path=tmp_path / "state.json",
+                log_path=tmp_path / "delta.log",
+                failures_path=tmp_path / "delta.jsonl",
+                timeout_flag_path=tmp_path / "timeout.flag",
+            )
+
+
+class TestStaleTimeoutFlagCleared:
+    """Closes F11: stale timeout flag is cleared even on dry-run."""
+
+    def test_dry_run_clears_old_flag(self, tmp_path):
+        flag = tmp_path / "timeout.flag"
+        flag.write_text("{}")
+        fetcher = _MockFetcher([_final_page(["2401.00001"])])
+        run_delta(
+            sets=("math:math:AG",),
+            from_date="2026-05-14",
+            until_date="2026-05-14",
+            lancedb_staging_path=tmp_path / "lancedb-staging",
+            state_path=tmp_path / "state.json",
+            log_path=tmp_path / "delta.log",
+            failures_path=tmp_path / "delta.jsonl",
+            timeout_flag_path=flag,
+            fetch_page=fetcher,
+            sleep_between_pages=lambda _t: None,
+            dry_run=True,
+        )
+        assert not flag.is_file()
+
+
+class TestMakeDeltaTarget:
+    """Closes F13 + IS5: `make delta` target exists in Makefile."""
+
+    def test_delta_target_in_makefile(self):
+        makefile = Path(__file__).resolve().parent.parent / "Makefile"
+        text = makefile.read_text(encoding="utf-8")
+        assert "\ndelta:\n" in text
+        assert "ingest.oai_delta" in text
+
+
+class TestShellWrapperHasNoPersonalPath:
+    """Closes IS2: hardcoded /Users/ path removed from cron wrapper."""
+
+    def test_no_personal_path_in_wrapper(self):
+        wrapper = (
+            Path(__file__).resolve().parent.parent
+            / "ops" / "cron" / "arxmcp-delta.sh"
+        )
+        text = wrapper.read_text(encoding="utf-8")
+        # The wrapper must not embed a workstation-specific UV path.
+        assert "/Users/" not in text
+        # It MUST use `command -v uv` lookup with ARXMCP_UV override.
+        assert "command -v uv" in text
+        assert "ARXMCP_UV" in text
+
+
+# ---------------------------------------------------------------------------
+# Helpers for the new tests above
+# ---------------------------------------------------------------------------
+
+
+class _FakeUrlOpenResponse:
+    """Stub for urllib.request.urlopen's context manager."""
+
+    def __init__(self, body: bytes, url: str):
+        self._body = body
+        self.url = url
+
+    def read(self) -> bytes:
+        return self._body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
 
 
 class TestCLI:

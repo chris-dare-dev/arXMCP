@@ -6,7 +6,7 @@
 # .claude/notes/08-security-observability-ops.md (OAI-PMH window
 # starts at 00:00 UTC; pipeline writes by 04:00; restic at 04:10).
 Description=arXMCP OAI-PMH delta loop — nightly schedule
-Documentation=file:/etc/arxmcp/docs/ops/delta-loop.md
+Documentation=https://github.com/chris-dare/arXMCP/blob/main/docs/ops/delta-loop.md
 
 [Timer]
 OnCalendar=*-*-* 02:00:00

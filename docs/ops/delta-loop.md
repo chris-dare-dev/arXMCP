@@ -61,7 +61,9 @@ delta loop:
 ## Prerequisites
 
 * **Python ≥3.11** with the project venv (`make bootstrap`).
-* **`uv` on PATH** (or override via `ARXMCP_UV` in the shell wrapper).
+* **`uv` on PATH** (the shell wrapper resolves it via
+  `command -v uv`; override with `ARXMCP_UV=<absolute path>` if
+  needed).
 * **`flock`** binary — standard on Linux + macOS (`util-linux` on
   Linux, `brew install flock` on macOS).
 * **Optional: `latexmlc`** for the LaTeXML fallback on ar5iv misses
@@ -70,6 +72,14 @@ delta loop:
   `var/arxmcp/index/lancedb-staging/` which is created by E11_S01's
   bulk ingest. Running the delta loop against a non-existent
   staging dataset will fail at the first paper.
+
+> **Single-writer constraint** (per [ingest/store.py:44-55](../../ingest/store.py)).
+> The `flock -n` reentrancy guard in `ops/cron/arxmcp-delta.sh`
+> serializes concurrent runs **on the same host only**. Do NOT
+> run the delta loop from two hosts targeting the same staging
+> LanceDB (e.g. NFS-mounted `var/`): LanceDB's single-writer
+> invariant is not NFS-safe and concurrent writes can corrupt the
+> staging dataset.
 
 ---
 

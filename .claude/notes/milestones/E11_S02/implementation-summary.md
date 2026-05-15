@@ -55,11 +55,17 @@ brief).
       is cleared after the final page; in-flight token is
       observable between pages.
 - [x] **AC3** — mock 500-paper run completes within 90-min budget
-      (sleep=0). **Verified** by
+      (sleep=0). **Verified at the budget-arithmetic level** by
       [TestRunDelta::test_500_paper_mock_run_stays_in_budget](tests/test_oai_delta.py)
       — runs a 500-paper synthetic response with `sleep_between_pages
-      = lambda _t: None`; asserts `summary.budget_breached is False`
-      and `elapsed_seconds < DEFAULT_BUDGET_SECONDS`.
+      = lambda _t: None` and `ingest_one_paper` mocked to no-op;
+      asserts `summary.budget_breached is False`. **Caveat
+      (per E11_S02 adversary F5):** this test proves the loop
+      arithmetic, not the realistic ~10s/paper GPU cost. Under
+      real load, 500 papers × 10s ≈ 83 min sits right at the
+      budget boundary; the 4–6× headroom claim in the synthesis
+      assumes typical 71–133-paper days. Real-load verification
+      is deferred to E11_S05.
 - [x] **AC4** — 3-second politeness delay verifiable in logs / via
       mock timer. **Verified** by
       [TestPolitenessContract::test_sleep_invoked_between_pages](tests/test_oai_delta.py)

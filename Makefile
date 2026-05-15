@@ -1,4 +1,4 @@
-.PHONY: help bootstrap test eval up ingest
+.PHONY: help bootstrap test eval up ingest delta
 
 # Override with `make test PYTHON=python3.13` if your default python3 is too old.
 PYTHON ?= python3
@@ -12,6 +12,7 @@ help:
 	@echo "  make eval        Run the Tier-0 retrieval-quality gate (see .claude/TIER-GATES.md)"
 	@echo "  make up          Start the arxmcp-server on 127.0.0.1:7733 (E06_S01)"
 	@echo "  make ingest      Run the bulk ingest orchestrator (E11_S01; see docs/ops/bulk-ingest-runbook.md)"
+	@echo "  make delta       Run the OAI-PMH nightly delta loop (E11_S02; see docs/ops/delta-loop.md)"
 	@echo ""
 	@echo "Override the python interpreter with: make test PYTHON=python3.13"
 	@echo ""
@@ -94,3 +95,19 @@ ingest:
 		f'arXMCP requires Python >= 3.$(MIN_PY_MINOR); got {sys.version_info[:2]}. \
 Try: make ingest PYTHON=python3.$(MIN_PY_MINOR)'"
 	$(PYTHON) -m ingest.bulk_ingest $(ARGS)
+
+delta:
+	@# E11_S02 — OAI-PMH nightly delta loop. The Python module
+	@# harvests yesterday's new/updated papers from arXiv's
+	@# https://oaipmh.arxiv.org/oai and feeds them through the same
+	@# per-paper pipeline as `make ingest` (writes to the staging
+	@# LanceDB). Canonical production invocation is via systemd
+	@# (ops/systemd/arxmcp-delta.{service,timer}) or cron
+	@# (ops/cron/arxmcp-delta.sh). This Makefile target is for
+	@# operator smoke tests + manual one-shot runs.
+	@#
+	@# See docs/ops/delta-loop.md for the operator workflow.
+	@$(PYTHON) -c "import sys; assert sys.version_info >= (3, $(MIN_PY_MINOR)), \
+		f'arXMCP requires Python >= 3.$(MIN_PY_MINOR); got {sys.version_info[:2]}. \
+Try: make delta PYTHON=python3.$(MIN_PY_MINOR)'"
+	$(PYTHON) -m ingest.oai_delta $(ARGS)

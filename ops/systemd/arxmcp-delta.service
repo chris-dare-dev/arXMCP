@@ -6,15 +6,20 @@
 #
 # Pairs with arxmcp-delta.timer for nightly scheduling at 02:00.
 Description=arXMCP OAI-PMH delta loop (nightly arXiv corpus refresh)
-Documentation=file:/etc/arxmcp/docs/ops/delta-loop.md
+Documentation=https://github.com/chris-dare/arXMCP/blob/main/docs/ops/delta-loop.md
 Wants=network-online.target
 After=network-online.target
 
 [Service]
 Type=oneshot
-# Operator MUST set WorkingDirectory to the arXMCP checkout path
-# before enabling this unit, and replace `arxmcp` below with the
-# system user that owns the repo + var/arxmcp tree.
+# Operator MUST substitute these placeholders before enabling:
+#   - Replace `/opt/arxmcp` everywhere below (WorkingDirectory,
+#     ExecStart, ReadWritePaths) with the arXMCP checkout path.
+#   - Replace `arxmcp` in User/Group with the system user that
+#     owns the repo + var/arxmcp tree.
+# Missing one of these substitutions will fail at first
+# `systemctl start` with "Unit entered failed state" rather than
+# at install time.
 WorkingDirectory=/opt/arxmcp
 User=arxmcp
 Group=arxmcp

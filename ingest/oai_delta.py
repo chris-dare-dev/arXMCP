@@ -6,11 +6,16 @@ into the per-paper pipeline (:func:`ingest.bulk_ingest.ingest_one_paper`).
 
 **Why this lives next to `bulk_ingest`:** the two share the
 per-paper pipeline entry point. E11_S01 ships the orchestrator
-(:func:`ingest_one_paper`) with five rectifier fixes baked in
+(:func:`ingest_one_paper`) with rectifier fixes baked in
 (embed-status check, parsed_dir decoupling, math-signal boundary,
-redirect pinning). This delta loop **reuses it unchanged** rather
-than cloning the per-paper logic — every E11_S01 fix flows
-through transparently.
+ar5iv redirect pinning). This delta loop **reuses it unchanged**
+rather than cloning the per-paper logic — every E11_S01 fix
+applies inside the per-paper pipeline.
+
+Note: the OAI-PMH egress channel is the delta loop's OWN urllib
+connection (NOT inherited from ``ingest_one_paper``), so the F9-
+style redirect pinning is implemented locally in
+:func:`_fetch_page`.
 
 **Staging-path discipline (inherited from E11_S01).** The delta
 loop writes to ``var/arxmcp/index/lancedb-staging/`` via the
@@ -132,6 +137,16 @@ DEFAULT_TIMEOUT_FLAG_PATH: Path = (
 #: signal, not a hard timeout.
 DEFAULT_BUDGET_SECONDS: float = 90 * 60.0
 
+#: Closes F1: total wall-clock cap on the 503-retry/backoff loop.
+#: Per design note 08:200, the delta loop pauses with exponential
+#: backoff and gives up after at most 1 hour.
+DEFAULT_RETRY_CAP_SECONDS: float = 3600.0
+
+#: Closes F1: initial backoff when a 503 is received without a
+#: ``Retry-After`` header. Doubles each retry, capped at 600s.
+DEFAULT_BACKOFF_INITIAL_SECONDS: float = 30.0
+DEFAULT_BACKOFF_MAX_SECONDS: float = 600.0
+
 #: OAI-PMH XML namespaces. ``arXivRaw`` records sit under the
 #: ``http://arxiv.org/OAI/arXivRaw/`` namespace.
 _NS = {
@@ -210,29 +225,62 @@ def _yesterday_utc_iso() -> str:
     return (today - _dt.timedelta(days=1)).isoformat()
 
 
-def _resolve_resume(state: dict) -> tuple[str, str | None]:
-    """Decide the from-date + token from the persisted state.
+def _resolve_resume(state: dict) -> tuple[str, str | None, str | None]:
+    """Decide the from-date + token + token-set from persisted state.
 
-    Returns ``(from_date, token_or_none)``. The token is honored
-    only when ``last_harvest_date == today`` (synthesis D6 — arXiv
-    tokens expire daily).
+    Returns ``(from_date, token_or_none, set_for_token_or_none)``.
+
+    The token is honored only when ``last_harvest_date == today``
+    (synthesis D6 — arXiv tokens expire daily) AND when the caller
+    is harvesting the same set the token originated from (F3 — arXiv
+    resumption tokens are typed to the originating set).
+
+    Closes F8: if ``last_harvest_date`` is in the FUTURE (operator
+    error or system clock skew), reset to yesterday. Without this
+    guard ``from > today`` could be passed to OAI-PMH.
     """
     today = _today_utc_iso()
     last_date = state.get("last_harvest_date")
     last_token = state.get("last_resumption_token")
+    last_set = state.get("last_set_spec")
+    if last_date and last_date > today:
+        # Future-date guard (F8). Discard the broken state.
+        logger.warning(
+            "oai_delta: state last_harvest_date %s is in the future; "
+            "resetting to yesterday and discarding token",
+            last_date,
+        )
+        return _yesterday_utc_iso(), None, None
     if last_token and last_date == today:
-        return last_date, last_token
+        return last_date, last_token, last_set
     if last_date:
         # Resume from the date we were mid-harvest on; the token
         # itself is stale and would 4xx if reused.
-        return last_date, None
+        return last_date, None, None
     # First run: harvest yesterday's window.
-    return _yesterday_utc_iso(), None
+    return _yesterday_utc_iso(), None, None
 
 
 # ---------------------------------------------------------------------------
 # OAI-PMH HTTP fetch
 # ---------------------------------------------------------------------------
+
+
+def _parse_retry_after(header_value: str | None) -> float | None:
+    """Parse a ``Retry-After`` header. Returns seconds, or None.
+
+    Per RFC 7231 the value is either a non-negative integer (delta
+    seconds) or an HTTP-date. The HTTP-date form is rare in
+    practice for OAI-PMH 503s — we honor the seconds form and
+    fall back to the exponential schedule otherwise.
+    """
+    if not header_value:
+        return None
+    value = header_value.strip()
+    try:
+        return max(0.0, float(value))
+    except ValueError:
+        return None
 
 
 def _fetch_page(
@@ -241,26 +289,76 @@ def _fetch_page(
     *,
     timeout_seconds: float,
     user_agent: str,
+    sleep=time.sleep,
+    monotonic=time.monotonic,
+    retry_cap_seconds: float = DEFAULT_RETRY_CAP_SECONDS,
+    backoff_initial: float = DEFAULT_BACKOFF_INITIAL_SECONDS,
+    backoff_max: float = DEFAULT_BACKOFF_MAX_SECONDS,
 ) -> bytes:
-    """One ``ListRecords`` page fetch. Raises on non-200."""
+    """One ``ListRecords`` page fetch.
+
+    Closes F1 + F2 from the E11_S02 critique:
+
+    * **F1 — 503/Retry-After backoff.** ``urllib.request.urlopen``
+      raises ``HTTPError`` on every status ``>= 400`` (including
+      503), so the prior ``if status != 200`` branch was dead.
+      We now catch ``HTTPError`` explicitly: on 503 we honor
+      ``Retry-After`` (per OAI-PMH spec) or fall back to an
+      exponential 30s → 60s → 120s → … (capped at 600s) schedule,
+      bounded by ``retry_cap_seconds`` (default 1 hour per design
+      note 08:200). Non-503 errors propagate immediately.
+    * **F2 — Redirect pinning.** After a successful read we
+      verify ``response.url`` is still under the configured
+      endpoint. ``urllib`` silently follows 3xx by default; a
+      DNS-poisoned or attacker-controlled redirect off
+      ``oaipmh.arxiv.org`` would otherwise be trusted as OAI-PMH
+      XML. Same mitigation as ``ingest/ar5iv_fetch.py:155-173``
+      (E11_S01 F9 rectifier).
+    """
     url = f"{endpoint}?{urllib.parse.urlencode(params)}"
     request = urllib.request.Request(
         url, headers={"User-Agent": user_agent, "Accept": "application/xml"}
     )
-    with urllib.request.urlopen(  # noqa: S310 — pinned arxiv host
-        request, timeout=timeout_seconds
-    ) as response:
-        status = response.status
-        body = response.read()
-        # OAI-PMH spec: 503 with Retry-After is the rate-limit
-        # signal. We escalate non-200 to the caller; arXiv's
-        # 3-second TOS sleep is enforced separately around the
-        # fetch call.
-        if status != 200:
-            raise RuntimeError(
-                f"OAI-PMH unexpected HTTP {status} for {url}"
+    deadline = monotonic() + retry_cap_seconds
+    backoff = backoff_initial
+    while True:
+        try:
+            with urllib.request.urlopen(  # noqa: S310 — pinned arxiv host
+                request, timeout=timeout_seconds
+            ) as response:
+                body = response.read()
+                response_url = response.url
+            # F2: pin egress to the configured OAI-PMH endpoint.
+            if not response_url.startswith(endpoint):
+                raise RuntimeError(
+                    f"OAI-PMH response redirected off {endpoint}: "
+                    f"got {response_url!r}; refusing as untrusted"
+                )
+            return body
+        except urllib.error.HTTPError as exc:
+            if exc.code != 503:
+                raise
+            # F1: 503 → Retry-After + exponential backoff, capped.
+            retry_after = _parse_retry_after(
+                exc.headers.get("Retry-After") if exc.headers else None
             )
-    return body
+            wait = retry_after if retry_after is not None else backoff
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                raise RuntimeError(
+                    f"OAI-PMH 503 retry cap of {retry_cap_seconds:.0f}s "
+                    f"exhausted for {url}"
+                ) from exc
+            wait = min(wait, remaining)
+            logger.warning(
+                "oai_delta: HTTP 503 from %s; backing off %.1fs "
+                "(retry-after=%s)",
+                endpoint, wait, retry_after,
+            )
+            sleep(wait)
+            # Exponential schedule for the next 503 without a
+            # Retry-After header.
+            backoff = min(backoff * 2.0, backoff_max)
 
 
 def _politeness_sleep_since(start_monotonic: float) -> None:
@@ -288,11 +386,21 @@ def _parse_listrecords(
     end-of-list (last page fit in one response).
     """
     root = ET.fromstring(body)
-    # Surface OAI-PMH error responses cleanly.
+    # Closes F4: ``noRecordsMatch`` is the OAI-PMH spec response
+    # when a windowed query has zero matches — a NORMAL outcome
+    # on quiet days. Treat it as empty-success; only fatal codes
+    # (``badArgument``, ``badResumptionToken``,
+    # ``cannotDisseminateFormat``, ``noSetHierarchy``) raise.
     error_el = root.find("oai:error", _NS)
     if error_el is not None:
         code = error_el.get("code", "unknown")
         msg = (error_el.text or "").strip()
+        if code == "noRecordsMatch":
+            logger.info(
+                "oai_delta: noRecordsMatch for set=%s (quiet day)",
+                set_spec,
+            )
+            return [], None
         raise RuntimeError(f"OAI-PMH error code={code}: {msg}")
 
     records: list[HarvestedRecord] = []
@@ -410,8 +518,14 @@ def harvest_set(
         records.extend(page_records)
         # Persist in-flight token after each page. Closes the
         # synthesis D6 contract: a crash mid-harvest can resume.
+        # Closes F3: also persist ``last_set_spec`` so a same-day
+        # resume can verify the saved token belongs to the right
+        # set (arXiv resumption tokens are typed to the originating
+        # set; feeding a set-2 token to a set-1 query would raise
+        # ``badResumptionToken``).
         state = _read_state(state_path)
         state["last_resumption_token"] = next_token
+        state["last_set_spec"] = set_spec if next_token else None
         state["last_harvest_date"] = _today_utc_iso()
         _write_state(state_path, state)
         token = next_token
@@ -534,24 +648,50 @@ def run_delta(
         fetch_page = _fetch_page
     if sleep_between_pages is None:
         sleep_between_pages = _politeness_sleep_since
+
+    # Clear any stale budget-breach sentinel BEFORE early-returning
+    # on dry-run (closes F11): the operator may be running a smoke
+    # test after a real breach and the sentinel should reflect the
+    # most-recent real run, not a leftover from yesterday.
+    _clear_budget_flag(timeout_flag_path)
+
     started = time.monotonic()
     state = _read_state(state_path)
-    resume_date, resume_token = _resolve_resume(state)
+    resume_date, resume_token, resume_set = _resolve_resume(state)
     # Default window: harvest yesterday → today, OR the resume date
     # the state file points us at.
     effective_from = from_date or resume_date
     effective_until = until_date or _yesterday_utc_iso()
+
+    # Closes F9: reject inverted windows at entry (operator typo —
+    # `from > until` reaches arXiv as a `badArgument` error, which
+    # is a confusing way to surface a local input bug).
+    if effective_from > effective_until:
+        raise ValueError(
+            f"from_date {effective_from!r} > until_date "
+            f"{effective_until!r}; refusing to harvest"
+        )
 
     summary = DeltaSummary()
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
     all_records: list[HarvestedRecord] = []
     for set_spec in sets:
-        # Only the first set inherits a saved resumption token; the
-        # token is per-set in arXiv's OAI-PMH and we don't try to
-        # match a token to a set after a crash (the safer recovery
-        # is to re-harvest the full window).
-        token = resume_token if set_spec == sets[0] else None
+        # Closes F3: feed the saved resumption token ONLY to its
+        # origin set. arXiv resumption tokens are typed; using a
+        # set-2 token against set-1 would raise
+        # ``badResumptionToken``. The token survives across non-
+        # matching sets until it finds its origin (or never does,
+        # in which case the run windowed-harvests every set fresh
+        # — safe by construction).
+        if resume_token is not None and resume_set == set_spec:
+            token = resume_token
+            # Consume — clear so a later set with the same name
+            # (shouldn't happen but be defensive) doesn't re-use.
+            resume_token = None
+            resume_set = None
+        else:
+            token = None
         records, pages = harvest_set(
             set_spec,
             from_date=effective_from,
@@ -566,9 +706,6 @@ def run_delta(
         summary.sets_harvested.append(set_spec)
         summary.pages_fetched += pages
         summary.records_total += len(records)
-        # Discard the in-flight token between sets — each set starts
-        # fresh from `from`/`until`.
-        resume_token = None
 
     if dry_run:
         for record in all_records:
@@ -611,11 +748,12 @@ def run_delta(
     else:
         _clear_budget_flag(timeout_flag_path)
 
-    # Successful completion: clear the in-flight token, persist the
-    # successful-run summary, advance last_harvest_date to today.
+    # Successful completion: clear the in-flight token + set, persist
+    # the successful-run summary, advance last_harvest_date to today.
     final_state = {
         "last_harvest_date": _today_utc_iso(),
         "last_resumption_token": None,
+        "last_set_spec": None,
         "last_successful_run_utc": _dt.datetime.now(
             _dt.UTC
         ).strftime("%Y-%m-%dT%H:%M:%SZ"),
