@@ -1,4 +1,4 @@
-.PHONY: help bootstrap test eval up ingest delta re-embed
+.PHONY: help bootstrap test eval up ingest delta re-embed watchdog
 
 # Override with `make test PYTHON=python3.13` if your default python3 is too old.
 PYTHON ?= python3
@@ -14,6 +14,7 @@ help:
 	@echo "  make ingest      Run the bulk ingest orchestrator (E11_S01; see docs/ops/bulk-ingest-runbook.md)"
 	@echo "  make delta       Run the OAI-PMH nightly delta loop (E11_S02; see docs/ops/delta-loop.md)"
 	@echo "  make re-embed    Run the partial re-embed driver (E11_S03; see docs/ops/re-embed-runbook.md)"
+	@echo "  make watchdog    Run the drift watchdog against staging (E11_S04; see docs/ops/drift-watchdog.md)"
 	@echo ""
 	@echo "Override the python interpreter with: make test PYTHON=python3.13"
 	@echo ""
@@ -134,3 +135,26 @@ re-embed:
 		f'arXMCP requires Python >= 3.$(MIN_PY_MINOR); got {sys.version_info[:2]}. \
 Try: make re-embed PYTHON=python3.$(MIN_PY_MINOR)'"
 	$(PYTHON) -m ingest.re_embed $(ARGS)
+
+watchdog:
+	@# E11_S04 — drift watchdog. Runs the E05 retrieval-quality
+	@# eval against the STAGING LanceDB and compares the nDCG@5
+	@# mean against the most-recent prior eval report. Writes a
+	@# quarantine sentinel at var/arxmcp/ops/eval-quarantine.flag
+	@# if the regression exceeds the configured threshold. The
+	@# active corpus-version.json is NEVER touched — staging IS
+	@# quarantine; the sentinel is what E11_S05's cutover script
+	@# reads to refuse promotion.
+	@#
+	@# NOTE on ARGS: paths inside ARGS must not contain spaces —
+	@# Make's shell expansion splits at whitespace before argparse
+	@# sees the tokens. Use an absolute, space-free path for
+	@# --fixture-path / --report-dir.
+	@#
+	@# Operator workflow: see docs/ops/drift-watchdog.md for the
+	@# threshold-tuning table, the cutover dependency, and the
+	@# quarantine-clearance procedure.
+	@$(PYTHON) -c "import sys; assert sys.version_info >= (3, $(MIN_PY_MINOR)), \
+		f'arXMCP requires Python >= 3.$(MIN_PY_MINOR); got {sys.version_info[:2]}. \
+Try: make watchdog PYTHON=python3.$(MIN_PY_MINOR)'"
+	$(PYTHON) -m ops.watchdog_eval $(ARGS)

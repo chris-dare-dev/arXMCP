@@ -187,6 +187,30 @@ LATEXML_DRIFT_DETECTED_COUNTER: Counter = Counter(
     labelnames=["fixture"],
 )
 
+#: E11_S04 drift watchdog gauge — the latest nDCG@5 mean per
+#: staging corpus version. Set by ``ops/watchdog_eval.run_watchdog``
+#: in the watchdog's own process (a one-shot cron). Production
+#: ``/metrics`` exposure of this gauge for the running server
+#: process is **deferred to E14** — same posture as
+#: ``LATEXML_DRIFT_DETECTED_COUNTER`` above. v1 operational signal
+#: is the watchdog's JSON report at
+#: ``var/arxmcp/ops/eval-reports/`` + the sentinel flag at
+#: ``var/arxmcp/ops/eval-quarantine.flag``.
+#:
+#: Each label cardinality is bounded by the number of distinct
+#: corpus_version integers the watchdog has run against — tens at
+#: most over the lifetime of a deployment.
+EVAL_NDCG5_GAUGE: Gauge = Gauge(
+    "arxmcp_eval_ndcg5",
+    "Latest watchdog nDCG@5 measurement per staging corpus "
+    "version. v1: in-process only; cross-process /metrics "
+    "exposure is deferred to E14 (LATEXML_DRIFT_DETECTED_COUNTER "
+    "precedent). See docs/ops/drift-watchdog.md and the watchdog's "
+    "JSON report at var/arxmcp/ops/eval-reports/ for the durable "
+    "operational signal.",
+    labelnames=["corpus_version"],
+)
+
 
 # ---------------------------------------------------------------------------
 # Tier label constants — string-typed so label space stays canonical
@@ -278,6 +302,14 @@ def reset_drift_metrics_for_tests() -> None:
         child._value.set(0)
 
 
+def reset_eval_metrics_for_tests() -> None:
+    """Reset the E11_S04 watchdog nDCG gauge for every
+    corpus_version label seen so far. Test-only — same discipline
+    as :func:`reset_drift_metrics_for_tests`."""
+    for child in list(EVAL_NDCG5_GAUGE._metrics.values()):
+        child._value.set(0)
+
+
 __all__ = [
     "ALL_TIERS",
     "CACHE_BYTES_GAUGE",
@@ -285,6 +317,7 @@ __all__ = [
     "CACHE_HITS_COUNTER",
     "CACHE_LOOKUPS_COUNTER",
     "CACHE_PAYLOAD_SKIPS_COUNTER",
+    "EVAL_NDCG5_GAUGE",
     "LATEXML_DRIFT_DETECTED_COUNTER",
     "RETRIEVAL_CAP_REJECTIONS_COUNTER",
     "TIER_1",
@@ -293,4 +326,5 @@ __all__ = [
     "refresh_cache_metrics",
     "reset_cache_metrics_for_tests",
     "reset_drift_metrics_for_tests",
+    "reset_eval_metrics_for_tests",
 ]
