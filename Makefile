@@ -122,6 +122,11 @@ re-embed:
 	@# LanceDB; active corpus-version.json is NEVER advanced (that
 	@# is E11_S05's atomic cutover).
 	@#
+	@# NOTE on ARGS: paths inside ARGS must not contain spaces —
+	@# Make's shell expansion splits at whitespace before argparse
+	@# sees the tokens. Use an absolute, space-free path for
+	@# --paper-ids-file.
+	@#
 	@# Operator workflow: see docs/ops/re-embed-runbook.md for the
 	@# scenario-by-scenario GPU-hours table and the
 	@# embedding-space-mixing warning.

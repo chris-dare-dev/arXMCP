@@ -140,6 +140,53 @@ def _utc_iso() -> str:
 
 
 # ---------------------------------------------------------------------------
+# Staging-marker sentinel — closes adversary F2 (synthesis D8)
+# ---------------------------------------------------------------------------
+
+#: Filename of the sentinel that sits alongside the staging
+#: ``corpus-version.json``. Read by E11_S05's cutover gating and by
+#: operators inspecting the staging path mid-run. The staging
+#: ``corpus-version.json`` is overwritten by ``write_chunks`` on every
+#: per-paper call (no ``status`` field), so we carry the status
+#: contract in this companion file instead of patching ``write_chunks``.
+RE_EMBED_PROGRESS_NAME: str = "re-embed-progress.json"
+
+
+def _write_progress_sentinel(
+    staging_path: Path,
+    *,
+    status: str,
+    target_embedder_version: str,
+    target_chunker_version: str,
+    extra: dict | None = None,
+) -> None:
+    """Write the re-embed progress sentinel alongside the staging
+    ``corpus-version.json`` (closes adversary F2 / synthesis D8).
+
+    Atomic via tmp + rename. The presence of ``status="complete"``
+    is the signal to E11_S05's cutover gating that the staging
+    dataset is safe to promote; any other value (or an absent
+    file) means the run is incomplete or has failed.
+    """
+    staging_path.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "status": status,
+        "target_embedder_version": target_embedder_version,
+        "target_chunker_version": target_chunker_version,
+        "updated_utc": _utc_iso(),
+    }
+    if extra:
+        payload.update(extra)
+    target = staging_path / RE_EMBED_PROGRESS_NAME
+    tmp = target.with_suffix(target.suffix + ".tmp")
+    tmp.write_text(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    tmp.replace(target)
+
+
+# ---------------------------------------------------------------------------
 # Active-corpus inspection — read OLD_EMBEDDER_VERSION before run
 # ---------------------------------------------------------------------------
 
@@ -256,27 +303,22 @@ def _staging_chunk_ids(staging_path: Path) -> set[str]:
 # ---------------------------------------------------------------------------
 
 
-def _load_old_rows(
-    active_lancedb_path: Path,
-    chunk_ids: set[str],
-) -> dict[str, dict]:
-    """Read the OLD LanceDB chunks-table rows for the given ids.
+def _build_old_rows_index(active_lancedb_path: Path) -> dict[str, dict]:
+    """Read the active LanceDB chunks table ONCE and return a
+    chunk_id-keyed index of the columns needed for the copy path.
 
-    Returns a dict keyed by chunk_id with the fields needed to copy:
-    ``embedding_stmt``, ``embedding_proof``, ``embedder_version``,
-    ``kind``.
+    Closes adversary F1: the previous ``_load_old_rows`` re-scanned
+    the full table on every paper, undoing the GPU-budget savings
+    the brief targeted. This function is called exactly once at
+    run start; subsequent per-paper copy lookups are dict-keyed.
+
+    Returns a dict keyed by chunk_id with ``embedding_stmt``,
+    ``embedding_proof``, ``embedder_version``, ``kind``.
     """
-    if not chunk_ids:
-        return {}
     import lancedb  # noqa: PLC0415
 
     db = lancedb.connect(str(active_lancedb_path))
     tbl = db.open_table(CHUNKS_TABLE_NAME)
-    # LanceDB doesn't support `IN (...)` cleanly across all versions,
-    # so we scan the relevant columns and filter in Python. The
-    # staging dataset for a partial re-embed is bounded by the OLD
-    # corpus size; for the embedder-swap scenario we copy nothing
-    # anyway.
     arrow = tbl.to_arrow(
         columns=[
             "chunk_id",
@@ -295,14 +337,38 @@ def _load_old_rows(
     for cid, stmt, proof, ver, kind in zip(
         ids, stmts, proofs, versions, kinds, strict=True
     ):
-        if cid in chunk_ids:
-            out[cid] = {
-                "embedding_stmt": stmt,
-                "embedding_proof": proof,
-                "embedder_version": ver,
-                "kind": kind,
-            }
+        out[cid] = {
+            "embedding_stmt": stmt,
+            "embedding_proof": proof,
+            "embedder_version": ver,
+            "kind": kind,
+        }
     return out
+
+
+def _load_old_rows(
+    active_lancedb_path: Path,
+    chunk_ids: set[str],
+    *,
+    cache: dict[str, dict] | None = None,
+) -> dict[str, dict]:
+    """Look up old rows for the given chunk_ids.
+
+    If ``cache`` is provided (the index built by
+    :func:`_build_old_rows_index`), the lookup is a dict slice —
+    O(len(chunk_ids)) and zero LanceDB I/O. If not, falls back to
+    the legacy per-call scan (kept for tests that mock the function
+    pointer; production callers always pass the cache).
+    """
+    if not chunk_ids:
+        return {}
+    if cache is not None:
+        return {cid: cache[cid] for cid in chunk_ids if cid in cache}
+    return {
+        cid: row
+        for cid, row in _build_old_rows_index(active_lancedb_path).items()
+        if cid in chunk_ids
+    }
 
 
 def _build_copy_embed_record(
@@ -418,6 +484,7 @@ def _process_paper(
     old_embedder_version: str,
     target_embedder_version: str,
     already_in_staging: set[str],
+    old_rows_cache: dict[str, dict] | None = None,
 ) -> tuple[int, int, int]:
     """Apply one paper's work plan. Returns ``(copied, re_embedded,
     skipped_resume)``."""
@@ -433,7 +500,9 @@ def _process_paper(
 
     # --- Copy path -------------------------------------------------------
     if copy_pending:
-        old_rows = _load_old_rows(active_lancedb_path, copy_pending)
+        old_rows = _load_old_rows(
+            active_lancedb_path, copy_pending, cache=old_rows_cache
+        )
         # Sanity: every requested id must come back from the old table.
         missing = copy_pending - old_rows.keys()
         if missing:
@@ -563,6 +632,9 @@ def run_re_embed(
     to the staging path. Promotion is E11_S05's atomic cutover.
     """
     started = time.monotonic()
+    # Closes infra-safety IS4: capture started_utc ONCE so per-paper
+    # checkpoint writes don't show a drifting timestamp.
+    started_utc = _utc_iso()
     summary = ReEmbedSummary()
 
     # Closes synthesis D6: read OLD_EMBEDDER_VERSION up front.
@@ -581,6 +653,11 @@ def run_re_embed(
     old_by_paper = _index_old_chunk_ids_by_paper(active_lancedb_path)
     summary.chunks_source = sum(len(v) for v in old_by_paper.values())
 
+    # Closes adversary F1: scan the active LanceDB ONCE for the copy
+    # path. Without this hoist, every paper triggered a full-table
+    # scan and the partial re-embed was O(N²) in I/O.
+    old_rows_cache = _build_old_rows_index(active_lancedb_path)
+
     work_papers = (
         paper_ids
         if paper_ids is not None
@@ -595,7 +672,26 @@ def run_re_embed(
     already_in_staging = _staging_chunk_ids(staging_lancedb_path) if resume else set()
     summary.chunks_skipped_resume = 0  # accumulated below
 
-    # Initial state-file write (in-progress).
+    # Closes adversary F2 (synthesis D8): write the in-progress
+    # sentinel BEFORE any write_chunks call. The staging
+    # corpus-version.json will be overwritten on every per-paper
+    # write with a standard (no-status) doc; the sentinel here is
+    # the durable run-status signal an E11_S05 cutover script
+    # checks before promoting the staging dataset.
+    if not dry_run:
+        _write_progress_sentinel(
+            staging_lancedb_path,
+            status="in_progress",
+            target_embedder_version=target_embedder_version,
+            target_chunker_version=target_chunker_version,
+            extra={
+                "started_utc": started_utc,
+                "papers_total": summary.papers_total,
+            },
+        )
+
+    # Initial state-file write (in-progress). Closes IS4:
+    # use the boot-time started_utc throughout.
     _write_state(
         state_path,
         {
@@ -606,8 +702,8 @@ def run_re_embed(
             "target_embedder_version": target_embedder_version,
             "target_chunker_version": target_chunker_version,
             "papers_total": summary.papers_total,
-            "started_utc": _utc_iso(),
-            "last_checkpoint_utc": _utc_iso(),
+            "started_utc": started_utc,
+            "last_checkpoint_utc": started_utc,
         },
     )
 
@@ -642,6 +738,10 @@ def run_re_embed(
                 old_embedder_version=old_embedder_version,
                 target_embedder_version=target_embedder_version,
                 already_in_staging=already_in_staging,
+                # Closes adversary F1: pass the pre-built old-rows
+                # index so per-paper copy lookups are dict-keyed
+                # rather than full-table scans.
+                old_rows_cache=old_rows_cache,
             )
         except Exception as exc:  # noqa: BLE001 — per-paper isolation
             logger.error(
@@ -671,7 +771,13 @@ def run_re_embed(
                 "chunks_copied": summary.chunks_copied,
                 "chunks_re_embedded": summary.chunks_re_embedded,
                 "chunks_dropped": summary.chunks_dropped,
-                "started_utc": _utc_iso(),  # close-enough; written at boot
+                # Closes IS5: persist chunks_skipped_resume per
+                # checkpoint so operators can observe resume
+                # progress in the durable state file.
+                "chunks_skipped_resume": summary.chunks_skipped_resume,
+                # Closes IS4: use the boot-time started_utc so the
+                # state file's started_utc doesn't drift mid-run.
+                "started_utc": started_utc,
                 "last_checkpoint_utc": _utc_iso(),
             },
         )
@@ -694,10 +800,37 @@ def run_re_embed(
             "chunks_copied": summary.chunks_copied,
             "chunks_re_embedded": summary.chunks_re_embedded,
             "chunks_dropped": summary.chunks_dropped,
+            # Closes IS5: include the resume-skip count in the
+            # terminal record. The CLI summary scrolls; the state
+            # file is the durable artifact.
+            "chunks_skipped_resume": summary.chunks_skipped_resume,
             "elapsed_seconds": round(summary.elapsed_seconds, 1),
+            # Closes IS4: keep started_utc stable; add completed_utc.
+            "started_utc": started_utc,
             "completed_utc": _utc_iso(),
         },
     )
+
+    # Closes adversary F2 (synthesis D8) — write the terminal
+    # sentinel. The presence of status="complete" is what gates
+    # E11_S05's atomic cutover from promoting a half-finished
+    # staging dataset.
+    if not dry_run:
+        _write_progress_sentinel(
+            staging_lancedb_path,
+            status=final_status,
+            target_embedder_version=target_embedder_version,
+            target_chunker_version=target_chunker_version,
+            extra={
+                "started_utc": started_utc,
+                "completed_utc": _utc_iso(),
+                "papers_total": summary.papers_total,
+                "papers_failed_count": len(summary.papers_failed),
+                "chunks_copied": summary.chunks_copied,
+                "chunks_re_embedded": summary.chunks_re_embedded,
+                "chunks_skipped_resume": summary.chunks_skipped_resume,
+            },
+        )
     return summary
 
 

@@ -21,6 +21,32 @@ content actually changed.
 > already contains rows whose `embedder_version` disagrees with
 > the target.
 
+> **No automated scheduling.** `make re-embed` is **human-
+> initiated** in v1 — there is no cron job and no systemd unit.
+> An operator must run it manually after every `CHUNKER_VERSION`
+> or `EMBEDDER_VERSION` bump.
+
+## Concurrent invocations
+
+Only one instance should run against a given staging LanceDB at
+a time. Two operators (or two terminal sessions) issuing
+`make re-embed` simultaneously will both open the same
+`lancedb-staging/` path for write, which violates LanceDB's
+single-writer invariant and can corrupt the staging dataset.
+
+Unlike the delta loop (which ships a `flock` shell wrapper at
+`ops/cron/arxmcp-delta.sh`), the re-embed driver has no built-in
+lock guard — it is not expected to run unattended. If you need
+to protect against accidental double-invocation in a scripted
+context, wrap the call:
+
+```sh
+flock -n var/arxmcp/ops/.re-embed.lock make re-embed ARGS="..."
+```
+
+LanceDB's single-writer constraint is also not NFS-safe; do
+NOT run from two hosts targeting the same `var/`.
+
 ---
 
 ## When the partial path applies
@@ -102,8 +128,16 @@ make re-embed ARGS="--paper-ids-file=tools/seed-papers.txt"
 
 Inspect:
 * `var/arxmcp/ops/re-embed-state.json` — should show
-  `status: "complete"` and `chunks_copied + chunks_re_embedded ==
-  chunks_target`.
+  `status: "complete"`. The invariant
+  `chunks_copied + chunks_re_embedded == chunks_target` holds for
+  a CLEAN run; under `--resume` the equality becomes
+  `chunks_copied + chunks_re_embedded + chunks_skipped_resume ==
+  chunks_target`. The state file persists all three fields.
+* `var/arxmcp/index/lancedb-staging/re-embed-progress.json` —
+  the durable run-status sentinel. `status: "complete"` is what
+  E11_S05's cutover gating reads before promoting the staging
+  dataset. Any other value (or absent file) means the run is
+  incomplete or has failed.
 * `var/arxmcp/index/lancedb-staging/` — should have a fresh
   LanceDB version integer; `corpus-version.json` carries the
   TARGET `embedder_version`.
@@ -232,14 +266,21 @@ the target embedder version to match the existing rows
   "target_embedder_version": "bge-m3@bbbbbbbb",
   "target_chunker_version": "v1.0",
   "papers_total": 200000,
+  "papers_failed": [],
   "last_paper_id_written": "2401.12345",
   "chunks_copied": 4750000,
   "chunks_re_embedded": 12500,
   "chunks_dropped": 800,
+  "chunks_skipped_resume": 0,
   "started_utc": "2026-05-15T06:00:00Z",
-  "last_checkpoint_utc": "2026-05-15T08:14:37Z"
+  "last_checkpoint_utc": "2026-05-15T08:14:37Z",
+  "completed_utc": "2026-05-15T13:11:24Z"
 }
 ```
+
+The companion `var/arxmcp/index/lancedb-staging/re-embed-progress.json`
+sentinel carries the `status` field that gates E11_S05's atomic
+cutover; the state file above is the operator's monitoring view.
 
 ---
 
