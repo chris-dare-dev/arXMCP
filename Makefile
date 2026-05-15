@@ -1,4 +1,4 @@
-.PHONY: help bootstrap test eval up ingest delta
+.PHONY: help bootstrap test eval up ingest delta re-embed
 
 # Override with `make test PYTHON=python3.13` if your default python3 is too old.
 PYTHON ?= python3
@@ -13,6 +13,7 @@ help:
 	@echo "  make up          Start the arxmcp-server on 127.0.0.1:7733 (E06_S01)"
 	@echo "  make ingest      Run the bulk ingest orchestrator (E11_S01; see docs/ops/bulk-ingest-runbook.md)"
 	@echo "  make delta       Run the OAI-PMH nightly delta loop (E11_S02; see docs/ops/delta-loop.md)"
+	@echo "  make re-embed    Run the partial re-embed driver (E11_S03; see docs/ops/re-embed-runbook.md)"
 	@echo ""
 	@echo "Override the python interpreter with: make test PYTHON=python3.13"
 	@echo ""
@@ -111,3 +112,20 @@ delta:
 		f'arXMCP requires Python >= 3.$(MIN_PY_MINOR); got {sys.version_info[:2]}. \
 Try: make delta PYTHON=python3.$(MIN_PY_MINOR)'"
 	$(PYTHON) -m ingest.oai_delta $(ARGS)
+
+re-embed:
+	@# E11_S03 — partial re-embed driver. Reads the active LanceDB,
+	@# re-chunks every paper with the current chunker_version, diffs
+	@# the new chunk-id set against the old, copies unchanged
+	@# embeddings from the old LanceDB version, and re-runs the
+	@# embedder only for new/changed chunks. Writes to the staging
+	@# LanceDB; active corpus-version.json is NEVER advanced (that
+	@# is E11_S05's atomic cutover).
+	@#
+	@# Operator workflow: see docs/ops/re-embed-runbook.md for the
+	@# scenario-by-scenario GPU-hours table and the
+	@# embedding-space-mixing warning.
+	@$(PYTHON) -c "import sys; assert sys.version_info >= (3, $(MIN_PY_MINOR)), \
+		f'arXMCP requires Python >= 3.$(MIN_PY_MINOR); got {sys.version_info[:2]}. \
+Try: make re-embed PYTHON=python3.$(MIN_PY_MINOR)'"
+	$(PYTHON) -m ingest.re_embed $(ARGS)

@@ -25,6 +25,23 @@ from dataclasses import dataclass, field
 # dataclass default below, into the per-paper ``chunk_manifest.json``
 # (written by ``ingest.chunker``), and is what E04_S02's MVCC writer
 # uses to detect stale rows.
+#
+# **Schema-migration constraint (E11_S03).** The CANONICAL-BYTES
+# function ``ingest.chunker._compute_chunk_id`` —
+# ``sha256(preamble_text + NFC(body_text))[:16]`` — must remain
+# byte-stable across CHUNKER_VERSION bumps. The partial re-embed
+# driver (``ingest/re_embed.py``) depends on the invariant that
+# byte-identical canonical chunk content keeps the same chunk_id
+# across versions; this is what makes the "copy unchanged
+# embeddings" path safe.
+#
+# If you ever change ``_compute_chunk_id`` itself (e.g. swap NFC
+# for NFKC, change the prefix-stripping rule, alter the hash
+# truncation length), every chunk_id rotates even for byte-
+# identical content. That is a SCHEMA migration, NOT a chunker_version
+# bump: every paper must be re-embedded from scratch and the
+# `tests/test_re_embed.py::TestChunkerVersionFreeze` regression
+# guard must be updated in the same PR.
 CHUNKER_VERSION = "v1.0"
 
 
