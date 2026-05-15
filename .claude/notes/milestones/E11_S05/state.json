@@ -1,0 +1,49 @@
+{
+  "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/roadmap",
+  "created_at": "2026-05-15T23:07:39Z",
+  "critics_run": [],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "low": 0,
+    "medium": 0
+  },
+  "critique_path": null,
+  "deferred_findings": [],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_required": [],
+  "fixed_findings": [],
+  "id": "E11_S05",
+  "implementation_base": null,
+  "implementation_branch": null,
+  "implementation_commit_range": null,
+  "implementation_commits": [],
+  "implementation_path": null,
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "### E11_S05 \u2014 Backup/restore runbook and 200K cutover activation\n\n**Status:** NEW\n**Tier:** 5\n**Effort:** M\n**Dependencies:** E11_S01, E11_S04\n\n**Description.** Document and execute the 200K-paper scale cutover: advance `corpus-version.json` to the new LanceDB dataset version, verify the MCP server restarts cleanly against the new version, and confirm the watchdog eval passes at nDCG@5 \u2265 0.80. Additionally, implement and execute a backup/restore runbook using `restic` to a local NAS or Backblaze B2 bucket. (Per E04_S02, activation is via LanceDB MVCC + `corpus-version.json`; manual symlink swaps are prohibited.)\n\n**200K cutover activation criteria (explicit).** `corpus-version.json` is advanced to the new corpus version IF AND ONLY IF all of the following are true:\n1. E07_S04 nDCG@5 \u2265 0.80 on the hand-labeled seed query set (Tier-1 exit gate \u2014 already passed before E11 begins).\n2. E11_S04 watchdog eval on the new corpus version reports nDCG@5 \u2265 0.80 AND no regression > 5% relative vs. the seed corpus version.\n3. E11_S01 ingestion completed with zero corrupt LanceDB writes (verified by `python -m lancedb.verify --path /var/arxmcp/index/lancedb/vN+1/`).\n4. The backup runbook has been executed and a successful restore drill completed.\n\n**Rollback plan.** If the new corpus version is activated and problems are detected (agent quality regression, MCP server instability, unexpected latency increase), the rollback procedure is: stop the MCP server; revert `corpus-version.json` to the previous version integer; restart the MCP server. The MCP server's corpus-version pinning at startup means in-flight sessions are not affected by `corpus-version.json` changes \u2014 only new server restarts pick up the new pin via `dataset.checkout(version=N)`. Rollback takes < 30 seconds.\n\n**Backup/restore.** `restic` backs up the following paths to the configured repository (local NAS path or B2 bucket configured in `ops/restic-env.sh`):\n- `/var/arxmcp/index/lancedb/` (all corpus versions, ~100GB per version)\n- `/var/arxmcp/index/kuzu/` (citation graph, ~5GB)\n- `/var/arxmcp/corpus/chunks/` (content-addressable chunk JSON, ~30GB)\n\nThe backup runs nightly via a systemd timer after the delta ingestion completes. Retention policy: 7 daily, 4 weekly, 12 monthly snapshots. A restore drill is executed once before the 200K cutover: a test restore to `/tmp/arxmcp-restore-drill/` followed by a `pytest` smoke test against the restored data.\n\nAll procedures are documented in `docs/ops/cutover-runbook.md` and `docs/ops/backup-restore.md`.\n\n**Deliverables.**\n- `ops/cutover.sh` \u2014 activation script: checks all 4 criteria, advances `corpus-version.json` to the new version, restarts MCP server, runs watchdog eval as post-activation check\n- `ops/restic-env.sh.template` \u2014 restic configuration template (no credentials; operator fills in the repository URL and password)\n- `ops/systemd/arxmcp-backup.service` and `arxmcp-backup.timer` \u2014 systemd units for nightly backup\n- `docs/ops/cutover-runbook.md` \u2014 explicit activation criteria (4 bullets above), activation procedure, rollback procedure (<30 seconds), post-activation health checks\n- `docs/ops/backup-restore.md` \u2014 backup configuration, retention policy, restore drill procedure\n\n**Acceptance criteria.**\n- [ ] `ops/cutover.sh` checks all 4 activation criteria before advancing `corpus-version.json`; exits non-zero if any criterion is not met\n- [ ] The restore drill successfully restores to `/tmp/arxmcp-restore-drill/` and passes the MCP server smoke test against the restored data\n- [ ] `docs/ops/cutover-runbook.md` states all 4 activation criteria explicitly and includes the rollback procedure with a time estimate\n- [ ] After cutover, MCP server `/readyz` returns 200 against the new corpus version within 60 seconds\n- [ ] After cutover, E11_S04 watchdog eval reports nDCG@5 \u2265 0.80 on the 200K corpus\n\n**Out of scope.** Zero-downtime cutover (the server restart introduces a brief unavailability window, acceptable for a single-workstation deployment). Automated rollback (human decision). Incremental backup beyond restic's built-in deduplication.\n\n**Risk notes.**\n- Closes H9: the 200K scale cutover trigger is now explicit and measurable \u2014 nDCG@5 \u2265 0.80 on the new corpus version (not a vague \"when we feel ready\"). The rollback plan is concrete and takes < 30 seconds. Without an explicit trigger and a tested rollback, a cutover risks stranding agents on a degraded corpus with no recovery path.",
+  "phase": "implement-complete",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-15T23:07:39Z",
+      "left_at": null,
+      "phase": "init"
+    }
+  ],
+  "rectification_commit": null,
+  "regression_tests_added": [],
+  "research_briefs": [
+    {
+      "agent": "sonnet-1",
+      "path": ".claude/notes/milestones/E11_S05/research-brief-1.md"
+    },
+    {
+      "agent": "sonnet-2",
+      "path": ".claude/notes/milestones/E11_S05/research-brief-2.md"
+    }
+  ],
+  "research_mode": "standard",
+  "research_synthesis": ".claude/notes/milestones/E11_S05/research-synthesis.md",
+  "updated_at": "2026-05-15T23:27:51Z"
+}

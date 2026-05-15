@@ -1,0 +1,74 @@
+# arXMCP restic environment template (E11_S05).
+#
+# Copy this file to `ops/restic-env.sh` (gitignored) and fill in
+# the placeholders. The backup wrapper sources the filled file
+# before invoking restic.
+#
+# Sourced by `ops/cron/arxmcp-backup.sh`. NOT executable; the
+# wrapper sources it via `source ops/restic-env.sh`.
+#
+# Encryption: restic encrypts all repository data at rest. The
+# encryption key is derived from RESTIC_PASSWORD via scrypt.
+# LOSING THE PASSWORD = PERMANENT DATA LOSS. Store the password
+# in a password manager AND a hard copy.
+
+# -----------------------------------------------------------------------------
+# REQUIRED: repository URI
+# -----------------------------------------------------------------------------
+# Local NAS bind-mount:
+#   export RESTIC_REPOSITORY="/mnt/nas/arxmcp"
+# Backblaze B2 bucket:
+#   export RESTIC_REPOSITORY="b2:arxmcp-backups:"
+export RESTIC_REPOSITORY=""
+
+# -----------------------------------------------------------------------------
+# REQUIRED: password file
+# -----------------------------------------------------------------------------
+# Path to a root-readable file containing the encryption password.
+# DO NOT use RESTIC_PASSWORD directly — process lists expose env vars.
+# Recommended: create the file with mode 0400:
+#   sudo install -m 0400 -o root /dev/stdin /etc/arxmcp/restic-password
+export RESTIC_PASSWORD_FILE="/etc/arxmcp/restic-password"
+
+# -----------------------------------------------------------------------------
+# B2 backend only — leave unset for local NAS backend
+# -----------------------------------------------------------------------------
+# export B2_ACCOUNT_ID=""
+# export B2_ACCOUNT_KEY=""
+
+# -----------------------------------------------------------------------------
+# Sanity checks — run at source time
+# -----------------------------------------------------------------------------
+
+if [[ -z "${RESTIC_REPOSITORY:-}" ]]; then
+    echo "ERROR: RESTIC_REPOSITORY is not set." >&2
+    echo "  Edit ops/restic-env.sh from the template and set the" >&2
+    echo "  RESTIC_REPOSITORY value to your NAS path or b2: URI." >&2
+    return 1 2>/dev/null || exit 1
+fi
+
+if [[ -z "${RESTIC_PASSWORD_FILE:-}" ]]; then
+    echo "ERROR: RESTIC_PASSWORD_FILE is not set." >&2
+    return 1 2>/dev/null || exit 1
+fi
+
+if [[ ! -r "${RESTIC_PASSWORD_FILE}" ]]; then
+    echo "ERROR: RESTIC_PASSWORD_FILE ${RESTIC_PASSWORD_FILE} is " \
+         "not readable by the current user. Check permissions." >&2
+    return 1 2>/dev/null || exit 1
+fi
+
+# Optional connectivity check (opt-in via env var so CI can
+# source this template without a live repository).
+if [[ "${ARXMCP_RESTIC_CHECK:-}" == "1" ]]; then
+    if ! command -v restic >/dev/null 2>&1; then
+        echo "ERROR: restic not found on PATH." >&2
+        return 1 2>/dev/null || exit 1
+    fi
+    if ! restic snapshots --json >/dev/null 2>&1; then
+        echo "ERROR: restic snapshots failed against " \
+             "${RESTIC_REPOSITORY}. Check credentials, network, " \
+             "or run \`restic init\` if this is a fresh repository." >&2
+        return 1 2>/dev/null || exit 1
+    fi
+fi

@@ -1,4 +1,4 @@
-.PHONY: help bootstrap test eval up ingest delta re-embed watchdog
+.PHONY: help bootstrap test eval up ingest delta re-embed watchdog cutover
 
 # Override with `make test PYTHON=python3.13` if your default python3 is too old.
 PYTHON ?= python3
@@ -15,6 +15,7 @@ help:
 	@echo "  make delta       Run the OAI-PMH nightly delta loop (E11_S02; see docs/ops/delta-loop.md)"
 	@echo "  make re-embed    Run the partial re-embed driver (E11_S03; see docs/ops/re-embed-runbook.md)"
 	@echo "  make watchdog    Run the drift watchdog against staging (E11_S04; see docs/ops/drift-watchdog.md)"
+	@echo "  make cutover     Activate the staging corpus as the new active (E11_S05; see docs/ops/cutover-runbook.md)"
 	@echo ""
 	@echo "Override the python interpreter with: make test PYTHON=python3.13"
 	@echo ""
@@ -158,3 +159,21 @@ watchdog:
 		f'arXMCP requires Python >= 3.$(MIN_PY_MINOR); got {sys.version_info[:2]}. \
 Try: make watchdog PYTHON=python3.$(MIN_PY_MINOR)'"
 	$(PYTHON) -m ops.watchdog_eval $(ARGS)
+
+cutover:
+	@# E11_S05 — 200K cutover activation. Checks the 4 activation
+	@# criteria (seed eval, staging watchdog, ingest complete,
+	@# restore drill passed) and performs an atomic directory
+	@# swap (lancedb/ -> lancedb-prev/, lancedb-staging/ ->
+	@# lancedb/). Rollback (`make cutover ARGS="--rollback"`) is
+	@# the inverse swap; total wall-clock < 30s.
+	@#
+	@# NOTE on ARGS: paths inside ARGS must not contain spaces —
+	@# Make's shell expansion splits at whitespace before argparse
+	@# sees the tokens.
+	@#
+	@# Operator workflow: see docs/ops/cutover-runbook.md.
+	@$(PYTHON) -c "import sys; assert sys.version_info >= (3, $(MIN_PY_MINOR)), \
+		f'arXMCP requires Python >= 3.$(MIN_PY_MINOR); got {sys.version_info[:2]}. \
+Try: make cutover PYTHON=python3.$(MIN_PY_MINOR)'"
+	$(PYTHON) -m ops.cutover $(ARGS)

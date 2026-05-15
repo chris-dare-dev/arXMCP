@@ -1,0 +1,19 @@
+[Unit]
+# E11_S05 — nightly trigger for arxmcp-backup.service.
+#
+# Fires at 03:30, 90 minutes after the 02:00 delta loop. The
+# delta + re-embed pipeline typically finishes by 03:00 on the
+# seed corpus; on the 200K corpus it can take longer. The
+# 14400s TimeoutStartSec on the backup service accommodates the
+# overlap if the pipeline runs long.
+Description=arXMCP restic nightly backup — schedule
+Documentation=https://github.com/chris-dare-dev/arXMCP/blob/main/docs/ops/backup-restore.md
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+Persistent=true
+Unit=arxmcp-backup.service
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

@@ -24,3 +24,7 @@ Thumbs.db
 /var/arxmcp/
 *.log
 *.egg-info/
+
+# E11_S05 — restic creds. The .template is committed; the filled
+# file with the operator's RESTIC_REPOSITORY / B2 creds is not.
+ops/restic-env.sh

@@ -1,0 +1,45 @@
+[Unit]
+# E11_S05 — nightly restic backup service unit. Runs
+# ops/cron/arxmcp-backup.sh which acquires a flock on
+# var/arxmcp/ops/.backup.lock, sources ops/restic-env.sh, and
+# invokes `restic backup` + `restic forget --prune`.
+#
+# Pairs with arxmcp-backup.timer for nightly scheduling at 03:30.
+Description=arXMCP restic nightly backup
+Documentation=https://github.com/chris-dare-dev/arXMCP/blob/main/docs/ops/backup-restore.md
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+# Operator MUST substitute these placeholders before enabling:
+#   - Replace /opt/arxmcp in WorkingDirectory, ExecStart, and
+#     ReadWritePaths with the arXMCP checkout path.
+#   - Replace `arxmcp` in User/Group with the system user that
+#     owns the repo + var/arxmcp tree.
+#   - For local NAS backend: add the NAS mount point to
+#     ReadWritePaths (e.g. /mnt/nas). B2 backend does not need
+#     a writable filesystem path.
+WorkingDirectory=/opt/arxmcp
+User=arxmcp
+Group=arxmcp
+ExecStart=/opt/arxmcp/ops/cron/arxmcp-backup.sh
+
+# Containment hardening — same posture as E11_S02's
+# arxmcp-delta.service.
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/arxmcp/var
+NoNewPrivileges=true
+PrivateTmp=true
+
+# A 135GB backup to local 1Gbit NAS is ~18-30 min; B2 over
+# 100Mbit upstream is ~3 hours. 4 hours (14400s) is defense-in-
+# depth without triggering on worst-case B2 runs.
+TimeoutStartSec=14400
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

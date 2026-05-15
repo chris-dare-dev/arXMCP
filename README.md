@@ -69,6 +69,8 @@ Operator runbooks live under [`docs/ops/`](docs/ops/):
 | [`delta-loop.md`](docs/ops/delta-loop.md) | E11_S02 | Nightly OAI-PMH delta harvest |
 | [`re-embed-runbook.md`](docs/ops/re-embed-runbook.md) | E11_S03 | Partial re-embed after a chunker or embedder bump |
 | [`drift-watchdog.md`](docs/ops/drift-watchdog.md) | E11_S04 | nDCG@5 regression watchdog after staging updates |
+| [`cutover-runbook.md`](docs/ops/cutover-runbook.md) | E11_S05 | 200K staging → active cutover activation + rollback |
+| [`backup-restore.md`](docs/ops/backup-restore.md) | E11_S05 | restic backup + restore drill |
 
 ## Repo layout
 
