@@ -7,6 +7,20 @@ ingest. The Python module `ingest.bulk_ingest` and the
 `make ingest` target ship as scaffolding; the actual download,
 LaTeXML pre-parse, and GPU embedding are gated on operator action.
 
+> **The full milestone contract is NOT closed by `make ingest`
+> alone.** The brief lists Kùzu citation-graph population
+> alongside chunk ingest as part of the E11_S01 deliverables.
+> **Step 6 (citation-graph population) is part of this
+> milestone's contract.** A staging LanceDB without an
+> accompanying Kùzu graph means the `cite_neighbors` tool will
+> return empty results after cutover. Do NOT skip step 6.
+
+> **AC4 (`pytest --hybrid --ndcg-min=0.70`) is deferred to E11_S04.**
+> The 20-query eval fixture is hand-labeled and was tuned on the
+> seed corpus; re-labeling against the full corpus is E11_S04's
+> scope. After step 5 passes, this milestone is closed even
+> though AC4 cannot yet be exercised.
+
 > **Cutover note.** This runbook covers ingest INTO the staging
 > LanceDB only. Promoting the staging dataset to active
 > (`corpus-version.json` advancement, server restart) is **E11_S05's
@@ -162,13 +176,16 @@ make ingest ARGS="--paper-ids-file=ops/all-papers.txt"
 To resume an interrupted run:
 
 ```bash
-make ingest ARGS="--paper-ids-file=ops/all-papers.txt --resume"
+make ingest ARGS="--paper-ids-file=ops/all-papers.txt"
 ```
 
-`--resume` skips papers whose embeddings sidecar already exists
-in `var/arxmcp/corpus/embeddings/<paper_id>/`. The embedder is
-also independently idempotent (sidecar version check), so naive
-re-runs are also safe but slower.
+There is no `--resume` flag at v1. The embedder is independently
+idempotent: when its per-paper sidecar exists and the
+`embedder_version` + `chunker_version` match, it short-circuits
+without recomputing embeddings (see `ingest/embedder.py`'s
+sidecar version check). Naive re-runs are therefore safe — they
+will re-walk the chunker (cheap) but skip the GPU work for
+already-processed papers.
 
 ---
 

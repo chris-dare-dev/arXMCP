@@ -38,6 +38,7 @@ sleep budget would needlessly slow down ar5iv-hit-heavy runs.
 from __future__ import annotations
 
 import logging
+import re
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -63,7 +64,17 @@ AR5IV_TIMEOUT_SECONDS: float = 5.0
 #: Required signal in a 200 response body — verifies LaTeXML actually
 #: produced math. An ar5iv error page (e.g. "this paper could not be
 #: processed") returns 200 with no MathML; we treat that as a miss.
-_MATH_SIGNAL = "<math"
+#:
+#: Closes F4: matched with a ``\b`` word boundary so spurious
+#: ``<math.foo`` CSS-class substrings don't trip the heuristic. The
+#: legitimate signal is a ``<math>`` or ``<math xmlns=...>`` tag
+#: opener, both of which match ``<math\b``.
+_MATH_SIGNAL_RE = re.compile(r"<math\b")
+
+#: ar5iv's "this paper could not be processed" error banner. When ar5iv
+#: serves a 200 but the LaTeXML render failed, this string appears in
+#: the body. Belt-and-braces guard alongside the ``<math\b`` check.
+_AR5IV_ERROR_BANNER = "could not be processed"
 
 
 # ---------------------------------------------------------------------------
@@ -141,6 +152,25 @@ def try_cache(
         ) as response:
             status = response.status
             body_bytes = response.read()
+            # Closes F9: ``urllib.request.urlopen`` silently follows
+            # 3xx redirects to any host. ar5iv is a static CDN that
+            # doesn't redirect, so a redirect off-domain is either a
+            # CDN misconfiguration or an active attack. Reject the
+            # response to keep egress pinned to ar5iv.labs.arxiv.org.
+            response_url = response.url
+        if not response_url.startswith(AR5IV_BASE_URL + "/"):
+            logger.warning(
+                "ar5iv: response redirected off %s for %s -> %s; "
+                "treating as miss",
+                AR5IV_BASE_URL, paper_id, response_url,
+            )
+            return Ar5ivResult(
+                paper_id=paper_id,
+                hit=False,
+                cache_path=None,
+                parsed_path=None,
+                reason="unexpected_redirect",
+            )
     except urllib.error.HTTPError as exc:
         logger.info(
             "ar5iv: HTTP %d for %s (miss; falling back)",
@@ -173,10 +203,12 @@ def try_cache(
         )
 
     body = body_bytes.decode("utf-8", errors="replace")
-    if _MATH_SIGNAL not in body:
-        # ar5iv error banner is a 200 with no MathML. Treat as miss.
+    if not _MATH_SIGNAL_RE.search(body) or _AR5IV_ERROR_BANNER in body:
+        # ar5iv error banner is a 200 with no MathML, or a 200 that
+        # also contains the explicit "could not be processed" string.
+        # Treat either as miss.
         logger.info(
-            "ar5iv: 200 for %s but no <math signal — treating as miss",
+            "ar5iv: 200 for %s with no usable math signal — miss",
             paper_id,
         )
         return Ar5ivResult(

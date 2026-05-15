@@ -301,7 +301,17 @@ def ingest_one_paper(
         if not chunks:
             outcome.failure_reason = "chunker_returned_empty"
             return outcome
-        embed_paper(paper_id)
+        # Closes F1: embed_paper catches PER_PAPER_FAILURE_EXCEPTIONS
+        # and returns EmbedStats(status="fail", ...) instead of
+        # raising. Without this check, load_embed_record would read
+        # whatever NPZ was on disk from a previous run — silent
+        # stale-vector corruption of the staging LanceDB.
+        embed_stats = embed_paper(paper_id)
+        if embed_stats.status != "ok":
+            outcome.failure_reason = (
+                f"embedder_failed:{embed_stats.error_class}"
+            )
+            return outcome
         embed_record = load_embed_record(paper_id)
         if embed_record is None:
             outcome.failure_reason = "embedder_produced_no_record"
@@ -335,20 +345,23 @@ def run_bulk_ingest(
     log_path: Path = DEFAULT_INGESTION_LOG_PATH,
     progress_interval: int = DEFAULT_PROGRESS_INTERVAL,
     limit: int | None = None,
-    resume: bool = False,
     dry_run: bool = False,
 ) -> IngestSummary:
     """Run the full bulk-ingest loop. Returns the aggregate summary.
 
     The loop is **single-process sequential** at the write
     boundary (``ingest.store.write_chunks`` is single-writer-per-
-    dataset). GPU batching happens inside ``embed_paper``.
-
-    ``resume`` skips papers whose embeddings sidecar already
-    exists — ``embed_paper`` is idempotent (sidecar version check)
-    so naive re-runs are also safe, but ``resume`` short-circuits
-    the network/chunker work too.
+    dataset). GPU batching happens inside ``embed_paper``. Naive
+    re-runs are safe: the embedder's per-paper sidecar carries a
+    version check, so already-processed papers short-circuit at
+    the embed step regardless.
     """
+    if progress_interval <= 0:
+        # Closes F8: a positive interval is the only sane value; 0
+        # would crash on ``n % progress_interval`` below.
+        raise ValueError(
+            f"progress_interval must be >= 1; got {progress_interval}"
+        )
     if dry_run:
         return _run_dry(
             paper_ids,
@@ -391,7 +404,13 @@ def _run_dry(
     ar5iv_cache_dir: Path,
     parsed_dir: Path,
 ) -> IngestSummary:
-    """Dry-run: report which parser each paper WOULD use, no writes."""
+    """Dry-run: report which parser each paper WOULD use, no writes.
+
+    Per F5: the dry-run never queries ar5iv, so ``ar5iv_hits`` /
+    ``ar5iv_misses`` are intentionally left at 0 in the summary —
+    treating a cold cache as "100% miss rate" would mislead the
+    operator into thinking ar5iv was broken.
+    """
     work = paper_ids if limit is None else paper_ids[:limit]
     summary = IngestSummary(papers_total=len(work))
     for paper_id in work:
@@ -400,13 +419,10 @@ def _run_dry(
         ).is_file()
         if cache_hit:
             print(f"{paper_id}\tar5iv_local_cache")
-            summary.ar5iv_hits += 1
         elif _has_local_parsed_html(paper_id, parsed_dir):
             print(f"{paper_id}\tlatexml")
-            summary.ar5iv_misses += 1
         else:
             print(f"{paper_id}\tWOULD_FETCH_AR5IV_THEN_FALLBACK")
-            summary.ar5iv_misses += 1
         summary.papers_skipped += 1  # dry-run writes nothing
     return summary
 
@@ -442,29 +458,23 @@ def _cli(argv: list[str]) -> int:
         type=Path,
         help=f"ar5iv on-disk cache (default: {DEFAULT_AR5IV_CACHE_DIR})",
     )
-    parser.add_argument(
-        "--parsed-dir",
-        default=str(DEFAULT_PARSED_DIR),
-        type=Path,
-        help=f"Parsed-HTML output dir (default: {DEFAULT_PARSED_DIR})",
-    )
+    # Closes F2: --parsed-dir was a CLI footgun. The chunker reads
+    # from a hardcoded module-level PARSED_DIR; honoring the CLI
+    # override at the ar5iv-write step but ignoring it at the chunker
+    # step caused silent "chunker_returned_empty" failures. The
+    # parsed-dir is now fixed at ``ingest.chunker.PARSED_DIR``.
     parser.add_argument(
         "--limit",
         type=int,
         default=None,
         help="Process at most N papers (default: all)",
     )
-    parser.add_argument(
-        "--resume",
-        action="store_true",
-        help=(
-            "Skip papers whose embeddings sidecar exists. The "
-            "embedder is idempotent (sidecar version check) so "
-            "naive re-runs are also safe, but --resume avoids "
-            "the network + chunker work for already-processed "
-            "papers."
-        ),
-    )
+    # Closes F3 + IS2: --resume was advertised in the CLI and the
+    # runbook but the loop body did not act on it. Naive re-runs are
+    # already safe because the embedder's per-paper sidecar carries a
+    # version check (``ingest/embedder.py:914-936``) — already-
+    # processed papers short-circuit at the embed step without
+    # rewriting the LanceDB row.
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -490,17 +500,23 @@ def _cli(argv: list[str]) -> int:
         paper_ids,
         lancedb_staging_path=args.lancedb_staging_path,
         ar5iv_cache_dir=args.ar5iv_cache_dir,
-        parsed_dir=args.parsed_dir,
         limit=args.limit,
-        resume=args.resume,
         dry_run=args.dry_run,
+    )
+    # Closes F5: dry-run never actually queries ar5iv, so an
+    # ar5iv_rate of 0.0 against an empty local cache would be
+    # misleading. Omit the rate from the dry-run summary.
+    rate_token = (
+        ""
+        if args.dry_run
+        else f"ar5iv_rate={summary.ar5iv_hit_rate:.3f} "
     )
     print(
         f"total={summary.papers_total} "
         f"ok={summary.papers_succeeded} "
         f"fail={summary.papers_failed} "
         f"skip={summary.papers_skipped} "
-        f"ar5iv_rate={summary.ar5iv_hit_rate:.3f} "
+        f"{rate_token}"
         f"elapsed={summary.elapsed_seconds:.1f}s"
     )
     # Non-zero exit on any failures so the operator's shell catches

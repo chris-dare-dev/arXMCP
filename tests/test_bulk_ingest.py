@@ -1,20 +1,16 @@
 """Tests for the bulk-ingest orchestrator (E11_S01).
 
-Two layers:
-
-* Pure orchestrator logic — paper-id file parsing, CLI flag
-  handling, parser-failures JSONL writing, progress logging,
-  dry-run output. Mocks `ingest_one_paper` so the suite runs
-  without LaTeXML / BGE-M3 / LanceDB.
-* End-to-end "smoke" test against a SINGLE paper — mocks the
-  ar5iv hit, stages a minimal parsed HTML, runs the real
-  chunker + embedder + LanceDB write at the staging path.
-  Marked `requires_model` (BGE-M3 download).
+Pure orchestrator logic — paper-id file parsing, CLI flag
+handling, parser-failures JSONL writing, progress logging,
+dry-run output. Mocks `ingest_one_paper` (and its embedder /
+chunker / LanceDB-writer dependencies) so the suite runs
+without LaTeXML / BGE-M3 / LanceDB.
 
 The sanity test ("≥100K chunks in staging LanceDB") lives at
 `tests/test_bulk_ingest_sanity.py` and is marked
 `requires_full_corpus`; it skips by default and runs only after
-the operator has executed the full ingest.
+the operator has executed the full ingest. The single-paper
+end-to-end smoke test is deferred to that operator workflow.
 """
 
 from __future__ import annotations
@@ -348,3 +344,165 @@ class TestActiveCorpusVersionUntouched:
         )
         after = active_marker.read_bytes() if active_marker.is_file() else None
         assert after == before
+
+
+# ---------------------------------------------------------------------------
+# Rectification regression guards
+# ---------------------------------------------------------------------------
+
+
+class TestEmbedderFailureSurfaces:
+    """Closes F1: `embed_paper` failures must surface as a paper
+    outcome with `failure_reason` starting with `embedder_failed`,
+    NOT a silent stale-embed reuse via `load_embed_record`."""
+
+    def test_embedder_fail_yields_failure_reason(self, tmp_path):
+        from ingest.embedder import EmbedStats
+
+        parsed_dir = tmp_path / "parsed"
+        (parsed_dir / "2401.00001").mkdir(parents=True)
+        (parsed_dir / "2401.00001" / "index.html").write_text("<html/>")
+
+        with (
+            patch(
+                "ingest.bulk_ingest.try_cache",
+                return_value=__import__(
+                    "ingest.ar5iv_fetch", fromlist=["Ar5ivResult"]
+                ).Ar5ivResult(
+                    paper_id="2401.00001",
+                    hit=True,
+                    cache_path=parsed_dir / "2401.00001" / "index.html",
+                    parsed_path=parsed_dir / "2401.00001" / "index.html",
+                    reason="ok_local_cache",
+                ),
+            ),
+            patch(
+                "ingest.bulk_ingest.chunk_paper",
+                return_value=[object()],
+            ),
+            patch(
+                "ingest.bulk_ingest.embed_paper",
+                return_value=EmbedStats(
+                    paper_id="2401.00001",
+                    chunks_processed=0,
+                    chunks_skipped=0,
+                    truncated_count=0,
+                    elapsed_s=0.0,
+                    status="fail",
+                    error="forced failure",
+                    error_class="model_init_failed",
+                ),
+            ),
+            patch("ingest.bulk_ingest.write_chunks") as write_mock,
+        ):
+            from ingest.bulk_ingest import ingest_one_paper
+
+            outcome = ingest_one_paper(
+                "2401.00001",
+                lancedb_staging_path=tmp_path / "lancedb-staging",
+                parsed_dir=parsed_dir,
+            )
+        assert outcome.failure_reason is not None
+        assert outcome.failure_reason.startswith("embedder_failed:")
+        # And crucially: write_chunks was never called with stale data.
+        write_mock.assert_not_called()
+
+
+class TestResumeFlagRemoved:
+    """Closes F3 + IS2: the no-op `--resume` flag is gone from the
+    CLI, the `run_bulk_ingest` signature, and the runbook."""
+
+    def test_resume_absent_from_cli(self):
+        from ingest.bulk_ingest import _cli
+
+        with pytest.raises(SystemExit):
+            _cli(["--paper-ids-file=/nonexistent", "--resume"])
+
+    def test_resume_absent_from_run_bulk_ingest_signature(self):
+        import inspect
+
+        sig = inspect.signature(run_bulk_ingest)
+        assert "resume" not in sig.parameters
+
+    def test_resume_absent_from_runbook(self):
+        from pathlib import Path
+
+        runbook = Path(__file__).resolve().parent.parent / (
+            "docs/ops/bulk-ingest-runbook.md"
+        )
+        text = runbook.read_text(encoding="utf-8")
+        # The runbook explicitly documents no --resume at v1.
+        assert "There is no `--resume` flag at v1." in text
+
+
+class TestParsedDirFlagRemoved:
+    """Closes F2: the half-honored `--parsed-dir` CLI flag is gone
+    (it was honored by try_cache but ignored by the chunker)."""
+
+    def test_parsed_dir_absent_from_cli(self):
+        from ingest.bulk_ingest import _cli
+
+        with pytest.raises(SystemExit):
+            _cli([
+                "--paper-ids-file=/nonexistent",
+                "--parsed-dir=/tmp/elsewhere",
+            ])
+
+
+class TestDryRunDoesNotReportMisleadingAr5ivRate:
+    """Closes F5: dry-run never hits ar5iv, so ar5iv_misses must be
+    0 in the summary and the printout must omit the rate."""
+
+    def test_dry_run_does_not_increment_ar5iv_misses(self, tmp_path):
+        failures = tmp_path / "bulk.jsonl"
+        log = tmp_path / "ingestion.log"
+        summary = run_bulk_ingest(
+            ["2401.00001", "2401.00002"],
+            ar5iv_cache_dir=tmp_path / "empty-cache",
+            parsed_dir=tmp_path / "empty-parsed",
+            failures_path=failures,
+            log_path=log,
+            dry_run=True,
+        )
+        assert summary.ar5iv_hits == 0
+        assert summary.ar5iv_misses == 0
+        assert summary.papers_skipped == 2
+
+    def test_cli_dry_run_summary_omits_ar5iv_rate(
+        self, tmp_path, capsys
+    ):
+        from ingest.bulk_ingest import _cli
+
+        ids = tmp_path / "ids.txt"
+        ids.write_text("2401.00001\n")
+        rc = _cli([
+            "--paper-ids-file", str(ids),
+            "--ar5iv-cache-dir", str(tmp_path / "cache"),
+            "--dry-run",
+        ])
+        out = capsys.readouterr().out
+        assert "ar5iv_rate=" not in out
+        assert rc == 0
+
+
+class TestProgressIntervalValidation:
+    """Closes F8: `progress_interval <= 0` must raise rather than
+    crash mid-loop with `ZeroDivisionError`."""
+
+    def test_zero_progress_interval_rejected(self, tmp_path):
+        with pytest.raises(ValueError, match="progress_interval"):
+            run_bulk_ingest(
+                ["2401.00001"],
+                failures_path=tmp_path / "bulk.jsonl",
+                log_path=tmp_path / "ingestion.log",
+                progress_interval=0,
+            )
+
+    def test_negative_progress_interval_rejected(self, tmp_path):
+        with pytest.raises(ValueError, match="progress_interval"):
+            run_bulk_ingest(
+                ["2401.00001"],
+                failures_path=tmp_path / "bulk.jsonl",
+                log_path=tmp_path / "ingestion.log",
+                progress_interval=-5,
+            )

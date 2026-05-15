@@ -11,7 +11,7 @@ help:
 	@echo "  make test        Run ruff + pytest"
 	@echo "  make eval        Run the Tier-0 retrieval-quality gate (see .claude/TIER-GATES.md)"
 	@echo "  make up          Start the arxmcp-server on 127.0.0.1:7733 (E06_S01)"
-	@echo "  make ingest      Run the ingestion pipeline (E11; not yet implemented)"
+	@echo "  make ingest      Run the bulk ingest orchestrator (E11_S01; see docs/ops/bulk-ingest-runbook.md)"
 	@echo ""
 	@echo "Override the python interpreter with: make test PYTHON=python3.13"
 	@echo ""
@@ -85,5 +85,12 @@ ingest:
 	@# full multi-day run. The active corpus-version.json is NOT
 	@# advanced — that's E11_S05's atomic cutover.
 	@#
+	@# NOTE on ARGS: paths inside ARGS must not contain spaces — Make's
+	@# shell expansion splits at whitespace before argparse sees the
+	@# tokens. Use an absolute, space-free path for --paper-ids-file.
+	@#
 	@# See docs/ops/bulk-ingest-runbook.md for the operator workflow.
+	@$(PYTHON) -c "import sys; assert sys.version_info >= (3, $(MIN_PY_MINOR)), \
+		f'arXMCP requires Python >= 3.$(MIN_PY_MINOR); got {sys.version_info[:2]}. \
+Try: make ingest PYTHON=python3.$(MIN_PY_MINOR)'"
 	$(PYTHON) -m ingest.bulk_ingest $(ARGS)

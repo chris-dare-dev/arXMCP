@@ -70,12 +70,16 @@ documented in [research-synthesis.md §1](research-synthesis.md):
       [TestIngestOnePaperFailurePath](tests/test_bulk_ingest.py)
       class verifies the skip path triggers when both ar5iv and
       local parsed HTML are absent (synthesis D2).
-- [x] **AC4** — `pytest --hybrid --ndcg-min=0.70` passes against
-      the new corpus. **Operator-gated.** The eval test exists
-      (`tests/eval/`); with the current 4-query stub fixture it
-      SKIPS via the cold-start matrix. The synthesis notes the
-      fixture needs hand-curation to 20 queries before this AC
-      has teeth — that's E11_S04's scope.
+- [ ] **AC4** — `pytest --hybrid --ndcg-min=0.70` passes against
+      the new corpus. **Deferred to E11_S04** — the 20-query eval
+      fixture was hand-labeled on the seed corpus; re-labeling
+      against the full corpus is E11_S04's explicit scope. With
+      the current 4-query stub fixture the test SKIPS via the
+      cold-start matrix (Tier-0 → Tier-1 gate). This milestone
+      ships nothing that closes the gap, and the runbook calls
+      this out in the preamble. Marking AC4 unchecked is more
+      honest than "operator-gated" — the operator has no path to
+      run this test against the full corpus until E11_S04 lands.
 - [x] **AC5** — ar5iv cache hit rate ≥ 70%, logged. **Logging
       mechanism is verifiable at code-ship; the actual hit rate
       is operator-gated.** The `IngestSummary.ar5iv_hit_rate`
