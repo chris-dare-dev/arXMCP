@@ -13,6 +13,7 @@
   "external_writes_authorized": false,
   "external_writes_completed": false,
   "external_writes_required": [],
+  "feat_commit": "8b3ad32",
   "fixed_findings": [],
   "id": "E11_S03",
   "implementation_base": null,
@@ -21,9 +22,9 @@
   "implementation_commits": [],
   "implementation_path": null,
   "implementation_specialist": null,
-  "invalidated_findings": [],
+  "invalidated_findings": 0,
   "milestone_brief": "### E11_S03 \u2014 Re-embed cost budget and partial re-embed strategy\n\n**Status:** NEW\n**Tier:** 5\n**Effort:** M\n**Dependencies:** E11_S01\n\n**Description.** Define and enforce the re-embed strategy for corpus version bumps that change the chunker or embedder. A naive re-embed strategy re-embeds every chunk in the corpus when either `chunker_version` or `embedder_version` changes \u2014 at 200K papers and ~25 chunks per paper (~5M chunks), this is a GPU-day operation. The partial re-embed strategy limits the work to chunks whose content actually changed.\n\nThe strategy relies on content-addressable chunk IDs. Each chunk ID is `arxiv:<paper_id>:<sha256(canonical_chunk_bytes)[:16]>`. A chunk whose content is byte-identical between `chunker_version` A and B has the same chunk ID and therefore the same embedding \u2014 its existing embedding vector is valid and can be copied into the new LanceDB version without re-computation.\n\nThe re-embed procedure for a `chunker_version` or `embedder_version` bump:\n1. Run the chunker over all papers using the new `chunker_version`. This produces a set of chunk IDs for the new version.\n2. Compare the new chunk ID set against the previous version's chunk ID set. Chunks with IDs present in both sets have unchanged content \u2014 copy their embedding vectors from the old LanceDB table directly (LanceDB MVCC makes the old version still addressable).\n3. Chunks with new IDs (content changed or newly created) must be re-embedded. Queue them for the embedder.\n4. Chunks in the old set but not the new set (content deleted or restructured) are simply not written to the new version.\n\nGPU-hours budget for common re-embed scenarios:\n- **Embedder model swap** (bge-m3 version bump): all 5M chunks must be re-embedded. At 32 chunks/sec on an A6000, ~44 hours. Plan: run over a weekend.\n- **Chunker logic fix** (affects ~5% of papers): ~250K chunks re-embedded, ~2 hours.\n- **Macro normalizer fix** (affects papers with specific macro patterns): ~50K chunks re-embedded, ~25 minutes.\n\nThese estimates and the partial re-embed procedure are documented in `docs/ops/re-embed-runbook.md`. The runbook also documents the safe failure mode: if re-embedding is interrupted mid-run, the new LanceDB version is incomplete and `corpus-version.json` must NOT be advanced to it. Resume by re-running `ingest/re_embed.py` with the `--resume` flag, which uses the content-hash comparison to skip already-embedded chunks.\n\n**Deliverables.**\n- `ingest/re_embed.py` \u2014 partial re-embed script: compares old and new chunk ID sets, copies unchanged embeddings, queues changed chunks for re-embedding; `--resume` flag\n- `docs/ops/re-embed-runbook.md` \u2014 GPU-hours budget table; step-by-step procedure; safe resume behavior; embedding-space mixing warning\n\n**Acceptance criteria.**\n- [ ] Running `re_embed.py` on a corpus where 95% of chunks are unchanged copies 95% of embeddings without re-computation (verifiable via log output)\n- [ ] Running `re_embed.py` with `--resume` after an interrupted run skips already-embedded chunks\n- [ ] `docs/ops/re-embed-runbook.md` contains the GPU-hours budget table for all three re-embed scenarios\n- [ ] The runbook explicitly warns against mixing embedding spaces in one LanceDB table\n\n**Out of scope.** Automatic re-embed triggering (human-initiated in v1). Fine-tuned embedding models (v2). Streaming re-embed while the server is live (offline batch only).\n\n**Risk notes.**\n- Closes MEDIUM: re-embed cost \u2014 without a partial re-embed strategy, any chunker or embedder version bump forces a full 44-hour re-embed. The content-hash comparison reduces typical re-embeds to 2\u20134 hours for targeted fixes.\n\n**Labels.** `area:ingest`, `kind:ops`, `tier:5`\n\n---",
-  "phase": "rectify-running",
+  "phase": "complete",
   "phase_history": [
     {
       "entered_at": "2026-05-15T21:05:13Z",
@@ -31,6 +32,7 @@
       "phase": "init"
     }
   ],
+  "rect_commit": "f043dab",
   "rectification_commit": null,
   "regression_tests_added": [],
   "research_briefs": [
@@ -45,5 +47,5 @@
   ],
   "research_mode": "standard",
   "research_synthesis": ".claude/notes/milestones/E11_S03/research-synthesis.md",
-  "updated_at": "2026-05-15T21:32:29Z"
+  "updated_at": "2026-05-15T21:43:07Z"
 }
