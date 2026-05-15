@@ -537,6 +537,24 @@ def perform_directory_swap(
             f"staging path {staging_path} does not exist; nothing "
             f"to promote"
         )
+    # Closes adversary F8: `os.rename` raises `OSError: EXDEV`
+    # across filesystem boundaries. The atomic-swap contract
+    # depends on same-FS renames; surface the constraint as a
+    # `CutoverError` with an actionable message rather than a
+    # raw OSError after the criterion checks have already run.
+    active_dev = os.stat(active_path).st_dev
+    staging_dev = os.stat(staging_path).st_dev
+    rollback_parent_dev = os.stat(rollback_path.parent).st_dev
+    if not (active_dev == staging_dev == rollback_parent_dev):
+        raise CutoverError(
+            f"cross-filesystem swap refused: active={active_path} "
+            f"on st_dev={active_dev}, staging={staging_path} on "
+            f"st_dev={staging_dev}, rollback parent="
+            f"{rollback_path.parent} on st_dev={rollback_parent_dev}. "
+            f"The atomic rename contract requires all three paths "
+            f"on the SAME filesystem. Move staging/active to a "
+            f"common mount before retrying."
+        )
     os.rename(active_path, rollback_path)
     try:
         os.rename(staging_path, active_path)
@@ -628,10 +646,20 @@ def poll_readyz(
 def run_post_activation_watchdog(
     *,
     active_path: Path = DEFAULT_LANCEDB_PATH,
+    report_dir: Path = DEFAULT_WATCHDOG_REPORT_DIR,
+    ndcg5_min: float = NDCG5_MIN,
     runner=subprocess.run,
 ) -> CriterionResult:
     """Invoke `python -m ops.watchdog_eval` against the now-
     active LanceDB. AC5: nDCG@5 ≥ 0.80 on 200K corpus.
+
+    Closes adversary F2: the watchdog's exit code only reflects
+    a RELATIVE regression check. AC5's stated job is an
+    ABSOLUTE floor (`nDCG@5 ≥ 0.80`). After the watchdog
+    subprocess completes, we read its newest report from
+    ``report_dir`` and assert ``ndcg5_mean >= ndcg5_min``
+    additionally — `exit 0 AND ndcg5_mean >= floor` is the
+    pass condition.
     """
     name = "AC5: post-activation watchdog"
     completed = runner(
@@ -646,17 +674,86 @@ def run_post_activation_watchdog(
         capture_output=True,
         text=True,
     )
-    if completed.returncode == 0:
+    if completed.returncode != 0:
         return CriterionResult(
-            name=name, ok=True, reason="exit 0"
+            name=name,
+            ok=False,
+            reason=(
+                f"watchdog exited {completed.returncode}; "
+                f"stderr={completed.stderr.strip()[:200]}"
+            ),
+        )
+    # F2 fix: read the freshly-written report and check the
+    # absolute floor. The watchdog writes
+    # corpus_v<N>-<ts>.json into report_dir; we pick the
+    # most-recently-modified file as the run we just executed.
+    if not report_dir.is_dir():
+        return CriterionResult(
+            name=name,
+            ok=False,
+            reason=(
+                f"watchdog reported exit 0 but report_dir "
+                f"{report_dir} is missing"
+            ),
+        )
+    candidates = sorted(
+        (p for p in report_dir.iterdir()
+         if p.is_file() and p.name.startswith("corpus_v")
+         and p.suffix == ".json"),
+        key=lambda p: p.stat().st_mtime,
+    )
+    if not candidates:
+        return CriterionResult(
+            name=name,
+            ok=False,
+            reason=(
+                f"watchdog reported exit 0 but no report files "
+                f"found in {report_dir}"
+            ),
+        )
+    latest = candidates[-1]
+    try:
+        report = json.loads(latest.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        return CriterionResult(
+            name=name,
+            ok=False,
+            reason=f"watchdog report at {latest} is malformed: {exc}",
+        )
+    ndcg = report.get("ndcg5_mean")
+    if not isinstance(ndcg, (int, float)):
+        # An underpowered run has ndcg5_mean=null; treat as
+        # pass-by-skip (the run wasn't a real measurement).
+        if report.get("underpowered") or report.get("query_count") == 0:
+            return CriterionResult(
+                name=name,
+                ok=True,
+                reason=(
+                    "watchdog reported underpowered run "
+                    "(fixture too small for absolute floor check)"
+                ),
+            )
+        return CriterionResult(
+            name=name,
+            ok=False,
+            reason=(
+                f"watchdog report at {latest} has no numeric "
+                f"ndcg5_mean"
+            ),
+        )
+    if ndcg < ndcg5_min:
+        return CriterionResult(
+            name=name,
+            ok=False,
+            reason=(
+                f"post-activation ndcg5_mean={ndcg:.4f} < "
+                f"{ndcg5_min} (see {latest})"
+            ),
         )
     return CriterionResult(
         name=name,
-        ok=False,
-        reason=(
-            f"watchdog exited {completed.returncode}; "
-            f"stderr={completed.stderr.strip()[:200]}"
-        ),
+        ok=True,
+        reason=f"ndcg5_mean={ndcg:.4f} (see {latest})",
     )
 
 

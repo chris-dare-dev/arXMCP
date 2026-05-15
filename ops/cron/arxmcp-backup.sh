@@ -57,6 +57,10 @@ if [ ! -f "${ENV_FILE}" ]; then
          "ops/restic-env.sh.template and fill in." >&2
     exit 1
 fi
+# Closes adversary F5 / infra-safety IS3: always run the
+# connectivity probe in production. The previous opt-in via
+# ARXMCP_RESTIC_CHECK was unreachable from the wrapper.
+export ARXMCP_RESTIC_CHECK=1
 source "${ENV_FILE}"
 
 STATUS_FILE="'"${REPO_ROOT}"'/var/arxmcp/ops/backup-status.json"
@@ -70,6 +74,13 @@ BACKUP_PATHS=(
 )
 
 # Run the backup. Exclude transient artifacts.
+#
+# Closes infra-safety IS4: capture restic's exit code
+# explicitly. restic exits 3 on PARTIAL success (some files
+# unreadable, e.g. hot LanceDB compaction). Treat exit 3 as
+# partial — sentinel records "status: partial" so the
+# operator can distinguish it from total failure.
+set +e
 SNAPSHOT_JSON="$(restic backup \
     --exclude "*.lock" \
     --exclude "*.tmp" \
@@ -77,35 +88,94 @@ SNAPSHOT_JSON="$(restic backup \
     --json \
     "${BACKUP_PATHS[@]}" \
     | tail -n 1)"
+RESTIC_BACKUP_EXIT=$?
+set -e
+if [ "${RESTIC_BACKUP_EXIT}" -ne 0 ] && [ "${RESTIC_BACKUP_EXIT}" -ne 3 ]; then
+    echo "ERROR: restic backup failed (exit ${RESTIC_BACKUP_EXIT})" >&2
+    exit "${RESTIC_BACKUP_EXIT}"
+fi
 
 # Extract the snapshot ID via python (avoids a `jq` dep).
 SNAPSHOT_ID="$(echo "${SNAPSHOT_JSON}" | python3 -c \
     "import json,sys; print(json.loads(sys.stdin.read())[\"snapshot_id\"][:8])")"
 
-FINISHED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-
-# Apply retention policy AFTER the backup, not before.
-restic forget --prune \
-    --keep-daily 7 \
-    --keep-weekly 4 \
-    --keep-monthly 12
-
-# Write the sentinel atomically.
+# Closes adversary F4 / infra-safety IS2: write a PARTIAL
+# sentinel before invoking forget. Without this, a forget
+# failure aborts the script (set -euo pipefail) and the
+# operator sees yesterdays sentinel — no record of todays
+# successful backup. The two-phase write surfaces partial
+# success.
+BACKUP_STATUS="success"
+if [ "${RESTIC_BACKUP_EXIT}" -eq 3 ]; then
+    BACKUP_STATUS="partial"
+fi
 cat > "${TMP_STATUS}" <<EOF
 {
-  "finished_at": "${FINISHED_AT}",
   "paths_backed_up": [
     "'"${REPO_ROOT}"'/var/arxmcp/index/lancedb",
     "'"${REPO_ROOT}"'/var/arxmcp/index/kuzu",
     "'"${REPO_ROOT}"'/var/arxmcp/corpus/chunks"
   ],
   "repository": "${RESTIC_REPOSITORY}",
+  "restic_backup_exit": ${RESTIC_BACKUP_EXIT},
   "snapshot_id": "${SNAPSHOT_ID}",
   "started_at": "${STARTED_AT}",
-  "status": "success"
+  "status": "backup_complete_forget_pending",
+  "backup_status": "${BACKUP_STATUS}"
 }
 EOF
 mv "${TMP_STATUS}" "${STATUS_FILE}"
 
-echo "restic backup complete: snapshot=${SNAPSHOT_ID}"
+# Apply retention policy AFTER the backup, not before. If
+# forget fails, the partial sentinel above remains as the
+# durable record of the backups success.
+set +e
+restic forget --prune \
+    --keep-daily 7 \
+    --keep-weekly 4 \
+    --keep-monthly 12
+RESTIC_FORGET_EXIT=$?
+set -e
+
+# Closes infra-safety IS6: capture FINISHED_AT after the
+# forget step so the sentinel reflects the actual end of
+# the operation, not just the backup phase.
+FINISHED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+FORGET_STATUS="success"
+if [ "${RESTIC_FORGET_EXIT}" -ne 0 ]; then
+    FORGET_STATUS="failed"
+fi
+
+# Overwrite with the final status. backup_status is preserved
+# so a partial backup remains visible even after forget OK.
+FINAL_STATUS="success"
+if [ "${BACKUP_STATUS}" != "success" ] || [ "${FORGET_STATUS}" != "success" ]; then
+    FINAL_STATUS="backup_${BACKUP_STATUS}_forget_${FORGET_STATUS}"
+fi
+cat > "${TMP_STATUS}" <<EOF
+{
+  "backup_status": "${BACKUP_STATUS}",
+  "finished_at": "${FINISHED_AT}",
+  "forget_status": "${FORGET_STATUS}",
+  "paths_backed_up": [
+    "'"${REPO_ROOT}"'/var/arxmcp/index/lancedb",
+    "'"${REPO_ROOT}"'/var/arxmcp/index/kuzu",
+    "'"${REPO_ROOT}"'/var/arxmcp/corpus/chunks"
+  ],
+  "repository": "${RESTIC_REPOSITORY}",
+  "restic_backup_exit": ${RESTIC_BACKUP_EXIT},
+  "restic_forget_exit": ${RESTIC_FORGET_EXIT},
+  "snapshot_id": "${SNAPSHOT_ID}",
+  "started_at": "${STARTED_AT}",
+  "status": "${FINAL_STATUS}"
+}
+EOF
+mv "${TMP_STATUS}" "${STATUS_FILE}"
+
+if [ "${FINAL_STATUS}" = "success" ]; then
+    echo "restic backup complete: snapshot=${SNAPSHOT_ID}"
+else
+    echo "restic backup partial: status=${FINAL_STATUS} snapshot=${SNAPSHOT_ID}" >&2
+fi
 '

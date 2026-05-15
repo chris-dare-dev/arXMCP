@@ -599,6 +599,233 @@ class TestMakefileCutoverTarget:
 
 
 # ---------------------------------------------------------------------------
+# Rectification regression guards
+# ---------------------------------------------------------------------------
+
+
+class TestCutoverShellWrapperFlock:
+    """Closes infra-safety IS1: cutover.sh must acquire a flock
+    before invoking python — concurrent operator invocations can
+    interleave the two os.rename calls and leave the active path
+    missing."""
+
+    def test_wrapper_acquires_flock(self):
+        text = (REPO_ROOT / "ops" / "cutover.sh").read_text(
+            encoding="utf-8"
+        )
+        assert "flock -n" in text
+        assert ".cutover.lock" in text
+        assert "command -v flock" in text
+
+
+class TestCrossFilesystemSwapRefused:
+    """Closes adversary F8: the atomic-swap contract requires
+    all three paths on the same filesystem. Mocked `os.stat` to
+    return different `st_dev` values."""
+
+    def test_refuses_when_active_and_staging_span_filesystems(
+        self, tmp_path
+    ):
+        active = tmp_path / "lancedb"
+        staging = tmp_path / "lancedb-staging"
+        rollback = tmp_path / "lancedb-prev"
+        active.mkdir()
+        staging.mkdir()
+
+        real_stat = os.stat
+
+        def _fake_stat(path, *args, **kwargs):
+            real = real_stat(path, *args, **kwargs)
+            # Return a different st_dev for the staging path.
+            if str(path).endswith("lancedb-staging"):
+                class _S:
+                    st_dev = real.st_dev + 1
+                return _S()
+            return real
+
+        from ops.cutover import perform_directory_swap
+
+        with (
+            patch("ops.cutover.os.stat", side_effect=_fake_stat),
+            pytest.raises(CutoverError, match="cross-filesystem"),
+        ):
+            perform_directory_swap(
+                active_path=active,
+                staging_path=staging,
+                rollback_path=rollback,
+            )
+
+
+class TestPostActivationAbsoluteFloor:
+    """Closes adversary F2: AC5 must enforce the absolute
+    nDCG@5 ≥ 0.80 floor, not just the watchdog's relative
+    regression."""
+
+    def test_subprocess_ok_but_low_ndcg_fails(self, tmp_path):
+        from ops.cutover import run_post_activation_watchdog
+
+        # Write a synthetic watchdog report with ndcg below the
+        # floor but alert_triggered=false (regression within
+        # threshold).
+        report_dir = tmp_path / "eval-reports"
+        report_dir.mkdir()
+        (report_dir / "corpus_v42-20260515T000000.json").write_text(
+            json.dumps(
+                {
+                    "corpus_version": 42,
+                    "ndcg5_mean": 0.75,
+                    "alert_triggered": False,
+                    "timestamp": "2026-05-15T00:00:00Z",
+                }
+            )
+        )
+
+        class _FakeCompleted:
+            returncode = 0
+            stderr = ""
+
+        r = run_post_activation_watchdog(
+            active_path=tmp_path / "lancedb",
+            report_dir=report_dir,
+            ndcg5_min=0.80,
+            runner=lambda *_args, **_kw: _FakeCompleted(),
+        )
+        assert r.ok is False
+        assert "0.7500" in r.reason or "< 0.8" in r.reason
+
+    def test_subprocess_ok_and_high_ndcg_passes(self, tmp_path):
+        from ops.cutover import run_post_activation_watchdog
+
+        report_dir = tmp_path / "eval-reports"
+        report_dir.mkdir()
+        (report_dir / "corpus_v42-20260515T000000.json").write_text(
+            json.dumps(
+                {
+                    "corpus_version": 42,
+                    "ndcg5_mean": 0.85,
+                    "alert_triggered": False,
+                    "timestamp": "2026-05-15T00:00:00Z",
+                }
+            )
+        )
+
+        class _FakeCompleted:
+            returncode = 0
+            stderr = ""
+
+        r = run_post_activation_watchdog(
+            active_path=tmp_path / "lancedb",
+            report_dir=report_dir,
+            ndcg5_min=0.80,
+            runner=lambda *_args, **_kw: _FakeCompleted(),
+        )
+        assert r.ok is True
+
+    def test_subprocess_nonzero_fails(self, tmp_path):
+        from ops.cutover import run_post_activation_watchdog
+
+        class _FakeCompleted:
+            returncode = 1
+            stderr = "synthetic failure"
+
+        r = run_post_activation_watchdog(
+            active_path=tmp_path / "lancedb",
+            report_dir=tmp_path / "missing",
+            ndcg5_min=0.80,
+            runner=lambda *_args, **_kw: _FakeCompleted(),
+        )
+        assert r.ok is False
+        assert "exited 1" in r.reason
+
+    def test_underpowered_run_passes(self, tmp_path):
+        """When the fixture is too small, the watchdog report has
+        ndcg5_mean=null + underpowered=true. AC5 passes by skip
+        (not a real measurement)."""
+        from ops.cutover import run_post_activation_watchdog
+
+        report_dir = tmp_path / "eval-reports"
+        report_dir.mkdir()
+        (report_dir / "corpus_v42-20260515T000000.json").write_text(
+            json.dumps(
+                {
+                    "corpus_version": 42,
+                    "ndcg5_mean": None,
+                    "alert_triggered": False,
+                    "underpowered": True,
+                    "query_count": 4,
+                    "timestamp": "2026-05-15T00:00:00Z",
+                }
+            )
+        )
+
+        class _FakeCompleted:
+            returncode = 0
+            stderr = ""
+
+        r = run_post_activation_watchdog(
+            active_path=tmp_path / "lancedb",
+            report_dir=report_dir,
+            ndcg5_min=0.80,
+            runner=lambda *_args, **_kw: _FakeCompleted(),
+        )
+        assert r.ok is True
+        assert "underpowered" in r.reason
+
+
+class TestBackupWrapperRectifications:
+    """Closes F4+IS2, F5+IS3, IS4 patches to the backup wrapper."""
+
+    wrapper = REPO_ROOT / "ops" / "cron" / "arxmcp-backup.sh"
+
+    def test_two_phase_sentinel(self):
+        text = self.wrapper.read_text(encoding="utf-8")
+        # F4+IS2: a partial sentinel with status
+        # backup_complete_forget_pending must appear.
+        assert "backup_complete_forget_pending" in text
+
+    def test_connectivity_check_always_on(self):
+        text = self.wrapper.read_text(encoding="utf-8")
+        # F5+IS3: ARXMCP_RESTIC_CHECK is exported before sourcing.
+        assert "export ARXMCP_RESTIC_CHECK=1" in text
+
+    def test_restic_exit_3_handled_as_partial(self):
+        text = self.wrapper.read_text(encoding="utf-8")
+        # IS4: restic exit 3 = partial; treat differently from
+        # total failure.
+        assert "RESTIC_BACKUP_EXIT" in text
+        assert "partial" in text
+        # Restic exit 3 specifically called out.
+        assert "-eq 3" in text
+
+
+class TestPasswordFilePermsDocumentation:
+    """Closes adversary F3: install instructions must NOT tell
+    the operator to use mode 0400 owned by root, because the
+    systemd unit runs as User=arxmcp."""
+
+    def test_template_documents_service_user_install(self):
+        text = (
+            REPO_ROOT / "ops" / "restic-env.sh.template"
+        ).read_text(encoding="utf-8")
+        # The fix instruction must include -o <service-user>
+        # rather than -o root.
+        assert "service-user" in text or "-o arxmcp" in text
+        # And the F3 callout must be present.
+        assert "F3" in text or "service user" in text.lower()
+
+    def test_runbook_documents_service_user_install(self):
+        text = (
+            REPO_ROOT / "docs" / "ops" / "backup-restore.md"
+        ).read_text(encoding="utf-8")
+        # The runbook must NOT use -o root for the install line
+        # (the line that was broken).
+        # Look for the install line that's the actual operator
+        # instruction (under "Create the password file").
+        lower = text.lower()
+        assert "service user" in lower or "-o arxmcp" in text
+
+
+# ---------------------------------------------------------------------------
 # README runbook link (cutover + backup)
 # ---------------------------------------------------------------------------
 

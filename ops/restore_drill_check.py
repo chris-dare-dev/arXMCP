@@ -31,16 +31,62 @@ def _utc_iso() -> str:
     return _dt.datetime.now(_dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _locate_lancedb_root(restore_path: Path) -> Path | None:
+    """Find the restored LanceDB root by searching for
+    ``corpus-version.json`` under ``restore_path``.
+
+    Closes adversary F1: restic preserves absolute source
+    paths under ``--target``. A backup of
+    ``/opt/arxmcp/var/arxmcp/index/lancedb`` restored to
+    ``/tmp/arxmcp-restore-drill/`` lands at
+    ``/tmp/arxmcp-restore-drill/opt/arxmcp/var/arxmcp/index/lancedb``.
+    Hardcoding ``restore_path / "var" / "arxmcp" / ...`` misses
+    this entirely. Searching for the marker is path-prefix-
+    agnostic.
+    """
+    marker = "corpus-version.json"
+    # Prefer the shallowest match (closest to restore_path) in
+    # case there are multiple corpora under the snapshot.
+    candidates = sorted(
+        restore_path.rglob(marker),
+        key=lambda p: len(p.parts),
+    )
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate.parent
+    return None
+
+
+def _locate_kuzu_root(restore_path: Path) -> Path | None:
+    """Find the restored Kùzu graph by searching for the
+    canonical ``var/arxmcp/index/kuzu`` segment under
+    ``restore_path``. Returns ``None`` if no Kùzu directory
+    was captured.
+
+    Closes adversary F1 (Kùzu half).
+    """
+    # Kùzu doesn't have a single canonical marker file, so we
+    # look for the directory name. Filter to directories whose
+    # immediate parent is the expected ``index/`` so we don't
+    # match arbitrary "kuzu" directories the operator may have
+    # added under the snapshot.
+    for entry in restore_path.rglob("kuzu"):
+        if entry.is_dir() and entry.parent.name == "index":
+            return entry
+    return None
+
+
 def smoke_check_lancedb(restore_path: Path) -> int:
     """Open the restored LanceDB and return chunk row count.
 
-    Raises ``RuntimeError`` if the directory is missing, the
+    Raises ``RuntimeError`` if the LanceDB is missing, the
     chunks table can't be opened, or the row count is 0.
     """
-    lancedb_path = restore_path / "var" / "arxmcp" / "index" / "lancedb"
-    if not lancedb_path.is_dir():
+    lancedb_path = _locate_lancedb_root(restore_path)
+    if lancedb_path is None:
         raise RuntimeError(
-            f"restored LanceDB missing at {lancedb_path}"
+            f"restored LanceDB missing under {restore_path} "
+            f"(no corpus-version.json found via rglob)"
         )
     from server.corpus import (  # noqa: PLC0415
         open_chunks_table,
@@ -63,8 +109,8 @@ def smoke_check_lancedb(restore_path: Path) -> int:
             f"has zero rows"
         )
     logger.info(
-        "restore_drill: LanceDB ok (%d rows at v%d)",
-        row_count, info.version,
+        "restore_drill: LanceDB ok (%d rows at v%d) at %s",
+        row_count, info.version, lancedb_path,
     )
     return row_count
 
@@ -75,12 +121,15 @@ def smoke_check_kuzu(restore_path: Path) -> int | None:
     Returns ``None`` if the Kùzu directory is absent (acceptable
     — some restore paths may exclude the citation graph). Raises
     ``RuntimeError`` if the directory exists but is unreadable.
+
+    Closes adversary F1 (Kùzu half): finds the Kùzu directory
+    via rglob rather than hardcoding the path prefix.
     """
-    kuzu_path = restore_path / "var" / "arxmcp" / "index" / "kuzu"
-    if not kuzu_path.is_dir():
+    kuzu_path = _locate_kuzu_root(restore_path)
+    if kuzu_path is None:
         logger.info(
-            "restore_drill: Kùzu directory absent at %s — skipping",
-            kuzu_path,
+            "restore_drill: Kùzu directory absent under %s — skipping",
+            restore_path,
         )
         return None
     try:

@@ -56,10 +56,20 @@ owned, mode 0400).
 2. **Edit `ops/restic-env.sh`** to set `RESTIC_REPOSITORY` and,
    for B2 backend, `B2_ACCOUNT_ID` / `B2_ACCOUNT_KEY`.
 
-3. **Create the password file:**
+3. **Create the password file** — owned by the SERVICE user
+   (the value of `User=` in `ops/systemd/arxmcp-backup.service`),
+   NOT root. A root-owned mode-0400 file is unreadable by any
+   non-root user, including the `arxmcp` service user.
    ```bash
-   sudo install -m 0400 -o root /dev/stdin /etc/arxmcp/restic-password <<< "your-strong-password-here"
+   # Linux production (service user = "arxmcp"):
+   sudo install -m 0400 -o arxmcp -g arxmcp /dev/stdin \
+       /etc/arxmcp/restic-password <<< "your-strong-password-here"
+
+   # macOS dev (you are the service user — plain owner):
+   install -m 0400 /dev/stdin ~/.config/arxmcp/restic-password \
+       <<< "your-strong-password-here"
    ```
+   Point `RESTIC_PASSWORD_FILE` at the resulting path.
 
 4. **Initialize the repository (one-time):**
    ```bash

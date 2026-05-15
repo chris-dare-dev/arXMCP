@@ -68,13 +68,6 @@ class TestSmokeCheckLancedb:
         with pytest.raises(RuntimeError, match="missing"):
             smoke_check_lancedb(tmp_path / "restore")
 
-    def test_raises_when_marker_missing(self, tmp_path):
-        # The directory exists but the marker doesn't.
-        lancedb = tmp_path / "var" / "arxmcp" / "index" / "lancedb"
-        lancedb.mkdir(parents=True)
-        with pytest.raises(RuntimeError, match="corpus-version.json"):
-            smoke_check_lancedb(tmp_path)
-
     def test_passes_with_mocked_table(self, tmp_path):
         """Synthetic: stub read_corpus_version + open_chunks_table
         so the smoke check verifies the integration shape without
@@ -133,6 +126,48 @@ class TestSmokeCheckLancedb:
             pytest.raises(RuntimeError, match="zero rows"),
         ):
             smoke_check_lancedb(tmp_path)
+
+    def test_finds_lancedb_under_absolute_path_prefix(self, tmp_path):
+        """Closes adversary F1: restic restores preserve the
+        absolute source path under --target. The check must
+        find the LanceDB even when it's nested deep under
+        ``<restore>/opt/arxmcp/var/arxmcp/index/lancedb`` rather
+        than at the previously-hardcoded
+        ``<restore>/var/arxmcp/index/lancedb``."""
+        # Simulate the post-restore layout for a backup of
+        # /opt/arxmcp/var/arxmcp/index/lancedb restored to
+        # tmp_path.
+        deep = tmp_path / "opt" / "arxmcp" / "var" / "arxmcp" / "index" / "lancedb"
+        deep.mkdir(parents=True)
+        (deep / "corpus-version.json").write_text(
+            json.dumps(
+                {
+                    "version": 42,
+                    "chunker_version": "v1.0",
+                    "embedder_version": "bge-m3@x",
+                }
+            )
+        )
+
+        class _FakeInfo:
+            version = 42
+
+        class _FakeTable:
+            def count_rows(self):
+                return 999
+
+        with (
+            patch(
+                "server.corpus.read_corpus_version",
+                return_value=_FakeInfo(),
+            ),
+            patch(
+                "server.corpus.open_chunks_table",
+                return_value=_FakeTable(),
+            ),
+        ):
+            rows = smoke_check_lancedb(tmp_path)
+        assert rows == 999
 
 
 # ---------------------------------------------------------------------------

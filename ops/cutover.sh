@@ -33,4 +33,21 @@ else
     exit 1
 fi
 
-exec "${UV_BIN}" run python -m ops.cutover "$@"
+# Closes infra-safety IS1: cutover is human-initiated, but two
+# concurrent invocations (tmux split, retry typo, systemd
+# accidental trigger) can interleave between the two os.rename
+# calls in perform_directory_swap and leave the active path
+# missing. flock -n closes the window.
+if ! command -v flock >/dev/null 2>&1; then
+    echo "ERROR: flock not found on PATH. flock(1) is part of " \
+         "util-linux:" >&2
+    echo "  macOS: brew install flock" >&2
+    echo "  Linux: pre-installed via util-linux" >&2
+    exit 1
+fi
+
+LOCK_PATH="${REPO_ROOT}/var/arxmcp/ops/.cutover.lock"
+mkdir -p "$(dirname "${LOCK_PATH}")"
+
+exec flock -n "${LOCK_PATH}" \
+    "${UV_BIN}" run python -m ops.cutover "$@"

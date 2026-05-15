@@ -24,10 +24,21 @@ export RESTIC_REPOSITORY=""
 # -----------------------------------------------------------------------------
 # REQUIRED: password file
 # -----------------------------------------------------------------------------
-# Path to a root-readable file containing the encryption password.
+# Path to a file containing the encryption password.
 # DO NOT use RESTIC_PASSWORD directly — process lists expose env vars.
-# Recommended: create the file with mode 0400:
-#   sudo install -m 0400 -o root /dev/stdin /etc/arxmcp/restic-password
+#
+# Closes adversary F3: the systemd unit runs as `User=arxmcp` (or
+# whatever the operator substituted). A mode-0400 file owned by
+# root would be unreadable by the service user. Install the
+# password file OWNED by the service user, NOT root:
+#
+#   sudo install -m 0400 -o <service-user> -g <service-group> \
+#       /dev/stdin /etc/arxmcp/restic-password <<< "your-passphrase"
+#
+# Adjust `<service-user>` to match the `User=` line in
+# `ops/systemd/arxmcp-backup.service`. On macOS dev where the
+# operator IS the service user, plain mode 0400 owned by you is
+# sufficient.
 export RESTIC_PASSWORD_FILE="/etc/arxmcp/restic-password"
 
 # -----------------------------------------------------------------------------
