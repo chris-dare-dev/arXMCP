@@ -13,6 +13,7 @@
   "external_writes_authorized": false,
   "external_writes_completed": false,
   "external_writes_required": [],
+  "feat_commit": "478cd44",
   "fixed_findings": [],
   "id": "E11_S02",
   "implementation_base": null,
@@ -21,9 +22,9 @@
   "implementation_commits": [],
   "implementation_path": null,
   "implementation_specialist": null,
-  "invalidated_findings": [],
+  "invalidated_findings": 0,
   "milestone_brief": "### E11_S02 \u2014 OAI-PMH delta loop\n\n**Status:** NEW\n**Tier:** 5\n**Effort:** L\n**Dependencies:** E11_S01\n\n**Description.** Implement the nightly OAI-PMH delta loop that keeps the corpus current after the initial bulk ingest. The OAI-PMH endpoint (`http://export.arxiv.org/oai2`) supports date-range filtering via `from`/`until` parameters and category filtering via `set=math` or `set=physics:hep-th`. Each nightly run harvests the previous day's new and updated papers, queues them for the per-paper pipeline (ar5iv \u2192 LaTeXML \u2192 Nougat \u2192 normalize \u2192 chunk \u2192 embed \u2192 write), and produces a new `corpus_version` integer.\n\nThe existing 3-second-per-IP politeness delay in `tools/arxiv_fetch.py` (shipped in commits `c486b26` and `01c6579`) is preserved and extended to the OAI-PMH harvester. The OAI-PMH protocol itself requires a `from`/`until` windowed approach with resumption tokens \u2014 the harvester must handle resumption tokens correctly, persisting the last-seen token in `ops/oai-pmh-state.json` so a crash mid-harvest can resume from where it left off.\n\n**Latency budget per delta run:** the nightly run must complete within 90 minutes for a typical day's delta (200\u2013500 new papers across the four subjects). At 3 seconds per fetch, 500 papers = 25 minutes fetch time. ar5iv cache hits reduce the parse time to near zero. The embedding step dominates: ~1 second per paper on GPU = ~8 minutes for 500 papers. The 90-minute budget is generous; the hard constraint is that the run finishes before the next nightly run begins. A run that exceeds 90 minutes triggers an alert in the ops log.\n\nEach completed delta run produces a new corpus version. The ingestion process writes the new version to a fresh LanceDB directory, updates `corpus-version.json`, and signals the MCP server via a filesystem touch of `/var/arxmcp/ops/new-version-ready`. The MCP server does NOT auto-reload \u2014 a human or ops script must restart it to pick up the new version. This is intentional: agents in the middle of a session expect index stability (`.claude/notes/06-mcp-server-design.md` lines 346\u2013354).\n\nThe delta loop is registered as a systemd timer (or cron job) at 02:00 local time daily. The timer unit files are in `ops/systemd/`.\n\n**Deliverables.**\n- `ingest/oai_delta.py` \u2014 OAI-PMH harvester: date-range query, resumption-token handling, category filter, per-paper queue feed; respects 3-second politeness delay\n- `ops/oai-pmh-state.json` \u2014 persistent state file: last successful harvest date, last resumption token\n- `ops/systemd/arxmcp-delta.service` and `arxmcp-delta.timer` \u2014 systemd unit files for nightly scheduling\n- `docs/ops/delta-loop.md` \u2014 operator documentation: how the delta loop works, how to trigger a manual run, how to check status, the 90-minute budget\n- `tests/test_oai_delta.py` \u2014 unit test with a mocked OAI-PMH endpoint: validates resumption-token handling, politeness delay, and that a successful run increments `corpus_version`\n\n**Acceptance criteria.**\n- [ ] A simulated delta run against a mocked OAI-PMH endpoint completes and writes a new corpus version\n- [ ] Resumption-token state is persisted to `ops/oai-pmh-state.json` after each harvested page\n- [ ] A mock run of 500 papers completes within the 90-minute budget (simulated with sleep=0)\n- [ ] The 3-second politeness delay between per-paper fetches is verifiable in logs (or via mock timer)\n- [ ] `pytest tests/test_oai_delta.py` passes\n- [ ] `docs/ops/delta-loop.md` states the 90-minute latency budget explicitly\n\n**Out of scope.** Automatic MCP server restart on new corpus version (human-in-the-loop by design). Real-time ingestion (nightly cadence is sufficient). Withdrawn-paper handling beyond setting `withdrawn=true` in the metadata.\n\n**Risk notes.**\n- Closes MEDIUM: arXiv 429 backoff (latency budget) \u2014 documenting the 90-minute latency budget and preserving the 3-second per-IP politeness delay closes the finding that the design lacked a quantified latency target for the delta loop. The politeness constraint already prevents 429 responses; the budget ensures the daily window is met.\n\n**Labels.** `area:ingest`, `kind:feature`, `tier:5`\n\n---",
-  "phase": "rectify-running",
+  "phase": "complete",
   "phase_history": [
     {
       "entered_at": "2026-05-15T19:48:33Z",
@@ -31,6 +32,7 @@
       "phase": "init"
     }
   ],
+  "rect_commit": "2e0bcdd",
   "rectification_commit": null,
   "regression_tests_added": [],
   "research_briefs": [
@@ -45,5 +47,5 @@
   ],
   "research_mode": "standard",
   "research_synthesis": ".claude/notes/milestones/E11_S02/research-synthesis.md",
-  "updated_at": "2026-05-15T20:22:45Z"
+  "updated_at": "2026-05-15T20:33:28Z"
 }
