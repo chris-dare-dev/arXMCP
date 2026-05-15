@@ -30,7 +30,7 @@
   "implementation_specialist": null,
   "invalidated_findings": [],
   "milestone_brief": "### E10_S04 \u2014 LaTeXML version drift detector\n\n**Status:** NEW\n**Tier:** 4\n**Effort:** S\n**Dependencies:** E10_S03\n\n**Description.** LaTeXML version upgrades silently change the MathML output byte-for-byte \u2014 a `\\frac{a}{b}` rendered by LaTeXML 0.8.7 produces different MathML than the same expression rendered by LaTeXML 0.8.8. This breaks the equation TED index (E10_S03): the stored `mathml_tree_pickle` values are no longer bit-comparable to freshly rendered query inputs, causing silent retrieval degradation with no error signal.\n\nImplement a cron-driven drift detector: a daily job that re-renders 5 fixture papers using the current LaTeXML container image and compares the MathML output byte-for-byte against the stored values in the `equations` table. If any MathML string differs, the detector logs an alert at ERROR level and emits a Prometheus counter `arxmcp_latexml_drift_detected_total`. The 5 fixture papers are selected to cover a range of math complexity (simple fractions, multi-line aligned environments, commutative diagrams in tikz-cd, summation notation, integral notation) and are checked in to `tests/fixtures/latexml-drift/`.\n\nWhen drift is detected, the runbook is:\n1. Pull the new LaTeXML container image tag and record it in `ops/latexml-version.txt`.\n2. Run `python -m ingest.index_equations --rerender-all` to re-render all stored MathML and rebuild the `mathml_tree_pickle` column. This is a full table rewrite and takes approximately 30 minutes for the 50-paper seed corpus, proportionally longer for the full corpus.\n3. Run `pytest tests/test_equation_index.py` to verify the rebuilt index.\n4. Restart the MCP server to pick up the new index version.\n\nThe runbook is documented in `docs/ops/latexml-drift-runbook.md`. The cron job is registered in `ops/cron/latexml-drift-check.sh` and documented in `docs/ops/cron-jobs.md`.\n\n**Deliverables.**\n- `ops/cron/latexml-drift-check.sh` \u2014 daily cron script: re-renders 5 fixture papers, diffs MathML, alerts on any difference\n- `tests/fixtures/latexml-drift/` \u2014 5 fixture `.tex` files + their expected MathML outputs (pinned to current LaTeXML version)\n- `docs/ops/latexml-drift-runbook.md` \u2014 step-by-step reindex runbook with timing estimates\n- `server/metrics.py` \u2014 updated with `arxmcp_latexml_drift_detected_total` counter\n\n**Acceptance criteria.**\n- [ ] Running the drift-check script against the current LaTeXML image produces zero alerts (no drift)\n- [ ] Manually modifying a fixture's expected MathML causes the script to exit non-zero and emit an ERROR log\n- [ ] `arxmcp_latexml_drift_detected_total` increments when drift is detected (verifiable via test)\n- [ ] `docs/ops/latexml-drift-runbook.md` includes timing estimates for the 50-paper seed corpus and the 200K-paper full corpus\n\n**Out of scope.** Automatic reindex on drift detection (runbook is manual in v1 \u2014 reindexing requires human confirmation). LaTeXML version pinning in the container image (separate ops concern).\n\n**Risk notes.**\n- Closes MEDIUM: LaTeXML version drift \u2014 without this detector, a LaTeXML container update silently corrupts the equation TED index and degrades `find_equation` retrieval quality with no observable error. The 5-fixture daily re-render is cheap (~10 seconds) and provides a strong early warning.\n\n**Labels.** `area:ops`, `kind:observability`, `tier:4`\n# E11 \u2014 Scale Cutover\n\nEpic dependencies: E07_S04 (nDCG@5 \u2265 0.80 on seed corpus \u2014 Tier-1 exit gate), E08 (agent runtime and caching shipped), E10 (specialized indices shipped)\n\nGoal: Grow the corpus from 50 papers to ~200K papers across math.AG, math.NT, math-ph, and hep-th, without re-architecting the system. The cutover is a data operation: seed download via Academic Torrents, followed by nightly OAI-PMH delta ingestion. The existing MCP server, retrieval pipeline, and agent runtime require no structural changes \u2014 only the LanceDB corpus version increments. A set of operational safeguards (re-embed cost budget, drift watchdog, backup/restore, and explicit activation criteria) ensures the cutover is reversible and observable.\n\nEffort: L + L + M + M + M = XL total\n\nReferences: `.claude/notes/03-ingestion-pipeline.md` lines 1\u2013209, `.claude/notes/05-storage-and-indexing.md` lines 139\u2013155\n\n---",
-  "phase": "rectify-running",
+  "phase": "complete",
   "phase_history": [
     {
       "entered_at": "2026-05-14T23:53:36Z",
@@ -69,11 +69,37 @@
     },
     {
       "entered_at": "2026-05-15T01:53:55Z",
-      "left_at": null,
+      "left_at": "2026-05-15T02:02:10Z",
       "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-05-15T02:02:10Z",
+      "left_at": null,
+      "phase": "complete"
     }
   ],
   "rectification_commit": null,
+  "rectify_commit": "8c3da35de18f5d9b341d7627d8822588a241c4c7",
+  "rectify_findings_deferred": [],
+  "rectify_findings_fixed": [
+    "F1",
+    "F2",
+    "F3",
+    "F4",
+    "F5",
+    "F6",
+    "F7",
+    "F8",
+    "F9",
+    "F10"
+  ],
+  "rectify_findings_invalidated": [],
+  "rectify_regression_tests": [
+    "test_cli_exits_zero_on_no_drift",
+    "test_update_fixtures_refuses_empty_actual",
+    "test_update_fixtures_allow_empty_override",
+    "test_check_fixture_with_missing_baseline_drifts"
+  ],
   "regression_tests_added": [],
   "research_briefs": [
     {
@@ -87,5 +113,5 @@
   ],
   "research_mode": "standard",
   "research_synthesis": ".claude/notes/milestones/E10_S04/research-synthesis.md",
-  "updated_at": "2026-05-15T01:53:55Z"
+  "updated_at": "2026-05-15T02:02:10Z"
 }
