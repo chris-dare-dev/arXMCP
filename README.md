@@ -58,6 +58,15 @@ make up
 Other entry points: `make help`, `make test` (ruff + pytest), `make eval`
 (retrieval-quality gate).
 
+## Operations
+
+Operator runbooks live under [`docs/ops/`](docs/ops/). The first
+runbook covers LaTeXML version drift detection (E10_S04) — what to
+do when the daily `ops/cron/latexml-drift-check.sh` cron job exits
+non-zero or the `arxmcp_latexml_drift_detected_total` counter
+increments: see
+[`docs/ops/latexml-drift-runbook.md`](docs/ops/latexml-drift-runbook.md).
+
 ## Repo layout
 
 ```

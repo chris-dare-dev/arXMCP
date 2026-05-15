@@ -147,6 +147,37 @@ RETRIEVAL_CAP_REJECTIONS_COUNTER: Counter = Counter(
 
 
 # ---------------------------------------------------------------------------
+# LaTeXML drift detection (E10_S04)
+# ---------------------------------------------------------------------------
+
+#: Counter incremented by ``ops.drift_check`` whenever the daily
+#: drift check detects that a fixture's freshly-rendered MathML does
+#: NOT match the checked-in expected MathML. Drift signals that the
+#: LaTeXML version (or its dependencies) has changed in a way that
+#: produces different output bytes — which silently corrupts the
+#: equation TED index because stored MathML trees are no longer
+#: byte-comparable to freshly-rendered queries.
+#:
+#: Increments inside the cron process (``ops/drift_check.py``);
+#: production exposure via the server's ``/metrics`` endpoint is
+#: deferred to E14 (observability/ops). The v1 operational signal is
+#: the cron job's non-zero exit + ERROR log + sentinel file at
+#: ``var/arxmcp/ops/drift-detected.flag``.
+LATEXML_DRIFT_DETECTED_COUNTER: Counter = Counter(
+    "arxmcp_latexml_drift_detected_total",
+    "Total number of fixture diffs that detected LaTeXML output "
+    "drift since the cron process started. Each increment is one "
+    "fixture whose freshly-rendered MathML differed from the "
+    "checked-in expected baseline. Operators should re-run the "
+    "extractor + indexer (see docs/ops/latexml-drift-runbook.md) "
+    "and regenerate fixtures via `python -m ops.drift_check "
+    "--update-fixtures` after confirming the LaTeXML upgrade is "
+    "intentional.",
+    labelnames=["fixture"],
+)
+
+
+# ---------------------------------------------------------------------------
 # Tier label constants — string-typed so label space stays canonical
 # ---------------------------------------------------------------------------
 
@@ -219,6 +250,23 @@ def reset_cache_metrics_for_tests() -> None:
         RETRIEVAL_CAP_REJECTIONS_COUNTER.labels(tool=tool)._value.set(0)
 
 
+def reset_drift_metrics_for_tests() -> None:
+    """Reset the LaTeXML drift counter for every fixture label
+    seen so far (E10_S04).
+
+    Mirrors :func:`reset_cache_metrics_for_tests`. Per-fixture
+    labels are dynamic; we walk the counter's child metrics to
+    reset every observed label. Test-only — never call from
+    production code paths (counter monotonicity is a Prometheus
+    contract).
+    """
+    # Walk every (fixture,) label tuple registered so far. The
+    # underlying ``_metrics`` dict is private but stable across
+    # prometheus_client 0.16+.
+    for child in list(LATEXML_DRIFT_DETECTED_COUNTER._metrics.values()):
+        child._value.set(0)
+
+
 __all__ = [
     "ALL_TIERS",
     "CACHE_BYTES_GAUGE",
@@ -226,10 +274,12 @@ __all__ = [
     "CACHE_HITS_COUNTER",
     "CACHE_LOOKUPS_COUNTER",
     "CACHE_PAYLOAD_SKIPS_COUNTER",
+    "LATEXML_DRIFT_DETECTED_COUNTER",
     "RETRIEVAL_CAP_REJECTIONS_COUNTER",
     "TIER_1",
     "TIER_2",
     "TIER_3",
     "refresh_cache_metrics",
     "reset_cache_metrics_for_tests",
+    "reset_drift_metrics_for_tests",
 ]
