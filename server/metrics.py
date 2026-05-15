@@ -197,9 +197,13 @@ LATEXML_DRIFT_DETECTED_COUNTER: Counter = Counter(
 #: ``var/arxmcp/ops/eval-reports/`` + the sentinel flag at
 #: ``var/arxmcp/ops/eval-quarantine.flag``.
 #:
-#: Each label cardinality is bounded by the number of distinct
-#: corpus_version integers the watchdog has run against — tens at
-#: most over the lifetime of a deployment.
+#: Label cardinality is bounded by the number of distinct
+#: corpus_version integers the watchdog has measured. With a
+#: nightly delta loop bumping the staging version each day,
+#: this grows linearly with deployment age — ~365/year. The
+#: E14 scrape-time hook that rehydrates this gauge from JSON
+#: reports MUST cap the exposed labels at the N most-recent
+#: versions to avoid Prometheus high-cardinality drift.
 EVAL_NDCG5_GAUGE: Gauge = Gauge(
     "arxmcp_eval_ndcg5",
     "Latest watchdog nDCG@5 measurement per staging corpus "

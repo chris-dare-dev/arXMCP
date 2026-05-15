@@ -47,6 +47,18 @@ else
     exit 1
 fi
 
+# Closes E11_S04 IS1 (pre-existing gap in this wrapper): `flock(1)`
+# is part of `util-linux` and is NOT present on macOS by default.
+# Without this guard, the cron wrapper fails silently to cron with
+# exit 127. Detect early with an actionable error.
+if ! command -v flock >/dev/null 2>&1; then
+    echo "ERROR: flock not found on PATH. flock(1) is part of " \
+         "util-linux:" >&2
+    echo "  macOS: brew install flock  (or: brew install util-linux)" >&2
+    echo "  Linux: pre-installed via util-linux (apt/dnf/pacman)" >&2
+    exit 1
+fi
+
 LOCK_PATH="${REPO_ROOT}/var/arxmcp/ops/.delta.lock"
 mkdir -p "$(dirname "${LOCK_PATH}")"
 

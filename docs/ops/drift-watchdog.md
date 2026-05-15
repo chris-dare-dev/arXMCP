@@ -115,10 +115,20 @@ signal.
 * **`ARXMCP_RUN_REAL_BGE_M3=1`** if running the full retrieval
   pipeline with the real BGE-M3 model.
 
-> **Concurrent invocations.** `make watchdog` is short-lived
-> (~10-30s on the seed corpus), but the cron wrapper carries a
-> `flock -n var/arxmcp/ops/.watchdog.lock` guard. Do NOT run
-> from two hosts targeting the same staging LanceDB.
+> **Concurrent invocations.** The cron wrapper's
+> `flock -n var/arxmcp/ops/.watchdog.lock` prevents duplicate
+> runs on the same host. Two hosts sharing the same staging
+> LanceDB are **safe from a data perspective** (LanceDB MVCC
+> supports concurrent reads; the watchdog never writes to the
+> LanceDB), but both instances will independently emit alert
+> reports and quarantine flags for the same corpus version. For
+> operational clarity, prefer a single watchdog host.
+
+> **`flock(1)` is util-linux.** It is NOT included on macOS by
+> default — install with `brew install flock` (or
+> `brew install util-linux`) before enabling the cron entry. The
+> wrapper checks `command -v flock` and exits 1 with an
+> actionable error if it's missing.
 
 ---
 
@@ -215,12 +225,26 @@ The watchdog reads `re-embed-state.json` and skips if re-embed is
 still in progress. A 30-minute gap is typically enough for the
 seed-corpus delta + re-embed; tune for the full corpus.
 
-### systemd alternative
+### systemd alternative (not shipped — scope decision)
 
-The repo ships only the cron wrapper. To run under systemd,
-create a `arxmcp-watchdog.service` + `arxmcp-watchdog.timer`
-mirroring the E11_S02 `arxmcp-delta.{service,timer}` shape.
-`Wants=arxmcp-delta.service` chains them.
+The repo deliberately ships only the cron wrapper for the
+watchdog. Unlike the delta loop (E11_S02), which runs as an
+`OnCalendar=` timer service with hardened containment, the
+watchdog is short-lived (~30s) and human-initiated OR cron-
+invoked. Adding a full `.service` + `.timer` pair would
+duplicate the E11_S02 unit shape with no operational benefit
+beyond the systemd journal integration already provided by
+cron + mailer.
+
+If you prefer systemd anyway, mirror
+`ops/systemd/arxmcp-delta.{service,timer}` but chain the timer
+correctly:
+
+- `After=arxmcp-delta.service` (watchdog runs AFTER delta, not
+  concurrent).
+- `Wants=arxmcp-delta.service` on the watchdog **TIMER unit
+  only**, NOT the service unit itself. Putting `Wants=` on the
+  service can deadlock under failure.
 
 ---
 

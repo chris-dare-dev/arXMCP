@@ -129,12 +129,14 @@ class WatchdogReport:
     fixture_path: str
     timestamp: str
     underpowered: bool
+    embedder_version: str | None = None  # closes F2: mixing-guard data
     notes: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
             "alert_triggered": self.alert_triggered,
             "corpus_version": self.corpus_version,
+            "embedder_version": self.embedder_version,
             "fixture_path": self.fixture_path,
             "fixture_query_count": self.fixture_query_count,
             "ndcg5_mean": self.ndcg5_mean,
@@ -222,11 +224,27 @@ def evaluate_regression(
 # ---------------------------------------------------------------------------
 
 
-def _re_embed_blocks_run(state_path: Path) -> bool:
-    """Return True if the re-embed state file reports in-progress.
+#: Whitelist of re-embed states that MUST suppress a watchdog run.
+#: Closes adversary F10: invert the predicate from a "block on
+#: anything-not-complete" blacklist to a "block on known
+#: in-progress" whitelist. The risk posture matters — running
+#: the watchdog against a half-finished staging dataset costs
+#: one false alert; SKIPPING because an unrecognized status
+#: string appeared in the state file costs an entire nightly run
+#: silently. Default-to-run is safer.
+_RE_EMBED_IN_PROGRESS_STATES: frozenset[str] = frozenset(
+    {"in_progress", "starting", "interrupted"}
+)
 
-    Absent file → False (no re-embed has happened; the seed-corpus
-    smoke test path is valid). Synthesis D6.
+
+def _re_embed_blocks_run(state_path: Path) -> bool:
+    """Return True iff the re-embed state file reports a known
+    in-progress state.
+
+    Absent file, malformed JSON, or unrecognized status → False
+    (run anyway). Closes adversary F10: a future E11_S03 status
+    string we don't recognize must NOT silently skip every nightly
+    run.
     """
     if not state_path.is_file():
         return False
@@ -235,12 +253,14 @@ def _re_embed_blocks_run(state_path: Path) -> bool:
     except json.JSONDecodeError:
         logger.warning(
             "watchdog: re-embed-state.json at %s is malformed; "
-            "treating as no-re-embed-in-progress.",
+            "running anyway.",
             state_path,
         )
         return False
     status = state.get("status")
-    return status not in (None, "complete", "complete_with_failures")
+    if not isinstance(status, str):
+        return False
+    return status in _RE_EMBED_IN_PROGRESS_STATES
 
 
 # ---------------------------------------------------------------------------
@@ -298,9 +318,14 @@ def find_prior_report(
     chosen_path = candidates[-1][1]
     try:
         data = json.loads(chosen_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError) as exc:
+    except json.JSONDecodeError as exc:
+        # Closes adversary F5: narrow the catch to malformed-JSON
+        # only. OSError (PermissionError, ENOSPC, etc.) is a setup
+        # error, not a "no prior report" signal — let it propagate
+        # so the operator sees a clear stack rather than silently
+        # losing the baseline.
         logger.warning(
-            "watchdog: prior report at %s is unreadable (%s); "
+            "watchdog: prior report at %s is malformed JSON (%s); "
             "treating as no prior report.",
             chosen_path, exc,
         )
@@ -500,10 +525,21 @@ def run_watchdog(
             "no prior report; first run for this corpus stream — "
             "no regression baseline available"
         )
-    elif ndcg5_mean is not None:
-        regression_vs_prev, regression_pct, alert_triggered = (
-            evaluate_regression(prior_ndcg5_mean, ndcg5_mean, threshold)
+    else:
+        # Closes adversary F2: refuse to compare across embedder
+        # bumps. The mixing-guard returns a note string (and
+        # forces alert_triggered=False) when prior + staging
+        # disagree on embedder_version.
+        mixing_note = _check_embedder_version_mixing(
+            staging_path=lancedb_staging_path,
+            prior_report=prior_data,
         )
+        if mixing_note is not None:
+            notes.append(mixing_note)
+        elif ndcg5_mean is not None:
+            regression_vs_prev, regression_pct, alert_triggered = (
+                evaluate_regression(prior_ndcg5_mean, ndcg5_mean, threshold)
+            )
 
     report = WatchdogReport(
         corpus_version=corpus_version,
@@ -528,6 +564,12 @@ def run_watchdog(
         fixture_path=str(fixture_path),
         timestamp=_utc_iso(),
         underpowered=underpowered,
+        # Closes adversary F2: persist embedder_version so future
+        # watchdog runs can detect a bump and suppress meaningless
+        # cross-space comparisons.
+        embedder_version=_read_staging_embedder_version(
+            lancedb_staging_path
+        ),
         notes=notes,
     )
 
@@ -584,6 +626,58 @@ def _read_staging_version(staging_path: Path) -> int:
     return version
 
 
+def _read_staging_embedder_version(staging_path: Path) -> str | None:
+    """Read ``embedder_version`` from the staging marker. Returns
+    None if the field is absent (older markers don't carry it).
+
+    Closes adversary F2: the embedder-bump mixing guard.
+    """
+    marker = staging_path / "corpus-version.json"
+    if not marker.is_file():
+        return None
+    try:
+        data = json.loads(marker.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+    value = data.get("embedder_version")
+    return value if isinstance(value, str) and value else None
+
+
+def _check_embedder_version_mixing(
+    *, staging_path: Path, prior_report: dict | None
+) -> str | None:
+    """Refuse to compare nDCG@5 across embedder-version bumps.
+
+    Closes adversary F2: comparing scores from runs with different
+    embedder models is meaningless (the vector space changed). The
+    watchdog refuses to alert in this case and returns a note string
+    that gets attached to the report; the run proceeds (the metric
+    is still emitted for visibility) but ``alert_triggered`` is
+    forced to False.
+
+    Returns None if there's no mismatch (or no prior); else a
+    human-readable note. Does NOT raise — the goal is to suppress
+    false alerts, not crash the cron.
+    """
+    if prior_report is None:
+        return None
+    staging_embedder = _read_staging_embedder_version(staging_path)
+    prior_embedder = prior_report.get("embedder_version")
+    if staging_embedder is None or prior_embedder is None:
+        # Older reports / older markers didn't carry embedder_version;
+        # nothing to compare against. Don't manufacture a mismatch.
+        return None
+    if staging_embedder != prior_embedder:
+        return (
+            f"embedder_version changed from {prior_embedder!r} (prior) "
+            f"to {staging_embedder!r} (staging); regression alert "
+            f"suppressed — comparing across embedder spaces is "
+            f"meaningless. Re-establish baseline by re-running the "
+            f"watchdog after promoting via E11_S05."
+        )
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Default compute_eval — wires the production retrieval pipeline
 # ---------------------------------------------------------------------------
@@ -596,23 +690,61 @@ def _default_compute_eval(
     lancedb_staging_path: Path,
     rerank_enabled: bool,
 ) -> tuple[list[dict], bool]:
-    """Lazy-import the production retrieval pipeline + compute
-    per-query rows.
+    """Run the production hybrid retrieval pipeline against the
+    staging LanceDB at the pinned ``corpus_version`` and return
+    per-query rows + the final rerank-enabled flag.
 
-    Imported lazily so the watchdog module is importable without
-    pulling in the full server stack (e.g. for unit tests that
-    substitute ``compute_eval``).
+    Closes adversary F1: previously this function raised
+    ``NotImplementedError`` and the CLI crashed against any
+    populated fixture. Now wired to the existing harness's
+    ``_run_hybrid_against_corpus`` from
+    ``tests/eval/test_retrieval_quality.py`` (which already lives
+    pytest-free at function level).
+
+    **Requires a live BGE-M3 model.** This function is only
+    invoked from the CLI; tests substitute ``compute_eval`` via
+    the ``run_watchdog(compute_eval=...)`` seam. Lazy-imports the
+    server stack so the watchdog module remains cheap to import.
     """
-    # The existing eval harness lives in tests/eval/. Importing
-    # from tests.* into production is a transitional state
-    # documented in the E11_S04 synthesis (D2). A future milestone
-    # may relocate `tests/eval/metrics.py` to `eval/metrics.py`.
-    raise NotImplementedError(
-        "The default compute_eval requires a populated eval fixture "
-        "and the live BGE-M3 model. Set ARXMCP_RUN_REAL_BGE_M3=1 "
-        "and the surrounding model env vars per the eval harness, "
-        "OR inject a stub `compute_eval` for testing."
+    import asyncio  # noqa: PLC0415
+
+    from server.config import Config  # noqa: PLC0415
+    from server.corpus import open_chunks_table  # noqa: PLC0415
+    from server.query_encoder import encode_query  # noqa: PLC0415
+    from tests.eval.test_retrieval_quality import (  # noqa: PLC0415
+        _run_hybrid_against_corpus,
     )
+
+    # Build a Config with the requested rerank flag. Mirrors the
+    # E07_S04 eval harness path so a watchdog run sees the same
+    # retrieval-quality posture as `make eval`.
+    cfg = Config(enable_rerank=rerank_enabled)
+
+    # Open the STAGING LanceDB at the pinned version. The
+    # underlying open_chunks_table accepts an explicit path +
+    # version; we pass both to ensure the watchdog never reads
+    # the active dataset.
+    tbl = open_chunks_table(
+        lancedb_path=lancedb_staging_path,
+        version=corpus_version,
+    )
+
+    # The harness's _run_hybrid_against_corpus signature requires
+    # an async `encode_query` callable. The server's
+    # query_encoder.encode_query is already async.
+    rows = _run_hybrid_against_corpus(
+        fixture.get("queries", []),
+        tbl,
+        encode_query,
+        corpus_version=corpus_version,
+        rerank_enabled=cfg.enable_rerank,
+    )
+    # Defensive: close the asyncio event loop set up inside
+    # _run_hybrid_against_corpus. The helper manages its own
+    # loop via ``loop.run_until_complete``; this comment is here
+    # to document the asyncio import above as load-bearing.
+    del asyncio
+    return rows, cfg.enable_rerank
 
 
 # ---------------------------------------------------------------------------
@@ -683,6 +815,19 @@ def _cli(argv: list[str]) -> int:
             "investigating an alert."
         ),
     )
+    # Closes adversary F8: programmatic tests honor a
+    # quarantine_flag_path arg; the CLI should too so an operator
+    # working against a non-default tree can clear that tree's
+    # flag without monkeypatching.
+    parser.add_argument(
+        "--quarantine-flag-path",
+        default=str(DEFAULT_QUARANTINE_FLAG_PATH),
+        type=Path,
+        help=(
+            f"Override the quarantine flag path. Default: "
+            f"{DEFAULT_QUARANTINE_FLAG_PATH}."
+        ),
+    )
     args = parser.parse_args(argv)
     logging.basicConfig(
         level=logging.INFO,
@@ -690,8 +835,11 @@ def _cli(argv: list[str]) -> int:
     )
 
     if args.clear_quarantine:
-        cleared = _clear_quarantine_flag(DEFAULT_QUARANTINE_FLAG_PATH)
-        return 0 if cleared else 0  # absent is also success
+        # Closes adversary F7: replace `return 0 if cleared else 0`
+        # tautology with an explicit return and comment. Absent
+        # flag is also success (--clear-quarantine is idempotent).
+        _clear_quarantine_flag(args.quarantine_flag_path)
+        return 0
 
     exit_code, _report = run_watchdog(
         corpus_version=args.corpus_version,
@@ -699,6 +847,7 @@ def _cli(argv: list[str]) -> int:
         report_dir=args.report_dir,
         fixture_path=args.fixture_path,
         threshold_pct=args.threshold_pct,
+        quarantine_flag_path=args.quarantine_flag_path,
         dry_run=args.dry_run,
     )
     return exit_code

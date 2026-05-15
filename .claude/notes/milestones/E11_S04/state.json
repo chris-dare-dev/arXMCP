@@ -4,11 +4,11 @@
   "critics_run": [],
   "critique_finding_counts": {
     "critical": 0,
-    "high": 0,
-    "low": 0,
-    "medium": 0
+    "high": 3,
+    "low": 5,
+    "medium": 6
   },
-  "critique_path": null,
+  "critique_path": ".claude/notes/milestones/E11_S04/critique-merged.md",
   "deferred_findings": [],
   "external_writes_authorized": false,
   "external_writes_completed": false,
@@ -17,13 +17,13 @@
   "id": "E11_S04",
   "implementation_base": null,
   "implementation_branch": null,
-  "implementation_commit_range": null,
+  "implementation_commit_range": "94f74d2..5b3bccf",
   "implementation_commits": [],
   "implementation_path": null,
   "implementation_specialist": null,
   "invalidated_findings": [],
   "milestone_brief": "### E11_S04 \u2014 Drift watchdog: per-corpus-version nDCG@5 regression alert\n\n**Status:** NEW\n**Tier:** 5\n**Effort:** M\n**Dependencies:** E07_S04, E11_S02\n\n**Description.** Implement a drift watchdog that automatically re-runs the retrieval quality evaluation (E05/E07) against each new corpus version and alerts on regression. The watchdog runs as part of the nightly delta pipeline, immediately after a new corpus version is written \u2014 before `corpus-version.json` is advanced to the new version. If the watchdog detects a regression, `corpus-version.json` is NOT advanced and the new corpus version is quarantined for human review.\n\nThe evaluation runs E05's 20-query hand-labeled query set against the new corpus version using the full hybrid pipeline (BM25 + ANN + RRF, with the reranker enabled if `ARXMCP_ENABLE_RERANK=true`). nDCG@5 is computed for each query and averaged. The watchdog alerts if the average nDCG@5 drops more than 5% relative to the previous corpus version's score (not absolute \u2014 a 0.80 \u2192 0.76 drop = 5% relative regression). The alert threshold of 5% relative regression is configurable via `ARXMCP_EVAL_REGRESSION_THRESHOLD_PCT`.\n\nThe Prometheus metric `arxmcp_eval_ndcg5{corpus_version=\"N\"}` is emitted after each watchdog run. This metric is the canonical time-series record of retrieval quality across corpus versions. A Grafana dashboard (or equivalent) should plot this metric over time; the dashboard spec is in `docs/ops/grafana-dashboards.md`.\n\nThe watchdog output is a JSON report written to `ops/eval-reports/corpus_vN.json` containing: `corpus_version`, `ndcg5_mean`, `ndcg5_per_query` (list), `regression_vs_prev` (float), `alert_triggered` (bool), `timestamp`.\n\n**Deliverables.**\n- `ops/watchdog_eval.py` \u2014 reads the new corpus version, runs the 20-query eval, computes nDCG@5, compares to previous, emits metric, writes JSON report, exits non-zero if alert triggered\n- `ops/eval-reports/` \u2014 directory for per-version JSON reports (gitignored for large corpora, but present and populated)\n- `server/metrics.py` \u2014 updated with `arxmcp_eval_ndcg5` gauge labeled by `corpus_version`\n- `docs/ops/drift-watchdog.md` \u2014 how the watchdog integrates with the nightly delta loop; alert thresholds; what to do when an alert fires\n\n**Acceptance criteria.**\n- [ ] Running `watchdog_eval.py` against the current seed corpus produces a valid JSON report with nDCG@5 \u2265 0.80\n- [ ] A simulated corpus version with degraded retrieval (nDCG@5 \u2248 0.60) causes `watchdog_eval.py` to exit non-zero\n- [ ] `arxmcp_eval_ndcg5{corpus_version=\"N\"}` is emitted at `/metrics` after a watchdog run\n- [ ] `docs/ops/drift-watchdog.md` states the 5% relative regression threshold and documents the quarantine procedure\n\n**Out of scope.** Automated corpus version rollback (human-in-the-loop). Expanding the eval query set beyond 20 queries (a larger eval set is a v2 concern). Per-subject nDCG@5 breakdown (aggregate only in v1).\n\n**Risk notes.**\n- Closes MEDIUM: drift detection / retrieval quality metrics \u2014 without the watchdog, a corpus update that degrades retrieval quality (e.g., a parser regression introducing garbage chunks, or a LaTeXML version change affecting embeddings) would be invisible until an agent user reports poor results. The watchdog makes regression detection automatic and corpus-version-scoped.\n\n**Labels.** `area:ops`, `kind:observability`, `tier:5`\n\n---",
-  "phase": "implement-complete",
+  "phase": "rectify-running",
   "phase_history": [
     {
       "entered_at": "2026-05-15T22:16:53Z",
@@ -45,5 +45,5 @@
   ],
   "research_mode": "standard",
   "research_synthesis": ".claude/notes/milestones/E11_S04/research-synthesis.md",
-  "updated_at": "2026-05-15T22:33:17Z"
+  "updated_at": "2026-05-15T22:40:36Z"
 }

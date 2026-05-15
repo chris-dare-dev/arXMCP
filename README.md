@@ -60,12 +60,15 @@ Other entry points: `make help`, `make test` (ruff + pytest), `make eval`
 
 ## Operations
 
-Operator runbooks live under [`docs/ops/`](docs/ops/). The first
-runbook covers LaTeXML version drift detection (E10_S04) — what to
-do when the daily `ops/cron/latexml-drift-check.sh` cron job exits
-non-zero or the `arxmcp_latexml_drift_detected_total` counter
-increments: see
-[`docs/ops/latexml-drift-runbook.md`](docs/ops/latexml-drift-runbook.md).
+Operator runbooks live under [`docs/ops/`](docs/ops/):
+
+| Runbook | Epic | When to use |
+|---|---|---|
+| [`latexml-drift-runbook.md`](docs/ops/latexml-drift-runbook.md) | E10_S04 | LaTeXML version drift detected (daily cron alert) |
+| [`bulk-ingest-runbook.md`](docs/ops/bulk-ingest-runbook.md) | E11_S01 | Initial bulk ingest of the Academic Torrents corpus |
+| [`delta-loop.md`](docs/ops/delta-loop.md) | E11_S02 | Nightly OAI-PMH delta harvest |
+| [`re-embed-runbook.md`](docs/ops/re-embed-runbook.md) | E11_S03 | Partial re-embed after a chunker or embedder bump |
+| [`drift-watchdog.md`](docs/ops/drift-watchdog.md) | E11_S04 | nDCG@5 regression watchdog after staging updates |
 
 ## Repo layout
 
