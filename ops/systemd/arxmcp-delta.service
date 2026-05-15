@@ -1,0 +1,43 @@
+[Unit]
+# E11_S02 — OAI-PMH delta loop service unit. Runs the
+# ops/cron/arxmcp-delta.sh wrapper which acquires a flock on
+# var/arxmcp/ops/.delta.lock and invokes
+# `uv run python -m ingest.oai_delta`.
+#
+# Pairs with arxmcp-delta.timer for nightly scheduling at 02:00.
+Description=arXMCP OAI-PMH delta loop (nightly arXiv corpus refresh)
+Documentation=file:/etc/arxmcp/docs/ops/delta-loop.md
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+# Operator MUST set WorkingDirectory to the arXMCP checkout path
+# before enabling this unit, and replace `arxmcp` below with the
+# system user that owns the repo + var/arxmcp tree.
+WorkingDirectory=/opt/arxmcp
+User=arxmcp
+Group=arxmcp
+ExecStart=/opt/arxmcp/ops/cron/arxmcp-delta.sh
+
+# Send stdout/stderr to the journal. journalctl -u arxmcp-delta is
+# the canonical operator interface.
+StandardOutput=journal
+StandardError=journal
+
+# Containment — the delta loop only writes inside the repo's
+# var/arxmcp/ tree. ProtectSystem=strict makes that explicit.
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/arxmcp/var
+NoNewPrivileges=true
+PrivateTmp=true
+
+# A delta run that exceeds the 90-minute budget logs ERROR and
+# writes var/arxmcp/ops/delta-timeout.flag — the Python module
+# enforces the budget. We let the unit itself run for up to 2
+# hours before systemd kills it (defense in depth).
+TimeoutStartSec=7200
+
+[Install]
+WantedBy=multi-user.target
