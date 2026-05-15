@@ -158,4 +158,5 @@ markers = [
     "requires_model: tests that download / load a real ML model (BGE-M3, BGE-reranker-v2-m3, etc.). Skipped by default in CI; opt-in via `pytest -m requires_model` AND the per-model env-var (e.g. ARXMCP_RUN_REAL_BGE_RERANKER=1).",
     "eval: end-to-end retrieval-quality eval against the curated 20-query fixture (E05_S02 / E07_S04). Tier-1 → Tier-2 exit gate. Skipped via the cold-start matrix when fixture or corpus is missing; opt-out via `pytest -m \"not eval\"`.",
     "requires_latexmlc: tests that invoke the real `latexmlc` binary (E10_S04 drift detector integration tests). Skipped by default; opt-in via `pytest -m requires_latexmlc`. Requires LaTeXML installed locally (`brew install latexml` / `apt install latexml`).",
+    "requires_full_corpus: tests that assert against a fully-ingested 200K-paper corpus (E11_S01 sanity tests). Skipped by default; opt-in via `pytest -m requires_full_corpus` AND `ARXMCP_RUN_FULL_CORPUS_TESTS=1`. Pre-condition: operator has run `make ingest` end-to-end and the staging LanceDB has ≥ 100K chunks.",
 ]

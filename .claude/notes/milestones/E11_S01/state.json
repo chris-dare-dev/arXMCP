@@ -1,0 +1,64 @@
+{
+  "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/roadmap",
+  "created_at": "2026-05-15T02:55:48Z",
+  "critics_run": [],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "low": 0,
+    "medium": 0
+  },
+  "critique_path": null,
+  "deferred_findings": [],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_required": [],
+  "fixed_findings": [],
+  "id": "E11_S01",
+  "implementation_base": "e274edd8c4ffb084fc64461dec107dd49501a234",
+  "implementation_branch": null,
+  "implementation_commit_range": null,
+  "implementation_commits": [],
+  "implementation_path": "inline",
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "### E11_S01 \u2014 Academic Torrents seed download and bulk ingest\n\n**Status:** NEW\n**Tier:** 5\n**Effort:** L\n**Dependencies:** E07_S04, E10_S01, E10_S02, E10_S03\n\n**Description.** Download the Academic Torrents bulk dump of arXiv source tarballs for the four target subjects (math.AG, math.NT, math-ph, hep-th) and ingest them into a new LanceDB version. The existing 50-paper seed corpus (LanceDB version N) remains addressable via MVCC throughout this operation \u2014 the bulk ingest writes to a new version (N+1) without modifying the existing one.\n\nThe download and ingest pipeline:\n1. Use a BitTorrent client (`aria2c` or `libtorrent`) to download the Academic Torrents arXiv dump. Filter at extraction time to the four subject categories using the OAI-PMH metadata already present in the dump. Estimated raw size: a few hundred GB of .tex source tarballs.\n2. For each paper: (a) check the ar5iv cache (`https://ar5iv.labs.arxiv.org/html/<arxiv_id>`) for pre-rendered HTML5+MathML \u2014 use the cached output if available, avoiding local LaTeXML CPU work; (b) for ar5iv cache misses, run the local LaTeXML subprocess pool; (c) fall back to Nougat PDF parsing only for papers with no usable .tex source.\n3. Route each parsed paper through the existing macro normalizer \u2192 chunker \u2192 embedder \u2192 LanceDB write pipeline. All writes go to the new version directory (`/var/arxmcp/index/lancedb/vN+1/`).\n4. Populate the citation graph in K\u00f9zu from OpenAlex (math.AG, math.NT) and INSPIRE-HEP (hep-th, math-ph) citation data.\n5. After all papers are ingested, run `pytest tests/eval/test_retrieval_quality.py --hybrid --ndcg-min=0.70` against the new version as a sanity check. The threshold is lower than the Tier-1 gate (0.80) because the hand-labeled query set was tuned on the seed corpus; re-labeling for the full corpus is E11_S04's job.\n\nEstimated compute: ~1\u20132 days on a machine with one A6000 or RTX 4090 GPU using bge-m3 at batch size 32. Log progress at 1,000-paper intervals to `ops/ingestion.log`. Papers that fail all parsers are written to `ops/parser-failures/` for human review.\n\n`corpus-version.json` continues to pin the old LanceDB dataset version during the entire ingest run. It is NOT advanced by this milestone \u2014 that is E11_S05's activation step. (Per E04_S02, MVCC via `dataset.checkout(version=N)` is the canonical activation mechanism; manual symlink swaps are prohibited.)\n\n**Deliverables.**\n- `ingest/bulk_download.sh` \u2014 aria2c invocation with Academic Torrents magnet link, subject filter, retry logic\n- `ingest/bulk_ingest.py` \u2014 orchestrates the full pipeline for each paper: ar5iv check \u2192 LaTeXML fallback \u2192 Nougat fallback \u2192 normalizer \u2192 chunker \u2192 embedder \u2192 LanceDB write; progress logging; parser-failure logging\n- `ops/ingestion.log` \u2014 populated during the actual run (not a code deliverable, but required as evidence)\n- `tests/test_bulk_ingest_sanity.py` \u2014 verifies that the new LanceDB version has \u2265 100K chunk entries (a proxy for successful bulk ingest)\n\n**Acceptance criteria.**\n- [ ] New LanceDB version directory contains \u2265 100,000 chunk entries\n- [ ] `corpus-version.json` still pins the old LanceDB version (no accidental cutover)\n- [ ] `ops/parser-failures/` contains entries for any papers that failed all parsers\n- [ ] `pytest tests/eval/test_retrieval_quality.py --hybrid --ndcg-min=0.70` passes against the new version\n- [ ] ar5iv cache hit rate is logged and is \u2265 70% (most post-2007 papers are cached)\n\n**Out of scope.** Advancing `corpus-version.json` to the new version (E11_S05). Re-labeling the eval query set for the full corpus (E11_S04). Pre-2007 PostScript handling (explicitly out of scope per `.claude/notes/03-ingestion-pipeline.md` lines 195\u2013197).\n\n**Risk notes.**\n- The MVCC approach (new LanceDB dataset version, `corpus-version.json` unchanged) ensures the MCP server and all active agent sessions are unaffected during the multi-day ingest run.\n\n**Labels.** `area:ingest`, `kind:feature`, `tier:5`\n\n---",
+  "phase": "implement-complete",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-15T02:55:48Z",
+      "left_at": "2026-05-15T02:56:18Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-15T02:56:18Z",
+      "left_at": "2026-05-15T03:02:32Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-15T03:02:32Z",
+      "left_at": "2026-05-15T03:02:32Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-05-15T03:02:32Z",
+      "left_at": null,
+      "phase": "implement-running"
+    }
+  ],
+  "rectification_commit": null,
+  "regression_tests_added": [],
+  "research_briefs": [
+    {
+      "path": ".claude/notes/milestones/E11_S01/research-brief-1.md",
+      "status": "ok"
+    },
+    {
+      "path": ".claude/notes/milestones/E11_S01/research-brief-2.md",
+      "status": "ok"
+    }
+  ],
+  "research_mode": "standard",
+  "research_synthesis": ".claude/notes/milestones/E11_S01/research-synthesis.md",
+  "updated_at": "2026-05-15T03:15:36Z"
+}

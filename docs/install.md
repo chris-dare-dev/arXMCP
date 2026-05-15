@@ -24,6 +24,23 @@ pipx install arxmcp        # preferred — isolates the install
 pip install arxmcp         # if you want it in your active venv
 ```
 
+### Optional ingest system deps
+
+The runtime server (`arxmcp-server`) has no system dependencies
+beyond Python ≥3.11. The optional **bulk ingest pipeline** (E11_S01,
+`make ingest`) and the **LaTeXML drift detector** (E10_S04,
+`ops/cron/latexml-drift-check.sh`) need two system binaries:
+
+- **`aria2c`** — BitTorrent client used to download the Academic
+  Torrents arXiv source dump. `brew install aria2` (macOS) or
+  `apt install aria2` (Debian/Ubuntu). Only needed if you're
+  running `make ingest` against a fresh corpus; the 50-paper
+  seed fetch does not use it.
+- **`latexmlc`** — LaTeXML's CLI driver. `brew install latexml`
+  (macOS) or `apt install latexml` (Debian/Ubuntu). Used as the
+  fallback for papers whose ar5iv cache misses, AND by the daily
+  drift-detector cron. Not needed for the MCP server itself.
+
 After install, both binaries are on `$PATH`:
 
 ```sh

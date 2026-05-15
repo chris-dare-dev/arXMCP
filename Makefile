@@ -78,8 +78,12 @@ Try: make up PYTHON=python3.$(MIN_PY_MINOR)'"
 	$(PYTHON) -m server.main
 
 ingest:
-	@echo "make ingest — not yet implemented (the seed corpus tooling lives in tools/)"
-	@echo "  tools/curate_seed.py    pre-filter math.AG candidates from arXiv API"
-	@echo "  tools/fetch_seed.py     fetch + LaTeXML parse the 50-paper seed"
-	@echo "Production ingestion lands in E11."
-	@exit 1
+	@# E11_S01 — bulk ingest orchestrator. The Python module owns the
+	@# per-paper loop (ar5iv → LaTeXML → chunk → embed → staging
+	@# LanceDB). The operator runs `make ingest ARGS="--paper-ids-file=
+	@# tools/seed-papers.txt --limit=5"` for a smoke test before the
+	@# full multi-day run. The active corpus-version.json is NOT
+	@# advanced — that's E11_S05's atomic cutover.
+	@#
+	@# See docs/ops/bulk-ingest-runbook.md for the operator workflow.
+	$(PYTHON) -m ingest.bulk_ingest $(ARGS)
