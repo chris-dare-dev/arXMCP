@@ -23,7 +23,7 @@
   "implementation_specialist": null,
   "invalidated_findings": [],
   "milestone_brief": "### E14_S03 \u2014 Phoenix integration for retrieval-quality views\n\n**Status:** NEW\n**Tier:** 5\n**Effort:** M\n**Dependencies:** E14_S02\n\n**Description.** Phoenix (Arize Phoenix, open-source) is the v1 default for retrieval-quality eyeballing \u2014 it renders queries, retrieved chunks with scores, and reranker output in a local UI. It runs in Docker alongside the MCP server and receives OTel spans from E14_S02 via the OTLP collector Phoenix ships with.\n\nPhoenix is opt-in: a separate Docker Compose profile (`--profile phoenix`) adds the Phoenix container. Without the profile, the server operates normally and the OTel exporter's endpoint simply receives no responses (failing silently per E14_S02). The compose profile also starts a Prometheus scrape target for the `/metrics` endpoint, making E14_S01 metrics visible in Phoenix's metrics pane.\n\nThe setup procedure must be a copy-paste-runnable sequence in `docs/observability/phoenix.md`: `docker compose --profile phoenix up -d`, navigate to `http://localhost:6006`. No manual configuration of span routing is required \u2014 the `ARXMCP_OTEL_ENDPOINT` default points at the Phoenix OTLP collector port.\n\n**Deliverables.**\n- `infra/observability/phoenix-compose.yml` \u2014 Phoenix service definition (or a `profiles:` block in the main `docker-compose.yml`)\n- Updated `docker-compose.yml` \u2014 Phoenix profile integrated\n- `docs/observability/phoenix.md` \u2014 startup procedure, screenshot of the retrieval trace view\n\n**Acceptance criteria.**\n- [ ] `docker compose --profile phoenix up -d` starts Phoenix without error\n- [ ] Phoenix UI at `http://localhost:6006` shows spans from a test `search_papers` call (top-k chunks, scores, reranker output)\n- [ ] Without the `phoenix` profile, the server starts normally; no connection errors in the log\n- [ ] `docs/observability/phoenix.md` is self-contained and tested\n\n**Out of scope.** Langfuse (E14_S11). Custom Phoenix ingest pipelines. Phoenix cloud/SaaS integration.\n\n**Risk notes.**\n- Phoenix receives OTel spans that include `mcp.session_id`. The Phoenix container must be localhost-only (no external port binding); document this in the compose file.\n\n**Labels.** `area:observability`, `kind:infra`, `tier:5`\n\n---",
-  "phase": "implement-running",
+  "phase": "complete",
   "phase_history": [
     {
       "entered_at": "2026-05-16T04:37:48Z",
@@ -36,5 +36,5 @@
   "research_briefs": [],
   "research_mode": "standard",
   "research_synthesis": null,
-  "updated_at": "2026-05-16T04:44:15Z"
+  "updated_at": "2026-05-16T05:04:23Z"
 }
