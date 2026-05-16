@@ -35,7 +35,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # ---------------------------------------------------------------------------
@@ -192,13 +192,25 @@ class Config(BaseSettings):
     #: ``insecure_channel`` vs ``secure_channel``. Default port 4317
     #: matches Phoenix's OTLP intake.
     #:
-    #: **Security: localhost-only by convention.** Spans carry
+    #: **Security: loopback-only at config parse time.** Spans carry
     #: ``mcp.session_id`` (per ``08-security-observability-ops.md``
     #: §Tracing). Forwarding to an external SaaS collector would
-    #: leak session IDs; the documented default endpoint is
-    #: ``http://127.0.0.1:4317`` (an in-process or sidecar Phoenix
-    #: container). See ``.claude/docs/observability-tracing.md``.
+    #: leak session IDs. The :meth:`validate_otel_endpoint_loopback`
+    #: validator rejects non-loopback hostnames at instantiation
+    #: time — same precedent as :meth:`reject_non_loopback` for
+    #: ``bind_host``. The escape hatch
+    #: (:data:`otel_allow_remote`) is documented separately and
+    #: requires an explicit operator opt-in. F1 from the E14_S02
+    #: adversary critique.
     otel_endpoint: str | None = None
+
+    #: Operator-only escape hatch — set to ``True`` to allow
+    #: ``otel_endpoint`` to point at a non-loopback host. Requires
+    #: that the operator has independently audited the export path
+    #: for `mcp.session_id` leakage (e.g. via a custom span
+    #: processor that redacts the attribute). Default ``False`` =
+    #: loopback-only.
+    otel_allow_remote: bool = False
 
     # --- Validators ------------------------------------------------------
 
@@ -276,6 +288,82 @@ class Config(BaseSettings):
                 f"result_byte_cap must be >= 1; got {v}"
             )
         return v
+
+    @model_validator(mode="after")
+    def validate_otel_endpoint_loopback(self) -> Config:
+        """Reject non-loopback ``otel_endpoint`` values at config parse
+        time unless :data:`otel_allow_remote` is explicitly set.
+
+        Closes F1 from the E14_S02 adversary critique and the brief's
+        named Risk note (*"OTel spans containing mcp.session_id must
+        not be forwarded to a remote endpoint by default"*). Mirrors
+        the :meth:`reject_non_loopback` precedent on ``bind_host`` —
+        push the policy to the config layer so an environment-driven
+        misconfiguration fails at startup, not silently in production.
+
+        Accepted endpoints (when ``otel_allow_remote=False``):
+
+        * ``None`` — tracing disabled (the default).
+        * Hostnames in :data:`LOOPBACK_HOSTS` (``127.0.0.1``, ``::1``,
+          ``localhost``).
+        * Any ``http://`` or ``https://`` URL where the hostname is
+          loopback.
+
+        Rejected (raises ``ValueError`` → pydantic-settings
+        ``ValidationError``): public IPs, private RFC-1918 ranges,
+        link-local metadata-service IPs (``169.254.x.x``), DNS
+        hostnames, userinfo (``user:pass@host``), missing host.
+
+        The ``otel_allow_remote=True`` escape hatch is for operators
+        who have independently audited their span pipeline for
+        ``mcp.session_id`` leakage (e.g. by registering a span
+        processor that redacts the attribute before export).
+        """
+        if self.otel_endpoint is None:
+            return self
+        if self.otel_allow_remote:
+            return self
+
+        # Defer urlparse import to avoid module-load cost when the
+        # endpoint is None (the common case).
+        from urllib.parse import urlparse  # noqa: PLC0415
+
+        try:
+            parsed = urlparse(self.otel_endpoint)
+        except (ValueError, TypeError) as exc:
+            raise ValueError(
+                f"ARXMCP_OTEL_ENDPOINT must be a valid URL; got "
+                f"{self.otel_endpoint!r}: {exc}"
+            ) from exc
+
+        if parsed.scheme not in ("http", "https"):
+            raise ValueError(
+                f"ARXMCP_OTEL_ENDPOINT must use http:// or https:// "
+                f"scheme; got {self.otel_endpoint!r}"
+            )
+        if parsed.username or parsed.password:
+            raise ValueError(
+                f"ARXMCP_OTEL_ENDPOINT must not include userinfo; got "
+                f"{self.otel_endpoint!r}"
+            )
+        host = parsed.hostname
+        if host is None or host == "":
+            raise ValueError(
+                f"ARXMCP_OTEL_ENDPOINT must include a hostname; got "
+                f"{self.otel_endpoint!r}"
+            )
+        if host not in LOOPBACK_HOSTS:
+            raise ValueError(
+                f"ARXMCP_OTEL_ENDPOINT host must be a loopback "
+                f"address ({sorted(LOOPBACK_HOSTS)}); got {host!r} "
+                f"in {self.otel_endpoint!r}. Spans carry "
+                f"mcp.session_id (see "
+                f".claude/notes/08-security-observability-ops.md "
+                f"§Tracing) — forwarding to an external collector "
+                f"leaks session IDs. To override after auditing the "
+                f"export path, set ARXMCP_OTEL_ALLOW_REMOTE=1."
+            )
+        return self
 
 
 __all__ = [

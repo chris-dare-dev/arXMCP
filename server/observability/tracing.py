@@ -106,6 +106,41 @@ current_session_id: ContextVar[str | None] = ContextVar(
     "current_session_id", default=None
 )
 
+#: Allow-list for the ``Arxmcp-Agent-Role`` header. F2 rectification
+#: from the E14_S02 adversary critique — without an allow-list, any
+#: 64 KB string was admitted, blowing up span cardinality + opening a
+#: log-injection / Phoenix-cardinality DoS vector. The canonical four
+#: roles match the multi-agent pipeline documented in
+#: :doc:`.claude/notes/01-mission-and-context.md` (Sketcher →
+#: Autoformalizer → Tactician → Fixer). Header values outside this set
+#: are dropped at the middleware layer with a DEBUG log.
+VALID_AGENT_ROLES: frozenset[str] = frozenset(
+    {"sketcher", "autoformalizer", "tactician", "fixer"}
+)
+
+#: Maximum byte length the middleware will read from any tracing-
+#: related header (``Mcp-Session-Id``, ``Arxmcp-Agent-Role``). Real
+#: values are at most a few dozen bytes; the cap is defense-in-depth
+#: against an oversized-header memory-pressure vector.
+MAX_HEADER_BYTES: int = 256
+
+#: Allow-list for cache-layer enum values. F7 rectification — without
+#: this, ``set_cache_layer("Tier1")`` silently leaked into Phoenix as a
+#: distinct attribute value, polluting cardinality. The canonical set
+#: matches :data:`server.metrics.ALL_TIERS` plus the ``"miss"`` zero-
+#: hit terminal.
+VALID_CACHE_LAYERS: frozenset[str] = frozenset(
+    {"tier1", "tier2", "tier3", "miss"}
+)
+
+#: Sentinel for ``arxmcp.corpus_version`` when Resources have not yet
+#: warmed at the time the parent span opens. F4 rectification — the
+#: prior behaviour silently OMITTED the attribute, making the
+#: startup-race failure mode invisible. Operators querying for
+#: ``arxmcp.corpus_version="resources-not-ready"`` see the race
+#: directly.
+CORPUS_VERSION_RESOURCES_NOT_READY: str = "resources-not-ready"
+
 #: Current ``Arxmcp-Agent-Role`` (e.g. ``sketcher``, ``tactician``,
 #: ``fixer``, ``autoformalizer``) for the in-flight request. Set by
 #: the same middleware; read by :func:`span_tool_call`.
@@ -215,13 +250,21 @@ def setup_tracing(config: Config) -> None:
         )
 
 
-def shutdown_tracing(timeout_s: float = 30.0) -> None:
+def shutdown_tracing() -> None:
     """Force-flush the ``BatchSpanProcessor`` so in-flight spans
     export before the process exits.
 
     Called from the lifespan shutdown AFTER ``resources.shutdown()``
     returns. No-op when :func:`setup_tracing` was never called (the
     default in tests + the no-endpoint production case).
+
+    F5 rectification (E14_S02 adversary): dropped the unused
+    ``timeout_s`` parameter. ``TracerProvider.shutdown`` does not
+    expose a timeout argument; the flush time is bounded by the
+    ``BatchSpanProcessor``'s ``schedule_delay_millis``. A real
+    bounded-shutdown story (running the call in a thread with
+    ``join(timeout=...)``) is a follow-up — pretending the parameter
+    was honoured was misleading.
     """
     if not _provider_installed:
         return
@@ -246,9 +289,14 @@ def _probe_endpoint(endpoint: str, timeout_s: float = PROBE_TIMEOUT_S) -> bool:
     down Phoenix at startup and log a single WARN.
 
     Failure modes returning False: ``ConnectionRefusedError``,
-    ``socket.timeout``, ``OSError`` (including ``EHOSTUNREACH`` /
-    ``ENETUNREACH``). The probe never raises — observability code
-    must never crash the host process.
+    ``socket.timeout``, ``socket.gaierror`` (DNS resolution), and
+    other ``OSError`` subclasses (``EHOSTUNREACH`` / ``ENETUNREACH``).
+    All of these inherit from ``OSError`` in Python 3.10+, so the
+    single ``except OSError`` is intentional and complete (F6
+    rectification from the E14_S02 adversary critique). ``ValueError``
+    catches a malformed URL where ``parsed.port`` raises during
+    parsing. The probe never raises — observability code must never
+    crash the host process.
     """
     try:
         parsed = urlparse(endpoint)
@@ -269,7 +317,7 @@ def _probe_endpoint(endpoint: str, timeout_s: float = PROBE_TIMEOUT_S) -> bool:
 def span_tool_call(
     tool_name: str,
     *,
-    corpus_version: int | None = None,
+    corpus_version: int | str | None = None,
     k: int | None = None,
 ) -> Iterator[Span]:
     """Yield the parent OTel span for one JSON-RPC ``tools/call``.
@@ -321,18 +369,28 @@ def span_tool_call(
 
 def set_cache_layer(layer: str) -> None:
     """Set :data:`current_cache_layer` to ``layer`` for the in-flight
-    request. Accepts the values ``"tier1" | "tier2" | "tier3" | "miss"``
-    matching the Prometheus
-    :data:`server.metrics.CACHE_HITS_COUNTER` label space and the
-    OTel attribute enum (synthesis D6).
+    request. Accepts the values in :data:`VALID_CACHE_LAYERS`
+    (``"tier1" | "tier2" | "tier3" | "miss"``) — matches the
+    Prometheus :data:`server.metrics.CACHE_HITS_COUNTER` label space
+    and the OTel attribute enum (synthesis D6).
+
+    F7 rectification (E14_S02 adversary): unknown values are
+    REJECTED — logged at DEBUG and ignored. The prior ``current_cache_layer``
+    value is preserved. This closes the operator-typo cardinality
+    leak that the prior "free-form" behaviour permitted.
 
     Called from cache handlers (typically inside
     ``server/handlers/search.py``) when a tier hit is detected.
-    Invalid values are accepted as-is — the OTel attribute is a
-    free-form string and an invalid value surfaces as a query-time
-    indicator that the handler emitted something unexpected. We do
-    NOT validate here; the test surface pins the canonical set.
     """
+    if layer not in VALID_CACHE_LAYERS:
+        logger.debug(
+            "set_cache_layer: rejected unknown value %r "
+            "(allowed: %s); leaving prior value %r intact.",
+            layer,
+            sorted(VALID_CACHE_LAYERS),
+            current_cache_layer.get(),
+        )
+        return
     current_cache_layer.set(layer)
 
 

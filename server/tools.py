@@ -54,7 +54,28 @@ from server.observability.metrics import (
     REQUEST_LATENCY,
     RESULT_BYTES,
 )
-from server.observability.tracing import span_tool_call
+from server.observability.tracing import (
+    CORPUS_VERSION_RESOURCES_NOT_READY,
+    span_tool_call,
+)
+
+# F4 (E14_S02 adversary): per-process flag so the
+# "Resources not warmed at tool-call time" WARN fires once.
+# Mutated only via :func:`_set_resources_not_ready_warned`.
+_warned_resources_not_ready_for_tracing: bool = False
+
+
+def _set_resources_not_ready_warned() -> None:
+    """Flip the F4 WARN-once guard. Module-level scope (not a closure)
+    so :func:`reset_resources_for_tests` can reset it cleanly."""
+    global _warned_resources_not_ready_for_tracing
+    _warned_resources_not_ready_for_tracing = True
+
+
+def _reset_resources_not_ready_warned_for_tests() -> None:
+    """Test-only: reset the F4 WARN-once guard."""
+    global _warned_resources_not_ready_for_tracing
+    _warned_resources_not_ready_for_tracing = False
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp import FastMCP
@@ -429,16 +450,28 @@ def _wrap_with_observability(tool_name: str, handler: Any) -> Any:
         # ``k``). Quietly absent for tools that don't.
         k_attr = kwargs.get("k") if isinstance(kwargs.get("k"), int) else None
 
-        # corpus_version is process-pinned; read it lazily via the
-        # resources singleton if available. Avoid importing at module
-        # scope (would force a circular import with server.resources).
-        corpus_version_attr: int | None = None
+        # corpus_version is process-pinned. F3 rectification: drop the
+        # spurious ``from server.tools import get_resources`` — we ARE
+        # in server.tools; the function is in local scope. F4: surface
+        # the not-yet-warmed state via a sentinel string rather than
+        # silently omitting the attribute, AND log WARN once per
+        # process so operators see the startup-race signal.
+        corpus_version_attr: int | str | None = None
         try:
-            from server.tools import get_resources  # noqa: PLC0415
-
             corpus_version_attr = get_resources().corpus_info.version
         except (ResourcesNotReadyError, AttributeError):
-            corpus_version_attr = None
+            corpus_version_attr = CORPUS_VERSION_RESOURCES_NOT_READY
+            if not _warned_resources_not_ready_for_tracing:
+                _set_resources_not_ready_warned()
+                logger.warning(
+                    "tool call dispatched before Resources warmed; "
+                    "tracing parent span will carry "
+                    "arxmcp.corpus_version=%r as a sentinel. This "
+                    "indicates a startup-race that should not happen "
+                    "in production (the lifespan sets resources "
+                    "BEFORE FastMCP opens for requests).",
+                    CORPUS_VERSION_RESOURCES_NOT_READY,
+                )
 
         with span_tool_call(
             tool_name,

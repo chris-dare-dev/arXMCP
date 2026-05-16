@@ -60,8 +60,9 @@ to a Phoenix sidecar (or any OTLP/gRPC collector).
 
 * Pre-milestone: 1739 passed, 8 skipped, 1 xfailed (from
   end-of-E14_S01 baseline).
-* Post-milestone: 1761 passed, 8 skipped, 1 xfailed (+22 from
-  `tests/test_tracing.py`).
+* Post-feat: 1761 passed (+22 from `tests/test_tracing.py`).
+* Post-rect: 1778 passed (+17 regression guards covering F1, F2,
+  F4, F7, F10, F11, F14 from the adversary critique).
 * `ruff check .` — clean.
 
 ## Acceptance criteria status

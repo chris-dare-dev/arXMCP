@@ -1018,11 +1018,15 @@ class TracingContextMiddleware:
             await self.app(scope, receive, send)
             return
 
-        # Lazy import — tracing module is heavy (pulls OTel SDK on
-        # the enabled path); keeping the import inside __call__
-        # means middleware-stack construction stays fast even when
-        # tracing is disabled.
+        # F13 rectification: ContextVars are cheap imports — hoisting
+        # them to function scope (rather than the prior __call__-time
+        # lazy import) saves a per-request `sys.modules` lookup
+        # without pulling the heavy OTel SDK at module-load. The OTLP
+        # exporter (the actually-heavy import) remains lazy inside
+        # setup_tracing.
         from server.observability.tracing import (  # noqa: PLC0415
+            MAX_HEADER_BYTES,
+            VALID_AGENT_ROLES,
             current_agent_role,
             current_cache_layer,
             current_session_id,
@@ -1031,16 +1035,33 @@ class TracingContextMiddleware:
         headers = scope.get("headers", [])
         session_id_b = _get_header(headers, b"mcp-session-id")
         agent_role_b = _get_header(headers, b"arxmcp-agent-role")
-        session_id = (
-            session_id_b.decode("ascii", errors="replace")
-            if session_id_b is not None
-            else None
-        )
-        agent_role = (
-            agent_role_b.decode("ascii", errors="replace")
-            if agent_role_b is not None
-            else None
-        )
+
+        # F14 rectification: strict ASCII decode + None on failure.
+        # The prior ``errors="replace"`` silently minted U+FFFD into
+        # the span attribute when an attacker set non-ASCII bytes.
+        session_id = _decode_header_strict(session_id_b)
+
+        # F2 rectification: validate Arxmcp-Agent-Role against the
+        # canonical allow-list AND enforce a length cap. Unknown /
+        # oversized values fall back to None (no span attribute),
+        # closing the cardinality + log-injection vector.
+        agent_role_raw = _decode_header_strict(agent_role_b)
+        agent_role: str | None
+        if agent_role_raw is None:
+            agent_role = None
+        elif (
+            len(agent_role_raw.encode("utf-8")) > MAX_HEADER_BYTES
+            or agent_role_raw not in VALID_AGENT_ROLES
+        ):
+            logger.debug(
+                "TracingContextMiddleware: rejected Arxmcp-Agent-Role "
+                "value (header_len=%d, allowed=%s); dropping.",
+                len(agent_role_raw),
+                sorted(VALID_AGENT_ROLES),
+            )
+            agent_role = None
+        else:
+            agent_role = agent_role_raw
 
         sid_token = current_session_id.set(session_id)
         role_token = current_agent_role.set(agent_role)
@@ -1051,6 +1072,19 @@ class TracingContextMiddleware:
             current_session_id.reset(sid_token)
             current_agent_role.reset(role_token)
             current_cache_layer.reset(cache_token)
+
+
+def _decode_header_strict(value: bytes | None) -> str | None:
+    """Decode a request header value as strict ASCII. Returns
+    ``None`` on absence or invalid bytes (F14 rectification — the
+    prior ``errors="replace"`` silently minted U+FFFD into trace
+    attributes when an attacker injected non-ASCII bytes)."""
+    if value is None:
+        return None
+    try:
+        return value.decode("ascii")
+    except UnicodeDecodeError:
+        return None
 
 
 __all__ = [
