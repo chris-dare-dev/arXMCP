@@ -115,15 +115,32 @@ def test_retention_policy_bounded() -> None:
     shutil.which("docker") is None,
     reason="docker not on PATH; skipping Compose Spec validation",
 )
-def test_compose_file_parses() -> None:
-    """Run ``docker compose config --quiet`` to validate the full
-    Compose Spec semantics (profile syntax, env-var interpolation,
-    healthcheck shape, port-mapping form). The YAML-only tests
-    above catch the most-important invariants without requiring
-    Docker; this test catches everything else when Docker is
-    available."""
+def test_compose_file_parses_with_profile() -> None:
+    """Run ``docker compose --profile phoenix config`` and parse
+    the result to assert:
+
+    - The Phoenix service materializes when the profile is active.
+    - The bind-mount ``source:`` resolves to the repo-root
+      ``var/arxmcp/observability/phoenix`` (F1 regression guard —
+      Compose v2 resolves relative paths against the compose-
+      file's directory, so a bare ``./var/...`` would have landed
+      under ``infra/observability/var/...``).
+    - The pinned image references an ``arizephoenix/phoenix:``
+      tag AND carries an ``@sha256:`` digest (F7/IS3 supply-chain
+      pin).
+
+    The prior version of this test omitted ``--profile phoenix``,
+    so ``compose config`` returned a services-empty graph and
+    trivially validated. F2 rectification from the E14_S03
+    adversary critique.
+    """
     result = subprocess.run(
-        ["docker", "compose", "-f", str(COMPOSE_PATH), "config", "--quiet"],
+        [
+            "docker", "compose",
+            "-f", str(COMPOSE_PATH),
+            "--profile", "phoenix",
+            "config",
+        ],
         capture_output=True,
         text=True,
         timeout=30,
@@ -132,4 +149,89 @@ def test_compose_file_parses() -> None:
     assert result.returncode == 0, (
         f"docker compose config failed: stdout={result.stdout!r} "
         f"stderr={result.stderr!r}"
+    )
+
+    resolved = yaml.safe_load(result.stdout)
+    services = resolved.get("services", {})
+    assert "phoenix" in services, (
+        "compose --profile phoenix did NOT materialize the "
+        "phoenix service; check the profiles: directive"
+    )
+
+    phoenix = services["phoenix"]
+
+    # F7/IS3 — image must carry an @sha256: digest pin.
+    image = phoenix.get("image", "")
+    assert image.startswith("arizephoenix/phoenix:"), (
+        f"unexpected image prefix: {image!r}"
+    )
+    assert "@sha256:" in image, (
+        f"image must be digest-pinned for supply-chain hygiene; "
+        f"got {image!r}"
+    )
+
+    # F1 — bind-mount source must resolve to repo-root var/arxmcp,
+    # NOT to infra/observability/var/arxmcp.
+    volumes = phoenix.get("volumes", [])
+    assert len(volumes) == 1, f"expected 1 volume, got {volumes!r}"
+    src = volumes[0].get("source") if isinstance(volumes[0], dict) else None
+    assert src is not None, f"could not extract volume source from {volumes[0]!r}"
+    assert src.endswith("/var/arxmcp/observability/phoenix"), (
+        f"bind-mount source did not resolve to repo-root "
+        f"var/arxmcp/...; got {src!r}. F1 regression."
+    )
+    assert "/infra/observability/var/" not in src, (
+        f"bind-mount source resolved INSIDE infra/ — "
+        f"compose-file-relative resolution bug. Got {src!r}"
+    )
+
+
+def test_restart_policy_is_no() -> None:
+    """F3 rectification — Phoenix MUST NOT silently relaunch on
+    host reboot. The compose file's restart policy must be ``no``
+    (or ``on-failure``); ``unless-stopped`` re-opens a Phoenix UI
+    bearing accumulated mcp.session_id-bearing spans after every
+    reboot, which on a multi-user workstation is a session-id
+    leak surface that the operator does not expect."""
+    spec = yaml.safe_load(COMPOSE_PATH.read_text(encoding="utf-8"))
+    restart = spec["services"]["phoenix"].get("restart", "always")
+    assert restart in ("no", "on-failure"), (
+        f"Phoenix restart policy must be 'no' or 'on-failure' "
+        f"(opt-in dev-tool posture); got {restart!r}. See F3 in "
+        f"the E14_S03 adversary critique."
+    )
+
+
+def test_resource_limits_set() -> None:
+    """F8/IS2 — Phoenix must declare ``mem_limit`` and ``cpus``
+    so a runaway sidecar can't starve the MCP server's BGE-M3
+    worker."""
+    spec = yaml.safe_load(COMPOSE_PATH.read_text(encoding="utf-8"))
+    svc = spec["services"]["phoenix"]
+    assert "mem_limit" in svc, "mem_limit must be declared"
+    assert "cpus" in svc, "cpus must be declared"
+
+
+def test_capability_hardening() -> None:
+    """IS5 — Phoenix must drop default Linux capabilities and
+    block privilege escalation."""
+    spec = yaml.safe_load(COMPOSE_PATH.read_text(encoding="utf-8"))
+    svc = spec["services"]["phoenix"]
+    cap_drop = svc.get("cap_drop", [])
+    assert "ALL" in cap_drop, (
+        f"cap_drop must include ALL; got {cap_drop!r}"
+    )
+    security_opt = svc.get("security_opt", [])
+    assert any(
+        "no-new-privileges" in s for s in security_opt
+    ), f"security_opt must include no-new-privileges; got {security_opt!r}"
+
+
+def test_init_for_pid1_reaping() -> None:
+    """IS8 — ``init: true`` injects tini as PID 1 so signal
+    handling on ``docker compose down`` matches the project's
+    docker/Dockerfile.server precedent."""
+    spec = yaml.safe_load(COMPOSE_PATH.read_text(encoding="utf-8"))
+    assert spec["services"]["phoenix"].get("init") is True, (
+        "init: true must be set on the phoenix service"
     )

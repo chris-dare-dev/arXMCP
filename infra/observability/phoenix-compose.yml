@@ -25,10 +25,19 @@
 
 services:
   phoenix:
-    # Minor-version pin (15.10 line). Multi-arch (amd64 + arm64) so
-    # Apple Silicon works without Rosetta. Bump procedure documented
-    # in .claude/docs/observability-phoenix.md §"Upgrading Phoenix".
-    image: arizephoenix/phoenix:15.10
+    # Minor-version pin (15.10 line) plus content-addressable
+    # digest pin. F7/IS3 rectification from the E14_S03 critiques:
+    # the tag alone is mutable (Docker Hub allows overwrites of
+    # `15.10` with `15.10.1`, `15.10.2`, ...); a compromised
+    # builder or malicious upstream push would silently land on
+    # the operator's `docker compose pull`. Per
+    # .claude/notes/08-security-observability-ops.md §Threat 6,
+    # the project pins by SHA wherever possible (model weights;
+    # the same discipline applies to Docker images).
+    # Multi-arch (amd64 + arm64) — Apple Silicon works without
+    # Rosetta. Bump procedure documented in
+    # .claude/docs/observability-phoenix.md §"Upgrading Phoenix".
+    image: arizephoenix/phoenix:15.10@sha256:34464e86c02f878d76851bd0feb4bba6faead0e842bbea207e08011fa5efcac9
 
     # Opt-in profile. The default ``docker compose up`` does nothing
     # in this file; only ``--profile phoenix`` materialises the
@@ -73,7 +82,16 @@ services:
       # so ``make clean`` discipline applies (CLAUDE.md §5: "all
       # state lives under var/arxmcp/"). The host path is created
       # by ``make bootstrap``.
-      - ./var/arxmcp/observability/phoenix:/mnt/data
+      #
+      # CRITICAL — F1 rectification from the E14_S03 adversary
+      # critique. Compose v2 resolves relative bind-mount paths
+      # against the COMPOSE FILE's directory, NOT the operator's
+      # CWD. A bare ``./var/arxmcp/...`` here would land under
+      # ``infra/observability/var/arxmcp/...`` (a stray subtree
+      # inside ``infra/``), not the gitignored repo-root
+      # ``var/arxmcp/`` that ``make bootstrap`` creates. The
+      # ``../../`` prefix walks up to the repo root.
+      - ../../var/arxmcp/observability/phoenix:/mnt/data
 
     healthcheck:
       # /healthz on PHOENIX_PORT returns 200 once the Python app is
@@ -86,10 +104,39 @@ services:
       # Phoenix's first-run includes SQLite migration; 20s grace.
       start_period: 20s
 
-    # ``unless-stopped`` matches the "long-running dev tool" posture
-    # — the operator brings Phoenix down explicitly with
-    # ``docker compose down``. ``no`` would silently re-launch the
-    # container after a host reboot; ``always`` would override the
-    # operator's explicit stop. ``unless-stopped`` is the middle
-    # ground.
-    restart: unless-stopped
+    # F3 rectification (E14_S03 adversary critique). The prior
+    # value was ``unless-stopped`` — which silently relaunches
+    # Phoenix on host reboot. Spans carry ``mcp.session_id`` and
+    # Phoenix has no required auth on its trace-read endpoints
+    # (Brief 2 §2.2). On a multi-user workstation, a reboot
+    # silently reopens the read path. ``no`` matches the "opt-in
+    # dev tool" framing — the operator brings Phoenix back up
+    # explicitly via ``docker compose up -d`` after a reboot.
+    restart: "no"
+
+    # F8 / IS2 rectification — bound the sidecar so a busy
+    # retrieval-eval session can't starve the MCP server's
+    # BGE-M3 worker or fan up the workstation. 2 GB memory + 2
+    # CPUs are conservative starting points; the runbook
+    # documents tuning. Compose v2 honours ``mem_limit`` and
+    # ``cpus`` outside Swarm mode (the ``deploy.resources``
+    # variant is Swarm-only).
+    mem_limit: 2g
+    cpus: 2.0
+
+    # IS5 rectification — strip default Linux capabilities and
+    # block privilege escalation. Phoenix listens on user-space
+    # ports (4317, 6006), reads/writes its bind-mount, renders
+    # HTTP — none requires any default capability. If the
+    # Phoenix entrypoint legitimately needs a capability (e.g.
+    # CHOWN to fix ``/mnt/data`` ownership on first run), this
+    # will surface on `docker compose up -d` and we'll add the
+    # specific cap with ``cap_add:``.
+    cap_drop: ["ALL"]
+    security_opt:
+      - "no-new-privileges:true"
+
+    # IS8 — ensure tini reaps zombies and forwards signals
+    # cleanly on ``docker compose down``. Matches the project's
+    # ``docker/Dockerfile.server`` precedent (tini as PID 1).
+    init: true

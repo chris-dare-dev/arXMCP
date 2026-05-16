@@ -92,13 +92,24 @@ traces across restarts.
 
 ## Upgrading Phoenix
 
-The image is pinned to a minor version (`arizephoenix/phoenix:15.10`)
-for reproducibility. To bump:
+The image is pinned to BOTH a minor tag (`:15.10`) AND a
+content-addressable digest
+(`@sha256:34464e86c02f878d76851bd0feb4bba6faead0e842bbea207e08011fa5efcac9`).
+Bumping requires re-resolving the digest, not just editing the
+tag, so a future Phoenix push to `15.10.1` doesn't silently land
+on operators.
 
-1. Edit `infra/observability/phoenix-compose.yml` — change the
-   `image:` tag.
-2. `docker compose -f infra/observability/phoenix-compose.yml pull`
-3. `docker compose -f infra/observability/phoenix-compose.yml \
+Procedure:
+
+1. Resolve the new digest:
+   ```bash
+   docker buildx imagetools inspect arizephoenix/phoenix:<new-tag> \
+     | grep '^Digest:'
+   ```
+2. Edit `infra/observability/phoenix-compose.yml` — update both
+   the tag AND the `@sha256:...` suffix on the `image:` line.
+3. `docker compose -f infra/observability/phoenix-compose.yml pull`
+4. `docker compose -f infra/observability/phoenix-compose.yml \
        --profile phoenix up -d`
 
 A major-version bump (e.g. `15.x` → `16.x`) may involve a SQLite
@@ -122,6 +133,55 @@ If you need to forward traces to a remote collector for any reason
 (SaaS Phoenix, OTel Collector pipeline, etc.), set
 `ARXMCP_OTEL_ALLOW_REMOTE=1` AND audit your export path for
 `mcp.session_id` redaction — Phoenix itself does NOT redact.
+
+### Residual risk — same-host other users (F4)
+
+**Phoenix has no required authentication on its trace-read
+endpoints by default** (Phoenix 15.x ships with
+`PHOENIX_DEFAULT_ADMIN_INITIAL_PASSWORD=admin` and no auth check
+on `/v1/traces`). Loopback-only host binding is the **sole**
+defence against the LAN. On a multi-user host, any local user
+who can reach `127.0.0.1:6006` — including a teammate with
+shell access via SSH, a malicious local script, or any process
+running under a different UID — can `curl /v1/traces` and
+exfiltrate `mcp.session_id` values.
+
+The single-workstation local-first posture (CLAUDE.md §1) is a
+**project convention**, not a guarantee about every operator's
+environment. Two safe modes of use:
+
+1. **Local-only:** run Phoenix only on a workstation where you
+   are the sole user, and rely on the loopback bind as your
+   defence. (The default.)
+2. **Shared host:** do NOT enable the Phoenix profile. The
+   default `ARXMCP_OTEL_ENDPOINT` (unset) keeps tracing
+   disabled at the SDK layer per E14_S02; no spans flow,
+   nothing leaks.
+
+A future hardening pass may enable Phoenix's optional auth
+(`PHOENIX_ENABLE_AUTH=true` + a generated
+`PHOENIX_SECRET`) — out of scope for E14_S03.
+
+### Container hardening
+
+The compose service ships with conservative defaults:
+
+- `cap_drop: ["ALL"]` — no default Linux capabilities.
+- `security_opt: ["no-new-privileges:true"]` — block privilege
+  escalation via setuid binaries.
+- `mem_limit: 2g`, `cpus: 2.0` — bound the sidecar so it can't
+  starve the BGE-M3 worker.
+- `init: true` — tini reaps zombies and forwards `SIGTERM` on
+  `docker compose down`.
+- `restart: "no"` — Phoenix does NOT silently relaunch on host
+  reboot (the operator brings it back up explicitly via
+  `docker compose -f infra/observability/phoenix-compose.yml
+  --profile phoenix up -d`).
+
+The image is pinned by both tag AND digest
+(`arizephoenix/phoenix:15.10@sha256:34464e86...`) so a future
+push to the mutable `:15.10` tag cannot land silently on the
+operator's box.
 
 ---
 

@@ -69,9 +69,13 @@ Phoenix's retrieval-evaluation view actually renders the
 
 * Pre-milestone: 1778 passed, 8 skipped, 1 xfailed (end of
   E14_S02).
-* Post-milestone: 1787 passed, 8 skipped, 1 xfailed (+9):
+* Post-feat: 1787 passed (+9):
   - 4 new in `TestOpenInferenceSpanKind`
   - 5 new in `tests/test_compose_phoenix.py`
+* Post-rect: 1791 passed (+4 regression guards for F1/F3/F8/IS5/IS8;
+  the F2 rectification replaced the old `config --quiet` test
+  with a stricter parsed-config check rather than adding a new
+  one). 8 skipped, 1 xfailed.
 * `ruff check .` — clean.
 * The `docker compose config --quiet` smoke test runs locally
   (Docker on this machine's PATH); it skips automatically when

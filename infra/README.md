@@ -16,6 +16,11 @@ Only the **Phoenix observability profile** ships today (E14_S03):
 The base `docker-compose.yml` (the two-service `server` + `ingest`
 stack from [`.claude/notes/08-security-observability-ops.md`](../.claude/notes/08-security-observability-ops.md)
 § Docker deployment) is **not yet shipped** — tracked as future
-work. Today, `make up` runs the server bare-metal as
-`python -m server.main`; the Phoenix compose is an independent
-local sidecar.
+work. When shipped, both `server` and `ingest` services will bind
+only to `127.0.0.1` per
+[`.claude/notes/08-security-observability-ops.md`](../.claude/notes/08-security-observability-ops.md)
+§ Docker deployment; the Phoenix profile inherits the same
+loopback discipline (see `observability/phoenix-compose.yml`).
+Today, `make up` runs the server bare-metal as `python -m
+server.main`; the Phoenix compose is an independent local
+sidecar.
