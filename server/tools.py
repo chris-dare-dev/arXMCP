@@ -437,9 +437,21 @@ def _wrap_with_metrics(tool_name: str, handler: Any) -> Any:
                 except Exception:
                     # Metric recording must never crash the request path
                     # (08-security-observability-ops.md: "metrics are
-                    # operational telemetry, not load-bearing").
-                    logger.debug(
-                        "RESULT_BYTES record failed for %s", tool_name, exc_info=True
+                    # operational telemetry, not load-bearing"). F5
+                    # rectification from E14_S01: log at WARNING so a
+                    # handler returning non-JSON-serializable
+                    # ``structuredContent`` produces a positive signal
+                    # in production logs (default level INFO). Mirrors
+                    # the E08_S03 F11 lesson — silent metric cold-out
+                    # is its own observability bug.
+                    logger.warning(
+                        "RESULT_BYTES record failed for %s "
+                        "(handler returned non-JSON-serializable "
+                        "structuredContent); arxmcp_result_bytes{tool=%r} "
+                        "will undercount until fixed.",
+                        tool_name,
+                        tool_name,
+                        exc_info=True,
                     )
 
     return _tracked

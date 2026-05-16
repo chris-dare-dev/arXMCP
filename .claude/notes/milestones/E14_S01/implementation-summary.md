@@ -68,8 +68,10 @@ documented inline at the change site:
 
 * Pre-milestone: 1733 passed, 8 skipped, 1 xfailed (from
   end-of-E11_S05 baseline).
-* Post-milestone: 1747 passed, 8 skipped, 1 xfailed (+14 from
-  `tests/test_server_metrics.py`).
+* Post-feat: +14 new tests in `tests/test_server_metrics.py`.
+* Post-rect (after F1+F2+F4+F5+F7 regression guards): 1739
+  passed, 8 skipped, 1 xfailed — total 20 tests in the new
+  metrics test file.
 * `ruff check .` — clean.
 
 ## What this milestone does NOT cover

@@ -182,59 +182,51 @@ RERANK_LATENCY: Histogram = Histogram(
 # ---------------------------------------------------------------------------
 
 
+def _reset_metric_child(child: object) -> None:
+    """Reset a single Counter / Gauge / Histogram labelled child to
+    its zero state. Prefers the public :meth:`Counter.reset` API
+    (available on ``prometheus_client>=0.16``; the project pins
+    ``0.25``) and falls back to the documented-private
+    ``._value.set(0)`` accessor only for label spaces that the
+    public API does not cover. Closes F6 from the E14_S01
+    adversary critique (Counter-monotonicity violation in tests).
+    """
+    if hasattr(child, "reset"):
+        child.reset()
+        return
+    # Histogram bucket fallback (older prometheus_client builds).
+    for bucket in getattr(child, "_buckets", ()):
+        bucket.set(0)
+    if hasattr(child, "_sum"):
+        child._sum.set(0)
+    if hasattr(child, "_value"):
+        child._value.set(0)
+
+
 def reset_request_metrics_for_tests() -> None:
     """Reset every request-level Counter/Histogram/Gauge to zero.
 
     Test-only escape hatch — never call from production paths.
-    The Prometheus client doesn't expose a public reset; we walk
-    the documented-private ``_metrics`` dicts and call ``._value
-    .set(0)`` on each labelled child, mirroring
-    :func:`server.metrics.reset_cache_metrics_for_tests`.
+    Uses :func:`_reset_metric_child` which prefers the public
+    :meth:`Counter.reset` API.
     """
-    for family in (REQUEST_COUNTER, REQUEST_INFLIGHT):
+    for family in (REQUEST_COUNTER, REQUEST_INFLIGHT, REQUEST_LATENCY, RESULT_BYTES):
         for child in list(family._metrics.values()):
-            child._value.set(0)
-    for histogram in (REQUEST_LATENCY, RESULT_BYTES):
-        for child in list(histogram._metrics.values()):
-            # Histogram children expose .reset() in newer
-            # prometheus_client versions; otherwise the bucket
-            # counters live under child._buckets and the sum
-            # under child._sum.
-            if hasattr(child, "reset"):
-                child.reset()
-                continue
-            for bucket in getattr(child, "_buckets", ()):
-                bucket.set(0)
-            if hasattr(child, "_sum"):
-                child._sum.set(0)
+            _reset_metric_child(child)
 
 
 def reset_embed_metrics_for_tests() -> None:
     """Reset embedder query-path counters/histograms."""
-    for child in list(EMBED_CALLS_COUNTER._metrics.values()):
-        child._value.set(0)
-    for child in list(EMBED_LATENCY._metrics.values()):
-        if hasattr(child, "reset"):
-            child.reset()
-            continue
-        for bucket in getattr(child, "_buckets", ()):
-            bucket.set(0)
-        if hasattr(child, "_sum"):
-            child._sum.set(0)
+    for family in (EMBED_CALLS_COUNTER, EMBED_LATENCY):
+        for child in list(family._metrics.values()):
+            _reset_metric_child(child)
 
 
 def reset_rerank_metrics_for_tests() -> None:
     """Reset reranker counters/histograms."""
-    for child in list(RERANK_CALLS_COUNTER._metrics.values()):
-        child._value.set(0)
-    for child in list(RERANK_LATENCY._metrics.values()):
-        if hasattr(child, "reset"):
-            child.reset()
-            continue
-        for bucket in getattr(child, "_buckets", ()):
-            bucket.set(0)
-        if hasattr(child, "_sum"):
-            child._sum.set(0)
+    for family in (RERANK_CALLS_COUNTER, RERANK_LATENCY):
+        for child in list(family._metrics.values()):
+            _reset_metric_child(child)
 
 
 __all__ = [

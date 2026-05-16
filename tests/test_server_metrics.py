@@ -385,6 +385,196 @@ class TestSentinelScrapeHook:
         )
 
 
+class TestF1OversizedSentinel:
+    """F1 rectification — every read_text on a sentinel must enforce
+    :data:`server.health._MAX_SENTINEL_BYTES` so a 100 GB
+    ``drift-detected.flag`` (attacker, or buggy cron) cannot OOM the
+    server at /metrics scrape time."""
+
+    def test_oversized_drift_flag_falls_through_to_touchfile(
+        self, tmp_path: Path, caplog, reset_all_metrics
+    ):
+        from server import health as health_mod  # noqa: PLC0415
+
+        # Write a file larger than the cap. Cap is 64 KB; we write
+        # 65 KB and confirm the body is NEVER read.
+        big = tmp_path / "drift-detected.flag"
+        big.write_bytes(b"x" * (health_mod._MAX_SENTINEL_BYTES + 1024))
+        with caplog.at_level("WARNING"):
+            refresh_sentinel_metrics(tmp_path)
+        assert LATEXML_DRIFT_DETECTED_GAUGE._value.get() == 1.0
+        assert any(
+            "is " in rec.message and "bytes (cap is " in rec.message
+            for rec in caplog.records
+        )
+
+    def test_oversized_backup_status_is_ignored(
+        self, tmp_path: Path, caplog, reset_all_metrics
+    ):
+        from server import health as health_mod  # noqa: PLC0415
+
+        # First seed a known-good backup status so we have a prior
+        # observable value.
+        (tmp_path / "backup-status.json").write_text(
+            json.dumps(
+                {"status": "ok", "finished_at": "2026-05-14T03:00:00+00:00"}
+            )
+        )
+        refresh_sentinel_metrics(tmp_path)
+        prior_ts = BACKUP_LAST_SUCCESS_GAUGE._value.get()
+        assert prior_ts > 0
+
+        # Replace with an oversized file — the scrape hook must
+        # refuse to parse it AND leave the prior gauges intact
+        # (operator-facing semantics: "the prior known-good value
+        # is more useful than a 0 zero" — same as malformed-JSON
+        # behavior).
+        (tmp_path / "backup-status.json").write_bytes(
+            b"{" + b"x" * (health_mod._MAX_SENTINEL_BYTES + 1)
+        )
+        with caplog.at_level("WARNING"):
+            refresh_sentinel_metrics(tmp_path)
+        assert BACKUP_LAST_SUCCESS_GAUGE._value.get() == prior_ts
+
+
+class TestF2SingleflightCounter:
+    """F2 rectification — the brief AC#3 named
+    ``arxmcp_embed_singleflight_dedup_total`` increment on concurrent
+    identical queries. The scrape hook in
+    :func:`refresh_metrics_from_singleton_state` rehydrates the
+    Prometheus counter from the source-of-truth integer
+    :data:`server.query_encoder.SINGLEFLIGHT_DEDUP_COUNT` via a
+    monotonic delta. A regression that flipped the delta sign would
+    not have been caught without this test."""
+
+    def test_counter_rehydrates_from_source_of_truth(
+        self, monkeypatch, reset_all_metrics
+    ):
+        import server.query_encoder as qe_mod  # noqa: PLC0415
+        from server import health as health_mod  # noqa: PLC0415
+
+        # Reset the module-level delta tracker so the increment math
+        # starts from a known 0.
+        health_mod._LAST_DEDUP_COUNT = 0
+        # Pretend the singleflight has dedup'd 3 queries by now.
+        monkeypatch.setattr(
+            qe_mod, "get_singleflight_dedup_count", lambda: 3
+        )
+
+        fake_resources = SimpleNamespace(
+            corpus_info=SimpleNamespace(version=1),
+            process_start_time_seconds=0.0,
+            is_resource_warm=lambda n: True,
+            cache=None,
+            config=None,
+        )
+        # Reset the prometheus Counter to 0 first so we observe a
+        # pure delta increment. The counter is module-level and
+        # may have prior values from earlier tests.
+        try:
+            health_mod.EMBED_SINGLEFLIGHT_DEDUP_COUNTER.reset()
+        except AttributeError:
+            health_mod.EMBED_SINGLEFLIGHT_DEDUP_COUNTER._value.set(0)
+
+        health_mod.refresh_metrics_from_singleton_state(fake_resources)
+        assert health_mod.EMBED_SINGLEFLIGHT_DEDUP_COUNTER._value.get() == 3.0
+
+        # A subsequent scrape with no further dedup must NOT
+        # re-increment the counter (the delta tracker absorbs the
+        # already-counted hits).
+        health_mod.refresh_metrics_from_singleton_state(fake_resources)
+        assert health_mod.EMBED_SINGLEFLIGHT_DEDUP_COUNTER._value.get() == 3.0
+
+        # A new dedup hit DOES increment.
+        monkeypatch.setattr(
+            qe_mod, "get_singleflight_dedup_count", lambda: 5
+        )
+        health_mod.refresh_metrics_from_singleton_state(fake_resources)
+        assert health_mod.EMBED_SINGLEFLIGHT_DEDUP_COUNTER._value.get() == 5.0
+
+
+class TestF4BackupUnknownState:
+    """F4 rectification — an unrecognised backup-status value lights
+    up the ``unknown`` cell rather than silently zeroing every
+    state. Prevents alert suppression for a regression-to-future-
+    state-string failure mode in the backup wrapper."""
+
+    def test_unknown_status_routes_to_unknown_cell(
+        self, tmp_path: Path, caplog, reset_all_metrics
+    ):
+        (tmp_path / "backup-status.json").write_text(
+            json.dumps(
+                {
+                    "status": "degraded",
+                    "finished_at": "2026-05-14T03:00:00+00:00",
+                }
+            )
+        )
+        with caplog.at_level("WARNING"):
+            refresh_sentinel_metrics(tmp_path)
+        assert BACKUP_STATUS_GAUGE.labels(state="unknown")._value.get() == 1.0
+        assert BACKUP_STATUS_GAUGE.labels(state="ok")._value.get() == 0.0
+        assert BACKUP_STATUS_GAUGE.labels(state="failed")._value.get() == 0.0
+        assert any(
+            "unknown state 'degraded'" in rec.message for rec in caplog.records
+        )
+
+
+class TestF7BackupStatusZSuffix:
+    """F7 regression guard — the ``finished_at`` field may end in
+    ``Z`` (RFC-3339 UTC shorthand). Python 3.11+ supports this
+    natively; the prior code path had a dead ``.replace("Z", "+00:00")``
+    shim. A regression to a stricter parser must not silently zero
+    ``BACKUP_LAST_SUCCESS_GAUGE``."""
+
+    def test_z_suffix_parses_to_same_epoch_as_plus_offset(
+        self, tmp_path: Path, reset_all_metrics
+    ):
+        from datetime import UTC, datetime  # noqa: PLC0415
+
+        (tmp_path / "backup-status.json").write_text(
+            json.dumps(
+                {"status": "ok", "finished_at": "2026-05-14T03:00:00Z"}
+            )
+        )
+        refresh_sentinel_metrics(tmp_path)
+        expected = datetime(2026, 5, 14, 3, 0, 0, tzinfo=UTC).timestamp()
+        assert BACKUP_LAST_SUCCESS_GAUGE._value.get() == expected
+
+
+class TestF5UnserializableStructuredContent:
+    """F5 rectification — a handler whose ``structuredContent`` is
+    not JSON-serializable produces a WARNING log (previously DEBUG)
+    so operators have a positive signal that the metric is
+    undercounting. Silent metric cold-out was the E08_S03 F11
+    lesson applied to the new metric-recording layer."""
+
+    def test_warning_logged_when_structured_content_not_serializable(
+        self, caplog, reset_all_metrics
+    ):
+        # A datetime is not JSON-serializable by default.
+        from datetime import UTC, datetime  # noqa: PLC0415
+
+        bad_payload = SimpleNamespace(
+            structuredContent={"when": datetime(2026, 1, 1, tzinfo=UTC)}
+        )
+
+        async def handler():
+            return bad_payload
+
+        wrapped = _wrap_with_metrics("bad_tool", handler)
+        with caplog.at_level("WARNING"):
+            asyncio.run(wrapped())
+        assert any(
+            "RESULT_BYTES record failed for bad_tool" in rec.message
+            for rec in caplog.records
+        )
+        # The handler still returned successfully — the request
+        # counter records ok status even though byte-size recording
+        # failed (metric-recording is best-effort).
+        assert _counter_value(REQUEST_COUNTER, tool="bad_tool", status="ok") == 1.0
+
+
 class TestEvalNdcg5LabelCap:
     def test_only_five_most_recent_versions_kept(
         self, tmp_path: Path, reset_all_metrics
@@ -419,6 +609,23 @@ class TestMetricsEndpoint:
         Closes the E14_S01 brief's exposition AC by exercising the
         actual ASGI mount path the operator hits — not by reading
         the registry directly.
+
+        **F3 rationale (E14_S01 adversary critique).** The brief
+        names ``promtool check metrics`` as the validator. We use
+        ``prometheus_client.parser.text_string_to_metric_families``
+        instead because (a) ``promtool`` is a Go binary that is
+        not guaranteed on developer or CI environments, and a
+        skip-if-missing test creates false-green coverage that
+        looks landed but isn't; (b) the parser exercises the SAME
+        format-conformance contract — HELP/TYPE/sample line
+        validity — that ``promtool`` does, by invoking the
+        prometheus-client library's own parser. The two validators
+        diverge only on aggressively-pedantic surface rules
+        (e.g. trailing-newline strictness, comment-line placement)
+        that the prometheus_client generator already conforms to
+        because it IS the canonical generator. Operators who want
+        ``promtool``-level paranoia can pipe ``curl /metrics``
+        through ``promtool check metrics`` manually.
         """
         cfg = Config(lancedb_path=seeded_lancedb, ops_dir=Path("/tmp/nonexistent-ops"))
         app = create_app(cfg)

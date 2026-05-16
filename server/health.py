@@ -67,8 +67,22 @@ _EVAL_REPORTS_DIR: str = "eval-reports"
 #: ``backup-status.json`` documents (see
 #: ``docs/ops/backup-restore.md``). Used by
 #: :func:`refresh_sentinel_metrics` to zero-out the inactive
-#: states so exactly one cell is 1.0 at a time.
-_BACKUP_STATES: tuple[str, ...] = ("ok", "failed", "running")
+#: states so exactly one cell is 1.0 at a time. ``"unknown"`` is
+#: the catch-all bucket the scrape hook lights up when the wrapper
+#: emits a state outside the documented set — closes F4 from the
+#: E14_S01 adversary critique (silent alert suppression on
+#: corrupted / future state strings).
+_BACKUP_STATES: tuple[str, ...] = ("ok", "failed", "running", "unknown")
+
+#: Maximum bytes the scrape hook will ``read_text`` from any
+#: cron-emitted sentinel file. Each ``/metrics`` scrape walks
+#: every sentinel; an oversized file would materialize its full
+#: byte string in process RSS per scrape (default Prometheus
+#: scrape interval is 15s). Closes F1 from the E14_S01 adversary
+#: critique. 64 KB is far above any legitimate sentinel
+#: (drift-detected.flag is a touch-file or a tiny JSON;
+#: backup-status.json is <1 KB; each eval-report is <10 KB).
+_MAX_SENTINEL_BYTES: int = 64 * 1024
 
 # ---------------------------------------------------------------------------
 # Prometheus registry — one per process, populated by the lifespan.
@@ -282,19 +296,7 @@ def refresh_sentinel_metrics(ops_dir: Path) -> None:
     # --- drift-detected.flag → LATEXML_DRIFT_DETECTED_GAUGE -----------
     drift_flag = ops_dir / _DRIFT_FLAG_NAME
     if drift_flag.is_file():
-        value = 1.0
-        try:
-            raw = drift_flag.read_text(encoding="utf-8").strip()
-            if raw:
-                parsed = json.loads(raw)
-                if isinstance(parsed, dict) and "fixture_count" in parsed:
-                    value = float(parsed["fixture_count"])
-        except (json.JSONDecodeError, OSError, ValueError):
-            logger.warning(
-                "drift-detected.flag at %s is malformed; treating as touch-file=1.0",
-                drift_flag,
-                exc_info=True,
-            )
+        value = _read_drift_flag(drift_flag)
         LATEXML_DRIFT_DETECTED_GAUGE.set(value)
     else:
         LATEXML_DRIFT_DETECTED_GAUGE.set(0.0)
@@ -311,24 +313,39 @@ def refresh_sentinel_metrics(ops_dir: Path) -> None:
     backup_status = ops_dir / _BACKUP_STATUS_NAME
     if backup_status.is_file():
         try:
-            payload = json.loads(backup_status.read_text(encoding="utf-8"))
-            finished_at = payload.get("finished_at")
-            if isinstance(finished_at, str) and finished_at:
-                # ``datetime.fromisoformat`` handles RFC-3339 (the format
-                # the wrapper emits). Trailing ``Z`` is not supported on
-                # 3.11- so swap to ``+00:00``.
-                from datetime import datetime  # noqa: PLC0415
+            raw = _read_capped(backup_status)
+            payload = json.loads(raw) if raw is not None else None
+            if payload is not None:
+                finished_at = payload.get("finished_at")
+                if isinstance(finished_at, str) and finished_at:
+                    # ``datetime.fromisoformat`` handles RFC-3339 (including
+                    # the trailing-``Z`` form on Python 3.11+, which is the
+                    # project floor).
+                    from datetime import datetime  # noqa: PLC0415
 
-                iso = finished_at.replace("Z", "+00:00")
-                BACKUP_LAST_SUCCESS_GAUGE.set(
-                    datetime.fromisoformat(iso).timestamp()
-                )
-            state = payload.get("status")
-            if isinstance(state, str):
-                for s in _BACKUP_STATES:
-                    BACKUP_STATUS_GAUGE.labels(state=s).set(
-                        1.0 if s == state else 0.0
+                    BACKUP_LAST_SUCCESS_GAUGE.set(
+                        datetime.fromisoformat(finished_at).timestamp()
                     )
+                state = payload.get("status")
+                if isinstance(state, str):
+                    # F4 rectification — unknown / corrupted / future state
+                    # strings light up the ``unknown`` cell instead of
+                    # silently zeroing every state. Operators wiring
+                    # ``arxmcp_backup_status{state="failed"}`` alerts
+                    # would otherwise miss a regression to an emit-
+                    # mismatched-string wrapper bug.
+                    bucket = state if state in _BACKUP_STATES else "unknown"
+                    if bucket == "unknown":
+                        logger.warning(
+                            "backup-status.json at %s reports unknown state "
+                            "%r; routing to arxmcp_backup_status{state=\"unknown\"}",
+                            backup_status,
+                            state,
+                        )
+                    for s in _BACKUP_STATES:
+                        BACKUP_STATUS_GAUGE.labels(state=s).set(
+                            1.0 if s == bucket else 0.0
+                        )
         except (json.JSONDecodeError, OSError, ValueError):
             logger.warning(
                 "backup-status.json at %s is malformed; leaving prior gauge values",
@@ -344,6 +361,79 @@ def refresh_sentinel_metrics(ops_dir: Path) -> None:
     reports_dir = ops_dir / _EVAL_REPORTS_DIR
     if reports_dir.is_dir():
         _refresh_eval_ndcg5(reports_dir)
+
+
+def _read_capped(path: Path) -> str | None:
+    """Read ``path`` as UTF-8 text, refusing files larger than
+    :data:`_MAX_SENTINEL_BYTES`. Closes F1 from the E14_S01 adversary
+    critique — every scrape walks the sentinel directory, and an
+    attacker (or a buggy cron) that can write a 100 GB sentinel
+    would otherwise OOM the server at scrape time.
+
+    Returns ``None`` when the file is oversized (after emitting a
+    WARNING log line so operators have a positive signal). Returns
+    the file contents on success. Raises :class:`OSError` on read
+    failure — callers catch + log.
+    """
+    try:
+        size = path.stat().st_size
+    except OSError:
+        raise
+    if size > _MAX_SENTINEL_BYTES:
+        logger.warning(
+            "sentinel file %s is %d bytes (cap is %d); refusing to "
+            "read body. Operator should inspect the file and either "
+            "remove it or fix the producing cron.",
+            path,
+            size,
+            _MAX_SENTINEL_BYTES,
+        )
+        return None
+    return path.read_text(encoding="utf-8")
+
+
+def _read_drift_flag(drift_flag: Path) -> float:
+    """Return the drift-fixture-count value to set on
+    :data:`server.metrics.LATEXML_DRIFT_DETECTED_GAUGE`.
+
+    Behavior matrix (precedence top-down):
+
+    * oversized file (size > :data:`_MAX_SENTINEL_BYTES`) → 1.0
+      (treat as touch-file; the WARNING from :func:`_read_capped`
+      is the operator's actionable signal).
+    * empty body → 1.0 (touch-file convention).
+    * JSON object with ``fixture_count`` integer → the integer.
+    * malformed JSON / OSError / non-numeric ``fixture_count`` →
+      1.0 with a WARNING log line.
+    """
+    try:
+        raw = _read_capped(drift_flag)
+    except OSError:
+        logger.warning(
+            "drift-detected.flag at %s could not be read; treating as "
+            "touch-file=1.0",
+            drift_flag,
+            exc_info=True,
+        )
+        return 1.0
+    if raw is None:
+        # Oversized — _read_capped already logged.
+        return 1.0
+    raw = raw.strip()
+    if not raw:
+        return 1.0
+    try:
+        parsed = json.loads(raw)
+        if isinstance(parsed, dict) and "fixture_count" in parsed:
+            return float(parsed["fixture_count"])
+    except (json.JSONDecodeError, ValueError):
+        logger.warning(
+            "drift-detected.flag at %s is malformed; treating as "
+            "touch-file=1.0",
+            drift_flag,
+            exc_info=True,
+        )
+    return 1.0
 
 
 def _refresh_eval_ndcg5(reports_dir: Path) -> None:
@@ -374,7 +464,12 @@ def _refresh_eval_ndcg5(reports_dir: Path) -> None:
             prior = by_version.get(corpus_version)
             if prior is not None and prior[0] >= mtime:
                 continue
-            payload = json.loads(report_path.read_text(encoding="utf-8"))
+            # F1 rectification — per-file size cap so a 100 GB report
+            # under eval-reports/ can't OOM the server at scrape time.
+            raw = _read_capped(report_path)
+            if raw is None:
+                continue
+            payload = json.loads(raw)
             ndcg5 = payload.get("ndcg5_mean")
             if not isinstance(ndcg5, (int, float)):
                 continue

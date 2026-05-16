@@ -325,30 +325,33 @@ def refresh_cache_metrics(cache: RetrievalCache | None) -> None:
     CACHE_BYTES_GAUGE.labels(tier=TIER_3).set(cache.tier3_bytes_used())
 
 
+def _reset_child(child: object) -> None:
+    """Reset a Counter / Gauge / Histogram labelled child using the
+    public :meth:`Counter.reset` API when available (prometheus_client
+    ≥ 0.16; the project pins 0.25), falling back to the documented-
+    private ``._value`` accessor only when the public hook is absent.
+    F6 rectification from the E14_S01 adversary critique."""
+    if hasattr(child, "reset"):
+        child.reset()
+        return
+    if hasattr(child, "_value"):
+        child._value.set(0)
+
+
 def reset_cache_metrics_for_tests() -> None:
     """Test hook — reset every cache counter and gauge to zero.
-
-    The Prometheus library does not expose a ``Counter.reset()`` so
-    we work around it by re-setting the underlying ``_value`` to 0
-    via the documented ``.collect()`` reflection path. This is a
-    test-only escape hatch — production code paths must NEVER call
-    this (counter monotonicity is a Prometheus contract).
-
-    Mirrors :func:`server.health.reset_metrics_for_tests` discipline.
-    """
+    F6 rectification: prefer the public ``Counter.reset()``."""
     for tier in ALL_TIERS:
-        # Counters: reset by accessing the underlying _value attribute.
-        # This is private API but stable across prometheus_client 0.16+.
-        CACHE_LOOKUPS_COUNTER.labels(tier=tier)._value.set(0)
-        CACHE_HITS_COUNTER.labels(tier=tier)._value.set(0)
-        CACHE_EVICTIONS_COUNTER.labels(tier=tier)._value.set(0)
+        _reset_child(CACHE_LOOKUPS_COUNTER.labels(tier=tier))
+        _reset_child(CACHE_HITS_COUNTER.labels(tier=tier))
+        _reset_child(CACHE_EVICTIONS_COUNTER.labels(tier=tier))
         CACHE_BYTES_GAUGE.labels(tier=tier).set(0)
     # Reset the payload-skip counter for every reason label seen so far.
     for reason in ("non_serializable",):
-        CACHE_PAYLOAD_SKIPS_COUNTER.labels(reason=reason)._value.set(0)
+        _reset_child(CACHE_PAYLOAD_SKIPS_COUNTER.labels(reason=reason))
     # Reset the retrieval-cap rejections counter (E08_S04).
     for tool in ("search_papers", "get_chunk"):
-        RETRIEVAL_CAP_REJECTIONS_COUNTER.labels(tool=tool)._value.set(0)
+        _reset_child(RETRIEVAL_CAP_REJECTIONS_COUNTER.labels(tool=tool))
 
 
 def reset_drift_metrics_for_tests() -> None:
@@ -366,7 +369,7 @@ def reset_drift_metrics_for_tests() -> None:
       boundary via the sentinel file.
     """
     for child in list(LATEXML_DRIFT_DETECTED_COUNTER._metrics.values()):
-        child._value.set(0)
+        _reset_child(child)
     LATEXML_DRIFT_DETECTED_GAUGE.set(0)
 
 
@@ -375,7 +378,7 @@ def reset_eval_metrics_for_tests() -> None:
     corpus_version label seen so far. Test-only — same discipline
     as :func:`reset_drift_metrics_for_tests`."""
     for child in list(EVAL_NDCG5_GAUGE._metrics.values()):
-        child._value.set(0)
+        _reset_child(child)
 
 
 def reset_sentinel_metrics_for_tests() -> None:
@@ -386,7 +389,7 @@ def reset_sentinel_metrics_for_tests() -> None:
     DELTA_TIMEOUT_ACTIVE_GAUGE.set(0)
     BACKUP_LAST_SUCCESS_GAUGE.set(0)
     for child in list(BACKUP_STATUS_GAUGE._metrics.values()):
-        child._value.set(0)
+        _reset_child(child)
 
 
 __all__ = [
