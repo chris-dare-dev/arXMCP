@@ -109,6 +109,16 @@ class Config(BaseSettings):
     #: legacy in-memory scan over the chunks table.
     theorem_names_db_path: Path = Path("var/arxmcp/index/sqlite/theorem_names.db")
 
+    #: Directory that holds cron-emitted sentinel files
+    #: (drift-detected.flag, eval-quarantine.flag,
+    #: delta-timeout.flag, backup-status.json) plus the
+    #: per-version eval-reports/ subdirectory. Read at scrape
+    #: time by E14_S01's :func:`server.health.refresh_sentinel_metrics`
+    #: to rehydrate cross-process gauges from disk. Letting this
+    #: be configurable lets tests inject a ``tmp_path`` cleanly
+    #: without monkey-patching paths in three modules.
+    ops_dir: Path = Path("var/arxmcp/ops")
+
     # --- Models ----------------------------------------------------------
 
     #: Whether to load the BGE-reranker-v2-m3 at startup. When True

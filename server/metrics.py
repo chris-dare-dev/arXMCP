@@ -158,22 +158,18 @@ RETRIEVAL_CAP_REJECTIONS_COUNTER: Counter = Counter(
 #: equation TED index because stored MathML trees are no longer
 #: byte-comparable to freshly-rendered queries.
 #:
-#: Increments inside the cron process (``ops/drift_check.py``);
-#: production exposure via the server's ``/metrics`` endpoint is
-#: deferred to E14 (observability/ops). The v1 operational signal is
-#: the cron job's non-zero exit + ERROR log + sentinel file at
-#: ``var/arxmcp/ops/drift-detected.flag``.
+#: **Cron-side audit counter.** Increments inside the
+#: ``ops/drift_check`` cron process per drifted fixture. The
+#: cron process exits after each run, so this counter never
+#: surfaces at the server's ``/metrics`` — it exists to support
+#: E10_S04's in-process tests and would be replaced by a
+#: structured-log emission in a future refactor.
 #:
-#: **F8 (E10_S04 critique) — production exposure deferred to E14.**
-#: At v1 the only observer of this counter is the test suite (via the
-#: documented-private ``._value`` accessor, see
-#: ``reset_drift_metrics_for_tests`` below). Future operator-facing
-#: ``/metrics`` exposure will need a scrape-time hook that reads the
-#: sentinel file and reflects its presence/count as the counter's
-#: value across the server-vs-cron process boundary. Removing the
-#: counter would break only the AC3 regression test, NOT any
-#: production observer — so it looks like dead code until E14 ships
-#: the scrape-time bridge. Leave it.
+#: **For server-side /metrics exposure, see
+#: :data:`LATEXML_DRIFT_DETECTED_GAUGE` below.** That gauge is
+#: rehydrated at scrape time from the cron's sentinel file
+#: (``var/arxmcp/ops/drift-detected.flag``), which is the
+#: cross-process signal channel.
 LATEXML_DRIFT_DETECTED_COUNTER: Counter = Counter(
     "arxmcp_latexml_drift_detected_total",
     "Total number of fixture diffs that detected LaTeXML output "
@@ -187,32 +183,98 @@ LATEXML_DRIFT_DETECTED_COUNTER: Counter = Counter(
     labelnames=["fixture"],
 )
 
+#: E14_S01 server-side gauge — number of fixtures currently in
+#: drift state. Rehydrated at ``/metrics`` scrape time by
+#: :func:`server.health.refresh_sentinel_metrics` reading the
+#: cron's sentinel file at ``var/arxmcp/ops/drift-detected.flag``.
+#: Closes the E10_S04 F8 deferral: the cron process exits before
+#: Prometheus can scrape it; the gauge bridges the
+#: server-vs-cron process boundary via the sentinel file.
+#: NOTE on the metric name: prometheus_client strips the conventional
+#: ``_total`` suffix when assigning the time-series name, so the
+#: Counter above registers as ``arxmcp_latexml_drift_detected`` in the
+#: registry. We use ``arxmcp_latexml_drift_fixtures`` here to avoid the
+#: collision (the alternative — registering the Gauge with the same
+#: bare name as the Counter — raises ``ValueError`` at import).
+LATEXML_DRIFT_DETECTED_GAUGE: Gauge = Gauge(
+    "arxmcp_latexml_drift_fixtures",
+    "Number of LaTeXML fixtures currently in drift state, "
+    "rehydrated from var/arxmcp/ops/drift-detected.flag at "
+    "scrape time. 0 means no drift; >0 means the operator "
+    "should run the recovery procedure documented in "
+    "docs/ops/latexml-drift-runbook.md.",
+)
+
 #: E11_S04 drift watchdog gauge — the latest nDCG@5 mean per
 #: staging corpus version. Set by ``ops/watchdog_eval.run_watchdog``
-#: in the watchdog's own process (a one-shot cron). Production
-#: ``/metrics`` exposure of this gauge for the running server
-#: process is **deferred to E14** — same posture as
-#: ``LATEXML_DRIFT_DETECTED_COUNTER`` above. v1 operational signal
-#: is the watchdog's JSON report at
-#: ``var/arxmcp/ops/eval-reports/`` + the sentinel flag at
-#: ``var/arxmcp/ops/eval-quarantine.flag``.
+#: in the watchdog's own process (a one-shot cron). E14_S01 closed
+#: the cross-process exposure gap: the watchdog writes per-corpus-
+#: version JSON reports to ``var/arxmcp/ops/eval-reports/`` and
+#: the server's scrape-time hook
+#: (:func:`server.health.refresh_sentinel_metrics`) reads the
+#: N most-recent reports on every ``/metrics`` scrape and calls
+#: ``EVAL_NDCG5_GAUGE.labels(corpus_version=N).set(ndcg5_mean)``.
 #:
-#: Label cardinality is bounded by the number of distinct
-#: corpus_version integers the watchdog has measured. With a
-#: nightly delta loop bumping the staging version each day,
-#: this grows linearly with deployment age — ~365/year. The
-#: E14 scrape-time hook that rehydrates this gauge from JSON
-#: reports MUST cap the exposed labels at the N most-recent
-#: versions to avoid Prometheus high-cardinality drift.
+#: The scrape-time hook caps exposed labels at the 5 most-recent
+#: corpus_versions (E14_S01 synthesis D6) to avoid Prometheus
+#: high-cardinality drift.
 EVAL_NDCG5_GAUGE: Gauge = Gauge(
     "arxmcp_eval_ndcg5",
     "Latest watchdog nDCG@5 measurement per staging corpus "
-    "version. v1: in-process only; cross-process /metrics "
-    "exposure is deferred to E14 (LATEXML_DRIFT_DETECTED_COUNTER "
-    "precedent). See docs/ops/drift-watchdog.md and the watchdog's "
-    "JSON report at var/arxmcp/ops/eval-reports/ for the durable "
-    "operational signal.",
+    "version. Rehydrated at /metrics scrape time from "
+    "var/arxmcp/ops/eval-reports/corpus_v<N>-*.json by the "
+    "scrape hook in server.health.refresh_sentinel_metrics. "
+    "Capped at the 5 most-recent corpus versions to bound "
+    "label cardinality.",
     labelnames=["corpus_version"],
+)
+
+#: E11_S04 watchdog quarantine flag — 1.0 when
+#: ``var/arxmcp/ops/eval-quarantine.flag`` is present, 0.0 when
+#: absent. The flag is the watchdog's refuse-to-promote signal
+#: for E11_S05's cutover; exposing it as a gauge lets alert
+#: rules fire on ``arxmcp_eval_quarantine_active > 0``.
+EVAL_QUARANTINE_ACTIVE_GAUGE: Gauge = Gauge(
+    "arxmcp_eval_quarantine_active",
+    "1.0 when var/arxmcp/ops/eval-quarantine.flag is present "
+    "(watchdog has detected a regression and refuses cutover); "
+    "0.0 when absent. Rehydrated at /metrics scrape time.",
+)
+
+#: E11_S02 delta-loop timeout flag — 1.0 when
+#: ``var/arxmcp/ops/delta-timeout.flag`` is present, 0.0 when
+#: absent. The flag is written when a delta run exceeds its
+#: 90-minute budget.
+DELTA_TIMEOUT_ACTIVE_GAUGE: Gauge = Gauge(
+    "arxmcp_delta_timeout_active",
+    "1.0 when var/arxmcp/ops/delta-timeout.flag is present "
+    "(last delta run exceeded the 90-minute budget); 0.0 when "
+    "absent. Rehydrated at /metrics scrape time.",
+)
+
+#: E11_S05 backup last-success timestamp. Reads
+#: ``var/arxmcp/ops/backup-status.json::finished_at`` (ISO-8601)
+#: and exposes the Unix epoch. An alert rule of
+#: ``now() - arxmcp_backup_last_success_timestamp_seconds > 86400``
+#: fires when the nightly backup is more than a day late.
+BACKUP_LAST_SUCCESS_GAUGE: Gauge = Gauge(
+    "arxmcp_backup_last_success_timestamp_seconds",
+    "Unix epoch of the last successful restic backup, "
+    "rehydrated from var/arxmcp/ops/backup-status.json at "
+    "/metrics scrape time. 0.0 when the sentinel is absent "
+    "(no backup has run yet).",
+)
+
+#: E11_S05 backup status. Exactly one label is 1.0 at any time
+#: (or all are 0.0 when the sentinel is absent). States mirror
+#: the backup wrapper's emitted ``status`` field.
+BACKUP_STATUS_GAUGE: Gauge = Gauge(
+    "arxmcp_backup_status",
+    "Most recent restic backup outcome, rehydrated from "
+    "var/arxmcp/ops/backup-status.json at /metrics scrape "
+    "time. Exclusive — exactly one state is 1.0 at a time. "
+    "All zero means no backup has run yet.",
+    labelnames=["state"],
 )
 
 
@@ -290,20 +352,22 @@ def reset_cache_metrics_for_tests() -> None:
 
 
 def reset_drift_metrics_for_tests() -> None:
-    """Reset the LaTeXML drift counter for every fixture label
-    seen so far (E10_S04).
+    """Reset the LaTeXML drift counter (per-fixture labels) and the
+    E14_S01 cross-process gauge to zero.
 
-    Mirrors :func:`reset_cache_metrics_for_tests`. Per-fixture
-    labels are dynamic; we walk the counter's child metrics to
-    reset every observed label. Test-only — never call from
-    production code paths (counter monotonicity is a Prometheus
-    contract).
+    Both metrics coexist after E14_S01:
+
+    - :data:`LATEXML_DRIFT_DETECTED_COUNTER` is the cron-side
+      audit counter (E10_S04) — still imported and used by
+      :mod:`ops.drift_check` and exercised by
+      ``tests/test_drift_check.py``.
+    - :data:`LATEXML_DRIFT_DETECTED_GAUGE` is the server-side
+      scrape-time gauge that bridges the cron-vs-server process
+      boundary via the sentinel file.
     """
-    # Walk every (fixture,) label tuple registered so far. The
-    # underlying ``_metrics`` dict is private but stable across
-    # prometheus_client 0.16+.
     for child in list(LATEXML_DRIFT_DETECTED_COUNTER._metrics.values()):
         child._value.set(0)
+    LATEXML_DRIFT_DETECTED_GAUGE.set(0)
 
 
 def reset_eval_metrics_for_tests() -> None:
@@ -314,15 +378,31 @@ def reset_eval_metrics_for_tests() -> None:
         child._value.set(0)
 
 
+def reset_sentinel_metrics_for_tests() -> None:
+    """Reset the E14_S01 sentinel-source gauges (eval-quarantine,
+    delta-timeout, backup-last-success, backup-status). Mirrors
+    the other reset_*_for_tests helpers; test-only."""
+    EVAL_QUARANTINE_ACTIVE_GAUGE.set(0)
+    DELTA_TIMEOUT_ACTIVE_GAUGE.set(0)
+    BACKUP_LAST_SUCCESS_GAUGE.set(0)
+    for child in list(BACKUP_STATUS_GAUGE._metrics.values()):
+        child._value.set(0)
+
+
 __all__ = [
     "ALL_TIERS",
+    "BACKUP_LAST_SUCCESS_GAUGE",
+    "BACKUP_STATUS_GAUGE",
     "CACHE_BYTES_GAUGE",
     "CACHE_EVICTIONS_COUNTER",
     "CACHE_HITS_COUNTER",
     "CACHE_LOOKUPS_COUNTER",
     "CACHE_PAYLOAD_SKIPS_COUNTER",
+    "DELTA_TIMEOUT_ACTIVE_GAUGE",
     "EVAL_NDCG5_GAUGE",
+    "EVAL_QUARANTINE_ACTIVE_GAUGE",
     "LATEXML_DRIFT_DETECTED_COUNTER",
+    "LATEXML_DRIFT_DETECTED_GAUGE",
     "RETRIEVAL_CAP_REJECTIONS_COUNTER",
     "TIER_1",
     "TIER_2",
@@ -331,4 +411,5 @@ __all__ = [
     "reset_cache_metrics_for_tests",
     "reset_drift_metrics_for_tests",
     "reset_eval_metrics_for_tests",
+    "reset_sentinel_metrics_for_tests",
 ]

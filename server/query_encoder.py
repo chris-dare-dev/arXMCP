@@ -254,8 +254,19 @@ def _encode_query_sync(query_text: str) -> np.ndarray:
     # module top so the lazy-import-inside-function pattern from E03_S01
     # F11 isn't needed here — numpy is used at module scope for the
     # _inflight type hint.
+    import time  # noqa: PLC0415
+
     import torch  # noqa: PLC0415
     import torch.nn.functional as F  # noqa: PLC0415
+
+    # E14_S01 wiring — counts ACTUAL forward passes only; the singleflight
+    # dedup path is tracked separately by SINGLEFLIGHT_DEDUP_COUNT. Imported
+    # inside the function so a future ``server.observability`` refactor
+    # cannot introduce an import-time cycle with query_encoder.
+    from server.observability.metrics import (  # noqa: PLC0415
+        EMBED_CALLS_COUNTER,
+        EMBED_LATENCY,
+    )
 
     tokenizer = _get_tokenizer()
     model = _get_model()
@@ -266,14 +277,22 @@ def _encode_query_sync(query_text: str) -> np.ndarray:
         max_length=MAX_TOKENS,
         return_tensors="pt",
     )
-    with torch.no_grad():
-        output = model(**encoded)
-        # CLS-pool the [batch, seq, hidden] tensor down to [batch, hidden].
-        embeddings = output.last_hidden_state[:, 0, :]
-        # Explicit L2 normalization — raw ``AutoModel`` does not apply it.
-        embeddings = F.normalize(embeddings, p=2, dim=-1)
-    # Squeeze the singleton batch dim → shape (EMBEDDING_DIM,).
-    return embeddings[0].cpu().numpy().astype(np.float32)
+    t0 = time.perf_counter()
+    outcome = "error"
+    try:
+        with torch.no_grad():
+            output = model(**encoded)
+            # CLS-pool the [batch, seq, hidden] tensor down to [batch, hidden].
+            embeddings = output.last_hidden_state[:, 0, :]
+            # Explicit L2 normalization — raw ``AutoModel`` does not apply it.
+            embeddings = F.normalize(embeddings, p=2, dim=-1)
+        # Squeeze the singleton batch dim → shape (EMBEDDING_DIM,).
+        result = embeddings[0].cpu().numpy().astype(np.float32)
+        outcome = "ok"
+        return result
+    finally:
+        EMBED_CALLS_COUNTER.labels(model="bge-m3", outcome=outcome).inc()
+        EMBED_LATENCY.labels(model="bge-m3").observe(time.perf_counter() - t0)
 
 
 # ---------------------------------------------------------------------------

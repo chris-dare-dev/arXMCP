@@ -350,7 +350,17 @@ def _rerank_sync(
     loop) because PyTorch's CPU forward pass is synchronous +
     long-running.
     """
+    import time  # noqa: PLC0415
+
     import torch  # noqa: PLC0415
+
+    # E14_S01 wiring — count + time the batched forward pass.
+    # Imported inside the function to avoid an import-time cycle and to
+    # keep the module's top-level import budget minimal.
+    from server.observability.metrics import (  # noqa: PLC0415
+        RERANK_CALLS_COUNTER,
+        RERANK_LATENCY,
+    )
 
     if not bodies:
         return []
@@ -363,11 +373,23 @@ def _rerank_sync(
         max_length=RERANKER_MAX_LENGTH,
         return_tensors="pt",
     )
-    with torch.no_grad():
-        # logits shape: [batch, num_labels=1]; squeeze to [batch]
-        logits = model(**inputs).logits.view(-1).float()
-        scores = torch.sigmoid(logits)
-    return scores.tolist()
+    t0 = time.perf_counter()
+    outcome = "error"
+    try:
+        with torch.no_grad():
+            # logits shape: [batch, num_labels=1]; squeeze to [batch]
+            logits = model(**inputs).logits.view(-1).float()
+            scores = torch.sigmoid(logits)
+        result = scores.tolist()
+        outcome = "ok"
+        return result
+    finally:
+        RERANK_CALLS_COUNTER.labels(
+            model="bge-reranker-v2-m3", outcome=outcome
+        ).inc()
+        RERANK_LATENCY.labels(model="bge-reranker-v2-m3").observe(
+            time.perf_counter() - t0
+        )
 
 
 # ---------------------------------------------------------------------------

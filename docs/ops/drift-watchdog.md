@@ -18,12 +18,14 @@ dataset to active via the E11_S05 cutover.
 > There is no daemon process; the gauge metric is in-process
 > only and dies when the watchdog exits.
 
-> **`/metrics` exposure deferred to E14.** The `arxmcp_eval_ndcg5`
-> Prometheus gauge is defined in `server/metrics.py` but is only
-> populated in the watchdog's own process. Cross-process
-> exposure (so the running MCP server can serve the gauge at
-> `/metrics`) is E14's work — matches the
-> `LATEXML_DRIFT_DETECTED_COUNTER` precedent.
+> **`/metrics` exposure closed by E14_S01.** The watchdog writes
+> a per-corpus-version JSON report under
+> `var/arxmcp/ops/eval-reports/corpus_v<N>-<stamp>.json` after each
+> successful run. The MCP server's scrape-time hook
+> (`server.health.refresh_sentinel_metrics`) reads the 5
+> most-recent reports on every `/metrics` scrape and surfaces
+> `arxmcp_eval_ndcg5{corpus_version}` to Prometheus. The label
+> cap bounds time-series cardinality across long-running servers.
 
 ---
 

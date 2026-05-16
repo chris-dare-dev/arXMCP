@@ -41,10 +41,19 @@ buffering). So tools enforce the 256 KB cap themselves via
 
 from __future__ import annotations
 
+import functools
 import json
 import logging
+import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
+
+from server.observability.metrics import (
+    REQUEST_COUNTER,
+    REQUEST_INFLIGHT,
+    REQUEST_LATENCY,
+    RESULT_BYTES,
+)
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp import FastMCP
@@ -381,6 +390,61 @@ def _truncate_at_path(d: dict[str, Any], path: tuple[str, ...]) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _wrap_with_metrics(tool_name: str, handler: Any) -> Any:
+    """Wrap a tool handler so every invocation records request-level
+    Prometheus metrics (E14_S01 synthesis D3).
+
+    Wraps the original async handler in a closure that:
+
+    * increments :data:`REQUEST_INFLIGHT` on entry, decrements on
+      exit (try/finally — robust to raises);
+    * times wall-clock latency with :data:`REQUEST_LATENCY`;
+    * partitions :data:`REQUEST_COUNTER` by ``status="ok"|"error"``;
+    * records the JSON-serialized ``structuredContent`` byte size
+      on the ok path via :data:`RESULT_BYTES`.
+
+    ``functools.wraps`` preserves ``__wrapped__`` so FastMCP's
+    signature introspection (``inspect.signature``) still derives
+    the original input schema — wrapping is transparent at the
+    tool-registration boundary.
+    """
+
+    @functools.wraps(handler)
+    async def _tracked(*args: Any, **kwargs: Any) -> Any:
+        REQUEST_INFLIGHT.labels(tool=tool_name).inc()
+        t0 = time.perf_counter()
+        status = "error"
+        result: Any = None
+        try:
+            result = await handler(*args, **kwargs)
+            status = "ok"
+            return result
+        finally:
+            latency = time.perf_counter() - t0
+            REQUEST_INFLIGHT.labels(tool=tool_name).dec()
+            REQUEST_COUNTER.labels(tool=tool_name, status=status).inc()
+            REQUEST_LATENCY.labels(tool=tool_name).observe(latency)
+            if status == "ok" and result is not None:
+                try:
+                    payload = getattr(result, "structuredContent", None)
+                    if payload is None and isinstance(result, dict):
+                        payload = result
+                    if payload is not None:
+                        size = len(
+                            json.dumps(payload, ensure_ascii=False).encode("utf-8")
+                        )
+                        RESULT_BYTES.labels(tool=tool_name).observe(size)
+                except Exception:
+                    # Metric recording must never crash the request path
+                    # (08-security-observability-ops.md: "metrics are
+                    # operational telemetry, not load-bearing").
+                    logger.debug(
+                        "RESULT_BYTES record failed for %s", tool_name, exc_info=True
+                    )
+
+    return _tracked
+
+
 def register_all(mcp_server: FastMCP) -> None:
     """Register all 7 v1 tools on ``mcp_server``.
 
@@ -391,6 +455,10 @@ def register_all(mcp_server: FastMCP) -> None:
 
     Each tool gets ``meta={"tool_schema_version": TOOL_SCHEMA_VERSION}``
     surfaced via FastMCP's ``add_tool(meta=...)`` argument (D3).
+
+    Every handler is wrapped via :func:`_wrap_with_metrics` so the
+    E14_S01 request-level Prometheus metrics fire on every call —
+    one change point, no per-handler decorator scatter.
     """
     # Lazy imports to avoid a circular import at module load
     # (handlers re-import server.tools for the envelope helpers).
@@ -415,7 +483,7 @@ def register_all(mcp_server: FastMCP) -> None:
     meta = {"tool_schema_version": TOOL_SCHEMA_VERSION}
     for tm in ALL_TOOLS:
         mcp_server.add_tool(
-            handler_by_name[tm.name],
+            _wrap_with_metrics(tm.name, handler_by_name[tm.name]),
             name=tm.name,
             description=tm.description,
             meta=meta,

@@ -2,9 +2,17 @@
 
 **Use when:** the daily `latexml-drift-check.sh` cron job exits
 non-zero, writes the sentinel file
-`var/arxmcp/ops/drift-detected.flag`, or the
-`arxmcp_latexml_drift_detected_total` counter is observed to have
-incremented (via `/metrics` once E14 wires production exposure).
+`var/arxmcp/ops/drift-detected.flag`, or the server-side
+`arxmcp_latexml_drift_fixtures` gauge is observed to be >0 at
+`/metrics`.
+
+The cron process additionally increments an in-process audit
+counter `arxmcp_latexml_drift_detected_total{fixture}` per
+drifted fixture, but that counter is NOT exposed at the server's
+`/metrics` (cron exits between runs — see the
+`arxmcp_latexml_drift_fixtures` gauge for the cross-process
+scrape surface, populated by the E14_S01 sentinel-file scrape
+hook in `server.health.refresh_sentinel_metrics`).
 
 > **Container note.** This v1 drift check runs against the **host**
 > `latexmlc` binary (`brew install latexml` / `apt install latexml`).
@@ -162,10 +170,14 @@ Exit code 0 + no sentinel file = recovery complete.
   with embedded MathML labels; the v1 drift detector intentionally
   skips it because the SVG output is high-noise. Future ops
   hardening may add tikz-cd as a separate drift class.
-- **Cross-process Prometheus exposure of the counter.** At v1 the
+- ~~**Cross-process Prometheus exposure of the counter.** At v1 the
   drift signal is the cron's stderr ERROR + sentinel file + exit
   code. Production `/metrics` exposure of
-  `arxmcp_latexml_drift_detected_total` is deferred to E14.
+  `arxmcp_latexml_drift_detected_total` is deferred to E14.~~
+  **Closed in E14_S01.** The server's scrape-time hook
+  (`server.health.refresh_sentinel_metrics`) reads
+  `var/arxmcp/ops/drift-detected.flag` on every `/metrics` scrape
+  and surfaces `arxmcp_latexml_drift_fixtures` to Prometheus.
 
 ---
 

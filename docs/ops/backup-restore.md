@@ -290,6 +290,33 @@ B2 + NAS) for production / shared deployments.
 
 ---
 
+## Metrics surface (E14_S01)
+
+The MCP server's `/metrics` endpoint exposes two backup gauges,
+rehydrated at scrape time from `var/arxmcp/ops/backup-status.json`:
+
+| Metric | Type | Meaning |
+|---|---|---|
+| `arxmcp_backup_last_success_timestamp_seconds` | Gauge | Unix epoch of the last successful backup (from `finished_at`). `0` until the first backup runs. |
+| `arxmcp_backup_status{state="ok"\|"failed"\|"running"}` | Gauge | Exclusive 1.0 on the current state. All three cells are `0` until the first backup runs. |
+
+Suggested alert rules (PromQL):
+
+```promql
+# Backup more than 25 hours late
+time() - arxmcp_backup_last_success_timestamp_seconds > 90000
+
+# Most recent backup outcome is failure
+arxmcp_backup_status{state="failed"} == 1
+```
+
+Refresh happens on every `/metrics` scrape via
+`server.health.refresh_sentinel_metrics(ops_dir)` — no scrape
+race with the cron's atomic write to `backup-status.json`
+(rename is atomic on POSIX).
+
+---
+
 ## See also
 
 * [ops/restic-env.sh.template](../../ops/restic-env.sh.template)

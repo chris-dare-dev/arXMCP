@@ -31,7 +31,11 @@ additions don't collide.
 
 from __future__ import annotations
 
+import contextlib
+import json
+import logging
 import time
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Request, Response
@@ -40,6 +44,31 @@ from prometheus_client import Counter, Gauge
 
 if TYPE_CHECKING:
     from server.resources import Resources
+
+
+logger = logging.getLogger(__name__)
+
+#: Most-recent corpus_versions exposed via :data:`EVAL_NDCG5_GAUGE`.
+#: E14_S01 synthesis D6 — cap label cardinality so the watchdog's
+#: per-corpus-version histogram cannot drift unboundedly. Older
+#: labels are evicted via ``Gauge.remove(...)`` at refresh time.
+_EVAL_NDCG5_LABEL_CAP: int = 5
+
+#: Sentinel-file basenames the scrape hook reads. Hoisted to module
+#: scope so a future ops note can grep one place for the cron-vs-server
+#: file contract.
+_DRIFT_FLAG_NAME: str = "drift-detected.flag"
+_QUARANTINE_FLAG_NAME: str = "eval-quarantine.flag"
+_DELTA_TIMEOUT_FLAG_NAME: str = "delta-timeout.flag"
+_BACKUP_STATUS_NAME: str = "backup-status.json"
+_EVAL_REPORTS_DIR: str = "eval-reports"
+
+#: Backup states that the wrapper may emit, in the order
+#: ``backup-status.json`` documents (see
+#: ``docs/ops/backup-restore.md``). Used by
+#: :func:`refresh_sentinel_metrics` to zero-out the inactive
+#: states so exactly one cell is 1.0 at a time.
+_BACKUP_STATES: tuple[str, ...] = ("ok", "failed", "running")
 
 # ---------------------------------------------------------------------------
 # Prometheus registry — one per process, populated by the lifespan.
@@ -204,6 +233,181 @@ def refresh_metrics_from_singleton_state(resources: Resources) -> None:
 
     refresh_cache_metrics(getattr(resources, "cache", None))
 
+    # E14_S01: bridge cron-emitted sentinel files into Prometheus
+    # gauges. Cron processes exit between runs so they can't keep a
+    # gauge set in-process — the sentinel files ARE the cross-process
+    # signal channel. Reading them at scrape time is cheap (a few
+    # stat() + small JSON parses) and the failure mode is per-file
+    # graceful: a missing file zeroes that gauge; a malformed file
+    # logs a warning and leaves the prior value (operator gets a
+    # stale-but-known signal rather than a misleading zero).
+    config = getattr(resources, "config", None)
+    ops_dir = getattr(config, "ops_dir", None) if config is not None else None
+    if ops_dir is not None:
+        refresh_sentinel_metrics(Path(ops_dir))
+
+
+def refresh_sentinel_metrics(ops_dir: Path) -> None:
+    """Read cron-emitted sentinel files from ``ops_dir`` and update
+    the corresponding Prometheus gauges (E14_S01 synthesis D5).
+
+    Sentinel contract — for each file we recognise, the rule is:
+
+    - ``drift-detected.flag`` — present means "≥1 fixture has drifted".
+      Body may be JSON ``{"fixture_count": N}``; if so, the gauge is
+      set to ``N``. Body may be a touch file (empty); the gauge is
+      set to 1.0. Absence sets the gauge to 0.0.
+    - ``eval-quarantine.flag`` / ``delta-timeout.flag`` — touch-file
+      style; presence sets the gauge to 1.0, absence to 0.0.
+    - ``backup-status.json`` — JSON ``{"status": "ok"|"failed"|"running",
+      "finished_at": <iso8601>}``. ``finished_at`` is parsed to an
+      epoch and set on :data:`BACKUP_LAST_SUCCESS_GAUGE`; ``status``
+      drives exclusive 1.0 on :data:`BACKUP_STATUS_GAUGE{state}`.
+    - ``eval-reports/corpus_v<N>-*.json`` — the watchdog's per-corpus-
+      version nDCG@5 reports. The N most-recent reports drive
+      :data:`EVAL_NDCG5_GAUGE`; older labels are evicted from the
+      gauge to bound cardinality.
+
+    Per-file errors are isolated: malformed JSON in one file does NOT
+    prevent the others from being refreshed.
+    """
+    from server.metrics import (
+        BACKUP_LAST_SUCCESS_GAUGE,
+        BACKUP_STATUS_GAUGE,
+        DELTA_TIMEOUT_ACTIVE_GAUGE,
+        EVAL_QUARANTINE_ACTIVE_GAUGE,
+        LATEXML_DRIFT_DETECTED_GAUGE,
+    )
+
+    # --- drift-detected.flag → LATEXML_DRIFT_DETECTED_GAUGE -----------
+    drift_flag = ops_dir / _DRIFT_FLAG_NAME
+    if drift_flag.is_file():
+        value = 1.0
+        try:
+            raw = drift_flag.read_text(encoding="utf-8").strip()
+            if raw:
+                parsed = json.loads(raw)
+                if isinstance(parsed, dict) and "fixture_count" in parsed:
+                    value = float(parsed["fixture_count"])
+        except (json.JSONDecodeError, OSError, ValueError):
+            logger.warning(
+                "drift-detected.flag at %s is malformed; treating as touch-file=1.0",
+                drift_flag,
+                exc_info=True,
+            )
+        LATEXML_DRIFT_DETECTED_GAUGE.set(value)
+    else:
+        LATEXML_DRIFT_DETECTED_GAUGE.set(0.0)
+
+    # --- eval-quarantine.flag / delta-timeout.flag → 0/1 gauges -------
+    EVAL_QUARANTINE_ACTIVE_GAUGE.set(
+        1.0 if (ops_dir / _QUARANTINE_FLAG_NAME).is_file() else 0.0
+    )
+    DELTA_TIMEOUT_ACTIVE_GAUGE.set(
+        1.0 if (ops_dir / _DELTA_TIMEOUT_FLAG_NAME).is_file() else 0.0
+    )
+
+    # --- backup-status.json → BACKUP_LAST_SUCCESS + BACKUP_STATUS -----
+    backup_status = ops_dir / _BACKUP_STATUS_NAME
+    if backup_status.is_file():
+        try:
+            payload = json.loads(backup_status.read_text(encoding="utf-8"))
+            finished_at = payload.get("finished_at")
+            if isinstance(finished_at, str) and finished_at:
+                # ``datetime.fromisoformat`` handles RFC-3339 (the format
+                # the wrapper emits). Trailing ``Z`` is not supported on
+                # 3.11- so swap to ``+00:00``.
+                from datetime import datetime  # noqa: PLC0415
+
+                iso = finished_at.replace("Z", "+00:00")
+                BACKUP_LAST_SUCCESS_GAUGE.set(
+                    datetime.fromisoformat(iso).timestamp()
+                )
+            state = payload.get("status")
+            if isinstance(state, str):
+                for s in _BACKUP_STATES:
+                    BACKUP_STATUS_GAUGE.labels(state=s).set(
+                        1.0 if s == state else 0.0
+                    )
+        except (json.JSONDecodeError, OSError, ValueError):
+            logger.warning(
+                "backup-status.json at %s is malformed; leaving prior gauge values",
+                backup_status,
+                exc_info=True,
+            )
+    else:
+        BACKUP_LAST_SUCCESS_GAUGE.set(0.0)
+        for s in _BACKUP_STATES:
+            BACKUP_STATUS_GAUGE.labels(state=s).set(0.0)
+
+    # --- eval-reports/corpus_v<N>-*.json → EVAL_NDCG5_GAUGE -----------
+    reports_dir = ops_dir / _EVAL_REPORTS_DIR
+    if reports_dir.is_dir():
+        _refresh_eval_ndcg5(reports_dir)
+
+
+def _refresh_eval_ndcg5(reports_dir: Path) -> None:
+    """Drive :data:`server.metrics.EVAL_NDCG5_GAUGE` from the watchdog's
+    per-corpus-version JSON reports.
+
+    Each file is named ``corpus_v<N>-<timestamp>.json`` and contains a
+    JSON object with at least an ``ndcg5_mean`` numeric field. For each
+    corpus_version with one or more reports, we use the MOST RECENT
+    report (highest mtime). After computing the per-version map, only
+    the :data:`_EVAL_NDCG5_LABEL_CAP` highest corpus_versions are kept
+    on the gauge; older labels are evicted via ``Gauge.remove(...)``
+    so the registry doesn't accumulate labels indefinitely.
+    """
+    from server.metrics import EVAL_NDCG5_GAUGE
+
+    by_version: dict[int, tuple[float, float]] = {}
+    for report_path in reports_dir.glob("corpus_v*.json"):
+        try:
+            # Filename shape: ``corpus_v<N>-<rest>.json``. Parse N from
+            # the prefix; skip files whose name doesn't match.
+            stem = report_path.stem
+            if not stem.startswith("corpus_v"):
+                continue
+            version_part = stem[len("corpus_v"):].split("-", 1)[0]
+            corpus_version = int(version_part)
+            mtime = report_path.stat().st_mtime
+            prior = by_version.get(corpus_version)
+            if prior is not None and prior[0] >= mtime:
+                continue
+            payload = json.loads(report_path.read_text(encoding="utf-8"))
+            ndcg5 = payload.get("ndcg5_mean")
+            if not isinstance(ndcg5, (int, float)):
+                continue
+            by_version[corpus_version] = (mtime, float(ndcg5))
+        except (json.JSONDecodeError, OSError, ValueError):
+            logger.warning(
+                "eval-report %s is malformed; skipping",
+                report_path,
+                exc_info=True,
+            )
+            continue
+
+    # Cap label cardinality at the N most-recent corpus_versions.
+    if not by_version:
+        return
+    sorted_versions = sorted(by_version.keys(), reverse=True)
+    kept = set(sorted_versions[:_EVAL_NDCG5_LABEL_CAP])
+    # Evict labels for versions outside the cap so the gauge doesn't
+    # accumulate stale time series across restarts that pick up older
+    # report files in the directory.
+    existing = {
+        labelvalues[0]
+        for labelvalues in list(EVAL_NDCG5_GAUGE._metrics.keys())
+    }
+    for stale in existing - {str(v) for v in kept}:
+        # Removed concurrently or never present → ignore.
+        with contextlib.suppress(KeyError):
+            EVAL_NDCG5_GAUGE.remove(stale)
+    # Set kept versions to their latest measurement.
+    for v in kept:
+        _, ndcg5 = by_version[v]
+        EVAL_NDCG5_GAUGE.labels(corpus_version=str(v)).set(ndcg5)
+
 
 def reset_metrics_for_tests() -> None:
     """Test hook — reset the module-level dedup tracker.
@@ -226,6 +430,7 @@ __all__ = [
     "healthz",
     "readyz",
     "refresh_metrics_from_singleton_state",
+    "refresh_sentinel_metrics",
     "reset_metrics_for_tests",
     "router",
 ]
