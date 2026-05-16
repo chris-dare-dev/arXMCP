@@ -109,6 +109,14 @@ async def handle_search_papers(
     # the query embedding, so we defer it until after the encode.
     # ``level`` is threaded through the cache key so different
     # aggregation levels get distinct cache entries (correctness).
+    # E14_S02 — pull the OTel cache-layer setter so each tier hit
+    # surfaces on the parent span's ``arxmcp.cache_layer_served``
+    # attribute. NoOpTracer fast-path when tracing is disabled.
+    from server.observability.tracing import (  # noqa: PLC0415
+        set_cache_layer,
+        span_ann,
+    )
+
     cache = get_cache()
     if cache is not None:
         cached_payload, _hit_tier = await cache.lookup_search(
@@ -116,6 +124,7 @@ async def handle_search_papers(
         )
         if cached_payload is not None:
             # Tier-1 hit — bypass Phase 1/2/3.
+            set_cache_layer("tier1")
             structured = cached_payload
             rows = structured.get("results", [])
             content = _build_content_blocks(structured, rows)
@@ -132,6 +141,7 @@ async def handle_search_papers(
             query_embedding=query_vec, level=level,
         )
         if cached_payload is not None:
+            set_cache_layer("tier2")
             structured = cached_payload
             rows = structured.get("results", [])
             content = _build_content_blocks(structured, rows)
@@ -140,11 +150,12 @@ async def handle_search_papers(
     # Dense ANN over embedding_stmt only. embedding_proof is for
     # proof bodies; mixing without RRF would produce inconsistent
     # rankings (E07 is the right venue for dual-column fusion).
-    arrow = (
-        r.chunks_table.search(query_vec, vector_column_name="embedding_stmt")
-        .limit(k * 5 if level != "theorem" else k)  # over-fetch for dedup
-        .to_arrow()
-    )
+    with span_ann(k=k):
+        arrow = (
+            r.chunks_table.search(query_vec, vector_column_name="embedding_stmt")
+            .limit(k * 5 if level != "theorem" else k)  # over-fetch for dedup
+            .to_arrow()
+        )
     rows = _arrow_to_rows(arrow)
 
     # Aggregate per level.

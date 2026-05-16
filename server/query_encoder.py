@@ -268,6 +268,12 @@ def _encode_query_sync(query_text: str) -> np.ndarray:
         EMBED_LATENCY,
     )
 
+    # E14_S02 — child OTel span around the forward pass. NoOpTracer
+    # fast-path when tracing is disabled. Imported here for the same
+    # reason as the metrics module: avoid an import-time cycle with
+    # server.observability.
+    from server.observability.tracing import span_embed  # noqa: PLC0415
+
     tokenizer = _get_tokenizer()
     model = _get_model()
     encoded = tokenizer(
@@ -280,7 +286,9 @@ def _encode_query_sync(query_text: str) -> np.ndarray:
     t0 = time.perf_counter()
     outcome = "error"
     try:
-        with torch.no_grad():
+        with span_embed(
+            model_name="bge-m3", model_revision=BGE_M3_COMMIT_SHA
+        ), torch.no_grad():
             output = model(**encoded)
             # CLS-pool the [batch, seq, hidden] tensor down to [batch, hidden].
             embeddings = output.last_hidden_state[:, 0, :]

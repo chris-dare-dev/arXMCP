@@ -362,6 +362,9 @@ def _rerank_sync(
         RERANK_LATENCY,
     )
 
+    # E14_S02 — child OTel span around the cross-encoder forward pass.
+    from server.observability.tracing import span_rerank  # noqa: PLC0415
+
     if not bodies:
         return []
 
@@ -376,7 +379,10 @@ def _rerank_sync(
     t0 = time.perf_counter()
     outcome = "error"
     try:
-        with torch.no_grad():
+        with span_rerank(
+            model_name="bge-reranker-v2-m3",
+            model_revision=BGE_RERANKER_COMMIT_SHA,
+        ), torch.no_grad():
             # logits shape: [batch, num_labels=1]; squeeze to [batch]
             logits = model(**inputs).logits.view(-1).float()
             scores = torch.sigmoid(logits)

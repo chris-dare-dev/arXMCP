@@ -975,6 +975,84 @@ def _retrieval_cap_payload(tool_name: str, attempted: int, limit: int) -> dict[s
     }
 
 
+# =============================================================================
+# TracingContextMiddleware (E14_S02 — populate per-request OTel ContextVars)
+# =============================================================================
+
+
+class TracingContextMiddleware:
+    """Pure-ASGI middleware that copies ``Mcp-Session-Id`` and
+    ``Arxmcp-Agent-Role`` request headers into
+    :data:`server.observability.tracing.current_session_id` and
+    :data:`server.observability.tracing.current_agent_role`
+    ContextVars for the duration of the inner-app call.
+
+    Also resets :data:`server.observability.tracing.current_cache_layer`
+    to ``"miss"`` per request so the parent span starts from a known
+    default; handlers update it via
+    :func:`server.observability.tracing.set_cache_layer` on a hit.
+
+    **Why a ContextVar over a FastMCP ``Context`` parameter:** Today
+    no handler signature takes a ``Context`` arg and threading one
+    through would touch all 7 handlers + risk a TOOL_SCHEMA_VERSION
+    bump if FastMCP exposes it on the wire. A ContextVar is single-
+    chokepoint, asyncio-safe (Python's stdlib ``contextvars`` is
+    propagated across ``await`` boundaries), and the same pattern
+    OTel itself uses for context propagation. See E14_S02 synthesis
+    D3.
+
+    **Pure-ASGI required.** ``starlette.middleware.base.BaseHTTPMiddleware``
+    is project-banned (E06_S01 F1) because it silently no-ops
+    response interception on SSE paths. The class follows the
+    pattern of :class:`BodySizeCapMiddleware` /
+    :class:`SessionCapMiddleware`.
+    """
+
+    def __init__(self, app: Callable[..., Awaitable[None]]) -> None:
+        self.app = app
+
+    async def __call__(
+        self, scope: dict, receive: Callable, send: Callable
+    ) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        # Lazy import — tracing module is heavy (pulls OTel SDK on
+        # the enabled path); keeping the import inside __call__
+        # means middleware-stack construction stays fast even when
+        # tracing is disabled.
+        from server.observability.tracing import (  # noqa: PLC0415
+            current_agent_role,
+            current_cache_layer,
+            current_session_id,
+        )
+
+        headers = scope.get("headers", [])
+        session_id_b = _get_header(headers, b"mcp-session-id")
+        agent_role_b = _get_header(headers, b"arxmcp-agent-role")
+        session_id = (
+            session_id_b.decode("ascii", errors="replace")
+            if session_id_b is not None
+            else None
+        )
+        agent_role = (
+            agent_role_b.decode("ascii", errors="replace")
+            if agent_role_b is not None
+            else None
+        )
+
+        sid_token = current_session_id.set(session_id)
+        role_token = current_agent_role.set(agent_role)
+        cache_token = current_cache_layer.set("miss")
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            current_session_id.reset(sid_token)
+            current_agent_role.reset(role_token)
+            current_cache_layer.reset(cache_token)
+
+
 __all__ = [
     "LOOPBACK_HOST_HEADER_HOSTS",
     "LOOPBACK_ORIGIN_HOSTS",
@@ -986,4 +1064,5 @@ __all__ = [
     "RequestBodySizeLimitMiddleware",
     "SecurityHeadersMiddleware",
     "SessionCapMiddleware",
+    "TracingContextMiddleware",
 ]

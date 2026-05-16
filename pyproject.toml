@@ -132,6 +132,20 @@ dependencies = [
     #   compiled replacement (APTED via a C extension) is a future
     #   optimization tracked under E10_S03 follow-ups.
     "zss>=1.2.0",
+    # opentelemetry-{api,sdk,exporter-otlp-proto-grpc}: distributed-tracing
+    #   surface for E14_S02 (one parent span per JSON-RPC tool call; child
+    #   spans for embed / rerank / ANN). Pinned to the 1.x line — API has
+    #   been ABI-stable since 1.0; 1.41+ has the stable GenAI bindings.
+    #   The OTLP/gRPC exporter alone is intentional — the umbrella
+    #   ``opentelemetry-exporter-otlp`` would also pull the HTTP exporter
+    #   we don't use (grpcio alone is ~5 MB; the HTTP variant adds more).
+    #   When ``ARXMCP_OTEL_ENDPOINT`` is unset, the SDK is never
+    #   ``set_tracer_provider``-installed, and every
+    #   ``tracer.start_as_current_span(...)`` takes the ProxyTracer no-op
+    #   fast path with zero allocation. License: Apache-2.0.
+    "opentelemetry-api>=1.41,<2",
+    "opentelemetry-sdk>=1.41,<2",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.41,<2",
 ]
 
 [project.optional-dependencies]

@@ -1,0 +1,40 @@
+{
+  "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/roadmap",
+  "created_at": "2026-05-16T03:45:40Z",
+  "critics_run": [],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "low": 0,
+    "medium": 0
+  },
+  "critique_path": null,
+  "deferred_findings": [],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_required": [],
+  "fixed_findings": [],
+  "id": "E14_S02",
+  "implementation_base": null,
+  "implementation_branch": null,
+  "implementation_commit_range": null,
+  "implementation_commits": [],
+  "implementation_path": null,
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "### E14_S02 \u2014 OpenTelemetry tracing: one span per JSON-RPC tool call\n\n**Status:** NEW\n**Tier:** 5\n**Effort:** M\n**Dependencies:** E07_S08\n\n**Description.** Emit one parent OTel span per JSON-RPC request, with child spans for each major sub-operation: embed (BGE-M3 call), vector-search (LanceDB ANN query), BM25 search (Tantivy query), rerank (BGE-reranker-v2-m3 call), and summarize (Haiku API call when configured). The span hierarchy gives end-to-end latency visibility across the full retrieval pipeline.\n\nRequired span attributes on the parent span: `mcp.session_id` (from `Mcp-Session-Id` header), `mcp.tool_name`, `arxmcp.cache_layer_served` (e.g., `\"tier1\"`, `\"tier3\"`, `\"miss\"`), `arxmcp.corpus_version` (integer from startup), `arxmcp.k` (requested result count), `arxmcp.agent_role` (optional; read from a `_agent_role` parameter in the tool args if present \u2014 documented in the tool schema but not required). Child spans carry the model name (BGE-M3 commit SHA for embed; BGE-reranker-v2-m3 commit SHA for rerank) as `model.revision`.\n\nThe OTel SDK is initialized in `server/observability/tracing.py::setup_tracing()` called from the lifespan context manager. The OTLP exporter destination is `ARXMCP_OTEL_ENDPOINT` (default: `http://localhost:4317`). If the endpoint is unreachable, tracing fails silently with a logged WARN (never crashes the server).\n\n**Deliverables.**\n- `server/observability/tracing.py` \u2014 `setup_tracing()`, `span_tool_call()` context manager, `span_embed()`, `span_rerank()`, `span_summarize()`\n- Updated tool handlers \u2014 each wrapped with `span_tool_call(tool_name, session_id, ...)`\n- `tests/test_tracing.py` \u2014 uses an in-process OTel SDK span exporter; asserts span hierarchy and attribute presence\n- `docs/observability/tracing.md` \u2014 attribute catalog, OTLP configuration\n\n**Acceptance criteria.**\n- [ ] `pytest tests/test_tracing.py` passes: a `search_papers` call produces a parent span with child spans for embed + ANN + rerank\n- [ ] Parent span has all 6 documented attributes set (including `arxmcp.cache_layer_served`)\n- [ ] `model.revision` on embed child span matches the configured BGE-M3 commit SHA\n- [ ] OTel endpoint unreachable \u2192 server continues operating; WARN logged once at startup\n- [ ] `ARXMCP_OTEL_ENDPOINT` unset \u2192 tracing disabled (no-op exporter); no error\n\n**Out of scope.** Phoenix integration (E14_S03). Langfuse orchestrator-side tracing (E14_S11). Sampling configuration (all spans exported in v1; sampling is a Tier-6 concern).\n\n**Risk notes.**\n- OTel spans containing `mcp.session_id` must not be forwarded to a remote endpoint by default \u2014 the default OTLP endpoint is localhost Phoenix. Forwarding to an external SaaS collector would leak session IDs. Document this in `docs/observability/tracing.md`.\n\n**Labels.** `area:observability`, `kind:infra`, `tier:5`\n\n---",
+  "phase": "implement-running",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-16T03:45:40Z",
+      "left_at": null,
+      "phase": "init"
+    }
+  ],
+  "rectification_commit": null,
+  "regression_tests_added": [],
+  "research_briefs": [],
+  "research_mode": "standard",
+  "research_synthesis": null,
+  "updated_at": "2026-05-16T03:53:01Z"
+}

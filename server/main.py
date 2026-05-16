@@ -277,6 +277,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """
     config: Config = app.state.config
 
+    # E14_S02 D2: install the OTel TracerProvider BEFORE Resources.startup
+    # so embedder + LanceDB warm-up spans are themselves traced. Disabled
+    # path (ARXMCP_OTEL_ENDPOINT unset) returns without registering — every
+    # subsequent ``tracer.start_as_current_span(...)`` then takes the
+    # ProxyTracer → NoOpTracer fast path with zero allocation.
+    from server.observability.tracing import setup_tracing  # noqa: PLC0415
+
+    setup_tracing(config)
+
     # F9 fix: catch the broad Exception so LanceDB errors get the
     # FATAL prefix too.
     try:
@@ -313,6 +322,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 "Resources.shutdown exceeded the 30s drain budget; "
                 "tearing down regardless"
             )
+        # E14_S02 D2: flush in-flight spans AFTER resources have drained,
+        # so any shutdown-time span (e.g. final cache eviction) gets
+        # exported before the process exits.
+        from server.observability.tracing import shutdown_tracing  # noqa: PLC0415
+
+        shutdown_tracing()
 
 
 # ---------------------------------------------------------------------------
@@ -372,8 +387,17 @@ def create_app(config: Config | None = None) -> FastAPI:
         RequestBodySizeLimitMiddleware,
         SecurityHeadersMiddleware,
         SessionCapMiddleware,
+        TracingContextMiddleware,
     )
 
+    # E14_S02: copy ``Mcp-Session-Id`` + ``Arxmcp-Agent-Role`` headers
+    # into ContextVars for the OTel parent span. Added FIRST so it
+    # becomes the innermost middleware — runs LAST on the request path,
+    # right before FastMCP dispatches to the handler. This guarantees
+    # the ContextVars are populated when ``_wrap_with_observability``
+    # opens the parent span. Pure-ASGI; the project bans
+    # ``BaseHTTPMiddleware`` (E06_S01 F1).
+    app.add_middleware(TracingContextMiddleware)
     # Universal response body-size cap (pure ASGI — closes F1).
     app.add_middleware(BodySizeCapMiddleware, byte_cap=cfg.result_byte_cap)
     # E08_S04: per-session retrieval-cap enforcement. Mounted INSIDE

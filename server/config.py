@@ -180,6 +180,26 @@ class Config(BaseSettings):
 
     log_level: str = "INFO"
 
+    #: OTLP/gRPC endpoint for OpenTelemetry trace export (E14_S02).
+    #: When unset (``None``), tracing is COMPLETELY DISABLED at the
+    #: OTel SDK layer: :func:`server.observability.tracing.setup_tracing`
+    #: returns without calling ``trace.set_tracer_provider(...)``, so
+    #: every ``tracer.start_as_current_span(...)`` invocation takes
+    #: the ``ProxyTracer`` → ``NoOpTracer`` fast path with zero
+    #: allocation. When set, the SDK exports via ``OTLPSpanExporter``
+    #: (gRPC) with ``insecure=True``; the ``http://`` scheme is
+    #: decorative — the gRPC client uses it only to decide
+    #: ``insecure_channel`` vs ``secure_channel``. Default port 4317
+    #: matches Phoenix's OTLP intake.
+    #:
+    #: **Security: localhost-only by convention.** Spans carry
+    #: ``mcp.session_id`` (per ``08-security-observability-ops.md``
+    #: §Tracing). Forwarding to an external SaaS collector would
+    #: leak session IDs; the documented default endpoint is
+    #: ``http://127.0.0.1:4317`` (an in-process or sidecar Phoenix
+    #: container). See ``.claude/docs/observability-tracing.md``.
+    otel_endpoint: str | None = None
+
     # --- Validators ------------------------------------------------------
 
     @field_validator("bind_host")

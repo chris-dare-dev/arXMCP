@@ -147,14 +147,41 @@ arxmcp_api_spend_usd_total{provider,agent_role}         counter
 
 OpenTelemetry traces exported to a configurable endpoint
 (`ARXMCP_OTEL_ENDPOINT`). One span per JSON-RPC request; child spans for
-embed, vector-search, rerank, summarize. Span attributes include:
+embed, ANN vector-search, BM25 (forward-compat), rerank, and summarize
+(forward-compat). Span attributes:
 
 - `mcp.session_id`
 - `mcp.tool_name`
-- `arxmcp.cache_layer_served` (`exact` / `semantic` / `rerank` / `miss`)
+- `arxmcp.cache_layer_served` (`tier1` / `tier2` / `tier3` / `miss` —
+  matches the Prometheus `tier=` label space)
 - `arxmcp.corpus_version`
 - `arxmcp.k`
-- `arxmcp.agent_role` (passed in tool args by the orchestrator)
+- `arxmcp.agent_role` (read from `Arxmcp-Agent-Role` HTTP request
+  header; NOT a JSON-Schema property — keeps `TOOL_SCHEMA_VERSION`
+  pinned at 6 and avoids invalidating the BP1 prompt-cache across
+  every existing agent prefix — see E14_S02 synthesis D7)
+
+Child spans for embed + rerank carry `gen_ai.request.model` (OTel
+GenAI semconv, still "Development"-stability) and
+`arxmcp.model.revision` (the commit SHA — no semconv equivalent).
+
+The default OTLP endpoint is `http://127.0.0.1:4317` (OTLP/gRPC;
+the `http://` scheme is decorative — the gRPC client uses it only
+to decide `insecure_channel` vs `secure_channel`). Phoenix's OTLP
+intake also defaults to gRPC on 4317.
+
+**Tracing disabled by default.** When `ARXMCP_OTEL_ENDPOINT` is
+unset, `setup_tracing` returns without registering a
+`TracerProvider`; every `tracer.start_as_current_span(...)` then
+takes the OTel SDK's `ProxyTracer` → `NoOpTracer` fast path with
+zero allocation. This is strictly better than registering a
+`NoOpTracerProvider`.
+
+**Security: localhost-only by convention.** Spans carry
+`mcp.session_id`; forwarding to an external SaaS collector would
+leak session IDs. The documented default endpoint is an
+in-process or sidecar Phoenix container. See
+`.claude/docs/observability-tracing.md` for the operator guide.
 
 ### Recommended export targets
 

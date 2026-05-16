@@ -54,6 +54,7 @@ from server.observability.metrics import (
     REQUEST_LATENCY,
     RESULT_BYTES,
 )
+from server.observability.tracing import span_tool_call
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp import FastMCP
@@ -390,12 +391,19 @@ def _truncate_at_path(d: dict[str, Any], path: tuple[str, ...]) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _wrap_with_metrics(tool_name: str, handler: Any) -> Any:
+def _wrap_with_observability(tool_name: str, handler: Any) -> Any:
     """Wrap a tool handler so every invocation records request-level
-    Prometheus metrics (E14_S01 synthesis D3).
+    Prometheus metrics (E14_S01) AND emits a parent OTel span
+    (E14_S02 synthesis D1).
 
-    Wraps the original async handler in a closure that:
+    Wraps the original async handler in a single closure that:
 
+    * opens :func:`server.observability.tracing.span_tool_call` —
+      the parent span carries ``mcp.tool_name``, ``mcp.session_id``,
+      ``arxmcp.agent_role``, ``arxmcp.corpus_version``, ``arxmcp.k``,
+      and ``arxmcp.cache_layer_served`` (the last read just-in-time
+      from :data:`server.observability.tracing.current_cache_layer`
+      in the span's ``finally`` block);
     * increments :data:`REQUEST_INFLIGHT` on entry, decrements on
       exit (try/finally — robust to raises);
     * times wall-clock latency with :data:`REQUEST_LATENCY`;
@@ -407,54 +415,89 @@ def _wrap_with_metrics(tool_name: str, handler: Any) -> Any:
     signature introspection (``inspect.signature``) still derives
     the original input schema — wrapping is transparent at the
     tool-registration boundary.
+
+    When tracing is disabled (``setup_tracing`` was never called),
+    ``span_tool_call`` is a near-zero-cost no-op (the OTel SDK's
+    ProxyTracer fast path). The metrics surface is independent
+    and always fires.
     """
 
     @functools.wraps(handler)
-    async def _tracked(*args: Any, **kwargs: Any) -> Any:
-        REQUEST_INFLIGHT.labels(tool=tool_name).inc()
-        t0 = time.perf_counter()
-        status = "error"
-        result: Any = None
-        try:
-            result = await handler(*args, **kwargs)
-            status = "ok"
-            return result
-        finally:
-            latency = time.perf_counter() - t0
-            REQUEST_INFLIGHT.labels(tool=tool_name).dec()
-            REQUEST_COUNTER.labels(tool=tool_name, status=status).inc()
-            REQUEST_LATENCY.labels(tool=tool_name).observe(latency)
-            if status == "ok" and result is not None:
-                try:
-                    payload = getattr(result, "structuredContent", None)
-                    if payload is None and isinstance(result, dict):
-                        payload = result
-                    if payload is not None:
-                        size = len(
-                            json.dumps(payload, ensure_ascii=False).encode("utf-8")
-                        )
-                        RESULT_BYTES.labels(tool=tool_name).observe(size)
-                except Exception:
-                    # Metric recording must never crash the request path
-                    # (08-security-observability-ops.md: "metrics are
-                    # operational telemetry, not load-bearing"). F5
-                    # rectification from E14_S01: log at WARNING so a
-                    # handler returning non-JSON-serializable
-                    # ``structuredContent`` produces a positive signal
-                    # in production logs (default level INFO). Mirrors
-                    # the E08_S03 F11 lesson — silent metric cold-out
-                    # is its own observability bug.
-                    logger.warning(
-                        "RESULT_BYTES record failed for %s "
-                        "(handler returned non-JSON-serializable "
-                        "structuredContent); arxmcp_result_bytes{tool=%r} "
-                        "will undercount until fixed.",
-                        tool_name,
-                        tool_name,
-                        exc_info=True,
-                    )
+    async def _instrumented(*args: Any, **kwargs: Any) -> Any:
+        # Extract ``k`` from kwargs if the handler exposes it (search /
+        # find_equation / find_lemma_by_name / get_definitions all take
+        # ``k``). Quietly absent for tools that don't.
+        k_attr = kwargs.get("k") if isinstance(kwargs.get("k"), int) else None
 
-    return _tracked
+        # corpus_version is process-pinned; read it lazily via the
+        # resources singleton if available. Avoid importing at module
+        # scope (would force a circular import with server.resources).
+        corpus_version_attr: int | None = None
+        try:
+            from server.tools import get_resources  # noqa: PLC0415
+
+            corpus_version_attr = get_resources().corpus_info.version
+        except (ResourcesNotReadyError, AttributeError):
+            corpus_version_attr = None
+
+        with span_tool_call(
+            tool_name,
+            corpus_version=corpus_version_attr,
+            k=k_attr,
+        ):
+            REQUEST_INFLIGHT.labels(tool=tool_name).inc()
+            t0 = time.perf_counter()
+            status = "error"
+            result: Any = None
+            try:
+                result = await handler(*args, **kwargs)
+                status = "ok"
+                return result
+            finally:
+                latency = time.perf_counter() - t0
+                REQUEST_INFLIGHT.labels(tool=tool_name).dec()
+                REQUEST_COUNTER.labels(tool=tool_name, status=status).inc()
+                REQUEST_LATENCY.labels(tool=tool_name).observe(latency)
+                if status == "ok" and result is not None:
+                    try:
+                        payload = getattr(result, "structuredContent", None)
+                        if payload is None and isinstance(result, dict):
+                            payload = result
+                        if payload is not None:
+                            size = len(
+                                json.dumps(payload, ensure_ascii=False).encode(
+                                    "utf-8"
+                                )
+                            )
+                            RESULT_BYTES.labels(tool=tool_name).observe(size)
+                    except Exception:
+                        # Metric recording must never crash the request path
+                        # (08-security-observability-ops.md: "metrics are
+                        # operational telemetry, not load-bearing"). F5
+                        # rectification from E14_S01: log at WARNING so a
+                        # handler returning non-JSON-serializable
+                        # ``structuredContent`` produces a positive signal
+                        # in production logs (default level INFO). Mirrors
+                        # the E08_S03 F11 lesson — silent metric cold-out
+                        # is its own observability bug.
+                        logger.warning(
+                            "RESULT_BYTES record failed for %s "
+                            "(handler returned non-JSON-serializable "
+                            "structuredContent); arxmcp_result_bytes{tool=%r} "
+                            "will undercount until fixed.",
+                            tool_name,
+                            tool_name,
+                            exc_info=True,
+                        )
+
+    return _instrumented
+
+
+# Backwards-compat alias — tests/test_server_metrics.py from E14_S01
+# imports the old name. Keeping the alias avoids touching the test
+# file unnecessarily and signals to readers that the rename is a
+# pure naming-precision change, not a behavior change.
+_wrap_with_metrics = _wrap_with_observability
 
 
 def register_all(mcp_server: FastMCP) -> None:
@@ -468,9 +511,10 @@ def register_all(mcp_server: FastMCP) -> None:
     Each tool gets ``meta={"tool_schema_version": TOOL_SCHEMA_VERSION}``
     surfaced via FastMCP's ``add_tool(meta=...)`` argument (D3).
 
-    Every handler is wrapped via :func:`_wrap_with_metrics` so the
-    E14_S01 request-level Prometheus metrics fire on every call —
-    one change point, no per-handler decorator scatter.
+    Every handler is wrapped via :func:`_wrap_with_observability` so
+    request-level Prometheus metrics (E14_S01) AND OTel parent spans
+    (E14_S02) fire on every call — one change point, no per-handler
+    decorator scatter.
     """
     # Lazy imports to avoid a circular import at module load
     # (handlers re-import server.tools for the envelope helpers).
@@ -495,7 +539,7 @@ def register_all(mcp_server: FastMCP) -> None:
     meta = {"tool_schema_version": TOOL_SCHEMA_VERSION}
     for tm in ALL_TOOLS:
         mcp_server.add_tool(
-            _wrap_with_metrics(tm.name, handler_by_name[tm.name]),
+            _wrap_with_observability(tm.name, handler_by_name[tm.name]),
             name=tm.name,
             description=tm.description,
             meta=meta,

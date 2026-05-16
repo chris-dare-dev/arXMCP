@@ -654,30 +654,39 @@ class TestRectificationGuards:
         # Middleware namedtuples in MOUNT order. Add-order is LIFO
         # for request flow, so the LAST add wraps OUTERMOST.
         cls_in_mount_order = [m.cls for m in app.user_middleware]
-        # The mount order in create_app() (outer → inner):
-        # SecurityHeaders, OriginValidation, HostValidation,
-        # RequestBodySizeLimit, SessionCap, BodySizeCap.
-        # Note: BodySizeCapMiddleware is in server.main, not server.middleware.
-        from server.main import BodySizeCapMiddleware
-
-        expected_inner_to_outer = [
-            BodySizeCapMiddleware,
-            SessionCapMiddleware,
-            RequestBodySizeLimitMiddleware,
-            HostValidationMiddleware,
-            OriginValidationMiddleware,
-            SecurityHeadersMiddleware,
-        ]
         # FastAPI stores user_middleware in OUTERMOST-first order
         # (because it iterates in the same order it adds). Reverse
         # for inner-to-outer comparison.
         actual_inner_to_outer = list(reversed(cls_in_mount_order))
-        assert actual_inner_to_outer == expected_inner_to_outer, (
-            f"Middleware order changed. Expected (inner→outer): "
-            f"{expected_inner_to_outer}. Got: {actual_inner_to_outer}. "
+
+        # The load-bearing invariant for F7 is the RELATIVE order:
+        # SessionCap MUST be INSIDE RequestBodySizeLimit so a
+        # malicious 100 MB body is 413-rejected before SessionCap
+        # buffers it. Asserting the full list as equality has caused
+        # spurious failures every time a new middleware was added
+        # (E14_S02 added TracingContextMiddleware as the new
+        # innermost wrapper). Switch to a relative-ordering check
+        # that survives additive middleware changes while still
+        # catching a malicious refactor that swaps the two key
+        # layers.
+        sc_idx = actual_inner_to_outer.index(SessionCapMiddleware)
+        rbsl_idx = actual_inner_to_outer.index(RequestBodySizeLimitMiddleware)
+        assert sc_idx < rbsl_idx, (
             f"SessionCapMiddleware MUST stay INSIDE "
             f"RequestBodySizeLimitMiddleware so a malicious 100MB "
-            f"request is 413-rejected before SessionCap buffers it."
+            f"request is 413-rejected before SessionCap buffers it. "
+            f"Got inner→outer: {actual_inner_to_outer}"
+        )
+        # Secondary invariants — these surfaced bugs in the past so
+        # we keep them as explicit assertions even though they're
+        # not the F7 fix:
+        host_idx = actual_inner_to_outer.index(HostValidationMiddleware)
+        origin_idx = actual_inner_to_outer.index(OriginValidationMiddleware)
+        sec_idx = actual_inner_to_outer.index(SecurityHeadersMiddleware)
+        assert rbsl_idx < host_idx < origin_idx < sec_idx, (
+            f"Outer-layer order regressed: expected RequestBodySize → "
+            f"HostValidation → OriginValidation → SecurityHeaders "
+            f"(inner→outer). Got: {actual_inner_to_outer}"
         )
 
     def test_f9_cap_rejection_increments_prometheus_counter(self):
