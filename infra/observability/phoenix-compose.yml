@@ -1,0 +1,95 @@
+# Phoenix retrieval-quality view — opt-in OTel collector + UI for
+# arXMCP (E14_S03).
+#
+# Invocation:
+#   docker compose -f infra/observability/phoenix-compose.yml \
+#     --profile phoenix up -d
+#
+# Receives OTel spans from the MCP server (E14_S02) on port 4317
+# (OTLP/gRPC) and renders them at http://127.0.0.1:6006. The MCP
+# server points its exporter at the Phoenix endpoint via
+# ``ARXMCP_OTEL_ENDPOINT=http://127.0.0.1:4317``.
+#
+# Phoenix is permissive-but-not-Apache-2.0 (Elastic License 2.0,
+# ELv2). The license is suitable for the project's local-first
+# single-workstation use; the runbook
+# (.claude/docs/observability-phoenix.md) documents the license
+# callout for future contributors.
+#
+# Security: both Phoenix ports bind to 127.0.0.1 on the HOST. Spans
+# carry ``mcp.session_id`` (per
+# .claude/notes/08-security-observability-ops.md §Tracing); allowing
+# the LAN to scrape OTLP traffic would leak session IDs. The
+# loopback binding is the load-bearing defense — do NOT remove the
+# ``127.0.0.1:`` prefix.
+
+services:
+  phoenix:
+    # Minor-version pin (15.10 line). Multi-arch (amd64 + arm64) so
+    # Apple Silicon works without Rosetta. Bump procedure documented
+    # in .claude/docs/observability-phoenix.md §"Upgrading Phoenix".
+    image: arizephoenix/phoenix:15.10
+
+    # Opt-in profile. The default ``docker compose up`` does nothing
+    # in this file; only ``--profile phoenix`` materialises the
+    # container. Future base ``docker-compose.yml`` will include this
+    # file and the same profile gate applies.
+    profiles: ["phoenix"]
+
+    environment:
+      # OTLP gRPC + HTTP UI ports inside the container. Defaults
+      # match the OTLP spec; pinned here for clarity and to keep
+      # the host ``ports:`` mapping in sync if Phoenix ever changes
+      # its env-var defaults.
+      PHOENIX_PORT: "6006"
+      PHOENIX_GRPC_PORT: "4317"
+      # 0.0.0.0 is correct INSIDE the container — Docker's bridge
+      # network forwards the loopback host port-binding to the
+      # container's 0.0.0.0 listener. The "localhost-only" defense
+      # lives on the host side via the ``ports:`` 127.0.0.1: prefix.
+      PHOENIX_HOST: "0.0.0.0"
+      # Container path that the bind-mount below maps to
+      # ./var/arxmcp/observability/phoenix on the host.
+      PHOENIX_WORKING_DIR: "/mnt/data"
+      # Bound disk usage. The default ``0`` (infinite) would let
+      # the SQLite trace store grow unbounded across long-running
+      # debug sessions. 14 days is plenty for retrieval-quality
+      # eyeballing on a single workstation.
+      PHOENIX_DEFAULT_RETENTION_POLICY_DAYS: "14"
+      # Phoenix's own usage telemetry goes to Arize when enabled —
+      # explicitly disabled so the ONLY outbound network call is the
+      # one-time image pull on first ``docker compose up``.
+      PHOENIX_TELEMETRY_ENABLED: "false"
+
+    ports:
+      # HTTP UI + OTLP/HTTP (at /v1/traces on the same port).
+      - "127.0.0.1:6006:6006"
+      # OTLP/gRPC ingest. The MCP server's OTel exporter targets
+      # this port.
+      - "127.0.0.1:4317:4317"
+
+    volumes:
+      # Persistent SQLite trace store. Bind-mount under var/arxmcp
+      # so ``make clean`` discipline applies (CLAUDE.md §5: "all
+      # state lives under var/arxmcp/"). The host path is created
+      # by ``make bootstrap``.
+      - ./var/arxmcp/observability/phoenix:/mnt/data
+
+    healthcheck:
+      # /healthz on PHOENIX_PORT returns 200 once the Python app is
+      # up. ``wget --spider`` is the portable command — Phoenix
+      # 15.x images bundle wget but not all bundle curl.
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:6006/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      # Phoenix's first-run includes SQLite migration; 20s grace.
+      start_period: 20s
+
+    # ``unless-stopped`` matches the "long-running dev tool" posture
+    # — the operator brings Phoenix down explicitly with
+    # ``docker compose down``. ``no`` would silently re-launch the
+    # container after a host reboot; ``always`` would override the
+    # operator's explicit stop. ``unless-stopped`` is the middle
+    # ground.
+    restart: unless-stopped

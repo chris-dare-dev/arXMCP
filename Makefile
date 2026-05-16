@@ -34,6 +34,10 @@ bootstrap:
 	mkdir -p var/arxmcp/index/lancedb var/arxmcp/index/kuzu
 	mkdir -p var/arxmcp/cache/ar5iv
 	mkdir -p var/arxmcp/ops/parser-failures
+	# E14_S03: Phoenix's SQLite trace store under PHOENIX_WORKING_DIR.
+	# The host path bind-mounts to /mnt/data inside the container per
+	# infra/observability/phoenix-compose.yml.
+	mkdir -p var/arxmcp/observability/phoenix
 	# NOTE: E02_S02 LaTeXML container will need write access to corpus/parsed/;
 	# see .claude/notes/08-security-observability-ops.md § Threat 3 for the
 	# rootless-container UID isolation that lands there.

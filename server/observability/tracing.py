@@ -93,6 +93,19 @@ OTLP_DEFAULT_PORT: int = 4317
 #: meaningfully.
 PROBE_TIMEOUT_S: float = 1.0
 
+#: OpenInference span-kind attribute name. Phoenix's
+#: retrieval-evaluation view (the "top-k chunks with scores +
+#: reranker output" UI named in the E14_S03 brief AC) is gated by
+#: this attribute being present. Without it, Phoenix renders the
+#: span as a generic OTel span and the table-of-documents view
+#: does not appear. Cite OpenInference *Semantic Conventions*:
+#: *"openinference.span.kind … is required for all OpenInference
+#: spans. It provides a hint to the tracing backend as to how the
+#: trace should be assembled."* Supported values:
+#: ``LLM``/``EMBEDDING``/``CHAIN``/``RETRIEVER``/``RERANKER``/
+#: ``TOOL``/``AGENT``/``GUARDRAIL``/``EVALUATOR``/``PROMPT``.
+OPENINFERENCE_SPAN_KIND: str = "openinference.span.kind"
+
 
 # ---------------------------------------------------------------------------
 # ContextVars — plumb session_id / agent_role / cache_layer
@@ -346,6 +359,11 @@ def span_tool_call(
     """
     tracer = trace.get_tracer(__name__)
     with tracer.start_as_current_span("mcp.tool_call") as span:
+        # E14_S03 D4: OpenInference span-kind gates Phoenix's
+        # retrieval-evaluation view. The parent JSON-RPC tool call
+        # is a CHAIN that orchestrates embed + retrieve + rerank
+        # child spans.
+        span.set_attribute(OPENINFERENCE_SPAN_KIND, "CHAIN")
         span.set_attribute("mcp.tool_name", tool_name)
         sid = current_session_id.get()
         if sid is not None:
@@ -406,10 +424,12 @@ def span_embed(model_name: str, model_revision: str) -> Iterator[Span]:
     ``gen_ai.request.model`` adopts the OTel GenAI semconv name
     (still "Development"-stability — see synthesis D5).
     ``arxmcp.model.revision`` carries the commit SHA — no semconv
-    equivalent exists for that.
+    equivalent exists for that. ``openinference.span.kind=EMBEDDING``
+    gates the Phoenix embedding-stats view (E14_S03 D4).
     """
     tracer = trace.get_tracer(__name__)
     with tracer.start_as_current_span("arxmcp.embed") as span:
+        span.set_attribute(OPENINFERENCE_SPAN_KIND, "EMBEDDING")
         span.set_attribute("gen_ai.request.model", model_name)
         span.set_attribute("arxmcp.model.revision", model_revision)
         yield span
@@ -417,9 +437,15 @@ def span_embed(model_name: str, model_revision: str) -> Iterator[Span]:
 
 @contextmanager
 def span_ann(k: int | None = None) -> Iterator[Span]:
-    """Child span for the LanceDB ANN vector search."""
+    """Child span for the LanceDB ANN vector search.
+
+    ``openinference.span.kind=RETRIEVER`` gates the Phoenix
+    retrieval-evaluation view that lists top-k chunks with scores
+    (E14_S03 D4).
+    """
     tracer = trace.get_tracer(__name__)
     with tracer.start_as_current_span("arxmcp.ann") as span:
+        span.set_attribute(OPENINFERENCE_SPAN_KIND, "RETRIEVER")
         if k is not None:
             span.set_attribute("arxmcp.k", k)
         yield span
@@ -429,9 +455,11 @@ def span_ann(k: int | None = None) -> Iterator[Span]:
 def span_bm25(k: int | None = None) -> Iterator[Span]:
     """Child span for the BM25 sparse search (forward-compat for
     E07_S04+; v1 ``search_papers`` is dense-only and never enters
-    this span)."""
+    this span). ``openinference.span.kind=RETRIEVER`` mirrors
+    :func:`span_ann` — both are retrieval phases."""
     tracer = trace.get_tracer(__name__)
     with tracer.start_as_current_span("arxmcp.bm25") as span:
+        span.set_attribute(OPENINFERENCE_SPAN_KIND, "RETRIEVER")
         if k is not None:
             span.set_attribute("arxmcp.k", k)
         yield span
@@ -440,9 +468,11 @@ def span_bm25(k: int | None = None) -> Iterator[Span]:
 @contextmanager
 def span_rerank(model_name: str, model_revision: str) -> Iterator[Span]:
     """Child span for one BGE-reranker-v2-m3 cross-encoder forward
-    pass."""
+    pass. ``openinference.span.kind=RERANKER`` gates the Phoenix
+    rerank-quality view (E14_S03 D4)."""
     tracer = trace.get_tracer(__name__)
     with tracer.start_as_current_span("arxmcp.rerank") as span:
+        span.set_attribute(OPENINFERENCE_SPAN_KIND, "RERANKER")
         span.set_attribute("gen_ai.request.model", model_name)
         span.set_attribute("arxmcp.model.revision", model_revision)
         yield span
@@ -454,9 +484,11 @@ def span_summarize() -> Iterator[Span]:
     helper — note 07 lines 236-244 permanently dropped the
     in-server summarizer, so v1 never enters this span. Kept for
     forward-compat: a future tier may re-introduce a summarizer
-    and the helper is then a one-line wrap point."""
+    and the helper is then a one-line wrap point.
+    ``openinference.span.kind=LLM`` for that future caller."""
     tracer = trace.get_tracer(__name__)
     with tracer.start_as_current_span("arxmcp.summarize") as span:
+        span.set_attribute(OPENINFERENCE_SPAN_KIND, "LLM")
         yield span
 
 
@@ -481,6 +513,7 @@ def reset_tracing_for_tests() -> None:
 
 
 __all__ = [
+    "OPENINFERENCE_SPAN_KIND",
     "OTLP_DEFAULT_PORT",
     "PROBE_TIMEOUT_S",
     "SERVICE_NAME",

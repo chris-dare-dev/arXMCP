@@ -770,6 +770,41 @@ class TestF11AsyncContextPropagation:
         assert ann[0].parent.span_id == parent_id
 
 
+class TestOpenInferenceSpanKind:
+    """E14_S03 D4 — Phoenix's retrieval-evaluation view is gated by
+    ``openinference.span.kind``. Without these attributes the
+    retrieval-eval table doesn't render and the E14_S03 brief
+    AC #2 cannot be met."""
+
+    def test_parent_span_kind_is_chain(self, clear_spans):
+        with span_tool_call("search_papers"):
+            pass
+        attrs = dict(clear_spans.get_finished_spans()[0].attributes or {})
+        assert attrs["openinference.span.kind"] == "CHAIN"
+
+    def test_embed_span_kind_is_embedding(self, clear_spans):
+        with span_tool_call("search_papers"), span_embed(
+            model_name="bge-m3", model_revision="0" * 40
+        ):
+            pass
+        embed = _spans_by_name(clear_spans, "arxmcp.embed")
+        assert dict(embed[0].attributes or {})["openinference.span.kind"] == "EMBEDDING"
+
+    def test_ann_span_kind_is_retriever(self, clear_spans):
+        with span_tool_call("search_papers"), span_ann(k=5):
+            pass
+        ann = _spans_by_name(clear_spans, "arxmcp.ann")
+        assert dict(ann[0].attributes or {})["openinference.span.kind"] == "RETRIEVER"
+
+    def test_rerank_span_kind_is_reranker(self, clear_spans):
+        with span_tool_call("search_papers"), span_rerank(
+            model_name="bge-reranker-v2-m3", model_revision="1" * 40
+        ):
+            pass
+        rerank = _spans_by_name(clear_spans, "arxmcp.rerank")
+        assert dict(rerank[0].attributes or {})["openinference.span.kind"] == "RERANKER"
+
+
 class TestF14StrictHeaderDecode:
     """F14 — non-ASCII bytes in tracing headers must be DROPPED
     (None), not silently rendered as U+FFFD."""
