@@ -1,0 +1,30 @@
+[Unit]
+# E14_S04 — quarterly drill reminder service unit. Runs daily;
+# the wrapper short-circuits unless within the 7-day lookahead
+# of the next quarter mark.
+Description=arXMCP quarterly drill reminder (writes flag 7d before next quarter mark)
+Documentation=https://github.com/chris-dare/arXMCP/blob/main/docs/ops/backup-restore.md
+
+[Service]
+Type=oneshot
+# Operator MUST substitute /opt/arxmcp and arxmcp user/group.
+WorkingDirectory=/opt/arxmcp
+User=arxmcp
+Group=arxmcp
+ExecStart=/opt/arxmcp/ops/cron/arxmcp-quarterly-drill.sh
+
+StandardOutput=journal
+StandardError=journal
+
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/arxmcp/var
+NoNewPrivileges=true
+PrivateTmp=true
+
+# Short timeout — the script either short-circuits in <1s OR
+# writes a single flag file in <1s.
+TimeoutStartSec=30
+
+[Install]
+WantedBy=multi-user.target

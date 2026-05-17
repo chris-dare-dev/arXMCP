@@ -1,0 +1,17 @@
+[Unit]
+# E14_S04 — daily ops metrics report trigger.
+#
+# Fires at 05:00 UTC daily, after the delta harvest (02:00),
+# drift watchdog (02:30), and restic backup (03:30) — so the
+# report reflects the most-recent overnight cycle.
+Description=arXMCP daily ops metrics report — 05:00 UTC
+Documentation=https://github.com/chris-dare/arXMCP/blob/main/docs/ops/daily-ops-cadence.md
+
+[Timer]
+OnCalendar=*-*-* 05:00:00 UTC
+Persistent=true
+Unit=arxmcp-daily-report.service
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

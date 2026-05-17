@@ -1,0 +1,28 @@
+[Unit]
+# E14_S04 — weekly parser-failures review service unit.
+Description=arXMCP weekly parser-failures review (aggregates parser-failures/*.{log,jsonl})
+Documentation=https://github.com/chris-dare/arXMCP/blob/main/docs/ops/parser-failure-review.md
+
+[Service]
+Type=oneshot
+# Operator MUST substitute /opt/arxmcp and arxmcp user/group
+# before enabling — see ops/systemd/arxmcp-daily-report.service
+# for the canonical comment block.
+WorkingDirectory=/opt/arxmcp
+User=arxmcp
+Group=arxmcp
+ExecStart=/opt/arxmcp/ops/cron/arxmcp-parser-failures-weekly.sh
+
+StandardOutput=journal
+StandardError=journal
+
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/arxmcp/var
+NoNewPrivileges=true
+PrivateTmp=true
+
+TimeoutStartSec=600
+
+[Install]
+WantedBy=multi-user.target

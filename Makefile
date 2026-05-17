@@ -1,4 +1,4 @@
-.PHONY: help bootstrap test eval up ingest delta re-embed watchdog cutover
+.PHONY: help bootstrap test eval up ingest delta re-embed watchdog cutover daily-report parser-failures-report
 
 # Override with `make test PYTHON=python3.13` if your default python3 is too old.
 PYTHON ?= python3
@@ -16,6 +16,8 @@ help:
 	@echo "  make re-embed    Run the partial re-embed driver (E11_S03; see docs/ops/re-embed-runbook.md)"
 	@echo "  make watchdog    Run the drift watchdog against staging (E11_S04; see docs/ops/drift-watchdog.md)"
 	@echo "  make cutover     Activate the staging corpus as the new active (E11_S05; see docs/ops/cutover-runbook.md)"
+	@echo "  make daily-report           Scrape /metrics and write the daily ops report (E14_S04; see docs/ops/daily-ops-cadence.md)"
+	@echo "  make parser-failures-report Roll up parser-failures/*.{log,jsonl} into the weekly review (E14_S04; see docs/ops/parser-failure-review.md)"
 	@echo ""
 	@echo "Override the python interpreter with: make test PYTHON=python3.13"
 	@echo ""
@@ -181,3 +183,27 @@ cutover:
 		f'arXMCP requires Python >= 3.$(MIN_PY_MINOR); got {sys.version_info[:2]}. \
 Try: make cutover PYTHON=python3.$(MIN_PY_MINOR)'"
 	$(PYTHON) -m ops.cutover $(ARGS)
+
+daily-report:
+	@# E14_S04 — daily ops metrics report. Scrapes /metrics from
+	@# the running server (default http://127.0.0.1:7733/metrics)
+	@# and writes markdown to var/arxmcp/ops/daily-reports/<date>.md.
+	@# Use `make daily-report ARGS="--dry-run --fixture
+	@# tests/fixtures/metrics_sample.txt"` to render against the
+	@# saved fixture without touching the network or disk.
+	@$(PYTHON) -c "import sys; assert sys.version_info >= (3, $(MIN_PY_MINOR)), \
+		f'arXMCP requires Python >= 3.$(MIN_PY_MINOR); got {sys.version_info[:2]}. \
+Try: make daily-report PYTHON=python3.$(MIN_PY_MINOR)'"
+	$(PYTHON) -m tools.daily_metrics_report $(ARGS)
+
+parser-failures-report:
+	@# E14_S04 — weekly parser-failures review. Aggregates
+	@# var/arxmcp/ops/parser-failures/*.{log,jsonl} into an
+	@# ISO-week markdown report at
+	@# var/arxmcp/ops/reports/parser-failures-<YYYY>-W<NN>.md.
+	@# Use `make parser-failures-report ARGS="--dry-run --week
+	@# 2026-W19"` to inspect a specific historical week.
+	@$(PYTHON) -c "import sys; assert sys.version_info >= (3, $(MIN_PY_MINOR)), \
+		f'arXMCP requires Python >= 3.$(MIN_PY_MINOR); got {sys.version_info[:2]}. \
+Try: make parser-failures-report PYTHON=python3.$(MIN_PY_MINOR)'"
+	$(PYTHON) -m tools.parser_failures_report $(ARGS)

@@ -1,0 +1,37 @@
+[Unit]
+# E14_S04 — parity fill for E11_S04 watchdog. Service unit for
+# the existing ops/cron/arxmcp-watchdog.sh wrapper which runs
+# `uv run python -m ops.watchdog_eval` against the staging
+# corpus and writes var/arxmcp/ops/eval-reports/ + the
+# eval-quarantine.flag sentinel if regression > 10%.
+#
+# Pairs with arxmcp-watchdog.timer for 02:30 UTC scheduling.
+Description=arXMCP drift watchdog eval (nDCG@5 regression check; writes quarantine flag if >10% drop)
+Documentation=https://github.com/chris-dare/arXMCP/blob/main/docs/ops/drift-watchdog.md
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+# Operator MUST substitute /opt/arxmcp and arxmcp user/group.
+WorkingDirectory=/opt/arxmcp
+User=arxmcp
+Group=arxmcp
+ExecStart=/opt/arxmcp/ops/cron/arxmcp-watchdog.sh
+
+StandardOutput=journal
+StandardError=journal
+
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/arxmcp/var
+NoNewPrivileges=true
+PrivateTmp=true
+
+# The watchdog runs the full eval harness (BGE-M3 encode + ANN
+# + optional rerank) over the eval fixture. 10 minutes is a
+# safe ceiling — typical runs complete in <2 min on CPU.
+TimeoutStartSec=600
+
+[Install]
+WantedBy=multi-user.target

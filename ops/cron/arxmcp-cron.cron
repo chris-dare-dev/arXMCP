@@ -1,0 +1,31 @@
+# arXMCP daily/weekly/quarterly ops cron entries (E14_S04).
+#
+# Install with:
+#   crontab ops/cron/arxmcp-cron.cron     # full replace (destructive)
+#   (or copy the lines into the operator's existing crontab)
+#
+# All times are UTC. Five-field cron (m h dom mon dow). The
+# wrapper shells handle flock + uv resolution + the actual
+# Python invocation.
+#
+# On Linux, the systemd unit pairs at ops/systemd/ are the
+# preferred path; this crontab is the macOS / cron-only fallback.
+
+# 02:00 UTC — OAI-PMH delta harvest (E11_S02).
+0 2 * * *  /opt/arxmcp/ops/cron/arxmcp-delta.sh
+
+# 02:30 UTC — drift watchdog eval (E11_S04).
+30 2 * * *  /opt/arxmcp/ops/cron/arxmcp-watchdog.sh
+
+# 03:30 UTC — restic backup (E11_S05).
+30 3 * * *  /opt/arxmcp/ops/cron/arxmcp-backup.sh
+
+# 05:00 UTC — daily ops metrics report (E14_S04).
+0 5 * * *  /opt/arxmcp/ops/cron/arxmcp-daily-report.sh
+
+# Sun 06:00 UTC — weekly parser-failures review (E14_S04).
+0 6 * * 0  /opt/arxmcp/ops/cron/arxmcp-parser-failures-weekly.sh
+
+# Daily 00:00 UTC — quarterly drill reminder (E14_S04).
+# Short-circuits unless within 7 days of the next quarter mark.
+0 0 * * *  /opt/arxmcp/ops/cron/arxmcp-quarterly-drill.sh

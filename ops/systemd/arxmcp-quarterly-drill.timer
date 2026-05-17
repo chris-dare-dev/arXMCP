@@ -1,0 +1,19 @@
+[Unit]
+# E14_S04 — quarterly drill reminder trigger.
+#
+# Fires DAILY at 00:00 UTC. The underlying wrapper short-circuits
+# unless we're within 7 days of the next quarter mark — a daily
+# cron + Python-based date math is more robust than a
+# monthly OnCalendar=*-01,04,07,10-* pattern (the 7-day lookahead
+# would clash with the monthly trigger semantics).
+Description=arXMCP quarterly drill reminder — daily 00:00 UTC, short-circuits when out of window
+Documentation=https://github.com/chris-dare/arXMCP/blob/main/docs/ops/backup-restore.md
+
+[Timer]
+OnCalendar=*-*-* 00:00:00 UTC
+Persistent=true
+Unit=arxmcp-quarterly-drill.service
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target

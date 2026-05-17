@@ -1,0 +1,53 @@
+[Unit]
+# E14_S04 — daily metrics report service unit. Runs the
+# ops/cron/arxmcp-daily-report.sh wrapper which acquires a flock
+# on var/arxmcp/ops/.daily-report.lock and invokes
+# `uv run python -m tools.daily_metrics_report`.
+#
+# Pairs with arxmcp-daily-report.timer for 05:00 UTC scheduling.
+Description=arXMCP daily ops metrics report (scrapes /metrics, renders markdown)
+Documentation=https://github.com/chris-dare/arXMCP/blob/main/docs/ops/daily-ops-cadence.md
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+# Operator MUST substitute these placeholders before enabling:
+#   - Replace `/opt/arxmcp` everywhere below (WorkingDirectory,
+#     ExecStart, ReadWritePaths) with the arXMCP checkout path.
+#   - Replace `arxmcp` in User/Group with the system user that
+#     owns the repo + var/arxmcp tree.
+WorkingDirectory=/opt/arxmcp
+User=arxmcp
+Group=arxmcp
+ExecStart=/opt/arxmcp/ops/cron/arxmcp-daily-report.sh
+
+# Journal capture — journalctl -u arxmcp-daily-report is the
+# canonical operator interface.
+StandardOutput=journal
+StandardError=journal
+
+# Containment — the daily report only reads /metrics over HTTP
+# and writes inside var/arxmcp/. Matches the hardening trio
+# pattern from arxmcp-delta.service / arxmcp-backup.service.
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/arxmcp/var
+NoNewPrivileges=true
+PrivateTmp=true
+
+# Email opt-in env vars — set these in a systemd drop-in or
+# /etc/default/arxmcp if email delivery is wanted:
+#   MAIL_TO=ops@example.com
+#   MAIL_FROM=arxmcp@example.com
+#   SMTP_HOST=smtp.example.com
+#   SMTP_PORT=25                # optional; default 25
+#   SMTP_STARTTLS=1             # optional; default off
+#   SMTP_USER=... SMTP_PASS=... # optional; default no auth
+# When ANY of MAIL_TO/MAIL_FROM/SMTP_HOST is missing, email is
+# silently disabled and an INFO log records the missing var(s).
+
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target

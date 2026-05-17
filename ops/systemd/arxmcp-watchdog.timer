@@ -1,0 +1,21 @@
+[Unit]
+# E14_S04 — parity fill for E11_S04. The drift watchdog wrapper
+# (ops/cron/arxmcp-watchdog.sh) shipped with the cron entry but
+# without the systemd unit pair. This timer + service close that
+# gap so Linux operators have the same enable path as for delta
+# / backup / daily-report.
+#
+# Fires at 02:30 UTC — between the 02:00 delta harvest and the
+# 03:30 restic backup, so any quarantine flag set by the watchdog
+# is present when the backup snapshot is taken.
+Description=arXMCP drift watchdog eval — 02:30 UTC
+Documentation=https://github.com/chris-dare/arXMCP/blob/main/docs/ops/drift-watchdog.md
+
+[Timer]
+OnCalendar=*-*-* 02:30:00 UTC
+Persistent=true
+Unit=arxmcp-watchdog.service
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,17 @@
+[Unit]
+# E14_S04 — weekly parser-failures review trigger.
+#
+# Fires Sunday at 06:00 UTC — covers the just-completed ISO
+# week (Mon–Sun). The 06:00 slot lands AFTER the Sunday daily
+# delta (02:00) so the week's last failures are included.
+Description=arXMCP weekly parser-failures review — Sun 06:00 UTC
+Documentation=https://github.com/chris-dare/arXMCP/blob/main/docs/ops/parser-failure-review.md
+
+[Timer]
+OnCalendar=Sun *-*-* 06:00:00 UTC
+Persistent=true
+Unit=arxmcp-parser-failures-weekly.service
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target
