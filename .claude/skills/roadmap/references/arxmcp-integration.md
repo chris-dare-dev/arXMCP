@@ -6,8 +6,8 @@ artifacts that pair cleanly with the rest of the project.
 
 ## Pairing with `milestone-pipeline`
 
-`milestone-pipeline` is the execution skill at
-[.claude/skills/milestone-pipeline/](.claude/skills/milestone-pipeline/).
+`milestone-pipeline` is the execution slash command at
+[.claude/commands/milestone-pipeline.md](.claude/commands/milestone-pipeline.md).
 It runs ONE milestone end-to-end through Research → Implement → Critique
 → Rectify.
 
@@ -31,7 +31,7 @@ init-state.sh script greps for `### <ID> — ` headings. arXMCP convention:
 - Reject slug shapes that collide with EXX (regex `^e\d+$` is forbidden;
   validated by `init-roadmap.sh`).
 
-**Bridge in milestone-pipeline:** [.claude/skills/milestone-pipeline/scripts/init-state.sh](.claude/skills/milestone-pipeline/scripts/init-state.sh)
+**Bridge in milestone-pipeline:** [.claude/milestone-pipeline/scripts/init-state.sh](.claude/milestone-pipeline/scripts/init-state.sh)
 searches BOTH `.claude/roadmap/*.md` AND `plans/*.md` for milestone briefs.
 On collision (same ID in both directories) it exits 1 with both paths
 printed. Optional override: `--brief-from <path>`.
@@ -110,6 +110,7 @@ make pairing legible.
 - `.claude/notes/` — design constitution, manually authored. Read-only.
 - `.claude/roadmap/` — master roadmap, manually authored. Read-only.
 - `ROADMAP.md` — executive summary. Read-only.
-- `.claude/skills/milestone-pipeline/` — sibling skill. The roadmap
-  skill triggers a one-time bridge edit (init-state.sh + state-schema.md)
+- `.claude/milestone-pipeline/` — pipeline supporting infrastructure (scripts + references).
+  The roadmap skill triggers a one-time bridge edit (init-state.sh + state-schema.md)
   during initial install; ongoing runs do not modify it.
+- `.claude/commands/milestone-pipeline.md` — the orchestrating slash command itself.

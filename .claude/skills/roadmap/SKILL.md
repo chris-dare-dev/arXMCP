@@ -169,11 +169,11 @@ Cross-cutting:
 
 ## Pairing with milestone-pipeline
 
-`milestone-pipeline` (sibling skill at
-[.claude/skills/milestone-pipeline/](.claude/skills/milestone-pipeline/))
+`milestone-pipeline` (slash command at
+[.claude/commands/milestone-pipeline.md](.claude/commands/milestone-pipeline.md))
 executes ONE milestone end-to-end. The roadmap skill produces milestones
 with IDs `<slug>-mN`; milestone-pipeline consumes them via the bridge in
-[init-state.sh](.claude/skills/milestone-pipeline/scripts/init-state.sh)
+[init-state.sh](.claude/milestone-pipeline/scripts/init-state.sh)
 (searches both `.claude/roadmap/*.md` and `plans/*.md`; loud-fails on
 collision). The MATERIALIZE phase prints a suggested next-step
 invocation; the user runs it manually.

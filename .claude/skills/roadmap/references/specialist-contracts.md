@@ -45,7 +45,7 @@ auto-creation. The user creates the agent file when utility justifies.
 - Lossy MathML transforms (e.g. content-MathML dropped, leaving only presentation-MathML)
 - Chunker boundaries that bisect equations or theorem environments
 
-**Output format:** canonical critique format ([critique-format.md](.claude/skills/milestone-pipeline/references/critique-format.md)). Finding ID prefix `LP<n>`.
+**Output format:** canonical critique format ([critique-format.md](.claude/milestone-pipeline/references/critique-format.md)). Finding ID prefix `LP<n>`.
 
 ---
 

@@ -92,13 +92,18 @@ Files with `phase: complete` are shipped. The authoritative roadmap index is
 - **Worktrees are fine** (e.g. for parallel milestone-pipeline researchers)
   but the final commits land on `main`.
 
-### 4.2 Use the `milestone-pipeline` skill for non-trivial work
+### 4.2 Use the `/milestone-pipeline` command for non-trivial work
 
 Any roadmap milestone (`E<NN>_S<MM>`) or comparable-effort ad-hoc task MUST
-run through [`/milestone-pipeline`](.claude/skills/milestone-pipeline/SKILL.md).
-The four phases are non-negotiable: **Research → Implement → Critique →
-Rectify**. Skipping a phase is the named anti-pattern in the skill's own
-SKILL.md.
+run through the [`/milestone-pipeline`](.claude/commands/milestone-pipeline.md)
+slash command. The four phases are non-negotiable: **Research → Implement →
+Critique → Rectify**. Skipping a phase is the named anti-pattern documented in
+the command body.
+
+The command uses five bespoke sub-agents defined in `.claude/agents/`:
+`milestone-researcher`, `milestone-implementer`, `milestone-adversary`,
+`milestone-infra-safety`, and `milestone-oss-scout`. The slash command is the
+orchestrator (main thread); sub-agents cannot spawn sub-agents.
 
 The state machine lives at
 `.claude/notes/milestones/<ID>/state.json` and is strict-forward-only
@@ -106,7 +111,7 @@ through `init → research-running → research-complete → implement-running �
 implement-complete → critique-running → critique-complete → rectify-running
 → complete`.
 
-Trivial edits (one-liners, formatting fixes) can skip the skill — but if a
+Trivial edits (one-liners, formatting fixes) can skip the command — but if a
 change touches more than ~3 files or adds new tests, run the pipeline.
 
 ### 4.3 Commit conventions
@@ -283,11 +288,21 @@ arXMCP/
     ├── roadmap/             14 per-epic plans (E01–E14) + authoritative index
     │   ├── README.md         authoritative epic index (NOT the root)
     │   └── E<NN>-*.md        per-epic specs
+    ├── agents/              bespoke sub-agent definitions for the pipeline
+    │   ├── milestone-researcher.md
+    │   ├── milestone-implementer.md
+    │   ├── milestone-adversary.md
+    │   ├── milestone-infra-safety.md
+    │   └── milestone-oss-scout.md
+    ├── commands/
+    │   └── milestone-pipeline.md  the 4-phase slash command (orchestrator)
+    ├── milestone-pipeline/  pipeline supporting infrastructure
+    │   ├── references/       phase reference files + agent-conventions.md (shared)
+    │   └── scripts/          init-state.sh, checkpoint.py, status.sh, dedupe-findings.py
+    ├── agent-memory/        per-agent project-scope memory (auto-injected by harness)
+    │   └── milestone-*/      MEMORY.md per bespoke sub-agent
     └── skills/
-        └── milestone-pipeline/  the 4-phase milestone discipline
-            ├── SKILL.md
-            ├── references/   phase reference files (research/implement/critique/rectify)
-            └── scripts/      init-state.sh, checkpoint.py, status.sh
+        └── roadmap/          roadmap planning skill (separate from pipeline)
 ```
 
 ---
@@ -406,15 +421,17 @@ Things that LOOK shipped but aren't fully wired — don't be surprised:
 /milestone-pipeline E10_S01
 ```
 
-The skill reads the brief from `.claude/roadmap/E<NN>-<slug>.md`, dispatches
-Phase-1 researchers in parallel, drives Phase-2 implementation, Phase-3
-critique, and Phase-4 rectification, and emits a `feat(...)` + `rect(...)` +
-`chore(...)` commit triple.
+The slash command (`.claude/commands/milestone-pipeline.md`) reads the brief
+from `.claude/roadmap/E<NN>-<slug>.md`, dispatches Phase-1 bespoke researcher
+agents in parallel, drives Phase-2 implementation via the `milestone-implementer`
+agent, Phase-3 critique via three parallel critic agents (`milestone-adversary`,
+`milestone-infra-safety`, `milestone-oss-scout`), and Phase-4 rectification in
+the main session. Emits a `feat(...)` + `rect(...)` + `chore(...)` commit triple.
 
 ### Check status of an in-flight milestone
 
 ```bash
-.claude/skills/milestone-pipeline/scripts/status.sh E10_S01
+.claude/milestone-pipeline/scripts/status.sh E10_S01
 ```
 
 ### Verify the full project is green
@@ -482,6 +499,9 @@ question arises, quote the note by filename — don't paraphrase.
 - [`.claude/notes/10-references-and-prior-art.md`](.claude/notes/10-references-and-prior-art.md) — Bibliography
 - [`.claude/notes/prompts-bp-discipline.md`](.claude/notes/prompts-bp-discipline.md) — BP1/BP2 breakpoint placement (E08_S02)
 - [`.claude/roadmap/README.md`](.claude/roadmap/README.md) — Authoritative epic index
+- [`.claude/commands/milestone-pipeline.md`](.claude/commands/milestone-pipeline.md) — 4-phase pipeline slash command (orchestrator)
+- [`.claude/milestone-pipeline/references/agent-prompts.md`](.claude/milestone-pipeline/references/agent-prompts.md) — sub-agent prompt source of truth
+- [`.claude/milestone-pipeline/references/state-schema.md`](.claude/milestone-pipeline/references/state-schema.md) — state.json schema + transitions
 - [`.claude/TIER-GATES.md`](.claude/TIER-GATES.md) — Tier-promotion machine-checkable gates
 - [`.claude/docs/orchestrator-rules.md`](.claude/docs/orchestrator-rules.md) — Tool-use ID canonicalization + per-session caps
 - [`.claude/docs/model-policy.md`](.claude/docs/model-policy.md) — `(RouteTag, TurnType) → model` table

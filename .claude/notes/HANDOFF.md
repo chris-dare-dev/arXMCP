@@ -48,7 +48,7 @@ consolidation**.
 
 ### 2.1 E09 — Citation Graph epic (SHIPPED in this session; closes H7)
 
-Four milestones, all via the [`/milestone-pipeline`](../skills/milestone-pipeline/SKILL.md)
+Four milestones, all via the [`/milestone-pipeline`](../commands/milestone-pipeline.md)
 4-phase Research → Implement → Critique → Rectify discipline. Every
 milestone produced the canonical three-commit triple:
 `feat(...)` + `rect(...)` + `chore(notes): finalize`.
@@ -382,11 +382,11 @@ Invoke the milestone-pipeline skill:
 /milestone-pipeline E10_S01
 ```
 
-The skill is documented at
-[`.claude/skills/milestone-pipeline/SKILL.md`](../skills/milestone-pipeline/SKILL.md).
+The command is documented at
+[`.claude/commands/milestone-pipeline.md`](../commands/milestone-pipeline.md).
 The 4-phase discipline (Research → Implement → Critique → Rectify) is
 **non-negotiable**. Skipping a phase or short-circuiting the rectifier
-protocol is the named anti-pattern in the skill's own SKILL.md.
+protocol is the named anti-pattern in the command body.
 
 State persists at `.claude/notes/milestones/<ID>/state.json` —
 strict-forward-only through nine phases.
@@ -544,7 +544,7 @@ enforced by the test suite or by pre-commit hooks.
 | **Orchestrator rules** | [`.claude/docs/orchestrator-rules.md`](../docs/orchestrator-rules.md) |
 | **Model policy** | [`.claude/docs/model-policy.md`](../docs/model-policy.md) |
 | **Proof-chain workflow** | [`.claude/docs/proof-chain-workflow.md`](../docs/proof-chain-workflow.md) |
-| **Milestone-pipeline skill** | [`.claude/skills/milestone-pipeline/SKILL.md`](../skills/milestone-pipeline/SKILL.md) |
+| **Milestone-pipeline command** | [`.claude/commands/milestone-pipeline.md`](../commands/milestone-pipeline.md) |
 | **Per-milestone state** | [`.claude/notes/milestones/<ID>/state.json`](milestones) |
 | **Operator install** | [`docs/install.md`](../../docs/install.md) |
 | **Changelog** | [`/CHANGES.md`](../../CHANGES.md) |
