@@ -37,7 +37,7 @@ groups:
             the var/arxmcp/ops/ingest-paused sentinel; reads
             continue. Free disk and the sentinel auto-clears at
             15 GB free (hysteresis).
-          runbook_url: "https://github.com/chris-dare/arXMCP/blob/main/docs/ops/failure-modes.md#disk-full"
+          runbook_url: "https://github.com/chris-dare-dev/arXMCP/blob/main/docs/ops/failure-modes.md#disk-full"
 
       # Failure modes 1 + 2: hosted-embedder outage / LanceDB
       # corruption (any failure-mode degradation surfaces here).
@@ -55,7 +55,7 @@ groups:
             The server is serving requests via a fallback path
             (reason={{ $labels.reason }}). Investigate and
             recover per the runbook.
-          runbook_url: "https://github.com/chris-dare/arXMCP/blob/main/docs/ops/failure-modes.md#degraded-modes"
+          runbook_url: "https://github.com/chris-dare-dev/arXMCP/blob/main/docs/ops/failure-modes.md#degraded-modes"
 
       # Backup overdue. E11_S05 already emits the timestamp gauge;
       # this rule alerts when no successful backup has completed in
@@ -73,7 +73,7 @@ groups:
             than 48 hours. Inspect the most-recent
             var/arxmcp/ops/backup-status.json and the journalctl
             log for arxmcp-backup.service.
-          runbook_url: "https://github.com/chris-dare/arXMCP/blob/main/docs/ops/backup-restore.md"
+          runbook_url: "https://github.com/chris-dare-dev/arXMCP/blob/main/docs/ops/backup-restore.md"
 
       # Eval-quarantine sentinel (E11_S04). Surfaces the watchdog's
       # regression-detected state to Prometheus.
@@ -90,7 +90,7 @@ groups:
             Cutover is blocked. Review the watchdog report under
             var/arxmcp/ops/eval-reports/ and either fix the
             regression or override the flag manually.
-          runbook_url: "https://github.com/chris-dare/arXMCP/blob/main/docs/ops/drift-watchdog.md"
+          runbook_url: "https://github.com/chris-dare-dev/arXMCP/blob/main/docs/ops/drift-watchdog.md"
 
       # LaTeXML version drift (E10_S04). Fires when the daily drift
       # check found any fixture diverging from its expected MathML.
@@ -107,4 +107,4 @@ groups:
             expected MathML output. The corpus may need
             re-rendering. See the runbook for the recovery
             procedure.
-          runbook_url: "https://github.com/chris-dare/arXMCP/blob/main/docs/ops/latexml-drift-runbook.md"
+          runbook_url: "https://github.com/chris-dare-dev/arXMCP/blob/main/docs/ops/latexml-drift-runbook.md"

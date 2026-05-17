@@ -436,11 +436,28 @@ class Resources:
         # call.
         if config.enable_rerank and reranker_model is not None:
             try:
-                arrow = chunks_table.to_arrow()
-                bodies_col = arrow.column("body_text").to_pylist()
-                warmup_bodies = bodies_col[: min(10, len(bodies_col))]
-                if warmup_bodies:
-                    warmup_query = "reranker warmup query"
+                # F4 rectification (E14_S05 adversary critique): the
+                # prior implementation materialised the FULL chunks
+                # table via ``to_arrow()`` and discarded 99.99% of it.
+                # For a 200K-chunk corpus that's hundreds of MB of
+                # peak allocation at the moment the disk-free
+                # sentinel is also writing — wasteful and a real
+                # interaction hazard on a constrained workstation.
+                # ``take_offsets`` is the bounded-scan primitive.
+                total_rows = chunks_table.count_rows()
+                limit = min(10, total_rows)
+                if limit > 0:
+                    warmup_arrow = chunks_table.take_offsets(
+                        list(range(limit))
+                    ).to_arrow()
+                    warmup_bodies = warmup_arrow.column("body_text").to_pylist()
+                    # F10 rectification: use a query that includes a
+                    # Unicode character (étale) so the BPE tokenizer's
+                    # non-ASCII path is warmed alongside the ASCII one.
+                    # Real production queries contain Unicode (LaTeX
+                    # accents, Greek symbols); the warm-up should
+                    # exercise the same code paths.
+                    warmup_query = "étale cohomology warmup"
                     await loop.run_in_executor(
                         None,
                         lambda: _warmup_rerank_pass(
@@ -449,7 +466,9 @@ class Resources:
                     )
                     logger.info(
                         "Resources.startup: reranker warmed via "
-                        "%d-chunk dummy inference",
+                        "%d-chunk dummy inference (best-effort; the "
+                        "server starts anyway if warm-up fails — see "
+                        "F9 in the E14_S05 critique)",
                         len(warmup_bodies),
                     )
                 else:
@@ -458,9 +477,13 @@ class Resources:
                         "(no chunks in corpus yet)"
                     )
             except Exception as exc:  # noqa: BLE001 — non-fatal
+                # F9 rectification: log message now explicitly says
+                # "best-effort; server starts anyway" so an operator
+                # reading the log understands the warm-up is non-fatal.
                 logger.warning(
                     "Resources.startup: reranker warm-up failed (%s); "
-                    "first request will pay the cold-start cost",
+                    "server starts anyway (best-effort warm-up). The "
+                    "first real request will pay the cold-start cost.",
                     exc,
                 )
 

@@ -35,7 +35,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic import field_validator, model_validator
+from pydantic import SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # ---------------------------------------------------------------------------
@@ -201,10 +201,13 @@ class Config(BaseSettings):
     query_embed_provider: str = "local"
 
     #: API key for the optional hosted-embedder provider (Voyage).
-    #: Stored only in memory; never logged. Unset by default; the
-    #: ``voyage`` provider stub doesn't actually use it in v1 but
-    #: the field is reserved so the env var is documented.
-    voyage_api_key: str | None = None
+    #: Wrapped in :class:`pydantic.SecretStr` so a stray
+    #: ``logger.info("config=%s", config)`` cannot leak the key —
+    #: ``SecretStr.__repr__`` returns ``SecretStr('**********')``.
+    #: Callers that need the actual value must call
+    #: ``.get_secret_value()`` explicitly. F5 rectification from
+    #: the E14_S05 adversary critique.
+    voyage_api_key: SecretStr | None = None
 
     #: OTLP/gRPC endpoint for OpenTelemetry trace export (E14_S02).
     #: When unset (``None``), tracing is COMPLETELY DISABLED at the

@@ -117,6 +117,18 @@ async def handle_search_papers(
         span_ann,
     )
 
+    # F1 rectification (E14_S05 adversary critique): compute the
+    # degraded-state of the SERVER ONCE up front. The cache hits
+    # below re-stamp the cached payload with the current
+    # ``degraded`` state so a response served from a degraded
+    # process is never silently mis-tagged. The cache key is
+    # corpus_version + query; it intentionally does NOT include
+    # the degraded axis (that would balloon the key space across
+    # recovery transitions and re-warm cost on flap).
+    base_degraded_reasons: list[str] = []
+    if r.degraded is not None:
+        base_degraded_reasons.append(r.degraded.reason)
+
     cache = get_cache()
     if cache is not None:
         cached_payload, _hit_tier = await cache.lookup_search(
@@ -125,7 +137,7 @@ async def handle_search_papers(
         if cached_payload is not None:
             # Tier-1 hit — bypass Phase 1/2/3.
             set_cache_layer("tier1")
-            structured = cached_payload
+            structured = _restamp_degraded(cached_payload, base_degraded_reasons)
             rows = structured.get("results", [])
             content = _build_content_blocks(structured, rows)
             return CallToolResult(content=content, structuredContent=structured)
@@ -155,7 +167,13 @@ async def handle_search_papers(
         )
         if cached_payload is not None:
             set_cache_layer("tier2")
-            structured = cached_payload
+            # Build the reason list including any hosted-embedder
+            # fallback that fired during THIS request (not present
+            # in the cached payload). F1 rectification.
+            tier2_reasons = list(base_degraded_reasons)
+            if embed_fallback_active:
+                tier2_reasons.append("hosted_embedder_outage")
+            structured = _restamp_degraded(cached_payload, tier2_reasons)
             rows = structured.get("results", [])
             content = _build_content_blocks(structured, rows)
             return CallToolResult(content=content, structuredContent=structured)
@@ -200,11 +218,9 @@ async def handle_search_papers(
     # request hit any failure-mode fallback path). ``degraded_reason``
     # carries the cause slug — the orchestrator can deprioritize
     # cross-model hits or surface a warning to the operator.
-    degraded_reasons: list[str] = []
+    miss_degraded_reasons: list[str] = list(base_degraded_reasons)
     if embed_fallback_active:
-        degraded_reasons.append("hosted_embedder_outage")
-    if r.degraded is not None:
-        degraded_reasons.append(r.degraded.reason)
+        miss_degraded_reasons.append("hosted_embedder_outage")
 
     payload: dict[str, Any] = {
         "embed_model": "bge-m3",
@@ -215,9 +231,9 @@ async def handle_search_papers(
         "results": rows,
         "retrieval_mode": "dense_only",
     }
-    if degraded_reasons:
+    if miss_degraded_reasons:
         payload["degraded"] = True
-        payload["degraded_reasons"] = degraded_reasons
+        payload["degraded_reasons"] = miss_degraded_reasons
     structured = envelope(payload)
 
     # E08_S03: cache-store on the miss path. We pass the query
@@ -238,6 +254,34 @@ async def handle_search_papers(
     # one ResourceLink per result row.
     content = _build_content_blocks(structured, rows)
     return CallToolResult(content=content, structuredContent=structured)
+
+
+def _restamp_degraded(
+    cached_payload: dict[str, Any], current_reasons: list[str]
+) -> dict[str, Any]:
+    """Re-stamp the cached response with the CURRENT server's
+    degraded state. F1 rectification (E14_S05 adversary critique).
+
+    The cache key is corpus_version + query and does NOT include
+    the server-degraded axis. A payload cached while the server
+    was healthy could be served while the server is degraded
+    (e.g. corpus_corruption fallback active) and vice versa. The
+    orchestrator-facing contract is that ``degraded`` reflects
+    the SERVER STATE at response time, not at cache-write time.
+
+    Returns a shallow-copied dict with ``degraded`` /
+    ``degraded_reasons`` set or removed to match
+    ``current_reasons``. The ``results`` list (the load-bearing
+    cached data) is preserved by reference — no deep copy needed.
+    """
+    structured = dict(cached_payload)
+    # Remove any stale degraded markers from the cached payload.
+    structured.pop("degraded", None)
+    structured.pop("degraded_reasons", None)
+    if current_reasons:
+        structured["degraded"] = True
+        structured["degraded_reasons"] = list(current_reasons)
+    return structured
 
 
 def _build_content_blocks(

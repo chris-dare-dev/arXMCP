@@ -83,7 +83,7 @@ note.
 
 * Pre-milestone: 1838 passed, 8 skipped, 1 xfailed (end of
   E14_S04).
-* Post-milestone: 1861 passed, 9 skipped, 1 xfailed (+23):
+* Post-feat: 1861 passed, 9 skipped, 1 xfailed (+23):
   - 19 in `tests/test_failure_modes.py`
   - 6 in `tests/test_alerts_yaml.py` (1 skips when `promtool`
     is not on PATH)
@@ -92,6 +92,8 @@ note.
     failing tests cleared automatically once
     `tests/test_tools_all.py` was unblocked by the
     handlers/search.py compatibility shim)
+* Post-rect: 1866 passed, 9 skipped, 1 xfailed (+5 regression
+  guards for F1, F2, F5, F6).
 * `ruff check .` — clean.
 
 ## Acceptance criteria status

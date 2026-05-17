@@ -385,6 +385,22 @@ class TestHostedEmbedderFallback:
         )._value.get()
         assert after == before + 1
 
+    def test_voyage_fallback_propagates_local_failure(self, monkeypatch):
+        """F6 rectification — when BOTH the hosted provider AND the
+        local fallback fail, the wrapper propagates the local
+        exception unchanged. Pinning the current behaviour so a
+        future refactor doesn't silently swap exception types."""
+        import asyncio  # noqa: PLC0415
+
+        from server import query_encoder as qe  # noqa: PLC0415
+
+        async def broken_local(text):
+            raise RuntimeError("BGE-M3 OOM during encode")
+
+        monkeypatch.setattr(qe, "encode_query", broken_local)
+        with pytest.raises(RuntimeError, match="BGE-M3 OOM"):
+            asyncio.run(qe.encode_query_with_fallback("q", "voyage"))
+
     def test_warn_log_fires_once_per_process(self, monkeypatch, caplog):
         import asyncio  # noqa: PLC0415
         import logging  # noqa: PLC0415
@@ -407,3 +423,104 @@ class TestHostedEmbedderFallback:
         ]
         # WARN-once contract: 3 fallbacks, 1 log entry.
         assert len(warns) == 1
+
+
+# ---------------------------------------------------------------------------
+# F1 — cache-degraded re-stamping
+# ---------------------------------------------------------------------------
+
+
+class TestF1CacheDegradedRestamping:
+    """F1 rectification — Tier-1/Tier-2 cache hits must re-stamp
+    the cached payload with the CURRENT server's degraded state.
+    Previously a payload cached while healthy was served unchanged
+    while the server was degraded (e.g. running on the LanceDB
+    N-1 fallback), defeating the orchestrator's degraded-aware
+    behavior contract."""
+
+    def test_restamp_adds_degraded_when_server_degraded(self):
+        from server.handlers.search import _restamp_degraded  # noqa: PLC0415
+
+        cached = {
+            "embed_model": "bge-m3",
+            "results": [{"chunk_id": "a", "score": 0.9}],
+        }
+        out = _restamp_degraded(cached, ["corpus_corruption"])
+        assert out["degraded"] is True
+        assert out["degraded_reasons"] == ["corpus_corruption"]
+        # Results are preserved by reference (no deep copy needed).
+        assert out["results"] is cached["results"]
+
+    def test_restamp_removes_stale_degraded_when_server_healthy(self):
+        """A payload cached while degraded is returned (after
+        recovery) with the degraded flag REMOVED. The current
+        server state wins."""
+        from server.handlers.search import _restamp_degraded  # noqa: PLC0415
+
+        cached = {
+            "embed_model": "bge-m3",
+            "degraded": True,
+            "degraded_reasons": ["hosted_embedder_outage"],
+            "results": [],
+        }
+        out = _restamp_degraded(cached, [])
+        assert "degraded" not in out
+        assert "degraded_reasons" not in out
+
+
+# ---------------------------------------------------------------------------
+# F5 — SecretStr for voyage_api_key
+# ---------------------------------------------------------------------------
+
+
+class TestF5VoyageKeyIsSecretStr:
+    """F5 rectification — the API key field must NOT leak via
+    ``repr(config)``. Pydantic's ``SecretStr`` masks the value in
+    repr output."""
+
+    def test_secret_value_masked_in_repr(self, tmp_path):
+        from pydantic import SecretStr  # noqa: PLC0415
+
+        from server.config import Config  # noqa: PLC0415
+
+        cfg = Config(
+            lancedb_path=tmp_path,
+            voyage_api_key="super-secret-token-XYZ",
+        )
+        # SecretStr stores the value but masks repr.
+        assert isinstance(cfg.voyage_api_key, SecretStr)
+        assert "super-secret-token-XYZ" not in repr(cfg)
+        assert "super-secret-token-XYZ" not in repr(cfg.voyage_api_key)
+        # The actual secret is retrievable via .get_secret_value().
+        assert cfg.voyage_api_key.get_secret_value() == "super-secret-token-XYZ"
+
+
+# ---------------------------------------------------------------------------
+# F2 — cron sentinel path drift
+# ---------------------------------------------------------------------------
+
+
+class TestF2CronSentinelPathDrift:
+    """F2 rectification — the cron wrapper must honor
+    ARXMCP_DATA_DIR the same way the Python module does."""
+
+    def test_cron_wrapper_references_arxmcp_data_dir(self):
+        """Scrape the cron wrapper and confirm the pause-flag path
+        uses ARXMCP_DATA_DIR with the same fallback precedence as
+        tools.ingest_sentinel._resolve_sentinel_path."""
+        import pathlib  # noqa: PLC0415
+
+        repo_root = pathlib.Path(__file__).resolve().parents[1]
+        wrapper = repo_root / "ops" / "cron" / "arxmcp-delta.sh"
+        content = wrapper.read_text(encoding="utf-8")
+        # The fix substitutes ARXMCP_DATA_DIR into PAUSE_FLAG.
+        assert "ARXMCP_DATA_DIR" in content, (
+            "ops/cron/arxmcp-delta.sh must reference ARXMCP_DATA_DIR "
+            "so the cron honors the same env var as the Python module"
+        )
+        # The PAUSE_FLAG construction should use the same suffix
+        # the Python module uses (``/ops/ingest-paused``).
+        assert "/ops/ingest-paused" in content, (
+            "ops/cron/arxmcp-delta.sh must use the ops/ingest-paused "
+            "suffix that matches tools.ingest_sentinel"
+        )

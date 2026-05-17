@@ -71,6 +71,9 @@ Operator runbooks live under [`docs/ops/`](docs/ops/):
 | [`drift-watchdog.md`](docs/ops/drift-watchdog.md) | E11_S04 | nDCG@5 regression watchdog after staging updates |
 | [`cutover-runbook.md`](docs/ops/cutover-runbook.md) | E11_S05 | 200K staging → active cutover activation + rollback |
 | [`backup-restore.md`](docs/ops/backup-restore.md) | E11_S05 | restic backup + restore drill |
+| [`daily-ops-cadence.md`](docs/ops/daily-ops-cadence.md) | E14_S04 | Daily/weekly/quarterly cron + systemd schedule |
+| [`parser-failure-review.md`](docs/ops/parser-failure-review.md) | E14_S04 | Weekly parser-failures triage workflow |
+| [`failure-modes.md`](docs/ops/failure-modes.md) | E14_S05 | Detection + recovery for the 9 documented failure modes |
 
 ## Repo layout
 

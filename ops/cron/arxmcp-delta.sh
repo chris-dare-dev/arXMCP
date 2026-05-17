@@ -59,17 +59,37 @@ if ! command -v flock >/dev/null 2>&1; then
     exit 1
 fi
 
-# E14_S05 D5 — early-exit when the ingest-paused sentinel is
-# present. Failure mode 7 (Disk full) writes this sentinel via the
-# server's scrape-time hook; operators can also write it manually
+# E14_S05 D5 + F2 rectification — early-exit when the
+# ingest-paused sentinel is present. Failure mode 7 (Disk full)
+# writes this sentinel via the server's scrape-time hook;
+# operators can also write it manually
 # (`python -m tools.ingest_sentinel write --reason=maintenance`).
 # The cron skips the run and exits 0 so cron-mailer doesn't spam
 # the operator with errors during a known pause.
-PAUSE_FLAG="${REPO_ROOT}/var/arxmcp/ops/ingest-paused"
+#
+# F2 (E14_S05 adversary): resolve the sentinel path with the SAME
+# precedence as ``tools.ingest_sentinel._resolve_sentinel_path``
+# — ``ARXMCP_DATA_DIR`` env var wins, fallback to the repo-root
+# default. Previously the cron hardcoded ``${REPO_ROOT}/var/arxmcp``
+# while the server's refresh hook used ``config.data_dir``
+# (which honors ARXMCP_DATA_DIR), so a production deployment with
+# ``ARXMCP_DATA_DIR=/var/lib/arxmcp`` silently broke the cron-side
+# check.
+DATA_DIR="${ARXMCP_DATA_DIR:-${REPO_ROOT}/var/arxmcp}"
+PAUSE_FLAG="${DATA_DIR}/ops/ingest-paused"
 if [ -e "${PAUSE_FLAG}" ]; then
-    REASON="$(python3 -c 'import json, sys; \
+    # IS2 (E14_S05 infra-safety): the python3 fallback chain
+    # below is a soft-fail (cron exits 0 with reason=unknown if
+    # python3 is missing). Cron environments on minimal Linux
+    # distros may lack /usr/bin/python3; if you see "unknown"
+    # reasons in the cron-mailer output, install python3.
+    if command -v python3 >/dev/null 2>&1; then
+        REASON="$(python3 -c 'import json, sys; \
 print(json.load(open(sys.argv[1])).get("reason", "unknown"))' \
 "${PAUSE_FLAG}" 2>/dev/null || echo "malformed_sentinel")"
+    else
+        REASON="unknown_python3_missing"
+    fi
     echo "INFO: ingest paused (reason=${REASON}); skipping delta " \
          "run. Clear with: python -m tools.ingest_sentinel clear" >&2
     exit 0
