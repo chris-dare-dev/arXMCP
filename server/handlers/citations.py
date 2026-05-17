@@ -36,7 +36,10 @@ async def handle_cite_neighbors(
     # downstream use so an adversarial input never reaches the
     # graph layer. Mirrors the ``get_chunk`` precedent.
     # See ``.claude/docs/security-threat-1-audit.md`` for the
-    # full audit table.
+    # full audit table and the deferred migration plan
+    # (Pydantic ``pattern=`` Field migration + ``max_length``
+    # caps + ``McpError(INVALID_PARAMS)`` wire-level wrap —
+    # all Tier-6+ work tied to the same byte-stability re-pin).
     if not is_valid_chunk_id(chunk_id):
         raise ValueError(
             f"chunk_id does not match the expected format "

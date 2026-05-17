@@ -66,12 +66,19 @@ Plus the audit doc + 23 regression tests.
 ## Test count delta
 
 * Pre-milestone: 1866 passed, 9 skipped, 1 xfailed (end of E14_S05).
-* Post-milestone: 1889 passed, 9 skipped, 1 xfailed (+23):
+* Post-feat: 1889 passed (+23):
   - 9 in `TestPaperIdPathTraversal` (3 tools × 3 inputs)
   - 6 in `TestChunkIdPathTraversal` (2 tools × 3 inputs)
   - 6 in `TestChunkIdShapedAttacks` (2 tools × 3 chunk-shaped
     attacks)
   - 2 in `TestPositiveCases` (sanity guards)
+* Post-rect: 1909 passed (+20 regression guards for F1-F4):
+  - 9 in `TestValidatorFiresBeforeResources` (sentinel-based proof
+    that the validator fires before any resource access — F1)
+  - 3 in `TestEmptyIdentifier` (empty-string adversarial case — F2)
+  - 1 in `TestSdkBoundary` (FastMCP Tool.run wrap proof — F3)
+  - 7 in `TestPaperIdFromChunkIdRejection` (graph-layer helper
+    coverage — F4)
 * `ruff check .` — clean.
 
 ## Acceptance criteria status

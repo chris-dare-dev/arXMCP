@@ -150,7 +150,12 @@ The handler takes `latex_or_mathml` (a string that flows through
 a separate MathML/LaTeX sanitization path — **Threat 3** in
 note 08) and `k`. No paper_id, no chunk_id. The test surface
 intentionally omits this handler from Threat-1 cases so a
-future contributor doesn't mistakenly add it.
+future contributor doesn't mistakenly add it. **Likewise,
+`find_lemma_by_name.name` is free text** (Pydantic
+`Field(min_length=1, max_length=200)` only) and routes into the
+theorem-names SQLite FTS5 store — argument validation there is
+**Threat 2** (prompt-injection delimiter) scope, not Threat 1
+(F7 from the E13_S01 critique).
 
 ### No JSON-Schema `pattern=` enforcement
 
@@ -186,6 +191,20 @@ not ReDoS-vulnerable on the 512-char overlong test input — the
 match completes in microseconds. The defense-in-depth case is
 real but the cost is real too.
 
+### Log redaction of malformed-identifier echo (Threat 8 coupling)
+
+The validator error messages echo the malformed identifier
+back via Python `{value!r}` formatting. `repr()` escapes
+newlines and control characters but the full 512-character
+overlong attack input ends up in the error stream verbatim
+(stderr / SDK error wrap / journalctl). This is the inherited
+pattern from the four pre-existing handlers' validators
+(F8 from the E13_S01 critique).
+
+Threat 8 (log redaction, E13_S08) will truncate / redact this
+echo. The audit doc tracks the coupling so the matching change
+in this audit's surface lands in the same PR as E13_S08.
+
 ## Migration plan (deferred)
 
 A future security milestone (no ID assigned yet) should:
@@ -207,6 +226,23 @@ A future security milestone (no ID assigned yet) should:
 Until that work lands, the in-body `ValueError` raise is the
 security boundary and the SDK's `isError=True` wrap is the
 callable contract.
+
+### Follow-up tracking (F6 from the E13_S01 critique)
+
+The four deferrals tracked from this audit:
+
+| Deferral | Tracked at | Status |
+|---|---|---|
+| `search_papers.filters` paper_id validation | E07_S04 (when real filter execution lands) | filed |
+| Pydantic `pattern=` migration | this audit's "Migration plan" above | needs roadmap entry |
+| `max_length` caps | this audit's "Migration plan" above | needs roadmap entry |
+| `McpError(INVALID_PARAMS)` wire-level wrap | this audit's "Migration plan" above | needs roadmap entry |
+| Log-redaction of malformed-identifier echo | E13_S08 | filed |
+
+The three "needs roadmap entry" deferrals are bundled into a
+single future security-hardening milestone (tentatively
+labelled `E13_SXX_hardening`); the bundle pays the
+`EXPECTED_TOOL_SCHEMA_SHA256` re-pin cost once for all three.
 
 ## Defense-in-depth posture
 

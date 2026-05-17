@@ -36,7 +36,7 @@ import re
 _PAPER_ID_FULL_PATTERN = (
     r"^\d{4}\.\d{4,5}(v\d+)?$"  # new style: 2401.00001 or 2401.00001v3
     r"|"
-    r"^[a-z][a-z\-]*/\d{7}(v\d+)?$"  # old style: math.AG/0001234
+    r"^[a-z][a-z\-]*/\d{7}(v\d+)?$"  # old style: hep-th/0001234 (letters + hyphens; no dots)
 )
 
 #: Inner pattern (no anchors) for embedding in the chunk_id regex.
