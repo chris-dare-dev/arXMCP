@@ -1,0 +1,40 @@
+{
+  "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/roadmap",
+  "created_at": "2026-05-17T17:38:35Z",
+  "critics_run": [],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "low": 0,
+    "medium": 0
+  },
+  "critique_path": null,
+  "deferred_findings": [],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_required": [],
+  "fixed_findings": [],
+  "id": "E13_S01",
+  "implementation_base": null,
+  "implementation_branch": null,
+  "implementation_commit_range": null,
+  "implementation_commits": [],
+  "implementation_path": null,
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "### E13_S01 \u2014 Threat-1 audit: paper_id path-traversal coverage across the 7 tools\n\n**Status:** NEW\n**Tier:** 5\n**Effort:** S\n**Dependencies:** E07_S12, E06_S03\n\n**Description.** The canonical 7 tools (`search_papers`, `get_chunk`, `get_paper`, `paper_diff`, `cite_neighbors`, `dependency_graph`, `find_equation`) all accept a `paper_id` or `chunk_id` argument at some layer. The path-traversal regex (`^\\d{4}\\.\\d{4,5}(v\\d+)?$` for new-style; `^[a-z\\-]+/\\d{7}(v\\d+)?$` for old-style) was mandated in E07_S12 at the JSON-Schema level. This milestone audits that every entry point in all 7 tools \u2014 not just the primary handler \u2014 enforces it.\n\nThe audit scope is deliberately limited to the 7 tools that constitute the v1 surface. Earlier epic files referenced 9 tools; the correct count per E06_S03 is 7. Any tool added to the surface in a future epic must pass the audit test from this milestone before merging.\n\nEach tool is exercised with three adversarial `paper_id` inputs: `\"../../../etc/passwd\"`, `\"; cat /etc/shadow #\"`, and a 512-character overlong string. Every case must produce a JSON-RPC -32602 Invalid Params error without the handler body executing.\n\n**Deliverables.**\n- `tests/security/test_path_traversal.py` \u2014 parametrised over all 7 tools \u00d7 3 adversarial inputs = 21 test cases\n- `docs/security/threat-1-audit.md` \u2014 per-tool checklist, links to the JSON-Schema definition enforcing the regex\n\n**Acceptance criteria.**\n- [ ] `pytest tests/security/test_path_traversal.py` passes: all 21 cases return -32602, no handler body executes\n- [ ] `docs/security/threat-1-audit.md` has one row per tool, all ticked\n- [ ] Any tool that fails the test gets a fix in the same PR as the audit\n- [ ] CI runs `tests/security/test_path_traversal.py` on every PR\n\n**Out of scope.** Tools not in the 7-tool v1 surface. Future `find_lemma_by_name`, `expand_macro`, or any Tier-6+ tool (they must pass the equivalent audit when they land).\n\n**Risk notes.**\n- Closes Threat 1 (path traversal) from `.claude/notes/08-security-observability-ops.md` \u00a7 Threat 1. The mitigation was mandated in E07_S12; this milestone is the proof that it actually covers all 7 entry points.\n\n**Labels.** `area:security`, `kind:infra`, `tier:5`\n\n---",
+  "phase": "implement-running",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-17T17:38:35Z",
+      "left_at": null,
+      "phase": "init"
+    }
+  ],
+  "rectification_commit": null,
+  "regression_tests_added": [],
+  "research_briefs": [],
+  "research_mode": "standard",
+  "research_synthesis": null,
+  "updated_at": "2026-05-17T17:50:51Z"
+}

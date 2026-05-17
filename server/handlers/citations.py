@@ -16,6 +16,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import Field
 
+from ingest.identifiers import is_valid_chunk_id
 from server.tools import envelope
 
 
@@ -28,6 +29,20 @@ async def handle_cite_neighbors(
     depth: Annotated[int, Field(ge=1, le=3, description="Hop count")] = 1,
     limit: Annotated[int, Field(ge=1, le=100, description="Max neighbors returned")] = 30,
 ) -> dict[str, Any]:
+    # E13_S01 D3 — Threat-1 (path traversal) coverage. The handler
+    # is a v1 stub but ``chunk_id`` flows into the response
+    # envelope and (once E09 wiring lands) will be the key into
+    # the Kùzu citation graph. Validate the format BEFORE any
+    # downstream use so an adversarial input never reaches the
+    # graph layer. Mirrors the ``get_chunk`` precedent.
+    # See ``.claude/docs/security-threat-1-audit.md`` for the
+    # full audit table.
+    if not is_valid_chunk_id(chunk_id):
+        raise ValueError(
+            f"chunk_id does not match the expected format "
+            f"arxiv:<paper_id>:<16-hex>; got {chunk_id!r}"
+        )
+
     return envelope(
         {
             "chunk_id": chunk_id,
