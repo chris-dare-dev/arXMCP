@@ -74,6 +74,36 @@ uv run python -m tools.parser_failures_report --week 2026-W19
 uv run python -m tools.parser_failures_report --dry-run --week 2026-W19
 ```
 
+### Known limitation: TSV rows without timestamps (F7 from E14_S04)
+
+The four TSV producers (`chunker`, `preamble`, `embedder`,
+`seed-fetcher`) do NOT emit a per-row timestamp — only the
+JSONL producers (`oai-delta`, `bulk-ingest`, `re-embed`) do.
+For TSV rows the reporter falls back to the **source file's
+mtime** to determine "which week" — meaning every TSV row in
+`chunk.log` (an append-only file) is bucketed into the week
+the file was last appended-to, NOT the week the row was
+written.
+
+Practical consequence: the weekly report can re-surface the
+same TSV row in N consecutive weeks until the operator
+rotates the log. The JSONL stages don't have this issue.
+
+Workarounds:
+
+- Rotate the TSV logs after acting on a row:
+  ```bash
+  mv var/arxmcp/ops/parser-failures/chunk.log \
+     var/arxmcp/ops/parser-failures/chunk.log.$(date -u +%Y%m%d)
+  ```
+- File a follow-up to add timestamps to the TSV producers (the
+  shape would gain a 5th column; the reporter already tolerates
+  that via `parts[:4]` slicing).
+
+A future hardening pass moves the TSV producers to a 5-column
+shape with timestamps; until then the mtime-fallback is the
+documented best-effort.
+
 ## Cleaning up after triage
 
 After acting on a row (fix landed, skiplist updated, etc.), no

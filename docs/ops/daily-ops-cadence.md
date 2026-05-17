@@ -86,6 +86,50 @@ opt-in via `SMTP_USER` + `SMTP_PASS`. When any of the three
 required vars is missing, the report writes to disk normally and
 an INFO log records which var was missing.
 
+#### Recommended secret-handling pattern (IS2 from E14_S04)
+
+`SMTP_PASS` in a systemd unit file ends up world-readable at
+`/etc/systemd/system/arxmcp-daily-report.service` (visible to
+`systemctl cat` for any local user). Use a **mode-0640
+drop-in** instead:
+
+```ini
+# /etc/systemd/system/arxmcp-daily-report.service.d/10-mail.conf
+[Service]
+EnvironmentFile=/etc/arxmcp/mail.env
+```
+
+```bash
+# /etc/arxmcp/mail.env  (owner root:arxmcp, mode 0640)
+MAIL_TO=ops@example.com
+MAIL_FROM=arxmcp@example.com
+SMTP_HOST=smtp.example.com
+SMTP_USER=arxmcp-relay
+SMTP_PASS=<secret>
+SMTP_STARTTLS=1
+```
+
+```bash
+sudo install -d -o root -g arxmcp -m 0750 /etc/arxmcp
+sudo install -o root -g arxmcp -m 0640 /tmp/mail.env /etc/arxmcp/mail.env
+sudo systemctl daemon-reload
+sudo systemctl restart arxmcp-daily-report.timer
+```
+
+Loadability: `systemctl show arxmcp-daily-report.service
+--property=Environment` will NOT echo the secrets back (systemd
+masks `EnvironmentFile`-sourced vars in `systemctl show`
+output), and `journalctl -u arxmcp-daily-report` only ever logs
+"email enabled: sending to <MAIL_TO> via <SMTP_HOST>:..." — not
+the password.
+
+SMTP failures (refused recipient, auth refused, OSError before
+handshake) are caught + logged at ERROR level by the
+report tool; they do NOT propagate and turn the cron run into a
+journalctl-failed unit. The on-disk report under
+`var/arxmcp/ops/daily-reports/<date>.md` is the durable artifact
+regardless of email outcome.
+
 ### Dry-run
 
 ```bash

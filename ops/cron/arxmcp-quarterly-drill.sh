@@ -21,9 +21,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 cd "${REPO_ROOT}"
 
-# flock not strictly required (the reminder is idempotent: it
-# refuses to overwrite an existing flag) but kept for consistency
-# with the other ops cron wrappers.
+# IS3 rectification (E14_S04 infra-safety critique): flock is
+# treated as mandatory for consistency with the other ops
+# wrappers, even though the underlying reminder is itself
+# idempotent (refuses to overwrite an existing flag). Operators
+# on macOS without `brew install flock` will see the same
+# exit-1-with-actionable-error here as for the other ops
+# wrappers — uniformity wins over per-wrapper exceptions.
 if ! command -v flock >/dev/null 2>&1; then
     echo "ERROR: flock not found on PATH. flock(1) is part of " \
          "util-linux:" >&2

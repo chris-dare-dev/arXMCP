@@ -76,10 +76,12 @@ ops runbooks.
 
 * Pre-milestone: 1791 passed, 8 skipped, 1 xfailed (end of
   E14_S03).
-* Post-milestone: 1830 passed, 8 skipped, 1 xfailed (+39):
+* Post-feat: 1830 passed (+39):
   - 17 in `tests/test_daily_metrics_report.py`
   - 16 in `tests/test_parser_failures_report.py`
   - 6 in `tests/test_quarterly_drill_reminder.py`
+* Post-rect: 1838 passed (+8 regression guards for F1/F2/F3/F6
+  + the F4 fixture-regen self-check + the F5 tmp_path move).
 * `ruff check .` — clean.
 
 ## Acceptance criteria status
@@ -92,7 +94,13 @@ ops runbooks.
   by `TOOLS` constant + test assertion.
 - [x] `tools/quarterly_drill_reminder.sh --dry-run` exits cleanly
   — verified by `test_dry_run_exits_zero` and
-  `test_dry_run_does_not_write_reminder_file`.
+  `test_dry_run_does_not_write_reminder_file`. **AC reinterpretation
+  per synthesis D10 (flagged by F9 of E14_S04 critique):** the
+  brief's literal wording was "writes a reminder file without
+  error"; shipped behavior is "PRINTS what it would do, exits
+  0, does NOT write to disk." Standard engineering practice for
+  `--dry-run` (a dry-run that side-effects is a contradiction
+  in terms). Documented here for the audit trail.
 - [x] cron entries pass syntax validation —
   `awk 'NF < 6'` confirms all 6 lines have time-fields + command.
 - [x] `docs/ops/daily-ops-cadence.md` lists all cron entries with

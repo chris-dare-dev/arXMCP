@@ -1,7 +1,17 @@
 # arXMCP daily/weekly/quarterly ops cron entries (E14_S04).
 #
+# BEFORE INSTALLING — operator MUST substitute the /opt/arxmcp
+# prefix below for the absolute path of their actual arXMCP
+# checkout. Without this substitution, every line below points
+# at a nonexistent path and cron will email MAILTO=root once per
+# missed fire forever. Example substitution:
+#
+#   sed 's#/opt/arxmcp#'"$(pwd)"'#g' ops/cron/arxmcp-cron.cron \
+#     > /tmp/arxmcp-cron.cron
+#   crontab /tmp/arxmcp-cron.cron
+#
 # Install with:
-#   crontab ops/cron/arxmcp-cron.cron     # full replace (destructive)
+#   crontab /tmp/arxmcp-cron.cron     # full replace (destructive)
 #   (or copy the lines into the operator's existing crontab)
 #
 # All times are UTC. Five-field cron (m h dom mon dow). The

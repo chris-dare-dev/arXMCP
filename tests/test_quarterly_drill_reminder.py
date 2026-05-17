@@ -82,17 +82,25 @@ def test_dry_run_does_not_write_reminder_file(tmp_path, monkeypatch):
 @pytest.mark.skipif(
     shutil.which("bash") is None, reason="bash not on PATH"
 )
-def test_real_invocation_exits_zero():
+def test_real_invocation_exits_zero(tmp_path):
     """Real invocation (no --dry-run, real calendar) must exit 0
-    whether the operator is in-window or out-of-window. The
-    out-of-window branch hits the INFO log on stderr and exits 0;
-    the in-window branch writes a reminder and also exits 0. The
-    test does not assert on the file shape because the calendar
-    decides — that's covered by inspecting the script source +
-    the dry-run exit behavior.
+    whether the operator is in-window or out-of-window.
+
+    F5 rectification (E14_S04 adversary critique): the prior
+    version ran the in-repo script directly, which would create
+    `var/arxmcp/ops/reminders/quarterly-drill-...flag` inside
+    the real repo tree on Mar 25–31 / Jun 24–30 / Sep 24–30 /
+    Dec 25–31. Copy the script into a tmp_path fake repo so the
+    test is calendar-independent.
     """
+    new_repo = tmp_path / "fake-repo"
+    (new_repo / "tools").mkdir(parents=True)
+    new_script = new_repo / "tools" / SCRIPT.name
+    new_script.write_bytes(SCRIPT.read_bytes())
+    new_script.chmod(0o755)
+
     result = subprocess.run(
-        ["bash", str(SCRIPT)],
+        ["bash", str(new_script)],
         capture_output=True,
         text=True,
         timeout=15,
@@ -102,6 +110,16 @@ def test_real_invocation_exits_zero():
         f"failed: stdout={result.stdout!r} "
         f"stderr={result.stderr!r}"
     )
+    # Whether the test ran in or out of the 7-day window, the
+    # fake repo's reminders/ (if it exists) must only contain
+    # flag files for the upcoming quarter — never an empty-field
+    # 'quarterly-drill--Q.flag' from a failed heredoc.
+    reminders_dir = new_repo / "var" / "arxmcp" / "ops" / "reminders"
+    if reminders_dir.is_dir():
+        for f in reminders_dir.iterdir():
+            assert "--Q" not in f.name, (
+                f"empty-field flag file leaked: {f.name}"
+            )
 
 
 @pytest.mark.skipif(
@@ -122,6 +140,66 @@ def test_script_resolves_repo_root_via_bash_source():
         "REPO_ROOT must be the working directory before any "
         "relative path resolution"
     )
+
+
+@pytest.mark.skipif(
+    shutil.which("bash") is None, reason="bash not on PATH"
+)
+def test_aborts_when_python_heredoc_fails(tmp_path):
+    """F1 rectification (E14_S04 adversary critique): if the
+    embedded python3 heredoc fails (DAYS_UNTIL becomes empty),
+    the script MUST exit non-zero with an actionable error
+    message rather than silently writing a malformed flag.
+
+    We inject a fake `python3` shim on PATH that always exits 1.
+    The script's `if ! DRILL_TUPLE=...; then exit 1; fi` guard
+    must catch this and propagate.
+    """
+
+    # Stage the script in a fresh tree so var/ stays clean.
+    new_repo = tmp_path / "fake-repo"
+    (new_repo / "tools").mkdir(parents=True)
+    new_script = new_repo / "tools" / SCRIPT.name
+    new_script.write_bytes(SCRIPT.read_bytes())
+    new_script.chmod(0o755)
+
+    # Fake python3 that exits 1 (simulates date-math failure).
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_python = fake_bin / "python3"
+    fake_python.write_text("#!/bin/bash\nexit 1\n")
+    fake_python.chmod(0o755)
+
+    env = {
+        "PATH": f"{fake_bin}:/usr/bin:/bin",
+        "HOME": str(tmp_path),
+    }
+    result = subprocess.run(
+        ["bash", str(new_script)],
+        capture_output=True,
+        text=True,
+        timeout=15,
+        env=env,
+        check=False,
+    )
+    # Must exit non-zero AND must not have created any reminder
+    # files inside the fake-repo tree.
+    assert result.returncode != 0, (
+        f"expected non-zero exit when python heredoc fails; "
+        f"got stdout={result.stdout!r} stderr={result.stderr!r}"
+    )
+    assert "ERROR: quarterly date math" in result.stderr, (
+        f"expected actionable error message; got {result.stderr!r}"
+    )
+    # No quarterly-drill--Q.flag with empty fields written.
+    reminders_dir = (
+        new_repo / "var" / "arxmcp" / "ops" / "reminders"
+    )
+    if reminders_dir.exists():
+        for f in reminders_dir.iterdir():
+            assert "--Q" not in f.name, (
+                f"empty-field flag file leaked: {f.name}"
+            )
 
 
 @pytest.mark.skipif(

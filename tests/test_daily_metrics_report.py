@@ -34,6 +34,8 @@ from tools.daily_metrics_report import (
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 FIXTURE = REPO_ROOT / "tests" / "fixtures" / "metrics_sample.txt"
+#: Alias kept for the F4 regen-fixture test naming.
+FIXTURE_PATH = FIXTURE
 
 
 # ---------------------------------------------------------------------------
@@ -179,6 +181,148 @@ class TestFetchMetricsText:
 # ---------------------------------------------------------------------------
 
 
+class TestF6HistogramQuantileGuard:
+    """F6 rectification — histogram_quantile must raise on a
+    histogram with no +Inf overflow bucket. The prior implementation
+    silently returned a value drawn from the highest-finite-le
+    bucket, a foot-gun for any future caller."""
+
+    def test_raises_when_plus_inf_bucket_missing(self):
+        with pytest.raises(ValueError, match=r"\+Inf"):
+            histogram_quantile(0.95, [(0.1, 100.0)])
+
+    def test_accepts_well_formed_histogram_with_plus_inf(self):
+        # No raise.
+        histogram_quantile(0.95, [(0.1, 5.0), (float("inf"), 10.0)])
+
+
+class TestF3BackupStateSurface:
+    """F3 rectification — render the ``arxmcp_backup_status{state}``
+    cell alongside the age so a "failed" status isn't masked by a
+    recently-updated ``finished_at`` timestamp."""
+
+    def test_failed_state_surfaces_in_report(self):
+        # Minimal Prometheus exposition that exercises the failed-
+        # but-recent path: backup happened ~1.5h ago but state=failed.
+        # Use a slightly-larger offset than the boundary to avoid
+        # the integer-divison round-down that floating-point
+        # noise + .1f formatting can introduce (3600s -> 0h ago,
+        # rather than 1h ago, after the round trip).
+        import time  # noqa: PLC0415
+
+        ts = time.time() - 5400  # 1.5h ago
+        text = (
+            "# HELP arxmcp_backup_last_success_timestamp_seconds backup ts\n"
+            "# TYPE arxmcp_backup_last_success_timestamp_seconds gauge\n"
+            f"arxmcp_backup_last_success_timestamp_seconds {ts:.1f}\n"
+            "# HELP arxmcp_backup_status backup state\n"
+            "# TYPE arxmcp_backup_status gauge\n"
+            'arxmcp_backup_status{state="ok"} 0.0\n'
+            'arxmcp_backup_status{state="failed"} 1.0\n'
+            'arxmcp_backup_status{state="running"} 0.0\n'
+            'arxmcp_backup_status{state="unknown"} 0.0\n'
+        )
+        now = datetime.datetime(2026, 5, 17, tzinfo=datetime.UTC)
+        out = render_report(text, now)
+        assert "(failed)" in out
+        # The age also renders so operators see "Xh ago (failed)"
+        # rather than just one or the other.
+        assert "h ago" in out
+
+    def test_ok_state_renders_without_noise(self):
+        import time  # noqa: PLC0415
+
+        ts = time.time() - 9000  # 2.5h ago
+        text = (
+            "# HELP arxmcp_backup_last_success_timestamp_seconds backup ts\n"
+            "# TYPE arxmcp_backup_last_success_timestamp_seconds gauge\n"
+            f"arxmcp_backup_last_success_timestamp_seconds {ts:.1f}\n"
+            "# HELP arxmcp_backup_status backup state\n"
+            "# TYPE arxmcp_backup_status gauge\n"
+            'arxmcp_backup_status{state="ok"} 1.0\n'
+            'arxmcp_backup_status{state="failed"} 0.0\n'
+        )
+        now = datetime.datetime(2026, 5, 17, tzinfo=datetime.UTC)
+        out = render_report(text, now)
+        assert "(ok)" in out
+
+
+class TestRegenFixture:
+    """F4 rectification — the fixture regeneration script
+    (`tools/regen_metrics_fixture.py`) must produce the SAME bytes
+    as the checked-in fixture. If a metric family is renamed or
+    added in `server/metrics.py` or `server/observability/metrics.py`
+    without the regen script being updated, this test fails."""
+
+    @staticmethod
+    def _normalize(text: bytes) -> list[str]:
+        """Strip non-deterministic lines from a Prometheus
+        exposition before comparison: ``_created`` timestamps
+        (OpenMetrics gauges set at family-init), and the default
+        ``python_*`` / ``process_*`` collector samples (which
+        change run-to-run with GC + cpu state).
+        """
+        out = []
+        for line in text.decode("utf-8").splitlines():
+            if "_created" in line:
+                continue
+            if line.startswith(
+                ("python_", "process_", "# HELP python_", "# TYPE python_",
+                 "# HELP process_", "# TYPE process_")
+            ):
+                continue
+            out.append(line)
+        return out
+
+    def test_regen_matches_checked_in_fixture(self):
+        # The fixture is generated in a one-shot fresh process —
+        # not via the regen script's main() (which would mutate
+        # the test process's prometheus_client registry). We run
+        # the regen as a subprocess so the in-process registry of
+        # the test runner stays clean.
+        import shutil  # noqa: PLC0415
+        import subprocess  # noqa: PLC0415
+
+        uv = shutil.which("uv") or "/Users/chris.dare/Library/Python/3.9/bin/uv"
+        result = subprocess.run(
+            [
+                uv, "run", "python", "-c",
+                "from tools.regen_metrics_fixture import render_fixture_bytes;"
+                " import sys; sys.stdout.buffer.write(render_fixture_bytes())",
+            ],
+            capture_output=True,
+            timeout=30,
+            check=False,
+            cwd=str(REPO_ROOT),
+        )
+        assert result.returncode == 0, (
+            f"regen failed: stderr={result.stderr.decode()!r}"
+        )
+        regen_lines = self._normalize(result.stdout)
+        on_disk_lines = self._normalize(FIXTURE_PATH.read_bytes())
+        if regen_lines != on_disk_lines:
+            # Provide an actionable error message including which
+            # lines differ.
+            import difflib  # noqa: PLC0415
+
+            diff = list(
+                difflib.unified_diff(
+                    on_disk_lines[:50],
+                    regen_lines[:50],
+                    fromfile="on-disk",
+                    tofile="regen",
+                    lineterm="",
+                )
+            )
+            pytest.fail(
+                "tests/fixtures/metrics_sample.txt is out of sync "
+                "with tools/regen_metrics_fixture.py (deterministic "
+                "lines only). Regenerate with: "
+                "`uv run python -m tools.regen_metrics_fixture`. "
+                f"First diff lines:\n{chr(10).join(diff[:30])}"
+            )
+
+
 class TestMaybeEmail:
     def test_silent_skip_when_disabled(self, caplog, monkeypatch):
         # Clear every env var we read.
@@ -202,3 +346,47 @@ class TestMaybeEmail:
                 "smtp.example.com", 25, timeout=10
             )
             instance.send_message.assert_called_once()
+
+    def test_smtp_failure_does_not_raise(
+        self, monkeypatch, caplog
+    ):
+        """F2 rectification (E14_S04 adversary critique): an SMTP
+        failure must NOT bubble up. The daily report file is the
+        durable artifact; a misconfigured SMTP would otherwise
+        turn a successful cron run into a journalctl-failed unit
+        and trip the operator's "did the report fail?" alarm.
+        """
+        import smtplib  # noqa: PLC0415
+
+        monkeypatch.setenv("MAIL_TO", "ops@example.com")
+        monkeypatch.setenv("MAIL_FROM", "arxmcp@example.com")
+        monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
+        with patch("smtplib.SMTP") as smtp_cls:
+            instance = smtp_cls.return_value.__enter__.return_value
+            instance.send_message.side_effect = smtplib.SMTPRecipientsRefused(
+                {"ops@example.com": (550, b"User unknown")}
+            )
+            with caplog.at_level(logging.ERROR, logger="tools.daily_metrics_report"):
+                # Must return normally; no raise.
+                maybe_email("subject", "body")
+        assert any(
+            "email delivery failed" in r.message
+            for r in caplog.records
+        )
+
+    def test_smtp_network_failure_does_not_raise(
+        self, monkeypatch, caplog
+    ):
+        """Same F2 contract for an OSError (DNS lookup, refused
+        connect) BEFORE the SMTP handshake."""
+        monkeypatch.setenv("MAIL_TO", "ops@example.com")
+        monkeypatch.setenv("MAIL_FROM", "arxmcp@example.com")
+        monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
+        with patch("smtplib.SMTP") as smtp_cls:
+            smtp_cls.side_effect = OSError("connection refused")
+            with caplog.at_level(logging.ERROR, logger="tools.daily_metrics_report"):
+                maybe_email("subject", "body")
+        assert any(
+            "email delivery failed" in r.message
+            for r in caplog.records
+        )

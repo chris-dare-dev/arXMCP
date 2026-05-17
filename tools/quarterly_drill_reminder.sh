@@ -45,7 +45,15 @@ cd "${REPO_ROOT}"
 # (3.11+) so the script works under the macOS system python3
 # (3.9) when an operator runs it outside the `uv run` cron
 # wrapper for debugging.
-read -r DAYS_UNTIL NEXT_YEAR NEXT_QUARTER <<<"$(python3 - <<'PY'
+#
+# F1 rectification (E14_S04 adversary critique): capture the
+# heredoc output into a variable + check the exit status AND
+# the tuple shape. The prior `read -r ... <<<"$(python3 ...)"`
+# form silently swallowed a python3 failure under
+# `set -euo pipefail` and the script wrote
+# `quarterly-drill--Q.flag` with empty fields — masking the
+# "no reminder fired" condition.
+if ! DRILL_TUPLE="$(python3 - <<'PY'
 import datetime as _dt
 
 now = _dt.datetime.now(_dt.timezone.utc).date()
@@ -63,7 +71,19 @@ qmap = {1: 1, 4: 2, 7: 3, 10: 4}
 quarter = qmap[next_mark.month]
 print(f"{days_until} {next_mark.year} {quarter}")
 PY
-)"
+)"; then
+    echo "ERROR: quarterly date math failed (python3 heredoc " \
+         "exited non-zero); aborting" >&2
+    exit 1
+fi
+read -r DAYS_UNTIL NEXT_YEAR NEXT_QUARTER <<<"${DRILL_TUPLE}"
+if [ -z "${DAYS_UNTIL:-}" ] || [ -z "${NEXT_YEAR:-}" ] \
+   || [ -z "${NEXT_QUARTER:-}" ]; then
+    echo "ERROR: quarterly date math produced empty fields " \
+         "(DAYS_UNTIL=${DAYS_UNTIL:-<empty>} NEXT_YEAR=${NEXT_YEAR:-<empty>} " \
+         "NEXT_QUARTER=${NEXT_QUARTER:-<empty>}); aborting" >&2
+    exit 1
+fi
 
 # Short-circuit unless we're within the 7-day lookahead window.
 if [ "${DAYS_UNTIL}" -gt 7 ] || [ "${DAYS_UNTIL}" -lt 0 ]; then

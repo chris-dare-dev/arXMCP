@@ -114,6 +114,19 @@ def histogram_quantile(
     """
     if not buckets:
         return float("nan")
+    # F6 rectification (E14_S04 adversary critique): the Prometheus
+    # exposition spec requires a ``le="+Inf"`` overflow bucket on
+    # every histogram. Without it, the quantile algorithm has no
+    # way to know the total observation count, and would silently
+    # return a value drawn from the highest-finite-le bucket — a
+    # foot-gun for any future caller that doesn't know the
+    # constraint. Raise instead.
+    if buckets[-1][0] != float("inf"):
+        raise ValueError(
+            f"histogram missing +Inf overflow bucket "
+            f"(highest le={buckets[-1][0]}); Prometheus expositions "
+            f"without le='+Inf' are malformed per the spec"
+        )
     total = buckets[-1][1]
     if total == 0:
         return float("nan")
@@ -400,6 +413,7 @@ def render_report(
     quarantine = _sentinel_gauge(fams, "arxmcp_eval_quarantine_active")
     delta_to = _sentinel_gauge(fams, "arxmcp_delta_timeout_active")
     backup_age = _backup_age_seconds(fams)
+    backup_state = _backup_status_active_state(fams)
     lines.append("## Sentinels")
     lines.append("")
     lines.append("| Sentinel | Value |")
@@ -417,12 +431,18 @@ def render_report(
         f"{'yes' if delta_to == 1.0 else 'no'} |"
     )
     if backup_age != backup_age:
-        backup_str = "no backup recorded"
+        age_str = "no backup recorded"
     elif backup_age < 0:
-        backup_str = "_clock skew_"
+        age_str = "_clock skew_"
     else:
         h = int(backup_age // 3600)
-        backup_str = f"{h}h ago"
+        age_str = f"{h}h ago"
+    # F3 rectification — render the backup state alongside the
+    # age so a "failed" status is not masked by a recently-updated
+    # finished_at timestamp.
+    backup_str = (
+        age_str if backup_state is None else f"{age_str} ({backup_state})"
+    )
     lines.append(f"| Backup last success | {backup_str} |")
     lines.append("")
 
@@ -447,6 +467,26 @@ def _backup_age_seconds(fams: dict[str, object]) -> float:
     if ts != ts or ts == 0.0:
         return float("nan")
     return datetime.datetime.now(datetime.UTC).timestamp() - ts
+
+
+def _backup_status_active_state(fams: dict[str, object]) -> str | None:
+    """Return the active ``arxmcp_backup_status{state}`` (the one
+    cell with value 1.0), or ``None`` if no state is active.
+
+    F3 rectification (E14_S04 adversary critique): the report
+    previously rendered only `arxmcp_backup_last_success_timestamp_seconds`,
+    so a backup that updated `finished_at` despite failing showed
+    as "Xh ago" and masked the failed status. Surface the
+    state cell so the operator sees ``failed`` / ``running`` /
+    ``unknown`` alongside the age.
+    """
+    fam = fams.get("arxmcp_backup_status")
+    if fam is None:
+        return None
+    for sample in fam.samples:
+        if sample.name == "arxmcp_backup_status" and float(sample.value) == 1.0:
+            return sample.labels.get("state")
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -486,12 +526,28 @@ def maybe_email(subject: str, body: str) -> None:
         "email enabled: sending to %s via %s:%d (starttls=%s)",
         cfg["MAIL_TO"], cfg["SMTP_HOST"], port, starttls,
     )
-    with smtplib.SMTP(cfg["SMTP_HOST"], port, timeout=10) as s:
-        if starttls:
-            s.starttls()
-        if smtp_user:
-            s.login(smtp_user, os.environ.get("SMTP_PASS", ""))
-        s.send_message(msg)
+    # F2 rectification (E14_S04 adversary critique): SMTP failures
+    # must NOT bubble up and turn a successful daily-report write
+    # into a journalctl-failed cron job. The report on disk is the
+    # durable artifact; email is opt-in notification. Log ERROR
+    # and continue. ``smtplib.SMTPException`` is the umbrella for
+    # the specific delivery failures (recipient refused, auth
+    # refused, server-disconnect); ``OSError`` covers network-level
+    # failures (DNS, connection-refused) before the SMTP handshake.
+    try:
+        with smtplib.SMTP(cfg["SMTP_HOST"], port, timeout=10) as s:
+            if starttls:
+                s.starttls()
+            if smtp_user:
+                s.login(smtp_user, os.environ.get("SMTP_PASS", ""))
+            s.send_message(msg)
+    except (smtplib.SMTPException, OSError) as exc:
+        logger.error(
+            "email delivery failed (%s); the on-disk report at "
+            "var/arxmcp/ops/daily-reports/<date>.md is the durable "
+            "artifact and is unaffected.",
+            exc,
+        )
 
 
 # ---------------------------------------------------------------------------

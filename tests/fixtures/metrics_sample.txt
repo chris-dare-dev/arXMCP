@@ -1,7 +1,7 @@
 # HELP python_gc_objects_collected_total Objects collected during gc
 # TYPE python_gc_objects_collected_total counter
-python_gc_objects_collected_total{generation="0"} 362.0
-python_gc_objects_collected_total{generation="1"} 66.0
+python_gc_objects_collected_total{generation="0"} 409.0
+python_gc_objects_collected_total{generation="1"} 78.0
 python_gc_objects_collected_total{generation="2"} 0.0
 # HELP python_gc_objects_uncollectable_total Uncollectable objects found during GC
 # TYPE python_gc_objects_uncollectable_total counter
@@ -10,7 +10,7 @@ python_gc_objects_uncollectable_total{generation="1"} 0.0
 python_gc_objects_uncollectable_total{generation="2"} 0.0
 # HELP python_gc_collections_total Number of times this generation was collected
 # TYPE python_gc_collections_total counter
-python_gc_collections_total{generation="0"} 112.0
+python_gc_collections_total{generation="0"} 113.0
 python_gc_collections_total{generation="1"} 10.0
 python_gc_collections_total{generation="2"} 0.0
 # HELP python_info Python platform information
@@ -29,7 +29,7 @@ arxmcp_process_start_time_seconds 0.0
 arxmcp_embed_singleflight_dedup_total 0.0
 # HELP arxmcp_embed_singleflight_dedup_created Number of times an in-flight BGE-M3 query embedding was reused by another concurrent caller (singleflight cache hit). Higher values indicate more inter-request query overlap; near-zero values indicate fully-distinct query traffic.
 # TYPE arxmcp_embed_singleflight_dedup_created gauge
-arxmcp_embed_singleflight_dedup_created 1.778985368369479e+09
+arxmcp_embed_singleflight_dedup_created 1.778987058930701e+09
 # HELP arxmcp_cache_lookups_total Total number of cache lookups attempted, per tier. A Tier-1 hit increments tier=1 only; a Tier-1 miss followed by a Tier-2 lookup increments tier=1 and tier=2.
 # TYPE arxmcp_cache_lookups_total counter
 arxmcp_cache_lookups_total{tier="1"} 1000.0
@@ -37,9 +37,9 @@ arxmcp_cache_lookups_total{tier="2"} 1000.0
 arxmcp_cache_lookups_total{tier="3"} 1000.0
 # HELP arxmcp_cache_lookups_created Total number of cache lookups attempted, per tier. A Tier-1 hit increments tier=1 only; a Tier-1 miss followed by a Tier-2 lookup increments tier=1 and tier=2.
 # TYPE arxmcp_cache_lookups_created gauge
-arxmcp_cache_lookups_created{tier="1"} 1.778985368411742e+09
-arxmcp_cache_lookups_created{tier="2"} 1.778985368411752e+09
-arxmcp_cache_lookups_created{tier="3"} 1.778985368411762e+09
+arxmcp_cache_lookups_created{tier="1"} 1.778987058975986e+09
+arxmcp_cache_lookups_created{tier="2"} 1.778987058975997e+09
+arxmcp_cache_lookups_created{tier="3"} 1.778987058976007e+09
 # HELP arxmcp_cache_hits_total Total number of cache hits, per tier. A hit means the tier returned a usable payload; the request handler can skip the downstream pipeline. hits_total{tier} <= lookups_total{tier}.
 # TYPE arxmcp_cache_hits_total counter
 arxmcp_cache_hits_total{tier="1"} 820.0
@@ -47,9 +47,9 @@ arxmcp_cache_hits_total{tier="2"} 75.0
 arxmcp_cache_hits_total{tier="3"} 40.0
 # HELP arxmcp_cache_hits_created Total number of cache hits, per tier. A hit means the tier returned a usable payload; the request handler can skip the downstream pipeline. hits_total{tier} <= lookups_total{tier}.
 # TYPE arxmcp_cache_hits_created gauge
-arxmcp_cache_hits_created{tier="1"} 1.778985368411744e+09
-arxmcp_cache_hits_created{tier="2"} 1.778985368411755e+09
-arxmcp_cache_hits_created{tier="3"} 1.778985368411763e+09
+arxmcp_cache_hits_created{tier="1"} 1.778987058975988e+09
+arxmcp_cache_hits_created{tier="2"} 1.7789870589759989e+09
+arxmcp_cache_hits_created{tier="3"} 1.778987058976009e+09
 # HELP arxmcp_cache_evictions_total Total number of cache evictions, per tier. Includes LRU overflow, TTL expiry detected at read time, and Tier-2 ring-buffer rotation.
 # TYPE arxmcp_cache_evictions_total counter
 arxmcp_cache_evictions_total{tier="1"} 110.0
@@ -57,9 +57,9 @@ arxmcp_cache_evictions_total{tier="2"} 25.0
 arxmcp_cache_evictions_total{tier="3"} 8.0
 # HELP arxmcp_cache_evictions_created Total number of cache evictions, per tier. Includes LRU overflow, TTL expiry detected at read time, and Tier-2 ring-buffer rotation.
 # TYPE arxmcp_cache_evictions_created gauge
-arxmcp_cache_evictions_created{tier="1"} 1.778985368411747e+09
-arxmcp_cache_evictions_created{tier="2"} 1.7789853684117582e+09
-arxmcp_cache_evictions_created{tier="3"} 1.778985368411765e+09
+arxmcp_cache_evictions_created{tier="1"} 1.778987058975991e+09
+arxmcp_cache_evictions_created{tier="2"} 1.778987058976001e+09
+arxmcp_cache_evictions_created{tier="3"} 1.778987058976011e+09
 # HELP arxmcp_cache_bytes Approximate byte usage per cache tier. Refreshed at scrape time (NOT continuously). Operational telemetry, not a hard limit.
 # TYPE arxmcp_cache_bytes gauge
 arxmcp_cache_bytes{tier="1"} 2.4e+06
@@ -105,20 +105,20 @@ arxmcp_request_total{status="ok",tool="cite_neighbors"} 100.0
 arxmcp_request_total{status="error",tool="cite_neighbors"} 2.0
 # HELP arxmcp_request_created Total tool handler invocations, partitioned by tool name and terminal status (ok / error). One increment per call; the wrapping logic in server.tools.register_all guarantees ok-or-error is always recorded via try/finally.
 # TYPE arxmcp_request_created gauge
-arxmcp_request_created{status="ok",tool="search_papers"} 1.778985368410913e+09
-arxmcp_request_created{status="error",tool="search_papers"} 1.778985368411038e+09
-arxmcp_request_created{status="ok",tool="get_chunk"} 1.778985368411097e+09
-arxmcp_request_created{status="error",tool="get_chunk"} 1.77898536841116e+09
-arxmcp_request_created{status="ok",tool="find_equation"} 1.778985368411199e+09
-arxmcp_request_created{status="error",tool="find_equation"} 1.778985368411272e+09
-arxmcp_request_created{status="ok",tool="get_definitions"} 1.778985368411314e+09
-arxmcp_request_created{status="error",tool="get_definitions"} 1.778985368411386e+09
-arxmcp_request_created{status="ok",tool="find_lemma_by_name"} 1.778985368411422e+09
-arxmcp_request_created{status="error",tool="find_lemma_by_name"} 1.778985368411504e+09
-arxmcp_request_created{status="ok",tool="get_paper"} 1.778985368411537e+09
-arxmcp_request_created{status="error",tool="get_paper"} 1.7789853684116092e+09
-arxmcp_request_created{status="ok",tool="cite_neighbors"} 1.7789853684116411e+09
-arxmcp_request_created{status="error",tool="cite_neighbors"} 1.77898536841171e+09
+arxmcp_request_created{status="ok",tool="search_papers"} 1.778987058975165e+09
+arxmcp_request_created{status="error",tool="search_papers"} 1.7789870589752982e+09
+arxmcp_request_created{status="ok",tool="get_chunk"} 1.778987058975372e+09
+arxmcp_request_created{status="error",tool="get_chunk"} 1.7789870589754398e+09
+arxmcp_request_created{status="ok",tool="find_equation"} 1.7789870589754748e+09
+arxmcp_request_created{status="error",tool="find_equation"} 1.77898705897554e+09
+arxmcp_request_created{status="ok",tool="get_definitions"} 1.778987058975574e+09
+arxmcp_request_created{status="error",tool="get_definitions"} 1.778987058975636e+09
+arxmcp_request_created{status="ok",tool="find_lemma_by_name"} 1.7789870589756658e+09
+arxmcp_request_created{status="error",tool="find_lemma_by_name"} 1.7789870589757419e+09
+arxmcp_request_created{status="ok",tool="get_paper"} 1.7789870589757729e+09
+arxmcp_request_created{status="error",tool="get_paper"} 1.7789870589758348e+09
+arxmcp_request_created{status="ok",tool="cite_neighbors"} 1.778987058975876e+09
+arxmcp_request_created{status="error",tool="cite_neighbors"} 1.7789870589759412e+09
 # HELP arxmcp_request_latency_seconds Tool handler wall-clock latency in seconds, recorded for both ok and error outcomes. Latency timer starts before the handler runs and stops in the try/finally of server.tools._tracked_handler.
 # TYPE arxmcp_request_latency_seconds histogram
 arxmcp_request_latency_seconds_bucket{le="0.001",tool="search_papers"} 0.0
@@ -221,13 +221,13 @@ arxmcp_request_latency_seconds_count{tool="cite_neighbors"} 9.0
 arxmcp_request_latency_seconds_sum{tool="cite_neighbors"} 7.69
 # HELP arxmcp_request_latency_seconds_created Tool handler wall-clock latency in seconds, recorded for both ok and error outcomes. Latency timer starts before the handler runs and stops in the try/finally of server.tools._tracked_handler.
 # TYPE arxmcp_request_latency_seconds_created gauge
-arxmcp_request_latency_seconds_created{tool="search_papers"} 1.778985368411048e+09
-arxmcp_request_latency_seconds_created{tool="get_chunk"} 1.7789853684111629e+09
-arxmcp_request_latency_seconds_created{tool="find_equation"} 1.778985368411276e+09
-arxmcp_request_latency_seconds_created{tool="get_definitions"} 1.7789853684113889e+09
-arxmcp_request_latency_seconds_created{tool="find_lemma_by_name"} 1.778985368411507e+09
-arxmcp_request_latency_seconds_created{tool="get_paper"} 1.7789853684116118e+09
-arxmcp_request_latency_seconds_created{tool="cite_neighbors"} 1.7789853684117131e+09
+arxmcp_request_latency_seconds_created{tool="search_papers"} 1.778987058975307e+09
+arxmcp_request_latency_seconds_created{tool="get_chunk"} 1.778987058975444e+09
+arxmcp_request_latency_seconds_created{tool="find_equation"} 1.778987058975544e+09
+arxmcp_request_latency_seconds_created{tool="get_definitions"} 1.778987058975638e+09
+arxmcp_request_latency_seconds_created{tool="find_lemma_by_name"} 1.778987058975745e+09
+arxmcp_request_latency_seconds_created{tool="get_paper"} 1.778987058975839e+09
+arxmcp_request_latency_seconds_created{tool="cite_neighbors"} 1.778987058975944e+09
 # HELP arxmcp_request_inflight Number of concurrent in-flight tool handler invocations per tool. Incremented at handler entry, decremented in try/finally on return or raise.
 # TYPE arxmcp_request_inflight gauge
 arxmcp_request_inflight{tool="search_papers"} 0.0
@@ -346,21 +346,21 @@ arxmcp_result_bytes_count{tool="cite_neighbors"} 4.0
 arxmcp_result_bytes_sum{tool="cite_neighbors"} 168448.0
 # HELP arxmcp_result_bytes_created Tool handler result payload size in bytes (structuredContent only, after JSON-serialization). Recorded only on the ok path. Buckets span small (1 KB) to result_byte_cap (256 KB by default).
 # TYPE arxmcp_result_bytes_created gauge
-arxmcp_result_bytes_created{tool="search_papers"} 1.778985368411084e+09
-arxmcp_result_bytes_created{tool="get_chunk"} 1.778985368411184e+09
-arxmcp_result_bytes_created{tool="find_equation"} 1.778985368411299e+09
-arxmcp_result_bytes_created{tool="get_definitions"} 1.778985368411408e+09
-arxmcp_result_bytes_created{tool="find_lemma_by_name"} 1.778985368411526e+09
-arxmcp_result_bytes_created{tool="get_paper"} 1.7789853684116302e+09
-arxmcp_result_bytes_created{tool="cite_neighbors"} 1.7789853684117298e+09
+arxmcp_result_bytes_created{tool="search_papers"} 1.7789870589753559e+09
+arxmcp_result_bytes_created{tool="get_chunk"} 1.778987058975465e+09
+arxmcp_result_bytes_created{tool="find_equation"} 1.77898705897556e+09
+arxmcp_result_bytes_created{tool="get_definitions"} 1.7789870589756548e+09
+arxmcp_result_bytes_created{tool="find_lemma_by_name"} 1.778987058975762e+09
+arxmcp_result_bytes_created{tool="get_paper"} 1.778987058975866e+09
+arxmcp_result_bytes_created{tool="cite_neighbors"} 1.778987058975967e+09
 # HELP arxmcp_embed_calls_total Total query-encoding forward passes through the BGE-M3 model, labeled by model identity and ok/error outcome. Dedup'd singleflight hits are NOT counted here — see arxmcp_embed_singleflight_dedup_total for those.
 # TYPE arxmcp_embed_calls_total counter
 arxmcp_embed_calls_total{model="bge-m3",outcome="ok"} 420.0
 arxmcp_embed_calls_total{model="bge-m3",outcome="error"} 1.0
 # HELP arxmcp_embed_calls_created Total query-encoding forward passes through the BGE-M3 model, labeled by model identity and ok/error outcome. Dedup'd singleflight hits are NOT counted here — see arxmcp_embed_singleflight_dedup_total for those.
 # TYPE arxmcp_embed_calls_created gauge
-arxmcp_embed_calls_created{model="bge-m3",outcome="ok"} 1.77898536841177e+09
-arxmcp_embed_calls_created{model="bge-m3",outcome="error"} 1.778985368411772e+09
+arxmcp_embed_calls_created{model="bge-m3",outcome="ok"} 1.7789870589760158e+09
+arxmcp_embed_calls_created{model="bge-m3",outcome="error"} 1.778987058976019e+09
 # HELP arxmcp_embed_latency_seconds Query-encoding BGE-M3 forward-pass latency in seconds. Excludes tokenization (negligible) and includes L2 normalization (negligible).
 # TYPE arxmcp_embed_latency_seconds histogram
 arxmcp_embed_latency_seconds_bucket{le="0.005",model="bge-m3"} 0.0
@@ -378,13 +378,13 @@ arxmcp_embed_latency_seconds_count{model="bge-m3"} 5.0
 arxmcp_embed_latency_seconds_sum{model="bge-m3"} 0.557
 # HELP arxmcp_embed_latency_seconds_created Query-encoding BGE-M3 forward-pass latency in seconds. Excludes tokenization (negligible) and includes L2 normalization (negligible).
 # TYPE arxmcp_embed_latency_seconds_created gauge
-arxmcp_embed_latency_seconds_created{model="bge-m3"} 1.778985368411776e+09
+arxmcp_embed_latency_seconds_created{model="bge-m3"} 1.778987058976021e+09
 # HELP arxmcp_rerank_calls_total Total cross-encoder rerank calls through BGE-reranker-v2-m3, labeled by model and ok/error outcome. Increment fires once per RerankPhase.rerank invocation (each invocation scores N candidates in a single batched forward pass).
 # TYPE arxmcp_rerank_calls_total counter
 arxmcp_rerank_calls_total{model="bge-reranker-v2-m3",outcome="ok"} 60.0
 # HELP arxmcp_rerank_calls_created Total cross-encoder rerank calls through BGE-reranker-v2-m3, labeled by model and ok/error outcome. Increment fires once per RerankPhase.rerank invocation (each invocation scores N candidates in a single batched forward pass).
 # TYPE arxmcp_rerank_calls_created gauge
-arxmcp_rerank_calls_created{model="bge-reranker-v2-m3",outcome="ok"} 1.778985368411788e+09
+arxmcp_rerank_calls_created{model="bge-reranker-v2-m3",outcome="ok"} 1.778987058976033e+09
 # HELP arxmcp_rerank_latency_seconds Reranker BGE-reranker-v2-m3 cross-encoder batch latency in seconds. Captures one batched forward pass per rerank invocation (N query-document pairs at once).
 # TYPE arxmcp_rerank_latency_seconds histogram
 arxmcp_rerank_latency_seconds_bucket{le="0.01",model="bge-reranker-v2-m3"} 0.0
@@ -401,4 +401,4 @@ arxmcp_rerank_latency_seconds_count{model="bge-reranker-v2-m3"} 3.0
 arxmcp_rerank_latency_seconds_sum{model="bge-reranker-v2-m3"} 0.33999999999999997
 # HELP arxmcp_rerank_latency_seconds_created Reranker BGE-reranker-v2-m3 cross-encoder batch latency in seconds. Captures one batched forward pass per rerank invocation (N query-document pairs at once).
 # TYPE arxmcp_rerank_latency_seconds_created gauge
-arxmcp_rerank_latency_seconds_created{model="bge-reranker-v2-m3"} 1.7789853684117901e+09
+arxmcp_rerank_latency_seconds_created{model="bge-reranker-v2-m3"} 1.778987058976035e+09
