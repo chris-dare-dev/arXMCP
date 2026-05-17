@@ -195,6 +195,27 @@ async def readyz(request: Request) -> Response:
             content={"status": "not_ready", "warm": warm_map},
         )
 
+    # E14_S05 D2: degraded body. When the LanceDB N-1 fallback was
+    # activated at startup, /readyz returns 503 with the degraded
+    # body — load-balancers see "not healthy" and operators see the
+    # exact reason. The server still serves requests because the
+    # chunks_table is open at the fallback version.
+    if resources.degraded is not None:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "degraded",
+                "reason": resources.degraded.reason,
+                "fallback_version": resources.degraded.fallback_version,
+                "original_version": resources.degraded.original_version,
+                "warm": {
+                    "embedder": resources.is_resource_warm("embedder"),
+                    "lancedb": resources.is_resource_warm("lancedb"),
+                    "reranker": resources.is_resource_warm("reranker"),
+                },
+            },
+        )
+
     return JSONResponse(
         status_code=200,
         content={
@@ -259,6 +280,21 @@ def refresh_metrics_from_singleton_state(resources: Resources) -> None:
     ops_dir = getattr(config, "ops_dir", None) if config is not None else None
     if ops_dir is not None:
         refresh_sentinel_metrics(Path(ops_dir))
+
+    # E14_S05: disk-free gauge + ingest-paused sentinel management.
+    # Reads ``shutil.disk_usage(config.data_dir)`` and (a) sets
+    # ``arxmcp_disk_free_bytes{path}``, (b) writes the
+    # ``ingest-paused`` sentinel when free < 10 GB, (c) clears it
+    # when free > 15 GB (hysteresis — don't toggle at the boundary).
+    data_dir = getattr(config, "data_dir", None) if config is not None else None
+    if data_dir is not None:
+        refresh_disk_free_metric(Path(data_dir))
+
+    # E14_S05: degraded-mode gauge. Surface the failure-mode
+    # fallback state to Prometheus + Phoenix so the ArXMCPDegradedMode
+    # alert fires when the server is running on a fallback corpus
+    # version (or any other future degraded reason).
+    refresh_degraded_mode_metric(resources)
 
 
 def refresh_sentinel_metrics(ops_dir: Path) -> None:
@@ -504,6 +540,108 @@ def _refresh_eval_ndcg5(reports_dir: Path) -> None:
         EVAL_NDCG5_GAUGE.labels(corpus_version=str(v)).set(ndcg5)
 
 
+#: Disk-free hysteresis: write the ingest-paused sentinel when free
+#: bytes drop below this threshold (10 GB). Closes E14_S05 D4.
+DISK_PAUSE_THRESHOLD_BYTES: int = 10 * 1024**3
+
+#: Clear the ingest-paused sentinel only after free climbs back
+#: above this threshold (15 GB). Prevents the cron from oscillating
+#: at the exact pause threshold.
+DISK_CLEAR_THRESHOLD_BYTES: int = 15 * 1024**3
+
+#: Slug written into the sentinel JSON when disk-low is the
+#: trigger. The sentinel CLI accepts arbitrary slugs; this is the
+#: one the scrape hook uses so the operator can ``cat`` the file
+#: and immediately understand why ingest paused.
+DISK_PAUSE_REASON: str = "disk_low"
+
+
+def refresh_disk_free_metric(data_dir: Path) -> None:
+    """Refresh :data:`server.observability.metrics.DISK_FREE_BYTES`
+    from ``shutil.disk_usage(data_dir)`` and update the
+    ``ingest-paused`` sentinel state with hysteresis. E14_S05 D4.
+
+    Failure mode 7 (Disk full) from
+    :doc:`.claude/notes/08-security-observability-ops.md`:
+    "Block ingestion, allow reads to continue, page operator."
+
+    Idempotent — calling repeatedly with stable disk state is
+    cheap (one ``statvfs`` syscall) and does not toggle the
+    sentinel.
+    """
+    import shutil  # noqa: PLC0415
+
+    from server.observability.metrics import DISK_FREE_BYTES  # noqa: PLC0415
+
+    try:
+        usage = shutil.disk_usage(str(data_dir))
+    except OSError as exc:
+        logger.warning(
+            "disk_free refresh failed for %s: %s; gauge not "
+            "updated this scrape",
+            data_dir,
+            exc,
+        )
+        return
+
+    DISK_FREE_BYTES.labels(path=str(data_dir)).set(usage.free)
+
+    # Sentinel management. Importing lazily so a test fixture can
+    # monkey-patch tools.ingest_sentinel cleanly.
+    from tools import ingest_sentinel  # noqa: PLC0415
+
+    sentinel_path = Path(data_dir) / "ops" / "ingest-paused"
+    if usage.free < DISK_PAUSE_THRESHOLD_BYTES:
+        if not sentinel_path.is_file():
+            logger.warning(
+                "disk_free below threshold (%d < %d bytes); "
+                "writing ingest-paused sentinel at %s",
+                usage.free,
+                DISK_PAUSE_THRESHOLD_BYTES,
+                sentinel_path,
+            )
+        ingest_sentinel.write_pause(
+            reason=DISK_PAUSE_REASON,
+            free_bytes=usage.free,
+            threshold_bytes=DISK_PAUSE_THRESHOLD_BYTES,
+            path=sentinel_path,
+        )
+    elif usage.free > DISK_CLEAR_THRESHOLD_BYTES and sentinel_path.is_file():
+        # Only auto-clear sentinels we wrote (reason=disk_low). An
+        # operator-written maintenance sentinel must survive auto-
+        # recovery — the operator clears it manually.
+        record = ingest_sentinel.is_paused(path=sentinel_path)
+        if record is not None and record.get("reason") == DISK_PAUSE_REASON:
+            logger.info(
+                "disk_free recovered (%d > %d bytes); clearing "
+                "ingest-paused sentinel at %s",
+                usage.free,
+                DISK_CLEAR_THRESHOLD_BYTES,
+                sentinel_path,
+            )
+            ingest_sentinel.clear_pause(path=sentinel_path)
+
+
+def refresh_degraded_mode_metric(resources: Resources) -> None:
+    """Set :data:`server.observability.metrics.DEGRADED_MODE_ACTIVE`
+    from ``resources.degraded``. E14_S05 D7.
+
+    The gauge has a ``reason`` label so the alert rule can
+    surface which degradation is active (e.g.
+    ``arxmcp_degraded_mode_active{reason="corpus_corruption"} 1``).
+    """
+    from server.observability.metrics import DEGRADED_MODE_ACTIVE  # noqa: PLC0415
+
+    degraded = getattr(resources, "degraded", None)
+    if degraded is None:
+        # Reset known labels to 0. The label space is bounded by
+        # the DegradedState.reason enum — small enough to enumerate.
+        for reason in ("corpus_corruption", "hosted_embedder_outage"):
+            DEGRADED_MODE_ACTIVE.labels(reason=reason).set(0.0)
+        return
+    DEGRADED_MODE_ACTIVE.labels(reason=degraded.reason).set(1.0)
+
+
 def reset_metrics_for_tests() -> None:
     """Test hook — reset the module-level dedup tracker.
 
@@ -524,6 +662,8 @@ __all__ = [
     "RESOURCE_WARM_GAUGE",
     "healthz",
     "readyz",
+    "refresh_degraded_mode_metric",
+    "refresh_disk_free_metric",
     "refresh_metrics_from_singleton_state",
     "refresh_sentinel_metrics",
     "reset_metrics_for_tests",

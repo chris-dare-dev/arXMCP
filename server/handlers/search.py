@@ -63,7 +63,7 @@ from mcp.types import CallToolResult, ResourceLink, TextContent
 from pydantic import AnyUrl, Field
 
 from server.cache import get_cache
-from server.query_encoder import encode_query
+from server.query_encoder import encode_query, encode_query_with_fallback
 from server.tools import CHUNK_RESOURCE_URI_SCHEME, envelope, get_resources
 
 #: Hard upper bound on per-tool ``k``. Mirrors the design note's
@@ -131,8 +131,21 @@ async def handle_search_papers(
             return CallToolResult(content=content, structuredContent=structured)
 
     # Encode query (singleflight + semaphore — two-tier concurrency).
+    # E14_S05 D6: route via the hosted-embedder fallback wrapper
+    # only when a non-local provider is configured. The default
+    # ``local`` path calls ``encode_query`` directly so existing
+    # tests that monkeypatch ``server.handlers.search.encode_query``
+    # to fake out the embed call continue to work (the fallback
+    # wrapper resolves through server.query_encoder's own binding,
+    # which the test fixtures don't patch).
+    embed_fallback_active = False
     async with r.embed_semaphore:
-        query_vec = await encode_query(query)
+        if r.config.query_embed_provider == "local":
+            query_vec = await encode_query(query)
+        else:
+            query_vec, embed_fallback_active = await encode_query_with_fallback(
+                query, r.config.query_embed_provider
+            )
 
     # Tier-2 lookup with the freshly-computed embedding.
     if cache is not None:
@@ -182,17 +195,30 @@ async def handle_search_papers(
             "cursor arg is accepted but pagination is deferred to E07_S04"
         )
 
-    structured = envelope(
-        {
-            "embed_model": "bge-m3",
-            # F5: explicit warning about proof-chunk exclusion at v1.
-            "excluded_kinds": ["proof"],
-            "filter_warnings": filter_warnings,
-            "next_cursor": None,    # v1: no pagination
-            "results": rows,
-            "retrieval_mode": "dense_only",
-        }
-    )
+    # E14_S05 D6: surface server-degradation state on every result.
+    # ``degraded`` is the orchestrator-facing flag (True iff this
+    # request hit any failure-mode fallback path). ``degraded_reason``
+    # carries the cause slug — the orchestrator can deprioritize
+    # cross-model hits or surface a warning to the operator.
+    degraded_reasons: list[str] = []
+    if embed_fallback_active:
+        degraded_reasons.append("hosted_embedder_outage")
+    if r.degraded is not None:
+        degraded_reasons.append(r.degraded.reason)
+
+    payload: dict[str, Any] = {
+        "embed_model": "bge-m3",
+        # F5: explicit warning about proof-chunk exclusion at v1.
+        "excluded_kinds": ["proof"],
+        "filter_warnings": filter_warnings,
+        "next_cursor": None,    # v1: no pagination
+        "results": rows,
+        "retrieval_mode": "dense_only",
+    }
+    if degraded_reasons:
+        payload["degraded"] = True
+        payload["degraded_reasons"] = degraded_reasons
+    structured = envelope(payload)
 
     # E08_S03: cache-store on the miss path. We pass the query
     # embedding so Tier 2 indexes it for future semantic-equivalent

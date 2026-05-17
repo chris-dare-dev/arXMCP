@@ -425,6 +425,97 @@ def _reset_for_tests() -> None:
 # the importing module to the int value at import time and misses
 # subsequent mutations. Cross-thread / metrics readers MUST use
 # :func:`get_singleflight_dedup_count` instead.
+# ---------------------------------------------------------------------------
+# E14_S05 D6 — hosted-embedder fallback (Voyage stub)
+# ---------------------------------------------------------------------------
+
+#: Module-level flag — flips to True on the first hosted-embedder
+#: fallback in this process. Used to gate the WARN log so the
+#: process emits ONE noise-line for sustained outages, not one
+#: per request.
+_HOSTED_FALLBACK_LOGGED: bool = False
+
+
+class _HostedEmbedderUnavailable(Exception):
+    """Raised by hosted-provider stubs in v1. Caught by the
+    fallback wrapper and translated into a BGE-M3 call with
+    ``used_fallback=True``. E14_S05 D6."""
+
+
+async def _voyage_encode_stub(query_text: str) -> np.ndarray:
+    """Voyage provider stub. v1 ALWAYS raises; the real HTTP
+    client is out of scope for E14_S05. The fallback wrapper
+    catches and routes to BGE-M3. The contract documented in the
+    research synthesis (D6).
+    """
+    raise _HostedEmbedderUnavailable(
+        "voyage HTTP client not yet implemented; see E14_S05 D6"
+    )
+
+
+async def encode_query_with_fallback(
+    query_text: str, provider: str
+) -> tuple[np.ndarray, bool]:
+    """Encode a query through the configured ``provider``; on ANY
+    exception fall back to the local BGE-M3 path.
+
+    Returns ``(vector, used_fallback)``. The caller (typically
+    :mod:`server.handlers.search`) tags result rows with
+    ``degraded=true`` when ``used_fallback`` is True so the
+    orchestrator can see the degradation.
+
+    Closes failure mode 1 (hosted-embedder outage) from
+    :doc:`.claude/notes/08-security-observability-ops.md`:
+    *"Fall back to local embedder; tag results degraded=true."*
+
+    Today only ``"local"`` and ``"voyage"`` are accepted providers
+    (validated at config parse). Voyage is a stub that raises on
+    every call; the fallback wrapper translates that into a BGE-M3
+    call and increments
+    :data:`server.observability.metrics.HOSTED_EMBED_FALLBACK_COUNTER`.
+    The first fallback in this process also emits a single WARN
+    log (subsequent fallbacks are silent — operators read the
+    counter for the rate signal).
+    """
+    global _HOSTED_FALLBACK_LOGGED
+
+    if provider == "local":
+        return await encode_query(query_text), False
+
+    # Hosted provider path. Future providers register here.
+    if provider == "voyage":
+        try:
+            vec = await _voyage_encode_stub(query_text)
+            return vec, False
+        except Exception as exc:  # noqa: BLE001 — broad on purpose
+            from server.observability.metrics import (  # noqa: PLC0415
+                HOSTED_EMBED_FALLBACK_COUNTER,
+            )
+
+            HOSTED_EMBED_FALLBACK_COUNTER.labels(provider="voyage").inc()
+            if not _HOSTED_FALLBACK_LOGGED:
+                logger.warning(
+                    "hosted embedder 'voyage' failed (%s); falling "
+                    "back to local BGE-M3 for the remainder of this "
+                    "process. Subsequent fallbacks are silent; read "
+                    "arxmcp_hosted_embed_fallback_total{provider=...} "
+                    "for the rate.",
+                    exc,
+                )
+                _HOSTED_FALLBACK_LOGGED = True
+            return await encode_query(query_text), True
+
+    # Unreachable per config-validator — but be explicit.
+    raise ValueError(f"unknown query_embed_provider: {provider!r}")
+
+
+def _reset_hosted_fallback_logged_for_tests() -> None:
+    """Test hook — reset the WARN-once guard so each test starts
+    fresh."""
+    global _HOSTED_FALLBACK_LOGGED
+    _HOSTED_FALLBACK_LOGGED = False
+
+
 __all__ = [
     "BGE_M3_COMMIT_SHA",
     "DEDUP_WINDOW_S",
@@ -432,6 +523,7 @@ __all__ = [
     "MAX_TOKENS",
     "SINGLEFLIGHT_DEDUP_COUNT",
     "encode_query",
+    "encode_query_with_fallback",
     "get_singleflight_dedup_count",
     "shutdown_executor",
 ]

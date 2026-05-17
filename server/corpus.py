@@ -106,6 +106,128 @@ if TYPE_CHECKING:  # pragma: no cover
 logger = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True, slots=True)
+class DegradedState:
+    """Server failure-mode degradation marker (E14_S05 D2).
+
+    Surfaced by :func:`open_chunks_table_with_fallback` when the
+    live corpus version is corrupt and the N-1 fallback was
+    activated. Read by :func:`server.health.readyz` to produce the
+    degraded 503 response body and by
+    :func:`server.observability.metrics.DEGRADED_MODE_ACTIVE`
+    gauge refresh.
+
+    Attributes
+    ----------
+    reason:
+        Short slug identifying the cause. Today's set:
+        ``"corpus_corruption"``. Reserve future causes
+        (``"hosted_embedder_outage"`` etc.) as additional values
+        — the gauge label space stays bounded by this enum.
+    fallback_version:
+        The corpus version actually being served (``v-1`` when
+        the live tip ``v`` was corrupt).
+    original_version:
+        The version we tried to open first; useful for
+        operator-facing log lines.
+    """
+
+    reason: str
+    fallback_version: int
+    original_version: int
+
+
+def open_chunks_table_with_fallback(
+    lancedb_path: str | Path | None = None,
+    *,
+    version: int,
+) -> tuple[lancedb.table.Table, DegradedState | None]:
+    """Open the ``chunks`` table at ``version``, falling back to
+    ``version - 1`` if the live tip is corrupt (E14_S05 D2).
+
+    Closes failure mode 2 (LanceDB corrupt on restart) from
+    :doc:`.claude/notes/08-security-observability-ops.md`
+    §"Failure modes and graceful degradation":
+
+        *"Fall back to previous dataset version via
+        ``dataset.checkout(version=N-1)``; alert. No symlink swap."*
+
+    Detection contract is intentionally broad: corruption surfaces
+    unpredictably across LanceDB releases (``lance.LanceError``,
+    ``OSError`` on a truncated fragment, ``RuntimeError`` on
+    internal panics, ``ValueError`` from the in-tree retry that
+    :func:`open_chunks_table` itself raises on a checkout failure).
+    We catch the union, log WARN, and retry once at ``version - 1``.
+
+    Returns
+    -------
+    table, degraded
+        ``table`` is the LanceDB handle (pinned to whatever
+        version succeeded). ``degraded`` is ``None`` on the
+        happy path and a :class:`DegradedState` instance when the
+        fallback was activated.
+
+    Raises
+    ------
+    RuntimeError
+        Both ``version`` and ``version - 1`` failed to open; the
+        operator must restore from backup. ``version`` may also
+        already be at the floor (``v == 1``), in which case no
+        fallback target exists and we raise immediately.
+    """
+    # The exceptions we treat as "fallback-worthy." Broad on
+    # purpose — LanceDB doesn't expose a single canonical
+    # "corruption" exception class, so any error from the
+    # filesystem layer (OSError on a truncated fragment),
+    # RuntimeError (LanceDB-internal panic), or ValueError
+    # (the in-tree retry that ``open_chunks_table`` raises on
+    # checkout failure) is treated as a corruption signal worthy
+    # of attempting the N-1 fallback.
+    corrupt_exc: tuple[type[BaseException], ...] = (
+        OSError,
+        RuntimeError,
+        ValueError,
+    )
+
+    try:
+        tbl = open_chunks_table(lancedb_path, version=version)
+        return tbl, None
+    except corrupt_exc as primary_exc:
+        if version < 2:
+            # Floor case — no version below 1 exists.
+            raise RuntimeError(
+                f"corpus_corruption_unrecoverable: live tip version "
+                f"{version} failed to open and no fallback target "
+                f"exists (version floor is 1). Original error: "
+                f"{primary_exc!s}"
+            ) from primary_exc
+
+        logger.warning(
+            "corpus version %d failed to open (%s); attempting "
+            "fallback to version %d per E14_S05 D2",
+            version,
+            primary_exc,
+            version - 1,
+        )
+        try:
+            tbl = open_chunks_table(lancedb_path, version=version - 1)
+        except corrupt_exc as fallback_exc:
+            raise RuntimeError(
+                f"corpus_corruption_unrecoverable: both live tip "
+                f"version {version} and fallback version {version - 1} "
+                f"failed to open. Live-tip error: {primary_exc!s}; "
+                f"fallback error: {fallback_exc!s}. Restore from "
+                f"the most-recent restic snapshot — see "
+                f"docs/ops/backup-restore.md."
+            ) from fallback_exc
+
+        return tbl, DegradedState(
+            reason="corpus_corruption",
+            fallback_version=version - 1,
+            original_version=version,
+        )
+
+
 def open_chunks_table(
     lancedb_path: str | Path | None = None,
     version: int | None = None,
@@ -378,6 +500,8 @@ def read_corpus_version(
 
 __all__ = [
     "CorpusVersionInfo",
+    "DegradedState",
     "open_chunks_table",
+    "open_chunks_table_with_fallback",
     "read_corpus_version",
 ]

@@ -203,6 +203,64 @@ def _reset_metric_child(child: object) -> None:
         child._value.set(0)
 
 
+# ---------------------------------------------------------------------------
+# E14_S05 — failure-mode + disk-full gauges + hosted-embed fallback counter
+# ---------------------------------------------------------------------------
+
+#: Free bytes on the arXMCP data filesystem. Refreshed at scrape
+#: time by ``server.health.refresh_metrics_from_singleton_state``
+#: via ``shutil.disk_usage(config.data_dir)``. Used by the
+#: ``ArXMCPDiskFull`` Prometheus alert (E14_S05 D4 + D7) and as the
+#: signal for writing the ``ingest-paused`` sentinel.
+DISK_FREE_BYTES: Gauge = Gauge(
+    "arxmcp_disk_free_bytes",
+    "Free bytes on the arXMCP data filesystem. Refreshed at "
+    "every /metrics scrape via shutil.disk_usage(); the "
+    "ingest-paused sentinel is written at <10 GB free and "
+    "cleared at >15 GB free (hysteresis).",
+    labelnames=["path"],
+)
+
+#: 1.0 when the server is running in a degraded mode (failure-mode
+#: fallback active); 0.0 otherwise. The ``reason`` label carries
+#: the specific cause: ``corpus_corruption`` (LanceDB N-1
+#: fallback), ``hosted_embedder_outage`` (Voyage stub fell back to
+#: local BGE-M3), etc. E14_S05 D2 + D6.
+DEGRADED_MODE_ACTIVE: Gauge = Gauge(
+    "arxmcp_degraded_mode_active",
+    "1.0 when the server is running in a degraded mode; 0.0 "
+    "otherwise. The `reason` label carries the specific cause "
+    "(corpus_corruption / hosted_embedder_outage / ...). Surfaces "
+    "the failure-mode fallback state to Prometheus + Phoenix.",
+    labelnames=["reason"],
+)
+
+#: Counter of hosted-embedder fallback events per provider. Fires
+#: once per request that hit the fallback path (NOT once per call
+#: site within the request). The metric is the operator-facing
+#: signal that the hosted provider is having an outage. E14_S05 D6.
+HOSTED_EMBED_FALLBACK_COUNTER: Counter = Counter(
+    "arxmcp_hosted_embed_fallback_total",
+    "Total number of query-embed requests that fell back from "
+    "the configured hosted provider to the local BGE-M3 path. "
+    "Labeled by provider (the one that failed); rising values "
+    "indicate a hosted-provider outage.",
+    labelnames=["provider"],
+)
+
+
+def reset_failure_mode_metrics_for_tests() -> None:
+    """Reset the E14_S05 failure-mode metric families. Test-only;
+    mirrors the other reset_*_for_tests helpers."""
+    for child in list(DISK_FREE_BYTES._metrics.values()):
+        child._value.set(0)
+    for child in list(DEGRADED_MODE_ACTIVE._metrics.values()):
+        child._value.set(0)
+    for child in list(HOSTED_EMBED_FALLBACK_COUNTER._metrics.values()):
+        if hasattr(child, "reset"):
+            child.reset()
+
+
 def reset_request_metrics_for_tests() -> None:
     """Reset every request-level Counter/Histogram/Gauge to zero.
 
@@ -230,8 +288,11 @@ def reset_rerank_metrics_for_tests() -> None:
 
 
 __all__ = [
+    "DEGRADED_MODE_ACTIVE",
+    "DISK_FREE_BYTES",
     "EMBED_CALLS_COUNTER",
     "EMBED_LATENCY",
+    "HOSTED_EMBED_FALLBACK_COUNTER",
     "RERANK_CALLS_COUNTER",
     "RERANK_LATENCY",
     "REQUEST_COUNTER",
@@ -239,6 +300,7 @@ __all__ = [
     "REQUEST_LATENCY",
     "RESULT_BYTES",
     "reset_embed_metrics_for_tests",
+    "reset_failure_mode_metrics_for_tests",
     "reset_rerank_metrics_for_tests",
     "reset_request_metrics_for_tests",
 ]

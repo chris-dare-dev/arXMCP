@@ -1,0 +1,40 @@
+{
+  "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/roadmap",
+  "created_at": "2026-05-17T03:15:43Z",
+  "critics_run": [],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "low": 0,
+    "medium": 0
+  },
+  "critique_path": null,
+  "deferred_findings": [],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_required": [],
+  "fixed_findings": [],
+  "id": "E14_S05",
+  "implementation_base": null,
+  "implementation_branch": null,
+  "implementation_commit_range": null,
+  "implementation_commits": [],
+  "implementation_path": null,
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "### E14_S05 \u2014 Failure-mode handlers, restic backup, and restore drill\n\n**Status:** NEW\n**Tier:** 5\n**Effort:** L\n**Dependencies:** E07_S07, E07_S08, E11_S05\n\n**Description.** Implement the failure-mode detection and response table from `.claude/notes/08-security-observability-ops.md` \u00a7 Failure modes and graceful degradation, and execute the backup and restore procedures from \u00a7 Backup and restore. This milestone folds in the backup/restore scope from the original E12_S08\u2013S09.\n\nThe failure modes and their responses:\n\n**LanceDB corruption on restart.** If `dataset.checkout(corpus_version)` raises at startup, the server logs an ERROR, attempts to fall back to the previous version (corpus_version \u2212 1), and marks itself degraded (`/readyz` returns 503 with body `{\"status\":\"degraded\",\"reason\":\"corpus_corruption\"}`). A `pytest` test injects a synthetic corruption by writing an invalid fragment file into the version directory.\n\n**Reranker slow cold start.** The readiness probe already waits for the reranker to complete a dummy inference (E07_S07). This milestone makes the warm-up explicit: a single dummy inference on 10 randomly selected cached chunk embeddings is run during `lifespan` startup before `/readyz` returns 200.\n\n**Disk-full detection.** A Prometheus alert rule file (`infra/prometheus/alerts.yml`) defines `ArXMCPDiskFull` (fires when free space on `$ARXMCP_DATA_DIR`'s filesystem < 10 GB). Ingestion is paused at the queue level by writing `var/arxmcp/ops/ingest-paused` sentinel file; the delta cron checks for this sentinel before running. Read operations continue normally.\n\n**Hosted-embedder outage fallback.** When the optional hosted embedder path (`ARXMCP_QUERY_EMBED_PROVIDER=voyage`) is configured and the API call fails, the server falls back to the local BGE-M3 embedder and tags results with `degraded=true` in the response metadata, so the orchestrator can be aware of the degradation.\n\n**Restic backup.** `infra/restic/repo-init.sh` initializes a restic repository targeting either a local NAS path (`RESTIC_REPOSITORY` env var) or Backblaze B2 (`b2:<bucket>:<path>`). `infra/restic/nightly.sh` takes a snapshot of `var/arxmcp/corpus/`, `var/arxmcp/index/lancedb/`, and `var/arxmcp/index/kuzu/`, then prunes to a 7-daily / 4-weekly / 12-monthly retention policy. The restic password is stored in `RESTIC_PASSWORD` env var; never in source.\n\n**Restore drill.** `docs/ops/restore-runbook.md` documents the exact commands to restore the most recent restic snapshot to a fresh `var/arxmcp/` on a separate machine or sandbox path. The drill is executed once before this milestone closes; the time-to-restore is measured and recorded in the runbook. The next drill is scheduled via `tools/quarterly_drill_reminder.sh` (E14_S04).\n\n**Deliverables.**\n- `server/corpus.py` \u2014 updated `checkout()` fallback logic; degraded `/readyz` response\n- `server/resources.py` \u2014 explicit reranker warm-up inference in `lifespan`\n- `infra/prometheus/alerts.yml` \u2014 `ArXMCPDiskFull` alert rule\n- `tools/ingest_sentinel.py` \u2014 writes/reads the `ingest-paused` sentinel\n- `infra/restic/repo-init.sh`, `infra/restic/nightly.sh`\n- `infra/cron/restic-nightly.cron` + `.timer`\n- `docs/ops/failure-modes.md` \u2014 table mapping each failure mode to its detection and response\n- `docs/ops/restore-runbook.md` \u2014 restore procedure with measured time-to-restore\n- `tests/test_failure_modes.py` \u2014 LanceDB corruption fallback test, disk-sentinel test\n\n**Acceptance criteria.**\n- [ ] Synthetic LanceDB corruption \u2192 server starts in degraded mode, `/readyz` returns 503 with `reason:\"corpus_corruption\"`, fallback version serves requests\n- [ ] `pytest tests/test_failure_modes.py` passes: corruption fallback and disk-sentinel tests\n- [ ] `infra/restic/nightly.sh` completes a test snapshot successfully; `restic check` exits 0\n- [ ] `RESTIC_PASSWORD` never appears in source; CI secret-scan confirms\n- [ ] Restore drill executed once on a sandbox path; time-to-restore documented in `docs/ops/restore-runbook.md`\n- [ ] `infra/prometheus/alerts.yml` passes `promtool check rules`\n- [ ] `docs/ops/failure-modes.md` covers all 8 failure modes from the notes table\n\n**Out of scope.** S3 backup (constraint: no AWS for arXiv data; B2 and local NAS are the documented options). Automated restore (restore is a human-in-the-loop operation; the drill proves the runbook works).\n\n**Risk notes.**\n- The MVCC corpus version fallback (LanceDB corruption \u2192 previous version) depends on the old version directory remaining on disk. The restic retention policy must not prune the LanceDB version directories used as fallback targets. Document this dependency in `docs/ops/restore-runbook.md`.\n\n**Labels.** `area:observability`, `area:server`, `kind:infra`, `tier:5`\n\n---",
+  "phase": "implement-running",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-17T03:15:43Z",
+      "left_at": null,
+      "phase": "init"
+    }
+  ],
+  "rectification_commit": null,
+  "regression_tests_added": [],
+  "research_briefs": [],
+  "research_mode": "standard",
+  "research_synthesis": null,
+  "updated_at": "2026-05-17T03:22:13Z"
+}

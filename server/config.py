@@ -180,6 +180,32 @@ class Config(BaseSettings):
 
     log_level: str = "INFO"
 
+    #: Root directory for runtime state — corpus, indices, caches,
+    #: ops sentinels. The disk-full scrape hook (E14_S05 D4) calls
+    #: ``shutil.disk_usage(data_dir)`` so the gauge reflects the
+    #: filesystem actually serving the corpus and indices.
+    #:
+    #: Default ``var/arxmcp`` matches the project's existing
+    #: directory convention (CLAUDE.md §5). Production deployments
+    #: under ``/var/lib/arxmcp`` or ``/opt/arxmcp/var`` should set
+    #: ``ARXMCP_DATA_DIR`` accordingly.
+    data_dir: Path = Path("var/arxmcp")
+
+    #: Query-embedder provider (E14_S05 D6). ``"local"`` uses the
+    #: in-process BGE-M3 weights. ``"voyage"`` reserves the hosted
+    #: path; the v1 implementation is a stub that raises and falls
+    #: back to local — actual Voyage HTTP integration is a separate
+    #: ticket. The fallback wrapper in
+    #: :func:`server.query_encoder.encode_query` tags results with
+    #: ``degraded=true`` on the fallback path.
+    query_embed_provider: str = "local"
+
+    #: API key for the optional hosted-embedder provider (Voyage).
+    #: Stored only in memory; never logged. Unset by default; the
+    #: ``voyage`` provider stub doesn't actually use it in v1 but
+    #: the field is reserved so the env var is documented.
+    voyage_api_key: str | None = None
+
     #: OTLP/gRPC endpoint for OpenTelemetry trace export (E14_S02).
     #: When unset (``None``), tracing is COMPLETELY DISABLED at the
     #: OTel SDK layer: :func:`server.observability.tracing.setup_tracing`
@@ -286,6 +312,22 @@ class Config(BaseSettings):
         if v < 1:
             raise ValueError(
                 f"result_byte_cap must be >= 1; got {v}"
+            )
+        return v
+
+    @field_validator("query_embed_provider")
+    @classmethod
+    def validate_query_embed_provider(cls, v: str) -> str:
+        """Reject unknown provider names at parse time. The E14_S05
+        D6 contract: only ``local`` is implemented end-to-end;
+        ``voyage`` is reserved (stub that falls back to local).
+        Adding a new provider requires both this allow-list update
+        and a registration in ``server.query_encoder``."""
+        allowed = {"local", "voyage"}
+        if v not in allowed:
+            raise ValueError(
+                f"ARXMCP_QUERY_EMBED_PROVIDER must be one of "
+                f"{sorted(allowed)}; got {v!r}"
             )
         return v
 

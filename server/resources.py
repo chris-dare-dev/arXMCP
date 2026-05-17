@@ -70,7 +70,8 @@ from typing import Any, TypeVar
 from server.config import Config
 from server.corpus import (
     CorpusVersionInfo,
-    open_chunks_table,
+    DegradedState,
+    open_chunks_table_with_fallback,
     read_corpus_version,
 )
 from server.query_encoder import (
@@ -260,6 +261,13 @@ class Resources:
     theorem_names_db: Any | None = None
     process_start_time_seconds: float = field(default_factory=time.time)
     warm: bool = False
+    #: Failure-mode degradation marker (E14_S05 D2). ``None`` on
+    #: the happy path. Set to a :class:`server.corpus.DegradedState`
+    #: when ``open_chunks_table_with_fallback`` activated the N-1
+    #: fallback. Read by :func:`server.health.readyz` (degraded body)
+    #: and by ``server.observability.metrics.DEGRADED_MODE_ACTIVE``
+    #: scrape refresh.
+    degraded: DegradedState | None = None
 
     # ------------------------------------------------------------------
     # Startup / shutdown
@@ -307,24 +315,36 @@ class Resources:
             corpus_info.embedder_version,
         )
 
-        # 2. LanceDB handle — open ONCE at the pinned version. F13
-        # fix: `open_chunks_table` is a synchronous file-I/O call
-        # (LanceDB dataset open). Run in the default executor so we
-        # don't block the event loop during startup. The discipline
-        # mirrors step 3 (the embedder load) which is already
-        # off-loaded.
+        # 2. LanceDB handle — open ONCE at the pinned version with
+        # E14_S05 D2 fallback discipline. ``open_chunks_table_with_fallback``
+        # tries the live tip first; on corruption (broad catch — see
+        # the function docstring) retries at ``version - 1``. Returns
+        # the table handle + a DegradedState marker (None on the
+        # happy path) so the lifespan can surface degraded state via
+        # ``/readyz``.
         loop = asyncio.get_running_loop()
-        chunks_table = await loop.run_in_executor(
+        chunks_table, degraded = await loop.run_in_executor(
             None,
-            lambda: open_chunks_table(
+            lambda: open_chunks_table_with_fallback(
                 lancedb_path=config.lancedb_path,
                 version=corpus_info.version,
             ),
         )
-        logger.info(
-            "Resources.startup: opened LanceDB chunks at version=%d",
-            corpus_info.version,
-        )
+        if degraded is not None:
+            logger.warning(
+                "Resources.startup: LanceDB OPENED IN DEGRADED MODE — "
+                "live tip version %d failed; serving fallback "
+                "version %d (reason=%s). See "
+                "docs/ops/failure-modes.md#lancedb-corruption.",
+                degraded.original_version,
+                degraded.fallback_version,
+                degraded.reason,
+            )
+        else:
+            logger.info(
+                "Resources.startup: opened LanceDB chunks at version=%d",
+                corpus_info.version,
+            )
 
         # 3. Eager BGE-M3 load (forces query_encoder's singletons to
         #    populate; subsequent calls hit cached model + tokenizer).
@@ -402,6 +422,47 @@ class Resources:
             "Resources.startup: RerankPhase ready (enabled=%s)",
             config.enable_rerank,
         )
+
+        # 5c. Reranker warm-up dummy inference (E14_S05 D3). The
+        # brief's failure-mode table calls for explicit pre-warming
+        # at server startup ("Reranker model load slow on cold
+        # start: Pre-warm at server startup; readiness probe blocks
+        # shim until ready" — `.claude/notes/08-security-observability-ops.md`).
+        # Run a single batched forward pass over the first 10
+        # chunks of the table BEFORE /readyz opens. Deterministic
+        # slice (not random) so the startup-time signal is stable
+        # across restarts. Off-loaded to the executor — the
+        # cross-encoder forward pass is a synchronous C++ kernel
+        # call.
+        if config.enable_rerank and reranker_model is not None:
+            try:
+                arrow = chunks_table.to_arrow()
+                bodies_col = arrow.column("body_text").to_pylist()
+                warmup_bodies = bodies_col[: min(10, len(bodies_col))]
+                if warmup_bodies:
+                    warmup_query = "reranker warmup query"
+                    await loop.run_in_executor(
+                        None,
+                        lambda: _warmup_rerank_pass(
+                            reranker_model, warmup_query, warmup_bodies
+                        ),
+                    )
+                    logger.info(
+                        "Resources.startup: reranker warmed via "
+                        "%d-chunk dummy inference",
+                        len(warmup_bodies),
+                    )
+                else:
+                    logger.info(
+                        "Resources.startup: reranker warm-up skipped "
+                        "(no chunks in corpus yet)"
+                    )
+            except Exception as exc:  # noqa: BLE001 — non-fatal
+                logger.warning(
+                    "Resources.startup: reranker warm-up failed (%s); "
+                    "first request will pay the cold-start cost",
+                    exc,
+                )
 
         # 6. Retrieval cache (E08_S03). 3-tier cache singleton —
         # SQLite-backed Tier-1, in-process FAISS Tier-2, in-process
@@ -558,6 +619,7 @@ class Resources:
             equations_table=equations_table,
             theorem_names_db=theorem_names_db,
             warm=True,
+            degraded=degraded,
         )
         logger.info("Resources.startup: warm")
         return instance
@@ -635,6 +697,30 @@ class Resources:
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+
+def _warmup_rerank_pass(
+    reranker_model: Any, query: str, bodies: list[str]
+) -> None:
+    """Run a single batched forward pass through the reranker to
+    warm caches (model weights into CPU/GPU memory, tokenizer
+    state, etc.). E14_S05 D3.
+
+    Called from :meth:`Resources.startup` before ``/readyz``
+    opens; the cross-encoder's first inference pays the full cold-
+    start cost (~0.5-2s on CPU) which the readiness probe should
+    not block individual handler requests on.
+
+    ``reranker_model`` is the `(model, tokenizer)` tuple from
+    :func:`_load_reranker_or_raise`. Imported here lazily because
+    the rerank module pulls heavy deps and we don't want to
+    require it on the disabled-rerank path.
+    """
+    from server.retrieval.rerank import _rerank_sync  # noqa: PLC0415
+
+    model, tokenizer = reranker_model
+    # Discard the scores — we just want the model paths primed.
+    _rerank_sync(model, tokenizer, query, bodies)
 
 
 async def _load_reranker_or_raise() -> Any:

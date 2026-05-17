@@ -130,6 +130,28 @@ Total disk footprint (dedup-aware): typically 2-3× a single
 backup's size. For a ~135GB corpus → ~270-400GB on the
 repository.
 
+### Restic prune vs LanceDB MVCC version directories (E14_S05)
+
+`restic forget --prune` operates on RESTIC SNAPSHOTS — it
+removes snapshot pointers and (with `--prune`) the dedup'd data
+blocks they uniquely reference. **It NEVER touches the live
+`${ARXMCP_DATA_DIR}/index/lancedb/` directory.**
+
+The corruption-fallback contract in
+[`docs/ops/failure-modes.md`](failure-modes.md#lancedb-corruption)
+depends on LanceDB's own MVCC version directories
+(`_versions/<v>.manifest`, `_data/...`) remaining ON DISK after
+an ingest writes a new version. Restic's prune cannot affect
+that because restic does not own the live filesystem path.
+
+The hazard would be `ingest/store.py` calling
+`dataset.cleanup_old_versions()` — which it does NOT today. The
+in-tree contract (verified by grep against the ingest tree):
+LanceDB version dirs are append-only and never reclaimed in v1.
+If a future milestone introduces version reclamation, it MUST
+preserve N-1 to keep the fallback target alive — document this
+explicitly in that milestone's brief.
+
 ---
 
 ## Restore drill (before cutover)

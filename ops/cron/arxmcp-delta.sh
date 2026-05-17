@@ -59,6 +59,22 @@ if ! command -v flock >/dev/null 2>&1; then
     exit 1
 fi
 
+# E14_S05 D5 — early-exit when the ingest-paused sentinel is
+# present. Failure mode 7 (Disk full) writes this sentinel via the
+# server's scrape-time hook; operators can also write it manually
+# (`python -m tools.ingest_sentinel write --reason=maintenance`).
+# The cron skips the run and exits 0 so cron-mailer doesn't spam
+# the operator with errors during a known pause.
+PAUSE_FLAG="${REPO_ROOT}/var/arxmcp/ops/ingest-paused"
+if [ -e "${PAUSE_FLAG}" ]; then
+    REASON="$(python3 -c 'import json, sys; \
+print(json.load(open(sys.argv[1])).get("reason", "unknown"))' \
+"${PAUSE_FLAG}" 2>/dev/null || echo "malformed_sentinel")"
+    echo "INFO: ingest paused (reason=${REASON}); skipping delta " \
+         "run. Clear with: python -m tools.ingest_sentinel clear" >&2
+    exit 0
+fi
+
 LOCK_PATH="${REPO_ROOT}/var/arxmcp/ops/.delta.lock"
 mkdir -p "$(dirname "${LOCK_PATH}")"
 

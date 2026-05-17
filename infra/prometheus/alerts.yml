@@ -1,0 +1,110 @@
+# arXMCP Prometheus alerting rules (E14_S05).
+#
+# Install:
+#   1. Mount this file into the operator's Prometheus deployment
+#      (out of scope here — Phoenix is the OTel sidecar, not a
+#      Prometheus scraper; the operator runs Prometheus + Grafana
+#      separately, landing in E14_S09).
+#   2. Reference from prometheus.yml:
+#        rule_files: [ "/etc/prometheus/arxmcp-alerts.yml" ]
+#   3. Validate locally: `promtool check rules
+#      infra/prometheus/alerts.yml` (smoke-tested at
+#      tests/test_alerts_yaml.py with skipif-not-on-PATH).
+#
+# All rules surface failure modes from
+# .claude/notes/08-security-observability-ops.md
+# §"Failure modes and graceful degradation".
+
+groups:
+  - name: arxmcp
+    interval: 30s
+    rules:
+      # Failure mode 7: Disk full.
+      # E14_S05 D4 — the server self-emits arxmcp_disk_free_bytes
+      # via shutil.disk_usage() in a scrape-time refresh hook.
+      # No node_exporter required.
+      - alert: ArXMCPDiskFull
+        expr: arxmcp_disk_free_bytes < 10737418240
+        for: 5m
+        labels:
+          severity: critical
+          component: storage
+        annotations:
+          summary: "arXMCP free disk space < 10 GB"
+          description: |
+            arxmcp_disk_free_bytes is below the 10 GB threshold on
+            path {{ $labels.path }}. Ingestion is auto-paused via
+            the var/arxmcp/ops/ingest-paused sentinel; reads
+            continue. Free disk and the sentinel auto-clears at
+            15 GB free (hysteresis).
+          runbook_url: "https://github.com/chris-dare/arXMCP/blob/main/docs/ops/failure-modes.md#disk-full"
+
+      # Failure modes 1 + 2: hosted-embedder outage / LanceDB
+      # corruption (any failure-mode degradation surfaces here).
+      # The {reason} label is one of corpus_corruption,
+      # hosted_embedder_outage. E14_S05 D2 + D6.
+      - alert: ArXMCPDegradedMode
+        expr: arxmcp_degraded_mode_active == 1
+        for: 1m
+        labels:
+          severity: warning
+          component: server
+        annotations:
+          summary: "arXMCP running degraded ({{ $labels.reason }})"
+          description: |
+            The server is serving requests via a fallback path
+            (reason={{ $labels.reason }}). Investigate and
+            recover per the runbook.
+          runbook_url: "https://github.com/chris-dare/arXMCP/blob/main/docs/ops/failure-modes.md#degraded-modes"
+
+      # Backup overdue. E11_S05 already emits the timestamp gauge;
+      # this rule alerts when no successful backup has completed in
+      # 48 hours.
+      - alert: ArXMCPBackupStale
+        expr: (time() - arxmcp_backup_last_success_timestamp_seconds) > 172800
+        for: 10m
+        labels:
+          severity: warning
+          component: backup
+        annotations:
+          summary: "no successful restic backup in > 48h"
+          description: |
+            arxmcp_backup_last_success_timestamp_seconds is older
+            than 48 hours. Inspect the most-recent
+            var/arxmcp/ops/backup-status.json and the journalctl
+            log for arxmcp-backup.service.
+          runbook_url: "https://github.com/chris-dare/arXMCP/blob/main/docs/ops/backup-restore.md"
+
+      # Eval-quarantine sentinel (E11_S04). Surfaces the watchdog's
+      # regression-detected state to Prometheus.
+      - alert: ArXMCPEvalQuarantine
+        expr: arxmcp_eval_quarantine_active == 1
+        for: 1m
+        labels:
+          severity: warning
+          component: eval
+        annotations:
+          summary: "drift watchdog detected eval regression (cutover blocked)"
+          description: |
+            The drift watchdog set the eval-quarantine flag.
+            Cutover is blocked. Review the watchdog report under
+            var/arxmcp/ops/eval-reports/ and either fix the
+            regression or override the flag manually.
+          runbook_url: "https://github.com/chris-dare/arXMCP/blob/main/docs/ops/drift-watchdog.md"
+
+      # LaTeXML version drift (E10_S04). Fires when the daily drift
+      # check found any fixture diverging from its expected MathML.
+      - alert: ArXMCPLatexmlDrift
+        expr: arxmcp_latexml_drift_fixtures > 0
+        for: 1m
+        labels:
+          severity: warning
+          component: latexml
+        annotations:
+          summary: "LaTeXML version drift detected"
+          description: |
+            {{ $value }} fixture(s) have drifted from their
+            expected MathML output. The corpus may need
+            re-rendering. See the runbook for the recovery
+            procedure.
+          runbook_url: "https://github.com/chris-dare/arXMCP/blob/main/docs/ops/latexml-drift-runbook.md"

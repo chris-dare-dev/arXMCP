@@ -771,6 +771,23 @@ def run_delta(
 
 
 def _cli(argv: list[str]) -> int:
+    # E14_S05 D5: defense-in-depth check for the ``ingest-paused``
+    # sentinel. The cron wrapper checks first, but manual
+    # invocations (``python -m ingest.oai_delta``) also honor the
+    # pause so an operator pausing for maintenance doesn't get
+    # surprised by their own ad-hoc invocation later.
+    from tools import ingest_sentinel  # noqa: PLC0415
+
+    record = ingest_sentinel.is_paused()
+    if record is not None:
+        reason = record.get("reason", "unknown")
+        print(
+            f"INFO: ingest paused (reason={reason}); skipping delta "
+            f"run. Clear with: python -m tools.ingest_sentinel clear",
+            file=sys.stderr,
+        )
+        return 0
+
     parser = argparse.ArgumentParser(
         description="arXMCP OAI-PMH delta loop (E11_S02).",
     )
