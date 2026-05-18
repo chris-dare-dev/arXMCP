@@ -82,8 +82,9 @@ from urllib.parse import urlparse
 # pattern was annotated "cyclic-safe" but no cycle exists
 # (server.session imports only stdlib).
 from server.session import (
-    check_and_increment,
-    check_hourly_rate_limit,
+    check_and_increment,  # noqa: F401 — kept for back-compat / external use
+    check_both_caps,
+    check_hourly_rate_limit,  # noqa: F401 — kept for back-compat / external use
     get_or_create_session,
 )
 
@@ -868,14 +869,17 @@ class SessionCapMiddleware:
             await self._replay_to_app(scope, send, buffered_events)
             return
 
-        # Look up / create the session, check + increment the per-
-        # tool cap, AND check the hourly rate-limit cap. Both checks
-        # must pass for the call to forward.
+        # Look up / create the session and atomically check BOTH caps
+        # (per-tool retrieval + hourly rate-limit) under one lock
+        # acquisition. F1 rectification (E13_S04 adversary critique):
+        # the previous implementation called per-tool and hourly
+        # checks separately, which leaked per-tool budget when the
+        # per-tool cap allowed (incremented counter) but the hourly
+        # cap rejected. `check_both_caps` mutates neither counter
+        # unless both pass — atomic two-cap commit.
         try:
             state = await get_or_create_session(session_id)
-            # Per-tool cap (returns (True, 0, 0) for tools not in
-            # TOOLS_WITH_CAPS, so it's a no-op for those tools).
-            allowed, count, limit = await check_and_increment(state, tool_name)
+            verdict, count, limit = await check_both_caps(state, tool_name)
         except Exception:  # noqa: BLE001
             # Failure-mode discipline: cap layer must not break the
             # request. Log + forward. If a cap is silently bypassed
@@ -888,53 +892,35 @@ class SessionCapMiddleware:
             await self._replay_to_app(scope, send, buffered_events)
             return
 
-        if not allowed:
-            # Per-tool cap rejected — short-circuit with
-            # RETRIEVAL_CAP_REACHED below.
-            pass
-        else:
-            # Per-tool cap allowed (or tool not in TOOLS_WITH_CAPS).
-            # E13_S04: ALSO check the hourly rate limit.
-            try:
-                hourly_allowed, hourly_count, hourly_limit = (
-                    await check_hourly_rate_limit(state)
-                )
-            except Exception:  # noqa: BLE001
-                # Same failure-open discipline as the per-tool path:
-                # if the hourly check itself raises, log and forward.
-                logger.exception(
-                    "SessionCapMiddleware: hourly rate-limit check "
-                    "failed for session=%s tool=%s; forwarding without cap",
-                    session_id[:16], tool_name,
-                )
-                await self._replay_to_app(scope, send, buffered_events)
-                return
-
-            if not hourly_allowed:
-                # OVER hourly cap — short-circuit with a structured
-                # RATE_LIMIT_EXCEEDED response. Distinct code from
-                # RETRIEVAL_CAP_REACHED so the agent can tell which
-                # cap fired.
-                logger.info(
-                    "RATE_LIMIT_EXCEEDED: session=%s tool=%s "
-                    "attempted=%d limit=%d",
-                    session_id[:16], tool_name, hourly_count, hourly_limit,
-                )
-                try:
-                    from server.metrics import RETRIEVAL_CAP_REJECTIONS_COUNTER
-                    RETRIEVAL_CAP_REJECTIONS_COUNTER.labels(
-                        tool="rate_limit_hourly"
-                    ).inc()
-                except Exception:  # noqa: BLE001
-                    logger.debug("metrics inc failed", exc_info=True)
-                await self._send_rate_limit_response(
-                    send, request_id, tool_name, hourly_count, hourly_limit
-                )
-                return
-
+        if verdict == "allowed":
             # Both caps passed — replay the request.
             await self._replay_to_app(scope, send, buffered_events)
             return
+
+        if verdict == "hourly_rejected":
+            # F1 + F6 rect (E13_S04 adversary critique): flatten the
+            # rejection dispatch. RATE_LIMIT_EXCEEDED has a distinct
+            # code from RETRIEVAL_CAP_REACHED so agents can tell which
+            # cap fired; envelope shape is structurally identical.
+            logger.info(
+                "RATE_LIMIT_EXCEEDED: session=%s tool=%s attempted=%d limit=%d",
+                session_id[:16], tool_name, count, limit,
+            )
+            try:
+                from server.metrics import RETRIEVAL_CAP_REJECTIONS_COUNTER
+
+                RETRIEVAL_CAP_REJECTIONS_COUNTER.labels(
+                    tool="rate_limit_hourly"
+                ).inc()
+            except Exception:  # noqa: BLE001
+                logger.debug("metrics inc failed", exc_info=True)
+            await self._send_rate_limit_response(
+                send, request_id, tool_name, count, limit
+            )
+            return
+
+        # verdict == "per_tool_rejected" — fall through to the
+        # existing RETRIEVAL_CAP_REACHED short-circuit below.
 
         # OVER cap — short-circuit with a structured RETRIEVAL_CAP_REACHED
         # JSON-RPC response. The agent sees this as a regular tool

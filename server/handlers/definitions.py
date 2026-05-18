@@ -54,6 +54,16 @@ logger = logging.getLogger(__name__)
 #: Per the milestone brief: "paginated at 100 entries per page".
 PAGE_SIZE = 100
 
+#: Hard upper bound on the ``term`` argument length (E13_S04 F4 rect).
+#: Real theorem / lemma / macro names are well under this. Enforced
+#: via handler-body validation rather than Pydantic ``Field(max_length=)``
+#: to avoid bumping the tool schema hash — same rationale as
+#: ``MAX_FILTER_ITEMS`` in ``search_papers``. The audit doc at
+#: ``.claude/docs/security-threat-4-audit.md`` previously flagged this
+#: as the only string parameter in the 7-tool surface without a cap;
+#: closed by the F4 rectification.
+MAX_TERM_LENGTH = 200
+
 
 async def handle_get_definitions(
     paper_id: Annotated[str, Field(min_length=1, description="arXiv paper id")],
@@ -81,6 +91,17 @@ async def handle_get_definitions(
             f"paper_id {paper_id!r} does not match the arXiv id "
             f"format (new-style YYMM.NNNNN[vN] or old-style "
             f"subject/NNNNNNN[vN])"
+        )
+
+    # E13_S04 F4 rectification (Threat 4): cap the ``term`` argument
+    # length before any LanceDB query fires. A 1MB ``term`` would
+    # inflate memory before processing; handler-body validation is
+    # identical for the security goal without bumping the tool schema
+    # hash (same rationale as ``MAX_FILTER_ITEMS`` in search_papers).
+    if term is not None and len(term) > MAX_TERM_LENGTH:
+        raise ValueError(
+            f"term has {len(term)} chars; max allowed is {MAX_TERM_LENGTH} "
+            f"(E13_S04 Threat 4 resource-exhaustion cap)"
         )
 
     # F1 (E10_S01 critique) — treat an empty/whitespace-only term as

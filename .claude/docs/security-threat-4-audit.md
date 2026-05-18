@@ -124,6 +124,31 @@ convention (`--workers 1` in production); this is acceptable until E14
 adds multi-worker support, at which point a Redis-backed shared counter
 would be the structural fix.
 
+**Session-rotation bypass** (F3 rectification — E13_S04 adversary critique).
+The hourly cap is keyed on `Mcp-Session-Id`. An adversary in a retry loop
+that hits the 1000-call cap can — in principle — generate a fresh UUID4,
+call `initialize` to register a new session, and get a brand-new 1000-call
+budget. `_VALID_SESSION_ID_RE` in `server/middleware.py` validates the
+UUID4-hex FORMAT but not its authenticity; the cap-tracking infrastructure
+cannot tell a "genuine new session from a different user" apart from "the
+same adversary opening a new session to reset the budget."
+
+This bypass is **acknowledged-not-mitigated** at v1. The mitigation surface
+ranges from cheap (a process-wide cap on `_SESSIONS` creation rate — e.g.
+max 100 new sessions per origin per hour) to structural (Redis-backed
+shared counter shared across all sessions per origin, paired with
+authenticated session establishment). Both belong in a future milestone
+when the threat model expands beyond single-user / localhost-only.
+
+For the v1 single-user localhost-only deployment (per
+`.claude/notes/01-mission-and-context.md`), the bypass is low-priority:
+the operator IS the user; an "adversary" rotating session-ids is the
+operator's own runaway code, which is bounded by the per-tool retrieval
+caps regardless.
+
+A process-wide session-creation rate cap is filed as future work; see
+`E14` epic when multi-worker / multi-user becomes a real config.
+
 **Wire shape** (matches `RETRIEVAL_CAP_REACHED` envelope so consumers can
 handle both with one parser):
 

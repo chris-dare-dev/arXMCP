@@ -227,6 +227,78 @@ async def check_and_increment(
             return True, 0, 0
 
 
+async def check_both_caps(
+    state: SessionState,
+    tool_name: str,
+    now: float | None = None,
+) -> tuple[str, int, int]:
+    """Atomically check the per-tool retrieval cap AND the hourly
+    rate limit under a SINGLE lock acquisition (E13_S04 F1 rect).
+
+    Neither counter is mutated if EITHER cap rejects the call.
+    Resolves the budget-leak bug where the previous middleware
+    incremented ``state.search_count`` on per-tool allow, then
+    rejected the same call on hourly cap — leaving the retrieval
+    budget spent on a request that never executed retrieval work.
+
+    Returns ``(verdict, current_count, limit)`` where ``verdict`` is
+    one of:
+
+    - ``"allowed"`` — both caps passed; per-tool counter incremented
+      (for ``search_papers``/``get_chunk``); hourly timestamp
+      appended. ``current_count`` is the hourly count after the
+      append; ``limit`` is :data:`MAX_CALLS_PER_HOUR`.
+    - ``"per_tool_rejected"`` — per-tool cap is at limit. NEITHER
+      counter mutated. ``current_count`` is the per-tool
+      attempted count; ``limit`` is the per-tool cap.
+    - ``"hourly_rejected"`` — per-tool cap allows but hourly cap is
+      at limit. NEITHER counter mutated. ``current_count`` is the
+      hourly attempted count; ``limit`` is
+      :data:`MAX_CALLS_PER_HOUR`.
+
+    The two existing functions :func:`check_and_increment` and
+    :func:`check_hourly_rate_limit` remain available for unit tests
+    and for code paths that need only one cap. ``SessionCapMiddleware``
+    uses this compound function exclusively to avoid the F1 budget
+    leak.
+    """
+    if now is None:
+        now = time.time()
+
+    async with state.lock:
+        # --- Step 1: per-tool retrieval cap (no mutation yet) ---
+        per_tool_limit = 0
+        per_tool_count = 0
+        if tool_name == "search_papers":
+            per_tool_limit = MAX_SEARCH_PAPERS_CALLS
+            per_tool_count = state.search_count
+            if per_tool_count >= per_tool_limit:
+                return "per_tool_rejected", per_tool_count + 1, per_tool_limit
+        elif tool_name == "get_chunk":
+            per_tool_limit = MAX_GET_CHUNK_CALLS
+            per_tool_count = state.chunk_count
+            if per_tool_count >= per_tool_limit:
+                return "per_tool_rejected", per_tool_count + 1, per_tool_limit
+        # Tools not in TOOLS_WITH_CAPS have no per-tool cap; fall
+        # through to the hourly check.
+
+        # --- Step 2: hourly rate limit (prune old, no mutation yet) ---
+        cutoff = now - HOURLY_WINDOW_SECONDS
+        while state.call_timestamps and state.call_timestamps[0] < cutoff:
+            state.call_timestamps.popleft()
+        hourly_count = len(state.call_timestamps)
+        if hourly_count >= MAX_CALLS_PER_HOUR:
+            return "hourly_rejected", hourly_count + 1, MAX_CALLS_PER_HOUR
+
+        # --- Step 3: BOTH passed — commit BOTH atomically ---
+        if tool_name == "search_papers":
+            state.search_count += 1
+        elif tool_name == "get_chunk":
+            state.chunk_count += 1
+        state.call_timestamps.append(now)
+        return "allowed", hourly_count + 1, MAX_CALLS_PER_HOUR
+
+
 async def check_hourly_rate_limit(
     state: SessionState, now: float | None = None
 ) -> tuple[bool, int, int]:
@@ -313,6 +385,7 @@ __all__ = [
     "TOOLS_WITH_CAPS",
     "SessionState",
     "check_and_increment",
+    "check_both_caps",
     "check_hourly_rate_limit",
     "get_or_create_session",
     "get_session_count",

@@ -59,10 +59,13 @@ from server.session import (
 )
 
 # ===========================================================================
-# Adversarial inputs (synthesis: known-bad numeric values)
+# Adversarial inputs (synthesis: known-bad numeric values from brief)
 # ===========================================================================
 
 #: The brief's named adversarial value for numeric over-cap inputs.
+#: Used by ``TestNumericParamRejection`` behavioral tests (F2 rect)
+#: to drive Pydantic validation through ``TypeAdapter`` and assert
+#: ``ValidationError`` fires for every constrained numeric param.
 ADVERSARIAL_K = 10000
 
 #: The brief's named adversarial value for depth.
@@ -96,6 +99,30 @@ def _le_constraint_for_param(handler_fn, param_name: str):
                 if hasattr(constraint, "le") and constraint.le is not None:
                     return constraint
     return None
+
+
+def _adapter_for_param(handler_fn, param_name: str):
+    """Return a :class:`pydantic.TypeAdapter` for a handler's
+    ``Annotated[int, Field(le=...)]`` parameter (F2 rect).
+
+    Behavioral test path: where the introspection helper proves the
+    constraint is DECLARED, the TypeAdapter actually VALIDATES against
+    it — exactly what FastMCP's schema-validation wrapper does when
+    the tool is invoked through the MCP transport layer. Calling
+    ``adapter.validate_python(10000)`` raises
+    ``pydantic.ValidationError`` for any parameter whose annotation
+    declares ``le<10000``. The handler function is never called, so
+    the security goal "handler body not entered for over-cap input"
+    is asserted by the absence of any monkey-patchable side effect
+    on the handler.
+    """
+    from pydantic import TypeAdapter  # noqa: PLC0415
+
+    hints = typing.get_type_hints(handler_fn, include_extras=True)
+    annotated_type = hints.get(param_name)
+    if annotated_type is None:
+        return None
+    return TypeAdapter(annotated_type)
 
 
 # ===========================================================================
@@ -157,6 +184,61 @@ class TestNumericParamRejection:
         assert le is not None
         assert le.le == 100
 
+    # ------------------------------------------------------------------
+    # F2 rectification (E13_S04 adversary critique): behavioral tests.
+    # The constraint-presence checks above prove the Field metadata
+    # is DECLARED. These tests prove the constraint is ENFORCED — by
+    # validating the over-cap value through ``pydantic.TypeAdapter``
+    # (exactly what FastMCP's schema-validation wrapper does on the
+    # MCP transport boundary). ValidationError fires; the handler
+    # function is never called.
+    # ------------------------------------------------------------------
+
+    def test_search_papers_k_over_cap_rejected_by_validator(self):
+        from pydantic import ValidationError
+
+        adapter = _adapter_for_param(handle_search_papers, "k")
+        assert adapter is not None
+        with pytest.raises(ValidationError, match="less than or equal to"):
+            adapter.validate_python(ADVERSARIAL_K)
+        # Boundary: 50 is accepted.
+        assert adapter.validate_python(50) == 50
+
+    def test_find_equation_k_over_cap_rejected_by_validator(self):
+        from pydantic import ValidationError
+
+        adapter = _adapter_for_param(handle_find_equation, "k")
+        assert adapter is not None
+        with pytest.raises(ValidationError, match="less than or equal to"):
+            adapter.validate_python(ADVERSARIAL_K)
+
+    def test_find_lemma_by_name_k_over_cap_rejected_by_validator(self):
+        from pydantic import ValidationError
+
+        adapter = _adapter_for_param(handle_find_lemma_by_name, "k")
+        assert adapter is not None
+        with pytest.raises(ValidationError, match="less than or equal to"):
+            adapter.validate_python(ADVERSARIAL_K)
+
+    def test_cite_neighbors_depth_over_cap_rejected_by_validator(self):
+        """Reframed from brief's fictional ``dependency_graph(depth=100)``.
+        Real depth=100 against ``cite_neighbors`` (le=3) is rejected
+        at validation."""
+        from pydantic import ValidationError
+
+        adapter = _adapter_for_param(handle_cite_neighbors, "depth")
+        assert adapter is not None
+        with pytest.raises(ValidationError, match="less than or equal to"):
+            adapter.validate_python(ADVERSARIAL_DEPTH)
+
+    def test_cite_neighbors_limit_over_cap_rejected_by_validator(self):
+        from pydantic import ValidationError
+
+        adapter = _adapter_for_param(handle_cite_neighbors, "limit")
+        assert adapter is not None
+        with pytest.raises(ValidationError, match="less than or equal to"):
+            adapter.validate_python(101)
+
 
 # ===========================================================================
 # AC3: Filter dict size cap (handler-body validation)
@@ -214,6 +296,62 @@ class TestFiltersCapEnforced:
         adversarial_filters = {f"author{i}": "x" for i in range(10000)}
         with pytest.raises(ValueError, match="resource-exhaustion cap"):
             _run(handle_search_papers(query="x", filters=adversarial_filters))
+
+
+# ===========================================================================
+# F4 rect: get_definitions.term cap (was the only uncapped string param)
+# ===========================================================================
+
+
+class TestDefinitionsTermCap:
+    """F4 rectification (E13_S04 adversary critique).
+
+    Closes the last named gap in the Threat-4 audit table:
+    ``get_definitions.term`` previously had no length cap. An
+    adversary could pass ``term="X" * 1_000_000`` to inflate memory
+    before any LanceDB query fires. Handler-body validation now
+    rejects over-cap terms with a ``ValueError``, identical
+    discipline to ``MAX_FILTER_ITEMS`` in ``search_papers``.
+    """
+
+    def test_term_at_cap_does_not_raise_value_error(self):
+        from server.handlers.definitions import (
+            MAX_TERM_LENGTH,
+            handle_get_definitions,
+        )
+
+        sentinel = "did_not_reach_resources"
+        with patch(
+            "server.handlers.definitions._get_definitions_table",
+            side_effect=RuntimeError(sentinel),
+        ):
+            with pytest.raises(RuntimeError) as exc:
+                _run(
+                    handle_get_definitions(
+                        paper_id="2401.00100",
+                        term="x" * MAX_TERM_LENGTH,
+                    )
+                )
+            # Reached the resources fetch — term cap did not fire at boundary.
+            assert sentinel in str(exc.value), (
+                f"term at cap (200 chars) must not raise the term cap "
+                f"ValueError; got {exc.value!r}"
+            )
+
+    def test_term_over_cap_rejected_with_value_error(self):
+        from server.handlers.definitions import handle_get_definitions
+
+        sentinel = "resource_layer_unexpectedly_reached"
+        with patch(
+            "server.handlers.definitions._get_definitions_table",
+            side_effect=RuntimeError(sentinel),
+        ), pytest.raises(ValueError, match="resource-exhaustion cap"):
+            _run(
+                handle_get_definitions(
+                    paper_id="2401.00100",
+                    term="x" * 10000,
+                )
+            )
 
 
 # ===========================================================================
@@ -456,3 +594,209 @@ class TestRateLimitPayloadShape:
         common_keys = {"code", "message", "tool", "limit", "session_attempted_count"}
         assert common_keys.issubset(rate.keys())
         assert common_keys.issubset(retrieval.keys())
+
+
+# ===========================================================================
+# F1 rect: atomic two-cap check — no budget leak
+# ===========================================================================
+
+
+class TestAtomicTwoCapCheck:
+    """F1 rectification (E13_S04 adversary critique).
+
+    The pre-rect middleware called ``check_and_increment`` and
+    ``check_hourly_rate_limit`` separately. If the per-tool cap
+    allowed (incremented counter) but the hourly cap rejected, the
+    retrieval budget was silently leaked — a subsequent legitimate
+    retry could be rejected by per-tool even though the original
+    call never executed retrieval work.
+
+    The fix introduces ``check_both_caps`` which holds the session
+    lock once and mutates neither counter unless both caps pass.
+    """
+
+    def test_per_tool_rejected_does_not_consume_hourly_budget(self):
+        """When the per-tool cap rejects, the hourly timestamp deque
+        is NOT mutated.
+        """
+        from server.session import check_both_caps
+
+        state = SessionState(session_id="f1-test-a")
+        # Saturate per-tool search cap.
+        state.search_count = 3  # at MAX_SEARCH_PAPERS_CALLS
+
+        before = len(state.call_timestamps)
+        verdict, count, limit = _run(check_both_caps(state, "search_papers"))
+        after = len(state.call_timestamps)
+
+        assert verdict == "per_tool_rejected"
+        assert after == before, (
+            "hourly deque must not be mutated when per-tool cap rejects "
+            "(F1 budget-leak fix)"
+        )
+
+    def test_hourly_rejected_does_not_consume_per_tool_budget(self):
+        """When the hourly cap rejects, the per-tool counter is
+        NOT incremented — even though the per-tool cap would have
+        allowed the call.
+        """
+        from server.session import check_both_caps
+
+        state = SessionState(session_id="f1-test-b")
+        # Per-tool well under cap (search_count=0).
+        # Hourly at cap (1000 fresh timestamps).
+        now = time.time()
+        state.call_timestamps.extend([now] * MAX_CALLS_PER_HOUR)
+
+        verdict, count, limit = _run(check_both_caps(state, "search_papers", now=now))
+
+        assert verdict == "hourly_rejected"
+        # Per-tool counter unchanged — budget not leaked.
+        assert state.search_count == 0, (
+            f"per-tool search_count must stay at 0 when hourly cap "
+            f"rejects (F1 budget-leak fix); got {state.search_count}"
+        )
+
+    def test_both_pass_commits_both_atomically(self):
+        """When both caps pass, both counters are mutated."""
+        from server.session import check_both_caps
+
+        state = SessionState(session_id="f1-test-c")
+        verdict, count, limit = _run(check_both_caps(state, "search_papers"))
+
+        assert verdict == "allowed"
+        # Both counters reflect the commit.
+        assert state.search_count == 1
+        assert len(state.call_timestamps) == 1
+
+    def test_non_capped_tool_only_hits_hourly(self):
+        """Tools not in TOOLS_WITH_CAPS (e.g. ``get_paper``,
+        ``find_lemma_by_name``) have no per-tool cap. Only the
+        hourly cap applies.
+        """
+        from server.session import check_both_caps
+
+        state = SessionState(session_id="f1-test-d")
+        verdict, count, limit = _run(check_both_caps(state, "get_paper"))
+
+        assert verdict == "allowed"
+        # No per-tool counter for get_paper.
+        assert state.search_count == 0
+        assert state.chunk_count == 0
+        # Hourly timestamp recorded.
+        assert len(state.call_timestamps) == 1
+
+
+# ===========================================================================
+# F5 rect: middleware integration test for the hourly-cap path
+# ===========================================================================
+
+
+class TestHourlyCapMiddlewareIntegration:
+    """F5 rectification (E13_S04 adversary critique).
+
+    Exercises the full ``SessionCapMiddleware.__call__`` path:
+    receive ``tools/call`` request → check_both_caps → emit
+    RATE_LIMIT_EXCEEDED short-circuit response. Pre-rect coverage
+    was unit-level only (``check_hourly_rate_limit`` +
+    ``_rate_limit_payload`` separately); this verifies they wire
+    together correctly.
+    """
+
+    def test_hourly_cap_at_limit_short_circuits_middleware(self):
+        """A session with the hourly deque at MAX_CALLS_PER_HOUR
+        gets RATE_LIMIT_EXCEEDED on the next call, without ever
+        reaching the inner ASGI app.
+        """
+        import json
+
+        from server.middleware import SessionCapMiddleware
+        from server.session import (
+            _SESSIONS,
+            reset_session_state_for_tests,
+        )
+
+        reset_session_state_for_tests()
+
+        # A valid UUID4-hex session-id.
+        session_id = "0123456789abcdef0123456789abcdef"
+
+        # Pre-seed the session at the hourly cap.
+        seeded_state = SessionState(session_id=session_id)
+        now = time.time()
+        seeded_state.call_timestamps.extend([now] * MAX_CALLS_PER_HOUR)
+        _SESSIONS[session_id] = seeded_state
+
+        # Fake inner ASGI app that records whether it was called.
+        inner_app_calls: list[bool] = []
+
+        async def inner_app(scope, receive, send):
+            inner_app_calls.append(True)
+            await send(
+                {"type": "http.response.start", "status": 200, "headers": []}
+            )
+            await send(
+                {"type": "http.response.body", "body": b"", "more_body": False}
+            )
+
+        middleware = SessionCapMiddleware(inner_app)
+
+        # Build a tools/call request body for a tool NOT in TOOLS_WITH_CAPS
+        # (get_paper) so the per-tool cap is a no-op and we isolate the
+        # hourly check.
+        request_body = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 42,
+                "method": "tools/call",
+                "params": {"name": "get_paper", "arguments": {"paper_id": "2401.00001"}},
+            }
+        ).encode("utf-8")
+
+        scope = {
+            "type": "http",
+            "method": "POST",
+            "path": "/mcp",
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"mcp-session-id", session_id.encode("ascii")),
+            ],
+        }
+
+        sent_events: list[dict] = []
+
+        async def send(event):
+            sent_events.append(event)
+
+        # Synthetic receive yields the body in one shot then disconnect.
+        body_yielded = [False]
+
+        async def receive():
+            if not body_yielded[0]:
+                body_yielded[0] = True
+                return {
+                    "type": "http.request",
+                    "body": request_body,
+                    "more_body": False,
+                }
+            return {"type": "http.disconnect"}
+
+        _run(middleware(scope, receive, send))
+
+        # Inner app NEVER called — middleware short-circuited.
+        assert not inner_app_calls, (
+            "inner ASGI app must NOT be reached when hourly cap "
+            "rejects (F5 integration test)"
+        )
+        # Response is 200 with RATE_LIMIT_EXCEEDED structured content.
+        start_events = [e for e in sent_events if e["type"] == "http.response.start"]
+        body_events = [e for e in sent_events if e["type"] == "http.response.body"]
+        assert len(start_events) == 1
+        assert start_events[0]["status"] == 200
+        body = b"".join(e["body"] for e in body_events).decode("utf-8")
+        parsed = json.loads(body)
+        assert parsed["result"]["isError"] is True
+        assert parsed["result"]["structuredContent"]["code"] == "RATE_LIMIT_EXCEEDED"
+        assert parsed["result"]["structuredContent"]["window_seconds"] == 3600
+
+        reset_session_state_for_tests()
