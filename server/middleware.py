@@ -44,7 +44,7 @@ only when** :func:`mcp.server.fastmcp.FastMCP.__init__` auto-enables
 it (which happens when the configured ``host`` is in
 ``("127.0.0.1", "localhost", "::1")``; see
 ``mcp/server/fastmcp/server.py:178``). Because
-:func:`server.config.Config.reject_non_loopback` already pins the
+:func:`server.config.Config.reject_non_loopback_bind` already pins the
 host to a loopback value, FastMCP's protection IS active in the
 v1 server — but the dependency is implicit. **Operators must NOT
 construct FastMCP with a non-loopback host even in tests, or the
@@ -64,7 +64,7 @@ the E06_S05 critique.
 
 The first MUST is satisfied by :class:`OriginValidationMiddleware`.
 The second SHOULD is satisfied by the existing
-:func:`server.config.Config.reject_non_loopback` validator
+:func:`server.config.Config.reject_non_loopback_bind` validator
 (escalated from SHOULD to MUST for our deployment per the brief).
 """
 

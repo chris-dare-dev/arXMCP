@@ -226,7 +226,7 @@ class Config(BaseSettings):
     #: §Tracing). Forwarding to an external SaaS collector would
     #: leak session IDs. The :meth:`validate_otel_endpoint_loopback`
     #: validator rejects non-loopback hostnames at instantiation
-    #: time — same precedent as :meth:`reject_non_loopback` for
+    #: time — same precedent as :meth:`reject_non_loopback_bind` for
     #: ``bind_host``. The escape hatch
     #: (:data:`otel_allow_remote`) is documented separately and
     #: requires an explicit operator opt-in. F1 from the E14_S02
@@ -371,7 +371,7 @@ class Config(BaseSettings):
         Closes F1 from the E14_S02 adversary critique and the brief's
         named Risk note (*"OTel spans containing mcp.session_id must
         not be forwarded to a remote endpoint by default"*). Mirrors
-        the :meth:`reject_non_loopback` precedent on ``bind_host`` —
+        the :meth:`reject_non_loopback_bind` precedent on ``bind_host`` —
         push the policy to the config layer so an environment-driven
         misconfiguration fails at startup, not silently in production.
 
