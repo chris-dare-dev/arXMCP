@@ -4,16 +4,26 @@
   "critics_run": [],
   "critique_finding_counts": {
     "critical": 0,
-    "high": 0,
-    "low": 0,
-    "medium": 0
+    "high": 1,
+    "low": 3,
+    "medium": 4
   },
   "critique_path": null,
-  "deferred_findings": [],
+  "deferred_findings": [
+    "F8"
+  ],
   "external_writes_authorized": false,
   "external_writes_completed": false,
   "external_writes_required": [],
-  "fixed_findings": [],
+  "fixed_findings": [
+    "F1",
+    "F2",
+    "F3",
+    "F4",
+    "F5",
+    "F6",
+    "F7"
+  ],
   "id": "E13_S04",
   "implementation_base": "ff1474f358d8ed394d7a7877b0af3761122fa70b",
   "implementation_branch": "main",
@@ -25,7 +35,7 @@
   "implementation_specialist": null,
   "invalidated_findings": [],
   "milestone_brief": "### E13_S04 \u2014 Threat-4 audit: resource-exhaustion limits across the 7 tools\n\n**Status:** NEW\n**Tier:** 5\n**Effort:** S\n**Dependencies:** E07_S10, E06_S07, E06_S08\n\n**Description.** An LLM in a retry loop or under prompt injection can pass `k=10000`, enormous filter lists, or deeply recursive dependency queries. The mitigations \u2014 JSON-Schema `maximum` on every numeric parameter, 256 KB byte cap, per-session rate limits \u2014 were specified in E06_S07, E06_S08, and E07_S10. This milestone writes fault tests proving each limit holds under adversarial input, covering all 7 canonical tools.\n\nFault tests verify: `search_papers(k=10000)` is rejected at schema validation; `dependency_graph(depth=100)` is rejected; a filter list with 10,000 authors is rejected; a synthetic result payload that would exceed 256 KB is rewritten to `resource_link`; and 1,500 tool calls within one hour from a single `Mcp-Session-Id` are rate-limited at 1,000 (returning -32005 or equivalent per the rate-limit spec).\n\n**Deliverables.**\n- `tests/security/test_resource_exhaustion.py` \u2014 covers the 5 fault scenarios above\n- `docs/security/threat-4-audit.md` \u2014 per-parameter limit table for all 7 tools\n\n**Acceptance criteria.**\n- [ ] `pytest tests/security/test_resource_exhaustion.py` passes: all 5 adversarial inputs rejected\n- [ ] `k=10000` \u2192 -32602 at JSON-Schema validation; handler body not entered\n- [ ] `depth=100` \u2192 -32602 at JSON-Schema validation\n- [ ] 10,000-item filter list \u2192 -32602\n- [ ] Synthetic 300 KB chunk body \u2192 response carries `resource_link`, inline content \u2264 256 KB\n- [ ] Rate-limit test: 1,500 calls in 1 hour from one session, limit fires at 1,000\n\n**Out of scope.** Embedder/reranker semaphore exhaustion (covered by startup config in E06_S01). Storage-layer resource limits (disk-full handling in E14_S05).\n\n**Risk notes.**\n- Closes Threat 4 (resource exhaustion) from `.claude/notes/08-security-observability-ops.md` \u00a7 Threat 4.\n\n**Labels.** `area:security`, `tier:5`\n\n---",
-  "phase": "rectify-running",
+  "phase": "complete",
   "phase_history": [
     {
       "entered_at": "2026-05-18T02:06:19Z",
@@ -64,14 +74,19 @@
     },
     {
       "entered_at": "2026-05-18T02:40:16Z",
-      "left_at": null,
+      "left_at": "2026-05-18T02:54:00Z",
       "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-05-18T02:54:00Z",
+      "left_at": null,
+      "phase": "complete"
     }
   ],
-  "rectification_commit": null,
+  "rectification_commit": "002ed477c35c68a75b5d45134676c5ebf4987496",
   "regression_tests_added": [],
   "research_briefs": [],
   "research_mode": "standard",
   "research_synthesis": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/E13_S04/research-synthesis.md",
-  "updated_at": "2026-05-18T02:40:16Z"
+  "updated_at": "2026-05-18T02:54:00Z"
 }
