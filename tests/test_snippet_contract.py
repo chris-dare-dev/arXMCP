@@ -167,16 +167,23 @@ class TestSnippetSource:
 
     def test_snippet_is_prefix_of_body_text(self, warm_app):
         """The seeded corpus body_text starts with
-        ``"This is the body of chunk N. ..."``. The snippet must
-        be a prefix of that text (verbatim slice, no rewriting).
+        ``"This is the body of chunk N. ..."``. After E13_S02, the
+        snippet is wrapped in ``<retrieved_chunk>`` delimiters as a
+        prompt-injection defense (Threat 2). The wrapped content
+        must still be a verbatim prefix of body_text (no rewriting);
+        only the surrounding delimiter changes.
         """
         body = _search(warm_app, k=5)
         rows = body["result"]["structuredContent"]["results"]
         assert len(rows) >= 1
         for row in rows:
-            # The seeded body_text format is deterministic per
-            # tests/test_tools_all.py::_seed_corpus.
-            assert row["snippet"].startswith("This is the body of chunk")
+            # E13_S02 — snippet is now wrapped in <retrieved_chunk>.
+            # The content inside the delimiter is the verbatim
+            # 150-char prefix of body_text (no LLM rewriting).
+            assert row["snippet"].startswith(
+                "<retrieved_chunk>This is the body of chunk"
+            )
+            assert row["snippet"].endswith("</retrieved_chunk>")
 
     def test_snippet_constant_pinned_to_150(self):
         from server.handlers.search import SNIPPET_MAX_CHARS
@@ -360,20 +367,32 @@ class TestEdgeCaseShapes:
     """
 
     def test_snippet_function_at_cap(self):
-        """``_snippet`` returns exactly the first 150 chars when
-        body_text length == cap, and exactly 150 when length > cap.
+        """``_snippet`` returns exactly the first 150 chars of the
+        sanitized body_text wrapped in ``<retrieved_chunk>``
+        delimiters (E13_S02 Threat 2 defense). The 150-char
+        contract applies to the *content* inside the delimiter; the
+        delimiter overhead is independent.
         """
         from server.handlers.search import SNIPPET_MAX_CHARS, _snippet
 
-        # length == cap → returned unchanged
+        # length == cap → content unchanged, wrapped in delimiters
         body_at = "a" * SNIPPET_MAX_CHARS
-        assert _snippet(body_at) == body_at
-        assert len(_snippet(body_at)) == SNIPPET_MAX_CHARS
+        snippet_at = _snippet(body_at)
+        assert snippet_at == f"<retrieved_chunk>{body_at}</retrieved_chunk>"
+        # The 150-char content contract is preserved inside the wrap.
+        inner = snippet_at.removeprefix("<retrieved_chunk>").removesuffix(
+            "</retrieved_chunk>"
+        )
+        assert len(inner) == SNIPPET_MAX_CHARS
 
-        # length == cap + 1 → truncated to exactly 150
+        # length == cap + 1 → content truncated to exactly 150
         body_over = "a" * (SNIPPET_MAX_CHARS + 1)
-        assert len(_snippet(body_over)) == SNIPPET_MAX_CHARS
-        assert _snippet(body_over) == body_over[:SNIPPET_MAX_CHARS]
+        snippet_over = _snippet(body_over)
+        inner_over = snippet_over.removeprefix("<retrieved_chunk>").removesuffix(
+            "</retrieved_chunk>"
+        )
+        assert len(inner_over) == SNIPPET_MAX_CHARS
+        assert inner_over == body_over[:SNIPPET_MAX_CHARS]
 
     def test_snippet_function_handles_none_and_empty(self):
         from server.handlers.search import _snippet

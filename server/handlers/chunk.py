@@ -20,7 +20,13 @@ from typing import Annotated, Any
 from pydantic import Field
 
 from ingest.identifiers import is_valid_chunk_id
-from server.tools import enforce_byte_cap, envelope, get_resources
+from server.observability.sanitize import sanitize_retrieved_text
+from server.tools import (
+    enforce_byte_cap,
+    envelope,
+    get_resources,
+    wrap_retrieved_text,
+)
 
 
 async def handle_get_chunk(
@@ -60,8 +66,15 @@ async def handle_get_chunk(
         )
 
     row = _arrow_first_row(arrow)
+    # E13_S02 (Threat 2) — sanitize body_text BEFORE byte-cap truncation
+    # so the 256 KB cap measures post-sanitize bytes. Wrapping is
+    # deferred until AFTER truncation so the delimiter tags are not
+    # sliced off by the cap path (which truncates ``body_text``
+    # in-place when the structured payload exceeds the cap).
+    raw_body = row["body_text"] or ""
+    sanitized_body = sanitize_retrieved_text(raw_body)
     chunk = {
-        "body_text": row["body_text"] or "",
+        "body_text": sanitized_body,
         "chunk_id": row["chunk_id"],
         "chunker_version": row["chunker_version"],
         "embedder_version": row["embedder_version"],
@@ -89,6 +102,17 @@ async def handle_get_chunk(
         chunk_id=chunk_id,
         body_text_path=("chunk", "body_text"),
     )
+    # E13_S02 — wrap AFTER truncation so the delimiter pair is
+    # well-formed regardless of whether the cap fired. The
+    # escape-on-emit step inside ``wrap_retrieved_text`` defends
+    # against adversarial close tags in body content (FM-1).
+    if (
+        isinstance(structured.get("chunk"), dict)
+        and "body_text" in structured["chunk"]
+    ):
+        structured["chunk"]["body_text"] = wrap_retrieved_text(
+            structured["chunk"]["body_text"], kind="chunk"
+        )
     if content_blocks:
         # FastMCP's add_tool handlers return structuredContent; the
         # content blocks are appended via FastMCP's automatic

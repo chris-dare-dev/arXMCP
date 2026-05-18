@@ -63,8 +63,14 @@ from mcp.types import CallToolResult, ResourceLink, TextContent
 from pydantic import AnyUrl, Field
 
 from server.cache import get_cache
+from server.observability.sanitize import sanitize_retrieved_text
 from server.query_encoder import encode_query, encode_query_with_fallback
-from server.tools import CHUNK_RESOURCE_URI_SCHEME, envelope, get_resources
+from server.tools import (
+    CHUNK_RESOURCE_URI_SCHEME,
+    envelope,
+    get_resources,
+    wrap_retrieved_text,
+)
 
 #: Hard upper bound on per-tool ``k``. Mirrors the design note's
 #: per-tool argument validation rule (k in [1, 50]).
@@ -376,11 +382,30 @@ def _format_label(theorem_name: str | None, theorem_label: str | None) -> str:
 
 def _snippet(body_text: str | None) -> str:
     """Take the first :data:`SNIPPET_MAX_CHARS` characters of
-    ``body_text`` verbatim. No LLM rewriting (E06_S04 freezes this
-    contract)."""
+    ``body_text`` and wrap in ``<retrieved_chunk>`` delimiters.
+
+    E13_S02 (Threat 2) — every emitted snippet is wrapped in
+    ``<retrieved_chunk>...</retrieved_chunk>`` after running the
+    optional sanitizer. The wrapper applies escape-on-emit (FM-1)
+    so adversarial paper content containing the literal close tag
+    cannot terminate the wrapper prematurely.
+
+    Order: sanitize raw body_text → truncate to SNIPPET_MAX_CHARS →
+    wrap. Truncation runs on the sanitized text so the 150-char
+    contract counts visible chars (post-sanitize), not stripped
+    injection bytes. The wrap is applied AFTER truncation so the
+    delimiter tags are not truncated inside the SNIPPET_MAX_CHARS
+    budget (the wrapper adds ~32 chars of overhead).
+
+    E06_S04 freezes the 150-char *content* contract; the delimiter
+    overhead is independent of that contract and not part of the
+    150-char budget.
+    """
     if not body_text:
         return ""
-    return body_text[:SNIPPET_MAX_CHARS]
+    sanitized = sanitize_retrieved_text(body_text)
+    truncated = sanitized[:SNIPPET_MAX_CHARS]
+    return wrap_retrieved_text(truncated, kind="chunk")
 
 
 def _distance_to_score(dist: float | None) -> float:

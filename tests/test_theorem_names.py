@@ -647,10 +647,17 @@ class TestHandler:
         assert result["retrieval_mode"] == "in_memory_scan_fallback"
         assert len(result["matches"]) == 1
         match = result["matches"][0]
-        assert match["display_name"] == "Yoneda Lemma"
+        # E13_S02 (Threat 2) — display_name is now wrapped in
+        # <retrieved_chunk> delimiters as a prompt-injection defense.
+        assert (
+            match["display_name"]
+            == "<retrieved_chunk>Yoneda Lemma</retrieved_chunk>"
+        )
         # F3 regression (E10_S02 critique) — fallback rows now
         # carry a synthesized dedup_key matching the indexer's
-        # recipe, not None.
+        # recipe, not None. The dedup_key is computed from the
+        # raw (un-wrapped) theorem name so it stays stable across
+        # the E13_S02 wrap.
         assert match["dedup_key"] is not None
         assert len(match["dedup_key"]) == 16
 
@@ -757,7 +764,11 @@ class TestHandler:
                 server_tools._RESOURCES = None
             assert result["retrieval_mode"] == "fuzzy_jaccard"
             assert len(result["matches"]) == 1
-            assert result["matches"][0]["display_name"] == "Riemann-Roch"
+            # E13_S02 (Threat 2) — display_name wrapped in <retrieved_chunk>.
+            assert (
+                result["matches"][0]["display_name"]
+                == "<retrieved_chunk>Riemann-Roch</retrieved_chunk>"
+            )
         finally:
             _run(store.close())
 

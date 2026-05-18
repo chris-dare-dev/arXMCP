@@ -40,6 +40,7 @@ from typing import Annotated, Any
 from pydantic import Field
 
 from ingest.identifiers import is_valid_paper_id
+from server.observability.sanitize import sanitize_retrieved_text
 from server.theorem_names_store import (
     TheoremNamesStore,
     TheoremRow,
@@ -47,7 +48,7 @@ from server.theorem_names_store import (
     normalize_name,
     serialize_section_path,
 )
-from server.tools import envelope, get_resources
+from server.tools import envelope, get_resources, wrap_retrieved_text
 
 logger = logging.getLogger(__name__)
 
@@ -127,15 +128,25 @@ async def handle_find_lemma_by_name(
 
 
 def _row_to_match(row: TheoremRow) -> dict[str, Any]:
-    """Convert a TheoremRow to the response-row dict shape."""
+    """Convert a TheoremRow to the response-row dict shape.
+
+    E13_S02 (Threat 2) — ``display_name`` is paper-authored text
+    (theorem labels written by the paper's author). Wrap in
+    ``<retrieved_chunk>`` delimiters with the escape-on-emit defense
+    against adversarial close tags. The ``theorem_name`` back-compat
+    alias is wrapped consistently.
+    """
+    safe_name = wrap_retrieved_text(
+        sanitize_retrieved_text(row.display_name), kind="chunk"
+    )
     return {
         "chunk_id": row.chunk_id,
         "confidence": row.confidence,
         "dedup_key": row.dedup_key,
-        "display_name": row.display_name,
+        "display_name": safe_name,
         "paper_id": row.paper_id,
         "section_path": list(row.section_path),
-        "theorem_name": row.display_name,  # back-compat alias
+        "theorem_name": safe_name,  # back-compat alias
     }
 
 
@@ -179,8 +190,15 @@ async def _in_memory_scan_fallback(
         # tells callers this row didn't go through the SQLite index.
         sp_list = list(sp) if sp else []
         sp_json = serialize_section_path(sp_list)
+        # E13_S02 (Threat 2) — defer wrap until AFTER the
+        # exact-match sort below: the sort key compares the raw
+        # theorem_name against the query string. Stash the raw
+        # name under ``_raw_theorem_name`` (popped before emit) so
+        # the sort works on raw text and the wrap applies to the
+        # paper-authored content before it leaves this function.
         matches.append(
             {
+                "_raw_theorem_name": tn,
                 "chunk_id": cid,
                 "confidence": 1.0,
                 "dedup_key": dedup_key(pid, tn, sp_json),
@@ -193,10 +211,21 @@ async def _in_memory_scan_fallback(
 
     matches.sort(
         key=lambda r: (
-            0 if r["theorem_name"].lower() == name_lower else 1,
+            0 if r["_raw_theorem_name"].lower() == name_lower else 1,
             r["chunk_id"],
         )
     )
+    # E13_S02 — wrap paper-authored display_name / theorem_name in
+    # delimiters with the escape-on-emit defense. Mirror the
+    # FTS5-indexed ``_row_to_match`` path's wrapping so callers see
+    # consistent wrapping regardless of which path produced the row.
+    for r in matches:
+        r.pop("_raw_theorem_name", None)
+        wrapped = wrap_retrieved_text(
+            sanitize_retrieved_text(r["theorem_name"]), kind="chunk"
+        )
+        r["display_name"] = wrapped
+        r["theorem_name"] = wrapped
 
     return envelope(
         {

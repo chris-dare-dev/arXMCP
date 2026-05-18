@@ -665,7 +665,13 @@ class TestHandlerTermLookup:
         result = _run(_seeded_handler(paper_id="2401.00100", term="\\AA"))
         assert len(result["definitions"]) == 1
         assert result["definitions"][0]["symbol"] == "\\AA"
-        assert result["definitions"][0]["expansion"] == "\\mathcal{A}"
+        # E13_S02 (Threat 2) — ``expansion`` is paper-authored LaTeX
+        # macro content and is now wrapped in <retrieved_chunk>
+        # delimiters.
+        assert (
+            result["definitions"][0]["expansion"]
+            == "<retrieved_chunk>\\mathcal{A}</retrieved_chunk>"
+        )
 
     def test_term_not_found_returns_empty(self, _seeded_handler):
         result = _run(

@@ -312,6 +312,62 @@ def envelope(payload: dict[str, Any]) -> dict[str, Any]:
     return _sort_dict(payload)
 
 
+#: Tag name suffix for the retrieved-content delimiter wrapper. The
+#: literal close-tag in retrieved text is HTML-escaped before wrapping
+#: to defend against delimiter-spoofing (Threat 2; E13_S02 FM-1).
+#: See ``.claude/docs/security-threat-2-audit.md``.
+_WRAP_TAG_CHUNK = "retrieved_chunk"
+_WRAP_TAG_EQUATION = "retrieved_equation"
+
+
+def wrap_retrieved_text(
+    text: str | None,
+    kind: str = "chunk",
+) -> str:
+    """Wrap untrusted retrieved content in delimiter tags (Threat 2).
+
+    Every tool handler that emits text drawn from arXiv papers — chunk
+    bodies, snippets, theorem names, macro expansions — passes that
+    text through this helper before placing it in the response payload.
+    The consuming LLM's system prompt is expected to treat content
+    inside ``<retrieved_chunk>...</retrieved_chunk>`` as data, not
+    instructions, per the contract documented in
+    ``.claude/docs/orchestrator-recommended-system-prompt.md`` and
+    ``.claude/notes/08-security-observability-ops.md`` § Threat 2.
+
+    **Escape-on-emit (E13_S02 FM-1 defense).** If the input text
+    contains the literal close tag (e.g. an adversarial paper body
+    with ``</retrieved_chunk>`` inside a ``\\verb`` block), the close
+    tag is HTML-escaped before wrapping so the wrapper produces a
+    well-formed tag pair that cannot be terminated prematurely by
+    paper content.
+
+    For empty / None input, returns the empty string — the wrapper is
+    a no-op on missing content. This matches the v1 reality for
+    ``get_paper.abstract`` (NULL until E11 backfills) and
+    ``cite_neighbors.neighbors[].abstract`` (empty stub at v1).
+
+    Args:
+        text: Retrieved paper-derived text. May be None or empty.
+        kind: ``"chunk"`` (default) → ``<retrieved_chunk>...``;
+            ``"equation"`` → ``<retrieved_equation>...``. Equation
+            wrapping is reserved for ``find_equation`` when E10_S03
+            wires equation atom body text into the response.
+
+    Returns:
+        The text wrapped in ``<retrieved_chunk>...</retrieved_chunk>``
+        (or ``<retrieved_equation>...</retrieved_equation>``), with any
+        literal close-tag occurrences in ``text`` HTML-escaped.
+    """
+    if not text:
+        return ""
+    tag = _WRAP_TAG_EQUATION if kind == "equation" else _WRAP_TAG_CHUNK
+    close = f"</{tag}>"
+    escaped_close = close.replace("<", "&lt;").replace(">", "&gt;")
+    safe = text.replace(close, escaped_close)
+    return f"<{tag}>{safe}</{tag}>"
+
+
 def _sort_dict(d: dict[str, Any]) -> dict[str, Any]:
     """Recursively re-build ``d`` with alphabetically sorted keys.
 

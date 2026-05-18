@@ -39,7 +39,13 @@ from typing import Annotated, Any
 from pydantic import Field
 
 from ingest.identifiers import is_valid_paper_id
-from server.tools import enforce_byte_cap, envelope, get_resources
+from server.observability.sanitize import sanitize_retrieved_text
+from server.tools import (
+    enforce_byte_cap,
+    envelope,
+    get_resources,
+    wrap_retrieved_text,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -201,10 +207,25 @@ def _load_paper_rows(table: Any, paper_id: str) -> list[dict[str, str]]:
     passed the canonical-id regex (Threat 1 closure above) so it
     cannot inject quotes or SQL-like syntax. LanceDB's filter parser
     rejects single-quote characters inside string literals anyway.
+
+    E13_S02 (Threat 2) — every row's ``expansion`` field (LaTeX
+    macro body, ultimately paper-authored content) is sanitized
+    then wrapped in ``<retrieved_chunk>`` delimiters before the row
+    leaves this function. All four query paths (full-table mode +
+    three-step term hierarchy) consume rows from here, so wrapping
+    at the ingress is sufficient and avoids per-call-site
+    repetition.
     """
     safe_filter = f"paper_id = '{paper_id}'"
     arrow = table.search().where(safe_filter).to_arrow()
-    return arrow.to_pylist()
+    rows = arrow.to_pylist()
+    for r in rows:
+        if "expansion" in r:
+            r["expansion"] = wrap_retrieved_text(
+                sanitize_retrieved_text(r.get("expansion") or ""),
+                kind="chunk",
+            )
+    return rows
 
 
 def _term_lookup(
