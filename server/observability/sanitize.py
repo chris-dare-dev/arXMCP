@@ -41,17 +41,44 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 
 logger = logging.getLogger(__name__)
 
-#: Literal byte sequences stripped from retrieved content when the
-#: sanitizer is enabled. The set is intentionally small and explicit;
-#: see module docstring for the design rationale on literal-byte matching.
-_INJECTION_PATTERNS: tuple[str, ...] = (
+#: Tokenizer-role markers — matched case-SENSITIVE because the
+#: consuming LLM tokenizes these as exact byte sequences. A casing
+#: variant like ``<|System|>`` is a different token in the model's
+#: vocabulary and does not pose the same threat as the canonical
+#: lowercased form below.
+_TOKENIZER_PATTERNS: tuple[str, ...] = (
     "<|system|>",
     "[INST]",
     "<|im_start|>",
+)
+
+#: Natural-language injection patterns — matched case-INSENSITIVE
+#: because English prose tokenizes case-equivalently in modern
+#: BPE/Tiktoken vocabularies. A case-sensitive match would be
+#: trivially bypassed by "Ignore Previous Instructions" or
+#: "IGNORE PREVIOUS INSTRUCTIONS". F6 rectification (E13_S02
+#: adversary critique): the previous single-list implementation
+#: justified case-sensitive matching by "literal-byte only" — but
+#: that justification only fits tokenizer markers, not NL prose.
+#: The pattern types are now correctly separated.
+_NL_PATTERNS: tuple[str, ...] = (
     "ignore previous instructions",
+)
+
+#: Combined list for documentation / log purposes. The actual
+#: substitution uses the two lists above with different matching
+#: discipline.
+_INJECTION_PATTERNS: tuple[str, ...] = _TOKENIZER_PATTERNS + _NL_PATTERNS
+
+#: Pre-compiled case-insensitive regex for the NL patterns. Compiled
+#: once at module import to avoid per-call compilation cost.
+_NL_PATTERN_RE: re.Pattern[str] = re.compile(
+    "|".join(re.escape(p) for p in _NL_PATTERNS),
+    flags=re.IGNORECASE,
 )
 
 #: Environment-variable name controlling sanitizer activation. Set to
@@ -111,8 +138,13 @@ def sanitize_retrieved_text(text: str | None) -> str:
             ", ".join(_INJECTION_PATTERNS),
         )
         _warned = True
-    for pattern in _INJECTION_PATTERNS:
+    # Tokenizer-role markers — case-sensitive literal replace.
+    for pattern in _TOKENIZER_PATTERNS:
         text = text.replace(pattern, "")
+    # Natural-language patterns — case-insensitive regex replace
+    # (F6 rectification). Bypassed in the previous implementation
+    # by trivial case variation like "Ignore Previous Instructions".
+    text = _NL_PATTERN_RE.sub("", text)
     return text
 
 

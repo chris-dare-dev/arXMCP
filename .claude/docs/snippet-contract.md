@@ -9,12 +9,17 @@ intent behind four explicit decisions.
 
 ## (a) Snippet is 150 characters max — no LLM rewriting
 
-Every result row carries a single inline text field, `snippet`:
-the first **150 characters** of the chunk's canonical body text
-(column `body_text` in the LanceDB chunks table; conceptually
-`body_canonical` per design note `04-parsing-and-chunking.md`).
-The truncation is a byte-for-byte slice — no ellipsis added, no
-LLM rewriting, no paraphrasing.
+Every result row carries a single inline text field, `snippet`.
+The **content** is the first **150 characters** of the chunk's
+canonical body text (column `body_text` in the LanceDB chunks
+table; conceptually `body_canonical` per design note
+`04-parsing-and-chunking.md`). The truncation is a byte-for-byte
+slice — no ellipsis added, no LLM rewriting, no paraphrasing.
+
+The 150-character content is wrapped in `<retrieved_chunk>`
+delimiter tags as a prompt-injection defense — see section (e)
+below. The 150-char cap applies to the content inside the
+delimiter; the full wire field has the wrap overhead added.
 
 Rationale: agents triage relevance from the snippet alone; if the
 candidate is interesting they call `get_chunk(chunk_id)` for the
@@ -118,6 +123,50 @@ full = await get_chunk(chunk_id=top["chunk_id"])
 
 This pattern is uniform across MCP clients and does not depend
 on any client-side API beyond MCP itself.
+
+## (e) Delimiter wrapping (E13_S02 — Threat 2 defense)
+
+Every emitted snippet is wrapped in `<retrieved_chunk>` delimiters
+as the primary defense against indirect prompt injection from
+paper content. The full wire shape is:
+
+```
+<retrieved_chunk>{up to 150 chars of body_text content}</retrieved_chunk>
+```
+
+The schema's `snippet.maxLength` accommodates the wrap overhead
+(17 chars open tag + 18 chars close tag = 35 chars) PLUS the
+worst-case escape-on-emit expansion (6 chars per literal delimiter
+occurrence in the body; ~8 max in 150 chars of content). The cap
+is `250` chars on the wire field; the 150-char limit applies to
+the content INSIDE the delimiter.
+
+**Escape-on-emit (FM-1 + F5 rect).** If the input body contains
+the literal open or close tag (`<retrieved_chunk>` or
+`</retrieved_chunk>`), the tag is HTML-escaped before wrapping:
+
+- `<retrieved_chunk>` → `&lt;retrieved_chunk&gt;`
+- `</retrieved_chunk>` → `&lt;/retrieved_chunk&gt;`
+
+This produces exactly one matched delimiter pair regardless of
+input, defending against delimiter-spoofing attacks where
+adversarial paper content tries to terminate the wrapper early or
+inject a nested delimiter zone.
+
+**Sanitizer (optional, off by default).** The
+`ARXMCP_SANITIZE_RETRIEVED_CONTENT=1` env var enables a regex
+sanitizer that strips four literal byte patterns from the content
+BEFORE wrapping: `<|system|>`, `[INST]`, `<|im_start|>` (all
+case-sensitive — they are tokenizer-role markers), and `ignore
+previous instructions` (case-insensitive — natural-language
+pattern). Defense-in-depth only; the wrap is the primary defense.
+
+See `.claude/docs/security-threat-2-audit.md` for the full audit
+including per-tool wrapping coverage, false-positive surface, and
+deferred work. See
+`.claude/docs/orchestrator-recommended-system-prompt.md` for the
+required orchestrator-side system-prompt clause that gives the
+delimiter its meaning.
 
 ## Out of scope
 

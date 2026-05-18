@@ -215,6 +215,13 @@ async def _in_memory_scan_fallback(
             r["chunk_id"],
         )
     )
+    # F7 rectification (E13_S02 adversary critique): slice to k
+    # BEFORE wrapping. The previous implementation wrapped every row
+    # in matches then sliced — O(N) wrap calls when O(k) suffices.
+    # For pathological corpora with many matches for a common
+    # theorem name (default k=10 but could rise), the wasted wrap
+    # calls add up.
+    matches = matches[:k]
     # E13_S02 — wrap paper-authored display_name / theorem_name in
     # delimiters with the escape-on-emit defense. Mirror the
     # FTS5-indexed ``_row_to_match`` path's wrapping so callers see
@@ -229,7 +236,7 @@ async def _in_memory_scan_fallback(
 
     return envelope(
         {
-            "matches": matches[:k],
+            "matches": matches,
             "retrieval_mode": "in_memory_scan_fallback",
         }
     )

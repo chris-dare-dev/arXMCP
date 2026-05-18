@@ -1,9 +1,9 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://arxmcp/schemas/search_papers_result/v6.json",
+  "$id": "https://arxmcp/schemas/search_papers_result/v7.json",
   "additionalProperties": false,
-  "description": "Canonical structuredContent shape returned by the search_papers MCP tool. Frozen by E06_S04. The byte-stability test in E06_S06 hashes this file's bytes and pins the SHA-256; any drift is a deliberate bump. The ``version`` field below MUST equal server.tools.TOOL_SCHEMA_VERSION (cross-checked by tests/test_snippet_contract.py).",
-  "version": 6,
+  "description": "Canonical structuredContent shape returned by the search_papers MCP tool. Frozen by E06_S04; bumped at E13_S02 to widen snippet.maxLength for the <retrieved_chunk> delimiter wrapping (Threat 2 defense). The byte-stability test in E06_S06 hashes this file's bytes and pins the SHA-256; any drift is a deliberate bump. The ``version`` field below MUST equal server.tools.TOOL_SCHEMA_VERSION (cross-checked by tests/test_snippet_contract.py).",
+  "version": 7,
   "properties": {
     "corpus_version": {
       "description": "The integer corpus_version pinned at server startup (per E04_S03's corpus-version.json marker). Echoed in every tool result envelope so the agent can correlate cached results.",
@@ -31,7 +31,7 @@
       "description": "Per-chunk result rows, sorted (score_desc, chunk_id_asc). Each row is the canonical search-result object frozen by this milestone.",
       "items": {
         "additionalProperties": false,
-        "description": "One search result. NOT a chunk — agents call get_chunk(chunk_id) to fetch the full body. The snippet is a byte-for-byte slice of body_text (max 150 chars), no LLM rewriting.",
+        "description": "One search result. NOT a chunk — agents call get_chunk(chunk_id) to fetch the full body. The snippet content is a byte-for-byte slice of body_text (max 150 chars of content), no LLM rewriting. The snippet field itself wraps the content in <retrieved_chunk>...</retrieved_chunk> delimiters per Threat-2 defense (E13_S02; .claude/docs/security-threat-2-audit.md). The wrap adds 35 chars of fixed overhead plus up to 6 chars per literal delimiter occurrence escaped in the body — maxLength: 250 covers the worst case.",
         "properties": {
           "chunk_id": {
             "description": "Content-addressable chunk_id (arxiv:<paper_id>:<16-hex>). Stable across re-chunks of the same source bytes.",
@@ -58,8 +58,8 @@
             "type": "array"
           },
           "snippet": {
-            "description": "First 150 characters of the chunk's canonical body text (column body_text in the LanceDB chunks table; conceptually body_canonical per design note 04). NO LLM rewriting, NO ellipsis. Agents that need the full body call get_chunk(chunk_id).",
-            "maxLength": 150,
+            "description": "First 150 characters of the chunk's canonical body text (column body_text in the LanceDB chunks table; conceptually body_canonical per design note 04), wrapped in <retrieved_chunk>...</retrieved_chunk> delimiters as a prompt-injection defense (E13_S02 Threat 2). Open and close tag occurrences inside the body content are HTML-escaped before wrapping (escape-on-emit). NO LLM rewriting, NO ellipsis. Agents that need the full body call get_chunk(chunk_id). The 150-char limit applies to the content INSIDE the delimiter; the field's maxLength of 250 accommodates 17-char open tag + up to 198 chars of escaped content + 18-char close tag.",
+            "maxLength": 250,
             "type": "string"
           }
         },

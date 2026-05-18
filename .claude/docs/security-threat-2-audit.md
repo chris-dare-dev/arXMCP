@@ -69,28 +69,34 @@ The wrapper is a no-op on missing content — matches the v1 reality for
 
 ---
 
-## Escape-on-emit defense (FM-1)
+## Escape-on-emit defense (FM-1 + F5)
 
-**Attack:** adversarial paper body contains the literal close tag
-`</retrieved_chunk>` inside a `\verb` block, a code listing, or a discussion
-of MCP server internals. Without escape-on-emit, the wrapper produces:
+**Attacks (two flavors):**
+
+1. **Close-tag spoofing.** Adversarial paper body contains the literal
+   close tag `</retrieved_chunk>` inside a `\verb` block, a code listing,
+   or a discussion of MCP server internals. Without escape, the wrapper
+   produces a premature close — the consuming model treats subsequent
+   `injected content` as trusted (outside the delimiter).
+
+2. **Open-tag spoofing.** Adversarial body contains the literal OPEN tag
+   `<retrieved_chunk>` (e.g. a paper analyzing the arXMCP defense). Without
+   escape, the wrapped output has two open tags + one close, which a
+   permissive LLM may mis-parse as a nested/re-opened delimiter zone with
+   different trust semantics.
+
+**Defense:** the wrapper escapes BOTH open and close tags in body text
+BEFORE applying the outer delimiters. F5 rectification (E13_S02 adversary
+critique) extended the defense from close-tag-only to both tags. Result:
 
 ```
-<retrieved_chunk>...body</retrieved_chunk> injected content</retrieved_chunk>
+<retrieved_chunk>...body&lt;retrieved_chunk&gt; ... &lt;/retrieved_chunk&gt; ...</retrieved_chunk>
 ```
 
-The consuming model sees the first close tag, treats `injected content` as
-trusted (outside the delimiter), and may obey instructions hidden there.
-
-**Defense:** the wrapper replaces `</retrieved_chunk>` in body text with
-`&lt;/retrieved_chunk&gt;` BEFORE applying the outer delimiters. Result:
-
-```
-<retrieved_chunk>...body&lt;/retrieved_chunk&gt; injected content</retrieved_chunk>
-```
-
-Exactly one matched delimiter pair, regardless of input. Tested by
-`tests/security/test_delimiters.py::TestEscapeOnEmit`.
+Exactly one matched outer delimiter pair, regardless of input. Tested by
+`tests/security/test_delimiters.py::TestEscapeOnEmit` (4 test methods cover
+close-tag, equation-close, multiple close tags, open-tag, equation-open,
+combined open+close).
 
 Academic backing: arXiv 2603.12277 ("Prompt Injection as Role Confusion") and
 arXiv 2509.22830 ("ChatInject: Abusing Chat Templates") document role-tag
@@ -101,19 +107,36 @@ forging as a real attack class on tool-augmented LLMs.
 ## Sanitizer scope and false-positive surface
 
 The optional sanitizer (`ARXMCP_SANITIZE_RETRIEVED_CONTENT=1`) strips these
-literal byte sequences:
+patterns. F6 rectification (E13_S02 adversary critique) split them into two
+categories with appropriate matching discipline:
+
+**Tokenizer-role markers — case-SENSITIVE literal match:**
 
 - `<|system|>`
 - `[INST]`
 - `<|im_start|>`
-- `ignore previous instructions` (case-sensitive)
 
-**Why literal-byte only?** These are role-control tokens that the consuming
-LLM has learned during fine-tuning. The threat vector is the literal byte
-sequence appearing in the model's input. LaTeX-encoded variants
+These are byte-exact tokens in modern LLM vocabularies. A casing variant
+(`<|System|>`) is a different token, not the same threat — case-sensitive
+matching avoids stripping legitimate content (e.g. a paper discussing
+role-marker case variations in instruction-tuned models).
+
+**Natural-language patterns — case-INSENSITIVE regex match:**
+
+- `ignore previous instructions` (matched as `re.IGNORECASE`)
+
+English prose tokenizes case-equivalently in BPE/Tiktoken vocabularies. A
+case-sensitive match would be trivially bypassed by "Ignore Previous
+Instructions" or "IGNORE PREVIOUS INSTRUCTIONS". The pre-rectification
+implementation conflated this with the tokenizer-marker discipline; the
+post-rectification split correctly matches each pattern type as it should
+be matched.
+
+**Why literal byte / case-insensitive regex only?** These are the form the
+consuming LLM sees AFTER LaTeXML rendering. LaTeX-encoded variants
 (`\text{<|system|>}`) are NOT matched because they are NOT what the model
-sees post-LaTeXML rendering. Defending against LaTeX-encoded injection
-requires a model-aware classifier, which is **out of scope** per
+sees post-render. Defending against LaTeX-encoded injection requires a
+model-aware classifier, which is **out of scope** per
 `.claude/notes/09-feature-priorities.md` § "Things to explicitly NOT build in
 v1".
 

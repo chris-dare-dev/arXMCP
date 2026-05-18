@@ -302,6 +302,33 @@ class TestToolsSmoke:
         assert sc["found"] is True
         assert sc["chunk"]["chunk_id"] == cid
 
+    def test_get_chunk_body_text_is_wrapped(self, warm_app):
+        """F4 regression guard (E13_S02 adversary critique): the
+        ``get_chunk`` handler wraps the returned ``body_text`` field
+        in ``<retrieved_chunk>`` delimiters. This is the end-to-end
+        integration test — the helper-unit tests are in
+        ``tests/security/test_delimiters.py``, but the actual handler
+        wrap path through ``enforce_byte_cap`` was previously
+        untested.
+        """
+        cid = "arxiv:2401.00001:0000000000000000"
+        r = _call_tool(warm_app, "get_chunk", {"chunk_id": cid})
+        self._assert_envelope_ok(r, "get_chunk")
+        sc = r.json()["result"]["structuredContent"]
+        body = sc["chunk"]["body_text"]
+        assert body.startswith("<retrieved_chunk>"), (
+            f"get_chunk body_text not wrapped: {body[:60]!r}"
+        )
+        assert body.endswith("</retrieved_chunk>"), (
+            f"get_chunk body_text not closed: {body[-60:]!r}"
+        )
+        # The wrapped content is the seeded body: "This is the body
+        # of chunk 0. It mentions algebraic curves."
+        inner = body.removeprefix("<retrieved_chunk>").removesuffix(
+            "</retrieved_chunk>"
+        )
+        assert inner.startswith("This is the body of chunk 0")
+
     def test_get_chunk_not_found(self, warm_app):
         cid = "arxiv:9999.99999:ffffffffffffffff"
         r = _call_tool(warm_app, "get_chunk", {"chunk_id": cid})

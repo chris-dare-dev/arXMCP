@@ -433,18 +433,72 @@ class TestEdgeCaseShapes:
 class TestSnippetCapConsistency:
     """F8 close: cross-file consistency between the SNIPPET_MAX_CHARS
     constant, the schema's maxLength, and the doc's mention of
-    ``150``. A regression in ONE file is caught here."""
+    ``150``. A regression in ONE file is caught here.
 
-    def test_cap_constant_matches_schema_max_length(self):
+    E13_S02 (Threat 2) reframe: ``SNIPPET_MAX_CHARS`` caps the
+    *content* inside the ``<retrieved_chunk>`` delimiter. The
+    schema's ``maxLength`` caps the *full wire field* (content +
+    wrap overhead + worst-case escape-on-emit expansion). The two
+    are now legitimately different — assert the relationship, not
+    equality.
+    """
+
+    def test_schema_max_length_accommodates_content_cap_and_wrap(self):
         from server.handlers.search import SNIPPET_MAX_CHARS
 
         schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
         snippet_schema = schema["properties"]["results"]["items"]["properties"]["snippet"]
         cap_in_schema = snippet_schema["maxLength"]
-        assert cap_in_schema == SNIPPET_MAX_CHARS, (
-            f"snippet cap drifted: handler={SNIPPET_MAX_CHARS}, "
-            f"schema maxLength={cap_in_schema}"
+
+        # Wrap overhead: <retrieved_chunk> (17) + </retrieved_chunk> (18) = 35
+        WRAP_OVERHEAD = len("<retrieved_chunk>") + len("</retrieved_chunk>")
+        # Worst-case escape-on-emit expansion: each literal close or
+        # open tag in the body adds 6 chars. The 17-char open tag is
+        # the shorter of the two, so the max occurrences in
+        # SNIPPET_MAX_CHARS bytes is SNIPPET_MAX_CHARS // 17. Round
+        # up for safety.
+        MAX_ESCAPE_EXPANSION = 6 * (SNIPPET_MAX_CHARS // 17 + 1)
+        # The schema's maxLength must accommodate the absolute worst
+        # case: content_cap + wrap_overhead + max_escape_expansion.
+        required_min = SNIPPET_MAX_CHARS + WRAP_OVERHEAD + MAX_ESCAPE_EXPANSION
+        assert cap_in_schema >= required_min, (
+            f"snippet schema maxLength={cap_in_schema} is too tight; "
+            f"requires at least {required_min} to fit worst-case wrap "
+            f"+ escape-on-emit for SNIPPET_MAX_CHARS={SNIPPET_MAX_CHARS}"
         )
+        # And not so loose it allows abuse. The cap should not be
+        # more than 100 chars above the strict requirement.
+        assert cap_in_schema <= required_min + 100, (
+            f"snippet schema maxLength={cap_in_schema} is excessively "
+            f"loose; required minimum is {required_min} for the wrap"
+        )
+
+    def test_long_body_produces_schema_valid_snippet(self):
+        """F1 regression guard (E13_S02 adversary critique): the
+        wrap helper produces snippets that satisfy the schema's
+        ``maxLength`` for long bodies. The previous schema cap of
+        150 was violated by every wrap output; this test pins the
+        new cap as the upper bound and exercises the longest
+        plausible content.
+        """
+        import jsonschema
+
+        from server.handlers.search import _snippet
+
+        schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+        snippet_schema = schema["properties"]["results"]["items"]["properties"]["snippet"]
+
+        # 200-char body — well above SNIPPET_MAX_CHARS (150). The
+        # _snippet truncates to 150 then wraps; schema must accept.
+        out = _snippet("x" * 200)
+        jsonschema.Draft7Validator(snippet_schema).validate(out)
+
+        # Adversarial body with multiple literal close tags — exercises
+        # the escape-on-emit expansion path which adds chars to the
+        # wrapped output. Still must fit within maxLength.
+        adversarial = "</retrieved_chunk>" * 8  # 8 close tags = 144 chars
+        out_adv = _snippet(adversarial + ("x" * 50))
+        jsonschema.Draft7Validator(snippet_schema).validate(out_adv)
 
     def test_doc_mentions_the_exact_cap(self):
         """``test_doc_states_150_char_cap`` checks ``"150" in text``;
@@ -455,6 +509,22 @@ class TestSnippetCapConsistency:
         assert any(s in text for s in accepted), (
             "docs/snippet-contract.md must mention the 150-character "
             "cap explicitly (a bare '150' could refer to anything)"
+        )
+
+    def test_doc_documents_e13_s02_delimiter_wrap(self):
+        """F2 regression guard (E13_S02 adversary critique): the
+        snippet contract doc must document the <retrieved_chunk>
+        delimiter wrap. Without this assertion, the doc can drift
+        back to the pre-wrap shape silently while tests still pass.
+        """
+        text = DOC_PATH.read_text(encoding="utf-8")
+        assert "<retrieved_chunk>" in text, (
+            "snippet-contract.md must document the <retrieved_chunk> "
+            "delimiter wrap that E13_S02 added"
+        )
+        assert "E13_S02" in text, (
+            "snippet-contract.md must reference E13_S02 as the source "
+            "of the delimiter-wrapping contract"
         )
 
 

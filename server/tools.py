@@ -92,7 +92,7 @@ logger = logging.getLogger(__name__)
 #: Bumped manually on any tool schema change. The E06_S06 byte-
 #: stability test fails if a schema bytes change without a bump here.
 #: Surfaced via per-tool ``_meta: {"tool_schema_version": ...}``.
-TOOL_SCHEMA_VERSION: int = 6
+TOOL_SCHEMA_VERSION: int = 7
 
 #: URI scheme for chunk resource_links per the design note. Used by
 #: handlers that switch to resource_link mode when payloads exceed
@@ -335,12 +335,15 @@ def wrap_retrieved_text(
     ``.claude/docs/orchestrator-recommended-system-prompt.md`` and
     ``.claude/notes/08-security-observability-ops.md`` § Threat 2.
 
-    **Escape-on-emit (E13_S02 FM-1 defense).** If the input text
-    contains the literal close tag (e.g. an adversarial paper body
-    with ``</retrieved_chunk>`` inside a ``\\verb`` block), the close
-    tag is HTML-escaped before wrapping so the wrapper produces a
-    well-formed tag pair that cannot be terminated prematurely by
-    paper content.
+    **Escape-on-emit (E13_S02 FM-1 defense; F5 rect — both tags).**
+    If the input text contains the literal **open** or **close** tag
+    (e.g. an adversarial paper body with ``</retrieved_chunk>`` or
+    ``<retrieved_chunk>`` inside a ``\\verb`` block, or a paper
+    discussing the arXMCP defense itself), the tag is HTML-escaped
+    before wrapping. This produces a well-formed tag pair that
+    cannot be terminated prematurely AND cannot contain a literal
+    nested open tag a permissive LLM might mis-parse as a re-opened
+    delimiter zone with different trust semantics.
 
     For empty / None input, returns the empty string — the wrapper is
     a no-op on missing content. This matches the v1 reality for
@@ -357,15 +360,30 @@ def wrap_retrieved_text(
     Returns:
         The text wrapped in ``<retrieved_chunk>...</retrieved_chunk>``
         (or ``<retrieved_equation>...</retrieved_equation>``), with any
-        literal close-tag occurrences in ``text`` HTML-escaped.
+        literal matching-kind open OR close tag occurrences in
+        ``text`` HTML-escaped. Tags of the *other* kind pass through
+        unchanged (chunk wrapping does not escape equation tags).
     """
     if not text:
         return ""
     tag = _WRAP_TAG_EQUATION if kind == "equation" else _WRAP_TAG_CHUNK
-    close = f"</{tag}>"
-    escaped_close = close.replace("<", "&lt;").replace(">", "&gt;")
-    safe = text.replace(close, escaped_close)
-    return f"<{tag}>{safe}</{tag}>"
+    open_tag = f"<{tag}>"
+    close_tag = f"</{tag}>"
+    escaped_open = open_tag.replace("<", "&lt;").replace(">", "&gt;")
+    escaped_close = close_tag.replace("<", "&lt;").replace(">", "&gt;")
+    # F5 rectification (E13_S02 adversary critique): escape BOTH open
+    # and close tags. The earlier implementation escaped only the
+    # close tag, leaving an adversarial body containing the literal
+    # open tag (e.g. a paper discussing the arXMCP defense) to emit
+    # two open tags + one close tag in the wrapped output. Escape
+    # close first so an open tag inside an already-emitted escape
+    # sequence (e.g. ``&lt;/retrieved_chunk&gt;`` containing
+    # ``<retrieved_chunk>`` — vanishingly unlikely but well-defined)
+    # is not double-escaped.
+    safe = text.replace(close_tag, escaped_close).replace(
+        open_tag, escaped_open
+    )
+    return f"{open_tag}{safe}{close_tag}"
 
 
 def _sort_dict(d: dict[str, Any]) -> dict[str, Any]:
