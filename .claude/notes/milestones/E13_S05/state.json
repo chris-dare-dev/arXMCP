@@ -1,0 +1,55 @@
+{
+  "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/roadmap",
+  "created_at": "2026-05-18T14:27:03Z",
+  "critics_run": [],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "low": 0,
+    "medium": 0
+  },
+  "critique_path": null,
+  "deferred_findings": [],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_required": [],
+  "fixed_findings": [],
+  "id": "E13_S05",
+  "implementation_base": "40576ef0dd5c1b8442a6d80aa07a8ad36d80b0d4",
+  "implementation_branch": null,
+  "implementation_commit_range": null,
+  "implementation_commits": [],
+  "implementation_path": "inline",
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "### E13_S05 \u2014 Threat-5 audit: Origin spoofing, DNS-rebinding, and localhost-binding hardening\n\n**Status:** NEW\n**Tier:** 5\n**Effort:** S\n**Dependencies:** E07_S01, E07_S09\n\n**Description.** The server binds to `127.0.0.1:7733` and validates the `Origin` header (E07_S01) and the `Sec-Fetch-Site` header. Even bound to localhost, a malicious local web page can attempt DNS-rebinding attacks (where a `Host` header resolves to a public IP after the initial handshake). This milestone adds tests for these attack vectors and hardens the allow-list configuration.\n\nThe hardening additions beyond E07_S01 are: (1) `Sec-Fetch-Site` header rejected unless value is `none` or the header is absent; (2) an `ARXMCP_ALLOWED_ORIGINS` env var that restricts the accepted Origin values (default: empty list, meaning only no-Origin requests \u2014 i.e., the stdio shim \u2014 are accepted); (3) `Host` header validation rejecting any value that resolves to a non-loopback IP address.\n\nThe localhost-binding regression test verifies that setting `ARXMCP_BIND_HOST=0.0.0.0` without `ARXMCP_UNSAFE_NETWORK_BIND=1` causes the server to refuse to start with a clear error message. Inside Docker the server may bind `0.0.0.0` inside the container, but the `ports:` compose mapping must pin the host side to `127.0.0.1:7733`.\n\n**Deliverables.**\n- `tests/security/test_origin_binding.py` \u2014 6 test cases: Sec-Fetch-Site enforcement, allowed-origins list, public IP in Host, subdomain rebinding, bind-host refusal, Docker compose mapping\n- `docs/security/threat-5-audit.md`\n- `docs/security/binding.md` \u2014 unsafe-bind documentation with strong warning\n\n**Acceptance criteria.**\n- [ ] `Sec-Fetch-Site` header present with value other than `none` \u2192 403\n- [ ] Request with a public IP in `Host` header \u2192 403\n- [ ] Request with `Host: attacker.localhost` \u2192 403\n- [ ] `ARXMCP_BIND_HOST=0.0.0.0` without `ARXMCP_UNSAFE_NETWORK_BIND=1` \u2192 server refuses to start\n- [ ] Docker compose `ports:` maps `127.0.0.1:7733:7733` (not `0.0.0.0:7733:7733`)\n- [ ] `pytest tests/security/test_origin_binding.py` passes all 6 cases\n\n**Out of scope.** Authentication (explicitly out of v1 scope). mTLS (Tier-6+ hardening).\n\n**Risk notes.**\n- Closes Threat 5 (Origin spoofing) from `.claude/notes/08-security-observability-ops.md` \u00a7 Threat 5. E07_S01 ships the basic Origin pin; this milestone is the audit and DNS-rebinding extension.\n\n**Labels.** `area:security`, `area:server`, `tier:5`\n\n---",
+  "phase": "implement-running",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-18T14:27:03Z",
+      "left_at": "2026-05-18T14:27:26Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-18T14:27:26Z",
+      "left_at": "2026-05-18T14:33:17Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-18T14:33:17Z",
+      "left_at": "2026-05-18T14:33:17Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-05-18T14:33:17Z",
+      "left_at": null,
+      "phase": "implement-running"
+    }
+  ],
+  "rectification_commit": null,
+  "regression_tests_added": [],
+  "research_briefs": [],
+  "research_mode": "standard",
+  "research_synthesis": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/E13_S05/research-synthesis.md",
+  "updated_at": "2026-05-18T14:33:17Z"
+}

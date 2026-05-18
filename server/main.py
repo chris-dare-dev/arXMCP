@@ -368,23 +368,28 @@ def create_app(config: Config | None = None) -> FastAPI:
     )
     app.state.config = cfg
 
-    # E06_S05: security-hardening middleware stack.
+    # E06_S05 + E13_S05: security-hardening middleware stack.
     #
     # ``add_middleware`` adds in LIFO request order — the LAST call
     # wraps the request FIRST. So mount innermost-first here:
     #
-    #   request flow: SecurityHeaders -> OriginValidation
-    #                 -> RequestBodySizeLimit -> BodySizeCap -> handler
+    #   request flow: SecurityHeaders -> SecFetchSite -> OriginValidation
+    #                 -> HostValidation -> RequestBodySizeLimit
+    #                 -> SessionCap -> BodySizeCap -> handler
     #
     # SecurityHeaders is OUTERMOST so even error responses from inner
     # middlewares (e.g. OriginValidation's 403, BodySizeCap's 413)
     # carry the X-Content-Type-Options + X-Frame-Options headers.
+    # SecFetchSite is added next (one in from outer) so the cheap
+    # byte-comparison fires before Origin parsing on attacker-shaped
+    # browser traffic (E13_S05 Threat 5 defense-in-depth).
     # OriginValidation is BEFORE the request-body limit so an
     # evil-origin POST is rejected without buffering its body.
     from server.middleware import (
         HostValidationMiddleware,
         OriginValidationMiddleware,
         RequestBodySizeLimitMiddleware,
+        SecFetchSiteMiddleware,
         SecurityHeadersMiddleware,
         SessionCapMiddleware,
         TracingContextMiddleware,
@@ -416,8 +421,18 @@ def create_app(config: Config | None = None) -> FastAPI:
     # tests work; production binds to cfg.bind_port and the FastMCP
     # built-in pins the port on /mcp specifically.
     app.add_middleware(HostValidationMiddleware, allowed_port=None)
-    # Origin validation: MCP 2025-06-18 spec MUST.
-    app.add_middleware(OriginValidationMiddleware)
+    # Origin validation: MCP 2025-06-18 spec MUST. E13_S05 wires
+    # the ARXMCP_ALLOWED_ORIGINS env-var allow-list (extends the
+    # hardcoded loopback floor; default empty = floor only).
+    app.add_middleware(
+        OriginValidationMiddleware,
+        allowed_origins=cfg.allowed_origins,
+    )
+    # E13_S05 Threat 5 defense-in-depth: reject any Sec-Fetch-Site
+    # value except `none` or absent. Mounted JUST INSIDE the
+    # outermost SecurityHeaders so the cheap header check fires
+    # first on browser-mediated probes.
+    app.add_middleware(SecFetchSiteMiddleware)
     # X-Content-Type-Options + X-Frame-Options on every response.
     app.add_middleware(SecurityHeadersMiddleware)
 
@@ -531,6 +546,19 @@ if __name__ == "__main__":
     # Re-apply log_level in case Config() chose something other than
     # the env-var fallback.
     logging.getLogger().setLevel(cfg.log_level)
+    # E13_S05 Threat 5 — emit a WARN log at startup if the operator
+    # has enabled the unsafe-network-bind escape hatch. This makes
+    # the security trade-off VISIBLE in the operational log so an
+    # operator can spot the misconfiguration in retrospect even if
+    # they forgot they set the env var.
+    if cfg.unsafe_network_bind:
+        logger.warning(
+            "ARXMCP_UNSAFE_NETWORK_BIND=1 is set; server binding to %r "
+            "(non-loopback). Container deployments only — the host-side "
+            "port mapping MUST still pin to 127.0.0.1. See "
+            ".claude/docs/security-binding.md.",
+            cfg.bind_host,
+        )
     logger.info(
         "Starting arxmcp-server on %s:%d", cfg.bind_host, cfg.bind_port
     )

@@ -35,7 +35,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic import SecretStr, field_validator, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # ---------------------------------------------------------------------------
@@ -241,30 +241,59 @@ class Config(BaseSettings):
     #: loopback-only.
     otel_allow_remote: bool = False
 
+    #: E13_S05 (Threat 5) — additional Origin values accepted beyond
+    #: the hardcoded loopback floor (``LOOPBACK_ORIGIN_HOSTS`` in
+    #: :mod:`server.middleware`). Empty list (default) preserves the
+    #: existing E06_S05 behavior: only loopback Origin values pass.
+    #: Non-empty list EXTENDS the floor — the listed origins are
+    #: accepted in addition to the loopback set. The loopback floor
+    #: is a security baseline that cannot be bypassed via this var.
+    #:
+    #: Parsed from ``ARXMCP_ALLOWED_ORIGINS`` as a JSON list (per
+    #: pydantic-settings convention for ``list[str]`` fields), e.g.
+    #: ``ARXMCP_ALLOWED_ORIGINS='["http://my-tool.localhost:8080"]'``.
+    allowed_origins: list[str] = Field(default_factory=list)
+
+    #: E13_S05 (Threat 5) — escape hatch for non-loopback bind.
+    #: Default ``False`` = ``ARXMCP_BIND_HOST=0.0.0.0`` is rejected
+    #: at config parse time (the historical behavior preserved).
+    #: ``True`` = the bind-host validator permits non-loopback
+    #: values AND a WARN log fires at startup. The escape hatch is
+    #: documented for container deployments only — see
+    #: ``.claude/docs/security-binding.md``.
+    unsafe_network_bind: bool = False
+
     # --- Validators ------------------------------------------------------
 
-    @field_validator("bind_host")
-    @classmethod
-    def reject_non_loopback(cls, v: str) -> str:
+    @model_validator(mode="after")
+    def reject_non_loopback_bind(self) -> Config:
         """Closes the brief's "binding to ``0.0.0.0`` is rejected at
-        config parse time" AC. Threat 4 from the security note.
+        config parse time" AC. Threat 4 from the security note +
+        Threat 5 from E13_S05.
 
-        Accepts only the values in :data:`LOOPBACK_HOSTS`. Any other
-        value — including ``0.0.0.0``, ``::`` (the IPv6 wildcard), a
-        public IP, a hostname — raises ``ValueError`` which
-        pydantic-settings turns into a ``ValidationError`` at
-        instantiation time.
+        E13_S05 D1 — converted from ``@field_validator("bind_host")``
+        to ``@model_validator(mode="after")`` so both ``bind_host``
+        and ``unsafe_network_bind`` are visible. The default-deny
+        posture is preserved: ``bind_host`` must be in
+        :data:`LOOPBACK_HOSTS` unless ``unsafe_network_bind=True``
+        is explicitly set (typically only in container deployments
+        where the host-side port mapping pins to 127.0.0.1).
         """
-        if v not in LOOPBACK_HOSTS:
+        if self.bind_host not in LOOPBACK_HOSTS and not self.unsafe_network_bind:
             raise ValueError(
                 f"ARXMCP_BIND_HOST must be a loopback address "
-                f"({sorted(LOOPBACK_HOSTS)}); got {v!r}. The MCP "
-                f"server binds only to localhost (Threat 4 — see "
+                f"({sorted(LOOPBACK_HOSTS)}); got {self.bind_host!r}. "
+                f"The MCP server binds only to localhost (Threat 4/5 — see "
                 f".claude/notes/08-security-observability-ops.md). "
-                f"Container deployments expose the port via host "
-                f"port-mapping, not by binding to 0.0.0.0."
+                f"Container deployments should expose the port via host "
+                f"port-mapping (``ports: \"127.0.0.1:7733:7733\"``) rather "
+                f"than binding to 0.0.0.0. If the container truly must "
+                f"bind 0.0.0.0 INTERNALLY (with the host port-mapping "
+                f"still pinning the host side to 127.0.0.1), set "
+                f"``ARXMCP_UNSAFE_NETWORK_BIND=1`` to override; see "
+                f".claude/docs/security-binding.md for the full warning."
             )
-        return v
+        return self
 
     @field_validator("bind_port")
     @classmethod

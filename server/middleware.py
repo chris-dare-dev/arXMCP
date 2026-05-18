@@ -306,16 +306,41 @@ class OriginValidationMiddleware:
       do not set ``Origin``; the spec permits this.
     - ``Origin`` present and in the loopback allow-list → pass
       through.
-    - ``Origin`` present and NOT in the allow-list → 403 with a
+    - ``Origin`` present and in the operator-configured allow-list
+      ``allowed_origins`` (E13_S05 — ``ARXMCP_ALLOWED_ORIGINS`` env)
+      → pass through. The operator allow-list EXTENDS the loopback
+      floor; it never bypasses it (security baseline).
+    - ``Origin`` present and NOT in either allow-list → 403 with a
       JSON error body. F6: a WARN log line records the rejection
       (origin value + remote client) so ops can alert on
       DNS-rebinding probes. F13: the echoed origin in the error
       body is truncated to :data:`MAX_ECHOED_ORIGIN_LEN` chars to
       prevent amplification-style probes.
+
+    Args:
+        app: The inner ASGI app to forward valid requests to.
+        allowed_origins: Optional iterable of additional Origin
+            strings (full URLs, lowercase recommended) to accept
+            beyond the hardcoded loopback floor. From
+            :attr:`server.config.Config.allowed_origins`. Empty
+            list = loopback-only (default; preserves E06_S05
+            behavior).
     """
 
-    def __init__(self, app: Callable[..., Awaitable[None]]) -> None:
+    def __init__(
+        self,
+        app: Callable[..., Awaitable[None]],
+        allowed_origins: list[str] | tuple[str, ...] | None = None,
+    ) -> None:
         self.app = app
+        # Pre-compute the allowed-origin set with normalized form.
+        # Strip trailing slashes; lowercase. Empty / blank entries
+        # are silently dropped (defensive against env-var typos).
+        self._extra_allowed: frozenset[str] = frozenset(
+            o.strip().rstrip("/").lower()
+            for o in (allowed_origins or [])
+            if o and o.strip()
+        )
 
     async def __call__(self, scope: dict, receive: Callable, send: Callable) -> None:
         if scope["type"] != "http":
@@ -336,6 +361,15 @@ class OriginValidationMiddleware:
             origin_str = ""
 
         if _origin_is_allowed(origin_str):
+            await self.app(scope, receive, send)
+            return
+
+        # E13_S05: check the operator-configured extra allow-list
+        # AFTER the loopback floor. Both sets accept the same
+        # request; this lets ARXMCP_ALLOWED_ORIGINS add browser-
+        # facing companion tools (e.g. an arXMCP dashboard) without
+        # weakening the default deny.
+        if self._extra_allowed and origin_str.strip().rstrip("/").lower() in self._extra_allowed:
             await self.app(scope, receive, send)
             return
 
@@ -367,6 +401,103 @@ class OriginValidationMiddleware:
                     "to prevent DNS rebinding attacks."
                 ),
                 "origin": echoed,
+            },
+        )
+
+
+# ---------------------------------------------------------------------------
+# SecFetchSiteMiddleware (E13_S05 — Threat 5 defense-in-depth)
+# ---------------------------------------------------------------------------
+
+
+class SecFetchSiteMiddleware:
+    """Reject requests whose ``Sec-Fetch-Site`` header is not ``none``.
+
+    The Fetch Metadata spec defines four values:
+
+    - ``none`` — top-level navigation initiated by the user
+      (address bar, bookmark, ``curl`` does not set the header).
+    - ``same-origin`` — browser fetch from the same origin.
+    - ``same-site`` — browser fetch from the same registrable
+      domain, different origin.
+    - ``cross-site`` — browser fetch from a different registrable
+      domain.
+
+    Defense-in-depth layer (E13_S05 Threat 5): a localhost MCP
+    server has NO same-origin / same-site / cross-site partner —
+    any of those values means a browser tab is fetching the server,
+    which is precisely the DNS-rebinding attack surface. The header
+    is browser-only and cannot be forged by page scripts (it is a
+    "forbidden header name" in the Fetch spec). CLI tools (the
+    stdio shim, curl, mcp-cli) do not send it.
+
+    Behavior:
+
+    - No ``Sec-Fetch-Site`` header → pass through. The stdio shim,
+      curl, and most non-browser MCP clients omit it; the spec
+      permits this.
+    - ``Sec-Fetch-Site: none`` → pass through (user-initiated
+      navigation from the browser).
+    - Any other value (``cross-site`` / ``same-site`` /
+      ``same-origin`` / empty / garbage) → 403 with a JSON error
+      body. WARN log on rejection.
+
+    Pure-ASGI. Mounted BEFORE :class:`OriginValidationMiddleware`
+    so the cheap byte-comparison fires first on attacker-shaped
+    browser traffic.
+
+    The MCP 2025-06-18 spec does NOT mandate this check (it only
+    mandates Origin validation as MUST). Sec-Fetch-Site is project-
+    specific defense-in-depth from the design note at
+    ``.claude/notes/08-security-observability-ops.md`` § Threat 5:
+    *"`Sec-Fetch-Site: none` enforced where possible."*
+    """
+
+    #: The only permitted value when the header IS present.
+    _ALLOWED_VALUE = b"none"
+
+    def __init__(self, app: Callable[..., Awaitable[None]]) -> None:
+        self.app = app
+
+    async def __call__(self, scope: dict, receive: Callable, send: Callable) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        headers: list[tuple[bytes, bytes]] = scope.get("headers", [])
+        sec_fetch_site = _get_header(headers, b"sec-fetch-site")
+
+        if sec_fetch_site is None or sec_fetch_site == self._ALLOWED_VALUE:
+            # Header absent OR value is `none` — pass through.
+            await self.app(scope, receive, send)
+            return
+
+        # Any other value — reject. Log at WARN for ops alerting on
+        # browser-initiated probes against the localhost server.
+        client = scope.get("client")
+        client_ip = client[0] if client else "unknown"
+        try:
+            sec_fetch_site_str = sec_fetch_site.decode("latin-1")
+        except UnicodeDecodeError:
+            sec_fetch_site_str = "<undecodable>"
+        logger.warning(
+            "Sec-Fetch-Site rejected: client=%s value=%r path=%s",
+            client_ip, sec_fetch_site_str, scope.get("path", ""),
+        )
+
+        await _send_json_error(
+            send,
+            status=403,
+            body={
+                "error": "sec_fetch_site_forbidden",
+                "message": (
+                    "Sec-Fetch-Site header is not 'none'; only top-level "
+                    "user-initiated navigation (or no header at all) is "
+                    "accepted. This is a defense-in-depth check against "
+                    "browser-mediated DNS-rebinding attacks "
+                    "(E13_S05 Threat 5)."
+                ),
+                "sec_fetch_site": sec_fetch_site_str[:MAX_ECHOED_ORIGIN_LEN],
             },
         )
 
@@ -1204,6 +1335,7 @@ __all__ = [
     "HostValidationMiddleware",
     "OriginValidationMiddleware",
     "RequestBodySizeLimitMiddleware",
+    "SecFetchSiteMiddleware",
     "SecurityHeadersMiddleware",
     "SessionCapMiddleware",
     "TracingContextMiddleware",
