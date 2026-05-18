@@ -56,9 +56,35 @@
   (subpath (param "SOURCE_DIR")))
 
 ;; LaTeXML reads dynamic-loader caches and Perl's @INC. Allow reads
-;; under the user's HOME for Perl module discovery — but DENY writes
-;; via the default-deny posture (no allow file-write* below for HOME).
-(allow file-read* (subpath (param "HOME")))
+;; under known Perl/CPAN module roots only — NOT blanket $HOME, which
+;; would expose ~/.ssh/, ~/.aws/credentials, ~/.gnupg/, ~/.config/op/
+;; (1Password CLI), browser profiles, and Documents/ to a hostile
+;; fixture. F1 (adversary HIGH) + IS2 (infra-safety MEDIUM) — both
+;; critics flagged the credential-read surface; resolved by
+;; enumerating @INC roots and explicitly denying credential paths
+;; before any HOME reads (sandbox-exec applies rules in order;
+;; earlier denies win over later allows).
+;;
+;; Explicit denies for known credential / secret directories — these
+;; must appear BEFORE any HOME-relative allows below.
+(deny file-read* (subpath (string-append (param "HOME") "/.ssh")))
+(deny file-read* (subpath (string-append (param "HOME") "/.aws")))
+(deny file-read* (subpath (string-append (param "HOME") "/.gnupg")))
+(deny file-read* (subpath (string-append (param "HOME") "/.config/op")))
+(deny file-read* (subpath (string-append (param "HOME") "/.netrc")))
+(deny file-read* (subpath (string-append (param "HOME") "/.kube")))
+(deny file-read* (subpath (string-append (param "HOME") "/.docker")))
+;; Enumerated Perl/CPAN module roots — adequate for LaTeXML's @INC
+;; discovery on macOS Homebrew + system Perl. If a future operator
+;; uses plenv / perlbrew with a non-standard prefix, they must add
+;; an explicit allow here.
+(allow file-read*
+  (subpath (string-append (param "HOME") "/perl5"))
+  (subpath (string-append (param "HOME") "/.cpan"))
+  (subpath (string-append (param "HOME") "/.cpanm"))
+  (subpath (string-append (param "HOME") "/.perlbrew"))
+  (subpath (string-append (param "HOME") "/.plenv"))
+  (subpath (string-append (param "HOME") "/Library/Perl")))
 
 ;; --- Filesystem writes ------------------------------------------------------
 ;; Only the per-paper output directory is writable. This is the

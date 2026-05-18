@@ -62,10 +62,32 @@ production ingest pipeline exists to wire them into.
    functional. The replacement (App Sandbox via entitlements) requires
    code signing and is unsuitable for a dev-tool subprocess wrapper.
 
+   **Credential-directory protection** (F1 + IS2 rectifications from
+   adversary + infra-safety critiques): the profile does NOT grant
+   blanket read access to `$HOME`. Explicit denies for
+   `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.config/op`, `~/.netrc`,
+   `~/.kube`, `~/.docker` precede a narrow allow for enumerated
+   Perl/CPAN module roots (`~/perl5`, `~/.cpan`, `~/.cpanm`,
+   `~/.perlbrew`, `~/.plenv`, `~/Library/Perl`). sandbox-exec
+   applies rules in order; the deny-before-allow pattern means the
+   credential paths are unreadable even if a future LaTeXML
+   exploit chain attempts directory traversal.
+
 5. **Docker isolation** (deferred wiring; documented today). See
    `infra/latexml/docker-compose.latexml.yml`. Encodes `network_mode:
    none`, `read_only: true`, `security_opt: no-new-privileges`,
-   `user: 65534:65534` (nobody), `cap_drop: ALL`, memory/CPU caps.
+   `user: 65534:65534` (nobody), `cap_drop: ALL`, memory/CPU caps,
+   explicit `restart: "no"`, 512 MB tmpfs `/tmp`.
+
+   **Resource-cap enforcement key** (IS1 rectification from
+   infra-safety critique): the file uses TOP-LEVEL `mem_limit` and
+   `cpus` for resource enforcement. The `deploy.resources.limits`
+   block is also present for Swarm deployments but is silently
+   ignored in standalone Docker Compose v1 / v2. The top-level
+   keys are what actually enforce the caps in the standalone
+   deployment path. Verified by
+   `tests/security/test_latexml_sandbox.py::
+   TestDockerLatexmlConfig::test_top_level_mem_limit_and_cpus`.
 
 6. **Linux seccomp + landlock** — deferred to E11. Documented as future
    hardening.

@@ -58,21 +58,43 @@ services:
     cap_drop:
       - ALL
 
+    # IS3 rectification — explicit restart policy. Compose's
+    # implicit default is `no` but it differs subtly between
+    # Compose v1 / v2 / Swarm. The latexml service runs one-shot
+    # per paper; never auto-restart.
+    restart: "no"
+
     # Threat 3 — temporary filesystems for /tmp and /var/run.
     # LaTeXML and Perl need a writable /tmp; this gives them one
     # that vanishes when the container exits, with no host
     # filesystem leak.
+    #
+    # F6 rectification (E13_S03 adversary critique): tmpfs size
+    # bumped 64M → 512M. Real arXiv math/physics papers with
+    # many figures or deep \input{} cycles routinely produce
+    # 50-200 MB of intermediate Perl tempfiles (`*.aux`, `*.toc`,
+    # plus Perl's File::Temp scratch). 64M would cause legitimate
+    # papers to fail when E14/E11 wire this into production.
     tmpfs:
-      - /tmp:size=64M,mode=1777,uid=65534,gid=65534
+      - /tmp:size=512M,mode=1777,uid=65534,gid=65534
       - /var/run:size=4M
 
     # Per-paper output directory. The host path is parameterized
     # via the ARXMCP_LATEXML_OUTPUT_DIR env var. When E11 wires
     # this in production, callers set the env var per-invocation
     # to a sandboxed host path under `var/arxmcp/corpus/parsed/`.
+    #
+    # IS4 rectification — bind-mount source defaults are
+    # resolved relative to the compose FILE's directory in
+    # Compose v2, not the operator's CWD. The previous default
+    # `./latexml-output` would resolve to
+    # `infra/latexml/latexml-output/` and pollute the repo tree
+    # (that path is NOT in .gitignore). The corrected default
+    # points to `var/arxmcp/corpus/latexml-output/` — under the
+    # project's gitignored data tree per CLAUDE.md §5.
     volumes:
       - type: bind
-        source: "${ARXMCP_LATEXML_OUTPUT_DIR:-./latexml-output}"
+        source: "${ARXMCP_LATEXML_OUTPUT_DIR:-../../var/arxmcp/corpus/latexml-output}"
         target: /work/output
         read_only: false
 
@@ -81,6 +103,18 @@ services:
     # timeout in `parse_with_latexml` (300 s) is the primary kill
     # mechanism; these caps prevent a single hostile paper from
     # starving the host before the timeout fires.
+    #
+    # IS1 rectification (E13_S03 infra-safety critique): top-level
+    # `mem_limit` and `cpus` are the correct mechanism for STANDALONE
+    # docker-compose. The `deploy.resources.limits` block only applies
+    # in Docker Swarm mode and is SILENTLY IGNORED outside Swarm —
+    # which would render these caps ineffective. The precedent for
+    # top-level keys is `infra/observability/phoenix-compose.yml`.
+    mem_limit: 2g
+    cpus: 1.0
+    # The deploy block is preserved for Swarm deployments where it
+    # IS the load-bearing mechanism. In standalone Compose v2 it is
+    # ignored; the top-level keys above are what enforce.
     deploy:
       resources:
         limits:

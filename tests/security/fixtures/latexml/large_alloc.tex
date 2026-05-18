@@ -1,17 +1,31 @@
-% E13_S03 hostile fixture — large allocation via deeply-nested math.
+% E13_S03 containment-baseline fixture — moderately-nested math.
 %
-% IMPORTANT — fixture redesign (synthesis FM-4):
-% The original brief named "4 GB buffer via a custom Lua snippet."
-% LaTeXML is Perl-based and does NOT support LuaTeX extensions, so
-% a `\directlua{...}` snippet would do nothing. This redesigned
-% fixture exhausts LaTeXML's Perl heap via a deeply-nested math
-% structure — each level of nesting allocates additional Perl
-% objects for tokens, scopes, and math atoms.
+% IMPORTANT — fixture honesty (F4 rectification from E13_S03
+% adversary critique):
 %
-% Expected outcome: timeout fires before LaTeXML completes, OR
-% LaTeXML exits successfully (degraded HTML). Both are valid
-% containment — the test asserts no files outside the output dir
-% were touched.
+% This fixture is a CONTAINMENT BASELINE, not an active attack.
+% The original brief named "4 GB buffer via a custom Lua snippet"
+% but LaTeXML is Perl-based and does NOT support LuaTeX
+% extensions — a `\directlua{...}` snippet does nothing. The
+% redesigned fixture uses 30 levels of nested `\underbrace` and a
+% 4×10 tabular, but in practice LaTeXML handles these without
+% breaking sweat (real research papers have deeper nesting in
+% formal expressions). The fixture does NOT actually exhaust
+% LaTeXML's Perl heap.
+%
+% What this fixture DOES verify:
+%   - The containment harness correctly handles a fixture that
+%     completes normally (`status == "terminated"`)
+%   - No files outside the output dir are touched
+%   - The /tmp canary path does not appear
+%
+% A future milestone may redesign this fixture with ~200 levels
+% of nesting and a much larger tabular to actually exercise heap
+% pressure, but the current containment harness already exercises
+% the relevant code paths via `infinite_recursion.tex` and
+% `fork_bomb.tex`, which DO trigger LaTeXML's expansion limits or
+% timeouts. The audit doc at
+% `.claude/docs/security-threat-3-audit.md` documents this honestly.
 \documentclass{article}
 \begin{document}
 $

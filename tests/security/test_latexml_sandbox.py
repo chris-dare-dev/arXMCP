@@ -55,6 +55,7 @@ from __future__ import annotations
 
 import contextlib
 import shutil
+import signal
 import socket
 import subprocess
 import time
@@ -259,12 +260,19 @@ class TestLatexmlSandboxContainment:
         assert elapsed <= TEST_TIMEOUT_SECONDS + 5.0
 
     def test_network_call_no_egress(self, tmp_path, monkeypatch):
-        # Monkeypatch socket.socket().connect to record any attempted
-        # connection. The fixture should NOT trigger network egress
-        # under LaTeXML's documented behavior (\input{URL} resolves
-        # as local file).
+        # Monkeypatch socket-level egress AND name resolution. The
+        # fixture should NOT trigger any network activity under
+        # LaTeXML's documented behavior (\input{URL} resolves as local
+        # file). F5 rectification (E13_S03 adversary critique) added
+        # the DNS coverage — LaTeXML could in principle perform a DNS
+        # query via socket.getaddrinfo / gethostbyname WITHOUT ever
+        # calling .connect(), and the original test would have missed
+        # that egress channel.
         attempted_connections: list[tuple] = []
+        attempted_dns: list[str] = []
         real_connect = socket.socket.connect
+        real_getaddrinfo = socket.getaddrinfo
+        real_gethostbyname = socket.gethostbyname
 
         def _record_and_block(self, address):  # noqa: ANN001
             attempted_connections.append(address)
@@ -273,23 +281,56 @@ class TestLatexmlSandboxContainment:
                 f"{address}"
             )
 
+        # Localhost lookups (127.0.0.1, ::1, localhost) are common
+        # in test infrastructure (pytest fixtures, asyncio loops) and
+        # are not threat-3 egress. Filter to external hosts only.
+        _LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1", "", None}
+
+        def _record_dns_getaddrinfo(host, *args, **kwargs):
+            if host not in _LOCAL_HOSTS:
+                attempted_dns.append(str(host))
+                raise OSError(
+                    "Threat-3 BREACH — outbound DNS via getaddrinfo: "
+                    f"{host}"
+                )
+            return real_getaddrinfo(host, *args, **kwargs)
+
+        def _record_dns_gethostbyname(host):
+            if host not in _LOCAL_HOSTS:
+                attempted_dns.append(str(host))
+                raise OSError(
+                    "Threat-3 BREACH — outbound DNS via gethostbyname: "
+                    f"{host}"
+                )
+            return real_gethostbyname(host)
+
         monkeypatch.setattr(socket.socket, "connect", _record_and_block)
+        monkeypatch.setattr(socket, "getaddrinfo", _record_dns_getaddrinfo)
+        monkeypatch.setattr(socket, "gethostbyname", _record_dns_gethostbyname)
         try:
             _, _elapsed, status = _run_fixture(
                 "network_call.tex", tmp_path, timeout=TEST_TIMEOUT_SECONDS
             )
         finally:
             monkeypatch.setattr(socket.socket, "connect", real_connect)
+            monkeypatch.setattr(socket, "getaddrinfo", real_getaddrinfo)
+            monkeypatch.setattr(socket, "gethostbyname", real_gethostbyname)
 
         # Containment: subprocess terminated.
         assert status in {"terminated", "timed_out"}, (
             f"network_call: unexpected state {status!r}"
         )
-        # And no outbound connection was attempted (the monkeypatch
-        # raises if any code path called .connect).
+        # And no outbound TCP connection was attempted.
         assert not attempted_connections, (
             f"Threat-3 BREACH — outbound connections attempted: "
             f"{attempted_connections}"
+        )
+        # And no DNS resolution for an external host was attempted
+        # (F5 rectification — covers the gap where LaTeXML could
+        # exfiltrate via DNS without ever calling .connect).
+        assert not attempted_dns, (
+            f"Threat-3 BREACH — outbound DNS resolutions attempted: "
+            f"{attempted_dns}"
         )
 
 
@@ -338,6 +379,47 @@ class TestSandboxProfile:
             "sandbox profile must declare (version 1)"
         )
 
+    def test_profile_does_not_grant_blanket_home_read(self):
+        """F1 + IS2 regression guard (E13_S03 critiques).
+
+        Both critics flagged that the previous profile contained
+        ``(allow file-read* (subpath (param "HOME")))`` — granting
+        the LaTeXML subprocess read access to ~/.ssh/, ~/.aws/
+        credentials, ~/.gnupg/, etc. The rectification narrowed the
+        HOME allowance to enumerated Perl module roots only. This
+        guard fails if a future edit re-introduces the blanket
+        allowance.
+        """
+        text = self.SANDBOX_PROFILE.read_text()
+        # The literal bare-HOME allow pattern as it appeared
+        # pre-rect. Match precisely so a deliberate future addition
+        # of a different bare-HOME pattern would still need to
+        # touch this guard explicitly.
+        forbidden = '(allow file-read* (subpath (param "HOME")))'
+        assert forbidden not in text, (
+            "sandbox profile must NOT grant blanket file-read* on "
+            "(subpath (param \"HOME\")) — narrow to enumerated "
+            "Perl/CPAN paths or add explicit denies for credential "
+            "directories first (F1 + IS2 from E13_S03 critique)"
+        )
+
+    def test_profile_denies_credential_directories(self):
+        """F1 + IS2 regression guard — assert the explicit denies
+        for known credential directories are present in the
+        profile, BEFORE any HOME-relative allows.
+        """
+        text = self.SANDBOX_PROFILE.read_text()
+        required_denies = [
+            '(deny file-read* (subpath (string-append (param "HOME") "/.ssh")))',
+            '(deny file-read* (subpath (string-append (param "HOME") "/.aws")))',
+            '(deny file-read* (subpath (string-append (param "HOME") "/.gnupg")))',
+        ]
+        for rule in required_denies:
+            assert rule in text, (
+                f"sandbox profile must contain explicit deny for "
+                f"credential directory: {rule!r}"
+            )
+
 
 class TestDockerLatexmlConfig:
     """Static validation of the standalone Docker config for the
@@ -381,6 +463,54 @@ class TestDockerLatexmlConfig:
         assert "read_only: true" in text, (
             "Docker config must set read_only: true on the latexml "
             "service (Threat 3 — filesystem write whitelist)"
+        )
+
+    def test_top_level_mem_limit_and_cpus(self):
+        """IS1 regression guard (E13_S03 infra-safety critique).
+
+        ``deploy.resources.limits`` only applies in Docker Swarm
+        mode and is silently ignored in standalone docker-compose
+        (v1 / v2). The actual enforcement keys in standalone mode
+        are top-level ``mem_limit`` and ``cpus``. The pre-rect
+        config had ONLY the deploy block — meaning the resource
+        caps documented as defense-in-depth against `fork_bomb.tex`
+        and `large_alloc.tex` were no-ops.
+        """
+        text = self.DOCKER_CONFIG.read_text()
+        assert "mem_limit:" in text, (
+            "Docker config must declare top-level mem_limit "
+            "(deploy.resources is Swarm-only and silently ignored "
+            "in standalone compose)"
+        )
+        assert "cpus:" in text, (
+            "Docker config must declare top-level cpus "
+            "(deploy.resources is Swarm-only)"
+        )
+
+    def test_restart_policy_explicit(self):
+        """IS3 regression guard — explicit restart: declaration."""
+        text = self.DOCKER_CONFIG.read_text()
+        assert "restart:" in text, (
+            "Docker config must declare an explicit restart policy "
+            "(IS3 from E13_S03 infra-safety critique)"
+        )
+
+    def test_bind_mount_default_under_var_arxmcp(self):
+        """IS4 regression guard — bind-mount source default must
+        point under ``var/arxmcp/`` (project's gitignored data
+        tree), NOT under the repo source tree.
+        """
+        text = self.DOCKER_CONFIG.read_text()
+        # The pre-rect default was `./latexml-output` which would
+        # resolve relative to the compose file's dir
+        # (`infra/latexml/`) and pollute the repo.
+        bad_default = ":-./latexml-output"
+        assert bad_default not in text, (
+            f"Docker config must NOT default the bind-mount source "
+            f"to {bad_default!r} — this resolves to "
+            f"infra/latexml/latexml-output/ and pollutes the repo "
+            f"tree (IS4 from E13_S03 infra-safety critique). Use a "
+            f"path under var/arxmcp/ instead."
         )
 
     def test_non_root_user(self):
@@ -466,4 +596,114 @@ class TestProcessGroupKill:
         assert "killpg" in func_source, (
             "parse_with_latexml must SIGKILL the entire process "
             "group on TimeoutExpired (E13_S03 Threat 3)"
+        )
+
+    def test_timeout_fires_killpg_path(self, tmp_path, monkeypatch):
+        """F3 rectification (E13_S03 adversary critique).
+
+        Forces the timeout path to fire by mocking ``subprocess.Popen``
+        so the first ``communicate`` raises ``TimeoutExpired``. Asserts
+        that ``os.killpg`` was called with the child's PGID and that
+        the original ``TimeoutExpired`` propagates. Containment tests
+        accept either ``terminated`` or ``timed_out`` and may never
+        actually exercise this branch on a given machine; this guard
+        anchors the killpg path independently.
+        """
+        from tools import arxiv_fetch as af  # noqa: PLC0415
+
+        monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/latexmlc")
+
+        class _FakeProc:
+            def __init__(self, *args, **kwargs):
+                self.pid = 99001
+                self.returncode = None
+                self._communicate_calls = 0
+
+            def communicate(self, timeout=None):
+                self._communicate_calls += 1
+                if self._communicate_calls == 1:
+                    raise subprocess.TimeoutExpired(cmd="latexmlc", timeout=timeout)
+                # Second call (post-killpg drain) returns cleanly.
+                return ("", "")
+
+        killpg_calls: list[tuple] = []
+
+        def _record_killpg(pgid, sig):
+            killpg_calls.append((pgid, sig))
+
+        # Fake getpgid to a known value so the assertion can check it.
+        monkeypatch.setattr(af.subprocess, "Popen", _FakeProc)
+        monkeypatch.setattr(af.os, "getpgid", lambda pid: pid)
+        monkeypatch.setattr(af.os, "killpg", _record_killpg)
+
+        main = tmp_path / "main.tex"
+        main.write_text(r"\documentclass{article}\begin{document}x\end{document}")
+
+        with pytest.raises(subprocess.TimeoutExpired):
+            af.parse_with_latexml(
+                main, tmp_path / "parsed", "fake_paper", timeout=1
+            )
+
+        # Exactly one killpg with SIGKILL on the (mocked) PGID == PID.
+        assert killpg_calls == [(99001, signal.SIGKILL)], (
+            f"killpg should have been called once with the child's "
+            f"PGID and SIGKILL; got {killpg_calls!r}"
+        )
+
+    def test_catastrophic_case_drains_pipes_and_reraises(
+        self, tmp_path, monkeypatch
+    ):
+        """F2 rectification (E13_S03 adversary critique).
+
+        Catastrophic-case test: SIGKILL was sent but the process
+        group survived (kernel pathology). The second
+        ``communicate(timeout=5)`` ALSO times out. The function must
+        still re-raise the ORIGINAL TimeoutExpired so callers see
+        the parse-failure signal instead of deadlocking.
+        """
+        from tools import arxiv_fetch as af  # noqa: PLC0415
+
+        monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/latexmlc")
+
+        communicate_calls: list[float] = []
+
+        class _ZombieProc:
+            def __init__(self, *args, **kwargs):
+                self.pid = 99002
+                self.returncode = None
+
+            def communicate(self, timeout=None):
+                communicate_calls.append(timeout)
+                # BOTH calls raise — the killpg was ineffective.
+                raise subprocess.TimeoutExpired(cmd="latexmlc", timeout=timeout)
+
+        killpg_calls: list[tuple] = []
+
+        monkeypatch.setattr(af.subprocess, "Popen", _ZombieProc)
+        monkeypatch.setattr(af.os, "getpgid", lambda pid: pid)
+        monkeypatch.setattr(
+            af.os, "killpg", lambda pgid, sig: killpg_calls.append((pgid, sig))
+        )
+
+        main = tmp_path / "main.tex"
+        main.write_text(r"\documentclass{article}\begin{document}x\end{document}")
+
+        with pytest.raises(subprocess.TimeoutExpired):
+            af.parse_with_latexml(
+                main, tmp_path / "parsed", "fake_paper", timeout=1
+            )
+
+        # Two communicate calls (initial + post-killpg drain).
+        assert len(communicate_calls) == 2, (
+            f"communicate should have been called twice (initial + "
+            f"post-killpg drain); got {communicate_calls!r}"
+        )
+        # Second call uses the 5s drain timeout.
+        assert communicate_calls[1] == 5, (
+            f"second communicate call should use 5s drain timeout; "
+            f"got {communicate_calls[1]!r}"
+        )
+        # killpg was still called even though it was ineffective.
+        assert killpg_calls == [(99002, signal.SIGKILL)], (
+            f"killpg should have been called; got {killpg_calls!r}"
         )
