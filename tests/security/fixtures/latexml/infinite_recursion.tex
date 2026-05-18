@@ -1,0 +1,13 @@
+% E13_S03 hostile fixture — infinite macro recursion.
+% Expected outcome: LaTeXML's expansion limit fires (it has internal
+% safeguards against runaway macros), OR Python-side timeout fires.
+% Either is a valid containment outcome — the fixture tests that the
+% subprocess terminates and does not leave the host in a corrupted
+% state.
+\documentclass{article}
+\begin{document}
+% \rec expands to two copies of itself — but since this is a direct
+% self-reference (not a \def-chain), LaTeX's expansion is unbounded.
+\def\rec{\rec}
+\rec
+\end{document}

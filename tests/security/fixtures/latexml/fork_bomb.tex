@@ -1,0 +1,15 @@
+% E13_S03 hostile fixture — exponential macro expansion (fork-bomb shape).
+% Each invocation of \fb expands to two invocations of \fb. Without
+% an expansion cap, this grows 2^N where N is the recursion depth.
+% Expected outcome: OOM-kill (exit -9 due to kernel OOM killer)
+% OR Python-side timeout fires. Both are valid containment outcomes
+% — the test accepts either.
+%
+% This fixture is the most likely to trigger the kernel OOM killer
+% before the soft timeout — adjust expectations accordingly in the
+% test.
+\documentclass{article}
+\begin{document}
+\newcommand{\fb}{\fb\fb}
+\fb
+\end{document}

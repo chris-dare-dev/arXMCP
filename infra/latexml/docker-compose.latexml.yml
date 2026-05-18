@@ -1,0 +1,90 @@
+# arXMCP — standalone Docker config for the LaTeXML service (E13_S03).
+#
+# This file is a DOCUMENTATION ARTIFACT documenting the intended
+# isolation settings for the LaTeXML subprocess when it runs in
+# Docker. It is NOT the main docker-compose.yml — that file does not
+# exist at v1 and is owned by E14 (observability-ops epic).
+#
+# When E14 lands the main compose, the `latexml` service definition
+# below should be merged into it (with paths and volumes adapted to
+# the production layout). The test suite at
+# `tests/security/test_latexml_sandbox.py::TestDockerLatexmlConfig`
+# parses this file statically and asserts the required isolation
+# flags are present — no Docker daemon required for the audit.
+#
+# Threat 3 mitigations encoded below:
+#   - network_mode: none      → no network egress (no DNS, no IP)
+#   - read_only: true         → root filesystem write-locked
+#   - security_opt: no-new-privileges → can't gain capabilities
+#   - user: 65534:65534 (nobody) → unprivileged UID per design note
+#   - cap_drop: ALL           → all Linux capabilities dropped
+#
+# Reference: `.claude/notes/08-security-observability-ops.md` § Threat 3
+# Reference: `.claude/docs/security-threat-3-audit.md` (audit summary)
+
+services:
+  latexml:
+    # Image: arXMCP-owned LaTeXML container. Pinned by digest in
+    # production; pinned by version tag here for documentation.
+    # E11 (scale cutover) will publish the actual image with a
+    # pinned SHA256.
+    image: arxmcp/latexml:0.8.8
+
+    # Threat 3 — network isolation. `--network=none` (the
+    # compose equivalent) blocks all egress including DNS resolution
+    # because the container has no network interface and no access
+    # to Docker's embedded DNS resolver.
+    network_mode: none
+
+    # Threat 3 — filesystem write whitelist. The root filesystem is
+    # read-only; the only writable area is the explicit volume
+    # mount for the per-paper output directory below.
+    read_only: true
+
+    # Threat 3 — capability dropping + privilege ceiling.
+    # `no-new-privileges` prevents the process from gaining
+    # additional Linux capabilities via setuid binaries.
+    security_opt:
+      - no-new-privileges:true
+
+    # Threat 3 — unprivileged UID. 65534:65534 is the conventional
+    # `nobody:nobody` UID. Any UID > 0 satisfies the brief's
+    # "rootless container with an unprivileged user inside" mandate.
+    user: "65534:65534"
+
+    # Threat 3 — drop all Linux capabilities. LaTeXML needs none
+    # beyond the default unprivileged ones (read source, write
+    # output, fork Perl helpers).
+    cap_drop:
+      - ALL
+
+    # Threat 3 — temporary filesystems for /tmp and /var/run.
+    # LaTeXML and Perl need a writable /tmp; this gives them one
+    # that vanishes when the container exits, with no host
+    # filesystem leak.
+    tmpfs:
+      - /tmp:size=64M,mode=1777,uid=65534,gid=65534
+      - /var/run:size=4M
+
+    # Per-paper output directory. The host path is parameterized
+    # via the ARXMCP_LATEXML_OUTPUT_DIR env var. When E11 wires
+    # this in production, callers set the env var per-invocation
+    # to a sandboxed host path under `var/arxmcp/corpus/parsed/`.
+    volumes:
+      - type: bind
+        source: "${ARXMCP_LATEXML_OUTPUT_DIR:-./latexml-output}"
+        target: /work/output
+        read_only: false
+
+    # Resource caps (defense-in-depth against the resource-exhaustion
+    # fixtures `fork_bomb.tex` and `large_alloc.tex`). The Python-side
+    # timeout in `parse_with_latexml` (300 s) is the primary kill
+    # mechanism; these caps prevent a single hostile paper from
+    # starving the host before the timeout fires.
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+          cpus: '1.0'
+        reservations:
+          memory: 256m

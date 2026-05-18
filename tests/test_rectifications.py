@@ -307,10 +307,18 @@ class TestF6ParseWithLatexml:
         main.write_text("\\documentclass{amsart}")
         monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/latexmlc")
 
-        def fake_run(*args, **kwargs):
-            return subprocess.CompletedProcess(args=args, returncode=1, stdout="", stderr="")
+        # E13_S03 — parse_with_latexml now uses subprocess.Popen +
+        # start_new_session=True for process-group kill discipline,
+        # not subprocess.run. Mock Popen instead.
+        class FakeProc:
+            def __init__(self, *args, **kwargs):
+                self.pid = 12345
+                self.returncode = 1
 
-        monkeypatch.setattr(subprocess, "run", fake_run)
+            def communicate(self, timeout=None):
+                return ("", "")
+
+        monkeypatch.setattr(subprocess, "Popen", FakeProc)
         result = parse_with_latexml(main, tmp_path / "parsed", "2307.01156")
         assert result.success is False
         assert result.exit_code == 1

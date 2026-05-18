@@ -1,0 +1,19 @@
+% E13_S03 hostile fixture — \write18 shell-escape attempt.
+% Named threat in the brief: `\write18{cat /etc/passwd > /tmp/pwned.txt}`.
+%
+% IMPORTANT — fixture effectiveness caveat (synthesis FM-3):
+% LaTeXML is a Perl-based reimplementation of TeX's semantic layer.
+% It does NOT pass `\write18` through to the shell the way pdflatex
+% does — there is no `--shell-escape` flag on `latexmlc`. The shell
+% command is silently ignored.
+%
+% This fixture therefore tests SIDE-EFFECT ABSENCE, not attack-trigger:
+% after LaTeXML processes this file, the canary path
+% `/tmp/arxmcp_pwned_e13s03.txt` must NOT exist. If LaTeXML ever gains
+% (or is misconfigured into) shell-escape support, the canary will
+% appear and the test will fail loudly.
+\documentclass{article}
+\begin{document}
+\immediate\write18{echo pwned-by-e13s03 > /tmp/arxmcp_pwned_e13s03.txt}
+Hello, world.
+\end{document}

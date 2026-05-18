@@ -1,0 +1,95 @@
+;; arXMCP — macOS sandbox-exec profile for the LaTeXML subprocess.
+;;
+;; E13_S03 (Threat 3): LaTeX is Turing-complete and a malicious paper
+;; can attempt to consume RAM, write arbitrary files, or shell out.
+;; This profile restricts the LaTeXML subprocess to the bare minimum
+;; the parser needs:
+;;   - Read access to system frameworks, Perl modules, and the
+;;     per-paper input directory
+;;   - Write access to a single configurable output directory
+;;   - No network access (DNS, IP, mach-bootstrap)
+;;
+;; Usage (from a wrapper script, not yet wired into
+;; `parse_with_latexml` production code at v1 — see synthesis D3):
+;;
+;;     sandbox-exec \
+;;       -f infra/latexml/sandbox.sb \
+;;       -D OUTPUT_DIR="$(realpath ./per-paper-output)" \
+;;       -D SOURCE_DIR="$(realpath ./paper-source)" \
+;;       latexmlc paper.tex --dest=out/index.html --format=html5
+;;
+;; Status: `sandbox-exec` is DEPRECATED on macOS (per `man sandbox-exec`)
+;; but remains functional on macOS 15+ (Darwin 25.x as of 2026-05).
+;; The successor (App Sandbox via entitlements) requires code signing
+;; and an XPC service, which is unsuitable for a dev-tool subprocess
+;; wrapper. This profile is acceptable until production hardening lands
+;; in E11.
+;;
+;; Linux production: this profile is NOT applied. Linux uses
+;; seccomp + landlock + Docker `--read-only` + `--security-opt
+;; no-new-privileges` — see `infra/latexml/docker-compose.latexml.yml`.
+
+(version 1)
+
+;; Default-deny: every operation must be explicitly allowed below.
+(deny default)
+
+;; --- Process management -----------------------------------------------------
+;; LaTeXML is allowed to fork Perl helpers, exec child processes, and
+;; signal them. The process-group kill discipline in
+;; `tools/arxiv_fetch.py::parse_with_latexml` reaches grandchildren
+;; via the new-session group, which works fine inside the sandbox.
+(allow process-fork)
+(allow process-exec)
+(allow signal (target self) (target children))
+
+;; --- Filesystem reads -------------------------------------------------------
+;; System frameworks, Perl module paths, and the source directory must
+;; be readable. Source dir is parameterized so callers pin it to the
+;; per-paper input tree.
+(allow file-read*
+  (subpath "/usr")
+  (subpath "/System")
+  (subpath "/Library")
+  (subpath "/opt/homebrew")
+  (subpath "/opt/local")
+  (subpath (param "SOURCE_DIR")))
+
+;; LaTeXML reads dynamic-loader caches and Perl's @INC. Allow reads
+;; under the user's HOME for Perl module discovery — but DENY writes
+;; via the default-deny posture (no allow file-write* below for HOME).
+(allow file-read* (subpath (param "HOME")))
+
+;; --- Filesystem writes ------------------------------------------------------
+;; Only the per-paper output directory is writable. This is the
+;; "filesystem write whitelist" mitigation from `.claude/notes/
+;; 08-security-observability-ops.md` Threat 3.
+(allow file-write*
+  (subpath (param "OUTPUT_DIR")))
+
+;; LaTeXML and Perl need a writable /tmp for transient files. Restrict
+;; to a per-invocation subdirectory the caller pins via TMPDIR_SUBDIR
+;; so cross-test/cross-paper file leakage is impossible.
+(allow file-write*
+  (subpath (param "TMPDIR_SUBDIR")))
+
+;; --- Network ----------------------------------------------------------------
+;; Hard-deny. LaTeXML never needs network access — `\input{}` to an
+;; HTTP URL is the named threat vector and must fail.
+(deny network*)
+
+;; Mach-bootstrap is the macOS equivalent of a network namespace
+;; escape — deny it explicitly so a hostile fixture can't connect
+;; to system services like SystemUIServer or the keychain.
+(deny mach-bootstrap)
+(deny mach-lookup)
+
+;; --- IPC --------------------------------------------------------------------
+;; LaTeXML doesn't need IPC. Deny all by default; explicit allows
+;; here would be a sign of a feature regression.
+(deny ipc*)
+
+;; --- syscalls ---------------------------------------------------------------
+;; The default-deny posture covers syscalls. No explicit allows.
+
+;; END OF PROFILE
