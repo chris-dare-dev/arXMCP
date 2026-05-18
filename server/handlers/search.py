@@ -81,6 +81,17 @@ MAX_K = 50
 #: result shape.
 SNIPPET_MAX_CHARS = 150
 
+#: Hard upper bound on the number of items in the ``filters`` dict
+#: (E13_S04 Threat 4 resource-exhaustion defense). Enforced via
+#: handler-body validation rather than Pydantic
+#: ``Field(max_length=...)`` so the constraint does NOT bump the
+#: rendered tool schema and trigger ``EXPECTED_TOOL_SCHEMA_SHA256``
+#: re-pin per ``.claude/notes/07-multi-agent-caching.md`` BP1
+#: byte-stability discipline. The security goal is identical:
+#: oversized filter dicts are rejected before any meaningful
+#: processing.
+MAX_FILTER_ITEMS = 100
+
 
 async def handle_search_papers(
     query: Annotated[
@@ -108,6 +119,19 @@ async def handle_search_papers(
     documents the partial support until E07_S04 wires real
     filtering + pagination.
     """
+    # E13_S04 (Threat 4): handler-body cap on filter dict size.
+    # An adversary or runaway LLM might pass `filters={"a": 1, ...}`
+    # with thousands of entries to inflate memory before the v1
+    # processing even fires. Pydantic ``Field(max_length=...)`` on
+    # the dict would bump the tool schema hash; handler-body
+    # validation is identical for the security goal without
+    # invalidating BP1 prompt-cache discipline.
+    if filters is not None and len(filters) > MAX_FILTER_ITEMS:
+        raise ValueError(
+            f"filters has {len(filters)} items; max allowed is "
+            f"{MAX_FILTER_ITEMS} (E13_S04 Threat 4 resource-exhaustion cap)"
+        )
+
     r = get_resources()
 
     # E08_S03: 3-tier cache lookup BEFORE the encode + ANN path.

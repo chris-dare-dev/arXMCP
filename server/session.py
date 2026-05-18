@@ -37,7 +37,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from dataclasses import dataclass, field
 from typing import Final
 
@@ -72,6 +72,23 @@ TOOLS_WITH_CAPS: Final[dict[str, str]] = {
     "get_chunk": "get_chunk",
 }
 
+# ---------------------------------------------------------------------------
+# E13_S04 — Hourly rate-limit constants (Threat 4)
+# ---------------------------------------------------------------------------
+
+#: Sliding-window length in seconds for the hourly rate limit.
+#: Pinned at one hour per the design note in
+#: `.claude/notes/08-security-observability-ops.md` § Threat 4:
+#: *"max 1000 per hour. Configurable."*
+HOURLY_WINDOW_SECONDS: int = 3600
+
+#: Maximum tool calls per hour per session — applies to ALL tools,
+#: not just the retrieval-tracked ones in :data:`TOOLS_WITH_CAPS`.
+#: An adversary in a retry loop calling any tool 1500 times in an
+#: hour is the Threat-4 surface this cap closes (E13_S04 D1).
+#: Per the design note: *"max 1000 per hour."*
+MAX_CALLS_PER_HOUR: int = 1000
+
 
 # ---------------------------------------------------------------------------
 # SessionState dataclass
@@ -97,6 +114,15 @@ class SessionState:
     #: calls from the same session (e.g., a single agent fanning two
     #: `get_chunk` calls in parallel) serialize on this lock.
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    #: Sliding window of timestamps for ALL tool calls in the last
+    #: :data:`HOURLY_WINDOW_SECONDS`. Used by
+    #: :func:`check_hourly_rate_limit` (E13_S04 Threat 4) to enforce
+    #: the 1000/hour cap across every tool name. Entries older than
+    #: the window are pruned lazily on each access. Bounded above by
+    #: ``MAX_CALLS_PER_HOUR + a small fudge`` — the rejection path
+    #: does NOT append, so the deque cannot exceed ``MAX_CALLS_PER_HOUR``
+    #: in steady state.
+    call_timestamps: deque[float] = field(default_factory=deque)
 
 
 # ---------------------------------------------------------------------------
@@ -201,6 +227,67 @@ async def check_and_increment(
             return True, 0, 0
 
 
+async def check_hourly_rate_limit(
+    state: SessionState, now: float | None = None
+) -> tuple[bool, int, int]:
+    """Atomically check the hourly rate limit and, if allowed,
+    record the call.
+
+    E13_S04 Threat-4 closure. Distinct axis from
+    :func:`check_and_increment`:
+
+    - `check_and_increment` enforces per-TOOL lifetime caps
+      (`MAX_SEARCH_PAPERS_CALLS=3`, `MAX_GET_CHUNK_CALLS=4`) for
+      retrieval-loop containment. Covers 2 of 7 tools.
+    - This function enforces a per-SESSION rolling-hour cap
+      (`MAX_CALLS_PER_HOUR=1000`) for resource-exhaustion
+      containment. Covers ALL tools.
+
+    Both checks fire on every `tools/call` request through
+    :class:`server.middleware.SessionCapMiddleware`; the request is
+    allowed only if BOTH return ``allowed=True``.
+
+    **Sliding window via deque.** ``state.call_timestamps`` is a
+    deque of float timestamps. Each call prunes entries older than
+    ``now - HOURLY_WINDOW_SECONDS`` from the left, then either
+    appends (allowed) or returns the rejection without appending.
+
+    **Returns** ``(allowed, current_count_or_attempt, limit)``:
+
+    - ``allowed=True``: post-prune count is < cap. Timestamp
+      appended. ``current_count`` is the post-append count.
+    - ``allowed=False``: post-prune count is >= cap. Timestamp
+      NOT appended (the rejection does not consume cap budget).
+      ``current_count`` is the attempted count (current + 1).
+
+    Args:
+        state: The session's :class:`SessionState`.
+        now: Optional explicit wall-clock seconds (for tests).
+            Defaults to ``time.time()``.
+
+    Returns:
+        ``(allowed, current_count_or_attempt, limit)``.
+    """
+    if now is None:
+        now = time.time()
+    async with state.lock:
+        # Prune timestamps older than the rolling window.
+        cutoff = now - HOURLY_WINDOW_SECONDS
+        while state.call_timestamps and state.call_timestamps[0] < cutoff:
+            state.call_timestamps.popleft()
+
+        current = len(state.call_timestamps)
+        limit = MAX_CALLS_PER_HOUR
+        if current >= limit:
+            # Over cap — reject without consuming budget. The
+            # attempted-count (current + 1) is what the caller
+            # reports back to the agent for observability.
+            return False, current + 1, limit
+
+        state.call_timestamps.append(now)
+        return True, current + 1, limit
+
+
 def get_session_count() -> int:
     """Return the current number of tracked sessions (for tests +
     debug)."""
@@ -218,12 +305,15 @@ def reset_session_state_for_tests() -> None:
 
 
 __all__ = [
+    "HOURLY_WINDOW_SECONDS",
+    "MAX_CALLS_PER_HOUR",
     "MAX_GET_CHUNK_CALLS",
     "MAX_REGISTRY_SIZE",
     "MAX_SEARCH_PAPERS_CALLS",
     "TOOLS_WITH_CAPS",
     "SessionState",
     "check_and_increment",
+    "check_hourly_rate_limit",
     "get_or_create_session",
     "get_session_count",
     "reset_session_state_for_tests",

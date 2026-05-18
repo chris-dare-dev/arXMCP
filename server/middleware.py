@@ -82,8 +82,8 @@ from urllib.parse import urlparse
 # pattern was annotated "cyclic-safe" but no cycle exists
 # (server.session imports only stdlib).
 from server.session import (
-    TOOLS_WITH_CAPS,
     check_and_increment,
+    check_hourly_rate_limit,
     get_or_create_session,
 )
 
@@ -858,16 +858,23 @@ class SessionCapMiddleware:
         except (ValueError, UnicodeDecodeError):
             tool_name = None  # malformed body → forward unchanged
 
-        # If the body is not a tools/call OR the tool isn't capped,
-        # replay the buffered events to the inner app. (F5 fix: the
-        # local import was hoisted to module-top; no cycle exists.)
-        if tool_name is None or tool_name not in TOOLS_WITH_CAPS:
+        # If the body is not a tools/call, replay without cap.
+        # E13_S04 (Threat 4): the previous middleware short-circuited
+        # here when ``tool_name not in TOOLS_WITH_CAPS`` — but the
+        # hourly rate-limit cap applies to ALL tools, not just
+        # search_papers / get_chunk. We MUST proceed to the hourly
+        # check even for tools that are not per-tool tracked.
+        if tool_name is None:
             await self._replay_to_app(scope, send, buffered_events)
             return
 
-        # Look up / create the session, check + increment the cap.
+        # Look up / create the session, check + increment the per-
+        # tool cap, AND check the hourly rate-limit cap. Both checks
+        # must pass for the call to forward.
         try:
             state = await get_or_create_session(session_id)
+            # Per-tool cap (returns (True, 0, 0) for tools not in
+            # TOOLS_WITH_CAPS, so it's a no-op for those tools).
             allowed, count, limit = await check_and_increment(state, tool_name)
         except Exception:  # noqa: BLE001
             # Failure-mode discipline: cap layer must not break the
@@ -881,8 +888,51 @@ class SessionCapMiddleware:
             await self._replay_to_app(scope, send, buffered_events)
             return
 
-        if allowed:
-            # Within cap — replay the request.
+        if not allowed:
+            # Per-tool cap rejected — short-circuit with
+            # RETRIEVAL_CAP_REACHED below.
+            pass
+        else:
+            # Per-tool cap allowed (or tool not in TOOLS_WITH_CAPS).
+            # E13_S04: ALSO check the hourly rate limit.
+            try:
+                hourly_allowed, hourly_count, hourly_limit = (
+                    await check_hourly_rate_limit(state)
+                )
+            except Exception:  # noqa: BLE001
+                # Same failure-open discipline as the per-tool path:
+                # if the hourly check itself raises, log and forward.
+                logger.exception(
+                    "SessionCapMiddleware: hourly rate-limit check "
+                    "failed for session=%s tool=%s; forwarding without cap",
+                    session_id[:16], tool_name,
+                )
+                await self._replay_to_app(scope, send, buffered_events)
+                return
+
+            if not hourly_allowed:
+                # OVER hourly cap — short-circuit with a structured
+                # RATE_LIMIT_EXCEEDED response. Distinct code from
+                # RETRIEVAL_CAP_REACHED so the agent can tell which
+                # cap fired.
+                logger.info(
+                    "RATE_LIMIT_EXCEEDED: session=%s tool=%s "
+                    "attempted=%d limit=%d",
+                    session_id[:16], tool_name, hourly_count, hourly_limit,
+                )
+                try:
+                    from server.metrics import RETRIEVAL_CAP_REJECTIONS_COUNTER
+                    RETRIEVAL_CAP_REJECTIONS_COUNTER.labels(
+                        tool="rate_limit_hourly"
+                    ).inc()
+                except Exception:  # noqa: BLE001
+                    logger.debug("metrics inc failed", exc_info=True)
+                await self._send_rate_limit_response(
+                    send, request_id, tool_name, hourly_count, hourly_limit
+                )
+                return
+
+            # Both caps passed — replay the request.
             await self._replay_to_app(scope, send, buffered_events)
             return
 
@@ -958,6 +1008,57 @@ class SessionCapMiddleware:
 
         await self.app(scope, replayed_receive, send)
 
+    async def _send_rate_limit_response(
+        self,
+        send: Callable[..., Awaitable[None]],
+        request_id: Any,
+        tool_name: str,
+        attempted: int,
+        limit: int,
+    ) -> None:
+        """Short-circuit the request with a structured
+        RATE_LIMIT_EXCEEDED JSON-RPC response (E13_S04 Threat 4).
+
+        Mirrors the RETRIEVAL_CAP_REACHED shape so consuming agents
+        see a uniform error envelope: ``isError=True`` +
+        ``structuredContent`` carrying ``code`` and ``message``. The
+        distinct code (``RATE_LIMIT_EXCEEDED`` vs
+        ``RETRIEVAL_CAP_REACHED``) lets the agent tell which cap fired.
+        """
+        payload = _rate_limit_payload(tool_name, attempted, limit)
+        rpc_response = {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": json.dumps(payload, sort_keys=True),
+                    }
+                ],
+                "structuredContent": payload,
+                "isError": True,
+            },
+        }
+        body_out = json.dumps(rpc_response, sort_keys=True).encode("utf-8")
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [
+                    (b"content-type", b"application/json"),
+                    (b"content-length", str(len(body_out)).encode("ascii")),
+                ],
+            }
+        )
+        await send(
+            {
+                "type": "http.response.body",
+                "body": body_out,
+                "more_body": False,
+            }
+        )
+
 
 def _retrieval_cap_payload(tool_name: str, attempted: int, limit: int) -> dict[str, Any]:
     """Build the structured payload for a RETRIEVAL_CAP_REACHED
@@ -971,6 +1072,27 @@ def _retrieval_cap_payload(tool_name: str, attempted: int, limit: int) -> dict[s
         ),
         "tool": tool_name,
         "limit": limit,
+        "session_attempted_count": attempted,
+    }
+
+
+def _rate_limit_payload(tool_name: str, attempted: int, limit: int) -> dict[str, Any]:
+    """Build the structured payload for a RATE_LIMIT_EXCEEDED response
+    (E13_S04 Threat 4). Mirrors the RETRIEVAL_CAP_REACHED shape so
+    consuming agents can parse both with the same handler; the
+    distinct ``code`` value lets the agent tell which cap fired.
+    """
+    return {
+        "code": "RATE_LIMIT_EXCEEDED",
+        "message": (
+            f"hourly rate limit of {limit} tool calls per MCP session "
+            f"reached (attempt #{attempted} in the rolling 1-hour window, "
+            f"any tool). Back off and retry after the window expires, "
+            f"or open a new session."
+        ),
+        "tool": tool_name,
+        "limit": limit,
+        "window_seconds": 3600,
         "session_attempted_count": attempted,
     }
 
