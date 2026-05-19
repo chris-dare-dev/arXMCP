@@ -347,6 +347,84 @@ class TestRerankerLoaderGuard:
         with pytest.raises(ModelPinningError):
             validate_model_revision("main", model_name="BAAI/bge-reranker-v2-m3")
 
+    def test_resolve_trust_remote_code_runs_on_main_thread(self, monkeypatch):
+        """F1 regression (E13_S06 adversary): both Threat-6 guards —
+        ``validate_model_revision`` and ``resolve_trust_remote_code`` —
+        must run on the main event loop, BEFORE the executor hop.
+
+        Without this, the env-var read happens inside the executor
+        thread and an external mutator (test setenv, signal handler)
+        could change the resolved value between the two guards. The
+        regression: capture the thread id at the moment
+        ``resolve_trust_remote_code`` is called and assert it matches
+        the main thread, AND assert exactly one call per load
+        invocation.
+        """
+        import asyncio
+        import threading
+        from unittest.mock import MagicMock
+
+        import server.resources as resources_mod
+
+        main_thread_id = threading.get_ident()
+        call_thread_ids: list[int] = []
+
+        original = resources_mod.__dict__.get("resolve_trust_remote_code")
+
+        def spy() -> bool:
+            call_thread_ids.append(threading.get_ident())
+            # Mirror the real default (env not set → False).
+            return False
+
+        # Patch the symbol in ``server.model_loader`` since
+        # ``_load_reranker_or_raise`` imports it locally each call.
+        monkeypatch.setattr(
+            "server.model_loader.resolve_trust_remote_code", spy
+        )
+
+        # Mock the transformers loaders so no network is hit.
+        fake_tok = MagicMock()
+        fake_model = MagicMock()
+        fake_model.eval.return_value = fake_model
+        monkeypatch.setattr(
+            "transformers.AutoTokenizer.from_pretrained",
+            MagicMock(return_value=fake_tok),
+        )
+        monkeypatch.setattr(
+            "transformers.AutoModelForSequenceClassification.from_pretrained",
+            MagicMock(return_value=fake_model),
+        )
+        # Skip the post-load cache walk (no real cache to walk).
+        monkeypatch.setattr(
+            "server.model_loader.assert_no_bin_in_snapshot",
+            lambda *a, **kw: None,
+        )
+
+        async def go() -> None:
+            await resources_mod._load_reranker_or_raise()
+
+        asyncio.run(go())
+
+        # Exactly one call to resolve_trust_remote_code per load.
+        assert len(call_thread_ids) == 1, (
+            f"expected exactly 1 call to resolve_trust_remote_code per "
+            f"load; got {len(call_thread_ids)} on threads "
+            f"{call_thread_ids}"
+        )
+        # The single call ran on the main thread (event loop), NOT
+        # on the executor worker. This is what guarantees both
+        # guards see the same env-var snapshot.
+        assert call_thread_ids[0] == main_thread_id, (
+            f"resolve_trust_remote_code ran on thread "
+            f"{call_thread_ids[0]} but the main thread is "
+            f"{main_thread_id} — env-var resolution leaked into the "
+            f"executor, re-opening the F1 hole."
+        )
+
+        # Restore (paranoia; monkeypatch handles teardown but keeps
+        # the closure clean).
+        _ = original
+
 
 # ===========================================================================
 # tools/sbom.sh presence + flag parsing smoke (AC6)

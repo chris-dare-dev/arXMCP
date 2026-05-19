@@ -135,11 +135,15 @@ def splice_section(text: str, new_section: str) -> str:
 def atomic_write(path: Path, content: str) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(content, encoding="utf-8")
-    fd = os.open(str(tmp), os.O_RDONLY)
-    try:
-        os.fsync(fd)
-    finally:
-        os.close(fd)
+    # Windows refuses fsync on O_RDONLY handles; the write_text() above
+    # already closed its handle so the data is in the OS buffer. NTFS
+    # rename + os.replace below is durable enough for our purposes.
+    if sys.platform != "win32":
+        fd = os.open(str(tmp), os.O_RDONLY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
     os.replace(tmp, path)
 
 

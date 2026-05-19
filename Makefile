@@ -233,4 +233,12 @@ sbom:
 	@#
 	@# Exit codes propagate from tools/sbom.sh:
 	@#   0 OK / 1 missing tool / 2 grype found critical / 3 generator failed
+	@#
+	@# ARGS forwarding: tools/sbom.sh accepts only fixed flags
+	@# (--skip-image, --no-scan, -h/--help) — none take an argument,
+	@# so ARGS is space-safe today. For the output directory, use
+	@# the SBOM_DIR env var (read by the script directly): e.g.
+	@# ``SBOM_DIR=/tmp/sbom make sbom`` works without touching ARGS.
+	@# A future flag that takes a path-bearing argument would need
+	@# the same "no spaces in ARGS" warning as ingest/re-embed/cutover.
 	bash tools/sbom.sh $(ARGS)

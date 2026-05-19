@@ -782,6 +782,15 @@ async def _load_reranker_or_raise() -> Any:
     validate_model_revision(
         BGE_RERANKER_COMMIT_SHA, model_name=RERANKER_MODEL_ID
     )
+    # F1 fix (E13_S06 adversary): resolve the trust-remote-code
+    # opt-in BEFORE the executor hop so both Threat-6 guards (SHA
+    # validation + escape-hatch env read) operate on a single
+    # process-state snapshot. Reading the env var inside ``_load``
+    # would let an external mutator (test setenv, signal handler)
+    # change the resolved value between the two guards, leaving
+    # the post-load WARN log out of sync with what transformers
+    # was actually told.
+    trc = resolve_trust_remote_code()
 
     def _load() -> Any:
         from transformers import (  # noqa: PLC0415
@@ -789,7 +798,6 @@ async def _load_reranker_or_raise() -> Any:
             AutoTokenizer,
         )
 
-        trc = resolve_trust_remote_code()
         try:
             tokenizer = AutoTokenizer.from_pretrained(
                 RERANKER_MODEL_ID,
