@@ -193,4 +193,42 @@ with `ARXMCP_BIND_HOST=0.0.0.0` and asserting a non-zero exit code).
 - `.claude/docs/security-threat-5-audit.md` — companion audit
 - `server/config.py::reject_non_loopback_bind` — the validator
 - MCP 2025-06-18 spec — Streamable HTTP Security Warning
-- E13_S09 — full bind regression test suite (pending milestone)
+- `tests/security/test_bind_regression.py` — E13_S09 regression suite
+- `tests/security/test_origin_binding.py::TestUnsafeNetworkBindEscapeHatch` — E13_S05 escape-hatch coverage
+- `tests/test_security.py::TestStartupRejectsBadBind` — E06_S05 subprocess-level gate
+
+---
+
+## E13_S09 regression-test cross-reference
+
+The TCP-bind regression suite lives at
+`tests/security/test_bind_regression.py`. Each AC in the E13_S09 brief
+is covered by a named test class so an auditor can navigate from any AC
+to the test that pins it:
+
+| Brief AC | Test class / method |
+|---|---|
+| Default config (`ARXMCP_BIND_HOST` unset) binds to `127.0.0.1` | `TestDefaultBindIsLoopback::test_default_unset_binds_to_loopback` |
+| `ARXMCP_BIND_HOST=0.0.0.0` without unsafe flag → exception before any socket | `TestNonLoopbackRejectedWithoutEscapeHatch::test_zero_zero_alone_rejected` |
+| Adversarial: public-IP bind rejected | `TestNonLoopbackRejectedWithoutEscapeHatch::test_public_ip_alone_rejected` |
+| Explicit-deny precedence (`UNSAFE=0` + `BIND=0.0.0.0`) → rejected | `TestNonLoopbackRejectedWithoutEscapeHatch::test_zero_zero_with_explicit_unsafe_zero_rejected` |
+| `ARXMCP_BIND_HOST=0.0.0.0` + `ARXMCP_UNSAFE_NETWORK_BIND=1` → accepted | `TestNonLoopbackAcceptedWithEscapeHatch::test_zero_zero_with_unsafe_accepted` |
+| `ARXMCP_UNSAFE_NETWORK_BIND=1` → startup WARN logged | `TestUnsafeBindWarnLogContent::test_warn_log_substrings` |
+| `LOOPBACK_HOSTS` constant pinned (no silent broadening) | `TestDefaultBindIsLoopback::test_loopback_hosts_constant_is_frozen` |
+
+**Exception-type note (brief vs. code).** The E13_S09 brief says
+`Config.validate()` raises `ConfigError`. The actual exception is
+`pydantic.ValidationError` — `Config` is a `pydantic.BaseSettings` and
+the validator raises `ValueError`, which pydantic wraps automatically.
+No `ConfigError` class exists in arXMCP or pydantic. The tests assert
+against `ValidationError` to match production behavior; the brief's
+wording is interpreted as shorthand for "the config-construction
+exception."
+
+**Dependency note (brief vs. roadmap).** The E13_S09 brief cites
+`E07_S09` as a dependency. E07 has only S01–S04; `E07_S09` is
+fictional drift consistent with the same pattern in E13_S01–S08
+briefs. The real upstream is E13_S05, which shipped the validator,
+the `LOOPBACK_HOSTS` constant, the `unsafe_network_bind` field, and
+the startup WARN log. E13_S09 is a pure regression audit — no
+production code changed.
