@@ -83,7 +83,7 @@ def load_state(path: Path) -> dict:
         sys.stderr.write("       run init-state.sh first.\n")
         sys.exit(1)
     try:
-        return json.loads(path.read_text())
+        return json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as e:
         sys.stderr.write(f"error: state.json is not valid JSON: {e}\n")
         sys.exit(1)
@@ -110,6 +110,10 @@ def atomic_write_json(path: Path, data: dict) -> None:
         os.close(fd)
     os.replace(tmp, path)
     # Directory fsync — survives crash so the rename sticks.
+    # Windows refuses os.open() on a directory; skip the directory fsync there
+    # (NTFS rename is already durable enough for our purposes).
+    if sys.platform == "win32":
+        return
     dfd = os.open(str(path.parent), os.O_RDONLY)
     try:
         os.fsync(dfd)

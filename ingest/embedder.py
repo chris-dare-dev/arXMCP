@@ -261,9 +261,20 @@ def _get_tokenizer():
                 "Install via `pip install -e '.[dev]'` after adding "
                 "transformers to pyproject.toml."
             ) from exc
+        # E13_S06 Threat 6: refuse a non-SHA revision before any
+        # network round trip. The constant is validated at every
+        # load (not module import) so a runtime monkeypatch in a
+        # test cannot bypass the guard.
+        from server.model_loader import (  # noqa: PLC0415
+            resolve_trust_remote_code,
+            validate_model_revision,
+        )
+
+        validate_model_revision(BGE_M3_COMMIT_SHA, model_name="BAAI/bge-m3")
         _tokenizer = AutoTokenizer.from_pretrained(
             "BAAI/bge-m3",
             revision=BGE_M3_COMMIT_SHA,
+            trust_remote_code=resolve_trust_remote_code(),
         )
     return _tokenizer
 
@@ -287,11 +298,25 @@ def _get_model():
                 "torch and transformers are required for ingest.embedder. "
                 "Add 'torch>=2.0' and 'safetensors>=0.4' to pyproject.toml."
             ) from exc
+        # E13_S06 Threat 6 closes the remaining model-supply-chain
+        # gap. The validator refuses any non-SHA revision before the
+        # network round trip; ``resolve_trust_remote_code()`` reads
+        # ``ARXMCP_TRUST_REMOTE_CODE`` and returns ``False`` unless
+        # the operator opted in (with a WARN log on opt-in).
+        from server.model_loader import (  # noqa: PLC0415
+            resolve_trust_remote_code,
+            validate_model_revision,
+        )
+
+        validate_model_revision(BGE_M3_COMMIT_SHA, model_name="BAAI/bge-m3")
         _model = AutoModel.from_pretrained(
             "BAAI/bge-m3",
             revision=BGE_M3_COMMIT_SHA,
             # Threat 6: refuse model-card-supplied custom modeling code.
-            trust_remote_code=False,
+            # Explicit (rather than relying on the transformers default)
+            # so a future library default change cannot silently disable
+            # the guard.
+            trust_remote_code=resolve_trust_remote_code(),
             # NOTE: ``use_safetensors=True`` would close Threat 6's
             # second mitigation (refuse .bin / pickle weights), but
             # the pinned BGE-M3 SHA ``5617a9f6...`` ships only
@@ -299,12 +324,14 @@ def _get_model():
             # load. Bumping the SHA to a safetensors-bearing revision
             # would invalidate every cached embedding under
             # ``var/arxmcp/corpus/embeddings`` (E04_S02 MVCC re-encode
-            # required), which is out of scope for E07_S03's
+            # required), which is out of scope for E13_S06's
             # rectification budget. The reranker IS safetensors-only
-            # (see ``server/resources.py:_load_reranker_or_raise``).
-            # Tracked: a future ingest milestone should bump
-            # BGE_M3_COMMIT_SHA to a safetensors-bearing revision and
-            # add ``use_safetensors=True`` here.
+            # (see ``server/resources.py:_load_reranker_or_raise``)
+            # and the gap is documented in
+            # ``.claude/docs/security-threat-6-audit.md``. A future
+            # ingest milestone should bump BGE_M3_COMMIT_SHA to a
+            # safetensors-bearing revision and add
+            # ``use_safetensors=True`` here.
         )
         _model.eval()
         # Default torch CPU thread count can be 1 on some configurations;

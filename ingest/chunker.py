@@ -238,9 +238,18 @@ def _get_tokenizer():
         from transformers import AutoTokenizer  # noqa: PLC0415
 
         from ingest.embedder import BGE_M3_COMMIT_SHA  # noqa: PLC0415
+        from server.model_loader import (  # noqa: PLC0415
+            resolve_trust_remote_code,
+            validate_model_revision,
+        )
 
+        # E13_S06 Threat 6: re-validate at every load so a runtime
+        # monkeypatch of BGE_M3_COMMIT_SHA cannot bypass the guard.
+        validate_model_revision(BGE_M3_COMMIT_SHA, model_name="BAAI/bge-m3")
         _tokenizer = AutoTokenizer.from_pretrained(
-            "BAAI/bge-m3", revision=BGE_M3_COMMIT_SHA
+            "BAAI/bge-m3",
+            revision=BGE_M3_COMMIT_SHA,
+            trust_remote_code=resolve_trust_remote_code(),
         )
     return _tokenizer
 

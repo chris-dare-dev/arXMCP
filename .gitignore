@@ -28,3 +28,11 @@ Thumbs.db
 # E11_S05 — restic creds. The .template is committed; the filled
 # file with the operator's RESTIC_REPOSITORY / B2 creds is not.
 ops/restic-env.sh
+
+# E13_S06 — SBOM JSON outputs. The raw CycloneDX files are multi-MB
+# and timestamped per run; the audit doc references the procedure
+# (``make sbom``) rather than committing the artifacts directly.
+# A future release-tag milestone may flip this to commit only the
+# tag's signed SBOM.
+.claude/docs/security/sbom/*.json
+.claude/docs/security/sbom/*.cdx.json

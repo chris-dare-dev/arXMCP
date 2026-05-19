@@ -764,11 +764,23 @@ async def _load_reranker_or_raise() -> Any:
     the cache cannot achieve RCE, and ``revision=BGE_RERANKER_COMMIT_SHA``
     so transformers fetches the pinned ref (rather than HEAD).
     """
+    from server.model_loader import (
+        assert_no_bin_in_snapshot,
+        resolve_trust_remote_code,
+        validate_model_revision,
+    )
     from server.retrieval.rerank import (
         BGE_RERANKER_COMMIT_SHA,
         RERANKER_MODEL_ID,
         RerankerHandle,
         maybe_log_sha_drift,
+    )
+
+    # E13_S06 Threat 6: refuse a non-SHA pin before any network
+    # I/O. Validated outside ``_load`` so the error surfaces on the
+    # current event loop without a thread-pool hop.
+    validate_model_revision(
+        BGE_RERANKER_COMMIT_SHA, model_name=RERANKER_MODEL_ID
     )
 
     def _load() -> Any:
@@ -777,11 +789,12 @@ async def _load_reranker_or_raise() -> Any:
             AutoTokenizer,
         )
 
+        trc = resolve_trust_remote_code()
         try:
             tokenizer = AutoTokenizer.from_pretrained(
                 RERANKER_MODEL_ID,
                 revision=BGE_RERANKER_COMMIT_SHA,
-                trust_remote_code=False,
+                trust_remote_code=trc,
                 # Tokenizer files are JSON / sentencepiece / vocab —
                 # no pickle surface. The kwarg has no effect on the
                 # tokenizer load but is documented for symmetry with
@@ -790,7 +803,7 @@ async def _load_reranker_or_raise() -> Any:
             model = AutoModelForSequenceClassification.from_pretrained(
                 RERANKER_MODEL_ID,
                 revision=BGE_RERANKER_COMMIT_SHA,
-                trust_remote_code=False,
+                trust_remote_code=trc,
                 # F1 fix from the E07_S03 critique: enforce safetensors
                 # to close the pickle-RCE vector. Threat 6 in
                 # 08-security-observability-ops.md mandates "Use
@@ -808,6 +821,12 @@ async def _load_reranker_or_raise() -> Any:
                 f"Note: use_safetensors=True is enforced (Threat 6); "
                 f"a .bin-only model upgrade will fail this load."
             ) from exc
+        # E13_S06: defensive post-load check — ``use_safetensors=True``
+        # silently falls back to ``.bin`` in some transformers
+        # versions when no safetensors file exists in the repo. The
+        # on-disk snapshot check catches that fallback before the
+        # model is exposed to inference.
+        assert_no_bin_in_snapshot(RERANKER_MODEL_ID, BGE_RERANKER_COMMIT_SHA)
         model.eval()
         # F9 fix from the E07_S03 critique: return as a NamedTuple
         # so destructuring is explicit and a future 3-element

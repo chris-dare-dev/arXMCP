@@ -1,4 +1,4 @@
-.PHONY: help bootstrap test eval up ingest delta re-embed watchdog cutover daily-report parser-failures-report
+.PHONY: help bootstrap test eval up ingest delta re-embed watchdog cutover daily-report parser-failures-report sbom
 
 # Override with `make test PYTHON=python3.13` if your default python3 is too old.
 PYTHON ?= python3
@@ -18,6 +18,7 @@ help:
 	@echo "  make cutover     Activate the staging corpus as the new active (E11_S05; see docs/ops/cutover-runbook.md)"
 	@echo "  make daily-report           Scrape /metrics and write the daily ops report (E14_S04; see docs/ops/daily-ops-cadence.md)"
 	@echo "  make parser-failures-report Roll up parser-failures/*.{log,jsonl} into the weekly review (E14_S04; see docs/ops/parser-failure-review.md)"
+	@echo "  make sbom        Generate CycloneDX SBOMs + grype scan (E13_S06; see .claude/docs/security-threat-6-audit.md)"
 	@echo ""
 	@echo "Override the python interpreter with: make test PYTHON=python3.13"
 	@echo ""
@@ -207,3 +208,29 @@ parser-failures-report:
 		f'arXMCP requires Python >= 3.$(MIN_PY_MINOR); got {sys.version_info[:2]}. \
 Try: make parser-failures-report PYTHON=python3.$(MIN_PY_MINOR)'"
 	$(PYTHON) -m tools.parser_failures_report $(ARGS)
+
+sbom:
+	@# E13_S06 — Threat-6 SBOM generation + grype scan. This target
+	@# replaces the brief's ``.github/workflows/sbom.yml`` deliverable
+	@# because the project explicitly has no CI gate
+	@# (CLAUDE.md §4.1). Operators run ``make sbom`` before ``git
+	@# push`` to verify no critical CVEs exist in the pinned Python
+	@# deps OR the built server image.
+	@#
+	@# Required tools (script prints install hints if missing):
+	@#   - cyclonedx-py    (always)
+	@#   - grype           (unless ``--no-scan`` is passed via ARGS)
+	@#   - syft + docker   (unless ``--skip-image`` is passed)
+	@#
+	@# Outputs land under .claude/docs/security/sbom/ by default; the
+	@# directory is gitignored to keep raw SBOM JSON out of the repo
+	@# (multi-MB; reconsider at release-tag time per the audit doc).
+	@#
+	@# Examples:
+	@#   make sbom                          # full run (Python + image)
+	@#   make sbom ARGS="--skip-image"      # Python-only (no docker)
+	@#   make sbom ARGS="--no-scan"         # generate SBOMs, no grype
+	@#
+	@# Exit codes propagate from tools/sbom.sh:
+	@#   0 OK / 1 missing tool / 2 grype found critical / 3 generator failed
+	bash tools/sbom.sh $(ARGS)
