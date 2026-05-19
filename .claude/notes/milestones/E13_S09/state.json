@@ -1,14 +1,20 @@
 {
   "brief_source": "C:/Users/cedar/Documents/Personal Projects/Source Code/arXMCP/.claude/roadmap",
   "created_at": "2026-05-19T22:22:56Z",
-  "critics_run": [],
+  "critics_run": [
+    {
+      "critic": "adversary",
+      "output_path": ".claude/notes/milestones/E13_S09/critique-adversary.md",
+      "summary": "SHIP; 0C/0H/0M/0L; clean pure-audit milestone"
+    }
+  ],
   "critique_finding_counts": {
     "critical": 0,
     "high": 0,
     "low": 0,
     "medium": 0
   },
-  "critique_path": null,
+  "critique_path": ".claude/notes/milestones/E13_S09/critique-merged.md",
   "deferred_findings": [],
   "external_writes_authorized": false,
   "external_writes_completed": false,
@@ -17,13 +23,15 @@
   "id": "E13_S09",
   "implementation_base": "79df2385c9f922812656042ff166908ce045c673",
   "implementation_branch": "main",
-  "implementation_commit_range": null,
-  "implementation_commits": [],
+  "implementation_commit_range": "79df2385c9f922812656042ff166908ce045c673..1066935d099c51c4d9b2a6bc56c881a5e24660b7",
+  "implementation_commits": [
+    "1066935d099c51c4d9b2a6bc56c881a5e24660b7"
+  ],
   "implementation_path": "inline",
   "implementation_specialist": null,
   "invalidated_findings": [],
   "milestone_brief": "### E13_S09 \u2014 Localhost-only binding regression test\n\n**Status:** NEW\n**Tier:** 5\n**Effort:** S\n**Dependencies:** E07_S09\n\n**Description.** The MCP server must bind to `127.0.0.1` by default. Binding to `0.0.0.0` without an explicit unsafe-mode opt-in must cause the server to refuse to start with a clear error message. This regression test prevents future config changes from accidentally opening the server to the local network. It is a companion to E13_S05 (which tests the HTTP-level Origin and Host enforcement); this milestone tests the TCP bind layer.\n\nThe test spins up the server config parser with `ARXMCP_BIND_HOST=0.0.0.0` and asserts that `Config.validate()` raises `ConfigError: binding to 0.0.0.0 requires ARXMCP_UNSAFE_NETWORK_BIND=1`. A second test confirms that `ARXMCP_BIND_HOST=0.0.0.0` + `ARXMCP_UNSAFE_NETWORK_BIND=1` is accepted but logs a WARN at startup.\n\n**Deliverables.**\n- `tests/security/test_bind_regression.py` \u2014 3 test cases: default 127.0.0.1 accepted; 0.0.0.0 alone rejected; 0.0.0.0 + unsafe flag accepted with WARN\n- `docs/security/binding.md` \u2014 updated (links from E13_S05)\n\n**Acceptance criteria.**\n- [ ] Default config (`ARXMCP_BIND_HOST` unset) binds to `127.0.0.1`\n- [ ] `ARXMCP_BIND_HOST=0.0.0.0` without unsafe flag \u2192 `ConfigError` before any socket is opened\n- [ ] `ARXMCP_BIND_HOST=0.0.0.0` + `ARXMCP_UNSAFE_NETWORK_BIND=1` \u2192 accepted, WARN logged\n- [ ] `pytest tests/security/test_bind_regression.py` passes all 3 cases\n\n**Out of scope.** IPv6 binding (not in v1 scope). Firewall configuration (environment-specific).\n\n**Risk notes.**\n- Complements E13_S05 (HTTP-layer Origin/Host enforcement). Together they close Threat 5 fully.\n\n**Labels.** `area:security`, `area:infra`, `tier:5`\n\n---",
-  "phase": "implement-running",
+  "phase": "complete",
   "phase_history": [
     {
       "entered_at": "2026-05-19T22:22:56Z",
@@ -42,8 +50,33 @@
     },
     {
       "entered_at": "2026-05-19T22:30:23Z",
-      "left_at": null,
+      "left_at": "2026-05-19T22:35:06Z",
       "phase": "implement-running"
+    },
+    {
+      "entered_at": "2026-05-19T22:35:06Z",
+      "left_at": "2026-05-19T22:35:33Z",
+      "phase": "implement-complete"
+    },
+    {
+      "entered_at": "2026-05-19T22:35:33Z",
+      "left_at": "2026-05-19T22:38:06Z",
+      "phase": "critique-running"
+    },
+    {
+      "entered_at": "2026-05-19T22:38:06Z",
+      "left_at": "2026-05-19T22:38:29Z",
+      "phase": "critique-complete"
+    },
+    {
+      "entered_at": "2026-05-19T22:38:29Z",
+      "left_at": "2026-05-19T22:39:11Z",
+      "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-05-19T22:39:11Z",
+      "left_at": null,
+      "phase": "complete"
     }
   ],
   "rectification_commit": null,
@@ -62,5 +95,5 @@
   ],
   "research_mode": "standard",
   "research_synthesis": ".claude/notes/milestones/E13_S09/research-synthesis.md",
-  "updated_at": "2026-05-19T22:30:23Z"
+  "updated_at": "2026-05-19T22:39:11Z"
 }
