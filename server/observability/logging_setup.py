@@ -116,14 +116,34 @@ class JsonFormatter(logging.Formatter):
 
 
 def configure(log_level: str) -> None:
-    """Install :class:`RedactionFilter` on the root logger and set
-    the root log level from ``log_level``.
+    """Install :class:`RedactionFilter` on every root-logger handler
+    (and on the root logger itself for direct-root emits) and set the
+    root log level from ``log_level``.
 
-    Safe to call multiple times — the filter installation is
-    idempotent (a duplicate :class:`RedactionFilter` would re-run
-    deletion of already-absent keys, a no-op) and the DEBUG WARN
-    fires only on the first DEBUG configure per process via the
-    :data:`_debug_warning_emitted` one-shot guard.
+    F1 rectification (E13_S08 adversary): Python's logging filter
+    chain does NOT run parent-logger filters on records propagated
+    from child loggers — only the originating logger's filters and
+    the receiving handler's filters fire. Installing
+    :class:`RedactionFilter` on the root logger alone therefore
+    leaves every ``logging.getLogger(__name__)`` child logger
+    UN-redacted at INFO+, defeating the entire mitigation. The fix
+    is to attach the filter to every handler the root logger owns,
+    so that when a child logger's record propagates up and hits the
+    handler, the filter runs at handler-emit time.
+
+    The filter is also attached to the root logger itself so that
+    records logged DIRECTLY from the root (rare but possible —
+    ``logging.info(...)`` without a child logger) are also redacted
+    by the originating-logger filter chain.
+
+    The function is idempotent — repeated calls re-discover existing
+    handlers and skip any that already have a :class:`RedactionFilter`.
+    New handlers added AFTER ``configure()`` runs will NOT be
+    auto-protected; callers that install additional handlers post-
+    configure must either re-call ``configure()`` or install the
+    filter themselves. The audit doc spells out this contract.
+
+    Safe to call multiple times.
 
     :param log_level: a stdlib logging level name (``"DEBUG"``,
         ``"INFO"``, ``"WARNING"``, ``"ERROR"``, ``"CRITICAL"``).
@@ -134,10 +154,20 @@ def configure(log_level: str) -> None:
 
     root = logging.getLogger()
 
-    # Idempotent: only add the filter if one of the same class isn't
-    # already attached. Two attached filters wouldn't be incorrect
-    # (the second is a no-op on an already-redacted record) but the
-    # extra dispatch cost is avoidable.
+    # F1: attach the filter to every handler. This is the load-bearing
+    # install — handler filters fire on propagated child-logger
+    # records, which is the production pattern (24+ modules use
+    # ``logging.getLogger(__name__)``).
+    for handler in root.handlers:
+        if not any(isinstance(f, RedactionFilter) for f in handler.filters):
+            handler.addFilter(RedactionFilter())
+
+    # Defense-in-depth: also attach to the root logger so direct-root
+    # emits (``logging.info(...)`` without a named child) are
+    # redacted by the originating-logger chain. This redundant
+    # install has zero cost on records already redacted by the
+    # handler filter (subsequent ``dict.pop(key, None)`` calls are
+    # no-ops).
     if not any(isinstance(f, RedactionFilter) for f in root.filters):
         root.addFilter(RedactionFilter())
 

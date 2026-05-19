@@ -62,12 +62,30 @@ method:
    Dropping would also hide the `event` / `msg` fields the operator
    needs for incident response.
 
-The filter is installed on the root logger by `configure()` so every
-logger in the process inherits it. Because filter mutation is in place
-and the LogRecord is the only object passed to downstream handlers,
-every consumer — JSON formatter, stdout text formatter, future OTel
-log exporter — sees the already-redacted record. There is no race
-window where an un-redacted record can escape.
+The filter is installed by `configure()` on **every handler** attached
+to the root logger (and on the root logger itself for defense-in-
+depth). The handler-level installation is load-bearing: Python's
+filter chain runs parent-logger filters ONLY on records originating
+at the parent, NOT on records propagated from child loggers. Since
+every server module uses `logging.getLogger(__name__)`, installing the
+filter only on the root logger would leave every child-logger emit
+un-redacted — the F1 rectification (E13_S08 adversary) corrected this
+by moving the install point to the handlers, which DO fire on
+propagated records at emit time.
+
+Because filter mutation is in place and the LogRecord is the only
+object passed to downstream handlers, every consumer — JSON
+formatter, stdout text formatter, future OTel log exporter — sees the
+already-redacted record. There is no race window where an un-redacted
+record can escape.
+
+**Handler-add contract:** if a future code path installs a NEW handler
+on the root logger AFTER `configure()` has run, that handler will NOT
+automatically have the filter attached. Callers that add post-configure
+handlers must either re-call `configure(cfg.log_level)` (idempotent —
+the function re-discovers handlers) or install the filter manually.
+The contract is enforced by code review, not by hooking
+`Logger.addHandler`.
 
 ## Operator runbook
 

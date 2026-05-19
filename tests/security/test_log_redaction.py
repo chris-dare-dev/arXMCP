@@ -291,6 +291,89 @@ class TestConfigure:
             f"calls; got {n_filters}"
         )
 
+    def test_configure_redacts_child_logger_records_via_root_handler(self):
+        """F1 regression (E13_S08 adversary, CRITICAL): the
+        production pattern is ``logger = logging.getLogger(__name__)``
+        in every server submodule, then ``logger.info(...,
+        extra={"query": ...})``. The record propagates up the parent
+        chain to the root's HANDLERS — but Python's filter chain
+        only runs parent-logger filters on records ORIGINATING at
+        the parent, NOT on propagated records.
+
+        The fix installs :class:`RedactionFilter` on every handler
+        attached to the root so the filter fires at handler-emit
+        time, regardless of which child logger originated the
+        record. This test exercises that path: attach a capture
+        handler to root BEFORE configure(), call configure(), log
+        from a child, and verify the redaction took effect.
+        """
+        root = logging.getLogger()
+        # Install a capture handler BEFORE configure() so configure()
+        # finds it and attaches the filter to it (this is what
+        # production main.py does: handler from basicConfig() exists
+        # before configure() runs).
+        stream = io.StringIO()
+        capture = logging.StreamHandler(stream)
+        capture.setFormatter(JsonFormatter())
+        root.addHandler(capture)
+        try:
+            configure("INFO")
+            # Verify the filter actually landed on the handler.
+            assert any(
+                isinstance(f, RedactionFilter) for f in capture.filters
+            ), (
+                "F1: configure() must install RedactionFilter on every "
+                "existing root handler, not just on the root logger"
+            )
+            # Now exercise the propagation path: log from a child.
+            child = logging.getLogger("server.test.child_propagation")
+            child.info(
+                "search_papers",
+                extra={
+                    "event": "search_papers",
+                    "query": "Faltings theorem",
+                    "body_canonical": "Let X be a smooth projective variety...",
+                },
+            )
+            payload = _parse_one(stream)
+            # The redaction must have fired at the handler level.
+            assert "query" not in payload, (
+                f"F1: child-logger record leaked 'query' at INFO via root "
+                f"handler propagation. payload keys: {sorted(payload.keys())}"
+            )
+            assert "body_canonical" not in payload, (
+                "F1: child-logger record leaked 'body_canonical' at INFO"
+            )
+            # Sanity — the non-redacted fields are still present.
+            assert payload["event"] == "search_papers"
+            assert payload["name"] == "server.test.child_propagation"
+        finally:
+            root.removeHandler(capture)
+
+    def test_configure_attaches_filter_to_handlers_added_before_configure(
+        self,
+    ):
+        """Companion to the propagation test: confirm the handler-
+        level installation is the path that fires, even when no
+        child logger is involved."""
+        root = logging.getLogger()
+        stream = io.StringIO()
+        capture = logging.StreamHandler(stream)
+        capture.setFormatter(JsonFormatter())
+        root.addHandler(capture)
+        try:
+            # Pre-condition: no filter yet.
+            assert not any(
+                isinstance(f, RedactionFilter) for f in capture.filters
+            )
+            configure("INFO")
+            # Post-condition: filter attached.
+            assert any(
+                isinstance(f, RedactionFilter) for f in capture.filters
+            )
+        finally:
+            root.removeHandler(capture)
+
     def test_configure_sets_log_level(self):
         configure("WARNING")
         assert logging.getLogger().level == logging.WARNING
