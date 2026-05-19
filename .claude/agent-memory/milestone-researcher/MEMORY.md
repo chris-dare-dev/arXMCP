@@ -96,3 +96,61 @@ dependency is wrong attribution. Real dependency is E06_S05.
 `@model_validator(mode="after")` that checks both fields. Tests in
 `test_server_startup.py::TestConfigValidation` may assert field-level ValueError;
 verify they still pass after the refactor to model-level validation.
+
+## 2026-05-19 — E13_S06 — reranker-already-threat-6-compliant-embedder-incomplete
+Reranker (server/retrieval/rerank.py + server/resources.py) already enforces:
+SHA pinning (BGE_RERANKER_COMMIT_SHA), use_safetensors=True, trust_remote_code=False
+(implicit default; make explicit), and SHA-drift warning at startup. Embedder
+(ingest/embedder.py) pins SHA (BGE_M3_COMMIT_SHA) and trust_remote_code=False but
+CANNOT enforce use_safetensors=True because the pinned SHA ships .bin-only (documented
+gap deferred to future SHA bump). E13_S06 closes embedder gap via shared validator
++ explicit trust_remote_code pass.
+
+## 2026-05-19 — E13_S06 — no-ci-github-workflows-exists
+Brief calls for `.github/workflows/sbom.yml` but no .github/ dir exists per CLAUDE.md
+§4.1 (no CI blocking merges). Replace with `Makefile sbom` target invoking local
+cyclonedx-bom + grype that developers run manually before pushing.
+
+## 2026-05-19 — E13_S06 — no-default-embed-sha-config-constant
+Brief says "pinned in `server/config.py` as `DEFAULT_EMBED_SHA` and `DEFAULT_RERANK_SHA`"
+but these don't exist. Config has `rerank_model_sha` field (for drift check), but no
+module constant. Embedder SHA lives only in ingest/embedder.py::BGE_M3_COMMIT_SHA.
+No need to add config constants — module-level ones are already canonical.
+
+## 2026-05-19 — E13_S07 — e11-s02-100mb-cap-not-shipped
+Brief asserts "E11_S02 already enforces the 100 MB content-length cap." FALSE.
+E11_S02 implementation summary + code have ZERO 100 MB enforcement. Only per-service
+caps exist: OpenAlex 5 MB, INSPIRE 8 MB, ar5iv intra_paper_refs 50 MB. The 100 MB
+threshold is documented in `08-security-observability-ops.md` § Threat 7 as a
+*mitigation goal*, not an implemented feature. E13_S07 must deliver this cap from
+scratch (gap-closure + audit dual role, like E13_S01 for path-traversal).
+
+## 2026-05-19 — E13_S07 — urllib-request-no-shared-client-needed
+Brief mandates "single shared `httpx.Client` at module import time." Codebase uses
+ZERO httpx imports; all source ingestion uses `urllib.request.urlopen` (ar5iv_fetch,
+oai_delta, graph_ingest, inspire_ingest, arxiv_fetch, tools/curate_seed, daily_metrics).
+TLS verification is enabled by default in urllib; no escape hatch. No `verify=False`
+anywhere in the codebase (grepped entire repo). The brief's `ingest/sources/` directory
+does NOT exist (actual sites scattered across ingest/ + tools/). Refactoring urllib
+to httpx has negative ROI; audit the status quo instead (already safe-by-default).
+
+## 2026-05-19 — E13_S07 — no-ingest-sources-directory-exists
+Brief says "all HTTP clients in `ingest/sources/` must instantiate a single shared
+httpx.Client." The directory `ingest/sources/` does NOT exist. Actual HTTP clients:
+- ar5iv_fetch.py
+- oai_delta.py
+- graph_ingest.py
+- inspire_ingest.py
+Plus tools/ (arxiv_fetch, curate_seed, daily_metrics_report). All use urllib.request.
+
+## 2026-05-19 — E13_S08 — e07-s08-does-not-exist
+Brief lists E07_S08 as a dependency ("structured logging scaffolding"). E07 has only
+S01–S04. Actual logging state: stdlib logging everywhere, `log_level` config field
+shipped, no logging.py in server/observability/ yet. The brief is aspirational about
+a non-existent milestone. E13_S08 is pure-new implementation of the filter.
+
+## 2026-05-19 — E13_S08 — docs-placement-security-observability
+Brief says `docs/observability/log-redaction.md`. Correct destination per prior E13
+milestones is `.claude/docs/security-observability-logging.md` (audit docs live
+under .claude/docs/, not docs/). Prior precedent: E13_S01–S07 all use
+.claude/docs/security-threat-N-audit.md format.
