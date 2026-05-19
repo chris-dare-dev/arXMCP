@@ -543,9 +543,16 @@ if __name__ == "__main__":
         sys.stderr.write(f"FATAL: {exc}\n")
         sys.exit(1)
 
-    # Re-apply log_level in case Config() chose something other than
-    # the env-var fallback.
-    logging.getLogger().setLevel(cfg.log_level)
+    # E13_S08 Threat 8 — install the RedactionFilter on the root
+    # logger AND re-apply the level from Config (which may differ
+    # from the env-var fallback used before Config() loaded). The
+    # filter strips REDACTED_FIELDS (query, body_canonical,
+    # body_raw_latex, mathml) from every log record at INFO+ level so
+    # accidental leakage of paper content into the operational log is
+    # blocked at the source. See
+    # ``.claude/docs/security-observability-logging.md``.
+    from server.observability.logging_setup import configure as _configure_logging
+    _configure_logging(cfg.log_level)
     # E13_S05 Threat 5 — emit a WARN log at startup if the operator
     # has enabled the unsafe-network-bind escape hatch. This makes
     # the security trade-off VISIBLE in the operational log so an

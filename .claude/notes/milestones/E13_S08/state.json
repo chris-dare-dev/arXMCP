@@ -1,0 +1,66 @@
+{
+  "brief_source": "C:/Users/cedar/Documents/Personal Projects/Source Code/arXMCP/.claude/roadmap",
+  "created_at": "2026-05-19T13:42:23Z",
+  "critics_run": [],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "low": 0,
+    "medium": 0
+  },
+  "critique_path": null,
+  "deferred_findings": [],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_required": [],
+  "fixed_findings": [],
+  "id": "E13_S08",
+  "implementation_base": "c90020917e44c2ef418d3cbd31b5048d82d08914",
+  "implementation_branch": "main",
+  "implementation_commit_range": null,
+  "implementation_commits": [],
+  "implementation_path": "inline",
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "### E13_S08 \u2014 Tool-result and request-input redaction in structured logs\n\n**Status:** NEW\n**Tier:** 5\n**Effort:** S\n**Dependencies:** E07_S08\n\n**Description.** Sensitive fields \u2014 full query text, chunk bodies, raw LaTeX, MathML \u2014 must not appear in INFO-level or above log lines. They are permitted at DEBUG level only, where the developer has explicitly opted in. A structlog (or Python `logging`) filter implements this: the `RedactionFilter` strips the fields `query`, `body_canonical`, `body_raw_latex`, and `mathml` from any log record emitted at `logging.INFO` or above.\n\nThe filter is installed in `server/observability/logging.py::configure()` as part of the logging setup called at server startup. At `ARXMCP_LOG_LEVEL=DEBUG` (which must be set deliberately) these fields are included. At the default `INFO` level they are absent, ensuring that log aggregation pipelines (stdout \u2192 Prometheus \u2192 OTel) do not inadvertently exfiltrate paper content.\n\n**Deliverables.**\n- `server/observability/log_filter.py` \u2014 `RedactionFilter` class; `REDACTED_FIELDS = frozenset({\"query\", \"body_canonical\", \"body_raw_latex\", \"mathml\"})`\n- Updated `server/observability/logging.py::configure()` \u2014 installs the filter\n- `tests/security/test_log_redaction.py` \u2014 2 test cases: INFO-level record lacks sensitive fields; DEBUG-level record contains them\n- `docs/observability/log-redaction.md`\n\n**Acceptance criteria.**\n- [ ] `pytest tests/security/test_log_redaction.py` passes both cases\n- [ ] A log record with `event=\"search_papers\"` and `query=\"Faltings theorem\"` at INFO level has `query` absent from the serialized JSON\n- [ ] Same record at DEBUG level includes `query`\n- [ ] `body_canonical`, `body_raw_latex`, and `mathml` follow the same pattern\n\n**Out of scope.** Redacting `paper_id` or `chunk_id` (these are identifiers, not sensitive content). PII redaction (not applicable to this system).\n\n**Risk notes.**\n- Addresses the \"Logging\" subsection of `.claude/notes/08-security-observability-ops.md`. A MEDIUM finding: leaking chunk bodies into logs is low-severity for a localhost-only system but is still a privacy concern for draft / pre-publication papers.\n\n**Labels.** `area:observability`, `area:security`, `tier:5`\n\n---",
+  "phase": "implement-running",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-19T13:42:23Z",
+      "left_at": "2026-05-19T13:42:55Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-19T13:42:55Z",
+      "left_at": "2026-05-19T13:50:23Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-19T13:50:23Z",
+      "left_at": "2026-05-19T13:50:51Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-05-19T13:50:51Z",
+      "left_at": null,
+      "phase": "implement-running"
+    }
+  ],
+  "rectification_commit": null,
+  "regression_tests_added": [],
+  "research_briefs": [
+    {
+      "agent_id": "researcher-1",
+      "brief_path": ".claude/notes/milestones/E13_S08/research-brief-1.md",
+      "summary": "In-codebase: stdlib logging; server/observability exists no logging.py; E07_S08 fictional"
+    },
+    {
+      "agent_id": "researcher-2",
+      "brief_path": ".claude/notes/milestones/E13_S08/research-brief-2.md",
+      "summary": "External: logging.Filter contract; LogRecord attrs; 7 failure modes; no structlog"
+    }
+  ],
+  "research_mode": "standard",
+  "research_synthesis": ".claude/notes/milestones/E13_S08/research-synthesis.md",
+  "updated_at": "2026-05-19T13:50:51Z"
+}
