@@ -934,14 +934,38 @@ class TestShellWrapperHasNoPersonalPath:
 
 
 class _FakeUrlOpenResponse:
-    """Stub for urllib.request.urlopen's context manager."""
+    """Stub for urllib.request.urlopen's context manager.
 
-    def __init__(self, body: bytes, url: str):
+    E13_S07: ``headers`` attribute provided so the new Content-Length
+    pre-check in ``_fetch_page`` can inspect the response. Pass
+    ``content_length=None`` (default) to omit the header — the
+    fetcher treats absence as "header missing, fall back to
+    read-cap." Pass an int to inject a declared size; the new
+    pre-check will reject early if it exceeds the 100 MB cap.
+    """
+
+    def __init__(
+        self,
+        body: bytes,
+        url: str,
+        *,
+        content_length: int | None = None,
+    ):
         self._body = body
         self.url = url
+        if content_length is None:
+            self.headers: dict[str, str] = {}
+        else:
+            self.headers = {"Content-Length": str(content_length)}
 
-    def read(self) -> bytes:
-        return self._body
+    def read(self, amt: int | None = None) -> bytes:
+        # E13_S07 contract: the production fetcher passes
+        # ``OAI_PMH_MAX_RESPONSE_BYTES + 1`` to bound memory. We
+        # truncate to that cap so the existing tests (whose bodies
+        # are well under the cap) see no behavioral change.
+        if amt is None:
+            return self._body
+        return self._body[:amt]
 
     def __enter__(self):
         return self

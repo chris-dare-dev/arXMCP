@@ -21,9 +21,24 @@ from ingest.ar5iv_fetch import (
 
 
 class _FakeResponse:
-    """Minimal stub for the urllib response context manager."""
+    """Minimal stub for the urllib response context manager.
 
-    def __init__(self, status: int, body: bytes, url: str | None = None):
+    E13_S07: ``headers`` attribute provided so the new Content-Length
+    pre-check in ``ar5iv_fetch.try_cache`` can inspect the response.
+    Default ``content_length=None`` omits the header (the fetcher
+    treats absence as "fall back to read-cap"). Pass an int to
+    inject a declared size; values above
+    ``AR5IV_MAX_RESPONSE_BYTES`` exercise the early-reject branch.
+    """
+
+    def __init__(
+        self,
+        status: int,
+        body: bytes,
+        url: str | None = None,
+        *,
+        content_length: int | None = None,
+    ):
         self.status = status
         self._body = body
         # F9 regression: ``response.url`` is what urllib reports as
@@ -32,9 +47,18 @@ class _FakeResponse:
         self.url = url if url is not None else (
             "https://ar5iv.labs.arxiv.org/html/test"
         )
+        if content_length is None:
+            self.headers: dict[str, str] = {}
+        else:
+            self.headers = {"Content-Length": str(content_length)}
 
-    def read(self) -> bytes:
-        return self._body
+    def read(self, amt: int | None = None) -> bytes:
+        # E13_S07 contract: production code passes
+        # ``AR5IV_MAX_RESPONSE_BYTES + 1`` to bound memory. We honor
+        # the cap so existing small-body tests pass unchanged.
+        if amt is None:
+            return self._body
+        return self._body[:amt]
 
     def __enter__(self):
         return self

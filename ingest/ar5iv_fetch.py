@@ -61,6 +61,18 @@ AR5IV_BASE_URL: str = "https://ar5iv.labs.arxiv.org/html"
 #: slow nodes without hanging the cron forever.
 AR5IV_TIMEOUT_SECONDS: float = 5.0
 
+#: E13_S07 Threat 7 — content-length sanity cap. The threat model
+#: in ``.claude/notes/08-security-observability-ops.md`` § Threat 7
+#: states "a single paper > 100 MB source is suspicious." The cap
+#: applies BOTH to the ``Content-Length`` header (pre-read reject
+#: when the server announces an oversized body) AND to the actual
+#: bytes read (catches a lying header or chunked encoding without
+#: a declared length). A legitimate ar5iv HTML render of even a
+#: very long algebraic-geometry paper is well under 10 MB; 100 MB
+#: leaves three orders of magnitude of headroom while bounding the
+#: blast radius of a poisoned ar5iv response.
+AR5IV_MAX_RESPONSE_BYTES: int = 100 * 1024 * 1024
+
 #: Required signal in a 200 response body — verifies LaTeXML actually
 #: produced math. An ar5iv error page (e.g. "this paper could not be
 #: processed") returns 200 with no MathML; we treat that as a miss.
@@ -151,7 +163,52 @@ def try_cache(
             request, timeout=timeout_seconds
         ) as response:
             status = response.status
-            body_bytes = response.read()
+            # E13_S07 Threat 7: pre-read Content-Length sanity check.
+            # When the server announces an oversized body, refuse
+            # before any bytes are buffered. The header is advisory
+            # (RFC 9110 § 8.6 — may be absent or wrong) so this is
+            # belt + braces with the read-cap below.
+            declared = response.headers.get("Content-Length")
+            if declared is not None:
+                try:
+                    declared_int = int(declared)
+                except (TypeError, ValueError):
+                    declared_int = -1
+                if declared_int > AR5IV_MAX_RESPONSE_BYTES:
+                    logger.warning(
+                        "ar5iv: Content-Length %d > cap %d for %s; "
+                        "treating as miss (Threat 7)",
+                        declared_int,
+                        AR5IV_MAX_RESPONSE_BYTES,
+                        paper_id,
+                    )
+                    return Ar5ivResult(
+                        paper_id=paper_id,
+                        hit=False,
+                        cache_path=None,
+                        parsed_path=None,
+                        reason="oversized_content_length",
+                    )
+            # E13_S07: read at most cap+1 bytes; treat any
+            # over-cap actual read as a lie / missing-header attack
+            # and refuse. This bounds memory to ~100 MB worst case
+            # even when the header is missing or wrong.
+            body_bytes = response.read(AR5IV_MAX_RESPONSE_BYTES + 1)
+            if len(body_bytes) > AR5IV_MAX_RESPONSE_BYTES:
+                logger.warning(
+                    "ar5iv: response body for %s exceeded cap %d "
+                    "(Content-Length=%r); treating as miss (Threat 7)",
+                    paper_id,
+                    AR5IV_MAX_RESPONSE_BYTES,
+                    declared,
+                )
+                return Ar5ivResult(
+                    paper_id=paper_id,
+                    hit=False,
+                    cache_path=None,
+                    parsed_path=None,
+                    reason="oversized_body",
+                )
             # Closes F9: ``urllib.request.urlopen`` silently follows
             # 3xx redirects to any host. ar5iv is a static CDN that
             # doesn't redirect, so a redirect off-domain is either a

@@ -94,6 +94,16 @@ POLITENESS_SLEEP_SECONDS: float = 3.0
 #: enough that a stuck connection doesn't poison the run.
 OAI_PMH_TIMEOUT_SECONDS: float = 30.0
 
+#: E13_S07 Threat 7 — content-length sanity cap. The threat model
+#: in ``.claude/notes/08-security-observability-ops.md`` § Threat 7
+#: states "a single paper > 100 MB source is suspicious." OAI-PMH
+#: ListRecords XML batches can be large (tens of MB) but never
+#: legitimately exceed this threshold; 100 MB is a generous safety
+#: net. Applied both at the ``Content-Length`` header (pre-read
+#: reject) and at the actual ``response.read()`` size (catches a
+#: lying header or chunked encoding).
+OAI_PMH_MAX_RESPONSE_BYTES: int = 100 * 1024 * 1024
+
 #: Target sets — verified live against
 #: ``https://oaipmh.arxiv.org/oai?verb=ListSets`` (synthesis D5).
 DEFAULT_SETS: tuple[str, ...] = (
@@ -326,7 +336,35 @@ def _fetch_page(
             with urllib.request.urlopen(  # noqa: S310 — pinned arxiv host
                 request, timeout=timeout_seconds
             ) as response:
-                body = response.read()
+                # E13_S07 Threat 7: pre-read Content-Length sanity
+                # check. When the OAI-PMH server announces an
+                # oversized body, refuse before any bytes are
+                # buffered. Belt + braces with the read-cap below
+                # because the header is advisory only (RFC 9110
+                # § 8.6 — may be absent under chunked transfer).
+                declared = response.headers.get("Content-Length")
+                if declared is not None:
+                    try:
+                        declared_int = int(declared)
+                    except (TypeError, ValueError):
+                        declared_int = -1
+                    if declared_int > OAI_PMH_MAX_RESPONSE_BYTES:
+                        raise RuntimeError(
+                            f"OAI-PMH Content-Length {declared_int} "
+                            f"exceeds cap {OAI_PMH_MAX_RESPONSE_BYTES} "
+                            f"bytes (Threat 7); refusing"
+                        )
+                # E13_S07: read at most cap+1 bytes. An over-cap
+                # actual read indicates a lying Content-Length /
+                # chunked encoding with no declared length and is
+                # treated as a Threat 7 attack.
+                body = response.read(OAI_PMH_MAX_RESPONSE_BYTES + 1)
+                if len(body) > OAI_PMH_MAX_RESPONSE_BYTES:
+                    raise RuntimeError(
+                        f"OAI-PMH response body exceeded cap "
+                        f"{OAI_PMH_MAX_RESPONSE_BYTES} bytes "
+                        f"(Content-Length={declared!r}); refusing"
+                    )
                 response_url = response.url
             # F2: pin egress to the configured OAI-PMH endpoint.
             if not response_url.startswith(endpoint):

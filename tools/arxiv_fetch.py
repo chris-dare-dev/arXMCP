@@ -34,10 +34,12 @@ LATEXML_TIMEOUT_SECONDS = 300
 PAPER_ID_RE = re.compile(r"^[0-9]{4}\.[0-9]{4,5}$")
 MIN_PARSED_HTML_BYTES = 1024
 
-# Threat 7 in 08-security-observability-ops.md: refuse responses larger
-# than this. A real arXiv source tarball >100 MB is suspicious; we use
-# 200 MB as the operational cap.
-MAX_RESPONSE_BYTES = 200 * 1024 * 1024
+# Threat 7 in 08-security-observability-ops.md states "a single paper
+# > 100 MB source is suspicious." E13_S07 aligns the cap with the
+# threat-model budget exactly. The prior 200 MB value was a safety-net
+# default; 100 MB is the Threat-7 cap and matches the per-fetch caps
+# now applied uniformly on ingest/ar5iv_fetch.py and ingest/oai_delta.py.
+MAX_RESPONSE_BYTES = 100 * 1024 * 1024
 
 
 @dataclass(frozen=True)
