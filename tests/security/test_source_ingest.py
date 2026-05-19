@@ -197,6 +197,14 @@ class TestContentLengthCap:
         fetcher must reject WITHOUT calling ``response.read()``. We
         monkey-patch urlopen to return a mock whose ``.read()`` is a
         ``MagicMock`` so we can assert it was never invoked.
+
+        F3 rectification (E13_S07 adversary): the prior version of
+        this test only proved ``read()`` was never invoked. That
+        leaves a future refactor free to bypass ``read()`` via
+        ``response.fp.read1`` / ``readinto`` / similar. The
+        strengthened version also asserts that no alternative read
+        primitive on the response is called either — pinning the
+        full "no body buffered into memory" contract.
         """
         paper_id = "2412.00001"
 
@@ -204,16 +212,30 @@ class TestContentLengthCap:
         mock_response.status = 200
         mock_response.url = "https://ar5iv.labs.arxiv.org/html/" + paper_id
         mock_response.headers = {"Content-Length": str(200 * 1024 * 1024)}
-        # The real attack vector: .read() must NEVER be called when
-        # Content-Length declares oversized.
-        mock_response.read = MagicMock(
-            side_effect=AssertionError(
-                "Content-Length cap was not respected — read() was called"
-            )
-        )
 
-        # urlopen returns a context manager. Provide a mock that
-        # behaves like ``with urlopen(...) as response:``.
+        # F3: track EVERY potential body-read primitive. If any
+        # fires when Content-Length declared oversized, the cap is
+        # not respected and the test fails — regardless of which
+        # API the production code chose.
+        body_read_methods = (
+            "read", "read1", "readinto", "readinto1", "readline",
+            "readlines", "fp",
+        )
+        forbidden_calls: list[str] = []
+
+        def make_fail(name: str):
+            def _fail(*args, **kwargs):
+                forbidden_calls.append(name)
+                raise AssertionError(
+                    f"Content-Length cap was not respected — "
+                    f"response.{name}() was called"
+                )
+            return _fail
+
+        for method_name in body_read_methods:
+            setattr(mock_response, method_name, make_fail(method_name))
+
+        # urlopen returns a context manager.
         ctx = MagicMock()
         ctx.__enter__ = MagicMock(return_value=mock_response)
         ctx.__exit__ = MagicMock(return_value=False)
@@ -232,9 +254,12 @@ class TestContentLengthCap:
         assert result.reason == "oversized_content_length", (
             f"expected reason='oversized_content_length', got {result.reason!r}"
         )
-        # The post-condition that proves we didn't read >100 MB into
-        # memory: read() was never called.
-        mock_response.read.assert_not_called()
+        assert not forbidden_calls, (
+            f"Threat 7 F3: the fetcher called body-read primitives "
+            f"{forbidden_calls} after seeing an oversized Content-Length. "
+            f"The pre-check must short-circuit BEFORE any body bytes "
+            f"are buffered."
+        )
 
     def test_ar5iv_caps_actual_read_when_content_length_missing(
         self, monkeypatch, tmp_path
@@ -258,12 +283,13 @@ class TestContentLengthCap:
         # many bytes — the check is that len(body) > cap triggers
         # the reject branch.
 
+        # F3 rectification: capture the actual byte cap passed to
+        # read() so we can prove the production code applied
+        # ``MAX + 1`` (not a larger value, not no value).
+        recorded_caps: list[int | None] = []
+
         def fake_read(n: int | None = None) -> bytes:
-            # When the production code calls read(MAX + 1), it gets
-            # MAX + 1 bytes back. When it calls read() with no arg
-            # (i.e., didn't apply the cap), it would get the whole
-            # oversized_body — but our cap test asserts the bounded
-            # form was used.
+            recorded_caps.append(n)
             if n is None:
                 pytest.fail(
                     "ar5iv read() was called without a byte cap — "
@@ -288,6 +314,15 @@ class TestContentLengthCap:
         assert result.hit is False
         assert result.reason == "oversized_body", (
             f"expected reason='oversized_body', got {result.reason!r}"
+        )
+        # F3: the recorded byte caps prove ``read()`` was called
+        # with a bounded value exactly equal to ``MAX + 1``.
+        # Anything looser (or anything past one call) would
+        # indicate unbounded buffering.
+        assert recorded_caps, "read() was never called"
+        assert all(n == AR5IV_MAX_RESPONSE_BYTES + 1 for n in recorded_caps), (
+            f"Threat 7 F3: expected every read() call to request "
+            f"exactly {AR5IV_MAX_RESPONSE_BYTES + 1} bytes; got {recorded_caps}"
         )
 
     def test_ar5iv_accepts_body_under_cap(self, monkeypatch, tmp_path):
@@ -408,6 +443,63 @@ class TestContentLengthCap:
 
 
 # ===========================================================================
+# F2 regression — harvest loop survives a Threat-7 cap breach mid-set
+# ===========================================================================
+
+
+class TestHarvestSurvivesCapBreach:
+    """F2 rectification (E13_S07 adversary): a ``RuntimeError`` from
+    ``_fetch_page`` (raised on Content-Length cap breach) must NOT
+    abort the whole multi-set harvest run. ``harvest_set`` now
+    catches the exception, logs at WARN, and returns
+    ``(records, pages)`` so the outer ``run_delta`` loop continues
+    to the next set.
+    """
+
+    def test_runtime_error_in_first_page_does_not_propagate(self, caplog):
+        """A poisoned first page raises ``RuntimeError``;
+        ``harvest_set`` must return ``([], 0)`` rather than letting
+        the exception escape.
+        """
+        import logging
+
+        from ingest.oai_delta import harvest_set
+
+        def poison_fetcher(*_a, **_kw):
+            raise RuntimeError(
+                "OAI-PMH Content-Length 209715200 exceeds cap "
+                "104857600 bytes (Threat 7); refusing"
+            )
+
+        with caplog.at_level(logging.WARNING, logger="ingest.oai_delta"):
+            records, pages = harvest_set(
+                "math:math:AG",
+                from_date="2026-05-01",
+                until_date="2026-05-02",
+                endpoint=OAI_PMH_ENDPOINT,
+                state_path=Path("nonexistent"),
+                resume_token=None,
+                fetch_page=poison_fetcher,
+                sleep_between_pages=lambda _t: None,
+            )
+
+        assert records == []
+        assert pages == 0
+        # The graceful-degradation log must fire so an operator can
+        # grep for the poisoned set name.
+        warn_messages = [
+            r.getMessage() for r in caplog.records
+            if r.levelno == logging.WARNING
+        ]
+        assert any("math:math:AG" in m for m in warn_messages), (
+            f"expected WARN log mentioning the poisoned set; got: {warn_messages}"
+        )
+        assert any("Threat 7" in m for m in warn_messages), (
+            f"expected WARN log citing Threat 7; got: {warn_messages}"
+        )
+
+
+# ===========================================================================
 # AC4 — No verify=False anywhere in ingest / tools / server
 # ===========================================================================
 
@@ -502,5 +594,12 @@ class TestPinArxivCaFlag:
         assert audit.is_file(), f"audit doc missing at {audit}"
         text = audit.read_text(encoding="utf-8")
         assert "ARXMCP_PIN_ARXIV_CA" in text
-        assert "100" in text  # cap value in MB
+        # F4 rectification (E13_S07 adversary): the prior assertion
+        # was ``"100" in text`` which would pass spuriously on any
+        # unrelated number like a year or section. Pin the actual
+        # cap value AND units so a future doc edit that removes
+        # the explanation triggers the test.
+        assert re.search(r"100\s*MB", text), (
+            "audit doc must surface the 100 MB Content-Length cap value"
+        )
         assert "Threat 7" in text

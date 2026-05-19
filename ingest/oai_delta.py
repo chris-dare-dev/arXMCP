@@ -543,12 +543,35 @@ def harvest_set(
                 "set": set_spec,
             }
         page_started = time.monotonic()
-        body = fetch_page(
-            endpoint,
-            params,
-            timeout_seconds=timeout_seconds,
-            user_agent=user_agent,
-        )
+        try:
+            body = fetch_page(
+                endpoint,
+                params,
+                timeout_seconds=timeout_seconds,
+                user_agent=user_agent,
+            )
+        except RuntimeError as exc:
+            # E13_S07 F2: a Threat-7 cap breach (oversized
+            # Content-Length / lying header) raises RuntimeError
+            # from ``_fetch_page``. Without this guard the error
+            # would propagate through ``run_delta`` and abort the
+            # entire multi-set harvest run, leaving 3/4 sets
+            # un-harvested for the day. Graceful degradation per
+            # design note 08:216 ("OAI-PMH endpoint 503 → pause
+            # delta loop with exponential backoff") is the
+            # contract; a poisoned page should skip the rest of
+            # this set (we don't know if subsequent pages are also
+            # poisoned) and let the outer loop continue to the
+            # next set.
+            logger.warning(
+                "oai_delta: set=%s page=%d aborted by RuntimeError: %s. "
+                "Skipping remainder of this set; harvest continues "
+                "with the next set. (Threat 7)",
+                set_spec,
+                pages + 1,
+                exc,
+            )
+            return records, pages
         pages += 1
         page_records, next_token = _parse_listrecords(
             body, set_spec=set_spec

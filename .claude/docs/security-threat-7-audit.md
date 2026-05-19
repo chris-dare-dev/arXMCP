@@ -120,10 +120,14 @@ The plumbing today:
 - `Config.pin_arxiv_ca: bool = False` (the `server/config.py` field).
 - Mapped to env var `ARXMCP_PIN_ARXIV_CA`. Pydantic `BaseSettings` accepts
   the standard truthy values (`"1"`, `"true"`, `"True"`).
-- When True, the server should log an INFO line at startup noting the
-  flag is set but pinning is not yet active. The follow-up milestone
-  (provisionally `E13_S07b` or rolled into a future hardening pass) wires
-  the actual `ssl.SSLContext` configuration.
+- When True, the value is accepted by Config but **has no current
+  behavior**. The server today emits no startup INFO log on opt-in;
+  the log line and the SSL-context wiring land together in the
+  closure milestone (provisionally `E13_S07b` or rolled into a future
+  hardening pass) that implements the actual `ssl.SSLContext`
+  configuration. F1 rectification (E13_S07 adversary): the prior
+  draft of this doc and the field's docstring claimed an INFO log
+  was emitted today; that was aspirational, not actual.
 - Default False is production-ready: the system trust store + the
   Content-Length cap already cover Threat 7's primary attack surface.
 
@@ -200,11 +204,13 @@ export ARXMCP_PIN_ARXIV_CA=1
 make up
 ```
 
-Today this is a forward-compat stub — the flag is read and surfaced in
-the server's startup log line but the actual SSL context manipulation is
-deferred. A future milestone will wire `ssl.SSLContext.load_verify_locations(...)`
-against a hardcoded arxiv.org CA bundle. The flag default stays False
-until that closure lands.
+Today this is a forward-compat stub — the flag is accepted by Config
+but has **no current behavior**. Setting it does not change the SSL
+context and does not produce any log line. A future milestone will
+both (a) wire `ssl.SSLContext.load_verify_locations(...)` against a
+hardcoded arxiv.org CA bundle and (b) add the operator-facing INFO
+log so the opt-in is visible at startup. The flag default stays
+False until that closure lands.
 
 ### Known gaps (out of scope for E13_S07; follow-up tracked)
 

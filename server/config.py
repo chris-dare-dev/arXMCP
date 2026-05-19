@@ -266,16 +266,24 @@ class Config(BaseSettings):
     #: E13_S07 (Threat 7) — opt-in CA pinning flag for arxiv.org.
     #: Default ``False``: ``urllib.request`` uses the system trust
     #: store (safe-by-default; TLS verification cannot be disabled
-    #: by any ``ARXMCP_*`` env var). ``True``: forward-compatible
-    #: opt-in to a future pinned-CA implementation. The threat
-    #: model in ``.claude/notes/08-security-observability-ops.md``
+    #: by any ``ARXMCP_*`` env var).
+    #:
+    #: **Forward-compatible placeholder. No current behavior.**
+    #: Setting ``True`` is accepted by the config but does NOT yet
+    #: change the SSL context — the field is plumbing for a future
+    #: milestone that will validate the arxiv.org certificate chain
+    #: against a pinned fingerprint. F1 rectification (E13_S07
+    #: adversary): the prior docstring claimed an INFO log was
+    #: emitted on opt-in; no such log exists yet. The actual log
+    #: line and the SSL-context wiring land together in the closure
+    #: milestone.
+    #:
+    #: The threat model in ``.claude/notes/08-security-observability-ops.md``
     #: § Threat 7 lists this as one mitigation; the actual
-    #: certificate-chain inspection is deferred to a follow-up
-    #: milestone because the arxiv.org CA rotates periodically and
-    #: hard-coding a pin without an operator refresh procedure
-    #: creates more operational toil than security benefit. When
-    #: this flag is set today, the server emits an INFO log noting
-    #: the request and proceeds with the system trust store; see
+    #: certificate-chain inspection is deferred because the
+    #: arxiv.org CA rotates periodically and hard-coding a pin
+    #: without an operator refresh procedure creates more
+    #: operational toil than security benefit at Tier-5. See
     #: ``.claude/docs/security-threat-7-audit.md`` for the full
     #: rationale and the planned closure path.
     pin_arxiv_ca: bool = False
