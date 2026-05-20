@@ -1,0 +1,73 @@
+{
+  "brief_source": "follow-up to E13_S04 / GitHub issue #1 (filed by E13_S10)",
+  "created_at": "2026-05-20T21:41:18Z",
+  "critics_run": [],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "low": 0,
+    "medium": 0
+  },
+  "critique_path": null,
+  "deferred_findings": [],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_required": [
+    {
+      "blocking": false,
+      "target": "chris-dare-dev/arXMCP#1",
+      "type": "gh_issue_close",
+      "why": "close gap-issue G1 once cap-extension lands"
+    }
+  ],
+  "fixed_findings": [],
+  "id": "E13_S04b",
+  "implementation_base": "601cb91289d1f483faf3c6a27ddeaa8c0e538650",
+  "implementation_branch": "main",
+  "implementation_commit_range": null,
+  "implementation_commits": [],
+  "implementation_path": "inline",
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "### E13_S04b \u2014 Extend 256 KB byte cap to remaining tool handlers (closes Threat 4 partial-coverage gap)\n\n**Status:** NEW (follow-up to E13_S04 + filed as `chris-dare-dev/arXMCP#1` by E13_S10 cumulative coverage audit)\n**Tier:** 5\n**Effort:** M\n**Dependencies:** E13_S04 (cap helper already exists for `get_chunk` + `get_definitions`)\n\n**Description.** E13_S04 (Threat 4 audit) shipped the 256 KB inline-content cap on tool results but only wired it into `get_chunk` and `get_definitions`. The E13_S10 cumulative threat-model coverage review surfaced this as the highest-priority real coverage gap (filed at `https://github.com/chris-dare-dev/arXMCP/issues/1`). This milestone extends the cap to every return-chunk-or-content tool that does not yet enforce it: `search_papers`, `find_equation`, `find_lemma_by_name`, `get_paper`, and `cite_neighbors`. The cap behavior must be identical to the existing pattern in `get_chunk` / `get_definitions` (256 KB inline budget; oversize content spills via `resource_link` per Threat 4's threat-model text in `.claude/notes/08-security-observability-ops.md`).\n\n**Mitigation:** the existing cap helper / pattern (see `server/handlers/get_chunk.py` and `server/handlers/get_definitions.py` for the canonical implementations) is the contract; this milestone REUSES it across the missing handlers rather than re-implementing per-tool. If a shared helper does not yet exist, extract one as part of this work so the contract is single-sourced.\n\n**Deliverables.**\n- Patches to the five handler modules under `server/handlers/` (`search.py` / `equation.py` / `lemma.py` / `paper.py` / `citations.py` \u2014 exact filenames may differ; the implementer reads the actual layout) to enforce the cap.\n- Extracted shared cap helper (if not already present) \u2014 single source of truth for the 256 KB threshold and the spillover envelope shape.\n- Extension of `tests/security/test_resource_exhaustion.py` \u2014 new parametrized tests across all five newly-covered tools, exercising the over-cap rejection path. Existing `get_chunk` / `get_definitions` tests stay as regression guards.\n- Update `.claude/docs/security-threat-model-coverage.md` Threat 4 row: replace the `[#1 \u2014 extend 256 KB byte cap to remaining tool handlers](URL)` gap link with `(none)`; add a note in the body section that the gap is closed by this milestone. Update the Gap-issue triage table to mark G1 as closed.\n- Close `chris-dare-dev/arXMCP#1` via `gh issue close` once the implementation lands (Phase 4 external-write boundary).\n\n**Acceptance criteria.**\n- [ ] Every return-chunk-or-content tool (`get_chunk`, `get_definitions`, `search_papers`, `find_equation`, `find_lemma_by_name`, `get_paper`, `cite_neighbors`) enforces the 256 KB cap with identical semantics.\n- [ ] `tests/security/test_resource_exhaustion.py` includes parametrized cap-rejection tests for all five newly-covered tools.\n- [ ] `pytest tests/security/test_resource_exhaustion.py` passes all cases (existing + new).\n- [ ] `.claude/docs/security-threat-model-coverage.md` Threat 4 row no longer cites #1; Gap-issue triage table updated.\n- [ ] `tests/security/test_threat_model_coverage.py` (E13_S10 staleness gate) still passes (the doc edit must keep the per-threat structure intact).\n- [ ] GitHub issue #1 closed with a commit reference.\n\n**Out of scope.** Adding NEW resource caps beyond the 256 KB inline budget (e.g. per-call rate-limiting refinements). Extending the cap to non-tool surfaces (logs, metrics, health endpoints). Refactoring the cap value itself.\n\n**Risk notes.**\n- Closes G1 (MEDIUM) from `.claude/docs/security-threat-model-coverage.md` E13_S10 gap-issue triage.\n- The cap helper extraction is mildly invasive (touches 5+ handler files); a focused critic pass should verify no handler-specific edge case is broken (e.g. `get_paper` may return metadata-only results that have always been under the cap by construction \u2014 the cap check must be defensive but not break the happy path).\n\n**Labels.** `area:security`, `area:server`, `risk:medium`, `tier:5`, `closes:#1`\n\n---",
+  "phase": "implement-running",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-20T21:41:18Z",
+      "left_at": "2026-05-20T21:42:37Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-20T21:42:37Z",
+      "left_at": "2026-05-20T21:49:33Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-20T21:49:33Z",
+      "left_at": "2026-05-20T21:49:55Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-05-20T21:49:55Z",
+      "left_at": null,
+      "phase": "implement-running"
+    }
+  ],
+  "rectification_commit": null,
+  "regression_tests_added": [],
+  "research_briefs": [
+    {
+      "agent_id": "researcher-1",
+      "brief_path": ".claude/notes/milestones/E13_S04b/research-brief-1.md",
+      "summary": "In-codebase: helper exists in server/tools.py; 5 handlers need calls; no schema impact"
+    },
+    {
+      "agent_id": "researcher-2",
+      "brief_path": ".claude/notes/milestones/E13_S04b/research-brief-2.md",
+      "summary": "Threat 4 verbatim + 9 failure modes; cap measurement on serialized JSON bytes; forward-compat for get_paper + cite_neighbors"
+    }
+  ],
+  "research_mode": "standard",
+  "research_synthesis": ".claude/notes/milestones/E13_S04b/research-synthesis.md",
+  "updated_at": "2026-05-20T21:49:55Z"
+}

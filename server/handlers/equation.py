@@ -28,11 +28,24 @@ from pydantic import Field
 
 from server.query_encoder import encode_query
 from server.retrieval.equations import EquationIndex, looks_like_mathml
-from server.tools import envelope, get_resources
+from server.tools import enforce_byte_cap, envelope, get_resources
 
 logger = logging.getLogger(__name__)
 
 MAX_K = 50
+
+
+def _cap(payload: dict[str, Any]) -> dict[str, Any]:
+    """E13_S04b — apply the 256 KB result byte cap. No-op today
+    (k≤50 with small per-row metadata; TED equation index returns
+    chunk_id/paper_id/score only) but defensive against future
+    surrounding-context expansion or full-MathML payload growth.
+    Passes ``chunk_id=None`` because the cap-overflow surface for
+    a multi-result aggregate is the response envelope, not a single
+    chunk.
+    """
+    structured, _blocks = enforce_byte_cap(payload)
+    return structured
 
 
 async def handle_find_equation(
@@ -94,14 +107,14 @@ async def handle_find_equation(
         # in the EquationIndex constructor is ``"ted_fused"`` so
         # this defaults safely if a future code path forgets to
         # set the attribute.
-        return envelope(
+        return envelope(_cap(
             {
                 "alpha": alpha,
                 "results": rows[:k],
                 "retrieval_mode": getattr(
                     index, "last_retrieval_mode", "ted_fused"
                 ),
-            }
+            })
         )
 
     if is_mathml and equations_table is None:
@@ -159,12 +172,12 @@ async def _dense_only(
             }
         )
     rows.sort(key=lambda row: (-row["score"], row["chunk_id"]))
-    return envelope(
+    return envelope(_cap(
         {
             "results": rows[:k],
             "retrieval_mode": mode,
         }
-    )
+    ))
 
 
 def _distance_to_score(dist: float | None) -> float:

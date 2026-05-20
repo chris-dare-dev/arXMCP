@@ -37,13 +37,16 @@ envelope) AND a ``content`` array carrying:
    resource_link blocks in tool results; spec-compliant clients
    may follow the link to fetch the chunk.
 
-**Note on body-size cap.** ``search_papers`` does NOT call
-``server.tools.enforce_byte_cap`` (only ``get_chunk`` does at
-v1). The result is bounded by ``k`` (max 50) × per-row size
-(snippet ≤150 chars + small fields). When a future milestone
-wires cap enforcement here, the wire-overhead factor will need
-recalibration to account for the per-row ResourceLink overhead
-(F5 from the E06_S04 critique).
+**Note on body-size cap.** ``search_papers`` enforces the 256 KB
+``server.tools.enforce_byte_cap`` (E13_S04b — closes Threat 4
+partial-coverage gap G1; GitHub issue #1). The result is bounded
+by ``k`` (max 50) × per-row size (snippet ≤150 chars + small
+fields), so the cap is a no-op today; the call is defensive for
+future reranker output expansion, section-level dedup, or
+content-block payload growth. Multi-result tools pass
+``chunk_id=None`` to the helper — the cap-overflow surface is
+the response envelope, not a single chunk; agents follow the
+per-row ``chunk_id`` field in ``results[]`` via ``get_chunk``.
 
 The resource_link blocks are advisory — the agent runtime (E08)
 does NOT rely on the client following them. Agents that ignore
@@ -67,6 +70,7 @@ from server.observability.sanitize import sanitize_retrieved_text
 from server.query_encoder import encode_query, encode_query_with_fallback
 from server.tools import (
     CHUNK_RESOURCE_URI_SCHEME,
+    enforce_byte_cap,
     envelope,
     get_resources,
     wrap_retrieved_text,
@@ -169,6 +173,7 @@ async def handle_search_papers(
             set_cache_layer("tier1")
             structured = _restamp_degraded(cached_payload, base_degraded_reasons)
             rows = structured.get("results", [])
+            structured = _cap(structured)
             content = _build_content_blocks(structured, rows)
             return CallToolResult(content=content, structuredContent=structured)
 
@@ -205,6 +210,7 @@ async def handle_search_papers(
                 tier2_reasons.append("hosted_embedder_outage")
             structured = _restamp_degraded(cached_payload, tier2_reasons)
             rows = structured.get("results", [])
+            structured = _cap(structured)
             content = _build_content_blocks(structured, rows)
             return CallToolResult(content=content, structuredContent=structured)
 
@@ -281,7 +287,9 @@ async def handle_search_papers(
 
     # E06_S04: assemble the wire ``content`` array — pretty-printed
     # JSON of structuredContent (the FastMCP default surface) +
-    # one ResourceLink per result row.
+    # one ResourceLink per result row. E13_S04b: cap the structured
+    # payload (defensive; closes Threat 4 partial-coverage gap G1).
+    structured = _cap(structured)
     content = _build_content_blocks(structured, rows)
     return CallToolResult(content=content, structuredContent=structured)
 
@@ -311,6 +319,26 @@ def _restamp_degraded(
     if current_reasons:
         structured["degraded"] = True
         structured["degraded_reasons"] = list(current_reasons)
+    return structured
+
+
+def _cap(structured: dict[str, Any]) -> dict[str, Any]:
+    """E13_S04b — apply the 256 KB result byte cap.
+
+    A no-op today (50 rows × 150-char snippet + small metadata is
+    well under the cap by construction) but defensive against
+    future reranker output expansion, ``level="section"`` or
+    ``level="paper"`` dedup, and content-block payload growth.
+
+    Passes ``chunk_id=None`` because the cap-overflow surface for
+    a multi-result aggregate is the response envelope, not a
+    single chunk: agents follow the per-row ``chunk_id`` field in
+    ``results[]`` to fetch full bodies via
+    :func:`server.handlers.chunk.handle_get_chunk`. The
+    ``body_truncated=True`` flag is still set when the cap fires
+    so a downstream consumer can detect the truncation.
+    """
+    structured, _blocks = enforce_byte_cap(structured)
     return structured
 
 

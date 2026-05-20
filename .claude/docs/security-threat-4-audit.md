@@ -76,20 +76,38 @@ exhaust server memory, CPU, or downstream LanceDB query budget.
 
 ## Per-tool byte-cap coverage
 
+E13_S04b (2026-05-20) extended the cap to the 5 previously-unenforced
+tools, closing the Threat 4 partial-coverage gap surfaced by the
+E13_S10 cumulative coverage audit (GitHub issue
+[`chris-dare-dev/arXMCP#1`](https://github.com/chris-dare-dev/arXMCP/issues/1)).
+Every return-chunk-or-content tool now calls `enforce_byte_cap`.
+
 | Tool | Calls `enforce_byte_cap`? | Note |
 |---|---|---|
-| `search_papers` | ❌ | Bounded by k≤50 × snippet≤150 chars → max ~75 KB response |
-| `get_chunk` | ✅ | Full body_text path; emits `resource_link` on cap |
-| `find_equation` | ❌ | v1 returns only `chunk_id`+`score`; ~small payload |
-| `get_definitions` | ✅ | Paginated at 100 items; cap defensive |
-| `find_lemma_by_name` | ❌ | v1 returns lightweight match rows |
-| `get_paper` | ❌ | v1 returns metadata with abstract=NULL |
-| `cite_neighbors` | ❌ | v1 stub returns empty neighbor list |
+| `search_papers` | ✅ (E13_S04b) | Bounded by k≤50 × snippet≤150 chars; cap is defensive against future reranker / dedup expansion |
+| `get_chunk` | ✅ (E13_S04) | Full body_text path; emits `resource_link` on cap |
+| `find_equation` | ✅ (E13_S04b) | v1 returns lightweight rows; cap defensive against future surrounding-context expansion |
+| `get_definitions` | ✅ (E13_S04) | Paginated at 100 items; cap defensive |
+| `find_lemma_by_name` | ✅ (E13_S04b) | v1 returns lightweight match rows; cap defensive against future chunk-body context expansion |
+| `get_paper` | ✅ (E13_S04b) | v1 returns metadata with abstract=NULL; cap forward-compat for E11/E12 metadata table (3000+ author lists) |
+| `cite_neighbors` | ✅ (E13_S04b) | v1 stub returns empty neighbor list; cap forward-compat for E09 wire-up |
 
-When E10/E11/E09 wire body content into the 5 ❌ tools, each must add an
-`enforce_byte_cap` call site. Future-handler discipline: any new tool that
-emits paper-derived text MUST call `enforce_byte_cap` AND
-`wrap_retrieved_text` (Threat 2).
+Each newly-covered handler defines a private `_cap()` helper (mirroring
+the `definitions.py::_cap` precedent) that calls
+`server.tools.enforce_byte_cap` and discards the `content_blocks` half
+for multi-result aggregates (where `chunk_id=None` is passed, no
+resource_link is emitted — the over-cap surface is the aggregate
+envelope, not a single chunk). For `cite_neighbors` the helper passes
+the INPUT `chunk_id` so the resource_link points at the parent context
+whose neighborhood was being returned.
+
+Future-handler discipline: any new tool that emits paper-derived text
+MUST call `enforce_byte_cap` AND `wrap_retrieved_text` (Threat 2). The
+parametrized regression test `TestE13S04bCapExtension` in
+`tests/security/test_resource_exhaustion.py` enforces both the
+under-cap and over-cap contracts across all 5 newly-covered handlers
+plus a static check that each handler module's `_cap` helper exists
+and references `enforce_byte_cap`.
 
 ---
 

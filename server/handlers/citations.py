@@ -17,7 +17,24 @@ from typing import Annotated, Any, Literal
 from pydantic import Field
 
 from ingest.identifiers import is_valid_chunk_id
-from server.tools import envelope
+from server.tools import enforce_byte_cap, envelope
+
+
+def _cap(payload: dict[str, Any], chunk_id: str) -> dict[str, Any]:
+    """E13_S04b — apply the 256 KB result byte cap. A no-op today
+    (v1 stub returns empty ``neighbors`` list + small metadata)
+    but ESSENTIAL forward-compat for E09 wire-up. Once the Kùzu
+    citation graph is queried for real, a 100-neighbor result with
+    chunk-body context could push past the cap.
+
+    Passes the INPUT ``chunk_id`` because it IS the parent context
+    the resource-link belongs to: the cap-overflow surface for a
+    cite_neighbors response is the neighborhood of the queried
+    chunk, so a downstream agent receiving a truncated response
+    knows which parent chunk's neighborhood was elided.
+    """
+    structured, _blocks = enforce_byte_cap(payload, chunk_id=chunk_id)
+    return structured
 
 
 async def handle_cite_neighbors(
@@ -46,7 +63,7 @@ async def handle_cite_neighbors(
             f"arxiv:<paper_id>:<16-hex>; got {chunk_id!r}"
         )
 
-    return envelope(
+    return envelope(_cap(
         {
             "chunk_id": chunk_id,
             "depth": depth,
@@ -60,5 +77,6 @@ async def handle_cite_neighbors(
                 "an empty stub at v1. The schema is stable across "
                 "the future swap."
             ),
-        }
-    )
+        },
+        chunk_id,
+    ))

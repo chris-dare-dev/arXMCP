@@ -31,7 +31,7 @@ authorizes each `gh issue create` individually.
 | 1 | Path traversal via `paper_id` | `ingest/identifiers.py::is_valid_paper_id` (E01 + E06 JSON-Schema) | E13_S01 | [`tests/security/test_path_traversal.py`](../../tests/security/test_path_traversal.py) | (none) |
 | 2 | Indirect prompt injection from chunks | Handler-side `<retrieved_chunk>` delimiter wrapping + `server/observability/sanitize.py` opt-in (E06 + E13_S02). Orchestrator system-prompt instruction is **out of MCP-server scope** — see Threat 2 section for the boundary. | E13_S02 | [`tests/security/test_delimiters.py`](../../tests/security/test_delimiters.py) | [#6 — flip sanitizer default](https://github.com/chris-dare-dev/arXMCP/issues/6) |
 | 3 | LaTeXML on hostile source | `ingest/ar5iv_fetch.py` + LaTeXML subprocess discipline (E02_S02 + E13_S03) | E13_S03 | [`tests/security/test_latexml_sandbox.py`](../../tests/security/test_latexml_sandbox.py) | [#3 — production sandbox](https://github.com/chris-dare-dev/arXMCP/issues/3) |
-| 4 | Resource exhaustion via tool arguments | JSON-Schema `maximum` (E06) + 256 KB byte cap on `get_chunk` + `get_definitions` (E06_S05) + per-session rate limits (E07_S10) + 1000/hr global limit (E13_S04) | E13_S04 | [`tests/security/test_resource_exhaustion.py`](../../tests/security/test_resource_exhaustion.py) | [#1 — extend byte cap to remaining tools](https://github.com/chris-dare-dev/arXMCP/issues/1) |
+| 4 | Resource exhaustion via tool arguments | JSON-Schema `maximum` (E06) + 256 KB byte cap on ALL 7 return-chunk-or-content tools (E06_S05 wired `get_chunk`+`get_definitions`; **E13_S04b** extended to `search_papers`+`find_equation`+`find_lemma_by_name`+`get_paper`+`cite_neighbors`) + per-session rate limits (E07_S10) + 1000/hr global limit (E13_S04) | E13_S04 + E13_S04b | [`tests/security/test_resource_exhaustion.py`](../../tests/security/test_resource_exhaustion.py) | (none — closed by E13_S04b, see [#1 (closed)](https://github.com/chris-dare-dev/arXMCP/issues/1)) |
 | 5 | Origin spoofing on the HTTP transport | `server/middleware.py::{OriginValidationMiddleware,HostValidationMiddleware}` (E06_S05) + `Sec-Fetch-Site` + `ARXMCP_ALLOWED_ORIGINS` + DNS-rebinding (E13_S05) | E13_S05 + E13_S09 | [`tests/security/test_origin_binding.py`](../../tests/security/test_origin_binding.py) + [`tests/security/test_bind_regression.py`](../../tests/security/test_bind_regression.py) | (none) |
 | 6 | Supply-chain (embedder model, reranker model) | SHA pins in `ingest/embedder.py` + `server/retrieval/rerank.py` (E03 + E07_S03) + shared `server/model_loader.py` validator + `ARXMCP_TRUST_REMOTE_CODE` escape hatch + post-load `.bin` snapshot check + `Makefile sbom` target (E13_S06) | E13_S06 | [`tests/security/test_model_pinning.py`](../../tests/security/test_model_pinning.py) | [#4 — bump BGE-M3 SHA to safetensors](https://github.com/chris-dare-dev/arXMCP/issues/4) |
 | 7 | Source ingestion fetches | `urllib.request` safe-by-default TLS in every fetch site + 100 MB content-length pre-check + read-cap on `ingest/ar5iv_fetch.py` + `ingest/oai_delta.py` + tightened `tools/arxiv_fetch.py` (E13_S07) + opt-in stub `ARXMCP_PIN_ARXIV_CA` | E13_S07 | [`tests/security/test_source_ingest.py`](../../tests/security/test_source_ingest.py) | [#2 — redirect-host validation on graph/inspire ingest](https://github.com/chris-dare-dev/arXMCP/issues/2); [#5 — implement ARXMCP_PIN_ARXIV_CA wiring](https://github.com/chris-dare-dev/arXMCP/issues/5) |
@@ -164,12 +164,17 @@ completeness.
 **Test file:** [`tests/security/test_resource_exhaustion.py`](../../tests/security/test_resource_exhaustion.py)
 — 5 fault scenarios: `k=10000` rejected, deep nesting rejected, 10k-item
 filter rejected, 256 KB byte cap enforced, 1000/hour rate limit fires.
-**Gaps:** [#1 — extend 256 KB byte cap to remaining tool handlers](https://github.com/chris-dare-dev/arXMCP/issues/1).
-The 256 KB byte cap is enforced today only on `get_chunk` and
-`get_definitions`. The other return-chunk tools (`search_papers`,
-`find_equation`, `find_lemma_by_name`, `get_paper`, `cite_neighbors`)
-do not enforce the cap. Extending coverage to every tool handler is the
-highest-priority real coverage gap surfaced by this audit.
+**Gaps:** (none) — **closed by E13_S04b** (2026-05-20). The 256 KB
+byte cap is now enforced on all 7 return-chunk-or-content tools.
+`get_chunk` and `get_definitions` shipped in E06_S05; E13_S04b added
+the call to `search_papers`, `find_equation`, `find_lemma_by_name`,
+`get_paper`, and `cite_neighbors` via a per-handler `_cap()` helper
+that wraps `server.tools.enforce_byte_cap`. The parametrized
+regression test `tests/security/test_resource_exhaustion.py::TestE13S04bCapExtension`
+covers both under-cap and over-cap paths for all 5 newly-covered
+handlers + a static check that each module imports the helper. GitHub
+issue [#1](https://github.com/chris-dare-dev/arXMCP/issues/1) closed
+by this milestone.
 
 ---
 
@@ -311,7 +316,7 @@ real-coverage-gap-vs-deferred-design:
 
 | Tag | Issue | Gap | Severity | Type |
 |---|---|---|---|---|
-| G1 | [#1](https://github.com/chris-dare-dev/arXMCP/issues/1) | Byte cap not enforced on 5 tools (Threat 4) | MEDIUM | Real coverage gap |
+| G1 | [#1 (closed)](https://github.com/chris-dare-dev/arXMCP/issues/1) | Byte cap not enforced on 5 tools (Threat 4) — **closed by E13_S04b** | MEDIUM | ~~Real coverage gap~~ Closed |
 | G2 | [#2](https://github.com/chris-dare-dev/arXMCP/issues/2) | Redirect-host validation missing on `graph_ingest` + `inspire_ingest` (Threat 7) | MEDIUM | Real coverage gap |
 | G3 | [#3](https://github.com/chris-dare-dev/arXMCP/issues/3) | LaTeXML production sandbox layers deferred to E11/E14 (Threat 3) | LOW | Documented design deferral |
 | G4 | [#4](https://github.com/chris-dare-dev/arXMCP/issues/4) | Embedder BGE-M3 SHA ships `.bin`-only (Threat 6) | LOW | Pin-bump pending; integrity preserved |

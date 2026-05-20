@@ -48,11 +48,29 @@ from server.theorem_names_store import (
     normalize_name,
     serialize_section_path,
 )
-from server.tools import envelope, get_resources, wrap_retrieved_text
+from server.tools import (
+    enforce_byte_cap,
+    envelope,
+    get_resources,
+    wrap_retrieved_text,
+)
 
 logger = logging.getLogger(__name__)
 
 MAX_K = 50
+
+
+def _cap(payload: dict[str, Any]) -> dict[str, Any]:
+    """E13_S04b — apply the 256 KB result byte cap. No-op today
+    (matches are small rows: dedup_key, display_name, paper_id,
+    chunk_id, section_path, confidence) but defensive against
+    future chunk-body context expansion in the in-memory scan
+    fallback (E10_S02). Passes ``chunk_id=None`` because the
+    cap-overflow surface for a multi-match aggregate is the
+    response envelope, not a single chunk.
+    """
+    structured, _blocks = enforce_byte_cap(payload)
+    return structured
 
 
 async def handle_find_lemma_by_name(
@@ -88,43 +106,43 @@ async def handle_find_lemma_by_name(
     # there, but the actual ``retrieval_mode`` taxonomy does not) so
     # no hash repin is required.
     if not normalized:
-        return envelope(
+        return envelope(_cap(
             {
                 "matches": [],
                 "retrieval_mode": "empty_after_normalization",
             }
-        )
+        ))
 
     # Step 1: exact normalized-name match.
     hits = await store.exact_match(normalized, paper_id, k)
     if hits:
-        return envelope(
+        return envelope(_cap(
             {
                 "matches": [_row_to_match(h) for h in hits],
                 "retrieval_mode": "fts5_exact",
             }
-        )
+        ))
 
     # Step 2: FTS5 trigram substring match.
     hits = await store.fts5_match(normalized, paper_id, k)
     if hits:
-        return envelope(
+        return envelope(_cap(
             {
                 "matches": [_row_to_match(h) for h in hits],
                 "retrieval_mode": "fts5_trigram",
             }
-        )
+        ))
 
     # Step 3: Python-side trigram Jaccard (typo-tolerant). This is
     # what makes AC4 satisfiable — FTS5 alone fails the
     # "riemanroch" → "Riemann-Roch" case.
     hits = await store.fuzzy_jaccard(normalized, paper_id, k)
-    return envelope(
+    return envelope(_cap(
         {
             "matches": [_row_to_match(h) for h in hits],
             "retrieval_mode": "fuzzy_jaccard",
         }
-    )
+    ))
 
 
 def _row_to_match(row: TheoremRow) -> dict[str, Any]:
@@ -234,9 +252,9 @@ async def _in_memory_scan_fallback(
         r["display_name"] = wrapped
         r["theorem_name"] = wrapped
 
-    return envelope(
+    return envelope(_cap(
         {
             "matches": matches,
             "retrieval_mode": "in_memory_scan_fallback",
         }
-    )
+    ))

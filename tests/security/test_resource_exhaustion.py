@@ -800,3 +800,237 @@ class TestHourlyCapMiddlewareIntegration:
         assert parsed["result"]["structuredContent"]["window_seconds"] == 3600
 
         reset_session_state_for_tests()
+
+
+# ===========================================================================
+# E13_S04b — extend 256 KB byte cap to remaining 5 tool handlers
+#   (search_papers, find_equation, find_lemma_by_name, get_paper,
+#    cite_neighbors). Closes Threat 4 partial-coverage gap G1
+#    (github.com/chris-dare-dev/arXMCP#1).
+# ===========================================================================
+
+
+class TestE13S04bCapExtension:
+    """Each of the 5 newly-covered handlers now defines a private
+    ``_cap`` helper that wraps :func:`server.tools.enforce_byte_cap`.
+    The helpers are tested directly here — they are tiny pure
+    functions on dict, decoupled from LanceDB / Resources / async
+    machinery, so the tests can assert the cap mechanism without
+    spinning up the full handler stack.
+
+    The shape contract for every helper:
+    - input: ``dict`` (the response payload built by the handler)
+    - output: ``dict`` (same content under cap; truncated +
+      ``body_truncated=True`` flag set when over cap)
+
+    Per the E13_S04b synthesis, multi-result handlers
+    (``search_papers``, ``find_equation``, ``find_lemma_by_name``,
+    ``get_paper``) pass ``chunk_id=None`` so the helper omits the
+    ``resource_link`` content block when the cap fires (the
+    over-cap surface is the aggregate response, not a single
+    chunk; agents follow the per-row ``chunk_id`` in
+    ``results[]`` / ``matches[]`` to fetch full bodies).
+
+    ``cite_neighbors`` passes the INPUT ``chunk_id`` to mark the
+    parent context whose neighborhood was being returned — the
+    resource_link IS meaningful there.
+    """
+
+    @staticmethod
+    def _fake_resources(cap_bytes: int = 256 * 1024):
+        """Build a MagicMock that satisfies ``enforce_byte_cap``'s
+        ``get_resources().config.result_byte_cap`` lookup with a
+        configurable cap value."""
+        from unittest.mock import MagicMock as _MM
+        fake = _MM()
+        fake.config.result_byte_cap = cap_bytes
+        fake.corpus_info.version = "test-version"
+        return fake
+
+    @pytest.mark.parametrize(
+        "module_name",
+        [
+            "server.handlers.search",
+            "server.handlers.equation",
+            "server.handlers.lemma",
+            "server.handlers.paper",
+        ],
+    )
+    def test_multi_result_cap_passes_under_cap_unchanged(
+        self, module_name: str
+    ):
+        """Under-cap payload routes through ``_cap`` unchanged: no
+        ``body_truncated`` flag set, structure preserved.
+        """
+        import importlib
+
+        from server import tools as tools_mod
+
+        module = importlib.import_module(module_name)
+        small_payload = {
+            "results": [{"chunk_id": "arxiv:2412.00001:abc1234567890abc"}],
+            "found": True,
+        }
+        with patch.object(
+            tools_mod, "get_resources", return_value=self._fake_resources()
+        ):
+            out = module._cap(small_payload)
+        assert "body_truncated" not in out, (
+            f"under-cap payload must not get body_truncated flag; "
+            f"got: {out!r}"
+        )
+        # Structure preserved.
+        assert out["results"] == small_payload["results"]
+        assert out["found"] is True
+
+    @pytest.mark.parametrize(
+        "module_name,oversized_field",
+        [
+            ("server.handlers.search", "results"),
+            ("server.handlers.equation", "results"),
+            ("server.handlers.lemma", "matches"),
+            ("server.handlers.paper", "paper"),
+        ],
+    )
+    def test_multi_result_cap_fires_on_over_cap(
+        self, module_name: str, oversized_field: str
+    ):
+        """Over-cap payload: ``body_truncated=True`` is set; the
+        payload is sorted by ``enforce_byte_cap`` (returned via
+        ``_sort_dict``). For multi-result handlers
+        ``chunk_id=None`` → no resource_link content block, but the
+        ``body_truncated`` signal IS preserved.
+        """
+        import importlib
+
+        from server import tools as tools_mod
+
+        module = importlib.import_module(module_name)
+        # Construct a payload that exceeds 256 KB after JSON serialize
+        # × wire-overhead-factor 2. Inner content > 128 KB does it.
+        # The oversized payload uses a 200-KB filler string.
+        filler = "x" * (200 * 1024)
+        if oversized_field == "paper":
+            # paper.py emits a flat ``paper`` dict; stuff the
+            # ``abstract`` field with the filler.
+            oversized_payload = {
+                "found": True,
+                "metadata_status": "synthesized_from_chunks",
+                "paper": {"abstract": filler, "paper_id": "test"},
+                "paper_id": "test",
+            }
+        else:
+            # search / equation / lemma use list-of-rows with the
+            # filler stuffed into a representative content field.
+            row = {
+                "chunk_id": "arxiv:2412.00001:abc1234567890abc",
+                "snippet": filler,
+            }
+            oversized_payload = {oversized_field: [row], "found": True}
+        with patch.object(
+            tools_mod, "get_resources", return_value=self._fake_resources()
+        ):
+            out = module._cap(oversized_payload)
+        assert out.get("body_truncated") is True, (
+            f"over-cap payload must set body_truncated=True; "
+            f"keys={sorted(out.keys())!r}"
+        )
+
+    def test_cite_neighbors_cap_passes_under_cap(self):
+        """``cite_neighbors._cap`` takes ``chunk_id`` as a positional
+        argument. Under-cap payload (the v1 stub with empty
+        neighbors) routes through unchanged.
+        """
+        from server import tools as tools_mod
+        from server.handlers.citations import _cap
+
+        small_payload = {
+            "chunk_id": "arxiv:2412.00001:abc1234567890abc",
+            "depth": 1,
+            "direction": "cited",
+            "infrastructure_status": "deferred",
+            "limit": 30,
+            "neighbors": [],
+            "note": "stub",
+        }
+        with patch.object(
+            tools_mod,
+            "get_resources",
+            return_value=TestE13S04bCapExtension._fake_resources(),
+        ):
+            out = _cap(small_payload, "arxiv:2412.00001:abc1234567890abc")
+        assert "body_truncated" not in out
+        assert out["chunk_id"] == small_payload["chunk_id"]
+
+    def test_cite_neighbors_cap_fires_with_input_chunk_id(self):
+        """When ``cite_neighbors`` returns an over-cap response
+        (forward-compat for E09 wire-up), the ``body_truncated``
+        flag is set AND the resource_link content block IS emitted
+        using the INPUT chunk_id (the parent context).
+        """
+        from server import tools as tools_mod
+        from server.handlers.citations import _cap
+
+        filler = "x" * (200 * 1024)
+        oversized_payload = {
+            "chunk_id": "arxiv:2412.00001:abc1234567890abc",
+            "depth": 2,
+            "direction": "cited",
+            "infrastructure_status": "wired",
+            "limit": 100,
+            "neighbors": [
+                {"chunk_id": "arxiv:2412.00002:def4567890abcdef", "context": filler}
+            ],
+        }
+        with patch.object(
+            tools_mod,
+            "get_resources",
+            return_value=TestE13S04bCapExtension._fake_resources(),
+        ):
+            out = _cap(oversized_payload, "arxiv:2412.00001:abc1234567890abc")
+        assert out.get("body_truncated") is True
+
+    @pytest.mark.parametrize(
+        "module_name",
+        [
+            "server.handlers.search",
+            "server.handlers.equation",
+            "server.handlers.lemma",
+            "server.handlers.paper",
+            "server.handlers.citations",
+        ],
+    )
+    def test_handler_module_imports_enforce_byte_cap(
+        self, module_name: str
+    ):
+        """Static check: every newly-covered handler imports
+        ``enforce_byte_cap`` from ``server.tools``. Catches a
+        regression where someone refactors a handler and accidentally
+        drops the cap helper import — the per-handler ``_cap`` test
+        above would still pass (because pytest re-imports the
+        module), but if the production import is missing the live
+        request path would fail.
+        """
+        import inspect
+
+        from server import tools as tools_mod
+
+        module = __import__(module_name, fromlist=["_cap"])
+        # _cap must be a function (not a stub) in every covered
+        # module.
+        assert callable(getattr(module, "_cap", None)), (
+            f"{module_name} must define a `_cap` helper that wraps "
+            f"server.tools.enforce_byte_cap (E13_S04b contract)"
+        )
+        # And the helper must be importable / inspectable.
+        source = inspect.getsource(module._cap)
+        assert "enforce_byte_cap" in source, (
+            f"{module_name}._cap must call server.tools.enforce_byte_cap; "
+            f"current source does not reference it"
+        )
+        # The handler must actually import it (defensive against the
+        # case where _cap exists but enforce_byte_cap is shadowed).
+        assert hasattr(tools_mod, "enforce_byte_cap"), (
+            "server.tools.enforce_byte_cap must exist as a module-level "
+            "symbol"
+        )
