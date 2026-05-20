@@ -53,7 +53,7 @@ Target arXiv categories: `math.AG`, `math.NT`, `math-ph`, `hep-th`.
 
 ---
 
-## 3. Status snapshot (2026-05-10)
+## 3. Status snapshot (2026-05-20)
 
 | Epic | Status | What landed |
 |---|---|---|
@@ -66,13 +66,13 @@ Target arXiv categories: `math.AG`, `math.NT`, `math-ph`, `hep-th`.
 | E07 — Hybrid retrieval | ✅ SHIPPED | BM25 → ANN+RRF → BGE-reranker pipeline modules |
 | E08 — Agent runtime | ✅ SHIPPED | Regex router, role prefixes, 3-tier retrieval cache, tool-use ID canonicalization, model policy |
 | E09 — Citation graph | ✅ SHIPPED | Kùzu schema, OpenAlex ingest, INSPIRE-HEP enrichment, `cite_neighbors`, proof-chain workflow (closes H7) |
-| E10 — Specialized indices | ⏳ PENDING | Equation TED index, FTS5 theorem-name index, full equation similarity |
-| E11 — Scale cutover | ⏳ PENDING | Production ingest driver, GPU embedding, 200K backfill (`make ingest` is a stub today) |
+| E10 — Specialized indices | ✅ SHIPPED | Definitions index + `get_definitions`, FTS5 theorem-name index + `find_lemma_by_name`, TED equation index + dense fusion, LaTeXML drift detector |
+| E11 — Scale cutover | ✅ SHIPPED | Bulk ingest orchestrator (`make ingest`), OAI-PMH delta loop, partial re-embed driver, drift watchdog, atomic cutover + restic backup |
 | E12 — Full corpus | 🚫 SCOPED OUT | Folded into E11 |
-| E13 — Security audit | ⏳ PENDING | Threat-model audit across 7 tools beyond what E06_S05 shipped |
-| E14 — Observability/ops | ⏳ PENDING | docker-compose layout, OTel tracing, alerting runbooks |
+| E13 — Security audit | ✅ SHIPPED | 10 milestones (Threats 1–7 + logging redaction + bind regression + cumulative coverage doc); 6 follow-up issues filed at `chris-dare-dev/arXMCP#1`–`#6` |
+| E14 — Observability/ops | ✅ SHIPPED (S01–S05) | `/metrics` endpoint, OTel tracing, Phoenix integration, daily ops cadence + parser-failures roll-up, restic backup + restore drill. S06 + S09–S12 (Tier-5/6+ follow-ups) remain unstarted |
 
-**Test count:** 1311 passing, 4 skipped (`requires_model`), `ruff check .` clean.
+**Test count:** 2100 passing, 22 skipped (`requires_model` + offline-only paths), 29 pre-existing Windows-platform failures (`os.getpgid`, POSIX shell tests, colons-in-filenames, symlinks), 1 xfailed. `ruff check .` clean. macOS / Linux: all 29 Windows failures pass; net ≈ 2129 passing.
 
 For per-milestone ground truth, see
 [`.claude/notes/milestones/<EXX_SYY>/state.json`](.claude/notes/milestones/).

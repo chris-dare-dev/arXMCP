@@ -1,4 +1,4 @@
-# arXMCP Roadmap (rev 2026-05)
+# arXMCP Roadmap (rev 2026-05-20)
 
 This index supersedes `.claude/notes/09-feature-priorities.md` and the old `epic-01-*.md` through `epic-15-*.md` files. The old epic files remain on disk for historical reference but are no longer authoritative. All new milestone work should be tracked against the `E<NN>-<slug>.md` files listed below.
 
@@ -19,17 +19,18 @@ The design constitution remains `.claude/notes/01-mission-and-context.md` throug
 | E07 | Hybrid Retrieval | 1 | E04, E06 | SHIPPED | [E07-hybrid-retrieval.md](E07-hybrid-retrieval.md) |
 | E08 | Agent Runtime + Caching | 2 | E06, E07 | SHIPPED | [E08-agent-runtime.md](E08-agent-runtime.md) |
 | E09 | Citation Graph | 3 | E04, E06, E07, E08 | SHIPPED (closes H7) | [E09-citation-graph.md](E09-citation-graph.md) |
-| E10 | Specialized Indices | 4 | E04, E06 | PENDING | [E10-specialized-indices.md](E10-specialized-indices.md) |
-| E11 | Scale Cutover | 5 | E04, E07, E10 | PENDING | [E11-scale-cutover.md](E11-scale-cutover.md) |
+| E10 | Specialized Indices | 4 | E04, E06 | SHIPPED | [E10-specialized-indices.md](E10-specialized-indices.md) |
+| E11 | Scale Cutover | 5 | E04, E07, E10 | SHIPPED | [E11-scale-cutover.md](E11-scale-cutover.md) |
 | E12 | Full Corpus (folded) | 5 | E11 | SCOPED_OUT | [E12-full-corpus.md](E12-full-corpus.md) |
-| E13 | Security Hardening | 5 | E06 | PENDING | [E13-security.md](E13-security.md) |
-| E14 | Observability & Ops | 5–6 | E06, E08 | PENDING | [E14-observability-ops.md](E14-observability-ops.md) |
+| E13 | Security Hardening | 5 | E06 | SHIPPED | [E13-security.md](E13-security.md) |
+| E14 | Observability & Ops | 5–6 | E06, E08 | SHIPPED (S01–S05) | [E14-observability-ops.md](E14-observability-ops.md) |
 
 > **Ship status sourced from `.claude/notes/milestones/<EXX_SYY>/state.json`.**
 > An epic is `SHIPPED` if every milestone under it has `phase: complete`.
+> E14 ships with S01–S05 complete; S06 + S09–S12 (Tier-5/6+ follow-ups: deferred-work tracker, Grafana dashboard, ops runbook index, Langfuse docs, API spend metrics) remain unstarted and are tracked here for completeness — they do not gate the v1 ship.
 > The per-epic `*.md` files retain `Status: NEW` in their bodies as a
 > historical artifact; the table above is the authoritative current
-> status. Total tests: 1312 passing, 4 skipped (`requires_model`), as of 2026-05-10.
+> status. Total tests: 2100 passing, 22 skipped (`requires_model` + offline-only paths), 29 pre-existing Windows-platform failures (`os.getpgid`, POSIX shell, colons-in-filenames, symlinks), 1 xfailed, as of 2026-05-20.
 
 ---
 
