@@ -324,10 +324,18 @@ orchestrator implementation. G7 is included so a future reader
 auditing Threat 2's full mitigation list sees all three mitigations
 accounted for; it will never be filed as an arXMCP issue.
 
-**Status at v1:** all seven gap candidates are documented here as `(TODO file issue)` or `n/a`
-placeholders in their respective threat rows. When the user authorizes
-filing at the Phase-4 boundary, each placeholder will be replaced with a
-`[#NNN — title](URL)` link to the filed issue.
+**Status at v1:** the user authorized filing G1–G6 (six issues) at the
+E13_S10 Phase-4 external-write boundary. G7 stays `n/a` (orchestrator
+scope, never filed). The orchestrator could not shell out `gh issue
+create` directly because the `gh` CLI is not installed in the operator's
+Windows shell and no `GH_TOKEN`/`GITHUB_TOKEN` is set; a small helper
+script `.claude/notes/milestones/E13_S10/_gen_issue_urls.py` produces
+six pre-filled GitHub "new issue" URLs that the user files in the
+browser with one click each. As each issue is filed, the operator
+replaces the `(TODO file issue: ...)` placeholder in this doc with a
+`[#NNN — title](URL)` markdown link in a follow-up small doc edit. The
+final state on the v1 audit chain: gaps surfaced, authorized, helper
+generated, browser-filing pending.
 
 ---
 
