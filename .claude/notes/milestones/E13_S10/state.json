@@ -1,0 +1,73 @@
+{
+  "brief_source": "C:/Users/cedar/Documents/Personal Projects/Source Code/arXMCP/.claude/roadmap",
+  "created_at": "2026-05-20T02:28:49Z",
+  "critics_run": [],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "low": 0,
+    "medium": 0
+  },
+  "critique_path": null,
+  "deferred_findings": [],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_required": [
+    {
+      "blocking": false,
+      "target": "github.com/chris-dare-dev/arXMCP",
+      "type": "gh_issue_create",
+      "why": "file gap issues G1-G6 from coverage doc (user authorizes each)"
+    }
+  ],
+  "fixed_findings": [],
+  "id": "E13_S10",
+  "implementation_base": "dc96387ab11f9d2325ce8fb42499faf794953f36",
+  "implementation_branch": "main",
+  "implementation_commit_range": null,
+  "implementation_commits": [],
+  "implementation_path": "inline",
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "### E13_S10 \u2014 Cumulative threat-model coverage review\n\n**Status:** NEW\n**Tier:** 5\n**Effort:** M\n**Dependencies:** E13_S01, E13_S02, E13_S03, E13_S04, E13_S05, E13_S06, E13_S07, E13_S08, E13_S09\n\n**Description.** Once E13_S01\u2013S09 have landed, perform a single review pass against `.claude/notes/08-security-observability-ops.md` \u00a7 Threat model and confirm every documented mitigation is implemented and covered by an automated test. The output is a tracking document that becomes the authoritative reference for the security posture of the v1 system.\n\nThe review cross-references each of the 7 threats with: (a) the earliest epic milestone that ships the mitigation, (b) the E13 milestone that audits it, (c) the test file(s) that cover it, and (d) any known gaps filed as follow-up issues. Any gap that surfaces must be filed as a GitLab/GitHub issue and linked from the document before this milestone is considered closed.\n\n**Deliverables.**\n- `docs/security/threat-model-coverage.md` \u2014 7-row table, one row per threat, with columns: Threat, Mitigation epic, Audit epic, Test files, Gap issues\n- Follow-up issues filed for any gaps (linked from the document)\n\n**Acceptance criteria.**\n- [ ] `docs/security/threat-model-coverage.md` committed with all 7 threats covered\n- [ ] Every threat has at least one automated test linked in the table\n- [ ] Any gap has a filed issue linked in the \"Gap issues\" column\n- [ ] Document reviewed by the developer and committed (not just drafted)\n\n**Out of scope.** Implementing any new mitigations (those belong in gap issues, not this milestone). Penetration testing (Tier-6+ hardening).\n\n**Risk notes.**\n- This milestone has no direct threat closure of its own. Its value is preventing the gradual accumulation of unverified security claims as the codebase evolves.\n\n**Labels.** `area:security`, `kind:research`, `tier:5`\n\n---",
+  "phase": "implement-running",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-20T02:28:49Z",
+      "left_at": "2026-05-20T02:29:18Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-20T02:29:18Z",
+      "left_at": "2026-05-20T02:35:36Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-20T02:35:36Z",
+      "left_at": "2026-05-20T02:35:56Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-05-20T02:35:56Z",
+      "left_at": null,
+      "phase": "implement-running"
+    }
+  ],
+  "rectification_commit": null,
+  "regression_tests_added": [],
+  "research_briefs": [
+    {
+      "agent_id": "researcher-1",
+      "brief_path": ".claude/notes/milestones/E13_S10/research-brief-1.md",
+      "summary": "Per-threat inventory: 7 threats + logging addendum; 6 gap candidates"
+    },
+    {
+      "agent_id": "researcher-2",
+      "brief_path": ".claude/notes/milestones/E13_S10/research-brief-2.md",
+      "summary": "Process + gap-triage: defer issue filing to Phase 4; add pytest staleness gate"
+    }
+  ],
+  "research_mode": "standard",
+  "research_synthesis": ".claude/notes/milestones/E13_S10/research-synthesis.md",
+  "updated_at": "2026-05-20T02:35:56Z"
+}
