@@ -154,3 +154,57 @@ Brief says `docs/observability/log-redaction.md`. Correct destination per prior 
 milestones is `.claude/docs/security-observability-logging.md` (audit docs live
 under .claude/docs/, not docs/). Prior precedent: E13_S01–S07 all use
 .claude/docs/security-threat-N-audit.md format.
+
+## 2026-05-19 — E13_S09 — bind-regression-is-audit-not-net-new-test
+E13_S05 already shipped `Config.unsafe_network_bind` field + `reject_non_loopback_bind()`.
+E13_S09 is purely a REGRESSION TEST + AUDIT, NOT new feature implementation.
+Existing coverage: `test_origin_binding.py::TestUnsafeNetworkBindEscapeHatch` (4 tests),
+`test_security.py::TestStartupRejectsBadBind` (subprocess path). E13_S09 aggregates these
+into a dedicated `test_bind_regression.py` file focused on the TCP-bind layer regression
+surface. The brief's ACs are all satisfied by existing tests; the milestone adds test
+organization and explicit regression pinning.
+
+## 2026-05-19 — E13_S09 — exception-type-mismatch-brief-vs-code
+Brief AC#2 says "raises ConfigError"; code/tests actually raise ValidationError
+(pydantic's wrapper on the ValueError raised by the model-validator). This is
+NOT a bug — brief wording is imprecise. The test at test_origin_binding.py:341
+correctly asserts `pytest.raises(ValidationError, match="must be a loopback")`.
+Implementer should NOT change the exception type; it is correct as-is.
+
+## 2026-05-19 — E13_S09 — e07-s09-dependency-is-fictional
+E07 has only S01–S04. The brief cites E07_S09 as a dependency, following the
+systematic drift pattern from prior E13 milestones. Should cite E13_S05 instead
+(HTTP-layer Threat 5 closure; E13_S09 closes TCP-bind layer of same threat).
+Implementer should NOT spend effort on nonexistent E07_S09.
+
+## 2026-05-19 — E13_S10 — threat-model-coverage-is-pure-review-audit
+E13_S10 is NOT a new-feature milestone. All E13_S01–S09 are complete (phase=complete,
+no deferred findings). E13_S10 aggregates them into a single 7-row threat-model
+coverage table: Threat#, Mitigation epic, Audit epic (E13_SXX), Test files,
+Gap issues. The table documents which test file covers each threat and links any
+filed GitHub issues for discovered gaps (byte-cap enforcement partial coverage,
+BGE-M3 .bin-only limitation). Doc placement is `.claude/docs/security-threat-model-coverage.md`
+(not `docs/security/`). No new tests; no code changes. Pure documentation + issue filing.
+
+## 2026-05-19 — E13_S10 — known-gaps-from-audit-cycle
+(1) Byte-cap enforcement: only `get_chunk` + `get_definitions` enforce 256 KB;
+5 other tools don't. (2) BGE-M3 .bin-only: current pinned SHA ships .bin format
+only; safetensors enforcement waits for future SHA bump. (3) urllib vs httpx:
+brief aspired to httpx refactor; implementation uses urllib (safe by default);
+no gap. All gaps should be filed as GitHub issues during E13_S10 implementation
++ linked in coverage doc.
+
+## 2026-05-20 — E13_S04b — enforce-byte-cap-all-handlers-canonical-helper
+The `server/tools.py::enforce_byte_cap` helper is the canonical, single-source
+implementation. It accepts `body_text_path` tuple to locate the body in nested
+payloads (e.g., `("chunk", "body_text")` for get_chunk vs top-level for others).
+E13_S04b extends it to all 5 remaining tools (search_papers, find_equation,
+find_lemma_by_name, get_paper, cite_neighbors). NO extraction needed; use existing
+helper. Handler-body calls only — no schema changes (preserves BP1 cache stability).
+
+## 2026-05-20 — E13_S04b — handler-cap-pattern-synthetic-test-fixture
+Testing the byte cap requires mocking. Pattern: `unittest.mock.patch` on
+`Config.result_byte_cap` to lower it (e.g., 1 KB), then construct a payload that
+exceeds it. Avoids large fixture files. The cap check uses: `len(json.dumps(...).encode("utf-8")) * _WIRE_OVERHEAD_FACTOR <= cap`
+where _WIRE_OVERHEAD_FACTOR ~= 2. Test should patch both the constant and the
+config to force cap firing predictably.
