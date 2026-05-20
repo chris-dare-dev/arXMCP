@@ -29,12 +29,12 @@ authorizes each `gh issue create` individually.
 | # | Threat | Mitigation epic | Audit epic | Test file | Gaps |
 |---|---|---|---|---|---|
 | 1 | Path traversal via `paper_id` | `ingest/identifiers.py::is_valid_paper_id` (E01 + E06 JSON-Schema) | E13_S01 | [`tests/security/test_path_traversal.py`](../../tests/security/test_path_traversal.py) | (none) |
-| 2 | Indirect prompt injection from chunks | Handler-side `<retrieved_chunk>` delimiter wrapping + `server/observability/sanitize.py` opt-in (E06 + E13_S02). Orchestrator system-prompt instruction is **out of MCP-server scope** — see Threat 2 section for the boundary. | E13_S02 | [`tests/security/test_delimiters.py`](../../tests/security/test_delimiters.py) | (TODO file issue: sanitizer is opt-in via `ARXMCP_SANITIZE_RETRIEVED_CONTENT=1`; off by default — collect false-positive data before flipping) |
-| 3 | LaTeXML on hostile source | `ingest/ar5iv_fetch.py` + LaTeXML subprocess discipline (E02_S02 + E13_S03) | E13_S03 | [`tests/security/test_latexml_sandbox.py`](../../tests/security/test_latexml_sandbox.py) | (TODO file issue: production sandbox — sandbox-exec / seccomp / landlock / Docker `--read-only` — deferred to E11/E14 hardening; v1 ships timeout + subprocess isolation only) |
-| 4 | Resource exhaustion via tool arguments | JSON-Schema `maximum` (E06) + 256 KB byte cap on `get_chunk` + `get_definitions` (E06_S05) + per-session rate limits (E07_S10) + 1000/hr global limit (E13_S04) | E13_S04 | [`tests/security/test_resource_exhaustion.py`](../../tests/security/test_resource_exhaustion.py) | (TODO file issue: byte cap enforced only on `get_chunk` + `get_definitions`; `search_papers`, `find_equation`, `find_lemma_by_name`, `get_paper`, `cite_neighbors` do not yet enforce — extend coverage) |
+| 2 | Indirect prompt injection from chunks | Handler-side `<retrieved_chunk>` delimiter wrapping + `server/observability/sanitize.py` opt-in (E06 + E13_S02). Orchestrator system-prompt instruction is **out of MCP-server scope** — see Threat 2 section for the boundary. | E13_S02 | [`tests/security/test_delimiters.py`](../../tests/security/test_delimiters.py) | [#6 — flip sanitizer default](https://github.com/chris-dare-dev/arXMCP/issues/6) |
+| 3 | LaTeXML on hostile source | `ingest/ar5iv_fetch.py` + LaTeXML subprocess discipline (E02_S02 + E13_S03) | E13_S03 | [`tests/security/test_latexml_sandbox.py`](../../tests/security/test_latexml_sandbox.py) | [#3 — production sandbox](https://github.com/chris-dare-dev/arXMCP/issues/3) |
+| 4 | Resource exhaustion via tool arguments | JSON-Schema `maximum` (E06) + 256 KB byte cap on `get_chunk` + `get_definitions` (E06_S05) + per-session rate limits (E07_S10) + 1000/hr global limit (E13_S04) | E13_S04 | [`tests/security/test_resource_exhaustion.py`](../../tests/security/test_resource_exhaustion.py) | [#1 — extend byte cap to remaining tools](https://github.com/chris-dare-dev/arXMCP/issues/1) |
 | 5 | Origin spoofing on the HTTP transport | `server/middleware.py::{OriginValidationMiddleware,HostValidationMiddleware}` (E06_S05) + `Sec-Fetch-Site` + `ARXMCP_ALLOWED_ORIGINS` + DNS-rebinding (E13_S05) | E13_S05 + E13_S09 | [`tests/security/test_origin_binding.py`](../../tests/security/test_origin_binding.py) + [`tests/security/test_bind_regression.py`](../../tests/security/test_bind_regression.py) | (none) |
-| 6 | Supply-chain (embedder model, reranker model) | SHA pins in `ingest/embedder.py` + `server/retrieval/rerank.py` (E03 + E07_S03) + shared `server/model_loader.py` validator + `ARXMCP_TRUST_REMOTE_CODE` escape hatch + post-load `.bin` snapshot check + `Makefile sbom` target (E13_S06) | E13_S06 | [`tests/security/test_model_pinning.py`](../../tests/security/test_model_pinning.py) | (TODO file issue: embedder BGE-M3 pinned SHA ships `.bin`-only — bump SHA to safetensors-bearing revision so `use_safetensors=True` enforcement extends to the embedder, currently only reranker is fully covered) |
-| 7 | Source ingestion fetches | `urllib.request` safe-by-default TLS in every fetch site + 100 MB content-length pre-check + read-cap on `ingest/ar5iv_fetch.py` + `ingest/oai_delta.py` + tightened `tools/arxiv_fetch.py` (E13_S07) + opt-in stub `ARXMCP_PIN_ARXIV_CA` | E13_S07 | [`tests/security/test_source_ingest.py`](../../tests/security/test_source_ingest.py) | (TODO file issue: `ingest/graph_ingest.py` + `ingest/inspire_ingest.py` do NOT validate redirect hosts; ar5iv + oai_delta do — extend redirect-pin coverage). (TODO file issue: `ARXMCP_PIN_ARXIV_CA` is forward-compat stub only — implement SSL-context wiring + operator-refresh procedure when CA rotation cadence is settled) |
+| 6 | Supply-chain (embedder model, reranker model) | SHA pins in `ingest/embedder.py` + `server/retrieval/rerank.py` (E03 + E07_S03) + shared `server/model_loader.py` validator + `ARXMCP_TRUST_REMOTE_CODE` escape hatch + post-load `.bin` snapshot check + `Makefile sbom` target (E13_S06) | E13_S06 | [`tests/security/test_model_pinning.py`](../../tests/security/test_model_pinning.py) | [#4 — bump BGE-M3 SHA to safetensors](https://github.com/chris-dare-dev/arXMCP/issues/4) |
+| 7 | Source ingestion fetches | `urllib.request` safe-by-default TLS in every fetch site + 100 MB content-length pre-check + read-cap on `ingest/ar5iv_fetch.py` + `ingest/oai_delta.py` + tightened `tools/arxiv_fetch.py` (E13_S07) + opt-in stub `ARXMCP_PIN_ARXIV_CA` | E13_S07 | [`tests/security/test_source_ingest.py`](../../tests/security/test_source_ingest.py) | [#2 — redirect-host validation on graph/inspire ingest](https://github.com/chris-dare-dev/arXMCP/issues/2); [#5 — implement ARXMCP_PIN_ARXIV_CA wiring](https://github.com/chris-dare-dev/arXMCP/issues/5) |
 | — | Observability addendum — logging redaction | `server/observability/log_filter.py` + `server/observability/logging_setup.py` (E13_S08) | E13_S08 | [`tests/security/test_log_redaction.py`](../../tests/security/test_log_redaction.py) | (none) |
 
 ---
@@ -98,13 +98,13 @@ The `SYSTEM_PROMPT` constant in `server/prompts.py` is a
 placeholder per CLAUDE.md §8 (gotcha #6) and does NOT participate
 in this audit; the role-prefix constants in the same file are
 real but cover Threats 1+4 cache-stability, not Threat 2.
-**Gaps:** (TODO file issue) — the sanitizer (which strips literal patterns
-like `<|system|>`, `[INST]`, "Ignore previous instructions") is OFF by default
-and only enabled when the operator sets
-`ARXMCP_SANITIZE_RETRIEVED_CONTENT=1`. The brief mitigation says "optionally
-sanitize" so this is by design, but the default-off posture is a deliberate
-trade-off worth tracking — flipping it on without false-positive data risks
-mangling legitimate paper content.
+**Gaps:** [#6 — flip sanitizer default to on after FP analysis](https://github.com/chris-dare-dev/arXMCP/issues/6).
+The sanitizer (which strips literal patterns like `<|system|>`, `[INST]`,
+"Ignore previous instructions") is OFF by default and only enabled when the
+operator sets `ARXMCP_SANITIZE_RETRIEVED_CONTENT=1`. The brief mitigation
+says "optionally sanitize" so this is by design, but the default-off
+posture is a deliberate trade-off worth tracking — flipping it on without
+false-positive data risks mangling legitimate paper content.
 
 ---
 
@@ -131,13 +131,14 @@ large_alloc, network call).
 **Audit epic:** E13_S03.
 **Test file:** [`tests/security/test_latexml_sandbox.py`](../../tests/security/test_latexml_sandbox.py)
 — 5 hostile-fixture cases.
-**Gaps:** (TODO file issue) — the production sandbox layers
-(sandbox-exec on macOS, seccomp + landlock on Linux, `--read-only` Docker
-hardening) are documented in the threat model but deferred to the E11/E14
-operational tracks. v1 ships subprocess isolation + 5-minute timeout +
-filesystem-write whitelist only. The deferred layers are NOT a current
-production exposure (the subprocess is invoked only during ingest, not at
-request time) but are tracked here for completeness.
+**Gaps:** [#3 — production LaTeXML sandbox (sandbox-exec / seccomp / landlock / Docker)](https://github.com/chris-dare-dev/arXMCP/issues/3).
+The production sandbox layers (sandbox-exec on macOS, seccomp + landlock on
+Linux, `--read-only` Docker hardening) are documented in the threat model
+but deferred to the E11/E14 operational tracks. v1 ships subprocess
+isolation + 5-minute timeout + filesystem-write whitelist only. The
+deferred layers are NOT a current production exposure (the subprocess is
+invoked only during ingest, not at request time) but are tracked here for
+completeness.
 
 ---
 
@@ -163,12 +164,12 @@ request time) but are tracked here for completeness.
 **Test file:** [`tests/security/test_resource_exhaustion.py`](../../tests/security/test_resource_exhaustion.py)
 — 5 fault scenarios: `k=10000` rejected, deep nesting rejected, 10k-item
 filter rejected, 256 KB byte cap enforced, 1000/hour rate limit fires.
-**Gaps:** (TODO file issue) — the 256 KB byte cap is enforced today only on
-`get_chunk` and `get_definitions`. The other return-chunk tools
-(`search_papers`, `find_equation`, `find_lemma_by_name`, `get_paper`,
-`cite_neighbors`) do not enforce the cap. Extending coverage to every
-tool handler is the highest-priority real coverage gap surfaced by this
-audit.
+**Gaps:** [#1 — extend 256 KB byte cap to remaining tool handlers](https://github.com/chris-dare-dev/arXMCP/issues/1).
+The 256 KB byte cap is enforced today only on `get_chunk` and
+`get_definitions`. The other return-chunk tools (`search_papers`,
+`find_equation`, `find_lemma_by_name`, `get_paper`, `cite_neighbors`)
+do not enforce the cap. Extending coverage to every tool handler is the
+highest-priority real coverage gap surfaced by this audit.
 
 ---
 
@@ -221,13 +222,13 @@ post-load `.bin` snapshot check + `Makefile sbom` target).
 **Test file:** [`tests/security/test_model_pinning.py`](../../tests/security/test_model_pinning.py)
 — 28 tests covering validator, env-var resolution, post-load snapshot
 check, refuse-before-network behavior.
-**Gaps:** (TODO file issue) — the BGE-M3 pinned SHA
-(`5617a9f61b028005a4858fdac845db406aefb181`) ships `pytorch_model.bin` only;
-`use_safetensors=True` cannot be enforced for the embedder until the SHA is
-bumped to a safetensors-bearing revision. The reranker IS fully safetensors-
-enforced today. The SHA pin remains integrity-preserving against
-revision-pointer attacks even with `.bin`, so this is a partial-coverage
-deferral rather than an open exposure.
+**Gaps:** [#4 — bump BGE_M3_COMMIT_SHA to a safetensors-bearing revision](https://github.com/chris-dare-dev/arXMCP/issues/4).
+The BGE-M3 pinned SHA (`5617a9f61b028005a4858fdac845db406aefb181`) ships
+`pytorch_model.bin` only; `use_safetensors=True` cannot be enforced for
+the embedder until the SHA is bumped to a safetensors-bearing revision.
+The reranker IS fully safetensors-enforced today. The SHA pin remains
+integrity-preserving against revision-pointer attacks even with `.bin`,
+so this is a partial-coverage deferral rather than an open exposure.
 
 ---
 
@@ -259,16 +260,18 @@ anywhere in production code, enforced by `TestNoVerifyFalse`).
 lying header, no `verify=False` walk over `ingest/`/`tools/`/`server/`,
 `ARXMCP_PIN_ARXIV_CA` flag semantics, harvest-loop resilience to cap breach.
 **Gaps:**
-- (TODO file issue) — `ingest/graph_ingest.py` and `ingest/inspire_ingest.py`
-  do NOT validate redirect hosts after fetch. `ingest/ar5iv_fetch.py` and
-  `ingest/oai_delta.py` both do (`response.url.startswith(...)`). Extend
-  redirect-host pinning to the citation-enrichment fetch paths.
-- (TODO file issue) — `ARXMCP_PIN_ARXIV_CA` is a forward-compat plumbing
-  stub today (the Config field exists but no code consumes it). Implement
-  the SSL-context wiring against a pinned CA bundle and an operator-refresh
-  procedure when the arxiv.org CA rotation cadence is settled. Low priority
-  because the system trust store + safe-by-default urllib is the
-  production posture today.
+- [#2 — redirect-host validation on graph/inspire ingest](https://github.com/chris-dare-dev/arXMCP/issues/2).
+  `ingest/graph_ingest.py` and `ingest/inspire_ingest.py` do NOT validate
+  redirect hosts after fetch. `ingest/ar5iv_fetch.py` and `ingest/oai_delta.py`
+  both do (`response.url.startswith(...)`). Extend redirect-host pinning to
+  the citation-enrichment fetch paths.
+- [#5 — implement ARXMCP_PIN_ARXIV_CA SSL-context wiring](https://github.com/chris-dare-dev/arXMCP/issues/5).
+  `ARXMCP_PIN_ARXIV_CA` is a forward-compat plumbing stub today (the Config
+  field exists but no code consumes it). Implement the SSL-context wiring
+  against a pinned CA bundle and an operator-refresh procedure when the
+  arxiv.org CA rotation cadence is settled. Low priority because the
+  system trust store + safe-by-default urllib is the production posture
+  today.
 
 ---
 
@@ -306,15 +309,15 @@ default-off-sanitizer policy question) require Phase-4 user
 authorization to file as actual GitHub issues. The list is ordered by
 real-coverage-gap-vs-deferred-design:
 
-| Tag | Gap | Severity | Type |
-|---|---|---|---|
-| G1 | Byte cap not enforced on 5 tools (Threat 4) | MEDIUM | Real coverage gap |
-| G2 | Redirect-host validation missing on `graph_ingest` + `inspire_ingest` (Threat 7) | MEDIUM | Real coverage gap |
-| G3 | LaTeXML production sandbox layers deferred to E11/E14 (Threat 3) | LOW | Documented design deferral |
-| G4 | Embedder BGE-M3 SHA ships `.bin`-only (Threat 6) | LOW | Pin-bump pending; integrity preserved |
-| G5 | `ARXMCP_PIN_ARXIV_CA` stub-only (Threat 7) | LOW | Forward-compat plumbing |
-| G6 | Sanitizer is opt-in / off by default (Threat 2) | LOW | Design trade-off (false-positive avoidance) |
-| G7 | Orchestrator system-prompt instruction for `<retrieved_chunk>` boundary (Threat 2 mitigation #2) | n/a | Out of MCP-server scope (consuming orchestrator's responsibility). Tracked for completeness; no action needed in arXMCP v1. |
+| Tag | Issue | Gap | Severity | Type |
+|---|---|---|---|---|
+| G1 | [#1](https://github.com/chris-dare-dev/arXMCP/issues/1) | Byte cap not enforced on 5 tools (Threat 4) | MEDIUM | Real coverage gap |
+| G2 | [#2](https://github.com/chris-dare-dev/arXMCP/issues/2) | Redirect-host validation missing on `graph_ingest` + `inspire_ingest` (Threat 7) | MEDIUM | Real coverage gap |
+| G3 | [#3](https://github.com/chris-dare-dev/arXMCP/issues/3) | LaTeXML production sandbox layers deferred to E11/E14 (Threat 3) | LOW | Documented design deferral |
+| G4 | [#4](https://github.com/chris-dare-dev/arXMCP/issues/4) | Embedder BGE-M3 SHA ships `.bin`-only (Threat 6) | LOW | Pin-bump pending; integrity preserved |
+| G5 | [#5](https://github.com/chris-dare-dev/arXMCP/issues/5) | `ARXMCP_PIN_ARXIV_CA` stub-only (Threat 7) | LOW | Forward-compat plumbing |
+| G6 | [#6](https://github.com/chris-dare-dev/arXMCP/issues/6) | Sanitizer is opt-in / off by default (Threat 2) | LOW | Design trade-off (false-positive avoidance) |
+| G7 | n/a | Orchestrator system-prompt instruction for `<retrieved_chunk>` boundary (Threat 2 mitigation #2) | n/a | Out of MCP-server scope (consuming orchestrator's responsibility). Tracked for completeness; no action needed in arXMCP v1. |
 
 **Scope note (F2 rectification, E13_S10 adversary):** this table
 lists gaps in the v1 **MCP server** audit only. Orchestrator-side
@@ -325,17 +328,16 @@ auditing Threat 2's full mitigation list sees all three mitigations
 accounted for; it will never be filed as an arXMCP issue.
 
 **Status at v1:** the user authorized filing G1–G6 (six issues) at the
-E13_S10 Phase-4 external-write boundary. G7 stays `n/a` (orchestrator
-scope, never filed). The orchestrator could not shell out `gh issue
-create` directly because the `gh` CLI is not installed in the operator's
-Windows shell and no `GH_TOKEN`/`GITHUB_TOKEN` is set; a small helper
-script `.claude/notes/milestones/E13_S10/_gen_issue_urls.py` produces
-six pre-filled GitHub "new issue" URLs that the user files in the
-browser with one click each. As each issue is filed, the operator
-replaces the `(TODO file issue: ...)` placeholder in this doc with a
-`[#NNN — title](URL)` markdown link in a follow-up small doc edit. The
-final state on the v1 audit chain: gaps surfaced, authorized, helper
-generated, browser-filing pending.
+E13_S10 Phase-4 external-write boundary, and all six have been filed at
+`github.com/chris-dare-dev/arXMCP/issues/1` through `/6` via `gh issue
+create`. G7 stays `n/a` (orchestrator scope, never filed). The placeholder
+`(TODO file issue: ...)` strings in this doc have been replaced with
+`[#NNN](URL)` markdown links in both the summary table and the per-threat
+sections. Tooling note: the `gh` CLI required `winget install GitHub.cli`
+and `gh auth login` to bootstrap on Windows; the helper script
+`.claude/notes/milestones/E13_S10/_file_issues.py` is the one-shot filer
+that produced the issue URLs. The audit chain is now complete:
+gap-surfaced → user-authorized → issue-filed → doc-linked.
 
 ---
 
