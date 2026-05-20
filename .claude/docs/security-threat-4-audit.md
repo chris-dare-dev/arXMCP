@@ -92,14 +92,32 @@ Every return-chunk-or-content tool now calls `enforce_byte_cap`.
 | `get_paper` | ✅ (E13_S04b) | v1 returns metadata with abstract=NULL; cap forward-compat for E11/E12 metadata table (3000+ author lists) |
 | `cite_neighbors` | ✅ (E13_S04b) | v1 stub returns empty neighbor list; cap forward-compat for E09 wire-up |
 
-Each newly-covered handler defines a private `_cap()` helper (mirroring
-the `definitions.py::_cap` precedent) that calls
-`server.tools.enforce_byte_cap` and discards the `content_blocks` half
-for multi-result aggregates (where `chunk_id=None` is passed, no
-resource_link is emitted — the over-cap surface is the aggregate
-envelope, not a single chunk). For `cite_neighbors` the helper passes
-the INPUT `chunk_id` so the resource_link points at the parent context
-whose neighborhood was being returned.
+Each newly-covered handler defines a private `_cap()` helper that calls
+into the `server.tools` byte-cap infrastructure. The E13_S04b adversary
+critique surfaced finding F1 — the original implementation called
+`enforce_byte_cap(payload)` with the default `body_text_path=("body_text",)`,
+which silently no-ops on multi-result payloads (no top-level
+`body_text` field). The Phase 4 rectification added a new
+`server.tools.cap_result_list(payload, list_key, chunk_id=None)` helper
+that iteratively pops trailing rows from `payload[list_key]` until the
+serialized wire size fits under cap. Rows are already sorted
+`(score_desc, chunk_id_asc)` by every caller, so trimming the tail
+elides the LOWEST-relevance rows first.
+
+| Handler | Cap entry point | Over-cap behavior |
+|---|---|---|
+| `search_papers` | `cap_result_list(payload, "results")` | Trims trailing `results[]` rows |
+| `find_equation` | `cap_result_list(payload, "results")` | Trims trailing `results[]` rows |
+| `find_lemma_by_name` | `cap_result_list(payload, "matches")` | Trims trailing `matches[]` rows |
+| `get_paper` | `enforce_byte_cap(payload, body_text_path=("paper","abstract"))` | Truncates `paper.abstract` to 1024 chars (forward-compat for E11/E12) |
+| `cite_neighbors` | `cap_result_list(payload, "neighbors", chunk_id=<input>)` | Trims trailing `neighbors[]` rows; resource_link points at input chunk_id (parent context) |
+
+For multi-result aggregates (`chunk_id=None`), no `resource_link` is
+emitted — the over-cap surface is the aggregate envelope, not a single
+chunk. The `body_truncated=True` flag is set in every case so
+downstream consumers detect the truncation. For `cite_neighbors` the
+helper passes the INPUT `chunk_id` so the resource_link points at the
+parent context whose neighborhood was being returned.
 
 Future-handler discipline: any new tool that emits paper-derived text
 MUST call `enforce_byte_cap` AND `wrap_retrieved_text` (Threat 2). The

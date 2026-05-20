@@ -895,24 +895,33 @@ class TestE13S04bCapExtension:
     def test_multi_result_cap_fires_on_over_cap(
         self, module_name: str, oversized_field: str
     ):
-        """Over-cap payload: ``body_truncated=True`` is set; the
-        payload is sorted by ``enforce_byte_cap`` (returned via
-        ``_sort_dict``). For multi-result handlers
-        ``chunk_id=None`` → no resource_link content block, but the
-        ``body_truncated`` signal IS preserved.
+        """Over-cap payload: ``body_truncated=True`` is set AND the
+        serialized payload is actually reduced below the cap.
+
+        Closes F2 from the E13_S04b adversary critique: the
+        original test only asserted the flag, which let a broken
+        cap implementation (silent ``_truncate_at_path`` no-op
+        when the body_text path was absent) pass. Now we measure
+        the post-cap serialized size and require it to be at or
+        under the configured cap × wire-overhead-factor budget.
         """
         import importlib
+        import json
 
         from server import tools as tools_mod
 
         module = importlib.import_module(module_name)
+        cap_bytes = 256 * 1024
         # Construct a payload that exceeds 256 KB after JSON serialize
         # × wire-overhead-factor 2. Inner content > 128 KB does it.
         # The oversized payload uses a 200-KB filler string.
         filler = "x" * (200 * 1024)
         if oversized_field == "paper":
             # paper.py emits a flat ``paper`` dict; stuff the
-            # ``abstract`` field with the filler.
+            # ``abstract`` field with the filler. paper's _cap
+            # truncates the abstract field in place (not the row
+            # list) — forward-compat for the E11/E12 metadata
+            # table.
             oversized_payload = {
                 "found": True,
                 "metadata_status": "synthesized_from_chunks",
@@ -927,6 +936,20 @@ class TestE13S04bCapExtension:
                 "snippet": filler,
             }
             oversized_payload = {oversized_field: [row], "found": True}
+        # Sanity-check that the unmodified payload is over cap so
+        # the assertion below is testing real behavior.
+        unmodified_wire_bytes = (
+            len(
+                json.dumps(
+                    oversized_payload, ensure_ascii=False, sort_keys=True
+                ).encode("utf-8")
+            )
+            * 2
+        )
+        assert unmodified_wire_bytes > cap_bytes, (
+            f"test setup error: oversized payload is not actually "
+            f"over cap ({unmodified_wire_bytes} <= {cap_bytes})"
+        )
         with patch.object(
             tools_mod, "get_resources", return_value=self._fake_resources()
         ):
@@ -935,6 +958,103 @@ class TestE13S04bCapExtension:
             f"over-cap payload must set body_truncated=True; "
             f"keys={sorted(out.keys())!r}"
         )
+        # F2 — assert actual size reduction. Was the silent no-op
+        # in _truncate_at_path masked here pre-rectification.
+        post_cap_wire_bytes = (
+            len(
+                json.dumps(
+                    out, ensure_ascii=False, sort_keys=True
+                ).encode("utf-8")
+            )
+            * 2
+        )
+        assert post_cap_wire_bytes <= cap_bytes, (
+            f"over-cap payload was NOT reduced by _cap: "
+            f"{post_cap_wire_bytes} > {cap_bytes} "
+            f"(this is the F1 regression — _cap set "
+            f"body_truncated=True without actually truncating)"
+        )
+
+    @pytest.mark.parametrize(
+        "module_name,list_key",
+        [
+            ("server.handlers.search", "results"),
+            ("server.handlers.equation", "results"),
+            ("server.handlers.lemma", "matches"),
+        ],
+    )
+    def test_multi_result_cap_trims_trailing_rows(
+        self, module_name: str, list_key: str
+    ):
+        """Multi-result tools: when the cap fires on an aggregate
+        with many rows, ``cap_result_list`` trims the LOWEST-ranked
+        trailing rows (rows are sorted ``(score_desc, chunk_id_asc)``
+        by the caller, so trimming the tail elides the least-relevant
+        rows first). Post-cap payload contains a non-empty subset
+        of the input rows AND fits under cap.
+
+        Regression guard for F1: pre-rectification ``_cap`` set
+        ``body_truncated=True`` but left the full list intact, so
+        a downstream consumer received the SAME bytes with a
+        misleading flag.
+        """
+        import importlib
+        import json
+
+        from server import tools as tools_mod
+
+        module = importlib.import_module(module_name)
+        cap_bytes = 256 * 1024
+        # Each row contributes ~10 KB; 50 rows total ~500 KB inner
+        # serialized → ~1 MB wire bytes (well over cap).
+        per_row_filler = "y" * (10 * 1024)
+        rows = [
+            {
+                "chunk_id": f"arxiv:2412.00001:{i:016x}",
+                "snippet": per_row_filler,
+                "rank": i,
+            }
+            for i in range(50)
+        ]
+        oversized_payload = {list_key: rows, "found": True}
+        with patch.object(
+            tools_mod, "get_resources", return_value=self._fake_resources()
+        ):
+            out = module._cap(oversized_payload)
+        assert out.get("body_truncated") is True
+        post_cap_wire_bytes = (
+            len(
+                json.dumps(
+                    out, ensure_ascii=False, sort_keys=True
+                ).encode("utf-8")
+            )
+            * 2
+        )
+        assert post_cap_wire_bytes <= cap_bytes, (
+            f"multi-row over-cap payload was NOT reduced: "
+            f"{post_cap_wire_bytes} > {cap_bytes}"
+        )
+        # Truncation should be from the tail — earliest rows
+        # (highest rank order) preserved. At least one row should
+        # survive for a 10 KB-per-row × 256 KB cap (~12 rows fit).
+        surviving = out.get(list_key, [])
+        assert isinstance(surviving, list)
+        assert len(surviving) > 0, (
+            "cap_result_list popped every row; at least one row "
+            "should fit at 10 KB/row under a 256 KB cap"
+        )
+        assert len(surviving) < len(rows), (
+            f"cap_result_list did not pop any rows even though "
+            f"payload was over cap (input {len(rows)} → "
+            f"output {len(surviving)})"
+        )
+        # The surviving rows must be a prefix of the input (we pop
+        # from the tail). Verify rank order is preserved.
+        for i, row in enumerate(surviving):
+            assert row["rank"] == i, (
+                f"cap_result_list did not preserve input order; "
+                f"survivor[{i}].rank = {row['rank']}"
+            )
 
     def test_cite_neighbors_cap_passes_under_cap(self):
         """``cite_neighbors._cap`` takes ``chunk_id`` as a positional
@@ -965,12 +1085,17 @@ class TestE13S04bCapExtension:
     def test_cite_neighbors_cap_fires_with_input_chunk_id(self):
         """When ``cite_neighbors`` returns an over-cap response
         (forward-compat for E09 wire-up), the ``body_truncated``
-        flag is set AND the resource_link content block IS emitted
-        using the INPUT chunk_id (the parent context).
+        flag is set, the payload bytes are actually reduced below
+        cap (F2 — closes the silent-no-op regression), and the
+        ``cap_result_list`` helper trims the trailing entries of
+        ``neighbors[]``.
         """
+        import json
+
         from server import tools as tools_mod
         from server.handlers.citations import _cap
 
+        cap_bytes = 256 * 1024
         filler = "x" * (200 * 1024)
         oversized_payload = {
             "chunk_id": "arxiv:2412.00001:abc1234567890abc",
@@ -989,6 +1114,19 @@ class TestE13S04bCapExtension:
         ):
             out = _cap(oversized_payload, "arxiv:2412.00001:abc1234567890abc")
         assert out.get("body_truncated") is True
+        # F2 — assert actual size reduction.
+        post_cap_wire_bytes = (
+            len(
+                json.dumps(
+                    out, ensure_ascii=False, sort_keys=True
+                ).encode("utf-8")
+            )
+            * 2
+        )
+        assert post_cap_wire_bytes <= cap_bytes, (
+            f"cite_neighbors over-cap payload was NOT reduced: "
+            f"{post_cap_wire_bytes} > {cap_bytes}"
+        )
 
     @pytest.mark.parametrize(
         "module_name",
@@ -1003,13 +1141,20 @@ class TestE13S04bCapExtension:
     def test_handler_module_imports_enforce_byte_cap(
         self, module_name: str
     ):
-        """Static check: every newly-covered handler imports
-        ``enforce_byte_cap`` from ``server.tools``. Catches a
-        regression where someone refactors a handler and accidentally
-        drops the cap helper import — the per-handler ``_cap`` test
-        above would still pass (because pytest re-imports the
-        module), but if the production import is missing the live
-        request path would fail.
+        """Static check: every newly-covered handler's ``_cap``
+        helper calls into the ``server.tools`` byte-cap
+        infrastructure — either :func:`enforce_byte_cap`
+        (single-result envelopes like ``get_paper``) or
+        :func:`cap_result_list` (multi-result aggregates like
+        ``search_papers``/``find_equation``/``find_lemma_by_name``/
+        ``cite_neighbors``, post-F1 rectification of the E13_S04b
+        adversary critique).
+
+        Catches a regression where someone refactors a handler and
+        accidentally drops the cap helper import — the per-handler
+        ``_cap`` test above would still pass (because pytest
+        re-imports the module), but if the production import is
+        missing the live request path would fail.
         """
         import inspect
 
@@ -1020,17 +1165,27 @@ class TestE13S04bCapExtension:
         # module.
         assert callable(getattr(module, "_cap", None)), (
             f"{module_name} must define a `_cap` helper that wraps "
-            f"server.tools.enforce_byte_cap (E13_S04b contract)"
+            f"server.tools.enforce_byte_cap or server.tools.cap_result_list "
+            f"(E13_S04b contract)"
         )
-        # And the helper must be importable / inspectable.
+        # And the helper must call one of the two byte-cap entry
+        # points. Either is sufficient — both reduce wire bytes when
+        # the cap fires.
         source = inspect.getsource(module._cap)
-        assert "enforce_byte_cap" in source, (
-            f"{module_name}._cap must call server.tools.enforce_byte_cap; "
-            f"current source does not reference it"
+        assert ("enforce_byte_cap" in source) or (
+            "cap_result_list" in source
+        ), (
+            f"{module_name}._cap must call server.tools.enforce_byte_cap "
+            f"or server.tools.cap_result_list; current source references "
+            f"neither"
         )
-        # The handler must actually import it (defensive against the
-        # case where _cap exists but enforce_byte_cap is shadowed).
+        # And the chosen helper must exist as a module-level symbol
+        # in server.tools (defensive against shadow imports).
         assert hasattr(tools_mod, "enforce_byte_cap"), (
             "server.tools.enforce_byte_cap must exist as a module-level "
             "symbol"
+        )
+        assert hasattr(tools_mod, "cap_result_list"), (
+            "server.tools.cap_result_list must exist as a module-level "
+            "symbol (E13_S04b F1 rectification)"
         )

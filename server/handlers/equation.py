@@ -28,7 +28,7 @@ from pydantic import Field
 
 from server.query_encoder import encode_query
 from server.retrieval.equations import EquationIndex, looks_like_mathml
-from server.tools import enforce_byte_cap, envelope, get_resources
+from server.tools import cap_result_list, envelope, get_resources
 
 logger = logging.getLogger(__name__)
 
@@ -36,15 +36,24 @@ MAX_K = 50
 
 
 def _cap(payload: dict[str, Any]) -> dict[str, Any]:
-    """E13_S04b — apply the 256 KB result byte cap. No-op today
-    (k≤50 with small per-row metadata; TED equation index returns
-    chunk_id/paper_id/score only) but defensive against future
-    surrounding-context expansion or full-MathML payload growth.
-    Passes ``chunk_id=None`` because the cap-overflow surface for
-    a multi-result aggregate is the response envelope, not a single
+    """E13_S04b — apply the 256 KB result byte cap to the
+    ``results[]`` aggregate.
+
+    No-op today (k≤50 with small per-row metadata; TED equation
+    index returns chunk_id/paper_id/score only) but defensive
+    against future surrounding-context expansion or full-MathML
+    payload growth.
+
+    Uses :func:`server.tools.cap_result_list` with
+    ``list_key="results"`` (post-F1 rectification): when the cap
+    fires, the LOWEST-relevance trailing rows are trimmed until
+    the payload fits — agents still get the highest-scoring rows.
+    ``chunk_id=None`` because the cap-overflow surface for a
+    multi-result aggregate is the response envelope, not a single
     chunk.
+
     """
-    structured, _blocks = enforce_byte_cap(payload)
+    structured, _blocks = cap_result_list(payload, list_key="results")
     return structured
 
 

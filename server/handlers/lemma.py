@@ -49,7 +49,7 @@ from server.theorem_names_store import (
     serialize_section_path,
 )
 from server.tools import (
-    enforce_byte_cap,
+    cap_result_list,
     envelope,
     get_resources,
     wrap_retrieved_text,
@@ -61,15 +61,22 @@ MAX_K = 50
 
 
 def _cap(payload: dict[str, Any]) -> dict[str, Any]:
-    """E13_S04b — apply the 256 KB result byte cap. No-op today
-    (matches are small rows: dedup_key, display_name, paper_id,
-    chunk_id, section_path, confidence) but defensive against
-    future chunk-body context expansion in the in-memory scan
-    fallback (E10_S02). Passes ``chunk_id=None`` because the
-    cap-overflow surface for a multi-match aggregate is the
-    response envelope, not a single chunk.
+    """E13_S04b — apply the 256 KB result byte cap to the
+    ``matches[]`` aggregate.
+
+    No-op today (matches are small rows: dedup_key, display_name,
+    paper_id, chunk_id, section_path, confidence) but defensive
+    against future chunk-body context expansion in the in-memory
+    scan fallback (E10_S02).
+
+    Uses :func:`server.tools.cap_result_list` with
+    ``list_key="matches"`` (post-F1 rectification): when the cap
+    fires, trailing matches are trimmed until the payload fits.
+    ``chunk_id=None`` because the cap-overflow surface for a
+    multi-match aggregate is the response envelope, not a single
+    chunk.
     """
-    structured, _blocks = enforce_byte_cap(payload)
+    structured, _blocks = cap_result_list(payload, list_key="matches")
     return structured
 
 

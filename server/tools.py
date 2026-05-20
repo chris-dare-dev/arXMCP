@@ -481,6 +481,86 @@ def _truncate_at_path(d: dict[str, Any], path: tuple[str, ...]) -> None:
         cur[leaf] = cur[leaf][:1024]
 
 
+def cap_result_list(
+    structured_content: dict[str, Any],
+    list_key: str,
+    chunk_id: str | None = None,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """E13_S04b — cap the byte size of a multi-result tool envelope.
+
+    The companion to :func:`enforce_byte_cap` for handlers whose
+    over-cap surface is the aggregate response (a list of rows in
+    ``structured_content[list_key]``), not a single chunk's
+    ``body_text``. Returns a 2-tuple of
+    ``(structured_content, content_blocks)`` mirroring the
+    :func:`enforce_byte_cap` signature so callers can treat both
+    helpers uniformly.
+
+    Closes the F1 finding from the E13_S04b adversary critique:
+    multi-result tools previously called ``enforce_byte_cap(payload)``
+    with the default ``body_text_path=("body_text",)``, which silently
+    no-ops on payloads with no top-level ``body_text`` key.
+    ``body_truncated=True`` was set but the payload bytes were
+    unchanged — a 500 KB response stayed 500 KB on the wire.
+
+    This helper iteratively pops the trailing row from
+    ``structured_content[list_key]`` until the serialized payload
+    (with the :data:`_WIRE_OVERHEAD_FACTOR` wire-overhead
+    correction) fits under
+    :attr:`Config.result_byte_cap`. The deterministic truncation
+    point is row-by-row from the tail — rows are already sorted
+    ``(score_desc, chunk_id_asc)`` by every caller, so trimming the
+    tail elides the LOWEST-relevance rows first.
+
+    When the cap fires, ``body_truncated=True`` is set at the top
+    level (matching the :func:`enforce_byte_cap` contract). A
+    ``resource_link`` content block is emitted iff ``chunk_id`` is
+    not None; for multi-result aggregates the caller passes
+    ``chunk_id=None`` because there is no single chunk that
+    represents the aggregate.
+
+    Edge cases:
+
+    * ``list_key`` missing from the payload OR the value at
+      ``list_key`` is not a list → degrades to
+      :func:`enforce_byte_cap`'s body-text-path semantics (silent
+      no-op on the size, ``body_truncated=True`` still set). This
+      preserves the contract that "over-cap responses are flagged"
+      even when there is no list to trim.
+    * Empty list AND payload still over cap → the metadata fields
+      themselves are too large; flag ``body_truncated=True`` and
+      return the payload as-is (caller's responsibility to keep
+      metadata small).
+    """
+    cap = get_resources().config.result_byte_cap
+
+    def _measure(d: dict[str, Any]) -> int:
+        return len(
+            json.dumps(d, ensure_ascii=False, sort_keys=True).encode("utf-8")
+        ) * _WIRE_OVERHEAD_FACTOR
+
+    if _measure(structured_content) <= cap:
+        return structured_content, []
+
+    # Over cap — deep-copy so we never mutate the caller's payload.
+    truncated = json.loads(json.dumps(structured_content))
+    rows = truncated.get(list_key)
+    if isinstance(rows, list):
+        while rows and _measure(truncated) > cap:
+            rows.pop()
+    truncated["body_truncated"] = True
+    blocks: list[dict[str, Any]] = []
+    if chunk_id is not None:
+        blocks.append(
+            {
+                "type": "resource_link",
+                "uri": f"{CHUNK_RESOURCE_URI_SCHEME}{chunk_id}",
+                "name": chunk_id,
+            }
+        )
+    return _sort_dict(truncated), blocks
+
+
 # ---------------------------------------------------------------------------
 # Registration entry point
 # ---------------------------------------------------------------------------
@@ -667,6 +747,7 @@ __all__ = [
     "SEARCH_PAPERS",
     "TOOL_SCHEMA_VERSION",
     "ToolMeta",
+    "cap_result_list",
     "enforce_byte_cap",
     "envelope",
     "get_resources",

@@ -17,15 +17,24 @@ from typing import Annotated, Any, Literal
 from pydantic import Field
 
 from ingest.identifiers import is_valid_chunk_id
-from server.tools import enforce_byte_cap, envelope
+from server.tools import cap_result_list, envelope
 
 
 def _cap(payload: dict[str, Any], chunk_id: str) -> dict[str, Any]:
-    """E13_S04b — apply the 256 KB result byte cap. A no-op today
-    (v1 stub returns empty ``neighbors`` list + small metadata)
-    but ESSENTIAL forward-compat for E09 wire-up. Once the Kùzu
-    citation graph is queried for real, a 100-neighbor result with
-    chunk-body context could push past the cap.
+    """E13_S04b — apply the 256 KB result byte cap to the
+    ``neighbors[]`` aggregate.
+
+    A no-op today (v1 stub returns empty ``neighbors`` list + small
+    metadata) but ESSENTIAL forward-compat for E09 wire-up. Once
+    the Kùzu citation graph is queried for real, a 100-neighbor
+    result with chunk-body context could push past the cap.
+
+    Post-F1 rectification (E13_S04b adversary critique): uses
+    :func:`server.tools.cap_result_list` with
+    ``list_key="neighbors"`` so the lowest-priority trailing
+    neighbors are trimmed until the payload fits. The flag
+    ``body_truncated=True`` is set so consumers detect the
+    truncation.
 
     Passes the INPUT ``chunk_id`` because it IS the parent context
     the resource-link belongs to: the cap-overflow surface for a
@@ -33,7 +42,9 @@ def _cap(payload: dict[str, Any], chunk_id: str) -> dict[str, Any]:
     chunk, so a downstream agent receiving a truncated response
     knows which parent chunk's neighborhood was elided.
     """
-    structured, _blocks = enforce_byte_cap(payload, chunk_id=chunk_id)
+    structured, _blocks = cap_result_list(
+        payload, list_key="neighbors", chunk_id=chunk_id
+    )
     return structured
 
 

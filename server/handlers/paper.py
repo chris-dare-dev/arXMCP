@@ -29,17 +29,30 @@ from server.tools import enforce_byte_cap, envelope, get_resources
 
 
 def _cap(payload: dict[str, Any]) -> dict[str, Any]:
-    """E13_S04b — apply the 256 KB result byte cap. No-op today
-    (v1 returns NULL for abstract/authors/title/year/categories;
-    only chunk_count/section_count/chunker_version/embedder_version
-    are non-NULL, all tiny) but ESSENTIAL forward-compat for E11/E12
-    when the metadata table lands. A high-author-count physics paper
-    (ATLAS/CMS with 3000+ authors) could push a single ``get_paper``
-    response past 256 KB without this cap. Passes ``chunk_id=None``
-    because the over-cap surface is the paper-level metadata, not a
-    chunk.
+    """E13_S04b — apply the 256 KB result byte cap to the per-paper
+    envelope.
+
+    No-op today (v1 returns NULL for abstract/authors/title/year/
+    categories; only chunk_count/section_count/chunker_version/
+    embedder_version are non-NULL, all tiny) but ESSENTIAL
+    forward-compat for E11/E12 when the metadata table lands. A
+    high-author-count physics paper (ATLAS/CMS with 3000+ authors)
+    or a paper with a multi-paragraph LaTeX abstract could push a
+    single ``get_paper`` response past 256 KB without this cap.
+
+    Post-F1 rectification (E13_S04b adversary critique): the
+    truncation target is the abstract field at
+    ``("paper", "abstract")`` — the field most likely to exceed
+    the cap in the E11/E12 metadata schema. When the cap fires,
+    the abstract is truncated to 1024 chars and
+    ``body_truncated=True`` is set. ``chunk_id=None`` because the
+    over-cap surface is the paper-level metadata, not a chunk
+    (the agent already knows the ``paper_id`` and can re-fetch
+    if needed).
     """
-    structured, _blocks = enforce_byte_cap(payload)
+    structured, _blocks = enforce_byte_cap(
+        payload, body_text_path=("paper", "abstract")
+    )
     return structured
 
 

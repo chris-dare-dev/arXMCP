@@ -70,7 +70,7 @@ from server.observability.sanitize import sanitize_retrieved_text
 from server.query_encoder import encode_query, encode_query_with_fallback
 from server.tools import (
     CHUNK_RESOURCE_URI_SCHEME,
-    enforce_byte_cap,
+    cap_result_list,
     envelope,
     get_resources,
     wrap_retrieved_text,
@@ -323,22 +323,28 @@ def _restamp_degraded(
 
 
 def _cap(structured: dict[str, Any]) -> dict[str, Any]:
-    """E13_S04b — apply the 256 KB result byte cap.
+    """E13_S04b — apply the 256 KB result byte cap to the
+    ``results[]`` aggregate.
 
     A no-op today (50 rows × 150-char snippet + small metadata is
     well under the cap by construction) but defensive against
     future reranker output expansion, ``level="section"`` or
     ``level="paper"`` dedup, and content-block payload growth.
 
-    Passes ``chunk_id=None`` because the cap-overflow surface for
-    a multi-result aggregate is the response envelope, not a
-    single chunk: agents follow the per-row ``chunk_id`` field in
+    Uses :func:`server.tools.cap_result_list` with
+    ``list_key="results"`` (post-F1 rectification): when the cap
+    fires, the LOWEST-relevance trailing rows are trimmed until
+    the wire size fits — agents still receive the highest-scoring
+    rows with full fidelity. ``body_truncated=True`` is set so
+    consumers detect the truncation.
+
+    ``chunk_id=None`` because the cap-overflow surface for a
+    multi-result aggregate is the response envelope, not a single
+    chunk: agents follow the per-row ``chunk_id`` field in
     ``results[]`` to fetch full bodies via
-    :func:`server.handlers.chunk.handle_get_chunk`. The
-    ``body_truncated=True`` flag is still set when the cap fires
-    so a downstream consumer can detect the truncation.
+    :func:`server.handlers.chunk.handle_get_chunk`.
     """
-    structured, _blocks = enforce_byte_cap(structured)
+    structured, _blocks = cap_result_list(structured, list_key="results")
     return structured
 
 
