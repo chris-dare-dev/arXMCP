@@ -451,8 +451,15 @@ class TestSearchSchemaContract:
         # Must NOT 4xx-error with "additional properties not allowed".
         assert r.status_code == 200
         sc = r.json()["result"]["structuredContent"]
-        # filters arg is accepted but documented as ignored at v1.
-        assert any("filters arg" in w for w in sc.get("filter_warnings", []))
+        # Post proof-verify-handler-wiring-m1: paper_id is now honored
+        # end-to-end; unrecognized keys (year_min here) surface a
+        # per-key "not supported" warning. The legacy blanket
+        # "filters arg is accepted but not yet processed" message is
+        # gone — replaced by the per-key warning.
+        warnings = sc.get("filter_warnings", [])
+        assert any("year_min" in w and "not supported" in w for w in warnings), (
+            f"expected per-key 'year_min' not-supported warning, got: {warnings}"
+        )
 
     def test_search_accepts_cursor_arg(self, warm_app):
         r = _call_tool(

@@ -65,6 +65,7 @@ from typing import Annotated, Any, Literal
 from mcp.types import CallToolResult, ResourceLink, TextContent
 from pydantic import AnyUrl, Field
 
+from ingest.identifiers import is_valid_paper_id
 from server.cache import get_cache
 from server.observability.sanitize import sanitize_retrieved_text
 from server.query_encoder import encode_query, encode_query_with_fallback
@@ -96,6 +97,91 @@ SNIPPET_MAX_CHARS = 150
 #: processing.
 MAX_FILTER_ITEMS = 100
 
+#: Hard upper bound on the length of the ``filters["paper_id"]`` list
+#: (proof-verify-handler-wiring-m1; FM-4 from the m1 synthesis). The
+#: ``MAX_FILTER_ITEMS`` cap above is on the COUNT OF KEYS in the
+#: filters dict — a single key ``paper_id`` with a 10K-element list
+#: would pass that gate and stress LanceDB's predicate parser with a
+#: ~120 KB IN clause. 100 matches the roadmap's design target
+#: ("~100 paper_ids per call comfortably"). Enforced in handler body
+#: for the same BP1 byte-stability reason as ``MAX_FILTER_ITEMS``.
+MAX_PAPER_ID_FILTER_ITEMS = 100
+
+
+def _escape_paper_id_literal(s: str) -> str:
+    """Escape single quotes for LanceDB SQL-style WHERE clauses.
+
+    LanceDB does not accept bound parameters for predicates today
+    (``ingest/index_definitions.py:404-405``); manual escape is the
+    only option. SQL standard: double the single-quote.
+
+    Defense-in-depth: ``is_valid_paper_id`` regex (called BEFORE this
+    function) structurally rejects any string containing a single
+    quote. This escape is the belt-and-braces secondary layer per
+    the m1 synthesis FM-1 mitigation.
+    """
+    return s.replace("'", "''")
+
+
+def _build_paper_id_predicate(paper_id_value: Any) -> str:
+    """Build a LanceDB ``paper_id IN ('a','b',...)`` predicate.
+
+    Accepts both a single ``str`` (coerced to a one-element list,
+    matching ``server.retrieval.bm25._apply_supported_filters`` at
+    lines 683-687) and a ``list[str]``.
+
+    Validates:
+    - non-empty list (FM-2: empty list raises rather than silently
+      becoming a no-op).
+    - length <= ``MAX_PAPER_ID_FILTER_ITEMS`` (FM-4: resource cap).
+    - every element passes ``ingest.identifiers.is_valid_paper_id``
+      (FM-5: malformed IDs raise rather than partial-filter silently).
+
+    Then escapes single quotes (FM-1 defense-in-depth) and joins
+    sorted IDs into the predicate string. Sorting makes the predicate
+    deterministic — useful for any caller that hashes the predicate
+    (the Tier-1/Tier-2 cache already hashes the ``filters`` dict
+    upstream via ``server.cache.canonical_key_components``).
+    """
+    if isinstance(paper_id_value, str):
+        paper_ids: list[str] = [paper_id_value]
+    elif isinstance(paper_id_value, list):
+        paper_ids = paper_id_value
+    else:
+        raise ValueError(
+            f"filters['paper_id'] must be str or list[str], got "
+            f"{type(paper_id_value).__name__}"
+        )
+    if not paper_ids:
+        raise ValueError(
+            "filters['paper_id'] must not be empty; use filters=None "
+            "(or omit the filters arg entirely) to request no filter"
+        )
+    if len(paper_ids) > MAX_PAPER_ID_FILTER_ITEMS:
+        raise ValueError(
+            f"filters['paper_id'] has {len(paper_ids)} items; max "
+            f"allowed is {MAX_PAPER_ID_FILTER_ITEMS} (m1 FM-4 "
+            f"resource-exhaustion cap)"
+        )
+    invalid = [pid for pid in paper_ids if not is_valid_paper_id(pid)]
+    if invalid:
+        raise ValueError(
+            f"filters['paper_id'] contains {len(invalid)} invalid "
+            f"arXiv IDs; first invalid: {invalid[0]!r}"
+        )
+    ids_csv = ",".join(
+        f"'{_escape_paper_id_literal(pid)}'" for pid in sorted(paper_ids)
+    )
+    return f"paper_id IN ({ids_csv})"
+
+
+#: Filter keys this handler recognizes today. Currently only
+#: ``paper_id`` is honored (m1). Other keys (``categories``,
+#: ``year_min``, etc.) are deferred to a future milestone and will
+#: surface in ``filter_warnings``. Mirrors
+#: ``server.retrieval.bm25.SUPPORTED_FILTER_KEYS``.
+SUPPORTED_FILTER_KEYS: frozenset[str] = frozenset({"paper_id"})
+
 
 async def handle_search_papers(
     query: Annotated[
@@ -117,11 +203,16 @@ async def handle_search_papers(
 ) -> dict[str, Any]:
     """Search the corpus and return ranked chunk results.
 
-    Closes F6 from the E06_S03 critique: ``filters`` and ``cursor``
-    are accepted in the schema (matching the brief's promised
-    signature) but ignored at v1. The ``filter_warnings`` field
-    documents the partial support until E07_S04 wires real
-    filtering + pagination.
+    Honors ``filters={"paper_id": [...]}`` end-to-end via a LanceDB
+    ``.where("paper_id IN (...)", prefilter=True)`` predicate threaded
+    into the ANN call (proof-verify-handler-wiring-m1). The ``paper_id``
+    value may be a single string or a list of strings, capped at
+    ``MAX_PAPER_ID_FILTER_ITEMS`` items, with each element validated
+    against ``ingest.identifiers.is_valid_paper_id``. Other filter
+    keys (``categories``, ``year_min``, etc.) are still ignored and
+    surface in ``filter_warnings``.
+
+    ``cursor`` is still deferred to a future milestone.
     """
     # E13_S04 (Threat 4): handler-body cap on filter dict size.
     # An adversary or runaway LLM might pass `filters={"a": 1, ...}`
@@ -135,6 +226,15 @@ async def handle_search_papers(
             f"filters has {len(filters)} items; max allowed is "
             f"{MAX_FILTER_ITEMS} (E13_S04 Threat 4 resource-exhaustion cap)"
         )
+
+    # m1: honor filters={"paper_id": [...]} end-to-end. Build the
+    # LanceDB IN-predicate up front so input validation errors raise
+    # cleanly (AC #3: clear error, not 500) BEFORE any cache lookup
+    # or query encoding. Unknown filter keys (e.g. "year") will be
+    # surfaced as warnings in the result envelope below.
+    paper_id_predicate: str | None = None
+    if filters and "paper_id" in filters:
+        paper_id_predicate = _build_paper_id_predicate(filters["paper_id"])
 
     r = get_resources()
 
@@ -217,9 +317,22 @@ async def handle_search_papers(
     # Dense ANN over embedding_stmt only. embedding_proof is for
     # proof bodies; mixing without RRF would produce inconsistent
     # rankings (E07 is the right venue for dual-column fusion).
+    #
+    # m1: when a paper_id filter is supplied, chain `.where(predicate,
+    # prefilter=True)` between `.search()` and `.limit()`. `prefilter
+    # =True` matches the convention in `get_paper`, `get_chunk`, and
+    # `ingest/intra_paper_refs.py:226`. It guarantees the ANN search
+    # runs over the filtered sub-corpus, avoiding the postfilter
+    # case where a small filter set could leave fewer than k results
+    # after corpus-wide ANN candidates are discarded.
     with span_ann(k=k):
+        search_q = r.chunks_table.search(
+            query_vec, vector_column_name="embedding_stmt"
+        )
+        if paper_id_predicate is not None:
+            search_q = search_q.where(paper_id_predicate, prefilter=True)
         arrow = (
-            r.chunks_table.search(query_vec, vector_column_name="embedding_stmt")
+            search_q
             .limit(k * 5 if level != "theorem" else k)  # over-fetch for dedup
             .to_arrow()
         )
@@ -239,11 +352,22 @@ async def handle_search_papers(
 
     # F6: surface ignored filter/cursor warnings explicitly so the
     # agent runtime can detect partial support.
+    #
+    # m1: ``paper_id`` is now honored end-to-end. The blanket
+    # "filters arg accepted but not yet processed" warning is gone.
+    # Surface a per-key warning for any filter key NOT in
+    # ``SUPPORTED_FILTER_KEYS`` (currently only ``paper_id``) so a
+    # caller passing ``filters={"paper_id":[...], "year": 2024}``
+    # knows the ``year`` key was silently ignored (FM-9).
     filter_warnings: list[str] = []
     if filters:
-        filter_warnings.append(
-            "filters arg is accepted but not yet processed (deferred to E07_S04)"
-        )
+        unknown_keys = sorted(set(filters) - SUPPORTED_FILTER_KEYS)
+        for key in unknown_keys:
+            filter_warnings.append(
+                f"filters[{key!r}] is not supported and was ignored "
+                f"(deferred to a future milestone; supported keys: "
+                f"{sorted(SUPPORTED_FILTER_KEYS)})"
+            )
     if cursor is not None:
         filter_warnings.append(
             "cursor arg is accepted but pagination is deferred to E07_S04"
