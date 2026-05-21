@@ -1,0 +1,66 @@
+{
+  "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/plans",
+  "created_at": "2026-05-21T21:39:27Z",
+  "critics_run": [],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "low": 0,
+    "medium": 0
+  },
+  "critique_path": null,
+  "deferred_findings": [],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_required": [],
+  "fixed_findings": [],
+  "id": "proof-verify-handler-wiring-m6",
+  "implementation_base": "0555ea2cc6adb09eb21b231b27e07cf05deb2ddf",
+  "implementation_branch": null,
+  "implementation_commit_range": null,
+  "implementation_commits": [],
+  "implementation_path": "inline",
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "### proof-verify-handler-wiring-m6 \u2014 Notebook scaffolding scripts and Variant 1 directory contract\n\n**Description.** Ship four small CLI scripts: `tools/notebook_init.py <slug>` scaffolds `var/arxmcp/notebooks/<slug>/{papers.txt,queries.json}` with templates; `tools/notebook_fetch.py <slug>` walks the notebook's `papers.txt`, and for each paper_id whose `var/arxmcp/corpus/parsed/<paper_id>/index.html` is missing, fetches ar5iv HTML (respecting the existing 3s politeness contract) \u2014 papers ar5iv lacks are listed for manual drop, not silently failed. `tools/notebook_ingest.py <slug>` is a thin wrapper that runs the existing `bulk_ingest` with `ARXMCP_LANCEDB_PATH=var/arxmcp/notebooks/<slug>/lancedb`, then builds per-notebook BM25 at `var/arxmcp/notebooks/<slug>/index/bm25/v<N>/`. `tools/notebook_purge.py <slug>` is the explicit destructive companion \u2014 deletes `var/arxmcp/notebooks/<slug>/` recursively (lancedb, bm25, queries, papers list, ar5iv uploads) AND offers an optional `--purge-corpus-too` flag that ALSO drops per-paper assets under `var/arxmcp/corpus/{parsed,chunks,embeddings}/` for paper_ids unique to this notebook. The script REQUIRES an interactive `yes/typed-slug` confirmation unless `--force` is passed. Variant 1 layout (global `corpus/`, per-notebook `lancedb/` + `bm25/`) is documented in the script docstrings.\n\n**Acceptance criteria.**\n- [ ] `tools/notebook_init.py bridgeland-stability` creates `var/arxmcp/notebooks/bridgeland-stability/papers.txt` (commented template) and `queries.json` (skeleton JSON with one example query). Idempotent \u2014 re-running on an existing notebook is a no-op (logs `notebook exists; skipping`).\n- [ ] `tools/notebook_fetch.py <slug>` produces a summary line: `fetched=N from_cache=M missing=K`, with the missing paper IDs printed for manual drop. Honors the 3s politeness sleep against arxiv.org / ar5iv.labs.arxiv.org.\n- [ ] `tools/notebook_ingest.py <slug>` exits 0 when ingest succeeds AND the per-notebook BM25 index is built; exits non-zero otherwise. Logs land in `var/arxmcp/notebooks/<slug>/ops/`.\n- [ ] `tools/notebook_purge.py <slug>` removes only the per-notebook directory by default; with `--purge-corpus-too` also removes per-paper assets for paper_ids unique to this notebook (i.e. not referenced by any other notebook). Without `--force` the script blocks on stdin confirmation prompting the operator to type the slug back.\n- [ ] All four scripts are runnable from the repo root via `uv run python tools/notebook_<verb>.py <slug>`.\n- [ ] New tests under `tests/tools/test_notebook_scripts.py` cover the happy path, the \"ar5iv miss with manual drop\" path, and the purge confirmation gate (test asserts script aborts on incorrect typed-slug).\n- [ ] `make test` green.\n\n**Dependencies.** None (parallelizable with m1\u2013m3; required by m4 \u2014 which is rewritten to delegate to `tools/notebook_ingest.py`).\n\n**Complexity.** S (~1 day).\n\n**Specialist suggestion.** `\u2014` (small operator tooling; no protocol surface change).",
+  "phase": "implement-running",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-21T21:39:27Z",
+      "left_at": "2026-05-21T21:40:02Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-21T21:40:02Z",
+      "left_at": "2026-05-21T21:50:10Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-21T21:50:10Z",
+      "left_at": "2026-05-21T21:50:43Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-05-21T21:50:43Z",
+      "left_at": null,
+      "phase": "implement-running"
+    }
+  ],
+  "rectification_commit": null,
+  "regression_tests_added": [],
+  "research_briefs": [
+    {
+      "agent_id": "researcher-1",
+      "brief_path": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/proof-verify-handler-wiring-m6/research-brief-1.md",
+      "summary": "Use urllib+global BM25 path; import bulk_ingest programmatically"
+    },
+    {
+      "agent_id": "researcher-2",
+      "brief_path": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/proof-verify-handler-wiring-m6/research-brief-2.md",
+      "summary": "Slug-regex-first defense; delegate HTTP to try_cache; 8 failure modes"
+    }
+  ],
+  "research_mode": "standard",
+  "research_synthesis": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/proof-verify-handler-wiring-m6/research-synthesis.md",
+  "updated_at": "2026-05-21T21:50:43Z"
+}
