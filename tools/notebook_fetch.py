@@ -79,29 +79,40 @@ def run(slug: str, *, sleep_seconds: float = POLITENESS_SLEEP_SECONDS) -> int:
     missing: list[tuple[str, str]] = []  # (paper_id, reason)
     rate_limited: list[str] = []  # ar5iv 429 / 503 / timeout
 
-    first = True
+    # F4 fix: dropped the bare >1024-byte size heuristic. It admitted
+    # corrupt local files (manually dropped invalid HTML, half-written
+    # files from a crashed pre-m6 run) as cache hits. Always call
+    # try_cache; it does the correct dual-file existence + content
+    # validation. The sleep is suppressed when try_cache reports a
+    # local-cache hit (no network round-trip).
     for paper_id in valid_ids:
-        parsed_path = DEFAULT_PARSED_DIR / paper_id / "index.html"
-        if parsed_path.is_file() and parsed_path.stat().st_size > 1024:
-            from_cache.append(paper_id)
-            continue
-        if not first:
-            time.sleep(sleep_seconds)
-        first = False
         result = try_cache(
             paper_id,
             cache_dir=DEFAULT_AR5IV_CACHE_DIR,
             parsed_dir=DEFAULT_PARSED_DIR,
         )
         if result.hit:
-            fetched.append(paper_id)
+            # Categorize: was this a local-cache hit (no fetch) or a
+            # genuine fetch? try_cache returns reason="ok_local_cache"
+            # when both files were already present; "ok" means a real
+            # network fetch happened. Reflect that in our summary —
+            # AND skip the politeness sleep on local-cache hits.
+            if result.reason == "ok_local_cache":
+                from_cache.append(paper_id)
+            else:
+                fetched.append(paper_id)
+                # Sleep AFTER the network fetch so the next iteration
+                # (if any) waits the full politeness interval.
+                time.sleep(sleep_seconds)
             continue
-        # Categorize miss reason. 429/503/timeout are recoverable;
-        # 404 / no_math / parse_error are NOT.
-        if result.reason in {"http_429", "http_503", "timeout"}:
+        # Miss. Sleep AFTER (it counted as an attempted fetch — server
+        # saw the request). The reason strings match ingest/ar5iv_fetch.py
+        # exactly (verified at ingest/ar5iv_fetch.py:154, 241, 250).
+        if result.reason in {"http_429", "http_503", "timeout_or_network"}:
             rate_limited.append(paper_id)
         else:
             missing.append((paper_id, result.reason))
+        time.sleep(sleep_seconds)
 
     # Summary line — the AC-required format.
     print(

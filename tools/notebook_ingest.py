@@ -36,7 +36,7 @@ import json
 import logging
 import sys
 
-from ingest.bm25_indexer import build_bm25_index
+from ingest.bm25_indexer import BM25_INDEX_ROOT, build_bm25_index
 from ingest.bulk_ingest import run_bulk_ingest
 from tools._notebook_common import (
     NotebookError,
@@ -129,12 +129,50 @@ def run(slug: str) -> int:
         "building BM25 for slug=%s lancedb=%s corpus_version=%d",
         slug, lancedb_path, corpus_version,
     )
+    # F2 fix (HIGH): the BM25 path is global; per-notebook corpus_version
+    # is NOT unique across notebooks. Without a slug-sentinel guard,
+    # notebook B's v1 build would silently no-op (indexer's idempotent
+    # skip at ingest/bm25_indexer.py:313), leaving notebook B serving
+    # notebook A's chunk_ids. Write a sentinel BEFORE the build; if a
+    # different slug owns the existing v<N>/, raise with a clear remedy.
+    bm25_v_dir = BM25_INDEX_ROOT / f"v{corpus_version}"
+    sentinel_path = bm25_v_dir / ".notebook_slug"
+    if sentinel_path.is_file():
+        prior_slug = sentinel_path.read_text(encoding="utf-8").strip()
+        if prior_slug and prior_slug != slug:
+            raise NotebookError(
+                f"BM25 collision at {bm25_v_dir}: previously built by "
+                f"notebook {prior_slug!r}, current ingest is {slug!r}. "
+                f"Per-notebook corpus_version is not globally unique. "
+                f"Recover by: (1) running `tools/notebook_purge.py "
+                f"{prior_slug}` to clear the prior notebook's BM25, OR "
+                f"(2) manually removing {bm25_v_dir} if {prior_slug!r} "
+                f"is no longer needed."
+            )
     build_bm25_index(str(lancedb_path), corpus_version=corpus_version)
+    # Write the sentinel POST-build so a crashed build doesn't claim
+    # ownership of an incomplete v<N>/. mkdir is defensive — the
+    # indexer creates v<N>/ on success.
+    bm25_v_dir.mkdir(parents=True, exist_ok=True)
+    sentinel_path.write_text(slug, encoding="utf-8")
     print(
         f"BM25 built for corpus_version={corpus_version} "
-        f"(at var/arxmcp/index/bm25/v{corpus_version}/ — global path; "
-        f"per-notebook separation via the version integer per synthesis)"
+        f"(at {bm25_v_dir}/ — slug={slug!r} written to .notebook_slug "
+        f"sentinel to detect future cross-notebook collisions)"
     )
+
+    # F7 fix (LOW): warn if multiple v<N>/ directories exist for this
+    # notebook's lancedb. The synthesis FM-7 calls for this; helps
+    # operators prune stale BM25 indices.
+    existing_vdirs = sorted(BM25_INDEX_ROOT.glob("v*"))
+    if len(existing_vdirs) > 1:
+        print(
+            f"WARN: {len(existing_vdirs)} BM25 version directories exist "
+            f"under {BM25_INDEX_ROOT}/. Older versions may be stale; "
+            f"consider pruning manually or via `tools/notebook_purge.py "
+            f"<slug>` for retired notebooks.",
+            file=sys.stderr,
+        )
 
     return 0 if summary.papers_failed == 0 else 1
 

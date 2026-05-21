@@ -192,22 +192,19 @@ def test_fetch_happy_path(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture,
 ) -> None:
-    """All papers cached locally → fetched=0, from_cache=N, no network."""
-    parsed = tmp_path / "parsed"
-    parsed.mkdir()
-    monkeypatch.setattr(notebook_fetch, "DEFAULT_PARSED_DIR", parsed)
-    # Seed local cache for both papers
-    for pid in ("2303.07061", "0705.3794"):
-        d = parsed / pid
-        d.mkdir()
-        # Body must be > 1024 bytes per the cache-hit test
-        (d / "index.html").write_text("<html><math>...</math></html>" * 100)
+    """All papers locally cached → from_cache=N. Post-F4 fix: try_cache
+    IS called (size heuristic removed), but returns ok_local_cache to
+    signal no network round-trip happened."""
     _seed_notebook(notebooks_base, "demo", ["2303.07061", "0705.3794"])
 
-    # try_cache should NEVER be called (cache hit short-circuits it)
-    def _fail(*args, **kwargs):
-        pytest.fail("try_cache should not be called when cache hits")
-    monkeypatch.setattr(notebook_fetch, "try_cache", _fail)
+    # Post-F4: try_cache is always called. ok_local_cache reason maps
+    # to from_cache; "ok" reason maps to fetched.
+    def _local_cache_hit(paper_id, **kw):
+        return Ar5ivResult(
+            paper_id=paper_id, hit=True, cache_path=Path("/x"),
+            parsed_path=Path("/y"), reason="ok_local_cache",
+        )
+    monkeypatch.setattr(notebook_fetch, "try_cache", _local_cache_hit)
 
     rc = notebook_fetch.run("demo", sleep_seconds=0.0)
     out = capsys.readouterr().out
@@ -431,3 +428,247 @@ def test_purge_rejects_missing_notebook(notebooks_base: Path) -> None:
 def test_purge_rejects_bad_slug(notebooks_base: Path) -> None:
     with pytest.raises(NotebookError):
         notebook_purge.run("../corpus", force=True)
+
+
+# ---------------------------------------------------------------------------
+# Rectification regression tests (F1, F3, F4, F5, F6, F7 from critique-merged)
+# ---------------------------------------------------------------------------
+
+
+def test_purge_corpus_too_rejects_malformed_paper_ids(
+    notebooks_base: Path,
+    corpus_dirs: dict[str, Path],
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    """F1 regression (CRITICAL): malformed paper_ids in papers.txt must
+    NOT drive shutil.rmtree outside the corpus tree.
+
+    Seeds a notebook with a path-traversal payload in papers.txt + a
+    sentinel directory the payload WOULD target if exploit succeeded.
+    Asserts sentinel is untouched and purge completes cleanly.
+    """
+    # Sentinel — what an exploit would delete via ../../sentinel
+    sentinel_root = tmp_path / "sentinel-victim"
+    sentinel_root.mkdir()
+    sentinel_file = sentinel_root / "do-not-delete"
+    sentinel_file.write_text("important")
+
+    # papers.txt contains a path-traversal payload pointing at sentinel.
+    # The path is relative to CORPUS_PARSED_DIR (corpus_dirs["parsed"]
+    # which is tmp_path/corpus/parsed). Need ../../sentinel-victim to
+    # escape to tmp_path/sentinel-victim.
+    payload = "../../sentinel-victim"
+    nb = notebooks_base / "demo"
+    nb.mkdir()
+    (nb / "papers.txt").write_text(
+        f"# malicious\n{payload}\n2303.07061\n", encoding="utf-8"
+    )
+    (nb / "queries.json").write_text("{}", encoding="utf-8")
+
+    rc = notebook_purge.run("demo", purge_corpus_too=True, force=True)
+    assert rc == 0
+    # Sentinel must survive untouched
+    assert sentinel_file.exists()
+    assert sentinel_file.read_text() == "important"
+    assert sentinel_root.exists()
+
+
+def test_notebook_dir_rejects_symlink(tmp_path: Path) -> None:
+    """F3 regression (HIGH): if nb_base/<slug> is a symlink, refuse."""
+    base = tmp_path / "nb_base"
+    base.mkdir()
+    real_target = tmp_path / "real-target"
+    real_target.mkdir()
+    symlink = base / "evil-slug"
+    symlink.symlink_to(real_target)
+    with pytest.raises(NotebookError, match="symlink"):
+        _notebook_common.notebook_dir("evil-slug", base=base)
+
+
+def test_fetch_does_not_short_circuit_corrupt_parsed_file(
+    notebooks_base: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    """F4 regression (MEDIUM): post-fix, try_cache is ALWAYS called.
+    A pre-existing corrupt parsed file (>1024 bytes but no <math) no
+    longer counts as a cache hit. Result depends on what try_cache
+    actually returns for the underlying validation."""
+    parsed = tmp_path / "parsed"
+    parsed.mkdir()
+    monkeypatch.setattr(notebook_fetch, "DEFAULT_PARSED_DIR", parsed)
+    # Seed a corrupt 2 KB file (no <math)
+    pid = "2303.07061"
+    (parsed / pid).mkdir()
+    (parsed / pid / "index.html").write_text("<html></html>" * 200)  # > 1024 bytes, no math
+    _seed_notebook(notebooks_base, "demo", [pid])
+
+    # Mock try_cache to return the no-math miss the production code
+    # would surface for this corrupt file. The key assertion: try_cache
+    # IS called (pre-fix it was bypassed by the size heuristic).
+    called = {"n": 0}
+    def _mock(paper_id, **kw):
+        called["n"] += 1
+        return Ar5ivResult(
+            paper_id=paper_id, hit=False, cache_path=None,
+            parsed_path=None, reason="no_math_in_body",
+        )
+    monkeypatch.setattr(notebook_fetch, "try_cache", _mock)
+
+    notebook_fetch.run("demo", sleep_seconds=0.0)
+    out = capsys.readouterr().out
+    assert called["n"] == 1
+    assert "missing=1" in out
+    assert "from_cache=0" in out  # NOT counted as cache hit
+
+
+def test_purge_warns_about_pdf_deferred_with_non_dict_manifest(
+    notebooks_base: Path,
+    corpus_dirs: dict[str, Path],
+    capsys: pytest.CaptureFixture,
+) -> None:
+    """F5 regression (MEDIUM): corrupt manifest.json (non-dict top-level)
+    must not abort the purge with a traceback. WARN listed without
+    titles; purge proceeds cleanly."""
+    nb = _seed_notebook(notebooks_base, "demo", ["2303.07061"])
+    pdf_dir = nb / "pdf-deferred"
+    pdf_dir.mkdir()
+    (pdf_dir / "note.pdf").write_bytes(b"%PDF-1.4 fake " * 200)
+    # Non-dict top-level — would crash without F5 fix
+    (pdf_dir / "manifest.json").write_text("[1, 2, 3]")
+
+    rc = notebook_purge.run("demo", force=True)
+    err = capsys.readouterr().err
+    assert rc == 0  # NOT a traceback
+    assert "note.pdf" in err
+    assert "WARN:" in err
+
+
+def test_purge_aborts_cleanly_on_eof(
+    notebooks_base: Path,
+    corpus_dirs: dict[str, Path],
+    capsys: pytest.CaptureFixture,
+) -> None:
+    """F6 regression (MEDIUM): empty stdin (file.readline returns "") is
+    handled as EOF abort with a clear message, not as 'typed empty'."""
+    nb = _seed_notebook(notebooks_base, "demo", ["2303.07061"])
+    rc = notebook_purge.run("demo", stdin=io.StringIO(""))
+    assert rc == 2
+    err = capsys.readouterr().err
+    # New message says "EOF or empty input"; old behavior printed
+    # confusing "typed '', expected 'demo'"
+    assert "EOF" in err
+    assert "typed ''" not in err
+    assert nb.exists()  # NOT purged
+
+
+def test_ingest_detects_bm25_collision(
+    notebooks_base: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """F2 regression (HIGH): when two notebooks would write to the same
+    BM25 v<N>/ dir, the second invocation raises NotebookError with a
+    clear recovery message."""
+    bm25_root = tmp_path / "bm25"
+    bm25_root.mkdir()
+    monkeypatch.setattr(notebook_ingest, "BM25_INDEX_ROOT", bm25_root)
+
+    # Pre-seed v5/ as if notebook 'first' built it
+    (bm25_root / "v5").mkdir()
+    (bm25_root / "v5" / ".notebook_slug").write_text("first-notebook")
+
+    # Now try to ingest 'second-notebook' that would also produce v5
+    nb = _seed_notebook(notebooks_base, "second-notebook", ["2303.07061"])
+
+    class _FakeSummary:
+        papers_total = 1
+        papers_succeeded = 1
+        papers_failed = 0
+        @property
+        def ar5iv_hit_rate(self): return 1.0
+
+    def _fake_ingest(paper_ids, **kw):
+        marker = nb / "lancedb" / "corpus-version.json"
+        marker.write_text(json.dumps({"version": 5}))
+        return _FakeSummary()
+    monkeypatch.setattr(notebook_ingest, "run_bulk_ingest", _fake_ingest)
+    # build_bm25_index should NEVER be reached — collision check raises first
+    def _should_not_be_called(*args, **kwargs):
+        pytest.fail("build_bm25_index called despite slug collision")
+    monkeypatch.setattr(notebook_ingest, "build_bm25_index", _should_not_be_called)
+
+    with pytest.raises(NotebookError, match="BM25 collision"):
+        notebook_ingest.run("second-notebook")
+
+
+def test_ingest_writes_slug_sentinel_on_first_build(
+    notebooks_base: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """F2 regression (HIGH) companion: first build writes the .notebook_slug
+    sentinel so subsequent builds can detect collisions."""
+    bm25_root = tmp_path / "bm25"
+    bm25_root.mkdir()
+    monkeypatch.setattr(notebook_ingest, "BM25_INDEX_ROOT", bm25_root)
+    nb = _seed_notebook(notebooks_base, "first", ["2303.07061"])
+
+    class _FakeSummary:
+        papers_total = 1
+        papers_succeeded = 1
+        papers_failed = 0
+        @property
+        def ar5iv_hit_rate(self): return 1.0
+
+    def _fake_ingest(paper_ids, **kw):
+        marker = nb / "lancedb" / "corpus-version.json"
+        marker.write_text(json.dumps({"version": 3}))
+        return _FakeSummary()
+    monkeypatch.setattr(notebook_ingest, "run_bulk_ingest", _fake_ingest)
+    monkeypatch.setattr(notebook_ingest, "build_bm25_index", lambda *a, **kw: None)
+
+    rc = notebook_ingest.run("first")
+    assert rc == 0
+    sentinel = bm25_root / "v3" / ".notebook_slug"
+    assert sentinel.is_file()
+    assert sentinel.read_text() == "first"
+
+
+def test_ingest_warns_about_stale_bm25_versions(
+    notebooks_base: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    """F7 regression (LOW): when multiple v<N>/ dirs exist after build,
+    print a WARN suggesting prune via notebook_purge.py."""
+    bm25_root = tmp_path / "bm25"
+    bm25_root.mkdir()
+    # Pre-seed multiple stale version dirs
+    (bm25_root / "v1").mkdir()
+    (bm25_root / "v2").mkdir()
+    monkeypatch.setattr(notebook_ingest, "BM25_INDEX_ROOT", bm25_root)
+    nb = _seed_notebook(notebooks_base, "demo", ["2303.07061"])
+
+    class _FakeSummary:
+        papers_total = 1
+        papers_succeeded = 1
+        papers_failed = 0
+        @property
+        def ar5iv_hit_rate(self): return 1.0
+
+    def _fake_ingest(paper_ids, **kw):
+        marker = nb / "lancedb" / "corpus-version.json"
+        marker.write_text(json.dumps({"version": 7}))
+        return _FakeSummary()
+    monkeypatch.setattr(notebook_ingest, "run_bulk_ingest", _fake_ingest)
+    monkeypatch.setattr(notebook_ingest, "build_bm25_index", lambda *a, **kw: None)
+
+    rc = notebook_ingest.run("demo")
+    assert rc == 0
+    err = capsys.readouterr().err
+    assert "WARN" in err
+    assert "BM25 version directories exist" in err

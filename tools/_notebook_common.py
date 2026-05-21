@@ -73,16 +73,34 @@ def notebook_dir(slug: str, *, base: Path | None = None) -> Path:
     belt-and-braces secondary defense from FM-2; the regex in
     :func:`validate_slug` is the primary defense.
 
+    Closes F3 (HIGH) from the m6 critique: if ``nb_base/<slug>`` IS a
+    symlink (regardless of where it points), refuse to operate on it.
+    Both the regex-pass-then-pre-create-symlink and the legitimate-
+    symlink-to-another-notebook cases are covered. Operators creating
+    notebook directories via the m6 scripts will never produce symlinks;
+    a symlink at the slug name implies the directory was pre-created
+    out-of-band, which is a red flag worth blocking on.
+
     The ``base`` argument is for tests — production callers pass the
     default. Both ``base`` and the constructed target are resolved
     BEFORE comparison so symlinks don't sneak past the containment
     check. ``base`` may be a non-existent directory (tests use
-    ``tmp_path`` subdirs that don't exist yet) — we use ``os.path.abspath``
-    semantics via ``resolve(strict=False)`` so non-existence is fine.
+    ``tmp_path`` subdirs that don't exist yet) — we use ``resolve
+    (strict=False)`` semantics so non-existence is fine.
     """
     validate_slug(slug)
     nb_base = (base or NOTEBOOKS_BASE).resolve()
-    target = (nb_base / slug).resolve()
+    # F3: refuse symlinks BEFORE resolving (we want to detect the
+    # symlink itself, not its target). Use the un-resolved path so
+    # is_symlink() reports True on the link, not the target.
+    unresolved_target = nb_base / slug
+    if unresolved_target.is_symlink():
+        raise NotebookError(
+            f"notebook path {unresolved_target} is a symlink — "
+            f"refusing for safety. Investigate before proceeding; if "
+            f"intentional, replace with a real directory."
+        )
+    target = unresolved_target.resolve()
     # Containment check: target must be a child of nb_base.
     try:
         target.relative_to(nb_base)

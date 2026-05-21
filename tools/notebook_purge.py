@@ -34,7 +34,9 @@ import argparse
 import json
 import shutil
 import sys
+from pathlib import Path
 
+from ingest.identifiers import is_valid_paper_id
 from tools._notebook_common import (
     CORPUS_CHUNKS_DIR,
     CORPUS_EMBEDDINGS_DIR,
@@ -66,9 +68,14 @@ def _gather_pdf_deferred_warnings(nb_dir) -> list[str]:
     if manifest.is_file():
         try:
             data = json.loads(manifest.read_text(encoding="utf-8"))
-            titles = data.get("manual_titles") or {}
         except (OSError, json.JSONDecodeError):
-            titles = {}
+            data = {}
+        # F5 fix: tolerate non-dict top-level OR non-dict manual_titles.
+        # A corrupt manifest must not abort the purge — WARN is
+        # informational only.
+        raw_titles = data.get("manual_titles") if isinstance(data, dict) else None
+        if isinstance(raw_titles, dict):
+            titles = raw_titles
     for pdf in pdfs:
         title = titles.get(pdf.name, "")
         size_mb = pdf.stat().st_size / 1024 / 1024
@@ -89,12 +96,22 @@ def _compute_unique_paper_ids(
     base = notebooks_base or NOTEBOOKS_BASE
     nb_dir = base / slug
     papers_txt = nb_dir / "papers.txt"
+    # F1 fix (CRITICAL): validate every paper_id against is_valid_paper_id
+    # BEFORE the set difference. Without this gate, a malformed line in
+    # any notebook's papers.txt drives arbitrary directory deletion at
+    # the corpus-purge step. Helper read_paper_ids_from_papers_txt
+    # intentionally doesn't validate (per its docstring at
+    # tools/_notebook_common.py:97-117); validation is the caller's job.
+    # Here, the caller is the destructive purge — validation IS required.
+    def _validated(papers_txt: Path) -> set[str]:
+        return {
+            pid for pid in read_paper_ids_from_papers_txt(papers_txt)
+            if is_valid_paper_id(pid)
+        }
     # If papers.txt is missing (partial state), treat as empty set so
     # we don't attempt corpus deletion on an unknown paper-id set.
     this_ids: set[str] = (
-        set(read_paper_ids_from_papers_txt(papers_txt))
-        if papers_txt.is_file()
-        else set()
+        _validated(papers_txt) if papers_txt.is_file() else set()
     )
     other_ids: set[str] = set()
     if base.is_dir():
@@ -103,7 +120,7 @@ def _compute_unique_paper_ids(
                 continue
             sp = sibling / "papers.txt"
             if sp.is_file():
-                other_ids |= set(read_paper_ids_from_papers_txt(sp))
+                other_ids |= _validated(sp)
     return this_ids - other_ids, this_ids & other_ids
 
 
@@ -111,11 +128,39 @@ def _purge_corpus_assets(unique_ids: set[str]) -> int:
     """Delete corpus/{parsed,chunks,embeddings}/<id>/ for each unique ID.
 
     Returns the count of paper-asset trees actually removed.
+
+    F1 fix (CRITICAL) defense-in-depth: even though
+    :func:`_compute_unique_paper_ids` now validates paper_ids against
+    :func:`is_valid_paper_id` (closing the primary exploit path),
+    apply a second containment check at the destructive call site.
+    Belt-and-braces — a TOCTOU symlink swap or a future refactor that
+    drops the validation upstream would re-open F1; this check stays
+    safe regardless.
     """
     removed = 0
     for paper_id in sorted(unique_ids):
+        # Second-line defense: skip anything that doesn't pass paper_id
+        # validation, even if it survived the set-difference. F1 hardens
+        # both layers.
+        if not is_valid_paper_id(paper_id):
+            print(
+                f"WARN: refusing to delete corpus assets for invalid "
+                f"paper_id {paper_id!r}",
+                file=sys.stderr,
+            )
+            continue
         for base_dir in (CORPUS_PARSED_DIR, CORPUS_CHUNKS_DIR, CORPUS_EMBEDDINGS_DIR):
-            target = base_dir / paper_id
+            base_resolved = base_dir.resolve()
+            target = (base_dir / paper_id).resolve()
+            try:
+                target.relative_to(base_resolved)
+            except ValueError:
+                print(
+                    f"WARN: refusing to delete {target} — resolves "
+                    f"outside {base_resolved}",
+                    file=sys.stderr,
+                )
+                continue
             if target.is_dir():
                 shutil.rmtree(target)
                 removed += 1
@@ -182,10 +227,18 @@ def run(
         )
         print(prompt, end="", flush=True)
         in_stream = stdin or sys.stdin
+        # F6 fix: file.readline() returns "" on EOF (no EOFError raised).
+        # Treat empty input as a clean abort with the "EOF" diagnostic
+        # rather than the misleading "typed '' expected ..." message.
+        # KeyboardInterrupt is still possible (e.g. SIGINT mid-read);
+        # keep the catch for that distinct case.
         try:
             typed = in_stream.readline().strip()
-        except (EOFError, KeyboardInterrupt):
-            print("\naborted (EOF or interrupt)", file=sys.stderr)
+        except KeyboardInterrupt:
+            print("\naborted (interrupt)", file=sys.stderr)
+            return 2
+        if not typed:
+            print("\naborted (EOF or empty input)", file=sys.stderr)
             return 2
         if typed != slug:
             print(
