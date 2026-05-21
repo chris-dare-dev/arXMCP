@@ -60,7 +60,7 @@ None. Handler-body change + tests only. Phase 4 has no external-write gate to fi
 
 ## What needs Phase 3 critique attention
 
-- **`set_resources()` test pattern** — m1's test fixture is the first to use `set_resources()` directly outside `warm_app` integration tests. Worth confirming this doesn't leak state between tests (the fixture has `reset_resources_for_tests()` in teardown).
+- **`set_resources()` test pattern** — m1's test fixture uses `set_resources()` directly with a `_FakeResources` stub. Worth confirming the fixture's `reset_resources_for_tests()` teardown reliably fires and doesn't leak state between tests. (Note: the original claim that m1 is "first to use this pattern outside warm_app" was wrong — see F5 from the critique; `tests/test_proof_chain.py:40,195` and `tests/test_tools_all.py:538,552,579,590` predate m1.)
 - **Filter-warnings ordering** — the new per-key warnings are sorted via `sorted(set(filters) - SUPPORTED_FILTER_KEYS)`. If multiple unknown keys are present, ordering is alphabetical. Worth confirming this matches BP1 byte-stability discipline.
 - **Empty filter dict (`{}`) vs `None` semantics** — both go through "no filter" path. The handler-body check is `if filters and "paper_id" in filters:` — an empty dict fails truthiness AND lacks the key, so it's handled correctly. Worth a critique scan for the corner case `filters={"paper_id": None}` (which would hit the helper and raise on non-str-non-list).
 - **Test fixture isolation** — `_FakeResources` doesn't implement every Resources attribute; if any code path the handler doesn't currently take (e.g. degraded fallback) were exercised, tests would fail with `AttributeError`. Acceptable for unit tests of the m1 surface; flagged for future-proofing.

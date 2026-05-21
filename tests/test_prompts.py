@@ -610,8 +610,14 @@ class TestBP1ByteIdentityAcrossFanout:
         # mishandled the case. TOOL_SCHEMA_VERSION 5→6; new hash
         # below matches the paired EXPECTED_TOOL_SCHEMA_SHA256
         # update via `pytest --update-tool-schema-hash`.
+        # Updated by proof-verify-handler-wiring-m1: TOOL_SCHEMA_VERSION
+        # bumped 7→8 because search_papers `filters` Field description
+        # + SEARCH_PAPERS ToolMeta description now document paper_id
+        # filter support (m1 F1 closure). The paired
+        # EXPECTED_TOOL_SCHEMA_SHA256 was re-pinned via
+        # `pytest --update-tool-schema-hash`.
         EXPECTED_BP1_SHA256 = (
-            "df32d1634b4c28087c9dba883fe3cc14c8ac6a4b0f7e469776b17d9ce98b0c06"
+            "f77e6f80dbb9dd0a3d200791b7f7ab2f86de52ee7020c5e783fb8497be22bf77"
         )
         req = _build_fanout_request(
             RouteTag.SYNTHESIS, "any problem; BP1 is independent of problem",

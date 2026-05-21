@@ -33,10 +33,20 @@ import re
 #: and ``tools.validate_eval_fixtures._PAPER_ID_RE`` both use, so
 #: the byte-equality lock test below passes without rewriting the
 #: existing call sites.
+#:
+#: F3 closure from proof-verify-handler-wiring-m1 critique: use ``\Z``
+#: not ``$`` for the end-of-string anchor. Python's default ``$``
+#: matches both end-of-string AND just before a trailing ``\n``, so
+#: ``is_valid_paper_id("2604.26204\n")`` returned True pre-fix —
+#: leakier than the project's "structurally rejects malformed input"
+#: docstring claim. ``\Z`` matches only at the very end of the
+#: string. All currently-ingested paper_ids are derived from arXiv
+#: identifiers and contain no trailing whitespace, so this is
+#: byte-stable for production data.
 _PAPER_ID_FULL_PATTERN = (
-    r"^\d{4}\.\d{4,5}(v\d+)?$"  # new style: 2401.00001 or 2401.00001v3
+    r"^\d{4}\.\d{4,5}(v\d+)?\Z"  # new style: 2401.00001 or 2401.00001v3
     r"|"
-    r"^[a-z][a-z\-]*/\d{7}(v\d+)?$"  # old style: hep-th/0001234 (letters + hyphens; no dots)
+    r"^[a-z][a-z\-]*/\d{7}(v\d+)?\Z"  # old style: hep-th/0001234 (letters + hyphens; no dots)
 )
 
 #: Inner pattern (no anchors) for embedding in the chunk_id regex.

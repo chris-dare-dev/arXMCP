@@ -107,6 +107,15 @@ MAX_FILTER_ITEMS = 100
 #: for the same BP1 byte-stability reason as ``MAX_FILTER_ITEMS``.
 MAX_PAPER_ID_FILTER_ITEMS = 100
 
+#: Hard upper bound on the length of any KEY in the ``filters`` dict
+#: (F2 closure from the m1 critique). The ``filter_warnings`` block
+#: reflects unrecognized keys verbatim via ``repr()``; without a
+#: per-key length cap, an LLM passing 100 keys of 100 KB each could
+#: produce a ~10 MB ``filter_warnings`` payload that bypasses the
+#: ``cap_result_list`` byte cap (which only trims ``results[]``).
+#: 64 chars is generous for any plausible filter key name.
+MAX_FILTER_KEY_LEN = 64
+
 
 def _escape_paper_id_literal(s: str) -> str:
     """Escape single quotes for LanceDB SQL-style WHERE clauses.
@@ -183,6 +192,35 @@ def _build_paper_id_predicate(paper_id_value: Any) -> str:
 SUPPORTED_FILTER_KEYS: frozenset[str] = frozenset({"paper_id"})
 
 
+def _canonicalize_filters(
+    filters: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Normalize semantically-identical filter inputs so the cache
+    sees a stable key.
+
+    F4 closure from m1 critique: callers may supply
+    ``{"paper_id": "x"}`` or ``{"paper_id": ["x"]}`` interchangeably
+    (the helper coerces both to the same predicate). Without
+    normalization upstream of the cache lookup, the two forms hash
+    differently — semantically-equivalent calls produce cache misses.
+
+    Normalizations applied:
+    1. ``str`` paper_id value → one-element ``list``.
+    2. ``list`` paper_id values are sorted (deterministic order).
+
+    Returns ``None`` unchanged when filters is None.
+    """
+    if filters is None:
+        return None
+    out: dict[str, Any] = dict(filters)
+    pid = out.get("paper_id")
+    if isinstance(pid, str):
+        out["paper_id"] = [pid]
+    elif isinstance(pid, list):
+        out["paper_id"] = sorted(pid)
+    return out
+
+
 async def handle_search_papers(
     query: Annotated[
         str, Field(min_length=1, max_length=2000, description="Natural-language query")
@@ -194,7 +232,14 @@ async def handle_search_papers(
     k: Annotated[int, Field(ge=1, le=MAX_K, description="Top-k cutoff")] = 10,
     filters: Annotated[
         dict[str, Any] | None,
-        Field(description="Reserved for E07_S04; ignored at v1 with filter_warnings"),
+        Field(
+            description=(
+                "Optional filters. Honors 'paper_id' as a str or "
+                "list[str] (up to 100 items, each validated against "
+                "the arXiv paper_id format); other keys are ignored "
+                "and surface in 'filter_warnings'."
+            ),
+        ),
     ] = None,
     cursor: Annotated[
         str | None,
@@ -227,6 +272,27 @@ async def handle_search_papers(
             f"{MAX_FILTER_ITEMS} (E13_S04 Threat 4 resource-exhaustion cap)"
         )
 
+    # F2 (HIGH) closure from m1 critique: per-key length cap. Without
+    # this, an LLM passing 100 keys of 100 KB each would cause the
+    # filter_warnings reflection block below to emit ~10 MB of
+    # warning strings (cap_result_list trims results[] only). Reject
+    # oversized keys at the boundary before any further processing.
+    if filters is not None:
+        for key in filters:
+            if not isinstance(key, str):
+                raise ValueError(
+                    f"filters keys must be strings, got "
+                    f"{type(key).__name__}"
+                )
+            if len(key) > MAX_FILTER_KEY_LEN:
+                raise ValueError(
+                    f"filter key length {len(key)} exceeds cap of "
+                    f"{MAX_FILTER_KEY_LEN} (m1 F2 byte-cap-bypass "
+                    f"defense; cap_result_list trims results[] only, "
+                    f"so reflected keys must be bounded at the "
+                    f"boundary)"
+                )
+
     # m1: honor filters={"paper_id": [...]} end-to-end. Build the
     # LanceDB IN-predicate up front so input validation errors raise
     # cleanly (AC #3: clear error, not 500) BEFORE any cache lookup
@@ -235,6 +301,15 @@ async def handle_search_papers(
     paper_id_predicate: str | None = None
     if filters and "paper_id" in filters:
         paper_id_predicate = _build_paper_id_predicate(filters["paper_id"])
+
+    # F4 closure from m1 critique: canonicalize the filters dict
+    # BEFORE the cache lookup so semantically-identical inputs
+    # (str vs one-element list, unsorted vs sorted) hash to the
+    # same Tier-1/Tier-2 cache key. Use the canonicalized form
+    # for ALL cache touchpoints below; the original `filters` is
+    # preserved for the filter_warnings reflection block (which
+    # reports keys in the order the caller supplied).
+    canonical_filters = _canonicalize_filters(filters)
 
     r = get_resources()
 
@@ -266,7 +341,7 @@ async def handle_search_papers(
     cache = get_cache()
     if cache is not None:
         cached_payload, _hit_tier = await cache.lookup_search(
-            query=query, filters=filters, k=k, level=level,
+            query=query, filters=canonical_filters, k=k, level=level,
         )
         if cached_payload is not None:
             # Tier-1 hit — bypass Phase 1/2/3.
@@ -297,7 +372,7 @@ async def handle_search_papers(
     # Tier-2 lookup with the freshly-computed embedding.
     if cache is not None:
         cached_payload, _hit_tier = await cache.lookup_search(
-            query=query, filters=filters, k=k,
+            query=query, filters=canonical_filters, k=k,
             query_embedding=query_vec, level=level,
         )
         if cached_payload is not None:
@@ -402,7 +477,7 @@ async def handle_search_papers(
     if cache is not None:
         await cache.store_search(
             query=query,
-            filters=filters,
+            filters=canonical_filters,
             k=k,
             payload=structured,
             query_embedding=query_vec,

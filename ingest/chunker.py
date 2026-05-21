@@ -104,7 +104,9 @@ _PAREN_NAME_RE = re.compile(r"\(([^)]+)\)")
 # subject/NNNNNNN[vN]; everything else is rejected before any path concat.
 # Threat 1 in 08-security-observability-ops.md.
 _PAPER_ID_RE = re.compile(
-    r"^\d{4}\.\d{4,5}(v\d+)?$|^[a-z][a-z\-]*/\d{7}(v\d+)?$"
+    # F3 closure from m1 critique: ``\Z`` not ``$`` — see
+    # ingest/identifiers.py for the canonical pattern definition + rationale.
+    r"^\d{4}\.\d{4,5}(v\d+)?\Z|^[a-z][a-z\-]*/\d{7}(v\d+)?\Z"
 )
 
 

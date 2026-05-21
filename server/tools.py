@@ -92,7 +92,10 @@ logger = logging.getLogger(__name__)
 #: Bumped manually on any tool schema change. The E06_S06 byte-
 #: stability test fails if a schema bytes change without a bump here.
 #: Surfaced via per-tool ``_meta: {"tool_schema_version": ...}``.
-TOOL_SCHEMA_VERSION: int = 7
+#: v8: proof-verify-handler-wiring-m1 — search_papers filters arg
+#: description now documents paper_id support; SEARCH_PAPERS
+#: top-level description mentions paper_id filter scoping.
+TOOL_SCHEMA_VERSION: int = 8
 
 #: URI scheme for chunk resource_links per the design note. Used by
 #: handlers that switch to resource_link mode when payloads exceed
@@ -137,12 +140,15 @@ SEARCH_PAPERS = ToolMeta(
         "Returns the top-k chunks ranked by relevance. The level argument "
         "controls aggregation: level='theorem' (default) returns one row "
         "per chunk; level='section' deduplicates by (paper_id, section); "
-        "level='paper' returns one row per paper. NOTE: v1 ships dense-only "
-        "ANN retrieval over BGE-M3 statement embeddings; the BM25 + RRF "
-        "hybrid path lands in E07. WARNING: v1 indexes statement chunks "
-        "only — proof chunks are not retrievable until E07's dual-column "
-        "RRF lands. The result envelope's retrieval_mode and "
-        "excluded_kinds fields document the active mode."
+        "level='paper' returns one row per paper. Pass filters={'paper_id': "
+        "[<id>, ...]} (or a single str) to scope retrieval to a notebook — "
+        "up to 100 paper_ids per call; each validated against the arXiv "
+        "format. NOTE: v1 ships dense-only ANN retrieval over BGE-M3 "
+        "statement embeddings; the BM25 + RRF hybrid path lands in E07. "
+        "WARNING: v1 indexes statement chunks only — proof chunks are not "
+        "retrievable until E07's dual-column RRF lands. The result "
+        "envelope's retrieval_mode and excluded_kinds fields document the "
+        "active mode."
     ),
 )
 

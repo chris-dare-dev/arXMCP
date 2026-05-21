@@ -410,3 +410,135 @@ def test_supported_filter_keys_matches_expected() -> None:
     extending this set should bump the documented supported keys in
     the docstring + filter_warnings message."""
     assert frozenset({"paper_id"}) == SUPPORTED_FILTER_KEYS
+
+
+# ---------------------------------------------------------------------------
+# Rectification regression tests (F1, F2, F3, F4 from critique-merged)
+# ---------------------------------------------------------------------------
+
+
+class TestRectificationGuards:
+    """Regression guards for the m1 critique findings. Each test names
+    its finding ID in the docstring so future maintainers can trace
+    back to the critique."""
+
+    def test_filter_oversized_key_rejected(self, fake_resources) -> None:
+        """F2 (HIGH): per-key length cap rejects oversized keys at the
+        boundary, preventing the filter_warnings reflection block from
+        amplifying input size beyond the result byte cap."""
+        from server.handlers.search import MAX_FILTER_KEY_LEN, handle_search_papers
+        big_key = "x" * (MAX_FILTER_KEY_LEN + 1)
+        with pytest.raises(ValueError, match="exceeds cap"):
+            _run(handle_search_papers(
+                query="anything", filters={big_key: "v"}, k=3,
+            ))
+
+    def test_filter_warnings_total_size_bounded(self, fake_resources) -> None:
+        """F2 (HIGH): With MAX_FILTER_KEY_LEN enforced, even an
+        adversarial filter dict at the maximum cap produces a bounded
+        filter_warnings payload."""
+        from server.handlers.search import (
+            MAX_FILTER_ITEMS,
+            MAX_FILTER_KEY_LEN,
+            handle_search_papers,
+        )
+        # 100 keys of 64 chars each = 6400 chars of key bytes. Per-warning
+        # is ~150 chars of boilerplate + ~70 chars of key repr → ~22 KB total.
+        # That's well under the 256 KB cap.
+        adversarial = {f"k{i:063d}": "v" for i in range(MAX_FILTER_ITEMS - 1)}
+        # Verify keys are at the cap or just under (sanity check)
+        assert all(len(k) <= MAX_FILTER_KEY_LEN for k in adversarial)
+        result = _run(handle_search_papers(
+            query="x", filters=adversarial, k=3,
+        ))
+        sc = result.structuredContent
+        payload = sc.get("data", sc)
+        warnings = payload.get("filter_warnings", [])
+        total_bytes = sum(len(w.encode("utf-8")) for w in warnings)
+        assert total_bytes < 256 * 1024, (
+            f"filter_warnings total {total_bytes} bytes exceeds 256 KB cap"
+        )
+
+    def test_filter_warnings_rejects_non_str_key(self, fake_resources) -> None:
+        """F2 companion: non-string keys are rejected early."""
+        from server.handlers.search import handle_search_papers
+        with pytest.raises(ValueError, match="must be strings"):
+            _run(handle_search_papers(
+                query="x", filters={42: "v"}, k=3,
+            ))
+
+    def test_filters_field_description_documents_paper_id(self) -> None:
+        """F1 (HIGH): the rendered tool schema's filters description
+        must mention paper_id so LLM consumers can discover the m1
+        feature."""
+        # Read the rendered Pydantic Field description directly.
+        # This catches any future refactor that reverts the description
+        # to the stale "ignored at v1" text.
+        from server.handlers.search import handle_search_papers
+        sig = (
+            handle_search_papers.__wrapped__
+            if hasattr(handle_search_papers, "__wrapped__")
+            else handle_search_papers
+        )
+        # Access the type annotations to find the Field metadata
+        import typing
+        hints = typing.get_type_hints(sig, include_extras=True)
+        filters_annotation = hints["filters"]
+        # Annotated[dict[...] | None, Field(...)] — Field is the second arg
+        meta_args = filters_annotation.__metadata__
+        field_meta = meta_args[0]
+        description = field_meta.description or ""
+        assert "paper_id" in description, (
+            f"filters Field description must mention paper_id; got: {description!r}"
+        )
+
+    def test_search_papers_toolmeta_mentions_paper_id_filter(self) -> None:
+        """F1 (HIGH) companion: top-level SEARCH_PAPERS description
+        also mentions paper_id filter scoping."""
+        from server.tools import SEARCH_PAPERS
+        assert "paper_id" in SEARCH_PAPERS.description, (
+            f"SEARCH_PAPERS.description must mention paper_id; "
+            f"got: {SEARCH_PAPERS.description!r}"
+        )
+
+    def test_paper_id_rejects_trailing_newline(self) -> None:
+        """F3 (MEDIUM): is_valid_paper_id with \\Z anchor rejects
+        strings ending in \\n. Pre-fix, Python's default $ semantics
+        accepted them. Closes the defense-in-depth gap named in the
+        _escape_paper_id_literal docstring."""
+        from ingest.identifiers import is_valid_paper_id
+        assert is_valid_paper_id("2604.26204\n") is False
+        assert is_valid_paper_id("hep-th/0001234\n") is False
+        # Also trailing CR + multiline
+        assert is_valid_paper_id("2604.26204\r") is False
+        assert is_valid_paper_id("2604.26204\r\n") is False
+        # And the unmodified strings still validate
+        assert is_valid_paper_id("2604.26204") is True
+        assert is_valid_paper_id("hep-th/0001234") is True
+
+    def test_cache_key_str_vs_one_element_list_equivalent(self) -> None:
+        """F4 (MEDIUM): _canonicalize_filters normalizes
+        {"paper_id": "x"} and {"paper_id": ["x"]} to the same form so
+        the cache key canonicalizer (json.dumps with sort_keys) sees
+        identical input → same cache slot for semantically-equivalent
+        calls."""
+        from server.handlers.search import _canonicalize_filters
+        canon_str = _canonicalize_filters({"paper_id": "2604.26204"})
+        canon_list = _canonicalize_filters({"paper_id": ["2604.26204"]})
+        # Both must produce identical canonical dicts
+        assert canon_str == canon_list
+        # And the dicts serialize identically under the cache's canonicalizer
+        a = json.dumps(canon_str, sort_keys=True, separators=(",", ":"))
+        b = json.dumps(canon_list, sort_keys=True, separators=(",", ":"))
+        assert a == b
+        # None → None passthrough
+        assert _canonicalize_filters(None) is None
+
+    def test_cache_key_unsorted_list_normalized(self) -> None:
+        """F4 companion: paper_id lists in different orders normalize
+        to the same canonical form."""
+        from server.handlers.search import _canonicalize_filters
+        a = _canonicalize_filters({"paper_id": ["b", "a", "c"]})
+        b = _canonicalize_filters({"paper_id": ["c", "a", "b"]})
+        assert a == b
+        assert a == {"paper_id": ["a", "b", "c"]}

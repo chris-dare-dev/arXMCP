@@ -104,7 +104,9 @@ MIN_QUERIES_BY_KIND = {"stmt": 5, "proof": 5}
 #: ``ingest.chunker._PAPER_ID_RE`` is locked by
 #: ``tests/eval/test_fixtures.py::test_paper_id_regex_matches_chunker``.
 _PAPER_ID_RE = re.compile(
-    r"^\d{4}\.\d{4,5}(v\d+)?$|^[a-z][a-z\-]*/\d{7}(v\d+)?$"
+    # F3 closure from m1 critique: ``\Z`` not ``$`` — see
+    # ingest/identifiers.py for the canonical pattern definition + rationale.
+    r"^\d{4}\.\d{4,5}(v\d+)?\Z|^[a-z][a-z\-]*/\d{7}(v\d+)?\Z"
 )
 
 #: ``arxiv:<paper_id>:<16-hex>``. Validates the full chunk_id shape.
