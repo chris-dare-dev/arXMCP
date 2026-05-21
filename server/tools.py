@@ -95,7 +95,11 @@ logger = logging.getLogger(__name__)
 #: v8: proof-verify-handler-wiring-m1 — search_papers filters arg
 #: description now documents paper_id support; SEARCH_PAPERS
 #: top-level description mentions paper_id filter scoping.
-TOOL_SCHEMA_VERSION: int = 8
+#: v9: proof-verify-handler-wiring-m2 — search_papers output adds the
+#: optional ``filters_applied`` echo field; cross-checked against
+#: server/schemas/search_papers_result.json["version"] by
+#: tests/test_snippet_contract.py::TestSchemaVersionPin.
+TOOL_SCHEMA_VERSION: int = 9
 
 #: URI scheme for chunk resource_links per the design note. Used by
 #: handlers that switch to resource_link mode when payloads exceed

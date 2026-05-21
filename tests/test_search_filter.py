@@ -542,3 +542,165 @@ class TestRectificationGuards:
         b = _canonicalize_filters({"paper_id": ["c", "a", "b"]})
         assert a == b
         assert a == {"paper_id": ["a", "b", "c"]}
+
+
+# ---------------------------------------------------------------------------
+# m2 — filters_applied echo field
+# ---------------------------------------------------------------------------
+
+
+class TestFiltersAppliedHelper:
+    """Direct unit tests of _inject_filters_applied."""
+
+    def test_canonical_filters_none_returns_payload_unchanged(self) -> None:
+        from server.handlers.search import _inject_filters_applied
+        p = {"results": [], "retrieval_mode": "dense_only"}
+        out = _inject_filters_applied(p, None)
+        assert out is p
+        assert "filters_applied" not in out  # absent, not null
+
+    def test_canonical_filters_with_paper_id_adds_echo(self) -> None:
+        from server.handlers.search import _inject_filters_applied
+        p: dict = {"results": []}
+        out = _inject_filters_applied(p, {"paper_id": ["a", "b"]})
+        assert out["filters_applied"] == {"paper_id": ["a", "b"]}
+
+    def test_unsupported_keys_excluded_from_echo(self) -> None:
+        """Synthesis Disagreement 1: only SUPPORTED_FILTER_KEYS in the
+        echo. year/categories etc. live in filter_warnings, NOT here."""
+        from server.handlers.search import _inject_filters_applied
+        p: dict = {"results": []}
+        out = _inject_filters_applied(
+            p, {"paper_id": ["x"], "year": 2024, "categories": ["math.AG"]},
+        )
+        assert out["filters_applied"] == {"paper_id": ["x"]}
+        assert "year" not in out["filters_applied"]
+
+    def test_canonical_filters_with_no_supported_keys_omits_field(self) -> None:
+        """If canonical_filters has only UNsupported keys (year etc.),
+        filters_applied should be absent — nothing was actually applied."""
+        from server.handlers.search import _inject_filters_applied
+        p: dict = {"results": []}
+        out = _inject_filters_applied(p, {"year": 2024})
+        assert "filters_applied" not in out
+
+
+class TestFiltersAppliedHandlerIntegration:
+    """End-to-end through the handler: confirm filters_applied appears
+    in the structured envelope on all 3 cache paths."""
+
+    def test_filters_applied_on_miss_path(self, fake_resources) -> None:
+        from server.handlers.search import handle_search_papers
+        fake_resources["resources"].chunks_table.set_rows([])
+        result = _run(handle_search_papers(
+            query="x", filters={"paper_id": ["2604.26204"]}, k=3,
+        ))
+        sc = result.structuredContent
+        assert sc.get("filters_applied") == {"paper_id": ["2604.26204"]}
+
+    def test_filters_applied_absent_when_no_filter(self, fake_resources) -> None:
+        """Synthesis Disagreement 4: absent, not null, preserves byte-
+        equivalence with pre-m2 responses on the unfiltered common path."""
+        from server.handlers.search import handle_search_papers
+        fake_resources["resources"].chunks_table.set_rows([])
+        result = _run(handle_search_papers(query="x", filters=None, k=3))
+        sc = result.structuredContent
+        assert "filters_applied" not in sc
+
+    def test_filters_applied_uses_canonical_form_with_str_input(
+        self, fake_resources,
+    ) -> None:
+        """Synthesis Disagreement 1: caller passed str; echo is the
+        canonical list form (what was actually used to scope the query)."""
+        from server.handlers.search import handle_search_papers
+        fake_resources["resources"].chunks_table.set_rows([])
+        result = _run(handle_search_papers(
+            query="x", filters={"paper_id": "2604.26204"}, k=3,
+        ))
+        sc = result.structuredContent
+        # str coerced to list per _canonicalize_filters
+        assert sc.get("filters_applied") == {"paper_id": ["2604.26204"]}
+
+    def test_filters_applied_uses_sorted_list_form(self, fake_resources) -> None:
+        """Caller passed unsorted list; echo is sorted (canonical)."""
+        from server.handlers.search import handle_search_papers
+        fake_resources["resources"].chunks_table.set_rows([])
+        result = _run(handle_search_papers(
+            query="x",
+            filters={"paper_id": ["0712.1083", "0705.3794"]},
+            k=3,
+        ))
+        sc = result.structuredContent
+        assert sc.get("filters_applied") == {
+            "paper_id": ["0705.3794", "0712.1083"],
+        }
+
+    def test_filters_applied_unknown_keys_still_warned_not_applied(
+        self, fake_resources,
+    ) -> None:
+        """FM-9 companion: unknown keys appear in filter_warnings, NOT
+        in filters_applied. Two non-overlapping views."""
+        from server.handlers.search import handle_search_papers
+        fake_resources["resources"].chunks_table.set_rows([])
+        result = _run(handle_search_papers(
+            query="x",
+            filters={"paper_id": ["2604.26204"], "year": 2024},
+            k=3,
+        ))
+        sc = result.structuredContent
+        applied = sc.get("filters_applied")
+        assert applied == {"paper_id": ["2604.26204"]}
+        warnings = sc.get("filter_warnings", [])
+        assert any("year" in w for w in warnings)
+
+
+class TestSchemaConformanceForFiltersApplied:
+    """Validate the new payload shape against the JSON schema."""
+
+    def test_schema_includes_filters_applied_property(self) -> None:
+        """The schema must declare filters_applied in properties (with
+        additionalProperties:false, undeclared fields are rejected)."""
+        import json
+        from pathlib import Path
+        schema = json.loads(
+            Path("server/schemas/search_papers_result.json").read_text()
+        )
+        assert "filters_applied" in schema["properties"]
+        # Must NOT be in required (it's conditional/optional)
+        assert "filters_applied" not in schema.get("required", [])
+
+    def test_schema_version_matches_after_m2_bump(self) -> None:
+        """Synthesis: schema["version"] must equal TOOL_SCHEMA_VERSION
+        (cross-checked by tests/test_snippet_contract.py too; this is
+        an m2-local regression guard)."""
+        import json
+        from pathlib import Path
+
+        from server.tools import TOOL_SCHEMA_VERSION
+        schema = json.loads(
+            Path("server/schemas/search_papers_result.json").read_text()
+        )
+        assert schema["version"] == TOOL_SCHEMA_VERSION
+        assert schema["$id"].endswith(f"v{TOOL_SCHEMA_VERSION}.json")
+
+    def test_filtered_response_validates_against_schema(
+        self, fake_resources,
+    ) -> None:
+        """End-to-end: a filtered response with filters_applied set
+        must pass jsonschema.validate."""
+        import json
+        from pathlib import Path
+
+        import jsonschema
+
+        from server.handlers.search import handle_search_papers
+        schema = json.loads(
+            Path("server/schemas/search_papers_result.json").read_text()
+        )
+        fake_resources["resources"].chunks_table.set_rows([])
+        result = _run(handle_search_papers(
+            query="x", filters={"paper_id": ["2604.26204"]}, k=3,
+        ))
+        sc = result.structuredContent
+        # Schema validation must not raise
+        jsonschema.validate(instance=sc, schema=schema)

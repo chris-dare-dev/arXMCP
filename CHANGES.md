@@ -13,6 +13,45 @@ production cutover (E11).
 
 ## Unreleased
 
+### 2026-05-21 — `proof-verify` handler-wiring (m1 + m2): `paper_id` filter goes live in `search_papers`
+
+The downstream `/proof-verify` per-notebook pipeline can now scope a
+`search_papers` call to a specific arXiv paper id, and the response echoes
+back which filter was actually honored. The hybrid + rerank pipeline
+modules (E07) remain unwired pending a 100-paper curated fixture proving
+measurable lift; only the cheap filter-wiring half of the pivot has landed.
+
+- **m1** — `search_papers` now honors `filters={"paper_id": "<id>"}` (or a
+  list of ids) end-to-end. The string form is canonicalized to a sorted
+  one-element list before predicate construction so a single-id call and
+  a list-of-one call share a cache key (F4 from m1 critique). Predicates
+  are built with `LanceDB.where(predicate, prefilter=True)` and combined
+  with the BGE-M3 ANN search; unsupported filter keys are surfaced in
+  `filter_warnings` with per-key strings and capped via
+  `MAX_FILTER_KEY_LEN=64` so a malicious key cannot blow the response
+  envelope (F2 from m1 critique). The `paper_id` value list is capped at
+  `MAX_PAPER_ID_FILTER_ITEMS=100` and SQL-escaped via single-quote
+  doubling. Trailing-newline rejection in `is_valid_paper_id` (and the
+  parity copy in `ingest/chunker.py` + `tools/validate_eval_fixtures.py`)
+  was hardened by replacing the regex `$` anchor with `\Z` (F3 from m1
+  critique).
+- **m2** — Filtered responses now carry a `filters_applied` object that
+  echoes the canonical form of every key actually honored (currently just
+  `paper_id`). The field is absent — not null — when no filter was passed,
+  preserving byte-stability for the no-filter cache hit. The echo is
+  scoped to `SUPPORTED_FILTER_KEYS`; unsupported keys remain in
+  `filter_warnings` and never appear in the echo (a regression guard
+  pinned by `TestFiltersAppliedHelper.test_unsupported_filter_keys_are_dropped`).
+  Schema bumped v8→v9; `TOOL_SCHEMA_VERSION` bumped 8→9; the
+  `tools/list` byte-hash and BP1 prompt-cache breakpoint were re-pinned
+  in lockstep.
+- **Out of scope (deferred):** The wider `degraded` / `degraded_reasons`
+  schema-vs-runtime gap surfaced during m2 research is tracked as a
+  future milestone; m2 deliberately did not widen scope. The hybrid +
+  rerank wiring (m4 / m5) is gated on the 100-paper curated fixture
+  proving measurable lift; the 2026-05-20 spike found dense-only already
+  returns the right paper at top-1 on the 22-paper math.AG notebook.
+
 ### 2026-05-10 — Doc-layout consolidation
 
 - Restricted root-of-repo Markdown to five files only: `README.md`,

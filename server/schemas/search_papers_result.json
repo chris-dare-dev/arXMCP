@@ -1,9 +1,9 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://arxmcp/schemas/search_papers_result/v8.json",
+  "$id": "https://arxmcp/schemas/search_papers_result/v9.json",
   "additionalProperties": false,
-  "description": "Canonical structuredContent shape returned by the search_papers MCP tool. Frozen by E06_S04; bumped at E13_S02 to widen snippet.maxLength for the <retrieved_chunk> delimiter wrapping (Threat 2 defense). Bumped at proof-verify-handler-wiring-m1 for paper_id filter wiring (Field description change; output shape unchanged). The byte-stability test in E06_S06 hashes this file's bytes and pins the SHA-256; any drift is a deliberate bump. The ``version`` field below MUST equal server.tools.TOOL_SCHEMA_VERSION (cross-checked by tests/test_snippet_contract.py).",
-  "version": 8,
+  "description": "Canonical structuredContent shape returned by the search_papers MCP tool. Frozen by E06_S04; bumped at E13_S02 to widen snippet.maxLength for the <retrieved_chunk> delimiter wrapping (Threat 2 defense). Bumped at proof-verify-handler-wiring-m1 for paper_id filter wiring (Field description change; output shape unchanged). Bumped at proof-verify-handler-wiring-m2 to add the optional filters_applied echo field. The byte-stability test in E06_S06 hashes this file's bytes and pins the SHA-256; any drift is a deliberate bump. The ``version`` field below MUST equal server.tools.TOOL_SCHEMA_VERSION (cross-checked by tests/test_snippet_contract.py).",
+  "version": 9,
   "properties": {
     "corpus_version": {
       "description": "The integer corpus_version pinned at server startup (per E04_S03's corpus-version.json marker). Echoed in every tool result envelope so the agent can correlate cached results.",
@@ -22,6 +22,10 @@
       "description": "Human-readable warnings about filter / cursor args that were accepted but not yet processed. v1 ignores the filters and cursor args (deferred to E07_S04); when set, this array carries one string per ignored arg.",
       "items": {"type": "string"},
       "type": "array"
+    },
+    "filters_applied": {
+      "description": "Echo of the filter actually honored by this call. Absent when no filter was passed. Only contains keys from server.handlers.search.SUPPORTED_FILTER_KEYS (currently: paper_id). The paper_id list is sorted and coerced to list[str] per server.handlers.search._canonicalize_filters. Downstream agents use this to verify scoping without re-parsing filter_warnings. Added at proof-verify-handler-wiring-m2.",
+      "type": "object"
     },
     "next_cursor": {
       "description": "Opaque pagination cursor for the next page of results. v1: always null (pagination deferred to E07_S04).",

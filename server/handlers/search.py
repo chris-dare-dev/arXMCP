@@ -192,6 +192,46 @@ def _build_paper_id_predicate(paper_id_value: Any) -> str:
 SUPPORTED_FILTER_KEYS: frozenset[str] = frozenset({"paper_id"})
 
 
+def _inject_filters_applied(
+    payload: dict[str, Any],
+    canonical_filters: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """m2: add ``filters_applied`` echo to the payload if any
+    SUPPORTED_FILTER_KEYS were honored. Mutates and returns
+    ``payload``.
+
+    **Absent**, not null, when no filter was applied — preserves
+    byte-equivalence with pre-m2 responses on the common unfiltered
+    path. JSON-Schema draft-07 ``additionalProperties: false`` +
+    field declared in ``properties`` but NOT in ``required``
+    cleanly supports absent-or-present semantics.
+
+    **Canonical form**, not original caller form. The value matches
+    what was actually used to scope the LanceDB query (see
+    ``_canonicalize_filters`` + ``_build_paper_id_predicate``).
+
+    **SUPPORTED_FILTER_KEYS subset only.** Unrecognized keys appear
+    in ``filter_warnings``, not here. ``filters_applied`` and
+    ``filter_warnings`` are two non-overlapping views of the
+    filter input — applied vs ignored.
+
+    Called on all three cache paths (Tier-1 hit, Tier-2 hit, miss)
+    so cached payloads — which do NOT carry caller-specific
+    metadata — get the field stamped post-hit, paralleling the
+    ``_restamp_degraded`` pattern.
+    """
+    if canonical_filters is None:
+        return payload
+    applied = {
+        k: canonical_filters[k]
+        for k in SUPPORTED_FILTER_KEYS
+        if k in canonical_filters
+    }
+    if applied:
+        payload["filters_applied"] = applied
+    return payload
+
+
 def _canonicalize_filters(
     filters: dict[str, Any] | None,
 ) -> dict[str, Any] | None:
@@ -347,6 +387,9 @@ async def handle_search_papers(
             # Tier-1 hit — bypass Phase 1/2/3.
             set_cache_layer("tier1")
             structured = _restamp_degraded(cached_payload, base_degraded_reasons)
+            # m2: stamp filters_applied post-cache (caller-specific
+            # metadata; never stored in cached payload).
+            structured = _inject_filters_applied(structured, canonical_filters)
             rows = structured.get("results", [])
             structured = _cap(structured)
             content = _build_content_blocks(structured, rows)
@@ -384,6 +427,9 @@ async def handle_search_papers(
             if embed_fallback_active:
                 tier2_reasons.append("hosted_embedder_outage")
             structured = _restamp_degraded(cached_payload, tier2_reasons)
+            # m2: stamp filters_applied post-cache (caller-specific
+            # metadata; never stored in cached payload).
+            structured = _inject_filters_applied(structured, canonical_filters)
             rows = structured.get("results", [])
             structured = _cap(structured)
             content = _build_content_blocks(structured, rows)
@@ -469,6 +515,11 @@ async def handle_search_papers(
     if miss_degraded_reasons:
         payload["degraded"] = True
         payload["degraded_reasons"] = miss_degraded_reasons
+    # m2: filters_applied echo (absent when no filter; canonical form;
+    # SUPPORTED_FILTER_KEYS subset only). Applied BEFORE envelope() so
+    # the _sort_dict pass in envelope sorts it alphabetically with the
+    # other keys.
+    payload = _inject_filters_applied(payload, canonical_filters)
     structured = envelope(payload)
 
     # E08_S03: cache-store on the miss path. We pass the query
