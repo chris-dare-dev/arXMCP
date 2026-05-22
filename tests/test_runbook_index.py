@@ -2,11 +2,19 @@
 
 Coverage matrix:
 
-- TestIndexExists                 — docs/ops/README.md is present
-- TestIndexLinkedFromRootReadme   — root README.md links to it
-- TestAllIndexedRunbooksExist     — every relative link inside the index resolves to a file on disk (link-check)
-- TestEachRunbookHasSkeleton      — each NEW runbook (server-crash, model-swap, corpus-rollback, latexml-restart) has the 4-part skeleton headers (Symptoms / Detection / Steps / Verification)
-- TestRequiredScenariosCovered    — the 8 brief-mandated scenarios all appear in the index
+- TestIndexExists
+    docs/ops/README.md is present.
+- TestIndexLinkedFromRootReadme
+    Root README.md links to it.
+- TestAllIndexedRunbooksExist
+    Every relative link inside the index resolves to a file on
+    disk (link-check).
+- TestEachRunbookHasSkeleton
+    Each NEW runbook (server-crash, model-swap, corpus-rollback,
+    latexml-restart) has the 4-part skeleton headers
+    (Symptoms / Detection / Steps / Verification).
+- TestRequiredScenariosCovered
+    The 8 brief-mandated scenarios all appear in the index.
 """
 
 from __future__ import annotations

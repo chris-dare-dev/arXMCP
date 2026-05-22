@@ -2,11 +2,23 @@
 
 Coverage matrix:
 
-- TestDashboardStructure        — required Grafana JSON fields present (schemaVersion, uid, title, panels, ...)
-- TestDashboardByteStability    — re-serializing with sorted keys + indent=2 produces the on-disk bytes (closes the synthesis hard-constraint #5: byte-stable dashboards)
-- TestMetricNamesAreRegistered  — every metric referenced in panel PromQL targets actually exists as a registered Counter / Histogram / Gauge in server/observability/metrics.py, server/metrics.py, or server/health.py
-- TestPanelInvariants           — each panel has datasource, targets, gridPos, title (positive-existence checks)
-- TestProvisioningYaml          — provisioning YAML parses, contains required datasource (uid='prometheus') and providers blocks
+- TestDashboardStructure
+    Required Grafana JSON fields present (schemaVersion, uid, title,
+    panels, ...).
+- TestDashboardByteStability
+    Re-serializing with sorted keys + indent=2 produces the on-disk
+    bytes (synthesis hard-constraint #5: byte-stable dashboards).
+- TestMetricNamesAreRegistered
+    Every metric referenced in panel PromQL targets actually exists as
+    a registered Counter / Histogram / Gauge in
+    server/observability/metrics.py, server/metrics.py, or
+    server/health.py.
+- TestPanelInvariants
+    Each panel has datasource, targets, gridPos, title (positive-
+    existence checks).
+- TestProvisioningYaml
+    Provisioning YAML parses, contains required datasource
+    (uid='prometheus') and providers blocks.
 
 These tests are pure-Python; no Grafana process required. The schema-
 version compatibility claim ('Grafana 10.x and 11.x accept schemaVersion

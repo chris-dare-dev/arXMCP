@@ -2,12 +2,23 @@
 
 Coverage matrix:
 
-- TestDocExists                — docs/observability/langfuse-orchestrator.md is present
-- TestDocStructure             — required sections present (caller-side disclaimer, session-id note, snippet, gotchas)
-- TestSnippetLengthBounded     — Python snippet is < 60 LOC per the brief acceptance criterion
-- TestNoServerSideAnthropic    — server/ source still contains zero `import anthropic` (the doc is a caller-side reference, not a server change)
-- TestSnippetSyntaxParses      — the Python snippet parses as syntactically valid Python (without executing it; langfuse/anthropic are not project deps)
-- TestSnippetImportsCleanlySkipIf — skipped when langfuse + anthropic not installed (the brief's "doctest the Python snippet imports cleanly" requirement, gated to avoid forcing the deps into pyproject.toml)
+- TestDocExists
+    docs/observability/langfuse-orchestrator.md is present.
+- TestDocStructure
+    Required sections present (caller-side disclaimer, session-id
+    note, snippet, gotchas).
+- TestSnippetLengthBounded
+    Python snippet is < 60 LOC per the brief acceptance criterion.
+- TestNoServerSideAnthropic
+    server/ source still contains zero ``import anthropic`` (the doc
+    is a caller-side reference, not a server change).
+- TestSnippetSyntaxParses
+    The Python snippet parses as syntactically valid Python (without
+    executing it; langfuse/anthropic are not project deps).
+- TestSnippetImportsCleanlySkipIf
+    Skipped when langfuse + anthropic not installed (the brief's
+    "doctest the Python snippet imports cleanly" requirement, gated
+    to avoid forcing the deps into pyproject.toml).
 """
 
 from __future__ import annotations
@@ -175,11 +186,11 @@ def _has_langfuse_and_anthropic() -> bool:
     """Are both langfuse and anthropic installed in this venv?
     They're NOT pyproject deps; this is opt-in for orchestrator devs."""
     try:
-        import langfuse  # noqa: F401
         import anthropic  # noqa: F401
-        return True
+        import langfuse  # noqa: F401
     except ImportError:
         return False
+    return True
 
 
 class TestSnippetImportsCleanlySkipIf:

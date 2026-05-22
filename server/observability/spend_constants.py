@@ -15,8 +15,11 @@ The metric family is
 per the milestone brief). Label cardinality is bounded:
 
 - ``provider`` in ``{"voyage", "anthropic"}``
-- ``model`` in ``{"voyage-3", "claude-haiku-4-5"}`` (extend as new
-  models land)
+- ``model`` is the Anthropic model ID (imported from
+  :mod:`server.orchestrator.model_selector` — the single source of
+  truth per the E08_S05 critique F2 fix) plus Voyage model name
+  strings (Voyage is not in the orchestrator model selector since
+  it's an embedder, not an LLM call site)
 - ``agent_role`` in :data:`server.observability.tracing.VALID_AGENT_ROLES`
   plus ``"unknown"`` for the no-header case
 
@@ -42,9 +45,20 @@ from __future__ import annotations
 
 from prometheus_client import Counter
 
+# Single source of truth for the Anthropic Haiku model ID (E08_S05 F2
+# fix — never hardcode model IDs outside server/orchestrator/
+# model_selector.py).
+from server.orchestrator.model_selector import MODEL_HAIKU_4_5
+
 # ---------------------------------------------------------------------------
 # Cost constants (USD per million tokens) — UPDATE when pricing changes
 # ---------------------------------------------------------------------------
+
+#: Voyage AI embedding model name. Voyage is NOT in the orchestrator
+#: model_selector (that module is for the orchestrator's LLM calls;
+#: Voyage is an embedder). Hardcoded here as the single mention site
+#: for the Voyage model identifier.
+VOYAGE_3_MODEL: str = "voyage-3"
 
 #: Voyage AI ``voyage-3`` embedding model — input tokens only
 #: (embeddings have no output tokens). Source:
@@ -86,8 +100,9 @@ PRICE_PER_M_USD_CEILING: float = 100.0
 #: Labels (3, all bounded):
 #:
 #: - ``provider`` — one of ``"voyage"``, ``"anthropic"``.
-#: - ``model`` — concrete model name, e.g. ``"voyage-3"`` or
-#:   ``"claude-haiku-4-5"``.
+#: - ``model`` — concrete model name (the Voyage embedder ID from
+#:   :data:`VOYAGE_3_MODEL`, or the Anthropic Haiku ID imported
+#:   from :data:`server.orchestrator.model_selector.MODEL_HAIKU_4_5`).
 #: - ``agent_role`` — one of
 #:   :data:`server.observability.tracing.VALID_AGENT_ROLES`
 #:   (``"sketcher" | "autoformalizer" | "tactician" | "fixer"``)
@@ -163,9 +178,10 @@ def record_spend(
         ``"voyage"`` or ``"anthropic"``. Other values are rejected
         with ``RuntimeError`` to keep the label space bounded.
     model : str
-        Concrete model identifier (``"voyage-3"``,
-        ``"claude-haiku-4-5"``, etc.). Used both for the metric label
-        and to pick the cost constants.
+        Concrete model identifier — pass :data:`VOYAGE_3_MODEL` for
+        Voyage, or the Anthropic model ID from
+        :data:`server.orchestrator.model_selector.MODEL_HAIKU_4_5`.
+        Used both for the metric label and to pick the cost constants.
     tokens_in : int, default 0
         Input-token count for the call.
     tokens_out : int, default 0
@@ -191,10 +207,10 @@ def record_spend(
         )
 
     usd_amount: float = 0.0
-    if provider == "voyage" and model == "voyage-3":
+    if provider == "voyage" and model == VOYAGE_3_MODEL:
         # Embeddings have no output tokens; tokens_out is ignored.
         usd_amount = tokens_in / 1_000_000 * VOYAGE_3_USD_PER_M_TOKENS
-    elif provider == "anthropic" and model == "claude-haiku-4-5":
+    elif provider == "anthropic" and model == MODEL_HAIKU_4_5:
         usd_amount = (
             tokens_in / 1_000_000 * CLAUDE_HAIKU_4_5_INPUT_USD_PER_M
             + tokens_out / 1_000_000 * CLAUDE_HAIKU_4_5_OUTPUT_USD_PER_M
@@ -219,6 +235,7 @@ __all__ = [
     "CLAUDE_HAIKU_4_5_OUTPUT_USD_PER_M",
     "LAST_VERIFIED",
     "PRICE_PER_M_USD_CEILING",
+    "VOYAGE_3_MODEL",
     "VOYAGE_3_USD_PER_M_TOKENS",
     "record_spend",
 ]

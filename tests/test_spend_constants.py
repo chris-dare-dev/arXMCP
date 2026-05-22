@@ -2,16 +2,31 @@
 
 Coverage matrix:
 
-- TestCostConstants            — values are positive floats under the sanity ceiling
-- TestLastVerifiedFresh        — LAST_VERIFIED is parseable as YYYY-MM-DD
-- TestMetricRegistration       — API_SPEND_USD_TOTAL is a Counter with the 3 expected labels
-- TestRecordSpendVoyage        — calling record_spend(voyage, voyage-3, tokens_in=N) increments by the correct USD
-- TestRecordSpendAnthropic     — anthropic/haiku path increments by input+output USD
-- TestRecordSpendValidation    — unknown provider/model raises RuntimeError; negative tokens raise RuntimeError
-- TestAgentRoleLabel           — agent_role label is read from ContextVar; defaults to 'unknown' when unset
-- TestStubHasTodoComment       — _voyage_encode_stub source contains the future-voyage-client TODO so the
-                                  next person knows where to wire the real increment
-- TestNoLiveAnthropicIncrement — server/ source contains no record_spend call for anthropic/haiku yet (E08_S07 hasn't shipped)
+- TestCostConstants
+    Values are positive floats under the sanity ceiling.
+- TestLastVerifiedFresh
+    LAST_VERIFIED is parseable as YYYY-MM-DD.
+- TestMetricRegistration
+    API_SPEND_USD_TOTAL is a Counter with the 3 expected labels.
+- TestRecordSpendVoyage
+    record_spend(voyage, voyage-3, tokens_in=N) increments by the
+    correct USD amount.
+- TestRecordSpendAnthropic
+    anthropic/haiku path increments by input+output USD.
+- TestRecordSpendValidation
+    Unknown provider/model raises RuntimeError; negative tokens
+    raise RuntimeError.
+- TestAgentRoleLabel
+    agent_role label is read from ContextVar; defaults to 'unknown'
+    when unset; foreign values coerce to 'unknown'.
+- TestStubHasTodoComment
+    _voyage_encode_stub source carries the future-voyage-client TODO
+    so the next person knows where to wire the real increment.
+- TestNoLiveAnthropicIncrement
+    server/ source contains no record_spend call for anthropic/haiku
+    yet (E08_S07 has not shipped).
+- TestModuleContract
+    __all__ entries all resolve.
 """
 
 from __future__ import annotations
@@ -32,6 +47,7 @@ from server.observability.spend_constants import (
     VOYAGE_3_USD_PER_M_TOKENS,
     record_spend,
 )
+from server.orchestrator.model_selector import MODEL_HAIKU_4_5
 
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
 
@@ -195,11 +211,11 @@ class TestRecordSpendAnthropic:
     def test_haiku_combines_input_and_output(self) -> None:
         # 1M input at $1.00/M = $1.00. 1M output at $5.00/M = $5.00. Sum: $6.00.
         usd = record_spend(
-            provider="anthropic", model="claude-haiku-4-5",
+            provider="anthropic", model=MODEL_HAIKU_4_5,
             tokens_in=1_000_000, tokens_out=1_000_000,
         )
         assert usd == pytest.approx(6.0)
-        cell = _read_counter("anthropic", "claude-haiku-4-5", "unknown")
+        cell = _read_counter("anthropic", MODEL_HAIKU_4_5, "unknown")
         assert cell == pytest.approx(6.0)
 
 
@@ -233,7 +249,7 @@ class TestRecordSpendValidation:
     def test_negative_tokens_out_raises(self) -> None:
         with pytest.raises(RuntimeError, match="non-negative"):
             record_spend(
-                provider="anthropic", model="claude-haiku-4-5",
+                provider="anthropic", model=MODEL_HAIKU_4_5,
                 tokens_in=100, tokens_out=-1,
             )
 
