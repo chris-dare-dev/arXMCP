@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}arXMCP — notebooks{% endblock %}</title>
+  <link rel="stylesheet" href="/ui/static/app.css">
+  <!-- htmx 2.0.10 vendored at frontend/static/htmx.min.js (0BSD; m8 AC #5). -->
+  <script src="/ui/static/htmx.min.js" defer></script>
+</head>
+<body>
+  <header>
+    <h1><a href="/ui/">arXMCP notebooks</a></h1>
+    <p class="subtitle">Per-notebook arXiv corpora for the <code>/proof-verify</code> pipeline.</p>
+  </header>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+  <footer>
+    <small>
+      Loopback only · same-origin only ·
+      Destructive notebook wipe lives in <code>tools/notebook_purge.py</code> ·
+      <a href="/healthz">/healthz</a> · <a href="/readyz">/readyz</a>
+    </small>
+  </footer>
+</body>
+</html>

@@ -13,6 +13,94 @@ production cutover (E11).
 
 ## Unreleased
 
+### 2026-05-22 — `proof-verify` handler-wiring (m8): htmx + Jinja2 UI shell, ar5iv upload
+
+First operator-facing browser UI for the per-notebook workflow.
+Single-page htmx app rendered server-side via Jinja2; vendored htmx
+(no Node toolchain, no CDN runtime fetch); multipart upload endpoint
+for ar5iv HTML files. The MCP surface and `EXPECTED_TOOL_SCHEMA_SHA256`
+are unchanged.
+
+- **NEW: `frontend/templates/`** — `base.html` + `index.html` +
+  `notebook_detail.html`. Templates render via FastAPI's
+  `Jinja2Templates` with an EXPLICITLY constructed `jinja2.Environment`
+  + `autoescape=select_autoescape(html, htm, xml, default_for_string=True)`
+  (m8 synthesis: explicit > implicit; the Starlette default protects
+  the same extensions but the explicit form prevents a future
+  template-loader change from silently disabling autoescape).
+- **NEW: `frontend/static/`** — vendored `htmx.min.js` (htmx 2.0.10,
+  0BSD-licensed, 51 KB) with a header comment naming the version
+  + source URL (`https://cdn.jsdelivr.net/npm/htmx.org@2.0.10/...`)
+  + license. Plus `app.css` — minimal CSS, no external fonts, no
+  CDN imports. AC #5 satisfied: zero internet fetches at runtime.
+- **NEW: `server/routes/ui.py`** — `GET /ui/` (landing page;
+  notebook list + create form) and `GET /ui/notebooks/{slug}`
+  (detail page; paper list + URL-paste form + drag-drop upload
+  card). Both routes are wired via `app.include_router(ui_router,
+  prefix="/ui")`.
+- **NEW: upload endpoint** — `POST /ui/api/notebooks/{slug}/papers/upload`
+  in `server/routes/notebooks.py`. Accepts multipart with form
+  fields `paper_id` (validated via `is_valid_paper_id` — m1 rect
+  F3 `\Z`-anchor hardening inherited) and `file` (the ar5iv HTML).
+  On-disk filename is derived EXCLUSIVELY from `paper_id` (m8 FM-4
+  path-traversal defense — `file.filename` is used ONLY for logging).
+  Magic-byte sniff (first 16 bytes start with `<!` or `<h`) rejects
+  forged-extension non-HTML uploads with HTTP 422 (FM-2). Atomic
+  write via `os.replace()` so readers never see a partial file
+  (FM-5). Duplicate `(slug, paper_id)` returns HTTP 200 with the
+  on-disk file updated (idempotent overwrite — the upload itself
+  succeeded; the junction row already existed).
+- **AC #3: ar5iv URL normalizer extension** — m7's
+  `_arxiv_url_to_paper_id` accepted only `arxiv.org/abs/<id>`; m8
+  extends `_ACCEPTED_HOSTS` to also accept
+  `ar5iv.labs.arxiv.org/html/<id>` via a new `_HOST_PATH_PREFIX`
+  dispatch dict. The m7 happy-path tests still pass; the m7
+  "ar5iv-rejected" test was inverted to assert ar5iv is now
+  accepted (moved to `tests/test_ui_html_pages.py::TestAr5ivUrlNormalizer`).
+- **AC #4: `RequestBodySizeLimitMiddleware.prefix_caps`** —
+  per-prefix cap-override mechanism. Default cap stays at 1 MB;
+  the m8 wiring sets `prefix_caps={"/ui/api/notebooks":
+  10 * 1024 * 1024}` so ar5iv uploads (typically 100 KB–5 MB,
+  occasionally up to 10 MB) pass while every other path keeps the
+  1 MB ceiling. Prefix-match form (`path == p or path.startswith(p +
+  "/")`) — NOT substring; FM-3 parity with the m7 SecFetchSite
+  carve-out so `/uiOTHER` and `/evil-ui/x` stay at the default cap.
+- **Static mount + `_BYTE_CAP_EXEMPT_PREFIXES` extension** —
+  `app.mount("/ui/static", StaticFiles(...))` for the vendored
+  assets. `/ui` added to `_BYTE_CAP_EXEMPT_PREFIXES` so the 51 KB
+  htmx file (well under 256 KB but defensive) and large notebook-
+  list HTML pages bypass the response-body cap.
+- **Explicit deps** — `jinja2>=3.1.3` (closes CVE-2024-22195 in
+  `xmlattr`) and `python-multipart>=0.0.18` (closes CVE-2024-53981
+  multipart DoS) added to `pyproject.toml` with per-line comments.
+  Both were transitive via `mcp`; the project's "no implicit deps"
+  discipline requires explicit declaration (the `pyyaml` comment
+  is the precedent).
+- **Test surface** — +70 tests across three files:
+  - `tests/test_ui_html_pages.py` (27 tests) — landing page,
+    detail page, static assets, path-traversal defense via
+    Starlette `StaticFiles`, ar5iv URL acceptance, Jinja2
+    autoescape XSS-defense.
+  - `tests/test_upload_handler.py` (29 tests) — happy path,
+    magic-byte sniff (15 parametrized cases incl. PNG/PDF/ZIP/EXE),
+    filename sanitization (FM-4 dot-dot + shell-metachar cases),
+    atomic write, duplicate upload semantics, paper_id validation
+    (incl. m1-rect-F3 trailing-newline rejection), notebook
+    existence, empty-file rejection.
+  - `tests/security/test_request_body_prefix_caps.py` (14 tests)
+    — the middleware extension itself: default cap on non-carve
+    paths, raised cap on `/ui/api/notebooks/*`, prefix-not-
+    substring matching enforced (`/ui/api/notebooksOTHER` stays at
+    default), exceeding the raised cap still 413s, direct unit
+    tests of the `_effective_max_bytes` helper.
+- **`security-threat-model-coverage.md`** extended under Threat 4
+  to cite the new test file (the threat-coverage invariant test
+  passes).
+
+`make test`: **2425 passed** (+70 from m7), 9 skipped, 1 xfailed.
+Ruff clean. `EXPECTED_TOOL_SCHEMA_SHA256` unchanged (AC: no new
+MCP tools).
+
 ### 2026-05-22 — `proof-verify` handler-wiring (m7): notebook REST API + SecFetchSite carve-out
 
 First-cut HTTP UI surface for the per-notebook workflow. Adds the

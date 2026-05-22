@@ -161,9 +161,18 @@ completeness.
 `get_chunk` + `get_definitions`), E07_S10 (per-session rate limits), E13_S04
 (1000/hr global limit + hostile-fixture audit).
 **Audit epic:** E13_S04.
-**Test file:** [`tests/security/test_resource_exhaustion.py`](../../tests/security/test_resource_exhaustion.py)
+**Test files:** [`tests/security/test_resource_exhaustion.py`](../../tests/security/test_resource_exhaustion.py)
 — 5 fault scenarios: `k=10000` rejected, deep nesting rejected, 10k-item
 filter rejected, 256 KB byte cap enforced, 1000/hour rate limit fires.
+[`tests/security/test_request_body_prefix_caps.py`](../../tests/security/test_request_body_prefix_caps.py)
+— the m8 `RequestBodySizeLimitMiddleware.prefix_caps` extension that
+raises the 1 MB default to 10 MB only for `/ui/api/notebooks/*/papers/upload`
+(ar5iv HTML files routinely exceed 1 MB). Pins that the carve-out uses
+prefix-not-substring matching (FM-3 parity with the m7 SecFetchSite
+carve-out — `/uiOTHER` and `/evil-ui/x` stay at the default cap), that
+exceeding even the raised 10 MB cap returns 413, and that paths outside
+the carve-out (`/mcp`, `/healthz`, arbitrary other paths) still use the
+default cap.
 **Gaps:** (none) — **closed by E13_S04b** (2026-05-20). The 256 KB
 byte cap is now enforced on all 7 return-chunk-or-content tools.
 `get_chunk` and `get_definitions` shipped in E06_S05; E13_S04b added
@@ -174,7 +183,9 @@ regression test `tests/security/test_resource_exhaustion.py::TestE13S04bCapExten
 covers both under-cap and over-cap paths for all 5 newly-covered
 handlers + a static check that each module imports the helper. GitHub
 issue [#1](https://github.com/chris-dare-dev/arXMCP/issues/1) closed
-by this milestone.
+by this milestone. The m8 `prefix_caps` extension (above) added a
+per-path-prefix cap-override mechanism — same Threat 4 coverage, new
+HTTP-layer dimension.
 
 ---
 

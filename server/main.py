@@ -65,6 +65,7 @@ import logging
 import os
 import sys
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -102,7 +103,17 @@ logger = logging.getLogger(__name__)
 #:   ``resource_link`` per the spec — that resource_link IS the
 #:   "<256 KB pointer to the larger payload" pattern. The cap fires
 #:   on the resource-resolved fetch, not on the SSE chunks.
-_BYTE_CAP_EXEMPT_PREFIXES = ("/healthz", "/readyz", "/metrics", "/mcp")
+_BYTE_CAP_EXEMPT_PREFIXES = (
+    "/healthz", "/readyz", "/metrics", "/mcp",
+    # m8: the /ui/* subtree serves Jinja2-rendered HTML pages +
+    # vendored static assets (htmx.min.js is ~51 KB; CSS is small);
+    # exempting the whole /ui prefix keeps the response-cap from
+    # truncating a large notebook-list page or the static htmx file.
+    # The /ui/api/* JSON routes return small payloads in practice
+    # and would not trip the cap, but folding the whole subtree in
+    # avoids per-route carve-out drift.
+    "/ui",
+)
 
 
 def _is_exempt_path(path: str) -> bool:
@@ -431,8 +442,20 @@ def create_app(config: Config | None = None) -> FastAPI:
     # dispatches. A request that fails the cap is short-circuited
     # before any handler runs.
     app.add_middleware(SessionCapMiddleware)
-    # 1 MB cap on incoming request bodies (E06_S05).
-    app.add_middleware(RequestBodySizeLimitMiddleware)
+    # 1 MB default cap on incoming request bodies (E06_S05). m8:
+    # /ui/api/notebooks/*/papers/upload accepts ar5iv HTML files
+    # which routinely exceed 1 MB (~100KB-5MB observed); the
+    # prefix_caps carve-out raises the cap to 10 MB for the whole
+    # /ui/api/notebooks subtree. Other /ui/api/notebooks routes
+    # accept small JSON bodies well under either cap, so the
+    # widening is harmless for them. Prefix-match form (NOT
+    # substring) for FM-3 parity with the m7 SecFetchSite carve-out.
+    app.add_middleware(
+        RequestBodySizeLimitMiddleware,
+        prefix_caps={
+            "/ui/api/notebooks": 10 * 1024 * 1024,  # 10 MB for upload
+        },
+    )
     # Host header validation: Threat 5 / DNS rebinding defense
     # (closes F3 from E06_S05 critique). FastMCP validates Host on
     # /mcp; this middleware extends the same protection across the
@@ -477,11 +500,33 @@ def create_app(config: Config | None = None) -> FastAPI:
 
     # proof-verify-handler-wiring-m7: per-notebook REST surface for
     # the htmx UI (m8 ships the templates). All routes are JSON-only
-    # and exempt from SecFetchSiteMiddleware via the /ui carve-out
-    # above. OriginValidation + HostValidation still apply.
+    # (and one HTML-fragment upload endpoint added in m8) and exempt
+    # from SecFetchSiteMiddleware via the /ui carve-out above.
+    # OriginValidation + HostValidation still apply.
     from server.routes.notebooks import router as notebooks_router
 
     app.include_router(notebooks_router, prefix="/ui/api")
+
+    # proof-verify-handler-wiring-m8: HTML page routes for the htmx
+    # UI shell. Templates live at frontend/templates/; static assets
+    # (vendored htmx + CSS) at frontend/static/ mounted below.
+    from server.routes.ui import router as ui_router
+
+    app.include_router(ui_router, prefix="/ui")
+
+    # m8: vendored htmx + CSS at /ui/static/. Mount inside the /ui
+    # subtree so the SecFetchSite carve-out covers it without a
+    # separate exemption. StaticFiles uses Starlette's built-in
+    # path-traversal protection (`os.path.commonpath` check after
+    # `realpath` resolution — see starlette/staticfiles.py:163).
+    from fastapi.staticfiles import StaticFiles
+
+    _FRONTEND_STATIC = Path(__file__).resolve().parent.parent / "frontend" / "static"
+    app.mount(
+        "/ui/static",
+        StaticFiles(directory=str(_FRONTEND_STATIC)),
+        name="ui-static",
+    )
 
     # Metrics ASGI sub-app. We wrap with a tiny middleware that
     # refreshes the gauges from the resources state at scrape time.

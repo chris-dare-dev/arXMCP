@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+
+{% block title %}{{ notebook.slug }} · arXMCP{% endblock %}
+
+{% block content %}
+<nav class="breadcrumb"><a href="/ui/">← All notebooks</a></nav>
+
+<section class="card">
+  <h2><code>{{ notebook.slug }}</code></h2>
+  {% if notebook.display_name %}
+    <p class="display-name">{{ notebook.display_name }}</p>
+  {% endif %}
+  <dl class="meta">
+    <dt>LanceDB path</dt><dd><code>{{ notebook.lancedb_path }}</code></dd>
+    <dt>Created</dt><dd><time>{{ notebook.created_at }}</time></dd>
+  </dl>
+</section>
+
+<section class="card">
+  <h2>Add paper by URL</h2>
+  <p class="hint">
+    Accepted forms: <code>https://arxiv.org/abs/&lt;id&gt;</code> or
+    <code>https://ar5iv.labs.arxiv.org/html/&lt;id&gt;</code>.
+  </p>
+  <form
+    hx-post="/ui/api/notebooks/{{ notebook.slug }}/papers"
+    hx-on::htmx:after-request="if(event.detail.successful) location.reload()"
+    hx-on::htmx:response-error="document.getElementById('paste-error').textContent = event.detail.xhr.responseText"
+  >
+    <label>
+      arXiv URL
+      <input type="url" name="arxiv_url" required maxlength="512"
+             placeholder="https://arxiv.org/abs/2604.26204">
+    </label>
+    <button type="submit">Add</button>
+    <pre id="paste-error" class="error" aria-live="polite"></pre>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Upload ar5iv HTML</h2>
+  <p class="hint">
+    Drop an HTML file from <code>ar5iv.labs.arxiv.org</code>. Max
+    upload size: 10 MB. The on-disk filename is derived from the
+    <code>paper_id</code> field below (your local filename is NOT
+    used) — this is the path-traversal defense.
+  </p>
+  <form
+    hx-post="/ui/api/notebooks/{{ notebook.slug }}/papers/upload"
+    hx-encoding="multipart/form-data"
+    hx-target="#papers-tbody"
+    hx-swap="beforeend"
+    hx-on::htmx:response-error="document.getElementById('upload-error').textContent = event.detail.xhr.responseText"
+  >
+    <label>
+      Paper ID
+      <input type="text" name="paper_id" required maxlength="64"
+             placeholder="2604.26204">
+    </label>
+    <label>
+      ar5iv HTML file
+      <input type="file" name="file" accept=".html,text/html" required>
+    </label>
+    <button type="submit">Upload</button>
+    <pre id="upload-error" class="error" aria-live="polite"></pre>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Papers in this notebook ({{ papers|length }})</h2>
+  {% if not papers %}
+    <p class="empty">No papers yet. Add one above.</p>
+  {% endif %}
+  <table class="papers">
+    <thead>
+      <tr><th>Paper ID</th><th>Added</th><th></th></tr>
+    </thead>
+    <tbody id="papers-tbody">
+      {% for p in papers %}
+      <tr data-slug="{{ notebook.slug }}" data-paper-id="{{ p.paper_id }}">
+        <td><code>{{ p.paper_id }}</code></td>
+        <td><time>{{ p.added_at }}</time></td>
+        <td>
+          <button type="button"
+                  hx-delete="/ui/api/notebooks/{{ notebook.slug }}/papers/{{ p.paper_id }}"
+                  hx-confirm="Remove paper '{{ p.paper_id }}' from notebook '{{ notebook.slug }}'?"
+                  hx-on::htmx:after-request="if(event.detail.successful) this.closest('tr').remove()"
+                  class="danger">
+            Remove
+          </button>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

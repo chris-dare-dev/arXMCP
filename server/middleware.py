@@ -736,22 +736,55 @@ class RequestBodySizeLimitMiddleware:
     app:
         The wrapped ASGI app.
     max_bytes:
-        Body-size cap in bytes. Defaults to
+        Default body-size cap in bytes. Defaults to
         :data:`REQUEST_BODY_MAX_BYTES` (1 MB).
+    prefix_caps:
+        Optional per-prefix cap overrides. When a request's
+        ``scope["path"]`` matches a key (``path == p`` OR
+        ``path.startswith(p + "/")`` — prefix-match, NOT substring;
+        same form as :class:`SecFetchSiteMiddleware`'s ``exempt_prefixes``
+        for FM-3 parity), the corresponding value replaces
+        ``max_bytes`` for that request. Used by m8 to raise the cap
+        from 1 MB to 10 MB on ``/ui/api/notebooks/*/papers/upload``
+        (ar5iv HTML files can exceed 1 MB). Defaults to ``{}`` —
+        every request uses ``max_bytes``.
     """
 
     def __init__(
         self,
         app: Callable[..., Awaitable[None]],
         max_bytes: int = REQUEST_BODY_MAX_BYTES,
+        prefix_caps: dict[str, int] | None = None,
     ) -> None:
         self.app = app
         self.max_bytes = max_bytes
+        self._prefix_caps: dict[str, int] = prefix_caps or {}
+
+    def _effective_max_bytes(self, path: str) -> int:
+        """Return the cap that applies to ``path``.
+
+        Prefix-match form (``path == p`` or ``path.startswith(p + "/")``)
+        — NOT substring, to prevent ``/ui-evil/foo`` from accidentally
+        matching ``/ui`` (FM-3 from m7 synthesis). If multiple
+        prefixes match, the cap from the FIRST iteration of
+        ``self._prefix_caps`` wins (dict insertion order on 3.7+);
+        callers should pass prefixes in priority order if they
+        configure overlapping ones.
+        """
+        for prefix, cap in self._prefix_caps.items():
+            if path == prefix or path.startswith(prefix + "/"):
+                return cap
+        return self.max_bytes
 
     async def __call__(self, scope: dict, receive: Callable, send: Callable) -> None:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
+
+        # m8 rect: resolve the effective cap once per request based on
+        # ``scope["path"]``. All downstream byte-count checks use this
+        # value rather than ``self.max_bytes`` directly.
+        max_bytes = self._effective_max_bytes(scope.get("path", ""))
 
         # Rejection path 1+2: Content-Length declared.
         headers = scope.get("headers", [])
@@ -793,10 +826,10 @@ class RequestBodySizeLimitMiddleware:
                     },
                 )
                 return
-            if declared > self.max_bytes:
+            if declared > max_bytes:
                 logger.warning(
                     "request rejected: content-length %d exceeds cap %d",
-                    declared, self.max_bytes,
+                    declared, max_bytes,
                 )
                 await _send_json_error(
                     send,
@@ -805,10 +838,10 @@ class RequestBodySizeLimitMiddleware:
                         "error": "payload_too_large",
                         "message": (
                             f"request body declares {declared} bytes; the "
-                            f"server caps inbound bodies at {self.max_bytes} "
+                            f"server caps inbound bodies at {max_bytes} "
                             f"bytes per request"
                         ),
-                        "max_bytes": self.max_bytes,
+                        "max_bytes": max_bytes,
                     },
                 )
                 return
@@ -842,10 +875,10 @@ class RequestBodySizeLimitMiddleware:
                 continue
             chunk = event.get("body", b"")
             body_seen += len(chunk)
-            if body_seen > self.max_bytes:
+            if body_seen > max_bytes:
                 logger.warning(
                     "request rejected: body bytes exceeded cap %d (saw %d+)",
-                    self.max_bytes, body_seen,
+                    max_bytes, body_seen,
                 )
                 await _send_json_error(
                     send,
@@ -853,11 +886,11 @@ class RequestBodySizeLimitMiddleware:
                     body={
                         "error": "payload_too_large",
                         "message": (
-                            f"request body exceeds the {self.max_bytes}-byte "
+                            f"request body exceeds the {max_bytes}-byte "
                             f"cap; the server caps inbound bodies to defend "
                             f"against memory-exhaustion requests"
                         ),
-                        "max_bytes": self.max_bytes,
+                        "max_bytes": max_bytes,
                     },
                 )
                 return

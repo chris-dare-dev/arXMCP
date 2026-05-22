@@ -1,0 +1,72 @@
+{
+  "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/plans",
+  "created_at": "2026-05-22T13:56:38Z",
+  "critics_run": [],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "low": 0,
+    "medium": 0
+  },
+  "critique_path": null,
+  "deferred_findings": [],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_required": [
+    {
+      "target": "https://cdn.jsdelivr.net/npm/htmx.org@2.0.10/dist/htmx.min.js",
+      "type": "http_get",
+      "why": "vendor htmx library into frontend/static; one-time download, file committed"
+    }
+  ],
+  "fixed_findings": [],
+  "id": "proof-verify-handler-wiring-m8",
+  "implementation_base": "ead7af9d99cae4f2c5b7561a9e35536a6944eabe",
+  "implementation_branch": null,
+  "implementation_commit_range": null,
+  "implementation_commits": [],
+  "implementation_path": "inline",
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "### proof-verify-handler-wiring-m8 \u2014 htmx + Jinja2 UI: notebook CRUD, paper-paste, ar5iv HTML drop, browse\n\n**Description.** Add `frontend/templates/` and `frontend/static/` with a single-page htmx UI: notebook list, create/delete, paper-add by URL paste, drag-drop for ar5iv HTML files (uploaded as `multipart/form-data` to a new `/ui/api/notebooks/{slug}/papers/upload` endpoint), and a paper-browse table fed by the m7 REST routes. No Node toolchain \u2014 Jinja2 is rendered server-side, htmx is a single 14 KB JS file vendored into `frontend/static/`.\n\n**Acceptance criteria.**\n- [ ] `GET /ui/` returns an HTML page listing notebooks with a create-notebook form and (for each notebook) an \"open\" link.\n- [ ] Dropping an `.html` file onto a notebook card POSTs to `/ui/api/notebooks/{slug}/papers/upload`; the file is stored under `var/arxmcp/notebooks/{slug}/ar5iv/` and a junction row is created.\n- [ ] URL paste accepts both `arxiv.org/abs/<id>` and `ar5iv.labs.arxiv.org/html/<id>` forms.\n- [ ] `RequestBodySizeLimitMiddleware`'s 1 MB cap is raised for `/ui/api/notebooks/*/papers/upload` only (ar5iv HTML can exceed 1 MB) \u2014 separate middleware-prefix carve-out with its own cap (e.g. 10 MB).\n- [ ] Vendored htmx + minimal CSS; no internet fetch at runtime.\n\n**Dependencies.** m7.\n\n**Complexity.** M (1\u20133 days).\n\n**Specialist suggestion.** `mcp-protocol-reviewer` (route surface review) + `security-reviewer` (upload size carve-out is a Threat-4 concern).",
+  "phase": "implement-running",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-22T13:56:38Z",
+      "left_at": "2026-05-22T14:34:28Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-22T14:34:28Z",
+      "left_at": "2026-05-22T14:44:34Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-22T14:44:34Z",
+      "left_at": "2026-05-22T14:53:51Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-05-22T14:53:51Z",
+      "left_at": null,
+      "phase": "implement-running"
+    }
+  ],
+  "rectification_commit": null,
+  "regression_tests_added": [],
+  "research_briefs": [
+    {
+      "agent_id": "researcher-1",
+      "brief_path": ".claude/notes/milestones/proof-verify-handler-wiring-m8/research-brief-1.md",
+      "summary": "in-codebase plumbing: jinja2+multipart explicit deps; prefix_caps shape"
+    },
+    {
+      "agent_id": "researcher-2",
+      "brief_path": ".claude/notes/milestones/proof-verify-handler-wiring-m8/research-brief-2.md",
+      "summary": "htmx 2.0.10; 8 failure modes; ar5iv normalizer extension required"
+    }
+  ],
+  "research_mode": "standard",
+  "research_synthesis": ".claude/notes/milestones/proof-verify-handler-wiring-m8/research-synthesis.md",
+  "updated_at": "2026-05-22T14:53:51Z"
+}

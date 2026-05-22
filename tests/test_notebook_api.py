@@ -377,7 +377,13 @@ class TestArxivUrlNormalizer:
             "https://example.com/abs/2604.26204",              # wrong host
             "https://www.arxiv.org/abs/2604.26204",            # www subdomain
             "https://arxiv.org/pdf/2604.26204.pdf",            # pdf path
-            "https://ar5iv.labs.arxiv.org/html/2604.26204",    # ar5iv (m8 scope)
+            # NOTE: m8 (proof-verify-handler-wiring-m8) extended the
+            # normalizer to ALSO accept ar5iv URLs. The m7-era reject
+            # case for `https://ar5iv.labs.arxiv.org/html/<id>` is
+            # now a happy-path case — covered by
+            # tests/test_ui_html_pages.py::TestAr5ivUrlNormalizer.
+            "https://ar5iv.labs.arxiv.org/abs/2604.26204",     # wrong prefix for ar5iv host
+            "https://arxiv.org/html/2604.26204",               # wrong prefix for arxiv host
             "https://arxiv.org/abs/NOT-A-PAPER-ID",            # invalid id
             "https://arxiv.org/abs/2604.26204X",               # extra suffix
             "ftp://arxiv.org/abs/2604.26204",                  # wrong scheme
