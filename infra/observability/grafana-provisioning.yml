@@ -1,0 +1,55 @@
+# Grafana provisioning config for the arXMCP cache + latency dashboard.
+#
+# This file is consumed by Grafana's provisioning system; mount it into
+# a Grafana container at /etc/grafana/provisioning/datasources/arxmcp.yml
+# (for the datasource block) and /etc/grafana/provisioning/dashboards/arxmcp.yml
+# (for the dashboards block). Grafana auto-loads both on startup.
+#
+# Companion file: infra/observability/grafana-dashboard.json (mounted at
+# the path referenced by the providers.options.path below).
+#
+# Why two YAML blocks in one file: Grafana actually expects them as TWO
+# separate config files at two different provisioning subdirs. The combined
+# document here is the canonical "what to provision" reference; operators
+# split it into the two physical files when they wire up Grafana. The split
+# is documented in README.md § Importing the dashboard.
+#
+# Compatibility: Grafana 10.x and 11.x. The dashboard JSON uses schemaVersion
+# 39 which both releases accept.
+
+# ---------------------------------------------------------------------------
+# Datasource block — provisions a Prometheus datasource at the loopback
+# Prometheus the project runs (arxmcp emits metrics at /metrics on its own
+# server; Prometheus scrapes that). uid is hardcoded ("prometheus") so the
+# dashboard JSON can reference it deterministically without runtime UID
+# resolution.
+# ---------------------------------------------------------------------------
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://localhost:9090
+    isDefault: true
+    editable: false
+    uid: prometheus
+    jsonData:
+      timeInterval: 30s
+
+# ---------------------------------------------------------------------------
+# Dashboards block — points Grafana at a directory of dashboard JSON files
+# to auto-load. Operators mount infra/observability/grafana-dashboard.json
+# (or the directory containing it) at the path below.
+# ---------------------------------------------------------------------------
+providers:
+  - name: arxmcp
+    orgId: 1
+    folder: arXMCP
+    folderUid: arxmcp
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: false
+    options:
+      path: /etc/grafana/provisioning/dashboards/arxmcp
+      foldersFromFilesStructure: false

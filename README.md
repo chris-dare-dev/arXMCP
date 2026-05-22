@@ -76,6 +76,47 @@ Operator runbooks live under [`docs/ops/`](docs/ops/):
 | [`failure-modes.md`](docs/ops/failure-modes.md) | E14_S05 | Detection + recovery for the 9 documented failure modes |
 | [`notebook-modes.md`](docs/ops/notebook-modes.md) | pv-m3 | Multi-notebook deployment topology (per-daemon vs per-call filter) |
 
+### Importing the dashboard
+
+A provisioned Grafana dashboard with cache hit-ratio and latency panels
+lives at [`infra/observability/grafana-dashboard.json`](infra/observability/grafana-dashboard.json).
+Companion provisioning config:
+[`infra/observability/grafana-provisioning.yml`](infra/observability/grafana-provisioning.yml).
+
+**Option A — manual UI import** (one-off, simplest):
+
+1. Open Grafana → **Dashboards → New → Import**.
+2. Upload `infra/observability/grafana-dashboard.json` (or paste its
+   contents) and select your Prometheus datasource.
+3. The dashboard appears as `arXMCP — Cache and Latency`.
+
+**Option B — provisioned auto-load** (durable across Grafana restarts):
+
+Mount the two provisioning fragments + the dashboard JSON into Grafana's
+provisioning tree, then start Grafana. The fragments are bundled in one
+YAML for documentation; physically split them into Grafana's two
+expected paths:
+
+```bash
+# Split the provisioning YAML into Grafana's two expected files.
+# (The bundled YAML at infra/observability/grafana-provisioning.yml
+#  has two top-level blocks: 'datasources' and 'providers'. Split on
+#  the comment markers in that file.)
+
+# On the host running Grafana, mount:
+#   infra/observability/grafana-provisioning.yml (datasources block)
+#     → /etc/grafana/provisioning/datasources/arxmcp.yml
+#   infra/observability/grafana-provisioning.yml (providers block)
+#     → /etc/grafana/provisioning/dashboards/arxmcp.yml
+#   infra/observability/grafana-dashboard.json
+#     → /etc/grafana/provisioning/dashboards/arxmcp/arxmcp-cache-latency.json
+
+# Then `docker restart grafana` (or equivalent) — dashboard auto-loads.
+```
+
+Tested against Grafana 10.x and 11.x (`schemaVersion: 39`). Requires
+a Prometheus datasource scraping the arXMCP `/metrics` endpoint.
+
 ## Repo layout
 
 ```

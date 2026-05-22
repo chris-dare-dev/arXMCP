@@ -1,0 +1,188 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "description": "arXMCP cache hit-ratio and request-latency operational dashboard. Built for E14_S09 (Tier-5 operational visibility). Provisioned via infra/observability/grafana-provisioning.yml.",
+  "editable": false,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Cache hit ratio per tier (1=SQLite, 2=ANN, 3=LRU). Higher is better. Computed as hits/lookups over the trailing 5 minutes. Source metrics: arxmcp_cache_hits_total{tier}, arxmcp_cache_lookups_total{tier} (server/metrics.py).",
+      "fieldConfig": {
+        "defaults": {
+          "max": 1,
+          "min": 0,
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {},
+      "targets": [
+        {
+          "expr": "sum by (tier) (rate(arxmcp_cache_hits_total[5m])) / sum by (tier) (rate(arxmcp_cache_lookups_total[5m]))",
+          "legendFormat": "tier={{tier}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Cache hit ratio per tier",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Cumulative count of embedder singleflight dedup events (one increment per query that piggy-backed on an in-flight encode call). Higher means more concurrent agents sharing an encode pass. Source: arxmcp_embed_singleflight_dedup_total (server/health.py).",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "id": 2,
+      "options": {},
+      "targets": [
+        {
+          "expr": "arxmcp_embed_singleflight_dedup_total",
+          "legendFormat": "dedup events",
+          "refId": "A"
+        }
+      ],
+      "title": "Embedder singleflight dedup count",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Reranker latency percentiles (P50, P95) per model. Source: arxmcp_rerank_latency_seconds_bucket{model} (server/observability/metrics.py). Watch P95; cold-start spikes are expected on first request after model load.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "id": 3,
+      "options": {},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by (model, le) (rate(arxmcp_rerank_latency_seconds_bucket[5m])))",
+          "legendFormat": "p50 {{model}}",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (model, le) (rate(arxmcp_rerank_latency_seconds_bucket[5m])))",
+          "legendFormat": "p95 {{model}}",
+          "refId": "B"
+        }
+      ],
+      "title": "Reranker latency P50/P95 by model",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Per-tool request-handler latency P95 (wall-clock, includes downstream retrieval). Source: arxmcp_request_latency_seconds_bucket{tool} (server/observability/metrics.py). The 5s bucket ceiling matches ARXMCP_DEFAULT_TOOL_TIMEOUT_SECONDS — anything above 5s is a timeout, tracked separately.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "id": 4,
+      "options": {},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (tool, le) (rate(arxmcp_request_latency_seconds_bucket[5m])))",
+          "legendFormat": "p95 {{tool}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Per-tool request latency P95",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Active concurrent in-flight tool handler invocations per tool. Source: arxmcp_request_inflight{tool} (server/observability/metrics.py). Sustained nonzero on a single tool indicates either a long-running call or runaway concurrency.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 16
+      },
+      "id": 5,
+      "options": {},
+      "targets": [
+        {
+          "expr": "arxmcp_request_inflight",
+          "legendFormat": "{{tool}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Active inflight requests per tool",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": [
+    "arxmcp",
+    "operations"
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "arXMCP — Cache and Latency",
+  "uid": "arxmcp-cache-latency",
+  "version": 1
+}
