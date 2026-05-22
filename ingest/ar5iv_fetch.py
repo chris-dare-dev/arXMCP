@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import logging
 import re
+import ssl
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -117,6 +118,7 @@ def try_cache(
     parsed_dir: Path = DEFAULT_PARSED_DIR,
     timeout_seconds: float = AR5IV_TIMEOUT_SECONDS,
     user_agent: str = "arxmcp-ingest/0.1",
+    ssl_context: ssl.SSLContext | None = None,
 ) -> Ar5ivResult:
     """Fetch ``paper_id`` from ar5iv; on hit, write the HTML to the
     canonical parsed path so the chunker's HTML walk picks it up.
@@ -132,6 +134,13 @@ def try_cache(
     callers should validate at the boundary. Other errors are
     converted into a miss result (no raise) so the bulk-ingest
     loop never aborts.
+
+    The ``ssl_context`` parameter is the E13_S07c CA-pinning
+    injection point (Threat 7 mitigation #2). Pass ``None`` (the
+    default) to use the system trust store; pass an
+    :class:`ssl.SSLContext` built via
+    :func:`server.ssl_pin.build_arxiv_ssl_context` to pin the
+    bundle. Threaded into ``urllib.request.urlopen(context=...)``.
     """
     if not is_valid_paper_id(paper_id):
         raise ValueError(
@@ -160,7 +169,7 @@ def try_cache(
     )
     try:
         with urllib.request.urlopen(  # noqa: S310 — fixed https URL
-            request, timeout=timeout_seconds
+            request, timeout=timeout_seconds, context=ssl_context
         ) as response:
             status = response.status
             # E13_S07 Threat 7: pre-read Content-Length sanity check.

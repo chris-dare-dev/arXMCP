@@ -15,6 +15,7 @@ import os
 import re
 import shutil
 import signal
+import ssl
 import subprocess
 import tarfile
 import time
@@ -208,6 +209,7 @@ def fetch_eprint(
     raw_dir: Path,
     contact_email: str | None = None,
     timeout: float = 60.0,
+    ssl_context: ssl.SSLContext | None = None,
 ) -> FetchResult:
     """Download and extract `https://export.arxiv.org/e-print/<paper_id>`.
 
@@ -215,6 +217,14 @@ def fetch_eprint(
     for non-2xx responses (callers handle 503 backoff). Caller is
     responsible for the politeness sleep BEFORE invoking this — the
     function does not enforce inter-call spacing.
+
+    The ``ssl_context`` parameter is the E13_S07c CA-pinning injection
+    point (Threat 7 mitigation #2). Pass ``None`` (the default) to
+    use the system trust store; pass an :class:`ssl.SSLContext` built
+    via :func:`server.ssl_pin.build_arxiv_ssl_context` to pin the
+    bundle. ``export.arxiv.org`` chains to the same Let's Encrypt
+    root (ISRG Root X1) as ``arxiv.org`` and ``ar5iv.labs.arxiv.org``,
+    so the same vendored bundle covers all three.
     """
     validate_paper_id(paper_id)
     raw_dir = raw_dir / paper_id
@@ -225,7 +235,9 @@ def fetch_eprint(
         url, headers={"User-Agent": build_user_agent(contact_email)}
     )
 
-    with urllib.request.urlopen(request, timeout=timeout) as resp:  # noqa: S310
+    with urllib.request.urlopen(  # noqa: S310
+        request, timeout=timeout, context=ssl_context
+    ) as resp:
         content_length = resp.headers.get("Content-Length")
         if content_length is not None:
             try:

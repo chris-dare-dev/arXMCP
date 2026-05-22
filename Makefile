@@ -1,4 +1,4 @@
-.PHONY: help bootstrap test eval up ingest delta re-embed watchdog cutover daily-report parser-failures-report sbom
+.PHONY: help bootstrap test eval up ingest delta re-embed watchdog cutover daily-report parser-failures-report sbom refresh-arxiv-ca
 
 # Override with `make test PYTHON=python3.13` if your default python3 is too old.
 PYTHON ?= python3
@@ -19,6 +19,7 @@ help:
 	@echo "  make daily-report           Scrape /metrics and write the daily ops report (E14_S04; see docs/ops/daily-ops-cadence.md)"
 	@echo "  make parser-failures-report Roll up parser-failures/*.{log,jsonl} into the weekly review (E14_S04; see docs/ops/parser-failure-review.md)"
 	@echo "  make sbom        Generate CycloneDX SBOMs + grype scan (E13_S06; see .claude/docs/security-threat-6-audit.md)"
+	@echo "  make refresh-arxiv-ca   Re-download infra/ca/arxiv-ca-bundle.pem and verify against live arxiv.org (E13_S07c)"
 	@echo ""
 	@echo "Override the python interpreter with: make test PYTHON=python3.13"
 	@echo ""
@@ -242,3 +243,42 @@ sbom:
 	@# A future flag that takes a path-bearing argument would need
 	@# the same "no spaces in ARGS" warning as ingest/re-embed/cutover.
 	bash tools/sbom.sh $(ARGS)
+
+refresh-arxiv-ca:
+	@# E13_S07c — refresh the pinned CA bundle for arxiv.org /
+	@# ar5iv.labs.arxiv.org / export.arxiv.org TLS verification
+	@# (Threat 7 mitigation #2). Re-downloads the canonical Let's
+	@# Encrypt ISRG Root X1 PEM and verifies the resulting bundle
+	@# accepts the live arxiv.org cert chain BEFORE writing to
+	@# infra/ca/arxiv-ca-bundle.pem.
+	@#
+	@# Cadence: ISRG Root X1 is valid until 2035-06-04. Roots
+	@# rotate rarely; intermediates rotate every 60-90 days but the
+	@# pin survives intermediate rotations. Re-run if:
+	@#   - ssl.SSLCertVerificationError on every arxiv fetch (root
+	@#     has rotated), OR
+	@#   - the bundle was deleted / corrupted / never committed in
+	@#     a fresh clone.
+	@#
+	@# Required tools: curl, openssl. The target REFUSES to overwrite
+	@# the bundle if the new PEM does not verify the live arxiv.org
+	@# cert chain — do NOT use --no-verify or similar; review the
+	@# failure and refresh manually if needed.
+	@#
+	@# See .claude/docs/security-threat-7-audit.md § "Refresh the
+	@# pinned CA bundle" for the rationale + manual fallback.
+	@command -v curl >/dev/null 2>&1 || { echo "ERROR: curl not found" >&2; exit 1; }
+	@command -v openssl >/dev/null 2>&1 || { echo "ERROR: openssl not found" >&2; exit 1; }
+	@mkdir -p infra/ca
+	@tmp=$$(mktemp); \
+		echo "Fetching ISRG Root X1 from letsencrypt.org..."; \
+		curl -fsSL https://letsencrypt.org/certs/isrgrootx1.pem -o $$tmp || { rm -f $$tmp; echo "ERROR: download failed" >&2; exit 1; }; \
+		echo "Verifying live arxiv.org cert chain against new bundle..."; \
+		openssl s_client -connect arxiv.org:443 -servername arxiv.org -CAfile $$tmp -verify_return_error </dev/null >/dev/null 2>&1 || { rm -f $$tmp; echo "ERROR: live arxiv.org cert does NOT verify against the new bundle. NOT writing infra/ca/arxiv-ca-bundle.pem." >&2; exit 1; }; \
+		echo "Verifying live export.arxiv.org cert chain..."; \
+		openssl s_client -connect export.arxiv.org:443 -servername export.arxiv.org -CAfile $$tmp -verify_return_error </dev/null >/dev/null 2>&1 || { rm -f $$tmp; echo "ERROR: live export.arxiv.org cert does NOT verify against the new bundle. NOT writing infra/ca/arxiv-ca-bundle.pem." >&2; exit 1; }; \
+		echo "Verifying live ar5iv.labs.arxiv.org cert chain..."; \
+		openssl s_client -connect ar5iv.labs.arxiv.org:443 -servername ar5iv.labs.arxiv.org -CAfile $$tmp -verify_return_error </dev/null >/dev/null 2>&1 || { rm -f $$tmp; echo "ERROR: live ar5iv.labs.arxiv.org cert does NOT verify against the new bundle. NOT writing infra/ca/arxiv-ca-bundle.pem." >&2; exit 1; }; \
+		mv $$tmp infra/ca/arxiv-ca-bundle.pem; \
+		echo "OK: bundle refreshed at infra/ca/arxiv-ca-bundle.pem (all three hosts verified)."; \
+		echo "Review the diff and commit: git diff infra/ca/arxiv-ca-bundle.pem"

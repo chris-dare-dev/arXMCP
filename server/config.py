@@ -326,30 +326,54 @@ class Config(BaseSettings):
     #: ``.claude/docs/security-binding.md``.
     unsafe_network_bind: bool = False
 
-    #: E13_S07 (Threat 7) — opt-in CA pinning flag for arxiv.org.
-    #: Default ``False``: ``urllib.request`` uses the system trust
-    #: store (safe-by-default; TLS verification cannot be disabled
-    #: by any ``ARXMCP_*`` env var).
+    #: E13_S07 (Threat 7) — opt-in CA pinning flag for arxiv.org +
+    #: ar5iv.labs.arxiv.org. Default ``False``: ``urllib.request``
+    #: uses the system trust store (safe-by-default; TLS verification
+    #: cannot be disabled by any ``ARXMCP_*`` env var).
     #:
-    #: **Forward-compatible placeholder. No current behavior.**
-    #: Setting ``True`` is accepted by the config but does NOT yet
-    #: change the SSL context — the field is plumbing for a future
-    #: milestone that will validate the arxiv.org certificate chain
-    #: against a pinned fingerprint. F1 rectification (E13_S07
-    #: adversary): the prior docstring claimed an INFO log was
-    #: emitted on opt-in; no such log exists yet. The actual log
-    #: line and the SSL-context wiring land together in the closure
-    #: milestone.
+    #: When ``True`` (E13_S07c wiring), the two arxiv-rooted fetch
+    #: sites — ``ingest/ar5iv_fetch.py::try_cache`` and
+    #: ``tools/arxiv_fetch.py::fetch_eprint`` — use an
+    #: ``ssl.SSLContext`` built from a pinned CA bundle instead of
+    #: the system trust store. The bundle defaults to the vendored
+    #: ISRG Root X1 PEM at ``infra/ca/arxiv-ca-bundle.pem``
+    #: (arxiv.org and ar5iv chain to Let's Encrypt; pinning the root
+    #: survives the 60-90-day intermediate rotation cadence). An
+    #: operator-supplied alternative path is accepted via
+    #: :attr:`arxiv_ca_bundle_path`.
     #:
-    #: The threat model in ``.claude/notes/08-security-observability-ops.md``
-    #: § Threat 7 lists this as one mitigation; the actual
-    #: certificate-chain inspection is deferred because the
-    #: arxiv.org CA rotates periodically and hard-coding a pin
-    #: without an operator refresh procedure creates more
-    #: operational toil than security benefit at Tier-5. See
-    #: ``.claude/docs/security-threat-7-audit.md`` for the full
-    #: rationale and the planned closure path.
+    #: **Fail-closed contract.** When this flag is ``True`` but the
+    #: resolved bundle path does not exist, the
+    #: :meth:`validate_arxiv_ca_bundle` model-validator raises
+    #: ``ValueError`` at Config-load time — the server does NOT
+    #: silently fall back to the system trust store, which would
+    #: defeat the entire purpose of the pin.
+    #:
+    #: Scope: arxiv.org + ar5iv.labs.arxiv.org ONLY. The pin does
+    #: NOT apply to OpenAlex / INSPIRE / OAI-PMH fetches — those
+    #: have separate hosts and separate CA chains, outside Threat 7
+    #: scope per the threat statement in
+    #: ``.claude/notes/08-security-observability-ops.md``.
+    #:
+    #: See ``.claude/docs/security-threat-7-audit.md`` for the
+    #: refresh procedure (``make refresh-arxiv-ca``) and the
+    #: rotation-cadence rationale.
     pin_arxiv_ca: bool = False
+
+    #: E13_S07c — operator override for the pinned CA bundle path.
+    #: Default ``None`` means "use the vendored bundle at
+    #: ``infra/ca/arxiv-ca-bundle.pem``". A non-None value is taken
+    #: verbatim (no path traversal, no envvar expansion); the
+    #: validator below checks the resolved file exists.
+    #:
+    #: Declared as a Config field (rather than read from the
+    #: environment directly) so the ``extra="forbid"`` contract
+    #: stays intact — undeclared ``ARXMCP_*`` env vars are caught at
+    #: startup by ``_scan_unknown_arxmcp_env_vars`` in
+    #: ``server/main.py``. Default-None semantics: only consulted
+    #: when ``pin_arxiv_ca=True``; never affects the safe-by-default
+    #: flag-off posture.
+    arxiv_ca_bundle_path: Path | None = None
 
     # --- Validators ------------------------------------------------------
 
@@ -380,6 +404,57 @@ class Config(BaseSettings):
                 f"still pinning the host side to 127.0.0.1), set "
                 f"``ARXMCP_UNSAFE_NETWORK_BIND=1`` to override; see "
                 f".claude/docs/security-binding.md for the full warning."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_arxiv_ca_bundle(self) -> Config:
+        """E13_S07c — fail-closed when ``pin_arxiv_ca=True`` but the
+        resolved CA bundle path does not exist.
+
+        Resolution order:
+
+        1. If :attr:`arxiv_ca_bundle_path` is set, take it verbatim.
+        2. Otherwise, fall back to the vendored bundle at
+           ``infra/ca/arxiv-ca-bundle.pem`` relative to the repo root.
+
+        Raises ``ValueError`` if the resolved path does not point at
+        a regular file. The exception fires at Config-load time
+        (before uvicorn binds, before any fetch is attempted) so an
+        operator sees the misconfiguration immediately and the
+        server cannot silently fall back to the system trust store —
+        which would defeat the entire point of the pin.
+
+        No-op when :attr:`pin_arxiv_ca` is ``False`` (the
+        safe-by-default flag-off posture).
+        """
+        if not self.pin_arxiv_ca:
+            return self
+        # Resolve the bundle path: operator override, else vendored.
+        if self.arxiv_ca_bundle_path is not None:
+            resolved = self.arxiv_ca_bundle_path
+            source = "ARXMCP_ARXIV_CA_BUNDLE_PATH"
+        else:
+            # Vendored bundle lives at <repo_root>/infra/ca/.
+            # ``server/config.py`` → parents[1] is the repo root.
+            resolved = (
+                Path(__file__).resolve().parents[1]
+                / "infra"
+                / "ca"
+                / "arxiv-ca-bundle.pem"
+            )
+            source = "vendored bundle"
+        if not resolved.is_file():
+            raise ValueError(
+                f"ARXMCP_PIN_ARXIV_CA=1 but CA bundle not found at "
+                f"{resolved!s} ({source}). Refusing to fall back to "
+                f"the system trust store — that would defeat the pin. "
+                f"Run ``make refresh-arxiv-ca`` to (re)create the "
+                f"vendored bundle, or set ARXMCP_ARXIV_CA_BUNDLE_PATH "
+                f"to a valid PEM file, or unset ARXMCP_PIN_ARXIV_CA "
+                f"to use the system trust store. See "
+                f".claude/docs/security-threat-7-audit.md (Threat 7 / "
+                f"E13_S07c)."
             )
         return self
 

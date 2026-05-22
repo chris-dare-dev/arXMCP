@@ -45,6 +45,7 @@ from __future__ import annotations
 
 import json
 import re
+import urllib.error
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -604,6 +605,227 @@ class TestPinArxivCaFlag:
             "audit doc must surface the 100 MB Content-Length cap value"
         )
         assert "Threat 7" in text
+
+
+# ===========================================================================
+# E13_S07c — ARXMCP_PIN_ARXIV_CA SSL-context wiring + refresh procedure
+#   Closes the partial-coverage gap G5 (github.com/chris-dare-dev/arXMCP#5).
+# ===========================================================================
+
+
+class TestPinArxivCaWiring:
+    """E13_S07c — closes Threat 7 G5 by wiring ``Config.pin_arxiv_ca``
+    into a real ``ssl.SSLContext`` consumer.
+
+    Six tests cover:
+      * Factory returns None when the flag is off (safe-by-default
+        flag-off posture preserved).
+      * Factory builds a properly-configured SSLContext when the flag
+        is on AND the vendored bundle is present.
+      * Factory raises RuntimeError when the flag is on AND the
+        resolved bundle is missing (defense-in-depth at the factory
+        layer).
+      * Config validator (model_validator) raises ValueError at
+        Config-load time when the flag is on AND the override path
+        points at a nonexistent file (primary fail-closed at startup,
+        BEFORE uvicorn binds).
+      * ``ar5iv_fetch.try_cache`` threads the ``ssl_context`` kwarg
+        into ``urllib.request.urlopen`` (both call sites pinned —
+        partial-coverage hole closed).
+      * ``arxiv_fetch.fetch_eprint`` threads the ``ssl_context``
+        kwarg into ``urllib.request.urlopen``.
+    """
+
+    def test_factory_returns_none_when_flag_off(
+        self, monkeypatch, tmp_path
+    ):
+        """``pin_arxiv_ca=False`` (default): factory returns ``None``
+        so callers pass ``context=None`` to ``urlopen`` which uses
+        the system trust store. The safe-by-default flag-off posture
+        must remain intact post-E13_S07c."""
+        from server.ssl_pin import build_arxiv_ssl_context
+
+        monkeypatch.delenv("ARXMCP_PIN_ARXIV_CA", raising=False)
+        monkeypatch.setenv("ARXMCP_DATA_DIR", str(tmp_path))
+        cfg = Config(_env_file=None)  # type: ignore[call-arg]
+        ctx = build_arxiv_ssl_context(cfg)
+        assert ctx is None, (
+            "flag-off must return None; got a real SSLContext which "
+            "would silently restrict the trust store"
+        )
+
+    def test_factory_builds_secure_context_when_flag_on(
+        self, monkeypatch, tmp_path
+    ):
+        """Flag on + vendored bundle present: factory returns an
+        SSLContext with ``check_hostname=True`` and
+        ``verify_mode=CERT_REQUIRED`` (per
+        ``ssl.create_default_context(cafile=...)`` semantics)."""
+        import ssl as _ssl
+
+        from server.ssl_pin import build_arxiv_ssl_context
+
+        monkeypatch.setenv("ARXMCP_PIN_ARXIV_CA", "1")
+        monkeypatch.setenv("ARXMCP_DATA_DIR", str(tmp_path))
+        cfg = Config(_env_file=None)  # type: ignore[call-arg]
+        ctx = build_arxiv_ssl_context(cfg)
+        assert ctx is not None
+        assert isinstance(ctx, _ssl.SSLContext)
+        assert ctx.check_hostname is True, (
+            "CA pinning must NOT weaken hostname verification "
+            "(Threat 7 TLS-disable rejection contract)"
+        )
+        assert ctx.verify_mode == _ssl.CERT_REQUIRED, (
+            "CA pinning must NOT weaken peer verification"
+        )
+        # The vendored bundle ships exactly one CA (ISRG Root X1).
+        certs = ctx.get_ca_certs()
+        assert len(certs) == 1, (
+            f"expected exactly 1 CA in the vendored bundle "
+            f"(ISRG Root X1); got {len(certs)}"
+        )
+        subject = certs[0].get("subject", ())
+        # Walk the RDN tuples for the CN.
+        cn = None
+        for rdn in subject:
+            for (k, v) in rdn:
+                if k == "commonName":
+                    cn = v
+        assert cn == "ISRG Root X1", (
+            f"vendored bundle should pin ISRG Root X1 (the Let's "
+            f"Encrypt root arxiv.org chains to); got CN={cn!r}"
+        )
+
+    def test_factory_raises_when_override_path_missing(
+        self, monkeypatch, tmp_path
+    ):
+        """Flag on + override path points at nonexistent file: the
+        Config validator fires at Config-load time (primary
+        fail-closed). The factory raise is the defense-in-depth
+        for the post-load deletion case."""
+        from pydantic import ValidationError
+
+        missing = tmp_path / "no-such-bundle.pem"
+        monkeypatch.setenv("ARXMCP_PIN_ARXIV_CA", "1")
+        monkeypatch.setenv(
+            "ARXMCP_ARXIV_CA_BUNDLE_PATH", str(missing)
+        )
+        monkeypatch.setenv("ARXMCP_DATA_DIR", str(tmp_path))
+        with pytest.raises(ValidationError) as ei:
+            Config(_env_file=None)  # type: ignore[call-arg]
+        # Error must clearly identify the cause + remediation.
+        msg = str(ei.value)
+        assert "CA bundle not found" in msg
+        assert "Refusing to fall back" in msg, (
+            "fail-closed message must explicitly say it refuses to "
+            "degrade to the system trust store"
+        )
+
+    def test_factory_runtime_raise_on_post_load_deletion(
+        self, monkeypatch, tmp_path
+    ):
+        """Defense-in-depth: even if the Config-load validator
+        passes, the factory layer must still raise if the bundle
+        is missing at fetch time (e.g. deleted between startup and
+        first fetch)."""
+        from server.ssl_pin import build_arxiv_ssl_context
+
+        # Build a valid bundle, then point Config at it, then delete.
+        bundle = tmp_path / "tmp-bundle.pem"
+        bundle.write_text(
+            (Path(__file__).resolve().parents[2]
+             / "infra" / "ca" / "arxiv-ca-bundle.pem")
+            .read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("ARXMCP_PIN_ARXIV_CA", "1")
+        monkeypatch.setenv("ARXMCP_ARXIV_CA_BUNDLE_PATH", str(bundle))
+        monkeypatch.setenv("ARXMCP_DATA_DIR", str(tmp_path))
+        cfg = Config(_env_file=None)  # type: ignore[call-arg]
+        # Config loaded successfully; now delete the bundle.
+        bundle.unlink()
+        with pytest.raises(RuntimeError, match="bundle not found"):
+            build_arxiv_ssl_context(cfg)
+
+    def test_ar5iv_fetch_threads_ssl_context_to_urlopen(
+        self, monkeypatch, tmp_path
+    ):
+        """``try_cache`` must pass the ``ssl_context`` kwarg to
+        ``urllib.request.urlopen(context=...)``. Pinning one site
+        but not the other would create partial coverage — the
+        regression guard for failure-mode (g) in research-brief-2.
+        """
+        from ingest.ar5iv_fetch import try_cache
+
+        sentinel = MagicMock(name="sentinel_ssl_context")
+        captured: dict[str, object] = {}
+
+        # Stub urlopen: capture the context kwarg, return a stub
+        # whose context-manager exit returns a 404-ish path so
+        # try_cache produces a miss without parsing real HTML.
+        def fake_urlopen(*args, **kwargs):
+            captured["context"] = kwargs.get("context")
+            import urllib.error
+            raise urllib.error.HTTPError(
+                url="https://ar5iv.labs.arxiv.org/html/test",
+                code=404,
+                msg="Not Found",
+                hdrs=None,
+                fp=None,
+            )
+
+        monkeypatch.setattr(
+            "urllib.request.urlopen", fake_urlopen
+        )
+        result = try_cache(
+            paper_id="2412.00001",
+            cache_dir=tmp_path / "cache",
+            parsed_dir=tmp_path / "parsed",
+            ssl_context=sentinel,
+        )
+        assert captured.get("context") is sentinel, (
+            f"try_cache did not thread ssl_context to urlopen; "
+            f"got {captured.get('context')!r}"
+        )
+        # The HTTPError 404 path produces a miss.
+        assert result.hit is False
+
+    def test_arxiv_fetch_threads_ssl_context_to_urlopen(
+        self, monkeypatch, tmp_path
+    ):
+        """``fetch_eprint`` must pass the ``ssl_context`` kwarg to
+        ``urlopen`` — same partial-coverage guard for the
+        ``tools/arxiv_fetch.py`` site."""
+        from tools.arxiv_fetch import fetch_eprint
+
+        sentinel = MagicMock(name="sentinel_ssl_context")
+        captured: dict[str, object] = {}
+
+        def fake_urlopen(*args, **kwargs):
+            captured["context"] = kwargs.get("context")
+            import urllib.error
+            raise urllib.error.HTTPError(
+                url="https://export.arxiv.org/e-print/2412.00001",
+                code=404,
+                msg="Not Found",
+                hdrs=None,
+                fp=None,
+            )
+
+        monkeypatch.setattr(
+            "urllib.request.urlopen", fake_urlopen
+        )
+        with pytest.raises(urllib.error.HTTPError):
+            fetch_eprint(
+                paper_id="2412.00001",
+                raw_dir=tmp_path,
+                contact_email="test@example.com",
+                ssl_context=sentinel,
+            )
+        assert captured.get("context") is sentinel, (
+            f"fetch_eprint did not thread ssl_context to urlopen; "
+            f"got {captured.get('context')!r}"
+        )
 
 
 # ===========================================================================

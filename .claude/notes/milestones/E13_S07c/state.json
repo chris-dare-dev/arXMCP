@@ -1,0 +1,79 @@
+{
+  "brief_source": "follow-up to E13_S07 / GitHub issue #5 (filed by E13_S10)",
+  "created_at": "2026-05-22T23:19:41Z",
+  "critics_run": [],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "low": 0,
+    "medium": 0
+  },
+  "critique_path": null,
+  "deferred_findings": [],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_required": [
+    {
+      "blocking": true,
+      "target": "main @ github.com/chris-dare-dev/arXMCP",
+      "type": "git_push",
+      "why": "land feat+rect+chore commits"
+    },
+    {
+      "blocking": true,
+      "target": "chris-dare-dev/arXMCP#5",
+      "type": "gh_issue_close",
+      "why": "close gap-issue G5 once SSL wiring lands"
+    }
+  ],
+  "fixed_findings": [],
+  "id": "E13_S07c",
+  "implementation_base": "52951ad2775ccf4b2da855ce2ad4027766fe5278",
+  "implementation_branch": null,
+  "implementation_commit_range": null,
+  "implementation_commits": [],
+  "implementation_path": "inline",
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "### E13_S07c \u2014 Implement ARXMCP_PIN_ARXIV_CA SSL-context wiring + refresh procedure (closes Threat 7 CA-pinning gap)\n\n**Status:** NEW (follow-up to E13_S07 Threat 7 audit; filed as `chris-dare-dev/arXMCP#5` by the E13_S10 cumulative coverage audit)\n**Tier:** 5\n**Effort:** M\n**Dependencies:** E13_S07 (introduced the forward-compat `ARXMCP_PIN_ARXIV_CA` stub in `server/config.py`)\n\n**Description.** Source: `.claude/docs/security-threat-model-coverage.md` (E13_S10 audit), Threat 7 row + GitHub issue [#5](https://github.com/chris-dare-dev/arXMCP/issues/5). The `ARXMCP_PIN_ARXIV_CA: bool = False` Config field in `server/config.py` is forward-compat plumbing today \u2014 the field is read but no code consumes it. The actual SSL-context wiring against a pinned arxiv.org CA bundle is deferred until the CA rotation cadence is settled so a fixed pin doesn't create operational toil exceeding the security benefit at Tier-5. This milestone implements the consumer side: an `ssl.SSLContext` configured against a bundled or operator-provided CA file, a documented refresh procedure, and the INFO startup log line that the audit doc currently disclaims as \"no current behavior.\"\n\n**Mitigation contract.** Threat 7 mitigation #2 from `.claude/notes/08-security-observability-ops.md`: \"Pin known fingerprint of arxiv.org's certificate authority chain (rotated periodically).\" Today the production posture is system-trust-store + safe-by-default urllib (good); CA pinning is the defense-in-depth layer for the case where the system trust store itself is compromised (rogue CA, malicious CA bundle update). The implementation must:\n- Default to OFF (preserve current safe-by-default posture; no operational toil unless explicitly opted in).\n- When ON, load a pinned CA bundle and use it for every arxiv.org / ar5iv.labs.arxiv.org fetch (the in-scope hosts per the threat statement) \u2014 NOT for `api.openalex.org` / `inspirehep.net` / `oaipmh.arxiv.org` (those are separate hosts not covered by Threat 7's arxiv-CA pin).\n- Emit a startup INFO log line so the opt-in is observable.\n- Document an operator-refresh procedure (Makefile target or audit-doc runbook).\n\n**Deliverables.**\n- An `ssl.SSLContext` factory (likely `server/ssl_pin.py` or a function in `server/config.py`) that, when `Config.pin_arxiv_ca` is True, builds an `SSLContext` from a pinned CA bundle path. Choose the bundle source: (a) ship a vendored bundle at `infra/ca/arxiv-ca-bundle.pem` (decide license/contents) OR (b) require the operator to supply a path via a second env var (`ARXMCP_ARXIV_CA_BUNDLE_PATH`). Researcher recommends one based on operational fit.\n- Consumer wiring in the relevant ingest fetch sites \u2014 `ingest/ar5iv_fetch.py` and `tools/arxiv_fetch.py` (the in-scope hosts for Threat 7). NOT in `graph_ingest.py` / `inspire_ingest.py` / `oai_delta.py` (separate hosts, separate CAs).\n- Startup INFO log line when `pin_arxiv_ca=True`, surfaced at server boot (likely in `server/main.py` lifespan or `server/resources.py::startup`).\n- Operator-refresh procedure documented in `.claude/docs/security-threat-7-audit.md` (CA pinning section). Either a `Makefile` target (`make refresh-arxiv-ca`) that downloads the live cert and inspects it, OR a runbook section the operator follows manually. The brief recommends a Makefile target for reproducibility.\n- Regression tests in `tests/security/test_source_ingest.py`: (a) the SSLContext factory builds correctly when the flag is set and a bundle path is supplied; (b) the factory raises a clear error when the flag is set but no bundle is found; (c) the startup INFO log is emitted (caplog); (d) the field default remains False (already tested by `TestPinArxivCaFlag::test_field_defaults_to_false` \u2014 extend, don't duplicate).\n- Update `.claude/docs/security-threat-7-audit.md` CA pinning section to remove the \"no current behavior\" disclaimer and document the actual behavior + refresh procedure.\n- Update `.claude/docs/security-threat-model-coverage.md` Threat 7 row + Gap-issue triage table to mark G5 (issue #5) closed.\n- Close `chris-dare-dev/arXMCP#5` via `gh issue close` once the implementation lands (Phase 4 external-write boundary).\n\n**Acceptance criteria.**\n- [ ] `Config.pin_arxiv_ca=True` causes `ingest/ar5iv_fetch.py` and `tools/arxiv_fetch.py` to use a pinned-CA `ssl.SSLContext` instead of the default system trust store.\n- [ ] Default remains OFF; setting the flag without a valid CA bundle raises a clear startup error (not a silent fallback).\n- [ ] Startup emits an INFO log line documenting the opt-in (so the operator knows the pin is active).\n- [ ] An operator-refresh procedure exists (Makefile target or audit-doc runbook).\n- [ ] `tests/security/test_source_ingest.py` adds regression tests covering: factory builds when bundle present, factory errors when bundle missing, startup log emitted, default still False.\n- [ ] `pytest tests/security/test_source_ingest.py` passes; existing 21 tests still pass.\n- [ ] `.claude/docs/security-threat-7-audit.md` CA pinning section removes the \"no current behavior\" disclaimer and documents actual behavior + refresh procedure.\n- [ ] `.claude/docs/security-threat-model-coverage.md` Threat 7 row no longer cites #5; Gap-issue triage row G5 marked closed.\n- [ ] `tests/security/test_threat_model_coverage.py` (E13_S10 staleness gate) still passes.\n- [ ] GitHub issue #5 closed with a commit reference.\n\n**Out of scope.** Extending CA pinning to non-arxiv hosts (OpenAlex / INSPIRE / OAI-PMH \u2014 those would each need their own pinned CA and separate operator-refresh cadence; out of Threat 7 scope). Automating CA rotation (the operator runs the refresh procedure manually; auto-refresh is a separate operational milestone). Any change to the existing `graph_ingest.py` / `inspire_ingest.py` / `oai_delta.py` fetch sites \u2014 those have their own redirect-host pins (E13_S07b) and use the default trust store for their respective hosts.\n\n**Risk notes.**\n- Closes G5 (LOW) from `.claude/docs/security-threat-model-coverage.md` E13_S10 gap-issue triage.\n- Severity LOW: system trust store + safe-by-default urllib already covers Threat 7's primary surface. CA pinning is defense-in-depth for the case where the system trust store is compromised.\n- **Operational risk:** a stale CA bundle would break ingest when arxiv.org rotates its cert chain. The operator-refresh procedure must be clearly documented. Watch for: a `make up`-driven flag-on without a bundle that silently uses the system trust store (defeats the pin \u2014 must FAIL CLOSED, not degrade).\n- **Bundle source decision is load-bearing:** vendoring a CA bundle in `infra/` makes the build self-contained but requires periodic bundle updates committed to the repo; requiring an operator-supplied path is more flexible but pushes the responsibility to the operator. The researcher should recommend.\n\n**Labels.** `area:security`, `area:server`, `area:ingest`, `risk:low`, `tier:5`, `closes:#5`\n",
+  "phase": "implement-running",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-22T23:19:41Z",
+      "left_at": "2026-05-22T23:20:31Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-22T23:20:31Z",
+      "left_at": "2026-05-22T23:27:16Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-22T23:27:16Z",
+      "left_at": "2026-05-22T23:27:31Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-05-22T23:27:31Z",
+      "left_at": null,
+      "phase": "implement-running"
+    }
+  ],
+  "rectification_commit": null,
+  "regression_tests_added": [],
+  "research_briefs": [
+    {
+      "agent_id": "researcher-1",
+      "brief_path": ".claude/notes/milestones/E13_S07c/research-brief-1.md",
+      "summary": "Vendor ISRG Root X1 PEM; declare arxiv_ca_bundle_path Config field; model_validator fail-closed"
+    },
+    {
+      "agent_id": "researcher-2",
+      "brief_path": ".claude/notes/milestones/E13_S07c/research-brief-2.md",
+      "summary": "7 failure modes; ssl.create_default_context(cafile=); thread context via urlopen kwarg; vendor at infra/ca/"
+    }
+  ],
+  "research_mode": "standard",
+  "research_synthesis": ".claude/notes/milestones/E13_S07c/research-synthesis.md",
+  "updated_at": "2026-05-22T23:27:31Z"
+}

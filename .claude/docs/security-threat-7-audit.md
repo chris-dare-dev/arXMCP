@@ -101,35 +101,73 @@ document them as part of the operator's threat model.
   Content-Length covering the whole document. Today's fetch sites do not
   parse multipart; the body is treated as a single blob subject to the cap.
 
-## CA pinning — `ARXMCP_PIN_ARXIV_CA` (opt-in, forward-compat)
+## CA pinning — `ARXMCP_PIN_ARXIV_CA` (opt-in, E13_S07c wired)
 
 The threat model lists "pin known fingerprint of arxiv.org's certificate
-authority chain (rotated periodically)" as a mitigation. We add the
-config-flag plumbing today but defer the actual certificate-chain
-inspection because:
+authority chain (rotated periodically)" as a mitigation. E13_S07 added the
+config-flag plumbing; **E13_S07c (2026-05-22, closes GitHub issue
+[`#5`](https://github.com/chris-dare-dev/arXMCP/issues/5)) wired it up**.
 
-1. arxiv.org rotates its CA periodically, so a hard-coded pin without an
-   operator-refresh procedure creates more operational toil than security
-   benefit at Tier-5.
-2. Live cert inspection requires production network access and a
-   documented update cadence; both are out of scope for a code-only
-   audit.
+### Behavior when opted in (`ARXMCP_PIN_ARXIV_CA=1`)
 
-The plumbing today:
+- The two arxiv-rooted fetch sites — `ingest/ar5iv_fetch.py::try_cache`
+  and `tools/arxiv_fetch.py::fetch_eprint` — use an `ssl.SSLContext`
+  built from a pinned CA bundle (replacing the system trust store)
+  instead of the OS default. The bundle is loaded via
+  `ssl.create_default_context(cafile=<path>)`, which preserves the
+  secure defaults (hostname verification ON, peer-cert verification
+  REQUIRED).
+- The pinned bundle ships as `infra/ca/arxiv-ca-bundle.pem` — a single
+  PEM containing **ISRG Root X1**, the Let's Encrypt root that
+  `arxiv.org`, `ar5iv.labs.arxiv.org`, and `export.arxiv.org` all chain
+  to. Valid until **2035-06-04**.
+- The pin is **scope-restricted to arxiv-rooted hosts** — it does NOT
+  apply to `api.openalex.org` (graph_ingest), `inspirehep.net`
+  (inspire_ingest), or `oaipmh.arxiv.org` (oai_delta). Those use the
+  default system trust store; redirect-host pinning (E13_S07b) is
+  their layered defense.
+- A startup INFO log fires when the pin is on, surfacing the bundle
+  path so the operator can confirm the active configuration in the
+  operational log.
 
-- `Config.pin_arxiv_ca: bool = False` (the `server/config.py` field).
-- Mapped to env var `ARXMCP_PIN_ARXIV_CA`. Pydantic `BaseSettings` accepts
-  the standard truthy values (`"1"`, `"true"`, `"True"`).
-- When True, the value is accepted by Config but **has no current
-  behavior**. The server today emits no startup INFO log on opt-in;
-  the log line and the SSL-context wiring land together in the
-  closure milestone (provisionally `E13_S07b` or rolled into a future
-  hardening pass) that implements the actual `ssl.SSLContext`
-  configuration. F1 rectification (E13_S07 adversary): the prior
-  draft of this doc and the field's docstring claimed an INFO log
-  was emitted today; that was aspirational, not actual.
-- Default False is production-ready: the system trust store + the
-  Content-Length cap already cover Threat 7's primary attack surface.
+### Why pin the ROOT, not the leaf or intermediate?
+
+Let's Encrypt leaf certs rotate every 60–90 days. The intermediate
+(R10/R11/E5/E6) also rotates on a months cadence. The root (ISRG Root
+X1) is valid for ~20 years and rotates rarely (the next planned
+rotation is to ISRG Root X2, which has already been issued as a
+cross-signed standby). **Pinning the root survives the 60–90-day
+intermediate rotations with zero operator intervention**, while still
+blocking any non-Let's-Encrypt certificate (rogue CA, malicious system
+trust-store update).
+
+### Fail-closed contract (load-bearing)
+
+Setting `ARXMCP_PIN_ARXIV_CA=1` without a valid CA bundle is a fatal
+configuration error, not a silent degrade. Two layers enforce this:
+
+1. **Config-load validator** (`Config.validate_arxiv_ca_bundle` in
+   `server/config.py`) — runs at Config-load time, BEFORE uvicorn
+   binds. Raises `ValueError` if the resolved bundle path does not
+   point at a regular file. This is the primary fail-closed.
+2. **Factory runtime check**
+   (`server.ssl_pin.resolve_arxiv_ca_bundle`) — runs at
+   ssl-context construction time. Raises `RuntimeError` for the
+   bundle-deleted-post-load case (defense-in-depth). The error
+   message names the bundle path AND the remediation
+   (`make refresh-arxiv-ca` or unset the flag).
+
+Silently falling back to the system trust store would defeat the
+entire purpose of the pin (a compromised system store is precisely
+what the pin defends against).
+
+### Operator override
+
+Operators with a custom bundle (e.g. a private CA in front of an
+arxiv mirror) can set `ARXMCP_ARXIV_CA_BUNDLE_PATH=/path/to/bundle.pem`.
+The override path is taken verbatim; the Config validator confirms
+it exists. When unset, the vendored bundle at
+`infra/ca/arxiv-ca-bundle.pem` is used.
 
 ## Acceptance-criteria status
 
@@ -197,20 +235,51 @@ git grep -nE '\bverify\s*=\s*False\b' -- 'ingest/**.py' 'tools/**.py' 'server/**
 
 Empty output means clean.
 
-### Enable opt-in CA pinning (forward-compat)
+### Enable opt-in CA pinning
 
 ```bash
 export ARXMCP_PIN_ARXIV_CA=1
 make up
 ```
 
-Today this is a forward-compat stub — the flag is accepted by Config
-but has **no current behavior**. Setting it does not change the SSL
-context and does not produce any log line. A future milestone will
-both (a) wire `ssl.SSLContext.load_verify_locations(...)` against a
-hardcoded arxiv.org CA bundle and (b) add the operator-facing INFO
-log so the opt-in is visible at startup. The flag default stays
-False until that closure lands.
+Startup INFO log will confirm the active pin:
+
+```
+INFO server.main: ARXMCP_PIN_ARXIV_CA=1 set; using pinned CA bundle
+     at <repo>/infra/ca/arxiv-ca-bundle.pem for arxiv.org /
+     ar5iv.labs.arxiv.org / export.arxiv.org fetches (Threat 7
+     mitigation #2). Refresh via `make refresh-arxiv-ca`.
+```
+
+If the bundle is missing/unreadable, startup fails with a clear
+`ValueError` from `Config.validate_arxiv_ca_bundle` — the server does
+NOT bind. Run `make refresh-arxiv-ca` to (re)create the bundle.
+
+### Refresh the pinned CA bundle
+
+```bash
+make refresh-arxiv-ca
+```
+
+The target re-downloads ISRG Root X1 from
+`https://letsencrypt.org/certs/isrgrootx1.pem`, verifies the new PEM
+accepts the live cert chains of `arxiv.org`, `export.arxiv.org`, AND
+`ar5iv.labs.arxiv.org` via `openssl s_client`, and only then writes
+`infra/ca/arxiv-ca-bundle.pem`. The target REFUSES the overwrite if
+any of the three hosts fails verification — review the failure
+manually rather than committing a broken bundle.
+
+**Cadence guidance.** ISRG Root X1 is valid until 2035-06-04. The
+root rotates rarely (next planned move is to ISRG Root X2). Refresh
+the bundle when:
+
+- You see `ssl.SSLCertVerificationError` on every arxiv-rooted fetch
+  (likely root rotation),
+- After a fresh clone where the bundle was somehow missing
+  (the file is committed and should be present),
+- As part of a periodic audit (e.g. annually), to confirm the
+  vendored bundle still matches what `make refresh-arxiv-ca`
+  would produce.
 
 ### Known gaps
 

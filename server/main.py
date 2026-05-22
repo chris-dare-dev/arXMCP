@@ -691,6 +691,20 @@ if __name__ == "__main__":
             ".claude/docs/security-binding.md.",
             cfg.bind_host,
         )
+    # E13_S07c Threat 7 — INFO log when CA pinning is on so the
+    # operator sees the opt-in at startup. The bundle path was
+    # already validated by ``Config.validate_arxiv_ca_bundle``
+    # (fail-closed); this log line just makes the active pin
+    # visible in the operational log.
+    if cfg.pin_arxiv_ca:
+        from server.ssl_pin import resolve_arxiv_ca_bundle
+        logger.info(
+            "ARXMCP_PIN_ARXIV_CA=1 set; using pinned CA bundle at %s "
+            "for arxiv.org / ar5iv.labs.arxiv.org / export.arxiv.org "
+            "fetches (Threat 7 mitigation #2). Refresh via "
+            "`make refresh-arxiv-ca`.",
+            resolve_arxiv_ca_bundle(cfg),
+        )
     logger.info(
         "Starting arxmcp-server on %s:%d", cfg.bind_host, cfg.bind_port
     )
