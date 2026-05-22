@@ -13,6 +13,47 @@ production cutover (E11).
 
 ## Unreleased
 
+### 2026-05-22 — `proof-verify` handler-wiring (m4): notebook-fixture validator + BM25 sentinels
+
+Closes the operational integration for the two user-curated math notebooks
+(bridgeland-stability — 39 papers, shimura-varieties — 12 papers). The
+per-notebook LanceDB indices were already populated during the m5 spike
+(which ran the rerank-lift evaluation against the live notebook trees);
+m4's job was to verify them, close the BM25 sentinel gap that m6's F2
+closure designed for, and ship a small validator for the per-notebook
+`queries.json` fixtures.
+
+- **New: `tools/validate_notebook_fixtures.py`** — standalone validator
+  for the per-notebook `queries.json` schema. Separate from the existing
+  `tools/validate_eval_fixtures.py` (the global eval validator has a
+  closed-schema guard against extra top-level keys, and the notebook
+  fixtures use paper-level relevance — `expected_relevant_papers:
+  ["<arxiv_id>", ...]` — whereas the global validator expects
+  chunk-level `relevant_chunks: [{chunk_id, relevance}, ...]`). The new
+  validator enforces top-level + per-query required keys, slug match,
+  `MIN_NOTEBOOK_QUERIES = 5` floor, valid arXiv-ID format on every
+  `expected_relevant_papers` entry, and membership in the notebook's
+  `papers.txt`. 29 tests at `tests/tools/test_validate_notebook_fixtures.py`
+  (including happy-path smoke tests against both real notebooks).
+- **BM25 sentinels closed** — `var/arxmcp/index/bm25/v157/.notebook_slug`
+  (= `bridgeland-stability`) and `var/arxmcp/index/bm25/v49/.notebook_slug`
+  (= `shimura-varieties`) written manually. These BM25 indices were
+  built BEFORE the m6 F2 sentinel logic landed, so they were sitting
+  unclaimed; the manual write closes the latent BM25 collision risk a
+  future third notebook would expose.
+- **Both notebooks verified end-to-end via daemon launch + `tools/list`** —
+  bridgeland daemon on port 7733 and shimura daemon on port 7734 each
+  reported the canonical 7 tools and returned notebook-specific paper
+  IDs on a sanity-check `search_papers` call (1309.4265, 1607.01262 for
+  bridgeland; 2310.16184, 1105.0887 for shimura). Smoke logs at
+  `var/arxmcp/notebooks/<slug>/ops/daemon-m4-smoke.log`.
+- **AC arithmetic correction** — the brief said `paper_count >= 80` but
+  was written for a 100-paper notebook size. The actual notebooks are
+  39 and 12 papers; m4 records the verified `COUNT(DISTINCT paper_id)`
+  (39 and 12 exact) against the corrected 80%-of-actual thresholds
+  (≥ 31 and ≥ 10). The `corpus-version.json::paper_count = 1` artifact
+  (per-batch count, not cumulative) is noted in the m4 deviations.
+
 ### 2026-05-21 — `proof-verify` handler-wiring (m1 + m2): `paper_id` filter goes live in `search_papers`
 
 The downstream `/proof-verify` per-notebook pipeline can now scope a
