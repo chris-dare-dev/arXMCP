@@ -54,6 +54,14 @@ MIN_NOTEBOOK_QUERIES: int = 5
 #: Required top-level keys in the notebook queries.json. The schema
 #: also commonly carries ``curated_by``, ``difficulty_classes``, and
 #: per-query ``notes`` — those are OPTIONAL and tolerated.
+#:
+#: If you edit this frozenset, ALSO update the live notebook fixtures
+#: at ``var/arxmcp/notebooks/{bridgeland-stability,shimura-varieties}/
+#: queries.json`` so the real-notebook happy-path tests at
+#: ``tests/tools/test_validate_notebook_fixtures.py::TestHappyPath::
+#: test_real_{bridgeland,shimura}_notebook_validates`` continue to
+#: pass. The validator <-> live-fixture coupling is intentional
+#: (m4 rect F3 cross-reference).
 REQUIRED_TOP_KEYS: frozenset[str] = frozenset({
     "schema_version",
     "notebook_slug",
@@ -143,6 +151,13 @@ def _validate_queries(queries: list, paper_id_set: set[str]) -> None:
                     f"queries[{i}={qid!r}].expected_relevant_papers[{j}] "
                     f"must be a string; got {type(pid).__name__}"
                 )
+            # m4 rect F5: is_valid_paper_id was hardened at m1 rect F3
+            # to reject trailing-newline / trailing-CR / leading-whitespace
+            # classes via the `\Z` anchor (see ingest/identifiers.py:67
+            # and tests/test_search_filter.py::TestRectificationGuards).
+            # The boundary-class coverage for this validator's own surface
+            # lives at tests/tools/test_validate_notebook_fixtures.py::
+            # TestPerQueryStructure::test_paper_id_boundary_classes_rejected.
             if not is_valid_paper_id(pid):
                 raise FixtureValidationError(
                     f"queries[{i}={qid!r}].expected_relevant_papers[{j}]="
@@ -176,20 +191,35 @@ def validate_notebook_fixture(slug: str) -> dict:
             f"papers.txt not found at {papers_path}"
         )
 
-    paper_ids = read_paper_ids_from_papers_txt(papers_path)
+    # m4 rect F2: wrap the read paths in try/except OSError so the
+    # CLI emits a single-line `FAIL: ...` message per the module
+    # docstring contract, rather than dumping a raw Python traceback
+    # on a TOCTOU race or a chmod-locked file. `json.JSONDecodeError`
+    # is also caught below.
+    try:
+        paper_ids = read_paper_ids_from_papers_txt(papers_path)
+    except OSError as e:
+        raise FixtureValidationError(
+            f"papers.txt at {papers_path} is unreadable: {e}"
+        ) from e
     if not paper_ids:
         raise FixtureValidationError(
             f"papers.txt at {papers_path} contains no valid paper IDs"
         )
     paper_id_set = set(paper_ids)
 
-    with queries_path.open(encoding="utf-8") as f:
-        try:
-            data = json.load(f)
-        except json.JSONDecodeError as e:
-            raise FixtureValidationError(
-                f"queries.json at {queries_path} is not valid JSON: {e}"
-            ) from e
+    try:
+        with queries_path.open(encoding="utf-8") as f:
+            try:
+                data = json.load(f)
+            except json.JSONDecodeError as e:
+                raise FixtureValidationError(
+                    f"queries.json at {queries_path} is not valid JSON: {e}"
+                ) from e
+    except OSError as e:
+        raise FixtureValidationError(
+            f"queries.json at {queries_path} is unreadable: {e}"
+        ) from e
 
     _validate_top_level(data, slug)
     _validate_queries(data["queries"], paper_id_set)

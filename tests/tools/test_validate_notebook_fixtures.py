@@ -338,6 +338,92 @@ class TestPerQueryStructure:
         ):
             validate_notebook_fixture("demo-nb")
 
+    @pytest.mark.parametrize(
+        "bad_pid",
+        [
+            "2604.26204\n",      # trailing newline (m1 rect F3)
+            "2604.26204\r",      # trailing CR
+            " 2604.26204",       # leading whitespace
+            "2604.26204 ",       # trailing whitespace
+            "2604.26204\nsuffix",  # embedded newline
+        ],
+    )
+    def test_paper_id_boundary_classes_rejected(
+        self, notebooks_base: Path, bad_pid: str,
+    ) -> None:
+        """m4 rect F5: confirm the validator's surface inherits the
+        m1-rect-F3 hardening on ``is_valid_paper_id`` (the ``\\Z``
+        anchor that rejects trailing-newline and friends). Pinning
+        these classes at the validator level — even though the
+        underlying function has its own coverage at
+        tests/test_search_filter.py — prevents a future refactor that
+        inlines a regex check from silently regressing the security
+        property documented in
+        .claude/notes/08-security-observability-ops.md §Threat 1."""
+        nb = self._setup(notebooks_base)
+        data = _make_queries_json(nb, "demo-nb")
+        data["queries"][0]["expected_relevant_papers"] = [bad_pid]
+        (nb / "queries.json").write_text(
+            json.dumps(data), encoding="utf-8"
+        )
+        with pytest.raises(
+            FixtureValidationError, match="is not a valid arXiv paper_id"
+        ):
+            validate_notebook_fixture("demo-nb")
+
+
+# ---------------------------------------------------------------------------
+# m4 rect F2 — IOError paths surface as FixtureValidationError
+# ---------------------------------------------------------------------------
+
+
+class TestIOErrorHandling:
+    """m4 rect F2: a read failure on either input file must surface
+    as a ``FixtureValidationError`` (single-line stderr in the CLI),
+    not a raw Python traceback. Verified by chmod 0o000 on the file."""
+
+    def test_unreadable_papers_txt_surfaces_as_fixture_error(
+        self, notebooks_base: Path,
+    ) -> None:
+        import os
+        import sys
+        if sys.platform == "win32":
+            pytest.skip("POSIX chmod semantics differ on Windows")
+        if os.geteuid() == 0:
+            pytest.skip("root bypasses POSIX permission bits")
+        nb = notebooks_base / "demo-nb"
+        _make_papers_txt(nb, ["2604.26204"])
+        _make_queries_json(nb, "demo-nb")
+        os.chmod(nb / "papers.txt", 0o000)
+        try:
+            with pytest.raises(
+                FixtureValidationError, match="papers.txt at .* is unreadable"
+            ):
+                validate_notebook_fixture("demo-nb")
+        finally:
+            os.chmod(nb / "papers.txt", 0o644)
+
+    def test_unreadable_queries_json_surfaces_as_fixture_error(
+        self, notebooks_base: Path,
+    ) -> None:
+        import os
+        import sys
+        if sys.platform == "win32":
+            pytest.skip("POSIX chmod semantics differ on Windows")
+        if os.geteuid() == 0:
+            pytest.skip("root bypasses POSIX permission bits")
+        nb = notebooks_base / "demo-nb"
+        _make_papers_txt(nb, ["2604.26204"])
+        _make_queries_json(nb, "demo-nb")
+        os.chmod(nb / "queries.json", 0o000)
+        try:
+            with pytest.raises(
+                FixtureValidationError, match="queries.json at .* is unreadable"
+            ):
+                validate_notebook_fixture("demo-nb")
+        finally:
+            os.chmod(nb / "queries.json", 0o644)
+
 
 # ---------------------------------------------------------------------------
 # CLI exit-code contract

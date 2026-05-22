@@ -291,6 +291,34 @@ class TestConfigValidation:
         with pytest.raises(ValidationError):
             Config(unknown_field="x")  # type: ignore[call-arg]
 
+    def test_contact_email_env_var_rejected(self, monkeypatch):
+        """``ARXMCP_CONTACT_EMAIL`` is an INGEST-side env var (consumed
+        by ``tools/arxiv_fetch.py`` for the polite User-Agent string)
+        and is NOT a declared server ``Config`` field. An earlier draft
+        of ``docs/ops/notebook-modes.md`` Mode 1 launch recipe
+        instructed operators to ``export ARXMCP_CONTACT_EMAIL=...``;
+        the server then refused to start with the custom
+        ``_scan_unknown_arxmcp_env_vars`` error from
+        ``server/main.py:232`` (an F4 closure from E06_S01 — pydantic's
+        ``extra="forbid"`` does NOT fire on env-var input, only on
+        direct ``__init__`` kwargs). The m4 rect F1 closure removed
+        the env var from the runbook AND pins this regression guard so
+        a future runbook reviewer cannot silently re-add it without
+        flipping this assertion.
+
+        If we ever DO want to accept the env var on the server side
+        (option (b) in the F1 fix tree — declare a no-op
+        ``contact_email: str | None = None`` field), invert this test
+        to assert acceptance and update both the runbook and the
+        comment on this test.
+        """
+        from server.main import _scan_unknown_arxmcp_env_vars
+
+        monkeypatch.setenv("ARXMCP_CONTACT_EMAIL", "test@example.com")
+        cfg = Config()
+        with pytest.raises(ValueError, match="ARXMCP_CONTACT_EMAIL"):
+            _scan_unknown_arxmcp_env_vars(cfg)
+
 
 # ===========================================================================
 # AC: Starting two server processes on the same port → clear error

@@ -59,9 +59,14 @@ workstation hardware this is borderline at 10 notebooks, painful at
 # Record the PID so `restart after ingest` can find it later:
 # env-var assignments don't appear in argv, so `pkill -f` matching
 # on ARXMCP_LANCEDB_PATH would silently match zero processes.
+#
+# ARXMCP_CONTACT_EMAIL is INGEST-SIDE only (it appears in the
+# arxiv.org User-Agent header from tools/arxiv_fetch.py) — the
+# server rejects unknown ARXMCP_* env vars at startup
+# (server/config.py SettingsConfigDict extra="forbid"), so do NOT
+# set it for daemon launch. m4 rect F1.
 export ARXMCP_LANCEDB_PATH=var/arxmcp/notebooks/bridgeland-stability/lancedb
 export ARXMCP_BIND_PORT=7733
-export ARXMCP_CONTACT_EMAIL=you@example.com
 mkdir -p var/arxmcp/notebooks/bridgeland-stability/ops
 nohup uv run python -m server.main \
   &> var/arxmcp/notebooks/bridgeland-stability/ops/daemon.log &
@@ -70,7 +75,6 @@ echo $! > var/arxmcp/notebooks/bridgeland-stability/ops/daemon.pid
 # Notebook B — shimura-varieties, port 7734
 ARXMCP_LANCEDB_PATH=var/arxmcp/notebooks/shimura-varieties/lancedb \
 ARXMCP_BIND_PORT=7734 \
-ARXMCP_CONTACT_EMAIL=you@example.com \
   nohup uv run python -m server.main \
     &> var/arxmcp/notebooks/shimura-varieties/ops/daemon.log &
 echo $! > var/arxmcp/notebooks/shimura-varieties/ops/daemon.pid
@@ -89,12 +93,38 @@ that points the daemon at the wrong directory — `/readyz` returns
 200, `tools/list` works, but every retrieval is from the wrong
 corpus. Catch this immediately:
 
+The arXMCP server enforces the MCP 2025-06-18 session-init
+handshake — a bare `tools/call` POST without a prior `initialize`
+returns `{"code":-32600,"message":"Bad Request: Missing session ID"}`.
+The sanity check therefore runs the full handshake: `initialize` →
+`notifications/initialized` → `tools/call` (m4 rect F1).
+
 ```bash
-# Verify the daemon serves the expected notebook
-curl -s -X POST -H 'Content-Type: application/json' \
-  -H 'Accept: application/json,text/event-stream' \
-  http://127.0.0.1:7733/mcp/ \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{
+# 1. Initialize an MCP session (captures the server-issued session id)
+SESSION_ID=$(curl -s -D - -X POST http://127.0.0.1:7733/mcp/ \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -H 'Origin: http://127.0.0.1:7733' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize",
+       "params":{"protocolVersion":"2025-06-18","capabilities":{},
+       "clientInfo":{"name":"sanity-check","version":"1.0"}}}' \
+  | awk 'tolower($1) == "mcp-session-id:" {gsub(/\r/,""); print $2}')
+
+# 2. Send the initialized notification (MCP spec MUST).
+curl -s -o /dev/null -X POST http://127.0.0.1:7733/mcp/ \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -H 'Origin: http://127.0.0.1:7733' \
+  -H "Mcp-Session-Id: $SESSION_ID" \
+  -d '{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}'
+
+# 3. Verify the daemon serves the expected notebook.
+curl -s -X POST http://127.0.0.1:7733/mcp/ \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -H 'Origin: http://127.0.0.1:7733' \
+  -H "Mcp-Session-Id: $SESSION_ID" \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{
         "name":"search_papers",
         "arguments":{"query":"<a known title>","k":1}}}' \
   | jq -r '.result.structuredContent.results[0].paper_id'
