@@ -2,6 +2,10 @@
   "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/plans",
   "created_at": "2026-05-22T17:47:29Z",
   "critics_run": [],
+  "critique_artifacts": [
+    ".claude/notes/milestones/proof-verify-handler-wiring-m10/critique-adversary.md",
+    ".claude/notes/milestones/proof-verify-handler-wiring-m10/critique-merged.md"
+  ],
   "critique_finding_counts": {
     "critical": 0,
     "high": 0,
@@ -9,21 +13,34 @@
     "medium": 0
   },
   "critique_path": null,
-  "deferred_findings": [],
+  "deferred_findings": [
+    {
+      "id": "F8",
+      "note": "duplicate notebook_dir stat on preview path; micro-perf only",
+      "sev": "LOW"
+    },
+    {
+      "id": "F9",
+      "note": "_paper_row_html URL interpolation lacks urllib.parse.quote; forward-compat only",
+      "sev": "LOW"
+    }
+  ],
   "external_writes_authorized": false,
   "external_writes_completed": false,
   "external_writes_required": [],
   "fixed_findings": [],
   "id": "proof-verify-handler-wiring-m10",
   "implementation_base": "2780945b364f62193dd9334cc24f30328adac7f5",
-  "implementation_branch": null,
-  "implementation_commit_range": null,
-  "implementation_commits": [],
+  "implementation_branch": "main",
+  "implementation_commit_range": "2780945b364f62193dd9334cc24f30328adac7f5..329c38f57c6b44a6a6f7496b1dceecd666263850",
+  "implementation_commits": [
+    "329c38f57c6b44a6a6f7496b1dceecd666263850"
+  ],
   "implementation_path": "inline",
   "implementation_specialist": null,
   "invalidated_findings": [],
   "milestone_brief": "### proof-verify-handler-wiring-m10 \u2014 (v2, Later lane) In-UI paper preview via sandboxed iframe\n\n**Description.** Add a \"Preview\" link next to each paper in the m8 browse table that renders the stored ar5iv HTML (`var/arxmcp/corpus/parsed/<paper_id>/index.html`) in a sandboxed iframe at `/ui/notebooks/{slug}/papers/{paper_id}/preview`. Define a tight CSP that disables scripts in the iframe (ar5iv HTML is static math content; no JS execution needed) and blocks external resource fetches so a malicious paper cannot exfiltrate via a crafted `<img src=\"https://attacker/...\">`. Set `sandbox=\"allow-same-origin\"` on the iframe (no scripts, no top-navigation).\n\n**Acceptance criteria.**\n- [ ] `GET /ui/notebooks/{slug}/papers/{paper_id}/preview` returns the stored HTML wrapped in a minimal page with CSP `default-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'none'`.\n- [ ] The \"Preview\" link is only present in the UI when the on-disk HTML exists; missing papers show a \"no preview available\" tooltip.\n- [ ] A test paper containing `<script>alert(1)</script>` does NOT execute the script when previewed (CSP test).\n- [ ] A test paper containing `<img src=\"https://example.com/track.png\">` does NOT make the outbound request (img-src 'self' test).\n\n**Dependencies.** m9 (UI shell + browse table).\n\n**Complexity.** S (~half day for the route + CSP; the testing covers the security boundary).\n\n**Specialist suggestion.** `security-reviewer` (CSP + sandbox boundary review is the load-bearing concern).\n\n---\n\n## Phase 4 \u2014 Materialize",
-  "phase": "implement-running",
+  "phase": "complete",
   "phase_history": [
     {
       "entered_at": "2026-05-22T17:47:29Z",
@@ -42,11 +59,39 @@
     },
     {
       "entered_at": "2026-05-22T18:04:58Z",
-      "left_at": null,
+      "left_at": "2026-05-22T18:16:42Z",
       "phase": "implement-running"
+    },
+    {
+      "entered_at": "2026-05-22T18:16:42Z",
+      "left_at": "2026-05-22T18:16:59Z",
+      "phase": "implement-complete"
+    },
+    {
+      "entered_at": "2026-05-22T18:16:59Z",
+      "left_at": "2026-05-22T18:25:51Z",
+      "phase": "critique-running"
+    },
+    {
+      "entered_at": "2026-05-22T18:25:51Z",
+      "left_at": "2026-05-22T18:25:56Z",
+      "phase": "critique-complete"
+    },
+    {
+      "entered_at": "2026-05-22T18:25:56Z",
+      "left_at": "2026-05-22T18:35:09Z",
+      "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-05-22T18:35:09Z",
+      "left_at": null,
+      "phase": "complete"
     }
   ],
   "rectification_commit": null,
+  "rectify_commits": [
+    "4f24a70e6681db0e1cc6ea33b71bea79859d3437"
+  ],
   "regression_tests_added": [],
   "research_briefs": [
     {
@@ -62,5 +107,5 @@
   ],
   "research_mode": "standard",
   "research_synthesis": ".claude/notes/milestones/proof-verify-handler-wiring-m10/research-synthesis.md",
-  "updated_at": "2026-05-22T18:05:00Z"
+  "updated_at": "2026-05-22T18:35:09Z"
 }
