@@ -196,11 +196,18 @@ by this milestone.
 **Mitigation epic:** E06_S05 (`server/middleware.py::OriginValidationMiddleware`
 + `HostValidationMiddleware`), E13_S05 (`Sec-Fetch-Site` enforcement +
 `ARXMCP_ALLOWED_ORIGINS` env var + DNS-rebinding tests + bind-host 0.0.0.0
-rejection).
+rejection), `proof-verify-handler-wiring-m7` (path-prefix carve-out on
+`SecFetchSiteMiddleware` for the new `/ui/*` REST surface so same-origin
+htmx posts pass while the MCP surface continues rejecting same-origin —
+the DNS-rebinding defense on `/mcp` is preserved).
 **Audit epic:** E13_S05 (HTTP layer) + E13_S09 (TCP-bind layer regression).
 **Test files:** [`tests/security/test_origin_binding.py`](../../tests/security/test_origin_binding.py)
 (HTTP middleware + escape-hatch behavior) + [`tests/security/test_bind_regression.py`](../../tests/security/test_bind_regression.py)
-(TCP-bind regression suite).
+(TCP-bind regression suite) + [`tests/security/test_sec_fetch_site_carveout.py`](../../tests/security/test_sec_fetch_site_carveout.py)
+(the m7 `/ui/*` carve-out: pins that `/mcp` still rejects same-origin,
+`/ui/api/*` accepts same-origin, and prefix-not-substring matching is
+enforced so `/uiOTHER` and `/evil-ui/...` stay rejected — FM-3 from
+the m7 synthesis).
 **Gaps:** (none).
 
 ---

@@ -1,0 +1,66 @@
+{
+  "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/plans",
+  "created_at": "2026-05-22T01:57:37Z",
+  "critics_run": [],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "low": 0,
+    "medium": 0
+  },
+  "critique_path": null,
+  "deferred_findings": [],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_required": [],
+  "fixed_findings": [],
+  "id": "proof-verify-handler-wiring-m7",
+  "implementation_base": "3b43a460698a0b1db3b1855ab7ec783245fb2aa1",
+  "implementation_branch": null,
+  "implementation_commit_range": null,
+  "implementation_commits": [],
+  "implementation_path": "inline",
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "### proof-verify-handler-wiring-m7 \u2014 Notebook persistence layer + REST CRUD under `/ui/api`\n\n**Description.** Add a `notebooks` SQLite table (sibling to `cache_db_path`) with `(slug, display_name, lancedb_path, created_at)` columns plus a `notebook_papers` junction table. Wire `/ui/api/notebooks` (GET/POST/DELETE) and `/ui/api/notebooks/{slug}/papers` (GET/POST/DELETE) as pure-JSON FastAPI routes, reusing the existing pure-ASGI middleware stack. Carve `/ui/*` out of `SecFetchSiteMiddleware` so same-origin htmx posts pass \u2014 without this carve-out, htmx \u2192 browser \u2192 daemon traffic fails the Sec-Fetch-Site `same-origin` rejection rule. **Deletion semantics (resolved 2026-05-21):** `DELETE /ui/api/notebooks/{slug}` is **metadata-only** \u2014 drops the SQLite row and the junction entries; the on-disk LanceDB / BM25 / ar5iv assets under `var/arxmcp/notebooks/{slug}/` are NOT touched. Destructive on-disk wipe is the explicit job of `tools/notebook_purge.py <slug>` (m6). The UI surfaces this in a confirmation tooltip (\"Removes notebook from UI; run `tools/notebook_purge.py` to delete on-disk data\").\n\n**Acceptance criteria.**\n- [ ] `POST /ui/api/notebooks {\"slug\":\"bridgeland\"}` creates a row and a `var/arxmcp/notebooks/bridgeland/` directory; idempotent on duplicate slug (HTTP 409).\n- [ ] `POST /ui/api/notebooks/bridgeland/papers {\"arxiv_url\":\"https://arxiv.org/abs/2604.26204\"}` normalizes the URL, validates against the existing `paper_id` regex from `ingest/identifiers.py`, and writes a junction row.\n- [ ] `DELETE /ui/api/notebooks/bridgeland` drops the SQLite row + junction entries but leaves `var/arxmcp/notebooks/bridgeland/` intact on disk. Subsequent `POST` with the same slug succeeds (no leftover state corruption from the on-disk dir).\n- [ ] `SecFetchSiteMiddleware` exempts `/ui/*` and is covered by a new test asserting `Sec-Fetch-Site: same-origin` is rejected on `/mcp` but accepted on `/ui/api/notebooks`.\n- [ ] `tests/test_server_tool_schema.py::EXPECTED_TOOL_SCHEMA_SHA256` unchanged; no new MCP tools (this is a sibling REST surface, not an MCP surface change).\n- [ ] `make test` green.\n\n**Dependencies.** m6 (notebook directory layout); independent of e1 filter wiring (m1).\n\n**Complexity.** M (1\u20133 days).\n\n**Specialist suggestion.** `mcp-protocol-reviewer` (verify the route prefix carve-out doesn't bleed onto `/mcp`) + `security-reviewer` (paper_id regex enforcement on URL paste).",
+  "phase": "implement-running",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-22T01:57:37Z",
+      "left_at": "2026-05-22T01:57:51Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-22T01:57:51Z",
+      "left_at": "2026-05-22T02:06:11Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-22T02:06:11Z",
+      "left_at": "2026-05-22T02:06:18Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-05-22T02:06:18Z",
+      "left_at": null,
+      "phase": "implement-running"
+    }
+  ],
+  "rectification_commit": null,
+  "regression_tests_added": [],
+  "research_briefs": [
+    {
+      "agent_id": "researcher-1",
+      "brief_path": ".claude/notes/milestones/proof-verify-handler-wiring-m7/research-brief-1.md",
+      "summary": "in-codebase plumbing: exempt_prefixes pattern + Tier1Store inheritance"
+    },
+    {
+      "agent_id": "researcher-2",
+      "brief_path": ".claude/notes/milestones/proof-verify-handler-wiring-m7/research-brief-2.md",
+      "summary": "failure modes + Option A vs B; separate notebooks.db file"
+    }
+  ],
+  "research_mode": "standard",
+  "research_synthesis": ".claude/notes/milestones/proof-verify-handler-wiring-m7/research-synthesis.md",
+  "updated_at": "2026-05-22T02:06:18Z"
+}

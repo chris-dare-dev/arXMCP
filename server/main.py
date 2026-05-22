@@ -304,6 +304,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     set_resources(resources)
 
+    # proof-verify-handler-wiring-m7: open the NotebooksStore for
+    # the /ui/api/notebooks REST surface. Kept SEPARATE from
+    # Resources so the HTTP-only UI surface doesn't entangle with
+    # the ML-resource lifecycle (synthesis D5).
+    from server.notebooks_store import NotebooksStore  # noqa: PLC0415
+
+    app.state.notebooks_store = await NotebooksStore.open(
+        config.notebooks_db_path
+    )
+
     # F2 fix: thread the MCP session-manager lifespan into ours. The
     # mcp_server is attached to app.state by ``mount_mcp``.
     mcp_server = getattr(app.state, "mcp_server", None)
@@ -315,6 +325,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         else:
             yield
     finally:
+        # m7: close the NotebooksStore connection BEFORE Resources
+        # shutdown so its async lock can drain cleanly. The store is
+        # cheap to close (just a sqlite3.Connection.close); failures
+        # are logged and swallowed inside NotebooksStore.close.
+        notebooks_store = getattr(app.state, "notebooks_store", None)
+        if notebooks_store is not None:
+            await notebooks_store.close()
         try:
             await asyncio.wait_for(resources.shutdown(), timeout=30.0)
         except TimeoutError:
@@ -432,7 +449,16 @@ def create_app(config: Config | None = None) -> FastAPI:
     # value except `none` or absent. Mounted JUST INSIDE the
     # outermost SecurityHeaders so the cheap header check fires
     # first on browser-mediated probes.
-    app.add_middleware(SecFetchSiteMiddleware)
+    #
+    # m7: the `/ui/*` REST + (future) HTML surface is exempt from
+    # this check. The htmx UI running at `http://127.0.0.1:7733/ui/`
+    # making a fetch() to `/ui/api/notebooks` is a same-origin
+    # subresource — the browser sets `Sec-Fetch-Site: same-origin`,
+    # which the default check 403s. The carve-out preserves the
+    # DNS-rebinding defense on `/mcp` (still 403s same-origin) while
+    # letting the in-page UI talk to the daemon. OriginValidation +
+    # HostValidation still fire on `/ui/*` (Option A from synthesis).
+    app.add_middleware(SecFetchSiteMiddleware, exempt_prefixes=("/ui",))
     # X-Content-Type-Options + X-Frame-Options on every response.
     app.add_middleware(SecurityHeadersMiddleware)
 
@@ -446,6 +472,14 @@ def create_app(config: Config | None = None) -> FastAPI:
     from server.routes.debug import router as debug_router
 
     app.include_router(debug_router, prefix="/debug")
+
+    # proof-verify-handler-wiring-m7: per-notebook REST surface for
+    # the htmx UI (m8 ships the templates). All routes are JSON-only
+    # and exempt from SecFetchSiteMiddleware via the /ui carve-out
+    # above. OriginValidation + HostValidation still apply.
+    from server.routes.notebooks import router as notebooks_router
+
+    app.include_router(notebooks_router, prefix="/ui/api")
 
     # Metrics ASGI sub-app. We wrap with a tiny middleware that
     # refreshes the gauges from the resources state at scrape time.

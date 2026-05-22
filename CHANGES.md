@@ -13,6 +13,68 @@ production cutover (E11).
 
 ## Unreleased
 
+### 2026-05-22 — `proof-verify` handler-wiring (m7): notebook REST API + SecFetchSite carve-out
+
+First-cut HTTP UI surface for the per-notebook workflow. Adds the
+six routes the m8 htmx UI will consume, backed by a new SQLite table
+file. The MCP surface is unchanged — `EXPECTED_TOOL_SCHEMA_SHA256`
+remains pinned, no new MCP tools shipped.
+
+- **NEW: `server/notebooks_store.py`** — `NotebooksStore` class
+  mirroring `cache_sqlite.py::Tier1Store` (asyncio.to_thread +
+  asyncio.Lock + WAL mode). Two tables: `notebooks(slug PRIMARY KEY,
+  display_name, lancedb_path, created_at)` and
+  `notebook_papers(slug, paper_id, added_at, FOREIGN KEY ON DELETE
+  CASCADE)`. `PRAGMA foreign_keys = ON` per connection so the
+  cascading delete fires (FM-7 closure). Backed by a SEPARATE DB file
+  (`var/arxmcp/cache/notebooks.db`) — NOT in the existing
+  `retrieval.db` — so a schema-version bump on either side doesn't
+  trigger the OTHER's DROP-AND-RECREATE migration (FM-6).
+- **NEW: `server/routes/notebooks.py`** — six FastAPI routes mounted
+  at `/ui/api` via `app.include_router(notebooks_router,
+  prefix="/ui/api")`:
+  - `GET /notebooks` — list (ordered by `created_at DESC`)
+  - `POST /notebooks` — create (201; 409 on duplicate slug)
+  - `DELETE /notebooks/{slug}` — metadata-only (204; on-disk
+    `var/arxmcp/notebooks/<slug>/` survives — destructive wipe is
+    `tools/notebook_purge.py`'s job, per the m7 brief deletion
+    semantics resolved 2026-05-21)
+  - `GET /notebooks/{slug}/papers` — list junction rows
+  - `POST /notebooks/{slug}/papers` — normalize arxiv URL via new
+    `_arxiv_url_to_paper_id()` helper (host whitelist + `/abs/`
+    prefix + `is_valid_paper_id()` post-validation per m1 rect F3
+    hardening), insert junction row
+  - `DELETE /notebooks/{slug}/papers/{paper_id}` — single-row
+    removal (uses `{paper_id:path}` to accept the embedded slash in
+    old-style IDs like `hep-th/0001234`)
+- **NEW: `SecFetchSiteMiddleware` `exempt_prefixes` arg** — path-
+  prefix carve-out so the htmx UI's same-origin POSTs to
+  `/ui/api/*` pass without 403'ing on `Sec-Fetch-Site: same-origin`.
+  Wired with `exempt_prefixes=("/ui",)` in `server/main.py`. The
+  MCP surface (`/mcp`) is NOT in any exempt prefix and continues
+  rejecting same-origin (the DNS-rebinding defense from
+  `08-security-observability-ops.md` Threat 5 is preserved on the
+  MCP surface).
+- **Config field**: `Config.notebooks_db_path: Path` defaulting to
+  `var/arxmcp/cache/notebooks.db`. The custom env-var scanner
+  (`_scan_unknown_arxmcp_env_vars`) picks the field up automatically
+  via `Config.model_fields`.
+- **Test surface**: +44 tests across
+  `tests/test_notebook_api.py` (CRUD, URL normalizer, FK cascade,
+  POST-after-delete, store persistence) and 15 tests in
+  `tests/security/test_sec_fetch_site_carveout.py` (the carve-out
+  itself: `/mcp` still rejects same-origin; `/ui/api/*` accepts it;
+  prefix-not-substring matching enforced so `/uiOTHER` and
+  `/evil-ui/...` stay rejected — FM-3 closure).
+- **`security-threat-model-coverage.md`** extended with the m7
+  carve-out under Threat 5 (origin spoofing); the threat-coverage
+  invariant test now sees `test_sec_fetch_site_carveout.py` as
+  cited.
+
+`make test`: **2355 passed** (+59 from m4 baseline), 9 skipped, 1
+xfailed. Ruff clean. `EXPECTED_TOOL_SCHEMA_SHA256` unchanged
+(verified — no new MCP tools).
+
 ### 2026-05-22 — `proof-verify` handler-wiring (m4): notebook-fixture validator + BM25 sentinels
 
 Closes the operational integration for the two user-curated math notebooks

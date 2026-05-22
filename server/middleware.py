@@ -456,11 +456,44 @@ class SecFetchSiteMiddleware:
     #: The only permitted value when the header IS present.
     _ALLOWED_VALUE = b"none"
 
-    def __init__(self, app: Callable[..., Awaitable[None]]) -> None:
+    def __init__(
+        self,
+        app: Callable[..., Awaitable[None]],
+        exempt_prefixes: tuple[str, ...] = (),
+    ) -> None:
+        """Initialize.
+
+        Args:
+            app: The downstream ASGI app.
+            exempt_prefixes: Path prefixes that bypass the
+                Sec-Fetch-Site check entirely. Used by the m7 UI
+                surface (``/ui/*``) where same-origin htmx requests
+                from the in-page UI to the same daemon's REST API
+                MUST be allowed despite carrying
+                ``Sec-Fetch-Site: same-origin``. The MCP surface
+                stays protected because it lives outside any exempt
+                prefix. Match form: ``path == prefix`` OR
+                ``path.startswith(prefix + "/")`` — prefix-match, NOT
+                substring (FM-3 from m7 synthesis; prevents
+                ``/evil-ui/foo`` from accidentally matching ``/ui``).
+        """
         self.app = app
+        self._exempt_prefixes: tuple[str, ...] = exempt_prefixes
 
     async def __call__(self, scope: dict, receive: Callable, send: Callable) -> None:
         if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        # m7: path-prefix exemption (e.g. `/ui/*` for the notebook
+        # REST UI). The prefix-match form catches `/ui` exactly AND
+        # `/ui/api/notebooks` but NOT `/evil-ui/...` — see the
+        # constructor docstring for the FM-3 rationale.
+        path = scope.get("path", "")
+        if any(
+            path == p or path.startswith(p + "/")
+            for p in self._exempt_prefixes
+        ):
             await self.app(scope, receive, send)
             return
 

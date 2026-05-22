@@ -109,6 +109,15 @@ class Config(BaseSettings):
     #: legacy in-memory scan over the chunks table.
     theorem_names_db_path: Path = Path("var/arxmcp/index/sqlite/theorem_names.db")
 
+    #: SQLite file path for the per-notebook metadata store
+    #: (proof-verify-handler-wiring-m7). SEPARATE file from
+    #: ``cache_db_path`` so a schema-version bump on either side
+    #: does not trigger the OTHER's DROP-AND-RECREATE migration
+    #: (m7 synthesis FM-6). Sibling to ``cache_db_path`` per the
+    #: m7 brief; the per-notebook on-disk assets live elsewhere
+    #: at ``var/arxmcp/notebooks/<slug>/`` and are NOT in this DB.
+    notebooks_db_path: Path = Path("var/arxmcp/cache/notebooks.db")
+
     #: Directory that holds cron-emitted sentinel files
     #: (drift-detected.flag, eval-quarantine.flag,
     #: delta-timeout.flag, backup-status.json) plus the
