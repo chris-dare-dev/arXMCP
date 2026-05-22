@@ -1,6 +1,9 @@
 {
   "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/plans",
   "created_at": "2026-05-22T00:45:03Z",
+  "critic_invalidation_rates": {
+    "adversary": 0.0
+  },
   "critics_run": [],
   "critique_finding_counts": {
     "critical": 0,
@@ -8,22 +11,66 @@
     "low": 0,
     "medium": 0
   },
+  "critique_merged": ".claude/notes/milestones/proof-verify-handler-wiring-m4/critique-merged.md",
   "critique_path": null,
-  "deferred_findings": [],
+  "critiques": [
+    {
+      "agent_id": "adversary",
+      "critique_path": ".claude/notes/milestones/proof-verify-handler-wiring-m4/critique-adversary.md",
+      "fired": true,
+      "summary": "0 CRIT, 1 HIGH, 4 MED, 2 LOW; 7 findings"
+    }
+  ],
+  "deferred_findings": [
+    {
+      "id": "F6",
+      "reason": "synthesis-doc drift (shimura has 10 queries not 8); LOW; re-opening closed synthesis is anti-pattern",
+      "sev": "LOW"
+    },
+    {
+      "id": "F7",
+      "reason": "defensive isinstance typing on top-level string fields; cluster naturally with ISO-8601 date validation for a future hardening pass",
+      "sev": "LOW"
+    }
+  ],
   "external_writes_authorized": false,
   "external_writes_completed": false,
   "external_writes_required": [],
+  "findings_closed": [
+    {
+      "id": "F1",
+      "sev": "HIGH"
+    },
+    {
+      "id": "F2",
+      "sev": "MEDIUM"
+    },
+    {
+      "id": "F3",
+      "sev": "MEDIUM"
+    },
+    {
+      "id": "F4",
+      "sev": "MEDIUM"
+    },
+    {
+      "id": "F5",
+      "sev": "MEDIUM"
+    }
+  ],
   "fixed_findings": [],
   "id": "proof-verify-handler-wiring-m4",
   "implementation_base": "8cb1e94c303c12a83e76824d8fd0179e88dd3721",
-  "implementation_branch": null,
-  "implementation_commit_range": null,
-  "implementation_commits": [],
+  "implementation_branch": "main",
+  "implementation_commit_range": "8cb1e94c303c12a83e76824d8fd0179e88dd3721..2de87536780197ba93098533e4606eaaa9ea9eac",
+  "implementation_commits": [
+    "2de87536780197ba93098533e4606eaaa9ea9eac"
+  ],
   "implementation_path": "inline",
   "implementation_specialist": null,
   "invalidated_findings": [],
   "milestone_brief": "### proof-verify-handler-wiring-m4 \u2014 Ingest user-curated notebooks via `tools/notebook_ingest.py`\n\n**Description.** Accept the user-curated `var/arxmcp/notebooks/<slug>/{papers.txt,queries.json}` files (slug \u2208 {`bridgeland-stability`, `shimura-varieties`}) and run `tools/notebook_fetch.py <slug>` (from m6) to pre-populate ar5iv HTML, then `tools/notebook_ingest.py <slug>` (also m6) to build the per-notebook LanceDB + BM25 indices. Verify both notebooks are independently queryable via the operational per-daemon workaround OR a single daemon switching via `ARXMCP_LANCEDB_PATH`.\n\n**Acceptance criteria.**\n- [ ] Given `var/arxmcp/notebooks/bridgeland-stability/papers.txt` exists, When `tools/notebook_ingest.py bridgeland-stability` runs, Then `var/arxmcp/notebooks/bridgeland-stability/lancedb/chunks.lance/` exists with `corpus-version.json` and `paper_count >= 80` (allowing for ar5iv-miss fail-rate \u2264 20%).\n- [ ] Same for `shimura-varieties`.\n- [ ] BM25 indices built per notebook at `var/arxmcp/notebooks/<slug>/index/bm25/v<N>/`.\n- [ ] Both notebook fixtures pass `tools/validate_eval_fixtures.py` (extended to accept the per-notebook scope field).\n- [ ] An operator can launch a daemon against either notebook via `ARXMCP_LANCEDB_PATH=var/arxmcp/notebooks/<slug>/lancedb` and `tools/list` works.\n\n**Dependencies.** m6 (provides `tools/notebook_ingest.py`). User-curated fixtures land. Not blocked by m1/m2/m3 (parallelizable).\n\n**Complexity.** S (~1 day of mostly waiting once fixtures + m6 land).\n\n**Specialist suggestion.** `\u2014`.",
-  "phase": "implement-running",
+  "phase": "complete",
   "phase_history": [
     {
       "entered_at": "2026-05-22T00:45:03Z",
@@ -42,11 +89,39 @@
     },
     {
       "entered_at": "2026-05-22T00:57:07Z",
-      "left_at": null,
+      "left_at": "2026-05-22T01:09:06Z",
       "phase": "implement-running"
+    },
+    {
+      "entered_at": "2026-05-22T01:09:06Z",
+      "left_at": "2026-05-22T01:09:24Z",
+      "phase": "implement-complete"
+    },
+    {
+      "entered_at": "2026-05-22T01:09:24Z",
+      "left_at": "2026-05-22T01:35:17Z",
+      "phase": "critique-running"
+    },
+    {
+      "entered_at": "2026-05-22T01:35:17Z",
+      "left_at": "2026-05-22T01:35:17Z",
+      "phase": "critique-complete"
+    },
+    {
+      "entered_at": "2026-05-22T01:35:17Z",
+      "left_at": "2026-05-22T01:42:45Z",
+      "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-05-22T01:42:45Z",
+      "left_at": null,
+      "phase": "complete"
     }
   ],
   "rectification_commit": null,
+  "rectify_commits": [
+    "ab464c35dc78914a8a6b4926b761f2d80d607565"
+  ],
   "regression_tests_added": [],
   "research_briefs": [
     {
@@ -62,5 +137,5 @@
   ],
   "research_mode": "standard",
   "research_synthesis": ".claude/notes/milestones/proof-verify-handler-wiring-m4/research-synthesis.md",
-  "updated_at": "2026-05-22T00:57:07Z"
+  "updated_at": "2026-05-22T01:42:45Z"
 }
