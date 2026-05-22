@@ -55,22 +55,30 @@ workstation hardware this is borderline at 10 notebooks, painful at
 ### Launch
 
 ```bash
-# Notebook A — bridgeland-stability, port 7733 (the default)
+# Notebook A — bridgeland-stability, port 7733 (the default).
+# Record the PID so `restart after ingest` can find it later:
+# env-var assignments don't appear in argv, so `pkill -f` matching
+# on ARXMCP_LANCEDB_PATH would silently match zero processes.
 export ARXMCP_LANCEDB_PATH=var/arxmcp/notebooks/bridgeland-stability/lancedb
 export ARXMCP_BIND_PORT=7733
 export ARXMCP_CONTACT_EMAIL=you@example.com
-nohup uv run python -m server.main &> var/arxmcp/notebooks/bridgeland-stability/ops/daemon.log &
+mkdir -p var/arxmcp/notebooks/bridgeland-stability/ops
+nohup uv run python -m server.main \
+  &> var/arxmcp/notebooks/bridgeland-stability/ops/daemon.log &
+echo $! > var/arxmcp/notebooks/bridgeland-stability/ops/daemon.pid
 
 # Notebook B — shimura-varieties, port 7734
 ARXMCP_LANCEDB_PATH=var/arxmcp/notebooks/shimura-varieties/lancedb \
 ARXMCP_BIND_PORT=7734 \
 ARXMCP_CONTACT_EMAIL=you@example.com \
-  nohup uv run python -m server.main &> var/arxmcp/notebooks/shimura-varieties/ops/daemon.log &
+  nohup uv run python -m server.main \
+    &> var/arxmcp/notebooks/shimura-varieties/ops/daemon.log &
+echo $! > var/arxmcp/notebooks/shimura-varieties/ops/daemon.pid
 ```
 
-The bind-host validator at
-[`server/config.py:323`](../../server/config.py) rejects any
-non-loopback bind (see
+The bind-host validator
+[`reject_non_loopback_bind`](../../server/config.py) at
+`server/config.py:294` rejects any non-loopback bind (see
 [`.claude/notes/08-security-observability-ops.md`](../../.claude/notes/08-security-observability-ops.md)
 §Threat 7); both daemons listen on `127.0.0.1` only.
 
@@ -105,9 +113,21 @@ After any `tools/notebook_ingest.py <slug>` run that adds papers,
 **restart the daemon**:
 
 ```bash
-# Find and stop the daemon for the affected notebook
-pkill -SIGTERM -f "ARXMCP_LANCEDB_PATH=.*bridgeland-stability"
-# Re-launch with the same env vars
+# Stop the daemon for the affected notebook using the PID file
+# written by the launch recipe above. DO NOT use `pkill -f
+# ARXMCP_LANCEDB_PATH=...` — env-var assignments aren't in argv
+# and the match silently returns zero processes (m3 rect F1).
+PID_FILE=var/arxmcp/notebooks/bridgeland-stability/ops/daemon.pid
+if [ -f "$PID_FILE" ]; then
+  kill -TERM "$(cat "$PID_FILE")" && rm -f "$PID_FILE"
+fi
+
+# Verify the daemon is actually gone before re-launching:
+ps -p "$(cat "$PID_FILE" 2>/dev/null)" 2>/dev/null \
+  && echo "WARNING: daemon still running" \
+  || echo "daemon stopped"
+
+# Re-launch with the same env vars (and a new daemon.pid).
 ```
 
 v1 has no hot-reload — the in-memory `corpus_version` is set once
@@ -123,9 +143,11 @@ stop the daemon first.
 call passes `filters={"paper_id": [...]}` listing the notebook's
 paper IDs. The handler honors the filter via
 `LanceDB.search(...).where("paper_id IN (...)", prefilter=True)`
-(see [`server/handlers/search.py:449-454`](../../server/handlers/search.py))
-and echoes the canonical filter shape back as `filters_applied`
-(see [`server/handlers/search.py:218-232`](../../server/handlers/search.py)
+(see [`server/handlers/search.py:463-468`](../../server/handlers/search.py),
+the `with span_ann(k=k):` block enclosing the `.search(...).where(...)`
+chain) and echoes the canonical filter shape back as `filters_applied`
+(see [`_inject_filters_applied` at
+`server/handlers/search.py:195-241`](../../server/handlers/search.py)
 and the schema at
 [`server/schemas/search_papers_result.json`](../../server/schemas/search_papers_result.json)).
 
