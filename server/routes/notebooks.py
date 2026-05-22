@@ -695,7 +695,7 @@ def _paper_row_html(slug: str, paper_id: str, added_at: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _get_ingest_tracker(request: Request):  # noqa: ARG001
+def _get_ingest_tracker(request: Request):
     """FastAPI dependency: fetch the ``IngestTaskTracker`` attached
     to ``app.state`` in the lifespan (m9).
 
@@ -812,6 +812,15 @@ async def latest_ingest(
         (the missing-row case for a real notebook returns 200
         ``none``; only the no-such-notebook case 404s)
       - 422 — malformed slug
+
+    m9 rect F6: this endpoint reads exclusively from the SQLite
+    store (NOT the in-memory ``IngestTaskTracker``). The DB row
+    is authoritative for polling because the trigger handler
+    INSERTs ``running`` before spawning the task AND the task's
+    cancel-path (m9 rect F1) + happy-path both UPDATE the row
+    inline before returning. The ``IngestTaskTracker`` is
+    consulted ONLY by the trigger handler's 409-collision check
+    where in-memory authority over live tasks matters.
     """
     try:
         validate_slug(slug)

@@ -198,6 +198,18 @@ class TestPathRedaction:
                 b"no var prefix at all",
                 b"no var prefix at all",
             ),
+            # m9 rect F4: macOS usernames can contain spaces (the
+            # default "First Last" full-name account). Without the
+            # space in the redaction regex character class, the
+            # absolute path would leak past var/arxmcp/.
+            (
+                b"/Users/Joe Smith/Personal/SourceCode/arXMCP/var/arxmcp/foo",
+                b"var/arxmcp/foo",
+            ),
+            (
+                b"/Users/Mary Anne Jones/repo/var/arxmcp/notebooks/x",
+                b"var/arxmcp/notebooks/x",
+            ),
         ],
     )
     def test_redact_paths(self, raw: bytes, expected: bytes) -> None:
@@ -517,6 +529,12 @@ class TestIngestTrackerUnit:
                     async def communicate(self):
                         await asyncio.sleep(1000)
                         return b"", b""
+                    def terminate(self):
+                        pass
+                    def kill(self):
+                        pass
+                    async def wait(self):
+                        return 0
                 return _FakeProc()
             it_mod.asyncio.create_subprocess_exec = _fake_spawn  # type: ignore[attr-defined]
 
@@ -531,3 +549,134 @@ class TestIngestTrackerUnit:
             return cancelled
 
         assert asyncio.run(_run()) is True
+
+
+# ---------------------------------------------------------------------------
+# m9 rect F1 — CancelledError writes terminal-state row + terminates proc
+# ---------------------------------------------------------------------------
+
+
+class TestCancelPathWritesFailedRow:
+    """m9 rect F1: ``CancelledError`` is ``BaseException`` (not
+    ``Exception``) in Python 3.8+. The cancel-path must EXPLICITLY
+    catch it, terminate the subprocess, and write a terminal-state
+    DB row — otherwise daemon shutdown pins the row to ``running``
+    forever (well, until the FM-5 orphan-recovery 5 minutes later).
+
+    These tests pin the F1 invariants:
+      1. cancel triggers proc.terminate()
+      2. cancel writes a `failed` row with exit_code=-2 + the
+         "cancelled at daemon shutdown" message
+      3. cancel re-raises CancelledError so the shutdown
+         gathering sees the cancellation
+    """
+
+    def test_cancel_writes_failed_row_with_exit_code_minus_2(
+        self, tmp_path: Path,
+    ) -> None:
+        terminate_calls = {"n": 0}
+
+        async def _run() -> dict:
+            db_path = tmp_path / "notebooks.db"
+            store = await NotebooksStore.open(db_path)
+            tracker = IngestTaskTracker()
+            await store.create_notebook(
+                slug="demo-nb", display_name="",
+                lancedb_path="/tmp/x",
+                created_at="2026-05-22T00:00:00+00:00",
+            )
+            run_id = await store.insert_ingest_run(
+                "demo-nb", "2026-05-22T17:00:00+00:00",
+            )
+            import server.ingest_tracker as it_mod
+
+            async def _fake_spawn(*args, **kwargs):
+                class _FakeProc:
+                    returncode = 0
+                    async def communicate(self):
+                        # Block until cancelled.
+                        await asyncio.sleep(1000)
+                        return b"", b""
+                    def terminate(self):
+                        terminate_calls["n"] += 1
+                    def kill(self):
+                        pass
+                    async def wait(self):
+                        # Simulate subprocess responding to SIGTERM
+                        # quickly so the F1 wait_for doesn't timeout.
+                        return 0
+                return _FakeProc()
+            it_mod.asyncio.create_subprocess_exec = _fake_spawn  # type: ignore[attr-defined]
+
+            tracker.start_ingest(
+                slug="demo-nb", run_id=run_id, store=store,
+                now_iso_provider=lambda: "2026-05-22T17:30:00+00:00",
+            )
+            # Let the task reach `await proc.communicate()`.
+            await asyncio.sleep(0)
+            await tracker.shutdown(timeout_seconds=1.0)
+            row = await store.get_latest_ingest_run("demo-nb")
+            await store.close()
+            return {
+                "row": row,
+                "terminate_calls": terminate_calls["n"],
+            }
+
+        out = asyncio.run(_run())
+        assert out["row"] is not None
+        assert out["row"]["status"] == "failed", (
+            "F1 regression: CancelledError must write a failed row "
+            "(was running). Without F1, the row stayed `running` "
+            "forever after cancel."
+        )
+        assert out["row"]["exit_code"] == -2, (
+            "exit_code=-2 distinguishes cancel from spawn-fail (-1)"
+        )
+        assert "cancelled" in (out["row"]["stderr_tail"] or "").lower()
+        assert out["terminate_calls"] >= 1, (
+            "F1 regression: cancel-path must call proc.terminate() "
+            "to send SIGTERM to the subprocess"
+        )
+
+
+# ---------------------------------------------------------------------------
+# m9 rect F3 — mark_orphaned_runs_failed escapes the message
+# ---------------------------------------------------------------------------
+
+
+class TestOrphanRecoveryEscapesMessage:
+    """m9 rect F3: the ``message`` argument to
+    ``mark_orphaned_runs_failed`` is stored on ``stderr_tail`` which
+    interpolates raw into a ``<pre>`` element. The store must HTML-
+    escape the message at storage time so the storage layer is the
+    single source of truth for "stderr_tail is safe HTML"."""
+
+    def test_message_with_html_metacharacters_escaped(
+        self, tmp_path: Path,
+    ) -> None:
+        async def _run() -> str | None:
+            db_path = tmp_path / "notebooks.db"
+            store = await NotebooksStore.open(db_path)
+            await store.create_notebook(
+                slug="demo-nb", display_name="",
+                lancedb_path="/tmp/x",
+                created_at="2026-05-22T00:00:00+00:00",
+            )
+            await store.insert_ingest_run(
+                "demo-nb", "2026-05-21T00:00:00+00:00",  # before cutoff
+            )
+            await store.mark_orphaned_runs_failed(
+                cutoff_iso="2026-05-22T00:00:00+00:00",
+                message="<script>alert(1)</script>",
+            )
+            row = await store.get_latest_ingest_run("demo-nb")
+            await store.close()
+            return row["stderr_tail"] if row else None
+
+        tail = asyncio.run(_run())
+        assert tail is not None
+        # The raw script tag MUST NOT appear in storage.
+        assert "<script>" not in tail
+        # The escaped form MUST appear (proves the value reached
+        # storage, just safely).
+        assert "&lt;script&gt;" in tail

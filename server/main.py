@@ -335,13 +335,26 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.notebooks_store = await NotebooksStore.open(
             config.notebooks_db_path
         )
-        # m9 FM-5: orphan-recovery — mark any `status='running'`
-        # row older than 1 hour as `failed` BEFORE accepting new
-        # ingest triggers. Covers daemon-crash-mid-ingest where
-        # the previous task's done_callback never fired.
+        # m9 FM-5 + m9 rect F2: orphan-recovery — mark any
+        # ``status='running'`` row older than 5 minutes as ``failed``
+        # BEFORE accepting new ingest triggers. Covers daemon-crash-
+        # mid-ingest where the previous task's done_callback never
+        # fired.
+        #
+        # The 5-minute cutoff (m9 rect F2) replaces the original
+        # 1-hour value. Rationale: with the F1 cancel-path fix
+        # writing a terminal-state row inline on clean shutdown,
+        # the orphan-recovery is purely defense-in-depth — it
+        # covers ONLY the hard-kill path (SIGKILL, OOM-killer,
+        # host crash) where the cancel-path never ran. A
+        # 5-minute cutoff bounds the operator-visible
+        # "permanent 409" window to a single restart-loop cycle.
+        # The earlier 1-hour value was designed to NOT clobber a
+        # still-running ingest, but with F1 in place the
+        # cancel-path handles that case correctly.
         import datetime as _dt  # noqa: PLC0415
         cutoff = (
-            _dt.datetime.now(_dt.UTC) - _dt.timedelta(hours=1)
+            _dt.datetime.now(_dt.UTC) - _dt.timedelta(minutes=5)
         ).isoformat(timespec="seconds")
         recovered = await app.state.notebooks_store.mark_orphaned_runs_failed(
             cutoff_iso=cutoff,

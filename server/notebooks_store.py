@@ -43,6 +43,7 @@ mirrors the milestone brief's deletion semantics (resolved 2026-05-21).
 from __future__ import annotations
 
 import asyncio
+import html
 import logging
 import sqlite3
 from pathlib import Path
@@ -440,9 +441,18 @@ class NotebooksStore:
         for the same slug.
 
         Returns the number of rows updated.
+
+        m9 rect F3: ``message`` is HTML-escaped before storage. The
+        ``stderr_tail`` column is interpolated raw into a ``<pre>``
+        element by ``_ingest_status_fragment`` (the
+        ``prepare_stderr_tail`` pipeline pre-escapes its output);
+        this method extends the same contract to the recovery
+        message so the storage layer is the single source of truth
+        for "stderr_tail is already safe-to-render HTML".
         """
         async with self._lock:
             def _update() -> int:
+                safe_message = html.escape(message)
                 cur = self._conn.execute(
                     "UPDATE notebook_ingest_runs SET "
                     "  status = ?, "
@@ -453,7 +463,7 @@ class NotebooksStore:
                     (
                         self.INGEST_STATUS_FAILED,
                         cutoff_iso,
-                        message,
+                        safe_message,
                         self.INGEST_STATUS_RUNNING,
                         cutoff_iso,
                     ),

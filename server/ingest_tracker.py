@@ -64,10 +64,17 @@ STDERR_TAIL_MAX_BYTES: int = 1024
 #: ``/Users/<name>/path/to/repo/var/arxmcp/...``,
 #: ``/home/<name>/path/to/repo/var/arxmcp/...``,
 #: ``C:\Users\<name>\path\to\repo\var\arxmcp\...`` consistently.
+#:
+#: m9 rect F4: includes a literal space in the character class so
+#: macOS paths with spaces in the username (e.g.
+#: ``/Users/Joe Smith/repo/var/arxmcp/foo``) redact correctly. Linux
+#: usernames cannot contain spaces (POSIX), so this only affects
+#: macOS — but a leak on macOS is still an AC #2 violation.
+#:
 #: Bytes domain so it works whether the subprocess emits UTF-8 or
 #: punted-to-Latin-1 output.
 _ABS_PATH_PREFIX_RE: re.Pattern[bytes] = re.compile(
-    rb"[/\\][\w/\\.\-]*?var[/\\]arxmcp[/\\]"
+    rb"[/\\][\w /\\.\-]*?var[/\\]arxmcp[/\\]"
 )
 
 
@@ -203,6 +210,7 @@ class IngestTaskTracker:
         per-slug check.
         """
         async with self._global_cap:
+            proc: asyncio.subprocess.Process | None = None
             try:
                 proc = await asyncio.create_subprocess_exec(
                     sys.executable,
@@ -214,6 +222,51 @@ class IngestTaskTracker:
                 )
                 _stdout, stderr_bytes = await proc.communicate()
                 exit_code = proc.returncode
+            except asyncio.CancelledError:
+                # m9 rect F1: CancelledError is BaseException (NOT
+                # Exception) in Python 3.8+, so the prior single
+                # ``except Exception`` branch would NOT catch this
+                # path. Without the explicit handler, daemon
+                # shutdown leaves the DB row pinned to ``running``
+                # AND the subprocess orphaned (no SIGTERM was sent)
+                # — combined with F2's 1-hour cutoff, operators
+                # hit permanent 409s for up to 55 minutes after a
+                # restart-during-ingest. This branch terminates the
+                # subprocess (best-effort SIGTERM + 2s grace +
+                # SIGKILL) AND writes a terminal-state row before
+                # re-raising so the cancellation propagates
+                # normally to the gathering shutdown() call.
+                if proc is not None:
+                    import contextlib  # noqa: PLC0415
+
+                    with contextlib.suppress(ProcessLookupError):
+                        proc.terminate()
+                        try:
+                            await asyncio.wait_for(proc.wait(), timeout=2.0)
+                        except TimeoutError:
+                            with contextlib.suppress(ProcessLookupError):
+                                proc.kill()
+                # Write the terminal-state row OUTSIDE the suppress
+                # block (we want errors here to propagate to logs).
+                # exit_code=-2 distinguishes "cancelled" from
+                # exit_code=-1 ("spawn failed").
+                try:
+                    await store.update_ingest_run(
+                        run_id=run_id,
+                        status=store.INGEST_STATUS_FAILED,
+                        finished_at=now_iso_provider(),
+                        exit_code=-2,
+                        stderr_tail=html.escape(
+                            "cancelled at daemon shutdown"
+                        ),
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.exception(
+                        "ingest cancel-path DB write failed for slug=%s; "
+                        "orphan-recovery will pick this up on next boot",
+                        slug,
+                    )
+                raise
             except Exception as e:  # noqa: BLE001
                 logger.exception(
                     "ingest subprocess for slug=%s spawn/await failed",
