@@ -86,6 +86,18 @@ class LeanReplError(RuntimeError):
     startup-time failure)."""
 
 
+class LeanReplTimeoutError(LeanReplError):
+    """The per-:meth:`LeanRepl.query` wall-clock timeout fired —
+    a runaway elaboration. The subprocess is NOT killed by the raise;
+    callers (the lean_verify handler) MUST close + respawn so the
+    next query does not read stale stdout from the wedged elaboration.
+
+    A distinct subclass so handlers can ``except LeanReplTimeoutError``
+    without resorting to substring-matching on the error message (m3
+    critique F3).
+    """
+
+
 class LeanRepl:
     """A managed, single-process Lean 4 REPL subprocess.
 
@@ -271,7 +283,12 @@ class LeanRepl:
                     self._round_trip(command), timeout=timeout
                 )
             except TimeoutError as exc:
-                raise LeanReplError(
+                # LeanReplTimeoutError subclasses LeanReplError so existing
+                # ``except LeanReplError`` handlers still catch it; the
+                # subclass exists so the lean_verify handler can route the
+                # timeout path WITHOUT substring-matching on the message
+                # (m3 critique F3).
+                raise LeanReplTimeoutError(
                     f"Lean REPL query exceeded the {timeout}s timeout."
                 ) from exc
 
@@ -383,5 +400,6 @@ __all__ = [
     "DEFAULT_QUERY_TIMEOUT_S",
     "LeanRepl",
     "LeanReplError",
+    "LeanReplTimeoutError",
     "LeanUnavailableError",
 ]

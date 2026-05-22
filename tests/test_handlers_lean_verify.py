@@ -432,13 +432,14 @@ class TestHandlerDisabled:
 
 class TestHandlerTimeout:
     def test_timeout_kills_and_respawns_repl(self, monkeypatch):
-        """FM-2: a 30s wall-clock timeout raises LeanReplError; the
-        handler must close the wedged REPL and spawn a fresh one before
-        returning. Otherwise the next call reads stale stdout."""
-        from server.lean_repl import LeanReplError
+        """FM-2: a per-query wall-clock timeout raises
+        LeanReplTimeoutError; the handler must close the wedged REPL
+        and spawn a fresh one before returning. Otherwise the next
+        call reads stale stdout."""
+        from server.lean_repl import LeanReplTimeoutError
 
         timed_out = _FakeLeanRepl(
-            raise_with=LeanReplError(
+            raise_with=LeanReplTimeoutError(
                 "Lean REPL query exceeded the 30s timeout."
             )
         )
@@ -532,10 +533,21 @@ class TestSpawnRlimitGuard:
         assert "preexec_fn" in captured, (
             "POSIX path must attach preexec_fn for RLIMIT_AS"
         )
-        # The preexec_fn is callable and applies the cap when invoked.
-        # We can't fully invoke it without setrlimit'ing the test
-        # process, but assert it's callable.
-        assert callable(captured["preexec_fn"])
+        preexec_fn = captured["preexec_fn"]
+        assert callable(preexec_fn)
+        # m3 critique F1 (companion to the integration test): assert the
+        # cap INTEGER actually reaches the setrlimit closure — not just
+        # that preexec_fn is callable. Without this, a future refactor
+        # that builds the preexec_fn but passes the wrong value (e.g.
+        # always 0, or a stale closure variable) would still pass the
+        # callable-check above.
+        import inspect
+
+        closure_vars = inspect.getclosurevars(preexec_fn)
+        assert closure_vars.nonlocals.get("cap") == 4 * 1024 * 1024 * 1024, (
+            "preexec_fn closure must capture the requested cap "
+            f"(got cap={closure_vars.nonlocals.get('cap')!r})"
+        )
 
     def test_no_rlimit_means_no_preexec_fn(self, tmp_path, monkeypatch):
         """rlimit_as_bytes=0/None disables the cap on every platform."""
@@ -613,6 +625,291 @@ class TestSpawnRlimitGuard:
             "RLIMIT_AS" in rec.getMessage() and "Windows" in rec.getMessage()
             for rec in caplog.records
         )
+
+
+# ===========================================================================
+# Tier 1e — Phase 4 rectification regression guards (always-run)
+# ===========================================================================
+
+
+class TestLeanVerifyResultSchema:
+    """m3 critique F2 + F6: every handler envelope (success, disabled,
+    timeout, generic-error) must validate against the frozen
+    ``lean_verify_result.json`` schema. Without this, the schema is a
+    comment, not a contract."""
+
+    @pytest.fixture
+    def schema_validator(self):
+        from jsonschema import Draft7Validator
+
+        schema_path = (
+            Path(__file__).parent.parent
+            / "server"
+            / "schemas"
+            / "lean_verify_result.json"
+        )
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+        return Draft7Validator(schema)
+
+    def test_clean_compile_envelope_conforms(
+        self, fake_resources_with_repl, schema_validator
+    ):
+        _fake, repl = fake_resources_with_repl
+        repl._responses.append({"env": 0})
+        out = _run(
+            handle_lean_verify(snippet="theorem t : 1+1=2 := rfl")
+        )
+        schema_validator.validate(out)
+
+    def test_type_error_envelope_conforms(
+        self, fake_resources_with_repl, schema_validator
+    ):
+        _fake, repl = fake_resources_with_repl
+        repl._responses.append(
+            {
+                "env": 0,
+                "messages": [
+                    {
+                        "severity": "error",
+                        "pos": {"line": 1, "column": 4},
+                        "data": "type mismatch",
+                    }
+                ],
+            }
+        )
+        out = _run(handle_lean_verify(snippet="theorem t : 1+1=3 := rfl"))
+        schema_validator.validate(out)
+
+    def test_sorry_envelope_conforms(
+        self, fake_resources_with_repl, schema_validator
+    ):
+        _fake, repl = fake_resources_with_repl
+        repl._responses.append(
+            {
+                "env": 0,
+                "sorries": [
+                    {"pos": {"line": 1, "column": 30}, "goal": "⊢ n = n"}
+                ],
+            }
+        )
+        out = _run(
+            handle_lean_verify(snippet="theorem t (n : Nat) : n=n := by sorry")
+        )
+        schema_validator.validate(out)
+
+    def test_syntax_only_envelope_conforms(
+        self, fake_resources_with_repl, schema_validator
+    ):
+        _fake, repl = fake_resources_with_repl
+        repl._responses.append({"env": 0})
+        out = _run(
+            handle_lean_verify(snippet="(1 + 1 : Nat)", mode="syntax_only")
+        )
+        schema_validator.validate(out)
+
+    def test_disabled_envelope_conforms(
+        self, fake_resources_disabled, schema_validator
+    ):
+        """m3 critique F6: the disabled-path envelope (the agent's
+        most-fragile contract surface) must conform to the same
+        schema as the success envelope."""
+        out = _run(handle_lean_verify(snippet="theorem t : True := trivial"))
+        schema_validator.validate(out)
+
+    def test_timeout_envelope_conforms(self, monkeypatch, schema_validator):
+        """m3 critique F6: the timeout envelope must conform."""
+        from server.lean_repl import LeanReplTimeoutError
+
+        timed_out = _FakeLeanRepl(
+            raise_with=LeanReplTimeoutError(
+                "Lean REPL query exceeded the 30s timeout."
+            )
+        )
+        _attach_fake_resources(timed_out)
+
+        async def _fake_spawn(config):
+            return _FakeLeanRepl()
+
+        import server.lean_repl as lean_mod
+
+        monkeypatch.setattr(
+            lean_mod.LeanRepl, "spawn_from_config", _fake_spawn
+        )
+        try:
+            out = _run(handle_lean_verify(snippet="theorem t : True := trivial"))
+            schema_validator.validate(out)
+        finally:
+            reset_resources_for_tests()
+
+    def test_generic_error_envelope_conforms(
+        self, fake_resources_with_repl, schema_validator
+    ):
+        """m3 critique F6: the non-timeout LeanReplError envelope
+        (process exited, malformed response) must conform."""
+        from server.lean_repl import LeanReplError
+
+        _fake, repl = fake_resources_with_repl
+        repl._raise_with = LeanReplError(
+            "Lean REPL closed stdout before returning a response"
+        )
+        out = _run(handle_lean_verify(snippet="theorem t : True := trivial"))
+        schema_validator.validate(out)
+
+
+class TestTimeoutDiscriminatorIsTypeNotSubstring:
+    """m3 critique F3: the handler must route to kill+respawn only on
+    the TypedTimeoutError subclass — never on a substring match against
+    the error message."""
+
+    def test_non_timeout_error_with_word_timeout_in_message(
+        self, fake_resources_with_repl
+    ):
+        """A non-timeout LeanReplError whose message happens to contain
+        the word 'timeout' must NOT trigger the respawn path — it goes
+        to the generic-error envelope. Without the F3 fix (substring
+        match), this test fails: the handler erroneously kills + tries
+        to respawn the REPL."""
+        from server.lean_repl import LeanReplError
+
+        _fake, repl = fake_resources_with_repl
+        # The substring "timeout" appears, but the exception is NOT a
+        # LeanReplTimeoutError — it's a generic LeanReplError. Without
+        # F3, the handler would substring-match on "timeout" and kill
+        # the wedged REPL needlessly.
+        repl._raise_with = LeanReplError(
+            "Lean REPL returned a non-JSON response after the 30s "
+            "timeout window expired upstream"
+        )
+        result = _run(handle_lean_verify(snippet="theorem t : True := trivial"))
+        assert result["status"] == "error", result
+        # status="error" + lean_status="available" is the generic-error
+        # branch; "timeout"/"timeout" would be the respawn branch.
+        assert result["lean_status"] == "available"
+        # CRITICAL — the REPL was NOT closed (the handler must not kill
+        # a still-functional REPL just because its error message
+        # happened to contain the string "timeout").
+        assert repl.closed is False
+
+
+class TestRespawnFailureNarrowExcept:
+    """m3 critique F4: respawn-failure path must NOT swallow
+    CancelledError or other non-IO exceptions."""
+
+    def test_cancelled_error_during_respawn_propagates(self, monkeypatch):
+        """asyncio.CancelledError must propagate, never be swallowed —
+        cancellation is the task-cancellation primitive; swallowing it
+        breaks every higher-level cancellation contract."""
+        from server.lean_repl import LeanReplTimeoutError
+
+        timed_out = _FakeLeanRepl(
+            raise_with=LeanReplTimeoutError("Lean REPL query exceeded timeout.")
+        )
+        _attach_fake_resources(timed_out)
+
+        async def _cancelled_respawn(config):
+            raise asyncio.CancelledError("cancelled during respawn")
+
+        import server.lean_repl as lean_mod
+
+        monkeypatch.setattr(
+            lean_mod.LeanRepl, "spawn_from_config", _cancelled_respawn
+        )
+        try:
+            with pytest.raises(asyncio.CancelledError):
+                _run(
+                    handle_lean_verify(
+                        snippet="theorem t : True := trivial"
+                    )
+                )
+        finally:
+            reset_resources_for_tests()
+
+
+class TestPositionClampsNegatives:
+    """m3 critique F5: schema declares ``position.line/column`` with
+    ``minimum: 0``; normalize must clamp negatives."""
+
+    def test_negative_position_clamps_to_zero(self):
+        out = _normalize_position({"line": -1, "column": -2})
+        assert out == {"line": 0, "column": 0}
+
+    def test_negative_in_message_clamps_via_normalize_response(self):
+        out = _normalize_response(
+            {
+                "messages": [
+                    {
+                        "severity": "error",
+                        "pos": {"line": -5, "column": 0},
+                        "data": "x",
+                    }
+                ]
+            },
+            "full",
+        )
+        assert out["messages"][0]["position"] == {"line": 0, "column": 0}
+
+
+class TestNormalizeSeverityClamp:
+    """m3 critique F2 (handler half): unknown REPL ``severity`` values
+    are clamped to the schema enum. Default = "error" (safer than
+    silently downgrading to "info")."""
+
+    def test_unknown_severity_clamped_to_error(self):
+        out = _normalize_response(
+            {
+                "messages": [
+                    {
+                        "severity": "trace",  # Lean internal category
+                        "pos": {"line": 0, "column": 0},
+                        "data": "noise",
+                    }
+                ]
+            },
+            "full",
+        )
+        assert out["messages"][0]["severity"] == "error"
+        # ... AND status reflects the (clamped-to-error) severity.
+        assert out["status"] == "error"
+
+    def test_non_string_data_coerced_to_string(self):
+        """A future REPL build emitting structured proof-state objects
+        for ``data`` / ``goal`` must not crash the schema — coerce
+        to ``str``."""
+        out = _normalize_response(
+            {
+                "messages": [
+                    {
+                        "severity": "info",
+                        "pos": {"line": 0, "column": 0},
+                        "data": {"structured": "object", "n": 7},
+                    }
+                ],
+                "sorries": [{"pos": {"line": 0, "column": 0}, "goal": 42}],
+            },
+            "full",
+        )
+        assert isinstance(out["messages"][0]["text"], str)
+        assert "structured" in out["messages"][0]["text"]
+        assert isinstance(out["sorry_goals"][0]["goal"], str)
+        assert out["sorry_goals"][0]["goal"] == "42"
+
+
+class TestImportsListLengthDefenseInDepth:
+    """m3 critique F8: the per-line bound is the existing
+    defense-in-depth; the LIST length bound must match (the docstring
+    explicitly motivates the loop with 'catches a non-FastMCP caller
+    path' — and direct callers can bypass Pydantic's max_length)."""
+
+    def test_oversize_imports_list_rejected(self, fake_resources_with_repl):
+        from server.handlers.lean_verify import MAX_IMPORTS
+
+        with pytest.raises(ValueError, match="imports list too long"):
+            _run(
+                handle_lean_verify(
+                    snippet="theorem t : True := trivial",
+                    imports=["X"] * (MAX_IMPORTS + 1),
+                )
+            )
 
 
 # ===========================================================================
@@ -699,28 +996,66 @@ class TestRealLeanRepl:
         reason="RLIMIT_AS is POSIX-only; Windows path tested via the unit "
         "test that monkeypatches create_subprocess_exec",
     )
-    def test_real_rlimit_as_bounds_high_allocation(self):
-        """The m3 AC: a high-allocation snippet must be BOUNDED by the
-        cap rather than OOM-killing the parent. The cap is applied via
-        the preexec_fn in LeanRepl.spawn. We submit a snippet that
-        would naively allocate well past the configured cap, and assert
-        the parent survives + we get *some* response back (it may be
-        an error or a crash report, but the parent process is alive).
+    def test_real_rlimit_as_bounds_subprocess(self):
+        """The m3 AC: RLIMIT_AS bounds the subprocess. m3 critique F1
+        rewrite — the prior version (``List.range 1000`` at 4 GiB cap)
+        asserted only ``status in {ok, error, sorry}`` and would pass
+        even if ``preexec_fn`` were never attached.
+
+        This version spawns a fresh REPL at a deliberately tight cap
+        (32 MiB — below Lean's baseline RSS) and asserts that a trivial
+        elaboration FAILS observably (subprocess crash, EOF, or
+        timeout) — i.e. the cap is actually in force. If the parent
+        survives + the call returns a usable envelope OR raises
+        LeanReplError, RLIMIT_AS proved it can constrain the child;
+        an ``ok`` status would mean the cap silently failed to apply.
         """
+        from server.lean_repl import LeanRepl, LeanReplError
+
         async def _go():
-            repl = await self._setup_real_repl()
+            # 32 MiB — well below Lean's baseline; the kernel + oleans
+            # can't even bootstrap. Spawn must still succeed (fork+exec
+            # returns before Lean allocates), but the first query MUST
+            # fail observably.
+            tight_cap = 32 * 1024 * 1024
+            repl = await LeanRepl.spawn(
+                lake_path=_LAKE_PATH,
+                repl_dir=_REPL_DIR,
+                rlimit_as_bytes=tight_cap,
+            )
+            _attach_fake_resources(repl)
             try:
-                # 4 GiB cap means a 1 GiB list allocation should be fine;
-                # a runaway allocation would be killed by RLIMIT_AS, not
-                # by OOM-killing the parent.
-                return await handle_lean_verify(
-                    snippet="def m3_alloc := List.range 1000"
-                )
+                try:
+                    out = await handle_lean_verify(
+                        snippet="theorem cap_ok : True := trivial"
+                    )
+                except LeanReplError:
+                    # Subprocess crashed or stdout closed under the cap
+                    # — exactly the bounded-failure mode RLIMIT_AS is
+                    # meant to produce.
+                    return "raised_lean_repl_error"
+                return out
             finally:
-                await self._teardown(repl)
+                try:
+                    await repl.close()
+                finally:
+                    reset_resources_for_tests()
 
         result = _run(_go())
-        # The exact status varies by Lean version (kernel may accept
-        # the definition or emit a warning), but the parent must NOT
-        # have OOM-died — reaching this assertion at all is the test.
-        assert result["status"] in {"ok", "error", "sorry"}
+        if isinstance(result, str):
+            assert result == "raised_lean_repl_error"
+            return
+        # The parent process is alive — that's necessary. AND the
+        # status must NOT be "ok": a clean compile under a 32 MiB cap
+        # would mean the cap is silently a no-op (i.e. the broken
+        # state F1 catches). Acceptable outcomes are "error"
+        # (subprocess crashed during query) or "timeout" (elaboration
+        # never returned because the kernel couldn't allocate); the
+        # Lean REPL's exact failure mode under memory pressure varies
+        # but never produces "ok".
+        assert result["status"] != "ok", (
+            f"RLIMIT_AS cap of 32 MiB did not constrain the subprocess "
+            f"— Lean compiled cleanly anyway, meaning the cap silently "
+            f"failed to apply. result={result!r}"
+        )
+        assert result["status"] in {"error", "timeout", "unavailable"}

@@ -43,8 +43,20 @@ from typing import Annotated, Any, Literal
 
 from pydantic import Field
 
-from server.lean_repl import LeanRepl, LeanReplError
+from server.lean_repl import (
+    LeanRepl,
+    LeanReplError,
+    LeanReplTimeoutError,
+    LeanUnavailableError,
+)
 from server.tools import cap_result_list, envelope, get_resources
+
+#: Severity values the schema enum accepts. An upstream REPL that ever
+#: emits another category (Lean has internal ``trace`` / ``debug``
+#: categories) is clamped to ``"error"`` — the safer default, since
+#: silent downgrade to ``"info"`` would mask real diagnostics. m3
+#: critique F2.
+_ALLOWED_SEVERITIES: frozenset[str] = frozenset({"error", "warning", "info"})
 
 logger = logging.getLogger(__name__)
 
@@ -78,14 +90,20 @@ def _normalize_position(pos: Any) -> dict[str, int]:
     """Map a REPL ``pos`` (``{line, column}``, possibly missing) to the
     schema-required ``{line, column}`` integer pair. A missing or
     malformed position defaults to ``{0, 0}`` — the schema requires the
-    field to be present + integer-valued, so a positive default is
-    preferable to a JSON-Schema-rejecting null."""
+    field to be present + integer-valued with ``minimum: 0``, so a
+    positive default is preferable to a JSON-Schema-rejecting null.
+
+    Negative integers are clamped to ``0`` (m3 critique F5). Lean
+    shouldn't emit negatives, but a future REPL build with bad
+    1-vs-0-indexing or an offset-subtracting wrapper could; the schema
+    cap is the contract, not the upstream output.
+    """
     if isinstance(pos, dict):
         line = pos.get("line")
         column = pos.get("column")
         return {
-            "line": int(line) if isinstance(line, int) else 0,
-            "column": int(column) if isinstance(column, int) else 0,
+            "line": max(0, int(line)) if isinstance(line, int) else 0,
+            "column": max(0, int(column)) if isinstance(column, int) else 0,
         }
     return {"line": 0, "column": 0}
 
@@ -104,18 +122,28 @@ def _normalize_response(resp: dict[str, Any], mode: str) -> dict[str, Any]:
     raw_msgs = resp.get("messages") or []
     raw_sorries = resp.get("sorries") or []
 
+    # m3 critique F2: clamp severity to the schema enum (unknown values
+    # default to "error" — the safer side; silent downgrade to "info"
+    # would mask real diagnostics from a future REPL build) AND coerce
+    # text / goal to ``str`` so a non-string upstream payload (a
+    # structured proof-state object — an active upstream RFC) becomes a
+    # string rather than a schema-violating slot.
     messages = [
         {
-            "severity": m.get("severity", "info"),
+            "severity": (
+                m.get("severity")
+                if m.get("severity") in _ALLOWED_SEVERITIES
+                else "error"
+            ),
             "position": _normalize_position(m.get("pos")),
-            "text": m.get("data", ""),
+            "text": str(m.get("data", "")),
         }
         for m in raw_msgs
         if isinstance(m, dict)
     ]
     sorry_goals = [
         {
-            "goal": s.get("goal", ""),
+            "goal": str(s.get("goal", "")),
             "position": _normalize_position(s.get("pos")),
         }
         for s in raw_sorries
@@ -278,7 +306,16 @@ async def handle_lean_verify(
     imports_list: list[str] = list(imports) if imports else []
 
     # Defense-in-depth bounds (the Pydantic Field above is the primary
-    # cap; this catches a non-FastMCP caller path).
+    # cap; this catches a non-FastMCP caller path). m3 critique F8:
+    # enforce the LIST length too, not only the per-line length — the
+    # docstring above justifies the loop with "catches a non-FastMCP
+    # caller path", which would include direct calls passing a 100k-
+    # element list that bypass Pydantic's max_length.
+    if len(imports_list) > MAX_IMPORTS:
+        raise ValueError(
+            f"imports list too long (max {MAX_IMPORTS} entries; got "
+            f"{len(imports_list)})"
+        )
     for line in imports_list:
         if not isinstance(line, str) or len(line) > MAX_IMPORT_LINE_LEN:
             raise ValueError(
@@ -298,35 +335,38 @@ async def handle_lean_verify(
 
     try:
         resp = await lean_repl.query({"cmd": cmd})
-    except LeanReplError as exc:
-        msg = str(exc).lower()
-        if "timeout" in msg:
-            # FM-2 — kill + respawn so the next call doesn't read this
-            # call's stale stdout. The lean-sandbox-design contract.
-            from server.lean_repl import DEFAULT_QUERY_TIMEOUT_S
+    except LeanReplTimeoutError as exc:
+        # FM-2 / m3 critique F3 — kill + respawn so the next call
+        # doesn't read this call's stale stdout. The lean-sandbox-design
+        # contract. Distinct exception class so the discriminator is the
+        # type, not a substring match on the message.
+        from server.lean_repl import DEFAULT_QUERY_TIMEOUT_S
 
-            logger.warning(
-                "lean_verify: REPL timed out — closing and respawning "
-                "(%s)", exc,
+        logger.warning(
+            "lean_verify: REPL timed out — closing and respawning (%s)", exc
+        )
+        # m3 critique F4 — narrow the bare-except. The teardown is
+        # best-effort (close on an already-wedged process can legitimately
+        # raise OSError / LeanReplError); CancelledError MUST propagate.
+        try:
+            await lean_repl.close()
+        except (OSError, LeanReplError):
+            logger.exception("lean_verify: REPL close after timeout failed")
+        try:
+            resources.lean_repl = await LeanRepl.spawn_from_config(
+                resources.config
             )
-            try:
-                await lean_repl.close()
-            except Exception:  # noqa: BLE001 — best-effort teardown
-                logger.exception("lean_verify: REPL close after timeout failed")
-            try:
-                resources.lean_repl = await LeanRepl.spawn_from_config(
-                    resources.config
-                )
-            except Exception:  # noqa: BLE001 — leave it None; next call hits disabled path
-                logger.exception(
-                    "lean_verify: respawn after timeout failed; "
-                    "subsequent calls degrade to 'unavailable'"
-                )
-                resources.lean_repl = None
-            return envelope(_timeout_envelope(mode, DEFAULT_QUERY_TIMEOUT_S))
-        # Any other LeanReplError — surface as an error envelope, do
-        # NOT raise (the agent gets a usable response with the error
-        # message).
+        except (LeanUnavailableError, OSError):
+            logger.exception(
+                "lean_verify: respawn after timeout failed; "
+                "subsequent calls degrade to 'unavailable'"
+            )
+            resources.lean_repl = None
+        return envelope(_timeout_envelope(mode, DEFAULT_QUERY_TIMEOUT_S))
+    except LeanReplError as exc:
+        # Any other LeanReplError (process exited, non-JSON response,
+        # etc.) — surface as an error envelope, do NOT raise (the agent
+        # gets a usable response with the error message).
         logger.warning("lean_verify: REPL error: %s", exc)
         return envelope(
             {
