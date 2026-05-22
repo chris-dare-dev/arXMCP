@@ -13,6 +13,81 @@ production cutover (E11).
 
 ## Unreleased
 
+### 2026-05-22 — `proof-verify` handler-wiring (m9): UI ingest trigger + status polling
+
+Track-D frontend is complete. The operator can now click "Ingest
+now" in the per-notebook UI, see live status updates via htmx
+polling, and read the last 1 KB of stderr on failure — all without
+the daemon's event loop ever blocking. The MCP surface and
+`EXPECTED_TOOL_SCHEMA_SHA256` are unchanged.
+
+- **NEW: `server/ingest_tracker.py`** (~250 LOC) — `IngestTaskTracker`
+  class that spawns `python -m tools.notebook_ingest <slug>` as a
+  subprocess via `asyncio.create_subprocess_exec`, tracks the
+  `asyncio.Task` in `_tasks: dict[str, asyncio.Task]` to prevent
+  GC, and updates the DB row on completion via a `done_callback`.
+  Bounded by `asyncio.Semaphore(1)` so at most one ingest runs
+  across the daemon at any time (FM-1 closure). Subprocess (NOT
+  in-process `to_thread`) was chosen so an ingest crash cannot
+  crash the daemon AND stderr capture is native via
+  `asyncio.subprocess.PIPE` (AC #2 explicit requirement). Cold-
+  start cost (~30s BGE-M3 reload) is amortized over minutes-to-
+  hours of ingest.
+- **NEW: `prepare_stderr_tail` pipeline** — truncate to 1024 bytes
+  → redact absolute paths down to `var/arxmcp/` via regex → decode
+  → HTML-escape. Pipeline closes both FM-3 (Threat 2 — `<retrieved_chunk>`
+  literal escape) and FM-4 (AC #2 — no absolute paths beyond
+  `var/arxmcp/` leak into the UI).
+- **NEW: 2 REST routes** in `server/routes/notebooks.py`:
+  - `POST /ui/api/notebooks/{slug}/ingest` — 202 Accepted; returns
+    an HTML fragment that the htmx UI swaps into `#ingest-status`.
+    Sequencing: validate → 409-check → INSERT row → spawn task →
+    return (FM-7 closure — row exists before first poll).
+  - `GET /ui/api/notebooks/{slug}/ingest/latest` — htmx polling
+    endpoint. Returns 200 for `running` / `none`, **HTTP 286 for
+    terminal states** (`success` / `failed`). HTTP 286 is the
+    htmx-documented canonical polling-stop signal; the client
+    stops polling automatically on terminal-state response,
+    zero JS required.
+- **NEW: `NotebooksStore` additive migration v1 → v2** —
+  `notebook_ingest_runs` table added via `CREATE TABLE IF NOT
+  EXISTS` (NOT the original DROP-AND-RECREATE pattern, which
+  would wipe live notebook metadata). Schema: `(id, slug, status,
+  started_at, finished_at, exit_code, stderr_tail)` with FK
+  cascade on `slug`. The migration ladder is now staged per-
+  version so a future bump must explicitly add a v2→v3 branch.
+- **NEW: 5 new `NotebooksStore` methods** —
+  `insert_ingest_run`, `update_ingest_run`, `get_latest_ingest_run`,
+  `has_running_ingest` (cross-restart 409 fallback),
+  `mark_orphaned_runs_failed` (FM-5 startup-recovery: marks any
+  `running` row older than 1 hour as `failed` so a daemon-crash-
+  mid-ingest doesn't leave the row stuck in limbo).
+- **EDIT: `server/main.py`** — lifespan opens `IngestTaskTracker`
+  AFTER `NotebooksStore` AND after running orphan-recovery.
+  Lifespan finally calls `tracker.shutdown(timeout_seconds=5.0)`
+  to cancel in-flight tasks before closing the store.
+- **EDIT: `frontend/templates/notebook_detail.html`** — added
+  "Ingest now" form + `<div id="ingest-status">` placeholder
+  with `hx-trigger="load"` so the page loads the latest status
+  on first paint AND polls every 2s once a run is in flight.
+- **Out-of-scope assertion (AC #4)** — `tests/test_m9_scope_invariants.py`
+  greps `frontend/` for `iframe|preview` and fails if any match.
+  Defends against an accidental m10 (sandboxed iframe preview)
+  leak into m9.
+- **Test surface** — +23 net-new tests:
+  - `tests/test_ingest_endpoint.py` (~22 tests) — trigger happy
+    path, 409 collision, path redaction (5 parametrized cases),
+    HTML escape (Threat 2), latest endpoint (none/404/missing
+    notebook), HTTP 286 on terminal (success + failure),
+    additive migration preserves rows + creates new table,
+    orphan recovery, direct tracker unit tests.
+  - `tests/test_m9_scope_invariants.py` (1 test) — grep-based
+    AC #4 defense.
+
+`make test`: **2461 passed** (+23 from m8), 9 skipped, 1 xfailed.
+Ruff clean. `EXPECTED_TOOL_SCHEMA_SHA256` unchanged (AC: no new
+MCP tools).
+
 ### 2026-05-22 — `proof-verify` handler-wiring (m8): htmx + Jinja2 UI shell, ar5iv upload
 
 First operator-facing browser UI for the per-notebook workflow.

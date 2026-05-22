@@ -67,6 +67,41 @@
 </section>
 
 <section class="card">
+  <h2>Ingest</h2>
+  <p class="hint">
+    Run the ingest pipeline against this notebook's
+    <code>papers.txt</code>. The daemon spawns
+    <code>python -m tools.notebook_ingest {{ notebook.slug }}</code>
+    as a background subprocess — one ingest in flight at a time per
+    notebook; the UI polls for status every 2 seconds.
+    Destructive notebook wipe is the explicit job of
+    <code>tools/notebook_purge.py</code> and is NOT triggerable from the UI.
+  </p>
+  <form
+    hx-post="/ui/api/notebooks/{{ notebook.slug }}/ingest"
+    hx-target="#ingest-status"
+    hx-swap="outerHTML"
+    hx-on::htmx:response-error="document.getElementById('ingest-error').textContent = (function(t){try{return JSON.parse(t).detail||t;}catch(e){return t;}})(event.detail.xhr.responseText)"
+  >
+    <button type="submit">Ingest now</button>
+    <pre id="ingest-error" class="error" aria-live="polite"></pre>
+  </form>
+  <!-- m9: status placeholder. The trigger handler returns an HTML
+       fragment that replaces this div via hx-swap="outerHTML". The
+       polling fragment carries hx-trigger="every 2s"; terminal-state
+       fragments OMIT the trigger AND the polling endpoint returns
+       HTTP 286 to stop client polling (htmx-documented mechanism). -->
+  <div id="ingest-status"
+       data-status="placeholder"
+       hx-get="/ui/api/notebooks/{{ notebook.slug }}/ingest/latest"
+       hx-trigger="load"
+       hx-target="#ingest-status"
+       hx-swap="outerHTML">
+    Loading ingest status…
+  </div>
+</section>
+
+<section class="card">
   <h2>Papers in this notebook ({{ papers|length }})</h2>
   {% if not papers %}
     <p class="empty">No papers yet. Add one above.</p>

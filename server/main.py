@@ -328,18 +328,47 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # the m7-era code path leaked BGE-M3 weights + LanceDB
     # connections + semaphores on startup retry loops (systemd /
     # docker `restart: on-failure`).
+    from server.ingest_tracker import IngestTaskTracker  # noqa: PLC0415
     from server.notebooks_store import NotebooksStore  # noqa: PLC0415
 
     try:
         app.state.notebooks_store = await NotebooksStore.open(
             config.notebooks_db_path
         )
+        # m9 FM-5: orphan-recovery — mark any `status='running'`
+        # row older than 1 hour as `failed` BEFORE accepting new
+        # ingest triggers. Covers daemon-crash-mid-ingest where
+        # the previous task's done_callback never fired.
+        import datetime as _dt  # noqa: PLC0415
+        cutoff = (
+            _dt.datetime.now(_dt.UTC) - _dt.timedelta(hours=1)
+        ).isoformat(timespec="seconds")
+        recovered = await app.state.notebooks_store.mark_orphaned_runs_failed(
+            cutoff_iso=cutoff,
+            message="server restarted mid-ingest (m9 FM-5 recovery)",
+        )
+        if recovered:
+            logger.info(
+                "IngestTracker startup recovery: marked %d orphaned "
+                "running row(s) as failed", recovered,
+            )
+        # m9: ingest task tracker — fire-and-forget subprocess
+        # registry for the UI ingest trigger.
+        app.state.ingest_tracker = IngestTaskTracker()
         if mcp_server is not None:
             async with mcp_server.session_manager.run():
                 yield
         else:
             yield
     finally:
+        # m9: cancel any in-flight ingest tasks first (best-effort;
+        # subprocesses continue running until reaped, but the
+        # async wrapper is torn down cleanly). Done BEFORE
+        # NotebooksStore.close so the tracker's done_callbacks can
+        # still write final-state rows.
+        ingest_tracker = getattr(app.state, "ingest_tracker", None)
+        if ingest_tracker is not None:
+            await ingest_tracker.shutdown()
         # m7: close the NotebooksStore connection BEFORE Resources
         # shutdown so its async lock can drain cleanly. The store is
         # cheap to close (just a sqlite3.Connection.close); failures

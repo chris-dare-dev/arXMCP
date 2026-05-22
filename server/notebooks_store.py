@@ -53,12 +53,18 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-#: NotebooksStore schema version. Bumping triggers DROP-AND-RECREATE
-#: on next open (acceptable for the UI surface — the data lives on
-#: disk under ``var/arxmcp/notebooks/<slug>/`` and can be re-imported
-#: via ``tools/notebook_init.py`` + paper-paste from the UI). When
-#: bumping, also bump the schema docstring above.
-SCHEMA_VERSION: int = 1
+#: NotebooksStore schema version. v0→v1 is the initial create
+#: (DROP-AND-RECREATE; fires only on a fresh / empty DB). v1→v2
+#: is the m9 ADDITIVE migration adding ``notebook_ingest_runs``
+#: WITHOUT dropping existing tables — notebook metadata MUST
+#: survive schema bumps (the original DROP-AND-RECREATE-on-bump
+#: pattern from Tier1Store is appropriate for a cache where loss
+#: is a miss, NOT correctness; for notebook metadata it would be
+#: data loss). When adding a new version: append a new
+#: ``if current_version < N:`` block in ``_open_sync`` using
+#: ``CREATE TABLE IF NOT EXISTS`` / ``ALTER TABLE`` and bump
+#: SCHEMA_VERSION; do NOT drop existing tables.
+SCHEMA_VERSION: int = 2
 
 
 class NotebooksStore:
@@ -114,6 +120,12 @@ class NotebooksStore:
                     "NotebooksStore: schema version %d -> %d at %s",
                     current_version, SCHEMA_VERSION, db_path,
                 )
+            # v0 -> v1: initial create (notebooks + notebook_papers).
+            # Destructive create — runs only on a fresh DB where the
+            # tables don't yet exist; CREATE TABLE (without IF NOT
+            # EXISTS) plus the preceding DROP IF EXISTS preserves
+            # the original safety on empty DBs.
+            if current_version < 1:
                 conn.execute("DROP TABLE IF EXISTS notebook_papers")
                 conn.execute("DROP TABLE IF EXISTS notebooks")
                 conn.execute(
@@ -138,7 +150,33 @@ class NotebooksStore:
                     "CREATE INDEX idx_notebook_papers_slug "
                     "ON notebook_papers(slug)"
                 )
-                conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+                conn.execute("PRAGMA user_version = 1")
+            # v1 -> v2: m9 ADDITIVE migration. notebook_ingest_runs
+            # stores per-ingest-trigger run state. CREATE TABLE IF
+            # NOT EXISTS (NOT a destructive recreate) preserves all
+            # existing notebook + paper rows. m9 DEVIATION from the
+            # original Tier1Store-style DROP-AND-RECREATE — that
+            # pattern is acceptable for caches (miss, not data
+            # loss) but NOT for notebook metadata.
+            if current_version < 2:
+                conn.execute(
+                    "CREATE TABLE IF NOT EXISTS notebook_ingest_runs ("
+                    "  id           INTEGER PRIMARY KEY AUTOINCREMENT,"
+                    "  slug         TEXT NOT NULL,"
+                    "  status       TEXT NOT NULL,"
+                    "  started_at   TEXT NOT NULL,"
+                    "  finished_at  TEXT,"
+                    "  exit_code    INTEGER,"
+                    "  stderr_tail  TEXT,"
+                    "  FOREIGN KEY (slug) REFERENCES notebooks(slug) "
+                    "    ON DELETE CASCADE"
+                    ")"
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_runs_slug "
+                    "ON notebook_ingest_runs(slug, id DESC)"
+                )
+                conn.execute("PRAGMA user_version = 2")
             return conn
 
         conn = await asyncio.to_thread(_open_sync)
@@ -285,6 +323,143 @@ class NotebooksStore:
                 )
                 return cur.rowcount > 0
             return await asyncio.to_thread(_delete)
+
+    # ------------------------------------------------------------------
+    # Ingest runs (proof-verify-handler-wiring-m9)
+    # ------------------------------------------------------------------
+
+    #: Terminal-state values for the ``status`` column.
+    INGEST_STATUS_RUNNING: str = "running"
+    INGEST_STATUS_SUCCESS: str = "success"
+    INGEST_STATUS_FAILED: str = "failed"
+
+    async def insert_ingest_run(
+        self,
+        slug: str,
+        started_at: str,
+    ) -> int:
+        """Insert a new ``running`` ingest-run row for ``slug``.
+
+        Returns the new ``run_id``. The row exists BEFORE the
+        background task is spawned (FM-7 from m9 synthesis) so the
+        first polling request after the trigger never 404s.
+        """
+        async with self._lock:
+            def _insert() -> int:
+                cur = self._conn.execute(
+                    "INSERT INTO notebook_ingest_runs "
+                    "(slug, status, started_at) VALUES (?, ?, ?)",
+                    (slug, self.INGEST_STATUS_RUNNING, started_at),
+                )
+                return int(cur.lastrowid)
+            return await asyncio.to_thread(_insert)
+
+    async def update_ingest_run(
+        self,
+        run_id: int,
+        *,
+        status: str,
+        finished_at: str,
+        exit_code: int | None,
+        stderr_tail: str | None,
+    ) -> None:
+        """Update a run row with terminal-state values.
+
+        Called from the ingest task's done callback. ``status`` MUST
+        be one of ``success`` / ``failed`` — never ``running``
+        (the row is already in that state from :meth:`insert_ingest_run`).
+        ``stderr_tail`` should be the redacted + HTML-escaped
+        ``var/arxmcp/``-relative tail (m9 FM-3 + FM-4 closure).
+        """
+        async with self._lock:
+            def _update() -> None:
+                self._conn.execute(
+                    "UPDATE notebook_ingest_runs SET "
+                    "  status = ?, finished_at = ?, "
+                    "  exit_code = ?, stderr_tail = ? "
+                    "WHERE id = ?",
+                    (status, finished_at, exit_code, stderr_tail, run_id),
+                )
+            await asyncio.to_thread(_update)
+
+    async def get_latest_ingest_run(
+        self,
+        slug: str,
+    ) -> dict[str, str | int | None] | None:
+        """Return the most recent ingest-run row for ``slug``, or
+        ``None`` if no run has ever been triggered."""
+        async with self._lock:
+            def _query() -> dict[str, str | int | None] | None:
+                row = self._conn.execute(
+                    "SELECT id, slug, status, started_at, "
+                    "       finished_at, exit_code, stderr_tail "
+                    "FROM notebook_ingest_runs WHERE slug = ? "
+                    "ORDER BY id DESC LIMIT 1",
+                    (slug,),
+                ).fetchone()
+                if row is None:
+                    return None
+                return {
+                    "id": row[0], "slug": row[1], "status": row[2],
+                    "started_at": row[3], "finished_at": row[4],
+                    "exit_code": row[5], "stderr_tail": row[6],
+                }
+            return await asyncio.to_thread(_query)
+
+    async def has_running_ingest(self, slug: str) -> bool:
+        """Cross-restart fallback for the 409 collision check.
+
+        The in-memory ``IngestTaskTracker`` is the primary source
+        of truth for live processes; this DB fallback catches the
+        case where the daemon was restarted while a row was still
+        ``running`` (the FM-5 startup-recovery should have cleared
+        it, but defense-in-depth in case recovery hasn't run yet).
+        """
+        async with self._lock:
+            def _check() -> bool:
+                row = self._conn.execute(
+                    "SELECT 1 FROM notebook_ingest_runs "
+                    "WHERE slug = ? AND status = ? LIMIT 1",
+                    (slug, self.INGEST_STATUS_RUNNING),
+                ).fetchone()
+                return row is not None
+            return await asyncio.to_thread(_check)
+
+    async def mark_orphaned_runs_failed(
+        self,
+        cutoff_iso: str,
+        message: str,
+    ) -> int:
+        """Mark every ``running`` row whose ``started_at`` is older
+        than ``cutoff_iso`` as ``failed`` with the given message.
+
+        Called at lifespan startup (m9 FM-5 closure): if the daemon
+        died mid-ingest the previous task's done-callback never
+        fired and the row would stay ``running`` forever; mark it
+        as failed before the new daemon accepts ingest triggers
+        for the same slug.
+
+        Returns the number of rows updated.
+        """
+        async with self._lock:
+            def _update() -> int:
+                cur = self._conn.execute(
+                    "UPDATE notebook_ingest_runs SET "
+                    "  status = ?, "
+                    "  finished_at = ?, "
+                    "  exit_code = -1, "
+                    "  stderr_tail = ? "
+                    "WHERE status = ? AND started_at < ?",
+                    (
+                        self.INGEST_STATUS_FAILED,
+                        cutoff_iso,
+                        message,
+                        self.INGEST_STATUS_RUNNING,
+                        cutoff_iso,
+                    ),
+                )
+                return cur.rowcount
+            return await asyncio.to_thread(_update)
 
 
 __all__ = [

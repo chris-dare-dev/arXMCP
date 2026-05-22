@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import contextlib
 import datetime as _dt
+import html
 import logging
 import os
 import sqlite3
@@ -679,8 +680,6 @@ def _paper_row_html(slug: str, paper_id: str, added_at: str) -> str:
     cannot contain HTML-significant characters today, but escaping
     is defensive.
     """
-    import html
-
     return (
         f'<tr data-slug="{html.escape(slug)}" '
         f'data-paper-id="{html.escape(paper_id)}">'
@@ -688,6 +687,240 @@ def _paper_row_html(slug: str, paper_id: str, added_at: str) -> str:
         f'<td>{html.escape(added_at)}</td>'
         f'<td>uploaded</td>'
         f"</tr>"
+    )
+
+
+# ---------------------------------------------------------------------------
+# m9 — Ingest trigger + status polling
+# ---------------------------------------------------------------------------
+
+
+def _get_ingest_tracker(request: Request):  # noqa: ARG001
+    """FastAPI dependency: fetch the ``IngestTaskTracker`` attached
+    to ``app.state`` in the lifespan (m9).
+
+    Raises 503 if the tracker is not yet initialized (server
+    still in startup) — defensive; the lifespan attaches the
+    tracker BEFORE yielding.
+    """
+    tracker = getattr(request.app.state, "ingest_tracker", None)
+    if tracker is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="ingest tracker not initialized",
+        )
+    return tracker
+
+
+@router.post(
+    "/notebooks/{slug}/ingest",
+    response_class=HTMLResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def trigger_ingest(
+    slug: str,
+    request: Request,
+    store: NotebooksStore = Depends(get_notebooks_store),  # noqa: B008  (FastAPI DI pattern)
+) -> Response:
+    """Spawn a background ingest for ``slug`` (m9 AC #1).
+
+    Returns 202 Accepted with an HTML fragment that the htmx UI
+    swaps into ``#ingest-status``. The fragment carries the
+    ``hx-trigger="every 2s"`` for the polling loop; the polling
+    endpoint returns HTTP 286 when the run reaches a terminal
+    state to stop the loop (m9 synthesis D2).
+
+    Sequencing (FM-7 closure): validate → 409-check → INSERT row
+    → spawn subprocess task → return fragment. The DB row exists
+    BEFORE the first 2s poll fires.
+
+    409 collision (AC #3): two layers — in-memory ``is_running``
+    on the live ``asyncio.Task`` (primary) + DB
+    ``has_running_ingest`` (cross-restart fallback).
+    """
+    from server.ingest_tracker import IngestTaskTracker  # noqa: PLC0415
+
+    try:
+        validate_slug(slug)
+    except NotebookError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e),
+        ) from e
+
+    if await store.get_notebook(slug) is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"notebook {slug!r} not found",
+        )
+
+    tracker: IngestTaskTracker = _get_ingest_tracker(request)
+
+    # AC #3: 409 if any in-flight ingest exists for this slug.
+    # Two-layer check — in-memory authoritative for the running
+    # process, DB fallback for the crash-restart case.
+    if tracker.is_running(slug) or await store.has_running_ingest(slug):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"an ingest is already in flight for notebook "
+                f"{slug!r} — wait for it to finish before triggering "
+                f"another"
+            ),
+        )
+
+    # FM-7: insert the run row BEFORE spawning the task so the
+    # first 2s poll always finds a row to render.
+    started_at = _now_iso()
+    run_id = await store.insert_ingest_run(slug, started_at)
+
+    # Fire-and-forget the subprocess via the tracker; the task
+    # ref is stored on the tracker to prevent GC.
+    tracker.start_ingest(
+        slug=slug, run_id=run_id, store=store,
+        now_iso_provider=_now_iso,
+    )
+
+    return HTMLResponse(
+        status_code=status.HTTP_202_ACCEPTED,
+        content=_ingest_status_fragment(
+            slug=slug, run_id=run_id, status="running",
+            started_at=started_at, finished_at=None,
+            exit_code=None, stderr_tail=None,
+        ),
+    )
+
+
+@router.get(
+    "/notebooks/{slug}/ingest/latest",
+    response_class=HTMLResponse,
+)
+async def latest_ingest(
+    slug: str,
+    store: NotebooksStore = Depends(get_notebooks_store),  # noqa: B008  (FastAPI DI pattern)
+) -> Response:
+    """Return an HTML fragment describing the most recent ingest
+    run for ``slug`` — for htmx ``every 2s`` polling (m9 AC #1).
+
+    Status-code contract (m9 synthesis D2 — HTTP 286 is the
+    htmx-documented polling-stop signal):
+      - 200 ``running``   — htmx keeps polling
+      - 200 ``none``      — no run yet; htmx keeps polling
+      - 286 ``success``   — htmx stops polling
+      - 286 ``failed``    — htmx stops polling
+      - 404 — notebook doesn't exist; htmx stops polling
+        (the missing-row case for a real notebook returns 200
+        ``none``; only the no-such-notebook case 404s)
+      - 422 — malformed slug
+    """
+    try:
+        validate_slug(slug)
+    except NotebookError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e),
+        ) from e
+
+    if await store.get_notebook(slug) is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"notebook {slug!r} not found",
+        )
+
+    row = await store.get_latest_ingest_run(slug)
+    if row is None:
+        return HTMLResponse(
+            status_code=status.HTTP_200_OK,
+            content=_ingest_status_fragment(
+                slug=slug, run_id=None, status="none",
+                started_at=None, finished_at=None,
+                exit_code=None, stderr_tail=None,
+            ),
+        )
+
+    # HTTP 286: terminal-state polling-stop signal (htmx canonical).
+    response_status = (
+        status.HTTP_200_OK
+        if row["status"] == store.INGEST_STATUS_RUNNING
+        else 286  # custom code for htmx; not in starlette.status
+    )
+    return HTMLResponse(
+        status_code=response_status,
+        content=_ingest_status_fragment(
+            slug=slug,
+            run_id=row["id"],
+            status=row["status"],
+            started_at=row["started_at"],
+            finished_at=row["finished_at"],
+            exit_code=row["exit_code"],
+            stderr_tail=row["stderr_tail"],
+        ),
+    )
+
+
+def _ingest_status_fragment(
+    *,
+    slug: str,
+    run_id: int | None,
+    status: str,
+    started_at: str | None,
+    finished_at: str | None,
+    exit_code: int | None,
+    stderr_tail: str | None,
+) -> str:
+    """Build the HTML fragment swapped into ``#ingest-status``.
+
+    The ``running`` fragment carries the ``hx-trigger="every 2s"``
+    polling attribute; terminal-state fragments OMIT it
+    (defense-in-depth on top of the HTTP 286 polling-stop signal).
+    The ``slug`` and other interpolated values are HTML-escaped at
+    the boundary (the m8 ``_paper_row_html`` precedent); the
+    ``stderr_tail`` value is ALREADY html.escape'd by
+    ``prepare_stderr_tail`` so it is interpolated raw into a
+    ``<pre>`` here.
+    """
+    safe_slug = html.escape(slug)
+    if status == "none":
+        return (
+            f'<div id="ingest-status" data-status="none" '
+            f'hx-get="/ui/api/notebooks/{safe_slug}/ingest/latest" '
+            f'hx-trigger="every 2s" hx-target="#ingest-status" '
+            f'hx-swap="outerHTML">'
+            f"No ingest runs yet."
+            f"</div>"
+        )
+    if status == "running":
+        return (
+            f'<div id="ingest-status" data-status="running" '
+            f'hx-get="/ui/api/notebooks/{safe_slug}/ingest/latest" '
+            f'hx-trigger="every 2s" hx-target="#ingest-status" '
+            f'hx-swap="outerHTML">'
+            f"Status: running"
+            f" · Started {html.escape(started_at or '')}"
+            f" · Run #{run_id}"
+            f"</div>"
+        )
+    if status == "success":
+        return (
+            f'<div id="ingest-status" data-status="success">'
+            f"Status: success"
+            f" · Finished {html.escape(finished_at or '')}"
+            f" · Run #{run_id}"
+            f"</div>"
+        )
+    # status == "failed"
+    safe_exit = html.escape(str(exit_code)) if exit_code is not None else "?"
+    # stderr_tail is already html.escape'd by prepare_stderr_tail.
+    stderr_pre = (
+        f"<pre>{stderr_tail}</pre>" if stderr_tail else ""
+    )
+    return (
+        f'<div id="ingest-status" data-status="failed">'
+        f"Status: failed"
+        f" · Exit {safe_exit}"
+        f" · Run #{run_id}"
+        f"{stderr_pre}"
+        f"</div>"
     )
 
 
