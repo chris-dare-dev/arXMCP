@@ -19,7 +19,7 @@ help:
 	@echo "  make daily-report           Scrape /metrics and write the daily ops report (E14_S04; see docs/ops/daily-ops-cadence.md)"
 	@echo "  make parser-failures-report Roll up parser-failures/*.{log,jsonl} into the weekly review (E14_S04; see docs/ops/parser-failure-review.md)"
 	@echo "  make sbom        Generate CycloneDX SBOMs + grype scan (E13_S06; see .claude/docs/security-threat-6-audit.md)"
-	@echo "  make refresh-arxiv-ca   Re-download infra/ca/arxiv-ca-bundle.pem and verify against live arxiv.org (E13_S07c)"
+	@echo "  make refresh-arxiv-ca       Re-download infra/ca/arxiv-ca-bundle.pem and verify against live arxiv hosts (E13_S07c)"
 	@echo ""
 	@echo "Override the python interpreter with: make test PYTHON=python3.13"
 	@echo ""
@@ -279,6 +279,6 @@ refresh-arxiv-ca:
 		openssl s_client -connect export.arxiv.org:443 -servername export.arxiv.org -CAfile $$tmp -verify_return_error </dev/null >/dev/null 2>&1 || { rm -f $$tmp; echo "ERROR: live export.arxiv.org cert does NOT verify against the new bundle. NOT writing infra/ca/arxiv-ca-bundle.pem." >&2; exit 1; }; \
 		echo "Verifying live ar5iv.labs.arxiv.org cert chain..."; \
 		openssl s_client -connect ar5iv.labs.arxiv.org:443 -servername ar5iv.labs.arxiv.org -CAfile $$tmp -verify_return_error </dev/null >/dev/null 2>&1 || { rm -f $$tmp; echo "ERROR: live ar5iv.labs.arxiv.org cert does NOT verify against the new bundle. NOT writing infra/ca/arxiv-ca-bundle.pem." >&2; exit 1; }; \
-		mv $$tmp infra/ca/arxiv-ca-bundle.pem; \
+		mv $$tmp infra/ca/arxiv-ca-bundle.pem || { rm -f $$tmp; echo "ERROR: mv failed; bundle NOT updated (temp file removed)." >&2; exit 1; }; \
 		echo "OK: bundle refreshed at infra/ca/arxiv-ca-bundle.pem (all three hosts verified)."; \
 		echo "Review the diff and commit: git diff infra/ca/arxiv-ca-bundle.pem"

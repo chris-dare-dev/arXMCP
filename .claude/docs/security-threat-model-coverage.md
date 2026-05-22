@@ -303,14 +303,16 @@ redirect-host pinning on `graph_ingest` + `inspire_ingest`
 - ~~[#5 — implement ARXMCP_PIN_ARXIV_CA SSL-context wiring](https://github.com/chris-dare-dev/arXMCP/issues/5)~~
   — **closed by E13_S07c.** Vendored ISRG Root X1 bundle +
   `server.ssl_pin.build_arxiv_ssl_context` factory threaded into both
-  arxiv-rooted fetch sites; Config-load + factory-runtime fail-closed;
-  `make refresh-arxiv-ca` operator-refresh target.
-  `ARXMCP_PIN_ARXIV_CA` is a forward-compat plumbing stub today (the Config
-  field exists but no code consumes it). Implement the SSL-context wiring
-  against a pinned CA bundle and an operator-refresh procedure when the
-  arxiv.org CA rotation cadence is settled. Low priority because the
-  system trust store + safe-by-default urllib is the production posture
-  today.
+  arxiv-rooted fetch sites' function signatures; Config-load +
+  factory-runtime fail-closed; `make refresh-arxiv-ca` operator-refresh
+  target. **Caller-side partial coverage** — the existing production
+  callers (`ingest/bulk_ingest.py`, `tools/notebook_fetch.py`,
+  `tools/fetch_seed.py`, `tools/fetch_one_paper.py`) do NOT auto-thread
+  the context; they invoke the fetchers with the default
+  `ssl_context=None`, so the bulk-ingest path uses the system trust
+  store even when `ARXMCP_PIN_ARXIV_CA=1` is set. The startup INFO log
+  surfaces this caveat. Closing the caller-side coverage is filed as a
+  follow-up.
 
 ---
 

@@ -705,6 +705,23 @@ if __name__ == "__main__":
             "`make refresh-arxiv-ca`.",
             resolve_arxiv_ca_bundle(cfg),
         )
+        # E13_S07c v1 caller-side coverage caveat: the API surface
+        # is wired (try_cache + fetch_eprint accept ssl_context) but
+        # the existing production callers (bulk_ingest, fetch_seed,
+        # fetch_one_paper, notebook_fetch) do NOT auto-thread the
+        # context. Surface this WARN so an operator who sets the
+        # flag sees the gap explicitly rather than assuming bulk
+        # ingest is pinned. Full caller-side wiring is tracked as a
+        # follow-up; see .claude/docs/security-threat-7-audit.md.
+        logger.warning(
+            "ARXMCP_PIN_ARXIV_CA=1 set, BUT existing production "
+            "callers (ingest/bulk_ingest.py, tools/fetch_seed.py, "
+            "tools/fetch_one_paper.py, tools/notebook_fetch.py) do "
+            "NOT auto-thread the SSLContext. Bulk-ingest paths will "
+            "still use the system trust store. See "
+            ".claude/docs/security-threat-7-audit.md \"Caller-side "
+            "coverage\" for the workaround. Tracked as follow-up."
+        )
     logger.info(
         "Starting arxmcp-server on %s:%d", cfg.bind_host, cfg.bind_port
     )

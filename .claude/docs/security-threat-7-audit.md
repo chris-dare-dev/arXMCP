@@ -126,6 +126,63 @@ config-flag plumbing; **E13_S07c (2026-05-22, closes GitHub issue
   (inspire_ingest), or `oaipmh.arxiv.org` (oai_delta). Those use the
   default system trust store; redirect-host pinning (E13_S07b) is
   their layered defense.
+
+  > **Note on `oaipmh.arxiv.org`** — this IS an arxiv-rooted subdomain
+  > (operated by Cornell alongside `arxiv.org` / `ar5iv.labs.arxiv.org`
+  > / `export.arxiv.org`) and could in principle be added to the
+  > pinned set. It is deliberately excluded from E13_S07c v1 because
+  > (a) it's a separate Cornell-operated endpoint that may use a
+  > distinct cert chain on its load balancer (verified at pin-refresh
+  > time only for the three documented hosts), and (b) `oai_delta.py`'s
+  > existing `response.url.startswith(endpoint)` redirect pin (E13_S07)
+  > already provides equivalent assurance against cross-host
+  > redirects. Pinning `oaipmh.arxiv.org` would require extending the
+  > `make refresh-arxiv-ca` verifier to test that host's cert chain
+  > too; tracked as future work alongside the caller-side coverage
+  > below.
+
+### Caller-side coverage (E13_S07c v1)
+
+This milestone wires the SSLContext through the `try_cache` and
+`fetch_eprint` **function signatures**, and threads it from the
+relevant injection points down to `urllib.request.urlopen(context=...)`.
+The four existing production callers — `ingest/bulk_ingest.py`
+(at line ~211 in `_parse_via_ar5iv`), `tools/notebook_fetch.py`
+(at line ~89), `tools/fetch_seed.py` (at line ~115), and
+`tools/fetch_one_paper.py` (at line ~40) — DO NOT auto-thread the
+context. They invoke the fetchers with the default
+`ssl_context=None`, which falls back to the system trust store
+**even when `ARXMCP_PIN_ARXIV_CA=1` is set**.
+
+The rationale for leaving this partial-coverage state in v1:
+
+- The bulk-ingest path crosses a layer boundary
+  (`ingest/bulk_ingest.py` → `server.config` + `server.ssl_pin`).
+  This is a design decision that warrants its own review rather than
+  silent introduction in a security milestone.
+- The dev-tooling callers (`tools/fetch_seed.py`,
+  `tools/fetch_one_paper.py`) run in operator hands at corpus-build
+  time; the threat surface is different from the server-warmed
+  fetch path.
+- The flag IS observable at startup (operators see the INFO log) so
+  the partial state is not a silent contradiction — the audit doc
+  here is the canonical truth source.
+
+**Operator workaround for v1.** If you need the pin applied to bulk
+ingest TODAY, explicitly build the context and pass it in:
+
+```python
+from server.config import Config
+from server.ssl_pin import build_arxiv_ssl_context
+from ingest.ar5iv_fetch import try_cache
+
+ctx = build_arxiv_ssl_context(Config())
+result = try_cache(paper_id, ssl_context=ctx, ...)
+```
+
+Closing the caller-side coverage is filed as a follow-up. The
+function-signature wiring + factory + Config-load fail-closed +
+refresh procedure are the load-bearing pieces shipped in v1.
 - A startup INFO log fires when the pin is on, surfacing the bundle
   path so the operator can confirm the active configuration in the
   operational log.

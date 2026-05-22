@@ -456,6 +456,28 @@ class Config(BaseSettings):
                 f".claude/docs/security-threat-7-audit.md (Threat 7 / "
                 f"E13_S07c)."
             )
+        # E13_S07c F4 rectification — defense-in-depth: the path
+        # exists, but is it a parseable PEM bundle? Without this
+        # check, ``arxiv_ca_bundle_path=/etc/passwd`` would pass
+        # config-load and fail only at first fetch with an
+        # ``ssl.SSLError``. Run the same ``create_default_context``
+        # call now (its only side effects are file-read + parse;
+        # idempotent). Convert the exception into a ``ValueError``
+        # so pydantic wraps it into a ``ValidationError`` at
+        # config-load time per the surrounding contract.
+        import ssl as _ssl
+        try:
+            _ssl.create_default_context(cafile=str(resolved))
+        except (_ssl.SSLError, OSError) as exc:
+            raise ValueError(
+                f"ARXMCP_PIN_ARXIV_CA=1 but CA bundle at {resolved!s} "
+                f"({source}) is not a parseable PEM file: "
+                f"{exc.__class__.__name__}: {exc}. Refusing to fall "
+                f"back to the system trust store. Run "
+                f"``make refresh-arxiv-ca`` to regenerate the "
+                f"vendored bundle, or supply a valid PEM via "
+                f"ARXMCP_ARXIV_CA_BUNDLE_PATH."
+            ) from exc
         return self
 
     @field_validator("bind_port")
