@@ -43,6 +43,7 @@ Full per-mitigation audit: ``.claude/docs/security-threat-7-audit.md``.
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -603,3 +604,152 @@ class TestPinArxivCaFlag:
             "audit doc must surface the 100 MB Content-Length cap value"
         )
         assert "Threat 7" in text
+
+
+# ===========================================================================
+# E13_S07b — Threat-7 redirect-host pin on graph_ingest + inspire_ingest
+#   Closes the partial-coverage gap G2 (github.com/chris-dare-dev/arXMCP#2).
+# ===========================================================================
+
+
+class TestRedirectHostPin:
+    """E13_S07b — closes Threat 7 partial-coverage gap G2.
+
+    ``ingest/ar5iv_fetch.py`` and ``ingest/oai_delta.py`` already pin
+    the post-fetch ``response.url`` against their expected host so a
+    poisoned upstream that issues a 30x to an attacker-controlled host
+    is rejected before its body is parsed. ``graph_ingest.py``
+    (OpenAlex) and ``inspire_ingest.py`` (INSPIRE-HEP) gained the same
+    guard in E13_S07b. These tests mirror
+    ``tests/test_oai_delta.py::TestFetchPageRedirectPin``.
+
+    Mock discipline (research-brief-2 failure mode #4): the fake
+    response MUST set an explicit ``.url`` string. A bare ``MagicMock``
+    returns a truthy child mock for ``.url``, and ``.startswith`` on
+    that child raises ``AttributeError`` — the test would error rather
+    than exercise the guard. Every stub below sets ``.url`` explicitly.
+
+    The guard pins with a trailing ``"/"`` (``OPENALEX_BASE + "/"`` /
+    ``INSPIRE_API_BASE + "/"``) — the synthesis decision over the bare
+    ``oai_delta.py`` form. The trailing slash closes the
+    prefix-collision vector (``api.openalex.org.evil.com``); the last
+    two tests pin that explicitly.
+    """
+
+    @staticmethod
+    def _ctx(url: str, body: bytes):
+        """Build a ``urlopen()`` context-manager stub whose response
+        has a controlled ``.url`` and a ``.read(n)`` returning ``body``.
+        """
+        resp = MagicMock()
+        resp.url = url
+        resp.read = MagicMock(return_value=body)
+        ctx = MagicMock()
+        ctx.__enter__ = MagicMock(return_value=resp)
+        ctx.__exit__ = MagicMock(return_value=False)
+        return ctx
+
+    # ----- graph_ingest (OpenAlex) -----
+
+    def test_graph_ingest_rejects_off_host_redirect(self):
+        """A redirect off ``api.openalex.org`` raises ``RuntimeError``
+        before the JSON body is trusted as a citation source.
+        """
+        from ingest.graph_ingest import _fetch_openalex_work
+
+        ctx = self._ctx(
+            url="https://evil.example/works/poisoned",
+            body=b'{"id": "https://openalex.org/W1"}',
+        )
+        with (
+            patch("urllib.request.urlopen", return_value=ctx),
+            pytest.raises(RuntimeError, match="redirected off"),
+        ):
+            _fetch_openalex_work("2412.00001", "test@example.com")
+
+    def test_graph_ingest_accepts_on_host_response(self):
+        """A response whose final URL stays on ``api.openalex.org`` is
+        parsed and returned unchanged — the guard does not break the
+        happy path.
+        """
+        from ingest.graph_ingest import OPENALEX_BASE, _fetch_openalex_work
+
+        payload = {"id": "https://openalex.org/W1", "ok": True}
+        ctx = self._ctx(
+            url=f"{OPENALEX_BASE}/works/W1?mailto=test%40example.com",
+            body=json.dumps(payload).encode("utf-8"),
+        )
+        with patch("urllib.request.urlopen", return_value=ctx):
+            result = _fetch_openalex_work("2412.00001", "test@example.com")
+        assert result == payload
+
+    # ----- inspire_ingest (INSPIRE-HEP) -----
+
+    def test_inspire_ingest_rejects_off_host_redirect(self):
+        """A redirect off ``inspirehep.net/api`` raises ``RuntimeError``
+        before the JSON body is trusted.
+        """
+        from ingest.inspire_ingest import _fetch_inspire_record
+
+        ctx = self._ctx(
+            url="https://evil.example/api/arxiv/poisoned",
+            body=b'{"metadata": {}}',
+        )
+        with (
+            patch("urllib.request.urlopen", return_value=ctx),
+            pytest.raises(RuntimeError, match="redirected off"),
+        ):
+            _fetch_inspire_record("2412.00001", "test@example.com")
+
+    def test_inspire_ingest_accepts_on_host_response(self):
+        """A response whose final URL stays on ``inspirehep.net/api`` is
+        parsed and returned unchanged.
+        """
+        from ingest.inspire_ingest import (
+            INSPIRE_API_BASE,
+            _fetch_inspire_record,
+        )
+
+        payload = {"metadata": {"arxiv_eprints": []}}
+        ctx = self._ctx(
+            url=f"{INSPIRE_API_BASE}/arxiv/2412.00001?fields=references",
+            body=json.dumps(payload).encode("utf-8"),
+        )
+        with patch("urllib.request.urlopen", return_value=ctx):
+            result = _fetch_inspire_record("2412.00001", "test@example.com")
+        assert result == payload
+
+    # ----- prefix-collision guard (the trailing "/" synthesis decision) -----
+
+    def test_graph_ingest_rejects_prefix_collision_host(self):
+        """A bare ``startswith(OPENALEX_BASE)`` would accept
+        ``https://api.openalex.org.evil.com/...`` — a domain an
+        attacker can register. The ``+ "/"`` in the pin rejects it.
+        """
+        from ingest.graph_ingest import _fetch_openalex_work
+
+        ctx = self._ctx(
+            url="https://api.openalex.org.evil.com/works/W1",
+            body=b'{"id": "x"}',
+        )
+        with (
+            patch("urllib.request.urlopen", return_value=ctx),
+            pytest.raises(RuntimeError, match="redirected off"),
+        ):
+            _fetch_openalex_work("2412.00001", "test@example.com")
+
+    def test_inspire_ingest_rejects_prefix_collision_path(self):
+        """A bare ``startswith(INSPIRE_API_BASE)`` would accept
+        ``https://inspirehep.net/apiEVIL/...``. The ``+ "/"`` rejects it.
+        """
+        from ingest.inspire_ingest import _fetch_inspire_record
+
+        ctx = self._ctx(
+            url="https://inspirehep.net/apiEVIL/arxiv/x",
+            body=b'{"metadata": {}}',
+        )
+        with (
+            patch("urllib.request.urlopen", return_value=ctx),
+            pytest.raises(RuntimeError, match="redirected off"),
+        ):
+            _fetch_inspire_record("2412.00001", "test@example.com")

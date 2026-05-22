@@ -271,6 +271,23 @@ def _fetch_inspire_record(
                         f"INSPIRE response too large for {arxiv_id}: "
                         f">{INSPIRE_MAX_RESPONSE_BYTES} bytes"
                     )
+                # E13_S07b — Threat 7 redirect-host pin. urllib follows
+                # 30x redirects automatically; ``resp.url`` carries the
+                # post-redirect URL. A redirect off inspirehep.net/api
+                # means the body originates from an untrusted host —
+                # refuse it rather than ingest poisoned citation data.
+                # The trailing "/" closes the prefix-collision hole:
+                # ``https://inspirehep.net/apiEVIL`` would pass a bare
+                # ``startswith`` but is correctly rejected here (the
+                # legit URL always has "/" after the api base).
+                # Mirrors ar5iv_fetch.py / oai_delta.py.
+                response_url = resp.url
+                if not response_url.startswith(INSPIRE_API_BASE + "/"):
+                    raise RuntimeError(
+                        f"INSPIRE response redirected off "
+                        f"{INSPIRE_API_BASE}: got {response_url!r}; "
+                        f"refusing as untrusted (Threat 7)"
+                    )
                 return json.loads(body.decode("utf-8"))
         except urllib.error.HTTPError as exc:
             if exc.code == http.HTTPStatus.NOT_FOUND.value:

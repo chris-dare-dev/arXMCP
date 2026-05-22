@@ -32,8 +32,8 @@ gap and audits the TLS-cannot-be-disabled posture.
 | `ingest/ar5iv_fetch.py` | ✅ (urllib system trust) | ✅ NEW | ✅ NEW | ✅ existing | 100 MB |
 | `ingest/oai_delta.py::_fetch_page` | ✅ | ✅ NEW | ✅ NEW | ✅ existing | 100 MB |
 | `tools/arxiv_fetch.py` | ✅ | ✅ existing | ✅ existing (cap **tightened** 200 → 100 MB) | n/a (single-host TOS contract) | 100 MB |
-| `ingest/graph_ingest.py` | ✅ | n/a (per-service cap is tighter) | ✅ existing | ⚠️ not pinned (follow-up) | 5 MB |
-| `ingest/inspire_ingest.py` | ✅ | n/a (per-service cap is tighter) | ✅ existing | ⚠️ not pinned (follow-up) | 8 MB |
+| `ingest/graph_ingest.py` | ✅ | n/a (per-service cap is tighter) | ✅ existing | ✅ E13_S07b | 5 MB |
+| `ingest/inspire_ingest.py` | ✅ | n/a (per-service cap is tighter) | ✅ existing | ✅ E13_S07b | 8 MB |
 | `ingest/intra_paper_refs.py` | n/a (reads local files) | n/a | ✅ via local size check | n/a | 50 MB |
 
 The 100 MB threshold is the Threat-7 budget cited verbatim in the threat
@@ -212,20 +212,27 @@ hardcoded arxiv.org CA bundle and (b) add the operator-facing INFO
 log so the opt-in is visible at startup. The flag default stays
 False until that closure lands.
 
-### Known gaps (out of scope for E13_S07; follow-up tracked)
+### Known gaps
 
-- `ingest/graph_ingest.py` and `ingest/inspire_ingest.py` do NOT validate
-  redirect hosts after fetch. ar5iv and oai_delta both do. A graph/INSPIRE
-  redirect to attacker-controlled hosts is mitigated only by TLS verification
-  (any attacker-controlled host would need a valid cert for the new domain
-  and would not be `api.openalex.org` or `inspirehep.net`). A follow-up
-  hardening pass should add the same `response.url.startswith(...)` guard
-  used by ar5iv.
+- ~~`ingest/graph_ingest.py` and `ingest/inspire_ingest.py` do NOT validate
+  redirect hosts after fetch.~~ **CLOSED by E13_S07b** (2026-05-22, GitHub
+  issue [`#2`](https://github.com/chris-dare-dev/arXMCP/issues/2)). Both
+  `_fetch_openalex_work` and `_fetch_inspire_record` now capture
+  `resp.url` after the body read and raise `RuntimeError` if it does not
+  start with `OPENALEX_BASE + "/"` / `INSPIRE_API_BASE + "/"` — the same
+  redirect-host pin used by `ar5iv_fetch.py` and `oai_delta.py`. The
+  trailing `/` closes the prefix-collision vector
+  (`https://api.openalex.org.evil.com/…`) that a bare `startswith` would
+  miss. Regression coverage:
+  `tests/security/test_source_ingest.py::TestRedirectHostPin` (6 tests:
+  off-host rejection + on-host acceptance + prefix-collision rejection,
+  per module).
 
 - `ingest/oai_delta.py` and `ingest/ar5iv_fetch.py` do not currently auto-
   decompress `Content-Encoding: gzip` bodies. If a future change adds
   decompression, a decompressed-size accumulator must be added too
   (compressed size can be small while decompressed size is unbounded).
+  (Still open — out of E13_S07b scope.)
 
 ## References
 
@@ -233,6 +240,8 @@ False until that closure lands.
 - [`ingest/oai_delta.py`](../../ingest/oai_delta.py) — `OAI_PMH_MAX_RESPONSE_BYTES` + dual-tier check
 - [`tools/arxiv_fetch.py`](../../tools/arxiv_fetch.py) — `MAX_RESPONSE_BYTES` (tightened 200 → 100 MB)
 - [`server/config.py`](../../server/config.py) — `pin_arxiv_ca` field (opt-in stub)
-- [`tests/security/test_source_ingest.py`](../../tests/security/test_source_ingest.py) — full guard coverage (4 test classes)
+- [`ingest/graph_ingest.py`](../../ingest/graph_ingest.py) — `OPENALEX_BASE` redirect-host pin (E13_S07b)
+- [`ingest/inspire_ingest.py`](../../ingest/inspire_ingest.py) — `INSPIRE_API_BASE` redirect-host pin (E13_S07b)
+- [`tests/security/test_source_ingest.py`](../../tests/security/test_source_ingest.py) — full guard coverage (5 test classes; `TestRedirectHostPin` added by E13_S07b)
 - RFC 9110 (HTTP semantics) — Content-Length, Transfer-Encoding, trailer fields
 - RFC 9112 (HTTP/1.1 message syntax) — chunked encoding rules

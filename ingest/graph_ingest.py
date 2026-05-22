@@ -205,6 +205,23 @@ def _fetch_openalex_work(
                         f"OpenAlex response too large for {arxiv_id}: "
                         f">{OPENALEX_MAX_RESPONSE_BYTES} bytes"
                     )
+                # E13_S07b — Threat 7 redirect-host pin. urllib follows
+                # 30x redirects automatically; ``resp.url`` carries the
+                # post-redirect URL. A redirect off api.openalex.org
+                # means the body originates from an untrusted host —
+                # refuse it rather than ingest poisoned citation data.
+                # The trailing "/" closes the prefix-collision hole:
+                # ``https://api.openalex.org.evil.com/`` would pass a
+                # bare ``startswith`` but is correctly rejected here
+                # (the legit URL always has "/" after the host).
+                # Mirrors ar5iv_fetch.py / oai_delta.py.
+                response_url = resp.url
+                if not response_url.startswith(OPENALEX_BASE + "/"):
+                    raise RuntimeError(
+                        f"OpenAlex response redirected off {OPENALEX_BASE}: "
+                        f"got {response_url!r}; refusing as untrusted "
+                        f"(Threat 7)"
+                    )
                 return json.loads(body.decode("utf-8"))
         except urllib.error.HTTPError as exc:
             if exc.code == http.HTTPStatus.NOT_FOUND.value:

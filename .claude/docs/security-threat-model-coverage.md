@@ -34,7 +34,7 @@ authorizes each `gh issue create` individually.
 | 4 | Resource exhaustion via tool arguments | JSON-Schema `maximum` (E06) + 256 KB byte cap on ALL 7 return-chunk-or-content tools (E06_S05 wired `get_chunk`+`get_definitions`; **E13_S04b** extended to `search_papers`+`find_equation`+`find_lemma_by_name`+`get_paper`+`cite_neighbors`) + per-session rate limits (E07_S10) + 1000/hr global limit (E13_S04) | E13_S04 + E13_S04b | [`tests/security/test_resource_exhaustion.py`](../../tests/security/test_resource_exhaustion.py) | (none — closed by E13_S04b, see [#1 (closed)](https://github.com/chris-dare-dev/arXMCP/issues/1)) |
 | 5 | Origin spoofing on the HTTP transport | `server/middleware.py::{OriginValidationMiddleware,HostValidationMiddleware}` (E06_S05) + `Sec-Fetch-Site` + `ARXMCP_ALLOWED_ORIGINS` + DNS-rebinding (E13_S05) | E13_S05 + E13_S09 | [`tests/security/test_origin_binding.py`](../../tests/security/test_origin_binding.py) + [`tests/security/test_bind_regression.py`](../../tests/security/test_bind_regression.py) | (none) |
 | 6 | Supply-chain (embedder model, reranker model) | SHA pins in `ingest/embedder.py` + `server/retrieval/rerank.py` (E03 + E07_S03) + shared `server/model_loader.py` validator + `ARXMCP_TRUST_REMOTE_CODE` escape hatch + post-load `.bin` snapshot check + `Makefile sbom` target (E13_S06) | E13_S06 | [`tests/security/test_model_pinning.py`](../../tests/security/test_model_pinning.py) | [#4 — bump BGE-M3 SHA to safetensors](https://github.com/chris-dare-dev/arXMCP/issues/4) |
-| 7 | Source ingestion fetches | `urllib.request` safe-by-default TLS in every fetch site + 100 MB content-length pre-check + read-cap on `ingest/ar5iv_fetch.py` + `ingest/oai_delta.py` + tightened `tools/arxiv_fetch.py` (E13_S07) + opt-in stub `ARXMCP_PIN_ARXIV_CA` | E13_S07 | [`tests/security/test_source_ingest.py`](../../tests/security/test_source_ingest.py) | [#2 — redirect-host validation on graph/inspire ingest](https://github.com/chris-dare-dev/arXMCP/issues/2); [#5 — implement ARXMCP_PIN_ARXIV_CA wiring](https://github.com/chris-dare-dev/arXMCP/issues/5) |
+| 7 | Source ingestion fetches | `urllib.request` safe-by-default TLS in every fetch site + 100 MB content-length pre-check + read-cap on `ingest/ar5iv_fetch.py` + `ingest/oai_delta.py` + tightened `tools/arxiv_fetch.py` (E13_S07) + redirect-host pin on `ingest/graph_ingest.py` + `ingest/inspire_ingest.py` (**E13_S07b**) + opt-in stub `ARXMCP_PIN_ARXIV_CA` | E13_S07 + E13_S07b | [`tests/security/test_source_ingest.py`](../../tests/security/test_source_ingest.py) | [#5 — implement ARXMCP_PIN_ARXIV_CA wiring](https://github.com/chris-dare-dev/arXMCP/issues/5) (#2 closed by E13_S07b) |
 | — | Observability addendum — logging redaction | `server/observability/log_filter.py` + `server/observability/logging_setup.py` (E13_S08) | E13_S08 | [`tests/security/test_log_redaction.py`](../../tests/security/test_log_redaction.py) | (none) |
 
 ---
@@ -276,18 +276,23 @@ from 200 → 100 MB; `ARXMCP_PIN_ARXIV_CA` opt-in stub). Note: the brief cited
 E11_S02 as having shipped the 100 MB cap; per the E13_S07 audit doc, E11_S02
 did NOT — E13_S07 closes that gap from scratch. The TLS-verify-by-default
 posture inherits from `urllib.request` for every fetch site (no `verify=False`
-anywhere in production code, enforced by `TestNoVerifyFalse`).
-**Audit epic:** E13_S07.
+anywhere in production code, enforced by `TestNoVerifyFalse`). E13_S07b
+extended the redirect-host pin to `ingest/graph_ingest.py` +
+`ingest/inspire_ingest.py` so all four ingest fetch sites now validate
+`response.url` after fetch.
+**Audit epic:** E13_S07 (+ E13_S07b for the graph/inspire redirect-host pin).
 **Test file:** [`tests/security/test_source_ingest.py`](../../tests/security/test_source_ingest.py)
-— 13 tests: TLS-disable rejection, Content-Length pre-check, read-cap on
+— 19 tests: TLS-disable rejection, Content-Length pre-check, read-cap on
 lying header, no `verify=False` walk over `ingest/`/`tools/`/`server/`,
-`ARXMCP_PIN_ARXIV_CA` flag semantics, harvest-loop resilience to cap breach.
+`ARXMCP_PIN_ARXIV_CA` flag semantics, harvest-loop resilience to cap breach,
+and redirect-host pinning on `graph_ingest` + `inspire_ingest`
+(`TestRedirectHostPin`, E13_S07b).
 **Gaps:**
-- [#2 — redirect-host validation on graph/inspire ingest](https://github.com/chris-dare-dev/arXMCP/issues/2).
-  `ingest/graph_ingest.py` and `ingest/inspire_ingest.py` do NOT validate
-  redirect hosts after fetch. `ingest/ar5iv_fetch.py` and `ingest/oai_delta.py`
-  both do (`response.url.startswith(...)`). Extend redirect-host pinning to
-  the citation-enrichment fetch paths.
+- ~~[#2 — redirect-host validation on graph/inspire ingest](https://github.com/chris-dare-dev/arXMCP/issues/2)~~
+  — **closed by E13_S07b.** `ingest/graph_ingest.py` and
+  `ingest/inspire_ingest.py` now validate `response.url` after fetch with
+  the same `startswith(<host> + "/")` pin used by `ar5iv_fetch.py` /
+  `oai_delta.py`.
 - [#5 — implement ARXMCP_PIN_ARXIV_CA SSL-context wiring](https://github.com/chris-dare-dev/arXMCP/issues/5).
   `ARXMCP_PIN_ARXIV_CA` is a forward-compat plumbing stub today (the Config
   field exists but no code consumes it). Implement the SSL-context wiring
@@ -335,7 +340,7 @@ real-coverage-gap-vs-deferred-design:
 | Tag | Issue | Gap | Severity | Type |
 |---|---|---|---|---|
 | G1 | [#1 (closed)](https://github.com/chris-dare-dev/arXMCP/issues/1) | Byte cap not enforced on 5 tools (Threat 4) — **closed by E13_S04b** | MEDIUM | ~~Real coverage gap~~ Closed |
-| G2 | [#2](https://github.com/chris-dare-dev/arXMCP/issues/2) | Redirect-host validation missing on `graph_ingest` + `inspire_ingest` (Threat 7) | MEDIUM | Real coverage gap |
+| G2 | [#2 (closed)](https://github.com/chris-dare-dev/arXMCP/issues/2) | Redirect-host validation missing on `graph_ingest` + `inspire_ingest` (Threat 7) — **closed by E13_S07b** | MEDIUM | ~~Real coverage gap~~ Closed |
 | G3 | [#3](https://github.com/chris-dare-dev/arXMCP/issues/3) | LaTeXML production sandbox layers deferred to E11/E14 (Threat 3) | LOW | Documented design deferral |
 | G4 | [#4](https://github.com/chris-dare-dev/arXMCP/issues/4) | Embedder BGE-M3 SHA ships `.bin`-only (Threat 6) | LOW | Pin-bump pending; integrity preserved |
 | G5 | [#5](https://github.com/chris-dare-dev/arXMCP/issues/5) | `ARXMCP_PIN_ARXIV_CA` stub-only (Threat 7) | LOW | Forward-compat plumbing |
