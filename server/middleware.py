@@ -138,6 +138,49 @@ X_CONTENT_TYPE_OPTIONS = b"nosniff"
 #: same-origin framing but we have no UI to frame.
 X_FRAME_OPTIONS = b"DENY"
 
+#: ``Content-Security-Policy`` value scoped to the ``/ui/*`` UI
+#: surface (m8 rect F2). Defense-in-depth on top of Jinja2's
+#: explicit autoescape.
+#:
+#: - ``default-src 'self'`` — all resources from the same origin only.
+#: - ``script-src 'self' 'unsafe-inline'`` — vendored htmx.min.js
+#:   from /ui/static/ AND the inline JSON-encoding shim in
+#:   base.html (m8 rect F1). The ``'unsafe-inline'`` allowance is a
+#:   known trade-off: htmx's ``hx-on::*`` attributes use inline
+#:   event handlers which CSP would otherwise block, and the F1
+#:   shim is an inline ``<script>`` block. The defense remaining
+#:   after this allowance is third-party-origin blocking (no
+#:   external JS/CDN can run; only same-origin assets). To tighten
+#:   further to ``script-src 'self'`` only, a future milestone
+#:   would need to:
+#:     (a) move the F1 shim to ``frontend/static/json-shim.js``,
+#:     (b) replace every ``hx-on::*`` attribute with a vanilla JS
+#:         event-listener block in another vendored file, AND
+#:     (c) add per-script hashes ``'sha256-...'`` to the policy.
+#:   That's m10+ scope; m8 takes the loopback-only / same-origin-
+#:   only protection of m7's middleware stack as the primary
+#:   defense and the CSP as defense-in-depth against a future
+#:   template change that loads a CDN script directly.
+#: - ``style-src 'self' 'unsafe-inline'`` — same rationale; minimal
+#:   inline ``style=`` would otherwise break.
+#: - ``img-src 'self' data:`` — same-origin + ``data:`` URIs.
+#: - ``connect-src 'self'`` — only same-origin fetch/XHR.
+#: - ``frame-ancestors 'none'`` — no one may frame us (parity
+#:   with X-Frame-Options: DENY but enforced via CSP).
+CONTENT_SECURITY_POLICY_UI: bytes = (
+    b"default-src 'self'; "
+    b"script-src 'self' 'unsafe-inline'; "
+    b"style-src 'self' 'unsafe-inline'; "
+    b"img-src 'self' data:; "
+    b"connect-src 'self'; "
+    b"frame-ancestors 'none'"
+)
+
+#: Path prefixes that receive the UI CSP header. Other paths
+#: (``/mcp``, ``/metrics``, ``/healthz``) get no CSP — those are
+#: JSON / Prometheus / text-only and don't load scripts.
+_CSP_UI_PREFIXES: tuple[bytes, ...] = (b"/ui",)
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -667,6 +710,15 @@ class SecurityHeadersMiddleware:
             await self.app(scope, receive, send)
             return
 
+        # m8 rect F2: scope the CSP to /ui/* paths. Same prefix-match
+        # form as the m7 SecFetchSite carve-out (path == p OR
+        # path.startswith(p + "/")), so /uiOTHER does NOT get a CSP.
+        path_b = scope.get("path", "").encode("latin-1", errors="replace")
+        is_ui_path = any(
+            path_b == p or path_b.startswith(p + b"/")
+            for p in _CSP_UI_PREFIXES
+        )
+
         async def wrapped_send(event: dict) -> None:
             if event["type"] != "http.response.start":
                 await send(event)
@@ -677,6 +729,12 @@ class SecurityHeadersMiddleware:
                 headers.append((b"x-content-type-options", X_CONTENT_TYPE_OPTIONS))
             if b"x-frame-options" not in existing:
                 headers.append((b"x-frame-options", X_FRAME_OPTIONS))
+            # m8 rect F2: CSP for UI surface only. JSON/MCP/metrics
+            # paths don't load scripts and don't need a CSP.
+            if is_ui_path and b"content-security-policy" not in existing:
+                headers.append(
+                    (b"content-security-policy", CONTENT_SECURITY_POLICY_UI)
+                )
             event = {**event, "headers": headers}
             await send(event)
 

@@ -76,7 +76,9 @@ are unchanged.
   Both were transitive via `mcp`; the project's "no implicit deps"
   discipline requires explicit declaration (the `pyyaml` comment
   is the precedent).
-- **Test surface** — +70 tests across three files:
+- **Test surface** — +67 net-new tests across three new files
+  + ~3 from m7-rect edits to existing files = +70 total suite
+  delta (corrected from initial draft per m8 rect F5):
   - `tests/test_ui_html_pages.py` (27 tests) — landing page,
     detail page, static assets, path-traversal defense via
     Starlette `StaticFiles`, ar5iv URL acceptance, Jinja2
@@ -87,7 +89,7 @@ are unchanged.
     atomic write, duplicate upload semantics, paper_id validation
     (incl. m1-rect-F3 trailing-newline rejection), notebook
     existence, empty-file rejection.
-  - `tests/security/test_request_body_prefix_caps.py` (14 tests)
+  - `tests/security/test_request_body_prefix_caps.py` (11 tests)
     — the middleware extension itself: default cap on non-carve
     paths, raised cap on `/ui/api/notebooks/*`, prefix-not-
     substring matching enforced (`/ui/api/notebooksOTHER` stays at

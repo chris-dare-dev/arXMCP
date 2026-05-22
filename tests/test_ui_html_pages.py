@@ -122,6 +122,30 @@ class TestIndexPage:
         for cdn in ("unpkg.com", "jsdelivr", "cdnjs.cloudflare"):
             assert cdn not in body, f"CDN reference leaked: {cdn}"
 
+    def test_json_encoding_shim_present(self, client: TestClient) -> None:
+        """m8 rect F1: the base template ships an htmx:configRequest
+        handler that converts form-encoded posts to JSON for the
+        m7 JSON routes. Without this shim the create-notebook and
+        URL-paste forms hit a 422 in the browser (the JSON routes
+        reject application/x-www-form-urlencoded).
+
+        Pin the shim's presence and the load-bearing pieces:
+          - listens to htmx:configRequest
+          - sets Content-Type: application/json on POST/PUT/PATCH
+          - bypasses multipart uploads (the upload card sets hx-encoding)
+          - sets evt.detail.body to JSON.stringify(...) of the params
+        A regression that removes any of these would break the
+        browser path even while the JSON-direct tests still pass."""
+        r = client.get("/ui/")
+        body = r.text
+        assert "htmx:configRequest" in body
+        assert "application/json" in body
+        assert "hx-encoding" in body  # multipart bypass
+        assert "JSON.stringify" in body
+        # F1 marker comment so a future template editor sees the
+        # rationale before deleting the shim.
+        assert "m8 rect F1" in body
+
 
 # ---------------------------------------------------------------------------
 # Per-notebook detail page
@@ -306,3 +330,151 @@ class TestAutoescape:
         # The escaped form MUST appear (proves the value was rendered,
         # just safely).
         assert "&lt;script&gt;alert(1)&lt;/script&gt;" in body
+
+
+# ---------------------------------------------------------------------------
+# m8 rect F2 — CSP header on UI surface
+# ---------------------------------------------------------------------------
+
+
+class TestCSPHeaderOnUiSurface:
+    """m8 rect F2: ``Content-Security-Policy`` is added to every
+    response under /ui/* via ``SecurityHeadersMiddleware``. The
+    policy is scoped to the UI surface — /mcp and other paths get
+    no CSP (they're JSON-only and don't load scripts).
+
+    NOTE: the minimal test fixture in this file does NOT wire the
+    SecurityHeadersMiddleware (it builds a bare FastAPI app for
+    speed). These tests build a separate fixture that includes the
+    middleware so the header presence can be asserted directly.
+    """
+
+    def _client_with_security_headers(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        notebooks_base_dir: Path,
+    ) -> Iterator[TestClient]:
+        import asyncio
+
+        from server.middleware import SecurityHeadersMiddleware
+        db_path = tmp_path / "csp_test.db"
+        loop = asyncio.new_event_loop()
+        try:
+            store = loop.run_until_complete(NotebooksStore.open(db_path))
+            app = FastAPI()
+            app.state.notebooks_store = store
+            app.include_router(notebooks_router, prefix="/ui/api")
+            app.include_router(ui_router, prefix="/ui")
+            app.mount(
+                "/ui/static",
+                StaticFiles(directory=str(FRONTEND_STATIC)),
+                name="ui-static",
+            )
+            # Add the security middleware (the only middleware that
+            # matters for this test — the other tests bypass it for
+            # speed since middleware isn't on their critical path).
+            app.add_middleware(SecurityHeadersMiddleware)
+            with TestClient(app) as c:
+                yield c
+            loop.run_until_complete(store.close())
+        finally:
+            loop.close()
+
+    def test_csp_header_on_ui_index(
+        self, tmp_path: Path, notebooks_base: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        for client in self._client_with_security_headers(
+            tmp_path, monkeypatch, notebooks_base,
+        ):
+            r = client.get("/ui/")
+            assert r.status_code == 200
+            csp = r.headers.get("content-security-policy", "")
+            assert "default-src 'self'" in csp
+            assert "script-src 'self'" in csp
+            assert "frame-ancestors 'none'" in csp
+
+    def test_csp_header_on_ui_api(
+        self, tmp_path: Path, notebooks_base: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The /ui/api/* JSON routes are also under /ui/* so they
+        get the CSP. Harmless for JSON responses (browsers ignore
+        CSP on application/json) but consistent."""
+        for client in self._client_with_security_headers(
+            tmp_path, monkeypatch, notebooks_base,
+        ):
+            r = client.get("/ui/api/notebooks")
+            assert "content-security-policy" in {
+                k.lower() for k in r.headers
+            }
+
+    def test_csp_header_absent_on_non_ui_path(
+        self, tmp_path: Path, notebooks_base: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A path outside /ui/* (no such route in this test app —
+        triggers a 404 from FastAPI) MUST NOT get the CSP header.
+        Confirms the prefix-match form is correct."""
+        for client in self._client_with_security_headers(
+            tmp_path, monkeypatch, notebooks_base,
+        ):
+            r = client.get("/some/other/path")
+            # 404 (no such route), but the middleware fires on every
+            # response — assert the CSP header is NOT present.
+            assert "content-security-policy" not in {
+                k.lower() for k in r.headers
+            }
+
+    def test_csp_header_absent_on_uiother_prefix(
+        self, tmp_path: Path, notebooks_base: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Prefix-match form (NOT substring): /uiOTHER must NOT get
+        the CSP, parallel to the m7 SecFetchSite FM-3 closure."""
+        for client in self._client_with_security_headers(
+            tmp_path, monkeypatch, notebooks_base,
+        ):
+            r = client.get("/uiOTHER/foo")
+            assert "content-security-policy" not in {
+                k.lower() for k in r.headers
+            }
+
+
+# ---------------------------------------------------------------------------
+# m8 rect F4 — narrowed _BYTE_CAP_EXEMPT_PREFIXES
+# ---------------------------------------------------------------------------
+
+
+class TestNarrowedByteCapExemptPrefixes:
+    """m8 rect F4: the response-body cap exemption was narrowed from
+    `/ui` to `/ui/static`. Verify the exempt-path helper still
+    classifies /ui/static/* as exempt but `/ui/api/notebooks` and
+    `/ui/notebooks/<slug>` as NOT exempt."""
+
+    def test_static_path_is_exempt(self) -> None:
+        from server.main import _is_exempt_path
+        assert _is_exempt_path("/ui/static/htmx.min.js") is True
+        assert _is_exempt_path("/ui/static/app.css") is True
+
+    def test_api_path_is_not_exempt(self) -> None:
+        from server.main import _is_exempt_path
+        assert _is_exempt_path("/ui/api/notebooks") is False
+        assert _is_exempt_path("/ui/api/notebooks/foo/papers") is False
+
+    def test_html_page_path_is_not_exempt(self) -> None:
+        from server.main import _is_exempt_path
+        assert _is_exempt_path("/ui/notebooks/demo-nb") is False
+        assert _is_exempt_path("/ui/") is False
+
+    def test_existing_exempt_paths_still_exempt(self) -> None:
+        from server.main import _is_exempt_path
+        assert _is_exempt_path("/healthz") is True
+        assert _is_exempt_path("/readyz") is True
+        assert _is_exempt_path("/metrics") is True
+        assert _is_exempt_path("/mcp") is True
+        assert _is_exempt_path("/mcp/foo") is True
+
+    def test_uiother_path_not_exempt(self) -> None:
+        """Prefix-match form — /uiOTHER/static must NOT match /ui/static."""
+        from server.main import _is_exempt_path
+        assert _is_exempt_path("/uiOTHER/static/htmx.min.js") is False

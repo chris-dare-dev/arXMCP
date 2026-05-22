@@ -11,9 +11,8 @@
   </p>
   <form
     hx-post="/ui/api/notebooks"
-    hx-ext="json-enc-form-conv"
     hx-on::htmx:after-request="if(event.detail.successful) location.reload()"
-    hx-on::htmx:response-error="document.getElementById('create-error').textContent = event.detail.xhr.responseText"
+    hx-on::htmx:response-error="document.getElementById('create-error').textContent = (function(t){try{return JSON.parse(t).detail||t;}catch(e){return t;}})(event.detail.xhr.responseText)"
   >
     <label>
       Slug
@@ -28,13 +27,6 @@
     <button type="submit">Create</button>
     <pre id="create-error" class="error" aria-live="polite"></pre>
   </form>
-  <p class="note">
-    Note: this UI uses native form encoding which posts
-    <code>application/x-www-form-urlencoded</code>; FastAPI's JSON
-    routes accept this when the path uses Pydantic models.
-    If posting fails, post JSON directly to
-    <code>POST /ui/api/notebooks</code> via your own client.
-  </p>
 </section>
 
 <section class="card">

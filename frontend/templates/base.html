@@ -7,6 +7,42 @@
   <link rel="stylesheet" href="/ui/static/app.css">
   <!-- htmx 2.0.10 vendored at frontend/static/htmx.min.js (0BSD; m8 AC #5). -->
   <script src="/ui/static/htmx.min.js" defer></script>
+  <!-- m8 rect F1: the m7 JSON routes require application/json, but
+       htmx defaults to application/x-www-form-urlencoded. Without
+       this shim the create-notebook + URL-paste forms hit a 422 in
+       the browser even though the JSON-direct test suite passes.
+       The shim listens for htmx:configRequest and converts non-empty
+       form bodies on POST/PUT/PATCH to JSON, leaving DELETE (which
+       has no body) and multipart uploads (which set hx-encoding)
+       untouched. ~15 lines; no extra vendored asset required. -->
+  <script defer>
+    document.addEventListener('htmx:configRequest', function (evt) {
+      var verb = (evt.detail.verb || '').toLowerCase();
+      if (verb !== 'post' && verb !== 'put' && verb !== 'patch') return;
+      // Don't touch multipart uploads (the upload card uses hx-encoding).
+      var el = evt.detail.elt;
+      if (el && el.getAttribute && el.getAttribute('hx-encoding') === 'multipart/form-data') {
+        return;
+      }
+      // Already JSON (set elsewhere)? Leave alone.
+      if (evt.detail.headers && evt.detail.headers['Content-Type'] === 'application/json') {
+        return;
+      }
+      var params = evt.detail.parameters || {};
+      if (Object.keys(params).length === 0) return;
+      evt.detail.headers = evt.detail.headers || {};
+      evt.detail.headers['Content-Type'] = 'application/json';
+      // Coerce HTMX form-field collection into a plain JSON object.
+      var body = {};
+      Object.keys(params).forEach(function (k) { body[k] = params[k]; });
+      // Stash the body where htmx will pick it up; clearing parameters
+      // prevents htmx from also URL-encoding them.
+      evt.detail.parameters = {};
+      // htmx 2.x reads evt.detail.body when set; falls back to
+      // serializing evt.detail.parameters otherwise.
+      evt.detail.body = JSON.stringify(body);
+    });
+  </script>
 </head>
 <body>
   <header>

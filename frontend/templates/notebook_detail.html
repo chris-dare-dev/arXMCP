@@ -25,7 +25,7 @@
   <form
     hx-post="/ui/api/notebooks/{{ notebook.slug }}/papers"
     hx-on::htmx:after-request="if(event.detail.successful) location.reload()"
-    hx-on::htmx:response-error="document.getElementById('paste-error').textContent = event.detail.xhr.responseText"
+    hx-on::htmx:response-error="document.getElementById('paste-error').textContent = (function(t){try{return JSON.parse(t).detail||t;}catch(e){return t;}})(event.detail.xhr.responseText)"
   >
     <label>
       arXiv URL
@@ -50,7 +50,7 @@
     hx-encoding="multipart/form-data"
     hx-target="#papers-tbody"
     hx-swap="beforeend"
-    hx-on::htmx:response-error="document.getElementById('upload-error').textContent = event.detail.xhr.responseText"
+    hx-on::htmx:response-error="document.getElementById('upload-error').textContent = (function(t){try{return JSON.parse(t).detail||t;}catch(e){return t;}})(event.detail.xhr.responseText)"
   >
     <label>
       Paper ID

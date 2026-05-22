@@ -83,7 +83,10 @@ From the milestone brief at
 - **NEW:** `tests/test_ui_html_pages.py` (~330 LOC, 27 tests).
 - **NEW:** `tests/test_upload_handler.py` (~360 LOC, 29 tests).
 - **NEW:** `tests/security/test_request_body_prefix_caps.py`
-  (~225 LOC, 14 tests).
+  (~225 LOC, 11 tests — corrected from initial "14" per m8 rect
+  F5; the TestEffectiveMaxBytesHelper class has 4 tests, others
+  total 7, summing to 11. The overall +70 suite delta reconciles
+  via ~3 m7-test edits in `tests/test_notebook_api.py`).
 - **EDIT:** `tests/test_notebook_api.py` — inverted the m7-era
   ar5iv-rejected case (now an accepted form per AC #3); rejected
   cases updated with the m8-relevant inverse mismatches.

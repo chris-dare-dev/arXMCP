@@ -105,14 +105,16 @@ logger = logging.getLogger(__name__)
 #:   on the resource-resolved fetch, not on the SSE chunks.
 _BYTE_CAP_EXEMPT_PREFIXES = (
     "/healthz", "/readyz", "/metrics", "/mcp",
-    # m8: the /ui/* subtree serves Jinja2-rendered HTML pages +
-    # vendored static assets (htmx.min.js is ~51 KB; CSS is small);
-    # exempting the whole /ui prefix keeps the response-cap from
-    # truncating a large notebook-list page or the static htmx file.
-    # The /ui/api/* JSON routes return small payloads in practice
-    # and would not trip the cap, but folding the whole subtree in
-    # avoids per-route carve-out drift.
-    "/ui",
+    # m8: the vendored htmx.min.js (~51 KB) and CSS are small but
+    # served via /ui/static/. Exempting only /ui/static (not the
+    # whole /ui subtree) keeps the 256 KB response cap on the
+    # /ui/api/* JSON routes — a future handler that accidentally
+    # returns a large JSON body must still trip the cap. m8 rect F4
+    # narrowed this from "/ui" to "/ui/static". The HTML page routes
+    # at /ui/ and /ui/notebooks/{slug} serve modest pages (the
+    # notebook list + paper table HTML); if they ever approach
+    # 256 KB the right fix is per-page pagination, not exemption.
+    "/ui/static",
 )
 
 
