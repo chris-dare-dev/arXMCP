@@ -108,13 +108,28 @@
   {% endif %}
   <table class="papers">
     <thead>
-      <tr><th>Paper ID</th><th>Added</th><th></th></tr>
+      <tr><th>Paper ID</th><th>Added</th><th>Preview</th><th></th></tr>
     </thead>
     <tbody id="papers-tbody">
       {% for p in papers %}
       <tr data-slug="{{ notebook.slug }}" data-paper-id="{{ p.paper_id }}">
         <td><code>{{ p.paper_id }}</code></td>
         <td><time>{{ p.added_at }}</time></td>
+        <td>
+          {# m10 AC #2: Preview link only when on-disk HTML exists.
+             ``target="_blank"`` opens in a new tab; ``rel="noopener"``
+             prevents the previewed page from accessing window.opener
+             (defense-in-depth alongside the tight CSP). When no
+             preview exists, render a disabled-looking ``<span>`` with
+             a tooltip explaining why. #}
+          {% if p.has_preview %}
+            <a href="/ui/notebooks/{{ notebook.slug }}/papers/{{ p.paper_id }}/preview"
+               target="_blank"
+               rel="noopener">Preview</a>
+          {% else %}
+            <span class="hint" title="no preview available">Preview</span>
+          {% endif %}
+        </td>
         <td>
           <button type="button"
                   hx-delete="/ui/api/notebooks/{{ notebook.slug }}/papers/{{ p.paper_id }}"

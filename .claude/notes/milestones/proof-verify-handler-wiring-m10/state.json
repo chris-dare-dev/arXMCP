@@ -1,0 +1,66 @@
+{
+  "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/plans",
+  "created_at": "2026-05-22T17:47:29Z",
+  "critics_run": [],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "low": 0,
+    "medium": 0
+  },
+  "critique_path": null,
+  "deferred_findings": [],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_required": [],
+  "fixed_findings": [],
+  "id": "proof-verify-handler-wiring-m10",
+  "implementation_base": "2780945b364f62193dd9334cc24f30328adac7f5",
+  "implementation_branch": null,
+  "implementation_commit_range": null,
+  "implementation_commits": [],
+  "implementation_path": "inline",
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "### proof-verify-handler-wiring-m10 \u2014 (v2, Later lane) In-UI paper preview via sandboxed iframe\n\n**Description.** Add a \"Preview\" link next to each paper in the m8 browse table that renders the stored ar5iv HTML (`var/arxmcp/corpus/parsed/<paper_id>/index.html`) in a sandboxed iframe at `/ui/notebooks/{slug}/papers/{paper_id}/preview`. Define a tight CSP that disables scripts in the iframe (ar5iv HTML is static math content; no JS execution needed) and blocks external resource fetches so a malicious paper cannot exfiltrate via a crafted `<img src=\"https://attacker/...\">`. Set `sandbox=\"allow-same-origin\"` on the iframe (no scripts, no top-navigation).\n\n**Acceptance criteria.**\n- [ ] `GET /ui/notebooks/{slug}/papers/{paper_id}/preview` returns the stored HTML wrapped in a minimal page with CSP `default-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'none'`.\n- [ ] The \"Preview\" link is only present in the UI when the on-disk HTML exists; missing papers show a \"no preview available\" tooltip.\n- [ ] A test paper containing `<script>alert(1)</script>` does NOT execute the script when previewed (CSP test).\n- [ ] A test paper containing `<img src=\"https://example.com/track.png\">` does NOT make the outbound request (img-src 'self' test).\n\n**Dependencies.** m9 (UI shell + browse table).\n\n**Complexity.** S (~half day for the route + CSP; the testing covers the security boundary).\n\n**Specialist suggestion.** `security-reviewer` (CSP + sandbox boundary review is the load-bearing concern).\n\n---\n\n## Phase 4 \u2014 Materialize",
+  "phase": "implement-running",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-22T17:47:29Z",
+      "left_at": "2026-05-22T17:48:10Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-22T17:48:10Z",
+      "left_at": "2026-05-22T18:04:47Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-22T18:04:47Z",
+      "left_at": "2026-05-22T18:04:58Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-05-22T18:04:58Z",
+      "left_at": null,
+      "phase": "implement-running"
+    }
+  ],
+  "rectification_commit": null,
+  "regression_tests_added": [],
+  "research_briefs": [
+    {
+      "agent_id": "researcher-1",
+      "brief_path": ".claude/notes/milestones/proof-verify-handler-wiring-m10/research-brief-1.md",
+      "summary": "two HTML paths, Option A two routes, full CSP3 directive review"
+    },
+    {
+      "agent_id": "researcher-2",
+      "brief_path": ".claude/notes/milestones/proof-verify-handler-wiring-m10/research-brief-2.md",
+      "summary": "direct-serve preview, ten failure modes, base-uri+form-action+frame-ancestors gaps"
+    }
+  ],
+  "research_mode": "standard",
+  "research_synthesis": ".claude/notes/milestones/proof-verify-handler-wiring-m10/research-synthesis.md",
+  "updated_at": "2026-05-22T18:05:00Z"
+}

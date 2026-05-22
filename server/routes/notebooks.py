@@ -674,17 +674,33 @@ def _paper_row_html(slug: str, paper_id: str, added_at: str) -> str:
     htmx-swap response.
 
     Kept as a Python helper rather than a Jinja2 partial because the
-    fragment is tiny (3 cells) and inlining keeps the upload handler
+    fragment is tiny and inlining keeps the upload handler
     self-contained. All interpolated values are HTML-escaped via
     :func:`html.escape` — paper_id is regex-validated upstream and
     cannot contain HTML-significant characters today, but escaping
     is defensive.
+
+    m10: the table now has FOUR columns (Paper ID, Added, Preview,
+    Actions) to match the rendered ``notebook_detail.html`` body.
+    The Preview cell is always a live link in this fragment because
+    the upload handler just wrote the notebook-scoped ar5iv HTML to
+    disk — ``has_preview`` is True by construction. The Actions
+    cell shows "uploaded" rather than a Remove button (the m8
+    pattern: immediately providing Remove after upload is UX
+    confusion; the next page-load restores the standard Remove
+    affordance via the rendered template).
     """
+    preview_url = (
+        f"/ui/notebooks/{html.escape(slug)}/papers/"
+        f"{html.escape(paper_id)}/preview"
+    )
     return (
         f'<tr data-slug="{html.escape(slug)}" '
         f'data-paper-id="{html.escape(paper_id)}">'
         f'<td>{html.escape(paper_id)}</td>'
         f'<td>{html.escape(added_at)}</td>'
+        f'<td><a href="{preview_url}" target="_blank" rel="noopener">'
+        f"Preview</a></td>"
         f'<td>uploaded</td>'
         f"</tr>"
     )

