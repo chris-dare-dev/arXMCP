@@ -127,7 +127,11 @@
                target="_blank"
                rel="noopener">Preview</a>
           {% else %}
-            <span class="hint" title="no preview available">Preview</span>
+            {# m10 rect F6: actionable tooltip text — directs the
+               operator to the upload card rather than leaving them
+               stuck at a "no preview" dead end. #}
+            <span class="hint"
+                  title="upload an ar5iv HTML to enable preview">Preview</span>
           {% endif %}
         </td>
         <td>

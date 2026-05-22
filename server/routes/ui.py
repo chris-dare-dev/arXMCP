@@ -26,6 +26,7 @@ at ``/ui/static/`` in :func:`server.main.create_app`.
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -48,6 +49,28 @@ if TYPE_CHECKING:
     from server.notebooks_store import NotebooksStore
 
 logger = logging.getLogger(__name__)
+
+#: F1 closure (m10 adversary critique): CSP3 has no directive that
+#: blocks ``<meta http-equiv="refresh" content="0;url=...">``. The
+#: proposed ``navigate-to`` directive never made it to CSP3 baseline.
+#: With the direct-serve route shape chosen in m10 synthesis D1, an
+#: untrusted ar5iv HTML containing a meta-refresh tag would navigate
+#: the new tab to an attacker origin on load — bypassing the entire
+#: CSP. The rejected Option A's ``<iframe sandbox="allow-same-origin">``
+#: would have blocked this via HTML5 §16.2 ("the sandboxing flag set"
+#: blocks ``<meta refresh>``); the direct-serve route has no
+#: equivalent.
+#:
+#: Mitigation: strip the tag from served bytes before constructing
+#: the response. Cheap (one regex) and complete (the browser cannot
+#: act on a tag that isn't in the body). The regex matches the
+#: HTML5 attribute-order-agnostic form — ``http-equiv="refresh"``
+#: may appear anywhere inside the ``<meta>`` tag, with or without
+#: quotes, in any case.
+_META_REFRESH_RE: re.Pattern[bytes] = re.compile(
+    rb"<\s*meta[^>]+http-equiv\s*=\s*['\"]?refresh['\"]?[^>]*>",
+    re.IGNORECASE,
+)
 
 #: Repo-root-relative templates dir. Resolved once at import.
 _TEMPLATES_DIR: Path = Path(__file__).resolve().parents[2] / "frontend" / "templates"
@@ -282,11 +305,15 @@ async def ui_paper_preview(
         or resolved in (nb_ar5iv, corpus_root)
     ):
         # Generic 404 — never leak the resolved path or which prefix
-        # check failed.
+        # check failed. F5 closure (m10 adversary critique): also
+        # do NOT log the slug or paper_id — both are attacker-
+        # controllable in the threat model that triggers this branch
+        # (filesystem-symlink attacker). Logging them would form a
+        # side-channel oracle confirming whether the redirect was
+        # detected. Both inputs are recoverable from a correlated
+        # access-log entry if forensics need them.
         logger.warning(
-            "preview path-containment rejected for slug=%r paper_id=%r",
-            slug,
-            paper_id,
+            "preview path-containment rejected (validated inputs)"
         )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -302,6 +329,15 @@ async def ui_paper_preview(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="no preview available",
         ) from None
+    # F1 closure (m10 adversary critique): strip <meta http-equiv=
+    # "refresh"> tags before serving. The direct-serve route shape
+    # (synthesis D1) has no CSP3 directive that blocks meta-refresh
+    # navigation escapes; the regex strip is the cleanest closure.
+    # The substitution comment is HTML — keeps the byte offset
+    # roughly stable for line-numbered debugging in browser devtools.
+    content_bytes = _META_REFRESH_RE.sub(
+        b"<!-- meta-refresh stripped (m10 F1) -->", content_bytes,
+    )
     return Response(
         content=content_bytes,
         media_type="text/html; charset=utf-8",
@@ -309,6 +345,13 @@ async def ui_paper_preview(
             "Content-Security-Policy": CONTENT_SECURITY_POLICY_PREVIEW.decode(
                 "ascii"
             ),
+            # F7 closure (m10 adversary critique): suppress Referer
+            # header on any navigation OUT of the preview tab. If the
+            # served content tricks the user into clicking a link to
+            # an attacker site, the attacker would otherwise see the
+            # full preview URL (including the user-chosen slug, which
+            # may have semantic meaning the user prefers not to leak).
+            "Referrer-Policy": "no-referrer",
         },
     )
 

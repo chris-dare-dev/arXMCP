@@ -173,6 +173,84 @@ class TestPreviewHappyPath:
         # CSP had been merged or appended this would fail.
         assert "connect-src" not in csp
 
+    def test_response_includes_referrer_policy_no_referrer(
+        self, client: TestClient, notebooks_base: Path,
+    ) -> None:
+        """F7 closure (m10 adversary critique): if the preview tab
+        somehow navigates to an external site, suppress the Referer
+        header so the user's notebook slug doesn't leak to attackers."""
+        client.post("/ui/api/notebooks", json={"slug": "demo-nb"})
+        _plant_notebook_html(
+            notebooks_base, "demo-nb", "2604.26204",
+            b"<html></html>",
+        )
+        r = client.get("/ui/notebooks/demo-nb/papers/2604.26204/preview")
+        assert r.status_code == 200
+        assert r.headers.get("referrer-policy") == "no-referrer"
+
+
+# ---------------------------------------------------------------------------
+# F1 — meta-refresh stripping
+# ---------------------------------------------------------------------------
+
+
+class TestMetaRefreshStripped:
+    """F1 closure (m10 adversary critique): the direct-serve route
+    shape (synthesis D1) has no CSP3 directive that blocks navigation
+    via ``<meta http-equiv="refresh">``. The handler strips the tag
+    from served bytes before constructing the response.
+    """
+
+    @pytest.mark.parametrize(
+        "meta_tag",
+        [
+            b'<meta http-equiv="refresh" content="0;url=https://evil.example/">',
+            b'<META HTTP-EQUIV=refresh CONTENT="5;url=//attacker/">',
+            b"<meta http-equiv = refresh content='0;url=http://attacker'>",
+            b"<meta http-equiv='REFRESH' content='3'>",
+        ],
+    )
+    def test_meta_refresh_stripped_from_served_html(
+        self, client: TestClient, notebooks_base: Path, meta_tag: bytes,
+    ) -> None:
+        client.post("/ui/api/notebooks", json={"slug": "demo-nb"})
+        body = (
+            b"<!DOCTYPE html><html><head>"
+            + meta_tag
+            + b"</head><body>safe content</body></html>"
+        )
+        _plant_notebook_html(notebooks_base, "demo-nb", "2604.26204", body)
+        r = client.get("/ui/notebooks/demo-nb/papers/2604.26204/preview")
+        assert r.status_code == 200
+        # The meta-refresh tag must be ABSENT from the served body.
+        assert meta_tag not in r.content
+        # The substitution marker is present (operator-debug aid).
+        assert b"meta-refresh stripped" in r.content
+        # Non-refresh body content is preserved verbatim.
+        assert b"safe content" in r.content
+
+    def test_legit_meta_tags_are_preserved(
+        self, client: TestClient, notebooks_base: Path,
+    ) -> None:
+        """Only meta-refresh is stripped — charset/viewport/etc remain."""
+        client.post("/ui/api/notebooks", json={"slug": "demo-nb"})
+        body = (
+            b"<!DOCTYPE html><html><head>"
+            b'<meta charset="utf-8">'
+            b'<meta name="viewport" content="width=device-width">'
+            b'<meta property="og:title" content="Some paper">'
+            b"</head><body>x</body></html>"
+        )
+        _plant_notebook_html(notebooks_base, "demo-nb", "2604.26204", body)
+        r = client.get("/ui/notebooks/demo-nb/papers/2604.26204/preview")
+        assert r.status_code == 200
+        # All three legit meta tags survive verbatim.
+        assert b'<meta charset="utf-8">' in r.content
+        assert b'<meta name="viewport"' in r.content
+        assert b'<meta property="og:title"' in r.content
+        # No stripping marker (no meta-refresh in the input).
+        assert b"meta-refresh stripped" not in r.content
+
 
 # ---------------------------------------------------------------------------
 # AC #3 — Script in stored HTML is not executed (CSP-by-inspection)
@@ -273,32 +351,82 @@ class TestPreviewPaperIdValidation:
         client.post("/ui/api/notebooks", json={"slug": "demo-nb"})
         # ``{paper_id:path}`` accepts slashes; the is_valid_paper_id
         # guard rejects them post-routing. All malformed IDs must
-        # surface as a non-200, non-leaking response.
+        # surface as 422 (validator rejection) or 404 (FastAPI
+        # routing rejection). F3 closure (m10 adversary critique):
+        # tightened from ``!= 200`` — 5xx (server crash) would
+        # silently pass the old assertion and hide a real bug.
         r = client.get(
             f"/ui/notebooks/demo-nb/papers/{bad_id}/preview",
         )
-        # Safe outcomes: 422 (validator rejection), 404 (no preview
-        # available — route matched but no file found), or 400/500 if
-        # the URL was so malformed FastAPI rejected it pre-handler.
-        # Critical: MUST NOT return 200, MUST NOT leak filesystem
-        # paths from /etc or /var/arxmcp into the response body.
-        assert r.status_code != 200, r.text
-        assert "/etc/" not in r.text
-        assert "passwd" not in r.text
+        assert r.status_code in (404, 422), (
+            f"unexpected status {r.status_code}: {r.text}"
+        )
+        # Belt-and-braces: also assert no SERVER-SIDE filesystem-path
+        # leak in the response body. (User-supplied input being echoed
+        # back in a 422 detail is standard FastAPI behavior and is not
+        # a leak — the forbidden tokens here are the server's own var/
+        # tree and notebook layout roots.)
+        assert "/var/arxmcp/" not in r.text
+        assert "notebooks/demo-nb/ar5iv/" not in r.text
 
-    def test_traversal_attempt_returns_safe_status(
+    def test_traversal_attempt_returns_422_via_validator(
         self, client: TestClient,
     ) -> None:
-        """Even if a routing match is made, the validator must reject."""
+        """F2 closure (m10 adversary critique): the OLD test issued
+        ``client.get("/ui/notebooks/demo-nb/papers/../etc/preview")``
+        which httpx silently normalized RFC 3986 dot-segments OUT
+        of the wire payload — the literal ``../`` never reached the
+        server, so the assertion passed on a different code path
+        than the validator chain it claimed to verify.
+
+        Fixed: URL-encode the traversal segments so httpx leaves
+        them intact. The route's ``is_valid_paper_id`` guard now
+        actually fires.
+        """
         client.post("/ui/api/notebooks", json={"slug": "demo-nb"})
-        # paper_id:path lets this through routing; is_valid_paper_id must
-        # reject because ".." doesn't match the arXiv ID regex.
-        r = client.get("/ui/notebooks/demo-nb/papers/../etc/preview")
-        # FastAPI's routing may normalize this or return 404.
-        # Critical assertion: no 200 and no filesystem leak.
-        assert r.status_code != 200
-        assert "/etc/" not in r.text
-        assert "passwd" not in r.text
+        # %2F is the URL-encoded form of '/'; httpx does NOT decode
+        # these before send. The path-segment is delivered to the
+        # server as ``..%2Fetc%2Fpasswd`` and FastAPI's routing
+        # passes it through ``{paper_id:path}`` to the handler. The
+        # handler's is_valid_paper_id check then rejects because
+        # ``..`` is not a valid arXiv ID prefix.
+        r = client.get(
+            "/ui/notebooks/demo-nb/papers/..%2Fetc%2Fpasswd/preview"
+        )
+        assert r.status_code == 422, (
+            f"expected 422 from is_valid_paper_id rejection, got "
+            f"{r.status_code}: {r.text}"
+        )
+        # No SERVER-SIDE filesystem leak. (The 422 detail legitimately
+        # echoes the user's malformed input — that's standard FastAPI
+        # validation-error behavior and is NOT a leak.) The forbidden
+        # tokens are the server's own var/ tree and notebook layout
+        # roots.
+        assert "/var/arxmcp/" not in r.text
+        assert "notebooks/demo-nb/ar5iv/" not in r.text
+
+    def test_is_valid_paper_id_rejects_traversal_directly(self) -> None:
+        """F2 closure: route-independent test of the validator itself.
+
+        Calls ``is_valid_paper_id`` directly with traversal-style
+        inputs to prove the regex rejects them. This pins the
+        contract to the validator function so a future refactor of
+        the route layer cannot silently regress the security
+        boundary.
+        """
+        from ingest.identifiers import is_valid_paper_id
+
+        bad_inputs = [
+            "../etc/passwd",
+            "..",
+            "../../etc",
+            "2604.26204/../../etc",
+            "/etc/passwd",
+        ]
+        for s in bad_inputs:
+            assert not is_valid_paper_id(s), (
+                f"is_valid_paper_id({s!r}) returned True — security gap"
+            )
 
 
 class TestPreviewSlugValidation:
@@ -366,7 +494,13 @@ class TestCorpusFallback:
         corpus_parsed: Path,
     ) -> None:
         """Old-style IDs like hep-th/0001234 nest naturally in
-        corpus/parsed/<paper_id>/index.html."""
+        corpus/parsed/<paper_id>/index.html.
+
+        F4 closure (m10 adversary critique): also asserts the tight
+        CSP is applied to the old-style path — the v2 server is
+        built for the math-ph / hep-th category, so this boundary
+        MUST hold for those IDs.
+        """
         client.post("/ui/api/notebooks", json={"slug": "demo-nb"})
         corpus_body = b"<html><body>OLD-STYLE-OK</body></html>"
         _plant_corpus_html(corpus_parsed, "hep-th/0001234", corpus_body)
@@ -376,6 +510,11 @@ class TestCorpusFallback:
         )
         assert r.status_code == 200
         assert r.content == corpus_body
+        # F4: CSP boundary holds for old-style IDs.
+        assert (
+            r.headers["content-security-policy"]
+            == CONTENT_SECURITY_POLICY_PREVIEW.decode("ascii")
+        )
 
     def test_old_style_paper_id_notebook_scoped(
         self,
@@ -383,7 +522,10 @@ class TestCorpusFallback:
         notebooks_base: Path,
     ) -> None:
         """Old-style IDs with ``/`` are flattened to ``_`` for the
-        notebook-scoped on-disk filename (m8 contract preserved)."""
+        notebook-scoped on-disk filename (m8 contract preserved).
+
+        F4 closure (m10 adversary critique): also asserts CSP.
+        """
         client.post("/ui/api/notebooks", json={"slug": "demo-nb"})
         nb_body = b"<html><body>OLD-STYLE-NB</body></html>"
         # Plant with the flattened form on disk.
@@ -397,6 +539,11 @@ class TestCorpusFallback:
         )
         assert r.status_code == 200
         assert r.content == nb_body
+        # F4: CSP boundary holds for old-style IDs.
+        assert (
+            r.headers["content-security-policy"]
+            == CONTENT_SECURITY_POLICY_PREVIEW.decode("ascii")
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -450,8 +597,12 @@ class TestBrowseTableLinkConditional:
             '<a href="/ui/notebooks/demo-nb/papers/2604.26204/preview"'
             not in body
         )
-        # Span tooltip present.
-        assert 'title="no preview available"' in body
+        # F6 closure (m10 adversary critique): actionable tooltip text
+        # directing the operator to the upload card. The old
+        # "no preview available" string left the user at a dead end.
+        assert (
+            'title="upload an ar5iv HTML to enable preview"' in body
+        )
         # The text "Preview" is still present (column header + the
         # span content) — both are valid.
         assert "Preview" in body
