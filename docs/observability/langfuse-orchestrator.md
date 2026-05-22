@@ -20,20 +20,31 @@ flow.
 
 ## Session ID handling
 
-The arXMCP server does **NOT** emit `Mcp-Session-Id` as a response
-header — it only *consumes* the header from the client request
-(see `server/middleware.py::TracingContextMiddleware`). The
-session ID lives on the orchestrator side:
+Per the MCP 2025-06-18 spec, the arXMCP server emits
+`Mcp-Session-Id` as a response header on the **initialize** call
+(via the upstream `StreamableHTTPSessionManager` from the MCP
+library); subsequent client requests carry the same value back as
+the `Mcp-Session-Id` request header. The reference implementation
+of this round-trip is in `shim/arxmcp_shim.py:150` where the shim
+extracts the header from the initialize response and stores it for
+all subsequent calls (`sid = resp.getheader("mcp-session-id") or sid`).
 
-- The caller generates it (typically a UUIDv4 per agent session).
-- The caller sends it as the `Mcp-Session-Id` request header on
-  every `tools/call`.
-- The caller uses the same value as the Langfuse `session_id` so
-  Langfuse and OTel join on it.
+For an orchestrator wiring Langfuse:
 
-Per the MCP 2025-06-18 spec, the server echoes the session ID in
-its initialize response — the orchestrator can verify the session
-was established but should not need to re-read it.
+- After the initialize round-trip, read `Mcp-Session-Id` from the
+  response headers.
+- Pass the same value as the Langfuse trace `session_id` so the
+  Langfuse trace and the arXMCP server-side OTel spans (which
+  carry `mcp.session_id`) join on a single key.
+- Send the value back as the `Mcp-Session-Id` request header on
+  every subsequent `tools/call`.
+
+The snippet below uses an `mcp_session_id` parameter that the
+caller has already extracted from the initialize response (or
+generated and sent in if the MCP client library handles initialize
+implicitly). Either way, the session ID is a single string shared
+across the Anthropic API call and the MCP transport — not derived
+separately on each side.
 
 ## Reference snippet (< 60 LOC, runs in the caller's codebase)
 
@@ -57,9 +68,18 @@ async def call_claude_with_arxmcp_tracing(
     langfuse: Langfuse,
     *,
     mcp_session_id: str | None = None,
-    model: str = "claude-sonnet-4-5",
+    model: str,  # caller supplies; see server/orchestrator/model_selector.py
 ) -> Any:
     """Run one Claude turn with MCP tool-use, traced into Langfuse.
+
+    The ``model`` parameter is REQUIRED (no default) — the snippet
+    is a caller-side reference and the orchestrator's chosen Claude
+    model is policy. Do NOT embed a literal model-ID default here:
+    that's the SSoT anti-pattern the fixup commit c7cf81d had to
+    rectify for spend_constants.py during this bundle. Reference
+    the project's pinned IDs at
+    server/orchestrator/model_selector.py if you want to mirror the
+    arXMCP project's model policy.
 
     Both the Anthropic call and the MCP tool result land in the same
     Langfuse trace; the trace is keyed by ``mcp_session_id`` so the

@@ -114,7 +114,7 @@ numbers are Tier-4 planning per the design constitution
 ### Step 4 — Verify the rebuilt index
 
 ```bash
-/Users/chris.dare/Library/Python/3.9/bin/uv run python -m pytest tests/test_equation_index.py
+uv run python -m pytest tests/test_equation_index.py
 ```
 
 All tests pass (existing AC coverage from E10_S03 + E10_S03b).

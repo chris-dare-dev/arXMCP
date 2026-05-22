@@ -93,23 +93,53 @@ class TestDocStructure:
             f"Doc missing required phrase: {required_phrase!r}"
         )
 
-    def test_doc_clarifies_session_id_is_not_a_response_header(
+    def test_doc_explains_session_id_emitted_per_mcp_spec(
         self, doc_text: str,
     ) -> None:
-        """Synthesis A4 (load-bearing): the arXMCP server does NOT emit
-        Mcp-Session-Id as a response header — it only consumes the
-        client's request header. The doc must communicate this so the
-        snippet doesn't try to extract the value from a response.
+        """F1 closure (m10 adversary critique): the previous version
+        of this test was based on the WRONG synthesis claim that
+        arXMCP does not emit Mcp-Session-Id. In fact, per the MCP
+        2025-06-18 spec, the upstream MCP library
+        (StreamableHTTPSessionManager) emits the header on the
+        initialize response. The shim at shim/arxmcp_shim.py:150
+        proves this — it reads the header from response.getheader.
 
-        Whitespace-tolerant check: collapse all whitespace runs (incl.
-        line wraps) to single spaces before matching."""
+        The corrected doc must communicate: (1) the server DOES emit
+        the header on initialize, (2) subsequent requests carry it
+        back, (3) the orchestrator extracts from the initialize
+        response."""
         flat = " ".join(doc_text.split())
-        assert (
-            "does **NOT** emit `Mcp-Session-Id` as a response header"
-            in flat
-        ), (
-            "Doc must explicitly state that arXMCP does NOT emit "
-            "Mcp-Session-Id as a response header (synthesis A4)"
+        # Positive: doc references the spec emission.
+        assert "emits `Mcp-Session-Id` as a response header" in flat, (
+            "Doc must state that the server emits Mcp-Session-Id on "
+            "initialize per the MCP 2025-06-18 spec (F1 closure)"
+        )
+        # Negative: the old wrong claim must NOT appear.
+        assert "does **NOT** emit" not in flat, (
+            "Doc still contains the wrong 'does NOT emit' claim; F1 "
+            "closure replaced this with the accurate per-MCP-spec wording"
+        )
+
+    def test_snippet_does_not_hardcode_obsolete_model_id(
+        self, snippet: str,
+    ) -> None:
+        """F4 closure (m10 adversary critique): the original snippet
+        hardcoded ``model="claude-sonnet-4-5"`` — wrong version
+        (canonical is ``claude-sonnet-4-6`` per MODEL_SONNET_4_6 in
+        server/orchestrator/model_selector.py:88) AND violated the
+        SSoT discipline the bundle's fixup commit was created to
+        enforce. The snippet must not hardcode any literal
+        ``claude-...`` model ID; reference model_selector.py instead.
+        """
+        import re
+
+        bad = re.findall(r"['\"]claude-[a-z0-9-]+['\"]", snippet)
+        assert not bad, (
+            f"Snippet hardcodes Anthropic model IDs: {bad}. The "
+            f"snippet must reference the orchestrator's pinned model "
+            f"by symbol (or as a caller-supplied parameter without a "
+            f"default literal), not embed the version string. See "
+            f"server/orchestrator/model_selector.py for the SSoT."
         )
 
 

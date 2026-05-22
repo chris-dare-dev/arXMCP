@@ -44,7 +44,7 @@ restore.
    pick the one you want to roll back to.
 
    ```bash
-   /Users/chris.dare/Library/Python/3.9/bin/uv run python -c '
+   uv run python -c '
    import lancedb
    db = lancedb.connect("var/arxmcp/index/lancedb")
    tbl = db.open_table("chunks")
@@ -101,9 +101,15 @@ restore.
 ## Verification
 
 ```bash
-# The daemon now serves the target version.
-curl -s http://127.0.0.1:7733/healthz/version
-# Expected: matches the TARGET_CORPUS from step 3.
+# The daemon now pins to the target LanceDB dataset version. Confirm
+# the corpus-version marker file matches what step 3 wrote (this is
+# the single source of truth the daemon reads at lifespan startup).
+cat var/arxmcp/corpus-version.json
+# Expected: matches the TARGET_CORPUS / TARGET_LDB from step 3.
+
+# Confirm the daemon came up cleanly post-restart.
+curl -fsS http://127.0.0.1:7733/healthz   # → 200
+curl -fsS http://127.0.0.1:7733/readyz    # → 200
 
 # Spot-check the failing query — it should return the correct
 # paper now.

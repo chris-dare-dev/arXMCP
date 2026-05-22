@@ -37,8 +37,12 @@ REPO_ROOT: Path = Path(__file__).resolve().parents[1]
 DASHBOARD_PATH: Path = (
     REPO_ROOT / "infra" / "observability" / "grafana-dashboard.json"
 )
-PROVISIONING_PATH: Path = (
-    REPO_ROOT / "infra" / "observability" / "grafana-provisioning.yml"
+DATASOURCE_PATH: Path = (
+    REPO_ROOT / "infra" / "observability" / "grafana-datasource.yml"
+)
+DASHBOARD_PROVIDER_PATH: Path = (
+    REPO_ROOT / "infra" / "observability"
+    / "grafana-dashboard-provider.yml"
 )
 
 
@@ -305,18 +309,28 @@ class TestPanelInvariants:
 
 
 class TestProvisioningYaml:
-    def test_provisioning_file_exists(self) -> None:
-        assert PROVISIONING_PATH.is_file(), (
-            f"missing: {PROVISIONING_PATH}"
+    """F8 closure (m10 adversary critique): provisioning was
+    originally one combined YAML that required operator-side
+    splitting on comment markers. Now shipped as two physical
+    files (grafana-datasource.yml + grafana-dashboard-provider.yml)
+    so the operator mounts each at the correct Grafana provisioning
+    path with no surgery. These tests assert both files exist, both
+    parse, and both carry the correct provisioning-API contract.
+    """
+
+    def test_both_provisioning_files_exist(self) -> None:
+        assert DATASOURCE_PATH.is_file(), f"missing: {DATASOURCE_PATH}"
+        assert DASHBOARD_PROVIDER_PATH.is_file(), (
+            f"missing: {DASHBOARD_PROVIDER_PATH}"
         )
 
-    def test_provisioning_parses_as_yaml(self) -> None:
-        """Use the stdlib `re` to check structural markers rather than
-        importing PyYAML (not a project dep). We assert the YAML has
-        the two top-level blocks the README documents."""
-        text = PROVISIONING_PATH.read_text(encoding="utf-8")
+    def test_datasource_file_has_required_keys(self) -> None:
+        """Datasource provisioning needs apiVersion + datasources + uid."""
+        text = DATASOURCE_PATH.read_text(encoding="utf-8")
+        assert "apiVersion: 1" in text, (
+            "Grafana datasource provisioning requires apiVersion: 1"
+        )
         assert "datasources:" in text, "missing datasources block"
-        assert "providers:" in text, "missing providers block"
         assert "uid: prometheus" in text, (
             "datasource block must hardcode uid: prometheus to match "
             "the dashboard JSON's panel datasource references"
@@ -324,6 +338,32 @@ class TestProvisioningYaml:
         assert "http://localhost:9090" in text, (
             "Prometheus URL must be loopback-only per project convention"
         )
+
+    def test_dashboard_provider_file_has_required_keys(self) -> None:
+        """Dashboards provisioning needs apiVersion + providers."""
+        text = DASHBOARD_PROVIDER_PATH.read_text(encoding="utf-8")
         assert "apiVersion: 1" in text, (
-            "Grafana provisioning files require apiVersion: 1"
+            "Grafana dashboards provisioning requires apiVersion: 1"
+        )
+        assert "providers:" in text, "missing providers block"
+        # The provider points at the dashboard JSON via options.path.
+        assert "options:" in text and "path:" in text, (
+            "providers entry needs options.path pointing at the "
+            "dashboard JSON directory"
+        )
+
+    def test_datasource_yaml_documents_container_networking_gotcha(
+        self,
+    ) -> None:
+        """IS1 closure (m10 infra-safety critique): when Grafana
+        runs in a container, ``localhost:9090`` resolves to the
+        Grafana container, not the host. The YAML must document
+        the ``host.docker.internal`` mitigation inline (the README
+        also covers this, but the YAML is the operator's edit
+        target so the hint needs to live there too)."""
+        text = DATASOURCE_PATH.read_text(encoding="utf-8")
+        assert "host.docker.internal" in text, (
+            "grafana-datasource.yml must document the "
+            "host.docker.internal mitigation for the Grafana-in-"
+            "container networking gotcha (IS1)"
         )

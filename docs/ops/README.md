@@ -22,7 +22,7 @@ references and per-feature design docs live in
 | # | Runbook | When to fire |
 |---|---|---|
 | 1 | [server-crash recovery](server-crash.md) | The daemon exited / SIGSEGV'd / OOM-killed; bring the service back. |
-| 2 | [ingestion-pause recovery](failure-modes.md#disk-full) | A `ingest-paused` sentinel is on disk; reads still work but new papers stop landing. |
+| 2 | [ingestion-pause (disk-full origin)](failure-modes.md#disk-full) | A `ingest-paused` sentinel is on disk; reads still work but new papers stop landing. Today the only documented trigger is the disk-full handler (see #3); operator-initiated pause is a future scenario. |
 | 3 | [disk-full handling](failure-modes.md#disk-full) | `arxmcp_disk_free_bytes < 10 GB` alert (`ArXMCPDiskFull`) fired. |
 | 4 | [restore from backup](backup-restore.md) | A corpus or DB needs to be recovered from a restic snapshot. |
 | 5 | [model swap](model-swap.md) | Upgrade the embedder (BGE-M3) or reranker (bge-reranker-v2-m3) to a new commit SHA. |

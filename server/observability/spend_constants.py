@@ -76,9 +76,11 @@ CLAUDE_HAIKU_4_5_OUTPUT_USD_PER_M: float = 5.00
 #: ISO-8601 date the constants above were last verified against
 #: the upstream pricing pages. The quarterly restore drill cadence
 #: doubles as the manual review trigger; operators should update
-#: this date AND the constants together. A failing
-#: ``test_last_verified_within_six_months`` regression guard will
-#: surface stale constants.
+#: this date AND the constants together. The
+#: ``tests/test_spend_constants.py::TestLastVerifiedFresh::test_last_verified_within_six_months``
+#: regression guard (F3 closure from the m10 adversary critique)
+#: fails CI when this date is > 180 days old, surfacing stale
+#: constants automatically.
 LAST_VERIFIED: str = "2026-05-22"
 
 #: Sanity ceiling — no provider's per-million-token cost should

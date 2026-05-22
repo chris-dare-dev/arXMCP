@@ -94,7 +94,7 @@ feet.
 
    ```bash
    # For the seed-corpus path:
-   /Users/chris.dare/Library/Python/3.9/bin/uv run python tools/fetch_seed.py
+   uv run python tools/fetch_seed.py
 
    # For the bulk-ingest path:
    make ingest

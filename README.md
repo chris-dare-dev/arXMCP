@@ -83,8 +83,13 @@ the underlying files directly.
 
 A provisioned Grafana dashboard with cache hit-ratio and latency panels
 lives at [`infra/observability/grafana-dashboard.json`](infra/observability/grafana-dashboard.json).
-Companion provisioning config:
-[`infra/observability/grafana-provisioning.yml`](infra/observability/grafana-provisioning.yml).
+Provisioning config split into two physical files (so each mounts at
+the path Grafana actually expects):
+
+- [`infra/observability/grafana-datasource.yml`](infra/observability/grafana-datasource.yml)
+  — Prometheus datasource block.
+- [`infra/observability/grafana-dashboard-provider.yml`](infra/observability/grafana-dashboard-provider.yml)
+  — dashboards provider block (points Grafana at the dashboard JSON).
 
 **Option A — manual UI import** (one-off, simplest):
 
@@ -95,27 +100,31 @@ Companion provisioning config:
 
 **Option B — provisioned auto-load** (durable across Grafana restarts):
 
-Mount the two provisioning fragments + the dashboard JSON into Grafana's
-provisioning tree, then start Grafana. The fragments are bundled in one
-YAML for documentation; physically split them into Grafana's two
-expected paths:
+Mount the three files directly into Grafana's provisioning tree (no
+manual splitting required — F8 closure from the E14_Tier5plus
+critique):
 
 ```bash
-# Split the provisioning YAML into Grafana's two expected files.
-# (The bundled YAML at infra/observability/grafana-provisioning.yml
-#  has two top-level blocks: 'datasources' and 'providers'. Split on
-#  the comment markers in that file.)
-
 # On the host running Grafana, mount:
-#   infra/observability/grafana-provisioning.yml (datasources block)
+#   infra/observability/grafana-datasource.yml
 #     → /etc/grafana/provisioning/datasources/arxmcp.yml
-#   infra/observability/grafana-provisioning.yml (providers block)
+#   infra/observability/grafana-dashboard-provider.yml
 #     → /etc/grafana/provisioning/dashboards/arxmcp.yml
 #   infra/observability/grafana-dashboard.json
 #     → /etc/grafana/provisioning/dashboards/arxmcp/arxmcp-cache-latency.json
 
 # Then `docker restart grafana` (or equivalent) — dashboard auto-loads.
 ```
+
+**Grafana-in-container networking gotcha.** The datasource YAML
+hardcodes `url: http://localhost:9090`. When Grafana itself runs in
+a container, `localhost` resolves to the Grafana container — not the
+host. Two common fixes (documented inline in
+`grafana-datasource.yml`):
+
+- Docker Desktop (macOS/Windows): change to `http://host.docker.internal:9090`.
+- Linux Docker with a shared compose stack: change to a Prometheus
+  service alias like `http://prometheus:9090`.
 
 Tested against Grafana 10.x and 11.x (`schemaVersion: 39`). Requires
 a Prometheus datasource scraping the arXMCP `/metrics` endpoint.

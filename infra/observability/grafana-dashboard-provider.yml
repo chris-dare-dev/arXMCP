@@ -1,0 +1,27 @@
+# Grafana provisioning — dashboards provider block for the arXMCP
+# dashboard.
+#
+# Mount at /etc/grafana/provisioning/dashboards/arxmcp.yml inside
+# the operator's Grafana container. The provider tells Grafana to
+# scan the directory at `options.path` for dashboard JSON files
+# every `updateIntervalSeconds`; operators mount
+# `infra/observability/grafana-dashboard.json` (or its parent
+# directory) at the path declared below.
+#
+# F8 closure (m10 adversary critique): companion file to
+# grafana-datasource.yml. Originally these were combined into one
+# `grafana-provisioning.yml` with an operator-side YAML split — now
+# shipped as two physical files.
+apiVersion: 1
+providers:
+  - name: arxmcp
+    orgId: 1
+    folder: arXMCP
+    folderUid: arxmcp
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: false
+    options:
+      path: /etc/grafana/provisioning/dashboards/arxmcp
+      foldersFromFilesStructure: false

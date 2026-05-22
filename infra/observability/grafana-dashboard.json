@@ -46,7 +46,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Cumulative count of embedder singleflight dedup events (one increment per query that piggy-backed on an in-flight encode call). Higher means more concurrent agents sharing an encode pass. Source: arxmcp_embed_singleflight_dedup_total (server/health.py).",
+      "description": "Embedder singleflight dedup rate (events/sec over 5-min window). Each event is a query that piggy-backed on an in-flight encode call rather than triggering a redundant forward pass. Higher rate means more concurrent agents are sharing encode passes. Source: arxmcp_embed_singleflight_dedup_total (server/health.py). Rate visualization chosen over cumulative counter so operators see a flat line at zero (no concurrency) vs an active line (dedup happening), not a monotonic staircase.",
       "fieldConfig": {
         "defaults": {
           "unit": "short"
@@ -63,12 +63,12 @@
       "options": {},
       "targets": [
         {
-          "expr": "arxmcp_embed_singleflight_dedup_total",
-          "legendFormat": "dedup events",
+          "expr": "rate(arxmcp_embed_singleflight_dedup_total[5m])",
+          "legendFormat": "dedup events/sec (5m)",
           "refId": "A"
         }
       ],
-      "title": "Embedder singleflight dedup count",
+      "title": "Embedder singleflight dedup rate (5m)",
       "type": "timeseries"
     },
     {
