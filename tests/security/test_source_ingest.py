@@ -753,3 +753,42 @@ class TestRedirectHostPin:
             pytest.raises(RuntimeError, match="redirected off"),
         ):
             _fetch_inspire_record("2412.00001", "test@example.com")
+
+    # ----- scheme-downgrade guard (F2 — E13_S07b adversary rectification) -----
+
+    def test_graph_ingest_rejects_scheme_downgrade(self):
+        """A 30x that downgrades ``https://`` → ``http://`` on the SAME
+        host is a TLS-stripping attack. ``OPENALEX_BASE`` embeds the
+        ``https://`` scheme, so the pin rejects an ``http://`` redirect
+        target. This test pins that protection so a future refactor to
+        a host-only pin (dropping the scheme) fails loudly instead of
+        silently re-opening the downgrade hole.
+        """
+        from ingest.graph_ingest import _fetch_openalex_work
+
+        ctx = self._ctx(
+            url="http://api.openalex.org/works/W1",
+            body=b'{"id": "x"}',
+        )
+        with (
+            patch("urllib.request.urlopen", return_value=ctx),
+            pytest.raises(RuntimeError, match="redirected off"),
+        ):
+            _fetch_openalex_work("2412.00001", "test@example.com")
+
+    def test_inspire_ingest_rejects_scheme_downgrade(self):
+        """Same TLS-stripping guard for INSPIRE: an ``http://`` redirect
+        target on the same host is rejected because ``INSPIRE_API_BASE``
+        embeds ``https://``.
+        """
+        from ingest.inspire_ingest import _fetch_inspire_record
+
+        ctx = self._ctx(
+            url="http://inspirehep.net/api/arxiv/2412.00001",
+            body=b'{"metadata": {}}',
+        )
+        with (
+            patch("urllib.request.urlopen", return_value=ctx),
+            pytest.raises(RuntimeError, match="redirected off"),
+        ):
+            _fetch_inspire_record("2412.00001", "test@example.com")

@@ -281,6 +281,18 @@ def _fetch_inspire_record(
                 # ``startswith`` but is correctly rejected here (the
                 # legit URL always has "/" after the api base).
                 # Mirrors ar5iv_fetch.py / oai_delta.py.
+                #
+                # FAIL-CLOSED SEMANTICS (deliberate — do not downgrade):
+                # this RuntimeError is NOT a urllib.error.URLError, so
+                # ``enrich()``'s per-paper ``except URLError`` handler
+                # does NOT catch it. A poisoned redirect therefore
+                # aborts the whole enrich run, not just one paper —
+                # consistent with the over-size RuntimeError above. A
+                # redirect off the pinned host is a signal the upstream
+                # is compromised; continuing the run would risk
+                # ingesting more poisoned data. If a skip-the-paper
+                # degrade is ever wanted, raise a URLError subclass
+                # instead so the per-paper handler catches it.
                 response_url = resp.url
                 if not response_url.startswith(INSPIRE_API_BASE + "/"):
                     raise RuntimeError(

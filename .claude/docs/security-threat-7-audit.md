@@ -242,6 +242,6 @@ False until that closure lands.
 - [`server/config.py`](../../server/config.py) — `pin_arxiv_ca` field (opt-in stub)
 - [`ingest/graph_ingest.py`](../../ingest/graph_ingest.py) — `OPENALEX_BASE` redirect-host pin (E13_S07b)
 - [`ingest/inspire_ingest.py`](../../ingest/inspire_ingest.py) — `INSPIRE_API_BASE` redirect-host pin (E13_S07b)
-- [`tests/security/test_source_ingest.py`](../../tests/security/test_source_ingest.py) — full guard coverage (5 test classes; `TestRedirectHostPin` added by E13_S07b)
+- [`tests/security/test_source_ingest.py`](../../tests/security/test_source_ingest.py) — full guard coverage (6 test classes; `TestRedirectHostPin` added by E13_S07b)
 - RFC 9110 (HTTP semantics) — Content-Length, Transfer-Encoding, trailer fields
 - RFC 9112 (HTTP/1.1 message syntax) — chunked encoding rules
