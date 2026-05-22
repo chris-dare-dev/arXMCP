@@ -104,7 +104,11 @@ logger = logging.getLogger(__name__)
 #: the library's ``cites|cited_by|depends_on`` (was the never-shipped
 #: ``citers|cited|co_cited|co_citing|depends_on``) and the CITE_NEIGHBORS
 #: description rewritten to drop the v1-stub wording.
-TOOL_SCHEMA_VERSION: int = 10
+#: v11: verification-feedback-m1 rectification — cite_neighbors ``depth``
+#: input constraint tightened le=3 → le=2 (the library accepts only
+#: 1|2, so the advertised schema must agree — adversary F1) and the
+#: ``depth`` default aligned 1 → 2 to match the library (adversary F4).
+TOOL_SCHEMA_VERSION: int = 11
 
 #: URI scheme for chunk resource_links per the design note. Used by
 #: handlers that switch to resource_link mode when payloads exceed

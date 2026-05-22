@@ -169,14 +169,19 @@ class TestNumericParamRejection:
     def test_cite_neighbors_depth_field_constraint_present(self):
         """Reframed from brief's fictional ``dependency_graph(depth=100)``.
         The real depth-constrained tool is ``cite_neighbors`` with
-        ``Field(ge=1, le=3)``.
+        ``Field(ge=1, le=2)`` — server.graph_queries.cite_neighbors
+        accepts only depth 1 or 2, so the advertised input schema must
+        cap at 2 (verification-feedback-m1 adversary F1). Threat-4's
+        intent — that a cap is PRESENT — is satisfied identically by
+        le=2; the cap value was tightened 3→2 so the schema and the
+        library's accepted-value set agree.
         """
         le = _le_constraint_for_param(handle_cite_neighbors, "depth")
         assert le is not None
-        assert le.le == 3, (
-            f"cite_neighbors.depth must have le=3 (E13_S04 Threat 4 "
-            f"reframe from fictional dependency_graph). Got "
-            f"le={le.le}"
+        assert le.le == 2, (
+            f"cite_neighbors.depth must have le=2 (the library rejects "
+            f"depth>2; schema and accepted set must agree -- "
+            f"verification-feedback-m1 F1). Got le={le.le}"
         )
 
     def test_cite_neighbors_limit_field_constraint_present(self):
@@ -238,6 +243,24 @@ class TestNumericParamRejection:
         assert adapter is not None
         with pytest.raises(ValidationError, match="less than or equal to"):
             adapter.validate_python(101)
+
+    def test_cite_neighbors_depth_3_rejected_by_validator(self):
+        """verification-feedback-m1 F1 regression guard: depth=3 — a
+        value the OLD le=3 schema accepted — must now be rejected at
+        the input boundary. server.graph_queries.cite_neighbors raises
+        ValueError for any depth outside {1,2}; if the schema ever
+        re-widens to le>=3, that library ValueError would surface as an
+        uncaught handler-body crash instead of a clean INVALID_PARAMS
+        rejection at the boundary."""
+        from pydantic import ValidationError
+
+        adapter = _adapter_for_param(handle_cite_neighbors, "depth")
+        assert adapter is not None
+        with pytest.raises(ValidationError, match="less than or equal to"):
+            adapter.validate_python(3)
+        # Boundary: depth 1 and 2 are accepted (the library's range).
+        assert adapter.validate_python(1) == 1
+        assert adapter.validate_python(2) == 2
 
 
 # ===========================================================================

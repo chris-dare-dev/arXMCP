@@ -92,7 +92,7 @@ from server.tools import ALL_TOOLS, TOOL_SCHEMA_VERSION, reset_resources_for_tes
 #: (cross-checked by :data:`EXPECTED_TOOL_SCHEMA_VERSION_AT_HASH`
 #: below — F2 fix from the E06_S06 critique).
 EXPECTED_TOOL_SCHEMA_SHA256: str = (  # UPDATE-ANCHOR — do not delete
-    "4fd37553ab30710f676be0ff788fc5dfd827a452a98d1fc8d219b3b34e8ecddd"
+    "e5c7adde1bd2a6ae77d5fc4d738855c4a455fdfef07a9f816429193cd2878960"
 )
 
 #: The :data:`server.tools.TOOL_SCHEMA_VERSION` value that produced
@@ -106,7 +106,7 @@ EXPECTED_TOOL_SCHEMA_SHA256: str = (  # UPDATE-ANCHOR — do not delete
 #: description without bumping ``TOOL_SCHEMA_VERSION``, the flag
 #: refuses, and they cannot ship the new hash without also editing
 #: ``server/tools.py``'s ``TOOL_SCHEMA_VERSION`` constant.
-EXPECTED_TOOL_SCHEMA_VERSION_AT_HASH: int = 10  # VERSION-ANCHOR — do not delete
+EXPECTED_TOOL_SCHEMA_VERSION_AT_HASH: int = 11  # VERSION-ANCHOR — do not delete
 
 
 # ---------------------------------------------------------------------------

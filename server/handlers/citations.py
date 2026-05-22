@@ -21,15 +21,21 @@ keyed cache is an optimization deferred to a future milestone — see
 § 2 for the scope decision (the Phase-3 challenger's sanctioned
 "exclude from caching" option).
 
-**Graceful degradation.** When the citation graph has not been
-ingested (a seed-stage corpus), the handler returns an empty
-neighborhood with ``graph_status="absent"`` rather than letting a Kùzu
-binder error surface as a 5xx.
+**Graceful degradation.** ``graph_status`` reports the citation graph's
+state: ``"absent"`` when the Kùzu DB path does not exist (seed-stage
+corpus, graph not ingested), ``"unavailable"`` when the path exists but
+is not a queryable Kùzu graph (a stray directory, an empty / corrupt /
+half-ingested DB — Kùzu raises ``RuntimeError`` for these), and
+``"present"`` when the graph was queried successfully. In the first two
+cases the handler returns an empty ``neighbors`` list rather than
+surfacing a 5xx; the ``"unavailable"`` case is logged at WARNING so the
+operator failure is observable, not silently masked.
 """
 
 from __future__ import annotations
 
 import dataclasses
+import logging
 from typing import Annotated, Any, Literal
 
 from pydantic import Field
@@ -37,6 +43,8 @@ from pydantic import Field
 from ingest.identifiers import is_valid_chunk_id
 from server.graph_queries import cite_neighbors
 from server.tools import cap_result_list, envelope, get_resources
+
+logger = logging.getLogger(__name__)
 
 
 def _cap(payload: dict[str, Any], chunk_id: str) -> dict[str, Any]:
@@ -70,7 +78,7 @@ async def handle_cite_neighbors(
         Literal["cites", "cited_by", "depends_on"],
         Field(description="Graph traversal direction"),
     ] = "cites",
-    depth: Annotated[int, Field(ge=1, le=3, description="Hop count")] = 1,
+    depth: Annotated[int, Field(ge=1, le=2, description="Hop count (1 or 2)")] = 2,
     limit: Annotated[int, Field(ge=1, le=100, description="Max neighbors returned")] = 30,
 ) -> dict[str, Any]:
     # E13_S01 D3 — Threat-1 (path traversal) coverage. ``chunk_id``
@@ -93,27 +101,44 @@ async def handle_cite_neighbors(
     config = get_resources().config
     kuzu_path = config.kuzu_path
 
+    neighbors: list[dict[str, Any]] = []
     if not kuzu_path.exists():
         # Citation graph not ingested (seed-stage corpus). Return an
-        # empty neighborhood rather than letting kuzu.Database create
-        # an empty DB and the query fail on a missing ``papers`` table.
-        neighbors: list[dict[str, Any]] = []
+        # empty neighborhood rather than letting the query layer fail.
         graph_status = "absent"
     else:
-        results = await cite_neighbors(
-            chunk_id,
-            depth=depth,
-            direction=direction,
-            max_results=limit,
-            kuzudb_path=str(kuzu_path),
-            lancedb_path=str(config.lancedb_path),
-        )
-        # CitationNeighbor is a frozen dataclass — serialize each to a
-        # plain dict for the JSON envelope. The library's
-        # (hop_distance ASC, paper_id ASC) ordering is preserved:
-        # envelope()'s _sort_dict sorts dict keys, not list order.
-        neighbors = [dataclasses.asdict(n) for n in results]
-        graph_status = "present"
+        try:
+            results = await cite_neighbors(
+                chunk_id,
+                depth=depth,
+                direction=direction,
+                max_results=limit,
+                kuzudb_path=str(kuzu_path),
+                lancedb_path=str(config.lancedb_path),
+            )
+        except RuntimeError as exc:
+            # The Kùzu path exists but is not a queryable graph — a
+            # stray directory, or an empty / half-ingested / corrupt
+            # DB. Kùzu surfaces all of these as RuntimeError. (Bad
+            # chunk_id / direction / depth are pre-validated above and
+            # by Pydantic, so cite_neighbors cannot raise RuntimeError
+            # for an input error here — a RuntimeError is unambiguously
+            # a graph-availability failure.) Degrade to "unavailable"
+            # instead of a 5xx; log at WARNING so the operator failure
+            # is observable rather than silently masked.
+            logger.warning(
+                "cite_neighbors: Kùzu graph at %s is not queryable: %s",
+                kuzu_path,
+                exc,
+            )
+            graph_status = "unavailable"
+        else:
+            # CitationNeighbor is a frozen dataclass — serialize each to
+            # a plain dict for the JSON envelope. The library's
+            # (hop_distance ASC, paper_id ASC) ordering is preserved:
+            # envelope()'s _sort_dict sorts dict keys, not list order.
+            neighbors = [dataclasses.asdict(n) for n in results]
+            graph_status = "present"
 
     return envelope(_cap(
         {

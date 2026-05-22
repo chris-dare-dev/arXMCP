@@ -655,3 +655,72 @@ class TestHandlerEndToEnd:
             reset_resources_for_tests()
         assert result["graph_status"] == "absent"
         assert result["neighbors"] == []
+
+    def test_handler_graph_unqueryable_returns_unavailable(
+        self, graph_corpus: dict, tmp_path: Path
+    ):
+        """verification-feedback-m1 F2 — when Config.kuzu_path exists
+        but is NOT a queryable Kùzu graph (here: a stray directory —
+        Kùzu 0.11.3 rejects a directory path with RuntimeError), the
+        handler degrades to graph_status='unavailable' with an empty
+        neighbors list, instead of letting the RuntimeError surface as
+        a 5xx. Covers the half-ingested / corrupt / stray-path
+        operator-failure modes the bare Path.exists() guard cannot
+        distinguish."""
+        from server.config import Config
+        from server.handlers.citations import handle_cite_neighbors
+
+        bad_kuzu = tmp_path / "kuzu_is_a_directory"
+        bad_kuzu.mkdir()  # exists() is True; Kùzu rejects a directory path.
+
+        cfg = Config(
+            result_byte_cap=256 * 1024,
+            kuzu_path=bad_kuzu,
+            lancedb_path=graph_corpus["lancedb_path"],
+        )
+
+        class _FakeCorpusInfo:
+            version = 1
+
+        class _FakeResources:
+            config = cfg
+            corpus_info = _FakeCorpusInfo()
+
+        set_resources(_FakeResources())
+        try:
+            result = _run(
+                handle_cite_neighbors(
+                    chunk_id=graph_corpus["entry_chunk_id"],
+                    direction="cites",
+                )
+            )
+        finally:
+            reset_resources_for_tests()
+        assert result["graph_status"] == "unavailable"
+        assert result["neighbors"] == []
+
+    def test_handler_exposes_no_path_param(self):
+        """verification-feedback-m1 F3 — F2 path-validation contract
+        regression guard. handle_cite_neighbors MUST NOT expose any
+        Kùzu/LanceDB path as a parameter: the E09_S03 F2 contract
+        requires graph + index paths to be Config-derived, never
+        agent-supplied. A future refactor that re-adds a path param
+        'for testability' fails loudly here."""
+        import inspect
+
+        from server.handlers.citations import handle_cite_neighbors
+
+        params = set(inspect.signature(handle_cite_neighbors).parameters)
+        forbidden = {
+            "kuzudb_path", "kuzu_path", "lancedb_path", "lancedb",
+            "db_path", "graph_path", "path",
+        }
+        leaked = params & forbidden
+        assert not leaked, (
+            f"handle_cite_neighbors exposes path param(s) {sorted(leaked)} "
+            f"-- the E09_S03 F2 contract requires graph/index paths to be "
+            f"Config-derived, never agent-supplied. signature: {sorted(params)}"
+        )
+        assert params == {"chunk_id", "direction", "depth", "limit"}, (
+            f"unexpected handle_cite_neighbors signature: {sorted(params)}"
+        )
