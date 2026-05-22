@@ -453,8 +453,21 @@ class SecFetchSiteMiddleware:
     *"`Sec-Fetch-Site: none` enforced where possible."*
     """
 
-    #: The only permitted value when the header IS present.
+    #: The only permitted value when the header IS present on
+    #: non-exempt paths (i.e. `/mcp`).
     _ALLOWED_VALUE = b"none"
+
+    #: Permitted values on paths matched by ``exempt_prefixes``. The
+    #: relaxation is from `{none}` to `{none, same-origin}` — the
+    #: htmx UI legitimately carries `same-origin` on its in-page
+    #: fetch() POSTs, but `cross-site` / `same-site` / garbage from
+    #: another local app must STILL be rejected (m7 rect F1 — the
+    #: original implementation bypassed the check entirely, enabling
+    #: cross-app CSRF from any other process listening on 127.0.0.1
+    #: on a different port).
+    _UI_ALLOWED_VALUES: frozenset[bytes] = frozenset({
+        b"none", b"same-origin",
+    })
 
     def __init__(
         self,
@@ -465,16 +478,18 @@ class SecFetchSiteMiddleware:
 
         Args:
             app: The downstream ASGI app.
-            exempt_prefixes: Path prefixes that bypass the
-                Sec-Fetch-Site check entirely. Used by the m7 UI
-                surface (``/ui/*``) where same-origin htmx requests
-                from the in-page UI to the same daemon's REST API
-                MUST be allowed despite carrying
-                ``Sec-Fetch-Site: same-origin``. The MCP surface
-                stays protected because it lives outside any exempt
-                prefix. Match form: ``path == prefix`` OR
-                ``path.startswith(prefix + "/")`` — prefix-match, NOT
-                substring (FM-3 from m7 synthesis; prevents
+            exempt_prefixes: Path prefixes that RELAX the
+                Sec-Fetch-Site allow-set from ``{none}`` to
+                ``{none, same-origin}``. Used by the m7 UI surface
+                (``/ui/*``) where same-origin htmx requests from
+                the in-page UI to the same daemon's REST API MUST
+                be allowed despite carrying
+                ``Sec-Fetch-Site: same-origin``. NOT a full bypass —
+                ``cross-site`` / ``same-site`` / garbage from
+                another local app are STILL rejected (m7 rect F1).
+                Match form: ``path == prefix`` OR
+                ``path.startswith(prefix + "/")`` — prefix-match,
+                NOT substring (FM-3 from m7 synthesis; prevents
                 ``/evil-ui/foo`` from accidentally matching ``/ui``).
         """
         self.app = app
@@ -485,23 +500,28 @@ class SecFetchSiteMiddleware:
             await self.app(scope, receive, send)
             return
 
-        # m7: path-prefix exemption (e.g. `/ui/*` for the notebook
-        # REST UI). The prefix-match form catches `/ui` exactly AND
-        # `/ui/api/notebooks` but NOT `/evil-ui/...` — see the
-        # constructor docstring for the FM-3 rationale.
-        path = scope.get("path", "")
-        if any(
-            path == p or path.startswith(p + "/")
-            for p in self._exempt_prefixes
-        ):
-            await self.app(scope, receive, send)
-            return
-
         headers: list[tuple[bytes, bytes]] = scope.get("headers", [])
         sec_fetch_site = _get_header(headers, b"sec-fetch-site")
 
-        if sec_fetch_site is None or sec_fetch_site == self._ALLOWED_VALUE:
-            # Header absent OR value is `none` — pass through.
+        # m7 (rect F1): path-prefix exemption RELAXES the allow-set
+        # for `/ui/*` from {none} to {none, same-origin}. This lets
+        # legitimate htmx posts from the in-page UI pass while still
+        # rejecting cross-app CSRF attempts that would otherwise
+        # forge a `cross-site` POST from some other localhost port.
+        path = scope.get("path", "")
+        is_exempt_path = any(
+            path == p or path.startswith(p + "/")
+            for p in self._exempt_prefixes
+        )
+        if is_exempt_path:
+            if sec_fetch_site is None or sec_fetch_site in self._UI_ALLOWED_VALUES:
+                await self.app(scope, receive, send)
+                return
+            # Fall through to the standard rejection envelope below.
+
+        elif sec_fetch_site is None or sec_fetch_site == self._ALLOWED_VALUE:
+            # Non-exempt path (e.g. /mcp): only `none` or absent
+            # passes — the original Threat 5 DNS-rebinding defense.
             await self.app(scope, receive, send)
             return
 

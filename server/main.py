@@ -304,21 +304,23 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     set_resources(resources)
 
-    # proof-verify-handler-wiring-m7: open the NotebooksStore for
-    # the /ui/api/notebooks REST surface. Kept SEPARATE from
-    # Resources so the HTTP-only UI surface doesn't entangle with
-    # the ML-resource lifecycle (synthesis D5).
-    from server.notebooks_store import NotebooksStore  # noqa: PLC0415
-
-    app.state.notebooks_store = await NotebooksStore.open(
-        config.notebooks_db_path
-    )
-
     # F2 fix: thread the MCP session-manager lifespan into ours. The
     # mcp_server is attached to app.state by ``mount_mcp``.
     mcp_server = getattr(app.state, "mcp_server", None)
 
+    # m7 rect F2: open the NotebooksStore INSIDE the try/finally so
+    # an open-failure (permission denied on var/arxmcp/cache/, disk
+    # full, sqlite3 library mismatch) still invokes
+    # ``resources.shutdown`` in the finally block. Without this,
+    # the m7-era code path leaked BGE-M3 weights + LanceDB
+    # connections + semaphores on startup retry loops (systemd /
+    # docker `restart: on-failure`).
+    from server.notebooks_store import NotebooksStore  # noqa: PLC0415
+
     try:
+        app.state.notebooks_store = await NotebooksStore.open(
+            config.notebooks_db_path
+        )
         if mcp_server is not None:
             async with mcp_server.session_manager.run():
                 yield

@@ -482,6 +482,57 @@ class TestPostAfterDelete:
 
 
 # ---------------------------------------------------------------------------
+# m7 rect F3 — mkdir-failure rollback
+# ---------------------------------------------------------------------------
+
+
+class TestMkdirFailureRollback:
+    """m7 rect F3: if ``Path.mkdir`` raises after the SQLite INSERT
+    has committed, the row must be rolled back so a retry isn't
+    stuck on a permanent 409 ("already exists") despite the on-disk
+    side being broken."""
+
+    def test_mkdir_failure_rolls_back_sqlite_row(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from pathlib import Path as _Path
+        original_mkdir = _Path.mkdir
+
+        call_count = {"n": 0}
+
+        def _failing_mkdir(self, *args, **kwargs):
+            # Only fail on the per-notebook directory create —
+            # let the test harness's earlier tmp_path mkdir
+            # (notebooks_base fixture) succeed.
+            if self.name == "demo-nb":
+                call_count["n"] += 1
+                raise OSError("simulated disk-full")
+            return original_mkdir(self, *args, **kwargs)
+
+        monkeypatch.setattr(_Path, "mkdir", _failing_mkdir)
+
+        r = client.post("/ui/api/notebooks", json={"slug": "demo-nb"})
+        assert r.status_code == 500, r.text
+        assert "mkdir failed" in r.json()["detail"]
+        assert call_count["n"] == 1
+
+        # Crucially: the SQLite row was rolled back. A subsequent
+        # GET must show an empty list (NOT a leftover row).
+        monkeypatch.undo()
+        r2 = client.get("/ui/api/notebooks")
+        assert r2.status_code == 200
+        assert r2.json() == [], (
+            "F3 rollback did not fire — SQLite row survived a "
+            "mkdir failure. A retry would now get 409 forever."
+        )
+
+        # And a fresh POST must succeed (proving retry-after-fix
+        # actually works).
+        r3 = client.post("/ui/api/notebooks", json={"slug": "demo-nb"})
+        assert r3.status_code == 201, r3.text
+
+
+# ---------------------------------------------------------------------------
 # NotebooksStore persistence (Tier1Store parity)
 # ---------------------------------------------------------------------------
 

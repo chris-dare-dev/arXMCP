@@ -250,7 +250,26 @@ async def create_notebook(
     # SQLite INSERT so a constraint violation doesn't leave an
     # orphan directory. FM-9: exist_ok=True because the directory
     # may already exist from a prior incarnation.
-    nb_dir.mkdir(parents=True, exist_ok=True)
+    #
+    # m7 rect F3: wrap mkdir in try/except so a failure (permission
+    # denied, disk full, parent-readonly) rolls back the SQLite row
+    # rather than leaving the operator with "row exists but disk is
+    # broken" → permanent 409 on retry. The rollback uses the same
+    # delete_notebook the DELETE handler calls — cascading FK cleans
+    # up any junction rows that somehow landed (shouldn't be any on
+    # the create path, but defensive).
+    try:
+        nb_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        await store.delete_notebook(body.slug)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=(
+                f"created notebook row but mkdir failed for "
+                f"{nb_dir!s}: {e}. SQLite row rolled back; retry "
+                f"once the disk condition is resolved."
+            ),
+        ) from e
 
     return {
         "slug": body.slug,

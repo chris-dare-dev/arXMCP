@@ -109,21 +109,38 @@ class TestUiCarveoutAcceptsSameOrigin:
                 "got 403 sec_fetch_site_forbidden on /ui/api/notebooks"
             )
 
-    def test_ui_api_path_accepts_cross_site(
+    def test_ui_api_path_rejects_cross_site(
         self, client: TestClient,
     ) -> None:
-        """Carve-out applies to ALL Sec-Fetch-Site values on /ui/*,
-        not just same-origin — the rationale is that the UI is not
-        an MCP protocol surface and doesn't need the same browser-
-        mediated-attack defense."""
+        """m7 rect F1: the carve-out RELAXES the allow-set to
+        ``{none, same-origin}`` — it is NOT a full bypass.
+        ``cross-site`` POSTs (forged by another local app on a
+        different port via a browser-mediated CSRF) MUST still be
+        403'd on ``/ui/*``. Without this guard, any other localhost
+        web service (a dev server, a Flask script on :5000, a
+        JupyterLab on :8888) could create/delete notebooks on the
+        operator's behalf."""
         response = client.post(
             "/ui/api/notebooks",
             headers={"Sec-Fetch-Site": "cross-site"},
+            json={"slug": "csrf-victim"},
+        )
+        assert response.status_code == 403
+        assert response.json()["error"] == "sec_fetch_site_forbidden"
+
+    def test_ui_api_path_rejects_same_site(
+        self, client: TestClient,
+    ) -> None:
+        """Same-site (same eTLD+1, different origin) is also
+        rejected on /ui/* — the carve-out is for the in-page UI's
+        same-origin htmx, not any browser-mediated traffic."""
+        response = client.post(
+            "/ui/api/notebooks",
+            headers={"Sec-Fetch-Site": "same-site"},
             json={"slug": "demo-nb"},
         )
-        if response.status_code == 403:
-            body = response.json()
-            assert body.get("error") != "sec_fetch_site_forbidden"
+        assert response.status_code == 403
+        assert response.json()["error"] == "sec_fetch_site_forbidden"
 
 
 class TestPrefixVsSubstring:
