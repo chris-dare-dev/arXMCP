@@ -96,6 +96,16 @@ class Config(BaseSettings):
     #: pipeline wrote.
     lancedb_path: Path = Path("var/arxmcp/index/lancedb")
 
+    #: Repo-relative or absolute path to the Kùzu citation-graph DB
+    #: directory. Default matches :data:`server.graph_queries.DEFAULT_KUZUDB_PATH`
+    #: and the Makefile bootstrap target — ``kuzu/`` not ``kuzudb/``
+    #: (the canonical path; see CLAUDE.md §8 gotcha #4). The
+    #: ``cite_neighbors`` handler reads this via :func:`get_resources`
+    #: rather than accepting an agent-supplied path — the E09_S03 F2
+    #: path-validation contract requires the graph path to be
+    #: config-derived, never sourced from agent JSON arguments.
+    kuzu_path: Path = Path("var/arxmcp/index/kuzu")
+
     #: SQLite file path for the Tier-1 retrieval cache (E08_S03).
     #: Sibling-of-sibling to ``lancedb_path`` so a single ``var/``
     #: tree holds both the corpus index and the cache. Parent

@@ -393,13 +393,22 @@ class TestToolsSmoke:
         sc = r.json()["result"]["structuredContent"]
         assert sc["found"] is False
 
-    def test_cite_neighbors_stub(self, warm_app):
+    def test_cite_neighbors_wired(self, warm_app):
+        """verification-feedback-m1: the cite_neighbors handler is
+        wired to the live graph_queries library (no longer a v1
+        stub). The warm_app corpus has no ingested Kùzu graph, so
+        the handler returns an empty neighborhood with
+        graph_status='absent' — the old infrastructure_status
+        ='deferred' stub key is gone."""
         cid = "arxiv:2401.00001:0000000000000000"
         r = _call_tool(warm_app, "cite_neighbors", {"chunk_id": cid})
         self._assert_envelope_ok(r, "cite_neighbors")
         sc = r.json()["result"]["structuredContent"]
-        assert sc["infrastructure_status"] == "deferred"
+        assert "infrastructure_status" not in sc
+        assert sc["graph_status"] == "absent"
         assert sc["neighbors"] == []
+        assert sc["chunk_id"] == cid
+        assert sc["direction"] == "cites"
 
 
 # ===========================================================================

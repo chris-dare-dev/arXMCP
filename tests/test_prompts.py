@@ -616,8 +616,16 @@ class TestBP1ByteIdentityAcrossFanout:
         # filter support (m1 F1 closure). The paired
         # EXPECTED_TOOL_SCHEMA_SHA256 was re-pinned via
         # `pytest --update-tool-schema-hash`.
+        # Updated by verification-feedback-m1: TOOL_SCHEMA_VERSION
+        # bumped 9→10 because the cite_neighbors handler was wired to
+        # the live graph_queries library — its `direction` enum was
+        # re-aligned to the library's cites|cited_by|depends_on and the
+        # CITE_NEIGHBORS ToolMeta description rewritten to drop the
+        # v1-stub wording. ALL_TOOLS changed, so BP1 (system + tools)
+        # drifts; the paired EXPECTED_TOOL_SCHEMA_SHA256 was re-pinned
+        # via `pytest --update-tool-schema-hash`.
         EXPECTED_BP1_SHA256 = (
-            "f77e6f80dbb9dd0a3d200791b7f7ab2f86de52ee7020c5e783fb8497be22bf77"
+            "5e9074a0b5ae76dbcef4ff88a08c03e0680dfa4133a4075512df9c32037c0efa"
         )
         req = _build_fanout_request(
             RouteTag.SYNTHESIS, "any problem; BP1 is independent of problem",

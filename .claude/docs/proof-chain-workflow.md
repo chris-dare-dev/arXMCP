@@ -204,13 +204,16 @@ derived from `Resources` / `Config` — never from agent input.
 
 The wrapper that exposes `cite_neighbors` on `tools/list`
 ([`server/handlers/citations.py`](../../server/handlers/citations.py))
-is a **v1 stub** today — it returns `{neighbors: [],
-infrastructure_status: "deferred"}` and ignores its `chunk_id`
-argument. The real library
-([`server/graph_queries.py`](../../server/graph_queries.py)) is
-exercised directly in the test for this milestone; handler-wiring
-is deferred to a future milestone (likely E06_S04) where the
-path-validation contract can be formalized at the boundary.
+is **wired to the real library** as of `verification-feedback-m1` —
+it calls
+[`server/graph_queries.py::cite_neighbors`](../../server/graph_queries.py)
+and returns real citation neighbors. The F2 path-validation contract
+is honored at the handler: the Kùzu and LanceDB paths are derived
+from `Config` via `get_resources()`, never from agent-supplied JSON
+arguments. When the citation graph has not been ingested the handler
+returns `graph_status="absent"` with an empty `neighbors` list rather
+than erroring. Results are not cached — every call reads the live
+graph, so a re-ingest can never serve stale neighbors.
 
 ---
 
@@ -219,7 +222,7 @@ path-validation contract can be formalized at the boundary.
 - Library: [`server/graph_queries.py::cite_neighbors`](../../server/graph_queries.py)
 - Result type: [`server/graph_types.py::CitationNeighbor`](../../server/graph_types.py)
 - Handler (`get_chunk`): [`server/handlers/chunk.py`](../../server/handlers/chunk.py)
-- Handler stub (`cite_neighbors`): [`server/handlers/citations.py`](../../server/handlers/citations.py)
+- Handler (`cite_neighbors`): [`server/handlers/citations.py`](../../server/handlers/citations.py)
 - Integration test: [`tests/test_proof_chain.py`](../../tests/test_proof_chain.py)
 - Round-budget context: [`.claude/notes/07-multi-agent-caching.md`](../notes/07-multi-agent-caching.md)
 - Chunk-id format + regeneration: [`docs/chunker-fixtures.md`](chunker-fixtures.md) (E02_S05)

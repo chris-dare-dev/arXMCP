@@ -494,3 +494,164 @@ class TestDocumentationPins:
         assert "Round 1:" in text
         assert "Round 2" in text
         assert "asyncio.gather" in text
+
+
+# ---------------------------------------------------------------------------
+# verification-feedback-m1 — cite_neighbors HANDLER end-to-end
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def handler_resources(graph_corpus: dict):
+    """Resources singleton wired so ``handle_cite_neighbors`` finds the
+    synthetic Kùzu graph + LanceDB chunks.
+
+    The wired handler (verification-feedback-m1) derives BOTH the Kùzu
+    and LanceDB paths from ``Config`` via ``get_resources()`` — the F2
+    path-validation contract — so this fixture points a real ``Config``
+    at the synthetic ``graph_corpus`` paths.
+    """
+    from server.config import Config
+
+    cfg = Config(
+        result_byte_cap=256 * 1024,
+        kuzu_path=graph_corpus["kuzu_path"],
+        lancedb_path=graph_corpus["lancedb_path"],
+    )
+
+    class _FakeCorpusInfo:
+        version = 1
+
+    class _FakeResources:
+        config = cfg
+        corpus_info = _FakeCorpusInfo()
+
+    set_resources(_FakeResources())
+    try:
+        yield
+    finally:
+        reset_resources_for_tests()
+
+
+class TestHandlerEndToEnd:
+    """verification-feedback-m1 AC#1/AC#5 — exercise the wired
+    ``handle_cite_neighbors`` HANDLER end-to-end, not just the library.
+
+    Every test here fails against the old v1 stub (which returned
+    ``infrastructure_status='deferred'`` + an empty ``neighbors`` list
+    regardless of input).
+    """
+
+    def test_handler_returns_real_neighbors(
+        self, graph_corpus: dict, handler_resources
+    ):
+        """AC#1 + AC#5: the handler routes through the live library and
+        returns real neighbors — verified at the HANDLER boundary, not
+        only the library."""
+        from server.handlers.citations import handle_cite_neighbors
+
+        result = _run(
+            handle_cite_neighbors(
+                chunk_id=graph_corpus["entry_chunk_id"],
+                direction="cites",
+                depth=2,
+            )
+        )
+        assert "infrastructure_status" not in result, (
+            "the v1 stub key must be gone once the handler is wired"
+        )
+        assert result["graph_status"] == "present"
+        assert result["neighbors"], "wired handler must return real neighbors"
+        # corpus_version is added by envelope().
+        assert result["corpus_version"] == 1
+        for n in result["neighbors"]:
+            assert set(n) >= {
+                "paper_id", "chunk_id", "edge_kind",
+                "hop_distance", "source", "confidence",
+            }, f"neighbor dict missing CitationNeighbor fields: {n}"
+
+    def test_handler_honors_cited_by_direction(
+        self, graph_corpus: dict, handler_resources
+    ):
+        """AC#2: the handler's ``direction`` enum is re-aligned to the
+        library's — ``cited_by`` is a valid library direction (the old
+        stub enum had ``citers``/``cited``, never the library's set)."""
+        from server.handlers.citations import handle_cite_neighbors
+
+        result = _run(
+            handle_cite_neighbors(
+                chunk_id=graph_corpus["entry_chunk_id"],
+                direction="cited_by",
+                depth=1,
+            )
+        )
+        assert result["direction"] == "cited_by"
+        assert "infrastructure_status" not in result
+
+    def test_handler_perf_gate_500ms(
+        self, graph_corpus: dict, handler_resources
+    ):
+        """AC#5: the 500 ms performance gate holds at the HANDLER level
+        (library call + envelope + cap + dataclasses.asdict)."""
+        from server.handlers.citations import handle_cite_neighbors
+
+        async def _runner():
+            start = time.monotonic()
+            result = await handle_cite_neighbors(
+                chunk_id=graph_corpus["entry_chunk_id"],
+                direction="cites",
+                depth=2,
+                limit=50,
+            )
+            return time.monotonic() - start, result
+
+        elapsed, result = _run(_runner())
+        assert result["neighbors"]
+        assert elapsed < 0.5, (
+            f"handle_cite_neighbors(depth=2) took {elapsed * 1000:.1f}ms "
+            f"at the handler boundary (AC budget: 500ms). If this fires "
+            f"under load, raise to 1.0s with a TODO — do not skip."
+        )
+
+    def test_handler_rejects_malformed_chunk_id(self):
+        """The Threat-1 chunk_id validator fires before any resource
+        access — no Resources singleton is needed for this path."""
+        from server.handlers.citations import handle_cite_neighbors
+
+        with pytest.raises(ValueError, match="chunk_id"):
+            _run(handle_cite_neighbors(chunk_id="not-a-valid-chunk-id"))
+
+    def test_handler_graph_absent_returns_empty(
+        self, graph_corpus: dict, tmp_path: Path
+    ):
+        """When ``Config.kuzu_path`` does not exist (graph not
+        ingested), the handler returns ``graph_status='absent'`` + an
+        empty ``neighbors`` list rather than erroring."""
+        from server.config import Config
+        from server.handlers.citations import handle_cite_neighbors
+
+        cfg = Config(
+            result_byte_cap=256 * 1024,
+            kuzu_path=tmp_path / "no_such_kuzu_graph",
+            lancedb_path=graph_corpus["lancedb_path"],
+        )
+
+        class _FakeCorpusInfo:
+            version = 1
+
+        class _FakeResources:
+            config = cfg
+            corpus_info = _FakeCorpusInfo()
+
+        set_resources(_FakeResources())
+        try:
+            result = _run(
+                handle_cite_neighbors(
+                    chunk_id=graph_corpus["entry_chunk_id"],
+                    direction="cites",
+                )
+            )
+        finally:
+            reset_resources_for_tests()
+        assert result["graph_status"] == "absent"
+        assert result["neighbors"] == []

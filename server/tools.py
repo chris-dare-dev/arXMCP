@@ -99,7 +99,12 @@ logger = logging.getLogger(__name__)
 #: optional ``filters_applied`` echo field; cross-checked against
 #: server/schemas/search_papers_result.json["version"] by
 #: tests/test_snippet_contract.py::TestSchemaVersionPin.
-TOOL_SCHEMA_VERSION: int = 9
+#: v10: verification-feedback-m1 — cite_neighbors handler wired to the
+#: live graph_queries library; its ``direction`` enum re-aligned to
+#: the library's ``cites|cited_by|depends_on`` (was the never-shipped
+#: ``citers|cited|co_cited|co_citing|depends_on``) and the CITE_NEIGHBORS
+#: description rewritten to drop the v1-stub wording.
+TOOL_SCHEMA_VERSION: int = 10
 
 #: URI scheme for chunk resource_links per the design note. Used by
 #: handlers that switch to resource_link mode when payloads exceed
@@ -242,11 +247,18 @@ GET_PAPER = ToolMeta(
 CITE_NEIGHBORS = ToolMeta(
     name="cite_neighbors",
     description=(
-        "Return citation-graph neighbors of a chunk_id. v1 returns an "
-        "empty neighbors list with infrastructure_status='deferred' — "
-        "the Kùzu citation graph (E09) and intra-paper theorem "
-        "dependency parser (depends_on direction) are not yet built. "
-        "API is stable; result population unblocks when E09 ships."
+        "Return citation-graph neighbors of a chunk_id by traversing "
+        "the Kuzu citation graph. direction='cites' follows outgoing "
+        "citations (papers the source paper cites); 'cited_by' follows "
+        "incoming citations (papers that cite the source); 'depends_on' "
+        "follows the intra-paper theorem-dependency chain plus "
+        "cross-paper citations. depth is the hop count (1 or 2). Each "
+        "neighbor carries paper_id, a representative chunk_id (null "
+        "when the paper is in the graph but not the chunked corpus), "
+        "edge_kind, hop_distance, source, and confidence; results are "
+        "deduplicated by paper_id and ordered by (hop_distance, "
+        "paper_id). graph_status='absent' with an empty neighbors list "
+        "when the citation graph has not been ingested."
     ),
 )
 
