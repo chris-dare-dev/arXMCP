@@ -259,6 +259,12 @@ class Resources:
     # degrades gracefully to the legacy in-memory scan over the
     # chunks table with ``retrieval_mode="in_memory_scan_fallback"``.
     theorem_names_db: Any | None = None
+    # Managed Lean 4 REPL subprocess (verification-feedback-m2). A
+    # ``server.lean_repl.LeanRepl`` when ``ARXMCP_ENABLE_LEAN=true``;
+    # ``None`` (the default) when disabled — no subprocess is spawned
+    # and the 7 existing MCP tools are unaffected. Duck-typed to keep
+    # ``lean_repl`` off the import path on the disabled (default) path.
+    lean_repl: Any | None = None
     process_start_time_seconds: float = field(default_factory=time.time)
     warm: bool = False
     #: Failure-mode degradation marker (E14_S05 D2). ``None`` on
@@ -626,6 +632,26 @@ class Resources:
                 exc,
             )
 
+        # 6e. Lean REPL subprocess harness (verification-feedback-m2).
+        # Only when ARXMCP_ENABLE_LEAN=true. Mirrors the enable_rerank
+        # discipline (step 4): when the operator opts in, an
+        # unresolvable toolchain is FATAL — LeanRepl.spawn_from_config
+        # raises LeanUnavailableError (a ResourceStartupError), the
+        # lifespan's broad except propagates it, the server refuses to
+        # start. On the disabled (default) path nothing is spawned.
+        # The spawn itself is instant (asyncio.create_subprocess_exec
+        # returns after fork+exec); Lean's kernel loads lazily on the
+        # first query — so this does NOT block the lifespan yield.
+        lean_repl: Any | None = None
+        if config.enable_lean:
+            from server.lean_repl import LeanRepl
+
+            lean_repl = await LeanRepl.spawn_from_config(config)
+            logger.info(
+                "Resources.startup: Lean REPL subprocess spawned "
+                "(ARXMCP_ENABLE_LEAN=true)"
+            )
+
         instance = cls(
             config=config,
             corpus_info=corpus_info,
@@ -641,6 +667,7 @@ class Resources:
             definitions_table=definitions_table,
             equations_table=equations_table,
             theorem_names_db=theorem_names_db,
+            lean_repl=lean_repl,
             warm=True,
             degraded=degraded,
         )
@@ -686,6 +713,16 @@ class Resources:
                 logger.exception(
                     "Resources.shutdown: theorem_names_db close failed"
                 )
+        # verification-feedback-m2: tear down the Lean REPL subprocess
+        # before the executor drain. terminate() + reap is mandatory —
+        # an unreaped subprocess is a zombie (POSIX) / leaked handle
+        # (Windows). Best-effort: a close error is logged and swallowed
+        # so it cannot block the rest of shutdown.
+        if self.lean_repl is not None:
+            try:
+                await self.lean_repl.close()
+            except Exception:  # noqa: BLE001
+                logger.exception("Resources.shutdown: Lean REPL close failed")
         # Drop the module-level cache reference so post-shutdown calls
         # to ``get_cache()`` return ``None`` (handlers fall through to
         # the underlying pipeline).

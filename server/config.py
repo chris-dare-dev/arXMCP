@@ -160,6 +160,33 @@ class Config(BaseSettings):
     #: warning will then fire.
     rerank_model_sha: str = "953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e"
 
+    #: verification-feedback-m2 — gates the managed Lean 4 REPL
+    #: subprocess harness (``server/lean_repl.py``). Default OFF, exactly
+    #: mirroring :attr:`enable_rerank`: the server starts cleanly on a
+    #: workstation with no Lean toolchain. When ``true``,
+    #: ``Resources.startup`` spawns one ``LeanRepl`` and a startup
+    #: failure (unresolvable toolchain) is FATAL — ``LeanUnavailableError``
+    #: is raised, the server refuses to start (the ``enable_rerank`` /
+    #: ``RerankerUnavailableError`` precedent: trust the operator).
+    enable_lean: bool = False
+
+    #: verification-feedback-m2 — directory of the built
+    #: ``leanprover-community/repl`` package; the subprocess ``cwd`` for
+    #: ``lake exe repl`` (``lake`` sets ``LEAN_PATH`` for that package).
+    #: ``None`` (the default) is valid only when ``enable_lean=False``;
+    #: with ``enable_lean=True`` an unset value raises
+    #: ``LeanUnavailableError`` at startup. Lean is a *system*
+    #: dependency, not a pip dep — `pyproject.toml` cannot declare it,
+    #: so the operator points this at a pre-built repl directory.
+    lean_repl_dir: Path | None = None
+
+    #: verification-feedback-m2 — absolute path to the ``lake`` /
+    #: ``lake.exe`` binary used to launch the Lean REPL. An absolute
+    #: path is mandatory: ``asyncio.create_subprocess_exec`` does NOT
+    #: PATH-search a bare name on Windows (spike-2 finding #1). ``None``
+    #: is valid only when ``enable_lean=False``.
+    lake_path: Path | None = None
+
     # --- Concurrency -----------------------------------------------------
 
     #: Throughput cap on DISTINCT-query embedding calls per
