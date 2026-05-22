@@ -632,26 +632,6 @@ class Resources:
                 exc,
             )
 
-        # 6e. Lean REPL subprocess harness (verification-feedback-m2).
-        # Only when ARXMCP_ENABLE_LEAN=true. Mirrors the enable_rerank
-        # discipline (step 4): when the operator opts in, an
-        # unresolvable toolchain is FATAL — LeanRepl.spawn_from_config
-        # raises LeanUnavailableError (a ResourceStartupError), the
-        # lifespan's broad except propagates it, the server refuses to
-        # start. On the disabled (default) path nothing is spawned.
-        # The spawn itself is instant (asyncio.create_subprocess_exec
-        # returns after fork+exec); Lean's kernel loads lazily on the
-        # first query — so this does NOT block the lifespan yield.
-        lean_repl: Any | None = None
-        if config.enable_lean:
-            from server.lean_repl import LeanRepl
-
-            lean_repl = await LeanRepl.spawn_from_config(config)
-            logger.info(
-                "Resources.startup: Lean REPL subprocess spawned "
-                "(ARXMCP_ENABLE_LEAN=true)"
-            )
-
         instance = cls(
             config=config,
             corpus_info=corpus_info,
@@ -667,10 +647,44 @@ class Resources:
             definitions_table=definitions_table,
             equations_table=equations_table,
             theorem_names_db=theorem_names_db,
-            lean_repl=lean_repl,
+            lean_repl=None,
             warm=True,
             degraded=degraded,
         )
+
+        # 6e. Lean REPL subprocess harness (verification-feedback-m2).
+        # Only when ARXMCP_ENABLE_LEAN=true. Mirrors the enable_rerank
+        # discipline (step 4): when the operator opts in, an
+        # unresolvable toolchain is FATAL — LeanRepl.spawn_from_config
+        # raises LeanUnavailableError (a ResourceStartupError), the
+        # lifespan's broad except propagates it, the server refuses to
+        # start. On the disabled (default) path nothing is spawned.
+        #
+        # The spawn runs AFTER `cls(...)` so that a spawn failure can
+        # tear down the resources warmed in steps 1-6d (BGE-M3 weights,
+        # LanceDB, the retrieval cache, the theorem-names SQLite store)
+        # via the instance's own `shutdown()` before re-raising (m2
+        # critique F1). Without this, an `enable_lean=true` operator
+        # with a broken ARXMCP_LAKE_PATH gets a crash-restart loop that
+        # leaks ~1.5 GB of weights and an open SQLite WAL handle every
+        # iteration.
+        #
+        # The spawn itself is instant (asyncio.create_subprocess_exec
+        # returns after fork+exec); Lean's kernel loads lazily on the
+        # first query — so this does NOT block the lifespan yield.
+        if config.enable_lean:
+            from server.lean_repl import LeanRepl
+
+            try:
+                instance.lean_repl = await LeanRepl.spawn_from_config(config)
+            except Exception:
+                await instance.shutdown()
+                raise
+            logger.info(
+                "Resources.startup: Lean REPL subprocess spawned "
+                "(ARXMCP_ENABLE_LEAN=true)"
+            )
+
         logger.info("Resources.startup: warm")
         return instance
 

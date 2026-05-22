@@ -527,6 +527,46 @@ class TestStartupRefusals:
         ):
             asyncio.run(Resources.startup(cfg))
 
+    def test_enable_lean_spawn_failure_tears_down_resources(
+        self, seeded_lancedb, mocked_bge_m3, monkeypatch
+    ):
+        """m2 critique F1: ARXMCP_ENABLE_LEAN=true with a Lean spawn
+        failure must (a) propagate the error so the server refuses to
+        start, AND (b) tear down the already-warm BGE-M3 / LanceDB /
+        cache / SQLite resources before re-raising.
+
+        Without the teardown, an operator with a broken
+        ARXMCP_LAKE_PATH under ``docker restart: on-failure`` gets a
+        crash-restart loop that leaks ~1.5 GB of BGE-M3 weights and an
+        open SQLite WAL handle every iteration. The fix places the
+        step-6e Lean spawn AFTER the ``Resources`` constructor so a
+        failure routes through ``instance.shutdown()``.
+        """
+        import server.lean_repl as lean_mod
+        from server.cache import get_cache
+        from server.lean_repl import LeanUnavailableError
+
+        async def _force_raise(_config):
+            raise LeanUnavailableError(
+                "simulated Lean spawn failure (test fixture)"
+            )
+
+        # spawn_from_config is accessed as LeanRepl.spawn_from_config(cfg)
+        # (on the class, not an instance) — a plain async function is the
+        # right shape.
+        monkeypatch.setattr(
+            lean_mod.LeanRepl, "spawn_from_config", _force_raise
+        )
+
+        cfg = Config(lancedb_path=seeded_lancedb, enable_lean=True)
+        with pytest.raises(
+            LeanUnavailableError, match="simulated Lean spawn failure"
+        ):
+            asyncio.run(Resources.startup(cfg))
+        # instance.shutdown() ran on the failure path: the retrieval-
+        # cache singleton was closed and the module reference cleared.
+        assert get_cache() is None
+
 
 # ===========================================================================
 # Singleflight — generic class for the reranker (E07 consumer)

@@ -240,6 +240,21 @@ class LeanRepl:
                     break
                 continue  # leading blank line — skip.
             lines.append(text)
+            # Return as soon as the accumulated buffer is a complete JSON
+            # object — do NOT depend on the trailing blank line alone.
+            # The REPL build validated by spike-2 does emit the
+            # blank-line terminator, but relying on it exclusively means
+            # a repl build that omits it turns every query into a 30 s
+            # `asyncio.wait_for` timeout hang (m2 critique F3). An early
+            # successful parse is the robust framing signal; the
+            # blank-line break below is the fallback for a buffer that
+            # is not yet (or never) valid JSON.
+            try:
+                return json.loads("\n".join(lines))
+            except json.JSONDecodeError:
+                continue  # incomplete JSON — keep accumulating lines.
+        # Reached only on a blank-line terminator whose preceding buffer
+        # never parsed as JSON — surface the decode error, do not hang.
         try:
             return json.loads("\n".join(lines))
         except json.JSONDecodeError as exc:
@@ -279,7 +294,22 @@ class LeanRepl:
                 self._proc.kill()
             except ProcessLookupError:
                 return
-            await self._proc.wait()
+            # Bound the post-kill() reap too (m2 critique F5). SIGKILL
+            # is uninterceptable, so a wedged parent-side transport — not
+            # the child — is the only way `wait()` can stall here; an
+            # unbounded `await` would hang `close()` (hence the whole
+            # lifespan shutdown drain) on that edge case.
+            try:
+                await asyncio.wait_for(
+                    self._proc.wait(), timeout=_CLOSE_GRACE_S
+                )
+            except TimeoutError:
+                logger.warning(
+                    "LeanRepl: process did not exit within %.0fs of "
+                    "kill(); abandoning the reap (handle may leak)",
+                    _CLOSE_GRACE_S,
+                )
+                return
         logger.info("LeanRepl: subprocess closed (returncode=%s)", self._proc.returncode)
 
 
