@@ -1,29 +1,42 @@
 {
   "brief_source": "C:/Users/cedar/Documents/Personal Projects/Source Code/arXMCP/plans",
   "created_at": "2026-05-22T20:46:28Z",
-  "critics_run": [],
+  "critics_run": [
+    "milestone-adversary"
+  ],
   "critique_finding_counts": {
     "critical": 0,
-    "high": 0,
-    "low": 0,
-    "medium": 0
+    "high": 1,
+    "low": 2,
+    "medium": 4
   },
-  "critique_path": null,
-  "deferred_findings": [],
+  "critique_path": ".claude/notes/milestones/verification-feedback-m2/critique-merged.md",
+  "deferred_findings": [
+    "F6",
+    "F7"
+  ],
   "external_writes_authorized": false,
   "external_writes_completed": false,
   "external_writes_required": [],
-  "fixed_findings": [],
+  "fixed_findings": [
+    "F1",
+    "F2",
+    "F3",
+    "F4",
+    "F5"
+  ],
   "id": "verification-feedback-m2",
   "implementation_base": "d9af59db4c3019194b77df42c7b328ae93ea8f0e",
-  "implementation_branch": null,
-  "implementation_commit_range": null,
-  "implementation_commits": [],
+  "implementation_branch": "main",
+  "implementation_commit_range": "d9af59db4c3019194b77df42c7b328ae93ea8f0e..c9df7f1",
+  "implementation_commits": [
+    "c9df7f1"
+  ],
   "implementation_path": "inline",
   "implementation_specialist": null,
   "invalidated_findings": [],
   "milestone_brief": "### verification-feedback-m2 \u2014 Lean REPL subprocess harness + `ARXMCP_ENABLE_LEAN` gate\n\n**Description.** Add a managed local Lean 4 REPL subprocess, driven via `asyncio.create_subprocess_exec` so it never blocks the event loop (pure-ASGI rule). Start and stop it conditionally inside the async `lifespan` based on a new `ARXMCP_ENABLE_LEAN` env var (default off, mirroring `ARXMCP_ENABLE_RERANK`), so the server starts cleanly on workstations without a Lean toolchain. Apply E13_S03-style sandbox discipline.\n\n**Acceptance criteria.**\n- [ ] `ARXMCP_ENABLE_LEAN` env var added to `server/config.py`, default `false`.\n- [ ] The Lean REPL subprocess is managed inside the async `lifespan` in `server/main.py`; no synchronous or event-loop-blocking startup path; no first-call cold-start race.\n- [ ] A one-page Lean-sandbox sub-design (modeled on the E13_S03 LaTeXML sandbox: subprocess timeout, filesystem isolation to a temp dir, memory cap) is committed under `.claude/docs/`.\n- Given `ARXMCP_ENABLE_LEAN=false`, When the server starts, Then no Lean subprocess is spawned and all 7 existing MCP tools work unchanged.\n- [ ] A `requires_lean_repl` pytest marker is added; Lean-dependent tests skip cleanly when the Lean binary is absent.\n- [ ] `make test` green, `ruff check .` clean.\n\n**Dependencies.** `verification-feedback-e2`. `verification-feedback-spike-2` should resolve before this milestone begins.\n\n**Complexity.** M\n\n**Specialist suggestion.** `security-reviewer`",
-  "phase": "implement-running",
+  "phase": "complete",
   "phase_history": [
     {
       "entered_at": "2026-05-22T20:46:28Z",
@@ -42,12 +55,40 @@
     },
     {
       "entered_at": "2026-05-22T20:52:39Z",
-      "left_at": null,
+      "left_at": "2026-05-22T21:10:14Z",
       "phase": "implement-running"
+    },
+    {
+      "entered_at": "2026-05-22T21:10:14Z",
+      "left_at": "2026-05-22T21:10:51Z",
+      "phase": "implement-complete"
+    },
+    {
+      "entered_at": "2026-05-22T21:10:51Z",
+      "left_at": "2026-05-22T21:33:31Z",
+      "phase": "critique-running"
+    },
+    {
+      "entered_at": "2026-05-22T21:33:31Z",
+      "left_at": "2026-05-22T21:33:31Z",
+      "phase": "critique-complete"
+    },
+    {
+      "entered_at": "2026-05-22T21:33:31Z",
+      "left_at": "2026-05-22T21:34:37Z",
+      "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-05-22T21:34:37Z",
+      "left_at": null,
+      "phase": "complete"
     }
   ],
-  "rectification_commit": null,
-  "regression_tests_added": [],
+  "rectification_commit": "3a1a0ad",
+  "regression_tests_added": [
+    "tests/test_server_startup.py::TestStartupRefusals::test_enable_lean_spawn_failure_tears_down_resources",
+    "tests/test_lean_repl.py::TestFakeProcRoundTrips"
+  ],
   "research_briefs": [
     {
       "agent_id": "researcher-1",
@@ -62,5 +103,5 @@
   ],
   "research_mode": "standard",
   "research_synthesis": ".claude/notes/milestones/verification-feedback-m2/research-synthesis.md",
-  "updated_at": "2026-05-22T20:52:39Z"
+  "updated_at": "2026-05-22T21:34:37Z"
 }
