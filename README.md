@@ -60,7 +60,10 @@ Other entry points: `make help`, `make test` (ruff + pytest), `make eval`
 
 ## Operations
 
-Operator runbooks live under [`docs/ops/`](docs/ops/):
+Operator runbooks live under [`docs/ops/`](docs/ops/). The
+[**runbook index**](docs/ops/README.md) is the single entry-point
+for failure and maintenance scenarios; the table below lists
+the underlying files directly.
 
 | Runbook | Epic | When to use |
 |---|---|---|
