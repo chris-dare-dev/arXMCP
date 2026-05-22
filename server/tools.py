@@ -733,6 +733,22 @@ def register_all(mcp_server: FastMCP) -> None:
         CITE_NEIGHBORS.name: handle_cite_neighbors,
     }
 
+    # ``_meta.tool_schema_version`` is informational only — it lets
+    # downstream clients verify the envelope shape they parsed against
+    # the live server, and is surfaced in the JSON-RPC ``tools/list``
+    # response under each tool's ``_meta`` object.
+    #
+    # **BP1 prompt-cache contract (m2 rect F6).** The Anthropic Messages
+    # API's prompt cache hashes the entire ``tools=[...]`` kwarg byte
+    # value, so any orchestrator path that populates ``tools=[...]`` by
+    # deserializing the live ``tools/list`` response — rather than
+    # re-projecting ``{name, description}`` from ``ALL_TOOLS`` — MUST
+    # strip ``_meta`` before submitting. Otherwise every bump of
+    # ``TOOL_SCHEMA_VERSION`` invalidates the production BP1 cache
+    # across all agent roles. The canonical projection used by
+    # ``tests/test_prompts.py::_live_tools_payload`` (lines 443-464)
+    # is the contract: ``[{name, description}, ...]`` per tool, with
+    # ``_meta`` intentionally dropped.
     meta = {"tool_schema_version": TOOL_SCHEMA_VERSION}
     for tm in ALL_TOOLS:
         mcp_server.add_tool(

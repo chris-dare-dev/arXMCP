@@ -32,7 +32,7 @@ From the synthesis (`research-synthesis.md`):
   (`TestSchemaConformanceForFiltersApplied::test_no_filter_payload_validates_without_filters_applied`).
 - [x] **AC #3** — Unsupported filter keys never leak into the echo; they
   remain in `filter_warnings` only. Verified by
-  `TestFiltersAppliedHelper::test_unsupported_filter_keys_are_dropped`
+  `TestFiltersAppliedHelper::test_unsupported_keys_excluded_from_echo`
   + `TestFiltersAppliedHandlerIntegration::test_unsupported_keys_stay_in_filter_warnings_only`.
 - [x] **AC #4 (revised)** — `TOOL_SCHEMA_VERSION` bumped 8→9 and the
   `tools/list` byte-hash re-pinned via `pytest --update-tool-schema-hash`.
@@ -41,10 +41,11 @@ From the synthesis (`research-synthesis.md`):
 - [x] **AC #5** — JSON schema `version` integer bumped 8→9; description
   appended with the m2 changelog line.
 - [x] **AC #6** — All three cache-paths (miss, Tier-1 hit, Tier-2 hit)
-  re-stamp the echo. Verified by
-  `TestFiltersAppliedHandlerIntegration::test_tier1_cache_hit_restamps_filters_applied`
-  + the existing Tier-1 hit path is covered by the `_restamp_degraded`
-  pattern shared with the new `_inject_filters_applied` call site.
+  re-stamp the echo. Initially shipped as "wired but untested" on the
+  two cache-hit paths; the m2 rect (F1 closure) adds
+  `TestFiltersAppliedHitPathRestamp::test_tier1_hit_restamps_filters_applied`
+  + `..._tier2_hit_restamps_filters_applied` + `..._cached_payload_omits_filters_applied`
+  to exercise the strip-then-re-add invariant established by F2.
 
 ## New / changed files
 

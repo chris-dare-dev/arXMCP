@@ -704,3 +704,305 @@ class TestSchemaConformanceForFiltersApplied:
         sc = result.structuredContent
         # Schema validation must not raise
         jsonschema.validate(instance=sc, schema=schema)
+
+
+# ---------------------------------------------------------------------------
+# m2 rect F5 — _canonicalize_filters dedup
+# ---------------------------------------------------------------------------
+
+
+class TestCanonicalizeFiltersDedup:
+    """m2 rect F5 closure: `_canonicalize_filters` must dedup the
+    `paper_id` list so semantically-equivalent inputs share a cache
+    key AND emit the same `filters_applied` echo. The original m2
+    impl only sorted; the rect added `dict.fromkeys()` for dedup."""
+
+    def test_canonicalize_filters_dedupes_paper_id(self) -> None:
+        from server.handlers.search import _canonicalize_filters
+        out = _canonicalize_filters({"paper_id": ["a", "a", "b"]})
+        assert out == {"paper_id": ["a", "b"]}
+
+    def test_canonicalize_filters_dedupes_then_sorts(self) -> None:
+        """Order of operations: dedup first (via dict.fromkeys preserves
+        first-occurrence) then sort. Both calls must produce identical
+        output regardless of input ordering."""
+        from server.handlers.search import _canonicalize_filters
+        out_a = _canonicalize_filters({"paper_id": ["b", "a", "a", "b"]})
+        out_b = _canonicalize_filters({"paper_id": ["a", "b"]})
+        assert out_a == out_b == {"paper_id": ["a", "b"]}
+
+    def test_dedup_does_not_affect_single_element(self) -> None:
+        from server.handlers.search import _canonicalize_filters
+        out = _canonicalize_filters({"paper_id": ["x"]})
+        assert out == {"paper_id": ["x"]}
+
+    def test_dedup_preserves_other_filter_keys(self) -> None:
+        """Dedup only fires on the paper_id list; other keys
+        pass through unchanged."""
+        from server.handlers.search import _canonicalize_filters
+        out = _canonicalize_filters({
+            "paper_id": ["x", "x"], "year": 2024, "categories": ["math.AG"],
+        })
+        assert out == {
+            "paper_id": ["x"], "year": 2024, "categories": ["math.AG"],
+        }
+
+
+# ---------------------------------------------------------------------------
+# m2 rect F1 + F2 — cache-hit re-stamp tests
+# ---------------------------------------------------------------------------
+
+
+class _FakeCache:
+    """Minimal in-memory MultiTierCache stand-in that exposes only the
+    surface `handle_search_papers` actually calls (lookup_search /
+    store_search). Stores Tier-1 payloads keyed by the canonical
+    (query, filters, k, level) tuple; Tier-2 keyed by the same tuple
+    minus query (semantic match).
+
+    The point of this fake is to exercise the cache-HIT re-stamp path
+    of `_inject_filters_applied` — F1 in the m2 adversary critique
+    flagged that the production `MultiTierCache` path was untested,
+    so without this fake we cannot verify the post-cache stamping
+    invariant established by F2 (Option A — strip from cache; re-stamp
+    on every emit)."""
+
+    def __init__(self) -> None:
+        self.tier1: dict[Any, Any] = {}
+        self.tier2: dict[Any, Any] = {}
+        self.stored_payloads: list[Any] = []
+
+    @staticmethod
+    def _t1_key(query, filters, k, level):
+        # Deterministic, hashable representation of the filter dict.
+        f_key = (
+            tuple(sorted(
+                (k_, tuple(v) if isinstance(v, list) else v)
+                for k_, v in (filters or {}).items()
+            ))
+            if filters
+            else None
+        )
+        return (query, f_key, k, level)
+
+    @staticmethod
+    def _t2_key(filters, level):
+        # Tier-2 semantic match: same filter + level, embedding match
+        # done elsewhere. For test purposes we collapse "semantic
+        # equivalent" to "same filter + level + ANY query".
+        f_key = (
+            tuple(sorted(
+                (k_, tuple(v) if isinstance(v, list) else v)
+                for k_, v in (filters or {}).items()
+            ))
+            if filters
+            else None
+        )
+        return (f_key, level)
+
+    async def lookup_search(
+        self, query, filters, k, query_embedding=None, *, level=None,
+    ):
+        t1 = self.tier1.get(self._t1_key(query, filters, k, level))
+        if t1 is not None:
+            return t1, "1"
+        if query_embedding is None:
+            return None, ""
+        t2 = self.tier2.get(self._t2_key(filters, level))
+        if t2 is not None:
+            return t2, "2"
+        return None, ""
+
+    async def store_search(
+        self, query, filters, k, payload, query_embedding=None, *, level=None,
+    ):
+        self.stored_payloads.append(payload)
+        self.tier1[self._t1_key(query, filters, k, level)] = payload
+        if query_embedding is not None:
+            self.tier2[self._t2_key(filters, level)] = payload
+
+
+@pytest.fixture
+def fake_resources_with_cache(monkeypatch: pytest.MonkeyPatch):
+    """Variant of `fake_resources` that installs a `_FakeCache` instead
+    of monkeypatching `get_cache` to `None`. Lets the cache-hit
+    re-stamp tests verify the F1/F2 invariants end-to-end through
+    the handler."""
+    from server.tools import reset_resources_for_tests, set_resources
+
+    captured: dict[str, Any] = {"search_builder": None}
+
+    def _make_search_builder(rows: list[dict[str, Any]]):
+        builder = _FakeSearchBuilder(rows)
+        captured["search_builder"] = builder
+        return builder
+
+    class _FakeSemaphore:
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+
+    class _FakeConfig:
+        query_embed_provider = "local"
+        result_byte_cap = 256 * 1024
+
+    class _FakeCorpusInfo:
+        version = 101
+
+    class _FakeChunksTable:
+        def __init__(self):
+            self._rows: list[dict[str, Any]] = []
+        def set_rows(self, rows):
+            self._rows = rows
+        def search(self, query_vec, vector_column_name=None):
+            return _make_search_builder(self._rows)
+
+    class _FakeResources:
+        def __init__(self):
+            self.embed_semaphore = _FakeSemaphore()
+            self.config = _FakeConfig()
+            self.degraded = None
+            self.chunks_table = _FakeChunksTable()
+            self.corpus_info = _FakeCorpusInfo()
+
+    fake = _FakeResources()
+    fake_cache = _FakeCache()
+    set_resources(fake)  # type: ignore[arg-type]
+    monkeypatch.setattr(
+        "server.handlers.search.get_cache", lambda: fake_cache,
+    )
+
+    async def _fake_encode(query: str):
+        import numpy as np
+        return np.zeros(1024, dtype=np.float32)
+    monkeypatch.setattr("server.handlers.search.encode_query", _fake_encode)
+    yield {"resources": fake, "cache": fake_cache, "captured": captured}
+    reset_resources_for_tests()
+
+
+class TestFiltersAppliedHitPathRestamp:
+    """m2 rect F1 closure: exercise the Tier-1 / Tier-2 cache-hit
+    re-stamp paths for `filters_applied`. Combined with the F2 closure
+    (strip-then-re-add: miss path stores filter-agnostic payload,
+    `_restamp_degraded` pops any stale `filters_applied`), these
+    tests pin the invariant that the cached value never carries
+    caller-specific metadata."""
+
+    def test_tier1_hit_restamps_filters_applied(
+        self, fake_resources_with_cache,
+    ) -> None:
+        """First call: miss + store (filter-agnostic cached payload).
+        Second call: Tier-1 hit + re-stamp. Both wire-form responses
+        carry the same `filters_applied` echo."""
+        from server.handlers.search import handle_search_papers
+        fake_resources_with_cache["resources"].chunks_table.set_rows([])
+        r1 = _run(handle_search_papers(
+            query="x", filters={"paper_id": ["2604.26204"]}, k=3,
+        ))
+        r2 = _run(handle_search_papers(
+            query="x", filters={"paper_id": ["2604.26204"]}, k=3,
+        ))
+        sc1 = r1.structuredContent
+        sc2 = r2.structuredContent
+        assert sc1.get("filters_applied") == {"paper_id": ["2604.26204"]}
+        assert sc2.get("filters_applied") == {"paper_id": ["2604.26204"]}
+        # Both wire responses identical on the load-bearing field.
+        assert sc1["filters_applied"] == sc2["filters_applied"]
+
+    def test_tier2_hit_restamps_filters_applied(
+        self, fake_resources_with_cache,
+    ) -> None:
+        """Tier-2 path: same filter + level, different query string.
+        The fake-cache models Tier-2 as a semantic-equivalent match
+        (same filter + level matches regardless of query). The
+        re-stamp must still fire."""
+        from server.handlers.search import handle_search_papers
+        fake_resources_with_cache["resources"].chunks_table.set_rows([])
+        # First call: miss + store under Tier-1 key (query="alpha")
+        # and Tier-2 key (filter+level, no query).
+        _ = _run(handle_search_papers(
+            query="alpha", filters={"paper_id": ["2604.26204"]}, k=3,
+        ))
+        # Second call: DIFFERENT query string, same filter -> Tier-1
+        # MISS (different query) -> Tier-2 HIT (filter+level match).
+        r2 = _run(handle_search_papers(
+            query="beta", filters={"paper_id": ["2604.26204"]}, k=3,
+        ))
+        sc2 = r2.structuredContent
+        assert sc2.get("filters_applied") == {"paper_id": ["2604.26204"]}
+
+    def test_cached_payload_omits_filters_applied(
+        self, fake_resources_with_cache,
+    ) -> None:
+        """F2 strip-then-re-add invariant: the cached value MUST NOT
+        carry `filters_applied`. The miss path stamps post-store,
+        and `_restamp_degraded` pops any stale field defensively
+        on every hit."""
+        from server.handlers.search import handle_search_papers
+        fake_resources_with_cache["resources"].chunks_table.set_rows([])
+        _ = _run(handle_search_papers(
+            query="x", filters={"paper_id": ["2604.26204"]}, k=3,
+        ))
+        # Reach into the fake cache; verify the stored Tier-1 payload
+        # is FILTER-AGNOSTIC (no `filters_applied` field).
+        cache = fake_resources_with_cache["cache"]
+        assert len(cache.stored_payloads) == 1
+        stored = cache.stored_payloads[0]
+        assert "filters_applied" not in stored, (
+            f"Cached payload must be filter-agnostic; got "
+            f"filters_applied={stored.get('filters_applied')!r}. "
+            "F2 strip-then-re-add invariant violated."
+        )
+
+    def test_tier1_hit_strips_stale_cached_filters_applied(
+        self, fake_resources_with_cache,
+    ) -> None:
+        """Defensive regression: if a payload was cached by an older
+        code path (pre-F2) WITH `filters_applied` baked in, the hit
+        path must still strip and re-stamp with the current request's
+        canonical filter. `_restamp_degraded`'s `pop` call is the
+        gate; this test prevents a future refactor from silently
+        removing it."""
+        from server.handlers.search import handle_search_papers
+        fake_resources_with_cache["resources"].chunks_table.set_rows([])
+        # Manually seed the Tier-1 cache with a payload that ALREADY
+        # contains a stale `filters_applied` from a hypothetical
+        # pre-F2 cached entry.
+        cache = fake_resources_with_cache["cache"]
+        stale_payload = {
+            "corpus_version": 101,
+            "embed_model": "bge-m3",
+            "excluded_kinds": ["proof"],
+            "filter_warnings": [],
+            "next_cursor": None,
+            "results": [],
+            "retrieval_mode": "dense_only",
+            # Stale field from a different request — must be replaced.
+            "filters_applied": {"paper_id": ["WRONG_STALE_ID"]},
+        }
+        key = cache._t1_key(
+            "x", {"paper_id": ["2604.26204"]}, 3, "theorem",
+        )
+        cache.tier1[key] = stale_payload
+        # Now make the request — hit fires.
+        r = _run(handle_search_papers(
+            query="x", filters={"paper_id": ["2604.26204"]}, k=3,
+        ))
+        sc = r.structuredContent
+        # The stale value MUST have been stripped and re-stamped
+        # with the current request's canonical filter.
+        assert sc["filters_applied"] == {"paper_id": ["2604.26204"]}
+        assert "WRONG_STALE_ID" not in str(sc["filters_applied"])
+
+    def test_no_filter_call_omits_filters_applied_on_hit(
+        self, fake_resources_with_cache,
+    ) -> None:
+        """The no-filter common path must remain byte-equivalent to
+        pre-m2 across miss + hit (Synthesis Disagreement #4)."""
+        from server.handlers.search import handle_search_papers
+        fake_resources_with_cache["resources"].chunks_table.set_rows([])
+        r1 = _run(handle_search_papers(query="x", filters=None, k=3))
+        r2 = _run(handle_search_papers(query="x", filters=None, k=3))
+        sc1 = r1.structuredContent
+        sc2 = r2.structuredContent
+        assert "filters_applied" not in sc1
+        assert "filters_applied" not in sc2

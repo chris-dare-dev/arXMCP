@@ -41,10 +41,17 @@ measurable lift; only the cheap filter-wiring half of the pivot has landed.
   preserving byte-stability for the no-filter cache hit. The echo is
   scoped to `SUPPORTED_FILTER_KEYS`; unsupported keys remain in
   `filter_warnings` and never appear in the echo (a regression guard
-  pinned by `TestFiltersAppliedHelper.test_unsupported_filter_keys_are_dropped`).
+  pinned by `TestFiltersAppliedHelper.test_unsupported_keys_excluded_from_echo`).
   Schema bumped v8→v9; `TOOL_SCHEMA_VERSION` bumped 8→9; the
-  `tools/list` byte-hash and BP1 prompt-cache breakpoint were re-pinned
-  in lockstep.
+  `tools/list` byte-hash (`EXPECTED_TOOL_SCHEMA_SHA256` +
+  `EXPECTED_TOOL_SCHEMA_VERSION_AT_HASH`) was re-pinned in lockstep via
+  `pytest --update-tool-schema-hash`. The BP1 hash (`EXPECTED_BP1_SHA256`
+  in `tests/test_prompts.py`) was NOT re-pinned: the canonical BP1
+  surface measured by `_live_tools_payload` is `{name, description}` per
+  tool only and does not include `_meta.tool_schema_version`, so the
+  version bump does not drift this hash. See `server/tools.py::register_all`
+  (m2 rect F6) for the orchestrator-side `_meta`-strip contract that
+  preserves this property.
 - **Out of scope (deferred):** The wider `degraded` / `degraded_reasons`
   schema-vs-runtime gap surfaced during m2 research is tracked as a
   future milestone; m2 deliberately did not widen scope. The hybrid +

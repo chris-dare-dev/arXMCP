@@ -197,8 +197,14 @@ def _inject_filters_applied(
     canonical_filters: dict[str, Any] | None,
 ) -> dict[str, Any]:
     """m2: add ``filters_applied`` echo to the payload if any
-    SUPPORTED_FILTER_KEYS were honored. Mutates and returns
-    ``payload``.
+    SUPPORTED_FILTER_KEYS were honored.
+
+    Returns a shallow-copied dict with the field added; never mutates
+    the input. This is load-bearing for the F2 strip-then-re-add
+    invariant — the miss path stamps AFTER ``cache.store_search``, so
+    if the helper mutated in place the cached reference would
+    silently inherit the caller-specific echo (which is what F1's
+    `test_cached_payload_omits_filters_applied` regression-guards).
 
     **Absent**, not null, when no filter was applied — preserves
     byte-equivalence with pre-m2 responses on the common unfiltered
@@ -218,7 +224,10 @@ def _inject_filters_applied(
     Called on all three cache paths (Tier-1 hit, Tier-2 hit, miss)
     so cached payloads — which do NOT carry caller-specific
     metadata — get the field stamped post-hit, paralleling the
-    ``_restamp_degraded`` pattern.
+    ``_restamp_degraded`` pattern. The miss path stamps AFTER
+    ``cache.store_search`` (so the cached value stays filter-agnostic);
+    the two hit paths stamp after ``_restamp_degraded``, which itself
+    pops any stale ``filters_applied`` defensively (m2 rect F2).
     """
     if canonical_filters is None:
         return payload
@@ -227,9 +236,9 @@ def _inject_filters_applied(
         for k in SUPPORTED_FILTER_KEYS
         if k in canonical_filters
     }
-    if applied:
-        payload["filters_applied"] = applied
-    return payload
+    if not applied:
+        return payload
+    return {**payload, "filters_applied": applied}
 
 
 def _canonicalize_filters(
@@ -246,7 +255,12 @@ def _canonicalize_filters(
 
     Normalizations applied:
     1. ``str`` paper_id value → one-element ``list``.
-    2. ``list`` paper_id values are sorted (deterministic order).
+    2. ``list`` paper_id values are sorted and **deduplicated**
+       (deterministic order; m2 rect F5 — semantically-equivalent
+       inputs like ``["a","a","b"]`` and ``["a","b"]`` must share a
+       cache key and produce an identical ``filters_applied`` echo).
+       ``dict.fromkeys`` preserves first-occurrence semantics for the
+       implicit order before ``sorted`` re-orders.
 
     Returns ``None`` unchanged when filters is None.
     """
@@ -257,7 +271,7 @@ def _canonicalize_filters(
     if isinstance(pid, str):
         out["paper_id"] = [pid]
     elif isinstance(pid, list):
-        out["paper_id"] = sorted(pid)
+        out["paper_id"] = sorted(dict.fromkeys(pid))
     return out
 
 
@@ -515,16 +529,19 @@ async def handle_search_papers(
     if miss_degraded_reasons:
         payload["degraded"] = True
         payload["degraded_reasons"] = miss_degraded_reasons
-    # m2: filters_applied echo (absent when no filter; canonical form;
-    # SUPPORTED_FILTER_KEYS subset only). Applied BEFORE envelope() so
-    # the _sort_dict pass in envelope sorts it alphabetically with the
-    # other keys.
-    payload = _inject_filters_applied(payload, canonical_filters)
     structured = envelope(payload)
 
     # E08_S03: cache-store on the miss path. We pass the query
     # embedding so Tier 2 indexes it for future semantic-equivalent
     # queries. ``level`` MUST match the lookup key (correctness).
+    #
+    # m2 rect F2: store the FILTER-AGNOSTIC payload — i.e. WITHOUT
+    # the caller-specific ``filters_applied`` echo. The stamp runs
+    # post-store below, paralleling ``_restamp_degraded``'s
+    # post-cache-hit re-application. This honors the helper's own
+    # docstring claim ("never stored in cached payload") and matches
+    # the strip-then-re-add pattern used for ``degraded`` (which
+    # similarly is not part of the cache key axis).
     if cache is not None:
         await cache.store_search(
             query=query,
@@ -534,6 +551,12 @@ async def handle_search_papers(
             query_embedding=query_vec,
             level=level,
         )
+
+    # m2 rect F2: stamp filters_applied AFTER cache-store so the
+    # cached value stays caller-agnostic. Wire-form byte stability is
+    # preserved because ``_build_content_blocks`` re-serializes via
+    # ``json.dumps(sort_keys=True)`` (see server/tools.py:458).
+    structured = _inject_filters_applied(structured, canonical_filters)
 
     # E06_S04: assemble the wire ``content`` array — pretty-printed
     # JSON of structuredContent (the FastMCP default surface) +
@@ -566,6 +589,12 @@ def _restamp_degraded(
     # Remove any stale degraded markers from the cached payload.
     structured.pop("degraded", None)
     structured.pop("degraded_reasons", None)
+    # m2 rect F2: strip any cached ``filters_applied`` too. The miss
+    # path now omits this field from the cached payload (so the
+    # cached value is filter-agnostic per the helper's docstring),
+    # but defensively pop here in case a payload was cached by an
+    # older code path before the post-cache-stamp move landed.
+    structured.pop("filters_applied", None)
     if current_reasons:
         structured["degraded"] = True
         structured["degraded_reasons"] = list(current_reasons)
