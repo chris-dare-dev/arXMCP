@@ -448,6 +448,19 @@ async def _voyage_encode_stub(query_text: str) -> np.ndarray:
     catches and routes to BGE-M3. The contract documented in the
     research synthesis (D6).
     """
+    # TODO(future-voyage-client): once the real Voyage HTTP path
+    # lands, wire spend tracking from the SUCCESS branch:
+    #
+    #     from server.observability.spend_constants import record_spend
+    #     result = await voyage_http_call(query_text)  # noqa: ERA001
+    #     record_spend(
+    #         provider="voyage", model="voyage-3",
+    #         tokens_in=result.usage.input_tokens,
+    #     )
+    #     return result.embedding  # noqa: ERA001
+    #
+    # Do NOT increment here in the stub — no API call ever happens,
+    # so no dollars were spent. See E14_Tier5plus synthesis §D2.
     raise _HostedEmbedderUnavailable(
         "voyage HTTP client not yet implemented; see E14_S05 D6"
     )
