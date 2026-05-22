@@ -33,10 +33,21 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from server.resources import ResourceStartupError
+
+# verification-feedback-m3 — RLIMIT_AS sandbox cap. The ``resource``
+# module is POSIX-only; on Windows the import fails. ``LeanRepl.spawn``
+# additionally guards on ``sys.platform != "win32"`` because
+# ``asyncio.create_subprocess_exec`` raises ``ValueError`` on Windows
+# whenever ``preexec_fn`` is set, even with the module imported.
+try:
+    import resource as _resource
+except ImportError:  # pragma: no cover — Windows path exercised in CI
+    _resource = None
 
 if TYPE_CHECKING:
     from server.config import Config
@@ -103,7 +114,13 @@ class LeanRepl:
     # ------------------------------------------------------------------
 
     @classmethod
-    async def spawn(cls, *, lake_path: str | Path, repl_dir: str | Path) -> LeanRepl:
+    async def spawn(
+        cls,
+        *,
+        lake_path: str | Path,
+        repl_dir: str | Path,
+        rlimit_as_bytes: int | None = None,
+    ) -> LeanRepl:
         """Spawn ``lake exe repl`` as a non-blocking asyncio subprocess.
 
         ``lake_path`` MUST be the absolute path to the ``lake`` binary
@@ -111,6 +128,15 @@ class LeanRepl:
         name on Windows — spike-2 finding #1). ``repl_dir`` is the built
         ``leanprover-community/repl`` package directory and becomes the
         subprocess ``cwd`` so ``lake`` resolves ``LEAN_PATH`` for it.
+
+        ``rlimit_as_bytes`` (verification-feedback-m3 — m2 critique F4
+        carry-forward) caps the subprocess address-space via POSIX
+        ``RLIMIT_AS`` in a ``preexec_fn``. ``None`` or ``0`` disables the
+        cap. On Windows the cap is silently skipped — the platform has
+        no ``RLIMIT_AS`` analogue and ``preexec_fn`` is rejected by
+        ``asyncio.create_subprocess_exec``; the 30 s per-query timeout
+        remains the only memory backstop there (deferred to a Job-Object
+        follow-up; ``.claude/docs/lean-sandbox-design.md``).
 
         Raises :class:`LeanUnavailableError` if either path is missing
         or the subprocess cannot be started.
@@ -128,6 +154,34 @@ class LeanRepl:
                 f"ARXMCP_LEAN_REPL_DIR to a built leanprover-community/repl "
                 f"directory (run `lake build` in it first)."
             )
+
+        # POSIX-only RLIMIT_AS preexec_fn (m3 — closes m2 critique F4).
+        # Build the kwargs dict so the Windows path passes no
+        # ``preexec_fn`` argument at all (the constructor rejects even
+        # ``preexec_fn=None`` on some versions / is documented as
+        # POSIX-only).
+        spawn_kwargs: dict[str, Any] = {}
+        if (
+            rlimit_as_bytes
+            and rlimit_as_bytes > 0
+            and sys.platform != "win32"
+            and _resource is not None
+        ):
+            cap = int(rlimit_as_bytes)
+            rlimit_as_const = _resource.RLIMIT_AS
+
+            def _apply_rlimit_as() -> None:  # runs in the child after fork()
+                _resource.setrlimit(rlimit_as_const, (cap, cap))
+
+            spawn_kwargs["preexec_fn"] = _apply_rlimit_as
+        elif rlimit_as_bytes and sys.platform == "win32":
+            logger.warning(
+                "LeanRepl: RLIMIT_AS (%d bytes) requested but Windows has "
+                "no equivalent; the 30 s per-query timeout is the only "
+                "memory backstop. See .claude/docs/lean-sandbox-design.md.",
+                rlimit_as_bytes,
+            )
+
         try:
             proc = await asyncio.create_subprocess_exec(
                 str(lake),
@@ -141,13 +195,23 @@ class LeanRepl:
                 # deadlock trap (a large stderr write blocking the
                 # subprocess while the parent only reads stdout).
                 stderr=asyncio.subprocess.DEVNULL,
+                **spawn_kwargs,
             )
         except (OSError, ValueError) as exc:
             raise LeanUnavailableError(
                 f"failed to spawn the Lean REPL ({lake!s} exe repl, "
                 f"cwd={rd!s}): {exc}"
             ) from exc
-        logger.info("LeanRepl: spawned `lake exe repl` (pid=%s, cwd=%s)", proc.pid, rd)
+        logger.info(
+            "LeanRepl: spawned `lake exe repl` (pid=%s, cwd=%s, rlimit_as=%s)",
+            proc.pid,
+            rd,
+            (
+                f"{rlimit_as_bytes} bytes (POSIX)"
+                if "preexec_fn" in spawn_kwargs
+                else "disabled"
+            ),
+        )
         return cls(proc, lake, rd)
 
     @classmethod
@@ -166,7 +230,9 @@ class LeanRepl:
                 "or leave ARXMCP_ENABLE_LEAN unset (default)."
             )
         return await cls.spawn(
-            lake_path=config.lake_path, repl_dir=config.lean_repl_dir
+            lake_path=config.lake_path,
+            repl_dir=config.lean_repl_dir,
+            rlimit_as_bytes=config.lean_rlimit_as_bytes,
         )
 
     # ------------------------------------------------------------------

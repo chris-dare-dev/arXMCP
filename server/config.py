@@ -187,6 +187,23 @@ class Config(BaseSettings):
     #: is valid only when ``enable_lean=False``.
     lake_path: Path | None = None
 
+    #: verification-feedback-m3 — hard address-space cap (``RLIMIT_AS``,
+    #: bytes) applied to the Lean REPL subprocess via a POSIX
+    #: ``preexec_fn``. Closes the m2 critique F4 deferral: agent-supplied
+    #: Lean source first reaches ``LeanRepl.query`` in m3, so this is
+    #: where the memory cap lands. Default 4 GiB — generous enough that a
+    #: trivial elaboration succeeds (Lean kernel + oleans easily mmap
+    #: hundreds of MB) but bounded so a runaway ``def f := List.range
+    #: 10_000_000`` cannot OOM-kill the parent process.
+    #:
+    #: **POSIX-only.** Windows has no ``RLIMIT_AS`` / ``resource`` module
+    #: and ``asyncio.create_subprocess_exec`` raises ``ValueError`` if
+    #: ``preexec_fn`` is set — ``LeanRepl.spawn`` therefore silently skips
+    #: the cap on ``sys.platform == "win32"`` and logs a WARN at startup.
+    #: A Job-Object-based equivalent for Windows is documented as
+    #: deferred in ``.claude/docs/lean-sandbox-design.md``.
+    lean_rlimit_as_bytes: int = 4 * 1024 * 1024 * 1024  # 4 GiB
+
     # --- Concurrency -----------------------------------------------------
 
     #: Throughput cap on DISTINCT-query embedding calls per

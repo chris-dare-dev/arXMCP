@@ -624,8 +624,13 @@ class TestBP1ByteIdentityAcrossFanout:
         # v1-stub wording. ALL_TOOLS changed, so BP1 (system + tools)
         # drifts; the paired EXPECTED_TOOL_SCHEMA_SHA256 was re-pinned
         # via `pytest --update-tool-schema-hash`.
+        # v12: verification-feedback-m3 — added the `lean_verify` tool
+        # (8th in ALL_TOOLS). Adding a tool drifts the tools-array bytes,
+        # which drifts BP1 (system + tools). Re-pinned in lockstep with
+        # EXPECTED_TOOL_SCHEMA_SHA256 (which was re-pinned via
+        # `pytest --update-tool-schema-hash`).
         EXPECTED_BP1_SHA256 = (
-            "5e9074a0b5ae76dbcef4ff88a08c03e0680dfa4133a4075512df9c32037c0efa"
+            "1162e998fab9637a2ddbf4423ac8e84d439bff24ff26842cac3860cc460938ed"
         )
         req = _build_fanout_request(
             RouteTag.SYNTHESIS, "any problem; BP1 is independent of problem",

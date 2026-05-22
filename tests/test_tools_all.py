@@ -137,9 +137,13 @@ def warm_app(tmp_path, mocked_bge_m3):
 
 
 class TestToolsList:
-    """AC: tools/list returns exactly 7 tools, no more, no fewer."""
+    """AC: tools/list returns the exact ALL_TOOLS count, no more, no
+    fewer. v1 brief shipped 7; verification-feedback-m3 added the 8th
+    (``lean_verify``)."""
 
-    def test_seven_tools_registered(self, tmp_path, mocked_bge_m3):
+    def test_all_tools_registered(self, tmp_path, mocked_bge_m3):
+        from server.tools import ALL_TOOLS
+
         lancedb_path = tmp_path / "lancedb"
         _seed_corpus(lancedb_path)
         cfg = Config(lancedb_path=lancedb_path)
@@ -148,7 +152,7 @@ class TestToolsList:
         app = create_app(cfg)
         # Inspect via FastMCP directly (no need to fire the lifespan).
         tools = asyncio.run(app.state.mcp_server.list_tools())
-        assert len(tools) == 7
+        assert len(tools) == len(ALL_TOOLS) == 8
 
     def test_tool_names_match_canonical(self, tmp_path, mocked_bge_m3):
         lancedb_path = tmp_path / "lancedb"

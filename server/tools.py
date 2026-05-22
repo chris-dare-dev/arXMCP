@@ -108,7 +108,17 @@ logger = logging.getLogger(__name__)
 #: input constraint tightened le=3 → le=2 (the library accepts only
 #: 1|2, so the advertised schema must agree — adversary F1) and the
 #: ``depth`` default aligned 1 → 2 to match the library (adversary F4).
-TOOL_SCHEMA_VERSION: int = 11
+#: v12: verification-feedback-m3 — new ``lean_verify`` tool registered
+#: (8th tool, appended to ALL_TOOLS). Mapping layer over the m2
+#: ``LeanRepl`` harness; gated by ARXMCP_ENABLE_LEAN. New frozen
+#: result-row schema at server/schemas/lean_verify_result.json (also
+#: version 12). The Lean REPL subprocess now carries a POSIX
+#: ``RLIMIT_AS`` memory cap via a ``preexec_fn`` (closes m2 critique
+#: F4 — agent-supplied Lean source first reaches LeanRepl.query in m3,
+#: so the cap lands here). Windows path silently no-ops the cap and
+#: logs a WARN; ``.claude/docs/lean-sandbox-design.md`` "Memory cap"
+#: row tracks the Job-Object deferral.
+TOOL_SCHEMA_VERSION: int = 12
 
 #: URI scheme for chunk resource_links per the design note. Used by
 #: handlers that switch to resource_link mode when payloads exceed
@@ -266,8 +276,29 @@ CITE_NEIGHBORS = ToolMeta(
     ),
 )
 
+LEAN_VERIFY = ToolMeta(
+    name="lean_verify",
+    description=(
+        "Verify a Lean 4 snippet against a managed local Lean kernel "
+        "(verification-feedback-m3). mode='full' runs elaboration AND "
+        "full kernel verification; mode='syntax_only' wraps the snippet "
+        "in #check(...) (or set_option maxHeartbeats 5000 in <decl> for "
+        "theorem/def declarations) to skip post-elaboration kernel work "
+        "- cheap pre-verify for the autoformalizer (the Lean REPL has "
+        "no native syntax_only flag; #check is the documented "
+        "mechanism). Returns status (ok/error/sorry/timeout/unavailable), "
+        "compilation_success (null in syntax_only mode), messages with "
+        "severity + source position, proof_state (first unresolved "
+        "goal), goals_remaining + sorry_goals. Gated by "
+        "ARXMCP_ENABLE_LEAN: when disabled the tool returns "
+        "lean_status='disabled' rather than 5xx. On a 30s elaboration "
+        "timeout the REPL is killed and respawned before the next call. "
+        "imports[] are prepended verbatim as 'import X' lines."
+    ),
+)
 
-#: All seven tool meta records, in registration order. The
+
+#: All eight tool meta records, in registration order. The
 #: E06_S06 byte-stability test pins the rendered ``tools/list``
 #: response which depends on this ordering.
 ALL_TOOLS: tuple[ToolMeta, ...] = (
@@ -278,6 +309,7 @@ ALL_TOOLS: tuple[ToolMeta, ...] = (
     FIND_LEMMA_BY_NAME,
     GET_PAPER,
     CITE_NEIGHBORS,
+    LEAN_VERIFY,
 )
 
 
@@ -735,6 +767,7 @@ def register_all(mcp_server: FastMCP) -> None:
     from server.handlers.citations import handle_cite_neighbors
     from server.handlers.definitions import handle_get_definitions
     from server.handlers.equation import handle_find_equation
+    from server.handlers.lean_verify import handle_lean_verify
     from server.handlers.lemma import handle_find_lemma_by_name
     from server.handlers.paper import handle_get_paper
     from server.handlers.search import handle_search_papers
@@ -747,6 +780,7 @@ def register_all(mcp_server: FastMCP) -> None:
         FIND_LEMMA_BY_NAME.name: handle_find_lemma_by_name,
         GET_PAPER.name: handle_get_paper,
         CITE_NEIGHBORS.name: handle_cite_neighbors,
+        LEAN_VERIFY.name: handle_lean_verify,
     }
 
     # ``_meta.tool_schema_version`` is informational only — it lets
@@ -785,6 +819,7 @@ __all__ = [
     "GET_CHUNK",
     "GET_DEFINITIONS",
     "GET_PAPER",
+    "LEAN_VERIFY",
     "ResourcesNotReadyError",
     "SEARCH_PAPERS",
     "TOOL_SCHEMA_VERSION",

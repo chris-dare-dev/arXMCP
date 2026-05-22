@@ -1,0 +1,66 @@
+{
+  "brief_source": "C:/Users/cedar/Documents/Personal Projects/Source Code/arXMCP/plans",
+  "created_at": "2026-05-22T22:38:42Z",
+  "critics_run": [],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "low": 0,
+    "medium": 0
+  },
+  "critique_path": null,
+  "deferred_findings": [],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_required": [],
+  "fixed_findings": [],
+  "id": "verification-feedback-m3",
+  "implementation_base": "f52ce5cf4559f0a10dc68402baa5b621e438181a",
+  "implementation_branch": null,
+  "implementation_commit_range": null,
+  "implementation_commits": [],
+  "implementation_path": "inline",
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "### verification-feedback-m3 \u2014 `lean_verify` MCP tool with `full` + `syntax_only` modes\n\n**Description.** Register a `lean_verify` MCP tool that accepts a Lean 4 snippet, context imports, and a `mode` of `full` or `syntax_only`, drives the m2 REPL subprocess, and returns structured kernel output. `full` runs kernel verification; `syntax_only` short-circuits after elaboration (cheap sketch validation for the autoformalizer).\n\n**Acceptance criteria.**\n- [ ] `server/handlers/lean_verify.py` handler added; tool registered in `server/tools.py::ALL_TOOLS`; `EXPECTED_TOOL_SCHEMA_SHA256` re-pinned.\n- [ ] Result schema returns `{status, messages:[{severity,position,text}], proof_state, goals_remaining, sorry_goals, compilation_success}`; a frozen result-row schema file is added; the 150-char snippet contract does not apply (no `snippet` field) and that is documented.\n- Given a Lean 4 snippet with a type error, When `lean_verify` is called with `mode=\"full\"`, Then `compilation_success` is `false` and `messages` carries the error with severity + source position.\n- Given a proof with a remaining `sorry`, When `lean_verify` is called, Then `sorry_goals` lists the goal and `goals_remaining` is non-empty.\n- Given any snippet, When `lean_verify` is called with `mode=\"syntax_only\"`, Then the call returns after elaboration without full kernel verification.\n- [ ] The Lean REPL subprocess enforces a hard memory cap \u2014 the `RLIMIT_AS` address-space limit deferred from m2 (see `.claude/docs/lean-sandbox-design.md` \"Memory cap\" row, D4) lands here, because m3 is where agent-supplied Lean source first reaches `LeanRepl.query`. POSIX: `resource.setrlimit(RLIMIT_AS, ...)` via a `preexec_fn`. A `@requires_lean_repl` test submits a high-allocation snippet and asserts the REPL is bounded rather than OOM-killing the parent.\n- [ ] `make test` green, `ruff check .` clean.\n\n**Dependencies.** `verification-feedback-m2`.\n\n**Complexity.** M\n\n**Specialist suggestion.** `mcp-protocol-reviewer`, `security-reviewer`",
+  "phase": "implement-running",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-22T22:38:42Z",
+      "left_at": "2026-05-22T22:39:02Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-22T22:39:02Z",
+      "left_at": "2026-05-22T22:45:55Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-22T22:45:55Z",
+      "left_at": "2026-05-22T22:46:07Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-05-22T22:46:07Z",
+      "left_at": null,
+      "phase": "implement-running"
+    }
+  ],
+  "rectification_commit": null,
+  "regression_tests_added": [],
+  "research_briefs": [
+    {
+      "agent_id": "researcher-1",
+      "brief_path": ".claude/notes/milestones/verification-feedback-m3/research-brief-1.md",
+      "summary": "in-codebase: 6 touchpoints; #check fallback for syntax_only; lean_repl None graceful"
+    },
+    {
+      "agent_id": "researcher-2",
+      "brief_path": ".claude/notes/milestones/verification-feedback-m3/research-brief-2.md",
+      "summary": "external+6 failure modes; #check wrap for syntax_only; Windows preexec guard"
+    }
+  ],
+  "research_mode": "standard",
+  "research_synthesis": ".claude/notes/milestones/verification-feedback-m3/research-synthesis.md",
+  "updated_at": "2026-05-22T22:46:07Z"
+}

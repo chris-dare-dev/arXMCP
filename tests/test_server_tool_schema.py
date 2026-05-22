@@ -92,7 +92,7 @@ from server.tools import ALL_TOOLS, TOOL_SCHEMA_VERSION, reset_resources_for_tes
 #: (cross-checked by :data:`EXPECTED_TOOL_SCHEMA_VERSION_AT_HASH`
 #: below — F2 fix from the E06_S06 critique).
 EXPECTED_TOOL_SCHEMA_SHA256: str = (  # UPDATE-ANCHOR — do not delete
-    "e5c7adde1bd2a6ae77d5fc4d738855c4a455fdfef07a9f816429193cd2878960"
+    "1d0abfe94a53230c3976bf16f418011884234662f7d4434256416782f0e00140"
 )
 
 #: The :data:`server.tools.TOOL_SCHEMA_VERSION` value that produced
@@ -106,7 +106,7 @@ EXPECTED_TOOL_SCHEMA_SHA256: str = (  # UPDATE-ANCHOR — do not delete
 #: description without bumping ``TOOL_SCHEMA_VERSION``, the flag
 #: refuses, and they cannot ship the new hash without also editing
 #: ``server/tools.py``'s ``TOOL_SCHEMA_VERSION`` constant.
-EXPECTED_TOOL_SCHEMA_VERSION_AT_HASH: int = 11  # VERSION-ANCHOR — do not delete
+EXPECTED_TOOL_SCHEMA_VERSION_AT_HASH: int = 12  # VERSION-ANCHOR — do not delete
 
 
 # ---------------------------------------------------------------------------
@@ -632,8 +632,10 @@ class TestUpdateProcedure:
         # Sanity: ends with ]}
         assert a.endswith(']}')
 
-    def test_tools_list_response_includes_all_seven(self, _live_tools):
-        """The hash covers all 7 tools registered by the v1 brief.
-        A drop to 6 (someone removed a tool) would silently lower
-        the BP1 cache surface — assert the count explicitly."""
-        assert len(_live_tools) == len(ALL_TOOLS) == 7
+    def test_tools_list_response_includes_all_registered(self, _live_tools):
+        """The hash covers every registered tool. Bump the expected
+        count whenever a new tool lands (v1 brief shipped 7; v12
+        added ``lean_verify`` for 8). A drop would silently lower the
+        BP1 cache surface — assert the count explicitly."""
+        # verification-feedback-m3 — 8 tools (lean_verify added).
+        assert len(_live_tools) == len(ALL_TOOLS) == 8

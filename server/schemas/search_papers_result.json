@@ -1,9 +1,9 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://arxmcp/schemas/search_papers_result/v11.json",
+  "$id": "https://arxmcp/schemas/search_papers_result/v12.json",
   "additionalProperties": false,
-  "description": "Canonical structuredContent shape returned by the search_papers MCP tool. Frozen by E06_S04; bumped at E13_S02 to widen snippet.maxLength for the <retrieved_chunk> delimiter wrapping (Threat 2 defense). Bumped at proof-verify-handler-wiring-m1 for paper_id filter wiring (Field description change; output shape unchanged). Bumped at proof-verify-handler-wiring-m2 to add the optional filters_applied echo field. Bumped at verification-feedback-m1 (and again at its rectification) to track the TOOL_SCHEMA_VERSION rise for the cite_neighbors handler wiring (this search_papers result shape is unchanged — the version field tracks server.tools.TOOL_SCHEMA_VERSION globally). The byte-stability test in E06_S06 hashes this file's bytes and pins the SHA-256; any drift is a deliberate bump. The ``version`` field below MUST equal server.tools.TOOL_SCHEMA_VERSION (cross-checked by tests/test_snippet_contract.py).",
-  "version": 11,
+  "description": "Canonical structuredContent shape returned by the search_papers MCP tool. Frozen by E06_S04; bumped at E13_S02 to widen snippet.maxLength for the <retrieved_chunk> delimiter wrapping (Threat 2 defense). Bumped at proof-verify-handler-wiring-m1 for paper_id filter wiring (Field description change; output shape unchanged). Bumped at proof-verify-handler-wiring-m2 to add the optional filters_applied echo field. Bumped at verification-feedback-m1 (and again at its rectification) to track the TOOL_SCHEMA_VERSION rise for the cite_neighbors handler wiring (this search_papers result shape is unchanged — the version field tracks server.tools.TOOL_SCHEMA_VERSION globally). Bumped at verification-feedback-m3 (11 -> 12) to track the lean_verify tool addition; this search_papers result shape is unchanged. The byte-stability test in E06_S06 hashes this file's bytes and pins the SHA-256; any drift is a deliberate bump. The ``version`` field below MUST equal server.tools.TOOL_SCHEMA_VERSION (cross-checked by tests/test_snippet_contract.py).",
+  "version": 12,
   "properties": {
     "corpus_version": {
       "description": "The integer corpus_version pinned at server startup (per E04_S03's corpus-version.json marker). Echoed in every tool result envelope so the agent can correlate cached results.",

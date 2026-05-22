@@ -1,0 +1,107 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://arxmcp/schemas/lean_verify_result/v12.json",
+  "additionalProperties": false,
+  "description": "Canonical structuredContent shape returned by the lean_verify MCP tool. Added at verification-feedback-m3. NO snippet field: lean_verify is a VERIFIER, not a retriever — the 150-char snippet contract (server/handlers/snippet_contract.md, .claude/docs/snippet-contract.md) and the <retrieved_chunk> indirect-prompt-injection wrapping (E13_S02 Threat 2) apply ONLY to retrieval tools whose results are paper-derived text. The byte-stability test in E06_S06 hashes this file's bytes and pins the SHA-256; any drift is a deliberate bump. The ``version`` field below MUST equal server.tools.TOOL_SCHEMA_VERSION (cross-checked by tests/test_snippet_contract.py).",
+  "version": 12,
+  "properties": {
+    "compilation_success": {
+      "description": "Whether the Lean kernel accepted the snippet. true iff status == 'ok' (no error-severity messages AND no unresolved sorries). false on type errors, unresolved sorries, timeouts. null when mode == 'syntax_only' AND the snippet elaborated cleanly (kernel verification was not run, so 'success' is not defined). Derived field — the leanprover-community/repl protocol does not emit it directly.",
+      "type": ["boolean", "null"]
+    },
+    "corpus_version": {
+      "description": "The integer corpus_version pinned at server startup (per E04_S03's corpus-version.json marker). Echoed in every tool result envelope so the agent can correlate cached results.",
+      "type": "integer"
+    },
+    "goals_remaining": {
+      "description": "Goal strings (one per unresolved ``sorry``) the prover still owes. Derived from sorries[*].goal. Empty list means the snippet's proof is closed (or the snippet is a definition, not a theorem). Each string is a Lean proof state in the form 'hypotheses\\n⊢ conclusion'.",
+      "items": {"type": "string"},
+      "type": "array"
+    },
+    "lean_status": {
+      "description": "Reports the Lean REPL's availability. 'available' on the happy path. 'disabled' when ARXMCP_ENABLE_LEAN=false (the tool is registered for BP1 cache stability but the REPL is None — the call returns gracefully, not 5xx). 'timeout' when the snippet exceeded the 30s per-query wall-clock; the REPL is killed and respawned before the next call.",
+      "enum": ["available", "disabled", "timeout"],
+      "type": "string"
+    },
+    "messages": {
+      "description": "Diagnostic messages emitted by the Lean elaborator + kernel. Empty list on a clean compile. Each message reports the source position (zero-indexed line + column from the snippet text), the severity ('error' / 'warning' / 'info'), and the message body. Mapped from the leanprover-community/repl response: REPL key 'pos' renamed to 'position', REPL key 'data' renamed to 'text'.",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "position": {
+            "additionalProperties": false,
+            "description": "Zero-indexed source position emitted by the Lean elaborator/kernel. {0, 0} when the REPL response omits a position (e.g. a snippet-level error that has no specific line).",
+            "properties": {
+              "column": {"type": "integer", "minimum": 0},
+              "line": {"type": "integer", "minimum": 0}
+            },
+            "required": ["column", "line"],
+            "type": "object"
+          },
+          "severity": {
+            "enum": ["error", "warning", "info"],
+            "type": "string"
+          },
+          "text": {
+            "description": "Lean diagnostic message body (verbatim from the elaborator/kernel).",
+            "type": "string"
+          }
+        },
+        "required": ["position", "severity", "text"],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "mode": {
+      "description": "Echo of the requested verification mode. 'full' runs elaboration AND kernel verification ({\"cmd\": snippet}). 'syntax_only' wraps the snippet for elaboration only ({\"cmd\": \"#check (snippet)\"}); kernel decide-instances + reducibility are skipped — cheap pre-verify for the autoformalizer. The Lean REPL protocol has no native syntax_only flag; the #check wrapping is the documented mechanism.",
+      "enum": ["full", "syntax_only"],
+      "type": "string"
+    },
+    "proof_state": {
+      "description": "The first unresolved goal (sorries[0].goal) verbatim, or null when no sorries remain. Convenience accessor for the autoformalizer; the full list is in goals_remaining + sorry_goals.",
+      "type": ["string", "null"]
+    },
+    "sorry_goals": {
+      "description": "Full sorry rows from the leanprover-community/repl response. Each row carries the goal string and its source position so the tactician can target a specific sorry by location. Empty list when no sorries remain.",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "goal": {
+            "description": "The Lean proof state at this sorry, in the form 'hypotheses\\n⊢ conclusion'.",
+            "type": "string"
+          },
+          "position": {
+            "additionalProperties": false,
+            "properties": {
+              "column": {"type": "integer", "minimum": 0},
+              "line": {"type": "integer", "minimum": 0}
+            },
+            "required": ["column", "line"],
+            "type": "object"
+          }
+        },
+        "required": ["goal", "position"],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "status": {
+      "description": "High-level verification outcome. Precedence: 'unavailable' (the REPL is disabled or initial spawn never happened) > 'timeout' (snippet exceeded the per-query wall-clock; REPL was killed + respawned) > 'error' (any message with severity=='error') > 'sorry' (no errors but at least one unresolved sorry) > 'ok' (clean). A successful tool call returns 'error' / 'sorry' / 'ok' WITHOUT MCP isError=true — those are *kernel* outcomes, not RPC failures. Only 'timeout' / 'unavailable' may be paired with an isError content block by future revisions.",
+      "enum": ["ok", "error", "sorry", "timeout", "unavailable"],
+      "type": "string"
+    }
+  },
+  "required": [
+    "compilation_success",
+    "corpus_version",
+    "goals_remaining",
+    "lean_status",
+    "messages",
+    "mode",
+    "proof_state",
+    "sorry_goals",
+    "status"
+  ],
+  "title": "lean_verify result envelope",
+  "type": "object"
+}
