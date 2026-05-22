@@ -1,29 +1,45 @@
 {
   "brief_source": "C:/Users/cedar/Documents/Personal Projects/Source Code/arXMCP/plans",
   "created_at": "2026-05-22T16:27:11Z",
-  "critics_run": [],
+  "critics_run": [
+    {
+      "critic": "adversary",
+      "output_path": ".claude/notes/milestones/verification-feedback-m1/critique-adversary.md",
+      "summary": "SHIP-WITH-FIXES; 1 HIGH 3 MEDIUM 2 LOW"
+    }
+  ],
   "critique_finding_counts": {
     "critical": 0,
-    "high": 0,
-    "low": 0,
-    "medium": 0
+    "high": 1,
+    "low": 2,
+    "medium": 3
   },
-  "critique_path": null,
-  "deferred_findings": [],
+  "critique_path": ".claude/notes/milestones/verification-feedback-m1/critique-merged.md",
+  "deferred_findings": [
+    "F5",
+    "F6"
+  ],
   "external_writes_authorized": false,
   "external_writes_completed": false,
   "external_writes_required": [],
-  "fixed_findings": [],
+  "fixed_findings": [
+    "F1",
+    "F2",
+    "F3",
+    "F4"
+  ],
   "id": "verification-feedback-m1",
   "implementation_base": "ead7af9d99cae4f2c5b7561a9e35536a6944eabe",
-  "implementation_branch": null,
-  "implementation_commit_range": null,
-  "implementation_commits": [],
+  "implementation_branch": "main",
+  "implementation_commit_range": "ead7af9d99cae4f2c5b7561a9e35536a6944eabe..2e30dccc4b89bb2944ea95e3ac3b99a8f3be25fa",
+  "implementation_commits": [
+    "2e30dccc4b89bb2944ea95e3ac3b99a8f3be25fa"
+  ],
   "implementation_path": "inline",
   "implementation_specialist": null,
   "invalidated_findings": [],
   "milestone_brief": "### verification-feedback-m1 \u2014 Wire the `cite_neighbors` MCP handler to the live library\n\n**Description.** Replace the v1 stub body in `server/handlers/citations.py` (which returns `{neighbors: [], infrastructure_status: \"deferred\"}`) with a real call to the shipped, tested `server/graph_queries.py::cite_neighbors` library. Re-align the handler `direction` enum to the library's, honor the F2 path-validation contract, and add a `graph_version` component to the cache key so a graph re-ingest invalidates stale neighbors. The library needs no changes \u2014 this is purely the MCP boundary.\n\n**Acceptance criteria.**\n- [ ] `server/handlers/citations.py` calls `server.graph_queries.cite_neighbors(...)`; the stub `infrastructure_status: \"deferred\"` path is removed.\n- [ ] Handler `direction` enum re-aligned to the library's `Literal[\"cites\",\"cited_by\",\"depends_on\"]`; `EXPECTED_TOOL_SCHEMA_SHA256` re-pinned via `pytest --update-tool-schema-hash`.\n- [ ] K\u00f9zu and LanceDB paths are derived from Config / `get_resources()`, never from agent-supplied JSON (F2 path-validation contract from the E09_S03 critique).\n- [ ] `cite_neighbors` cache entries include a `graph_version` key component; a citation-graph re-ingest invalidates stale results (correctness requirement, not an optimization).\n- Given an ingested chunk with citation edges, When an agent calls `cite_neighbors`, Then real neighbors are returned within the 500 ms gate \u2014 verified by `tests/test_proof_chain.py` exercising the handler, not only the library.\n- [ ] `make test` green, `ruff check .` clean.\n\n**Dependencies.** none. `verification-feedback-spike-1` informs the K\u00f9zu dependency pin but does not block m1 (it proceeds on `kuzu==0.11.3`).\n\n**Complexity.** M\n\n**Specialist suggestion.** `cache-stability-reviewer`, `determinism-reviewer`",
-  "phase": "implement-running",
+  "phase": "complete",
   "phase_history": [
     {
       "entered_at": "2026-05-22T16:27:11Z",
@@ -42,12 +58,41 @@
     },
     {
       "entered_at": "2026-05-22T16:34:47Z",
-      "left_at": null,
+      "left_at": "2026-05-22T17:49:00Z",
       "phase": "implement-running"
+    },
+    {
+      "entered_at": "2026-05-22T17:49:00Z",
+      "left_at": "2026-05-22T17:49:22Z",
+      "phase": "implement-complete"
+    },
+    {
+      "entered_at": "2026-05-22T17:49:22Z",
+      "left_at": "2026-05-22T17:55:39Z",
+      "phase": "critique-running"
+    },
+    {
+      "entered_at": "2026-05-22T17:55:39Z",
+      "left_at": "2026-05-22T17:55:39Z",
+      "phase": "critique-complete"
+    },
+    {
+      "entered_at": "2026-05-22T17:55:39Z",
+      "left_at": "2026-05-22T18:39:46Z",
+      "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-05-22T18:39:46Z",
+      "left_at": null,
+      "phase": "complete"
     }
   ],
-  "rectification_commit": null,
-  "regression_tests_added": [],
+  "rectification_commit": "3e4dcd627d345c9aff9603c2d38926892fb12334",
+  "regression_tests_added": [
+    "tests/test_proof_chain.py::TestHandlerEndToEnd::test_handler_graph_unqueryable_returns_unavailable",
+    "tests/test_proof_chain.py::TestHandlerEndToEnd::test_handler_exposes_no_path_param",
+    "tests/security/test_resource_exhaustion.py::test_cite_neighbors_depth_3_rejected_by_validator"
+  ],
   "research_briefs": [
     {
       "agent_id": "researcher-1",
@@ -62,5 +107,5 @@
   ],
   "research_mode": "standard",
   "research_synthesis": ".claude/notes/milestones/verification-feedback-m1/research-synthesis.md",
-  "updated_at": "2026-05-22T16:34:48Z"
+  "updated_at": "2026-05-22T18:39:46Z"
 }
