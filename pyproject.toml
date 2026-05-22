@@ -99,6 +99,23 @@ dependencies = [
     #   via transformers / lancedb; declared explicitly to match
     #   the project's "no implicit deps" discipline.
     "pyyaml>=6.0",
+    # jinja2: server-side HTML templating for the per-notebook UI
+    #   (proof-verify-handler-wiring-m8). Used via
+    #   ``fastapi.templating.Jinja2Templates`` from
+    #   ``server/routes/ui.py`` with ``autoescape=True`` (explicit;
+    #   the Starlette default ``select_autoescape()`` enables the
+    #   same protection but explicit > implicit). Already a transitive
+    #   dep via mcp (>=1.27.1); declared explicitly to match the
+    #   project's "no implicit deps" discipline. Pinned >=3.1.3 to
+    #   close CVE-2024-22195 (xmlattr XSS). License: BSD-3-Clause.
+    "jinja2>=3.1.3",
+    # python-multipart: multipart/form-data parser for the m8 ar5iv
+    #   HTML upload endpoint (``UploadFile`` requires it; without
+    #   the dep FastAPI raises ImportError at request time). Already
+    #   a transitive dep via mcp; declared explicitly. Pinned
+    #   >=0.0.18 to close CVE-2024-53981 (DoS via crafted multipart).
+    #   License: Apache-2.0.
+    "python-multipart>=0.0.18",
     # faiss-cpu: in-process flat ANN index for the Tier-2 semantic-
     #   query cache (E08_S03). ``IndexFlatIP`` over L2-normalized
     #   BGE-M3 vectors yields cosine via inner product. ~1000-entry

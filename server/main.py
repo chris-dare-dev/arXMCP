@@ -65,6 +65,7 @@ import logging
 import os
 import sys
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -102,7 +103,19 @@ logger = logging.getLogger(__name__)
 #:   ``resource_link`` per the spec — that resource_link IS the
 #:   "<256 KB pointer to the larger payload" pattern. The cap fires
 #:   on the resource-resolved fetch, not on the SSE chunks.
-_BYTE_CAP_EXEMPT_PREFIXES = ("/healthz", "/readyz", "/metrics", "/mcp")
+_BYTE_CAP_EXEMPT_PREFIXES = (
+    "/healthz", "/readyz", "/metrics", "/mcp",
+    # m8: the vendored htmx.min.js (~51 KB) and CSS are small but
+    # served via /ui/static/. Exempting only /ui/static (not the
+    # whole /ui subtree) keeps the 256 KB response cap on the
+    # /ui/api/* JSON routes — a future handler that accidentally
+    # returns a large JSON body must still trip the cap. m8 rect F4
+    # narrowed this from "/ui" to "/ui/static". The HTML page routes
+    # at /ui/ and /ui/notebooks/{slug} serve modest pages (the
+    # notebook list + paper table HTML); if they ever approach
+    # 256 KB the right fix is per-page pagination, not exemption.
+    "/ui/static",
+)
 
 
 def _is_exempt_path(path: str) -> bool:
@@ -315,18 +328,60 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # the m7-era code path leaked BGE-M3 weights + LanceDB
     # connections + semaphores on startup retry loops (systemd /
     # docker `restart: on-failure`).
+    from server.ingest_tracker import IngestTaskTracker  # noqa: PLC0415
     from server.notebooks_store import NotebooksStore  # noqa: PLC0415
 
     try:
         app.state.notebooks_store = await NotebooksStore.open(
             config.notebooks_db_path
         )
+        # m9 FM-5 + m9 rect F2: orphan-recovery — mark any
+        # ``status='running'`` row older than 5 minutes as ``failed``
+        # BEFORE accepting new ingest triggers. Covers daemon-crash-
+        # mid-ingest where the previous task's done_callback never
+        # fired.
+        #
+        # The 5-minute cutoff (m9 rect F2) replaces the original
+        # 1-hour value. Rationale: with the F1 cancel-path fix
+        # writing a terminal-state row inline on clean shutdown,
+        # the orphan-recovery is purely defense-in-depth — it
+        # covers ONLY the hard-kill path (SIGKILL, OOM-killer,
+        # host crash) where the cancel-path never ran. A
+        # 5-minute cutoff bounds the operator-visible
+        # "permanent 409" window to a single restart-loop cycle.
+        # The earlier 1-hour value was designed to NOT clobber a
+        # still-running ingest, but with F1 in place the
+        # cancel-path handles that case correctly.
+        import datetime as _dt  # noqa: PLC0415
+        cutoff = (
+            _dt.datetime.now(_dt.UTC) - _dt.timedelta(minutes=5)
+        ).isoformat(timespec="seconds")
+        recovered = await app.state.notebooks_store.mark_orphaned_runs_failed(
+            cutoff_iso=cutoff,
+            message="server restarted mid-ingest (m9 FM-5 recovery)",
+        )
+        if recovered:
+            logger.info(
+                "IngestTracker startup recovery: marked %d orphaned "
+                "running row(s) as failed", recovered,
+            )
+        # m9: ingest task tracker — fire-and-forget subprocess
+        # registry for the UI ingest trigger.
+        app.state.ingest_tracker = IngestTaskTracker()
         if mcp_server is not None:
             async with mcp_server.session_manager.run():
                 yield
         else:
             yield
     finally:
+        # m9: cancel any in-flight ingest tasks first (best-effort;
+        # subprocesses continue running until reaped, but the
+        # async wrapper is torn down cleanly). Done BEFORE
+        # NotebooksStore.close so the tracker's done_callbacks can
+        # still write final-state rows.
+        ingest_tracker = getattr(app.state, "ingest_tracker", None)
+        if ingest_tracker is not None:
+            await ingest_tracker.shutdown()
         # m7: close the NotebooksStore connection BEFORE Resources
         # shutdown so its async lock can drain cleanly. The store is
         # cheap to close (just a sqlite3.Connection.close); failures
@@ -431,8 +486,20 @@ def create_app(config: Config | None = None) -> FastAPI:
     # dispatches. A request that fails the cap is short-circuited
     # before any handler runs.
     app.add_middleware(SessionCapMiddleware)
-    # 1 MB cap on incoming request bodies (E06_S05).
-    app.add_middleware(RequestBodySizeLimitMiddleware)
+    # 1 MB default cap on incoming request bodies (E06_S05). m8:
+    # /ui/api/notebooks/*/papers/upload accepts ar5iv HTML files
+    # which routinely exceed 1 MB (~100KB-5MB observed); the
+    # prefix_caps carve-out raises the cap to 10 MB for the whole
+    # /ui/api/notebooks subtree. Other /ui/api/notebooks routes
+    # accept small JSON bodies well under either cap, so the
+    # widening is harmless for them. Prefix-match form (NOT
+    # substring) for FM-3 parity with the m7 SecFetchSite carve-out.
+    app.add_middleware(
+        RequestBodySizeLimitMiddleware,
+        prefix_caps={
+            "/ui/api/notebooks": 10 * 1024 * 1024,  # 10 MB for upload
+        },
+    )
     # Host header validation: Threat 5 / DNS rebinding defense
     # (closes F3 from E06_S05 critique). FastMCP validates Host on
     # /mcp; this middleware extends the same protection across the
@@ -477,11 +544,33 @@ def create_app(config: Config | None = None) -> FastAPI:
 
     # proof-verify-handler-wiring-m7: per-notebook REST surface for
     # the htmx UI (m8 ships the templates). All routes are JSON-only
-    # and exempt from SecFetchSiteMiddleware via the /ui carve-out
-    # above. OriginValidation + HostValidation still apply.
+    # (and one HTML-fragment upload endpoint added in m8) and exempt
+    # from SecFetchSiteMiddleware via the /ui carve-out above.
+    # OriginValidation + HostValidation still apply.
     from server.routes.notebooks import router as notebooks_router
 
     app.include_router(notebooks_router, prefix="/ui/api")
+
+    # proof-verify-handler-wiring-m8: HTML page routes for the htmx
+    # UI shell. Templates live at frontend/templates/; static assets
+    # (vendored htmx + CSS) at frontend/static/ mounted below.
+    from server.routes.ui import router as ui_router
+
+    app.include_router(ui_router, prefix="/ui")
+
+    # m8: vendored htmx + CSS at /ui/static/. Mount inside the /ui
+    # subtree so the SecFetchSite carve-out covers it without a
+    # separate exemption. StaticFiles uses Starlette's built-in
+    # path-traversal protection (`os.path.commonpath` check after
+    # `realpath` resolution — see starlette/staticfiles.py:163).
+    from fastapi.staticfiles import StaticFiles
+
+    _FRONTEND_STATIC = Path(__file__).resolve().parent.parent / "frontend" / "static"
+    app.mount(
+        "/ui/static",
+        StaticFiles(directory=str(_FRONTEND_STATIC)),
+        name="ui-static",
+    )
 
     # Metrics ASGI sub-app. We wrap with a tiny middleware that
     # refreshes the gauges from the resources state at scrape time.

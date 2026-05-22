@@ -1,0 +1,151 @@
+{
+  "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/plans",
+  "created_at": "2026-05-22T13:56:38Z",
+  "critic_invalidation_rates": {
+    "adversary": 0.0
+  },
+  "critics_run": [],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "low": 0,
+    "medium": 0
+  },
+  "critique_merged": ".claude/notes/milestones/proof-verify-handler-wiring-m8/critique-merged.md",
+  "critique_path": null,
+  "critiques": [
+    {
+      "agent_id": "adversary",
+      "critique_path": ".claude/notes/milestones/proof-verify-handler-wiring-m8/critique-adversary.md",
+      "fired": true,
+      "summary": "1 CRIT (form-encoding bug), 1 HIGH (no CSP), 4 MED, 2 LOW"
+    }
+  ],
+  "deferred_findings": [
+    {
+      "id": "F3",
+      "reason": "concurrent-upload tmp-write race; operator-only loopback makes window narrow; tracked alongside m9 background-worker concurrency design",
+      "sev": "MEDIUM"
+    },
+    {
+      "id": "F8",
+      "reason": "_paper_row_html Python concat vs Jinja2 partial; refactor only; existing html.escape() protection correct",
+      "sev": "LOW"
+    }
+  ],
+  "external_writes_authorized": true,
+  "external_writes_completed": true,
+  "external_writes_required": [
+    {
+      "target": "https://cdn.jsdelivr.net/npm/htmx.org@2.0.10/dist/htmx.min.js",
+      "type": "http_get",
+      "why": "vendor htmx library into frontend/static; one-time download, file committed"
+    }
+  ],
+  "findings_closed": [
+    {
+      "id": "F1",
+      "sev": "CRITICAL"
+    },
+    {
+      "id": "F2",
+      "sev": "HIGH"
+    },
+    {
+      "id": "F4",
+      "sev": "MEDIUM"
+    },
+    {
+      "id": "F5",
+      "sev": "MEDIUM"
+    },
+    {
+      "id": "F6",
+      "sev": "MEDIUM"
+    },
+    {
+      "id": "F7",
+      "sev": "LOW"
+    }
+  ],
+  "fixed_findings": [],
+  "id": "proof-verify-handler-wiring-m8",
+  "implementation_base": "ead7af9d99cae4f2c5b7561a9e35536a6944eabe",
+  "implementation_branch": "main",
+  "implementation_commit_range": "ead7af9d99cae4f2c5b7561a9e35536a6944eabe..ff8877338191cb289824faf2954d062cb3dbe2b6",
+  "implementation_commits": [
+    "ff8877338191cb289824faf2954d062cb3dbe2b6"
+  ],
+  "implementation_path": "inline",
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "### proof-verify-handler-wiring-m8 \u2014 htmx + Jinja2 UI: notebook CRUD, paper-paste, ar5iv HTML drop, browse\n\n**Description.** Add `frontend/templates/` and `frontend/static/` with a single-page htmx UI: notebook list, create/delete, paper-add by URL paste, drag-drop for ar5iv HTML files (uploaded as `multipart/form-data` to a new `/ui/api/notebooks/{slug}/papers/upload` endpoint), and a paper-browse table fed by the m7 REST routes. No Node toolchain \u2014 Jinja2 is rendered server-side, htmx is a single 14 KB JS file vendored into `frontend/static/`.\n\n**Acceptance criteria.**\n- [ ] `GET /ui/` returns an HTML page listing notebooks with a create-notebook form and (for each notebook) an \"open\" link.\n- [ ] Dropping an `.html` file onto a notebook card POSTs to `/ui/api/notebooks/{slug}/papers/upload`; the file is stored under `var/arxmcp/notebooks/{slug}/ar5iv/` and a junction row is created.\n- [ ] URL paste accepts both `arxiv.org/abs/<id>` and `ar5iv.labs.arxiv.org/html/<id>` forms.\n- [ ] `RequestBodySizeLimitMiddleware`'s 1 MB cap is raised for `/ui/api/notebooks/*/papers/upload` only (ar5iv HTML can exceed 1 MB) \u2014 separate middleware-prefix carve-out with its own cap (e.g. 10 MB).\n- [ ] Vendored htmx + minimal CSS; no internet fetch at runtime.\n\n**Dependencies.** m7.\n\n**Complexity.** M (1\u20133 days).\n\n**Specialist suggestion.** `mcp-protocol-reviewer` (route surface review) + `security-reviewer` (upload size carve-out is a Threat-4 concern).",
+  "phase": "complete",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-22T13:56:38Z",
+      "left_at": "2026-05-22T14:34:28Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-22T14:34:28Z",
+      "left_at": "2026-05-22T14:44:34Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-22T14:44:34Z",
+      "left_at": "2026-05-22T14:53:51Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-05-22T14:53:51Z",
+      "left_at": "2026-05-22T15:15:23Z",
+      "phase": "implement-running"
+    },
+    {
+      "entered_at": "2026-05-22T15:15:23Z",
+      "left_at": "2026-05-22T15:17:10Z",
+      "phase": "implement-complete"
+    },
+    {
+      "entered_at": "2026-05-22T15:17:10Z",
+      "left_at": "2026-05-22T15:33:14Z",
+      "phase": "critique-running"
+    },
+    {
+      "entered_at": "2026-05-22T15:33:14Z",
+      "left_at": "2026-05-22T15:33:14Z",
+      "phase": "critique-complete"
+    },
+    {
+      "entered_at": "2026-05-22T15:33:14Z",
+      "left_at": "2026-05-22T15:46:02Z",
+      "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-05-22T15:46:02Z",
+      "left_at": null,
+      "phase": "complete"
+    }
+  ],
+  "rectification_commit": null,
+  "rectify_commits": [
+    "dece742b684a0b6827698d856fa23828f54e7445"
+  ],
+  "regression_tests_added": [],
+  "research_briefs": [
+    {
+      "agent_id": "researcher-1",
+      "brief_path": ".claude/notes/milestones/proof-verify-handler-wiring-m8/research-brief-1.md",
+      "summary": "in-codebase plumbing: jinja2+multipart explicit deps; prefix_caps shape"
+    },
+    {
+      "agent_id": "researcher-2",
+      "brief_path": ".claude/notes/milestones/proof-verify-handler-wiring-m8/research-brief-2.md",
+      "summary": "htmx 2.0.10; 8 failure modes; ar5iv normalizer extension required"
+    }
+  ],
+  "research_mode": "standard",
+  "research_synthesis": ".claude/notes/milestones/proof-verify-handler-wiring-m8/research-synthesis.md",
+  "updated_at": "2026-05-22T15:46:02Z"
+}

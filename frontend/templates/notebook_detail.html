@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+
+{% block title %}{{ notebook.slug }} · arXMCP{% endblock %}
+
+{% block content %}
+<nav class="breadcrumb"><a href="/ui/">← All notebooks</a></nav>
+
+<section class="card">
+  <h2><code>{{ notebook.slug }}</code></h2>
+  {% if notebook.display_name %}
+    <p class="display-name">{{ notebook.display_name }}</p>
+  {% endif %}
+  <dl class="meta">
+    <dt>LanceDB path</dt><dd><code>{{ notebook.lancedb_path }}</code></dd>
+    <dt>Created</dt><dd><time>{{ notebook.created_at }}</time></dd>
+  </dl>
+</section>
+
+<section class="card">
+  <h2>Add paper by URL</h2>
+  <p class="hint">
+    Accepted forms: <code>https://arxiv.org/abs/&lt;id&gt;</code> or
+    <code>https://ar5iv.labs.arxiv.org/html/&lt;id&gt;</code>.
+  </p>
+  <form
+    hx-post="/ui/api/notebooks/{{ notebook.slug }}/papers"
+    hx-on::htmx:after-request="if(event.detail.successful) location.reload()"
+    hx-on::htmx:response-error="document.getElementById('paste-error').textContent = (function(t){try{return JSON.parse(t).detail||t;}catch(e){return t;}})(event.detail.xhr.responseText)"
+  >
+    <label>
+      arXiv URL
+      <input type="url" name="arxiv_url" required maxlength="512"
+             placeholder="https://arxiv.org/abs/2604.26204">
+    </label>
+    <button type="submit">Add</button>
+    <pre id="paste-error" class="error" aria-live="polite"></pre>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Upload ar5iv HTML</h2>
+  <p class="hint">
+    Drop an HTML file from <code>ar5iv.labs.arxiv.org</code>. Max
+    upload size: 10 MB. The on-disk filename is derived from the
+    <code>paper_id</code> field below (your local filename is NOT
+    used) — this is the path-traversal defense.
+  </p>
+  <form
+    hx-post="/ui/api/notebooks/{{ notebook.slug }}/papers/upload"
+    hx-encoding="multipart/form-data"
+    hx-target="#papers-tbody"
+    hx-swap="beforeend"
+    hx-on::htmx:response-error="document.getElementById('upload-error').textContent = (function(t){try{return JSON.parse(t).detail||t;}catch(e){return t;}})(event.detail.xhr.responseText)"
+  >
+    <label>
+      Paper ID
+      <input type="text" name="paper_id" required maxlength="64"
+             placeholder="2604.26204">
+    </label>
+    <label>
+      ar5iv HTML file
+      <input type="file" name="file" accept=".html,text/html" required>
+    </label>
+    <button type="submit">Upload</button>
+    <pre id="upload-error" class="error" aria-live="polite"></pre>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Ingest</h2>
+  <p class="hint">
+    Run the ingest pipeline against this notebook's
+    <code>papers.txt</code>. The daemon spawns
+    <code>python -m tools.notebook_ingest {{ notebook.slug }}</code>
+    as a background subprocess — one ingest in flight at a time per
+    notebook; the UI polls for status every 2 seconds.
+    Destructive notebook wipe is the explicit job of
+    <code>tools/notebook_purge.py</code> and is NOT triggerable from the UI.
+  </p>
+  <form
+    hx-post="/ui/api/notebooks/{{ notebook.slug }}/ingest"
+    hx-target="#ingest-status"
+    hx-swap="outerHTML"
+    hx-on::htmx:response-error="document.getElementById('ingest-error').textContent = (function(t){try{return JSON.parse(t).detail||t;}catch(e){return t;}})(event.detail.xhr.responseText)"
+  >
+    <button type="submit">Ingest now</button>
+    <pre id="ingest-error" class="error" aria-live="polite"></pre>
+  </form>
+  <!-- m9: status placeholder. The trigger handler returns an HTML
+       fragment that replaces this div via hx-swap="outerHTML". The
+       polling fragment carries hx-trigger="every 2s"; terminal-state
+       fragments OMIT the trigger AND the polling endpoint returns
+       HTTP 286 to stop client polling (htmx-documented mechanism). -->
+  <div id="ingest-status"
+       data-status="placeholder"
+       hx-get="/ui/api/notebooks/{{ notebook.slug }}/ingest/latest"
+       hx-trigger="load"
+       hx-target="#ingest-status"
+       hx-swap="outerHTML">
+    Loading ingest status…
+  </div>
+</section>
+
+<section class="card">
+  <h2>Papers in this notebook ({{ papers|length }})</h2>
+  {% if not papers %}
+    <p class="empty">No papers yet. Add one above.</p>
+  {% endif %}
+  <table class="papers">
+    <thead>
+      <tr><th>Paper ID</th><th>Added</th><th>Preview</th><th></th></tr>
+    </thead>
+    <tbody id="papers-tbody">
+      {% for p in papers %}
+      <tr data-slug="{{ notebook.slug }}" data-paper-id="{{ p.paper_id }}">
+        <td><code>{{ p.paper_id }}</code></td>
+        <td><time>{{ p.added_at }}</time></td>
+        <td>
+          {# m10 AC #2: Preview link only when on-disk HTML exists.
+             ``target="_blank"`` opens in a new tab; ``rel="noopener"``
+             prevents the previewed page from accessing window.opener
+             (defense-in-depth alongside the tight CSP). When no
+             preview exists, render a disabled-looking ``<span>`` with
+             a tooltip explaining why. #}
+          {% if p.has_preview %}
+            <a href="/ui/notebooks/{{ notebook.slug }}/papers/{{ p.paper_id }}/preview"
+               target="_blank"
+               rel="noopener">Preview</a>
+          {% else %}
+            {# m10 rect F6: actionable tooltip text — directs the
+               operator to the upload card rather than leaving them
+               stuck at a "no preview" dead end. #}
+            <span class="hint"
+                  title="upload an ar5iv HTML to enable preview">Preview</span>
+          {% endif %}
+        </td>
+        <td>
+          <button type="button"
+                  hx-delete="/ui/api/notebooks/{{ notebook.slug }}/papers/{{ p.paper_id }}"
+                  hx-confirm="Remove paper '{{ p.paper_id }}' from notebook '{{ notebook.slug }}'?"
+                  hx-on::htmx:after-request="if(event.detail.successful) this.closest('tr').remove()"
+                  class="danger">
+            Remove
+          </button>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}
