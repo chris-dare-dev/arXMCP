@@ -20,6 +20,7 @@ see the "History" section at the bottom).
 | **Tier-0 → Tier-1** | `pytest tests/eval/test_retrieval_quality.py --ndcg-min=0.70` passes on **ANN-only** retrieval (no BM25 hybrid, no reranker) | E05_S02 |
 | **Tier-1 → Tier-2** | `pytest tests/eval/test_retrieval_quality.py --ndcg-min=0.80` passes with **BM25 hybrid + reranker** active (E07) | E07_S04 |
 | **Tier-2 → Tier-3** | E08 caching telemetry healthy: cache hit rate ≥ 30 % on a 24-hour production traffic sample | E08 |
+| **PDF parser Path A promotion** | `pytest tests/eval/test_parser_fidelity.py --parser=<name>` reports mean CDM ≥ 0.85 on the textbook fixture (≥20 pages spread across the 4 typesetting classes) | parser-fidelity-eval-m1 (gate); future parser-bake-off milestone (consumer) |
 | **Tier-5 cutover** | 200 K paper backfill complete + drift watchdog stable (nDCG@5 within 5 % of baseline) | E11_S05 |
 
 The Tier-3 → Tier-4 and Tier-4 → Tier-5 transitions do not have
@@ -203,6 +204,84 @@ operational change (single-tenant → multi-host eligibility, larger
 LanceDB datasets, longer index rebuilds). Asserting both conditions
 at the boundary keeps a half-finished backfill from accidentally
 becoming the production state.
+
+---
+
+## PDF parser Path A promotion gate
+
+### Command
+
+```sh
+ARXMCP_RUN_REAL_PDFLATEX=1 \
+  pytest tests/eval/test_parser_fidelity.py --parser=<name> \
+    -m requires_pdflatex
+```
+
+`<name>` identifies which PDF parser implementation is under
+evaluation (e.g., `mineru`, `marker`, `docling`). The
+`--parser=<name>` flag is added by the future parser-bake-off
+milestone; today the harness runs without the flag and reports
+status only.
+
+### Threshold
+
+**Mean CDM ≥ 0.85** across the textbook fixture
+(`tests/eval/textbook_fixtures/`), which holds 20 hand-curated
+pages spread across 4 typesetting classes:
+
+- 5 pages `paper-control/` (clean math.AG arxiv style)
+- 5 pages `hartshorne-style/` (single-column textbook)
+- 5 pages `griffiths-harris-style/` (multi-column textbook)
+- 5 pages `milne-style/` (course-notes-as-PDF from clean .tex)
+
+### Cold-start matrix
+
+The gate fires on a tiered schedule based on fixture completion
+(see `tests/eval/textbook_fixtures/manifest.json:totals`):
+
+| Fixture state | Gate behavior |
+|---|---|
+| <1 page (empty) | `pytest` skips with "fixture empty" |
+| 1-19 pages (partial) | Tests run; aggregate score reported; gate INCREMENTAL — not blocking |
+| ≥20 pages (complete) | Gate ACTIVE — promotion requires mean CDM ≥ 0.85 |
+
+Promotion is gated on the COMPLETE state. Operator must hand-curate
+the 18 pages still missing as of parser-fidelity-eval-m1 landing.
+See `tests/eval/textbook_fixtures/README.md` for curation
+instructions and attribution rules.
+
+### System dependencies
+
+The CDM gate invokes the real `pdflatex` (texlive) and `pdftoppm`
+(poppler-utils) binaries. Tests skip cleanly when either is
+absent. The `requires_pdflatex` pytest marker + the
+`ARXMCP_RUN_REAL_PDFLATEX=1` env var must BOTH be set for the
+end-to-end tests to run (pure-Python unit tests run unconditionally
+in default `make test`).
+
+Install:
+- macOS: `brew install --cask mactex-no-gui && brew install poppler`
+- Debian/Ubuntu: `apt install texlive-base poppler-utils`
+
+The subprocess sandbox profile is documented at
+`.claude/docs/security-cdm-sandbox.md` (Threat-3 peer; mirrors
+`tools/arxiv_fetch.py::parse_with_latexml` discipline).
+
+### What this gate does NOT measure
+
+- **Retrieval quality** of the parser's output. The Tier-0 / Tier-1
+  retrieval gates (`test_retrieval_quality.py`) still apply once a
+  parser's chunks land in LanceDB.
+- **Author-supplied source availability** (the alternate Path B from
+  capability-scout pdf-ingest-2026). The T3 source-availability
+  spike at `.claude/notes/capability-scouts/pdf-ingest-2026/spikes/`
+  showed <30% hit rate; CAND-10 (source-first fetcher) collapses
+  into a CAND-1 parser-driver fall-through helper rather than a
+  separate gated capability.
+- **Layout-fidelity** beyond math formulas (tables, figures,
+  marginalia). The CDM algorithm scores per-formula; broader
+  layout fidelity is the future parser-bake-off milestone's
+  responsibility.
 
 ---
 

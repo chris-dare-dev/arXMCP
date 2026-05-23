@@ -79,6 +79,51 @@ the underlying files directly.
 | [`failure-modes.md`](docs/ops/failure-modes.md) | E14_S05 | Detection + recovery for the 9 documented failure modes |
 | [`notebook-modes.md`](docs/ops/notebook-modes.md) | pv-m3 | Multi-notebook deployment topology (per-daemon vs per-call filter) |
 
+### Parser fidelity evaluation
+
+A CDM (Character Detection Matching) eval gate at
+[`tools/cdm_eval.py`](tools/cdm_eval.py) measures how faithfully a
+PDF parser preserves math-formula content (LaTeX → MathML →
+LaTeXML round-trip). Lands as the **prerequisite** for any future
+PDF-parser-bake-off milestone — see
+[`.claude/TIER-GATES.md`](.claude/TIER-GATES.md) for the gate
+definition.
+
+**How to run** (requires `pdflatex` + `pdftoppm` system binaries —
+not installed by default):
+
+```bash
+# macOS
+brew install --cask mactex-no-gui && brew install poppler
+
+# Debian/Ubuntu
+sudo apt install texlive-base poppler-utils
+
+# Run the CDM gate (opt-in via env var + marker)
+ARXMCP_RUN_REAL_PDFLATEX=1 \
+  uv run python -m pytest tests/eval/test_parser_fidelity.py \
+    -m requires_pdflatex
+```
+
+**What scores mean** (CDM F1 in [0, 1]):
+
+| CDM score | Interpretation |
+|---|---|
+| **≥ 0.95** | Near-perfect math fidelity — comparable to LaTeXML-on-source baseline |
+| **0.85 – 0.95** | Acceptable for textbook ingest (Tier-1 promotion threshold) |
+| **0.70 – 0.85** | Marginal; recommend secondary parser (e.g., Mathpix-batch) on the worst pages |
+| **< 0.70** | Math fidelity contract not met — parser rejected for Path A |
+
+The 0.85 threshold matches the parsing-note baseline (Nougat
+~85% on clean papers) and reflects the project's "math fidelity
+over coverage" stance from
+[`.claude/notes/01-mission-and-context.md`](.claude/notes/01-mission-and-context.md).
+
+The 20-page eval fixture at
+[`tests/eval/textbook_fixtures/`](tests/eval/textbook_fixtures/)
+ships with 2 example pages; operator-hand-curated pages land
+incrementally per `tests/eval/textbook_fixtures/README.md`.
+
 ### Importing the dashboard
 
 A provisioned Grafana dashboard with cache hit-ratio and latency panels
