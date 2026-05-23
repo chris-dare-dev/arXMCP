@@ -1,0 +1,55 @@
+{
+  "brief_source": "",
+  "created_at": "2026-05-23T05:09:09Z",
+  "critics_run": [],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "low": 0,
+    "medium": 0
+  },
+  "critique_path": null,
+  "deferred_findings": [],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_required": [],
+  "fixed_findings": [],
+  "id": "parser-fidelity-eval-m1",
+  "implementation_base": "96395ee594f573f0b59d74c5e88c3800bf06a14e",
+  "implementation_branch": null,
+  "implementation_commit_range": null,
+  "implementation_commits": [],
+  "implementation_path": "inline",
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "T2 spike from capability-scout pdf-ingest-2026 \u2014 CDM eval gate + 20-page textbook fixture. See .claude/notes/milestones/parser-fidelity-eval-m1/BRIEF.md for full brief.",
+  "phase": "implement-running",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-23T05:09:09Z",
+      "left_at": "2026-05-23T05:10:02Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-23T05:10:02Z",
+      "left_at": "2026-05-23T05:17:37Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-23T05:17:37Z",
+      "left_at": "2026-05-23T05:17:55Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-05-23T05:17:55Z",
+      "left_at": null,
+      "phase": "implement-running"
+    }
+  ],
+  "rectification_commit": null,
+  "regression_tests_added": [],
+  "research_briefs": [],
+  "research_mode": "single",
+  "research_synthesis": ".claude/notes/milestones/parser-fidelity-eval-m1/research-synthesis.md",
+  "updated_at": "2026-05-23T05:17:55Z"
+}

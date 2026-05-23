@@ -163,6 +163,16 @@ dependencies = [
     "opentelemetry-api>=1.41,<2",
     "opentelemetry-sdk>=1.41,<2",
     "opentelemetry-exporter-otlp-proto-grpc>=1.41,<2",
+    # scipy: Hungarian-assignment solver (``scipy.optimize.linear_sum_assignment``)
+    #   for the CDM (Character Detection Matching) parser-fidelity eval gate
+    #   (parser-fidelity-eval-m1). BSD-3-Clause, on arXMCP's permissive-license
+    #   allow-list. ~50 MB install footprint. Specifically chosen over OpenCV's
+    #   matching utilities because OpenCV's Intel MKL/OpenMP runtime collides
+    #   with PyTorch's OpenMP under faiss-cpu on macOS (CLAUDE.md §8 gotcha 1
+    #   KMP_DUPLICATE_LIB_OK segfault landmine). scipy ships its own minimal
+    #   linear-algebra path with no OpenMP conflict. See research-synthesis
+    #   §D1 for the full rationale.
+    "scipy>=1.10",
 ]
 
 [project.optional-dependencies]
@@ -191,4 +201,5 @@ markers = [
     "requires_latexmlc: tests that invoke the real `latexmlc` binary (E10_S04 drift detector integration tests). Skipped by default; opt-in via `pytest -m requires_latexmlc`. Requires LaTeXML installed locally (`brew install latexml` / `apt install latexml`).",
     "requires_full_corpus: tests that assert against a fully-ingested 200K-paper corpus (E11_S01 sanity tests). Skipped by default; opt-in via `pytest -m requires_full_corpus` AND `ARXMCP_RUN_FULL_CORPUS_TESTS=1`. Pre-condition: operator has run `make ingest` end-to-end and the staging LanceDB has ≥ 100K chunks.",
     "requires_lean_repl: tests that invoke the real Lean 4 REPL subprocess (verification-feedback-m2+). Skipped by default; opt-in by setting BOTH ARXMCP_LAKE_PATH (absolute path to the lake binary) and ARXMCP_LEAN_REPL_DIR (a built leanprover-community/repl directory). Lean is a system dependency, not a pip dep — see .claude/notes/spikes/verification-feedback-spike-2.md.",
+    "requires_pdflatex: tests that invoke the real `pdflatex` + `pdftoppm` binaries (parser-fidelity-eval-m1 CDM gate). Skipped by default; opt-in via `pytest -m requires_pdflatex` AND `ARXMCP_RUN_REAL_PDFLATEX=1`. Requires pdflatex (part of texlive: `brew install --cask mactex-no-gui` / `apt install texlive-base`) and pdftoppm (part of poppler-utils: `brew install poppler` / `apt install poppler-utils`) installed locally. Subprocess sandbox follows the same `start_new_session=True` + `os.killpg` discipline as LaTeXML per `.claude/docs/security-cdm-sandbox.md`.",
 ]
