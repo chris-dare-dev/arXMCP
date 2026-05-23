@@ -1,0 +1,74 @@
+{
+  "brief_source": "follow-up to E13_S03 / GitHub issue #3 (filed by E13_S10)",
+  "created_at": "2026-05-23T02:31:08Z",
+  "critics_run": [],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "low": 0,
+    "medium": 0
+  },
+  "critique_path": null,
+  "deferred_findings": [],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_required": [
+    {
+      "blocking": true,
+      "target": "main @ github.com/chris-dare-dev/arXMCP",
+      "type": "git_push",
+      "why": "land feat+rect+chore commits"
+    },
+    {
+      "blocking": true,
+      "target": "chris-dare-dev/arXMCP#3",
+      "type": "gh_issue_close",
+      "why": "close gap-issue G3 once sandbox wiring lands"
+    }
+  ],
+  "fixed_findings": [],
+  "id": "E13_S03b",
+  "implementation_base": null,
+  "implementation_branch": null,
+  "implementation_commit_range": null,
+  "implementation_commits": [],
+  "implementation_path": null,
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "### E13_S03b \u2014 Ship production LaTeXML sandbox (sandbox-exec / seccomp / landlock / Docker) (closes Threat 3 deferred layers)\n\n**Status:** NEW (follow-up to E13_S03 Threat 3 audit; filed as `chris-dare-dev/arXMCP#3` by the E13_S10 cumulative coverage audit)\n**Tier:** 5\n**Effort:** M-L (cross-platform; multiple layered defenses to pick from)\n**Dependencies:** E13_S03 (Threat 3 audit; subprocess isolation + 5-min timeout + filesystem-write whitelist already in place; `tests/security/test_latexml_sandbox.py` exists)\n\n**Description.** Source: `.claude/docs/security-threat-model-coverage.md` (E13_S10 audit), Threat 3 row. The threat model in `.claude/notes/08-security-observability-ops.md` \u00a7 Threat 3 documents FOUR production sandbox layers that v1 does not ship:\n\n1. **sandbox-exec on macOS** \u2014 `/usr/bin/sandbox-exec -f profile.sb /path/to/latexmlc ...`\n2. **seccomp + landlock on Linux** \u2014 system-call filtering + filesystem-access restriction\n3. **Docker hardening** \u2014 `--read-only` + `--security-opt no-new-privileges` + `--cap-drop=ALL`\n4. **Dedicated UID** \u2014 non-root unprivileged user dedicated to LaTeXML\n\nv1 ships only: subprocess isolation, 5-minute timeout, and a filesystem-write whitelist (verified in `tests/security/test_latexml_sandbox.py`). The four deferred layers are documented in `.claude/docs/security-threat-3-audit.md` and intended for the E14 operational/observability track. This milestone closes the production-sandbox gap.\n\n**Mitigation contract.** Threat 3 from `.claude/notes/08-security-observability-ops.md`: \"LaTeXML is parsing untrusted TeX source from arXiv. A malicious paper could trigger code execution via TeX macro expansion or via LaTeXML's Perl interpreter.\" Today's v1 mitigations (subprocess + timeout + write-whitelist) bound the BLAST RADIUS if a paper escapes the parser; the production layers BLOCK the escape primitives (system calls for code execution, network connectivity, capability escalation). Severity is LOW because the LaTeXML subprocess is invoked only during ingest (not at request time), so the threat surface is operator-scoped, not adversary-of-the-running-server-scoped.\n\n**Implementation choice (synthesis required).** The four layers are not all-or-nothing \u2014 they are platform-specific. The implementer (Phase 2) should pick the layer(s) per host class:\n- macOS dev workstations: sandbox-exec (built-in, no install needed)\n- Linux production: seccomp via `prctl(PR_SET_SECCOMP, ...)` OR a bubblewrap/firejail wrapper\n- Docker container deployment (`docker/Dockerfile.server`): the three flags + dedicated UID\n\nThe synthesis must surface trade-offs: sandbox-exec is deprecated by Apple but still functional; seccomp is fiddly to maintain a syscall allowlist; bubblewrap/firejail add a runtime dep but are more robust; Docker flags are easy but only apply when the operator uses the container image.\n\n**Deliverables.**\n- Sandbox-layer code in the LaTeXML invocation path (`tools/arxiv_fetch.py::_run_latexml` or wherever the subprocess is launched today). Platform-detect at runtime; degrade gracefully (log + continue with subprocess+timeout-only) when the chosen layer is unavailable.\n- Updates to `docker/Dockerfile.server` for the Docker hardening + dedicated UID layer (if Docker is picked).\n- Hostile-fixture regression tests under `tests/security/test_latexml_sandbox.py`. At minimum: (a) a hostile .tex file that attempts `\\write18{...}` (TeX shell-escape) is rejected/sandboxed; (b) a hostile .tex that attempts `\\input{/etc/passwd}` or similar arbitrary-file-read is bounded by the filesystem allowlist; (c) the existing process-group-kill / timeout tests continue to pass.\n- Update `.claude/docs/security-threat-3-audit.md` to mark the deferred layers as closed (or partial \u2014 be honest about what's shipped per platform).\n- Update `.claude/docs/security-threat-model-coverage.md` Threat 3 row + Gap-issue triage row G3 to mark closed by E13_S03b.\n- Close `chris-dare-dev/arXMCP#3` via `gh issue close` once the implementation lands (Phase 4 external-write boundary).\n\n**Acceptance criteria.**\n- [ ] At least ONE production sandbox layer per platform the project targets (macOS dev / Linux Docker is minimum).\n- [ ] Sandbox is APPLIED to the LaTeXML subprocess invocation (not just available as a wrapper).\n- [ ] Graceful degradation when the chosen layer is unavailable (log + fall back to existing subprocess+timeout-only path).\n- [ ] Hostile-fixture regression tests in `tests/security/test_latexml_sandbox.py` cover at least: `\\write18{...}` shell-escape attempt, arbitrary-file-read attempt.\n- [ ] `pytest tests/security/test_latexml_sandbox.py` passes; the existing 4 tests still pass as regression guards.\n- [ ] `.claude/docs/security-threat-3-audit.md` accurately documents what shipped per platform (no false \"fully closed\" claims if any platform is partial).\n- [ ] `.claude/docs/security-threat-model-coverage.md` Threat 3 row no longer cites #3; Gap-issue triage row G3 marked closed.\n- [ ] `tests/security/test_threat_model_coverage.py` (E13_S10 staleness gate) still passes.\n- [ ] GitHub issue #3 closed with a commit reference.\n\n**Out of scope.** Refactoring the LaTeXML invocation layer into a generic sandbox-process abstraction (over-engineering for a single subprocess type). Adding NEW threat layers beyond the four enumerated in the threat model (e.g. cgroups CPU/memory limits \u2014 those are E14 operational). Changing the subprocess isolation primitive (Python's `subprocess` is fine; this milestone adds layers AROUND it, not under it).\n\n**Risk notes.**\n- Closes G3 (LOW) from `.claude/docs/security-threat-model-coverage.md` E13_S10 gap-issue triage.\n- Severity LOW: the LaTeXML subprocess runs only at ingest time (operator-scoped), not at request time. No current adversary-of-the-running-server exposure.\n- **Cross-platform discipline is the hard part.** macOS, Linux (host), and Linux (Docker container) are three distinct execution environments. Avoid the trap of implementing only one and claiming \"Threat 3 closed\" \u2014 partial closure must be documented as partial.\n- **Operational risk:** an over-strict sandbox profile could block legitimate LaTeXML operation. The first deploy after this lands MUST be smoke-tested against the seed corpus (50 math.AG papers; `tools/seed-papers.txt`) to verify no false-positives sandbox-trip.\n- **Test discipline:** the hostile-fixture tests on Windows may need skip markers \u2014 Windows has no sandbox-exec/seccomp/landlock. The existing `tests/security/test_latexml_sandbox.py` already handles Windows-skip patterns; mirror them.\n\n**Labels.** `area:security`, `area:infra`, `area:ingest`, `risk:low`, `tier:5`, `closes:#3`\n",
+  "phase": "research-complete",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-23T02:31:08Z",
+      "left_at": "2026-05-23T02:32:02Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-23T02:32:02Z",
+      "left_at": "2026-05-23T02:40:00Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-23T02:40:00Z",
+      "left_at": null,
+      "phase": "research-complete"
+    }
+  ],
+  "rectification_commit": null,
+  "regression_tests_added": [],
+  "research_briefs": [
+    {
+      "agent_id": "researcher-1",
+      "brief_path": ".claude/notes/milestones/E13_S03b/research-brief-1.md",
+      "summary": "Wire sandbox-exec (macOS) + bwrap (Linux); existing profile correct; brief target Dockerfile.server is WRONG (latexml is ingest-only)"
+    },
+    {
+      "agent_id": "researcher-2",
+      "brief_path": ".claude/notes/milestones/E13_S03b/research-brief-2.md",
+      "summary": "7 failure modes documented; bwrap over seccomp+landlock; FM-2 (sandbox silently removed) needs visible warning"
+    }
+  ],
+  "research_mode": "standard",
+  "research_synthesis": ".claude/notes/milestones/E13_S03b/research-synthesis.md",
+  "updated_at": "2026-05-23T02:40:00Z"
+}

@@ -11,18 +11,23 @@ unsandboxed dev tooling running on trusted arXiv source.
 from __future__ import annotations
 
 import contextlib
+import logging
 import os
 import re
 import shutil
 import signal
 import ssl
 import subprocess
+import sys
 import tarfile
+import tempfile
 import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 ARXIV_EPRINT_URL = "https://export.arxiv.org/e-print/{paper_id}"
 ARXIV_USER_AGENT_TEMPLATE = "arXMCP/0.1 (mailto:{email})"
@@ -31,6 +36,23 @@ POLITENESS_SLEEP_SECONDS = 3.0
 DEFAULT_503_BACKOFF_SECONDS = 30.0
 MAX_503_BACKOFF_SECONDS = 300.0
 LATEXML_TIMEOUT_SECONDS = 300
+
+#: E13_S03b — repo-root-relative path to the macOS sandbox-exec
+#: profile. Anchored to this file's location so the path resolves
+#: regardless of the caller's CWD. The profile was authored and
+#: hardened in E13_S03 (credential-directory denies + Perl/CPAN
+#: allowlist + write-only on the per-paper OUTPUT_DIR).
+SANDBOX_PROFILE_PATH = (
+    Path(__file__).resolve().parent.parent
+    / "infra" / "latexml" / "sandbox.sb"
+)
+
+#: E13_S03b — defense-in-depth: pass LaTeXML's own --timeout flag to
+#: ``latexmlc`` in addition to the Python-side ``subprocess`` timeout
+#: + process-group kill. This is a belt+braces layer; if LaTeXML
+#: rejects the flag on an older version, the test surface catches it
+#: against live latexmlc.
+LATEXML_INTERNAL_TIMEOUT_SECONDS = 300
 
 PAPER_ID_RE = re.compile(r"^[0-9]{4}\.[0-9]{4,5}$")
 MIN_PARSED_HTML_BYTES = 1024
@@ -319,6 +341,124 @@ def _safe_extract(tar: tarfile.TarFile, dest: Path) -> None:
     tar.extractall(dest, filter="data")
 
 
+# ---------------------------------------------------------------------------
+# E13_S03b — LaTeXML production sandbox wiring (Threat 3 Phase 2)
+# ---------------------------------------------------------------------------
+
+
+def _detect_sandbox_layer() -> str | None:
+    """Return the name of the active sandbox layer or ``None``.
+
+    Platform-detect at runtime; cached by ``_SANDBOX_LAYER`` below.
+
+    - macOS (``darwin``): ``sandbox-exec`` IFF
+      ``/usr/bin/sandbox-exec`` exists AND the SBPL profile at
+      ``infra/latexml/sandbox.sb`` is readable.
+    - Linux (``linux*``): ``bwrap`` (bubblewrap) IFF
+      ``shutil.which("bwrap")`` finds the binary.
+    - Anything else (Windows, BSDs, etc.): ``None`` — degraded.
+
+    The function is pure; no side effects. The startup log line
+    (visible at module import) is emitted ONCE from the
+    ``_SANDBOX_LAYER`` initializer below.
+    """
+    if sys.platform == "darwin":
+        if (
+            Path("/usr/bin/sandbox-exec").is_file()
+            and SANDBOX_PROFILE_PATH.is_file()
+        ):
+            return "sandbox-exec"
+    elif sys.platform.startswith("linux"):
+        if shutil.which("bwrap") is not None:
+            return "bwrap"
+    return None
+
+
+#: Resolved at module import time. The startup log below reflects
+#: the cached value so an operator sees the platform's posture in
+#: the operational log (NOT per-paper noise during bulk ingest).
+_SANDBOX_LAYER: str | None = _detect_sandbox_layer()
+
+if _SANDBOX_LAYER is None:
+    logger.info(
+        "LaTeXML sandbox layer: NONE — running subprocess+timeout "
+        "isolation only (Threat 3 partially mitigated; "
+        "platform=%s). See .claude/docs/security-threat-3-audit.md.",
+        sys.platform,
+    )
+else:
+    logger.info(
+        "LaTeXML sandbox layer: %s (Threat 3 ingest-path mitigation "
+        "active).",
+        _SANDBOX_LAYER,
+    )
+
+
+def _build_sandbox_cmd(
+    cmd: list[str],
+    source_dir: Path,
+    output_dir: Path,
+    tmpdir_subdir: Path,
+) -> list[str]:
+    """Prepend the platform-appropriate sandbox wrapper to ``cmd``.
+
+    Returns ``cmd`` unchanged when no sandbox layer is available
+    (the degraded path; the caller logs at DEBUG).
+
+    - **sandbox-exec (macOS)**: prepends
+      ``/usr/bin/sandbox-exec -f <profile> -D SOURCE_DIR=...
+      -D OUTPUT_DIR=... -D HOME=... -D TMPDIR_SUBDIR=...`` so the
+      ``.sb`` profile's ``(param ...)`` substitutions resolve to
+      the per-invocation paths.
+    - **bwrap (Linux)**: prepends ``bwrap`` with
+      read-only binds for system dirs (/usr, /lib, /lib64 if
+      present, /etc), a read-only bind on ``source_dir``, a
+      read-write bind on ``output_dir``, ``--tmpfs /tmp``, network
+      + PID namespace isolation, ``--die-with-parent``, and
+      ``--new-session`` (so the existing
+      ``start_new_session=True`` discipline + ``os.killpg``
+      timeout-kill path traverse the bwrap wrapper cleanly).
+
+    The function is PURE and platform-detect-only; the resolved
+    layer comes from ``_SANDBOX_LAYER``. Mocking the layer in
+    tests requires monkey-patching ``_SANDBOX_LAYER`` directly.
+    """
+    if _SANDBOX_LAYER == "sandbox-exec":
+        return [
+            "/usr/bin/sandbox-exec",
+            "-f", str(SANDBOX_PROFILE_PATH),
+            "-D", f"SOURCE_DIR={source_dir}",
+            "-D", f"OUTPUT_DIR={output_dir}",
+            "-D", f"HOME={Path.home()}",
+            "-D", f"TMPDIR_SUBDIR={tmpdir_subdir}",
+            *cmd,
+        ]
+    if _SANDBOX_LAYER == "bwrap":
+        bwrap_args = [
+            "bwrap",
+            "--ro-bind", "/usr", "/usr",
+            "--ro-bind", "/lib", "/lib",
+        ]
+        # /lib64 only exists on 64-bit; bind only if present.
+        if Path("/lib64").exists():
+            bwrap_args.extend(["--ro-bind", "/lib64", "/lib64"])
+        # /etc subset is needed for fontconfig + kpathsea + locale.
+        bwrap_args.extend(["--ro-bind", "/etc", "/etc"])
+        bwrap_args.extend([
+            "--ro-bind", str(source_dir), str(source_dir),
+            "--bind", str(output_dir), str(output_dir),
+            "--tmpfs", "/tmp",
+            "--unshare-net",       # block ALL network egress
+            "--unshare-pid",       # block visibility of host PIDs
+            "--die-with-parent",   # cleanup on parent death
+            "--new-session",       # plays nice with start_new_session=True
+            "--",                  # end-of-bwrap-args marker
+            *cmd,
+        ])
+        return bwrap_args
+    return cmd
+
+
 def parse_with_latexml(
     main_tex: Path,
     parsed_dir: Path,
@@ -354,42 +494,73 @@ def parse_with_latexml(
     out_dir.mkdir(parents=True, exist_ok=True)
     out_html = out_dir / "index.html"
 
+    # E13_S03b — defense-in-depth: pass latexmlc's own --timeout in
+    # addition to the Python-side subprocess timeout. If LaTeXML's
+    # internal scheduler trips first, the kill is cleaner; the
+    # Python-side timeout is the outer-loop guarantee.
     cmd = [
         "latexmlc",
+        f"--timeout={LATEXML_INTERNAL_TIMEOUT_SECONDS}",
         str(main_tex.name),
         f"--dest={out_html}",
         "--format=html5",
     ]
-    # E13_S03: Popen with start_new_session=True puts latexmlc in its
-    # own process group so we can SIGKILL the entire group on timeout.
-    # On POSIX (macOS + Linux), start_new_session=True is equivalent to
-    # ``os.setsid()`` after fork — the child becomes its own session/
-    # process-group leader and any descendants share the new pgid.
-    proc = subprocess.Popen(  # noqa: S603 — fixed argv, no shell
-        cmd,
-        cwd=main_tex.parent,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        start_new_session=True,
-    )
-    try:
-        proc.communicate(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        # Kill the entire process group so any Perl helpers latexmlc
-        # forked die with it. ProcessLookupError is benign — the
-        # group may already be gone if the child exited between
-        # ``communicate`` raising and ``killpg`` firing.
-        with contextlib.suppress(ProcessLookupError):
-            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-        # Drain the pipes so the child doesn't block on a full
-        # buffer during teardown. If the group survived SIGKILL
-        # (catastrophic — should not happen in practice) we
-        # re-raise the original TimeoutExpired so callers see the
-        # containment failure as a parse failure.
-        with contextlib.suppress(subprocess.TimeoutExpired):
-            proc.communicate(timeout=5)
-        raise
+    # E13_S03b — Threat 3 Phase 2 sandbox wiring. The ``.sb``
+    # profile (macOS) needs a TMPDIR_SUBDIR path that exists; use
+    # a context-managed temp dir so cleanup is automatic and
+    # nothing leaks across paper invocations.
+    with tempfile.TemporaryDirectory(
+        prefix=f"arxmcp-latexml-{paper_id}-"
+    ) as tmpdir_str:
+        cmd = _build_sandbox_cmd(
+            cmd,
+            source_dir=main_tex.parent,
+            output_dir=out_dir,
+            tmpdir_subdir=Path(tmpdir_str),
+        )
+        if _SANDBOX_LAYER is not None:
+            logger.debug(
+                "latexmlc invoked under %s sandbox for %s",
+                _SANDBOX_LAYER,
+                paper_id,
+            )
+        # E13_S03: Popen with start_new_session=True puts latexmlc
+        # (or the sandbox wrapper) in its own process group so we
+        # can SIGKILL the entire group on timeout. On POSIX (macOS
+        # + Linux), start_new_session=True is equivalent to
+        # ``os.setsid()`` after fork — the child becomes its own
+        # session / process-group leader and any descendants
+        # share the new pgid. The sandbox wrapper (sandbox-exec
+        # or bwrap --new-session) preserves session semantics
+        # through the wrapped exec, so killpg still targets the
+        # full process tree including the wrapped latexmlc.
+        proc = subprocess.Popen(  # noqa: S603 — fixed argv, no shell
+            cmd,
+            cwd=main_tex.parent,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            start_new_session=True,
+        )
+        try:
+            proc.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            # Kill the entire process group so any Perl helpers
+            # latexmlc forked die with it. ProcessLookupError is
+            # benign — the group may already be gone if the
+            # child exited between ``communicate`` raising and
+            # ``killpg`` firing.
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            # Drain the pipes so the child doesn't block on a
+            # full buffer during teardown. If the group survived
+            # SIGKILL (catastrophic — should not happen in
+            # practice) we re-raise the original TimeoutExpired
+            # so callers see the containment failure as a parse
+            # failure.
+            with contextlib.suppress(subprocess.TimeoutExpired):
+                proc.communicate(timeout=5)
+            raise
 
     return detect_parse_success(out_html, proc.returncode)
 

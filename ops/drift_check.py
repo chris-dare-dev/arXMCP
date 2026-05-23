@@ -143,6 +143,25 @@ def render_fixture(tex_path: Path) -> str:
             f"--dest={out_html}",
             "--format=html5",
         ]
+        # E13_S03b — Threat 3 sandbox wiring. Apply the same
+        # production sandbox (sandbox-exec on macOS / bwrap on
+        # Linux) used by ``tools/arxiv_fetch.py::parse_with_latexml``.
+        # render_fixture runs latexmlc on potentially-untrusted
+        # .tex fixtures (drift-check inputs), so the same
+        # mitigation applies. ``_build_sandbox_cmd`` returns
+        # ``cmd`` unchanged when no sandbox layer is available
+        # (degraded path; Windows + un-installed bwrap fall
+        # through cleanly).
+        from tools.arxiv_fetch import _build_sandbox_cmd
+
+        sandbox_tmpdir = tmp / "_sandbox_tmp"
+        sandbox_tmpdir.mkdir(exist_ok=True)
+        cmd = _build_sandbox_cmd(
+            cmd,
+            source_dir=tmp,
+            output_dir=tmp,
+            tmpdir_subdir=sandbox_tmpdir,
+        )
         try:
             proc = subprocess.run(  # noqa: S603 — argv form, no shell
                 cmd,

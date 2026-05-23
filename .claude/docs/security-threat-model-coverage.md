@@ -30,7 +30,7 @@ authorizes each `gh issue create` individually.
 |---|---|---|---|---|---|
 | 1 | Path traversal via `paper_id` | `ingest/identifiers.py::is_valid_paper_id` (E01 + E06 JSON-Schema) | E13_S01 | [`tests/security/test_path_traversal.py`](../../tests/security/test_path_traversal.py) | (none) |
 | 2 | Indirect prompt injection from chunks | Handler-side `<retrieved_chunk>` delimiter wrapping + `server/observability/sanitize.py` opt-in (E06 + E13_S02). Orchestrator system-prompt instruction is **out of MCP-server scope** — see Threat 2 section for the boundary. | E13_S02 | [`tests/security/test_delimiters.py`](../../tests/security/test_delimiters.py) | [#6 — flip sanitizer default](https://github.com/chris-dare-dev/arXMCP/issues/6) |
-| 3 | LaTeXML on hostile source | `ingest/ar5iv_fetch.py` + LaTeXML subprocess discipline (E02_S02 + E13_S03) | E13_S03 | [`tests/security/test_latexml_sandbox.py`](../../tests/security/test_latexml_sandbox.py) | [#3 — production sandbox](https://github.com/chris-dare-dev/arXMCP/issues/3) |
+| 3 | LaTeXML on hostile source | `ingest/ar5iv_fetch.py` + LaTeXML subprocess discipline (E02_S02 + E13_S03) + production sandbox wiring (sandbox-exec macOS / bubblewrap Linux) via `tools/arxiv_fetch.py::_build_sandbox_cmd` (**E13_S03b**) | E13_S03 + E13_S03b | [`tests/security/test_latexml_sandbox.py`](../../tests/security/test_latexml_sandbox.py) | (none — Docker-wiring deferred to E14; tracked as below) |
 | 4 | Resource exhaustion via tool arguments | JSON-Schema `maximum` (E06) + 256 KB byte cap on ALL 7 return-chunk-or-content tools (E06_S05 wired `get_chunk`+`get_definitions`; **E13_S04b** extended to `search_papers`+`find_equation`+`find_lemma_by_name`+`get_paper`+`cite_neighbors`) + per-session rate limits (E07_S10) + 1000/hr global limit (E13_S04) | E13_S04 + E13_S04b | [`tests/security/test_resource_exhaustion.py`](../../tests/security/test_resource_exhaustion.py) | (none — closed by E13_S04b, see [#1 (closed)](https://github.com/chris-dare-dev/arXMCP/issues/1)) |
 | 5 | Origin spoofing on the HTTP transport | `server/middleware.py::{OriginValidationMiddleware,HostValidationMiddleware}` (E06_S05) + `Sec-Fetch-Site` + `ARXMCP_ALLOWED_ORIGINS` + DNS-rebinding (E13_S05) | E13_S05 + E13_S09 | [`tests/security/test_origin_binding.py`](../../tests/security/test_origin_binding.py) + [`tests/security/test_bind_regression.py`](../../tests/security/test_bind_regression.py) | (none) |
 | 6 | Supply-chain (embedder model, reranker model) | SHA pins in `ingest/embedder.py` + `server/retrieval/rerank.py` (E03 + E07_S03) + shared `server/model_loader.py` validator + `ARXMCP_TRUST_REMOTE_CODE` escape hatch + post-load `.bin` snapshot check + `Makefile sbom` target (E13_S06) | E13_S06 | [`tests/security/test_model_pinning.py`](../../tests/security/test_model_pinning.py) | [#4 — bump BGE-M3 SHA to safetensors](https://github.com/chris-dare-dev/arXMCP/issues/4) |
@@ -127,18 +127,28 @@ false-positive data risks mangling legitimate paper content.
 
 **Mitigation epic:** E02_S02 (LaTeXML subprocess + timeout) +
 E13_S03 (hostile-fixture audit: infinite recursion, write18, fork bomb,
-large_alloc, network call).
-**Audit epic:** E13_S03.
+large_alloc, network call; macOS .sb profile + Docker compose config
+shipped as static artifacts). **E13_S03b (2026-05-23)** wired the
+production sandbox layers: `sandbox-exec` on macOS (using the existing
+`infra/latexml/sandbox.sb` profile) and `bubblewrap` (`bwrap`) on
+Linux (preferred over raw seccomp+landlock for distro-package
+availability and no Python C-extension dependency). The Docker layer
+(`infra/latexml/docker-compose.latexml.yml`) already encoded all 5
+hardening flags (`network_mode: none`, `read_only`,
+`security_opt: no-new-privileges`, `cap_drop: ALL`, dedicated
+non-root UID); wiring that compose into a top-level
+`docker-compose.yml` is the only remaining piece, deferred to E14.
+**Audit epic:** E13_S03 + E13_S03b (production sandbox wiring).
 **Test file:** [`tests/security/test_latexml_sandbox.py`](../../tests/security/test_latexml_sandbox.py)
-— 5 hostile-fixture cases.
-**Gaps:** [#3 — production LaTeXML sandbox (sandbox-exec / seccomp / landlock / Docker)](https://github.com/chris-dare-dev/arXMCP/issues/3).
-The production sandbox layers (sandbox-exec on macOS, seccomp + landlock on
-Linux, `--read-only` Docker hardening) are documented in the threat model
-but deferred to the E11/E14 operational tracks. v1 ships subprocess
-isolation + 5-minute timeout + filesystem-write whitelist only. The
-deferred layers are NOT a current production exposure (the subprocess is
-invoked only during ingest, not at request time) but are tracked here for
-completeness.
+— 5 hostile-fixture cases + 5 SBPL profile assertions + 7 Docker
+compose hardening assertions + 3 process-group-kill discipline tests +
+9 new `TestSandboxWiring` POSIX-only tests pinning the platform-detect
++ wrapper-argv construction + degraded-path semantics.
+**Gaps:**
+- ~~[#3 — production LaTeXML sandbox (sandbox-exec / seccomp / landlock / Docker)](https://github.com/chris-dare-dev/arXMCP/issues/3)~~
+  — **closed by E13_S03b** (sandbox-exec + bwrap wired). Docker
+  wiring (merging the per-service compose into the main compose)
+  remains an E14 deliverable.
 
 ---
 
@@ -354,7 +364,7 @@ real-coverage-gap-vs-deferred-design:
 |---|---|---|---|---|
 | G1 | [#1 (closed)](https://github.com/chris-dare-dev/arXMCP/issues/1) | Byte cap not enforced on 5 tools (Threat 4) — **closed by E13_S04b** | MEDIUM | ~~Real coverage gap~~ Closed |
 | G2 | [#2 (closed)](https://github.com/chris-dare-dev/arXMCP/issues/2) | Redirect-host validation missing on `graph_ingest` + `inspire_ingest` (Threat 7) — **closed by E13_S07b** | MEDIUM | ~~Real coverage gap~~ Closed |
-| G3 | [#3](https://github.com/chris-dare-dev/arXMCP/issues/3) | LaTeXML production sandbox layers deferred to E11/E14 (Threat 3) | LOW | Documented design deferral |
+| G3 | [#3 (closed)](https://github.com/chris-dare-dev/arXMCP/issues/3) | LaTeXML production sandbox layers (sandbox-exec macOS / bubblewrap Linux) — **closed by E13_S03b** (Docker compose-wiring remains E14) | LOW | ~~Documented design deferral~~ Closed |
 | G4 | [#4](https://github.com/chris-dare-dev/arXMCP/issues/4) | Embedder BGE-M3 SHA ships `.bin`-only (Threat 6) | LOW | Pin-bump pending; integrity preserved |
 | G5 | [#5 (closed)](https://github.com/chris-dare-dev/arXMCP/issues/5) | `ARXMCP_PIN_ARXIV_CA` stub-only (Threat 7) — **closed by E13_S07c** | LOW | ~~Forward-compat plumbing~~ Closed |
 | G6 | [#6](https://github.com/chris-dare-dev/arXMCP/issues/6) | Sanitizer is opt-in / off by default (Threat 2) | LOW | Design trade-off (false-positive avoidance) |

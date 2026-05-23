@@ -24,15 +24,95 @@ pipeline.
 | 1 | 5 hostile-fixture test corpus + containment test harness | `tests/security/fixtures/latexml/`, `tests/security/test_latexml_sandbox.py` | ✅ E13_S03 |
 | 1 | macOS `sandbox-exec` profile (documentation artifact + test fixture; not wired into production code at v1) | `infra/latexml/sandbox.sb` | ✅ E13_S03 |
 | 1 | Docker isolation config (standalone YAML; static-validated by test; merge into main compose when E14 lands it) | `infra/latexml/docker-compose.latexml.yml` | ✅ E13_S03 |
-| 2 | `sandbox-exec` wired into `parse_with_latexml` on macOS production paths | TBD | ⏳ deferred — E11 |
-| 2 | Linux seccomp+landlock filter in the ingest service | TBD | ⏳ deferred — E11 |
-| 2 | Main docker-compose.yml with the LaTeXML service definition | `docker-compose.yml` | ⏳ deferred — E14 |
-| 2 | Custom seccomp profiles for fine-grained syscall filtering on Linux | TBD | ⏳ documented future hardening |
+| 2 | `sandbox-exec` wired into `parse_with_latexml` on macOS production paths | `tools/arxiv_fetch.py::_build_sandbox_cmd` | ✅ E13_S03b |
+| 2 | Linux sandbox via `bubblewrap` (`bwrap`) wrapper — namespace isolation + network/PID unshare + read-only system binds; chosen over raw seccomp+landlock for distro-package availability and no-C-extension cost | `tools/arxiv_fetch.py::_build_sandbox_cmd` | ✅ E13_S03b |
+| 2 | Sandbox wiring extended to the secondary `ops/drift_check.py::render_fixture` invocation | `ops/drift_check.py::render_fixture` | ✅ E13_S03b |
+| 2 | `latexmlc --timeout=300` CLI flag (defense-in-depth in addition to Python-side `subprocess` timeout) | `tools/arxiv_fetch.py::parse_with_latexml` | ✅ E13_S03b |
+| 2 | Main docker-compose.yml with the LaTeXML service definition (wires the existing static-validated `infra/latexml/docker-compose.latexml.yml` flags) | `docker-compose.yml` | ⏳ deferred — E14 (wiring; the config + 5 hardening flags already shipped in E13_S03) |
+| 2 | Custom seccomp profiles for fine-grained syscall filtering on Linux (beyond what bwrap already applies) | TBD | ⏳ documented future hardening |
 
 The phasing is deliberate. Phase 1 fixes the cross-platform defense
 (process-group kill) that the test suite needs to operate reliably. Phase
 2 wires platform-specific containers and sandbox profiles once the
 production ingest pipeline exists to wire them into.
+
+### Phase 2 wiring (E13_S03b, 2026-05-23)
+
+Closes the Threat 3 deferred-layers gap surfaced by the E13_S10
+cumulative coverage audit (GitHub issue
+[`chris-dare-dev/arXMCP#3`](https://github.com/chris-dare-dev/arXMCP/issues/3)).
+
+**Architecture.** A module-level constant `_SANDBOX_LAYER` resolved at
+import time in `tools/arxiv_fetch.py` selects the active layer via
+runtime platform detection:
+
+- **macOS (`darwin`)** — `sandbox-exec` when `/usr/bin/sandbox-exec`
+  exists AND `infra/latexml/sandbox.sb` is readable. The profile is
+  the same one shipped + statically validated in E13_S03 (credential-
+  directory denies, Perl/CPAN allowlist, write-only on the per-paper
+  `OUTPUT_DIR`).
+- **Linux (`linux*`)** — `bubblewrap` (`bwrap`) when on PATH.
+  Argv form: `bwrap --ro-bind /usr /usr --ro-bind /lib /lib
+  --ro-bind /lib64 /lib64 --ro-bind /etc /etc
+  --ro-bind <source_dir> <source_dir> --bind <output_dir> <output_dir>
+  --tmpfs /tmp --unshare-net --unshare-pid --die-with-parent
+  --new-session -- latexmlc ...`. Chosen over raw seccomp+landlock
+  for: (a) distro-package availability (`apt install bubblewrap`),
+  (b) no Python C extension dependency, (c) NOT setuid root
+  (unlike Firejail's past CVEs), (d) battle-tested as Flatpak
+  infrastructure.
+- **Anything else (Windows, BSDs)** — `_SANDBOX_LAYER = None`. The
+  degraded path: subprocess+timeout-only isolation, same as v1.
+
+**Graceful degradation.** The module-import-time INFO log surfaces
+the active layer (or its absence) once per process. Per-invocation
+DEBUG logs trace per-paper wiring without flooding bulk-ingest
+runs. The subprocess+timeout primitives
+(`start_new_session=True` + `os.killpg`) remain on the MAIN code
+path — they are NOT moved into platform-conditional branches —
+preserving the existing `TestProcessGroupKill` AST guard.
+
+**Fail-closed posture.** On the degraded path
+(`_SANDBOX_LAYER is None`), the `cmd` returns unchanged from
+`_build_sandbox_cmd`. The caller's subprocess+timeout primitives
+remain the only isolation layer; the operator-visible INFO log
+documents this state. NO silent partial sandbox is constructed.
+
+**Test surface.** A new `TestSandboxWiring` class in
+`tests/security/test_latexml_sandbox.py` (9 tests, POSIX-only via
+`@pytest.mark.skipif(sys.platform == "win32", ...)`) pins the
+wiring discipline with mocks — `_detect_sandbox_layer` returns the
+right string per platform, `_build_sandbox_cmd` produces the right
+wrapped argv per layer, the degraded path returns cmd unchanged,
+the helper does not mutate the input cmd, and
+`parse_with_latexml` actually threads the wrapped argv into
+`subprocess.Popen`. The existing 4 `TestProcessGroupKill` /
+`TestSandboxProfile` / `TestDockerLatexmlConfig` /
+`TestLatexmlSandboxContainment` classes continue to pass as
+regression guards.
+
+**Operator runbook.**
+
+- **macOS:** No setup. `sandbox-exec` is built-in.
+- **Linux:** `sudo apt install bubblewrap` (Debian/Ubuntu) or
+  `sudo dnf install bubblewrap` (Fedora). On Flatpak-installed
+  systems it's already present. Verify via `which bwrap`.
+- **First deploy after this milestone:** smoke-test against the
+  50-paper seed corpus (`tools/seed-papers.txt`) to verify no
+  false-positive sandbox-trips. If a paper fails with an
+  EACCES / NoSuchPath error from a sandboxed `open()`, the
+  `infra/latexml/sandbox.sb` profile or the bwrap `--ro-bind`
+  list needs widening — a small follow-up, not a re-do of this
+  milestone.
+
+**Docker layer status.** `infra/latexml/docker-compose.latexml.yml`
+already encodes the five hardening flags (`network_mode: none`,
+`read_only: true`, `security_opt: no-new-privileges`,
+`cap_drop: ALL`, `user: "65534:65534"`). This config is
+static-validated by `TestDockerLatexmlConfig` (7 tests) but is
+NOT wired into a top-level docker-compose.yml — that wiring is an
+E14 deliverable when the main compose lands. The E13_S03b
+sandbox-wiring milestone does not touch the Docker layer.
 
 ---
 

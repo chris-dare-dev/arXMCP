@@ -58,6 +58,7 @@ import shutil
 import signal
 import socket
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -706,4 +707,335 @@ class TestProcessGroupKill:
         # killpg was still called even though it was ineffective.
         assert killpg_calls == [(99002, signal.SIGKILL)], (
             f"killpg should have been called; got {killpg_calls!r}"
+        )
+
+
+# ===========================================================================
+# E13_S03b — Production sandbox wiring (Threat 3 Phase 2)
+#   Closes the partial-coverage gap G3 (github.com/chris-dare-dev/arXMCP#3).
+# ===========================================================================
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="sandbox-exec / bwrap are POSIX-only; Windows takes the "
+    "degraded path unconditionally (no sandbox layer available)",
+)
+class TestSandboxWiring:
+    """E13_S03b — closes Threat 3 Phase 2 gap G3.
+
+    Wires the existing ``infra/latexml/sandbox.sb`` (macOS) and
+    bubblewrap (Linux) into ``parse_with_latexml`` by prepending
+    wrapper argv to the existing ``cmd`` list. The sandbox profile
+    and Docker config were shipped by E13_S03; E13_S03b is wiring-
+    only.
+
+    Tests use MOCKS (not live latexmlc) to verify ``_build_sandbox_cmd``
+    prepends the correct wrapper argv on each platform — this is the
+    only way to assert wiring discipline without requiring the test
+    machine to actually have sandbox-exec OR bwrap installed (the
+    existing ``TestLatexmlSandboxContainment`` skips when latexmlc is
+    absent, which would also skip on a machine that has latexmlc but
+    not the chosen sandbox layer).
+    """
+
+    def test_detect_sandbox_layer_darwin_when_present(self, monkeypatch):
+        """On macOS with sandbox-exec + profile present, returns
+        the string ``"sandbox-exec"``."""
+        from tools import arxiv_fetch as af  # noqa: PLC0415
+
+        monkeypatch.setattr(af.sys, "platform", "darwin")
+        monkeypatch.setattr(
+            af.Path, "is_file", lambda self: True
+        )
+        result = af._detect_sandbox_layer()
+        assert result == "sandbox-exec", (
+            f"darwin + sandbox-exec + profile present must return "
+            f"'sandbox-exec'; got {result!r}"
+        )
+
+    def test_detect_sandbox_layer_darwin_when_sandbox_exec_absent(
+        self, monkeypatch
+    ):
+        """On macOS WITHOUT sandbox-exec (deprecation removed it in
+        a hypothetical future macOS), returns None — degraded path.
+
+        Closes FM-2 (silent sandbox removal): if the operator
+        believes the pin is active but it's not, the next-best
+        signal is the module-import-time INFO log. The wiring
+        decision itself must return None cleanly.
+        """
+        from tools import arxiv_fetch as af  # noqa: PLC0415
+
+        monkeypatch.setattr(af.sys, "platform", "darwin")
+        # Path("/usr/bin/sandbox-exec").is_file() → False
+        original_is_file = Path.is_file
+
+        def fake_is_file(self):
+            if str(self) == "/usr/bin/sandbox-exec":
+                return False
+            return original_is_file(self)
+
+        monkeypatch.setattr(af.Path, "is_file", fake_is_file)
+        result = af._detect_sandbox_layer()
+        assert result is None, (
+            f"darwin without sandbox-exec must return None "
+            f"(degraded path); got {result!r}"
+        )
+
+    def test_detect_sandbox_layer_linux_with_bwrap(self, monkeypatch):
+        """On Linux with bwrap on PATH, returns ``"bwrap"``."""
+        from tools import arxiv_fetch as af  # noqa: PLC0415
+
+        monkeypatch.setattr(af.sys, "platform", "linux")
+        monkeypatch.setattr(
+            af.shutil,
+            "which",
+            lambda name: "/usr/bin/bwrap" if name == "bwrap" else None,
+        )
+        result = af._detect_sandbox_layer()
+        assert result == "bwrap", (
+            f"linux + bwrap on PATH must return 'bwrap'; "
+            f"got {result!r}"
+        )
+
+    def test_detect_sandbox_layer_linux_without_bwrap(self, monkeypatch):
+        """On Linux without bwrap (operator hasn't installed
+        bubblewrap), returns None — degraded path. The
+        module-import-time INFO log is the operator-visible signal
+        that the sandbox is not active.
+        """
+        from tools import arxiv_fetch as af  # noqa: PLC0415
+
+        monkeypatch.setattr(af.sys, "platform", "linux")
+        monkeypatch.setattr(af.shutil, "which", lambda name: None)
+        result = af._detect_sandbox_layer()
+        assert result is None, (
+            f"linux without bwrap must return None (degraded path); "
+            f"got {result!r}"
+        )
+
+    def test_build_sandbox_cmd_darwin_prepends_sandbox_exec(
+        self, monkeypatch, tmp_path
+    ):
+        """When sandbox-exec is the active layer, _build_sandbox_cmd
+        prepends ``/usr/bin/sandbox-exec -f <profile> -D SOURCE_DIR=...
+        -D OUTPUT_DIR=... -D HOME=... -D TMPDIR_SUBDIR=...`` to the
+        original cmd. The original cmd remains the suffix —
+        unmodified — so a future refactor that drops a latexmlc
+        arg gets caught."""
+        from tools import arxiv_fetch as af  # noqa: PLC0415
+
+        monkeypatch.setattr(af, "_SANDBOX_LAYER", "sandbox-exec")
+        source_dir = tmp_path / "src"
+        source_dir.mkdir()
+        output_dir = tmp_path / "out"
+        output_dir.mkdir()
+        tmpdir_subdir = tmp_path / "sbtmp"
+        tmpdir_subdir.mkdir()
+        original = ["latexmlc", "--timeout=300", "main.tex"]
+        result = af._build_sandbox_cmd(
+            original,
+            source_dir=source_dir,
+            output_dir=output_dir,
+            tmpdir_subdir=tmpdir_subdir,
+        )
+        # sandbox-exec must be the FIRST arg.
+        assert result[0] == "/usr/bin/sandbox-exec", (
+            f"expected sandbox-exec to be the first arg; "
+            f"got {result[0]!r}"
+        )
+        # The profile flag must appear.
+        assert "-f" in result
+        f_idx = result.index("-f")
+        assert "sandbox.sb" in result[f_idx + 1], (
+            f"sandbox-exec must point at the .sb profile; "
+            f"got {result[f_idx + 1]!r}"
+        )
+        # The 4 -D substitutions must appear with the right keys.
+        substitutions = " ".join(result)
+        assert f"SOURCE_DIR={source_dir}" in substitutions
+        assert f"OUTPUT_DIR={output_dir}" in substitutions
+        assert f"TMPDIR_SUBDIR={tmpdir_subdir}" in substitutions
+        assert "HOME=" in substitutions
+        # The original cmd appears as the suffix, unmodified.
+        assert result[-len(original):] == original, (
+            f"original cmd must appear as the suffix unmodified; "
+            f"got tail={result[-len(original):]!r}, "
+            f"expected={original!r}"
+        )
+
+    def test_build_sandbox_cmd_linux_prepends_bwrap(
+        self, monkeypatch, tmp_path
+    ):
+        """When bwrap is the active layer, _build_sandbox_cmd
+        prepends ``bwrap --ro-bind ... --unshare-net --unshare-pid
+        --die-with-parent --new-session -- ...`` to the original
+        cmd."""
+        from tools import arxiv_fetch as af  # noqa: PLC0415
+
+        monkeypatch.setattr(af, "_SANDBOX_LAYER", "bwrap")
+        source_dir = tmp_path / "src"
+        source_dir.mkdir()
+        output_dir = tmp_path / "out"
+        output_dir.mkdir()
+        tmpdir_subdir = tmp_path / "sbtmp"
+        tmpdir_subdir.mkdir()
+        original = ["latexmlc", "--timeout=300", "main.tex"]
+        result = af._build_sandbox_cmd(
+            original,
+            source_dir=source_dir,
+            output_dir=output_dir,
+            tmpdir_subdir=tmpdir_subdir,
+        )
+        assert result[0] == "bwrap", (
+            f"expected bwrap to be the first arg; got {result[0]!r}"
+        )
+        # Load-bearing isolation flags MUST be present.
+        for flag in (
+            "--unshare-net",
+            "--unshare-pid",
+            "--die-with-parent",
+            "--new-session",
+        ):
+            assert flag in result, (
+                f"bwrap argv missing load-bearing flag {flag!r}; "
+                f"got {result!r}"
+            )
+        # The end-of-bwrap-args marker '--' must appear right
+        # before the original cmd.
+        sep_idx = result.index("--")
+        assert result[sep_idx + 1 :] == original, (
+            f"original cmd must appear after the '--' separator "
+            f"unmodified; got tail={result[sep_idx + 1 :]!r}, "
+            f"expected={original!r}"
+        )
+        # System paths must be ro-bound (not bind / not tmpfs).
+        for path in ("/usr", "/lib", "/etc"):
+            assert path in result, (
+                f"bwrap argv missing read-only bind for {path!r}"
+            )
+        # source_dir is read-only; output_dir is read-write.
+        ro_bind_indices = [
+            i for i, a in enumerate(result) if a == "--ro-bind"
+        ]
+        bind_indices = [
+            i for i, a in enumerate(result) if a == "--bind"
+        ]
+        ro_bound = [result[i + 1] for i in ro_bind_indices]
+        bound = [result[i + 1] for i in bind_indices]
+        assert str(source_dir) in ro_bound, (
+            f"source_dir must be --ro-bind (read-only); "
+            f"ro_bound={ro_bound!r}"
+        )
+        assert str(output_dir) in bound, (
+            f"output_dir must be --bind (read-write); "
+            f"bound={bound!r}"
+        )
+
+    def test_build_sandbox_cmd_unavailable_returns_unchanged(
+        self, monkeypatch, tmp_path
+    ):
+        """When _SANDBOX_LAYER is None (the degraded path —
+        Windows, or POSIX without sandbox-exec/bwrap), the helper
+        returns the original cmd unchanged. The caller's
+        subprocess+timeout primitives remain the only isolation
+        layer.
+
+        Regression guard for FM-2 (silent degradation): the helper
+        must NOT silently inject a partial sandbox or do anything
+        that hides the degraded state from the operator.
+        """
+        from tools import arxiv_fetch as af  # noqa: PLC0415
+
+        monkeypatch.setattr(af, "_SANDBOX_LAYER", None)
+        original = ["latexmlc", "--timeout=300", "main.tex"]
+        result = af._build_sandbox_cmd(
+            original,
+            source_dir=tmp_path / "src",
+            output_dir=tmp_path / "out",
+            tmpdir_subdir=tmp_path / "sbtmp",
+        )
+        assert result == original, (
+            f"degraded path must return cmd unchanged; "
+            f"got {result!r}, expected {original!r}"
+        )
+        # And identity check: same list object (no defensive copy).
+        # Not strictly required by the contract; documents the
+        # observed behavior.
+        assert result is original
+
+    def test_build_sandbox_cmd_does_not_mutate_input(
+        self, monkeypatch, tmp_path
+    ):
+        """The helper must NOT mutate the input cmd list — callers
+        rely on being able to reuse / log the original argv. The
+        sandbox layers all PREPEND to a new list."""
+        from tools import arxiv_fetch as af  # noqa: PLC0415
+
+        for layer in ("sandbox-exec", "bwrap"):
+            monkeypatch.setattr(af, "_SANDBOX_LAYER", layer)
+            original = ["latexmlc", "--timeout=300", "main.tex"]
+            snapshot = list(original)
+            af._build_sandbox_cmd(
+                original,
+                source_dir=tmp_path / "src",
+                output_dir=tmp_path / "out",
+                tmpdir_subdir=tmp_path / "sbtmp",
+            )
+            assert original == snapshot, (
+                f"_build_sandbox_cmd must not mutate input cmd "
+                f"(layer={layer!r}); got mutated to {original!r}"
+            )
+
+    def test_parse_with_latexml_threads_sandbox_to_popen(
+        self, monkeypatch, tmp_path
+    ):
+        """When _SANDBOX_LAYER is set, parse_with_latexml's Popen
+        must receive the wrapped argv (not the bare latexmlc cmd).
+        Regression guard for FM-3 (wrapper at wrong layer) and FM-5
+        (containment tests skip when latexmlc absent, so wiring
+        bugs can go undetected without this mock-based test).
+        """
+        from tools import arxiv_fetch as af  # noqa: PLC0415
+
+        monkeypatch.setattr(af, "_SANDBOX_LAYER", "bwrap")
+        monkeypatch.setattr(
+            "shutil.which", lambda name: "/usr/bin/latexmlc"
+        )
+        captured_argv: list[list[str]] = []
+
+        class _FakeProc:
+            def __init__(self, *args, **kwargs):
+                self.pid = 12345
+                self.returncode = 0
+                captured_argv.append(list(args[0]))
+
+            def communicate(self, timeout=None):
+                return ("ok", "")
+
+        monkeypatch.setattr(af.subprocess, "Popen", _FakeProc)
+        main = tmp_path / "main.tex"
+        main.write_text(
+            r"\documentclass{article}\begin{document}x\end{document}"
+        )
+        af.parse_with_latexml(
+            main, tmp_path / "parsed", "paper-1", timeout=10
+        )
+        assert len(captured_argv) == 1
+        argv = captured_argv[0]
+        # The wrapped argv must start with bwrap.
+        assert argv[0] == "bwrap", (
+            f"parse_with_latexml must thread the sandbox wrapper "
+            f"to Popen; got argv[0]={argv[0]!r}"
+        )
+        # And the original latexmlc cmd must appear after the '--'
+        # separator.
+        assert "--" in argv
+        sep_idx = argv.index("--")
+        post_sep = argv[sep_idx + 1 :]
+        assert post_sep[0] == "latexmlc"
+        assert f"--timeout={af.LATEXML_INTERNAL_TIMEOUT_SECONDS}" in post_sep, (
+            f"latexmlc CLI --timeout flag must be present (E13_S03b "
+            f"defense-in-depth); got post_sep={post_sep!r}"
         )
