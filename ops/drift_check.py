@@ -163,6 +163,13 @@ def render_fixture(tex_path: Path) -> str:
             tmpdir_subdir=sandbox_tmpdir,
         )
         try:
+            # E13_S03b F4 rectification — synthesis D6 required
+            # ``start_new_session=True`` for parity with
+            # ``parse_with_latexml``'s process-group-kill discipline.
+            # The implementation initially dropped this; F4 adds it
+            # so a hostile fixture whose ``latexmlc`` forks Perl
+            # helpers cannot leave grandchildren behind on
+            # ``TimeoutExpired``.
             proc = subprocess.run(  # noqa: S603 — argv form, no shell
                 cmd,
                 cwd=tmp,
@@ -170,6 +177,7 @@ def render_fixture(tex_path: Path) -> str:
                 text=True,
                 timeout=LATEXML_FIXTURE_TIMEOUT_SECONDS,
                 check=False,
+                start_new_session=True,
             )
         except subprocess.TimeoutExpired as exc:
             raise RuntimeError(

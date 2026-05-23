@@ -421,6 +421,25 @@ class TestSandboxProfile:
                 f"credential directory: {rule!r}"
             )
 
+    def test_profile_allows_tmpdir_subdir_read(self):
+        """E13_S03b F7 rectification — SBPL ``file-write*`` does NOT
+        imply ``file-read*``. Perl helpers commonly write a tmp file
+        then re-open it for read; without an explicit
+        ``file-read*`` allow on TMPDIR_SUBDIR, the sandbox would
+        deny the re-read and trip the parse.
+
+        Pins the profile change so a future edit that removes the
+        read-allow fails this test loudly.
+        """
+        text = self.SANDBOX_PROFILE.read_text()
+        # The literal form added by F7.
+        required = '(allow file-read*\n  (subpath (param "TMPDIR_SUBDIR")))'
+        assert required in text, (
+            f"sandbox profile must allow file-read* on TMPDIR_SUBDIR "
+            f"(E13_S03b F7); Perl atomic-write patterns require it. "
+            f"Expected literal: {required!r}"
+        )
+
 
 class TestDockerLatexmlConfig:
     """Static validation of the standalone Docker config for the
@@ -599,6 +618,45 @@ class TestProcessGroupKill:
             "group on TimeoutExpired (E13_S03 Threat 3)"
         )
 
+    def test_render_fixture_uses_start_new_session(self):
+        """E13_S03b F4 rectification — synthesis D6 required
+        ``start_new_session=True`` parity between
+        ``parse_with_latexml`` (already had it via E13_S03) and
+        ``ops/drift_check.py::render_fixture``. The initial
+        E13_S03b implementation missed it; F4 added the kwarg.
+
+        This AST guard pins the contract — a future refactor that
+        drops the kwarg fails loudly. Mirrors
+        ``test_parse_with_latexml_uses_process_group_kill`` above;
+        AST-based and platform-independent so it runs on Windows
+        too (where the live ``render_fixture`` would also exercise
+        the path on macOS/Linux).
+        """
+        import ast  # noqa: PLC0415
+
+        from ops import drift_check  # noqa: PLC0415
+
+        source = Path(drift_check.__file__).read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        func = next(
+            (
+                n for n in ast.walk(tree)
+                if isinstance(n, ast.FunctionDef)
+                and n.name == "render_fixture"
+            ),
+            None,
+        )
+        assert func is not None, (
+            "render_fixture function not found in ops.drift_check"
+        )
+        func_source = ast.unparse(func)
+        assert "start_new_session=True" in func_source, (
+            "render_fixture must launch latexmlc with "
+            "start_new_session=True for parity with "
+            "parse_with_latexml's process-group-kill discipline "
+            "(E13_S03b F4)"
+        )
+
     def test_timeout_fires_killpg_path(self, tmp_path, monkeypatch):
         """F3 rectification (E13_S03 adversary critique).
 
@@ -741,17 +799,46 @@ class TestSandboxWiring:
 
     def test_detect_sandbox_layer_darwin_when_present(self, monkeypatch):
         """On macOS with sandbox-exec + profile present, returns
-        the string ``"sandbox-exec"``."""
+        the string ``"sandbox-exec"``.
+
+        E13_S03b F5 rectification — the prior version of this test
+        used a blanket ``lambda self: True`` stub for ``Path.is_file``
+        which would pass even if the implementation dropped one of
+        the two existence checks (sandbox-exec binary OR .sb
+        profile). The stricter version below DISCRIMINATES which
+        paths are checked and asserts both: a future refactor that
+        drops either check fails this test.
+        """
         from tools import arxiv_fetch as af  # noqa: PLC0415
 
         monkeypatch.setattr(af.sys, "platform", "darwin")
-        monkeypatch.setattr(
-            af.Path, "is_file", lambda self: True
-        )
+        checked_paths: list[str] = []
+        original_is_file = Path.is_file
+
+        def discriminating_is_file(self):
+            path_str = str(self)
+            checked_paths.append(path_str)
+            if path_str == "/usr/bin/sandbox-exec":
+                return True
+            if path_str.endswith("sandbox.sb"):
+                return True
+            return original_is_file(self)
+
+        monkeypatch.setattr(af.Path, "is_file", discriminating_is_file)
         result = af._detect_sandbox_layer()
         assert result == "sandbox-exec", (
             f"darwin + sandbox-exec + profile present must return "
             f"'sandbox-exec'; got {result!r}"
+        )
+        # F5 — both existence checks must have happened. Pin them
+        # so a future refactor that drops either check fails loudly.
+        assert "/usr/bin/sandbox-exec" in checked_paths, (
+            f"sandbox-exec binary existence must be checked; "
+            f"checked_paths={checked_paths!r}"
+        )
+        assert any(p.endswith("sandbox.sb") for p in checked_paths), (
+            f".sb profile existence must be checked; "
+            f"checked_paths={checked_paths!r}"
         )
 
     def test_detect_sandbox_layer_darwin_when_sandbox_exec_absent(
@@ -869,9 +956,15 @@ class TestSandboxWiring:
         self, monkeypatch, tmp_path
     ):
         """When bwrap is the active layer, _build_sandbox_cmd
-        prepends ``bwrap --ro-bind ... --unshare-net --unshare-pid
-        --die-with-parent --new-session -- ...`` to the original
-        cmd."""
+        prepends ``bwrap --ro-bind ... --proc /proc --dev /dev
+        --unshare-net --unshare-pid --die-with-parent --new-session
+        -- ...`` to the original cmd.
+
+        E13_S03b F1+F2 rectification — ``--proc /proc`` and
+        ``--dev /dev`` MUST be present. ``--unshare-pid`` without
+        ``--proc /proc`` is documented-broken; LaTeXML's Perl
+        helpers also need ``/dev/null`` / ``/dev/urandom``.
+        """
         from tools import arxiv_fetch as af  # noqa: PLC0415
 
         monkeypatch.setattr(af, "_SANDBOX_LAYER", "bwrap")
@@ -881,7 +974,7 @@ class TestSandboxWiring:
         output_dir.mkdir()
         tmpdir_subdir = tmp_path / "sbtmp"
         tmpdir_subdir.mkdir()
-        original = ["latexmlc", "--timeout=300", "main.tex"]
+        original = ["latexmlc", "main.tex"]
         result = af._build_sandbox_cmd(
             original,
             source_dir=source_dir,
@@ -891,8 +984,11 @@ class TestSandboxWiring:
         assert result[0] == "bwrap", (
             f"expected bwrap to be the first arg; got {result[0]!r}"
         )
-        # Load-bearing isolation flags MUST be present.
+        # Load-bearing isolation flags MUST be present (E13_S03b
+        # F1+F2 rectification added /proc and /dev to this list).
         for flag in (
+            "--proc",
+            "--dev",
             "--unshare-net",
             "--unshare-pid",
             "--die-with-parent",
@@ -902,16 +998,33 @@ class TestSandboxWiring:
                 f"bwrap argv missing load-bearing flag {flag!r}; "
                 f"got {result!r}"
             )
+        # F1 — --proc must be paired with /proc target.
+        proc_idx = result.index("--proc")
+        assert result[proc_idx + 1] == "/proc", (
+            f"--proc must target /proc; got {result[proc_idx + 1]!r}"
+        )
+        # F2 — --dev must be paired with /dev target.
+        dev_idx = result.index("--dev")
+        assert result[dev_idx + 1] == "/dev", (
+            f"--dev must target /dev; got {result[dev_idx + 1]!r}"
+        )
         # The end-of-bwrap-args marker '--' must appear right
-        # before the original cmd.
-        sep_idx = result.index("--")
+        # before the original cmd. Find the SEPARATOR '--', not the
+        # earlier '--proc' / '--dev' / etc. — locate the last '--'
+        # in the sequence (since the original cmd has no '--' in it
+        # post-F3 rectification).
+        sep_idx = len(result) - len(original) - 1
+        assert result[sep_idx] == "--", (
+            f"expected '--' separator at index {sep_idx}; "
+            f"got {result[sep_idx]!r}"
+        )
         assert result[sep_idx + 1 :] == original, (
             f"original cmd must appear after the '--' separator "
             f"unmodified; got tail={result[sep_idx + 1 :]!r}, "
             f"expected={original!r}"
         )
         # System paths must be ro-bound (not bind / not tmpfs).
-        for path in ("/usr", "/lib", "/etc"):
+        for path in ("/usr", "/etc"):
             assert path in result, (
                 f"bwrap argv missing read-only bind for {path!r}"
             )
@@ -931,6 +1044,51 @@ class TestSandboxWiring:
         assert str(output_dir) in bound, (
             f"output_dir must be --bind (read-write); "
             f"bound={bound!r}"
+        )
+
+    def test_build_sandbox_cmd_linux_skips_missing_lib_dirs(
+        self, monkeypatch, tmp_path
+    ):
+        """E13_S03b F6 rectification — both ``/lib`` and ``/lib64``
+        ro-binds are now existence-guarded so a minimal-image
+        operator (Alpine, scratch-based container) doesn't trip
+        ``bwrap: Can't bind /lib`` errors.
+
+        Monkey-patches ``Path.exists`` to report neither dir exists;
+        asserts the produced argv has neither ``--ro-bind /lib`` nor
+        ``--ro-bind /lib64`` pairs.
+        """
+        from tools import arxiv_fetch as af  # noqa: PLC0415
+
+        monkeypatch.setattr(af, "_SANDBOX_LAYER", "bwrap")
+        original_exists = Path.exists
+
+        def fake_exists(self):
+            path_str = str(self)
+            if path_str in ("/lib", "/lib64"):
+                return False
+            return original_exists(self)
+
+        monkeypatch.setattr(af.Path, "exists", fake_exists)
+        result = af._build_sandbox_cmd(
+            ["latexmlc", "main.tex"],
+            source_dir=tmp_path / "src",
+            output_dir=tmp_path / "out",
+            tmpdir_subdir=tmp_path / "sbtmp",
+        )
+        # Walk every --ro-bind pair; ensure /lib and /lib64 are
+        # NOT among the targets.
+        ro_bind_indices = [
+            i for i, a in enumerate(result) if a == "--ro-bind"
+        ]
+        ro_bound_targets = [result[i + 1] for i in ro_bind_indices]
+        assert "/lib" not in ro_bound_targets, (
+            f"missing-/lib code path must skip the --ro-bind; "
+            f"ro_bound={ro_bound_targets!r}"
+        )
+        assert "/lib64" not in ro_bound_targets, (
+            f"missing-/lib64 code path must skip the --ro-bind; "
+            f"ro_bound={ro_bound_targets!r}"
         )
 
     def test_build_sandbox_cmd_unavailable_returns_unchanged(
@@ -1029,13 +1187,48 @@ class TestSandboxWiring:
             f"parse_with_latexml must thread the sandbox wrapper "
             f"to Popen; got argv[0]={argv[0]!r}"
         )
-        # And the original latexmlc cmd must appear after the '--'
+        # E13_S03b F8 rectification — the prior test only asserted
+        # the bwrap wrapper was prepended; that left every
+        # individual isolation flag unguarded. Future refactor that
+        # drops --unshare-net (or, post-F1/F2, --proc or --dev)
+        # would survive. Now assert ALL load-bearing isolation
+        # flags appear in the captured argv.
+        for flag in (
+            "--proc",
+            "--dev",
+            "--unshare-net",
+            "--unshare-pid",
+            "--die-with-parent",
+            "--new-session",
+        ):
+            assert flag in argv, (
+                f"parse_with_latexml-threaded argv missing "
+                f"load-bearing flag {flag!r}; got {argv!r}"
+            )
+        # And the original latexmlc cmd must appear after the FINAL
+        # '--' separator (--proc and --dev have their own subsequent
+        # values; the structural separator is the LAST '--').
+        # E13_S03b F3 rectification — the --timeout=300 flag was
+        # removed (no live-integration test exists to prove the
+        # locally-installed latexmlc accepts the flag). The Python-
+        # side subprocess timeout + killpg remain the load-bearing
+        # timeout discipline.
+        # The original cmd has 4 elements: ["latexmlc",
+        # "<main_tex_name>", "--dest=...", "--format=html5"].
+        # Find the latexmlc index instead of searching for '--'.
+        assert "latexmlc" in argv
+        latexmlc_idx = argv.index("latexmlc")
+        # The element immediately before latexmlc must be the '--'
         # separator.
-        assert "--" in argv
-        sep_idx = argv.index("--")
-        post_sep = argv[sep_idx + 1 :]
-        assert post_sep[0] == "latexmlc"
-        assert f"--timeout={af.LATEXML_INTERNAL_TIMEOUT_SECONDS}" in post_sep, (
-            f"latexmlc CLI --timeout flag must be present (E13_S03b "
-            f"defense-in-depth); got post_sep={post_sep!r}"
+        assert argv[latexmlc_idx - 1] == "--", (
+            f"latexmlc must be preceded by the '--' bwrap-args "
+            f"terminator; got argv[{latexmlc_idx - 1}]="
+            f"{argv[latexmlc_idx - 1]!r}"
+        )
+        # F3 — confirm the removed --timeout flag is NOT present.
+        assert not any(
+            arg.startswith("--timeout") for arg in argv[latexmlc_idx:]
+        ), (
+            f"--timeout=... was removed by F3 rectification; "
+            f"argv post-latexmlc={argv[latexmlc_idx:]!r}"
         )

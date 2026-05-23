@@ -99,6 +99,19 @@
 (allow file-write*
   (subpath (param "TMPDIR_SUBDIR")))
 
+;; E13_S03b F7 rectification — Perl helpers (and LaTeXML's atomic-
+;; write patterns) routinely read files back after writing them in
+;; the tmp area. SBPL `file-write*` does NOT imply `file-read*` —
+;; both must be explicitly allowed for the same path, or a Perl
+;; module that opens a fresh tmp file then re-opens for read trips
+;; the sandbox. On macOS, ``tempfile.TemporaryDirectory`` resolves
+;; under ``/var/folders/<random>/T/...`` which is not in the global
+;; file-read allowlist; the explicit TMPDIR_SUBDIR allow below is
+;; the only path through which the sandboxed process can read its
+;; own tmp output.
+(allow file-read*
+  (subpath (param "TMPDIR_SUBDIR")))
+
 ;; --- Network ----------------------------------------------------------------
 ;; Hard-deny. LaTeXML never needs network access — `\input{}` to an
 ;; HTTP URL is the named threat vector and must fail.

@@ -47,12 +47,17 @@ SANDBOX_PROFILE_PATH = (
     / "infra" / "latexml" / "sandbox.sb"
 )
 
-#: E13_S03b — defense-in-depth: pass LaTeXML's own --timeout flag to
-#: ``latexmlc`` in addition to the Python-side ``subprocess`` timeout
-#: + process-group kill. This is a belt+braces layer; if LaTeXML
-#: rejects the flag on an older version, the test surface catches it
-#: against live latexmlc.
-LATEXML_INTERNAL_TIMEOUT_SECONDS = 300
+#: E13_S03b — E13_S03b's initial draft included a
+#: ``--timeout=300`` latexmlc CLI flag for defense-in-depth. The
+#: adversary critique (F3) flagged that we have no live-integration
+#: test proving the flag is accepted by the locally-installed
+#: LaTeXML version — an older binary may reject the unknown option
+#: and silently break the production path. The Python-side
+#: ``subprocess`` ``timeout=`` argument + ``killpg`` discipline
+#: already covers the timeout vector, so the additional flag was
+#: removed in the F3 rectification. If a future milestone adds a
+#: live-integration test (``latexmlc --timeout=300 --help``), the
+#: flag can be re-introduced safely.
 
 PAPER_ID_RE = re.compile(r"^[0-9]{4}\.[0-9]{4,5}$")
 MIN_PARSED_HTML_BYTES = 1024
@@ -434,12 +439,13 @@ def _build_sandbox_cmd(
             *cmd,
         ]
     if _SANDBOX_LAYER == "bwrap":
-        bwrap_args = [
-            "bwrap",
-            "--ro-bind", "/usr", "/usr",
-            "--ro-bind", "/lib", "/lib",
-        ]
-        # /lib64 only exists on 64-bit; bind only if present.
+        bwrap_args = ["bwrap", "--ro-bind", "/usr", "/usr"]
+        # /lib + /lib64 only exist on some distros (Debian merged-usr,
+        # 64-bit). E13_S03b F6 rectification — guard both with
+        # existence checks so a minimal-image (e.g. Alpine, scratch)
+        # operator doesn't trip ``bwrap: Can't bind /lib`` errors.
+        if Path("/lib").exists():
+            bwrap_args.extend(["--ro-bind", "/lib", "/lib"])
         if Path("/lib64").exists():
             bwrap_args.extend(["--ro-bind", "/lib64", "/lib64"])
         # /etc subset is needed for fontconfig + kpathsea + locale.
@@ -448,6 +454,18 @@ def _build_sandbox_cmd(
             "--ro-bind", str(source_dir), str(source_dir),
             "--bind", str(output_dir), str(output_dir),
             "--tmpfs", "/tmp",
+            # E13_S03b F1 — bwrap manpage: "When using --unshare-pid,
+            # you really need to mount /proc, or all of the PIDs are
+            # wrong in /proc and things will get confused." Perl
+            # helpers (LaTeXML runtime) read /proc/self/exe and
+            # /proc/cpuinfo for interpreter discovery and locale
+            # resolution.
+            "--proc", "/proc",
+            # E13_S03b F2 — mount a minimal /dev with null, zero,
+            # random, urandom, tty, full. Perl Math::Random,
+            # Crypt::Random, fontconfig, and subprocesses redirecting
+            # to /dev/null all require these device nodes.
+            "--dev", "/dev",
             "--unshare-net",       # block ALL network egress
             "--unshare-pid",       # block visibility of host PIDs
             "--die-with-parent",   # cleanup on parent death
@@ -494,13 +512,12 @@ def parse_with_latexml(
     out_dir.mkdir(parents=True, exist_ok=True)
     out_html = out_dir / "index.html"
 
-    # E13_S03b — defense-in-depth: pass latexmlc's own --timeout in
-    # addition to the Python-side subprocess timeout. If LaTeXML's
-    # internal scheduler trips first, the kill is cleaner; the
-    # Python-side timeout is the outer-loop guarantee.
+    # E13_S03b F3 rectification — the ``--timeout=300`` latexmlc
+    # CLI flag was dropped (no live-integration test proves the
+    # flag form). Python-side ``subprocess`` timeout + ``killpg``
+    # remain the load-bearing timeout discipline.
     cmd = [
         "latexmlc",
-        f"--timeout={LATEXML_INTERNAL_TIMEOUT_SECONDS}",
         str(main_tex.name),
         f"--dest={out_html}",
         "--format=html5",
