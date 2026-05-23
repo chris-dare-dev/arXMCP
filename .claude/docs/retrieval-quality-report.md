@@ -5,8 +5,30 @@ pipeline (BM25 → ANN+RRF → optional cross-encoder rerank). This
 document is the canonical record consulted by E11_S05's 200K-paper
 scale-cutover go/no-go decision.
 
-**Status:** PRELIMINARY — gate run pending populated 20-query
-fixture.
+**Status:** MEASURED at notebook scale (51 papers, 20 hand-labeled queries)
+as of 2026-05-21. Original E07_S04 20-query global fixture remains empty;
+this report uses the m5 spike's per-notebook fixtures instead, which
+better match downstream's actual use case (intra-notebook precision
+inside a curated topical notebook, not global precision across mixed
+subjects). See `.claude/notes/spikes/wiring-rerank-lift-100paper/note.md`
+for the full per-query breakdown.
+
+## Headline finding (2026-05-21)
+
+| pipeline | mean R@10 | top-1 hit rate | mean latency (CPU) |
+|---|---|---|---|
+| dense-only | 0.936 | **0.850** | **55 ms** |
+| hybrid (BM25 + ANN+RRF) | 0.909 | 0.750 | 59 ms |
+| hybrid + rerank | 0.938 | 0.750 | 6703 ms |
+
+**Hybrid+rerank produces zero precision lift over dense-only and actively
+regresses top-1 by 10 percentage points at 122× latency cost.**
+
+Conclusion: `ARXMCP_ENABLE_RERANK` stays `False` as the production default.
+The `proof-verify-handler-wiring-e3` epic (wire the hybrid pipeline into
+`server/handlers/search.py`) is closed unimplemented.
+
+
 
 ## TL;DR (preliminary)
 

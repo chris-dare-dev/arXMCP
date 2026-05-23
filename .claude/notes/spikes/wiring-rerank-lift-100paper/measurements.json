@@ -1,0 +1,2112 @@
+{
+  "rows": [
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "dense_only",
+      "query_id": "bridge-q1",
+      "difficulty": "easy",
+      "expected_relevant_papers": [
+        "0705.3794",
+        "0712.1083"
+      ],
+      "top_unique_papers": [
+        "0705.3794",
+        "0712.1083",
+        "2411.18554",
+        "2408.00519",
+        "1510.04089",
+        "1009.4372",
+        "1309.4265",
+        "1607.08199",
+        "1302.7030",
+        "1607.01262"
+      ],
+      "paper_precision_at_10": 0.2,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "chunks_from_adjacent_top10": 6,
+      "timings_ms": {
+        "total_ms": 141.13508397713304,
+        "bm25_ms": 0.0,
+        "ann_ms": 141.13508397713304,
+        "rerank_ms": 0.0
+      }
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "dense_only",
+      "query_id": "bridge-q2",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "1207.4980",
+        "1309.4265",
+        "1410.1585",
+        "1510.04089",
+        "1607.08199"
+      ],
+      "top_unique_papers": [
+        "1207.4980",
+        "2408.00519",
+        "1410.1585",
+        "1309.4265",
+        "1106.3430",
+        "1607.08199",
+        "0708.2247",
+        "1607.01262",
+        "1510.04089",
+        "2412.08531"
+      ],
+      "paper_precision_at_10": 0.5,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "chunks_from_adjacent_top10": 4,
+      "timings_ms": {
+        "total_ms": 46.401208033785224,
+        "bm25_ms": 0.0,
+        "ann_ms": 46.401208033785224,
+        "rerank_ms": 0.0
+      }
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "dense_only",
+      "query_id": "bridge-q3",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "1207.4980",
+        "1309.4265",
+        "1510.04089",
+        "1607.08199",
+        "2305.17213",
+        "2402.07154",
+        "2408.00519"
+      ],
+      "top_unique_papers": [
+        "1607.08199",
+        "1410.1585",
+        "2408.00519",
+        "1510.04089",
+        "1309.4265",
+        "1607.01262",
+        "2305.17213",
+        "2411.18554",
+        "0712.1083",
+        "0705.3794"
+      ],
+      "paper_precision_at_10": 0.5,
+      "paper_recall_at_10": 0.7142857142857143,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "chunks_from_adjacent_top10": 4,
+      "timings_ms": {
+        "total_ms": 53.649500012397766,
+        "bm25_ms": 0.0,
+        "ann_ms": 53.649500012397766,
+        "rerank_ms": 0.0
+      }
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "dense_only",
+      "query_id": "bridge-q4",
+      "difficulty": "adversarial",
+      "expected_relevant_papers": [
+        "2203.17148",
+        "2303.07061",
+        "2407.18229"
+      ],
+      "top_unique_papers": [
+        "2203.17148",
+        "2407.18229",
+        "2303.07061",
+        "2403.00548"
+      ],
+      "paper_precision_at_10": 0.3,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "chunks_from_adjacent_top10": 1,
+      "timings_ms": {
+        "total_ms": 42.717000003904104,
+        "bm25_ms": 0.0,
+        "ann_ms": 42.717000003904104,
+        "rerank_ms": 0.0
+      }
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "dense_only",
+      "query_id": "bridge-q5",
+      "difficulty": "easy",
+      "expected_relevant_papers": [
+        "0808.3351"
+      ],
+      "top_unique_papers": [
+        "1605.06568",
+        "0808.3351",
+        "1509.07657",
+        "1112.5114",
+        "1009.4372",
+        "1212.6170",
+        "2402.07154",
+        "1309.4265",
+        "1310.8266",
+        "1410.1585"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": false,
+      "rank_of_first_relevant": 2,
+      "chunks_from_adjacent_top10": 8,
+      "timings_ms": {
+        "total_ms": 45.02283304464072,
+        "bm25_ms": 0.0,
+        "ann_ms": 45.02283304464072,
+        "rerank_ms": 0.0
+      }
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "dense_only",
+      "query_id": "bridge-q6",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "0811.2435",
+        "1905.00748",
+        "2412.08531"
+      ],
+      "top_unique_papers": [
+        "0811.2435",
+        "0712.1083",
+        "2403.00548",
+        "1905.00748",
+        "2303.07061",
+        "1302.7030",
+        "1312.1748",
+        "1406.0908",
+        "2412.08531",
+        "1410.1585"
+      ],
+      "paper_precision_at_10": 0.3,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "chunks_from_adjacent_top10": 4,
+      "timings_ms": {
+        "total_ms": 45.68029195070267,
+        "bm25_ms": 0.0,
+        "ann_ms": 45.68029195070267,
+        "rerank_ms": 0.0
+      }
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "dense_only",
+      "query_id": "bridge-q7",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "1406.0908"
+      ],
+      "top_unique_papers": [
+        "1406.0908",
+        "1607.01262",
+        "0708.2247",
+        "2412.08531",
+        "1112.5114",
+        "1410.1585",
+        "0705.3794",
+        "2408.00519",
+        "1302.7030",
+        "1009.4372"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "chunks_from_adjacent_top10": 3,
+      "timings_ms": {
+        "total_ms": 43.57170901494101,
+        "bm25_ms": 0.0,
+        "ann_ms": 43.57170901494101,
+        "rerank_ms": 0.0
+      }
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "dense_only",
+      "query_id": "bridge-q8",
+      "difficulty": "adversarial",
+      "expected_relevant_papers": [
+        "1605.06568"
+      ],
+      "top_unique_papers": [
+        "1605.06568",
+        "1509.07657",
+        "1411.1799",
+        "2501.16157",
+        "1112.5114",
+        "2305.17213",
+        "2412.08531",
+        "0708.2247",
+        "1302.7030",
+        "1212.6170"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "chunks_from_adjacent_top10": 8,
+      "timings_ms": {
+        "total_ms": 51.95024999557063,
+        "bm25_ms": 0.0,
+        "ann_ms": 51.95024999557063,
+        "rerank_ms": 0.0
+      }
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "dense_only",
+      "query_id": "bridge-q9",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "0705.3794",
+        "1310.8266",
+        "1406.2566",
+        "2505.03433"
+      ],
+      "top_unique_papers": [
+        "2408.00519",
+        "2505.03433",
+        "1310.8266",
+        "1607.01262",
+        "1009.4372",
+        "1302.7030",
+        "1406.0908",
+        "2412.08531",
+        "1410.1585",
+        "0811.2435"
+      ],
+      "paper_precision_at_10": 0.2,
+      "paper_recall_at_10": 0.5,
+      "top1_in_expected": false,
+      "rank_of_first_relevant": 2,
+      "chunks_from_adjacent_top10": 6,
+      "timings_ms": {
+        "total_ms": 51.63383297622204,
+        "bm25_ms": 0.0,
+        "ann_ms": 51.63383297622204,
+        "rerank_ms": 0.0
+      }
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "dense_only",
+      "query_id": "bridge-q10",
+      "difficulty": "adversarial",
+      "expected_relevant_papers": [
+        "1302.7030",
+        "1509.07657"
+      ],
+      "top_unique_papers": [
+        "1302.7030",
+        "1106.3430",
+        "1406.2566",
+        "1009.4372",
+        "1410.1585",
+        "2408.00519",
+        "1309.4265",
+        "2505.03433",
+        "0808.3351",
+        "0712.1083"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 0.5,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "chunks_from_adjacent_top10": 2,
+      "timings_ms": {
+        "total_ms": 53.15183300990611,
+        "bm25_ms": 0.0,
+        "ann_ms": 53.15183300990611,
+        "rerank_ms": 0.0
+      }
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "hybrid",
+      "query_id": "bridge-q1",
+      "difficulty": "easy",
+      "expected_relevant_papers": [
+        "0705.3794",
+        "0712.1083"
+      ],
+      "top_unique_papers": [
+        "0705.3794",
+        "2411.18554",
+        "0712.1083",
+        "2408.00519",
+        "1406.0908",
+        "1607.08199",
+        "1410.1585",
+        "1302.7030",
+        "1510.04089",
+        "1009.4372"
+      ],
+      "paper_precision_at_10": 0.2,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "chunks_from_adjacent_top10": 7,
+      "timings_ms": {
+        "bm25_ms": 6.563125003594905,
+        "ann_ms": 17.042000021319836,
+        "rerank_ms": 0.0027909991331398487,
+        "total_ms": 72.37724994774908
+      }
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "hybrid",
+      "query_id": "bridge-q2",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "1207.4980",
+        "1309.4265",
+        "1410.1585",
+        "1510.04089",
+        "1607.08199"
+      ],
+      "top_unique_papers": [
+        "1207.4980",
+        "2408.00519",
+        "1410.1585",
+        "1309.4265",
+        "1106.3430",
+        "1510.04089",
+        "0708.2247",
+        "1310.8266",
+        "1607.01262",
+        "2305.17213"
+      ],
+      "paper_precision_at_10": 0.4,
+      "paper_recall_at_10": 0.8,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "chunks_from_adjacent_top10": 3,
+      "timings_ms": {
+        "bm25_ms": 3.291417029686272,
+        "ann_ms": 10.666083020623773,
+        "rerank_ms": 0.002167013008147478,
+        "total_ms": 53.35475003812462
+      }
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "hybrid",
+      "query_id": "bridge-q3",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "1207.4980",
+        "1309.4265",
+        "1510.04089",
+        "1607.08199",
+        "2305.17213",
+        "2402.07154",
+        "2408.00519"
+      ],
+      "top_unique_papers": [
+        "1607.08199",
+        "1410.1585",
+        "1309.4265",
+        "2408.00519",
+        "2411.18554",
+        "2305.17213",
+        "1510.04089",
+        "0712.1083",
+        "1607.01262",
+        "1406.0908"
+      ],
+      "paper_precision_at_10": 0.5,
+      "paper_recall_at_10": 0.7142857142857143,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "chunks_from_adjacent_top10": 5,
+      "timings_ms": {
+        "bm25_ms": 3.5677499836310744,
+        "ann_ms": 10.620500019285828,
+        "rerank_ms": 0.0020840088836848736,
+        "total_ms": 62.31004104483873
+      }
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "hybrid",
+      "query_id": "bridge-q4",
+      "difficulty": "adversarial",
+      "expected_relevant_papers": [
+        "2203.17148",
+        "2303.07061",
+        "2407.18229"
+      ],
+      "top_unique_papers": [
+        "2403.00548",
+        "2203.17148",
+        "2303.07061",
+        "2407.18229",
+        "2305.17213",
+        "2407.06974",
+        "1406.2566"
+      ],
+      "paper_precision_at_10": 0.3,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": false,
+      "rank_of_first_relevant": 2,
+      "chunks_from_adjacent_top10": 2,
+      "timings_ms": {
+        "bm25_ms": 3.7884580087848008,
+        "ann_ms": 8.403207990340889,
+        "rerank_ms": 0.001792039256542921,
+        "total_ms": 51.70679104048759
+      }
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "hybrid",
+      "query_id": "bridge-q5",
+      "difficulty": "easy",
+      "expected_relevant_papers": [
+        "0808.3351"
+      ],
+      "top_unique_papers": [
+        "1605.06568",
+        "0808.3351",
+        "1509.07657",
+        "1112.5114",
+        "1009.4372",
+        "1012.3530",
+        "2501.16157",
+        "2402.07154",
+        "1406.0908",
+        "2305.17213"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": false,
+      "rank_of_first_relevant": 2,
+      "chunks_from_adjacent_top10": 8,
+      "timings_ms": {
+        "bm25_ms": 5.533750052563846,
+        "ann_ms": 10.698792000766844,
+        "rerank_ms": 0.0019170111045241356,
+        "total_ms": 55.34854100551456
+      }
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "hybrid",
+      "query_id": "bridge-q6",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "0811.2435",
+        "1905.00748",
+        "2412.08531"
+      ],
+      "top_unique_papers": [
+        "0712.1083",
+        "0811.2435",
+        "2403.00548",
+        "1302.7030",
+        "2303.07061",
+        "1905.00748",
+        "1312.1748",
+        "2407.18229",
+        "1607.01262",
+        "1410.1585"
+      ],
+      "paper_precision_at_10": 0.2,
+      "paper_recall_at_10": 0.6666666666666666,
+      "top1_in_expected": false,
+      "rank_of_first_relevant": 2,
+      "chunks_from_adjacent_top10": 5,
+      "timings_ms": {
+        "bm25_ms": 2.788541023619473,
+        "ann_ms": 12.025791977066547,
+        "rerank_ms": 0.0022909953258931637,
+        "total_ms": 54.45729201892391
+      }
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "hybrid",
+      "query_id": "bridge-q7",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "1406.0908"
+      ],
+      "top_unique_papers": [
+        "1406.0908",
+        "1607.01262",
+        "1112.5114",
+        "0708.2247",
+        "2412.08531",
+        "1302.7030",
+        "0705.3794",
+        "1310.8266",
+        "2408.00519",
+        "2305.17213"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "chunks_from_adjacent_top10": 3,
+      "timings_ms": {
+        "bm25_ms": 4.297124978620559,
+        "ann_ms": 10.559250018559396,
+        "rerank_ms": 0.0018749851733446121,
+        "total_ms": 53.68591699516401
+      }
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "hybrid",
+      "query_id": "bridge-q8",
+      "difficulty": "adversarial",
+      "expected_relevant_papers": [
+        "1605.06568"
+      ],
+      "top_unique_papers": [
+        "1411.1799",
+        "1509.07657",
+        "1605.06568",
+        "2305.17213",
+        "1212.6170",
+        "1302.7030",
+        "1406.0908",
+        "2501.16157",
+        "1607.01262",
+        "2402.07154"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": false,
+      "rank_of_first_relevant": 3,
+      "chunks_from_adjacent_top10": 6,
+      "timings_ms": {
+        "bm25_ms": 3.3072500373236835,
+        "ann_ms": 9.798791958019137,
+        "rerank_ms": 0.0016249832697212696,
+        "total_ms": 59.584375005215406
+      }
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "hybrid",
+      "query_id": "bridge-q9",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "0705.3794",
+        "1310.8266",
+        "1406.2566",
+        "2505.03433"
+      ],
+      "top_unique_papers": [
+        "2408.00519",
+        "2505.03433",
+        "1302.7030",
+        "0811.2435",
+        "0705.3794",
+        "1607.01262",
+        "1009.4372",
+        "1406.0908",
+        "2412.08531",
+        "1410.1585"
+      ],
+      "paper_precision_at_10": 0.2,
+      "paper_recall_at_10": 0.5,
+      "top1_in_expected": false,
+      "rank_of_first_relevant": 2,
+      "chunks_from_adjacent_top10": 6,
+      "timings_ms": {
+        "bm25_ms": 4.565208044368774,
+        "ann_ms": 11.259791965130717,
+        "rerank_ms": 0.0017500133253633976,
+        "total_ms": 62.588792003225535
+      }
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "hybrid",
+      "query_id": "bridge-q10",
+      "difficulty": "adversarial",
+      "expected_relevant_papers": [
+        "1302.7030",
+        "1509.07657"
+      ],
+      "top_unique_papers": [
+        "1302.7030",
+        "2505.03433",
+        "1406.2566",
+        "1106.3430",
+        "1406.0908",
+        "0712.1083",
+        "2203.17148",
+        "2408.00519",
+        "1410.1585",
+        "2412.08531"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 0.5,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "chunks_from_adjacent_top10": 0,
+      "timings_ms": {
+        "bm25_ms": 4.297708976082504,
+        "ann_ms": 12.029916048049927,
+        "rerank_ms": 0.00204198295250535,
+        "total_ms": 63.557791989296675
+      }
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "hybrid_rerank",
+      "query_id": "bridge-q1",
+      "difficulty": "easy",
+      "expected_relevant_papers": [
+        "0705.3794",
+        "0712.1083"
+      ],
+      "top_unique_papers": [
+        "2411.18554",
+        "0705.3794",
+        "0712.1083",
+        "2408.00519",
+        "1009.4372",
+        "1302.7030",
+        "1410.1585",
+        "1309.4265",
+        "1510.04089",
+        "1607.01262"
+      ],
+      "paper_precision_at_10": 0.2,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": false,
+      "rank_of_first_relevant": 2,
+      "chunks_from_adjacent_top10": 6,
+      "timings_ms": {
+        "bm25_ms": 8.84841603692621,
+        "ann_ms": 15.308249974623322,
+        "rerank_ms": 7305.042665975634,
+        "total_ms": 7377.037541999016
+      }
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "hybrid_rerank",
+      "query_id": "bridge-q2",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "1207.4980",
+        "1309.4265",
+        "1410.1585",
+        "1510.04089",
+        "1607.08199"
+      ],
+      "top_unique_papers": [
+        "1207.4980",
+        "1309.4265",
+        "1410.1585",
+        "2408.00519",
+        "1106.3430",
+        "1510.04089",
+        "0708.2247",
+        "1607.01262",
+        "1310.8266",
+        "2407.06974"
+      ],
+      "paper_precision_at_10": 0.4,
+      "paper_recall_at_10": 0.8,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "chunks_from_adjacent_top10": 5,
+      "timings_ms": {
+        "bm25_ms": 4.502457974012941,
+        "ann_ms": 11.546500027179718,
+        "rerank_ms": 6636.427458957769,
+        "total_ms": 6754.004541027825
+      }
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "hybrid_rerank",
+      "query_id": "bridge-q3",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "1207.4980",
+        "1309.4265",
+        "1510.04089",
+        "1607.08199",
+        "2305.17213",
+        "2402.07154",
+        "2408.00519"
+      ],
+      "top_unique_papers": [
+        "1607.08199",
+        "1510.04089",
+        "2408.00519",
+        "1309.4265",
+        "1410.1585",
+        "2411.18554",
+        "2305.17213",
+        "1607.01262",
+        "0712.1083",
+        "1106.3430"
+      ],
+      "paper_precision_at_10": 0.5,
+      "paper_recall_at_10": 0.7142857142857143,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "chunks_from_adjacent_top10": 2,
+      "timings_ms": {
+        "bm25_ms": 3.7263749982230365,
+        "ann_ms": 11.157625005580485,
+        "rerank_ms": 6619.135416985955,
+        "total_ms": 6684.093999967445
+      }
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "hybrid_rerank",
+      "query_id": "bridge-q4",
+      "difficulty": "adversarial",
+      "expected_relevant_papers": [
+        "2203.17148",
+        "2303.07061",
+        "2407.18229"
+      ],
+      "top_unique_papers": [
+        "2203.17148",
+        "2407.18229",
+        "2303.07061",
+        "2403.00548",
+        "2305.17213",
+        "2407.06974",
+        "1406.2566"
+      ],
+      "paper_precision_at_10": 0.3,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "chunks_from_adjacent_top10": 0,
+      "timings_ms": {
+        "bm25_ms": 4.013374971691519,
+        "ann_ms": 8.93183401785791,
+        "rerank_ms": 6606.066334003117,
+        "total_ms": 6660.158667014912
+      }
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "hybrid_rerank",
+      "query_id": "bridge-q5",
+      "difficulty": "easy",
+      "expected_relevant_papers": [
+        "0808.3351"
+      ],
+      "top_unique_papers": [
+        "1605.06568",
+        "0808.3351",
+        "1509.07657",
+        "1009.4372",
+        "1112.5114",
+        "1406.0908",
+        "2402.07154",
+        "1012.3530",
+        "2305.17213",
+        "1302.7030"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": false,
+      "rank_of_first_relevant": 2,
+      "chunks_from_adjacent_top10": 8,
+      "timings_ms": {
+        "bm25_ms": 6.567042029928416,
+        "ann_ms": 10.853749990928918,
+        "rerank_ms": 6613.508832990192,
+        "total_ms": 6672.476957959589
+      }
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "hybrid_rerank",
+      "query_id": "bridge-q6",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "0811.2435",
+        "1905.00748",
+        "2412.08531"
+      ],
+      "top_unique_papers": [
+        "1302.7030",
+        "0811.2435",
+        "2403.00548",
+        "0712.1083",
+        "2407.18229",
+        "1410.1585",
+        "1905.00748",
+        "2412.08531",
+        "2303.07061",
+        "1406.0908"
+      ],
+      "paper_precision_at_10": 0.3,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": false,
+      "rank_of_first_relevant": 2,
+      "chunks_from_adjacent_top10": 5,
+      "timings_ms": {
+        "bm25_ms": 3.3984160399995744,
+        "ann_ms": 11.646708007901907,
+        "rerank_ms": 6566.3283340400085,
+        "total_ms": 6622.429292008746
+      }
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "hybrid_rerank",
+      "query_id": "bridge-q7",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "1406.0908"
+      ],
+      "top_unique_papers": [
+        "1406.0908",
+        "1607.01262",
+        "2412.08531",
+        "1009.4372",
+        "0708.2247",
+        "1112.5114",
+        "2501.16157",
+        "1302.7030",
+        "0705.3794",
+        "1310.8266"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "chunks_from_adjacent_top10": 4,
+      "timings_ms": {
+        "bm25_ms": 4.541375034023076,
+        "ann_ms": 11.16920803906396,
+        "rerank_ms": 6647.503708023578,
+        "total_ms": 6702.029749983922
+      }
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "hybrid_rerank",
+      "query_id": "bridge-q8",
+      "difficulty": "adversarial",
+      "expected_relevant_papers": [
+        "1605.06568"
+      ],
+      "top_unique_papers": [
+        "1605.06568",
+        "1411.1799",
+        "1509.07657",
+        "2305.17213",
+        "2501.16157",
+        "1406.0908",
+        "2402.07154",
+        "1607.01262",
+        "1302.7030",
+        "1212.6170"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "chunks_from_adjacent_top10": 7,
+      "timings_ms": {
+        "bm25_ms": 3.6775420303456485,
+        "ann_ms": 10.620666958857328,
+        "rerank_ms": 6577.85254099872,
+        "total_ms": 6646.367666020524
+      }
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "hybrid_rerank",
+      "query_id": "bridge-q9",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "0705.3794",
+        "1310.8266",
+        "1406.2566",
+        "2505.03433"
+      ],
+      "top_unique_papers": [
+        "2505.03433",
+        "2408.00519",
+        "1607.01262",
+        "1310.8266",
+        "1410.1585",
+        "1302.7030",
+        "1406.0908",
+        "0811.2435",
+        "1406.2566",
+        "2412.08531"
+      ],
+      "paper_precision_at_10": 0.3,
+      "paper_recall_at_10": 0.75,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "chunks_from_adjacent_top10": 6,
+      "timings_ms": {
+        "bm25_ms": 4.886000009719282,
+        "ann_ms": 10.668417031411082,
+        "rerank_ms": 6617.640000011306,
+        "total_ms": 6683.33537504077
+      }
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "hybrid_rerank",
+      "query_id": "bridge-q10",
+      "difficulty": "adversarial",
+      "expected_relevant_papers": [
+        "1302.7030",
+        "1509.07657"
+      ],
+      "top_unique_papers": [
+        "1302.7030",
+        "1406.2566",
+        "1009.4372",
+        "2505.03433",
+        "2408.00519",
+        "0712.1083",
+        "1510.04089",
+        "0705.3794",
+        "1410.1585",
+        "2203.17148"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 0.5,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "chunks_from_adjacent_top10": 0,
+      "timings_ms": {
+        "bm25_ms": 4.496750014368445,
+        "ann_ms": 12.86495802924037,
+        "rerank_ms": 6589.333915966563,
+        "total_ms": 6658.529583015479
+      }
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "dense_only",
+      "query_id": "shimura-q1",
+      "difficulty": "easy",
+      "expected_relevant_papers": [
+        "1105.0887",
+        "2310.16184"
+      ],
+      "top_unique_papers": [
+        "1105.0887",
+        "2310.16184",
+        "2402.05727",
+        "1511.02418",
+        "2409.03689",
+        "2502.20645",
+        "2109.08788",
+        "1909.01898"
+      ],
+      "paper_precision_at_10": 0.2,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "chunks_from_adjacent_top10": 1,
+      "timings_ms": {
+        "total_ms": 55.83695898531005,
+        "bm25_ms": 0.0,
+        "ann_ms": 55.83695898531005,
+        "rerank_ms": 0.0
+      }
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "dense_only",
+      "query_id": "shimura-q2",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "1512.01149",
+        "2402.05727",
+        "2409.03689"
+      ],
+      "top_unique_papers": [
+        "1512.01149",
+        "2402.05727",
+        "2409.03689",
+        "2310.16184",
+        "1105.0887",
+        "1511.02418",
+        "1909.01898",
+        "2109.08788",
+        "2502.20645",
+        "1306.2070"
+      ],
+      "paper_precision_at_10": 0.3,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "chunks_from_adjacent_top10": 1,
+      "timings_ms": {
+        "total_ms": 51.97437497554347,
+        "bm25_ms": 0.0,
+        "ann_ms": 51.97437497554347,
+        "rerank_ms": 0.0
+      }
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "dense_only",
+      "query_id": "shimura-q3",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "1306.2070",
+        "1511.02418",
+        "1909.01898"
+      ],
+      "top_unique_papers": [
+        "1909.01898",
+        "1306.2070",
+        "2310.16184",
+        "2502.20645",
+        "1511.02418",
+        "1512.01149",
+        "1105.0887",
+        "2109.08788"
+      ],
+      "paper_precision_at_10": 0.3,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "chunks_from_adjacent_top10": 3,
+      "timings_ms": {
+        "total_ms": 56.3600420136936,
+        "bm25_ms": 0.0,
+        "ann_ms": 56.3600420136936,
+        "rerank_ms": 0.0
+      }
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "dense_only",
+      "query_id": "shimura-q4",
+      "difficulty": "easy",
+      "expected_relevant_papers": [
+        "2109.08788"
+      ],
+      "top_unique_papers": [
+        "2109.08788",
+        "2402.05727",
+        "1909.01898",
+        "2310.16184",
+        "2502.20645",
+        "1511.02418",
+        "1105.0887",
+        "2409.03689"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "chunks_from_adjacent_top10": 7,
+      "timings_ms": {
+        "total_ms": 56.05204199673608,
+        "bm25_ms": 0.0,
+        "ann_ms": 56.05204199673608,
+        "rerank_ms": 0.0
+      }
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "dense_only",
+      "query_id": "shimura-q5",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "2408.16571"
+      ],
+      "top_unique_papers": [
+        "2408.16571",
+        "2502.20645",
+        "1909.01898",
+        "2310.16184",
+        "2501.07944",
+        "1511.02418",
+        "1306.2070",
+        "2409.03689",
+        "1105.0887",
+        "2109.08788"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "chunks_from_adjacent_top10": 6,
+      "timings_ms": {
+        "total_ms": 53.12162498012185,
+        "bm25_ms": 0.0,
+        "ann_ms": 53.12162498012185,
+        "rerank_ms": 0.0
+      }
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "dense_only",
+      "query_id": "shimura-q6",
+      "difficulty": "easy",
+      "expected_relevant_papers": [
+        "2502.20645"
+      ],
+      "top_unique_papers": [
+        "2502.20645",
+        "2310.16184",
+        "1909.01898",
+        "1105.0887",
+        "1306.2070"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "chunks_from_adjacent_top10": 0,
+      "timings_ms": {
+        "total_ms": 54.77700004121289,
+        "bm25_ms": 0.0,
+        "ann_ms": 54.77700004121289,
+        "rerank_ms": 0.0
+      }
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "dense_only",
+      "query_id": "shimura-q7",
+      "difficulty": "adversarial",
+      "expected_relevant_papers": [
+        "2402.05727"
+      ],
+      "top_unique_papers": [
+        "2402.05727",
+        "2409.03689",
+        "1105.0887",
+        "2310.16184",
+        "2502.20645",
+        "1511.02418",
+        "1512.01149",
+        "2109.08788",
+        "1909.01898"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "chunks_from_adjacent_top10": 6,
+      "timings_ms": {
+        "total_ms": 52.06499999621883,
+        "bm25_ms": 0.0,
+        "ann_ms": 52.06499999621883,
+        "rerank_ms": 0.0
+      }
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "dense_only",
+      "query_id": "shimura-q8",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "1512.01149",
+        "2310.16184",
+        "2402.05727",
+        "2409.03689"
+      ],
+      "top_unique_papers": [
+        "1105.0887",
+        "2310.16184",
+        "2409.03689",
+        "2402.05727",
+        "1511.02418",
+        "1512.01149",
+        "1909.01898",
+        "2502.20645",
+        "2109.08788"
+      ],
+      "paper_precision_at_10": 0.4,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": false,
+      "rank_of_first_relevant": 2,
+      "chunks_from_adjacent_top10": 5,
+      "timings_ms": {
+        "total_ms": 53.44741704175249,
+        "bm25_ms": 0.0,
+        "ann_ms": 53.44741704175249,
+        "rerank_ms": 0.0
+      }
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "dense_only",
+      "query_id": "shimura-q9",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "1511.02418",
+        "1909.01898"
+      ],
+      "top_unique_papers": [
+        "1511.02418",
+        "2502.20645",
+        "1909.01898",
+        "2409.03689",
+        "1105.0887",
+        "2310.16184",
+        "1512.01149",
+        "2402.05727",
+        "1306.2070",
+        "2109.08788"
+      ],
+      "paper_precision_at_10": 0.2,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "chunks_from_adjacent_top10": 4,
+      "timings_ms": {
+        "total_ms": 45.78333400422707,
+        "bm25_ms": 0.0,
+        "ann_ms": 45.78333400422707,
+        "rerank_ms": 0.0
+      }
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "dense_only",
+      "query_id": "shimura-q10",
+      "difficulty": "adversarial",
+      "expected_relevant_papers": [
+        "1511.02418"
+      ],
+      "top_unique_papers": [
+        "1511.02418",
+        "1909.01898",
+        "2310.16184",
+        "2409.03689",
+        "1105.0887",
+        "2402.05727",
+        "2109.08788",
+        "1512.01149",
+        "2502.20645"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "chunks_from_adjacent_top10": 7,
+      "timings_ms": {
+        "total_ms": 52.00495902681723,
+        "bm25_ms": 0.0,
+        "ann_ms": 52.00495902681723,
+        "rerank_ms": 0.0
+      }
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "hybrid",
+      "query_id": "shimura-q1",
+      "difficulty": "easy",
+      "expected_relevant_papers": [
+        "1105.0887",
+        "2310.16184"
+      ],
+      "top_unique_papers": [
+        "2310.16184",
+        "1105.0887",
+        "2109.08788",
+        "1512.01149",
+        "2402.05727",
+        "2409.03689",
+        "2502.20645",
+        "1511.02418"
+      ],
+      "paper_precision_at_10": 0.2,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "chunks_from_adjacent_top10": 1,
+      "timings_ms": {
+        "bm25_ms": 4.4850410195067525,
+        "ann_ms": 13.356458046473563,
+        "rerank_ms": 0.0018749851733446121,
+        "total_ms": 65.60616596834734
+      }
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "hybrid",
+      "query_id": "shimura-q2",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "1512.01149",
+        "2402.05727",
+        "2409.03689"
+      ],
+      "top_unique_papers": [
+        "1512.01149",
+        "2402.05727",
+        "2310.16184",
+        "2409.03689",
+        "2109.08788",
+        "1105.0887",
+        "2502.20645",
+        "1511.02418",
+        "1306.2070",
+        "1909.01898"
+      ],
+      "paper_precision_at_10": 0.3,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "chunks_from_adjacent_top10": 2,
+      "timings_ms": {
+        "bm25_ms": 4.064375010784715,
+        "ann_ms": 15.663583995774388,
+        "rerank_ms": 0.002500019036233425,
+        "total_ms": 66.95437501184642
+      }
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "hybrid",
+      "query_id": "shimura-q3",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "1306.2070",
+        "1511.02418",
+        "1909.01898"
+      ],
+      "top_unique_papers": [
+        "1909.01898",
+        "2310.16184",
+        "2502.20645",
+        "1306.2070",
+        "1511.02418",
+        "1105.0887",
+        "1512.01149",
+        "2109.08788",
+        "2501.07944"
+      ],
+      "paper_precision_at_10": 0.3,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "chunks_from_adjacent_top10": 3,
+      "timings_ms": {
+        "bm25_ms": 3.600750002078712,
+        "ann_ms": 9.554249991197139,
+        "rerank_ms": 0.001667009200900793,
+        "total_ms": 60.840124962851405
+      }
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "hybrid",
+      "query_id": "shimura-q4",
+      "difficulty": "easy",
+      "expected_relevant_papers": [
+        "2109.08788"
+      ],
+      "top_unique_papers": [
+        "2109.08788",
+        "2402.05727",
+        "2310.16184",
+        "1105.0887",
+        "1512.01149",
+        "1909.01898",
+        "1306.2070",
+        "1511.02418",
+        "2409.03689",
+        "2502.20645"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "chunks_from_adjacent_top10": 7,
+      "timings_ms": {
+        "bm25_ms": 2.9689170187339187,
+        "ann_ms": 9.07420797739178,
+        "rerank_ms": 0.002374988980591297,
+        "total_ms": 59.69858297612518
+      }
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "hybrid",
+      "query_id": "shimura-q5",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "2408.16571"
+      ],
+      "top_unique_papers": [
+        "2408.16571",
+        "2502.20645",
+        "1909.01898",
+        "1511.02418",
+        "2310.16184",
+        "2501.07944",
+        "1306.2070",
+        "2109.08788",
+        "1105.0887",
+        "2409.03689"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "chunks_from_adjacent_top10": 6,
+      "timings_ms": {
+        "bm25_ms": 2.5553330196999013,
+        "ann_ms": 9.515125013422221,
+        "rerank_ms": 0.0018749851733446121,
+        "total_ms": 59.85220900038257
+      }
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "hybrid",
+      "query_id": "shimura-q6",
+      "difficulty": "easy",
+      "expected_relevant_papers": [
+        "2502.20645"
+      ],
+      "top_unique_papers": [
+        "2502.20645",
+        "2310.16184",
+        "1512.01149",
+        "1105.0887",
+        "1909.01898",
+        "1511.02418",
+        "2109.08788",
+        "1306.2070"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "chunks_from_adjacent_top10": 0,
+      "timings_ms": {
+        "bm25_ms": 2.856832987163216,
+        "ann_ms": 7.3289580177515745,
+        "rerank_ms": 0.00204198295250535,
+        "total_ms": 59.02037501800805
+      }
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "hybrid",
+      "query_id": "shimura-q7",
+      "difficulty": "adversarial",
+      "expected_relevant_papers": [
+        "2402.05727"
+      ],
+      "top_unique_papers": [
+        "2402.05727",
+        "2310.16184",
+        "1105.0887",
+        "1512.01149",
+        "2409.03689",
+        "2109.08788",
+        "2502.20645",
+        "1511.02418",
+        "1909.01898"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "chunks_from_adjacent_top10": 7,
+      "timings_ms": {
+        "bm25_ms": 3.1828749924898148,
+        "ann_ms": 8.442791004199535,
+        "rerank_ms": 0.00204198295250535,
+        "total_ms": 58.80266602616757
+      }
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "hybrid",
+      "query_id": "shimura-q8",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "1512.01149",
+        "2310.16184",
+        "2402.05727",
+        "2409.03689"
+      ],
+      "top_unique_papers": [
+        "2310.16184",
+        "1105.0887",
+        "2409.03689",
+        "2402.05727",
+        "1512.01149",
+        "2109.08788",
+        "1511.02418",
+        "2502.20645"
+      ],
+      "paper_precision_at_10": 0.4,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "chunks_from_adjacent_top10": 2,
+      "timings_ms": {
+        "bm25_ms": 3.6944590392522514,
+        "ann_ms": 8.725207997485995,
+        "rerank_ms": 0.002541986759752035,
+        "total_ms": 59.95870899641886
+      }
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "hybrid",
+      "query_id": "shimura-q9",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "1511.02418",
+        "1909.01898"
+      ],
+      "top_unique_papers": [
+        "1511.02418",
+        "2310.16184",
+        "1909.01898",
+        "2409.03689",
+        "1105.0887",
+        "1306.2070",
+        "2502.20645",
+        "2402.05727",
+        "2109.08788",
+        "1512.01149"
+      ],
+      "paper_precision_at_10": 0.2,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "chunks_from_adjacent_top10": 4,
+      "timings_ms": {
+        "bm25_ms": 2.9952499899081886,
+        "ann_ms": 9.035624971147627,
+        "rerank_ms": 0.00200001522898674,
+        "total_ms": 49.84862497076392
+      }
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "hybrid",
+      "query_id": "shimura-q10",
+      "difficulty": "adversarial",
+      "expected_relevant_papers": [
+        "1511.02418"
+      ],
+      "top_unique_papers": [
+        "1511.02418",
+        "1909.01898",
+        "2310.16184",
+        "1105.0887",
+        "2409.03689",
+        "1306.2070",
+        "2402.05727",
+        "1512.01149",
+        "2109.08788",
+        "2502.20645"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "chunks_from_adjacent_top10": 7,
+      "timings_ms": {
+        "bm25_ms": 2.869332965929061,
+        "ann_ms": 8.824458986055106,
+        "rerank_ms": 0.0019170111045241356,
+        "total_ms": 58.8968750089407
+      }
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "hybrid_rerank",
+      "query_id": "shimura-q1",
+      "difficulty": "easy",
+      "expected_relevant_papers": [
+        "1105.0887",
+        "2310.16184"
+      ],
+      "top_unique_papers": [
+        "1105.0887",
+        "2310.16184",
+        "2402.05727",
+        "2109.08788",
+        "2409.03689",
+        "1512.01149",
+        "1511.02418",
+        "2502.20645"
+      ],
+      "paper_precision_at_10": 0.2,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "chunks_from_adjacent_top10": 0,
+      "timings_ms": {
+        "bm25_ms": 4.3745829607360065,
+        "ann_ms": 12.163750012405217,
+        "rerank_ms": 6639.130250026938,
+        "total_ms": 6709.586125041824
+      }
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "hybrid_rerank",
+      "query_id": "shimura-q2",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "1512.01149",
+        "2402.05727",
+        "2409.03689"
+      ],
+      "top_unique_papers": [
+        "1512.01149",
+        "2310.16184",
+        "2402.05727",
+        "2409.03689",
+        "2109.08788",
+        "1511.02418",
+        "1306.2070",
+        "1105.0887",
+        "2502.20645",
+        "1909.01898"
+      ],
+      "paper_precision_at_10": 0.3,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "chunks_from_adjacent_top10": 3,
+      "timings_ms": {
+        "bm25_ms": 3.805166983511299,
+        "ann_ms": 8.923833025619388,
+        "rerank_ms": 6646.271459001582,
+        "total_ms": 6708.156417007558
+      }
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "hybrid_rerank",
+      "query_id": "shimura-q3",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "1306.2070",
+        "1511.02418",
+        "1909.01898"
+      ],
+      "top_unique_papers": [
+        "1909.01898",
+        "2310.16184",
+        "1306.2070",
+        "1511.02418",
+        "2502.20645",
+        "1105.0887",
+        "2109.08788",
+        "1512.01149",
+        "2501.07944"
+      ],
+      "paper_precision_at_10": 0.3,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "chunks_from_adjacent_top10": 2,
+      "timings_ms": {
+        "bm25_ms": 3.1862499890848994,
+        "ann_ms": 9.28954203845933,
+        "rerank_ms": 6574.731667002197,
+        "total_ms": 6635.443083010614
+      }
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "hybrid_rerank",
+      "query_id": "shimura-q4",
+      "difficulty": "easy",
+      "expected_relevant_papers": [
+        "2109.08788"
+      ],
+      "top_unique_papers": [
+        "2109.08788",
+        "2310.16184",
+        "2409.03689",
+        "1511.02418",
+        "1512.01149",
+        "2402.05727",
+        "2502.20645",
+        "1306.2070",
+        "1105.0887",
+        "1909.01898"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "chunks_from_adjacent_top10": 6,
+      "timings_ms": {
+        "bm25_ms": 2.6787910028360784,
+        "ann_ms": 8.485250000376254,
+        "rerank_ms": 6650.592666002922,
+        "total_ms": 6711.238583025988
+      }
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "hybrid_rerank",
+      "query_id": "shimura-q5",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "2408.16571"
+      ],
+      "top_unique_papers": [
+        "1909.01898",
+        "1511.02418",
+        "2408.16571",
+        "2501.07944",
+        "2502.20645",
+        "2310.16184",
+        "2409.03689",
+        "1512.01149",
+        "2109.08788",
+        "1105.0887"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": false,
+      "rank_of_first_relevant": 3,
+      "chunks_from_adjacent_top10": 6,
+      "timings_ms": {
+        "bm25_ms": 2.3424579994753003,
+        "ann_ms": 9.418750007171184,
+        "rerank_ms": 6479.114457964897,
+        "total_ms": 6549.620624980889
+      }
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "hybrid_rerank",
+      "query_id": "shimura-q6",
+      "difficulty": "easy",
+      "expected_relevant_papers": [
+        "2502.20645"
+      ],
+      "top_unique_papers": [
+        "2502.20645",
+        "2310.16184",
+        "1512.01149",
+        "1909.01898",
+        "1105.0887",
+        "2109.08788",
+        "1511.02418",
+        "1306.2070"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "chunks_from_adjacent_top10": 0,
+      "timings_ms": {
+        "bm25_ms": 2.5827499921433628,
+        "ann_ms": 8.11366701964289,
+        "rerank_ms": 6516.6173340403475,
+        "total_ms": 6581.697042041924
+      }
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "hybrid_rerank",
+      "query_id": "shimura-q7",
+      "difficulty": "adversarial",
+      "expected_relevant_papers": [
+        "2402.05727"
+      ],
+      "top_unique_papers": [
+        "2402.05727",
+        "2310.16184",
+        "1512.01149",
+        "2109.08788",
+        "1105.0887",
+        "2409.03689",
+        "2502.20645",
+        "1511.02418",
+        "1909.01898"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "chunks_from_adjacent_top10": 8,
+      "timings_ms": {
+        "bm25_ms": 3.1064170179888606,
+        "ann_ms": 8.660208026412874,
+        "rerank_ms": 6670.574874966405,
+        "total_ms": 6732.498666970059
+      }
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "hybrid_rerank",
+      "query_id": "shimura-q8",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "1512.01149",
+        "2310.16184",
+        "2402.05727",
+        "2409.03689"
+      ],
+      "top_unique_papers": [
+        "2310.16184",
+        "1105.0887",
+        "2409.03689",
+        "1512.01149",
+        "1511.02418",
+        "2109.08788",
+        "2402.05727",
+        "2502.20645"
+      ],
+      "paper_precision_at_10": 0.4,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "chunks_from_adjacent_top10": 4,
+      "timings_ms": {
+        "bm25_ms": 3.803167026489973,
+        "ann_ms": 9.231042000465095,
+        "rerank_ms": 6645.789707952645,
+        "total_ms": 6709.231249988079
+      }
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "hybrid_rerank",
+      "query_id": "shimura-q9",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "1511.02418",
+        "1909.01898"
+      ],
+      "top_unique_papers": [
+        "1511.02418",
+        "1909.01898",
+        "2502.20645",
+        "2409.03689",
+        "2310.16184",
+        "2109.08788",
+        "1306.2070",
+        "1512.01149",
+        "1105.0887",
+        "2402.05727"
+      ],
+      "paper_precision_at_10": 0.2,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "chunks_from_adjacent_top10": 4,
+      "timings_ms": {
+        "bm25_ms": 3.359749971423298,
+        "ann_ms": 9.51195799279958,
+        "rerank_ms": 6575.411791971419,
+        "total_ms": 6631.0755829908885
+      }
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "hybrid_rerank",
+      "query_id": "shimura-q10",
+      "difficulty": "adversarial",
+      "expected_relevant_papers": [
+        "1511.02418"
+      ],
+      "top_unique_papers": [
+        "1909.01898",
+        "1511.02418",
+        "2310.16184",
+        "2109.08788",
+        "2409.03689",
+        "1306.2070",
+        "1512.01149",
+        "1105.0887",
+        "2502.20645",
+        "2402.05727"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": false,
+      "rank_of_first_relevant": 2,
+      "chunks_from_adjacent_top10": 8,
+      "timings_ms": {
+        "bm25_ms": 3.094124956987798,
+        "ann_ms": 8.717874996364117,
+        "rerank_ms": 6570.333792013116,
+        "total_ms": 6631.058250030037
+      }
+    }
+  ],
+  "summary": {
+    "dense_only": {
+      "overall": {
+        "n": 20,
+        "mean_p10": 0.21500000000000002,
+        "mean_r10": 0.9357142857142857,
+        "top1_rate": 0.85,
+        "mean_adj_chunks": 4.3,
+        "mean_total_ms": 55.31681475404184
+      },
+      "easy": {
+        "n": 5,
+        "mean_p10": 0.13999999999999999,
+        "mean_r10": 1.0,
+        "top1_rate": 0.8,
+        "mean_adj_chunks": 4.4
+      },
+      "hard": {
+        "n": 10,
+        "mean_p10": 0.29000000000000004,
+        "mean_r10": 0.9214285714285715,
+        "top1_rate": 0.8,
+        "mean_adj_chunks": 4.0
+      },
+      "adversarial": {
+        "n": 5,
+        "mean_p10": 0.13999999999999999,
+        "mean_r10": 0.9,
+        "top1_rate": 1.0,
+        "mean_adj_chunks": 4.8
+      }
+    },
+    "hybrid": {
+      "overall": {
+        "n": 20,
+        "mean_p10": 0.20500000000000002,
+        "mean_r10": 0.909047619047619,
+        "top1_rate": 0.75,
+        "mean_adj_chunks": 4.2,
+        "mean_total_ms": 59.42251245141961
+      },
+      "easy": {
+        "n": 5,
+        "mean_p10": 0.13999999999999999,
+        "mean_r10": 1.0,
+        "top1_rate": 0.8,
+        "mean_adj_chunks": 4.6
+      },
+      "hard": {
+        "n": 10,
+        "mean_p10": 0.27,
+        "mean_r10": 0.868095238095238,
+        "top1_rate": 0.8,
+        "mean_adj_chunks": 3.9
+      },
+      "adversarial": {
+        "n": 5,
+        "mean_p10": 0.13999999999999999,
+        "mean_r10": 0.9,
+        "top1_rate": 0.6,
+        "mean_adj_chunks": 4.4
+      }
+    },
+    "hybrid_rerank": {
+      "overall": {
+        "n": 20,
+        "mean_p10": 0.21500000000000002,
+        "mean_r10": 0.9382142857142857,
+        "top1_rate": 0.75,
+        "mean_adj_chunks": 4.2,
+        "mean_total_ms": 6703.003449956304
+      },
+      "easy": {
+        "n": 5,
+        "mean_p10": 0.13999999999999999,
+        "mean_r10": 1.0,
+        "top1_rate": 0.6,
+        "mean_adj_chunks": 4.0
+      },
+      "hard": {
+        "n": 10,
+        "mean_p10": 0.29000000000000004,
+        "mean_r10": 0.9264285714285714,
+        "top1_rate": 0.8,
+        "mean_adj_chunks": 4.1
+      },
+      "adversarial": {
+        "n": 5,
+        "mean_p10": 0.13999999999999999,
+        "mean_r10": 0.9,
+        "top1_rate": 0.8,
+        "mean_adj_chunks": 4.6
+      }
+    }
+  },
+  "lifts": {
+    "overall": {
+      "hybrid_p10_lift": -0.010000000000000009,
+      "rerank_p10_lift_over_hybrid": 0.010000000000000009,
+      "full_p10_lift_over_dense": 0.0,
+      "hybrid_top1_lift": -0.09999999999999998,
+      "rerank_top1_lift_over_hybrid": 0.0,
+      "full_top1_lift_over_dense": -0.09999999999999998,
+      "hybrid_adj_delta": -0.09999999999999964,
+      "rerank_adj_delta": 0.0
+    },
+    "easy": {
+      "hybrid_p10_lift": 0.0,
+      "rerank_p10_lift_over_hybrid": 0.0,
+      "full_p10_lift_over_dense": 0.0,
+      "hybrid_top1_lift": 0.0,
+      "rerank_top1_lift_over_hybrid": -0.20000000000000007,
+      "full_top1_lift_over_dense": -0.20000000000000007,
+      "hybrid_adj_delta": 0.1999999999999993,
+      "rerank_adj_delta": -0.5999999999999996
+    },
+    "hard": {
+      "hybrid_p10_lift": -0.020000000000000018,
+      "rerank_p10_lift_over_hybrid": 0.020000000000000018,
+      "full_p10_lift_over_dense": 0.0,
+      "hybrid_top1_lift": 0.0,
+      "rerank_top1_lift_over_hybrid": 0.0,
+      "full_top1_lift_over_dense": 0.0,
+      "hybrid_adj_delta": -0.10000000000000009,
+      "rerank_adj_delta": 0.19999999999999973
+    },
+    "adversarial": {
+      "hybrid_p10_lift": 0.0,
+      "rerank_p10_lift_over_hybrid": 0.0,
+      "full_p10_lift_over_dense": 0.0,
+      "hybrid_top1_lift": -0.4,
+      "rerank_top1_lift_over_hybrid": 0.20000000000000007,
+      "full_top1_lift_over_dense": -0.19999999999999996,
+      "hybrid_adj_delta": -0.39999999999999947,
+      "rerank_adj_delta": 0.1999999999999993
+    }
+  },
+  "config": {
+    "top_k": 10,
+    "ann_over_fetch": 50,
+    "hybrid_fuse_top_n": 50,
+    "notebooks": [
+      "bridgeland-stability",
+      "shimura-varieties"
+    ]
+  }
+}
