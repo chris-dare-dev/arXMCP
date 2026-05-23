@@ -169,10 +169,35 @@ change touches more than ~3 files or adds new tests, run the pipeline.
   ```bash
   uv run python -m pytest --tb=no -p no:warnings 2>&1 | grep "passed"
   ```
-- **Two test markers exist:** `requires_model` (skipped by default; opt-in
-  via per-model env vars like `ARXMCP_RUN_REAL_BGE_RERANKER=1`) and `eval`
-  (the Tier-0→Tier-1 gate; skipped via cold-start matrix when fixture or
-  corpus is missing).
+- **Six test markers exist** (registered in `pyproject.toml`
+  `[tool.pytest.ini_options].markers`):
+  - **`requires_model`** — tests that download / load a real ML
+    model (BGE-M3, BGE-reranker-v2-m3, etc.). Skipped by default;
+    opt-in via `pytest -m requires_model` AND per-model env vars
+    (`ARXMCP_RUN_REAL_BGE_RERANKER=1`, etc.).
+  - **`eval`** — end-to-end retrieval-quality eval against the
+    curated 20-query fixture (E05_S02 / E07_S04). Tier-0 → Tier-1
+    gate; skipped via cold-start matrix when fixture or corpus is
+    missing.
+  - **`requires_latexmlc`** — tests that invoke the real `latexmlc`
+    binary (E10_S04 drift detector). Skipped by default; opt-in
+    via `pytest -m requires_latexmlc`. Install: `brew install
+    latexml` / `apt install latexml`.
+  - **`requires_full_corpus`** — tests against a fully-ingested
+    200K-paper corpus (E11_S01 sanity). Skipped by default; opt-in
+    via `pytest -m requires_full_corpus` AND
+    `ARXMCP_RUN_FULL_CORPUS_TESTS=1`.
+  - **`requires_lean_repl`** — tests that invoke the real Lean 4
+    REPL subprocess (verification-feedback-m2+). Skipped by
+    default; opt-in via BOTH `ARXMCP_LAKE_PATH` and
+    `ARXMCP_LEAN_REPL_DIR` env vars.
+  - **`requires_pdflatex`** — tests that invoke the real
+    `pdflatex` + `pdftoppm` binaries (parser-fidelity-eval-m1 CDM
+    gate). Skipped by default; opt-in via `pytest -m
+    requires_pdflatex` AND `ARXMCP_RUN_REAL_PDFLATEX=1`. Install:
+    `brew install --cask mactex-no-gui && brew install poppler` /
+    `apt install texlive-base poppler-utils`. Subprocess sandbox
+    profile at `.claude/docs/security-cdm-sandbox.md` (Threat-3 peer).
 
 ### 4.6 Doc placement (re-stated; this is load-bearing)
 
