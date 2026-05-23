@@ -105,9 +105,16 @@ ARXMCP_RUN_REAL_PDFLATEX=1 \
     -m requires_pdflatex
 ```
 
-**What scores mean** (CDM F1 in [0, 1]):
+**What scores mean** (CDM F1 in [0, 1]). The four bands below are
+**arXMCP-chosen** — anchored on the Nougat-on-clean-papers ~85%
+baseline for the 0.85 boundary and the CDM paper's worked examples
+for the perfect/near-perfect distinction, but the 0.70 boundary and
+the secondary-parser recommendation are project judgment, not
+published guidelines. **Re-tune as parser-bake-off data accumulates**
+on the 20-page fixture below; do not cite these as upstream
+authority.
 
-| CDM score | Interpretation |
+| CDM score | Interpretation (arXMCP-chosen) |
 |---|---|
 | **≥ 0.95** | Near-perfect math fidelity — comparable to LaTeXML-on-source baseline |
 | **0.85 – 0.95** | Acceptable for textbook ingest (Tier-1 promotion threshold) |
@@ -118,6 +125,8 @@ The 0.85 threshold matches the parsing-note baseline (Nougat
 ~85% on clean papers) and reflects the project's "math fidelity
 over coverage" stance from
 [`.claude/notes/01-mission-and-context.md`](.claude/notes/01-mission-and-context.md).
+Neither the CDM paper (arXiv:2409.03643) nor OmniDocBench defines
+the 0.70 / 0.95 boundaries — those are arXMCP's working defaults.
 
 The 20-page eval fixture at
 [`tests/eval/textbook_fixtures/`](tests/eval/textbook_fixtures/)

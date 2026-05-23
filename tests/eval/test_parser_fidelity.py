@@ -27,15 +27,18 @@ fixture completion per `.claude/TIER-GATES.md`.
 from __future__ import annotations
 
 import json
-import os
-import shutil
+import os  # noqa: F401 — referenced by lazy skipif string-condition below
+import shutil  # noqa: F401 — referenced by lazy skipif string-condition below
 from pathlib import Path
 
 import numpy as np
 import pytest
 
+from tools import cdm_eval
 from tools.cdm_eval import (
+    AggregateResult,
     TokenBbox,
+    _cost_matrix,  # noqa: PLC2701 — regression-test target for F1
     aggregate_cdm,
     cdm_score,
     color_grid,
@@ -336,18 +339,19 @@ class TestFixturePerPageContract:
 # ---------------------------------------------------------------------------
 
 
-def _pdflatex_available() -> bool:
-    return (
-        shutil.which("pdflatex") is not None
-        and shutil.which("pdftoppm") is not None
-        and os.environ.get("ARXMCP_RUN_REAL_PDFLATEX") == "1"
-    )
+# NOTE: The `requires_pdflatex` skipif used to call a module-level
+# `_pdflatex_available()` helper. That form evaluated at module-
+# import time, so any CI plugin or autouse fixture that flipped
+# ARXMCP_RUN_REAL_PDFLATEX after import would not unstick the skip.
+# We use pytest's lazy string-condition form below to defer the
+# evaluation to test-run time (rectifies parser-fidelity-eval-m1 F7).
 
 
 @pytest.mark.requires_pdflatex
 @pytest.mark.eval
 @pytest.mark.skipif(
-    not _pdflatex_available(),
+    "shutil.which('pdflatex') is None or shutil.which('pdftoppm') is None"
+    " or os.environ.get('ARXMCP_RUN_REAL_PDFLATEX') != '1'",
     reason="pdflatex + pdftoppm not on PATH, or ARXMCP_RUN_REAL_PDFLATEX != 1",
 )
 class TestRenderLatexToImage:
@@ -363,7 +367,8 @@ class TestRenderLatexToImage:
 @pytest.mark.requires_pdflatex
 @pytest.mark.eval
 @pytest.mark.skipif(
-    not _pdflatex_available(),
+    "shutil.which('pdflatex') is None or shutil.which('pdftoppm') is None"
+    " or os.environ.get('ARXMCP_RUN_REAL_PDFLATEX') != '1'",
     reason="pdflatex + pdftoppm not on PATH, or ARXMCP_RUN_REAL_PDFLATEX != 1",
 )
 class TestCdmScoreEndToEnd:
@@ -384,21 +389,25 @@ class TestCdmScoreEndToEnd:
 @pytest.mark.requires_pdflatex
 @pytest.mark.eval
 @pytest.mark.skipif(
-    not _pdflatex_available(),
+    "shutil.which('pdflatex') is None or shutil.which('pdftoppm') is None"
+    " or os.environ.get('ARXMCP_RUN_REAL_PDFLATEX') != '1'",
     reason="pdflatex + pdftoppm not on PATH, or ARXMCP_RUN_REAL_PDFLATEX != 1",
 )
 class TestAggregateCdm:
     def test_aggregate_empty(self, tmp_path: Path) -> None:
-        mean, scores = aggregate_cdm([], work_dir=tmp_path)
-        assert mean == 0.0
-        assert scores == []
+        result = aggregate_cdm([], work_dir=tmp_path)
+        assert isinstance(result, AggregateResult)
+        assert result.mean == 0.0
+        assert result.scores == []
+        assert result.failures == []
 
     def test_aggregate_single_perfect_pair(self, tmp_path: Path) -> None:
-        mean, scores = aggregate_cdm(
+        result = aggregate_cdm(
             [(r"x", r"x")], work_dir=tmp_path,
         )
-        assert mean == pytest.approx(1.0)
-        assert len(scores) == 1
+        assert result.mean == pytest.approx(1.0)
+        assert len(result.scores) == 1
+        assert result.failures == []
 
 
 # ---------------------------------------------------------------------------
@@ -435,3 +444,253 @@ def test_tier1_promotion_gate_status() -> None:
         "Fixture complete but no --parser flag provided. Re-run with "
         "`pytest tests/eval/test_parser_fidelity.py --parser=<name>`."
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase-4 rectification regression tests (parser-fidelity-eval-m1)
+# ---------------------------------------------------------------------------
+
+
+class TestCostMatrixOrderingNormalization:
+    """Regression for F1 (HIGH). The ordering-cost `lo` must stay in
+    [0, 1] regardless of how many invisible tokens (braces, script
+    markers, etc.) fall out of the bbox filter. Pre-fix, `lo` was
+    normalized by the visible-token count, so any formula whose raw
+    tokenizer index exceeded the visible count produced `lo > 1.0`
+    and biased the F1 score downward.
+    """
+
+    def test_lo_stays_le_one_with_invisible_tokens(self) -> None:
+        # Simulate a 2-visible-of-7-raw-token formula (think
+        # `\frac{a}{b}` — 7 tokenizer outputs, 2 visible glyphs at
+        # raw-indices 2 and 5).
+        predicted_full = [
+            TokenBbox(token=t, index=i, color=(0, 0, 0))
+            for i, t in enumerate(["\\frac", "{", "a", "}", "{", "b", "}"])
+        ]
+        # Only "a" (idx=2) and "b" (idx=5) get bboxes.
+        predicted_full[2] = TokenBbox(
+            token="a", index=2, color=(0, 0, 0), bbox=(0, 0, 5, 5),
+        )
+        predicted_full[5] = TokenBbox(
+            token="b", index=5, color=(0, 0, 15), bbox=(0, 10, 5, 15),
+        )
+        # Mirror for ground-truth (identical shape).
+        gt_full = [
+            TokenBbox(token=t, index=i, color=(0, 0, 0))
+            for i, t in enumerate(["\\frac", "{", "a", "}", "{", "b", "}"])
+        ]
+        gt_full[2] = TokenBbox(
+            token="a", index=2, color=(0, 0, 0), bbox=(0, 0, 5, 5),
+        )
+        gt_full[5] = TokenBbox(
+            token="b", index=5, color=(0, 0, 15), bbox=(0, 10, 5, 15),
+        )
+        # Build the cost matrix.
+        cost = _cost_matrix(
+            predicted_full, gt_full,
+            pred_img_shape=(100, 100, 3),
+            gt_img_shape=(100, 100, 3),
+        )
+        # Each cell's `lo` contribution is bounded by raw_n=7, so
+        # max(|p.idx/7 - g.idx/7|) ≤ 1.0 always. The total cost should
+        # be small (identical tokens, identical bboxes) and well under
+        # the 0.5 threshold so both pairs match cleanly.
+        assert cost.shape == (2, 2)
+        # Off-diagonal cells are the worst case: lt=1 (different
+        # tokens "a" vs "b"), lp=L1(bbox-diff), lo=|2/7 - 5/7|=3/7.
+        # The diagonal cells (a→a, b→b) should be near zero.
+        assert cost[0, 0] < 0.1, f"Diagonal cost too high: {cost[0, 0]}"
+        assert cost[1, 1] < 0.1, f"Diagonal cost too high: {cost[1, 1]}"
+        # The bug pre-fix: lo = |2/2 - 5/2| = 1.5 (visible-count
+        # denominator), so the WORST cell's lo would have been 1.5.
+        # Post-fix: max possible lo = |2/7 - 5/7| ≈ 0.43. No cell can
+        # exceed Wt*1 + Wp*4 + Wo*1 = 3.1, and in practice (matching
+        # tokens) stays far below.
+        max_lo_contribution = _LATEX_MAX_LO_CONTRIBUTION  # 0.1 * 1.0
+        # Check that no cell exceeds Wt + Wp*4 + Wo (worst-case bound).
+        worst_case_bound = 1.0 + 0.5 * 4 + max_lo_contribution
+        assert (cost <= worst_case_bound).all(), (
+            f"Cost matrix exceeds worst-case bound: {cost.max()} > {worst_case_bound}"
+        )
+
+    def test_lo_normalizes_by_raw_count_not_visible(self) -> None:
+        # Pre-fix this test would FAIL — lo for the (p.idx=10, g.idx=10,
+        # m=n=1) pair would compute as |10/1 - 10/1| = 0 (coincidence
+        # only because indices align). The more telling case: p.idx=10,
+        # g.idx=0 with m=n=1 — visible-count denominator gives
+        # |10/1 - 0/1| = 10, raw-count denominator gives
+        # |10/11 - 0/11| ≈ 0.91.
+        pred = [
+            TokenBbox(token="x", index=i, color=(i, 0, 0))
+            for i in range(11)  # 11 raw tokens
+        ]
+        # Only token at index 10 visible.
+        pred[10] = TokenBbox(
+            token="x", index=10, color=(10, 0, 0), bbox=(0, 0, 5, 5),
+        )
+        gt = [
+            TokenBbox(token="x", index=i, color=(i, 0, 0))
+            for i in range(11)
+        ]
+        # Only token at index 0 visible.
+        gt[0] = TokenBbox(
+            token="x", index=0, color=(0, 0, 0), bbox=(0, 0, 5, 5),
+        )
+        cost = _cost_matrix(
+            pred, gt,
+            pred_img_shape=(100, 100, 3),
+            gt_img_shape=(100, 100, 3),
+        )
+        # lo = |10/11 - 0/11| ≈ 0.909; lt=0 (matching); lp≈0 (same bbox).
+        # cost ≈ 0 + 0 + 0.1 * 0.909 ≈ 0.091, well under the 0.5 threshold.
+        # Pre-fix bug: lo = |10/1 - 0/1| = 10; cost ≈ 0 + 0 + 0.1 * 10 = 1.0
+        # which exceeds the threshold and would be rejected as a match.
+        assert cost.shape == (1, 1)
+        assert cost[0, 0] < 0.5, (
+            f"Cost {cost[0, 0]} exceeds match threshold — F1 ordering "
+            f"bug may have regressed"
+        )
+
+
+# Sentinel for the bound calculation in the test above (avoids magic
+# number in the assertion; pulled from _WEIGHT_ORDER * max(|lo|)=1.0).
+_LATEX_MAX_LO_CONTRIBUTION: float = 0.1
+
+
+class TestAggregateFailuresObservability:
+    """Regression for F3 (MEDIUM). When a pair raises during rendering,
+    `aggregate_cdm` substitutes 0.0 AND records the failure in
+    `result.failures` — the operator can distinguish "scored zero" from
+    "render crashed". Pre-fix the failure count was silently lost.
+    """
+
+    def test_failure_recorded_in_aggregate_result(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    ) -> None:
+        # Mock cdm_score to raise on the second pair.
+        call_count = {"n": 0}
+
+        def fake_cdm_score(*args: object, **kwargs: object) -> object:
+            call_count["n"] += 1
+            if call_count["n"] == 2:
+                raise RuntimeError("boom")
+
+            class FakeResult:
+                score = 0.9
+
+            return FakeResult()
+
+        monkeypatch.setattr(cdm_eval, "cdm_score", fake_cdm_score)
+        result = aggregate_cdm(
+            [("a", "a"), ("b", "b"), ("c", "c")],
+            work_dir=tmp_path,
+        )
+        # Two clean scores (0.9, 0.9) + one substituted-zero.
+        assert result.scores == [0.9, 0.0, 0.9]
+        assert result.failures == [(1, "boom")]
+        # Mean across all three: (0.9 + 0.0 + 0.9) / 3 = 0.6.
+        assert result.mean == pytest.approx(0.6)
+
+    def test_no_failures_means_empty_failures_list(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    ) -> None:
+        def fake_cdm_score(*args: object, **kwargs: object) -> object:
+            class FakeResult:
+                score = 1.0
+
+            return FakeResult()
+
+        monkeypatch.setattr(cdm_eval, "cdm_score", fake_cdm_score)
+        result = aggregate_cdm([("a", "a")], work_dir=tmp_path)
+        assert result.failures == []
+        assert result.mean == pytest.approx(1.0)
+
+
+class TestUnicodeTokenization:
+    """Regression for F10 (LOW). Documented in `tokenize_latex`
+    docstring: literal-unicode math chars round-trip but do NOT
+    canonicalize to backslash form. The fixture-curation contract
+    requires operator to pick one shape.
+    """
+
+    def test_greek_letters_tokenize_as_individual_chars(self) -> None:
+        assert tokenize_latex("α + β") == ["α", "+", "β"]
+
+    def test_nabla_and_partial_round_trip(self) -> None:
+        assert tokenize_latex("∇f = 0") == ["∇", "f", "=", "0"]
+
+    def test_alpha_backslash_form_differs_from_unicode(self) -> None:
+        # Documented asymmetry: \alpha and literal α are different
+        # tokens. Operator chooses one canonical form for the fixture.
+        assert tokenize_latex(r"\alpha") == ["\\alpha"]
+        assert tokenize_latex("α") == ["α"]
+        # No equality between the two outputs.
+        assert tokenize_latex(r"\alpha") != tokenize_latex("α")
+
+
+class TestFixtureShape:
+    """Regression for F4 (MEDIUM). The v0 fixture uses hand-typed
+    sparse MathML (≤ 50 lines, no LaTeXML provenance markers). If the
+    operator switches to LaTeXML-verbose form for some pages but not
+    others, CDM scoring becomes inconsistent. This test pins the
+    current shape and FAILS LOUDLY when a future commit drifts.
+    """
+
+    def test_all_mathml_files_match_v0_shape(self) -> None:
+        """All shipped MathML files must be either consistently
+        hand-typed-sparse (≤ 50 lines AND no `<annotation
+        encoding="application/x-tex">`) or consistently LaTeXML-
+        verbose (BOTH ≤ 50 lines is False AND the annotation tag is
+        present). Mixed shapes fail.
+        """
+        all_mathml = sorted(FIXTURE_ROOT.glob("*/[0-9][0-9]-formula.mathml"))
+        if not all_mathml:
+            pytest.skip("No MathML fixture files present yet.")
+        shape_per_file: dict[str, str] = {}
+        for path in all_mathml:
+            content = path.read_text(encoding="utf-8")
+            line_count = content.count("\n")
+            has_annotation = "<annotation" in content and "x-tex" in content
+            if line_count <= 50 and not has_annotation:
+                shape = "hand-typed-sparse"
+            elif has_annotation:
+                shape = "latexml-verbose"
+            else:
+                shape = "unknown"
+            shape_per_file[str(path.relative_to(FIXTURE_ROOT))] = shape
+        shapes = set(shape_per_file.values())
+        assert len(shapes) == 1, (
+            f"Mixed MathML shapes in fixture (CDM scoring will be "
+            f"inconsistent): {shape_per_file}. "
+            f"Pick one shape across all pages — see "
+            f"tests/eval/textbook_fixtures/README.md §Regenerating."
+        )
+
+    def test_v0_pages_are_hand_typed_sparse(self) -> None:
+        """The 2 v0 example pages under paper-control/ are hand-typed.
+        If a future commit regenerates them via latexmlc, this test
+        catches the drift and forces the operator to update
+        manifest.json::mathml_shape + this assertion in lockstep.
+        """
+        v0_pages = sorted(
+            (FIXTURE_ROOT / "paper-control").glob("0[12]-formula.mathml")
+        )
+        if len(v0_pages) < 2:
+            pytest.skip(
+                f"Expected 2 v0 example pages, found {len(v0_pages)}. "
+                f"Did the milestone fixture-skeleton commit not land?"
+            )
+        for path in v0_pages:
+            content = path.read_text(encoding="utf-8")
+            assert content.count("\n") <= 50, (
+                f"{path.name} exceeds the hand-typed-sparse 50-line "
+                f"budget ({content.count('n')} lines) — did someone "
+                f"regenerate via latexmlc without updating "
+                f"manifest.json::mathml_shape?"
+            )
+            assert "<annotation" not in content, (
+                f"{path.name} contains a LaTeXML <annotation> tag — "
+                f"v0 shape is hand-typed-sparse without annotations. "
+                f"See README §Regenerating for the shape-switch protocol."
+            )

@@ -51,6 +51,7 @@ Tests use the ``requires_pdflatex`` pytest marker to gate.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import re
@@ -58,7 +59,7 @@ import shutil
 import signal
 import subprocess
 import tempfile
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -153,6 +154,33 @@ class TokenBbox:
 
 
 @dataclass
+class AggregateResult:
+    """Output of :func:`aggregate_cdm`. Captures both per-pair scores
+    AND the failure list so the operator can distinguish "scored 0.0"
+    from "render crashed and substituted 0.0" (rectifies parser-
+    fidelity-eval-m1 F3).
+
+    Attributes
+    ----------
+    mean : float
+        Arithmetic mean of every entry in ``scores`` (including the
+        zero-substituted failures). 0.0 if ``scores`` is empty.
+    scores : list[float]
+        Per-pair CDM F1 scores in input order. Failed pairs appear
+        as 0.0 in this list.
+    failures : list[tuple[int, str]]
+        ``(pair_index, exception_message)`` for each substituted-zero
+        entry — empty when every pair scored cleanly. Use
+        ``len(result.failures)`` as a "render-health" signal alongside
+        ``result.mean``.
+    """
+
+    mean: float
+    scores: list[float] = field(default_factory=list)
+    failures: list[tuple[int, str]] = field(default_factory=list)
+
+
+@dataclass
 class CDMResult:
     """Output of :func:`cdm_score`. Includes the F1 score plus the
     per-token assignment details for debugging.
@@ -193,16 +221,28 @@ def tokenize_latex(formula: str) -> list[str]:
       ``\\sum``, ...)
     - ``\\X`` single-char backslash escapes (``\\,``, ``\\!``,
       ``\\{``, ...)
-    - Single alphanumeric chars (``a``, ``1``, ``X``, ...)
+    - Single alphanumeric chars (``a``, ``1``, ``X``, ...) — ASCII only
     - Single non-alphanumeric non-whitespace chars (``+``, ``=``,
-      ``{``, ``}``, ``^``, ``_``, ...)
+      ``{``, ``}``, ``^``, ``_``, ``α``, ``∇``, ...)
 
     Whitespace tokens are dropped (the renderer collapses them).
+
+    **Unicode caveat.** The alphanumeric class is ASCII-only
+    (``[a-zA-Z0-9]``); literal-unicode math characters (Greek letters,
+    nabla, etc.) fall through to the non-alphanumeric class, so each
+    codepoint becomes its own token. This means ``α`` and ``\\alpha``
+    tokenize differently — a parser emitting ``\\alpha`` will mismatch
+    against a fixture that uses literal ``α`` (and vice versa). The
+    fixture is project-controlled and operator-canonical (use
+    ``\\alpha``-style), so the asymmetry is bounded. Documented per
+    parser-fidelity-eval-m1 F10.
 
     >>> tokenize_latex(r"\\frac{a}{b}")
     ['\\\\frac', '{', 'a', '}', '{', 'b', '}']
     >>> tokenize_latex(r"\\sum_{i=0}^n x_i")
     ['\\\\sum', '_', '{', 'i', '=', '0', '}', '^', 'n', 'x', '_', 'i']
+    >>> tokenize_latex("α + β")  # unicode round-trips, doesn't canonicalize
+    ['α', '+', 'β']
     """
     return _LATEX_TOKEN_RE.findall(formula)
 
@@ -295,6 +335,7 @@ def _run_subprocess_with_pgkill(
     *,
     cwd: Path,
     timeout: int = _SUBPROCESS_TIMEOUT_SECONDS,
+    env: Mapping[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run a subprocess with the Threat-3 sandbox profile.
 
@@ -307,6 +348,14 @@ def _run_subprocess_with_pgkill(
 
     Per CLAUDE.md §4.7: ``assert`` is banned for invariants — bad
     inputs raise RuntimeError explicitly.
+
+    On ``TimeoutExpired``, mirrors the ``parse_with_latexml``
+    precedent at ``tools/arxiv_fetch.py``: kill the process group via
+    ``os.killpg`` THEN drain stdout/stderr PIPEs via
+    ``proc.communicate(timeout=5)`` instead of ``proc.wait()``.
+    ``proc.wait()`` can hang indefinitely when the kernel still has
+    buffered output destined for the closed reader (rectifies
+    parser-fidelity-eval-m1 F6).
     """
     if not cmd:
         raise RuntimeError("_run_subprocess_with_pgkill: empty cmd")
@@ -317,17 +366,15 @@ def _run_subprocess_with_pgkill(
         stderr=subprocess.PIPE,
         text=True,
         start_new_session=True,
+        env=env,
     )
     try:
         stdout, stderr = proc.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
-        try:
+        with contextlib.suppress(ProcessLookupError, OSError):
             os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-        except (ProcessLookupError, OSError) as e:
-            logger.warning(
-                "failed to killpg pid=%d after timeout: %s", proc.pid, e,
-            )
-        proc.wait()
+        with contextlib.suppress(subprocess.TimeoutExpired):
+            proc.communicate(timeout=5)
         raise
     return subprocess.CompletedProcess(
         args=list(cmd), returncode=proc.returncode,
@@ -391,16 +438,40 @@ def render_latex_to_image(
         tex_path = work / "formula.tex"
         tex_path.write_text(latex_doc, encoding="utf-8")
 
+        # Threat-3 sandbox env hardening (rectifies parser-fidelity-
+        # eval-m1 F2). texlive honors these kpathsea env vars at
+        # startup:
+        #   * openin_any=p — restrict \input to current/sub-directories
+        #     ("paranoid" — blocks \input{/etc/passwd} absolute paths).
+        #   * openout_any=p — restrict \openout to cwd (`--no-shell-
+        #     escape` does NOT cover \openout; this var does).
+        #   * shell_escape=f — defense-in-depth alongside
+        #     `--no-shell-escape` (some texlive builds honor only one).
+        # See .claude/docs/security-cdm-sandbox.md for the full
+        # threat-surface table.
+        sandbox_env = {
+            **os.environ,
+            "openin_any": "p",
+            "openout_any": "p",
+            "shell_escape": "f",
+        }
+
         # Stage 1: pdflatex → PDF
+        # `-halt-on-error` ensures pdflatex exits on the first true
+        # error (not warning), letting the gate fail fast and keeping
+        # the log tail focused on the triggering error rather than
+        # cascading warnings (rectifies parser-fidelity-eval-m1 F5).
         result = _run_subprocess_with_pgkill(
             [
                 pdflatex,
                 "--no-shell-escape",
                 "--interaction=nonstopmode",
+                "-halt-on-error",
                 "-output-directory", str(work),
                 str(tex_path),
             ],
             cwd=work,
+            env=sandbox_env,
         )
         if result.returncode != 0:
             # Surface a useful tail of the pdflatex log without dumping
@@ -417,7 +488,9 @@ def render_latex_to_image(
                 f"pdflatex succeeded (exit 0) but no PDF at {pdf_path}"
             )
 
-        # Stage 2: pdftoppm → PNG
+        # Stage 2: pdftoppm → PNG (inherits the same hardened env;
+        # pdftoppm itself does not honor kpathsea but the
+        # process-group + timeout discipline still applies).
         png_prefix = work / "formula"
         result = _run_subprocess_with_pgkill(
             [
@@ -428,6 +501,7 @@ def render_latex_to_image(
                 str(png_prefix),
             ],
             cwd=work,
+            env=sandbox_env,
         )
         if result.returncode != 0:
             raise RuntimeError(
@@ -545,8 +619,20 @@ def _cost_matrix(
 
     Tokens without bboxes (None) are skipped from the matrix — they
     contribute neither TP nor FP/FN.
+
+    The ordering-cost ``lo`` is normalized by the **raw-token count**
+    (before the bbox filter), not the visible-count: ``p.index`` and
+    ``g.index`` come from the raw tokenizer (and include invisible
+    braces/script markers), so dividing by visible-count would push
+    ``lo`` past 1.0 for any formula with bracing/scripting and bias
+    the F1 score downward. Captured pre-filter as ``pred_raw_n`` /
+    ``gt_raw_n``. Rectifies parser-fidelity-eval-m1 F1.
     """
-    # Restrict to tokens with detected bboxes.
+    # Capture RAW token counts BEFORE filtering — used as denominators
+    # for the ordering-cost normalization (F1 fix).
+    pred_raw_n = len(predicted)
+    gt_raw_n = len(ground_truth)
+    # Restrict to tokens with detected bboxes for the cost matrix.
     pred_visible = [t for t in predicted if t.bbox is not None]
     gt_visible = [t for t in ground_truth if t.bbox is not None]
     m, n = len(pred_visible), len(gt_visible)
@@ -561,8 +647,11 @@ def _cost_matrix(
             lt = _LT_EXACT_MATCH if p.token == g.token else _LT_MISMATCH
             # Lp — L1 distance between normalized bbox features
             lp = float(sum(abs(a - b) for a, b in zip(p_norm, g_norm, strict=True)))
-            # Lo — normalized ordering distance
-            lo = abs(p.index / max(m, 1) - g.index / max(n, 1))
+            # Lo — normalized ordering distance (denominated by RAW
+            # token counts so the result stays in [0, 1]).
+            lo = abs(
+                p.index / max(pred_raw_n, 1) - g.index / max(gt_raw_n, 1)
+            )
             cost[i, j] = (
                 _WEIGHT_TOKEN * lt
                 + _WEIGHT_POSITION * lp
@@ -663,12 +752,9 @@ def cdm_score(
                 tp += 1
     fp = m - tp
     fn = n - tp
-    if tp == 0 and (fp > 0 or fn > 0):
-        score = 0.0
-    elif tp == 0:
-        score = 1.0  # already handled above; defensive
-    else:
-        score = 2 * tp / (2 * tp + fp + fn)
+    # The m == 0 AND n == 0 case is handled by the early-return above,
+    # so any tp == 0 path here means at least one of fp/fn is positive.
+    score = 0.0 if tp == 0 else 2 * tp / (2 * tp + fp + fn)
     return CDMResult(
         score=float(score),
         true_positives=tp, false_positives=fp, false_negatives=fn,
@@ -684,27 +770,40 @@ def cdm_score(
 
 def aggregate_cdm(
     pairs: Iterable[tuple[str, str]], *, work_dir: Path | None = None,
-) -> tuple[float, list[float]]:
-    """Score every (predicted, ground_truth) pair; return (mean, per-pair).
+) -> AggregateResult:
+    """Score every (predicted, ground_truth) pair; return an
+    :class:`AggregateResult` carrying the mean, per-pair scores, and a
+    structured failure list.
 
     Pairs that raise during rendering are scored 0.0 with a warning
     logged — the fixture should be cleaned before scoring, but a
-    single bad page should not abort the entire eval pass.
+    single bad page should not abort the entire eval pass. The
+    ``failures`` field on the returned object lets the operator
+    distinguish "rendered cleanly to 0.0" from "render crashed and we
+    substituted 0.0" — a load-bearing observability signal for the
+    parser-bake-off use case (rectifies parser-fidelity-eval-m1 F3).
+
+    The gate command in ``.claude/TIER-GATES.md`` should reject when
+    ``len(result.failures) > N`` regardless of the headline mean.
     """
     scores: list[float] = []
-    for pred, gt in pairs:
+    failures: list[tuple[int, str]] = []
+    for index, (pred, gt) in enumerate(pairs):
         try:
             result = cdm_score(pred, gt, work_dir=work_dir)
             scores.append(result.score)
         except (RuntimeError, subprocess.TimeoutExpired) as e:
-            logger.warning("cdm_score failed for pair: %s", e)
+            logger.warning("cdm_score failed for pair %d: %s", index, e)
             scores.append(0.0)
+            failures.append((index, str(e)))
     if not scores:
-        return (0.0, [])
-    return (float(sum(scores) / len(scores)), scores)
+        return AggregateResult(mean=0.0, scores=[], failures=failures)
+    mean = float(sum(scores) / len(scores))
+    return AggregateResult(mean=mean, scores=scores, failures=failures)
 
 
 __all__ = [
+    "AggregateResult",
     "CDMResult",
     "TokenBbox",
     "aggregate_cdm",

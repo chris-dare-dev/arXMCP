@@ -7,7 +7,8 @@
       "description": "Clean math.AG arxiv-paper-style formulas. Synthetic; project-original. Expected CDM near 1.0 for competent parsers.",
       "expected_pages": 5,
       "current_pages": 2,
-      "attribution": "project-original (synthetic)"
+      "attribution": "project-original (synthetic LaTeX); MathML hand-typed by operator (v0 shape — sparse, no LaTeXML provenance markers). Operator may switch to LaTeXML-verbose form before adding the remaining 3 pages; see README §Regenerating.",
+      "mathml_shape": "hand-typed-sparse"
     },
     "hartshorne-style": {
       "description": "Single-column dense math typesetting. Operator-hand-typed (no upstream copy).",
@@ -37,6 +38,7 @@
   "notes": [
     "Per-page contract: NN-formula.tex (LaTeX fragment, no preamble) + NN-formula.mathml (canonical MathML ground truth).",
     "Cold-start matrix: fixture <5 pages/class → tests skip; fixture 1-19 pages total → tests run but promotion gate blocked; fixture >=20 pages → promotion gate active.",
+    "v0 MathML is hand-typed sparse (no LaTeXML provenance markers). Operator may switch to LaTeXML-verbose form before adding the remaining 18 pages. ALL pages in a single fixture must use the SAME shape — mixing distorts CDM scoring. See README §Regenerating + TestFixtureShape assertion.",
     "Re-pin LaTeXML-derived MathML only when latexmlc binary version drifts; the .tex sources never need regeneration."
   ]
 }

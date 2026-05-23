@@ -19,31 +19,57 @@ LaTeXML on hostile source (Threat 3):
 
 | Vector | Risk | Mitigation in this milestone |
 |---|---|---|
-| `\write18` shell escape | RCE | `--no-shell-escape` (hard flag; cannot be overridden by `\openout` redirects) |
-| `\input{/etc/passwd}` arbitrary read | Info disclosure | TMPDIR-only working directory (the process can still read system fonts, but the file-system view is bounded to the sandbox cwd) |
+| `\write18` shell escape | RCE | `--no-shell-escape` argv flag **plus** `shell_escape=f` env var (some texlive builds honor only one; both is defense-in-depth) |
+| `\openout` arbitrary file write | Local file tamper / DoS | `openout_any=p` env var (paranoid — restricts `\openout` to cwd/sub-directories). **`--no-shell-escape` does NOT cover `\openout`** — that flag governs `\write18` (process spawn) only; `\openout` is a separate kpathsea concern |
+| `\input{/etc/passwd}` arbitrary read | Info disclosure | `openin_any=p` env var (paranoid — restricts `\input` to cwd/sub-directories, blocking absolute paths). **TMPDIR cwd binding alone does NOT mitigate this** — pdflatex resolves absolute paths in `\input` regardless of cwd; only `openin_any` blocks the read |
 | Decompression bombs in `.pfb`/`.pfm` fonts | CPU/memory exhaustion | 30s hard timeout + process-group kill |
-| Infinite-recursion macros (`\def\x{\x}\x`) | Hang | `--interaction=nonstopmode` + 30s timeout |
+| Infinite-recursion macros (`\def\x{\x}\x`) | Hang | `--interaction=nonstopmode` + `-halt-on-error` + 30s timeout |
 | Untrusted `\usepackage{}` | Code execution via package init scripts | Wrapper template hard-codes `\usepackage[x11names]{xcolor}` + `\usepackage{amsmath,amssymb}` only; we do NOT honor user-supplied `\usepackage` directives in the wrapper template |
 | Polyglot output (PDF that's also a malicious payload) | Downstream consumer attack | Only consumer is `pdftoppm` → PNG → numpy. No web service exposes the PDF directly |
+
+**Mitigation delivery (load-bearing detail).** The three kpathsea
+env vars (`openin_any`, `openout_any`, `shell_escape`) are passed by
+`tools/cdm_eval.py::render_latex_to_image` via the `env=` keyword to
+`subprocess.Popen` — texlive honors them at startup and they
+override any default values in `texmf.cnf`. The `--no-shell-escape`
+argv flag is layered on top; together they provide
+defense-in-depth. See the F2 rectification commit for the precise
+plumbing. Prior to the rectification this doc claimed
+`--no-shell-escape` covered `\openout` and that TMPDIR bounded
+`\input` — both claims were factually wrong; see the
+parser-fidelity-eval-m1 critique F2 entry for the full
+postmortem.
 
 ---
 
 ## Implementation: process-group discipline
 
 Mirrors `tools.arxiv_fetch.parse_with_latexml` exactly (the existing
-LaTeXML sandbox from E13_S03):
+LaTeXML sandbox from E13_S03). Adds `-halt-on-error` (fail-fast on
+first error rather than cascading warnings) and the three kpathsea
+env vars for `\openout` / `\input` / `\write18` discipline:
 
 ```python
+sandbox_env = {
+    **os.environ,
+    "openin_any": "p",      # restrict \input to cwd/sub-dirs
+    "openout_any": "p",     # restrict \openout to cwd/sub-dirs
+    "shell_escape": "f",    # belt-and-suspenders with --no-shell-escape
+}
 proc = subprocess.Popen(
     [pdflatex, "--no-shell-escape", "--interaction=nonstopmode",
+     "-halt-on-error",
      "-output-directory", str(tmpdir), str(tex_path)],
     cwd=tmpdir, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-    text=True, start_new_session=True,
+    text=True, start_new_session=True, env=sandbox_env,
 )
 try:
     stdout, stderr = proc.communicate(timeout=30)
 except subprocess.TimeoutExpired:
-    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+    with contextlib.suppress(ProcessLookupError, OSError):
+        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+    with contextlib.suppress(subprocess.TimeoutExpired):
+        proc.communicate(timeout=5)  # drain PIPEs; avoid deadlock
     raise
 ```
 

@@ -16,7 +16,7 @@ tests/eval/textbook_fixtures/
 ├── README.md                       # this file
 ├── paper-control/                  # 5 pages (clean math.AG arxiv paper)
 │   ├── 01-formula.tex              # the formula's LaTeX source
-│   ├── 01-formula.mathml           # ground-truth MathML (LaTeXML output)
+│   ├── 01-formula.mathml           # ground-truth MathML (hand-typed v0)
 │   ├── 02-formula.tex
 │   ├── ...
 ├── hartshorne-style/               # 5 pages (single-column, dense math)
@@ -35,11 +35,17 @@ tests/eval/textbook_fixtures/
   `\[ ... \]`). 1-30 tokens typical; supports CDM grid capacity
   (4913 colors).
 - `NN-formula.mathml` — the canonical MathML rendering of the same
-  formula, used as ground truth. For the `paper-control` and
-  `milne-style` fixtures, this is generated via LaTeXML on the
-  original `.tex` source. For the `hartshorne-style` and
-  `griffiths-harris-style` fixtures (which originate as PDF), this
-  is hand-typed by operator math expertise.
+  formula, used as ground truth. **The 2 v0 example pages under
+  `paper-control/` use hand-typed sparse MathML** (≤ 50 lines, no
+  `xref` / `<semantics>` / LaTeXML provenance attributes) —
+  authored by the milestone operator as a working approximation,
+  NOT regenerated via `latexmlc`. The operator MUST pick ONE
+  ground-truth shape when adding the remaining 18 pages — either
+  continue hand-typing (keep ≤ 50 lines, no LaTeXML markers) OR
+  switch the entire fixture to LaTeXML-verbose form. Mixing the
+  two shapes will distort CDM scoring because parser-emitted MathML
+  matches one shape or the other but not both. See the regeneration
+  section below.
 
 ---
 
@@ -114,19 +120,34 @@ If `tools/cdm_eval.py` changes (e.g., interval-15 → interval-12 grid),
 the fixture itself does not need regeneration — the `.tex` and
 `.mathml` files are parser-independent ground truth.
 
-If LaTeXML upgrades and the canonical MathML output changes for the
-`paper-control` / `milne-style` classes, regenerate those
-`.mathml` files:
+**Switching ground-truth shape (hand-typed ↔ LaTeXML-verbose).** The
+v0 example pages are hand-typed sparse MathML. If the operator
+decides to commit the fixture to LaTeXML-verbose form (the
+recommended path once the fixture exceeds ~5 pages — verbose form is
+self-documenting and reproducible), run:
 
 ```bash
-for f in tests/eval/textbook_fixtures/*/[0-9][0-9]-formula.tex; do
+# CAUTION: re-bases every paper-control/milne-style page against
+# LaTeXML's output. Tier-2 fixture-shape test will need its assertion
+# flipped (≤ 50 lines vs contains <annotation encoding="application/
+# x-tex">) — see tests/eval/test_parser_fidelity.py::TestFixtureShape.
+for f in tests/eval/textbook_fixtures/{paper-control,milne-style}/[0-9][0-9]-formula.tex; do
   out="${f%.tex}.mathml"
   latexmlc --dest="$out" --noinvisibletimes "$f"
 done
 ```
 
-Cross-check the new MathML against the prior version via
+Then update `manifest.json::classes.paper-control.attribution` and
+this README's per-page-contract paragraph to reflect the new shape,
+and flip the shape assertion in
+`tests/eval/test_parser_fidelity.py::TestFixtureShape`. Cross-check
+the new MathML against the prior version via
 `git diff --stat tests/eval/textbook_fixtures/` before committing.
+
+The `hartshorne-style/` and `griffiths-harris-style/` classes
+originate as PDF (no upstream `.tex`), so LaTeXML regeneration does
+not apply — they remain hand-typed regardless of which shape the
+LaTeXML-eligible classes use.
 
 ---
 
