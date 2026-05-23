@@ -540,3 +540,22 @@ Any S12 spend counter for voyage must be a TODO — no real call site exists yet
 ## 2026-05-22 — E14_Tier5plus — docs-ops-restore-runbook-name-mismatch
 docs/ops/ has `backup-restore.md`, NOT `restore-runbook.md`. The E14_S05 brief and
 E14_S10 brief both reference the wrong filename. Link to backup-restore.md in the index.
+
+## 2026-05-23 — E13_S03b — sandbox-wiring-is-pure-wiring-profiles-already-correct
+`infra/latexml/sandbox.sb` and `infra/latexml/docker-compose.latexml.yml` are FULLY
+AUTHORED and statically tested. E13_S03b is ONLY wiring: call sandbox-exec (macOS) or
+bwrap (Linux) from `tools/arxiv_fetch.py::parse_with_latexml`. Use bubblewrap (bwrap)
+for Linux — simpler than raw seccomp/landlock, no C extension dep, distro package.
+Graceful degrade: log WARNING + continue with subprocess+timeout-only if neither available.
+
+## 2026-05-23 — E13_S03b — dockerfile-server-wrong-target-for-latexml-docker-layer
+`docker/Dockerfile.server` is the MCP server image. LaTeXML runs only during ingest.
+Dockerfile hardening target would be `docker/Dockerfile.ingest` (DOES NOT EXIST).
+Brief says "Updates to docker/Dockerfile.server" — this is wrong. Document Docker layer
+as "applies when operator uses infra/latexml/docker-compose.latexml.yml." Do NOT create
+Dockerfile.ingest as out-of-scope for E13_S03b.
+
+## 2026-05-23 — E13_S03b — drift-check-secondary-latexml-site-missing-killpg
+`ops/drift_check.py::render_fixture` uses subprocess.run WITHOUT start_new_session=True.
+This is a second LaTeXML invocation site not covered by E13_S03's process-group fix.
+E13_S03b should apply the sandbox wrapper here too (3-line change) for consistency.
