@@ -208,3 +208,42 @@ Testing the byte cap requires mocking. Pattern: `unittest.mock.patch` on
 exceeds it. Avoids large fixture files. The cap check uses: `len(json.dumps(...).encode("utf-8")) * _WIRE_OVERHEAD_FACTOR <= cap`
 where _WIRE_OVERHEAD_FACTOR ~= 2. Test should patch both the constant and the
 config to force cap firing predictably.
+
+## 2026-05-22 — E13_S07c — ssl-pin-factory-pattern
+`ssl.create_default_context(cafile=path)` is the ONLY safe CA-pin form — preserves
+check_hostname=True and verify_mode=CERT_REQUIRED, does NOT trigger TestTlsCannotBeDisabled
+walk. urlopen takes `context=ssl_ctx` kwarg (cafile/capath on urlopen itself deprecated
+since py3.6). Both `ingest/ar5iv_fetch.py::try_cache` and `tools/arxiv_fetch.py::fetch_eprint`
+have NO ssl_context injection point today — both need a new optional `ssl_context` param.
+Vendor bundle at `infra/ca/arxiv-ca-bundle.pem` (ISRG Root X1/X2 only; stable for years).
+FAIL CLOSED when pin=True but bundle missing — never fall back to system trust store silently.
+
+## 2026-05-22 — E13_S07b — redirect-pin-two-error-types
+ar5iv_fetch returns miss-result on redirect-off-host; oai_delta raises RuntimeError.
+graph_ingest + inspire_ingest should raise RuntimeError (matches their exception-
+propagation caller model). Capture `response_url = resp.url` INSIDE the `with urlopen`
+block; check AFTER. Use `OPENALEX_BASE + "/"` and `INSPIRE_API_BASE + "/"` as startswith
+prefix (mirrors ar5iv trailing-slash pattern to prevent prefix-collision). New tests go
+in EXISTING `tests/security/test_source_ingest.py` as a new class — file already cited
+in coverage doc so no doc-citation gate update needed.
+
+## 2026-05-22 — E13_S07c — ssl-context-injection-pattern-for-urllib
+`urllib.request.urlopen(req, context=ssl_context)` is the correct injection point
+for custom SSLContext. `ssl.create_default_context(cafile=path)` creates a pinned-CA
+context that preserves `check_hostname=True` + `CERT_REQUIRED`. Add optional
+`ssl_context: ssl.SSLContext | None = None` param to fetch functions; callers pass
+None (system trust store) or a pre-built context (pinned CA). Module-level singleton
+is anti-pattern; explicit parameter threading is correct.
+
+## 2026-05-22 — E13_S07c — config-optional-path-for-optional-feature-pattern
+The canonical pattern for "feature enabled by bool + optional path override" in
+Config is: `enable_x: bool = False` + `x_path: Path | None = None`. See `enable_lean`
++ `lean_repl_dir` in `server/config.py`. For CA pinning: `pin_arxiv_ca: bool = False`
++ `arxiv_ca_bundle_path: Path | None = None`. Validation goes in `@model_validator(mode="after")`
+so both fields are visible. Fail-closed: if pin=True and path resolves to missing file -> raise ValueError.
+
+## 2026-05-22 — E13_S07c — letsencrypt-isrg-root-x1-is-stable-pin
+arxiv.org and ar5iv.labs.arxiv.org use Let's Encrypt certs. Root CA is ISRG Root X1
+(valid until 2035). Intermediates (E5, R10) rotate ~90 days. Vendor ISRG Root X1
+PEM ONLY — not intermediate or leaf — for a rotation-stable bundle. Source:
+letsencrypt.org/certs/ (public, non-secret PEM material).

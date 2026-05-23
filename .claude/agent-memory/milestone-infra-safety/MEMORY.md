@@ -17,6 +17,14 @@ prevents direct exfiltration, but the output artifact is on the host). Mitigatio
 narrow HOME reads to specific Perl/CPAN sub-paths, or add explicit denies for
 credential directories before the broad HOME allowance.
 
+## 2026-05-22 — E13_S07c — makefile-mv-orphan-tempfile
+
+In Makefile recipes that use a temp file + atomic `mv` pattern, the `mv` line itself
+needs an `|| { rm -f $$tmp; exit 1; }` guard. Without it, a permissions failure on
+`mv` leaves the temp file on disk (resource/info leak) and the recipe's exit code
+may not clearly communicate the failure. The curl-download + openssl-verify + mv
+pattern is a recurring infra idiom in arXMCP; always guard all three steps.
+
 ## 2026-05-17 — E13_S03 — compose-relative-path-resolves-to-compose-dir
 
 In Compose v2, relative paths in bind-mount `source:` resolve relative to the
