@@ -1,0 +1,140 @@
+{
+  "id": "2026q2-verification-feedback-scan",
+  "kind": "capability-scout",
+  "created_at": "2026-05-22T15:24:33Z",
+  "updated_at": "2026-05-22T15:47:50Z",
+  "phase": "complete",
+  "phase_history": [
+    {
+      "phase": "init",
+      "at": "2026-05-22T15:24:33Z"
+    },
+    {
+      "phase": "survey-running",
+      "at": "2026-05-22T15:24:55Z"
+    },
+    {
+      "phase": "survey-complete",
+      "at": "2026-05-22T15:35:33Z"
+    },
+    {
+      "phase": "synthesize-running",
+      "at": "2026-05-22T15:36:55Z"
+    },
+    {
+      "phase": "synthesize-complete",
+      "at": "2026-05-22T15:40:09Z"
+    },
+    {
+      "phase": "challenge-running",
+      "at": "2026-05-22T15:40:09Z"
+    },
+    {
+      "phase": "challenge-complete",
+      "at": "2026-05-22T15:45:35Z"
+    },
+    {
+      "phase": "prioritize-running",
+      "at": "2026-05-22T15:45:35Z"
+    },
+    {
+      "phase": "complete",
+      "at": "2026-05-22T15:47:50Z"
+    }
+  ],
+  "scout_brief": "arXMCP wants execution-based verification feedback for its downstream sketcher -> autoformalizer -> tactician -> fixer pipeline. Two seed ideas motivate this scout: (1) expose a Lean kernel verification-trace MCP tool so the tactician -> fixer loop receives real execution feedback (compile/typecheck/proof-state output) rather than only retrieved grounding context; (2) wire up the cite_neighbors MCP tool -- the handler in server/handlers/citations.py is a known v1 stub (CLAUDE.md section 7) while the underlying server/graph_queries.py library is real. Scout broadly around these themes: execution-feedback and verification surfaces an MCP retrieval server can expose to an autoformalization agent, and closing the citation-graph proof-chain tool gap. Surface adjacent capabilities too -- do not limit findings to only these two.",
+  "survey_mode": "standard",
+  "survey_briefs": [
+    ".claude/notes/capability-scouts/2026q2-verification-feedback-scan/survey/comparative-brief.md",
+    ".claude/notes/capability-scouts/2026q2-verification-feedback-scan/survey/research-frontier-brief.md",
+    ".claude/notes/capability-scouts/2026q2-verification-feedback-scan/survey/oss-trends-brief.md",
+    ".claude/notes/capability-scouts/2026q2-verification-feedback-scan/survey/multi-agent-brief.md",
+    ".claude/notes/capability-scouts/2026q2-verification-feedback-scan/survey/adversary-brief.md"
+  ],
+  "scouts_dispatched": [
+    "comparative",
+    "research-frontier",
+    "oss-trends",
+    "multi-agent",
+    "adversary"
+  ],
+  "scouts_returned": [
+    "comparative",
+    "research-frontier",
+    "oss-trends",
+    "multi-agent",
+    "adversary"
+  ],
+  "synthesis_path": ".claude/notes/capability-scouts/2026q2-verification-feedback-scan/artifacts/synthesis.md",
+  "candidate_count": 14,
+  "challenge_path": ".claude/notes/capability-scouts/2026q2-verification-feedback-scan/artifacts/challenge.md",
+  "challenge_finding_counts": {
+    "critical": 1,
+    "high": 4,
+    "medium": 5,
+    "low": 4
+  },
+  "final_report_path": ".claude/notes/capability-scouts/2026q2-verification-feedback-scan/artifacts/final-report.md",
+  "ranked_candidates": [
+    {
+      "id": "CAND-2",
+      "title": "Wire cite_neighbors MCP handler",
+      "rice": 30.0,
+      "rank": 1
+    },
+    {
+      "id": "CAND-1",
+      "title": "lean_verify kernel verification-trace tool",
+      "rice": 10.0,
+      "rank": 2
+    },
+    {
+      "id": "CAND-5",
+      "title": "search_mathlib premise/declaration tool",
+      "rice": 10.0,
+      "rank": 3
+    },
+    {
+      "id": "CAND-8",
+      "title": "get_paper metadata table",
+      "rice": 5.0,
+      "rank": 4
+    },
+    {
+      "id": "CAND-14",
+      "title": "Curate the 20-query eval fixture",
+      "rice": 5.0,
+      "rank": 5
+    },
+    {
+      "id": "CAND-3",
+      "title": "Migrate Kuzu to maintained fork",
+      "rice": 3.0,
+      "rank": 6
+    },
+    {
+      "id": "CAND-7",
+      "title": "Complete dual-column proof-chunk RRF",
+      "rice": 3.0,
+      "rank": 7
+    },
+    {
+      "id": "CAND-6",
+      "title": "Proof-state-conditioned retrieval",
+      "rice": 2.0,
+      "rank": 8
+    },
+    {
+      "id": "CAND-4",
+      "title": "Syntax-check + incremental lean_verify modes",
+      "rice": 1.25,
+      "rank": 9
+    },
+    {
+      "id": "CAND-12",
+      "title": "MCP progress notifications",
+      "rice": 0.75,
+      "rank": 10
+    }
+  ]
+}
