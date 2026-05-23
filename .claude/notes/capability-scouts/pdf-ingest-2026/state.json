@@ -1,0 +1,158 @@
+{
+  "id": "pdf-ingest-2026",
+  "kind": "capability-scout",
+  "created_at": "2026-05-23T04:31:23Z",
+  "updated_at": "2026-05-23T05:01:09Z",
+  "phase": "complete",
+  "phase_history": [
+    {
+      "phase": "init",
+      "at": "2026-05-23T04:31:23Z"
+    },
+    {
+      "phase": "survey-running",
+      "at": "2026-05-23T04:33:11Z"
+    },
+    {
+      "phase": "survey-complete",
+      "at": "2026-05-23T04:43:54Z"
+    },
+    {
+      "phase": "synthesize-running",
+      "at": "2026-05-23T04:45:14Z"
+    },
+    {
+      "phase": "synthesize-complete",
+      "at": "2026-05-23T04:50:56Z"
+    },
+    {
+      "phase": "challenge-running",
+      "at": "2026-05-23T04:50:57Z"
+    },
+    {
+      "phase": "challenge-complete",
+      "at": "2026-05-23T04:55:40Z"
+    },
+    {
+      "phase": "prioritize-running",
+      "at": "2026-05-23T04:56:17Z"
+    },
+    {
+      "phase": "complete",
+      "at": "2026-05-23T05:01:09Z"
+    }
+  ],
+  "scout_brief": "See .claude/notes/capability-scouts/pdf-ingest-2026/BRIEF.md",
+  "survey_mode": "standard",
+  "survey_briefs": [
+    ".claude/notes/capability-scouts/pdf-ingest-2026/survey/competitive-brief.md",
+    ".claude/notes/capability-scouts/pdf-ingest-2026/survey/math-research-brief.md",
+    ".claude/notes/capability-scouts/pdf-ingest-2026/survey/oss-trends-brief.md",
+    ".claude/notes/capability-scouts/pdf-ingest-2026/survey/multi-agent-brief.md",
+    ".claude/notes/capability-scouts/pdf-ingest-2026/survey/adversary-brief.md"
+  ],
+  "scouts_dispatched": [
+    "competitive",
+    "math-research",
+    "oss-trends",
+    "multi-agent",
+    "adversary"
+  ],
+  "scouts_returned": [
+    "competitive",
+    "math-research",
+    "oss-trends",
+    "multi-agent",
+    "adversary"
+  ],
+  "synthesis_path": ".claude/notes/capability-scouts/pdf-ingest-2026/artifacts/synthesis.md",
+  "candidate_count": 17,
+  "challenge_path": ".claude/notes/capability-scouts/pdf-ingest-2026/artifacts/challenge.md",
+  "challenge_finding_counts": {
+    "critical": 0,
+    "high": 5,
+    "medium": 7,
+    "low": 5
+  },
+  "final_report_path": ".claude/notes/capability-scouts/pdf-ingest-2026/artifacts/final-report.md",
+  "ranked_candidates": [
+    {
+      "id": "CAND-8",
+      "title": "Mathpix-as-batch one-time exception",
+      "rice": 18.0,
+      "rank": 1
+    },
+    {
+      "id": "CAND-13",
+      "title": "Cross-corpus search_papers filter",
+      "rice": 15.0,
+      "rank": 2
+    },
+    {
+      "id": "CAND-5",
+      "title": "defines/defined_by edge + cite_neighbors enum",
+      "rice": 8.0,
+      "rank": 3
+    },
+    {
+      "id": "CAND-11",
+      "title": "Schema migration for textbook chunk identity",
+      "rice": 7.5,
+      "rank": 4
+    },
+    {
+      "id": "CAND-6",
+      "title": "Page-range citation on textbook chunks",
+      "rice": 6.0,
+      "rank": 5
+    },
+    {
+      "id": "CAND-3",
+      "title": "Textbook-aware hierarchical chunker",
+      "rice": 2.81,
+      "rank": 6
+    },
+    {
+      "id": "CAND-7+14",
+      "title": "CDM gate + eval fixture (bundled)",
+      "rice": 2.4,
+      "rank": 7
+    },
+    {
+      "id": "CAND-10",
+      "title": "Source-first .tex fetcher",
+      "rice": 2.4,
+      "rank": 8
+    },
+    {
+      "id": "CAND-1",
+      "title": "Replace parser (MinerU-only post-T2)",
+      "rice": 2.25,
+      "rank": 9
+    },
+    {
+      "id": "CAND-12",
+      "title": "navigation_history SessionState field",
+      "rice": 1.8,
+      "rank": 10
+    },
+    {
+      "id": "CAND-2",
+      "title": "pdfid carve-out + Threat 3.5/8 docs",
+      "rice": 1.5,
+      "rank": 11
+    },
+    {
+      "id": "CAND-15",
+      "title": "notation.yaml per-textbook macro recovery",
+      "rice": 1.5,
+      "rank": 12
+    },
+    {
+      "id": "CAND-4",
+      "title": "Late chunking (Jina)",
+      "rice": 0.9,
+      "rank": 13
+    }
+  ]
+}

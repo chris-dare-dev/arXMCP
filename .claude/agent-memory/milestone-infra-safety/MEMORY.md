@@ -33,3 +33,23 @@ COMPOSE FILE's directory, not the operator's CWD. A default fallback like
 write output to `infra/latexml/latexml-output/`, polluting the repo tree. Use
 `../../var/arxmcp/...` to walk back to repo root, matching the phoenix-compose.yml
 precedent (phoenix-compose.yml:94).
+
+## 2026-05-22 — E14_Tier5plus — grafana-localhost-container-networking
+
+When a Grafana provisioning YAML hardcodes `url: http://localhost:9090` for a
+Prometheus datasource, the URL resolves to the Grafana container's own loopback if
+Grafana runs in Docker (the dominant operator pattern). Prometheus is unreachable;
+panels show "No data" silently. Fix: add a comment noting `host.docker.internal:9090`
+as the macOS/Windows Docker Desktop alternative, or use an env-var default
+`${PROMETHEUS_URL:-http://localhost:9090}`. Severity: MEDIUM (foot-gun, not
+data-loss). Applies to any provisioning YAML shipped without an accompanying
+docker-compose that co-locates Grafana + Prometheus in the same network.
+
+## 2026-05-22 — E14_Tier5plus — grafana-provisioning-combined-yaml-safe-if-mounted-not-split
+
+A Grafana provisioning YAML that contains BOTH `datasources:` and `providers:` blocks
+under a single `apiVersion: 1` can be safely mounted to BOTH provisioning subdirectories
+(`datasources/` and `dashboards/`) — Grafana ignores unknown top-level keys when reading
+from each subdir. However, if an operator naively "splits" the file by extracting only
+the `providers:` section, the resulting dashboards file will lack `apiVersion: 1` and
+Grafana will reject it. YAML comments should say "mount at both paths" not "split."

@@ -1,5 +1,27 @@
 # Milestone Researcher — Project Memory
 
+## 2026-05-22 — m10 — ar5iv-html-storage-TWO-paths-search-order
+TWO HTML paths: (1) m8 upload → `var/arxmcp/notebooks/<slug>/ar5iv/<flat_paper_id>.html`
+(flat, notebook-scoped); (2) ingest pipeline → `var/arxmcp/corpus/parsed/<paper_id>/index.html`
+(subdirectory per paper, corpus-global). Preview must check (1) first, then (2).
+flat_paper_id = paper_id.replace("/", "_") for both lookups.
+
+## 2026-05-22 — m10 — csp-frame-ancestors-form-action-base-uri-not-default-src-fallback
+CSP3: frame-ancestors, form-action, base-uri are NOT fetch directives — they do NOT
+fall back to default-src. When omitted from a CSP, frame-ancestors allows any origin
+to frame the page, form-action allows form POST to any origin, base-uri is unrestricted.
+All three must be set explicitly when writing a tight per-route CSP.
+
+## 2026-05-22 — m10 — m9-scope-invariant-test-blocks-m10-frontend-changes
+tests/test_m9_scope_invariants.py greps frontend/ for `iframe|preview` and fails if
+found. m10 adds both tokens. Implementer must delete or repurpose this test before
+committing the m10 frontend changes.
+
+## 2026-05-22 — m10 — preview-route-must-not-go-under-ui-api-prefix
+notebooks_router is mounted at /ui/api (server/main.py:552). The m10 preview route
+is at /ui/notebooks/{slug}/papers/{paper_id}/preview (no /api). Must be added to
+server/routes/ui.py or a new preview router mounted at /ui (not /ui/api).
+
 ## 2026-05-17 — E13_S02 — E13-brief-tool-list-drift-is-systematic
 The E13 roadmap's tool list names `paper_diff` + `dependency_graph` (non-existent)
 and omits `get_definitions` + `find_lemma_by_name` (real). This drift is present in
@@ -171,6 +193,24 @@ NOT a bug — brief wording is imprecise. The test at test_origin_binding.py:341
 correctly asserts `pytest.raises(ValidationError, match="must be a loopback")`.
 Implementer should NOT change the exception type; it is correct as-is.
 
+## 2026-05-23 — parser-fidelity-eval-m1 — cdm-bbox-detection-is-color-lookup-not-connected-components
+CDM algorithm (arXiv:2409.03643) uses colored-token rendering: each LaTeX token
+gets a unique RGB color, then bbox = np.where(arr == color). No OpenCV/scikit-image
+needed for bbox detection — pure NumPy suffices. scipy.optimize.linear_sum_assignment
+(BSD-3-Clause) needed for Hungarian assignment; NOT in pyproject.toml yet.
+
+## 2026-05-23 — parser-fidelity-eval-m1 — opencv-banned-for-cdm-due-to-kmp-landmine
+OpenCV adds Intel OpenMP runtime that conflicts with PyTorch's OpenMP under faiss-cpu
+on macOS (exact KMP_DUPLICATE_LIB_OK landmine from CLAUDE.md §8). Use NumPy-only
+bbox detection + scipy Hungarian. pdftoppm (poppler-utils) for PDF→PNG; lighter than
+ImageMagick and avoids ImageMagick CVE surface.
+
+## 2026-05-23 — parser-fidelity-eval-m1 — pdflatex-sandbox-flags
+pdflatex --no-shell-escape disables \write18 entirely (Jan 2025 latexref.xyz confirms).
+Combine with --interaction=nonstopmode + start_new_session=True + os.killpg pattern
+(same as parse_with_latexml in tools/arxiv_fetch.py). 30s timeout is right for
+single-equation CDM renders.
+
 ## 2026-05-19 — E13_S09 — e07-s09-dependency-is-fictional
 E07 has only S01–S04. The brief cites E07_S09 as a dependency, following the
 systematic drift pattern from prior E13 milestones. Should cite E13_S05 instead
@@ -247,3 +287,256 @@ arxiv.org and ar5iv.labs.arxiv.org use Let's Encrypt certs. Root CA is ISRG Root
 (valid until 2035). Intermediates (E5, R10) rotate ~90 days. Vendor ISRG Root X1
 PEM ONLY — not intermediate or leaf — for a rotation-stable bundle. Source:
 letsencrypt.org/certs/ (public, non-secret PEM material).
+
+## 2026-05-21 — m6 — bm25-indexer-has-no-root-override
+`build_bm25_index(lancedb_path, corpus_version)` writes to the hardcoded
+`BM25_INDEX_ROOT = REPO_ROOT/var/arxmcp/index/bm25`. No output-root override
+parameter exists. For per-notebook BM25, the per-notebook corpus_version
+makes the global path effectively per-notebook (version is unique per notebook).
+Brief claims `notebooks/<slug>/index/bm25/vN/` — this is aspirational drift.
+
+## 2026-05-21 — m6 — notebook-scripts-use-urllib-not-httpx
+All existing fetch tooling (ar5iv_fetch, oai_delta, graph_ingest, inspire_ingest,
+arxiv_fetch, curate_seed) uses urllib.request. No httpx anywhere. Ad-hoc bootstrap
+scripts (/tmp/bridgeland_fetch.py etc) also use urllib.request. notebook_fetch.py
+must follow suit. timeout=30 for HTTP reads; time.sleep(3.0) for inter-request
+politeness (applies to both arxiv.org and ar5iv.labs.arxiv.org per brief AC#2).
+
+## 2026-05-21 — m6 — bulk-ingest-parsed-dir-flag-was-removed
+`--parsed-dir` was removed from `ingest.bulk_ingest` CLI (F2 fix; bulk_ingest.py:461).
+`notebook_ingest.py` must NOT pass `--parsed-dir`. Chunker always reads from
+module-level `ingest.chunker.PARSED_DIR` (var/arxmcp/corpus/parsed/). Variant 1
+keeps corpus/parsed/ global; per-notebook scope is only lancedb + bm25.
+
+## 2026-05-21 — m6 — slug-regex-is-canonical-defense
+notebook_purge.py + notebook_init.py MUST validate slug against
+`^[a-z][a-z0-9-]{2,30}$` BEFORE any path construction. resolve() alone
+is insufficient — it resolves existing traversal targets successfully.
+Belt: regex gate. Suspenders: (notebooks_base/slug).resolve() containment check.
+
+## 2026-05-22 — m4 — corpus-version-json-paper-count-is-batch-not-cumulative
+`corpus-version.json`'s `paper_count` field = len({c.paper_id for c in chunks})
+where `chunks` is the LAST batch passed to write_chunks(), NOT the cumulative DB
+count. Per-paper bulk_ingest calls write_chunks once per paper, so the field
+shows 1. AC thresholds must use `SELECT COUNT(DISTINCT paper_id) FROM chunks`
+via lancedb.connect(), not the corpus-version.json marker.
+
+## 2026-05-22 — m4 — both-notebooks-fully-pre-ingested
+As of 2026-05-22: bridgeland-stability has 39 unique papers in lancedb (4505
+chunks); shimura-varieties has 12 (3625 chunks). ALL 51 paper HTMLs are pre-cached
+at var/arxmcp/corpus/parsed/. BM25 v157 (bridgeland) and v49 (shimura) exist but
+lack .notebook_slug sentinels (predate m6 F2 fix). Write sentinels manually.
+
+## 2026-05-22 — m4 — validate-eval-fixtures-has-no-notebook-scope
+tools/validate_eval_fixtures.py accepts --fixture and --chunks-dir only. It
+enforces TARGET_QUERY_COUNT=20 with no per-notebook variant. AC #4 ("extended to
+accept per-notebook scope field") requires a NEW tools/validate_notebook_fixtures.py
+or explicit extension. Running the existing script against per-notebook queries.json
+will fail with "expected 0 or 20 queries; got N".
+
+## 2026-05-21 — m6 — bulk-ingest-uses-cli-not-env
+`ingest/bulk_ingest.py` does NOT read ARXMCP_LANCEDB_PATH. It uses
+`--lancedb-staging-path` CLI argument (line 445). The brief's env-var
+wiring description is wrong. notebook_ingest.py must call
+run_bulk_ingest() directly with lancedb_staging_path param or use
+subprocess with --lancedb-staging-path flag.
+
+## 2026-05-21 — m6 — old-style-paper-ids-in-bridgeland
+bridgeland-stability/papers.txt contains `0705.3794` (old-style, pre-2010).
+tools/arxiv_fetch.py::PAPER_ID_RE only matches new-style. Use
+ingest.identifiers.is_valid_paper_id for all paper_id validation in
+notebook scripts — it handles both old-style and new-style.
+
+## 2026-05-21 — m6 — pdf-deferred-dir-must-survive-init-idempotency
+shimura-varieties/pdf-deferred/ exists with manifest.json + 2 PDFs.
+notebook_init.py idempotency check (if dir exists: skip) protects it.
+notebook_purge.py must warn before rmtree if pdf-deferred/ present.
+
+## 2026-05-21 — m6 — ar5iv-429-is-miss-not-drop
+ar5iv_fetch.try_cache returns hit=False with reason="http_429" on 429.
+notebook_fetch.py must surface 429s distinctly from true misses — they
+are transient (retry after backoff), not permanent drops.
+
+## 2026-05-21 — m1 — cache-already-includes-filters-in-key
+server/cache.py + cache_sqlite.py ALREADY include `filters` in the Tier-1
+and Tier-2 cache keys via `canonical_key_components`. No cache-layer changes
+needed when wiring paper_id filter through search_papers. Brief says "update
+cache key" but it is already correct — do NOT modify cache.py.
+
+## 2026-05-21 — m1 — ann-where-no-prefilter
+LanceDB ANN + .where() (without prefilter=True) is validated by spike-1.
+`prefilter=True` is for full-table-scan calls (get_paper, get_chunk). Do NOT
+add prefilter=True to the ANN search in search_papers handler.
+
+## 2026-05-21 — m1 — tests-handlers-dir-does-not-exist
+tests/handlers/ does NOT exist in this repo. Handler-specific tests are flat
+under tests/ (test_snippet_contract.py, test_tools_all.py, etc). Brief's
+tests/handlers/test_search_filter.py → use tests/test_search_filter.py instead.
+
+## 2026-05-21 — proof-verify-handler-wiring-m1 — lancedb-where-predicate-pattern
+LanceDB `.where("paper_id IN ('a','b')")` uses single-quoted string literals.
+No parameterized query API (documented in ingest/index_definitions.py:404-405).
+`_escape_sql = lambda s: s.replace("'","''")` is the project-standard escape.
+Pattern in production: `server/graph_queries.py:261-263` and `intra_paper_refs.py:218-226`.
+
+## 2026-05-21 — proof-verify-handler-wiring-m1 — cache-key-already-includes-filters
+The 3-tier cache (Tier-1 via `derive_tier1_key`, Tier-2 via `_filter_fingerprint`)
+already includes `filters` in its key using `canonical_key_components`. m1 needs
+ZERO cache changes — validate this is not re-done by the implementer.
+
+## 2026-05-21 — proof-verify-handler-wiring-m1 — max-filter-items-is-dict-key-count-not-list-length
+`MAX_FILTER_ITEMS = 100` at search.py:97 caps the number of KEYS in the filters
+dict, not the length of a list-valued item. A `{"paper_id":[10_000 ids]}` passes
+the existing guard. A separate `MAX_PAPER_ID_FILTER_ITEMS` list-length cap is needed.
+
+## 2026-05-21 — proof-verify-handler-wiring-m2 — filters-applied-requires-schema-version-bump
+Adding `filters_applied` to the search_papers output requires: (1) add to
+`server/schemas/search_papers_result.json::properties` (optional, not in `required`);
+(2) bump `schema["version"]` and `TOOL_SCHEMA_VERSION` from 8→9 in lockstep;
+(3) re-pin EXPECTED_TOOL_SCHEMA_SHA256 + EXPECTED_BP1_SHA256. The TOOL_SCHEMA_VERSION
+bump changes `_meta` in ALL_TOOLS → changes `tools/list` bytes → invalidates BP1 hash.
+
+## 2026-05-21 — proof-verify-handler-wiring-m2 — degraded-fields-not-in-schema-pre-existing-gap
+`search_papers` emits `degraded`/`degraded_reasons` (lines 469-471 of search.py)
+but neither field is in `search_papers_result.json::properties`. The
+`additionalProperties: false` schema would reject them. Test passes only because
+`r.degraded is None` in fixtures. m2 should fix this companion gap when bumping
+the schema version.
+
+## 2026-05-21 — proof-verify-handler-wiring-m2 — restamp-pattern-for-post-cache-injection
+The established pattern for injecting request-specific data post-cache is `_restamp_*`
+(see `_restamp_degraded` in search.py). For `filters_applied`, introduce a parallel
+`_inject_filters_applied(structured, canonical_filters)` helper that adds the field
+only when `canonical_filters is not None`. Apply at Tier-1 hit, Tier-2 hit, and miss
+paths. Do NOT store `filters_applied` in the cached payload (caller-specific metadata).
+
+## 2026-05-22 — proof-verify-m3 — docs-ops-runbook-pattern-is-established
+`docs/ops/` is the established location for operator runbooks in arXMCP.
+README.md:63-76 already links 10 runbooks there. New operator-facing runbooks
+belong in `docs/ops/`, NOT in `docs/install.md` or a new `docs/*.md` top-level file.
+Milestone briefs that suggest `docs/install.md` or `docs/notebooks.md` as a
+destination for a deployment-topology runbook should be redirected to `docs/ops/`.
+
+## 2026-05-22 — proof-verify-m7 — SecFetchSite-carveout-via-exempt-prefixes
+SecFetchSiteMiddleware has NO path-carve-out mechanism at v1. Canonical pattern:
+add `exempt_prefixes: tuple[str,...] = ()` constructor param, check
+`any(path == p or path.startswith(p+"/") for p in ...)` at top of __call__.
+Mirror BodySizeCapMiddleware's `_BYTE_CAP_EXEMPT_PREFIXES` shape exactly.
+
+## 2026-05-22 — proof-verify-m7 — notebook-sqlite-db-placement
+Notebook SQLite DB belongs at `var/arxmcp/notebooks/notebooks.db` (sibling to
+per-notebook dirs). Opened independently in the lifespan, attached to
+`app.state.notebook_store`. Do NOT fold into `Resources.startup()`.
+
+## 2026-05-22 — proof-verify-m7 — slug-regex-in-tools-not-server
+`tools._notebook_common.SLUG_RE` and `validate_slug()` are the canonical slug
+validators (m6). REST handlers in `server/routes/notebooks.py` MUST import from
+there, not redefine. Import path: `from tools._notebook_common import validate_slug, notebook_dir`.
+
+## 2026-05-22 — proof-verify-handler-wiring-m7 — sec-fetch-site-carve-out-is-real-bug
+SecFetchSiteMiddleware rejects ALL non-`none` values including `same-origin`. Once a
+browser-served `/ui/` exists, htmx POSTs from `http://127.0.0.1:7733/ui/` to
+`/ui/api/...` set `Sec-Fetch-Site: same-origin`. The carve-out is genuine and
+necessary. Use path-prefix guard (startswith("/ui/")) mirroring SessionCapMiddleware.
+Do NOT use `app.mount()` sub-app (Option B) — it bypasses the global middleware stack.
+
+## 2026-05-22 — proof-verify-handler-wiring-m7 — notebooks-db-must-be-separate-file
+Adding notebook tables to `cache_db_path` (retrieval.db) risks triggering
+Tier1Store's DROP-AND-RECREATE migration (it checks PRAGMA user_version). Always
+use a separate `notebooks.db` sibling file. Add `Config.notebooks_db_path` following
+the `cache_db_path` / `theorem_names_db_path` pattern in server/config.py.
+
+## 2026-05-22 — proof-verify-handler-wiring-m7 — sqlite-async-pattern-is-asyncio-to-thread
+All SQLite in this codebase uses `asyncio.to_thread` + `asyncio.Lock` (NOT aiosqlite).
+See server/cache_sqlite.py. New stores must inherit this exact pattern. SQLite FK
+enforcement (PRAGMA foreign_keys=ON) is off by default; any schema with FOREIGN KEY
+constraints must enable it explicitly per connection.
+
+## 2026-05-22 — proof-verify-handler-wiring-m8 — missing-deps-jinja2-and-multipart
+`jinja2` and `python-multipart` are NOT in pyproject.toml as of m8.
+FastAPI's `Jinja2Templates` needs `jinja2>=3.1`; `UploadFile` needs
+`python-multipart>=0.0.9`. Any milestone adding an HTML UI or file upload
+MUST add both deps explicitly.
+
+## 2026-05-22 — proof-verify-handler-wiring-m8 — body-size-cap-covers-responses-not-requests
+`BodySizeCapMiddleware` in `server/main.py` caps RESPONSE bodies (256 KB).
+`RequestBodySizeLimitMiddleware` in `server/middleware.py` caps REQUEST bodies (1 MB).
+Upload carve-outs only need `RequestBodySizeLimitMiddleware` extension. HTML pages
+served as responses risk 413 from `BodySizeCapMiddleware` — add `/ui/` to
+`_BYTE_CAP_EXEMPT_PREFIXES` when shipping a Jinja2 HTML surface.
+
+## 2026-05-22 — m8 — htmx-2x-size-is-87kb-not-14kb
+htmx 2.0.10 htmx.min.js is ~87 KB on disk (~51 KB gzip). The brief's "14 KB"
+is the htmx 1.x era figure. Vendor 87 KB raw file; uvicorn StaticFiles serves
+it gzip-compressed. License is Zero-Clause BSD (0BSD), not BSD-2-Clause.
+
+## 2026-05-22 — m8 — ar5iv-url-normalizer-gap-is-deliberate-m7-defer
+server/routes/notebooks.py::_ACCEPTED_HOSTS only contains "arxiv.org".
+Line 100 explicitly says ar5iv is out of m7 scope. m8 AC#3 requires ar5iv
+support. Implementer must add ar5iv.labs.arxiv.org + /html/ prefix to
+_arxiv_url_to_paper_id. This is NOT a bug in m7 — it is a planned m8 task.
+
+## 2026-05-22 — m8 — jinja2-python-multipart-are-transitive-via-mcp
+jinja2==3.1.6 and python-multipart==0.0.27 are both installed as transitive
+deps of mcp>=1.27.1. They are NOT declared in pyproject.toml. m8 must add
+explicit declarations: jinja2>=3.1.3 and python-multipart>=0.0.18 (CVE floor).
+
+## 2026-05-22 — proof-verify-handler-wiring-m9 — notebook-ingest-is-sync-requires-subprocess
+tools/notebook_ingest.py::run() is SYNCHRONOUS (calls run_bulk_ingest which is a
+blocking for-loop). Cannot use asyncio.to_thread for fire-and-forget server tasks
+when stderr capture is required. Use asyncio.create_subprocess_exec(stderr=PIPE).
+FastAPI BackgroundTasks are not suitable (not cancellable, not tracked in app.state).
+
+## 2026-05-22 — proof-verify-handler-wiring-m9 — additive-migration-vs-drop-recreate
+NotebooksStore uses DROP-AND-RECREATE for schema bumps (same as cache_sqlite.py).
+Adding a new table (notebook_ingest_runs) MUST use additive migration (CREATE TABLE
+IF NOT EXISTS) in a guarded `if current_version < N:` branch. Never replicate the
+destructive pattern when live notebook data exists.
+
+## 2026-05-22 — proof-verify-handler-wiring-m9 — asyncio-to-thread-for-cpu-sync-ingest
+`run_bulk_ingest` is synchronous + CPU-bound (BGE-M3 embedding). The correct async
+shell is `asyncio.create_task(asyncio.to_thread(run, slug))` — NOT
+`create_task(coroutine_calling_sync_fn())` which blocks the event loop. htmx 286
+status code stops polling on terminal states (htmx-canonical; no JS needed).
+Store task references in `app.state` dict to prevent GC; `done_callback` updates DB.
+
+## 2026-05-22 — E14_Tier5plus — metric-name-drift-request-vs-tool-latency
+S09 Grafana brief uses `arxmcp_tool_latency_seconds` but actual registered name is
+`arxmcp_request_latency_seconds` (server/observability/metrics.py:67). Cache tier
+label is `tier` (string "1"/"2"/"3"), not `layer`. Embed singleflight dedup counter
+is in server/health.py (not server/observability/metrics.py). Reranker latency has
+`{model}` label. All dashboard PromQL must use these actual names.
+
+## 2026-05-22 — E14_Tier5plus — restore-runbook-name-drift
+E14_S10 brief references `docs/ops/restore-runbook.md` (from E14_S05). Actual file
+is `docs/ops/backup-restore.md`. The brief's file name is documented drift. Link to
+backup-restore.md in the runbook index.
+
+## 2026-05-22 — E14_Tier5plus — E08_S07-haiku-summarizer-not-shipped
+No E08_S07 milestone exists (milestones only go E08_S01–E08_S05). Haiku summarizer
+is explicitly a stub in server/observability/tracing.py:482 (never entered in v1).
+S12 ships Voyage path only; leave TODO for Haiku increment referencing E08_S07.
+
+## 2026-05-22 — E14_Tier5plus — voyage-is-stub-always-raises
+server/query_encoder.py::_voyage_encode_stub() always raises NotImplementedError
+("voyage HTTP client not yet implemented; see E14_S05 D6"). The S12 spend counter
+increment fires on the fallback path (after the stub raises). No server/embedder/ or
+server/summarizer/ directories exist; S12 code goes in server/query_encoder.py.
+
+## 2026-05-22 — E14_Tier5plus — server-observability-dir-exists-already
+`server/observability/` was created by E14_S01 with __init__.py. Any brief
+calling it a "NEW directory; create with __init__.py" is wrong — it exists.
+The 6 files present: log_filter, logging_setup, metrics, sanitize, tracing, __init__.
+
+## 2026-05-22 — E14_Tier5plus — mcp-session-id-not-emitted-as-response-header
+Server ONLY consumes Mcp-Session-Id (stored to ContextVar via TracingContextMiddleware).
+It is NEVER emitted in responses. Langfuse doc snippets must note: caller attaches the
+session ID they sent (not from a response header). Verified by grep across server/.
+
+## 2026-05-22 — E14_Tier5plus — voyage-stub-raises-not-implemented
+_voyage_encode_stub in server/query_encoder.py raises NotImplementedError immediately.
+Any S12 spend counter for voyage must be a TODO — no real call site exists yet.
+
+## 2026-05-22 — E14_Tier5plus — docs-ops-restore-runbook-name-mismatch
+docs/ops/ has `backup-restore.md`, NOT `restore-runbook.md`. The E14_S05 brief and
+E14_S10 brief both reference the wrong filename. Link to backup-restore.md in the index.
