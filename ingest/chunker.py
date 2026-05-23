@@ -187,6 +187,19 @@ _THEOREM_ENV_KINDS = {
     "assumption": "assumption",
     "convention": "convention",
     "notation": "notation",
+    # Short-form aliases observed in real arXiv papers (math.AG corpus
+    # April 2026 — IntroThm/IntroCor/Df/Lm/Rmk style class names from
+    # LaTeXML). Without these the fallback would emit raw env_name
+    # which the schema's _ALLOWED_KINDS rejects.
+    "lm": "lemma",
+    "df": "definition",
+    "rmk": "remark",
+    "introthm": "stmt",
+    "introcor": "corollary",
+    "introprop": "proposition",
+    "introlem": "lemma",
+    "maintheorem": "stmt",
+    "mainthm": "stmt",
 }
 
 # Environments that are treated as "theorem-with-optional-proof" (may get a
@@ -436,8 +449,16 @@ def _extract_theorem_name(tag: Tag) -> str | None:
 
 
 def _env_kind(env_name: str) -> str:
-    """Map a LaTeXML environment subclass name to a ``kind`` string."""
-    return _THEOREM_ENV_KINDS.get(env_name.lower(), env_name.lower())
+    """Map a LaTeXML environment subclass name to a ``kind`` string.
+
+    Unknown environment names default to ``"stmt"`` — the same kind
+    plain ``theorem`` maps to. Returning the raw env_name produced a
+    bulk-ingest crash when papers used custom theorem environments
+    not in ``_THEOREM_ENV_KINDS`` (e.g. an author's ``\\newtheorem
+    {weirdthm}``) because the resulting chunk's ``kind`` is rejected
+    by ``ingest.store._ALLOWED_KINDS``.
+    """
+    return _THEOREM_ENV_KINDS.get(env_name.lower(), "stmt")
 
 
 def _is_theorem_like(env_name: str) -> bool:
