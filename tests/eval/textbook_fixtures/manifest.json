@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "milestone": "parser-fidelity-eval-m1",
+  "purpose": "CDM (Character Detection Matching) parser-fidelity eval fixture for arXMCP textbook ingest path.",
+  "classes": {
+    "paper-control": {
+      "description": "Clean math.AG arxiv-paper-style formulas. Synthetic; project-original. Expected CDM near 1.0 for competent parsers.",
+      "expected_pages": 5,
+      "current_pages": 2,
+      "attribution": "project-original (synthetic)"
+    },
+    "hartshorne-style": {
+      "description": "Single-column dense math typesetting. Operator-hand-typed (no upstream copy).",
+      "expected_pages": 5,
+      "current_pages": 0,
+      "attribution": "operator-hand-typed"
+    },
+    "griffiths-harris-style": {
+      "description": "Multi-column textbook typesetting (adversary F-M3 concern). Operator-hand-typed (no upstream copy).",
+      "expected_pages": 5,
+      "current_pages": 0,
+      "attribution": "operator-hand-typed"
+    },
+    "milne-style": {
+      "description": "Course-notes-as-PDF rendered from .tex. Source: Milne's algebraic geometry notes (CC BY-NC).",
+      "expected_pages": 5,
+      "current_pages": 0,
+      "attribution": "J.S. Milne, https://www.jmilne.org/math/CourseNotes/AG.pdf, CC BY-NC"
+    }
+  },
+  "totals": {
+    "expected_pages": 20,
+    "current_pages": 2,
+    "promotion_threshold_pages": 20,
+    "promotion_cdm_min": 0.85
+  },
+  "notes": [
+    "Per-page contract: NN-formula.tex (LaTeX fragment, no preamble) + NN-formula.mathml (canonical MathML ground truth).",
+    "Cold-start matrix: fixture <5 pages/class → tests skip; fixture 1-19 pages total → tests run but promotion gate blocked; fixture >=20 pages → promotion gate active.",
+    "Re-pin LaTeXML-derived MathML only when latexmlc binary version drifts; the .tex sources never need regeneration."
+  ]
+}

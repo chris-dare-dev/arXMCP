@@ -1,0 +1,19 @@
+<math xmlns="http://www.w3.org/1998/Math/MathML" display="block">
+  <mfrac>
+    <mrow><mo>&#x2202;</mo><mi>f</mi></mrow>
+    <mrow><mo>&#x2202;</mo><mi>x</mi></mrow>
+  </mfrac>
+  <mo>=</mo>
+  <munder>
+    <mo>lim</mo>
+    <mrow><mi>h</mi><mo>&#x2192;</mo><mn>0</mn></mrow>
+  </munder>
+  <mfrac>
+    <mrow>
+      <mi>f</mi><mo>(</mo><mi>x</mi><mo>+</mo><mi>h</mi><mo>)</mo>
+      <mo>-</mo>
+      <mi>f</mi><mo>(</mo><mi>x</mi><mo>)</mo>
+    </mrow>
+    <mi>h</mi>
+  </mfrac>
+</math>
