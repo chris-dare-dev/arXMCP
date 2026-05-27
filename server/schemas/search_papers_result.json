@@ -38,8 +38,8 @@
         "description": "One search result. NOT a chunk — agents call get_chunk(chunk_id) to fetch the full body. The snippet content is a byte-for-byte slice of body_text (max 150 chars of content), no LLM rewriting. The snippet field itself wraps the content in <retrieved_chunk>...</retrieved_chunk> delimiters per Threat-2 defense (E13_S02; .claude/docs/security-threat-2-audit.md). The wrap adds 35 chars of fixed overhead plus up to 6 chars per literal delimiter occurrence escaped in the body — maxLength: 250 covers the worst case.",
         "properties": {
           "chunk_id": {
-            "description": "Content-addressable chunk_id (arxiv:<paper_id>:<16-hex>). Stable across re-chunks of the same source bytes.",
-            "pattern": "^arxiv:(\\d{4}\\.\\d{4,5}(v\\d+)?|[a-z][a-z\\-]*/\\d{7}(v\\d+)?):[0-9a-f]{16}$",
+            "description": "Content-addressable chunk_id. Two prefix shapes (textbook-ingest-m1): arxiv:<paper_id>:<16-hex> for arXiv chunks and textbook:<slug>:<16-hex> for notebook-scoped textbook chunks. Stable across re-chunks of the same source bytes. Pattern mirrors ingest.identifiers.CHUNK_ID_PATTERN (single source of truth, locked by tests/test_snippet_contract.py::TestRegexSourceOfTruth).",
+            "pattern": "^(?:arxiv:(\\d{4}\\.\\d{4,5}(?:v\\d+)?|[a-z][a-z\\-]*/\\d{7}(?:v\\d+)?):[0-9a-f]{16}|(textbook:[a-z][a-z0-9-]{2,30}):[0-9a-f]{16})$",
             "type": "string"
           },
           "label": {

@@ -106,16 +106,30 @@ MIN_QUERIES_BY_KIND = {"stmt": 5, "proof": 5}
 _PAPER_ID_RE = re.compile(
     # F3 closure from m1 critique: ``\Z`` not ``$`` — see
     # ingest/identifiers.py for the canonical pattern definition + rationale.
-    r"^\d{4}\.\d{4,5}(v\d+)?\Z|^[a-z][a-z\-]*/\d{7}(v\d+)?\Z"
+    # textbook-ingest-m1: third alternative added in lockstep with the
+    # canonical pattern. The eval-fixture validator never sees textbook
+    # paper_ids in m1 (eval fixtures are arXiv-only); the lockstep is
+    # required by the byte-equality test.
+    r"^\d{4}\.\d{4,5}(v\d+)?\Z"
+    r"|^[a-z][a-z\-]*/\d{7}(v\d+)?\Z"
+    r"|^textbook:[a-z][a-z0-9-]{2,30}\Z"
 )
 
-#: ``arxiv:<paper_id>:<16-hex>``. Validates the full chunk_id shape.
+#: ``arxiv:<paper_id>:<16-hex>``. Validates the full chunk_id shape
+#: for EVAL FIXTURES ONLY (which are arXiv-only). Distinct from the
+#: dual-prefix ``ingest.identifiers.CHUNK_ID_RE`` that ships with
+#: textbook-ingest-m1; the validator does not currently accept
+#: textbook chunk-ids because no eval fixtures are textbook-shaped.
+#: textbook-ingest-m1: ``$``→``\Z`` defense-in-depth fix to close the
+#: parallel F3 bug class — the validator runs on curated input so this
+#: is not a runtime path, but the regex hygiene matches the rest of
+#: the codebase.
 _CHUNK_ID_RE = re.compile(
     r"^arxiv:(?P<paper_id>"
     r"\d{4}\.\d{4,5}(v\d+)?"
     r"|"
     r"[a-z][a-z\-]*/\d{7}(v\d+)?"
-    r"):[0-9a-f]{16}$"
+    r"):[0-9a-f]{16}\Z"
 )
 
 #: ISO-8601 calendar date (``YYYY-MM-DD``). The brief's example

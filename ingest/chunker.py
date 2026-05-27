@@ -101,12 +101,21 @@ _AUTO_ID_RE = re.compile(r"^S\d+(?:\.SS\d+)*(?:\.SSS\d+)*\.Thm\w+\d+$")
 _PAREN_NAME_RE = re.compile(r"\(([^)]+)\)")
 
 # Closes F2: paper_id must match new-style YYMM.NNNNN[N][vN] or old-style
-# subject/NNNNNNN[vN]; everything else is rejected before any path concat.
-# Threat 1 in 08-security-observability-ops.md.
+# subject/NNNNNNN[vN] or textbook:<slug> (textbook-ingest-m1); everything
+# else is rejected before any path concat. Threat 1 in
+# 08-security-observability-ops.md. Byte-equality with
+# ingest/identifiers.py::_PAPER_ID_FULL_PATTERN is enforced by
+# tests/test_identifiers.py::test_chunker_pattern_equals_canonical.
 _PAPER_ID_RE = re.compile(
     # F3 closure from m1 critique: ``\Z`` not ``$`` — see
     # ingest/identifiers.py for the canonical pattern definition + rationale.
-    r"^\d{4}\.\d{4,5}(v\d+)?\Z|^[a-z][a-z\-]*/\d{7}(v\d+)?\Z"
+    # textbook-ingest-m1: third alternative ``textbook:<slug>`` added in
+    # lockstep with the canonical pattern. The chunker never PRODUCES
+    # textbook paper_ids in m1 (no schema for textbook chunks yet), but
+    # the lockstep is required by the byte-equality test.
+    r"^\d{4}\.\d{4,5}(v\d+)?\Z"
+    r"|^[a-z][a-z\-]*/\d{7}(v\d+)?\Z"
+    r"|^textbook:[a-z][a-z0-9-]{2,30}\Z"
 )
 
 

@@ -91,9 +91,191 @@ class TestChunkIdValidation:
 
 
 class TestRegexEquality:
-    """The CHUNK_ID_RE pattern must contain PAPER_ID_PATTERN."""
+    """Structural relationship between ``CHUNK_ID_PATTERN`` and
+    ``PAPER_ID_PATTERN``.
 
-    def test_chunk_id_re_uses_paper_id_pattern(self):
+    Pre-textbook-ingest-m1 the relationship was a literal substring:
+    ``PAPER_ID_PATTERN in CHUNK_ID_PATTERN``. After m1 the chunk-id
+    pattern carries TWO prefix shapes (``arxiv:`` and ``textbook:``)
+    with different capture semantics, so a substring invariant is no
+    longer tractable. The replacement invariant is per-alternative
+    containment: every alternative in ``PAPER_ID_PATTERN`` must
+    appear somewhere in ``CHUNK_ID_PATTERN`` (possibly with
+    capturing-vs-non-capturing v-suffix differences).
+    """
+
+    def test_chunk_id_pattern_contains_each_alternative(self):
         from ingest.identifiers import CHUNK_ID_PATTERN, PAPER_ID_PATTERN
 
-        assert PAPER_ID_PATTERN in CHUNK_ID_PATTERN
+        # Strip capturing parens around v-suffix; CHUNK_ID_PATTERN
+        # uses non-capturing (?:v\d+)? inside the arXiv branch.
+        # textbook alternative has no v-suffix so is unaffected.
+        alts_paper = PAPER_ID_PATTERN.split("|")
+        for alt in alts_paper:
+            normalized = alt.replace("(v\\d+)?", "(?:v\\d+)?")
+            assert normalized in CHUNK_ID_PATTERN, (
+                f"alternative {alt!r} (normalized {normalized!r}) "
+                f"not present in CHUNK_ID_PATTERN"
+            )
+
+
+class TestTextbookIdentifiers:
+    """textbook-ingest-m1 — textbook paper_id and chunk_id support."""
+
+    # ---- positive cases ----
+
+    def test_textbook_paper_id_minimum_length_slug_valid(self):
+        # 3-char slug: leading letter + 2 chars (the SLUG_RE inner min).
+        assert is_valid_paper_id("textbook:foo")
+
+    def test_textbook_paper_id_realistic_slug_valid(self):
+        assert is_valid_paper_id("textbook:shimura-varieties")
+
+    def test_textbook_paper_id_alphanumeric_slug_valid(self):
+        assert is_valid_paper_id("textbook:lnm-1337")
+
+    def test_textbook_paper_id_maximum_length_slug_valid(self):
+        # 31-char slug: leading letter + 30 chars.
+        slug = "a" + "b" * 30
+        assert is_valid_paper_id(f"textbook:{slug}")
+
+    def test_textbook_chunk_id_valid(self):
+        assert is_valid_chunk_id(
+            "textbook:shimura-varieties:abcdef0123456789"
+        )
+
+    def test_arxiv_chunk_id_still_valid_after_m1(self):
+        # AC #3 — byte-stability for arXiv shape.
+        assert is_valid_chunk_id("arxiv:2401.00001:abcdef0123456789")
+        assert is_valid_chunk_id("arxiv:hep-th/9876543:" + "f" * 16)
+
+    def test_paper_id_from_textbook_chunk_id_returns_full_paper_id(self):
+        # AC #1 — round-trip returns ``textbook:<slug>``, NOT just
+        # ``<slug>``. The ``textbook:`` prefix IS part of the paper_id.
+        from ingest.identifiers import paper_id_from_chunk_id
+
+        result = paper_id_from_chunk_id(
+            "textbook:shimura-varieties:abcdef0123456789"
+        )
+        assert result == "textbook:shimura-varieties"
+
+    def test_paper_id_from_arxiv_chunk_id_unchanged(self):
+        # AC #3 — arXiv round-trip unchanged. group("arxiv_inner")
+        # captures the arXiv paper_id with no ``arxiv:`` prefix.
+        from ingest.identifiers import paper_id_from_chunk_id
+
+        assert (
+            paper_id_from_chunk_id("arxiv:2401.00001:" + "a" * 16)
+            == "2401.00001"
+        )
+        assert (
+            paper_id_from_chunk_id("arxiv:hep-th/9876543:" + "f" * 16)
+            == "hep-th/9876543"
+        )
+
+    # ---- Threat-1 negative cases on is_valid_paper_id ----
+    # AC #2 — ≥5 path-traversal regression fixtures. We ship 11.
+
+    def test_textbook_path_traversal_rejected(self):
+        # N1 — slash + dotdot in slug.
+        assert not is_valid_paper_id("textbook:../etc/passwd")
+
+    def test_textbook_extra_colon_rejected(self):
+        # N2 — extra colon (chunk-id form passed as paper_id).
+        assert not is_valid_paper_id("textbook:foo:bar")
+
+    def test_textbook_null_byte_in_slug_rejected(self):
+        # N3 — null-byte injection.
+        assert not is_valid_paper_id("textbook:foo\x00bar")
+
+    def test_textbook_whitespace_in_slug_rejected(self):
+        # N4 — whitespace.
+        assert not is_valid_paper_id("textbook:foo bar")
+
+    def test_textbook_trailing_newline_rejected(self):
+        # N5 — \Z anchor must reject trailing \n (F3-class).
+        assert not is_valid_paper_id("textbook:foo\n")
+
+    def test_textbook_empty_slug_rejected(self):
+        # N6 — empty slug.
+        assert not is_valid_paper_id("textbook:")
+
+    def test_textbook_uppercase_slug_rejected(self):
+        # N7 — uppercase slug. Policy: lowercase-only per SLUG_RE.
+        assert not is_valid_paper_id("textbook:FOO")
+        assert not is_valid_paper_id("textbook:Foo")
+
+    def test_textbook_slug_too_short_rejected(self):
+        # N8 — slug below 3 chars (inner ``[a-z][a-z0-9-]{2,30}``).
+        assert not is_valid_paper_id("textbook:fo")
+        assert not is_valid_paper_id("textbook:f")
+
+    def test_textbook_slug_too_long_rejected(self):
+        # N9 — slug above 31 chars.
+        slug = "a" + "b" * 31  # 32 chars total
+        assert not is_valid_paper_id(f"textbook:{slug}")
+
+    def test_textbook_double_prefix_rejected(self):
+        # N10 — wrong prefix nesting.
+        assert not is_valid_paper_id("arxiv:textbook:foo")
+
+    def test_textbook_chunk_id_form_rejected_as_paper_id(self):
+        # N11 — chunk-id form must not pass is_valid_paper_id.
+        assert not is_valid_paper_id(
+            "textbook:foo:abcdef0123456789"
+        )
+
+    # ---- Threat-1 negative cases on is_valid_chunk_id ----
+
+    def test_textbook_chunk_id_trailing_newline_rejected(self):
+        # C1 — CHUNK_ID_RE must use \Z, not $.
+        assert not is_valid_chunk_id(
+            "textbook:foo:abcdef0123456789\n"
+        )
+
+    def test_arxiv_chunk_id_trailing_newline_rejected(self):
+        # C2 — F3-class fix on CHUNK_ID_RE: the EXISTING arXiv shape
+        # used to pass with a trailing newline; m1 closes this.
+        assert not is_valid_chunk_id(
+            "arxiv:2401.00001:abcdef0123456789\n"
+        )
+        assert not is_valid_chunk_id(
+            "arxiv:hep-th/9876543:" + "f" * 16 + "\n"
+        )
+
+    def test_textbook_chunk_id_path_traversal_rejected(self):
+        # C3 — path-traversal in chunk-id form.
+        assert not is_valid_chunk_id(
+            "textbook:../etc/passwd:abcdef0123456789"
+        )
+
+    def test_textbook_chunk_id_uppercase_hex_rejected(self):
+        # C4 — hex must be lowercase (matches arXiv discipline).
+        assert not is_valid_chunk_id(
+            "textbook:foo:ABCDEF0123456789"
+        )
+
+    def test_textbook_chunk_id_sha_too_short_rejected(self):
+        # C5 — sha must be exactly 16 hex chars.
+        assert not is_valid_chunk_id(
+            "textbook:foo:abcdef0123456"  # 15 chars
+        )
+
+    def test_textbook_chunk_id_arxiv_prefix_wrong_inner_rejected(self):
+        # Extra guard: ``arxiv:textbook:foo:<sha>`` must be rejected.
+        # The arxiv branch's inner subgroup is arXiv-only, so a
+        # textbook paper_id under the arxiv: prefix can't match.
+        assert not is_valid_chunk_id(
+            "arxiv:textbook:foo:abcdef0123456789"
+        )
+
+    def test_paper_id_from_chunk_id_raises_on_invalid(self):
+        # Ensure the error path still rejects malformed input.
+        import pytest
+
+        from ingest.identifiers import paper_id_from_chunk_id
+
+        with pytest.raises(ValueError):
+            paper_id_from_chunk_id("textbook:foo:bad")
+        with pytest.raises(ValueError):
+            paper_id_from_chunk_id("not-a-chunk-id")
