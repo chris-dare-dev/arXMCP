@@ -125,12 +125,13 @@ EMBEDDING_DIM = 1024
 # this for ``body_text`` alone (stmt: 512, proof: 448) but the embed input
 # adds an uncapped preamble prefix; the tokenizer's ``truncation=True,
 # max_length=MAX_TOKENS`` handles the overflow at encode time.
-MAX_TOKENS = 512
+MAX_TOKENS = 2048
 
-# Default batch size for CPU inference. ~32 chunks ≈ 32 forward passes
-# through XLM-RoBERTa-large per call; on a 2020-era laptop this delivers
-# acceptable throughput for the 50-paper seed corpus.
-EMBED_BATCH_DEFAULT = 32
+# Default batch size for CPU inference. Lowered from 32 to 8 in
+# embedder-truncation-m1 because XLM-RoBERTa's O(n²) attention makes a
+# 32-batch of 2048-token inputs OOM-prone on CPU (16× attention memory
+# vs the prior 512-token regime).
+EMBED_BATCH_DEFAULT = 8
 
 
 # ---------------------------------------------------------------------------
@@ -412,11 +413,20 @@ def _encode_batch(
     # length per text, matching the call-style of the actual encode
     # below. ``return_length=True`` makes ``length`` a per-input list
     # in the returned batch encoding.
+    #
+    # embedder-truncation-m1: ``add_special_tokens=False`` so CLS+SEP
+    # (+2 tokens) are NOT included in the length count. Without this,
+    # a chunk emitted by the chunker at exactly MAX_TOKENS tokens of
+    # raw text is re-counted as truncated (length=MAX_TOKENS+2 > cap).
+    # The actual encode below MUST keep the default (add_special_tokens
+    # is implicitly True) — CLS+SEP are required for correct sentence-
+    # level embeddings from XLM-RoBERTa.
     pre = tokenizer(
         texts,
         padding=False,
         truncation=False,
         return_length=True,
+        add_special_tokens=False,
     )
     lengths = pre["length"]
     truncated_count = 0

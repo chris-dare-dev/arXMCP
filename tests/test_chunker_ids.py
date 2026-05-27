@@ -23,11 +23,12 @@ Coverage map (acceptance criteria → test):
   → ``TestChunkIDDeterminism::test_body_mutation_changes_chunk_id``
 * Modifying preamble produces a different chunk_id
   → ``TestChunkIDDeterminism::test_preamble_mutation_changes_chunk_id``
-* ``chunker_version: "v1.0"`` on every chunk; defined as a single constant
+* ``chunker_version: CHUNKER_VERSION`` on every chunk; defined as a single constant
   → ``TestChunkerVersionConstant``
 * ``chunk_manifest.json`` exists for every paper after a chunker run
   → ``TestChunkManifest``
-* ``CHUNKER_VERSION`` is the only place ``"v1.0"`` is defined in ``ingest/``
+* ``CHUNKER_VERSION`` is the only place the current chunker version
+  literal is defined in ``ingest/``
   → ``TestSingleVersionDefinition``
 """
 
@@ -201,7 +202,7 @@ class TestChunkerVersionConstant:
     PAPER_ID = "2307.00001"
 
     def test_constant_value(self):
-        assert CHUNKER_VERSION == "v1.0"
+        assert CHUNKER_VERSION == "v1.1"
 
     def test_every_chunk_has_version(self, tmp_path):
         chunks = _run_no_preamble(tmp_path, self.PAPER_ID)
@@ -340,38 +341,47 @@ class TestOutputFilenames:
 
 class TestSingleVersionDefinition:
     """Acceptance criterion: ``CHUNKER_VERSION`` is the only place the
-    string ``"v1.0"`` is defined in the ``ingest/`` package as a chunker
-    version. (TOKENIZER_VERSION = "v1.0" is a separate concept and lives
-    in tokenizer.py — that does not violate the criterion.)"""
+    current chunker-version literal is defined in the ``ingest/``
+    package. (TOKENIZER_VERSION is a separate concept and lives in
+    tokenizer.py — that does not violate the criterion.)"""
 
-    def test_v1_0_literal_count_in_ingest_package(self):
+    def test_version_literals_only_in_canonical_assignments(self):
         # Closes F4: broadened from a 2-file scan to the entire ingest/
-        # package, and to BOTH "v1.0" and 'v1.0' quote forms. The scan
-        # exempts the two canonical assignments:
-        #   chunker_types.py: CHUNKER_VERSION = "v1.0"
-        #   tokenizer.py:     TOKENIZER_VERSION = "v1.0"
+        # package, and to BOTH "vX.Y" and 'vX.Y' quote forms. The scan
+        # exempts the canonical assignments:
+        #   chunker_types.py: CHUNKER_VERSION = "<current>"
+        #   tokenizer.py:     TOKENIZER_VERSION = "<current>"
         # CHUNKER_VERSION and TOKENIZER_VERSION track independent
-        # invariants (chunking strategy vs tokenizer regex) that happen
-        # to share the value "v1.0" today. Future modules (E03_S02
-        # re-embed skip, E04_S02 MVCC writer) that hard-code "v1.0"
-        # instead of importing the relevant constant will fail this
-        # check.
+        # invariants (chunking strategy vs tokenizer regex). The test
+        # imports the live constants so the bump in
+        # embedder-truncation-m1 (CHUNKER_VERSION "v1.0" → "v1.1")
+        # doesn't require touching this test's allowed-count map.
+        # Future modules that hard-code either literal instead of
+        # importing the relevant constant will fail this check.
+        from ingest.chunker_types import CHUNKER_VERSION
+        from ingest.tokenizer import TOKENIZER_VERSION
+
         ingest_dir = Path(__file__).parent.parent / "ingest"
-        canonical_assignments = {
-            "chunker_types.py": 1,  # CHUNKER_VERSION = "v1.0"
-            "tokenizer.py": 1,      # TOKENIZER_VERSION = "v1.0"
+        canonical_literals = {
+            "chunker_types.py": CHUNKER_VERSION,
+            "tokenizer.py": TOKENIZER_VERSION,
         }
+        # The literals we forbid outside their canonical home.
+        watched = {CHUNKER_VERSION, TOKENIZER_VERSION}
         violations: list[str] = []
         for py_file in sorted(ingest_dir.glob("*.py")):
             src = py_file.read_text()
-            total = src.count('"v1.0"') + src.count("'v1.0'")
-            allowed = canonical_assignments.get(py_file.name, 0)
-            if total != allowed:
-                violations.append(
-                    f"{py_file.name}: has {total} occurrence(s) of v1.0 "
-                    f"literal (allowed: {allowed}). Import the relevant "
-                    "*_VERSION constant from chunker_types or tokenizer."
-                )
+            canonical_lit = canonical_literals.get(py_file.name)
+            for lit in watched:
+                total = src.count(f'"{lit}"') + src.count(f"'{lit}'")
+                allowed = 1 if lit == canonical_lit else 0
+                if total != allowed:
+                    violations.append(
+                        f"{py_file.name}: has {total} occurrence(s) of "
+                        f"{lit!r} literal (allowed: {allowed}). Import "
+                        "the relevant *_VERSION constant from "
+                        "chunker_types or tokenizer."
+                    )
         assert not violations, (
             "single-source-of-truth violation:\n  " + "\n  ".join(violations)
         )

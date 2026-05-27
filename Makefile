@@ -1,4 +1,4 @@
-.PHONY: help bootstrap test eval up ingest delta re-embed watchdog cutover daily-report parser-failures-report sbom refresh-arxiv-ca
+.PHONY: help bootstrap test eval up ingest delta re-embed re-embed-all watchdog cutover daily-report parser-failures-report sbom refresh-arxiv-ca
 
 # Override with `make test PYTHON=python3.13` if your default python3 is too old.
 PYTHON ?= python3
@@ -14,6 +14,7 @@ help:
 	@echo "  make ingest      Run the bulk ingest orchestrator (E11_S01; see docs/ops/bulk-ingest-runbook.md)"
 	@echo "  make delta       Run the OAI-PMH nightly delta loop (E11_S02; see docs/ops/delta-loop.md)"
 	@echo "  make re-embed    Run the partial re-embed driver (E11_S03; see docs/ops/re-embed-runbook.md)"
+	@echo "  make re-embed-all Re-embed every LanceDB dataset (shared + notebook-scoped; embedder-truncation-m1)"
 	@echo "  make watchdog    Run the drift watchdog against staging (E11_S04; see docs/ops/drift-watchdog.md)"
 	@echo "  make cutover     Activate the staging corpus as the new active (E11_S05; see docs/ops/cutover-runbook.md)"
 	@echo "  make daily-report           Scrape /metrics and write the daily ops report (E14_S04; see docs/ops/daily-ops-cadence.md)"
@@ -144,6 +145,21 @@ re-embed:
 		f'arXMCP requires Python >= 3.$(MIN_PY_MINOR); got {sys.version_info[:2]}. \
 Try: make re-embed PYTHON=python3.$(MIN_PY_MINOR)'"
 	$(PYTHON) -m ingest.re_embed $(ARGS)
+
+re-embed-all:
+	@# embedder-truncation-m1 — notebook-aware re-embed driver.
+	@# Discovers every LanceDB dataset under var/arxmcp/notebooks/
+	@# (plus the shared corpus if non-empty) and invokes the single-
+	@# path re_embed driver against each. Required after CHUNKER_VERSION
+	@# bumps or token-budget changes that mandate corpus-wide rebuilds.
+	@#
+	@# Operator workflow: run this once per chunker-bump; expect a
+	@# multi-hour run for >10K chunks at the post-bump 2048-token
+	@# budget. ARGS forwards to the driver (e.g. ARGS="--dry-run").
+	@$(PYTHON) -c "import sys; assert sys.version_info >= (3, $(MIN_PY_MINOR)), \
+		f'arXMCP requires Python >= 3.$(MIN_PY_MINOR); got {sys.version_info[:2]}. \
+Try: make re-embed-all PYTHON=python3.$(MIN_PY_MINOR)'"
+	$(PYTHON) -m tools.re_embed_all $(ARGS)
 
 watchdog:
 	@# E11_S04 — drift watchdog. Runs the E05 retrieval-quality

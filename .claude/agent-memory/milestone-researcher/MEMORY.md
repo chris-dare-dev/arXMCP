@@ -573,3 +573,59 @@ Dockerfile.ingest as out-of-scope for E13_S03b.
 `ops/drift_check.py::render_fixture` uses subprocess.run WITHOUT start_new_session=True.
 This is a second LaTeXML invocation site not covered by E13_S03's process-group fix.
 E13_S03b should apply the sandbox wrapper here too (3-line change) for consistency.
+
+## 2026-05-27 — embedder-truncation-m1 — chunker-version-bump-test-blast-radius
+CHUNKER_VERSION bump v1.0→v1.1 requires updating ALL of these simultaneously (one
+commit): (1) chunker_types.py constant, (2) all 10 tests/fixtures/chunker/*.expected.json
+files, (3) tests/eval/fixtures/queries.json "chunker_version" field, (4) hardcoded
+"v1.0" string assertions in test_chunker.py (~4 lines), (5) TestSingleVersionDefinition
+in test_chunker_ids.py (scan for "v1.1" not "v1.0"). TestChunkerVersionFreeze SHA in
+test_re_embed.py does NOT need re-pinning (only fires if _compute_chunk_id source changes).
+
+## 2026-05-27 — embedder-truncation-m1 — eval-fixture-stub-vacuous-pass
+tests/eval/fixtures/queries.json has "queries": [] — zero queries. Any AC that says
+"nDCG@5 does not regress" is vacuously true. Record "eval fixture is stub; N/A" in
+implementation summary. Do not skip the B-3 AC — just note it passes vacuously.
+
+## 2026-05-27 — embedder-truncation-m1 — lancedb-dataset-count-2026-05-27
+Two live LanceDB datasets as of 2026-05-27: notebooks/bridgeland-stability (6804 rows,
+corpus-version 369) and notebooks/shimura-varieties (3625 rows, version 49). No
+var/arxmcp/index/lancedb exists. demo-nb and csrf-victim notebook dirs exist but have
+no lancedb/ subdirectory. Total re-embed scope: ~10,429 rows, ~137 papers.
+
+## 2026-05-27 — embedder-truncation-m1 — re_embed-single-path-no-notebook-enumeration
+`ingest/re_embed.py::run_re_embed()` takes ONE `active_lancedb_path` (default: main corpus).
+It does NOT enumerate `var/arxmcp/notebooks/*/lancedb/`. Any milestone requiring
+"re-embed all datasets" must add a driver loop or CLI flag; the function is not a wildcard tool.
+Live dataset counts: bridgeland-stability 6804 rows (v369), shimura-varieties 3625 rows (v49).
+Main corpus lancedb has no `chunks` table as of 2026-05-27.
+
+## 2026-05-27 — embedder-truncation-m1 — chunk_id-hash-NOT-version-sensitive
+chunk_id hex suffix = sha256(preamble_text + NFC(body_text))[:16]. The CHUNKER_VERSION string
+lives on ChunkRecord.chunker_version field, NOT in the hash. Bumping CHUNKER_VERSION does NOT
+change the chunk_id hex — only the metadata field. Tests for "version bump invalidates IDs"
+should assert `chunk.chunker_version == "v1.1"`, NOT that hex suffixes differ.
+
+## 2026-05-27 — embedder-truncation-m1 — bge-m3-pinned-sha-ships-bin-only-no-safetensors
+BGE_M3_COMMIT_SHA = "5617a9f6..." ships `pytorch_model.bin` ONLY (confirmed via
+~/.cache/huggingface/.no_exist/5617a9f.../model.safetensors). use_safetensors=True cannot
+be enforced at this SHA. Tokenizer config shows model_max_length=8192; config.json shows
+max_position_embeddings=8194. Full-attention XLM-RoBERTa — no sparse attention.
+
+## 2026-05-27 — textbook-ingest-m2 — test-column-count-pins-exact-number
+`tests/test_store.py::TestSchemaContract::test_column_count_matches_brief` asserts
+`len(CHUNKS_SCHEMA_V1) == 14` verbatim. Adding 6 columns bumps to 20.
+`test_column_names_in_brief_order` asserts exact ordered list. Both must be updated
+lockstep with any CHUNKS_SCHEMA_V1 column addition.
+
+## 2026-05-27 — textbook-ingest-m2 — lancedb-no-auto-null-fill-existing-rows
+LanceDB 0.30.2 (pinned in uv.lock): existing rows on disk do NOT auto-gain new
+nullable columns when schema gains new fields. Must call `tbl.add_columns(...)` for
+the one-time migration when opening a table that lacks the new columns. Guard:
+`if "source_kind" not in set(tbl.schema.names): tbl.add_columns(...)`.
+
+## 2026-05-27 — textbook-ingest-m2 — parser_used-not-in-chunks-schema-today
+`parser_used` is a field on `PaperOutcome` (bulk_ingest.py) and on the `papers`
+metadata table design (05-storage-and-indexing.md), but does NOT currently exist
+as a column in CHUNKS_SCHEMA_V1. Adding it in m2 is net-new, not a migration.
+Current live values: "ar5iv" | "latexml" | None. m2 adds "mineru+latexml".

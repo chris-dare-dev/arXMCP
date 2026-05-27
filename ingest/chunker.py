@@ -83,11 +83,13 @@ CHUNK_LOG_PATH = REPO_ROOT / "var" / "arxmcp" / "ops" / "parser-failures" / "chu
 # Token budget constants
 # ---------------------------------------------------------------------------
 
-BGE_M3_MAX_TOKENS = 512
+BGE_M3_MAX_TOKENS = 2048
 PROOF_HEADER_RESERVE = 64          # tokens reserved for statement header in proof windows
-PROOF_MAX_TOKENS = BGE_M3_MAX_TOKENS - PROOF_HEADER_RESERVE  # 448
+# 2048 - 192 headroom (proof windows re-embed inline stmt + preamble overhead)
+PROOF_MAX_TOKENS = 1856
 PROOF_WINDOW_OVERLAP = 64          # tokens of overlap between consecutive proof windows
-STMT_MAX_TOKENS = BGE_M3_MAX_TOKENS  # preamble headroom is E02_S02's responsibility
+# 2048 - 128 preamble headroom (embedder concatenates preamble + body at encode time)
+STMT_MAX_TOKENS = 1920
 
 # ---------------------------------------------------------------------------
 # LaTeXML CSS class patterns

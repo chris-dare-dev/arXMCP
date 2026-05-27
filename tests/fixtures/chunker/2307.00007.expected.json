@@ -1,15 +1,13 @@
 {
-  "chunk_count": 5,
-  "chunker_version": "v1.0",
+  "chunk_count": 3,
+  "chunker_version": "v1.1",
   "expected_chunk_ids": [
     "arxiv:2307.00007:b74a3531e882e674",
-    "arxiv:2307.00007:b129f28c7ca63560",
-    "arxiv:2307.00007:33755ea7785d289f",
-    "arxiv:2307.00007:c1a96c83433ddfd6",
+    "arxiv:2307.00007:27511dd7112642e4",
     "arxiv:2307.00007:96e66a3d30004ae7"
   ],
   "kind_counts": {
-    "proof": 3,
+    "proof": 1,
     "section": 1,
     "stmt": 1
   },

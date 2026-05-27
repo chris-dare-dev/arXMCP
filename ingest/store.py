@@ -155,6 +155,11 @@ _ALLOWED_KINDS = frozenset(
     }
 )
 
+# textbook-ingest-m2: domain of ``source_kind`` enum on the chunks
+# table. Enforced at write time by ``_build_arrow_table`` against
+# typos (``"arxv"``, ``"textboook"``) — same pattern as ``_ALLOWED_KINDS``.
+_ALLOWED_SOURCE_KINDS = frozenset({"arxiv", "textbook"})
+
 
 @dataclass
 class WriteStats:

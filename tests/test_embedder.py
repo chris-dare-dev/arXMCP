@@ -159,9 +159,15 @@ def _fake_model_factory(emit_dim: int = EMBEDDING_DIM):
             self.calls.append(list(texts))
             # F3 pre-pass: return per-text length list, no tensors.
             if kwargs.get("return_length"):
+                # embedder-truncation-m1: respect add_special_tokens
+                # so the C-fix (add_special_tokens=False in the
+                # pre-pass) is exercised by the fake tokenizer.
+                # Default is True (the HuggingFace tokenizers default).
+                add_special = kwargs.get("add_special_tokens", True)
+                special_bump = 2 if add_special else 0
                 return {
                     "length": [
-                        len(t.split()) + 2  # +2 for special tokens
+                        len(t.split()) + special_bump
                         for t in texts
                     ],
                 }
@@ -297,8 +303,11 @@ class TestModuleContract:
     def test_embedding_dim_is_1024(self):
         assert EMBEDDING_DIM == 1024
 
-    def test_max_tokens_is_512(self):
-        assert MAX_TOKENS == 512
+    def test_max_tokens_is_2048(self):
+        # embedder-truncation-m1: bumped 512 → 2048 (BGE-M3's native
+        # long-context capability). See .claude/notes/04-parsing-and-
+        # chunking.md § Token budget for the rationale.
+        assert MAX_TOKENS == 2048
 
     def test_per_paper_failure_exceptions_targeted(self):
         # Resilience-pattern exceptions only; programmer bugs propagate.
@@ -478,7 +487,8 @@ class TestVectorContract:
 class TestTokenBudget:
     def test_overlong_input_warn_and_truncate(self, tmp_path, caplog):
         paper_id = "2307.00020"
-        long_body = " ".join(["word"] * 1000)  # 1000 tokens >> 512
+        # 3000 tokens >> the post-bump MAX_TOKENS=2048
+        long_body = " ".join(["word"] * 3000)
         _stage_chunk_dir(
             tmp_path,
             paper_id,
@@ -493,6 +503,72 @@ class TestTokenBudget:
         assert stats.truncated_count == 1
         # Warning logged.
         assert any("truncated" in rec.message for rec in caplog.records)
+
+    def test_pre_pass_excludes_special_tokens(self, tmp_path):
+        """C-1 regression (embedder-truncation-m1): a chunk whose
+        token count is EXACTLY MAX_TOKENS (no headroom) must NOT be
+        flagged as truncated by the embedder pre-pass.
+
+        Before the fix, the pre-pass added CLS+SEP (+2) so a chunk
+        of MAX_TOKENS-worth of body text reported length=MAX_TOKENS+2
+        and was incorrectly counted as truncated. After the fix
+        (``add_special_tokens=False`` at the pre-pass call site), the
+        special tokens are excluded from the count.
+        """
+        from ingest.embedder import MAX_TOKENS
+
+        paper_id = "2307.00021"
+        # Body of exactly MAX_TOKENS whitespace-separated "words"; the
+        # fake tokenizer reports length = word_count + special_bump.
+        exact_body = " ".join(["word"] * MAX_TOKENS)
+        _stage_chunk_dir(
+            tmp_path,
+            paper_id,
+            [_make_chunk(paper_id, "stmt", exact_body, suffix="0" * 16)],
+        )
+        stats, _, _ = _patched_embed(tmp_path, paper_id)
+        assert stats.status == "ok"
+        assert stats.chunks_processed == 1
+        # The fix: add_special_tokens=False in the pre-pass means the
+        # length comes back as MAX_TOKENS (not MAX_TOKENS+2), so the
+        # `length > MAX_TOKENS` predicate is false.
+        assert stats.truncated_count == 0, (
+            f"C-1 regression: chunk at exactly MAX_TOKENS={MAX_TOKENS} "
+            f"tokens was incorrectly flagged as truncated. The pre-pass "
+            f"tokenizer call at ingest/embedder.py must pass "
+            f"add_special_tokens=False so CLS+SEP do not add +2 to the "
+            f"reported length."
+        )
+
+    def test_pre_pass_call_passes_add_special_tokens_false(self):
+        """C-2 (embedder-truncation-m1): grep-style assertion that the
+        embedder pre-pass call site passes ``add_special_tokens=False``.
+        Source-stable across refactors because we read the source bytes
+        and assert the literal substring is present.
+        """
+        from pathlib import Path
+
+        src = Path(__file__).resolve().parent.parent / "ingest" / "embedder.py"
+        body = src.read_text(encoding="utf-8")
+        # The pre-pass is the only place that should pass
+        # add_special_tokens=False; the actual encode call MUST keep
+        # the default add_special_tokens=True for correct embeddings.
+        # Match the kwarg form with a trailing comma so prose mentions
+        # of "add_special_tokens=False" (in docstring/comment lines)
+        # don't trip the count.
+        kwarg_form = "add_special_tokens=False,"
+        assert kwarg_form in body, (
+            "embedder pre-pass must pass add_special_tokens=False to "
+            "avoid double-counting CLS+SEP tokens against MAX_TOKENS."
+        )
+        # The encode call below it must NOT pass
+        # add_special_tokens=False — invariant: exactly ONE kwarg-form
+        # occurrence in embedder.py.
+        assert body.count(kwarg_form) == 1, (
+            "embedder must have EXACTLY one add_special_tokens=False, "
+            "kwarg (the pre-pass). The encode call below it MUST keep "
+            "the default (special tokens included)."
+        )
 
 
 # ===========================================================================

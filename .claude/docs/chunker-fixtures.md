@@ -25,6 +25,8 @@ A real-corpus fixture suite would require a stable LaTeXML version pin (LaTeXML 
 
 The two **bold** scenarios close the brief's specific acceptance criteria: at least one fixture exercises a multi-window proof, and at least one has no explicit `\begin{proof}`.
 
+> **Note (embedder-truncation-m1, 2026-05-27):** The 2307.00007 multi-window proof scenario was authored against the old `PROOF_MAX_TOKENS = 448` budget. At the post-bump 2048-token budget (`PROOF_MAX_TOKENS = 1856`), the same proof body now fits in a single window — the fixture exercises the code path but not the data path at the new budget. The multi-window splitting *code* is still tested by `tests/test_chunker.py::TestProofWindowSplitting`, which programmatically generates a >1856-token proof. Authoring a new long-body fixture for the new regime is a follow-up.
+
 ## Schema
 
 Each fixture's golden output lives at `tests/fixtures/chunker/<paper_id>.expected.json`:
@@ -95,7 +97,7 @@ Each fixture's golden output lives at `tests/fixtures/chunker/<paper_id>.expecte
 
 ## Regenerating after a chunker change
 
-If a chunker change legitimately alters chunk_ids (e.g. a `chunker_version` bump from `"v1.0"` to `"v1.1"`):
+If a chunker change legitimately alters chunk_ids (e.g. a `chunker_version` bump — the canonical example is the `v1.0` → `v1.1` bump in `embedder-truncation-m1`):
 
 0. **Do NOT modify any committed `index.html` files** (closes F6 from the E02_S05 critique). Regeneration only refreshes `<paper_id>.expected.json` from the existing committed HTML — re-authoring the HTML by hand defeats determinism. To change a fixture's input, follow the bootstrap procedure above as if it were a new fixture and update both files in lockstep with the eval-harness queries.
 1. **Bump** `CHUNKER_VERSION` in `ingest/chunker_types.py`.

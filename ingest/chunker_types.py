@@ -42,7 +42,7 @@ from dataclasses import dataclass, field
 # bump: every paper must be re-embedded from scratch and the
 # `tests/test_re_embed.py::TestChunkerVersionFreeze` regression
 # guard must be updated in the same PR.
-CHUNKER_VERSION = "v1.0"
+CHUNKER_VERSION = "v1.1"
 
 
 @dataclass
@@ -54,11 +54,14 @@ class ChunkRecord:
     chunk_id:
         Content-addressable identifier
         ``arxiv:<paper_id>:<sha256(preamble_text + NFC(body_text))[:16]>``
-        (landed in E02_S04). The 16-hex-char prefix is stable across
-        re-runs of the same paper and changes deterministically when
-        either the preamble or the body content changes.
+        for arXiv chunks (landed in E02_S04), or
+        ``textbook:<slug>:<sha256(...)[:16]>`` for textbook chunks
+        (textbook-ingest-m1 + m2). The 16-hex-char prefix is stable
+        across re-runs of the same paper and changes deterministically
+        when either the preamble or the body content changes.
     paper_id:
-        Canonical arXiv ID without version suffix, e.g. ``2307.01156``.
+        Canonical arXiv ID without version suffix (``2307.01156``)
+        or textbook paper_id (``textbook:shimura-varieties``).
     kind:
         Chunk type.  Matched theorem+proof pairs yield ``"stmt"`` and
         ``"proof"`` chunks.  Unmatched environments use the LaTeXML subclass
@@ -103,6 +106,45 @@ class ChunkRecord:
         :data:`CHUNKER_VERSION` (defined above). Bump the constant when
         chunking changes; downstream re-embedding (E03_S02) and LanceDB
         MVCC rotation (E04_S02) consume this field to detect stale rows.
+    truncated:
+        ``True`` when the chunker had to truncate ``body_text`` to fit
+        the BGE-M3 token budget. NOT persisted to LanceDB — runtime
+        signal only, surfaced to consumers via a different path.
+
+    Textbook-specific fields (textbook-ingest-m2). All optional; the
+    arXiv chunking path leaves them at their defaults, and the schema
+    enforces ``source_kind="arxiv"`` + ``license="arxiv-license"`` as
+    the arXiv-corpus defaults.
+
+    source_kind:
+        ``"arxiv"`` (default) or ``"textbook"``. Discriminates the
+        chunk's origin corpus. Mirrored on the LanceDB ``source_kind``
+        column for downstream filtering (cross-corpus search filter
+        lands in m4 / textbook-ingest-e4).
+    license:
+        Free-text license token. Default ``"arxiv-license"`` for
+        arXiv chunks; textbook chunks carry the textbook's license
+        (e.g. ``"GFDL"`` for Stacks Project, ``"author-distributed"``
+        for lecture notes, etc.). Documentary at m2; enforcement of
+        ``truncated_for_license`` flag lands with e5.
+    chapter:
+        Textbook chapter name (``"Chapter 3: Schemes"``) or ``None``
+        for arXiv. Surfaced in the result envelope for textbook
+        chunks in m4.
+    page_start, page_end:
+        Inclusive page range for textbook chunks. ``None`` for arXiv.
+        Surfaced to the operator for original-PDF verification.
+    textbook_slug:
+        Notebook slug (``"shimura-varieties"``) for textbook chunks;
+        redundant with ``paper_id = "textbook:<slug>"`` but enables
+        a scalar-index filter without string-splitting at query time.
+        ``None`` for arXiv.
+    parser_used:
+        Per-chunk parser provenance. Enum domain:
+        ``{"ar5iv", "latexml", "mineru+latexml"}`` plus ``None`` for
+        unknown / failure. Promoted from the in-memory ``PaperOutcome``
+        dataclass to a persisted chunks-table column in m2 so chunk-
+        grained re-parse decisions are possible.
     """
 
     chunk_id: str
@@ -124,18 +166,40 @@ class ChunkRecord:
     # ``True`` when the chunker had to truncate ``body_text`` to fit the
     # 512-token (stmt) or 448-token (proof window) BGE-M3 budget.
     truncated: bool = field(default=False)
+    # ---- textbook-ingest-m2 fields ----
+    # Discriminator (default "arxiv"). The LanceDB column is nullable
+    # to accommodate the in-place migration of existing rows, but new
+    # writes always populate this field explicitly.
+    source_kind: str = field(default="arxiv")
+    # License token. arXiv default; textbook chunks override.
+    license: str = field(default="arxiv-license")
+    # Textbook-only metadata; all None for arXiv chunks.
+    chapter: str | None = field(default=None)
+    page_start: int | None = field(default=None)
+    page_end: int | None = field(default=None)
+    textbook_slug: str | None = field(default=None)
+    # Per-chunk parser provenance. None until the chunker / driver
+    # populates it; m2 ships the column, m3+ wires the population path.
+    parser_used: str | None = field(default=None)
 
     def to_dict(self) -> dict:
         """Serialise to a JSON-safe dict with keys in sorted order."""
         return {
             "body_text": self.body_text,
             "body_tokens": self.body_tokens,
+            "chapter": self.chapter,
             "chunk_id": self.chunk_id,
             "chunker_version": self.chunker_version,
             "kind": self.kind,
+            "license": self.license,
+            "page_end": self.page_end,
+            "page_start": self.page_start,
             "paper_id": self.paper_id,
+            "parser_used": self.parser_used,
             "preamble_ref": self.preamble_ref,
             "section_path": self.section_path,
+            "source_kind": self.source_kind,
+            "textbook_slug": self.textbook_slug,
             "theorem_label": self.theorem_label,
             "theorem_name": self.theorem_name,
             "truncated": self.truncated,

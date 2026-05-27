@@ -142,11 +142,15 @@ def _make_corpus(n: int = 10) -> list[ChunkRecord]:
 
 class TestSchemaContract:
     def test_column_count_matches_brief(self):
-        # Brief lists 14 columns; schema must expose them all.
-        assert len(CHUNKS_SCHEMA_V1) == 14
+        # E04_S01 brief: 14 arXiv columns.
+        # textbook-ingest-m2 appended 7 textbook columns
+        # (source_kind, license, chapter, page_start, page_end,
+        # textbook_slug, parser_used). Total: 21.
+        assert len(CHUNKS_SCHEMA_V1) == 21
 
     def test_column_names_in_brief_order(self):
         expected = [
+            # E04_S01 arXiv columns (14)
             "chunk_id",
             "paper_id",
             "kind",
@@ -161,6 +165,16 @@ class TestSchemaContract:
             "chunker_version",
             "embedder_version",
             "preamble_ref",
+            # textbook-ingest-m2 columns (7) — appended at the end to
+            # keep the arXiv-column block byte-stable for downstream
+            # consumers that index by position.
+            "source_kind",
+            "license",
+            "chapter",
+            "page_start",
+            "page_end",
+            "textbook_slug",
+            "parser_used",
         ]
         assert CHUNKS_SCHEMA_V1.names == expected
 

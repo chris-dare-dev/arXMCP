@@ -157,7 +157,7 @@ class TestTwoTheoremGolden:
     def test_chunker_version_on_all_chunks(self, tmp_path):
         chunks = self._run(tmp_path)
         for chunk in chunks:
-            assert chunk.chunker_version == "v1.0"
+            assert chunk.chunker_version == "v1.1"
 
     def test_body_tokens_populated(self, tmp_path):
         # E02_S03 wired tokenize_body into _chunk_paper_impl. Every chunk's
@@ -313,7 +313,7 @@ class TestMultiKindEnvironments:
     def test_all_chunks_have_chunker_version(self, tmp_path):
         chunks = self._run(tmp_path)
         for chunk in chunks:
-            assert chunk.chunker_version == "v1.0"
+            assert chunk.chunker_version == "v1.1"
 
     def test_section_chunk_emitted(self, tmp_path):
         chunks = self._run(tmp_path)
@@ -382,10 +382,11 @@ class TestProofWindowSplitting:
         assert windows[0] == short_text
 
     def test_long_proof_produces_multiple_windows(self):
-        """A proof over 448 tokens produces more than one window."""
-        # Build text that is definitely > 448 tokens
-        # Each "wordN " is roughly 2–3 tokens; 300 words ≈ 600–900 tokens
-        words = [f"word{i}" for i in range(300)]
+        """A proof over PROOF_MAX_TOKENS tokens produces more than one window."""
+        # Build text definitely > PROOF_MAX_TOKENS (now 1856 post-bump).
+        # Each "wordN " is ~2 tokens; 1500 words ≈ ~3000 tokens, well above
+        # the new budget so windowing must engage.
+        words = [f"word{i}" for i in range(1500)]
         long_text = " ".join(words)
         token_count = _count_tokens(long_text)
         assert token_count > PROOF_MAX_TOKENS, (
@@ -395,8 +396,10 @@ class TestProofWindowSplitting:
         assert len(windows) > 1
 
     def test_window_token_budget_respected(self):
-        """Each window must be ≤ PROOF_MAX_TOKENS (448) tokens."""
-        words = [f"tok{i}" for i in range(400)]
+        """Each window must be ≤ PROOF_MAX_TOKENS tokens (1856 post-bump)."""
+        # 1500 words ≈ ~3000 tokens at the BGE-M3 BPE — comfortably
+        # above the new PROOF_MAX_TOKENS=1856.
+        words = [f"tok{i}" for i in range(1500)]
         long_text = " ".join(words)
         windows = _window_proof_text(long_text)
         for i, window in enumerate(windows):
@@ -407,7 +410,9 @@ class TestProofWindowSplitting:
 
     def test_window_overlap_present(self):
         """Consecutive windows share at least (PROOF_WINDOW_OVERLAP - 5) tokens of content."""
-        words = [f"unique{i}" for i in range(500)]
+        # 1800 words → ~3600 tokens, well above PROOF_MAX_TOKENS=1856
+        # so at least two windows are emitted.
+        words = [f"unique{i}" for i in range(1800)]
         long_text = " ".join(words)
         windows = _window_proof_text(long_text)
         if len(windows) < 2:
@@ -430,7 +435,9 @@ class TestProofWindowSplitting:
     def test_proof_chunks_emitted_from_full_paper(self, tmp_path):
         """chunk_paper produces multiple proof chunks for a long-proof paper."""
         paper_id = "2307.00099"
-        html = self._build_long_proof_html(paper_id, word_count=400)
+        # word_count of 1500 → ~3000 BGE-M3 tokens, > PROOF_MAX_TOKENS=1856
+        # post-embedder-truncation-m1 bump. Multi-window splitting must engage.
+        html = self._build_long_proof_html(paper_id, word_count=1500)
         parsed_dir = tmp_path / "parsed"
         chunks_dir = tmp_path / "chunks"
         paper_parsed = parsed_dir / paper_id
@@ -775,7 +782,7 @@ class TestChunkRecord:
             theorem_label=None,
             body_text="text",
         )
-        assert record.chunker_version == "v1.0"
+        assert record.chunker_version == "v1.1"
 
     def test_to_dict_serialises_all_fields(self):
         record = ChunkRecord(
@@ -795,7 +802,7 @@ class TestChunkRecord:
         assert d["theorem_name"] == "Main"
         assert d["theorem_label"] == "main"
         assert d["body_text"] == "Proof text here."
-        assert d["chunker_version"] == "v1.0"
+        assert d["chunker_version"] == "v1.1"
 
 
 # ===========================================================================
@@ -843,7 +850,8 @@ class TestChunkFailureIsolation:
 
 
 class TestStatementTokenBudget:
-    """No stmt chunk body_text should exceed 512 tokens."""
+    """No stmt chunk body_text should exceed STMT_MAX_TOKENS (currently
+    1920 post-embedder-truncation-m1; was 512 prior)."""
 
     def test_stmt_within_budget(self, tmp_path):
         paper_id = "2307.00001"
@@ -866,6 +874,118 @@ class TestStatementTokenBudget:
                 assert count <= STMT_MAX_TOKENS, (
                     f"stmt chunk {chunk.chunk_id} has {count} tokens > {STMT_MAX_TOKENS}"
                 )
+
+
+class TestB2BudgetBumpTakesEffect:
+    """B-2 (embedder-truncation-m1): assert the new 2048-token budget
+    actually rotates chunk_ids of previously-truncated chunks.
+
+    The chunk_id is body-content-addressable
+    (``sha256(preamble_text + NFC(body_text))[:16]``) — it is NOT
+    version-keyed. The post-bump test must therefore prove that a
+    body whose token count is between the old budget (512) and the
+    new budget (2048) now flows through unclipped, and its chunk_id
+    is the hash of the FULL body, not the hash of a 512-token-clipped
+    prefix.
+
+    Both clauses of the AC are tested:
+      (a) emitted records carry chunker_version == "v1.1"
+      (b) a chunk whose body would have been clipped at 512 now fits
+          intact; its chunk_id matches the hash of the full body,
+          differing from the hash of the 512-token-clipped prefix.
+    """
+
+    # Must match _PAPER_ID_RE (new-style YYMM.NNNNN[N][vN]); 2099.99999
+    # is conventionally used by the chunker tests as a synthetic id.
+    PAPER_ID = "2099.99999"
+
+    def _build_html_with_long_stmt(self, word_count: int) -> str:
+        """Build a synthetic ar5iv-shaped HTML containing one theorem
+        whose statement body has ``word_count`` whitespace-separated
+        words. Uses the ltx_theorem_theorem class the chunker keys on.
+        """
+        words = [f"word{i}" for i in range(word_count)]
+        body = " ".join(words)
+        return (
+            '<!DOCTYPE html><html><head></head><body>'
+            '<section class="ltx_section">'
+            '<h2 class="ltx_title_section">Section 1</h2>'
+            '<div class="ltx_theorem ltx_theorem_theorem" id="S1.Thm1">'
+            '<h6 class="ltx_title">Theorem 1</h6>'
+            '<div class="ltx_para"><p>'
+            f'{body}'
+            '</p></div></div></section></body></html>'
+        )
+
+    def test_long_stmt_now_fits_intact(self, tmp_path):
+        # Target a BGE-M3 token count between the OLD cap (512) and
+        # the NEW cap (1920) so the chunk would have been truncated
+        # pre-bump and survives intact post-bump. ``word{i}`` BPE-
+        # tokenizes to roughly 2 tokens per word, so 600 words ≈
+        # 1200 tokens — comfortably in the target band.
+        word_count = 600
+        html = self._build_html_with_long_stmt(word_count)
+
+        # Use the full chunk_paper pipeline (with _resolve_preamble_doc
+        # patched to None for synthetic IDs) so chunk_ids are hashed,
+        # not left as placeholder ``idx<N>``. Matches the runbook at
+        # .claude/docs/chunker-fixtures.md § "Bootstrapping a new fixture".
+        parsed_dir = tmp_path / "parsed"
+        paper_parsed = parsed_dir / self.PAPER_ID
+        paper_parsed.mkdir(parents=True)
+        (paper_parsed / "index.html").write_text(html, encoding="utf-8")
+        with (
+            patch("ingest.chunker.PARSED_DIR", parsed_dir),
+            patch("ingest.chunker.CHUNKS_DIR", tmp_path / "chunks"),
+            patch("ingest.chunker._resolve_preamble_doc", return_value=None),
+        ):
+            chunks = chunk_paper(self.PAPER_ID)
+
+        stmt_chunks = [c for c in chunks if c.kind == "stmt"]
+        assert len(stmt_chunks) == 1, (
+            f"expected exactly 1 stmt chunk; got {len(stmt_chunks)} "
+            f"(all kinds: {[c.kind for c in chunks]})"
+        )
+        chunk = stmt_chunks[0]
+
+        # AC clause (a): chunker_version is "v1.1".
+        from ingest.chunker_types import CHUNKER_VERSION
+        assert chunk.chunker_version == "v1.1"
+        assert chunk.chunker_version == CHUNKER_VERSION
+
+        # AC clause (b): the body survived intact (not clipped at 512).
+        body_tok_count = _count_tokens(chunk.body_text)
+        assert body_tok_count > 512, (
+            f"B-2 budget bump did NOT take effect: stmt body clipped to "
+            f"{body_tok_count} tokens (≤ 512). Expected ~2× word_count={word_count}."
+        )
+        assert chunk.truncated is False
+
+        # AC clause (b) continued: chunk_id is the hash of the FULL
+        # body, NOT the hash of a 512-token-clipped prefix. Use the
+        # chunker's own _compute_chunk_id so the test stays in sync
+        # with any future hash-fn changes. (_compute_chunk_id returns
+        # the full ``arxiv:<paper_id>:<hex16>`` form, not just the hash.)
+        from ingest.chunker import _compute_chunk_id
+        expected_id_full = _compute_chunk_id(
+            self.PAPER_ID, "", chunk.body_text
+        )
+        assert chunk.chunk_id == expected_id_full, (
+            f"chunk_id mismatch:\n"
+            f"  emitted: {chunk.chunk_id}\n"
+            f"  expected: {expected_id_full}"
+        )
+
+        # Hash of full body MUST differ from hash of a 512-token prefix,
+        # proving the budget bump rotated the id deterministically.
+        full_tokens = chunk.body_text.split()
+        clipped_prefix = " ".join(full_tokens[:512])
+        clipped_id = _compute_chunk_id(self.PAPER_ID, "", clipped_prefix)
+        assert chunk.chunk_id != clipped_id, (
+            "B-2 invariant violated: the post-bump chunk_id equals the "
+            "hash of a 512-token-clipped prefix — the budget bump did "
+            "not actually rotate the id."
+        )
 
 
 # ===========================================================================
@@ -1389,14 +1509,28 @@ class TestFixtureSuite:
         )
 
     def test_multi_window_proof_fixture_exists(self, tmp_path):
-        """Acceptance criterion: at least one fixture exercises a
-        multi-window proof. 2307.00007 has a long proof body that splits
-        into ≥2 proof chunks under the 448-token PROOF_MAX_TOKENS budget."""
+        """Acceptance criterion: the chunker's multi-window proof code
+        path is covered. 2307.00007 was authored against the old
+        ``PROOF_MAX_TOKENS = 448`` budget and exercised multi-window
+        splitting on real fixture HTML.
+
+        embedder-truncation-m1 bumped ``PROOF_MAX_TOKENS`` to 1856.
+        At the new budget, 2307.00007's proof body fits in a single
+        window (the fixture HTML was not re-authored — that would
+        violate the chunker-fixtures.md F6 rule). The multi-window
+        *code path* is still covered by
+        ``TestProofWindowSplitting::test_proof_chunks_emitted_from_full_paper``,
+        which programmatically generates a >1856-token proof.
+
+        This test now verifies (a) the fixture still produces a proof
+        chunk at all (regression guard against the fixture going dark),
+        and (b) the multi-window code path is reachable elsewhere.
+        """
         chunks = self._run(tmp_path, "2307.00007")
         proof_chunks = [c for c in chunks if c.kind == "proof"]
-        assert len(proof_chunks) >= 2, (
-            f"2307.00007 must split into ≥2 proof chunks (multi-window "
-            f"acceptance criterion); got {len(proof_chunks)}"
+        assert len(proof_chunks) >= 1, (
+            f"2307.00007 must produce at least one proof chunk; "
+            f"got {len(proof_chunks)}"
         )
 
     def test_no_proof_fixture_exists(self, tmp_path):

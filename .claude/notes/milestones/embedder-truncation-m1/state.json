@@ -1,0 +1,66 @@
+{
+  "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/roadmap",
+  "created_at": "2026-05-27T21:10:01Z",
+  "critics_run": [],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "low": 0,
+    "medium": 0
+  },
+  "critique_path": null,
+  "deferred_findings": [],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_required": [],
+  "fixed_findings": [],
+  "id": "embedder-truncation-m1",
+  "implementation_base": "68c77c826d9d790167451488399f9005a0b62911",
+  "implementation_branch": null,
+  "implementation_commit_range": null,
+  "implementation_commits": [],
+  "implementation_path": "inline",
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "### embedder-truncation-m1 \u2014 Fix tokenizer special-tokens off-by-2 + raise BGE-M3 max to 2048\n\n**Description.** Two changes, one commit triple:\n\n1. **C \u2014 Embedder truncation-count off-by-2 (S, \u224830 min).** The\n   pre-pass at [`ingest/embedder.py:415`](../../ingest/embedder.py:415)\n   calls `tokenizer(...)` without `add_special_tokens=False`. The\n   default `True` adds CLS+SEP (+2 tokens), so every chunk that the\n   chunker emitted at exactly the 512-token cap gets re-counted as\n   embedder-truncated. Scan brief found exact-match equality on every\n   paper in the batch (46/46 on 1912.06504, 20/20 on 1912.06935,\n   44/44 on 1902.08184). The actual embedding tokenizer call\n   downstream MUST keep the default `add_special_tokens=True` \u2014 CLS+SEP\n   are required for correct sentence-level embeddings. **Only the\n   pre-pass tokenizer call changes.**\n\n2. **B \u2014 Raise the BGE-M3 token budget from 512 to 2048 (M).**\n   BGE-M3 supports native 8K-token context; the project caps at 512\n   for historical reasons (see `ingest/chunker.py` token-budget\n   constants). 70% of 1902.08184's chunker-truncated chunks are\n   statement-class (`stmt`/`lemma`/`def`/`prop`); a truncated\n   theorem statement is a direct math-fidelity hazard per\n   [`.claude/notes/04-parsing-and-chunking.md`](../notes/04-parsing-and-chunking.md).\n   Raise:\n\n   - `BGE_M3_MAX_TOKENS`: 512 \u2192 **2048**\n   - `STMT_MAX_TOKENS`: 512 \u2192 **1920** (128-token preamble headroom)\n   - `PROOF_MAX_TOKENS`: 448 \u2192 **1856** (192-token headroom; proofs\n     occasionally re-embed inline statements)\n\n   Bump `CHUNKER_VERSION` so chunk_id hashes change deterministically;\n   re-embed every paper in every LanceDB dataset under\n   `var/arxmcp/index/lancedb/` (shared arXiv corpus) AND every\n   `var/arxmcp/notebooks/<slug>/lancedb/` (per-notebook). Researcher\n   agents must quantify the total chunk count and embed throughput\n   to predict wall-clock; scan brief's ~40-min estimate covered only\n   the 137 papers in the two notebook datasets.\n\n   **No-fork compliance:** 2048 is within BGE-M3's native long-context\n   capability, not a forked variant \u2014 no model swap, no new dep.\n\n**Acceptance criteria.**\n\n- **[C-1]** Given a chunker-emitted chunk where `chunk.truncated == False`,\n  When the embedder runs its truncation pre-pass, Then the embedder's\n  `truncated_count` for that chunk is 0. Add a regression test that\n  fails today and passes after the fix.\n- **[C-2]** Given the call site at `ingest/embedder.py:415` (or its\n  current line if drift), When inspected, Then it passes\n  `add_special_tokens=False`. A grep-based test or AST-based assertion\n  is acceptable for stability.\n- **[B-1]** Given `BGE_M3_MAX_TOKENS = 2048`, When the chunker is run\n  on 1902.08184 (the canary \u2014 already on disk at\n  `var/arxmcp/corpus/parsed/1902.08184/index.html`), Then fewer than\n  5% of stmt/lemma/def/prop chunks are flagged `truncated=True`. The\n  pre-fix baseline is the 70%-of-truncated-class number from the scan\n  brief; quantify both pre- and post-numbers in the implementation\n  summary.\n- **[B-2]** Given `CHUNKER_VERSION` is bumped, When the chunk_id hash\n  is computed for a known-input fixture, Then the hash changes\n  deterministically. Add an explicit \"version-bump invalidates old\n  hashes\" test in `tests/test_chunker.py` (or equivalent), not just\n  the new constant value.\n- **[B-3]** Given the re-embed of every LanceDB dataset, When\n  `make eval` runs against the 20-query curated fixture from\n  `tests/eval/fixtures/queries.json`, Then nDCG@5 does NOT regress\n  relative to the pre-bump baseline. Allow \u00b10.02 noise floor; record\n  the baseline numerically in the implementation summary.\n- **[B-4]** Given the re-embed completes, When `corpus-version.json`\n  in each LanceDB directory is read, Then the version advanced by\n  exactly 1 and no orphan `lancedb-staging` directories remain on\n  disk.\n- **[B-5]** Documentation: update\n  [`.claude/notes/04-parsing-and-chunking.md`](../notes/04-parsing-and-chunking.md)\n  and [`.claude/docs/chunker-fixtures.md`](../docs/chunker-fixtures.md)\n  to record the new token budgets and the BGE-M3 native long-context\n  capability claim (with the model card link).\n- **[X-1]** `EXPECTED_TOOL_SCHEMA_SHA256` UNCHANGED \u2014 no MCP surface\n  edit. Pin the test value in the implementation summary as proof of\n  no drift.\n- **[X-2]** `EXPECTED_BP1_SHA256` UNCHANGED \u2014 no prompt-prefix edit.\n  Same pin.\n- **[X-3]** `ruff check .` clean and `make test` green; 2100+ tests\n  passing on macOS / Linux (per the CLAUDE.md status snapshot).\n  `requires_model` opt-in tests may be invoked but are not a hard\n  gate.\n\n**Out of scope (explicit Won't list).**\n\n- The 1902.08184 chunk-count skew (725 chunks). Scan brief confirmed\n  honest representation of a 200-page book-grade manuscript with 355\n  `ltx_theorem_*` environments. Manage downstream via per-paper\n  retrieval caps, not chunker truncation. Separate concern.\n- Per-paper preamble back-fill from raw `.tex` (the\n  preamble-without-raw-tex scan brief's recommendation). Its own\n  milestone \u2014 DO NOT bundle here; it touches `tools/notebook_fetch.py`\n  and `tools/arxiv_fetch.py`, not the embedder.\n- Switching to a 32K-context embedder (JinaAI-v3, Stella, etc.).\n  Out of scope; 2048 is within BGE-M3's native capability, so no-fork\n  policy is honored and no model swap is needed.\n- Re-embed of any operator-side corpus the researchers can't see\n  (e.g. backups, archived snapshots). Limit scope to live LanceDB\n  datasets reachable from the repo.\n\n**Dependencies.** None.\n\n**Complexity.** M (C is S, B is M; bundled as M overall).\n\n**Specialist suggestions.** `determinism-reviewer` for the\n`CHUNKER_VERSION` bump's effect on chunk_id stability;\n`cache-stability-reviewer` to confirm no SHA re-pin is needed.\n\n**External writes the implementation will require.** None \u2014 all\nchanges are local. The re-embed is local CPU; no API calls, no PRs,\nno infra mutations.\n\n**Notes for the researcher agents (phase 1).**\n\n1. Quantify the total chunk count across all LanceDB datasets to\n   predict re-embed wall-clock \u2014 scan brief covered only the 137\n   notebook papers. Use `count_rows()` on each LanceDB.\n2. Confirm via BGE-M3's HuggingFace model card that\n   `max_position_embeddings \u2265 2048`. If anything pins a 512 limit at\n   the tokenizer or model-config level, surface it \u2014 this would\n   invalidate B and force a smaller bump.\n3. Check whether any existing test fixtures (golden chunker outputs)\n   pin specific chunk_ids that will need re-pinning after the\n   `CHUNKER_VERSION` bump. The chunker-fixtures runbook at\n   [`.claude/docs/chunker-fixtures.md`](../docs/chunker-fixtures.md)\n   should cover the regen procedure; cite verbatim if so.\n4. The `requires_model` test marker (per CLAUDE.md \u00a74.5) means\n   real-model tests are skipped by default \u2014 make sure the\n   acceptance tests for C-1 and B-2 use synthetic inputs that don't\n   need a real BGE-M3 download.",
+  "phase": "implement-running",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-27T21:10:01Z",
+      "left_at": "2026-05-27T21:10:21Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-27T21:10:21Z",
+      "left_at": "2026-05-27T21:19:40Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-27T21:19:40Z",
+      "left_at": "2026-05-27T21:19:51Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-05-27T21:19:51Z",
+      "left_at": null,
+      "phase": "implement-running"
+    }
+  ],
+  "rectification_commit": null,
+  "regression_tests_added": [],
+  "research_briefs": [
+    {
+      "agent_id": "researcher-1",
+      "brief_path": ".claude/notes/milestones/embedder-truncation-m1/research-brief-1.md",
+      "summary": "Add add_special_tokens=False; bump CHUNKER_VERSION; 6 test locations + 10 fixtures need regen; 10429 chunks total."
+    },
+    {
+      "agent_id": "researcher-2",
+      "brief_path": ".claude/notes/milestones/embedder-truncation-m1/research-brief-2.md",
+      "summary": "chunk_id is body-content-addressable, NOT version-keyed; B-2 AC needs reframing; re_embed.py needs notebook-aware driver loop; lower EMBED_BATCH_DEFAULT 32->8."
+    }
+  ],
+  "research_mode": "standard",
+  "research_synthesis": ".claude/notes/milestones/embedder-truncation-m1/research-synthesis.md",
+  "updated_at": "2026-05-27T21:19:51Z"
+}

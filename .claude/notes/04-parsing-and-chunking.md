@@ -152,7 +152,7 @@ two distinct chunk IDs because the canonical bytes differ.
   "equation_atoms": ["arxiv:2401.01234:eq789..."],
   "char_offsets": {"start": 12345, "end": 14512},
   "embedding_text": "...",  // what the embedder sees: preamble + body_canonical
-  "chunker_version": "v1.0",
+  "chunker_version": "v1.1",
   "embed_model": "bge-m3@2024-08"
 }
 ```
@@ -185,11 +185,28 @@ Presentation LaTeX is for human-readable display in tool results.
 
 Every chunk carries `chunker_version`. When we change chunking strategy:
 
-1. Bump version (`v1.0` → `v1.1`).
+1. Bump version (e.g. `v1.0` → `v1.1`, as in `embedder-truncation-m1`).
 2. Re-chunk affected papers in a new corpus version.
 3. Re-embed chunks with the same embedding model (no need to re-train embedder).
 4. Atomic-swap the LanceDB version alias the MCP server reads.
 5. Keep the old version online for N=7 days for rollback.
+
+### Token budget (embedder-truncation-m1, 2026-05-27)
+
+| Constant | Old | New |
+|---|---:|---:|
+| `BGE_M3_MAX_TOKENS` | 512 | **2048** |
+| `STMT_MAX_TOKENS`   | 512 | **1920** (128-token preamble headroom) |
+| `PROOF_MAX_TOKENS`  | 448 | **1856** (192-token headroom; proofs re-embed inline stmt) |
+| `EMBED_BATCH_DEFAULT` | 32 | **8** (CPU O(n²) attention guard) |
+
+The 2048-token budget is within BGE-M3's native 8192-token capability —
+no model swap, no new dependency. The cap was raised because 70% of
+chunker-truncated chunks were statement-class (`stmt`/`lemma`/`def`/
+`prop`); a truncated theorem statement is a direct math-fidelity hazard
+per Rule 1 of this note ("Theorem + proof are one chunk"). Post-bump
+B-1 canary on 1902.08184: 0.5% truncation rate on stmt-class chunks
+(down from ~30% at the old budget).
 
 ## Failure modes during parsing
 

@@ -1,6 +1,6 @@
 {
   "chunk_count": 7,
-  "chunker_version": "v1.0",
+  "chunker_version": "v1.1",
   "expected_chunk_ids": [
     "arxiv:2307.00008:f367794048a94037",
     "arxiv:2307.00008:cc84cfbd498155b2",

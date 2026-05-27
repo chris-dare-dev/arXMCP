@@ -7,10 +7,14 @@ import ``CHUNKS_SCHEMA_V1`` from this module and never re-declare a
 schema inline.
 
 Schema mutations require a corresponding MVCC version bump. E04_S02
-will add a `corpus_version` integer to the dataset metadata; for now
-the schema is treated as immutable and any change forces a manual
-table re-creation. See ``05-storage-and-indexing.md`` § "MVCC
-versioning" for the operational handshake.
+shipped the ``corpus_version`` integer in ``corpus-version.json``;
+the schema version now ratchets via LanceDB's MVCC integer (written
+by every successful ``write_chunks`` call). Existing-row migrations
+land via ``ingest.store._migrate_chunks_schema_if_needed`` which
+calls ``tbl.add_columns`` for any column present in the canonical
+schema but absent from the on-disk table. See
+``05-storage-and-indexing.md`` § "MVCC versioning" for the
+operational handshake.
 
 Column order follows the brief's table verbatim. PyArrow doesn't
 require a particular order for correctness, but a fixed source-literal
@@ -126,6 +130,42 @@ CHUNKS_SCHEMA_V1 = pa.schema(
         # ``preamble_ref`` is the SHA-256[:16] of the per-paper preamble;
         # NULL when preamble extraction failed (F3 fallback in E02_S02).
         pa.field("preamble_ref", pa.utf8(), nullable=True),
+        # ---- textbook-ingest-m2 columns ----
+        # All declared nullable=True for the in-place schema-evolution
+        # migration: existing rows get NULL or a backfilled default via
+        # ``ingest.store._migrate_chunks_schema_if_needed``. New writes
+        # always populate ``source_kind`` and ``license`` (from
+        # ``ChunkRecord`` defaults); the four textbook-only columns
+        # stay NULL for arXiv chunks.
+        #
+        # ``source_kind`` enum domain: {"arxiv", "textbook"}. Enforced
+        # at write time in ``_build_arrow_table`` against ``_ALLOWED_SOURCE_KINDS``.
+        pa.field("source_kind", pa.utf8(), nullable=True),
+        # ``license`` is free-text — domain is documentary, not
+        # validated. Default ``"arxiv-license"`` for arXiv chunks;
+        # textbook chunks carry the textbook's specific license token
+        # (``"GFDL"`` for Stacks Project, ``"author-distributed"`` for
+        # lecture notes, etc.). ``truncated_for_license`` snippet
+        # truncation enforcement lands with textbook-ingest-e5.
+        pa.field("license", pa.utf8(), nullable=True),
+        # Textbook chapter name (``"Chapter 3: Schemes"``). NULL for
+        # arXiv chunks; populated by the textbook chunker (e3).
+        pa.field("chapter", pa.utf8(), nullable=True),
+        # Inclusive page range for textbook chunks. NULL for arXiv.
+        pa.field("page_start", pa.int32(), nullable=True),
+        pa.field("page_end", pa.int32(), nullable=True),
+        # Notebook slug for textbook chunks (``"shimura-varieties"``).
+        # Redundant with ``paper_id = "textbook:<slug>"`` but enables a
+        # scalar-index filter without string-splitting at query time.
+        # NULL for arXiv chunks.
+        pa.field("textbook_slug", pa.utf8(), nullable=True),
+        # Per-chunk parser provenance. Enum domain:
+        # {"ar5iv", "latexml", "mineru+latexml"}. NULL = unknown /
+        # failure. Promoted from ``PaperOutcome`` in m2 so chunk-grain
+        # re-parse decisions are possible. Not yet enum-validated at
+        # write time (no runtime guard); upstream drivers populate
+        # with one of the documented values.
+        pa.field("parser_used", pa.utf8(), nullable=True),
     ]
 )
 
