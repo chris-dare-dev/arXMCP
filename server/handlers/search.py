@@ -65,7 +65,7 @@ from typing import Annotated, Any, Literal
 from mcp.types import CallToolResult, ResourceLink, TextContent
 from pydantic import AnyUrl, Field
 
-from ingest.identifiers import is_valid_arxiv_paper_id
+from ingest.identifiers import is_valid_paper_id
 from server.cache import get_cache
 from server.observability.sanitize import sanitize_retrieved_text
 from server.query_encoder import encode_query, encode_query_with_fallback
@@ -172,11 +172,27 @@ def _build_paper_id_predicate(paper_id_value: Any) -> str:
             f"allowed is {MAX_PAPER_ID_FILTER_ITEMS} (m1 FM-4 "
             f"resource-exhaustion cap)"
         )
-    invalid = [pid for pid in paper_ids if not is_valid_arxiv_paper_id(pid)]
+    # textbook-ingest-m3 rect F1: widen the validator from
+    # ``is_valid_arxiv_paper_id`` (arXiv-only) to ``is_valid_paper_id``
+    # (the union of arXiv + textbook:<slug>) to match the
+    # SEARCH_PAPERS ToolMeta description's promise that the filter
+    # accepts both shapes. m1 set up the contract chain
+    # (``ingest/identifiers.py:160-178`` documented "once m2 ships,
+    # [callers] opt into the union by switching to
+    # ``is_valid_paper_id``"); m3 was the milestone that announced
+    # the widening via BP1 invalidation, but the original m3 commit
+    # left this handler on the arXiv-only gate — every textbook
+    # paper_id sent by an obedient sub-agent would have hard-errored
+    # with a misleading "invalid arXiv IDs" message. Other handlers
+    # (lemma, definitions, paper) intentionally stay on the
+    # arXiv-only gate because their tool descriptions do NOT promise
+    # textbook support.
+    invalid = [pid for pid in paper_ids if not is_valid_paper_id(pid)]
     if invalid:
         raise ValueError(
             f"filters['paper_id'] contains {len(invalid)} invalid "
-            f"arXiv IDs; first invalid: {invalid[0]!r}"
+            f"IDs (neither arXiv nor textbook:<slug> form); first "
+            f"invalid: {invalid[0]!r}"
         )
     ids_csv = ",".join(
         f"'{_escape_paper_id_literal(pid)}'" for pid in sorted(paper_ids)

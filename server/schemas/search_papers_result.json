@@ -47,7 +47,7 @@
             "type": "string"
           },
           "paper_id": {
-            "description": "arXiv paper id without 'arxiv:' prefix. May or may not carry a version suffix (vN) depending on what the chunker indexed.",
+            "description": "Paper identifier without source prefix. Two shapes (textbook-ingest-m1 + m3): (a) arXiv — e.g. '2401.00001' or 'hep-th/9876543', optionally with a 'vN' version suffix; (b) textbook — 'textbook:<slug>' where <slug> matches the notebook-slug regex [a-z][a-z0-9-]{2,30}. The chunk_id field above pins the canonical regex for both branches.",
             "type": "string"
           },
           "score": {

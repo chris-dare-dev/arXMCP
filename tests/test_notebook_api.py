@@ -747,3 +747,181 @@ class TestNotebookKindMigration:
 
         version = asyncio.run(_open_close())
         assert version == 3
+
+    def test_v1_to_v3_migration_runs_both_blocks(
+        self, tmp_path: Path,
+    ) -> None:
+        """m3 rect F2 regression guard.
+
+        Most pessimistic legacy path: a v1 database that pre-dates m9's
+        ``notebook_ingest_runs`` table. ``NotebooksStore.open`` must run
+        BOTH the v1→v2 ALTER (creating ``notebook_ingest_runs``) AND
+        the v2→v3 ALTER (adding ``notebook_kind``) in sequence on the
+        same connection.
+        """
+        import asyncio
+        import sqlite3
+
+        db_path = tmp_path / "notebooks.db"
+
+        async def _run() -> dict[str, object]:
+            # Seed a v1 schema directly (notebooks + notebook_papers
+            # tables only; no notebook_ingest_runs).
+            conn = sqlite3.connect(str(db_path))
+            try:
+                conn.execute(
+                    "CREATE TABLE notebooks ("
+                    "  slug          TEXT PRIMARY KEY,"
+                    "  display_name  TEXT NOT NULL DEFAULT '',"
+                    "  lancedb_path  TEXT NOT NULL,"
+                    "  created_at    TEXT NOT NULL"
+                    ")"
+                )
+                conn.execute(
+                    "CREATE TABLE notebook_papers ("
+                    "  slug      TEXT NOT NULL,"
+                    "  paper_id  TEXT NOT NULL,"
+                    "  added_at  TEXT NOT NULL,"
+                    "  PRIMARY KEY (slug, paper_id)"
+                    ")"
+                )
+                conn.execute(
+                    "INSERT INTO notebooks "
+                    "(slug, display_name, lancedb_path, created_at) "
+                    "VALUES (?, ?, ?, ?)",
+                    (
+                        "v1-legacy",
+                        "v1 legacy",
+                        "/tmp/v1/lancedb",
+                        "2025-12-01T00:00:00+00:00",
+                    ),
+                )
+                conn.execute("PRAGMA user_version = 1")
+                conn.commit()
+            finally:
+                conn.close()
+
+            # Open via NotebooksStore — both migrations should run.
+            store = await NotebooksStore.open(db_path)
+            try:
+                rows = await store.list_notebooks()
+            finally:
+                await store.close()
+
+            # Verify final state.
+            conn = sqlite3.connect(str(db_path))
+            try:
+                version = int(
+                    conn.execute("PRAGMA user_version").fetchone()[0]
+                )
+                # notebook_ingest_runs exists (v2 migration ran).
+                ingest_runs_present = bool(
+                    conn.execute(
+                        "SELECT 1 FROM sqlite_master WHERE "
+                        "type='table' AND name='notebook_ingest_runs'"
+                    ).fetchone()
+                )
+                # notebook_kind column exists (v3 migration ran).
+                cols = [
+                    r[1]
+                    for r in conn.execute(
+                        "PRAGMA table_info(notebooks)"
+                    ).fetchall()
+                ]
+            finally:
+                conn.close()
+
+            return {
+                "version": version,
+                "ingest_runs_present": ingest_runs_present,
+                "cols": cols,
+                "rows": rows,
+            }
+
+        result = asyncio.run(_run())
+        assert result["version"] == 3
+        assert result["ingest_runs_present"] is True
+        assert "notebook_kind" in result["cols"]
+        # The legacy row's m3 column backfilled to 'arxiv'.
+        rows = result["rows"]
+        assert len(rows) == 1
+        assert rows[0]["slug"] == "v1-legacy"
+        assert rows[0]["notebook_kind"] == "arxiv"
+
+    def test_open_is_idempotent_against_v3(
+        self, tmp_path: Path,
+    ) -> None:
+        """m3 rect F4 regression guard.
+
+        Re-opening a v3 database must not re-run any migration block
+        (each block guards with ``if current_version < N:``). Confirms
+        that all three ``if`` blocks short-circuit on a v3 connection
+        — defensive against a future contributor swapping ``CREATE
+        TABLE IF NOT EXISTS`` for the destructive form.
+        """
+        import asyncio
+        import sqlite3
+
+        db_path = tmp_path / "notebooks.db"
+
+        async def _open_close_open() -> tuple[int, list[str], int, list[str]]:
+            # First open: fresh DB → v3.
+            store = await NotebooksStore.open(db_path)
+            try:
+                await store.create_notebook(
+                    slug="idempotency-test",
+                    display_name="Idempotency test",
+                    lancedb_path="/tmp/idemp/lancedb",
+                    created_at="2026-05-27T00:00:00+00:00",
+                    notebook_kind="textbook",
+                )
+            finally:
+                await store.close()
+
+            conn = sqlite3.connect(str(db_path))
+            try:
+                v_first = int(
+                    conn.execute("PRAGMA user_version").fetchone()[0]
+                )
+                cols_first = sorted(
+                    r[1]
+                    for r in conn.execute(
+                        "PRAGMA table_info(notebooks)"
+                    ).fetchall()
+                )
+            finally:
+                conn.close()
+
+            # Second open: existing v3 DB.
+            store = await NotebooksStore.open(db_path)
+            try:
+                rows = await store.list_notebooks()
+            finally:
+                await store.close()
+
+            conn = sqlite3.connect(str(db_path))
+            try:
+                v_second = int(
+                    conn.execute("PRAGMA user_version").fetchone()[0]
+                )
+                cols_second = sorted(
+                    r[1]
+                    for r in conn.execute(
+                        "PRAGMA table_info(notebooks)"
+                    ).fetchall()
+                )
+            finally:
+                conn.close()
+            assert len(rows) == 1
+            return v_first, cols_first, v_second, cols_second
+
+        v1, c1, v2, c2 = asyncio.run(_open_close_open())
+        assert v1 == 3 and v2 == 3
+        # Schema byte-stable across re-opens.
+        assert c1 == c2, (
+            f"notebooks columns drifted across re-open: "
+            f"first={c1!r} second={c2!r}"
+        )
+        # m3 rect F4: notebook_kind survived re-open without
+        # re-running the v3 ALTER.
+        assert "notebook_kind" in c2

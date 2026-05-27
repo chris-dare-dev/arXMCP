@@ -95,7 +95,11 @@ class TestBuildPaperIdPredicate:
             _build_paper_id_predicate(["2604.26204", "not-an-arxiv-id"])
 
     def test_all_malformed_raises(self) -> None:
-        with pytest.raises(ValueError, match="invalid arXiv IDs"):
+        # m3 rect F1: error message widened from "invalid arXiv IDs"
+        # to "invalid IDs (neither arXiv nor textbook:<slug> form)"
+        # in lockstep with the validator widening from
+        # is_valid_arxiv_paper_id to is_valid_paper_id.
+        with pytest.raises(ValueError, match="invalid IDs"):
             _build_paper_id_predicate(["bad-one", "bad-two"])
 
     def test_non_str_non_list_raises(self) -> None:
@@ -112,8 +116,12 @@ class TestBuildPaperIdPredicate:
 
     def test_injection_attempt_rejected_by_regex(self) -> None:
         """FM-1 layer 1: is_valid_paper_id regex structurally rejects
-        any string containing a single quote / semicolon / etc."""
-        with pytest.raises(ValueError, match="invalid arXiv IDs"):
+        any string containing a single quote / semicolon / etc.
+
+        m3 rect F1: error message widened to "invalid IDs (neither
+        arXiv nor textbook:<slug> form)" — match the new wording.
+        """
+        with pytest.raises(ValueError, match="invalid IDs"):
             _build_paper_id_predicate(["foo'; DROP TABLE chunks; --"])
 
     def test_escape_function_doubles_single_quotes(self) -> None:
@@ -153,6 +161,58 @@ def _make_arrow_table(rows: list[dict[str, Any]]) -> pa.Table:
         "theorem_label": [r.get("theorem_label") for r in rows],
         "_distance": [r.get("_distance", 0.5) for r in rows],
     })
+
+
+class TestTextbookPaperIdFilter:
+    """m3 rect F1 — the SEARCH_PAPERS description promises the filter
+    accepts both arXiv and textbook:<slug> paper_id forms; the
+    handler's validator must match. Pre-rect, the handler used
+    ``is_valid_arxiv_paper_id`` and would have hard-errored any
+    textbook paper_id sent by an obedient sub-agent.
+    """
+
+    def test_single_textbook_paper_id_accepted(self) -> None:
+        predicate = _build_paper_id_predicate("textbook:shimura-varieties")
+        # SQL form: paper_id IN ('textbook:shimura-varieties')
+        assert "textbook:shimura-varieties" in predicate
+        assert predicate.startswith("paper_id IN (")
+
+    def test_mixed_arxiv_and_textbook_list_accepted(self) -> None:
+        predicate = _build_paper_id_predicate(
+            ["textbook:my-book", "2401.00001"]
+        )
+        assert "textbook:my-book" in predicate
+        assert "2401.00001" in predicate
+
+    def test_textbook_too_short_slug_rejected(self) -> None:
+        # Slug ``[a-z][a-z0-9-]{2,30}`` — 2-char slug fails.
+        with pytest.raises(ValueError, match="invalid IDs"):
+            _build_paper_id_predicate("textbook:fo")
+
+    def test_textbook_uppercase_slug_rejected(self) -> None:
+        # SLUG_RE is lowercase-only.
+        with pytest.raises(ValueError, match="invalid IDs"):
+            _build_paper_id_predicate("textbook:UPPERCASE")
+
+    def test_textbook_path_traversal_rejected(self) -> None:
+        # Defense-in-depth Threat 1 — the m1 regex rejects ``../``.
+        with pytest.raises(ValueError, match="invalid IDs"):
+            _build_paper_id_predicate("textbook:../etc/passwd")
+
+    def test_chunk_id_form_rejected_in_filter(self) -> None:
+        # Filter accepts paper_id forms, NOT chunk_ids
+        # (``textbook:<slug>:<16-hex>`` has 4 colon-segments).
+        with pytest.raises(ValueError, match="invalid IDs"):
+            _build_paper_id_predicate(
+                "textbook:shimura-varieties:abcdef0123456789"
+            )
+
+    def test_error_message_mentions_both_forms(self) -> None:
+        """The error message must reflect the widened acceptance —
+        previously said 'invalid arXiv IDs' which was misleading
+        for textbook-paper_id-aware callers."""
+        with pytest.raises(ValueError, match="neither arXiv nor textbook"):
+            _build_paper_id_predicate("complete-garbage")
 
 
 class _FakeSearchBuilder:
@@ -289,9 +349,15 @@ class TestHandlerFilterWiring:
         assert kwargs == {"prefilter": True}
 
     def test_malformed_paper_id_raises_clear_error(self, fake_resources) -> None:
-        """AC #3 / FM-5: invalid IDs in the list → ValueError."""
+        """AC #3 / FM-5: invalid IDs in the list → ValueError.
+
+        m3 rect F1: error message widened to "invalid IDs (neither
+        arXiv nor textbook:<slug> form)" in lockstep with the
+        validator widening from is_valid_arxiv_paper_id to
+        is_valid_paper_id.
+        """
         from server.handlers.search import handle_search_papers
-        with pytest.raises(ValueError, match="invalid arXiv IDs"):
+        with pytest.raises(ValueError, match="invalid IDs"):
             _run(handle_search_papers(
                 query="x",
                 filters={"paper_id": ["2604.26204", "not-an-id"]},

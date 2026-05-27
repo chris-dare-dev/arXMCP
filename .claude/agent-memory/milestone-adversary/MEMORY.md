@@ -17,3 +17,16 @@ not existing); m2's feat commit reintroduced the same shape because the
 docstring still says "Existing-row migration is NOT implemented in this
 milestone." Grep the module docstring of any file the milestone is
 "completing" — stale claims are a recurring HIGH finding.
+
+## 2026-05-27 — textbook-ingest-m3 — bp1-description-vs-handler-validator-drift
+On any coordinated-BP1-bump milestone that edits a `ToolMeta.description`
+to "document widened acceptance", verify the matching handler validator
+was widened in lockstep. m3 promised "filters.paper_id validated against
+the arXiv or textbook:<slug> format" in SEARCH_PAPERS.description but
+`server/handlers/search.py:175` still calls `is_valid_arxiv_paper_id`
+(textbook-rejecting). The m1 docstring on the narrow validator literally
+said "once m2 ships, [callers] opt into the union by switching to
+`is_valid_paper_id`" — m3 was the switch milestone, description was
+edited but the validator was not. Grep the validator import line in the
+handler file before declaring the description edit clean.
+See [[bp1-description-vs-handler-validator-drift]].
