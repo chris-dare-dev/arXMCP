@@ -793,3 +793,305 @@ class TestStructuredIndicesCreated:
         assert row["indices_created"].get("hnsw_proof") is True
         # Scalar index either succeeded or was logged as False.
         assert row["indices_created"].get("scalar_paper_id") in (True, False)
+
+
+# ===========================================================================
+# textbook-ingest-m2 — round-trip + migration tests
+# ===========================================================================
+
+
+def _make_textbook_chunk(
+    slug: str,
+    *,
+    suffix: str = "abcdef0123456789",
+    chapter: str = "Chapter 1: Schemes",
+    page_start: int = 1,
+    page_end: int = 10,
+    license_token: str = "GFDL",
+) -> ChunkRecord:
+    """Build a textbook-shaped ChunkRecord for round-trip tests.
+
+    Uses the ``textbook:<slug>`` paper_id form (m1 regex) and populates
+    the m2 textbook-specific fields so the round-trip assertions can
+    confirm every column survives.
+    """
+    return ChunkRecord(
+        chunk_id=f"textbook:{slug}:{suffix}",
+        paper_id=f"textbook:{slug}",
+        kind="definition",
+        section_path=["Chapter 1", "1.1 Affine schemes"],
+        theorem_name=None,
+        theorem_label=None,
+        body_text="A scheme is a locally ringed space which admits a cover by affine schemes.",
+        body_tokens="a scheme is a locally ringed space",
+        preamble_ref=None,
+        chunker_version=CHUNKER_VERSION,
+        source_kind="textbook",
+        license=license_token,
+        chapter=chapter,
+        page_start=page_start,
+        page_end=page_end,
+        textbook_slug=slug,
+        parser_used="mineru+latexml",
+    )
+
+
+class TestTextbookChunkRoundtrip:
+    """AC #1 — textbook chunk with ``source_kind="textbook"`` round-trips
+    all 7 new columns with correct types."""
+
+    def test_textbook_chunk_all_columns_survive_roundtrip(self, tmp_path):
+        from ingest.store import write_chunks
+
+        chunk = _make_textbook_chunk("shimura-varieties")
+        embeddings = _make_synthetic_embeddings([chunk], seed=42)
+        write_chunks([chunk], embeddings, lancedb_path=tmp_path / "lancedb")
+
+        import lancedb
+
+        db = lancedb.connect(str(tmp_path / "lancedb"))
+        tbl = db.open_table(CHUNKS_TABLE_NAME)
+        rows = tbl.to_arrow().to_pylist()
+        assert len(rows) == 1
+        row = rows[0]
+        # The 7 m2 columns all populated with the input values.
+        assert row["source_kind"] == "textbook"
+        assert row["license"] == "GFDL"
+        assert row["chapter"] == "Chapter 1: Schemes"
+        assert row["page_start"] == 1
+        assert row["page_end"] == 10
+        assert row["textbook_slug"] == "shimura-varieties"
+        assert row["parser_used"] == "mineru+latexml"
+        # And the pre-existing columns still work as expected.
+        assert row["chunk_id"] == chunk.chunk_id
+        assert row["paper_id"] == "textbook:shimura-varieties"
+        assert row["kind"] == "definition"
+
+    def test_textbook_chunk_id_passes_chunker_paper_id_regex(self):
+        """Sanity: m1's identifier regex accepts the paper_id the
+        textbook chunk carries, so the chunker's _validate_paper_id
+        won't reject textbook IDs in a future driver path."""
+        from ingest.chunker import _PAPER_ID_RE
+
+        assert _PAPER_ID_RE.match("textbook:shimura-varieties") is not None
+
+
+class TestArxivChunkByteStableAfterSchemaBump:
+    """AC #2 — existing arXiv chunks read with documented defaults;
+    existing field values byte-identical to pre-m2 behavior."""
+
+    def test_arxiv_chunk_defaults_populated_via_chunkrecord(self, tmp_path):
+        from ingest.store import write_chunks
+
+        chunk = _make_chunk("2307.00099", "stmt", "body", suffix="0" * 16)
+        embeddings = _make_synthetic_embeddings([chunk], seed=11)
+        write_chunks([chunk], embeddings, lancedb_path=tmp_path / "lancedb")
+
+        import lancedb
+
+        db = lancedb.connect(str(tmp_path / "lancedb"))
+        tbl = db.open_table(CHUNKS_TABLE_NAME)
+        row = tbl.to_arrow().to_pylist()[0]
+        # ChunkRecord defaults: source_kind="arxiv", license="arxiv-license".
+        assert row["source_kind"] == "arxiv"
+        assert row["license"] == "arxiv-license"
+        # Textbook-only fields are None for arXiv chunks.
+        assert row["chapter"] is None
+        assert row["page_start"] is None
+        assert row["page_end"] is None
+        assert row["textbook_slug"] is None
+        assert row["parser_used"] is None
+        # Pre-m2 fields unchanged.
+        assert row["paper_id"] == "2307.00099"
+        assert row["chunk_id"] == chunk.chunk_id
+        assert row["body_text"] == "body"
+
+
+class TestMixedCorpusInSameTable:
+    """AC #1+#2 combined — arXiv and textbook chunks coexist cleanly
+    in the same LanceDB table without column drift."""
+
+    def test_both_kinds_coexist(self, tmp_path):
+        from ingest.store import write_chunks
+
+        arxiv_chunk = _make_chunk("2307.00099", "stmt", "arxiv body", suffix="a" * 16)
+        textbook_chunk = _make_textbook_chunk("hartshorne")
+        chunks = [arxiv_chunk, textbook_chunk]
+        embeddings = _make_synthetic_embeddings(chunks, seed=22)
+        write_chunks(chunks, embeddings, lancedb_path=tmp_path / "lancedb")
+
+        import lancedb
+
+        db = lancedb.connect(str(tmp_path / "lancedb"))
+        tbl = db.open_table(CHUNKS_TABLE_NAME)
+        assert tbl.count_rows() == 2
+        rows = {r["chunk_id"]: r for r in tbl.to_arrow().to_pylist()}
+        # arXiv chunk: defaults + arxiv paper_id.
+        a = rows[arxiv_chunk.chunk_id]
+        assert a["source_kind"] == "arxiv"
+        assert a["license"] == "arxiv-license"
+        assert a["textbook_slug"] is None
+        # textbook chunk: populated + textbook paper_id.
+        t = rows[textbook_chunk.chunk_id]
+        assert t["source_kind"] == "textbook"
+        assert t["license"] == "GFDL"
+        assert t["textbook_slug"] == "hartshorne"
+
+
+class TestSourceKindEnumGuard:
+    """``_ALLOWED_SOURCE_KINDS`` guard catches typos before they land
+    in the dataset — mirrors the existing ``kind`` enum guard
+    (F10 from the E04_S01 critique)."""
+
+    def test_invalid_source_kind_raises(self, tmp_path):
+        from ingest.store import write_chunks
+
+        chunk = _make_chunk("2307.00200", "stmt", "body", suffix="b" * 16)
+        chunk.source_kind = "arxv"  # typo
+        embeddings = _make_synthetic_embeddings([chunk], seed=33)
+        with pytest.raises(ValueError, match="source_kind"):
+            write_chunks([chunk], embeddings, lancedb_path=tmp_path / "lancedb")
+
+    def test_textbook_source_kind_accepted(self, tmp_path):
+        from ingest.store import write_chunks
+
+        chunk = _make_textbook_chunk("stacks-project")
+        embeddings = _make_synthetic_embeddings([chunk], seed=34)
+        # Should NOT raise.
+        write_chunks([chunk], embeddings, lancedb_path=tmp_path / "lancedb")
+
+
+class TestSchemaMigrationGuard:
+    """FM-1 from m2 synthesis — pre-m2 (14-column) chunks tables
+    auto-migrate on next ``write_chunks`` so existing rows pick up
+    ``source_kind="arxiv"`` / ``license="arxiv-license"`` via the SQL
+    backfill (FM-6 mitigation)."""
+
+    def _make_legacy_14col_table(self, tmp_path):
+        """Create a chunks table with the pre-m2 14-column schema."""
+        import lancedb
+
+        legacy_schema = pa.schema(
+            [
+                pa.field("chunk_id", pa.utf8(), nullable=False),
+                pa.field("paper_id", pa.utf8(), nullable=False),
+                pa.field("kind", pa.utf8(), nullable=False),
+                pa.field("section_path", pa.list_(pa.utf8()), nullable=False),
+                pa.field("theorem_name", pa.utf8(), nullable=True),
+                pa.field("theorem_label", pa.utf8(), nullable=True),
+                pa.field("body_text", pa.utf8(), nullable=False),
+                pa.field("body_tokens", pa.utf8(), nullable=False),
+                pa.field(
+                    "embedding_stmt",
+                    pa.list_(pa.float32(), EMBEDDING_DIM),
+                    nullable=True,
+                ),
+                pa.field(
+                    "embedding_proof",
+                    pa.list_(pa.float32(), EMBEDDING_DIM),
+                    nullable=True,
+                ),
+                pa.field(
+                    "embedding_eq",
+                    pa.list_(pa.float32(), EMBEDDING_DIM),
+                    nullable=True,
+                ),
+                pa.field("chunker_version", pa.utf8(), nullable=False),
+                pa.field("embedder_version", pa.utf8(), nullable=False),
+                pa.field("preamble_ref", pa.utf8(), nullable=True),
+            ]
+        )
+        db = lancedb.connect(str(tmp_path / "lancedb"))
+        legacy_row = {
+            "chunk_id": "arxiv:2307.00777:" + "c" * 16,
+            "paper_id": "2307.00777",
+            "kind": "stmt",
+            "section_path": ["1. Intro"],
+            "theorem_name": None,
+            "theorem_label": None,
+            "body_text": "legacy body",
+            "body_tokens": "legacy body",
+            "embedding_stmt": [0.0] * EMBEDDING_DIM,
+            "embedding_proof": None,
+            "embedding_eq": None,
+            "chunker_version": "v1.0",
+            "embedder_version": "bge-m3@legacy00",
+            "preamble_ref": None,
+        }
+        tbl = db.create_table(
+            CHUNKS_TABLE_NAME,
+            data=pa.Table.from_pylist([legacy_row], schema=legacy_schema),
+        )
+        return db, tbl
+
+    def test_migration_adds_seven_columns_with_arxiv_defaults(self, tmp_path):
+        from ingest.store import write_chunks
+
+        # Build the 14-col legacy table directly.
+        db, tbl = self._make_legacy_14col_table(tmp_path)
+        assert len(tbl.schema.names) == 14
+        assert "source_kind" not in tbl.schema.names
+
+        # Trigger the migration via a follow-up write_chunks call
+        # (which calls _migrate_chunks_schema_if_needed internally).
+        new_chunk = _make_chunk(
+            "2307.00888", "stmt", "new body", suffix="d" * 16
+        )
+        new_embed = _make_synthetic_embeddings([new_chunk], seed=44)
+        write_chunks([new_chunk], new_embed, lancedb_path=tmp_path / "lancedb")
+
+        # Re-open and assert all 21 columns present.
+        tbl2 = db.open_table(CHUNKS_TABLE_NAME)
+        assert len(tbl2.schema.names) == 21
+        for col in CHUNKS_SCHEMA_V1.names:
+            assert col in tbl2.schema.names, f"column {col} missing post-migration"
+
+        # The legacy row's m2 columns now have arXiv backfilled defaults.
+        rows = {r["chunk_id"]: r for r in tbl2.to_arrow().to_pylist()}
+        legacy = rows["arxiv:2307.00777:" + "c" * 16]
+        assert legacy["source_kind"] == "arxiv"
+        assert legacy["license"] == "arxiv-license"
+        # Textbook-only fields stay NULL on legacy rows.
+        assert legacy["chapter"] is None
+        assert legacy["page_start"] is None
+        assert legacy["page_end"] is None
+        assert legacy["textbook_slug"] is None
+        assert legacy["parser_used"] is None
+
+    def test_migration_is_idempotent(self, tmp_path):
+        """A second write_chunks call after migration is a no-op for
+        the schema (no double-add_columns)."""
+        from ingest.store import _migrate_chunks_schema_if_needed, write_chunks
+
+        chunks = _make_corpus(3)
+        embeddings = _make_synthetic_embeddings(chunks, seed=55)
+        write_chunks(chunks, embeddings, lancedb_path=tmp_path / "lancedb")
+
+        # Reopen and call the migration helper directly — should return
+        # an empty list since the table is already at v21.
+        import lancedb
+
+        db = lancedb.connect(str(tmp_path / "lancedb"))
+        tbl = db.open_table(CHUNKS_TABLE_NAME)
+        added = _migrate_chunks_schema_if_needed(tbl)
+        assert added == []
+        # Schema still has exactly 21 columns.
+        assert len(tbl.schema.names) == 21
+
+    def test_migration_unhandled_column_raises(self, tmp_path):
+        """A future schema column not in _TEXTBOOK_MIGRATION_DEFAULTS
+        triggers a loud RuntimeError rather than silent skip."""
+        from unittest.mock import patch
+
+        from ingest.store import _migrate_chunks_schema_if_needed
+
+        # Simulate a future schema that includes an unknown column.
+        future_schema = pa.schema(
+            [*CHUNKS_SCHEMA_V1, pa.field("future_m3_col", pa.utf8(), nullable=True)]
+        )
+        _db, tbl = self._make_legacy_14col_table(tmp_path)
+        with (
+            patch("ingest.store.CHUNKS_SCHEMA_V1", future_schema),
+            pytest.raises(RuntimeError, match="future_m3_col"),
+        ):
+            _migrate_chunks_schema_if_needed(tbl)

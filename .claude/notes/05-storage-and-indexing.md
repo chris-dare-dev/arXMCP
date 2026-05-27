@@ -56,6 +56,40 @@ created_at            int64
 > (nullable; set for `kind="proof"` chunks). Embedding dimension is fixed at 1024
 > (BGE-M3). The old column names and approach are superseded.
 
+> **Updated 2026-05-27 (see textbook-ingest-m2 at
+> `plans/textbook-ingest-roadmap.md`).** Seven textbook-aware columns
+> appended to the `chunks` table to accommodate notebook-scoped
+> textbook chunks alongside the shared arXiv corpus. The arXiv-only
+> columns above stay byte-stable; the new columns get nullable
+> defaults and are populated only by the textbook ingest path
+> (parser e2, chunker e3). Total chunks-table column count post-m2:
+> 21.
+>
+> ```
+> source_kind          enum {arxiv, textbook}  default "arxiv"      ; chunks-table discriminator for cross-corpus filters (m4)
+> license              string                  default "arxiv-license" ; per-chunk license token; e5 wires `truncated_for_license` enforcement
+> chapter              string nullable                                 ; textbook chapter ("Chapter 3: Schemes"); NULL for arXiv
+> page_start           int32  nullable                                 ; inclusive textbook page range; NULL for arXiv
+> page_end             int32  nullable                                 ; inclusive textbook page range; NULL for arXiv
+> textbook_slug        string nullable                                 ; notebook slug ("shimura-varieties"); redundant w/ paper_id but enables scalar-index filter
+> parser_used          enum {ar5iv, latexml, mineru+latexml} nullable  ; per-chunk parser provenance (promoted from PaperOutcome)
+> ```
+>
+> Pre-m2 chunks tables on disk are migrated in place by
+> `ingest.store._migrate_chunks_schema_if_needed`: `tbl.add_columns(...)`
+> with SQL expressions sets `source_kind="arxiv"` and
+> `license="arxiv-license"` for every existing row (preserves
+> `WHERE license = 'arxiv-license'` filter semantics, see FM-6 in
+> the m2 research synthesis), and NULL for the five textbook-only
+> columns.
+>
+> **The `parser_used` enum is documentary, not write-time
+> validated** — upstream drivers populate one of `{ar5iv, latexml,
+> mineru+latexml}` per chunk; future values land in lockstep with
+> their parser milestone. `source_kind` IS write-time validated
+> against `_ALLOWED_SOURCE_KINDS = {"arxiv", "textbook"}` to catch
+> driver typos before they land in the dataset.
+
 Indexes:
 - HNSW on `embedding_stmt` (M=16, efConstruction=200).
 - HNSW on `embedding_proof` (M=16, efConstruction=200).

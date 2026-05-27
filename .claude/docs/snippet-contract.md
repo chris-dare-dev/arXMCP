@@ -168,6 +168,54 @@ deferred work. See
 required orchestrator-side system-prompt clause that gives the
 delimiter its meaning.
 
+## (f) Storage-layer columns from textbook-ingest-m2
+
+`textbook-ingest-m2` extended the LanceDB chunks-table schema from
+14 to 21 columns to accommodate notebook-scoped textbook chunks
+alongside the shared arXiv corpus. **None of these columns surface
+in the search-result envelope yet** — the snippet contract above is
+unchanged. The columns are documented here as the storage-layer
+record of what's available downstream when m4 (cross-corpus
+`source_kind` filter) and e5 (`truncated_for_license` enforcement)
+ship.
+
+Columns added on `chunks` (all nullable, default applied via
+`ChunkRecord` defaults for new writes and via the in-place
+`tbl.add_columns(...)` SQL backfill for pre-m2 tables):
+
+| Column | Type | arXiv default | Textbook example | When populated |
+|---|---|---|---|---|
+| `source_kind` | utf8 | `"arxiv"` | `"textbook"` | Always (enum: `arxiv \| textbook`) |
+| `license` | utf8 | `"arxiv-license"` | `"GFDL"`, `"author-distributed"` | Always |
+| `chapter` | utf8 | NULL | `"Chapter 1: Schemes"` | Textbook chunks only |
+| `page_start` | int32 | NULL | `1` | Textbook chunks only |
+| `page_end` | int32 | NULL | `10` | Textbook chunks only |
+| `textbook_slug` | utf8 | NULL | `"shimura-varieties"` | Textbook chunks only |
+| `parser_used` | utf8 | NULL | `"ar5iv"`, `"latexml"`, `"mineru+latexml"` | Best-effort |
+
+**Snippet-rendering semantics unchanged in m2.** A future
+`truncated_for_license: true` flag on the snippet envelope (lands
+with textbook-ingest-e5) will trim non-OA textbook chunks to 300
+characters and set the flag for downstream agents. m2 does NOT
+enforce this — every snippet still emits the full 150-char
+byte-prefix from `body_text` per section (a).
+
+**BP1 cache discipline** (per
+`.claude/notes/07-multi-agent-caching.md`): m2 did NOT re-pin
+`EXPECTED_TOOL_SCHEMA_SHA256` or `EXPECTED_BP1_SHA256`. The
+chunks-table column additions do not change the MCP tool-list
+hash because the result envelope schema is unchanged. The
+coordinated BP1 invalidation lands with textbook-ingest-m3.
+
+Backfill behavior for pre-m2 rows on existing tables: when
+`write_chunks` opens an existing chunks table that lacks the m2
+columns, it calls `tbl.add_columns(...)` with SQL expressions that
+set `source_kind="arxiv"` and `license="arxiv-license"` for every
+existing row, and NULL for the five textbook-only columns. This
+preserves downstream filter semantics (`WHERE license =
+'arxiv-license'` finds every arXiv row, old and new) — see FM-6
+in the m2 research synthesis.
+
 ## Out of scope
 
 - LLM-generated summaries (permanently dropped — see section b).
