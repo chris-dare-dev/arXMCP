@@ -128,4 +128,12 @@ _None — no file:line region was flagged by ≥ 2 critics._
 
 ## Rectification status
 
-<!-- Phase 4 appends one bullet per finding; do not pre-populate -->
+- F1 — fixed in `aec3a12` (server/routes/notebooks.py:619; sanitizer now strips `:` along with `/`). Regression guard: `tests/test_identifiers.py::TestM1RectGatesRejectTextbook::test_upload_sanitizer_neutralizes_colon` + `test_upload_sanitizer_preserves_arxiv_oldstyle`. Primary defense is F2's arXiv-only gate; this is layer 2.
+- F2 — fixed in `aec3a12` (added `is_valid_arxiv_paper_id` to `ingest/identifiers.py`; repointed 15 non-test callsites). Regression guards: `TestIsValidArxivPaperId` (5 tests) + `TestM1RectGatesRejectTextbook` (4 tests, including `test_extract_equations_module_uses_arxiv_only_helper` and `test_paper_handler_uses_arxiv_only_helper`).
+- F3 — fixed in `aec3a12` (tests/test_identifiers.py). Added 9 new negative-case methods covering the prompt-enumerated injection shapes (trailing space/tab/CR, leading whitespace, bare prefix, dot-slugs, URL-encoded traversal, RTL override, backslash, ASCII control chars). Regression is itself the guard.
+- F4 — invalidated by re-verify. After F2 repointed all gates to `is_valid_arxiv_paper_id`, the existing "arXiv id" error messages are accurate. No edits needed; the cited region no longer matches the finding's claim.
+- F5 — fixed in `aec3a12` (tools/validate_eval_fixtures.py). Module-level docstring on `_PAPER_ID_RE` documents the intentional asymmetry between paper-id (accepts textbook for lockstep) and chunk-id (rejects textbook) and the trip-wire behavior it produces.
+- F6 — deferred (LOW; snapshot-vs-behavioral test shape; pure refactor with no behavior delta; tracked for future hygiene pass).
+- F7 — deferred (LOW; function-scope import style; ruff PLC0415 not currently enforced; tracked for future hygiene pass).
+
+**Summary:** 5 fixed (F1, F2, F3, F5 + F4 secondary invalidation), 1 invalidated (F4), 2 deferred (F6, F7). Adversary invalidation rate 1/7 = 14% (well under 40% prompt-broken threshold).
