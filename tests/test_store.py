@@ -1058,6 +1058,136 @@ class TestSchemaMigrationGuard:
         assert legacy["textbook_slug"] is None
         assert legacy["parser_used"] is None
 
+        # m2 rect F6: column TYPES post-migration must match the
+        # canonical schema. Defense-in-depth — a future LanceDB
+        # version that changes SQL ``int`` width semantics would
+        # silently produce a type-mismatched column otherwise.
+        for col_name in (
+            "source_kind",
+            "license",
+            "chapter",
+            "page_start",
+            "page_end",
+            "textbook_slug",
+            "parser_used",
+        ):
+            assert tbl2.schema.field(col_name).type == CHUNKS_SCHEMA_V1.field(
+                col_name
+            ).type, f"m2 rect F6 — migration type mismatch for {col_name}"
+
+    def test_post_migration_nullability_matches_canonical(self, tmp_path):
+        """m2 rect F2 regression guard.
+
+        LanceDB ``add_columns`` with a non-NULL SQL default infers
+        ``nullable=False`` from the expression. Without the
+        ``alter_columns`` pass in ``_migrate_chunks_schema_if_needed``,
+        ``source_kind`` and ``license`` on a migrated table become
+        stricter than on a freshly-created v21 table — a
+        path-dependent skew. This test asserts every m2 column post-
+        migration has the same nullable bit as ``CHUNKS_SCHEMA_V1``.
+        """
+        from ingest.store import write_chunks
+
+        db, _tbl = self._make_legacy_14col_table(tmp_path)
+        new_chunk = _make_chunk(
+            "2307.00999", "stmt", "post-migration", suffix="e" * 16
+        )
+        new_embed = _make_synthetic_embeddings([new_chunk], seed=66)
+        write_chunks([new_chunk], new_embed, lancedb_path=tmp_path / "lancedb")
+
+        tbl2 = db.open_table(CHUNKS_TABLE_NAME)
+        for col_name in (
+            "source_kind",
+            "license",
+            "chapter",
+            "page_start",
+            "page_end",
+            "textbook_slug",
+            "parser_used",
+        ):
+            post = tbl2.schema.field(col_name).nullable
+            canonical = CHUNKS_SCHEMA_V1.field(col_name).nullable
+            assert post == canonical, (
+                f"m2 rect F2 — nullability skew on {col_name}: "
+                f"migrated={post} vs canonical={canonical}"
+            )
+
+    def test_merge_insert_update_on_migrated_table(self, tmp_path):
+        """m2 rect F3 regression guard.
+
+        The legacy 14-col table is migrated, then a write of a
+        ChunkRecord with the SAME chunk_id as the legacy row but a
+        different ``source_kind`` value MUST update the row (merge_insert
+        semantics) — not duplicate it. Verifies that merge_insert
+        works across the migration boundary on m2 columns.
+        """
+        from ingest.store import write_chunks
+
+        db, _tbl = self._make_legacy_14col_table(tmp_path)
+
+        # The legacy row has chunk_id "arxiv:2307.00777:cccccccccccccccc"
+        # from _make_legacy_14col_table. Write a ChunkRecord with the
+        # same chunk_id but populated m2 fields to test the upsert
+        # path on the migrated table. Use kind="stmt" (matches the
+        # legacy row's kind) so the embedding routing is consistent.
+        update_chunk = ChunkRecord(
+            chunk_id="arxiv:2307.00777:" + "c" * 16,
+            paper_id="2307.00777",
+            kind="stmt",
+            section_path=["updated"],
+            theorem_name=None,
+            theorem_label=None,
+            body_text="updated body",
+            body_tokens="updated body",
+            preamble_ref=None,
+            chunker_version=CHUNKER_VERSION,
+            # Explicit m2 fields — the upsert path should preserve them.
+            source_kind="arxiv",
+            license="arxiv-license",
+            parser_used="ar5iv",
+        )
+        embeddings = _make_synthetic_embeddings([update_chunk], seed=77)
+        write_chunks([update_chunk], embeddings, lancedb_path=tmp_path / "lancedb")
+
+        tbl2 = db.open_table(CHUNKS_TABLE_NAME)
+        # Still exactly 1 row — merge_insert updated, didn't duplicate.
+        assert tbl2.count_rows() == 1
+        rows = tbl2.to_arrow().to_pylist()
+        row = rows[0]
+        assert row["body_text"] == "updated body"
+        assert row["section_path"] == ["updated"]
+        assert row["source_kind"] == "arxiv"
+        assert row["license"] == "arxiv-license"
+        assert row["parser_used"] == "ar5iv"
+
+    def test_textbook_chunk_into_migrated_table(self, tmp_path):
+        """m2 rect F3 regression guard — a brand-new textbook chunk
+        can be written into a previously-migrated arXiv table.
+        """
+        from ingest.store import write_chunks
+
+        db, _tbl = self._make_legacy_14col_table(tmp_path)
+        # Trigger the migration with a no-op arXiv write first.
+        primer = _make_chunk("2307.00111", "stmt", "primer", suffix="f" * 16)
+        embeds_a = _make_synthetic_embeddings([primer], seed=80)
+        write_chunks([primer], embeds_a, lancedb_path=tmp_path / "lancedb")
+
+        # Now write a textbook chunk against the migrated table.
+        textbook = _make_textbook_chunk("stacks-project")
+        embeds_b = _make_synthetic_embeddings([textbook], seed=81)
+        write_chunks([textbook], embeds_b, lancedb_path=tmp_path / "lancedb")
+
+        tbl = db.open_table(CHUNKS_TABLE_NAME)
+        rows = {r["chunk_id"]: r for r in tbl.to_arrow().to_pylist()}
+        tb_row = rows[textbook.chunk_id]
+        assert tb_row["source_kind"] == "textbook"
+        assert tb_row["license"] == "GFDL"
+        assert tb_row["chapter"] == "Chapter 1: Schemes"
+        assert tb_row["page_start"] == 1
+        assert tb_row["page_end"] == 10
+        assert tb_row["textbook_slug"] == "stacks-project"
+        assert tb_row["parser_used"] == "mineru+latexml"
+
     def test_migration_is_idempotent(self, tmp_path):
         """A second write_chunks call after migration is a no-op for
         the schema (no double-add_columns)."""
@@ -1080,7 +1210,16 @@ class TestSchemaMigrationGuard:
 
     def test_migration_unhandled_column_raises(self, tmp_path):
         """A future schema column not in _TEXTBOOK_MIGRATION_DEFAULTS
-        triggers a loud RuntimeError rather than silent skip."""
+        triggers a loud RuntimeError rather than silent skip.
+
+        Note (m2 rect F5): this test uses ``patch`` to simulate the
+        future-m3 negative branch. The mock surface
+        (``ingest.store.CHUNKS_SCHEMA_V1``) is intentionally the
+        module-level alias; a hypothetical store.py refactor that
+        re-imports CHUNKS_SCHEMA_V1 into a different namespace would
+        need to update this patch path in lockstep with the
+        sibling positive-branch test below.
+        """
         from unittest.mock import patch
 
         from ingest.store import _migrate_chunks_schema_if_needed
@@ -1095,3 +1234,81 @@ class TestSchemaMigrationGuard:
             pytest.raises(RuntimeError, match="future_m3_col"),
         ):
             _migrate_chunks_schema_if_needed(tbl)
+
+    def test_migration_extensible_with_new_default(self, tmp_path):
+        """m2 rect F5 positive-branch sibling.
+
+        When a future milestone (e.g. m3) lands a new chunks-table
+        column AND extends ``_TEXTBOOK_MIGRATION_DEFAULTS`` with a
+        matching SQL expression, the migration helper should add the
+        column cleanly. Asymmetric coverage with the negative-branch
+        test above ensures the trip-wire reminder is balanced.
+        """
+        from unittest.mock import patch
+
+        from ingest.store import (
+            _TEXTBOOK_MIGRATION_DEFAULTS,
+            _migrate_chunks_schema_if_needed,
+        )
+
+        future_schema = pa.schema(
+            [
+                *CHUNKS_SCHEMA_V1,
+                pa.field("future_m3_col", pa.utf8(), nullable=True),
+            ]
+        )
+        future_defaults = {
+            **_TEXTBOOK_MIGRATION_DEFAULTS,
+            "future_m3_col": "cast(NULL as string)",
+        }
+        _db, tbl = self._make_legacy_14col_table(tmp_path)
+        with (
+            patch("ingest.store.CHUNKS_SCHEMA_V1", future_schema),
+            patch("ingest.store._TEXTBOOK_MIGRATION_DEFAULTS", future_defaults),
+        ):
+            added = _migrate_chunks_schema_if_needed(tbl)
+
+        assert "future_m3_col" in added
+        # The 7 m2 columns + the simulated m3 column all landed.
+        assert len(added) == 8
+        assert "future_m3_col" in tbl.schema.names
+
+
+class TestParserUsedEnumGuard:
+    """m2 rect F4 — ``parser_used`` is a documented enum (per the
+    brief's "extend the parser_used enum" wording). Without the
+    guard, a chunker bug or driver typo (``"latexm"``, ``"ar5iv2"``)
+    pollutes the chunks table and downstream chunk-grained re-parse
+    decisions read the wrong provenance.
+    """
+
+    def test_invalid_parser_used_raises(self, tmp_path):
+        from ingest.store import write_chunks
+
+        chunk = _make_chunk("2307.00300", "stmt", "body", suffix="9" * 16)
+        chunk.parser_used = "latexm"  # typo
+        embeddings = _make_synthetic_embeddings([chunk], seed=91)
+        with pytest.raises(ValueError, match="parser_used"):
+            write_chunks([chunk], embeddings, lancedb_path=tmp_path / "lancedb")
+
+    def test_none_parser_used_accepted(self, tmp_path):
+        """None means failure / unknown per the docstring; must NOT raise."""
+        from ingest.store import write_chunks
+
+        chunk = _make_chunk("2307.00400", "stmt", "body", suffix="8" * 16)
+        assert chunk.parser_used is None  # ChunkRecord default
+        embeddings = _make_synthetic_embeddings([chunk], seed=92)
+        write_chunks([chunk], embeddings, lancedb_path=tmp_path / "lancedb")
+
+    def test_each_valid_parser_used_accepted(self, tmp_path):
+        from ingest.store import _ALLOWED_PARSER_USED, write_chunks
+
+        for i, parser in enumerate(sorted(_ALLOWED_PARSER_USED)):
+            chunk = _make_chunk(
+                f"2307.0050{i}", "stmt", f"body {i}", suffix=f"7{i:015x}"
+            )
+            chunk.parser_used = parser
+            embeddings = _make_synthetic_embeddings([chunk], seed=93 + i)
+            write_chunks(
+                [chunk], embeddings, lancedb_path=tmp_path / f"lancedb-{i}"
+            )

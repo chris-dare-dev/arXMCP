@@ -13,17 +13,21 @@ by every successful ``write_chunks`` call). See
 ``05-storage-and-indexing.md`` § "MVCC versioning" for the
 operational handshake.
 
-**Existing-row migration is NOT implemented in this milestone.**
-Adding nullable columns (e.g. the textbook-ingest-m2 additions
-``source_kind``, ``license``, ``chapter``, ``page_start``,
-``page_end``, ``textbook_slug``, ``parser_used``) to an existing
-LanceDB table without a migration step causes ``merge_insert`` to
-fail with a column-mismatch error. The migration helper that
-backfills the missing columns on-open belongs to ``textbook-ingest-m2``
-proper (see that milestone's research-brief-2 for the
-``tbl.add_columns`` pattern). Until that lands, operators upgrading
-a pre-m2 LanceDB dataset must re-create the table (delete and
-re-ingest) rather than open in place.
+**Existing-row migration shipped in textbook-ingest-m2** as
+:func:`ingest.store._migrate_chunks_schema_if_needed`. On every
+:func:`ingest.store.write_chunks` call, the helper reads
+``tbl.schema.names`` and calls ``tbl.add_columns(...)`` for each
+m2 column absent from the on-disk table. SQL backfills set
+``source_kind="arxiv"`` + ``license="arxiv-license"`` for every
+existing row (preserves ``WHERE license = 'arxiv-license'`` filter
+semantics on legacy rows — FM-6 from the m2 research synthesis);
+the four textbook-only columns and ``parser_used`` get NULL.
+Each ``add_columns`` is its own LanceDB MVCC version so a partial
+failure is recoverable: a retry recomputes ``missing = target
+- existing`` and finishes the remaining columns. Idempotent — once
+the chunks table is at the canonical 21-column shape, subsequent
+``write_chunks`` calls find no missing columns and the migration
+is a no-op (one ``tbl.schema.names`` read).
 
 Column order follows the brief's table verbatim. PyArrow doesn't
 require a particular order for correctness, but a fixed source-literal

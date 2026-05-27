@@ -160,6 +160,14 @@ _ALLOWED_KINDS = frozenset(
 # typos (``"arxv"``, ``"textboook"``) — same pattern as ``_ALLOWED_KINDS``.
 _ALLOWED_SOURCE_KINDS = frozenset({"arxiv", "textbook"})
 
+# m2 rect F4: parallel enum guard for ``parser_used`` (the brief's
+# "extend the parser_used enum" wording is only meaningful if the
+# column is actually enum-validated). None means failure / unknown
+# and is accepted by ``_build_arrow_table`` — only non-None values
+# must be in this set. Domain mirrors the synthesis D2 documentation
+# + the chunker_types.py / 05-storage-and-indexing.md descriptions.
+_ALLOWED_PARSER_USED = frozenset({"ar5iv", "latexml", "mineru+latexml"})
+
 
 @dataclass
 class WriteStats:
@@ -343,6 +351,29 @@ def _migrate_chunks_schema_if_needed(tbl) -> list[str]:
             tbl.add_columns({schema_field.name: sql})
             added.append(schema_field.name)
 
+    # m2 rect F2 (HIGH): LanceDB's ``add_columns`` with a non-NULL SQL
+    # default (e.g. ``cast('arxiv' as string)``) infers
+    # ``nullable=False`` from the expression — so a migrated table
+    # gets a stricter ``source_kind`` / ``license`` column than a
+    # freshly-created v21 table (where ``CHUNKS_SCHEMA_V1`` declares
+    # ``nullable=True``). The skew is path-dependent and reachable
+    # via a future bug: a stale fixture writing ``source_kind=None``
+    # would succeed on fresh but fail on migrated. Force every m2
+    # column to match the canonical nullability via ``alter_columns``.
+    # ``alter_columns`` does not change values (existing rows keep
+    # their backfilled tokens); it only updates the on-disk schema
+    # metadata. One MVCC version per altered column — cheap; cost is
+    # bounded by the 7-column m2 delta.
+    for schema_field in CHUNKS_SCHEMA_V1:
+        if (
+            schema_field.name in added
+            and schema_field.nullable
+            and not tbl.schema.field(schema_field.name).nullable
+        ):
+            tbl.alter_columns(
+                {"path": schema_field.name, "nullable": True}
+            )
+
     logger.info(
         "textbook-ingest-m2 schema migration: added %d columns to "
         "chunks table: %s",
@@ -424,6 +455,22 @@ def _build_arrow_table(
                 f"chunk {chunk.chunk_id} has source_kind="
                 f"{chunk.source_kind!r} which is not in the allowed "
                 f"set {sorted(_ALLOWED_SOURCE_KINDS)!r}"
+            )
+        # m2 rect F4: ``parser_used`` is a documented enum. None
+        # means failure / unknown (accepted). Any other value must
+        # be in ``_ALLOWED_PARSER_USED`` so a chunker bug or driver
+        # typo (``"latexm"``, ``"mineru"`` alone without ``+latexml``)
+        # surfaces at write time instead of polluting chunk-grained
+        # re-parse decisions downstream.
+        if (
+            chunk.parser_used is not None
+            and chunk.parser_used not in _ALLOWED_PARSER_USED
+        ):
+            raise ValueError(
+                f"chunk {chunk.chunk_id} has parser_used="
+                f"{chunk.parser_used!r} which is not in the allowed "
+                f"set {sorted(_ALLOWED_PARSER_USED)!r} (or None for "
+                f"failure/unknown)"
             )
         emb_stmt = stmt_lookup.get(chunk.chunk_id)
         emb_proof = proof_lookup.get(chunk.chunk_id)
