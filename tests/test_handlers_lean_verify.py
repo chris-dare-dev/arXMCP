@@ -162,10 +162,11 @@ class TestToolRegistration:
         )
 
     def test_schema_version_matches_tool_schema_version(self):
-        """m3 bumps TOOL_SCHEMA_VERSION 11 -> 12; the new schema file
-        must echo the same integer (cross-checked by
-        test_snippet_contract.py::TestSchemaVersionPin)."""
-        assert TOOL_SCHEMA_VERSION == 12
+        """m3 bumps TOOL_SCHEMA_VERSION 11 -> 12 (verification-feedback-m3);
+        textbook-ingest-m3 bumps it 12 -> 13. The lean_verify_result.json
+        ``version`` integer must echo TOOL_SCHEMA_VERSION (cross-checked
+        by test_snippet_contract.py::TestSchemaVersionPin)."""
+        assert TOOL_SCHEMA_VERSION == 13
 
         schema_path = (
             Path(__file__).parent.parent

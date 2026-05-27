@@ -232,6 +232,50 @@ This contract is documented but NOT enforced in `server/prompts.py`
 because that module is pure constants. The orchestrator is
 responsible.
 
+## Textbook-family BP1 bump (textbook-ingest-m3)
+
+**Bumped 2026-05-27.** `TOOL_SCHEMA_VERSION` 12 → 13. The coordinated
+re-pin checkpoint for the entire textbook-ingest family — m1 (chunk-
+id regex widening) and m2 (chunks-schema migration) deferred their
+re-pins to m3 so the BP1 prompt cache invalidates EXACTLY ONCE for
+the whole family rather than three times.
+
+**What changed on the MCP surface.** `server/tools.py::SEARCH_PAPERS`
+`ToolMeta.description` now documents that `filters.paper_id` accepts
+both arXiv and `textbook:<slug>` paper_id forms. m1 widened
+`is_valid_paper_id` in `ingest/identifiers.py` to accept the textbook
+shape, but the tool description had drifted from the validator
+contract. The single-line edit aligns the description with the
+runtime acceptance and is the **only** semantic change to `ALL_TOOLS`
+in this milestone.
+
+**What did NOT change.**
+
+- `SYSTEM_PROMPT` in `server/prompts.py` (still the E08_S04 placeholder).
+- Any other `ToolMeta` description.
+- Any tool input or output JSON-Schema shape.
+- `server/schemas/search_papers_result.json` (m1 already updated
+  its `chunk_id.pattern` mirror; that file is NOT embedded in
+  `tools/list` and does not flow into either hash).
+- BP1/BP2 breakpoint placement (per `07-multi-agent-caching.md`).
+
+**New SHA values** (the m3 rect commit re-pins both literals in
+lockstep — same coordinated-commit precedent as `853011e`
+verification-feedback-m3):
+
+| Hash | Pre-m3 | Post-m3 |
+|---|---|---|
+| `EXPECTED_TOOL_SCHEMA_SHA256` | `1d0abfe94a53230c3976bf16f418011884234662f7d4434256416782f0e00140` | `c8210225f1c86c83ba628112627d8f9f8689ce1d0dcfa88b9c3ae945d2065132` |
+| `EXPECTED_BP1_SHA256` | `1162e998fab9637a2ddbf4423ac8e84d439bff24ff26842cac3860cc460938ed` | `413059930ce9b56399b877537ef0b6c363a4b52df8d76f3668e53305fd7c41d5` |
+
+**`notebook_kind` field.** The m6 notebook schema gains a
+`notebook_kind` field (default `"arxiv"`, Pydantic pattern
+`^(arxiv|textbook)$`) in the same commit. Stored in the SQLite
+`notebooks` table via an additive v2 → v3 ALTER TABLE migration
+(existing rows backfilled to `"arxiv"` by SQLite DEFAULT). This is
+an HTTP route schema, not part of `tools/list` — it does NOT affect
+either BP1 or `EXPECTED_TOOL_SCHEMA_SHA256`.
+
 ## Cross-references
 
 - `server/prompts.py` — the importable string constants.

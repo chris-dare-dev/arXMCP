@@ -580,3 +580,170 @@ class TestNotebooksStorePersistence:
             await s.close()  # second close must not raise
 
         asyncio.run(_run())
+
+
+# ===========================================================================
+# textbook-ingest-m3 — notebook_kind field tests
+# ===========================================================================
+
+
+class TestNotebookKind:
+    """m3 — ``notebook_kind`` field on the m6 notebook schema.
+
+    Acceptance: notebook created with ``notebook_kind="textbook"`` round-
+    trips through SQLite; arXiv-flavor notebooks default to
+    ``"arxiv"``. Pydantic pattern validation rejects garbage.
+    """
+
+    def test_default_notebook_kind_is_arxiv(
+        self, client: TestClient,
+    ) -> None:
+        """Create without supplying notebook_kind → default ``arxiv``."""
+        r = client.post(
+            "/ui/api/notebooks",
+            json={"slug": "demo-nb", "display_name": "demo"},
+        )
+        assert r.status_code == 201, r.text
+        assert r.json()["notebook_kind"] == "arxiv"
+
+        # And the persisted row matches.
+        rows = client.get("/ui/api/notebooks").json()
+        assert rows[0]["notebook_kind"] == "arxiv"
+
+    def test_textbook_kind_round_trip(
+        self, client: TestClient,
+    ) -> None:
+        """Create with notebook_kind=textbook → persisted, surfaced."""
+        r = client.post(
+            "/ui/api/notebooks",
+            json={
+                "slug": "shimura-varieties",
+                "display_name": "Shimura varieties",
+                "notebook_kind": "textbook",
+            },
+        )
+        assert r.status_code == 201, r.text
+        assert r.json()["notebook_kind"] == "textbook"
+
+        rows = client.get("/ui/api/notebooks").json()
+        assert len(rows) == 1
+        assert rows[0]["notebook_kind"] == "textbook"
+
+    def test_invalid_notebook_kind_rejected(
+        self, client: TestClient,
+    ) -> None:
+        """Pydantic pattern rejects anything outside the enum domain."""
+        r = client.post(
+            "/ui/api/notebooks",
+            json={
+                "slug": "demo-nb",
+                "notebook_kind": "freeform-garbage",
+            },
+        )
+        # FastAPI/Pydantic returns 422 on pattern validation failure.
+        assert r.status_code == 422, r.text
+
+    def test_each_valid_kind_accepted(
+        self, client: TestClient,
+    ) -> None:
+        """Both members of the enum must be accepted."""
+        for i, kind in enumerate(["arxiv", "textbook"]):
+            r = client.post(
+                "/ui/api/notebooks",
+                json={
+                    "slug": f"notebook-{i}",
+                    "notebook_kind": kind,
+                },
+            )
+            assert r.status_code == 201, r.text
+            assert r.json()["notebook_kind"] == kind
+
+
+class TestNotebookKindMigration:
+    """m3 — SQLite ALTER TABLE migration backfills pre-m3
+    ``notebooks.db`` rows with ``notebook_kind='arxiv'``.
+
+    Regression: opening a v2 database (created before m3) and bumping
+    it to v3 must NOT drop existing rows; existing rows must read with
+    ``notebook_kind == "arxiv"`` via SQLite DEFAULT.
+    """
+
+    def test_v2_to_v3_migration_backfills_arxiv(
+        self, tmp_path: Path,
+    ) -> None:
+        import asyncio
+        import sqlite3
+
+        db_path = tmp_path / "notebooks.db"
+
+        async def _seed_v2_and_query_v3() -> dict[str, str]:
+            # Build a v2 schema directly to simulate a pre-m3 database
+            # on disk. Replicates the v1→v2 migration path exactly so
+            # the row schema matches what an existing operator's db
+            # file would look like.
+            conn = sqlite3.connect(str(db_path))
+            try:
+                conn.execute("PRAGMA user_version = 0")
+                conn.execute(
+                    "CREATE TABLE notebooks ("
+                    "  slug          TEXT PRIMARY KEY,"
+                    "  display_name  TEXT NOT NULL DEFAULT '',"
+                    "  lancedb_path  TEXT NOT NULL,"
+                    "  created_at    TEXT NOT NULL"
+                    ")"
+                )
+                conn.execute(
+                    "INSERT INTO notebooks "
+                    "(slug, display_name, lancedb_path, created_at) "
+                    "VALUES (?, ?, ?, ?)",
+                    (
+                        "legacy-nb",
+                        "Legacy",
+                        "/tmp/legacy/lancedb",
+                        "2026-01-01T00:00:00+00:00",
+                    ),
+                )
+                conn.execute("PRAGMA user_version = 2")
+                conn.commit()
+            finally:
+                conn.close()
+
+            # Now open via NotebooksStore — the v2→v3 migration runs.
+            store = await NotebooksStore.open(db_path)
+            try:
+                rows = await store.list_notebooks()
+                assert len(rows) == 1, "legacy row must survive migration"
+                return rows[0]
+            finally:
+                await store.close()
+
+        row = asyncio.run(_seed_v2_and_query_v3())
+        assert row["slug"] == "legacy-nb"
+        assert row["notebook_kind"] == "arxiv", (
+            "legacy rows must backfill notebook_kind='arxiv' "
+            "via SQLite DEFAULT during the v2→v3 ALTER TABLE"
+        )
+
+    def test_v3_schema_user_version_set(
+        self, tmp_path: Path,
+    ) -> None:
+        """After NotebooksStore.open on a fresh DB, PRAGMA user_version=3."""
+        import asyncio
+        import sqlite3
+
+        db_path = tmp_path / "notebooks.db"
+
+        async def _open_close() -> int:
+            store = await NotebooksStore.open(db_path)
+            try:
+                conn = sqlite3.connect(str(db_path))
+                try:
+                    cur = conn.execute("PRAGMA user_version")
+                    return int(cur.fetchone()[0])
+                finally:
+                    conn.close()
+            finally:
+                await store.close()
+
+        version = asyncio.run(_open_close())
+        assert version == 3

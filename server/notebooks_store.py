@@ -65,7 +65,7 @@ logger = logging.getLogger(__name__)
 #: ``if current_version < N:`` block in ``_open_sync`` using
 #: ``CREATE TABLE IF NOT EXISTS`` / ``ALTER TABLE`` and bump
 #: SCHEMA_VERSION; do NOT drop existing tables.
-SCHEMA_VERSION: int = 2
+SCHEMA_VERSION: int = 3
 
 
 class NotebooksStore:
@@ -178,6 +178,23 @@ class NotebooksStore:
                     "ON notebook_ingest_runs(slug, id DESC)"
                 )
                 conn.execute("PRAGMA user_version = 2")
+            # v2 -> v3: textbook-ingest-m3 ADDITIVE migration.
+            # ``notebook_kind`` distinguishes arXiv-corpus notebooks
+            # (the historical default) from textbook-corpus notebooks
+            # that will carry MinerU-parsed chunks once e2 + e3 ship.
+            # SQLite ``ALTER TABLE ... ADD COLUMN ... NOT NULL DEFAULT
+            # 'arxiv'`` backfills every existing row in O(1) (no
+            # row-rewrite) and preserves the "no data loss on
+            # migration" invariant the v1→v2 ADDITIVE pattern
+            # established. The route layer's Pydantic
+            # ``NotebookCreate.notebook_kind`` field enforces the
+            # ``{arxiv, textbook}`` enum domain at the write path.
+            if current_version < 3:
+                conn.execute(
+                    "ALTER TABLE notebooks ADD COLUMN notebook_kind "
+                    "TEXT NOT NULL DEFAULT 'arxiv'"
+                )
+                conn.execute("PRAGMA user_version = 3")
             return conn
 
         conn = await asyncio.to_thread(_open_sync)
@@ -200,28 +217,39 @@ class NotebooksStore:
     # ------------------------------------------------------------------
 
     async def list_notebooks(self) -> list[dict[str, str]]:
-        """Return all notebook rows ordered by ``created_at DESC``."""
+        """Return all notebook rows ordered by ``created_at DESC``.
+
+        textbook-ingest-m3 added ``notebook_kind`` to the row dict;
+        existing notebook.db rows are backfilled to ``"arxiv"`` by the
+        v2→v3 SQLite DEFAULT migration.
+        """
         async with self._lock:
             def _query() -> list[dict[str, str]]:
                 rows = self._conn.execute(
-                    "SELECT slug, display_name, lancedb_path, created_at "
+                    "SELECT slug, display_name, lancedb_path, "
+                    "created_at, notebook_kind "
                     "FROM notebooks ORDER BY created_at DESC, slug ASC"
                 ).fetchall()
                 return [
                     {
                         "slug": r[0], "display_name": r[1],
                         "lancedb_path": r[2], "created_at": r[3],
+                        "notebook_kind": r[4],
                     }
                     for r in rows
                 ]
             return await asyncio.to_thread(_query)
 
     async def get_notebook(self, slug: str) -> dict[str, str] | None:
-        """Return one notebook row by slug, or ``None`` if absent."""
+        """Return one notebook row by slug, or ``None`` if absent.
+
+        textbook-ingest-m3: ``notebook_kind`` included in the dict.
+        """
         async with self._lock:
             def _query() -> dict[str, str] | None:
                 row = self._conn.execute(
-                    "SELECT slug, display_name, lancedb_path, created_at "
+                    "SELECT slug, display_name, lancedb_path, "
+                    "created_at, notebook_kind "
                     "FROM notebooks WHERE slug = ?",
                     (slug,),
                 ).fetchone()
@@ -230,6 +258,7 @@ class NotebooksStore:
                 return {
                     "slug": row[0], "display_name": row[1],
                     "lancedb_path": row[2], "created_at": row[3],
+                    "notebook_kind": row[4],
                 }
             return await asyncio.to_thread(_query)
 
@@ -239,18 +268,27 @@ class NotebooksStore:
         display_name: str,
         lancedb_path: str,
         created_at: str,
+        notebook_kind: str = "arxiv",
     ) -> None:
         """Insert a notebook row. Raises :class:`sqlite3.IntegrityError`
         on duplicate slug — the REST handler catches and translates to
         HTTP 409 (FM-5).
+
+        textbook-ingest-m3: ``notebook_kind`` default ``"arxiv"`` so
+        existing callers that don't supply it keep arXiv-corpus
+        semantics. The route layer's ``NotebookCreate`` Pydantic model
+        enforces the ``{arxiv, textbook}`` enum domain before the call
+        reaches this writer.
         """
         async with self._lock:
             def _insert() -> None:
                 self._conn.execute(
                     "INSERT INTO notebooks "
-                    "(slug, display_name, lancedb_path, created_at) "
-                    "VALUES (?, ?, ?, ?)",
-                    (slug, display_name, lancedb_path, created_at),
+                    "(slug, display_name, lancedb_path, created_at, "
+                    " notebook_kind) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (slug, display_name, lancedb_path, created_at,
+                     notebook_kind),
                 )
             await asyncio.to_thread(_insert)
 

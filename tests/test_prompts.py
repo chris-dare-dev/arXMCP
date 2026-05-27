@@ -629,8 +629,18 @@ class TestBP1ByteIdentityAcrossFanout:
         # which drifts BP1 (system + tools). Re-pinned in lockstep with
         # EXPECTED_TOOL_SCHEMA_SHA256 (which was re-pinned via
         # `pytest --update-tool-schema-hash`).
+        # v13: textbook-ingest-m3 — SEARCH_PAPERS description now
+        # documents that filters.paper_id accepts the textbook:<slug>
+        # form (m1 widened is_valid_paper_id to accept the new shape;
+        # the description had drifted). ALL_TOOLS changed (single
+        # ToolMeta description edit), so BP1 (system + tools) drifts.
+        # The coordinated re-pin checkpoint for the entire textbook-
+        # ingest family — m1 and m2 deferred their re-pins to this
+        # milestone so the BP1 prompt cache invalidates ONCE.
+        # See .claude/notes/prompts-bp-discipline.md "Textbook-family
+        # BP1 bump" section.
         EXPECTED_BP1_SHA256 = (
-            "1162e998fab9637a2ddbf4423ac8e84d439bff24ff26842cac3860cc460938ed"
+            "413059930ce9b56399b877537ef0b6c363a4b52df8d76f3668e53305fd7c41d5"
         )
         req = _build_fanout_request(
             RouteTag.SYNTHESIS, "any problem; BP1 is independent of problem",

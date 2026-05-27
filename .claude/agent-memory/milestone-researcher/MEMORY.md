@@ -629,3 +629,22 @@ the one-time migration when opening a table that lacks the new columns. Guard:
 metadata table design (05-storage-and-indexing.md), but does NOT currently exist
 as a column in CHUNKS_SCHEMA_V1. Adding it in m2 is net-new, not a migration.
 Current live values: "ar5iv" | "latexml" | None. m2 adds "mineru+latexml".
+
+## 2026-05-27 — textbook-ingest-m3 — tool-schema-hash-does-not-include-output-json-schemas
+`server/schemas/search_papers_result.json` and similar schema files are NOT
+embedded in the `tools/list` hash. The hash only covers `ALL_TOOLS` entries
+via FastMCP `model_dump`. Edits to output-schema JSON files alone do NOT drift
+`EXPECTED_TOOL_SCHEMA_SHA256`. Must edit a `ToolMeta` description or handler
+signature to drift the hash.
+
+## 2026-05-27 — textbook-ingest-m3 — tool-schema-and-bp1-co-pin-confirmed-precedent
+`853011e` (verification-feedback-m3) confirmed: both `EXPECTED_TOOL_SCHEMA_SHA256`
+in `test_server_tool_schema.py` AND `EXPECTED_BP1_SHA256` in `test_prompts.py`
+were re-pinned in the SAME commit. BP1 drifts whenever ALL_TOOLS changes. The
+brief pattern "bundle into one commit" has working precedent.
+
+## 2026-05-27 — textbook-ingest-m3 — notebooks-store-additive-migration-pattern
+`server/notebooks_store.py::SCHEMA_VERSION` currently at 2. New columns require
+`ALTER TABLE ... ADD COLUMN` in a `if current_version < N:` block — NOT
+DROP-AND-RECREATE (that destroys user data). Each `if` block ends with
+`PRAGMA user_version = N`. Notebook data is NOT a cache; loss-on-bump is wrong.

@@ -185,16 +185,26 @@ def get_notebooks_store(request: Request) -> NotebooksStore:
 class NotebookCreate(BaseModel):
     """Body for ``POST /ui/api/notebooks``.
 
-    Only ``slug`` is required; ``display_name`` defaults to ``""``.
-    ``lancedb_path`` is AUTO-DERIVED from ``NOTEBOOKS_BASE / slug /
-    "lancedb"`` (the caller MUST NOT supply a custom path — that
-    would let a buggy or malicious client steer a notebook at any
-    on-disk location bypassing the per-notebook directory contract
-    from m6).
+    Only ``slug`` is required; ``display_name`` defaults to ``""`` and
+    ``notebook_kind`` defaults to ``"arxiv"``. ``lancedb_path`` is
+    AUTO-DERIVED from ``NOTEBOOKS_BASE / slug / "lancedb"`` (the caller
+    MUST NOT supply a custom path — that would let a buggy or
+    malicious client steer a notebook at any on-disk location
+    bypassing the per-notebook directory contract from m6).
+
+    textbook-ingest-m3: ``notebook_kind`` ``str`` with Pydantic
+    pattern ``^(arxiv|textbook)$``. Operator opt-in for the textbook-
+    corpus path (parser e2 + chunker e3 ship later); arXiv remains the
+    default. The pattern validation rejects ``"freeform-garbage"`` at
+    the route layer before it reaches the SQLite writer.
     """
 
     slug: str = Field(min_length=1, max_length=64)
     display_name: str = Field(default="", max_length=256)
+    notebook_kind: str = Field(
+        default="arxiv",
+        pattern="^(arxiv|textbook)$",
+    )
 
 
 class PaperAdd(BaseModel):
@@ -266,6 +276,7 @@ async def create_notebook(
             display_name=body.display_name,
             lancedb_path=lancedb_path,
             created_at=_now_iso(),
+            notebook_kind=body.notebook_kind,
         )
     except sqlite3.IntegrityError as e:
         # FM-5: duplicate slug. The async lock inside NotebooksStore
@@ -305,6 +316,7 @@ async def create_notebook(
         "slug": body.slug,
         "display_name": body.display_name,
         "lancedb_path": lancedb_path,
+        "notebook_kind": body.notebook_kind,
     }
 
 

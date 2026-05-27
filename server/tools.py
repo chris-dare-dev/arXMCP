@@ -118,7 +118,16 @@ logger = logging.getLogger(__name__)
 #: so the cap lands here). Windows path silently no-ops the cap and
 #: logs a WARN; ``.claude/docs/lean-sandbox-design.md`` "Memory cap"
 #: row tracks the Job-Object deferral.
-TOOL_SCHEMA_VERSION: int = 12
+#: v13: textbook-ingest-m3 — SEARCH_PAPERS description now documents
+#: that ``filters.paper_id`` accepts both the arXiv and
+#: ``textbook:<slug>`` paper_id forms (m1 widened ``is_valid_paper_id``
+#: to accept the textbook shape; the tool description had drifted from
+#: the validator contract). The BP1 cache-invalidation checkpoint for
+#: the whole textbook-ingest family — m1 and m2 deferred their re-pins
+#: here so the BP1 prompt cache invalidates ONCE per
+#: ``.claude/notes/prompts-bp-discipline.md``'s textbook-family bump
+#: section.
+TOOL_SCHEMA_VERSION: int = 13
 
 #: URI scheme for chunk resource_links per the design note. Used by
 #: handlers that switch to resource_link mode when payloads exceed
@@ -166,12 +175,12 @@ SEARCH_PAPERS = ToolMeta(
         "level='paper' returns one row per paper. Pass filters={'paper_id': "
         "[<id>, ...]} (or a single str) to scope retrieval to a notebook — "
         "up to 100 paper_ids per call; each validated against the arXiv "
-        "format. NOTE: v1 ships dense-only ANN retrieval over BGE-M3 "
-        "statement embeddings; the BM25 + RRF hybrid path lands in E07. "
-        "WARNING: v1 indexes statement chunks only — proof chunks are not "
-        "retrievable until E07's dual-column RRF lands. The result "
-        "envelope's retrieval_mode and excluded_kinds fields document the "
-        "active mode."
+        "or textbook:<slug> format. NOTE: v1 ships dense-only ANN "
+        "retrieval over BGE-M3 statement embeddings; the BM25 + RRF "
+        "hybrid path lands in E07. WARNING: v1 indexes statement chunks "
+        "only — proof chunks are not retrievable until E07's dual-column "
+        "RRF lands. The result envelope's retrieval_mode and "
+        "excluded_kinds fields document the active mode."
     ),
 )
 
