@@ -239,7 +239,8 @@ def _check_staging_embedder_versions(
     if CHUNKS_TABLE_NAME not in existing:
         return
     tbl = db.open_table(CHUNKS_TABLE_NAME)
-    versions = tbl.to_arrow(columns=["embedder_version"]).to_pydict()
+    # lancedb 0.30.x: to_arrow() takes no kwargs; project after load.
+    versions = tbl.to_arrow().select(["embedder_version"]).to_pydict()
     distinct = set(versions["embedder_version"])
     bad = {v for v in distinct if v != target_embedder_version}
     if bad:
@@ -294,7 +295,8 @@ def _staging_chunk_ids(staging_path: Path) -> set[str]:
     if CHUNKS_TABLE_NAME not in existing:
         return set()
     tbl = db.open_table(CHUNKS_TABLE_NAME)
-    rows = tbl.to_arrow(columns=["chunk_id"]).to_pydict()
+    # lancedb 0.30.x: to_arrow() takes no kwargs; project after load.
+    rows = tbl.to_arrow().select(["chunk_id"]).to_pydict()
     return set(rows["chunk_id"])
 
 
@@ -599,7 +601,11 @@ def _index_old_chunk_ids_by_paper(
 
     db = lancedb.connect(str(active_lancedb_path))
     tbl = db.open_table(CHUNKS_TABLE_NAME)
-    arrow = tbl.to_arrow(columns=["chunk_id"])
+    # lancedb 0.30.x's LanceTable.to_arrow() accepts no kwargs; project
+    # the chunk_id column on the loaded pyarrow.Table instead. The
+    # full-table load is acceptable here because chunk_id is a short
+    # utf8 column (16-32 bytes per row); a 10K-row table fits in ~1 MB.
+    arrow = tbl.to_arrow().select(["chunk_id"])
     out: dict[str, set[str]] = {}
     for cid in arrow["chunk_id"].to_pylist():
         try:
