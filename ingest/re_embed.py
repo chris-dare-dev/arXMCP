@@ -321,8 +321,12 @@ def _build_old_rows_index(active_lancedb_path: Path) -> dict[str, dict]:
 
     db = lancedb.connect(str(active_lancedb_path))
     tbl = db.open_table(CHUNKS_TABLE_NAME)
-    arrow = tbl.to_arrow(
-        columns=[
+    # lancedb 0.30.x: to_arrow() takes no kwargs; project after load.
+    # The 5 projected columns (chunk_id + 2 embeddings + version + kind)
+    # are the read-only seed for the per-paper copy plan; the embeddings
+    # are the only ones that matter for size.
+    arrow = tbl.to_arrow().select(
+        [
             "chunk_id",
             "embedding_stmt",
             "embedding_proof",
