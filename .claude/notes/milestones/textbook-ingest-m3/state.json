@@ -1,29 +1,44 @@
 {
   "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/plans",
   "created_at": "2026-05-27T23:02:28Z",
-  "critics_run": [],
+  "critics_run": [
+    {
+      "critic": "adversary",
+      "output_path": ".claude/notes/milestones/textbook-ingest-m3/critique-adversary.md",
+      "summary": "SHIP-WITH-FIXES; 0/1/3/1"
+    }
+  ],
   "critique_finding_counts": {
     "critical": 0,
-    "high": 0,
-    "low": 0,
-    "medium": 0
+    "high": 1,
+    "low": 1,
+    "medium": 3
   },
-  "critique_path": null,
-  "deferred_findings": [],
+  "critique_path": ".claude/notes/milestones/textbook-ingest-m3/critique-merged.md",
+  "deferred_findings": [
+    "F5"
+  ],
   "external_writes_authorized": false,
   "external_writes_completed": false,
   "external_writes_required": [],
-  "fixed_findings": [],
+  "fixed_findings": [
+    "F1",
+    "F2",
+    "F3",
+    "F4"
+  ],
   "id": "textbook-ingest-m3",
   "implementation_base": "0ac2bd48fb0f8f4240087a9e89a1e38e7cfc35f5",
-  "implementation_branch": null,
-  "implementation_commit_range": null,
-  "implementation_commits": [],
+  "implementation_branch": "main",
+  "implementation_commit_range": "0ac2bd48fb0f8f4240087a9e89a1e38e7cfc35f5..397a869f59fb80cbc4ffed630fde81ab403b2d7a",
+  "implementation_commits": [
+    "397a869f59fb80cbc4ffed630fde81ab403b2d7a"
+  ],
   "implementation_path": "inline",
   "implementation_specialist": null,
   "invalidated_findings": [],
   "milestone_brief": "textbook-ingest-m3 \u2014 Coordinated SHA re-pin + notebook_kind field. See plans/textbook-ingest-roadmap.md.",
-  "phase": "implement-running",
+  "phase": "complete",
   "phase_history": [
     {
       "entered_at": "2026-05-27T23:02:28Z",
@@ -42,12 +57,41 @@
     },
     {
       "entered_at": "2026-05-27T23:08:54Z",
-      "left_at": null,
+      "left_at": "2026-05-27T23:21:33Z",
       "phase": "implement-running"
+    },
+    {
+      "entered_at": "2026-05-27T23:21:33Z",
+      "left_at": "2026-05-27T23:21:42Z",
+      "phase": "implement-complete"
+    },
+    {
+      "entered_at": "2026-05-27T23:21:42Z",
+      "left_at": "2026-05-27T23:31:01Z",
+      "phase": "critique-running"
+    },
+    {
+      "entered_at": "2026-05-27T23:31:01Z",
+      "left_at": "2026-05-27T23:31:01Z",
+      "phase": "critique-complete"
+    },
+    {
+      "entered_at": "2026-05-27T23:31:01Z",
+      "left_at": "2026-05-27T23:40:27Z",
+      "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-05-27T23:40:27Z",
+      "left_at": null,
+      "phase": "complete"
     }
   ],
-  "rectification_commit": null,
-  "regression_tests_added": [],
+  "rectification_commit": "52cba4ec928b531d4aa42d314f4ae6466ec8715c",
+  "regression_tests_added": [
+    "tests/test_search_filter.py::TestTextbookPaperIdFilter",
+    "tests/test_notebook_api.py::TestNotebookKindMigration::test_v1_to_v3_migration_runs_both_blocks",
+    "tests/test_notebook_api.py::TestNotebookKindMigration::test_open_is_idempotent_against_v3"
+  ],
   "research_briefs": [
     {
       "agent_id": "researcher-1",
@@ -57,5 +101,5 @@
   ],
   "research_mode": "single",
   "research_synthesis": ".claude/notes/milestones/textbook-ingest-m3/research-synthesis.md",
-  "updated_at": "2026-05-27T23:08:54Z"
+  "updated_at": "2026-05-27T23:40:27Z"
 }

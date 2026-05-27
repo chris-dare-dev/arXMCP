@@ -305,4 +305,10 @@ _None — no file:line region was flagged by ≥ 2 critics._
 
 ## Rectification status
 
-<!-- Phase 4 appends one bullet per finding; do not pre-populate -->
+- F1 — fixed in `52cba4e` (server/handlers/search.py switched from `is_valid_arxiv_paper_id` to `is_valid_paper_id`; error message widened to "invalid IDs (neither arXiv nor textbook:<slug> form)"). Regression guards: new `TestTextbookPaperIdFilter` class with 7 tests + 3 existing stale-message tests updated in lockstep. NO BP1 re-pin required (handler code change does not affect `tools/list` hash).
+- F2 — fixed in `52cba4e` (`tests/test_notebook_api.py::TestNotebookKindMigration::test_v1_to_v3_migration_runs_both_blocks`). Seeds a v1 DB, opens via NotebooksStore, asserts both v1→v2 and v2→v3 migrations run cleanly and the legacy row backfills to `notebook_kind='arxiv'`.
+- F3 — fixed in `52cba4e` (server/schemas/search_papers_result.json `paper_id` row description rewritten to document both arXiv and textbook:<slug> shapes). NO version bump needed — the result-row JSON schema is NOT embedded in `tools/list`, so `EXPECTED_TOOL_SCHEMA_SHA256` and `EXPECTED_BP1_SHA256` do NOT drift. Avoided the second BP1 invalidation the adversary flagged as defeating m3's coordinated-checkpoint thesis.
+- F4 — fixed in `52cba4e` (`tests/test_notebook_api.py::TestNotebookKindMigration::test_open_is_idempotent_against_v3`). Open + close + re-open; asserts PRAGMA user_version stays 3 and PRAGMA table_info byte-stable across opens.
+- F5 — deferred (LOW; adding `GET /notebooks/{slug}` is e4's concern; `notebook_kind` is reachable via list endpoint + create response).
+
+**Summary:** 4 fixed (F1, F2, F3, F4), 0 invalidated, 1 deferred (F5). Adversary invalidation rate 0/1 HIGH = 0% (well under 40% threshold; the adversary was correct on the load-bearing description-vs-handler drift). NO additional SHA re-pins needed — F1 and F3 both land outside the `tools/list` byte stream.
