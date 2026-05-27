@@ -1,5 +1,19 @@
 # Milestone Researcher — Project Memory
 
+## 2026-05-27 — textbook-ingest-m1 — CHUNK_ID_RE-uses-dollar-not-Z-anchor
+`ingest/identifiers.py::CHUNK_ID_RE` is built as `re.compile(rf"^{CHUNK_ID_PATTERN}$")` —
+uses `$` (not `\Z`). `_PAPER_ID_FULL_PATTERN` already fixed to `\Z` (F3 closure). The
+CHUNK_ID_RE `$` bug is a second F3-class instance: `is_valid_chunk_id("arxiv:2401.00001:abcdef0123456789\n")`
+returns True. Any milestone touching `CHUNK_ID_RE` must fix both anchors together.
+
+## 2026-05-27 — textbook-ingest-m1 — three-copy-sync-pattern-for-PAPER_ID_RE
+`ingest/identifiers.py:_PAPER_ID_FULL_PATTERN`, `ingest/chunker.py:_PAPER_ID_RE`, and
+`tools/validate_eval_fixtures.py:_PAPER_ID_RE` are locked byte-equal by
+`tests/test_identifiers.py::TestPaperIdRegex`. Any change to the arXiv alternatives
+must propagate to all three. Textbook alternative must be added to all three when
+`is_valid_paper_id` is extended (or the equality test must be narrowed — adding to all
+three is simpler). The chunker and eval-fixture copies carry only the arXiv branches.
+
 ## 2026-05-22 — m10 — ar5iv-html-storage-TWO-paths-search-order
 TWO HTML paths: (1) m8 upload → `var/arxmcp/notebooks/<slug>/ar5iv/<flat_paper_id>.html`
 (flat, notebook-scoped); (2) ingest pipeline → `var/arxmcp/corpus/parsed/<paper_id>/index.html`
