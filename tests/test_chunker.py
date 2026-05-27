@@ -895,8 +895,10 @@ class TestB2BudgetBumpTakesEffect:
           differing from the hash of the 512-token-clipped prefix.
     """
 
-    # Must match _PAPER_ID_RE (new-style YYMM.NNNNN[N][vN]); 2099.99999
-    # is conventionally used by the chunker tests as a synthetic id.
+    # Must match _PAPER_ID_RE (new-style YYMM.NNNNN[N][vN]). This test
+    # is the first to use ``2099.99999`` as a synthetic id — future
+    # synthetic-id tests should pick distinct ids to avoid collisions
+    # on ``tmp_path / "parsed" / <id>`` when patching PARSED_DIR.
     PAPER_ID = "2099.99999"
 
     def _build_html_with_long_stmt(self, word_count: int) -> str:

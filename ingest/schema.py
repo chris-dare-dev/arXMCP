@@ -9,12 +9,21 @@ schema inline.
 Schema mutations require a corresponding MVCC version bump. E04_S02
 shipped the ``corpus_version`` integer in ``corpus-version.json``;
 the schema version now ratchets via LanceDB's MVCC integer (written
-by every successful ``write_chunks`` call). Existing-row migrations
-land via ``ingest.store._migrate_chunks_schema_if_needed`` which
-calls ``tbl.add_columns`` for any column present in the canonical
-schema but absent from the on-disk table. See
+by every successful ``write_chunks`` call). See
 ``05-storage-and-indexing.md`` § "MVCC versioning" for the
 operational handshake.
+
+**Existing-row migration is NOT implemented in this milestone.**
+Adding nullable columns (e.g. the textbook-ingest-m2 additions
+``source_kind``, ``license``, ``chapter``, ``page_start``,
+``page_end``, ``textbook_slug``, ``parser_used``) to an existing
+LanceDB table without a migration step causes ``merge_insert`` to
+fail with a column-mismatch error. The migration helper that
+backfills the missing columns on-open belongs to ``textbook-ingest-m2``
+proper (see that milestone's research-brief-2 for the
+``tbl.add_columns`` pattern). Until that lands, operators upgrading
+a pre-m2 LanceDB dataset must re-create the table (delete and
+re-ingest) rather than open in place.
 
 Column order follows the brief's table verbatim. PyArrow doesn't
 require a particular order for correctness, but a fixed source-literal
@@ -131,12 +140,16 @@ CHUNKS_SCHEMA_V1 = pa.schema(
         # NULL when preamble extraction failed (F3 fallback in E02_S02).
         pa.field("preamble_ref", pa.utf8(), nullable=True),
         # ---- textbook-ingest-m2 columns ----
-        # All declared nullable=True for the in-place schema-evolution
-        # migration: existing rows get NULL or a backfilled default via
-        # ``ingest.store._migrate_chunks_schema_if_needed``. New writes
-        # always populate ``source_kind`` and ``license`` (from
-        # ``ChunkRecord`` defaults); the four textbook-only columns
-        # stay NULL for arXiv chunks.
+        # All declared nullable=True so a freshly-created table at
+        # this schema version accepts arXiv-only writes (NULL for the
+        # textbook-specific columns). The in-place schema-evolution
+        # migration that backfills these on a pre-m2 LanceDB table is
+        # the work of ``textbook-ingest-m2`` proper — NOT bundled with
+        # ``embedder-truncation-m1`` even though that milestone
+        # incorporated the schema additions. New writes always populate
+        # ``source_kind`` and ``license`` (from ``ChunkRecord``
+        # defaults); the four textbook-only columns stay NULL for
+        # arXiv chunks.
         #
         # ``source_kind`` enum domain: {"arxiv", "textbook"}. Enforced
         # at write time in ``_build_arrow_table`` against ``_ALLOWED_SOURCE_KINDS``.

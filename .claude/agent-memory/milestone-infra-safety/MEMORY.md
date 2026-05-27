@@ -45,6 +45,15 @@ as the macOS/Windows Docker Desktop alternative, or use an env-var default
 data-loss). Applies to any provisioning YAML shipped without an accompanying
 docker-compose that co-locates Grafana + Prometheus in the same network.
 
+## 2026-05-27 — embedder-truncation-m1 — makefile-args-spaces-warning-consistency
+
+When a new `make` target forwards `$(ARGS)` to a Python `-m` driver, check whether
+the recipe includes the standard `@# NOTE on ARGS: paths inside ARGS must not contain
+spaces` warning comment. In arXMCP, every path-bearing `$(ARGS)` target (`ingest`,
+`re-embed`, `watchdog`, `cutover`) carries this comment. A target that forwards
+`$(ARGS)` but lacks the warning is MEDIUM even if today's driver has no path-bearing
+flags — the comment is a forward-contract for future maintainers.
+
 ## 2026-05-22 — E14_Tier5plus — grafana-provisioning-combined-yaml-safe-if-mounted-not-split
 
 A Grafana provisioning YAML that contains BOTH `datasources:` and `providers:` blocks

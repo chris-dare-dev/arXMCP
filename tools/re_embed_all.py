@@ -89,6 +89,18 @@ def discover_targets(
     # Notebook-scoped datasets.
     if notebooks_base.is_dir():
         for nb_dir in sorted(notebooks_base.iterdir()):
+            # F3 (rect): refuse symlinked notebook dirs to align with
+            # the project-wide m6 F3 symlink-rejection contract codified
+            # at tools/_notebook_common.py::notebook_dir. A symlinked
+            # notebook dir is a red flag and is excluded from re-embed
+            # discovery; check BEFORE is_dir() because is_dir follows
+            # symlinks and would report True for a symlink-to-dir.
+            if nb_dir.is_symlink():
+                logger.warning(
+                    "skipping symlinked notebook dir %s (m6 F3 contract)",
+                    nb_dir.name,
+                )
+                continue
             if not nb_dir.is_dir():
                 continue
             active = nb_dir / "lancedb"
@@ -161,9 +173,16 @@ def run(
         # convention at ingest/re_embed.py:957).
         if summary.papers_failed:
             failures.append(t.label)
+            # F2 (rect): papers_failed is list[str], not int —
+            # format the COUNT and a truncated head of the failing
+            # paper_ids so the operator gets actionable inline
+            # visibility after a multi-hour run.
+            failed_ids = list(summary.papers_failed)
+            head = ", ".join(failed_ids[:5])
+            tail = "..." if len(failed_ids) > 5 else ""
             print(
                 f"  {t.label}: FAILED "
-                f"({summary.papers_failed} paper failures)",
+                f"({len(failed_ids)} paper failure(s): {head}{tail})",
                 file=sys.stderr,
             )
         else:
@@ -201,6 +220,10 @@ def _cli(argv: list[str]) -> int:
         ),
     )
     args = parser.parse_args(argv)
+    # F5 (rect): basicConfig with no logger= filter so the
+    # ingest.re_embed per-paper INFO output reaches the operator's
+    # stderr during the multi-hour re-embed. Without this the
+    # operator sees only the start + summary lines per dataset.
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",

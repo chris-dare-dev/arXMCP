@@ -164,7 +164,8 @@ class ChunkRecord:
     # Closes F5 (HIGH): surface silent truncation to downstream consumers
     # rather than letting them mistake a sliced statement for a complete one.
     # ``True`` when the chunker had to truncate ``body_text`` to fit the
-    # 512-token (stmt) or 448-token (proof window) BGE-M3 budget.
+    # BGE-M3 token budget (current values: STMT_MAX_TOKENS / PROOF_MAX_TOKENS
+    # in ingest/chunker.py — bumped to 1920/1856 in embedder-truncation-m1).
     truncated: bool = field(default=False)
     # ---- textbook-ingest-m2 fields ----
     # Discriminator (default "arxiv"). The LanceDB column is nullable

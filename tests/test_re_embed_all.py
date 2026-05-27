@@ -105,6 +105,44 @@ class TestDiscovery:
         )
         assert targets == []
 
+    def test_skips_symlinked_notebook_dir(self, tmp_path, caplog):
+        """F3 (rect): align with the m6 F3 symlink-rejection contract
+        codified at tools/_notebook_common.py::notebook_dir. A symlink
+        at the slug position is a red flag and must NOT be treated as
+        a re-embed target — even if it would otherwise look like a
+        valid lancedb-bearing notebook.
+        """
+        nb_base = tmp_path / "notebooks"
+        nb_base.mkdir()
+
+        # Build a real lancedb-bearing notebook outside the base, then
+        # symlink it INTO the base. Without the F3 guard, discovery
+        # would follow the symlink (is_dir() returns True) and
+        # accept it as a target.
+        real_nb = tmp_path / "out_of_tree" / "real"
+        real_nb.mkdir(parents=True)
+        (real_nb / "lancedb").mkdir()
+        (real_nb / "lancedb" / "chunks.lance").mkdir()
+        (nb_base / "spooky").symlink_to(real_nb)
+
+        # And a legitimate non-symlinked notebook so we know the loop
+        # ran at all.
+        _make_notebook_dataset(nb_base, "alpha", with_chunks=True)
+
+        with caplog.at_level("WARNING", logger="re_embed_all"):
+            targets = discover_targets(
+                notebooks_base=nb_base,
+                shared_lancedb_path=tmp_path / "index" / "lancedb",
+            )
+        assert [t.label for t in targets] == ["alpha"], (
+            "spooky symlink notebook must be excluded by the m6 F3 "
+            "symlink-rejection contract"
+        )
+        assert any(
+            "symlinked notebook dir spooky" in r.message
+            for r in caplog.records
+        ), "symlink rejection must emit a WARNING for ops visibility"
+
     def test_targets_sorted_alphabetically_for_deterministic_order(self, tmp_path):
         # The order matters because re-embed is single-writer-per-
         # dataset and serializes — operators should see a stable
@@ -151,7 +189,7 @@ class TestRunExitCodes:
         assert "alpha" in out
         assert "dry-run" in out
 
-    def test_per_dataset_failure_propagates_to_exit_code(self, tmp_path):
+    def test_per_dataset_failure_propagates_to_exit_code(self, tmp_path, capsys):
         nb_base = tmp_path / "notebooks"
         _make_notebook_dataset(nb_base, "alpha", with_chunks=True)
         _make_notebook_dataset(nb_base, "beta", with_chunks=True)
@@ -159,13 +197,18 @@ class TestRunExitCodes:
         from types import SimpleNamespace
 
         # Mock run_re_embed to fail on the second dataset only.
+        # F2 (rect): papers_failed is list[str] per
+        # ingest/re_embed.py:103; mock must mirror the real type so
+        # the formatted-failure-message regression is exercised.
         call_count = {"n": 0}
 
         def fake_run(**kwargs):
             call_count["n"] += 1
             return SimpleNamespace(
                 papers_total=1,
-                papers_failed=(1 if call_count["n"] == 2 else 0),
+                papers_failed=(
+                    ["2307.00100"] if call_count["n"] == 2 else []
+                ),
                 chunks_source=10,
                 chunks_target=10,
                 chunks_copied=10,
@@ -186,6 +229,20 @@ class TestRunExitCodes:
         assert rc == 1, "fail-loudly contract: any per-dataset failure → exit 1"
         assert call_count["n"] == 2, "driver must continue past first failure"
 
+        # F2 regression: the failure line must format as a COUNT
+        # (e.g. "1 paper failure(s): 2307.00100"), NOT as the repr of
+        # the list (e.g. "(['2307.00100'] paper failures)").
+        err = capsys.readouterr().err
+        assert "1 paper failure" in err, (
+            f"F2 regression: stderr should contain a count + paper id, "
+            f"got: {err!r}"
+        )
+        assert "2307.00100" in err
+        assert "['2307.00100']" not in err, (
+            "F2 regression: failure line is rendering the list[str] "
+            "via repr instead of formatting count + IDs."
+        )
+
     def test_all_success_returns_0(self, tmp_path):
         nb_base = tmp_path / "notebooks"
         _make_notebook_dataset(nb_base, "alpha", with_chunks=True)
@@ -194,7 +251,7 @@ class TestRunExitCodes:
 
         def fake_run(**kwargs):
             return SimpleNamespace(
-                papers_total=1, papers_failed=0,
+                papers_total=1, papers_failed=[],
                 chunks_source=5, chunks_target=5,
                 chunks_copied=5, chunks_re_embedded=0,
                 chunks_dropped=0, chunks_skipped_resume=0,

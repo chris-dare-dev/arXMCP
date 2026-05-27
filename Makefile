@@ -156,6 +156,11 @@ re-embed-all:
 	@# Operator workflow: run this once per chunker-bump; expect a
 	@# multi-hour run for >10K chunks at the post-bump 2048-token
 	@# budget. ARGS forwards to the driver (e.g. ARGS="--dry-run").
+	@#
+	@# NOTE on ARGS: paths inside ARGS must not contain spaces —
+	@# Make's shell expansion splits at whitespace before argparse
+	@# sees the tokens. --dry-run has no path arg today; this warning
+	@# guards future path-bearing flags added to the driver.
 	@$(PYTHON) -c "import sys; assert sys.version_info >= (3, $(MIN_PY_MINOR)), \
 		f'arXMCP requires Python >= 3.$(MIN_PY_MINOR); got {sys.version_info[:2]}. \
 Try: make re-embed-all PYTHON=python3.$(MIN_PY_MINOR)'"
