@@ -146,4 +146,13 @@ _None — no file:line region was flagged by ≥ 2 critics._
 
 ## Rectification status
 
-<!-- Phase 4 appends one bullet per finding; do not pre-populate -->
+- F1 — fixed in `23e9ceb` (ingest/schema.py module docstring rewritten to reflect the shipped migration). Regression guard: docstring text now accurately documents `_migrate_chunks_schema_if_needed`, the SQL backfill semantics, MVCC-version-per-add_columns recovery, and idempotency.
+- F2 — fixed in `23e9ceb` (ingest/store.py:_migrate_chunks_schema_if_needed now calls `alter_columns({path, nullable: True})` after each `add_columns` so post-migration nullability matches the canonical schema). Regression guard: `tests/test_store.py::TestSchemaMigrationGuard::test_post_migration_nullability_matches_canonical`. Direct reproduction script confirmed source_kind / license were nullable=False pre-fix and nullable=True post-fix.
+- F3 — fixed in `23e9ceb`. Tests: `TestSchemaMigrationGuard::test_merge_insert_update_on_migrated_table` and `test_textbook_chunk_into_migrated_table` exercise the upsert path on migrated tables for arXiv updates and new textbook writes respectively.
+- F4 — fixed in `23e9ceb` (added `_ALLOWED_PARSER_USED` enum guard in `_build_arrow_table`). Regression guards: `TestParserUsedEnumGuard` — 3 tests (invalid raises, None accepted, each valid value accepted).
+- F5 — fixed in `23e9ceb` (added `test_migration_extensible_with_new_default` positive-branch sibling). Documented patch-surface brittleness in the negative-branch test's docstring.
+- F6 — fixed in `23e9ceb` (added per-column TYPE assertions to `test_migration_adds_seven_columns_with_arxiv_defaults`). Defends against future LanceDB SQL int-width drift.
+- F7 — deferred (LOW; cosmetic error-message wording for the None case; tracked for hygiene pass).
+- F8 — deferred (LOW; comment about future textbook-chunker version drift; e3 will update the helper when it lands).
+
+**Summary:** 6 fixed (F1, F2, F3, F4, F5, F6), 0 invalidated, 2 deferred (F7, F8). Adversary invalidation rate 0/2 HIGH = 0% (well under 40% threshold; the adversary was accurate on both load-bearing findings).
