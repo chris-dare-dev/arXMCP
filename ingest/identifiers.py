@@ -71,6 +71,26 @@ PAPER_ID_PATTERN = (
 
 PAPER_ID_RE = re.compile(_PAPER_ID_FULL_PATTERN)
 
+#: arXiv-only paper_id pattern. Used by ``is_valid_arxiv_paper_id``
+#: at sites that construct filesystem paths or LanceDB SQL filters
+#: against the shared arXiv corpus. textbook-ingest-m1 rect F2 (and
+#: F1) added this helper after the adversary critique flagged that
+#: widening ``is_valid_paper_id`` propagated to ≥15 downstream gates
+#: that aren't ready for textbook source_kind yet (schema columns
+#: land in m2, BP1 invalidation lands in m3). Sites that need the
+#: union check (e.g. ``paper_id_from_chunk_id`` round-trip,
+#: notebook-scoped writes once m2 ships) use ``is_valid_paper_id``;
+#: every other site uses ``is_valid_arxiv_paper_id``. The constant
+#: itself mirrors the pre-m1 ``_PAPER_ID_FULL_PATTERN`` exactly so
+#: callsite behavior is byte-stable.
+_ARXIV_PAPER_ID_FULL_PATTERN = (
+    r"^\d{4}\.\d{4,5}(v\d+)?\Z"  # new style: 2401.00001 or 2401.00001v3
+    r"|"
+    r"^[a-z][a-z\-]*/\d{7}(v\d+)?\Z"  # old style: hep-th/0001234
+)
+
+ARXIV_PAPER_ID_RE = re.compile(_ARXIV_PAPER_ID_FULL_PATTERN)
+
 #: chunk_id has two prefix shapes:
 #:
 #: 1. ``arxiv:<arxiv_paper_id>:<16-hex>`` — the ``arxiv:`` prefix is
@@ -127,7 +147,7 @@ CHUNK_ID_RE = re.compile(rf"^{CHUNK_ID_PATTERN}\Z")
 
 
 def is_valid_paper_id(value: str) -> bool:
-    """Return True if ``value`` is a well-formed paper_id.
+    """Return True if ``value`` is a well-formed paper_id (UNION).
 
     Three accepted forms (textbook-ingest-m1):
     arXiv new-style, arXiv old-style, and ``textbook:<slug>``. Reject
@@ -135,8 +155,33 @@ def is_valid_paper_id(value: str) -> bool:
     traversal sequences (``..``), arbitrary text, trailing whitespace
     or newlines (``\\Z`` anchor — F3 closure), and chunk-id-shaped
     inputs (``foo:bar:baz``) all return False.
+
+    **For sites that construct filesystem paths or SQL filters
+    against the shared arXiv corpus, prefer :func:`is_valid_arxiv_paper_id`
+    until the m2 schema columns + m3 BP1 invalidation land.** This
+    function is the union check, used by ``paper_id_from_chunk_id``
+    round-trip and (post-m2) by notebook-scoped writes.
     """
     return isinstance(value, str) and PAPER_ID_RE.match(value) is not None
+
+
+def is_valid_arxiv_paper_id(value: str) -> bool:
+    """Return True if ``value`` is a well-formed arXiv paper_id.
+
+    Strict arXiv-only check — rejects the textbook form even though
+    ``is_valid_paper_id`` accepts it. textbook-ingest-m1 rect F1 + F2:
+    most existing callsites of ``is_valid_paper_id`` are filesystem-
+    path constructors or SQL filters against the shared arXiv corpus,
+    and the m2 schema columns / m3 BP1 invalidation haven't shipped
+    yet. Those sites use this helper to preserve their pre-m1 reject
+    contract; once m2 ships, they'll opt into the union by switching
+    to ``is_valid_paper_id``.
+
+    Pattern is byte-stable with the pre-m1 ``_PAPER_ID_FULL_PATTERN``:
+    new-style ``YYMM.NNNNN[v<int>]`` or old-style
+    ``subject/NNNNNNN[v<int>]``.
+    """
+    return isinstance(value, str) and ARXIV_PAPER_ID_RE.match(value) is not None
 
 
 def is_valid_chunk_id(value: str) -> bool:
@@ -184,10 +229,12 @@ def paper_id_from_chunk_id(chunk_id: str) -> str:
 
 
 __all__ = [
+    "ARXIV_PAPER_ID_RE",
     "CHUNK_ID_PATTERN",
     "CHUNK_ID_RE",
     "PAPER_ID_PATTERN",
     "PAPER_ID_RE",
+    "is_valid_arxiv_paper_id",
     "is_valid_chunk_id",
     "is_valid_paper_id",
     "paper_id_from_chunk_id",

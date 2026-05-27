@@ -24,7 +24,7 @@ from typing import Annotated, Any
 
 from pydantic import Field
 
-from ingest.identifiers import is_valid_paper_id
+from ingest.identifiers import is_valid_arxiv_paper_id
 from server.tools import enforce_byte_cap, envelope, get_resources
 
 
@@ -62,7 +62,7 @@ async def handle_get_paper(
 ) -> dict[str, Any]:
     # F3 fix from the E06_S03 critique: validate before using
     # paper_id in a SQL-style WHERE clause.
-    if not is_valid_paper_id(paper_id):
+    if not is_valid_arxiv_paper_id(paper_id):
         raise ValueError(
             f"paper_id {paper_id!r} does not match the arXiv id format"
         )

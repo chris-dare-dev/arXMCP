@@ -60,7 +60,7 @@ from typing import Any
 import pyarrow as pa
 from bs4 import BeautifulSoup, Tag
 
-from ingest.identifiers import is_valid_paper_id
+from ingest.identifiers import is_valid_arxiv_paper_id
 from ingest.index_equations import open_or_create_equations_table
 from ingest.schema import EQUATIONS_SCHEMA_V1
 
@@ -366,7 +366,7 @@ def extract_equations_for_paper(
     ``var/arxmcp/corpus/parsed/<paper_id>/index.html`` location used
     by the chunker; tests override with a tmp_path fixture.
     """
-    if not is_valid_paper_id(paper_id):
+    if not is_valid_arxiv_paper_id(paper_id):
         raise ValueError(
             f"paper_id {paper_id!r} does not match the arXiv id format"
         )

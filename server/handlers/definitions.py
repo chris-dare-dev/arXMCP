@@ -38,7 +38,7 @@ from typing import Annotated, Any
 
 from pydantic import Field
 
-from ingest.identifiers import is_valid_paper_id
+from ingest.identifiers import is_valid_arxiv_paper_id
 from server.observability.sanitize import sanitize_retrieved_text
 from server.tools import (
     enforce_byte_cap,
@@ -86,7 +86,7 @@ async def handle_get_definitions(
     # predicate and otherwise echoed to logs; validating against the
     # canonical regex before any further work is the F3 discipline
     # from the E06_S03 critique.
-    if not is_valid_paper_id(paper_id):
+    if not is_valid_arxiv_paper_id(paper_id):
         raise ValueError(
             f"paper_id {paper_id!r} does not match the arXiv id "
             f"format (new-style YYMM.NNNNN[vN] or old-style "

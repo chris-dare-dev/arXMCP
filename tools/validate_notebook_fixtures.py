@@ -36,7 +36,7 @@ import argparse
 import json
 import sys
 
-from ingest.identifiers import is_valid_paper_id
+from ingest.identifiers import is_valid_arxiv_paper_id
 from tools._notebook_common import (
     NotebookError,
     notebook_dir,
@@ -158,7 +158,7 @@ def _validate_queries(queries: list, paper_id_set: set[str]) -> None:
             # The boundary-class coverage for this validator's own surface
             # lives at tests/tools/test_validate_notebook_fixtures.py::
             # TestPerQueryStructure::test_paper_id_boundary_classes_rejected.
-            if not is_valid_paper_id(pid):
+            if not is_valid_arxiv_paper_id(pid):
                 raise FixtureValidationError(
                     f"queries[{i}={qid!r}].expected_relevant_papers[{j}]="
                     f"{pid!r} is not a valid arXiv paper_id"

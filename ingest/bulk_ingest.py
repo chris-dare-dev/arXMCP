@@ -64,7 +64,7 @@ from ingest.ar5iv_fetch import (
 )
 from ingest.chunker import chunk_paper
 from ingest.embedder import embed_paper
-from ingest.identifiers import is_valid_paper_id
+from ingest.identifiers import is_valid_arxiv_paper_id
 from ingest.store import DEFAULT_LANCEDB_PATH, load_embed_record, write_chunks
 
 logger = logging.getLogger(__name__)
@@ -188,7 +188,7 @@ def _read_paper_ids(path: Path) -> list[str]:
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
-        if not is_valid_paper_id(line):
+        if not is_valid_arxiv_paper_id(line):
             raise ValueError(
                 f"{path}:{lineno}: invalid paper_id {line!r}"
             )
@@ -267,7 +267,7 @@ def ingest_one_paper(
     failure. The caller (the bulk loop) decides what to do with
     failed outcomes (log to parser-failures, continue).
     """
-    if not is_valid_paper_id(paper_id):
+    if not is_valid_arxiv_paper_id(paper_id):
         raise ValueError(
             f"paper_id {paper_id!r} does not match the arXiv id format"
         )

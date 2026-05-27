@@ -56,7 +56,7 @@ from fastapi import (
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
-from ingest.identifiers import is_valid_paper_id
+from ingest.identifiers import is_valid_arxiv_paper_id
 from tools._notebook_common import (
     NotebookError,
     notebook_dir,
@@ -149,7 +149,7 @@ def _arxiv_url_to_paper_id(url: str) -> str | None:
     candidate = path[len(prefix):]
     # Strip trailing slash for cosmetic tolerance (``/abs/<id>/``).
     candidate = candidate.rstrip("/")
-    if not candidate or not is_valid_paper_id(candidate):
+    if not candidate or not is_valid_arxiv_paper_id(candidate):
         return None
     return candidate
 
@@ -455,7 +455,7 @@ async def remove_paper(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(e),
         ) from e
-    if not is_valid_paper_id(paper_id):
+    if not is_valid_arxiv_paper_id(paper_id):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"paper_id {paper_id!r} is not a valid arXiv id",
@@ -551,7 +551,7 @@ async def upload_paper(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(e),
         ) from e
-    if not is_valid_paper_id(paper_id):
+    if not is_valid_arxiv_paper_id(paper_id):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"paper_id {paper_id!r} is not a valid arXiv id",
@@ -614,9 +614,18 @@ async def upload_paper(
     # paper_id may contain a slash (old-style hep-th/0001234); turn
     # that into a flat filename with the slash replaced so the
     # on-disk path stays single-level. The flat form is unambiguous
-    # because is_valid_paper_id already constrains the character
-    # set (no shell metachars).
-    flat_paper_id = paper_id.replace("/", "_")
+    # because is_valid_arxiv_paper_id constrains the character set
+    # to ``[a-z0-9./-]`` (no shell metachars, no colon).
+    #
+    # textbook-ingest-m1 rect F1 (HIGH): defense-in-depth — also
+    # neutralize the colon byte, which arXiv shapes never contain
+    # but the future ``textbook:<slug>`` shape will. The arXiv-only
+    # gate above (``is_valid_arxiv_paper_id``) is the primary defense;
+    # this is the second layer in case a future widening forgets to
+    # update the gate. On macOS HFS+/APFS the colon is path-separator-
+    # translated by some POSIX file APIs (carriage of the legacy HFS
+    # path delimiter), creating a Finder-rendering confusion vector.
+    flat_paper_id = paper_id.replace("/", "_").replace(":", "_")
     target_path = ar5iv_dir / f"{flat_paper_id}.html"
     tmp_path = ar5iv_dir / f"{flat_paper_id}.html.tmp"
 

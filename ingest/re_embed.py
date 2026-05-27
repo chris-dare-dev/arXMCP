@@ -50,7 +50,7 @@ from ingest.bulk_ingest import DEFAULT_LANCEDB_STAGING_PATH
 from ingest.chunker import chunk_paper
 from ingest.chunker_types import CHUNKER_VERSION, ChunkRecord
 from ingest.embedder import EMBEDDER_VERSION, embed_paper
-from ingest.identifiers import is_valid_paper_id, paper_id_from_chunk_id
+from ingest.identifiers import is_valid_arxiv_paper_id, paper_id_from_chunk_id
 from ingest.schema import (
     CHUNKS_TABLE_NAME,
     EMBEDDING_DIM,
@@ -665,7 +665,7 @@ def run_re_embed(
     )
     # Validate every input paper_id at the input boundary.
     for pid in work_papers:
-        if not is_valid_paper_id(pid):
+        if not is_valid_arxiv_paper_id(pid):
             raise ValueError(f"invalid paper_id: {pid!r}")
     summary.papers_total = len(work_papers)
 

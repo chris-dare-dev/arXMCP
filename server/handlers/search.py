@@ -65,7 +65,7 @@ from typing import Annotated, Any, Literal
 from mcp.types import CallToolResult, ResourceLink, TextContent
 from pydantic import AnyUrl, Field
 
-from ingest.identifiers import is_valid_paper_id
+from ingest.identifiers import is_valid_arxiv_paper_id
 from server.cache import get_cache
 from server.observability.sanitize import sanitize_retrieved_text
 from server.query_encoder import encode_query, encode_query_with_fallback
@@ -172,7 +172,7 @@ def _build_paper_id_predicate(paper_id_value: Any) -> str:
             f"allowed is {MAX_PAPER_ID_FILTER_ITEMS} (m1 FM-4 "
             f"resource-exhaustion cap)"
         )
-    invalid = [pid for pid in paper_ids if not is_valid_paper_id(pid)]
+    invalid = [pid for pid in paper_ids if not is_valid_arxiv_paper_id(pid)]
     if invalid:
         raise ValueError(
             f"filters['paper_id'] contains {len(invalid)} invalid "

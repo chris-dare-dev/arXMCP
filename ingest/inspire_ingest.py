@@ -107,7 +107,7 @@ from ingest.graph_ingest import (
     load_checkpoint,
     save_checkpoint,
 )
-from ingest.identifiers import is_valid_paper_id
+from ingest.identifiers import is_valid_arxiv_paper_id
 from ingest.kuzudb_schema import apply_schema
 from tools.arxiv_fetch import (
     DEFAULT_503_BACKOFF_SECONDS,
@@ -129,7 +129,7 @@ def _validate_paper_id_either_style(paper_id: str) -> None:
     enrich() entry validator must accept both forms; the source-of-truth
     regex lives in ``ingest.identifiers`` which already covers this.
     """
-    if not is_valid_paper_id(paper_id):
+    if not is_valid_arxiv_paper_id(paper_id):
         raise ValueError(
             f"paper_id {paper_id!r} is not a valid arXiv ID "
             "(expected YYMM.NNNNN[N] new-style or subject/NNNNNNN old-style)."

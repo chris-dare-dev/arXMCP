@@ -41,7 +41,7 @@ from ingest.ar5iv_fetch import (
     DEFAULT_PARSED_DIR,
     try_cache,
 )
-from ingest.identifiers import is_valid_paper_id
+from ingest.identifiers import is_valid_arxiv_paper_id
 from tools._notebook_common import (
     NotebookError,
     notebook_dir,
@@ -69,7 +69,7 @@ def run(slug: str, *, sleep_seconds: float = POLITENESS_SLEEP_SECONDS) -> int:
     valid_ids: list[str] = []
     malformed: list[str] = []
     for line in raw_lines:
-        if is_valid_paper_id(line):
+        if is_valid_arxiv_paper_id(line):
             valid_ids.append(line)
         else:
             malformed.append(line)

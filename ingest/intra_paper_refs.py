@@ -68,7 +68,7 @@ import kuzu
 from bs4 import BeautifulSoup
 
 from ingest.graph_ingest import _merge_cite, save_checkpoint
-from ingest.identifiers import is_valid_paper_id
+from ingest.identifiers import is_valid_arxiv_paper_id
 from ingest.kuzudb_schema import apply_schema
 
 logger = logging.getLogger(__name__)
@@ -333,7 +333,7 @@ def ingest(
     write a no-op too.
     """
     for arxiv_id in paper_ids:
-        if not is_valid_paper_id(arxiv_id):
+        if not is_valid_arxiv_paper_id(arxiv_id):
             raise ValueError(
                 f"paper_id {arxiv_id!r} is not a valid arXiv ID"
             )

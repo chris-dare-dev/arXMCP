@@ -45,7 +45,7 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
-from ingest.identifiers import is_valid_paper_id
+from ingest.identifiers import is_valid_arxiv_paper_id
 
 logger = logging.getLogger(__name__)
 
@@ -142,7 +142,7 @@ def try_cache(
     :func:`server.ssl_pin.build_arxiv_ssl_context` to pin the
     bundle. Threaded into ``urllib.request.urlopen(context=...)``.
     """
-    if not is_valid_paper_id(paper_id):
+    if not is_valid_arxiv_paper_id(paper_id):
         raise ValueError(
             f"paper_id {paper_id!r} does not match the arXiv id "
             f"format (new-style YYMM.NNNNN or old-style "

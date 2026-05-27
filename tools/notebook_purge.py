@@ -36,7 +36,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from ingest.identifiers import is_valid_paper_id
+from ingest.identifiers import is_valid_arxiv_paper_id
 from tools._notebook_common import (
     CORPUS_CHUNKS_DIR,
     CORPUS_EMBEDDINGS_DIR,
@@ -106,7 +106,7 @@ def _compute_unique_paper_ids(
     def _validated(papers_txt: Path) -> set[str]:
         return {
             pid for pid in read_paper_ids_from_papers_txt(papers_txt)
-            if is_valid_paper_id(pid)
+            if is_valid_arxiv_paper_id(pid)
         }
     # If papers.txt is missing (partial state), treat as empty set so
     # we don't attempt corpus deletion on an unknown paper-id set.
@@ -142,7 +142,7 @@ def _purge_corpus_assets(unique_ids: set[str]) -> int:
         # Second-line defense: skip anything that doesn't pass paper_id
         # validation, even if it survived the set-difference. F1 hardens
         # both layers.
-        if not is_valid_paper_id(paper_id):
+        if not is_valid_arxiv_paper_id(paper_id):
             print(
                 f"WARN: refusing to delete corpus assets for invalid "
                 f"paper_id {paper_id!r}",

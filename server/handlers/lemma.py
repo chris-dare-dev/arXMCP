@@ -39,7 +39,7 @@ from typing import Annotated, Any
 
 from pydantic import Field
 
-from ingest.identifiers import is_valid_paper_id
+from ingest.identifiers import is_valid_arxiv_paper_id
 from server.observability.sanitize import sanitize_retrieved_text
 from server.theorem_names_store import (
     TheoremNamesStore,
@@ -91,7 +91,7 @@ async def handle_find_lemma_by_name(
 ) -> dict[str, Any]:
     # F3 fix from the E06_S03 critique: validate the optional
     # paper_id arg before using it as a filter (same as v1).
-    if paper_id is not None and not is_valid_paper_id(paper_id):
+    if paper_id is not None and not is_valid_arxiv_paper_id(paper_id):
         raise ValueError(
             f"paper_id {paper_id!r} does not match the arXiv id format"
         )

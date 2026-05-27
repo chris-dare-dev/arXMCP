@@ -103,6 +103,19 @@ MIN_QUERIES_BY_KIND = {"stmt": 5, "proof": 5}
 #: module (which carries LaTeXML-shaped imports). Lockstep with
 #: ``ingest.chunker._PAPER_ID_RE`` is locked by
 #: ``tests/eval/test_fixtures.py::test_paper_id_regex_matches_chunker``.
+#:
+#: **Deliberate asymmetry with ``_CHUNK_ID_RE`` below (m1 rect F5).**
+#: This regex accepts ``textbook:<slug>`` for lockstep with the
+#: canonical pattern (the byte-equality lock test would fail
+#: otherwise); ``_CHUNK_ID_RE`` REJECTS textbook chunk-ids because
+#: no eval fixtures are textbook-shaped today. The asymmetry is
+#: intentional: a stray ``textbook:<slug>`` paper_id in a fixture
+#: passes ``_PAPER_ID_RE`` but every row referencing it fails
+#: ``_CHUNK_ID_RE`` → loud validator error, no silent corruption.
+#: If textbook-shaped eval fixtures become a real need (i.e. the
+#: parser-fidelity-eval rebases onto textbook content), update both
+#: regexes in lockstep AND extend ``tests/eval/`` fixtures
+#: accordingly.
 _PAPER_ID_RE = re.compile(
     # F3 closure from m1 critique: ``\Z`` not ``$`` — see
     # ingest/identifiers.py for the canonical pattern definition + rationale.
@@ -120,6 +133,8 @@ _PAPER_ID_RE = re.compile(
 #: dual-prefix ``ingest.identifiers.CHUNK_ID_RE`` that ships with
 #: textbook-ingest-m1; the validator does not currently accept
 #: textbook chunk-ids because no eval fixtures are textbook-shaped.
+#: See ``_PAPER_ID_RE`` docstring above for the deliberate asymmetry
+#: rationale (m1 rect F5).
 #: textbook-ingest-m1: ``$``→``\Z`` defense-in-depth fix to close the
 #: parallel F3 bug class — the validator runs on curated input so this
 #: is not a runtime path, but the regex hygiene matches the rest of

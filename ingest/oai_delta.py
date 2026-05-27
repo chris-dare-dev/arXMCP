@@ -73,7 +73,7 @@ from ingest.bulk_ingest import (
     _log_parser_failure,
     ingest_one_paper,
 )
-from ingest.identifiers import is_valid_paper_id
+from ingest.identifiers import is_valid_arxiv_paper_id
 
 logger = logging.getLogger(__name__)
 
@@ -464,7 +464,7 @@ def _parse_listrecords(
             if ident_text.startswith(prefix)
             else ident_text
         )
-        if not is_valid_paper_id(paper_id):
+        if not is_valid_arxiv_paper_id(paper_id):
             logger.warning(
                 "oai_delta: skipping unexpected identifier %r",
                 ident_text,

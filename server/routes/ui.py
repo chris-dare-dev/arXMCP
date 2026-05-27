@@ -35,7 +35,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
 
-from ingest.identifiers import is_valid_paper_id
+from ingest.identifiers import is_valid_arxiv_paper_id
 from server.middleware import CONTENT_SECURITY_POLICY_PREVIEW
 from server.routes.notebooks import get_notebooks_store
 from tools._notebook_common import (
@@ -197,7 +197,7 @@ async def ui_notebook_detail(
         paper_id = row.get("paper_id", "")
         has_preview = (
             isinstance(paper_id, str)
-            and is_valid_paper_id(paper_id)
+            and is_valid_arxiv_paper_id(paper_id)
             and _preview_html_path(slug, paper_id) is not None
         )
         annotated_papers.append({**row, "has_preview": has_preview})
@@ -267,7 +267,7 @@ async def ui_paper_preview(
     # regex constrains to arXiv ID format only — no ``..``, no shell
     # metachars, no path separators outside the old-style ``subject/N``
     # form. This MUST run before any Path construction below.
-    if not is_valid_paper_id(paper_id):
+    if not is_valid_arxiv_paper_id(paper_id):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"invalid paper_id {paper_id!r}",
