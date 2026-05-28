@@ -680,8 +680,10 @@ class TestUploadPathContentLengthGuards:
     come from the route handler), so this class builds an app WITH the
     middleware. test_security.py covers the same guard on ``/healthz``;
     this pins it for the upload path specifically — closing the AC's
-    "malformed/missing content-length edge cases the middleware already
-    guards" requirement for the carve-out path.
+    "malformed/missing content-length edge cases" requirement for the
+    carve-out path: malformed + negative C-L → 400 (a guard); a MISSING
+    C-L → benign pass-through to the route (NOT a 400), pinned by
+    ``test_missing_content_length_passes_middleware_to_route``.
     """
 
     @pytest.fixture
@@ -738,6 +740,77 @@ class TestUploadPathContentLengthGuards:
         )
         assert r.status_code == 400, r.text[:200]
         assert r.json()["error"] == "malformed_content_length"
+
+    def test_missing_content_length_passes_middleware_to_route(
+        self, mw_client: TestClient,
+    ) -> None:
+        """e5/m10 rect F3: a MISSING Content-Length is a benign
+        pass-through, NOT a guard. The middleware skips the C-L block
+        (``content_length_b is None``) and falls through to the eager
+        pre-read; a tiny body reaches the route rather than tripping
+        the malformed/negative-C-L 400. Sent as an iterator body so
+        httpx uses Transfer-Encoding: chunked (no Content-Length
+        header). Pins the pass-through contract so a future change that
+        spuriously 400s a chunked upload trips here."""
+        r = mw_client.post(
+            "/ui/api/notebooks/demo-nb/papers/upload",
+            content=iter([b"hi"]),  # iterator → chunked, no Content-Length
+            headers={"Content-Type": "application/octet-stream"},
+        )
+        # The middleware must NOT have rejected with its malformed/
+        # negative-Content-Length 400 — missing C-L is pass-through.
+        body = (
+            r.json()
+            if r.headers.get("content-type", "").startswith("application/json")
+            else {}
+        )
+        assert body.get("error") != "malformed_content_length", r.text[:200]
+
+
+# ---------------------------------------------------------------------------
+# textbook-ingest-m10 (e5) rect — doc-to-code symbol contract guards
+# (F1 page-count symbol; F2 JS-token count). Pin the
+# .claude/docs/security-pdf-sandbox.md snippets to the real code so the
+# next drift trips a test instead of silently mis-documenting the
+# defense.
+# ---------------------------------------------------------------------------
+
+
+class TestSecurityDocSymbolContract:
+    """e5/m10 rect F1+F2. The security-pdf-sandbox.md code snippets must
+    name the symbols that actually exist. These guards do NOT parse the
+    doc — they assert the code-side contract the doc's prose commits to,
+    so a rename/refactor that diverges from the doc surfaces here."""
+
+    def test_page_count_symbol_is_declared_byte_scan_not_pymupdf(self) -> None:
+        """F1: the doc page-count snippet documents
+        ``_pdf_declared_page_count(pdf_bytes)`` (a /Count byte-regex),
+        NOT a ``_pdf_page_count(pdf_path)`` PyMuPDF probe. Pin both the
+        real symbol's presence and the wrong symbol's absence."""
+        assert hasattr(notebooks_module, "_pdf_declared_page_count"), (
+            "security-pdf-sandbox.md documents _pdf_declared_page_count; "
+            "it must exist in server.routes.notebooks"
+        )
+        assert not hasattr(notebooks_module, "_pdf_page_count"), (
+            "the doc no longer documents a _pdf_page_count PyMuPDF probe; "
+            "if this symbol reappears, the doc snippet must be revisited"
+        )
+
+    def test_dangerous_pdf_names_is_the_documented_seven_token_set(self) -> None:
+        """F2: the threat-table JS row enumerates 7 active-content
+        tokens; pin DANGEROUS_PDF_NAMES to exactly that set so adding a
+        token forces a doc update."""
+        from tools.security.pdfid import DANGEROUS_PDF_NAMES
+
+        expected = frozenset({
+            "/JS", "/JavaScript", "/OpenAction", "/AA",
+            "/Launch", "/SubmitForm", "/ImportData",
+        })
+        assert expected == DANGEROUS_PDF_NAMES, (
+            "DANGEROUS_PDF_NAMES drifted from the 7-token set documented "
+            "in .claude/docs/security-pdf-sandbox.md (threat table + "
+            "'Caps enforced' section) — update the doc in lockstep"
+        )
 
 
 # ---------------------------------------------------------------------------

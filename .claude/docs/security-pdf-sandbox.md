@@ -52,9 +52,9 @@ adversarial inputs.
 
 | Vector | Risk | Mitigation in e2 |
 |---|---|---|
-| Embedded JavaScript in PDF | RCE on viewers; behavior change on parsers that evaluate JS | **Pre-flight pdfid check** at upload time: reject any PDF with `/JS` or `/JavaScript` entries. Mirrors the m6 m8 upload's magic-byte sniff pattern. PyMuPDF inside MinerU does NOT execute JS but other downstream pipelines might; defense-in-depth |
+| Embedded JavaScript in PDF | RCE on viewers; behavior change on parsers that evaluate JS | **Pre-flight pdfid check** at upload time: reject any PDF containing any of the 7 active-content tokens (`/JS`, `/JavaScript`, `/OpenAction`, `/AA`, `/Launch`, `/SubmitForm`, `/ImportData` — canonical list at `tools/security/pdfid.py::DANGEROUS_PDF_NAMES`), covering auto-open, launch, and form-exfil vectors, not just script entries. Mirrors the m8 ar5iv upload's magic-byte sniff pattern. PyMuPDF inside MinerU does NOT execute JS but other downstream pipelines might; defense-in-depth |
 | Polyglot file (PDF + ZIP, PDF + HTML, PDF + JAR) | Bypass downstream content-type checks; confusion attacks | **Strict magic-byte sniff** at upload: first 5 bytes must be `%PDF-` per ISO 32000-1:2008 §7.5.2. **Reject** any file whose first 5 bytes match `%PDF-` AND whose final 1 KB also contains a polyglot tail marker — `PK\x05\x06` (ZIP end-of-central-directory), `</html>`, or `</body>` (lowercase; case-insensitive match) — per the canonical implementation at `server/routes/notebooks.py::_POLYGLOT_TAIL_MARKERS` |
-| Decompression bombs in stream filters (`/FlateDecode`, `/LZWDecode`) | CPU/memory exhaustion | **`subprocess.Popen` hard memory cap** via `RLIMIT_AS` (POSIX) — mirrors the Lean REPL m3 mitigation pattern. 4 GB virtual memory ceiling; MinerU's nominal working set is ~2-3 GB on M2-class hardware. Plus 30-min wall timeout |
+| Decompression bombs in stream filters (`/FlateDecode`, `/LZWDecode`) | CPU/memory exhaustion | **`subprocess.Popen` hard memory cap** via `RLIMIT_AS` (Linux only — non-functional on macOS, where the Darwin kernel raises `ValueError` on lowering; see resolved-question #4. The 30-min wall timeout is the macOS backstop) — mirrors the Lean REPL m3 mitigation pattern. 4 GB virtual memory ceiling; MinerU's nominal working set is ~2-3 GB on M2-class hardware. Plus 30-min wall timeout |
 | Embedded fonts that map glyphs to unicode confusables | Information confusion (glyph forgery) | Out of scope for the runtime sandbox — this is a math-fidelity concern, not a security concern. The CDM eval gate (parser-fidelity-eval-m1) catches glyph-substitution at the math-content layer. Document in the `parser_used` chunk-column comment that operators should treat textbook chunks with caution for high-stakes claims |
 | Object-graph cycles / deeply nested xref tables | Stack overflow in parser | MinerU's upstream uses PyMuPDF which has a recursion guard; defense-in-depth via the per-subprocess wall timeout |
 | Network egress from PDF parser (embedded URL fetches) | Data exfiltration; tracking | **No network** — subprocess started without inherited env vars beyond a whitelist; no `HTTP_PROXY` / `HTTPS_PROXY` inherited; explicit DNS-resolver-free environment. MinerU 3.2.0 with `-b pipeline -m auto` runs ONNX inference from `~/.cache/mineru/` with no external network calls observed in the B1 smoke test; the internal `LocalAPIServer` (see §Implementation architectural caveat) binds loopback only |
@@ -259,9 +259,14 @@ def _pdf_polyglot_check(pdf_bytes: bytes) -> None:
                 detail=f"polyglot detected (tail contains {marker!r})",
             )
 
-def _pdf_page_count(pdf_path: Path) -> int:
-    """Lightweight pre-MinerU page-count probe. Uses PyMuPDF's
-    metadata-only mode (does NOT decode page content)."""
+def _pdf_declared_page_count(pdf_bytes: bytes) -> int:
+    """Return the highest ``/Count <int>`` integer declared in the raw
+    PDF byte stream (regex byte-scan via ``_PDF_COUNT_RE =
+    re.compile(rb"/Count\s+(\d+)")``; NO PyMuPDF, NO Path, NO metadata
+    mode — string-grep only, like the JS/polyglot gates). 0 if absent.
+    An adversarial PDF declaring /Count 0 with a huge real page tree
+    slips past this byte-scan; m5's MinerU wall-clock timeout is the
+    runtime backstop. Canonical impl: server/routes/notebooks.py."""
     ...
 ```
 
