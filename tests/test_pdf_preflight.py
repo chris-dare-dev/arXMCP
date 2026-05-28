@@ -665,6 +665,82 @@ class TestMiddlewareEnvelope:
 
 
 # ---------------------------------------------------------------------------
+# textbook-ingest-m10 (e5) — malformed/negative Content-Length on the
+# upload PATH, under the raised 200 MB prefix carve-out
+# ---------------------------------------------------------------------------
+
+
+class TestUploadPathContentLengthGuards:
+    """e5 / textbook-ingest-m10. ``RequestBodySizeLimitMiddleware``
+    rejects a malformed or negative Content-Length with 400 BEFORE
+    prefix-cap resolution AND before routing — so the
+    ``/ui/api/notebooks`` upload path inherits that smuggling-signal
+    guard even though m4 raised its prefix cap to 200 MB. The bare
+    ``client`` fixture above does NOT mount the middleware (its 413s
+    come from the route handler), so this class builds an app WITH the
+    middleware. test_security.py covers the same guard on ``/healthz``;
+    this pins it for the upload path specifically — closing the AC's
+    "malformed/missing content-length edge cases the middleware already
+    guards" requirement for the carve-out path.
+    """
+
+    @pytest.fixture
+    def mw_client(
+        self, notebooks_base: Path, tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> Iterator[TestClient]:
+        import asyncio
+
+        from server.middleware import RequestBodySizeLimitMiddleware
+
+        db_path = tmp_path / "notebooks.db"
+        loop = asyncio.new_event_loop()
+        try:
+            store = loop.run_until_complete(NotebooksStore.open(db_path))
+            app = FastAPI()
+            app.state.notebooks_store = store
+            # Mirror the production prefix carve-out (server/main.py).
+            app.add_middleware(
+                RequestBodySizeLimitMiddleware,
+                prefix_caps={"/ui/api/notebooks": 200 * 1024 * 1024},
+            )
+            app.include_router(notebooks_router, prefix="/ui/api")
+            with TestClient(app) as c:
+                yield c
+            loop.run_until_complete(store.close())
+        finally:
+            loop.close()
+
+    def test_malformed_content_length_rejected_400(
+        self, mw_client: TestClient,
+    ) -> None:
+        r = mw_client.post(
+            "/ui/api/notebooks/demo-nb/papers/upload",
+            content=b"hi",
+            headers={
+                "Content-Length": "not-an-integer",
+                "Content-Type": "application/octet-stream",
+            },
+        )
+        assert r.status_code == 400, r.text[:200]
+        assert r.json()["error"] == "malformed_content_length"
+
+    def test_negative_content_length_rejected_400(
+        self, mw_client: TestClient,
+    ) -> None:
+        r = mw_client.post(
+            "/ui/api/notebooks/demo-nb/papers/upload",
+            content=b"hi",
+            headers={
+                "Content-Length": "-100",
+                "Content-Type": "application/octet-stream",
+            },
+        )
+        assert r.status_code == 400, r.text[:200]
+        assert r.json()["error"] == "malformed_content_length"
+
+
+# ---------------------------------------------------------------------------
 # m4 rect F6 — DB-call ordering lock
 # ---------------------------------------------------------------------------
 

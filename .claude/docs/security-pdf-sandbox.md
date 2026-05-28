@@ -59,7 +59,7 @@ adversarial inputs.
 | Object-graph cycles / deeply nested xref tables | Stack overflow in parser | MinerU's upstream uses PyMuPDF which has a recursion guard; defense-in-depth via the per-subprocess wall timeout |
 | Network egress from PDF parser (embedded URL fetches) | Data exfiltration; tracking | **No network** — subprocess started without inherited env vars beyond a whitelist; no `HTTP_PROXY` / `HTTPS_PROXY` inherited; explicit DNS-resolver-free environment. MinerU 3.2.0 with `-b pipeline -m auto` runs ONNX inference from `~/.cache/mineru/` with no external network calls observed in the B1 smoke test; the internal `LocalAPIServer` (see §Implementation architectural caveat) binds loopback only |
 | Filesystem traversal via `/EmbeddedFile` or font references | Arbitrary read; arbitrary write | Subprocess `cwd` set to a per-invocation tmpdir under `var/arxmcp/notebooks/<slug>/parsed/<paper_id>/` with NO access to the broader `var/arxmcp/` tree. The notebook-scoped layout (m6) is already the blast-radius boundary; PDF parsing inherits it |
-| Resource exhaustion via huge PDFs (500+ MB) | DoS | **Upload cap** is 200 MB per textbook notebook (raised from the 10 MB m8 cap; see m6 ar5iv upload route). Beyond 200 MB, the upload route returns HTTP 413 before MinerU is invoked |
+| Resource exhaustion via huge PDFs (500+ MB) | DoS | **Two-tier upload cap.** A 200 MB middleware envelope on `/ui/api/notebooks` (`server/main.py::prefix_caps`, raised from the 1 MB→10 MB m8 baseline by textbook-ingest-m4) bounds every upload; the route handler then enforces a tighter 10 MB cap for `notebook_kind="arxiv"` notebooks (textbook notebooks keep the full 200 MB). Beyond the applicable cap the upload route returns HTTP 413 before MinerU is invoked. See §"Caps enforced before MinerU is invoked" for the per-kind split + the accepted memory-pressure caveat |
 | Page-count exhaustion (PDF with millions of objects, low byte cost) | DoS bypass of the byte cap | **Pre-flight pdfid check**: reject any PDF with `>5000` declared pages. Bourbaki volumes top out around 500 pages; 5000 is a 10× safety margin |
 | Polyglot deflated payload (PDF/A with `\write18`-style escape via embedded shell) | RCE on MinerU host | Subprocess discipline (below) — process group kill on timeout; no shell escape pathway available because MinerU is invoked via direct `subprocess.Popen` args, not `shell=True` |
 
@@ -223,14 +223,22 @@ def _is_pdf_bytes(head: bytes) -> bool:
     """Magic-byte sniff. PDF files start with ``%PDF-`` per ISO 32000."""
     return len(head) >= 5 and head[:5] == b"%PDF-"
 
-def _pdf_has_javascript(pdf_path: Path) -> bool:
-    """Vendored pdfid (no external dep). Detects /JS, /JavaScript,
-    /OpenAction, /AA (additional actions) entries.
+# Imported by the upload route as
+#   from tools.security.pdfid import find_javascript as _pdf_find_javascript
+# (server/routes/notebooks.py) and called as _pdf_find_javascript(content)
+# where ``content`` is the raw upload ``bytes`` (NOT a Path).
+def find_javascript(pdf_bytes: bytes) -> list[str]:
+    """Vendored pdfid (no external dep). Returns the list of dangerous
+    PDF name tokens found in ``pdf_bytes`` — /JS, /JavaScript,
+    /OpenAction, /AA (additional actions) and the rest of the 7-token
+    set. Returns an EMPTY list when none are present, so the caller
+    treats it as a truthiness check (``if find_javascript(content):
+    reject(415)``).
 
     See tools/security/pdfid.py for the vendored implementation
-    (pdf-ingest-2026 CAND-2). NOT a full PDF parser — string-grep
-    over the PDF bytes for the entries we care about. Defense-in-
-    depth before MinerU's PyMuPDF layer sees the file.
+    (pdf-ingest-2026 CAND-2). NOT a full PDF parser — a regex scan
+    over the PDF bytes for the tokens we care about. Defense-in-depth
+    before MinerU's PyMuPDF layer sees the file.
     """
     ...
 
@@ -375,11 +383,17 @@ land in a new milestone.
 
 ---
 
-## Failure modes covered by tests (e2 will land these)
+## Failure modes covered by tests (shipped in textbook-ingest-m4/m5)
 
-- `mineru` not on PATH → test skips (per a `requires_mineru` marker
-  to land with e2; analogous to `requires_pdflatex` from parser-
-  fidelity-eval-m1).
+The pre-flight gate + per-kind cap tests live in
+`tests/test_pdf_preflight.py` (magic-byte, polyglot, JS-token,
+page-count, per-kind upload cap, 200 MB middleware envelope, DB-call
+ordering). The MinerU subprocess integration tests are gated behind
+the `requires_mineru` marker (pyproject.toml).
+
+- `mineru` not on PATH → test skips (per the `requires_mineru` marker
+  shipped in textbook-ingest-m5; analogous to `requires_pdflatex` from
+  parser-fidelity-eval-m1).
 - PDF >200 MB → upload route returns HTTP 413 (pre-flight; MinerU
   never invoked).
 - PDF with `/JS` entry → upload route returns HTTP 415.
