@@ -317,13 +317,17 @@ class Resources:
     #: and by ``server.observability.metrics.DEGRADED_MODE_ACTIVE``
     #: scrape refresh.
     degraded: DegradedState | None = None
-    #: Live ``chunks_table.count_rows()`` captured ONCE at startup
+    #: Live ``chunks_table.count_rows()`` captured once for the
+    #: reconciliation + gauge path at startup
     #: (corpus-integrity-observability-m2). ``-1`` sentinel means the
     #: count could not be read (``count_rows()`` raised — FM-2). Read by
     #: :func:`server.health.refresh_metrics_from_singleton_state` to set
     #: the ``arxmcp_corpus_chunk_count_actual`` gauge WITHOUT re-scanning
     #: per ``/metrics`` scrape. STALE BY DESIGN: the server serves a
     #: pinned corpus version for its full lifetime; restart to refresh.
+    #: (F5: the reranker warm-up block independently calls ``count_rows()``
+    #: when ``enable_rerank`` is on — that is a separate concern; do NOT
+    #: couple it to this cached value.)
     startup_chunk_count: int = -1
     # notebook-retrieval-m2 (fork A): bounded LRU registry of per-call
     # notebook chunks-tables, keyed by validated slug → (table, info).

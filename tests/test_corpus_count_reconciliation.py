@@ -29,6 +29,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import numpy as np
+import pytest
 
 from ingest.chunker_types import CHUNKER_VERSION, ChunkRecord
 from ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
@@ -221,6 +222,95 @@ class TestStartupReconciliation:
         finally:
             asyncio.run(resources.shutdown())
 
+    def test_corpus_corruption_not_clobbered(
+        self, tmp_path, monkeypatch, caplog
+    ):
+        """F1 / FM-7 (the design's TOP RISK): when a prior corpus_corruption
+        N-1 fallback already set ``degraded``, the reconciliation must SKIP —
+        a count divergence must NOT downgrade the more-severe corruption
+        alert. Fails if the ``degraded is not None`` guard is removed."""
+        import server.resources as res_mod  # noqa: PLC0415
+
+        _patch_model(monkeypatch)
+        lancedb_path = tmp_path / "lancedb"
+        _seed_corpus(lancedb_path, n=2)
+        _overwrite_marker_chunk_count(lancedb_path, 1000)  # WOULD diverge
+
+        real_open = res_mod.open_chunks_table_with_fallback
+
+        def fake_open(*args, **kwargs):
+            tbl, _ = real_open(*args, **kwargs)
+            return tbl, DegradedState(
+                reason="corpus_corruption",
+                fallback_version=0,
+                original_version=1,
+            )
+
+        monkeypatch.setattr(
+            res_mod, "open_chunks_table_with_fallback", fake_open
+        )
+        cfg = Config(lancedb_path=lancedb_path)
+
+        with caplog.at_level(logging.INFO, logger="server.resources"):
+            resources = asyncio.run(Resources.startup(cfg))
+        try:
+            # The pre-existing corruption reason WINS — not clobbered.
+            assert resources.degraded is not None
+            assert resources.degraded.reason == "corpus_corruption"
+            msgs = [r.getMessage() for r in caplog.records]
+            assert any(
+                "skipping chunk_count reconciliation" in m for m in msgs
+            )
+        finally:
+            asyncio.run(resources.shutdown())
+
+    def test_count_rows_raises_is_nonfatal(self, tmp_path, monkeypatch, caplog):
+        """F2 / FM-2: a count_rows() failure at startup must NOT abort the
+        server (WARN-and-serve). The server starts warm with
+        startup_chunk_count = -1, degraded is None, and the FM-2 WARN fires.
+        Fails if the try/except around count_rows() is removed."""
+        import server.resources as res_mod  # noqa: PLC0415
+
+        _patch_model(monkeypatch)
+        lancedb_path = tmp_path / "lancedb"
+        _seed_corpus(lancedb_path, n=2)
+
+        real_open = res_mod.open_chunks_table_with_fallback
+
+        def fake_open(*args, **kwargs):
+            tbl, degraded = real_open(*args, **kwargs)
+
+            class _CountRowsRaises:
+                """Delegates everything to the real table EXCEPT count_rows,
+                which raises — simulating a transient Lance metadata read
+                failure at startup."""
+
+                def __getattr__(self, name):
+                    if name == "count_rows":
+                        def _raise(*_a, **_k):
+                            raise RuntimeError("simulated lance read failure")
+
+                        return _raise
+                    return getattr(tbl, name)
+
+            return _CountRowsRaises(), degraded
+
+        monkeypatch.setattr(
+            res_mod, "open_chunks_table_with_fallback", fake_open
+        )
+        cfg = Config(lancedb_path=lancedb_path)
+
+        with caplog.at_level(logging.WARNING, logger="server.resources"):
+            resources = asyncio.run(Resources.startup(cfg))
+        try:
+            assert resources.warm is True  # served, not aborted
+            assert resources.startup_chunk_count == -1  # FM-2 sentinel
+            assert resources.degraded is None  # divergence skipped, not degraded
+            msgs = [r.getMessage() for r in caplog.records]
+            assert any("count_rows() failed" in m for m in msgs)
+        finally:
+            asyncio.run(resources.shutdown())
+
 
 # ===========================================================================
 # TestReadyzChunkCountDivergedBody — /readyz reason wiring (AC-1)
@@ -335,3 +425,25 @@ class TestDegradedModeEnumeration:
             DEGRADED_MODE_ACTIVE.labels(reason="chunk_count_diverged")._value.get()
             == 0.0
         )
+
+
+# ===========================================================================
+# TestConfigToleranceValidator — F3: the tolerance config is bounded [0, 1]
+# ===========================================================================
+
+
+class TestConfigToleranceValidator:
+    @pytest.mark.parametrize("bad", [-0.1, 1.5, 2.0])
+    def test_out_of_range_rejected(self, bad):
+        from pydantic import ValidationError  # noqa: PLC0415
+
+        with pytest.raises(ValidationError, match="CORPUS_CHUNK_COUNT_TOLERANCE"):
+            Config(corpus_chunk_count_tolerance=bad)
+
+    @pytest.mark.parametrize("ok", [0.0, 0.05, 0.5, 1.0])
+    def test_in_range_accepted(self, ok):
+        cfg = Config(corpus_chunk_count_tolerance=ok)
+        assert cfg.corpus_chunk_count_tolerance == ok
+
+    def test_default_is_five_percent(self):
+        assert Config().corpus_chunk_count_tolerance == 0.05

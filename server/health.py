@@ -272,14 +272,15 @@ def refresh_metrics_from_singleton_state(resources: Resources) -> None:
     # Gauges: instantaneous truth.
     CORPUS_VERSION_GAUGE.set(resources.corpus_info.version)
     # corpus-integrity-observability-m2: O(1) reads of the startup-cached
-    # count + the marker count. NEVER call count_rows() here — that would
-    # violate the "computed at most once at startup" AC. Both are cached
-    # Python integers (startup_chunk_count = -1 when count_rows() failed).
-    # getattr-defended so a partial/duck-typed Resources (e.g. during the
-    # startup race window, or a minimal test fake) reports the -1 sentinel
-    # rather than raising inside a scrape handler.
-    CORPUS_CHUNK_COUNT_MARKER.set(getattr(resources.corpus_info, "chunk_count", -1))
-    CORPUS_CHUNK_COUNT_ACTUAL.set(getattr(resources, "startup_chunk_count", -1))
+    # count + the marker count from a fully-constructed Resources. NEVER call
+    # count_rows() here — the gauges read the cached ints
+    # (startup_chunk_count = -1 only when count_rows() failed at startup). The
+    # reconciliation/gauge path computes the count exactly once at startup; a
+    # /metrics scrape never recomputes it. (Direct access, matching the
+    # corpus_info.version read above — F4: no getattr sentinel that would mask
+    # a genuine missing-field wiring bug as the FM-2 count-unavailable signal.)
+    CORPUS_CHUNK_COUNT_MARKER.set(resources.corpus_info.chunk_count)
+    CORPUS_CHUNK_COUNT_ACTUAL.set(resources.startup_chunk_count)
     PROCESS_START_TIME_GAUGE.set(resources.process_start_time_seconds)
     for res_name in ("embedder", "lancedb", "reranker"):
         RESOURCE_WARM_GAUGE.labels(resource=res_name).set(

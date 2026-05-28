@@ -462,7 +462,11 @@ class TestF2SingleflightCounter:
         )
 
         fake_resources = SimpleNamespace(
-            corpus_info=SimpleNamespace(version=1),
+            # corpus-integrity-observability-m2: the gauge setters read
+            # corpus_info.chunk_count + startup_chunk_count directly, so a
+            # fully-shaped Resources fake must carry both fields.
+            corpus_info=SimpleNamespace(version=1, chunk_count=2),
+            startup_chunk_count=2,
             process_start_time_seconds=0.0,
             is_resource_warm=lambda n: True,
             cache=None,
