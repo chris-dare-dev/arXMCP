@@ -414,21 +414,40 @@ class Config(BaseSettings):
           pydantic ``ValidationError``) for any path-traversal attempt
           (Threat 1).
         * Setting BOTH ``ARXMCP_NOTEBOOK`` and an explicit
-          ``ARXMCP_LANCEDB_PATH`` is rejected as ambiguous — the
-          operator must pick one substrate.
-        * If the notebook directory has not been ingested (no
-          ``lancedb`` dir on disk), fail fast at config-load with a
+          ``ARXMCP_LANCEDB_PATH`` *that differs from the field default*
+          is rejected as ambiguous — the operator must pick one
+          substrate. Setting ``ARXMCP_LANCEDB_PATH`` to its own default
+          value is a no-op and does NOT conflict (F4 rectification).
+        * If the notebook corpus has not been ingested (no
+          ``corpus-version.json`` marker on disk — the SAME marker
+          ``Resources.startup`` reads), fail fast at config-load with a
           remediation message naming the ingest command, rather than
           surfacing a deeper ``CorpusNotIngestedError`` from
-          ``Resources.startup`` (AC5 — clean typed error, not a 500).
+          ``Resources.startup`` (AC5 — clean typed error, not a 500;
+          F3 rectification).
+        * The Tier-1 retrieval cache is redirected to a per-notebook
+          sibling (``var/arxmcp/notebooks/<slug>/cache/retrieval.db``)
+          unless ``ARXMCP_CACHE_DB_PATH`` is set explicitly, so two
+          notebooks relaunched within the cache TTL cannot serve each
+          other's chunks (F1 rectification).
 
         No-op when ``notebook`` is ``None`` (the default shared-corpus
         posture; AC4 — env-unset behavior is byte-identical to today).
         """
         if self.notebook is None:
             return self
-        # Ambiguity guard: notebook + explicit lancedb_path both set.
-        if "lancedb_path" in self.model_fields_set:
+        # Ambiguity guard (F4 rectification): reject notebook + explicit
+        # lancedb_path ONLY when the explicit value DIFFERS from the field
+        # default. Setting ARXMCP_LANCEDB_PATH to its own default value
+        # alongside ARXMCP_NOTEBOOK is not a real conflict — a common
+        # foot-gun for operators who carry a baseline ARXMCP_LANCEDB_PATH
+        # in a shell profile. A value-equals-default override is a no-op,
+        # so the notebook derivation proceeds unambiguously.
+        default_lancedb = type(self).model_fields["lancedb_path"].default
+        if (
+            "lancedb_path" in self.model_fields_set
+            and self.lancedb_path != default_lancedb
+        ):
             raise ValueError(
                 "set either ARXMCP_NOTEBOOK or ARXMCP_LANCEDB_PATH, not "
                 f"both (got notebook={self.notebook!r} and an explicit "
@@ -449,13 +468,32 @@ class Config(BaseSettings):
             raise ValueError(
                 f"invalid ARXMCP_NOTEBOOK={self.notebook!r}: {exc}"
             ) from exc
-        if not derived.is_dir():
+        # F3 rectification: prove the corpus is actually INGESTED, not
+        # merely that the lancedb directory exists. ``Resources.startup``
+        # reads ``<lancedb_path>/corpus-version.json`` (server/resources.py
+        # line 308); a dir-present / marker-absent partial ingest passes an
+        # ``is_dir()`` check then dies later with ``CorpusNotIngestedError``
+        # — the exact "deeper error, not a clean config error" that AC5 was
+        # written to prevent. Check the SAME marker the startup path checks,
+        # so the config gate and the startup gate share one contract.
+        if not (derived / "corpus-version.json").is_file():
             raise ValueError(
                 f"ARXMCP_NOTEBOOK={self.notebook!r}: no ingested corpus "
                 f"at {derived!s}. Ingest it first: "
                 f"`uv run python tools/notebook_ingest.py {self.notebook}`."
             )
         self.lancedb_path = derived
+        # F1 rectification (HIGH): redirect the Tier-1 retrieval cache to a
+        # per-notebook sibling unless ARXMCP_CACHE_DB_PATH was set
+        # explicitly. Without this, two notebooks relaunched within the
+        # cache TTL share the default ``cache_db_path``; the Tier-1 key is
+        # (query, filters, k, corpus_version, level) — NO notebook slug —
+        # and corpus_version is per-dataset MVCC (not globally unique), so a
+        # relaunch from notebook A to notebook B can serve A's chunks for a
+        # B query. Structural isolation here mirrors the lancedb isolation
+        # and avoids the slug-in-key refactor deferred to m2.
+        if "cache_db_path" not in self.model_fields_set:
+            self.cache_db_path = derived.parent / "cache" / "retrieval.db"
         return self
 
     @model_validator(mode="after")
