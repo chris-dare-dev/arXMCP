@@ -1,5 +1,22 @@
 # Milestone Researcher — Project Memory
 
+## 2026-05-28 — textbook-ingest-m9 — no-textbook-embed-write-path-exists
+`chunk_textbook` writes chunk JSONs to `var/arxmcp/notebooks/<slug>/chunks/` ONLY.
+No driver calls `chunk_textbook` externally; no embed→write-notebook-LanceDB path
+exists for textbook chunks. `bulk_ingest.py` handles arXiv only. Tests must seed
+synthetic notebook LanceDB directly via `write_chunks(chunks, embed_record, lancedb_path=tmp_path)`.
+
+## 2026-05-28 — textbook-ingest-m9 — bm25-apply-filters-skips-textbook-chunks
+`bm25._apply_supported_filters` (line 699) hardcodes `if not chunk_id.startswith("arxiv:"):`
+and skips all non-arxiv candidates. source_kind filtering in BM25 must infer kind from
+chunk_id prefix (`textbook:` → "textbook", `arxiv:` → "arxiv"). BM25 candidates are
+only `(chunk_id, score)` — no column available at filter point.
+
+## 2026-05-28 — textbook-ingest-m9 — TWO-SUPPORTED-FILTER-KEYS-copies
+`SUPPORTED_FILTER_KEYS = frozenset({"paper_id"})` exists in BOTH `server/retrieval/bm25.py:117`
+AND `server/handlers/search.py:208`. Both must be updated in lockstep for any new filter key.
+`_inject_filters_applied` uses the handler copy; `_apply_supported_filters` uses the bm25 copy.
+
 ## 2026-05-28 — textbook-ingest-m8 — ProofNet-schema-5-fields-id-is-TextbookPipe-exercise
 ProofNet (hoskinson-center/proofnet on HuggingFace, arXiv:2302.12433) has 5 fields:
 id, nl_statement, nl_proof, formal_statement, src_header. id follows `Textbook|exercise_N_Ma`

@@ -127,7 +127,13 @@ logger = logging.getLogger(__name__)
 #: here so the BP1 prompt cache invalidates ONCE per
 #: ``.claude/notes/prompts-bp-discipline.md``'s textbook-family bump
 #: section.
-TOOL_SCHEMA_VERSION: int = 13
+#: v14: textbook-ingest-m9 / e4 — SEARCH_PAPERS description now
+#: documents ``filters.source_kind={arxiv|textbook}`` (the cross-corpus
+#: filter) and the per-row ``source_kind`` tag in the result envelope.
+#: The filter is enforced as a LanceDB pre-filter on the dense path +
+#: a chunk_id-prefix branch on the BM25 path. Description bytes changed
+#: → BP1 re-pin via ``pytest --update-tool-schema-hash``.
+TOOL_SCHEMA_VERSION: int = 14
 
 #: URI scheme for chunk resource_links per the design note. Used by
 #: handlers that switch to resource_link mode when payloads exceed
@@ -175,7 +181,10 @@ SEARCH_PAPERS = ToolMeta(
         "level='paper' returns one row per paper. Pass filters={'paper_id': "
         "[<id>, ...]} (or a single str) to scope retrieval to a notebook — "
         "up to 100 paper_ids per call; each validated against the arXiv "
-        "or textbook:<slug> format. NOTE: v1 ships dense-only ANN "
+        "or textbook:<slug> format. Pass filters={'source_kind': 'textbook'} "
+        "(or 'arxiv') to restrict results to one corpus origin; omit it to "
+        "return chunks of any source_kind. Each result row carries a "
+        "source_kind tag. NOTE: v1 ships dense-only ANN "
         "retrieval over BGE-M3 statement embeddings; the BM25 + RRF "
         "hybrid path lands in E07. WARNING: v1 indexes statement chunks "
         "only — proof chunks are not retrievable until E07's dual-column "

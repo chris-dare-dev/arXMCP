@@ -639,8 +639,15 @@ class TestBP1ByteIdentityAcrossFanout:
         # milestone so the BP1 prompt cache invalidates ONCE.
         # See .claude/notes/prompts-bp-discipline.md "Textbook-family
         # BP1 bump" section.
+        #
+        # textbook-ingest-m9 / e4: re-pinned because the SEARCH_PAPERS
+        # ToolMeta description was widened to document
+        # filters.source_kind + the per-row source_kind tag. BP1 =
+        # system + ALL_TOOLS, so a tool-description edit drifts BP1 in
+        # lockstep with EXPECTED_TOOL_SCHEMA_SHA256 (both re-pinned
+        # together — the paired-re-pin discipline).
         EXPECTED_BP1_SHA256 = (
-            "413059930ce9b56399b877537ef0b6c363a4b52df8d76f3668e53305fd7c41d5"
+            "483344e3fcdea1d64de893cc669c9f142fd6f1198d4c8d383cd9c232558959bc"
         )
         req = _build_fanout_request(
             RouteTag.SYNTHESIS, "any problem; BP1 is independent of problem",

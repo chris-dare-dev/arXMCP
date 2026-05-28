@@ -200,12 +200,53 @@ def _build_paper_id_predicate(paper_id_value: Any) -> str:
     return f"paper_id IN ({ids_csv})"
 
 
-#: Filter keys this handler recognizes today. Currently only
-#: ``paper_id`` is honored (m1). Other keys (``categories``,
-#: ``year_min``, etc.) are deferred to a future milestone and will
-#: surface in ``filter_warnings``. Mirrors
+#: Valid ``filters.source_kind`` values (textbook-ingest-m9 / e4).
+#: Mirror of ``ingest.store._ALLOWED_SOURCE_KINDS`` (the chunks-table
+#: enum domain) — kept as a local constant here the same way this
+#: handler keeps its own ``SUPPORTED_FILTER_KEYS`` mirror of the bm25
+#: copy. If a new source_kind is ever added to the schema enum, update
+#: BOTH this set and ``ingest.store._ALLOWED_SOURCE_KINDS``.
+_VALID_SOURCE_KIND_FILTER_VALUES: frozenset[str] = frozenset(
+    {"arxiv", "textbook"}
+)
+
+
+def _build_source_kind_predicate(source_kind_value: Any) -> str:
+    """Build a LanceDB ``source_kind = '<value>'`` predicate (e4).
+
+    Whitelist-validates the value against
+    :data:`_VALID_SOURCE_KIND_FILTER_VALUES` and raises
+    :class:`ValueError` on anything else — the SAME raise posture as
+    :func:`_build_paper_id_predicate` (clear error at the boundary,
+    not a 500, not a silent ``filter_warnings`` entry; ``source_kind``
+    is a KNOWN key with a KNOWN value set).
+
+    **Security (m9 FM-2):** LanceDB does not accept bound parameters
+    for predicates, so the value is string-interpolated into the
+    ``.where()`` clause. The whitelist check is the PRIMARY
+    SQL-injection defense — only ``"arxiv"`` / ``"textbook"`` (which
+    contain no quote/metacharacters) can ever reach the interpolation.
+    """
+    if not isinstance(source_kind_value, str):
+        raise ValueError(
+            f"filters['source_kind'] must be a str, got "
+            f"{type(source_kind_value).__name__}"
+        )
+    if source_kind_value not in _VALID_SOURCE_KIND_FILTER_VALUES:
+        raise ValueError(
+            f"filters['source_kind']={source_kind_value!r} is not a "
+            f"valid source_kind; allowed values are "
+            f"{sorted(_VALID_SOURCE_KIND_FILTER_VALUES)}"
+        )
+    return f"source_kind = '{source_kind_value}'"
+
+
+#: Filter keys this handler recognizes. ``paper_id`` (m1) +
+#: ``source_kind`` (textbook-ingest-m9 / e4). Other keys
+#: (``categories``, ``year_min``, etc.) are deferred and surface in
+#: ``filter_warnings``. Mirrors
 #: ``server.retrieval.bm25.SUPPORTED_FILTER_KEYS``.
-SUPPORTED_FILTER_KEYS: frozenset[str] = frozenset({"paper_id"})
+SUPPORTED_FILTER_KEYS: frozenset[str] = frozenset({"paper_id", "source_kind"})
 
 
 def _inject_filters_applied(
@@ -372,6 +413,19 @@ async def handle_search_papers(
     if filters and "paper_id" in filters:
         paper_id_predicate = _build_paper_id_predicate(filters["paper_id"])
 
+    # textbook-ingest-m9 / e4: source_kind pre-filter. Built up front
+    # (alongside paper_id) so an invalid value raises cleanly BEFORE
+    # any cache lookup or encode (AC: clear error, not 500). The
+    # LanceDB pre-filter (vs post-retrieval candidate filtering) is
+    # authoritative for the dense path: it runs the ANN over only the
+    # matching sub-corpus, avoiding the under-fill case (m9 FM-1) where
+    # a textbook filter over a mostly-arXiv top-k yields zero results.
+    source_kind_predicate: str | None = None
+    if filters and "source_kind" in filters:
+        source_kind_predicate = _build_source_kind_predicate(
+            filters["source_kind"]
+        )
+
     # F4 closure from m1 critique: canonicalize the filters dict
     # BEFORE the cache lookup so semantically-identical inputs
     # (str vs one-element list, unsorted vs sorted) hash to the
@@ -480,8 +534,26 @@ async def handle_search_papers(
         search_q = r.chunks_table.search(
             query_vec, vector_column_name="embedding_stmt"
         )
-        if paper_id_predicate is not None:
-            search_q = search_q.where(paper_id_predicate, prefilter=True)
+        # Combine the active pre-filter clauses into a SINGLE .where()
+        # call ANDed together — LanceDB's .where() REPLACES (not ANDs)
+        # on a second call, so chaining two .where() would silently
+        # drop the first predicate. m9: paper_id + source_kind may both
+        # be present.
+        predicate_clauses = [
+            p for p in (paper_id_predicate, source_kind_predicate)
+            if p is not None
+        ]
+        if len(predicate_clauses) == 1:
+            # Single filter: pass the clause as-is (byte-identical to
+            # the pre-m9 paper_id-only behavior — no spurious parens).
+            search_q = search_q.where(predicate_clauses[0], prefilter=True)
+        elif len(predicate_clauses) > 1:
+            # Multiple filters: parenthesize + AND. (LanceDB .where()
+            # REPLACES on a second call, so they must be one clause.)
+            combined_predicate = " AND ".join(
+                f"({clause})" for clause in predicate_clauses
+            )
+            search_q = search_q.where(combined_predicate, prefilter=True)
         arrow = (
             search_q
             .limit(k * 5 if level != "theorem" else k)  # over-fetch for dedup
@@ -699,10 +771,17 @@ def _arrow_to_rows(arrow) -> list[dict[str, Any]]:  # noqa: ANN001
     theorem_labels = arrow.column("theorem_label").to_pylist()
     body_texts = arrow.column("body_text").to_pylist()
     distances = arrow.column("_distance").to_pylist()
+    # textbook-ingest-m9 / e4: surface source_kind in the result
+    # envelope so an operator sees ``source_kind="textbook"`` on
+    # textbook chunks. The column is always present on a migrated
+    # chunks table (m2 backfills legacy rows to "arxiv"); fall back to
+    # "arxiv" defensively if a NULL slips through (matches the m2
+    # migration default), never KeyError.
+    source_kinds = arrow.column("source_kind").to_pylist()
     rows = []
-    for cid, pid, sp, tn, tl, bt, dist in zip(
+    for cid, pid, sp, tn, tl, bt, dist, sk in zip(
         cids, paper_ids, section_paths, theorem_names, theorem_labels, body_texts,
-        distances, strict=True,
+        distances, source_kinds, strict=True,
     ):
         if cid is None:
             continue
@@ -721,6 +800,9 @@ def _arrow_to_rows(arrow) -> list[dict[str, Any]]:  # noqa: ANN001
                 "score": _distance_to_score(dist),
                 "section_path": list(sp) if sp is not None else [],
                 "snippet": _snippet(bt),
+                # e4: source_kind tag. Defensive "arxiv" fallback for a
+                # NULL (shouldn't occur post-m2 migration backfill).
+                "source_kind": sk if sk is not None else "arxiv",
             }
         )
     return rows

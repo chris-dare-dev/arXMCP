@@ -172,12 +172,15 @@ delimiter its meaning.
 
 `textbook-ingest-m2` extended the LanceDB chunks-table schema from
 14 to 21 columns to accommodate notebook-scoped textbook chunks
-alongside the shared arXiv corpus. **None of these columns surface
-in the search-result envelope yet** — the snippet contract above is
-unchanged. The columns are documented here as the storage-layer
-record of what's available downstream when m4 (cross-corpus
-`source_kind` filter) and e5 (`truncated_for_license` enforcement)
-ship.
+alongside the shared arXiv corpus. **`source_kind` now surfaces in
+the search-result envelope as of textbook-ingest-m9 / e4** — each
+result row carries a `source_kind` field (`"arxiv"` | `"textbook"`),
+and `search_papers` accepts `filters.source_kind` to restrict by
+origin (LanceDB pre-filter on the dense path). The OTHER m2 columns
+(`license`, `chapter`, `page_start`, `page_end`, `textbook_slug`,
+`parser_used`) still do NOT surface in the envelope — they remain
+storage-layer-only, available downstream when e5
+(`truncated_for_license` enforcement) ships.
 
 Columns added on `chunks` (all nullable, default applied via
 `ChunkRecord` defaults for new writes and via the in-place

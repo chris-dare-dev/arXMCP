@@ -1,0 +1,66 @@
+{
+  "brief_source": "",
+  "created_at": "2026-05-28T14:36:49Z",
+  "critics_run": [],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "low": 0,
+    "medium": 0
+  },
+  "critique_path": null,
+  "deferred_findings": [],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_required": [],
+  "fixed_findings": [],
+  "id": "textbook-ingest-m9",
+  "implementation_base": "2dcf6bb7a65375d2b114ce567004d19f6ae806fe",
+  "implementation_branch": null,
+  "implementation_commit_range": null,
+  "implementation_commits": [],
+  "implementation_path": "inline",
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "# Milestone: textbook-ingest-m9 \u2014 Textbook chunks queryable via search_papers (e4)\n\n**Epic:** textbook-ingest-e4 (Textbook chunks are queryable through `search_papers`). Single milestone \u2014 e4 is \"S\"-sized with one coherent outcome (no decomposition).\n**Type:** value \u2014 THE demoable user-visible payoff: an operator runs `search_papers` against a textbook notebook and textbook chunks come back, filterable by `source_kind`.\n**Estimated size:** S (\u2264 1 week; tool-schema extension + filter-seam wiring + BP1 re-pin + tests).\n**Dependencies:** e1 (m1-m3 schema: `source_kind` column + enum guard), e2 (m5-m6 parse), e3 (m7-m8 chunker), AND **notebook-retrieval-m1 (just landed)** \u2014 the server serves a per-notebook LanceDB via `ARXMCP_NOTEBOOK=<slug>`, dense-only. e4 adds the `source_kind` filter within that served notebook.\n**Roadmap link:** `plans/textbook-ingest-roadmap.md` \u00a7textbook-ingest-e4.\n\n## Background \u2014 what already exists\n\n- **`search_papers` already has a real `filters` infrastructure** (NOT a stub): `server/handlers/search.py` has `_canonicalize_filters`, `_build_paper_id_predicate`, `filter_warnings`, `filters_applied`, size caps, and validation. `server/retrieval/bm25.py` has `SUPPORTED_FILTER_KEYS = frozenset({\"paper_id\"})` (line 117) and `_apply_supported_filters(candidates, filters)` (line 664) \u2014 the post-retrieval candidate-filter seam. **e4 adds `\"source_kind\"` to `SUPPORTED_FILTER_KEYS` + an `_apply_supported_filters` branch for it.**\n- **`source_kind`** is an m2 chunks-table column (nullable, enum-guarded by `ingest/store.py::_ALLOWED_SOURCE_KINDS = {arxiv, textbook}`). Every chunk carries it (`\"arxiv\"` default; `\"textbook\"` for textbook chunks via m7).\n- **Tool schema:** `TOOL_SCHEMA_VERSION = 13` (`server/tools.py`). The SEARCH_PAPERS description already documents `filters.paper_id` (m3 widened it + bumped 12\u219213). Adding `source_kind` likely needs: description widening + `TOOL_SCHEMA_VERSION 13\u219214` + `EXPECTED_TOOL_SCHEMA_SHA256` re-pin (the roadmap's \"one coordinated re-pin\").\n- **notebook-retrieval-m1 (\"fork C\"):** dense-only retrieval over a notebook's LanceDB. `_apply_supported_filters` is on the candidate path regardless of dense/hybrid, so source_kind filtering applies on the dense path too.\n- **BP1 cache discipline** (`07-multi-agent-caching.md`): `tools/list` must stay byte-stable; a tool-schema change re-pins `EXPECTED_TOOL_SCHEMA_SHA256` (`tests/test_server_tool_schema.py`) via `pytest --update-tool-schema-hash`. CLAUDE.md \u00a79 \"Add a new tool\" runbook applies to schema CHANGES too.\n\n## Scope \u2014 acceptance criteria\n\n### Filter wiring\n- [ ] Add `\"source_kind\"` to `SUPPORTED_FILTER_KEYS` in `server/retrieval/bm25.py`.\n- [ ] Implement the `source_kind` branch in `_apply_supported_filters`: keep only candidates whose `source_kind` matches the requested value. Mirror the `paper_id` predicate pattern.\n- [ ] Validate the filter VALUE at the handler boundary: `filters.source_kind` must be in `{\"arxiv\", \"textbook\"}` (the roadmap's \"JSON-Schema-level enum validation\"). Invalid value \u2192 a clear error OR a `filter_warnings` entry (researchers pick, consistent with how `paper_id` invalid values are handled).\n- [ ] **Default behavior:** NO `source_kind` filter \u2192 return candidates regardless of source_kind (both arxiv + textbook chunks in the served corpus). Only `filters.source_kind=X` restricts.\n\n### Result-envelope tagging\n- [ ] Search result rows carry `source_kind` so the operator sees `source_kind=\"textbook\"` on textbook chunks in the envelope (per the e4 outcome). Determine whether the current result-row builder already includes it or e4 must add it (snippet-contract / `.claude/docs/snippet-contract.md` may be relevant). If added, keep the row byte-stable for cache discipline.\n\n### Tool schema + BP1 discipline\n- [ ] Widen the SEARCH_PAPERS description to document `filters.source_kind={arxiv|textbook}`.\n- [ ] Bump `TOOL_SCHEMA_VERSION` (13\u219214) + re-pin `EXPECTED_TOOL_SCHEMA_SHA256` (`tests/test_server_tool_schema.py`) via the documented `--update-tool-schema-hash` flow. ONE coordinated re-pin.\n- [ ] Confirm `EXPECTED_BP1_SHA256` is unaffected (no `server/prompts.py` change) \u2014 verify, don't re-pin blindly.\n\n### Tests\n- [ ] Filter-seam unit tests: `_apply_supported_filters` with `source_kind` (textbook-only, arxiv-only, mixed corpus, no-filter-returns-all).\n- [ ] Handler tests: `filters.source_kind` enum validation (valid passes, invalid \u2192 warning/error); `filters_applied` echo includes source_kind; cache-key includes the filter (the filters dict is already hashed into the Tier-1/Tier-2 cache key \u2014 confirm source_kind participates).\n- [ ] End-to-end with a SYNTHETIC notebook LanceDB: write a textbook-tagged chunk + an arxiv-tagged chunk to a tmp notebook lancedb, query, assert (a) both come back with no filter, (b) only textbook comes back with `source_kind=textbook`, (c) the result row carries `source_kind`. (This proves the CAPABILITY without needing the real Milne ingest \u2014 see \"the live demo\" below.)\n- [ ] Tool-schema hash regression test green after re-pin.\n\n### Out of scope (explicit)\n- **No new MCP tool** (e4 is an extension only \u2014 Won't-list T1 ruling). source_kind is a `filters` key, not a new tool.\n- The literal **Milne/Caraiani live ingest** (parse the parked PDFs \u2192 chunk \u2192 embed \u2192 write notebook LanceDB) \u2014 see below; operator-gated, not m9 code.\n- BM25/hybrid filtering for notebooks (notebook retrieval is dense-only per fork C; source_kind filter applies on the dense candidate path).\n- A `search_textbooks` separate tool (Won't-list).\n- Cross-corpus filtering into the shared arXiv corpus (per-notebook isolation; e4 filters WITHIN the served notebook).\n\n## \u26a0\ufe0f The live demo vs the capability \u2014 resolve in synthesis\n\nThe e4 outcome says \"the two parked Milne/Caraiani PDFs return in result rows.\" But: m7 writes chunk JSONs, NOT LanceDB (\"embedding is downstream\"); the Milne/Caraiani PDFs may not have been run through parse\u2192chunk\u2192embed\u2192write-LanceDB yet. So the literal demo is **operator-gated on a full ingest run that may not have happened**.\n\n**OQ-1:** Resolve the split. The m9 milestone ships + TESTS the source_kind filter CAPABILITY against a synthetic notebook LanceDB (textbook + arxiv chunks). The literal \"Milne chunks come back\" demo requires the operator to (a) upload the Milne/Caraiani PDFs to the shimura-varieties notebook, (b) await m6 parse, (c) chunk via m7, (d) embed + write the notebook LanceDB (is there a path for this? notebook-retrieval-m1 serves a notebook lancedb but what WRITES textbook chunks to it? \u2014 research must trace whether an embed\u2192write-notebook-lancedb path exists, or whether that's itself an unbuilt gap). If the write path doesn't exist, m9 ships the filter capability + documents the operator steps + flags the embed-write gap as a follow-up \u2014 it does NOT block on building an ingest path e4 never scoped.\n\n## Open questions for researchers\n1. **OQ-1 (above):** live demo vs capability split. Does an embed\u2192write-notebook-LanceDB path exist for textbook chunks? (m7 writes JSONs; what loads them into the notebook's lancedb?) If not, scope m9 to the capability + document the gap.\n2. **Filter application point:** post-retrieval `_apply_supported_filters` (like paper_id) vs a LanceDB pre-filter predicate (`where source_kind=...` on the ANN query)? Post-retrieval is consistent + simpler; pre-filter is more efficient but couples to the LanceDB query. Recommend one.\n3. **Result-envelope source_kind:** does the current search result row already carry `source_kind`, or must e4 add it? Cite the row builder + snippet contract.\n4. **Enum-validation placement + failure mode:** reject invalid `source_kind` with an error, or surface in `filter_warnings` (like deferred filter keys)? Match the existing `paper_id` validation posture.\n5. **Tool-schema re-pin:** confirm adding source_kind (description + SUPPORTED_FILTER_KEYS) changes `EXPECTED_TOOL_SCHEMA_SHA256` and requires `TOOL_SCHEMA_VERSION 13\u219214`. Confirm `EXPECTED_BP1_SHA256` is untouched.\n6. **Cache-key participation:** the filters dict is hashed into the retrieval cache key \u2014 confirm `source_kind` participates so a `source_kind=textbook` query doesn't collide with an unfiltered query in the cache.\n\n## Definition of done\n- All ACs ticked or \"unmet: reason\" in implementation-summary.md.\n- `make test` green (new filter tests pass; 3 pre-existing failures untouched).\n- Operator can run `search_papers` with `filters={\"source_kind\":\"textbook\"}` against a notebook and get only textbook chunks, tagged `source_kind` in the envelope (proven via synthetic-LanceDB test; live Milne demo documented as operator steps).\n- ONE coordinated tool-schema re-pin (`TOOL_SCHEMA_VERSION` + `EXPECTED_TOOL_SCHEMA_SHA256`); BP1 hash confirmed unaffected.\n- Three-commit pattern: feat \u2192 rect \u2192 chore.\n- **e4 closes at m9 completion**, leaving textbook-ingest with only e5 (threat-hardening doc) remaining.\n",
+  "phase": "implement-running",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-28T14:36:49Z",
+      "left_at": "2026-05-28T14:36:49Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-28T14:36:49Z",
+      "left_at": "2026-05-28T14:43:20Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-28T14:43:20Z",
+      "left_at": "2026-05-28T14:43:20Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-05-28T14:43:20Z",
+      "left_at": null,
+      "phase": "implement-running"
+    }
+  ],
+  "rectification_commit": null,
+  "regression_tests_added": [],
+  "research_briefs": [
+    {
+      "agent_id": "researcher-1",
+      "brief_path": ".claude/notes/milestones/textbook-ingest-m9/research-brief-1.md",
+      "summary": "all 6 OQs resolved; pre-filter dense + BM25 prefix branch; 2 SUPPORTED_FILTER_KEYS copies"
+    },
+    {
+      "agent_id": "researcher-2",
+      "brief_path": ".claude/notes/milestones/textbook-ingest-m9/research-brief-2.md",
+      "summary": "FM-1 under-fill mandates pre-filter; whitelist validation (no LanceDB bound params); re-pin is BP1 not MCP"
+    }
+  ],
+  "research_mode": "standard",
+  "research_synthesis": ".claude/notes/milestones/textbook-ingest-m9/research-synthesis.md",
+  "updated_at": "2026-05-28T14:43:20Z"
+}

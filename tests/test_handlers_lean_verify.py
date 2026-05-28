@@ -162,11 +162,13 @@ class TestToolRegistration:
         )
 
     def test_schema_version_matches_tool_schema_version(self):
-        """m3 bumps TOOL_SCHEMA_VERSION 11 -> 12 (verification-feedback-m3);
-        textbook-ingest-m3 bumps it 12 -> 13. The lean_verify_result.json
-        ``version`` integer must echo TOOL_SCHEMA_VERSION (cross-checked
-        by test_snippet_contract.py::TestSchemaVersionPin)."""
-        assert TOOL_SCHEMA_VERSION == 13
+        """The lean_verify_result.json ``version`` integer must echo the
+        global TOOL_SCHEMA_VERSION. History: 11->12 (verification-
+        feedback-m3), 12->13 (textbook-ingest-m3), 13->14 (textbook-
+        ingest-m9 / e4 — SEARCH_PAPERS source_kind filter description
+        edit drifted the global version; lean_verify result shape
+        unchanged)."""
+        assert TOOL_SCHEMA_VERSION == 14
 
         schema_path = (
             Path(__file__).parent.parent

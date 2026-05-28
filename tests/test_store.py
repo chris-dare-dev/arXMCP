@@ -1312,3 +1312,78 @@ class TestParserUsedEnumGuard:
             write_chunks(
                 [chunk], embeddings, lancedb_path=tmp_path / f"lancedb-{i}"
             )
+
+
+# ===========================================================================
+# TestSourceKindPrefilter — textbook-ingest-m9 / e4
+# Confirms the AUTHORITATIVE dense-path filter: a LanceDB
+# .where("source_kind = '...'", prefilter=True) actually restricts the
+# ANN result to the matching sub-corpus (the load-bearing mechanism the
+# search_papers handler threads). Model-free: dummy embeddings + a dummy
+# query vector exercise the predicate, not retrieval quality.
+# ===========================================================================
+
+
+class TestSourceKindPrefilter:
+    def _seed_mixed_corpus(self, tmp_path):
+        """Write 1 arxiv-kind + 1 textbook-kind chunk to a tmp lancedb."""
+        from ingest.store import write_chunks
+
+        arxiv_chunk = _make_chunk(
+            "2401.00001", "stmt", "arxiv body about schemes",
+            suffix="a" * 16,
+        )  # source_kind defaults to "arxiv"
+        tb_chunk = _make_chunk(
+            "2401.00002", "stmt", "textbook body about varieties",
+            suffix="b" * 16,
+        )
+        tb_chunk.source_kind = "textbook"
+        tb_chunk.textbook_slug = "sv-book"
+        tb_chunk.chunk_id = "textbook:sv-book:" + "b" * 16
+        chunks = [arxiv_chunk, tb_chunk]
+        embeddings = _make_synthetic_embeddings(chunks, seed=7)
+        lancedb_path = tmp_path / "lancedb"
+        write_chunks(chunks, embeddings, lancedb_path=lancedb_path)
+        return lancedb_path
+
+    def _open(self, lancedb_path):
+        import lancedb
+
+        db = lancedb.connect(str(lancedb_path))
+        return db.open_table(CHUNKS_TABLE_NAME)
+
+    def test_no_filter_returns_both_kinds(self, tmp_path):
+        tbl = self._open(self._seed_mixed_corpus(tmp_path))
+        qv = np.zeros(EMBEDDING_DIM, dtype=np.float32)
+        rows = (
+            tbl.search(qv, vector_column_name="embedding_stmt")
+            .limit(10)
+            .to_arrow()
+        )
+        kinds = set(rows.column("source_kind").to_pylist())
+        assert kinds == {"arxiv", "textbook"}
+
+    def test_textbook_prefilter_returns_only_textbook(self, tmp_path):
+        tbl = self._open(self._seed_mixed_corpus(tmp_path))
+        qv = np.zeros(EMBEDDING_DIM, dtype=np.float32)
+        rows = (
+            tbl.search(qv, vector_column_name="embedding_stmt")
+            .where("source_kind = 'textbook'", prefilter=True)
+            .limit(10)
+            .to_arrow()
+        )
+        sks = rows.column("source_kind").to_pylist()
+        cids = rows.column("chunk_id").to_pylist()
+        assert sks == ["textbook"]
+        assert cids == ["textbook:sv-book:" + "b" * 16]
+
+    def test_arxiv_prefilter_returns_only_arxiv(self, tmp_path):
+        tbl = self._open(self._seed_mixed_corpus(tmp_path))
+        qv = np.zeros(EMBEDDING_DIM, dtype=np.float32)
+        rows = (
+            tbl.search(qv, vector_column_name="embedding_stmt")
+            .where("source_kind = 'arxiv'", prefilter=True)
+            .limit(10)
+            .to_arrow()
+        )
+        assert rows.column("source_kind").to_pylist() == ["arxiv"]

@@ -114,7 +114,7 @@ OVER_FETCH_FACTOR: int = 4
 #: v1 we honor only ``paper_id`` — the others are unlikely in agent
 #: queries and a precise filter API for them lands when the
 #: ``papers`` metadata table ships.
-SUPPORTED_FILTER_KEYS: frozenset[str] = frozenset({"paper_id"})
+SUPPORTED_FILTER_KEYS: frozenset[str] = frozenset({"paper_id", "source_kind"})
 
 #: Filter keys the brief lists but the chunks table does NOT carry.
 #: When any of these appear in the ``filters`` arg, we surface a
@@ -661,46 +661,74 @@ def _build_filter_warnings(filters: dict[str, Any] | None) -> list[str]:
     return warnings
 
 
+def _source_kind_from_chunk_id(chunk_id: str) -> str | None:
+    """Infer ``source_kind`` from a chunk_id prefix (m9 / e4).
+
+    BM25 candidates are ``(chunk_id, score)`` tuples with no
+    source_kind column, so the BM25 path infers it from the id prefix:
+    ``arxiv:<paper_id>:<hex>`` → ``"arxiv"``;
+    ``textbook:<slug>:<hex>`` → ``"textbook"``. Returns ``None`` for an
+    unrecognized prefix (treated as not-matching any source_kind
+    filter). This is the SUPPLEMENTARY BM25-path filter; the
+    authoritative dense-path filter is the LanceDB ``source_kind``
+    pre-filter predicate in ``server/handlers/search.py``.
+    """
+    if chunk_id.startswith("arxiv:"):
+        return "arxiv"
+    if chunk_id.startswith("textbook:"):
+        return "textbook"
+    return None
+
+
 def _apply_supported_filters(
     candidates: list[tuple[str, float]],
     filters: dict[str, Any],
 ) -> list[tuple[str, float]]:
-    """Apply only the supported filter keys to ``candidates``.
+    """Apply the supported filter keys to ``candidates`` (BM25 path).
 
     For ``paper_id``: parse the chunk_id (format
     ``arxiv:<paper_id>:<16-hex>``) and keep only candidates whose
-    paper_id matches the filter value. The filter value may be a
-    single string OR a list of strings (matches the
-    ``server/handlers/search.py`` filters convention).
+    paper_id matches the filter value (str OR list[str]).
+
+    For ``source_kind`` (m9 / e4): infer the source_kind from the
+    chunk_id prefix and keep only matching candidates. Supplementary
+    to the authoritative LanceDB dense-path pre-filter.
+
+    Filters compose (AND): a candidate must satisfy EVERY present
+    supported filter to survive.
     """
     if not filters:
         return candidates
 
+    out = candidates
+
     paper_id_filter = filters.get("paper_id")
-    if paper_id_filter is None:
-        return candidates
+    if paper_id_filter is not None:
+        # Normalize the filter value to a frozenset for O(1) membership.
+        if isinstance(paper_id_filter, str):
+            allowed = frozenset({paper_id_filter})
+        else:
+            allowed = frozenset(paper_id_filter)
+        filtered: list[tuple[str, float]] = []
+        for chunk_id, score in out:
+            # chunk_id format: arxiv:<paper_id>:<16-hex>. paper_id may
+            # itself contain a colon (old-style ids like
+            # ``math/9912001``), so split on the LAST colon.
+            if not chunk_id.startswith("arxiv:"):
+                continue
+            rest = chunk_id[len("arxiv:") :]
+            if ":" not in rest:
+                continue
+            paper_id, _suffix = rest.rsplit(":", 1)
+            if paper_id in allowed:
+                filtered.append((chunk_id, score))
+        out = filtered
 
-    # Normalize the filter value to a frozenset for O(1) membership.
-    if isinstance(paper_id_filter, str):
-        allowed = frozenset({paper_id_filter})
-    else:
-        allowed = frozenset(paper_id_filter)
+    source_kind_filter = filters.get("source_kind")
+    if source_kind_filter is not None:
+        out = [
+            (cid, score) for (cid, score) in out
+            if _source_kind_from_chunk_id(cid) == source_kind_filter
+        ]
 
-    out: list[tuple[str, float]] = []
-    for chunk_id, score in candidates:
-        # chunk_id format: arxiv:<paper_id>:<16-hex>
-        # paper_id may itself contain a colon (old-style arXiv ids
-        # like ``math/9912001``), so we split on the LAST colon, not
-        # the second.
-        if ":" not in chunk_id:
-            continue
-        # strip "arxiv:" prefix, then split off the 16-hex suffix
-        if not chunk_id.startswith("arxiv:"):
-            continue
-        rest = chunk_id[len("arxiv:") :]
-        if ":" not in rest:
-            continue
-        paper_id, _suffix = rest.rsplit(":", 1)
-        if paper_id in allowed:
-            out.append((chunk_id, score))
     return out

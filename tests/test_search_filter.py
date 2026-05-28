@@ -31,6 +31,7 @@ from server.handlers.search import (
     MAX_PAPER_ID_FILTER_ITEMS,
     SUPPORTED_FILTER_KEYS,
     _build_paper_id_predicate,
+    _build_source_kind_predicate,
     _escape_paper_id_literal,
 )
 
@@ -150,6 +151,9 @@ def _make_arrow_table(rows: list[dict[str, Any]]) -> pa.Table:
             "theorem_name": pa.array([], type=pa.utf8()),
             "theorem_label": pa.array([], type=pa.utf8()),
             "_distance": pa.array([], type=pa.float32()),
+            # m9 / e4: _arrow_to_rows now reads source_kind (FM-7 —
+            # fixture must carry the column or the read KeyErrors).
+            "source_kind": pa.array([], type=pa.utf8()),
         })
     return pa.table({
         "chunk_id": [r["chunk_id"] for r in rows],
@@ -160,6 +164,8 @@ def _make_arrow_table(rows: list[dict[str, Any]]) -> pa.Table:
         "theorem_name": [r.get("theorem_name") for r in rows],
         "theorem_label": [r.get("theorem_label") for r in rows],
         "_distance": [r.get("_distance", 0.5) for r in rows],
+        # m9 / e4: default "arxiv" unless the row dict overrides it.
+        "source_kind": [r.get("source_kind", "arxiv") for r in rows],
     })
 
 
@@ -213,6 +219,37 @@ class TestTextbookPaperIdFilter:
         for textbook-paper_id-aware callers."""
         with pytest.raises(ValueError, match="neither arXiv nor textbook"):
             _build_paper_id_predicate("complete-garbage")
+
+
+class TestBuildSourceKindPredicate:
+    """textbook-ingest-m9 / e4 — source_kind filter predicate builder."""
+
+    def test_arxiv_value(self) -> None:
+        assert _build_source_kind_predicate("arxiv") == "source_kind = 'arxiv'"
+
+    def test_textbook_value(self) -> None:
+        assert (
+            _build_source_kind_predicate("textbook")
+            == "source_kind = 'textbook'"
+        )
+
+    def test_invalid_value_raises(self) -> None:
+        with pytest.raises(ValueError, match="not a valid source_kind"):
+            _build_source_kind_predicate("preprint")
+
+    def test_injection_value_rejected_by_whitelist(self) -> None:
+        """FM-2: LanceDB has no bound params; the whitelist is the
+        primary SQL-injection defense. A quote/semicolon payload is
+        not in {arxiv, textbook} → ValueError before interpolation."""
+        with pytest.raises(ValueError, match="not a valid source_kind"):
+            _build_source_kind_predicate("arxiv'; DROP TABLE chunks; --")
+
+    def test_non_str_raises(self) -> None:
+        with pytest.raises(ValueError, match="must be a str"):
+            _build_source_kind_predicate(["textbook"])  # type: ignore[arg-type]
+
+    def test_source_kind_in_supported_filter_keys(self) -> None:
+        assert "source_kind" in SUPPORTED_FILTER_KEYS
 
 
 class _FakeSearchBuilder:
@@ -432,6 +469,74 @@ class TestHandlerFilterWiring:
         assert warnings == []
 
 
+class TestSourceKindFilterWiring:
+    """textbook-ingest-m9 / e4 — source_kind filter threaded into the
+    dense ANN .where() pre-filter + surfaced in the result envelope."""
+
+    def test_source_kind_threads_where_predicate(self, fake_resources) -> None:
+        from server.handlers.search import handle_search_papers
+        fake_resources["resources"].chunks_table.set_rows([
+            {"chunk_id": "textbook:sv-book:abc", "paper_id": "textbook:sv-book",
+             "source_kind": "textbook"},
+        ])
+        _run(handle_search_papers(
+            query="shimura varieties",
+            filters={"source_kind": "textbook"}, k=10,
+        ))
+        builder = fake_resources["captured"]["search_builder"]
+        assert builder.where_call is not None
+        predicate, kwargs = builder.where_call
+        assert predicate == "source_kind = 'textbook'"
+        assert kwargs == {"prefilter": True}
+
+    def test_combined_paper_id_and_source_kind(self, fake_resources) -> None:
+        """Both filters present → ANDed, parenthesized, single .where()."""
+        from server.handlers.search import handle_search_papers
+        fake_resources["resources"].chunks_table.set_rows([])
+        _run(handle_search_papers(
+            query="x",
+            filters={"paper_id": "textbook:sv-book", "source_kind": "textbook"},
+            k=10,
+        ))
+        builder = fake_resources["captured"]["search_builder"]
+        assert builder.where_call is not None
+        predicate, kwargs = builder.where_call
+        # paper_id clause first, then source_kind, each parenthesized.
+        assert predicate == (
+            "(paper_id IN ('textbook:sv-book')) AND (source_kind = 'textbook')"
+        )
+        assert kwargs == {"prefilter": True}
+
+    def test_invalid_source_kind_raises_clear_error(self, fake_resources) -> None:
+        from server.handlers.search import handle_search_papers
+        with pytest.raises(ValueError, match="not a valid source_kind"):
+            _run(handle_search_papers(
+                query="x", filters={"source_kind": "preprint"}, k=10,
+            ))
+
+    def test_result_row_carries_source_kind(self, fake_resources) -> None:
+        """The result envelope row carries the source_kind tag (e4
+        outcome: operator sees source_kind='textbook')."""
+        from server.handlers.search import handle_search_papers
+        fake_resources["resources"].chunks_table.set_rows([
+            {"chunk_id": "textbook:sv-book:abc", "paper_id": "textbook:sv-book",
+             "source_kind": "textbook"},
+        ])
+        result = _run(handle_search_papers(query="x", filters=None, k=10))
+        payload = result.structuredContent.get("data", result.structuredContent)
+        rows = payload["results"]
+        assert rows, "expected at least one result row"
+        assert rows[0]["source_kind"] == "textbook"
+
+    def test_no_source_kind_filter_no_where(self, fake_resources) -> None:
+        """Default: no source_kind filter → no .where() call (returns
+        chunks of any source_kind)."""
+        from server.handlers.search import handle_search_papers
+        fake_resources["resources"].chunks_table.set_rows([])
+        _run(handle_search_papers(query="x", filters={}, k=10))
+        assert fake_resources["captured"]["search_builder"].where_call is None
+
+
 # ---------------------------------------------------------------------------
 # Cache-key correctness (FM-6 regression)
 # ---------------------------------------------------------------------------
@@ -464,6 +569,20 @@ class TestCacheKeyDistinguishesFilterSets:
         )
         assert none_repr != filtered
 
+    def test_source_kind_filter_distinct_cache_key(self) -> None:
+        """m9 / e4: a source_kind=textbook query must NOT collide with
+        an unfiltered query in the cache. The filters dict is hashed
+        into the key via canonical_key_components, so different filters
+        → different serialization → different key."""
+        unfiltered = json.dumps({} or {}, sort_keys=True, separators=(",", ":"))
+        textbook = json.dumps(
+            {"source_kind": "textbook"}, sort_keys=True, separators=(",", ":")
+        )
+        arxiv = json.dumps(
+            {"source_kind": "arxiv"}, sort_keys=True, separators=(",", ":")
+        )
+        assert len({unfiltered, textbook, arxiv}) == 3
+
 
 # ---------------------------------------------------------------------------
 # Tool-schema byte-stability (AC #4) — cross-check via existing test
@@ -472,10 +591,11 @@ class TestCacheKeyDistinguishesFilterSets:
 
 def test_supported_filter_keys_matches_expected() -> None:
     """SUPPORTED_FILTER_KEYS is the source of truth for which filter
-    keys are honored. m1 ships only {'paper_id'}; a future milestone
-    extending this set should bump the documented supported keys in
-    the docstring + filter_warnings message."""
-    assert frozenset({"paper_id"}) == SUPPORTED_FILTER_KEYS
+    keys are honored. m1 shipped {'paper_id'}; textbook-ingest-m9 / e4
+    added 'source_kind'. A future milestone extending this set should
+    bump the documented supported keys in the docstring +
+    filter_warnings message."""
+    assert frozenset({"paper_id", "source_kind"}) == SUPPORTED_FILTER_KEYS
 
 
 # ---------------------------------------------------------------------------
@@ -1072,3 +1192,71 @@ class TestFiltersAppliedHitPathRestamp:
         sc2 = r2.structuredContent
         assert "filters_applied" not in sc1
         assert "filters_applied" not in sc2
+
+
+# ---------------------------------------------------------------------------
+# BM25-path source_kind branch (supplementary; m9 / e4)
+# ---------------------------------------------------------------------------
+
+
+class TestBm25SourceKindBranch:
+    """The supplementary BM25-path filter in
+    server.retrieval.bm25._apply_supported_filters infers source_kind
+    from the chunk_id prefix (BM25 candidates are (chunk_id, score)
+    tuples with no source_kind column). The authoritative path is the
+    LanceDB dense pre-filter; this branch keeps the filter coherent if
+    the hybrid path is ever active."""
+
+    def test_source_kind_from_chunk_id(self) -> None:
+        from server.retrieval.bm25 import _source_kind_from_chunk_id
+
+        assert _source_kind_from_chunk_id("arxiv:2401.1:abc") == "arxiv"
+        assert _source_kind_from_chunk_id("textbook:sv-book:abc") == "textbook"
+        assert _source_kind_from_chunk_id("weird:thing:abc") is None
+
+    def test_filter_keeps_only_textbook(self) -> None:
+        from server.retrieval.bm25 import _apply_supported_filters
+
+        candidates = [
+            ("arxiv:2401.00001:aaa", 0.9),
+            ("textbook:sv-book:bbb", 0.8),
+            ("arxiv:2401.00002:ccc", 0.7),
+        ]
+        out = _apply_supported_filters(candidates, {"source_kind": "textbook"})
+        assert out == [("textbook:sv-book:bbb", 0.8)]
+
+    def test_filter_keeps_only_arxiv(self) -> None:
+        from server.retrieval.bm25 import _apply_supported_filters
+
+        candidates = [
+            ("arxiv:2401.00001:aaa", 0.9),
+            ("textbook:sv-book:bbb", 0.8),
+        ]
+        out = _apply_supported_filters(candidates, {"source_kind": "arxiv"})
+        assert out == [("arxiv:2401.00001:aaa", 0.9)]
+
+    def test_no_source_kind_filter_passes_all(self) -> None:
+        from server.retrieval.bm25 import _apply_supported_filters
+
+        candidates = [
+            ("arxiv:2401.00001:aaa", 0.9),
+            ("textbook:sv-book:bbb", 0.8),
+        ]
+        out = _apply_supported_filters(candidates, {})
+        assert out == candidates
+
+    def test_paper_id_and_source_kind_compose(self) -> None:
+        """Both filters AND together (a candidate must satisfy both)."""
+        from server.retrieval.bm25 import _apply_supported_filters
+
+        candidates = [
+            ("arxiv:2401.00001:aaa", 0.9),
+            ("textbook:sv-book:bbb", 0.8),
+        ]
+        # paper_id matches only the arxiv chunk; source_kind=textbook
+        # matches only the textbook chunk → intersection is empty.
+        out = _apply_supported_filters(
+            candidates,
+            {"paper_id": "2401.00001", "source_kind": "textbook"},
+        )
+        assert out == []
