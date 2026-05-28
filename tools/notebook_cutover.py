@@ -30,8 +30,22 @@ syntax/typing error, run the module directly under uv::
 Atomic-swap contract (per notebook): ``lancedb → lancedb-prev-<UTC-ts>`` then
 ``lancedb-staging → lancedb`` — two ``os.rename`` calls (POSIX-atomic within a
 filesystem). The most recent ``N=2`` ``lancedb-prev-*`` backups are retained;
-older ones are pruned. BM25 for the staging version is built BEFORE the swap so
-a build failure refuses cleanly with NO directory mutation.
+older ones are pruned (prune failure is non-fatal — the swap already committed).
+
+**BM25 is NOT built here (F1 rectification).** An earlier draft built the BM25
+index for the staging version pre-swap, but the BM25 index root
+(``var/arxmcp/index/bm25/v<N>/``) is GLOBAL and keyed only on the per-dataset
+MVCC ``corpus_version`` — which is NOT globally unique across notebooks + the
+shared corpus (collision confirmed live: shared-corpus ``v49`` and
+shimura-varieties active are both v49). Building into that namespace from the
+cutover participates in a fork-C-startup collision. The fork-A
+(``filters.notebook``) retrieval path is dense-only (no BM25); the fork-C
+(``ARXMCP_NOTEBOOK``) startup path AUTO-BUILDS the BM25 index for the active
+version if missing (E04_S04 H1), so the cutover does not need to. The proper
+fix — a per-notebook BM25 root coordinated with fork-C startup
+(``server/resources.py``) — is the BM25 analog of m1's ``cache_db_path``
+isolation and is tracked as a separate follow-up (see notebook-cutover-m1
+critique F1).
 """
 
 from __future__ import annotations
@@ -44,7 +58,6 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
-from ingest.bm25_indexer import build_bm25_index
 from server.corpus import read_corpus_version
 from tools._notebook_common import (
     NOTEBOOKS_BASE,
@@ -105,21 +118,34 @@ def discover_promotable(base: Path | None = None) -> list[str]:
     """Slugs of every notebook with a promotable ``lancedb-staging`` dir.
 
     Used by the ``--all-notebooks`` default. Sorted for deterministic order.
+
+    F8: require a ``corpus-version.json`` marker inside ``lancedb-staging`` —
+    a half-initialized staging dir (dir present, no marker) is NOT promotable
+    and would otherwise be discovered, then refused at ``perform_cutover``,
+    turning an ``--all-notebooks`` run non-zero. Skipping it here keeps the
+    sweep clean.
     """
     base = base if base is not None else NOTEBOOKS_BASE
     if not base.is_dir():
         return []
     out: list[str] = []
     for child in sorted(base.iterdir()):
-        if child.is_dir() and (child / STAGING_NAME).is_dir():
+        staging = child / STAGING_NAME
+        if (
+            child.is_dir()
+            and staging.is_dir()
+            and (staging / "corpus-version.json").is_file()
+        ):
             out.append(child.name)
     return out
 
 
 def _prune_backups(nb: Path, retention: int = BACKUP_RETENTION) -> list[str]:
     """Keep the most-recent ``retention`` backups; rmtree the rest (AC6).
-    Returns the names pruned. Prune failure is the CALLER's call to treat as
-    non-fatal (FM-3) — here it propagates; the CLI swallows it post-swap."""
+    Returns the names pruned. Raises ``OSError`` on rmtree failure — the
+    caller (:func:`perform_cutover`) catches it post-swap and treats it as
+    non-fatal (FM-3): a prune failure must NOT fail an already-committed
+    promotion."""
     backups = _list_backups(nb)
     pruned: list[str] = []
     while len(backups) > retention:
@@ -141,12 +167,16 @@ def perform_cutover(
     - staging has no ``corpus-version.json`` → refuse (AC4, incomplete
       re-embed).
     - staging ``corpus_version`` ≤ active version → refuse unless ``force``
-      (AC3 downgrade guard).
+      (AC3 downgrade guard). This comparison ASSUMES staging is a re-embed OF
+      the same notebook's active dataset, so its MVCC version is monotonically
+      greater (F3). A from-scratch rebuild (fresh LanceDB → low version) would
+      legitimately need ``--force``.
     - first-ingest case (no active dir): promote staging with NO backup.
 
-    Then: build BM25 for the staging version (idempotent), perform the
-    two-rename swap with an EXDEV guard + rollback-on-step-2-failure, and prune
-    backups to ``N=2``.
+    Then perform the two-rename swap with an EXDEV guard +
+    rollback-on-step-2-failure, and prune backups to ``N=2`` (prune failure is
+    non-fatal — the swap already committed). BM25 is intentionally NOT built
+    here — see the module docstring F1 note.
     """
     validate_slug(slug)  # Threat-1 boundary, before any path construction.
     nb = notebook_dir(slug, base=base)
@@ -172,6 +202,9 @@ def perform_cutover(
         # A missing/corrupt active marker is treated as version -1 so any
         # healthy staging promotes over it (it is effectively a recovery).
         active_version = active_info.version if active_info is not None else -1
+        # F3: the <= comparison is meaningful only because staging is a
+        # re-embed of the SAME active (monotonic MVCC version). A corrupt
+        # active marker → -1, so any healthy staging (>= 1) promotes (recovery).
         if not force and staging_version <= active_version:
             raise CutoverError(
                 f"notebook {slug!r}: staging corpus_version {staging_version} "
@@ -179,21 +212,22 @@ def perform_cutover(
                 f"Pass --force to override."
             )
 
-    # AC7: build the BM25 index for the staging version BEFORE any rename, so
-    # a build failure refuses cleanly with the directories untouched (R2's
-    # ordering). The notebook retrieval path is dense-only today, so this
-    # index is built-but-unused at query time; its value is (a) a clean
-    # pre-mutation failure and (b) sparing a slow first-query auto-build if a
-    # fork-C server ever boots against this version. ``build_bm25_index`` is
-    # idempotent (skips when both artifacts already exist).
-    build_bm25_index(staging, staging_version)
-
     backup_name: str | None = None
     if first_ingest:
         # No active to back up — straight promotion.
         os.rename(staging, active)
     else:
         backup = nb / f"{BACKUP_PREFIX}{_utc_ts_filename()}"
+        # F6: refuse if the backup target already exists (mirrors
+        # ops/cutover.py:523) — guards the astronomically-unlikely
+        # same-microsecond-timestamp collision rather than renaming the new
+        # active INTO an existing backup dir.
+        if backup.exists():
+            raise CutoverError(
+                f"notebook {slug!r}: backup target {backup.name} already "
+                f"exists; refusing to overwrite. Retry (the timestamp will "
+                f"differ) or inspect the directory."
+            )
         _assert_same_filesystem(active, staging, backup)
         os.rename(active, backup)  # step 1
         try:
@@ -206,7 +240,18 @@ def perform_cutover(
             ) from exc
         backup_name = backup.name
 
-    pruned = [] if first_ingest else _prune_backups(nb)
+    # F2 (FM-3): the swap has COMMITTED. Pruning old backups is best-effort —
+    # a disk-full / permission OSError here must NOT turn a successful
+    # promotion into a non-zero exit. Swallow + WARN.
+    pruned: list[str] = []
+    if not first_ingest:
+        try:
+            pruned = _prune_backups(nb)
+        except OSError as exc:
+            logger.warning(
+                "notebook %s: backup prune failed post-swap (non-fatal, the "
+                "promotion succeeded): %s", slug, exc,
+            )
     return {
         "slug": slug,
         "promoted_version": staging_version,
@@ -221,7 +266,13 @@ def perform_rollback(slug: str, *, base: Path | None = None) -> dict:
     """Inverse swap (AC2): restore the most-recent ``lancedb-prev-*`` backup to
     ``lancedb`` and demote the current ``lancedb`` back to ``lancedb-staging``.
     Round-trip is lossless. Refuses if no backup exists or if a
-    ``lancedb-staging`` is already present (would clobber it)."""
+    ``lancedb-staging`` is already present (would clobber it).
+
+    **Single-level only (F5).** Rollback restores ONLY the most recent backup.
+    Older ``lancedb-prev-*`` dirs (kept up to N=2) remain on disk as cold
+    snapshots and are NOT touched — a second consecutive rollback refuses
+    (``lancedb-staging`` now exists). To undo more than one cutover, promote a
+    cold snapshot manually."""
     validate_slug(slug)
     nb = notebook_dir(slug, base=base)
     active = nb / ACTIVE_NAME
