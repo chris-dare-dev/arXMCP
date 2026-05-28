@@ -13,9 +13,12 @@ separately in tests/test_search_notebook_routing.py).
 
 from __future__ import annotations
 
+import asyncio
+from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
+import pyarrow as pa
 import pytest
 
 from ingest.chunker_types import ChunkRecord
@@ -25,6 +28,11 @@ from ingest.textbook_chunker import TEXTBOOK_CHUNKER_VERSION
 from tools import notebook_textbook_ingest as driver
 
 _SLUG = "sv-book"
+
+
+def _run(coro):
+    """Project pattern: async handler tests use asyncio.run directly."""
+    return asyncio.run(coro)
 
 
 def _synthetic_encoder(seed: int = 0):
@@ -110,6 +118,36 @@ class TestBuildEmbedRecord:
         )
         norms = np.linalg.norm(rec.embedding_stmt, axis=1)
         assert np.allclose(norms, 1.0, atol=1e-3)
+
+    def test_vector_id_alignment_not_transposed(self) -> None:
+        """m12 rect F3: a transposed vector<->id (chunk A's vector under
+        chunk B's id) would PASS EmbedRecord validation (it checks only
+        dup/overlap/L2-norm). Pin alignment with a marker encoder that
+        encodes each input to a one-hot whose argmax is derived from the
+        chunk_id, then assert each stmt row's argmax maps back to its own
+        id — a split desync fails this."""
+        chunks = [_textbook_chunk(suffix=f"{i:016x}") for i in range(4)]  # all stmt
+
+        def _marker_encoder(texts: list[str], chunk_ids: list[str] | None = None):
+            v = np.zeros((len(texts), EMBEDDING_DIM), dtype=np.float32)
+            for j, cid in enumerate(chunk_ids or []):
+                v[j, int(cid.split(":")[-1], 16) % EMBEDDING_DIM] = 1.0
+            return v, 0
+
+        rec = driver._build_embed_record(chunks, encoder=_marker_encoder)
+        for i, cid in enumerate(rec.chunk_ids_stmt):
+            expected = int(cid.split(":")[-1], 16) % EMBEDDING_DIM
+            assert int(np.argmax(rec.embedding_stmt[i])) == expected
+
+    @pytest.mark.requires_model
+    def test_real_encoder_smoke(self) -> None:
+        """m12 rect F5: the driver's DEFAULT encoder is the real
+        _encode_batch — pin that it stays signature-compatible (returns
+        an (N, EMBEDDING_DIM) L2-normalized array). Gated by requires_model
+        so it stays skipped without the BGE-M3 model env."""
+        rec = driver._build_embed_record([_textbook_chunk(suffix="a" * 16)])
+        assert rec.embedding_stmt.shape == (1, EMBEDDING_DIM)
+        assert np.allclose(np.linalg.norm(rec.embedding_stmt, axis=1), 1.0, atol=1e-3)
 
 
 # ---------------------------------------------------------------------------
@@ -253,3 +291,142 @@ class TestRunExitCodes:
             lambda chunks, **kw: real_build(chunks, encoder=_synthetic_encoder(seed=9)),
         )
         assert driver.run(_SLUG, [f"textbook:{_SLUG}"]) == 0
+
+    # ----- m12 rect F1: slug/paper_id validation -> clean exit, fail fast -----
+
+    def test_invalid_slug_clean_exit_via_main(self) -> None:
+        """A malformed/unsafe slug -> main() returns 1 (clean), NOT a raw
+        traceback (the documented 0/1/2 exit-code contract)."""
+        assert driver.main(["Bad-Slug-Caps", "--paper-id", "textbook:x-book"]) == 1
+
+    def test_invalid_slug_validated_before_chunking(self, monkeypatch) -> None:
+        """Validation fires UP FRONT, before chunk_textbook is reached."""
+        called = {"n": 0}
+
+        def _spy(slug: str, pid: str) -> list:
+            called["n"] += 1
+            return []
+
+        monkeypatch.setattr(driver, "chunk_textbook", _spy)
+        with pytest.raises(driver.NotebookError):
+            driver.run("Bad-Slug-Caps", ["textbook:x-book"])
+        assert called["n"] == 0
+
+    def test_invalid_paper_id_clean_exit_via_main(self) -> None:
+        """A malformed paper_id (neither arXiv nor textbook:<slug>) ->
+        main() returns 1, not a traceback."""
+        assert driver.main([_SLUG, "--paper-id", "not a valid id!!"]) == 1
+
+
+# ---------------------------------------------------------------------------
+# e4 handler composition (m12 rect F2): a driver-shaped textbook chunk routed
+# through the REAL search_papers handler under filters={"notebook": slug,
+# "source_kind": "textbook"} is returned tagged source_kind="textbook" — the
+# full "Milne returns via search_papers" path. (LanceDB-level filtering is
+# proven by TestIngestTextbookPaper above; notebook routing for any table by
+# tests/test_search_notebook_routing.py — this pins their COMPOSITION for a
+# textbook chunk.)
+# ---------------------------------------------------------------------------
+
+
+def _handler_arrow(rows: list[dict[str, Any]]):
+    """Minimal post-m9 chunks-table arrow shape the search handler's
+    _arrow_to_rows reads."""
+    return pa.table({
+        "chunk_id": [r["chunk_id"] for r in rows],
+        "paper_id": [r["paper_id"] for r in rows],
+        "kind": [r.get("kind", "definition") for r in rows],
+        "section_path": [r.get("section_path", []) for r in rows],
+        "body_text": [r.get("body_text", "x") for r in rows],
+        "theorem_name": [r.get("theorem_name") for r in rows],
+        "theorem_label": [r.get("theorem_label") for r in rows],
+        "_distance": [r.get("_distance", 0.5) for r in rows],
+        "source_kind": [r.get("source_kind", "arxiv") for r in rows],
+    })
+
+
+class _HandlerFakeBuilder:
+    def __init__(self, rows): self._rows = rows
+    def where(self, predicate, **kw): return self
+    def limit(self, n): return self
+    def to_arrow(self): return _handler_arrow(self._rows)
+
+
+class _HandlerFakeTable:
+    _COLS = (
+        "chunk_id", "paper_id", "section_path", "theorem_name",
+        "theorem_label", "body_text", "_distance", "source_kind",
+    )
+
+    def __init__(self, rows): self._rows = rows
+
+    @property
+    def schema(self):
+        return SimpleNamespace(names=list(self._COLS))
+
+    def search(self, qv, vector_column_name=None):
+        return _HandlerFakeBuilder(self._rows)
+
+
+class TestSearchPapersHandlerComposition:
+    @pytest.fixture
+    def fake_resources(self, monkeypatch):
+        from server.tools import reset_resources_for_tests, set_resources
+
+        tb_row = {
+            "chunk_id": f"textbook:{_SLUG}:" + "d" * 16,
+            "paper_id": f"textbook:{_SLUG}",
+            "source_kind": "textbook",
+            "body_text": "An affine scheme is Spec of a ring.",
+        }
+        nb_table = _HandlerFakeTable([tb_row])
+
+        class _Sem:
+            async def __aenter__(self): return self
+            async def __aexit__(self, *a): return False
+
+        class _Res:
+            def __init__(self) -> None:
+                self.embed_semaphore = _Sem()
+                self.config = SimpleNamespace(
+                    query_embed_provider="local", result_byte_cap=256 * 1024,
+                )
+                self.degraded = None
+                self.chunks_table = _HandlerFakeTable([
+                    {"chunk_id": "arxiv:9999.00001:z", "paper_id": "9999.00001",
+                     "source_kind": "arxiv"},
+                ])
+                self.corpus_info = SimpleNamespace(version=49)
+
+            async def notebook_table(self, slug: str):
+                return (nb_table, SimpleNamespace(version=49))
+
+        set_resources(_Res())  # type: ignore[arg-type]
+        monkeypatch.setattr("server.handlers.search.get_cache", lambda: None)
+
+        async def _enc(query: str):
+            return np.zeros(1024, dtype=np.float32)
+
+        monkeypatch.setattr("server.handlers.search.encode_query", _enc)
+        yield
+        reset_resources_for_tests()
+
+    def test_textbook_chunk_returned_via_handler_notebook_source_kind(
+        self, fake_resources,
+    ) -> None:
+        """The e4-demo at the HANDLER layer: a textbook chunk in a notebook
+        table, queried via the REAL search_papers handler with
+        filters={"notebook": slug, "source_kind": "textbook"}, comes back
+        tagged source_kind="textbook". Proves notebook routing + source_kind
+        filter threading + the envelope tag compose for a textbook chunk."""
+        from server.handlers.search import handle_search_papers
+
+        res = _run(handle_search_papers(
+            query="affine scheme",
+            filters={"notebook": _SLUG, "source_kind": "textbook"},
+            k=10,
+        ))
+        rows = res.structuredContent["results"]
+        assert rows, "expected the textbook chunk routed from the notebook table"
+        assert rows[0]["source_kind"] == "textbook"
+        assert rows[0]["chunk_id"] == f"textbook:{_SLUG}:" + "d" * 16

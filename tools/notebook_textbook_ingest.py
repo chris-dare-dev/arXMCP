@@ -55,6 +55,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import sys
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
@@ -65,10 +66,15 @@ from ingest.embedder import (
     _build_embed_input,
     _encode_batch,
 )
+from ingest.identifiers import is_valid_paper_id
 from ingest.schema import EmbedRecord
 from ingest.store import write_chunks
 from ingest.textbook_chunker import chunk_textbook
-from tools._notebook_common import notebook_lancedb_path
+from tools._notebook_common import (
+    NotebookError,
+    notebook_lancedb_path,
+    validate_slug,
+)
 
 if TYPE_CHECKING:
     from ingest.chunker_types import ChunkRecord
@@ -212,7 +218,22 @@ def run(
 
     Exit code: 0 = every paper produced >= 1 chunk; 1 = at least one paper
     produced 0 chunks (missing parsed HTML); 2 = no paper_ids supplied.
+
+    Validates the slug + every paper_id UP FRONT (m12 rect F1) so a bad
+    slug/paper_id fails fast with a clean :class:`NotebookError` (converted
+    to exit-code 1 by :func:`main`) instead of a raw traceback after the
+    first chunk attempt — mirroring ``tools/notebook_ingest.py``. Validation
+    is explicit here (not a broad ``except ValueError`` in ``main``) so the
+    write-time invariants ``write_chunks`` raises — the m9 prefix invariant,
+    NULL body_tokens, etc. — still surface as real failures, never masked.
     """
+    validate_slug(slug)  # raises NotebookError on a malformed/unsafe slug
+    for pid in paper_ids:
+        if not is_valid_paper_id(pid):
+            raise NotebookError(
+                f"invalid paper_id {pid!r}: expected an arXiv id or "
+                f"textbook:<slug> form"
+            )
     if not paper_ids:
         logger.error("no --paper-id supplied; nothing to ingest")
         return 2
@@ -251,10 +272,17 @@ def main(argv: list[str] | None = None) -> int:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
-    return run(
-        args.slug, args.paper_ids,
-        batch_size=args.batch_size, dry_run=args.dry_run,
-    )
+    # m12 rect F1: a malformed/unsafe slug or paper_id raises NotebookError
+    # from run()'s up-front validation; convert it to a clean exit-code 1
+    # (matching tools/notebook_ingest.py) rather than a raw traceback.
+    try:
+        return run(
+            args.slug, args.paper_ids,
+            batch_size=args.batch_size, dry_run=args.dry_run,
+        )
+    except NotebookError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":
