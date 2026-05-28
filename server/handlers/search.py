@@ -505,6 +505,25 @@ async def handle_search_papers(
                 f"filters['notebook']={notebook_slug!r}: {exc}"
             ) from exc
         override_corpus_version = nb_corpus_info.version
+        # F1 (HIGH) rectification: per-notebook tables ingested BEFORE the
+        # m9 source_kind migration lack the column entirely. Running the
+        # source_kind WHERE predicate over such a table raises
+        # LanceError(Schema) deep in the ANN call — an uncaught 500 (AC5
+        # violation). Reject it cleanly at the boundary instead. (paper_id
+        # is a core column present in every chunks table, so only
+        # source_kind is at risk.) Prefer an explicit error over silently
+        # dropping the predicate — the agent must not be served unfiltered
+        # rows as if the source_kind filter had applied.
+        if (
+            source_kind_predicate is not None
+            and "source_kind" not in search_table.schema.names
+        ):
+            raise ValueError(
+                f"filters['source_kind'] is not supported on notebook "
+                f"{notebook_slug!r}: its corpus predates the source_kind "
+                f"migration (the column is absent). Re-ingest the notebook "
+                f"to enable source_kind filtering, or drop the filter."
+            )
     else:
         search_table = r.chunks_table
 
@@ -537,6 +556,7 @@ async def handle_search_papers(
     if cache is not None:
         cached_payload, _hit_tier = await cache.lookup_search(
             query=query, filters=canonical_filters, k=k, level=level,
+            corpus_version=override_corpus_version,
         )
         if cached_payload is not None:
             # Tier-1 hit — bypass Phase 1/2/3.
@@ -572,6 +592,7 @@ async def handle_search_papers(
         cached_payload, _hit_tier = await cache.lookup_search(
             query=query, filters=canonical_filters, k=k,
             query_embedding=query_vec, level=level,
+            corpus_version=override_corpus_version,
         )
         if cached_payload is not None:
             set_cache_layer("tier2")
@@ -720,6 +741,7 @@ async def handle_search_papers(
             payload=structured,
             query_embedding=query_vec,
             level=level,
+            corpus_version=override_corpus_version,
         )
 
     # m2 rect F2: stamp filters_applied AFTER cache-store so the

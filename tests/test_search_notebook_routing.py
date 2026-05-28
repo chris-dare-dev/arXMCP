@@ -326,8 +326,21 @@ class _FakeSearchBuilder:
 
 
 class _FakeTable:
-    def __init__(self, rows):
+    # Default chunks-table columns INCLUDING source_kind (post-m9 shape).
+    _DEFAULT_COLS = (
+        "chunk_id", "paper_id", "section_path", "theorem_name",
+        "theorem_label", "body_text", "_distance", "source_kind",
+    )
+
+    def __init__(self, rows, columns=None):
         self._rows = rows
+        self._columns = tuple(columns) if columns is not None else self._DEFAULT_COLS
+
+    @property
+    def schema(self):
+        # Mirrors lancedb table.schema.names — the F1 gate reads this to
+        # detect a pre-m9 notebook table that lacks ``source_kind``.
+        return SimpleNamespace(names=list(self._columns))
 
     def search(self, qv, vector_column_name=None):
         return _FakeSearchBuilder(self._rows)
@@ -350,6 +363,27 @@ def fake_resources(monkeypatch):
         "shimura-varieties": (
             _FakeTable([{"chunk_id": "arxiv:1234.5678:b", "paper_id": "1234.5678"}]),
             SimpleNamespace(version=49),
+        ),
+        # F1: a pre-m9 notebook table that LACKS the source_kind column.
+        "legacy-nb": (
+            _FakeTable(
+                [{"chunk_id": "arxiv:0001.0001:c", "paper_id": "0001.0001"}],
+                columns=(
+                    "chunk_id", "paper_id", "section_path", "theorem_name",
+                    "theorem_label", "body_text", "_distance",
+                ),
+            ),
+            SimpleNamespace(version=7),
+        ),
+        # F3: two notebooks with a COLLIDING corpus_version (369) so
+        # cross-notebook isolation depends SOLELY on notebook-in-filters.
+        "collide-a": (
+            _FakeTable([{"chunk_id": "arxiv:AAAA.0001:a", "paper_id": "AAAA.0001"}]),
+            SimpleNamespace(version=369),
+        ),
+        "collide-b": (
+            _FakeTable([{"chunk_id": "arxiv:BBBB.0002:b", "paper_id": "BBBB.0002"}]),
+            SimpleNamespace(version=369),
         ),
     }
 
@@ -493,3 +527,127 @@ class TestHandlerNotebookRouting:
         applied = res.structuredContent.get("filters_applied", {})
         assert applied.get("paper_id") == ["0705.3794"]
         assert "notebook" not in applied
+
+    def test_source_kind_filter_on_legacy_notebook_raises(self, fake_resources) -> None:
+        """F1 (HIGH) rectification: a source_kind filter against a pre-m9
+        notebook table that LACKS the source_kind column must raise a clean
+        ValueError, NOT let LanceError(Schema) propagate as a 500."""
+        from server.handlers.search import handle_search_papers
+
+        with pytest.raises(
+            ValueError, match="source_kind.*not supported on notebook"
+        ):
+            _run(handle_search_papers(
+                query="q",
+                filters={"notebook": "legacy-nb", "source_kind": "arxiv"},
+                k=10,
+            ))
+
+    def test_source_kind_filter_on_migrated_notebook_ok(self, fake_resources) -> None:
+        """F1: a notebook table WITH source_kind accepts the filter — the
+        gate must not false-positive on migrated/post-m9 notebook tables."""
+        from server.handlers.search import handle_search_papers
+
+        res = _run(handle_search_papers(
+            query="q",
+            filters={"notebook": "bridgeland-stability", "source_kind": "arxiv"},
+            k=10,
+        ))
+        assert res.structuredContent["retrieval_mode"] == "dense_only"
+
+    def test_two_notebooks_do_not_cross_serve_via_real_cache(
+        self, fake_resources, monkeypatch, tmp_path
+    ) -> None:
+        """F3 (AC3 end-to-end): with a REAL cache, warming notebook A then
+        querying notebook B (identical query/k/level, COLLIDING
+        corpus_version 369) must NOT serve A's rows to B. Guards
+        notebook-in-filters isolation through the real lookup/store path —
+        would FAIL if a refactor stripped notebook from canonical_filters."""
+        from server.cache import RetrievalCache
+        from server.handlers.search import handle_search_papers
+
+        cache = _run(RetrievalCache.open(tmp_path / "c.db", corpus_version=101))
+        monkeypatch.setattr("server.handlers.search.get_cache", lambda: cache)
+        try:
+            res_a = _run(handle_search_papers(
+                query="q", filters={"notebook": "collide-a"}, k=10,
+            ))
+            assert [r["paper_id"] for r in res_a.structuredContent["results"]] == [
+                "AAAA.0001"
+            ]
+            # Identical query/k/level; only the notebook differs. With a
+            # colliding corpus_version, isolation rests ENTIRELY on the
+            # notebook key riding in filters_json.
+            res_b = _run(handle_search_papers(
+                query="q", filters={"notebook": "collide-b"}, k=10,
+            ))
+            assert [r["paper_id"] for r in res_b.structuredContent["results"]] == [
+                "BBBB.0002"
+            ]
+        finally:
+            _run(cache.close())
+
+
+class TestCacheCorpusVersionOverride:
+    """F2 rectification: the optional ``corpus_version`` override on
+    lookup_search/store_search salts the Tier-1 key on the per-call
+    (notebook) version; ``None`` reduces to the shared version (AC4)."""
+
+    def test_override_threads_into_tier1_key(self, tmp_path) -> None:
+        from server.cache import RetrievalCache
+
+        async def go():
+            cache = await RetrievalCache.open(tmp_path / "c.db", corpus_version=101)
+            try:
+                payload = {"results": [{"paper_id": "X.1"}], "corpus_version": 369}
+                await cache.store_search(
+                    query="q", filters={"notebook": "a"}, k=10,
+                    payload=payload, level="theorem", corpus_version=369,
+                )
+                hit, _ = await cache.lookup_search(
+                    query="q", filters={"notebook": "a"}, k=10,
+                    level="theorem", corpus_version=369,
+                )
+                assert hit is not None  # same version → HIT
+                miss, _ = await cache.lookup_search(
+                    query="q", filters={"notebook": "a"}, k=10,
+                    level="theorem", corpus_version=49,
+                )
+                assert miss is None  # different version salt → MISS
+                miss2, _ = await cache.lookup_search(
+                    query="q", filters={"notebook": "a"}, k=10,
+                    level="theorem", corpus_version=None,
+                )
+                assert miss2 is None  # None → shared (101) ≠ 369 → MISS
+            finally:
+                await cache.close()
+
+        _run(go())
+
+    def test_none_override_byte_identical_to_shared(self, tmp_path) -> None:
+        """AC4: ``corpus_version=None`` collapses to the shared version, so a
+        store/lookup with None and an explicit-shared lookup hit the SAME
+        key (byte-identical to the pre-m2 behavior)."""
+        from server.cache import RetrievalCache
+
+        async def go():
+            cache = await RetrievalCache.open(tmp_path / "c2.db", corpus_version=101)
+            try:
+                await cache.store_search(
+                    query="q", filters=None, k=10, payload={"results": []},
+                    level="theorem", corpus_version=None,
+                )
+                hit_none, _ = await cache.lookup_search(
+                    query="q", filters=None, k=10, level="theorem",
+                    corpus_version=None,
+                )
+                hit_explicit, _ = await cache.lookup_search(
+                    query="q", filters=None, k=10, level="theorem",
+                    corpus_version=101,
+                )
+                assert hit_none is not None
+                assert hit_explicit is not None  # None and 101 → same key
+            finally:
+                await cache.close()
+
+        _run(go())

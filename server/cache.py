@@ -338,6 +338,7 @@ class RetrievalCache:
         query_embedding: np.ndarray | None = None,
         *,
         level: str | None = None,
+        corpus_version: int | None = None,
     ) -> tuple[Any | None, str]:
         """Look up a ``search_papers`` payload across Tier 1 + Tier 2.
 
@@ -365,8 +366,16 @@ class RetrievalCache:
         # of truth for "metrics failure must not propagate".
         self._safe_inc(CACHE_LOOKUPS_COUNTER, TIER_1)
         try:
+            # notebook-retrieval-m2 F2: an optional per-call
+            # ``corpus_version`` override lets a fork-A notebook query salt
+            # the Tier-1 key on the NOTEBOOK's pinned version instead of the
+            # process-wide shared version. ``None`` (the default, every
+            # non-notebook call) reduces to ``self._corpus_version`` —
+            # byte-identical to pre-m2 (AC4).
             tier1_key = derive_tier1_key(
-                query, filters, k, self._corpus_version, level=level,
+                query, filters, k,
+                self._corpus_version if corpus_version is None else corpus_version,
+                level=level,
             )
             payload = await self._tier1_get(tier1_key)
             if payload is not None:
@@ -398,6 +407,7 @@ class RetrievalCache:
         query_embedding: np.ndarray | None = None,
         *,
         level: str | None = None,
+        corpus_version: int | None = None,
     ) -> None:
         """Store a ``search_papers`` payload in BOTH Tier 1 and (if
         the embedding is available) Tier 2.
@@ -412,8 +422,12 @@ class RetrievalCache:
         the store-key diverge and the entry is unreachable.
         """
         try:
+            # m2 F2: per-call corpus_version override (notebook's version
+            # on a fork-A call); None → shared version, byte-identical (AC4).
             tier1_key = derive_tier1_key(
-                query, filters, k, self._corpus_version, level=level,
+                query, filters, k,
+                self._corpus_version if corpus_version is None else corpus_version,
+                level=level,
             )
             await self._tier1_put(tier1_key, payload)
         except Exception:  # noqa: BLE001

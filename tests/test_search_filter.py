@@ -1035,7 +1035,12 @@ class _FakeCache:
 
     async def lookup_search(
         self, query, filters, k, query_embedding=None, *, level=None,
+        corpus_version=None,
     ):
+        # notebook-retrieval-m2 F2: the real cache API gained an optional
+        # ``corpus_version`` override; mirror it so the handler's call site
+        # (which now always passes it) does not TypeError. The shared-corpus
+        # path passes None — this fake's keying is unaffected.
         t1 = self.tier1.get(self._t1_key(query, filters, k, level))
         if t1 is not None:
             return t1, "1"
@@ -1048,6 +1053,7 @@ class _FakeCache:
 
     async def store_search(
         self, query, filters, k, payload, query_embedding=None, *, level=None,
+        corpus_version=None,
     ):
         self.stored_payloads.append(payload)
         self.tier1[self._t1_key(query, filters, k, level)] = payload
