@@ -505,11 +505,19 @@ def create_app(config: Config | None = None) -> FastAPI:
     # an arxiv-kind notebook. The middleware cap is the upper
     # envelope; the per-kind rule is enforced downstream.
     #
-    # DoS bound: for non-PDF bodies uploaded to ANY kind, the magic-
-    # byte sniff at the route handler fires at 5-byte read (HTTP
-    # 415) before the 200 MB buffer is exhausted. The only case
-    # where 200 MB is fully buffered is a valid-magic-bytes PDF on
-    # a textbook-kind notebook, which is the intended path.
+    # **Memory-pressure caveat (m4 rect F1).** The route handler
+    # reads the full body via ``await file.read()`` BEFORE the per-
+    # kind cap fires — see `server/routes/notebooks.py` upload-paper
+    # flow. So a 200 MB body uploaded to an arxiv-kind notebook IS
+    # buffered fully in memory before the handler returns 413. This
+    # is acceptable under the loopback-only deployment model (CLAUDE.md
+    # "Must run locally in Docker"; server binds to 127.0.0.1 per
+    # ``server/config.py::reject_non_loopback``) but is a memory-
+    # pressure regression vs the pre-m4 10 MB middleware envelope.
+    # If arXMCP ever runs in a networked deployment, the per-kind cap
+    # should be moved into ``RequestBodySizeLimitMiddleware`` (e.g.
+    # via a callable in ``prefix_caps`` that resolves the cap from
+    # request scope) so rejection fires before the body is buffered.
     app.add_middleware(
         RequestBodySizeLimitMiddleware,
         prefix_caps={

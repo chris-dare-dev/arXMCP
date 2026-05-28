@@ -53,14 +53,29 @@ handler ever runs). Then the 10 MB enforcement for arxiv-kind
 notebooks happens in the **route handler body** after
 `await store.get_notebook(slug)` returns `notebook_kind`.
 
-**Acceptable DoS bound:** for a non-PDF body uploaded to ANY
-notebook kind, the magic-byte sniff fires at 5 bytes (HTTP 415)
-before the 200 MB buffer is exhausted. For a 200 MB body uploaded
-to an arxiv-kind notebook, the body IS fully buffered (eager-read
-in middleware F1 fix) before the handler's `notebook_kind=="arxiv"`
-check fires 413. R2 verdict: **acceptable design** — the only case
-where a 200 MB body actually traverses memory is a valid PDF upload
-on a textbook notebook, which is intentional.
+**RETRACTED — see m4 rect F1.** This synthesis originally claimed
+"for a non-PDF body uploaded to ANY notebook kind, the magic-byte
+sniff fires at 5 bytes (HTTP 415) before the 200 MB buffer is
+exhausted." That claim was FACTUALLY WRONG. The route handler
+reads the full body via ``await file.read()`` BEFORE the per-kind
+cap fires AND before the magic-byte sniff runs. A 200 MB body
+uploaded to an arxiv-kind notebook IS buffered fully in memory
+before the handler returns HTTP 413.
+
+The actual mitigation is the loopback-only deployment model
+(CLAUDE.md "Must run locally in Docker"; server binds 127.0.0.1
+per ``server/config.py::reject_non_loopback``). On a single-
+workstation, single-operator deployment this is a memory-pressure
+regression but not a remote-exploit vector. A future networked
+deployment must move the per-kind cap into
+``RequestBodySizeLimitMiddleware`` (e.g. a ``prefix_caps`` callable
+resolving the cap from request scope) so rejection fires before
+the body is buffered.
+
+The design tradeoff is documented honestly in
+``.claude/docs/security-pdf-sandbox.md`` § "Memory-pressure
+caveat", in ``server/main.py``'s middleware comment, and in the
+``server/routes/notebooks.py`` upload-handler flow comment.
 
 ### Existing upload handler shape (m8 pattern)
 

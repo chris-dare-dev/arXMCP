@@ -33,7 +33,7 @@ adversarial inputs.
 | Vector | Risk | Mitigation in e2 |
 |---|---|---|
 | Embedded JavaScript in PDF | RCE on viewers; behavior change on parsers that evaluate JS | **Pre-flight pdfid check** at upload time: reject any PDF with `/JS` or `/JavaScript` entries. Mirrors the m6 m8 upload's magic-byte sniff pattern. PyMuPDF inside MinerU does NOT execute JS but other downstream pipelines might; defense-in-depth |
-| Polyglot file (PDF + ZIP, PDF + HTML, PDF + JAR) | Bypass downstream content-type checks; confusion attacks | **Strict magic-byte sniff** at upload: first 4 bytes must be `%PDF`. **Reject** any file whose first 4 bytes match `%PDF` AND whose final 1 KB also contains a non-PDF EOF marker (e.g. `PK\x05\x06` ZIP central directory, `</html>`) |
+| Polyglot file (PDF + ZIP, PDF + HTML, PDF + JAR) | Bypass downstream content-type checks; confusion attacks | **Strict magic-byte sniff** at upload: first 5 bytes must be `%PDF-` per ISO 32000-1:2008 §7.5.2. **Reject** any file whose first 5 bytes match `%PDF-` AND whose final 1 KB also contains a polyglot tail marker — `PK\x05\x06` (ZIP end-of-central-directory), `</html>`, or `</body>` (lowercase; case-insensitive match) — per the canonical implementation at `server/routes/notebooks.py::_POLYGLOT_TAIL_MARKERS` |
 | Decompression bombs in stream filters (`/FlateDecode`, `/LZWDecode`) | CPU/memory exhaustion | **`subprocess.Popen` hard memory cap** via `RLIMIT_AS` (POSIX) — mirrors the Lean REPL m3 mitigation pattern. 4 GB virtual memory ceiling; MinerU's nominal working set is ~2-3 GB on M2-class hardware. Plus 30-min wall timeout |
 | Embedded fonts that map glyphs to unicode confusables | Information confusion (glyph forgery) | Out of scope for the runtime sandbox — this is a math-fidelity concern, not a security concern. The CDM eval gate (parser-fidelity-eval-m1) catches glyph-substitution at the math-content layer. Document in the `parser_used` chunk-column comment that operators should treat textbook chunks with caution for high-stakes claims |
 | Object-graph cycles / deeply nested xref tables | Stack overflow in parser | MinerU's upstream uses PyMuPDF which has a recursion guard; defense-in-depth via the per-subprocess wall timeout |
@@ -182,17 +182,17 @@ def _pdf_has_javascript(pdf_path: Path) -> bool:
     ...
 
 def _pdf_polyglot_check(pdf_bytes: bytes) -> None:
-    """Reject polyglot files. The first 4 bytes must be %PDF; the
-    final 1 KB must not contain a ZIP central-directory marker or
-    an HTML closing tag.
+    """Reject polyglot files. The first 5 bytes must be %PDF-; the
+    final 1 KB (lowercased for case-insensitive matching) must not
+    contain a ZIP central-directory marker or HTML closing tag.
 
     Raises HTTPException(415) on detection.
     """
     if not _is_pdf_bytes(pdf_bytes[:5]):
         raise HTTPException(status_code=415, detail="not a PDF")
-    tail = pdf_bytes[-1024:]
-    for marker in (b"PK\x05\x06", b"</html>", b"<HTML>"):
-        if marker in tail:
+    tail = pdf_bytes[-1024:].lower()
+    for marker in (b"PK\x05\x06", b"</html>", b"</body>"):
+        if marker.lower() in tail:
             raise HTTPException(
                 status_code=415,
                 detail=f"polyglot detected (tail contains {marker!r})",
@@ -206,15 +206,39 @@ def _pdf_page_count(pdf_path: Path) -> int:
 
 **Caps enforced before MinerU is invoked:**
 
-- File size: ≤ 200 MB (`server/middleware.py` upload cap; raised from
-  10 MB ONLY for `kind="textbook"` notebooks).
-- Magic bytes: starts with `%PDF-`.
-- No polyglot tail markers.
-- No `/JS` / `/JavaScript` / `/OpenAction` / `/AA` PDF entries.
-- Page count: ≤ 5000.
+- File size: ≤ 200 MB middleware envelope on `/ui/api/notebooks`
+  (`server/main.py::prefix_caps`). textbook-ingest-m4 enforces a
+  tighter 10 MB cap for `notebook_kind="arxiv"` notebooks in the
+  route handler (HTTP 413), since the middleware can't see the
+  notebook record. **Memory-pressure caveat:** the m4 handler reads
+  the full body via ``await file.read()`` BEFORE the per-kind cap
+  fires, so a 200 MB body uploaded to an arxiv-kind notebook IS
+  buffered fully in memory before the handler rejects with 413.
+  This is acceptable under the loopback-only deployment model
+  (CLAUDE.md "Must run locally in Docker"); operators concerned
+  with memory-pressure DoS in a future networked deployment should
+  fold the per-kind cap into the middleware (e.g. a prefix_caps
+  callable that resolves the cap from request scope).
+- Magic bytes: first 5 bytes must be `%PDF-` per ISO 32000-1:2008
+  §7.5.2 (case-sensitive; header at offset 0; canonical
+  implementation at
+  `server/routes/notebooks.py::_is_pdf_bytes`).
+- No polyglot tail markers in the final 1 KB (lowercased for
+  case-insensitive matching): `PK\x05\x06` (ZIP EOCD), `</html>`,
+  `</body>`. ZIP-CD-relocated-via-comment-padding is a documented
+  limitation backstopped by m5's MinerU sandbox.
+- No PDF JS / auto-action tokens. textbook-ingest-m4 ships a
+  7-token detection set (NOT 4): `/JS`, `/JavaScript`, `/OpenAction`,
+  `/AA`, `/Launch`, `/SubmitForm`, `/ImportData`. Canonical list at
+  `tools/security/pdfid.py::DANGEROUS_PDF_NAMES`.
+- Page count: ≤ 5000 declared in any `/Count <int>` PDF token.
+  Adversarial `/Count`-with-intervening-PDF-comment is a documented
+  limitation (see `_PDF_COUNT_RE` docstring); m5's wall-clock
+  timeout is the runtime backstop.
 
 These are independent checks; ANY failure rejects with HTTP 415 or
-413 before MinerU sees the file.
+413 before MinerU sees the file. The full body IS buffered into
+memory before the rejection fires (memory-pressure caveat above).
 
 ---
 

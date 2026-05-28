@@ -568,3 +568,224 @@ class TestRejectionOrder:
         assert r.status_code == 415
         # The detail mentions %PDF- (magic-byte) — NOT JS / polyglot.
         assert "%PDF-" in r.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# m4 rect F3 — </body> polyglot marker test
+# ---------------------------------------------------------------------------
+
+
+class TestPdfBodyPolyglot:
+    """m4 rect F3 regression guard. ``_POLYGLOT_TAIL_MARKERS`` includes
+    ``</body>`` as a defense-in-depth marker for partial-HTML
+    polyglots (a PDF that's also a partial HTML doc ending in
+    ``</body>`` without the outer ``</html>``). Without a test, the
+    third marker is dead code in the test surface.
+    """
+
+    def test_pdf_with_body_closing_tag_rejected(
+        self, client: TestClient,
+    ) -> None:
+        _create_textbook_notebook(client)
+        body = _minimal_pdf(tail_marker=b"</body>")
+        r = client.post(
+            "/ui/api/notebooks/tb-nb/papers/upload",
+            data={"paper_id": "textbook:my-book"},
+            files={"file": ("polyglot.pdf", body, "application/pdf")},
+        )
+        assert r.status_code == 415
+        assert "polyglot" in r.json()["detail"].lower()
+
+    def test_pdf_with_uppercase_body_tag_rejected(
+        self, client: TestClient,
+    ) -> None:
+        """Case-insensitive matching (the tail is lowercased before
+        comparison)."""
+        _create_textbook_notebook(client)
+        body = _minimal_pdf(tail_marker=b"</BODY>")
+        r = client.post(
+            "/ui/api/notebooks/tb-nb/papers/upload",
+            data={"paper_id": "textbook:my-book"},
+            files={"file": ("polyglot.pdf", body, "application/pdf")},
+        )
+        assert r.status_code == 415
+
+
+# ---------------------------------------------------------------------------
+# m4 rect F4 — >200 MB middleware envelope test
+# ---------------------------------------------------------------------------
+
+
+class TestMiddlewareEnvelope:
+    """m4 rect F4 regression guard. The AC #5 row "250 MB textbook
+    → 413" is enforced by ``server/main.py::prefix_caps`` and is
+    NOT tested by ``TestUploadCapPerKind`` (which uses 10 MB+1 KB
+    body sizes). This test exercises the middleware envelope
+    rejection directly.
+
+    The test must use the production-equivalent middleware stack —
+    the existing fixture only loads the notebooks router without
+    `RequestBodySizeLimitMiddleware`. The simplest approach: assert
+    the middleware constant rather than buffer 201 MB into memory
+    (which would slow the test suite for a regression that's
+    config-driven, not code-driven).
+    """
+
+    def test_middleware_envelope_is_200_mb(self) -> None:
+        """Lock the prefix_caps value at 200 MB — the AC #5 envelope.
+        A regression that lowered this value would silently reduce
+        the textbook upload ceiling without triggering any other
+        test failure.
+        """
+        from server.main import create_app
+
+        # Inspect the middleware stack — find RequestBodySizeLimitMiddleware
+        # and assert its prefix_caps. create_app is the production-
+        # equivalent entry point so this catches a regression in
+        # actual deployment.
+        app = create_app()
+        middleware_stack = app.user_middleware
+        size_limit_mw = None
+        for mw in middleware_stack:
+            if mw.cls.__name__ == "RequestBodySizeLimitMiddleware":
+                size_limit_mw = mw
+                break
+        assert size_limit_mw is not None, (
+            "RequestBodySizeLimitMiddleware not in middleware stack"
+        )
+        prefix_caps = size_limit_mw.kwargs.get("prefix_caps", {})
+        # textbook-ingest-m4: /ui/api/notebooks envelope is 200 MB.
+        # AC #5: 250 MB body → 413; this constant IS what enforces it.
+        notebooks_cap = prefix_caps.get("/ui/api/notebooks")
+        assert notebooks_cap == 200 * 1024 * 1024, (
+            f"/ui/api/notebooks middleware envelope is "
+            f"{notebooks_cap} bytes (expected 200 MB). m4 AC #5 "
+            f"requires 200 MB to allow textbook PDFs."
+        )
+
+
+# ---------------------------------------------------------------------------
+# m4 rect F6 — DB-call ordering lock
+# ---------------------------------------------------------------------------
+
+
+class TestDbCallOrdering:
+    """m4 rect F6 regression guard. Post-m4, the upload handler
+    calls ``store.get_notebook(slug)`` BEFORE validating paper_id
+    format (pre-m4 the validation was first). The new ordering
+    means an invalid paper_id with a VALID slug triggers a DB
+    query before rejection. The slug regex bounds this — but the
+    new ordering is undocumented in the route's flow comments,
+    so this test locks the contract.
+    """
+
+    def test_invalid_paper_id_does_not_skip_db_lookup(
+        self, client: TestClient,
+    ) -> None:
+        """The DB call happens; the per-kind paper_id check rejects
+        after. With a non-existent slug, the DB returns None and the
+        route returns 404 BEFORE the paper_id check runs — so the
+        paper_id error isn't seen.
+        """
+        # Slug doesn't exist; paper_id is invalid; expect 404 (not
+        # 422 for the bad paper_id).
+        r = client.post(
+            "/ui/api/notebooks/nonexistent/papers/upload",
+            data={"paper_id": "definitely-not-valid"},
+            files={"file": ("any.pdf", b"%PDF-1.4\nbody",
+                            "application/pdf")},
+        )
+        # 404 = "notebook not found" — the DB lookup happened and
+        # returned None BEFORE the paper_id check ran.
+        assert r.status_code == 404, r.text
+
+    def test_invalid_paper_id_with_valid_slug_returns_422(
+        self, client: TestClient,
+    ) -> None:
+        """With a valid (existing) slug, the DB lookup succeeds and
+        the paper_id check runs next. An invalid paper_id surfaces
+        as 422 — proving the ordering: slug→DB→paper_id→content.
+        """
+        _create_textbook_notebook(client)
+        r = client.post(
+            "/ui/api/notebooks/tb-nb/papers/upload",
+            data={"paper_id": "definitely:not:valid:textbook:slug"},
+            files={"file": ("any.pdf", b"%PDF-1.4\nbody",
+                            "application/pdf")},
+        )
+        # 422 = "paper_id not valid" — the DB lookup succeeded
+        # (notebook exists), then paper_id validation rejected.
+        assert r.status_code == 422, r.text
+
+
+# ---------------------------------------------------------------------------
+# m4 rect F7 — /Count regex limitation lock
+# ---------------------------------------------------------------------------
+
+
+class TestPageCountRegexLimitations:
+    """m4 rect F7 regression guard. The ``_PDF_COUNT_RE`` regex
+    ``/Count\\s+(\\d+)`` requires whitespace between ``/Count`` and
+    the integer. PDF allows ``%comment\\n`` between tokens which
+    breaks the whitespace match. Documented limitation; this test
+    LOCKS the behavior so a future tightening surfaces here.
+    """
+
+    def test_count_with_intervening_pdf_comment_misses(
+        self, client: TestClient,
+    ) -> None:
+        """An adversary can hide a large /Count behind a PDF comment.
+        The page-count probe regex doesn't account for comments, so
+        the value is missed → upload accepts despite the implied
+        page count being above the 5000 cap.
+        """
+        _create_textbook_notebook(client)
+        # /Count followed by a PDF %-comment, then the number.
+        # This is valid PDF syntax (ISO 32000 §7.2.4) but our regex
+        # requires \s+ between /Count and \d+.
+        body = (
+            b"%PDF-1.4\n"
+            b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"
+            b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count"
+            b"% adversarial comment\n"
+            b"9999999"
+            b" >>\nendobj\n"
+            b"3 0 obj\n<< /Type /Page /Parent 2 0 R >>\nendobj\n"
+            b"\nxref\n0 4\nstartxref\n0\n%%EOF\n"
+        )
+        r = client.post(
+            "/ui/api/notebooks/tb-nb/papers/upload",
+            data={"paper_id": "textbook:my-book"},
+            files={"file": ("sneaky.pdf", body, "application/pdf")},
+        )
+        # Documented limitation: this is currently accepted. m5's
+        # MinerU wall-clock timeout is the runtime backstop. If a
+        # future tightening of the regex starts rejecting this case,
+        # update the docstring at server/routes/notebooks.py
+        # _PDF_COUNT_RE accordingly.
+        assert r.status_code == 201, (
+            "unexpected rejection — if this test starts failing, "
+            "the _PDF_COUNT_RE was tightened to accept PDF comments. "
+            "Update the F7 limitation docstring."
+        )
+
+    def test_counter_prefix_not_false_positive(
+        self, client: TestClient,
+    ) -> None:
+        """Defensive: /Counter (and other /Count-prefixed names) are
+        NOT matched. The regex requires \\s+ which prevents the
+        substring false-positive class.
+        """
+        _create_textbook_notebook(client)
+        # /Counter 9999999 in the body — should NOT trigger the
+        # page-count rejection because /Count\\s+\\d+ doesn't match
+        # the longer name /Counter.
+        body = _minimal_pdf(
+            extras=b"/Counter 9999999\n",
+        )
+        r = client.post(
+            "/ui/api/notebooks/tb-nb/papers/upload",
+            data={"paper_id": "textbook:my-book"},
+            files={"file": ("ok.pdf", body, "application/pdf")},
+        )
+        assert r.status_code == 201, r.text

@@ -30,3 +30,34 @@ said "once m2 ships, [callers] opt into the union by switching to
 edited but the validator was not. Grep the validator import line in the
 handler file before declaring the description edit clean.
 See [[bp1-description-vs-handler-validator-drift]].
+
+## 2026-05-27 — textbook-ingest-m4 — middleware-cap-vs-handler-cap-read-ordering
+When a milestone raises a `RequestBodySizeLimitMiddleware.prefix_caps`
+ceiling while keeping a per-kind cap enforced at the route handler,
+verify the handler check fires BEFORE `await file.read()` /
+`await request.body()`. The m4 D3 synthesis claimed "magic-byte sniff
+fires at 5 bytes for non-PDF bodies, so the 200 MB middleware envelope
+is safe" — false. The pre-flight runs AFTER `file.read()` which already
+buffered the full 200 MB. Memory pressure regresses by the ratio of new-
+to-old middleware cap (20× in m4: 10 MB → 200 MB). Worth flagging HIGH
+even on a loopback-only threat model because the cost-benefit analysis
+that justified the raise is built on a wrong premise. Fix path: either
+move the per-kind cap upstream into a `prefix_caps`-aware-of-scope-state
+middleware, or add an explicit Content-Length check at the very top of
+the handler BEFORE `file.read()`. The "documented limitation" pattern
+won't save this one — the synthesis was actively wrong, not silent.
+See [[middleware-cap-vs-handler-cap-read-ordering]].
+
+## 2026-05-27 — textbook-ingest-m4 — security-doc-drift-on-multi-byte-magic-sniff
+Security design docs that pre-date the implementation milestone tend to
+go stale when the implementer widens a check. m4's
+`.claude/docs/security-pdf-sandbox.md` was written for "first 4 bytes
+must be %PDF" + 4 dangerous tokens + `<HTML>` (opening uppercase). m4
+shipped "first 5 bytes must be %PDF-" + 7 tokens + `</html>`/`</body>`
+(closing lowercased). The doc is the OPERATOR-FACING claim; it must
+move in lockstep with the impl. Grep the design doc for any byte counts,
+token lists, or specific marker strings whenever a milestone touches
+the matching code path. Treat this as the same shape as the
+bp1-description-vs-handler-validator-drift class — both are "doc says
+X, code does Y" but on different surfaces (BP1 surface vs threat-model
+doc surface). See [[security-doc-drift-on-multi-byte-magic-sniff]].

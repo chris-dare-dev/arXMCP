@@ -557,8 +557,23 @@ _POLYGLOT_TAIL_MARKERS: tuple[bytes, ...] = (
 #: (intermediate Page Tree nodes also carry ``/Count`` but the root
 #: carries the largest value). Heuristic — not a full parser; a
 #: malicious PDF can lie about ``/Count`` by declaring a small value
-#: while embedding a large Page Tree. m5's MinerU sandbox bounds the
-#: damage on misdetection.
+#: while embedding a large Page Tree. m5's MinerU sandbox + wall-
+#: clock timeout bound the damage on misdetection.
+#:
+#: **Documented limitations (m4 rect F7):**
+#:
+#: 1. ``/Count <int>`` with an intervening PDF comment is missed.
+#:    PDF syntax (ISO 32000-1:2008 §7.2.4) allows ``%comment\n``
+#:    between any two tokens, so ``/Count % see footnote\n 10000``
+#:    is valid PDF but the ``\s+`` here only matches whitespace,
+#:    not ``%...\n``. An adversary can hide a large declared count
+#:    behind a comment. Backstops: m5's wall-clock timeout on the
+#:    MinerU subprocess bounds page-count-exhaustion DoS at parse
+#:    time.
+#: 2. ``/Counter`` and other ``/Count``-prefixed names are NOT
+#:    false-positives: the ``\s+`` requires whitespace between the
+#:    name and the integer, which prevents matches on
+#:    ``/Counter 100``, ``/Count_100``, ``/Count100`` etc.
 _PDF_COUNT_RE = re.compile(rb"/Count\s+(\d+)")
 
 
@@ -583,18 +598,20 @@ def _pdf_polyglot_check(pdf_bytes: bytes) -> None:
     any marker in :data:`_POLYGLOT_TAIL_MARKERS`. Raises
     :class:`HTTPException` with status 415 on detection.
 
+    **Caller contract** (m4 rect F8): this function assumes its
+    caller (currently :func:`_run_pdf_preflight`) has ALREADY run
+    :func:`_is_pdf_bytes` and confirmed the magic-byte sniff
+    passed. There is NO defensive re-check here — callers that
+    invoke this helper directly without the magic-byte gate are
+    misusing the API. If a future refactor adds a second caller,
+    that caller must run the magic-byte sniff first.
+
     **Documented limitation:** an attacker can relocate the ZIP
     central directory outside the tail window by padding the EOCD
     comment field (up to 65535 bytes per spec). This check catches
     the canonical case but is defense-in-depth, not a complete
     polyglot eliminator. m5's MinerU sandbox is the backstop.
     """
-    if len(pdf_bytes) < 5 or not _is_pdf_bytes(pdf_bytes[:5]):
-        # Caller should have run _is_pdf_bytes first; defense-in-depth.
-        raise HTTPException(
-            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail="not a PDF (missing %PDF- header)",
-        )
     tail = pdf_bytes[-_PDF_POLYGLOT_TAIL_BYTES:].lower()
     for marker in _POLYGLOT_TAIL_MARKERS:
         if marker.lower() in tail:
@@ -767,6 +784,15 @@ async def upload_paper(
     # bytes by the time we reach here (eager-read per the
     # RequestBodySizeLimitMiddleware F1 fix), so the handler-level
     # checks see the full body in memory.
+    #
+    # textbook-ingest-m4 rect F1: the per-kind cap fires AFTER the
+    # full body is read — there is NO "non-PDF caught at 5 bytes"
+    # short-circuit. A 200 MB body to an arxiv-kind notebook is
+    # buffered fully before the 10 MB check below fires HTTP 413.
+    # Acceptable under loopback-only deployment per CLAUDE.md; a
+    # future networked deployment must move the per-kind cap into
+    # the middleware. See `.claude/docs/security-pdf-sandbox.md` §
+    # "Memory-pressure caveat" for the design tradeoff.
     try:
         content = await file.read()
     except Exception as e:  # noqa: BLE001

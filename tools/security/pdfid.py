@@ -18,11 +18,27 @@ detection is a byte-level string-grep over the PDF token stream:
 - It will NOT detect tokens written via PDF name-tree hex escapes
   (e.g. ``/4A53`` is hex-encoded ``/JS``).
 
-The textbook-ingest-m5 MinerU subprocess sandbox is the backstop
-defense layer for compressed-stream / hex-encoded evasion; this
-module catches the common easy cases before MinerU is invoked, so
-operator-supplied PDFs with obvious malicious markers are rejected
-at the upload boundary.
+Backstops for evasion cases (m4 rect F5 — corrected attribution):
+
+- **Compressed-stream JS evasion:** the actual protection is that
+  PyMuPDF (the parser MinerU uses internally) does NOT evaluate
+  embedded JavaScript — see `.claude/docs/security-pdf-sandbox.md`
+  threat surface table row 1. m5's RLIMIT_AS / wall-timeout
+  sandbox bounds the resource consumption of MinerU's parsing
+  pass; it does NOT block JS execution (which never happens
+  because PyMuPDF doesn't run it).
+- **Hex-encoded name tokens (``/#4A#53`` = ``/JS``):** the same
+  two protections apply — PyMuPDF's non-evaluation of decoded
+  hex-escaped JavaScript names, plus m5's sandbox bounding parse-
+  time damage if PyMuPDF mis-handles the encoding.
+
+This module's role is **defense-in-depth at the upload boundary**:
+catch the common plaintext-token cases before MinerU is invoked,
+so operator-supplied PDFs with obvious malicious markers are
+rejected fast. PyMuPDF's parser-level non-evaluation is the layer-2
+backstop for evasions; the m5 subprocess sandbox is the layer-3
+damage-bound for any future parser swap that introduces a
+JS-evaluating component.
 
 Usage:
     >>> from tools.security.pdfid import find_javascript
