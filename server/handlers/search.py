@@ -248,6 +248,19 @@ def _build_source_kind_predicate(source_kind_value: Any) -> str:
 #: ``server.retrieval.bm25.SUPPORTED_FILTER_KEYS``.
 SUPPORTED_FILTER_KEYS: frozenset[str] = frozenset({"paper_id", "source_kind"})
 
+#: notebook-retrieval-m2 (fork A) — filter keys that ROUTE the query
+#: (select which corpus) rather than FILTER results within a corpus.
+#: ``notebook`` selects a per-notebook lancedb; it is validated +
+#: consumed by the handler, NOT passed to any LanceDB predicate, and
+#: NOT reported in ``filter_warnings`` (it is a recognized routing key,
+#: not an ignored filter). It deliberately stays OUT of
+#: ``SUPPORTED_FILTER_KEYS`` so it never lands in the ``filters_applied``
+#: echo (which is the applied-retrieval-filter view). It DOES remain in
+#: the canonical filters dict so it participates in the cache key —
+#: per-notebook isolation (AC3) for free, since the key already hashes
+#: the filters dict.
+_ROUTING_FILTER_KEYS: frozenset[str] = frozenset({"notebook"})
+
 
 def _inject_filters_applied(
     payload: dict[str, Any],
@@ -408,6 +421,37 @@ async def handle_search_papers(
                     f"boundary)"
                 )
 
+    # notebook-retrieval-m2 (fork A): extract the per-call notebook
+    # routing key. ``notebook`` selects WHICH corpus to search; it is
+    # validated + consumed here, NOT passed to any LanceDB predicate.
+    # It REMAINS in the filters dict (so it rides into the cache key for
+    # per-notebook isolation, AC3) but is excluded from filter_warnings
+    # (it is a recognized routing key) and from filters_applied (it is
+    # not in SUPPORTED_FILTER_KEYS). Validate the slug at this boundary
+    # (Threat-1, m2 FM-4) BEFORE any path use; convert NotebookError →
+    # ValueError so an invalid slug surfaces as a clean tool error, not
+    # an unhandled 500.
+    notebook_slug: str | None = None
+    if filters and "notebook" in filters:
+        nb_value = filters["notebook"]
+        if not isinstance(nb_value, str):
+            raise ValueError(
+                f"filters['notebook'] must be a str (a notebook slug), "
+                f"got {type(nb_value).__name__}"
+            )
+        from tools._notebook_common import (  # noqa: PLC0415
+            NotebookError,
+            validate_slug,
+        )
+        try:
+            validate_slug(nb_value)
+        except NotebookError as exc:
+            raise ValueError(
+                f"filters['notebook']={nb_value!r} is not a valid notebook "
+                f"slug: {exc}"
+            ) from exc
+        notebook_slug = nb_value
+
     # m1: honor filters={"paper_id": [...]} end-to-end. Build the
     # LanceDB IN-predicate up front so input validation errors raise
     # cleanly (AC #3: clear error, not 500) BEFORE any cache lookup
@@ -440,6 +484,29 @@ async def handle_search_papers(
     canonical_filters = _canonicalize_filters(filters)
 
     r = get_resources()
+
+    # notebook-retrieval-m2 (fork A): resolve the corpus to search. When
+    # a per-call notebook is selected, route the ANN to THAT notebook's
+    # chunks-table (lazily opened + memoized in a bounded registry) and
+    # echo its pinned corpus_version (AC6). Per-call ``filters.notebook``
+    # WINS over any process-level ``ARXMCP_NOTEBOOK`` (fork C) default
+    # (m2 FM-7) — an agent-supplied filter is more specific than a
+    # server default. Absent → the shared/fork-C table + version,
+    # byte-identical to today (AC4). Un-ingested / missing notebook →
+    # clean ValueError (m2 FM-5a), not a 500.
+    override_corpus_version: int | None = None
+    if notebook_slug is not None:
+        from server.resources import CorpusNotIngestedError  # noqa: PLC0415
+        from tools._notebook_common import NotebookError  # noqa: PLC0415
+        try:
+            search_table, nb_corpus_info = await r.notebook_table(notebook_slug)
+        except (NotebookError, CorpusNotIngestedError) as exc:
+            raise ValueError(
+                f"filters['notebook']={notebook_slug!r}: {exc}"
+            ) from exc
+        override_corpus_version = nb_corpus_info.version
+    else:
+        search_table = r.chunks_table
 
     # E08_S03: 3-tier cache lookup BEFORE the encode + ANN path.
     # Tier 1 is checked first (no embedding required); Tier 2 needs
@@ -535,7 +602,9 @@ async def handle_search_papers(
     # case where a small filter set could leave fewer than k results
     # after corpus-wide ANN candidates are discarded.
     with span_ann(k=k):
-        search_q = r.chunks_table.search(
+        # m2: ``search_table`` is the notebook's table when a per-call
+        # ``filters.notebook`` was supplied, else the shared/fork-C table.
+        search_q = search_table.search(
             query_vec, vector_column_name="embedding_stmt"
         )
         # Combine the active pre-filter clauses into a SINGLE .where()
@@ -588,7 +657,13 @@ async def handle_search_papers(
     # knows the ``year`` key was silently ignored (FM-9).
     filter_warnings: list[str] = []
     if filters:
-        unknown_keys = sorted(set(filters) - SUPPORTED_FILTER_KEYS)
+        # m2: ``notebook`` is a recognized ROUTING key (consumed above),
+        # not an ignored filter — exclude it from the unknown-key warning
+        # so a notebook-scoped call does not emit a spurious warning the
+        # agent could misread as an error.
+        unknown_keys = sorted(
+            set(filters) - SUPPORTED_FILTER_KEYS - _ROUTING_FILTER_KEYS
+        )
         for key in unknown_keys:
             filter_warnings.append(
                 f"filters[{key!r}] is not supported and was ignored "
@@ -621,7 +696,10 @@ async def handle_search_papers(
     if miss_degraded_reasons:
         payload["degraded"] = True
         payload["degraded_reasons"] = miss_degraded_reasons
-    structured = envelope(payload)
+    # m2 (AC6): echo the NOTEBOOK's pinned corpus_version when a per-call
+    # notebook was routed; ``None`` → the shared/fork-C version (AC4,
+    # byte-identical to today).
+    structured = envelope(payload, override_corpus_version=override_corpus_version)
 
     # E08_S03: cache-store on the miss path. We pass the query
     # embedding so Tier 2 indexes it for future semantic-equivalent
@@ -781,7 +859,17 @@ def _arrow_to_rows(arrow) -> list[dict[str, Any]]:  # noqa: ANN001
     # chunks table (m2 backfills legacy rows to "arxiv"); fall back to
     # "arxiv" defensively if a NULL slips through (matches the m2
     # migration default), never KeyError.
-    source_kinds = arrow.column("source_kind").to_pylist()
+    #
+    # notebook-retrieval-m2 (fork A): per-notebook lancedb tables were
+    # ingested BEFORE the m9 source_kind migration, so the COLUMN itself
+    # may be absent (not just NULL). Fork A is the first path to run the
+    # ANN over those tables, so guard the column read: when absent,
+    # synthesize an all-None list (the per-row ``"arxiv"`` fallback below
+    # then applies) rather than raising on ``arrow.column(...)``.
+    if "source_kind" in arrow.schema.names:
+        source_kinds = arrow.column("source_kind").to_pylist()
+    else:
+        source_kinds = [None] * arrow.num_rows
     rows = []
     for cid, pid, sp, tn, tl, bt, dist, sk in zip(
         cids, paper_ids, section_paths, theorem_names, theorem_labels, body_texts,

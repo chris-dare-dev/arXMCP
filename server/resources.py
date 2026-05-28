@@ -63,6 +63,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, TypeVar
@@ -83,6 +84,14 @@ from server.query_encoder import (
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
+
+#: notebook-retrieval-m2 (fork A) — upper bound on the per-call
+#: notebook chunks-table registry (:meth:`Resources.notebook_table`).
+#: Each slot holds one open LanceDB table handle; an unbounded registry
+#: would let a caller cycling synthetic slugs exhaust file descriptors
+#: (m2 FM-6). 16 is generous for a single-user workstation that serves a
+#: handful of notebooks; eviction is LRU (evict-oldest).
+MAX_NOTEBOOK_TABLE_SLOTS = 16
 
 
 # ---------------------------------------------------------------------------
@@ -274,6 +283,20 @@ class Resources:
     #: and by ``server.observability.metrics.DEGRADED_MODE_ACTIVE``
     #: scrape refresh.
     degraded: DegradedState | None = None
+    # notebook-retrieval-m2 (fork A): bounded LRU registry of per-call
+    # notebook chunks-tables, keyed by validated slug → (table, info).
+    # Lazily opened on the first ``filters.notebook=<slug>`` query and
+    # memoized for process lifetime; bounded at MAX_NOTEBOOK_TABLE_SLOTS
+    # with evict-oldest (m2 FM-6). The lock serializes the lazy-open so
+    # concurrent first-access for the same OR different slugs cannot
+    # double-open / leak file descriptors (m2 FM-8). Leading underscores
+    # keep these off the public dataclass surface; default_factory means
+    # the existing ``cls(...)`` construction in ``startup`` needs no new
+    # positional args.
+    _notebook_tables: OrderedDict[str, tuple[Any, CorpusVersionInfo]] = field(
+        default_factory=OrderedDict
+    )
+    _notebook_tables_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
     # ------------------------------------------------------------------
     # Startup / shutdown
@@ -687,6 +710,101 @@ class Resources:
 
         logger.info("Resources.startup: warm")
         return instance
+
+    async def notebook_table(
+        self, slug: str
+    ) -> tuple[Any, CorpusVersionInfo]:
+        """Return ``(chunks_table, corpus_info)`` for a per-call notebook
+        (fork A, notebook-retrieval-m2).
+
+        Lazily opens ``var/arxmcp/notebooks/<slug>/lancedb`` on first use
+        and memoizes the handle in a bounded LRU registry
+        (:data:`MAX_NOTEBOOK_TABLE_SLOTS`). Subsequent calls for the same
+        slug reuse the open handle (no repeated cold-open cost), the same
+        startup-bound discipline the shared ``chunks_table`` uses.
+
+        Safety + correctness:
+
+        * **Threat-1 (m2 FM-4).** ``slug`` is validated by
+          :func:`tools._notebook_common.validate_slug` (regex + the
+          ``notebook_dir`` symlink rejection + containment) BEFORE any
+          path construction or I/O. A traversal / symlink / malformed
+          slug raises :class:`tools._notebook_common.NotebookError`.
+        * **Un-ingested notebook (m2 FM-5a).** A valid slug whose
+          ``lancedb`` has no ``corpus-version.json`` marker raises
+          :class:`CorpusNotIngestedError` — the SAME typed error the
+          shared-corpus startup uses — rather than silently falling
+          through to an empty result. The caller converts both to a
+          clean ``ValueError`` so the tool surfaces an error, not a 500.
+        * **Concurrency (m2 FM-8).** The lazy-open is serialized by
+          ``self._notebook_tables_lock`` with a double-check, so two
+          concurrent first-accesses cannot both open the table (fd leak)
+          nor leave one request holding a closed handle.
+        """
+        # Defer the import: tools._notebook_common is the shared C/A
+        # seam (validate_slug + notebook_lancedb_path). Lazy keeps the
+        # server→tools import off the module-load path for the common
+        # (no-notebook) query.
+        from tools._notebook_common import (  # noqa: PLC0415
+            notebook_lancedb_path,
+            validate_slug,
+        )
+
+        # Threat-1 boundary: validate BEFORE any path use. Raises
+        # NotebookError on a bad slug; the handler maps it to ValueError.
+        validate_slug(slug)
+
+        async with self._notebook_tables_lock:
+            cached = self._notebook_tables.get(slug)
+            if cached is not None:
+                # LRU touch: most-recently-used moves to the end.
+                self._notebook_tables.move_to_end(slug)
+                return cached
+
+            # Miss — open the notebook's lancedb. notebook_lancedb_path
+            # re-runs the slug guard (symlink + containment) and builds
+            # the path; read the corpus marker, then open the table at
+            # the pinned version with the same fallback discipline as the
+            # shared corpus (E14_S05 D2).
+            lancedb_path = notebook_lancedb_path(slug)
+            corpus_info = read_corpus_version(lancedb_path)
+            if corpus_info is None:
+                marker = Path(lancedb_path) / "corpus-version.json"
+                raise CorpusNotIngestedError(
+                    f"notebook {slug!r}: no ingested corpus "
+                    f"(corpus-version.json not found at {marker}). Ingest "
+                    f"it first: `uv run python tools/notebook_ingest.py "
+                    f"{slug}`."
+                )
+            loop = asyncio.get_running_loop()
+            table, degraded = await loop.run_in_executor(
+                None,
+                lambda: open_chunks_table_with_fallback(
+                    lancedb_path=lancedb_path,
+                    version=corpus_info.version,
+                ),
+            )
+            if degraded is not None:
+                logger.warning(
+                    "Resources.notebook_table(%s): OPENED IN DEGRADED "
+                    "MODE — live tip version %d failed; serving fallback "
+                    "version %d (reason=%s).",
+                    slug,
+                    degraded.original_version,
+                    degraded.fallback_version,
+                    degraded.reason,
+                )
+            self._notebook_tables[slug] = (table, corpus_info)
+            self._notebook_tables.move_to_end(slug)
+            # Evict-oldest if over the slot cap (m2 FM-6).
+            while len(self._notebook_tables) > MAX_NOTEBOOK_TABLE_SLOTS:
+                evicted_slug, _ = self._notebook_tables.popitem(last=False)
+                logger.info(
+                    "Resources.notebook_table: evicted %r (LRU; cap=%d)",
+                    evicted_slug,
+                    MAX_NOTEBOOK_TABLE_SLOTS,
+                )
+            return self._notebook_tables[slug]
 
     async def shutdown(self) -> None:
         """Close LanceDB, flush metrics, and shut the BGE-M3

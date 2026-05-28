@@ -175,11 +175,43 @@ ARXMCP_NOTEBOOK=bridgeland-stability make up
 ```
 
 The server then serves that notebook's corpus
-(`var/arxmcp/notebooks/bridgeland-stability/lancedb`). One notebook per
-server process — relaunch with a different `ARXMCP_NOTEBOOK` to switch.
-Setting both `ARXMCP_NOTEBOOK` and `ARXMCP_LANCEDB_PATH` is rejected
+(`var/arxmcp/notebooks/bridgeland-stability/lancedb`). This is the
+**process-level default** (fork C): the whole server is bound to that one
+notebook. Setting both `ARXMCP_NOTEBOOK` and `ARXMCP_LANCEDB_PATH` is rejected
 (pick one). If the notebook has not been ingested, the server refuses to
 start with a message naming the ingest command.
+
+#### Per-call notebook selection (`filters.notebook`)
+
+A single running server can also serve **many** notebooks across calls without
+a relaunch: pass `filters={"notebook": "<slug>"}` on a `search_papers` call and
+that one query is routed to the named notebook's corpus.
+
+```jsonc
+// search_papers arguments
+{ "query": "Bridgeland's original definition", "filters": { "notebook": "bridgeland-stability" } }
+```
+
+Notes:
+
+- **`notebook` is a routing key, not a result filter.** It selects which corpus
+  to search; it composes with `filters.paper_id` / `filters.source_kind` (those
+  still filter *within* the routed notebook) and does not appear in
+  `filters_applied` or `filter_warnings`.
+- **Per-call wins over the process default.** If the server was launched with
+  `ARXMCP_NOTEBOOK=A` and a call passes `filters.notebook=B`, that call serves
+  B (an explicit per-call selection is more specific than a launch default).
+- **The result envelope's `corpus_version` reflects the routed notebook's**
+  version, not the launch-default corpus's.
+- A call with **no** `filters.notebook` is unchanged — it serves the launch
+  substrate (the `ARXMCP_NOTEBOOK` notebook, or the shared corpus).
+- An invalid slug (path traversal, bad characters) or an un-ingested notebook
+  returns a clean tool error, not a 500.
+
+Because the server must still boot against *some* corpus, launch it with either
+`ARXMCP_NOTEBOOK=<a-notebook>` or an ingested shared corpus; per-call
+`filters.notebook` then reaches any *other* ingested notebook from that same
+process.
 
 The server eager-loads the BGE-M3 model on startup (~5–30 s on
 warm Hugging Face cache, longer on a first-run download). Wait for

@@ -388,14 +388,29 @@ def reset_resources_for_tests() -> None:
 # ---------------------------------------------------------------------------
 
 
-def envelope(payload: dict[str, Any]) -> dict[str, Any]:
+def envelope(
+    payload: dict[str, Any],
+    *,
+    override_corpus_version: int | None = None,
+) -> dict[str, Any]:
     """Wrap a tool's payload with the canonical result envelope.
 
     Adds ``corpus_version`` (sourced from the live Resources) and
     sorts the dict alphabetically (BP1 byte-stability).
+
+    **notebook-retrieval-m2 (fork A).** When ``override_corpus_version``
+    is provided — a per-call ``filters.notebook`` query routes to a
+    specific notebook's corpus — echo THAT notebook's pinned version
+    instead of the process-wide shared/fork-C version (AC6). The
+    default ``None`` preserves the shared-corpus path byte-for-byte
+    (AC4): the call shape and the resulting ``corpus_version`` value
+    are identical to pre-m2 for every non-notebook query.
     """
-    r = get_resources()
-    payload = {**payload, "corpus_version": r.corpus_info.version}
+    if override_corpus_version is not None:
+        version = override_corpus_version
+    else:
+        version = get_resources().corpus_info.version
+    payload = {**payload, "corpus_version": version}
     return _sort_dict(payload)
 
 

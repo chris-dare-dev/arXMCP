@@ -366,6 +366,47 @@ Contract:
   vs shared corpus — the per-difficulty-class spike confirmed hybrid +
   rerank regress on the single-topic math corpora notebooks hold.
 
+### Per-call notebook routing (notebook-retrieval-m2, fork A)
+
+Fork A generalizes fork C from one-notebook-per-**process** to
+many-notebooks-per-**process**: a `search_papers` call carrying
+`filters={"notebook": "<slug>"}` routes that single query to the named
+notebook's `lancedb`, without a relaunch. It reuses the same
+`tools._notebook_common.notebook_lancedb_path` + `validate_slug` seam fork C
+uses, and routes the SAME dense-only `embedding_stmt` path.
+
+Contract:
+
+- **`notebook` is a routing key, not a retrieval filter.** It is validated
+  (`validate_slug`, Threat-1) at the handler boundary, consumed there, and is
+  NOT added to `SUPPORTED_FILTER_KEYS` — so it never appears in
+  `filters_applied` or `filter_warnings`. It composes with `paper_id` /
+  `source_kind` (which still filter *within* the routed notebook).
+- **Cache isolation is structural.** `notebook` stays inside the (canonical)
+  `filters` dict, so it is already part of the Tier-1 key's `filters_json` —
+  two notebooks with the same query and a colliding per-dataset
+  `corpus_version` get distinct cache keys with NO change to
+  `canonical_key_components`. A no-`notebook` call's key is byte-identical to
+  pre-m2.
+- **Per-notebook table registry.** `Resources.notebook_table(slug)` lazily
+  opens + memoizes notebook chunks-tables in a bounded LRU
+  (`MAX_NOTEBOOK_TABLE_SLOTS = 16`, asyncio-locked lazy-open) so repeated
+  per-call queries don't pay the cold-open cost.
+- **`corpus_version` echo (AC6)** is the routed notebook's pinned version, via
+  `envelope(payload, override_corpus_version=…)`; the no-notebook path is
+  byte-identical.
+- **Precedence:** an explicit per-call `filters.notebook` WINS over the
+  process-level `ARXMCP_NOTEBOOK` (fork C) default.
+- **fork-C ↔ fork-A cache reconciliation:** m1's per-notebook `cache_db_path`
+  derivation fires only when `ARXMCP_NOTEBOOK` is set (fork C, structural
+  isolation); fork A (env unset) uses the shared `cache_db_path` + slug-in-key
+  (logical isolation). Two complementary mechanisms for mutually-exclusive
+  modes, not two competing ones.
+- The server still boots against some corpus (fork C or an ingested shared
+  corpus); per-call routing reaches any *other* ingested notebook from that
+  process. No tool-schema / BP1 change (the `notebook` key lives inside the
+  free-form `filters` dict).
+
 ## Server lifecycle
 
 > **Updated 2026-05-06 (see E06_S01 in `.claude/roadmap/E06-mcp-server.md`).** The
