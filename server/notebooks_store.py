@@ -125,8 +125,12 @@ class NotebooksStore:
             #     theme as CLAUDE.md gotcha #9). This is CONNECTION-scoped (it
             #     does NOT persist to a fresh connection), so it must be set
             #     here, on every open; setting it once and re-opening is a
-            #     silent no-op. (cache_sqlite.py / theorem_names_store.py stay
-            #     NORMAL on purpose: regenerable caches, not correctness state.)
+            #     silent no-op. On Linux (the prod-container target) F_FULLFSYNC
+            #     does not exist; SQLite falls back to plain fsync, which with
+            #     synchronous=FULL is already durable — so fullfsync is a no-op
+            #     there and harms nothing; durability in prod rests on FULL+fsync.
+            #     (cache_sqlite.py / theorem_names_store.py stay NORMAL on
+            #     purpose: regenerable caches, not correctness state.)
             conn.execute("PRAGMA synchronous=FULL")
             conn.execute("PRAGMA fullfsync=ON")
             # FM-7: FK enforcement is per-connection in SQLite (default

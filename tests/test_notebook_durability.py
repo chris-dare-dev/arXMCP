@@ -216,6 +216,56 @@ class TestLanceFormatPin:
             "new_table_data_storage_version": "stable"
         }
 
+    def test_storage_options_key_reaches_engine_not_silently_dropped(
+        self, tmp_path: Path
+    ) -> None:
+        """The ONLY guard against a future lancedb silent-drop regression.
+
+        The whole milestone exists because the bare ``data_storage_version``
+        kwarg is *accepted by the Python binding but never forwarded to the
+        Rust layer* in lancedb 0.30.2 — it "looks correct and does nothing".
+        We switched to ``storage_options={"new_table_data_storage_version":
+        ...}`` precisely because that form DOES reach the engine.
+
+        Proof by discriminator: a GARBAGE version string is validated only
+        in the Rust/Lance layer. So:
+          - via ``storage_options`` it must RAISE (the value was forwarded
+            and rejected) — if a future release ever begins silently
+            dropping this key too, the raise disappears and THIS test fails,
+            catching the regression that no pass-through spy could.
+          - via the bare ``data_storage_version`` kwarg it must NOT raise
+            (the value is dropped before reaching the engine) — locking in
+            *why* we don't use that form.
+        """
+        import warnings
+
+        import lancedb
+        import pyarrow as pa
+
+        schema = pa.schema([pa.field("chunk_id", pa.string())])
+        garbage = "totally-invalid-storage-version-xyz-999"
+
+        # storage_options path: garbage reaches the engine -> RuntimeError.
+        db1 = lancedb.connect(str(tmp_path / "via_options"))
+        with pytest.raises(RuntimeError, match="storage version"):
+            db1.create_table(
+                "t",
+                schema=schema,
+                storage_options={"new_table_data_storage_version": garbage},
+            )
+
+        # bare-kwarg path: garbage is silently dropped -> no raise. If this
+        # ever starts raising, lancedb changed the binding and the bare form
+        # might have become viable (re-evaluate LANCE_STORAGE_OPTIONS).
+        db2 = lancedb.connect(str(tmp_path / "via_bare"))
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")  # silence the DeprecationWarning
+            tbl = db2.create_table(
+                "t", schema=schema, data_storage_version=garbage
+            )
+        tbl.add([{"chunk_id": "a"}])
+        assert tbl.count_rows() == 1
+
     def test_write_chunks_passes_storage_options_to_create_table(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
