@@ -1559,3 +1559,72 @@ class TestWriteChunksPrefixInvariant:
         tb = _make_textbook_chunk("sv-book", suffix="e" * 16)
         embeddings = _make_synthetic_embeddings([tb], seed=5)
         write_chunks([tb], embeddings, lancedb_path=tmp_path / "lancedb")  # no raise
+
+
+# ===========================================================================
+# corpus-integrity-observability-m1 — marker counts == committed table
+# ===========================================================================
+
+
+class TestCorpusVersionMarkerReconciliation:
+    """The corpus-version.json marker's ``chunk_count`` / ``paper_count`` must
+    equal the COMMITTED TABLE, not the last per-paper ``write_chunks`` batch.
+
+    Pre-fix, ``write_chunks`` wrote ``chunk_count=len(chunks)`` /
+    ``paper_count=len({paper_ids})`` from the in-flight batch; the per-paper
+    callers (bulk_ingest, re_embed, notebook_textbook_ingest) overwrote the
+    marker each call, so it held only the LAST paper's counts (e.g. 106 / 1 on a
+    10,298-row, 53-paper notebook). These tests FAIL on the pre-fix code.
+    """
+
+    def test_marker_reflects_table_after_per_paper_writes(self, tmp_path):
+        """Two single-paper writes to one dataset → marker = cumulative table,
+        not the last batch (the exact production bug shape)."""
+        import lancedb
+
+        from ingest.store import CORPUS_VERSION_MARKER_NAME, write_chunks
+
+        lancedb_path = tmp_path / "lancedb"
+        a = [_make_chunk("2301.00001", "stmt", f"alpha {i}") for i in range(3)]
+        write_chunks(a, _make_synthetic_embeddings(a, seed=1), lancedb_path=lancedb_path)
+        b = [_make_chunk("2302.00002", "stmt", f"beta {i}") for i in range(2)]
+        write_chunks(b, _make_synthetic_embeddings(b, seed=2), lancedb_path=lancedb_path)
+
+        marker = json.loads((lancedb_path / CORPUS_VERSION_MARKER_NAME).read_text())
+        tbl = lancedb.connect(str(lancedb_path)).open_table(CHUNKS_TABLE_NAME)
+        assert marker["chunk_count"] == tbl.count_rows() == 5  # pre-fix: 2
+        assert marker["paper_count"] == 2  # pre-fix: 1 (last paper only)
+
+    def test_single_call_multi_paper_marker_correct(self, tmp_path):
+        """Single-call callers (notebook ingest, tests) still get a correct
+        marker — the write stays inside write_chunks, not moved once-per-run."""
+        import lancedb
+
+        from ingest.store import CORPUS_VERSION_MARKER_NAME, write_chunks
+
+        lancedb_path = tmp_path / "lancedb"
+        chunks = [_make_chunk("2301.00001", "stmt", f"a {i}") for i in range(3)] + [
+            _make_chunk("2302.00002", "stmt", f"b {i}") for i in range(2)
+        ]
+        write_chunks(chunks, _make_synthetic_embeddings(chunks, seed=3), lancedb_path=lancedb_path)
+        marker = json.loads((lancedb_path / CORPUS_VERSION_MARKER_NAME).read_text())
+        tbl = lancedb.connect(str(lancedb_path)).open_table(CHUNKS_TABLE_NAME)
+        assert marker["chunk_count"] == tbl.count_rows() == 5
+        assert marker["paper_count"] == 2
+
+    def test_reingest_marker_is_idempotent(self, tmp_path):
+        """Re-running the same paper (merge_insert upsert) keeps the marker
+        accurate — count-from-table is inherently idempotent."""
+        import lancedb
+
+        from ingest.store import CORPUS_VERSION_MARKER_NAME, write_chunks
+
+        lancedb_path = tmp_path / "lancedb"
+        a = [_make_chunk("2301.00001", "stmt", f"a {i}") for i in range(3)]
+        emb = _make_synthetic_embeddings(a, seed=4)
+        write_chunks(a, emb, lancedb_path=lancedb_path)
+        write_chunks(a, emb, lancedb_path=lancedb_path)  # upsert — no new rows
+        marker = json.loads((lancedb_path / CORPUS_VERSION_MARKER_NAME).read_text())
+        tbl = lancedb.connect(str(lancedb_path)).open_table(CHUNKS_TABLE_NAME)
+        assert marker["chunk_count"] == tbl.count_rows() == 3
+        assert marker["paper_count"] == 1

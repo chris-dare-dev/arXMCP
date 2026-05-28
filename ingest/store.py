@@ -896,15 +896,35 @@ def write_chunks(
     # construction in practice (only the default-default value is
     # empty), and the live-tip fallback created a foot-gun where the
     # marker disagreed with the actual rows.
+    # corpus-integrity-observability-m1: derive the marker counts from the
+    # COMMITTED TABLE, not the in-flight `chunks` batch. The per-paper callers
+    # (bulk_ingest.ingest_one_paper, re_embed copy/re-embed paths,
+    # notebook_textbook_ingest) call write_chunks once per paper, so the marker
+    # is overwritten each call — with `len(chunks)`/`len({paper_ids})` it
+    # recorded only the LAST paper's counts (e.g. chunk_count=106 / paper_count=1
+    # on a 10,298-row, 53-paper notebook). Reading `tbl.count_rows()` (O(1) —
+    # Lance fragment metadata) + the distinct paper_id set makes the FINAL
+    # overwrite reflect the cumulative table, so the marker is correct after a
+    # multi-paper run AND the per-call write stays crash-safe + correct for
+    # single-call callers (notebook ingest, tests). `version` is still the
+    # post-index `tbl.version`; WriteStats.chunk_count stays per-batch (separate
+    # concern). The distinct scan materializes only the paper_id column — cheap
+    # at the seed/notebook scale that runs this path today; the O(N)-per-call
+    # cost would only matter on a 200K-paper bulk run (scoped-out E11/E12), where
+    # a caller-maintained running set is the documented escalation.
+    # NB lancedb 0.30.x: `to_arrow()` takes no kwargs — project via `.select`.
     try:
-        paper_count = len({c.paper_id for c in chunks})
+        chunk_count = tbl.count_rows()
+        paper_count = len(
+            set(tbl.to_arrow().select(["paper_id"])["paper_id"].to_pylist())
+        )
         write_corpus_version_marker(
             target_path,
             version=dataset_version,
             chunker_version=CHUNKER_VERSION,
             embedder_version=embeddings.embedder_version,
             paper_count=paper_count,
-            chunk_count=len(chunks),
+            chunk_count=chunk_count,
         )
     except Exception as exc:
         logger.error(
