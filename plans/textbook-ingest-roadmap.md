@@ -227,6 +227,39 @@ greps for this. Do not change it.
 
 **Specialist suggestion.** `cache-stability-reviewer` — see [`.claude/skills/roadmap/references/specialist-contracts.md`](.claude/skills/roadmap/references/specialist-contracts.md).
 
+### textbook-ingest-m4 — PDF upload pre-flight gate (e2 entry)
+
+**Description.** First milestone of epic **e2** (PDFs become HTML5+MathML via sandboxed MinerU). Lands the defensive perimeter at the m6 notebook-upload route BEFORE MinerU is involved — five independent rejection vectors enforced on every operator-supplied PDF for `notebook_kind="textbook"` notebooks. Per spike-2's design at [`.claude/docs/security-pdf-sandbox.md`](.claude/docs/security-pdf-sandbox.md), the pre-flight gate is the **first defense layer** (subprocess sandbox + per-notebook blast radius are layers 2 + 3 — m5 + already shipped, respectively). m4 closes the upload-side perimeter so a malicious PDF never reaches the MinerU subprocess.
+
+Concrete deliverables:
+
+- **Magic-byte sniff.** First 5 bytes must be `%PDF-` (ISO 32000). Mirrors the existing m6 `_is_html_bytes` helper; lifts the per-route `_MAGIC_SNIFF_BYTES = 16` pattern.
+- **Polyglot tail check.** Reject any PDF whose final 1 KB contains a ZIP central-directory marker (`PK\x05\x06`) or HTML closing tag (`</html>`, case-insensitive). Defense against PDF+ZIP / PDF+HTML polyglot attacks.
+- **`pdfid` JavaScript-detection vendored helper.** New `tools/security/pdfid.py` (pdf-ingest-2026 CAND-2 — vendored, NOT git-submodule per no-fork policy). String-grep over PDF bytes for `/JS`, `/JavaScript`, `/OpenAction`, `/AA` (additional actions) entries. Defense-in-depth before MinerU's PyMuPDF layer sees the file.
+- **Page-count probe.** Lightweight pre-MinerU metadata-only probe (PyMuPDF or a string-grep fallback that walks `/Type /Page` markers). Reject any PDF with >5000 declared pages (Bourbaki tops out around 500; 5000 is a 10× safety margin).
+- **Upload cap raise.** From 10 MB (m6 default) to 200 MB **ONLY** for notebooks where `notebook_kind="textbook"`. arXiv-kind notebooks keep the 10 MB cap. Implemented at the m6 upload route's body-size check, gated on the `notebook_kind` SQLite column added in m3.
+- **`tools/security/` directory bootstrap.** New `tools/security/README.md` documenting the no-fork vendoring discipline (per CAND-2's challenger F6 note). This is the first vendored security tool; the README establishes the pattern.
+
+**Acceptance criteria.**
+
+- Given a textbook-notebook upload, When the request body's first 5 bytes are not `%PDF-`, Then HTTP 415 returns with a clear "not a PDF" detail BEFORE any disk write occurs.
+- Given a PDF whose final 1 KB contains a `PK\x05\x06` marker or `</html>` substring, When the upload reaches the route, Then HTTP 415 returns with a "polyglot detected" detail.
+- Given a PDF whose body contains a `/JS` or `/JavaScript` PDF entry, When the upload reaches the route, Then HTTP 415 returns with an "embedded JavaScript detected" detail.
+- Given a PDF with >5000 declared pages, When the upload reaches the route, Then HTTP 415 returns with a "page count exceeded" detail.
+- Given a textbook-notebook upload of 150 MB, When the request reaches the route, Then it succeeds (vs. the 10 MB cap for arxiv-kind notebooks); 250 MB returns HTTP 413.
+- Given an arxiv-kind notebook upload of 50 MB, When the request reaches the route, Then HTTP 413 returns (the 10 MB cap still applies for arxiv-kind).
+- [ ] `tools/security/pdfid.py` lands as a small, dependency-free Python module — NOT a git submodule, NOT a vendored copy lifted from upstream's source tree (no-fork policy). Implementation can take ideas from Didier Stevens' `pdfid.py` (well-known public-domain tool) but is written fresh.
+- [ ] `tools/security/README.md` documents the vendoring discipline.
+- [ ] `make test` green; ≥10 negative-vector tests covering each rejection path.
+- [ ] No changes to MinerU integration (deferred to m5).
+- [ ] No changes to MCP tool surface or BP1 prefix; `EXPECTED_TOOL_SCHEMA_SHA256` + `EXPECTED_BP1_SHA256` untouched.
+
+**Dependencies.** textbook-ingest-m1, m2, m3 (all shipped). Spikes 2 + 3 inform the design but are not commit-time blockers.
+
+**Complexity.** M
+
+**Specialist suggestion.** `security-reviewer` — see [`.claude/skills/roadmap/references/specialist-contracts.md`](.claude/skills/roadmap/references/specialist-contracts.md). The vendoring discipline + 5-rejection-vector surface area is exactly the area `security-reviewer` is designed to scrutinize.
+
 ---
 
 ## Phase 4 — Materialize

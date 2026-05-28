@@ -648,3 +648,36 @@ brief pattern "bundle into one commit" has working precedent.
 `ALTER TABLE ... ADD COLUMN` in a `if current_version < N:` block — NOT
 DROP-AND-RECREATE (that destroys user data). Each `if` block ends with
 `PRAGMA user_version = N`. Notebook data is NOT a cache; loss-on-bump is wrong.
+
+## 2026-05-27 — textbook-ingest-m4 — prefix-caps-cannot-be-kind-conditional
+`RequestBodySizeLimitMiddleware.prefix_caps` is path-prefix-only; it has
+no access to notebook_kind from the DB. When a milestone needs a cap
+conditional on DB state (kind="textbook" → 200 MB, else 10 MB), the pattern
+is: raise middleware cap to the higher value (200 MB), then enforce the lower
+bound explicitly inside the route body after reading notebook_kind from the
+store. Never add a new middleware class for this — the route already has the
+notebook row from the 404 check.
+
+## 2026-05-27 — textbook-ingest-m4 — pymupdf-not-in-deps-use-regex-page-count
+PyMuPDF (fitz) is NOT a project dependency as of m4 entry. For PDF page-count
+probing, use a pure-bytes `/Count\s+(\d+)` regex scan over the last 20% of
+the PDF (xref/trailer region). Do not add PyMuPDF in m4; it lands with MinerU
+in m5. False-negatives from the heuristic are acceptable (defense-in-depth).
+
+## 2026-05-28 — textbook-ingest-m4 — upload-cap-not-notebook-kind-aware
+RequestBodySizeLimitMiddleware prefix_caps cannot inspect notebook_kind (SQLite
+read happens in handler, after middleware). For textbook-kind cap raise (10MB →
+200MB), set middleware cap to 200MB for the /ui/api/notebooks subtree; the
+handler enforces the 10MB arxiv-kind cap via 413 AFTER magic-byte sniff (fast
+reject). Non-PDF uploads get 415 at 5 bytes — no DoS via large body buffering.
+
+## 2026-05-28 — textbook-ingest-m4 — pdfid-compressed-stream-limitation
+String-grep pdfid (re.findall over raw PDF bytes for /JS /JavaScript /OpenAction
+/AA) misses keywords inside FlateDecode compressed object streams. This is a
+documented, accepted limitation for m4's defense-in-depth role. PyMuPDF inside
+MinerU (layer 2) sees the decompressed stream. Document in pdfid.py docstring.
+
+## 2026-05-28 — textbook-ingest-m4 — tools-security-init-py-required
+tools/security/__init__.py must be committed alongside pdfid.py. Missing __init__
+causes ModuleNotFoundError on fresh checkout. Pattern applies to any new package
+under tools/.

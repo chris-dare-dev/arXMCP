@@ -38,6 +38,7 @@ import datetime as _dt
 import html
 import logging
 import os
+import re
 import sqlite3
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
@@ -56,12 +57,13 @@ from fastapi import (
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
-from ingest.identifiers import is_valid_arxiv_paper_id
+from ingest.identifiers import is_valid_arxiv_paper_id, is_valid_paper_id
 from tools._notebook_common import (
     NotebookError,
     notebook_dir,
     validate_slug,
 )
+from tools.security.pdfid import find_javascript as _pdf_find_javascript
 
 if TYPE_CHECKING:
     from server.notebooks_store import NotebooksStore
@@ -517,6 +519,167 @@ def _is_html_bytes(head: bytes) -> bool:
     return s[:2].lower() in (b"<!", b"<h")
 
 
+# ---------------------------------------------------------------------------
+# textbook-ingest-m4 — PDF upload pre-flight gate
+# ---------------------------------------------------------------------------
+
+#: Upload-cap envelope for arxiv-kind notebooks (HTML ar5iv files).
+#: The middleware allows 200 MB through; the route handler rejects
+#: 413 if the body exceeds this cap on an arxiv-kind notebook.
+#: m4 D3 mechanism per .claude/notes/milestones/textbook-ingest-m4/
+#: research-synthesis.md.
+_ARXIV_UPLOAD_MAX_BYTES: int = 10 * 1024 * 1024  # 10 MB
+
+#: Maximum PDF page count accepted at the upload boundary. Bourbaki
+#: tops out around 500 pages; 5000 is a 10x safety margin against
+#: page-count-exhaustion DoS (per `.claude/docs/security-pdf-sandbox.md`).
+_PDF_MAX_PAGE_COUNT: int = 5000
+
+#: Tail-window size for polyglot detection. ZIP central-directory
+#: records (``PK\x05\x06`` EOCD) live at the END of valid ZIP files;
+#: scanning the last 1 KB catches the canonical PDF+ZIP polyglot.
+#: ZIP-CD-relocated-via-comment-padding bypasses this check — a
+#: documented limitation backstopped by m5's MinerU sandbox.
+_PDF_POLYGLOT_TAIL_BYTES: int = 1024
+
+#: Polyglot-tail markers. ZIP EOCD signature (``PK\x05\x06``) catches
+#: PDF+ZIP; the HTML closing tags catch PDF+HTML. Case-insensitive
+#: matching done by lowercasing the tail bytes.
+_POLYGLOT_TAIL_MARKERS: tuple[bytes, ...] = (
+    b"PK\x05\x06",  # ZIP end-of-central-directory record
+    b"</html>",     # HTML closing tag (lowercased)
+    b"</body>",     # HTML body closer (defense-in-depth for partial-HTML polyglots)
+)
+
+#: Regex for the PDF page-count probe. Per ISO 32000-1:2008 §7.7.3.2,
+#: the Page Tree root dictionary carries ``/Count <int>`` giving the
+#: total page count. String-grep takes ``max()`` across all matches
+#: (intermediate Page Tree nodes also carry ``/Count`` but the root
+#: carries the largest value). Heuristic — not a full parser; a
+#: malicious PDF can lie about ``/Count`` by declaring a small value
+#: while embedding a large Page Tree. m5's MinerU sandbox bounds the
+#: damage on misdetection.
+_PDF_COUNT_RE = re.compile(rb"/Count\s+(\d+)")
+
+
+def _is_pdf_bytes(head: bytes) -> bool:
+    """Return True if ``head`` looks like a PDF document.
+
+    Per ISO 32000-1:2008 §7.5.2, every PDF file MUST start with the
+    bytes ``%PDF-`` (case-sensitive, exactly 5 bytes). The version
+    number (``1.7``, ``2.0``, etc.) follows the dash. This sniff is
+    strictly spec-compliant — readers that tolerate the header at a
+    non-zero offset are not spec-compliant.
+
+    Used as the first (cheapest) gate in :func:`_run_pdf_preflight`.
+    """
+    return len(head) >= 5 and head[:5] == b"%PDF-"
+
+
+def _pdf_polyglot_check(pdf_bytes: bytes) -> None:
+    """Reject polyglot files (PDF+ZIP, PDF+HTML).
+
+    Scans the last :data:`_PDF_POLYGLOT_TAIL_BYTES` of the body for
+    any marker in :data:`_POLYGLOT_TAIL_MARKERS`. Raises
+    :class:`HTTPException` with status 415 on detection.
+
+    **Documented limitation:** an attacker can relocate the ZIP
+    central directory outside the tail window by padding the EOCD
+    comment field (up to 65535 bytes per spec). This check catches
+    the canonical case but is defense-in-depth, not a complete
+    polyglot eliminator. m5's MinerU sandbox is the backstop.
+    """
+    if len(pdf_bytes) < 5 or not _is_pdf_bytes(pdf_bytes[:5]):
+        # Caller should have run _is_pdf_bytes first; defense-in-depth.
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="not a PDF (missing %PDF- header)",
+        )
+    tail = pdf_bytes[-_PDF_POLYGLOT_TAIL_BYTES:].lower()
+    for marker in _POLYGLOT_TAIL_MARKERS:
+        if marker.lower() in tail:
+            raise HTTPException(
+                status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                detail=(
+                    f"polyglot file detected (tail contains "
+                    f"{marker!r})"
+                ),
+            )
+
+
+def _pdf_declared_page_count(pdf_bytes: bytes) -> int:
+    """Return the highest ``/Count`` integer in the PDF byte stream.
+
+    Heuristic — searches for ``/Count <int>`` patterns and returns
+    the maximum. A PDF with no ``/Count`` token returns 0 (caller
+    treats that as "no page-count assertion"). Adversarial PDFs that
+    declare ``/Count 0`` while embedding a huge Page Tree slip past
+    this check; m5's MinerU wall-clock timeout is the runtime
+    backstop.
+    """
+    matches = _PDF_COUNT_RE.findall(pdf_bytes)
+    if not matches:
+        return 0
+    return max(int(m) for m in matches)
+
+
+def _run_pdf_preflight(content: bytes) -> None:
+    """Run all 5 PDF rejection vectors on ``content``.
+
+    Order is fast-first per
+    ``.claude/notes/milestones/textbook-ingest-m4/research-synthesis.md``
+    D5:
+
+    1. Magic-byte sniff (5-byte read) — :func:`_is_pdf_bytes`.
+    2. Polyglot tail (last 1 KB scan) — :func:`_pdf_polyglot_check`.
+    3. JavaScript / auto-action detection (full-body regex) —
+       :func:`tools.security.pdfid.find_javascript`.
+    4. Page-count probe (full-body regex) —
+       :func:`_pdf_declared_page_count`.
+
+    The size cap is enforced by the caller BEFORE this preflight (the
+    middleware envelope + the per-notebook-kind handler check).
+
+    Raises :class:`HTTPException` (status 415) on any rejection. The
+    detail message names the specific vector + the relevant bytes /
+    tokens so the operator can debug at the API boundary.
+    """
+    if not _is_pdf_bytes(content[:5]):
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail=(
+                "uploaded file does not appear to be a PDF "
+                "(first 5 bytes must be '%PDF-' per ISO 32000)"
+            ),
+        )
+    _pdf_polyglot_check(content)
+    dangerous_tokens = _pdf_find_javascript(content)
+    if dangerous_tokens:
+        # Deduplicate by occurrence — surface unique tokens to the
+        # operator. The full list (with duplicates) lands in the log
+        # via the route-level exception handler.
+        unique_tokens = sorted(set(dangerous_tokens))
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail=(
+                f"PDF contains embedded active-content tokens "
+                f"({unique_tokens}) — rejected per the textbook-"
+                f"ingest pre-flight gate. See tools/security/"
+                f"pdfid.py for the detection rules."
+            ),
+        )
+    declared_pages = _pdf_declared_page_count(content)
+    if declared_pages > _PDF_MAX_PAGE_COUNT:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail=(
+                f"PDF declares {declared_pages} pages — exceeds "
+                f"the {_PDF_MAX_PAGE_COUNT}-page cap per the "
+                f"textbook-ingest pre-flight gate"
+            ),
+        )
+
+
 @router.post(
     "/notebooks/{slug}/papers/upload",
     response_class=HTMLResponse,
@@ -563,20 +726,47 @@ async def upload_paper(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(e),
         ) from e
-    if not is_valid_arxiv_paper_id(paper_id):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"paper_id {paper_id!r} is not a valid arXiv id",
-        )
 
-    if await store.get_notebook(slug) is None:
+    # textbook-ingest-m4: fetch the notebook BEFORE validating
+    # paper_id format because the validation rule depends on
+    # notebook_kind (arxiv → is_valid_arxiv_paper_id; textbook →
+    # is_valid_paper_id, which accepts the textbook:<slug> form).
+    notebook = await store.get_notebook(slug)
+    if notebook is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"notebook {slug!r} not found",
         )
+    notebook_kind = notebook.get("notebook_kind", "arxiv")
+    is_textbook = notebook_kind == "textbook"
 
-    # Read the upload. The 10 MB upstream cap means this is bounded;
-    # ar5iv HTML is typically 100 KB – 5 MB, well under the cap.
+    # Per-kind paper_id validation. arxiv notebooks reject anything
+    # that's not an arXiv shape; textbook notebooks accept either
+    # arXiv (e.g. an arXiv preprint cross-referenced in the
+    # notebook) OR textbook:<slug> form via is_valid_paper_id.
+    if is_textbook:
+        if not is_valid_paper_id(paper_id):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    f"paper_id {paper_id!r} is not a valid arXiv id "
+                    f"or textbook:<slug> form"
+                ),
+            )
+    else:
+        if not is_valid_arxiv_paper_id(paper_id):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"paper_id {paper_id!r} is not a valid arXiv id",
+            )
+
+    # Read the upload. For arxiv notebooks the body is capped at
+    # _ARXIV_UPLOAD_MAX_BYTES (10 MB) by the handler-level check
+    # below; for textbook notebooks the middleware envelope of 200 MB
+    # is the upper bound. The middleware has already buffered the
+    # bytes by the time we reach here (eager-read per the
+    # RequestBodySizeLimitMiddleware F1 fix), so the handler-level
+    # checks see the full body in memory.
     try:
         content = await file.read()
     except Exception as e:  # noqa: BLE001
@@ -591,9 +781,31 @@ async def upload_paper(
             detail="uploaded file is empty",
         )
 
-    # FM-2: magic-byte sniff. Reject non-HTML uploads even if the
-    # client lied about Content-Type or used a forged .html extension.
-    if not _is_html_bytes(content[:_MAGIC_SNIFF_BYTES]):
+    # textbook-ingest-m4 D3: per-kind upload-cap enforcement. The
+    # middleware envelope allows 200 MB through unconditionally for
+    # the /ui/api/notebooks prefix; this handler-level check rejects
+    # arxiv-kind uploads that exceed the 10 MB ar5iv cap.
+    if not is_textbook and len(content) > _ARXIV_UPLOAD_MAX_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=(
+                f"upload of {len(content)} bytes exceeds the "
+                f"{_ARXIV_UPLOAD_MAX_BYTES}-byte cap for arxiv-kind "
+                f"notebooks (textbook-kind notebooks accept up to "
+                f"200 MB; raise this notebook's kind to 'textbook' "
+                f"if you intend to upload PDFs)"
+            ),
+        )
+
+    # Magic-byte + format dispatch per notebook_kind.
+    if is_textbook:
+        # textbook-ingest-m4: 5-vector PDF preflight gate. Order is
+        # fast-first (magic-byte → polyglot tail → JS detection →
+        # page-count) per the synthesis D5. Any rejection raises
+        # HTTPException(415) with a vector-specific detail.
+        _run_pdf_preflight(content)
+    elif not _is_html_bytes(content[:_MAGIC_SNIFF_BYTES]):
+        # arxiv-kind notebook: m8 FM-2 magic-byte sniff for HTML.
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=(
@@ -605,8 +817,9 @@ async def upload_paper(
 
     # Compute the on-disk paths. FM-4: filename derives EXCLUSIVELY
     # from the validated paper_id, NEVER from file.filename. The
-    # ar5iv subdirectory is created on first upload (notebook_dir
-    # runs the m6 F3 symlink-rejection check).
+    # subdirectory (ar5iv/ for arxiv; pdfs/ for textbook) is created
+    # on first upload (notebook_dir runs the m6 F3 symlink-rejection
+    # check).
     try:
         nb_dir = notebook_dir(slug)
     except NotebookError as e:
@@ -614,13 +827,18 @@ async def upload_paper(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(e),
         ) from e
-    ar5iv_dir = nb_dir / "ar5iv"
+    if is_textbook:
+        upload_dir = nb_dir / "pdfs"
+        ext = "pdf"
+    else:
+        upload_dir = nb_dir / "ar5iv"
+        ext = "html"
     try:
-        ar5iv_dir.mkdir(parents=True, exist_ok=True)
+        upload_dir.mkdir(parents=True, exist_ok=True)
     except OSError as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"could not create ar5iv directory: {e}",
+            detail=f"could not create {ext} directory: {e}",
         ) from e
 
     # paper_id may contain a slash (old-style hep-th/0001234); turn
@@ -631,15 +849,13 @@ async def upload_paper(
     #
     # textbook-ingest-m1 rect F1 (HIGH): defense-in-depth — also
     # neutralize the colon byte, which arXiv shapes never contain
-    # but the future ``textbook:<slug>`` shape will. The arXiv-only
-    # gate above (``is_valid_arxiv_paper_id``) is the primary defense;
-    # this is the second layer in case a future widening forgets to
-    # update the gate. On macOS HFS+/APFS the colon is path-separator-
-    # translated by some POSIX file APIs (carriage of the legacy HFS
-    # path delimiter), creating a Finder-rendering confusion vector.
+    # but the ``textbook:<slug>`` shape from m1 does. For textbook
+    # paper_ids ``textbook:my-book`` becomes ``textbook_my-book.pdf``
+    # on disk — both unambiguous and free of HFS+/APFS colon-
+    # confusion-via-Finder vectors.
     flat_paper_id = paper_id.replace("/", "_").replace(":", "_")
-    target_path = ar5iv_dir / f"{flat_paper_id}.html"
-    tmp_path = ar5iv_dir / f"{flat_paper_id}.html.tmp"
+    target_path = upload_dir / f"{flat_paper_id}.{ext}"
+    tmp_path = upload_dir / f"{flat_paper_id}.{ext}.tmp"
 
     # FM-5: atomic write. Write to .tmp, then os.replace() to the
     # final name so readers never see a partial file.

@@ -489,15 +489,31 @@ def create_app(config: Config | None = None) -> FastAPI:
     # 1 MB default cap on incoming request bodies (E06_S05). m8:
     # /ui/api/notebooks/*/papers/upload accepts ar5iv HTML files
     # which routinely exceed 1 MB (~100KB-5MB observed); the
-    # prefix_caps carve-out raises the cap to 10 MB for the whole
+    # prefix_caps carve-out raises the cap for the whole
     # /ui/api/notebooks subtree. Other /ui/api/notebooks routes
-    # accept small JSON bodies well under either cap, so the
-    # widening is harmless for them. Prefix-match form (NOT
-    # substring) for FM-3 parity with the m7 SecFetchSite carve-out.
+    # accept small JSON bodies well under any cap, so the widening
+    # is harmless for them. Prefix-match form (NOT substring) for
+    # FM-3 parity with the m7 SecFetchSite carve-out.
+    #
+    # textbook-ingest-m4: cap raised from 10 MB to 200 MB to allow
+    # textbook PDF uploads on notebook_kind="textbook" notebooks
+    # (Bourbaki / Hartshorne / Griffiths-Harris all fit comfortably
+    # under 200 MB). The 10 MB enforcement for arxiv-kind notebooks
+    # is preserved at the ROUTE HANDLER level — the upload handler
+    # in server/routes/notebooks.py reads notebook_kind from the
+    # SQLite store (m3) and rejects 413 if the body exceeds 10 MB on
+    # an arxiv-kind notebook. The middleware cap is the upper
+    # envelope; the per-kind rule is enforced downstream.
+    #
+    # DoS bound: for non-PDF bodies uploaded to ANY kind, the magic-
+    # byte sniff at the route handler fires at 5-byte read (HTTP
+    # 415) before the 200 MB buffer is exhausted. The only case
+    # where 200 MB is fully buffered is a valid-magic-bytes PDF on
+    # a textbook-kind notebook, which is the intended path.
     app.add_middleware(
         RequestBodySizeLimitMiddleware,
         prefix_caps={
-            "/ui/api/notebooks": 10 * 1024 * 1024,  # 10 MB for upload
+            "/ui/api/notebooks": 200 * 1024 * 1024,  # 200 MB envelope; per-kind enforced in handler
         },
     )
     # Host header validation: Threat 5 / DNS rebinding defense
