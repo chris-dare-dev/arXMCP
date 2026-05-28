@@ -371,4 +371,13 @@ _None — no file:line region was flagged by ≥ 2 critics._
 
 ## Rectification status
 
-<!-- Phase 4 appends one bullet per finding; do not pre-populate -->
+- F1 — fixed in `800cc0b` (doc-fix path per critic's recommendation; the actual mitigation is the loopback-only deployment model). Synthesis D3 RETRACTED with explicit memory-pressure-caveat language; `server/main.py` + `server/routes/notebooks.py` upload-handler comments updated to be honest about full-body buffering before per-kind cap fires. `.claude/docs/security-pdf-sandbox.md` gains a memory-pressure caveat row. No behavior change — the actual regression is bounded by loopback-only deployment per CLAUDE.md.
+- F2 — fixed in `800cc0b` (`.claude/docs/security-pdf-sandbox.md`). Lines 36, 184-199, 208-225 updated to match the canonical implementation: 5-byte `%PDF-` (not 4-byte `%PDF`); 7-token JS list (not 4); `</html>` + `</body>` closing tags lowercased (not `<HTML>` opening). Same "stale-docstring" anti-pattern m3 closed; recurrence flagged.
+- F3 — fixed in `800cc0b` (`tests/test_pdf_preflight.py::TestPdfBodyPolyglot`). 2 new tests: lowercase `</body>` rejected, uppercase `</BODY>` rejected (case-insensitive matching locked).
+- F4 — fixed in `800cc0b` (`tests/test_pdf_preflight.py::TestMiddlewareEnvelope`). Inspects `create_app()` middleware stack and asserts `prefix_caps["/ui/api/notebooks"] == 200 MB`. Closes AC #5's missing envelope test without buffering 201 MB in the test runner.
+- F5 — fixed in `800cc0b` (`tools/security/pdfid.py:21-25`). Rewrote backstop attribution: PyMuPDF's non-evaluation as layer-2 (the real JS defense); m5 sandbox as layer-3 damage-bound. Pdfid.py as layer-1 upload-time fast-catch.
+- F6 — fixed in `800cc0b` (`tests/test_pdf_preflight.py::TestDbCallOrdering`). 2 new tests locking the post-m4 ordering (slug→DB→paper_id→content).
+- F7 — fixed in `800cc0b` (`server/routes/notebooks.py` `_PDF_COUNT_RE` docstring + `tests/test_pdf_preflight.py::TestPageCountRegexLimitations`). Documented the PDF-comment-in-between limitation + the `/Counter` false-positive guard.
+- F8 — fixed in `800cc0b` (`server/routes/notebooks.py::_pdf_polyglot_check`). Removed the unreachable defensive `_is_pdf_bytes` re-check (orchestrator always calls magic-byte first); docstring updated to specify the caller contract.
+
+**Summary:** 8 fixed (F1-F8), 0 invalidated, 0 deferred. Adversary invalidation rate 0/2 HIGH = 0% (under 40% threshold; adversary was correct on both load-bearing findings — D3 false claim + doc-drift pattern recurrence from m3). +7 new tests added in the rect commit.
