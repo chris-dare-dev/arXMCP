@@ -914,6 +914,12 @@ def write_chunks(
     # a caller-maintained running set is the documented escalation.
     # NB lancedb 0.30.x: `to_arrow()` takes no kwargs — project via `.select`.
     try:
+        # F4 (corpus-integrity-observability-m1 critique): these counts are read
+        # off the SAME `tbl` handle that pinned `dataset_version` above, under the
+        # single-writer-per-dataset model (module docstring, "MVCC handshake").
+        # No write lands between L862 and here in-process, so the marker's
+        # `version` and its counts are coherent. A concurrent external writer is
+        # out of scope (E11).
         chunk_count = tbl.count_rows()
         paper_count = len(
             set(tbl.to_arrow().select(["paper_id"])["paper_id"].to_pylist())

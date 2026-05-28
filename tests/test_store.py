@@ -1628,3 +1628,83 @@ class TestCorpusVersionMarkerReconciliation:
         tbl = lancedb.connect(str(lancedb_path)).open_table(CHUNKS_TABLE_NAME)
         assert marker["chunk_count"] == tbl.count_rows() == 3
         assert marker["paper_count"] == 1
+
+    def test_empty_chunks_first_call_writes_zero_marker(self, tmp_path):
+        """F2: ``write_chunks([])`` does NOT early-return (store.py logs INFO then
+        continues) — it creates a zero-row table and REACHES the marker block,
+        writing chunk_count=0 / paper_count=0. (The synthesis FM-7 premise that
+        the empty path 'returns early' was factually wrong about the code; this
+        pins the real, benign behavior so a future edit can't silently regress
+        it.)"""
+        import lancedb
+
+        from ingest.store import CORPUS_VERSION_MARKER_NAME, write_chunks
+
+        lancedb_path = tmp_path / "lancedb"
+        write_chunks([], _make_synthetic_embeddings([]), lancedb_path=lancedb_path)
+        marker = json.loads((lancedb_path / CORPUS_VERSION_MARKER_NAME).read_text())
+        tbl = lancedb.connect(str(lancedb_path)).open_table(CHUNKS_TABLE_NAME)
+        assert marker["chunk_count"] == tbl.count_rows() == 0
+        assert marker["paper_count"] == 0
+
+    def test_empty_chunks_after_populated_preserves_counts(self, tmp_path):
+        """F2 (higher-value case): an empty ``write_chunks`` AFTER a populated
+        write must NOT zero out the marker. Count-from-table reflects the still-
+        populated cumulative table (the empty batch skips merge_insert), so the
+        marker stays at the real counts rather than the last (empty) batch."""
+        import lancedb
+
+        from ingest.store import CORPUS_VERSION_MARKER_NAME, write_chunks
+
+        lancedb_path = tmp_path / "lancedb"
+        a = [_make_chunk("2301.00001", "stmt", f"a {i}") for i in range(3)]
+        write_chunks(a, _make_synthetic_embeddings(a, seed=1), lancedb_path=lancedb_path)
+        write_chunks([], _make_synthetic_embeddings([]), lancedb_path=lancedb_path)
+        marker = json.loads((lancedb_path / CORPUS_VERSION_MARKER_NAME).read_text())
+        tbl = lancedb.connect(str(lancedb_path)).open_table(CHUNKS_TABLE_NAME)
+        assert marker["chunk_count"] == tbl.count_rows() == 3  # NOT zeroed
+        assert marker["paper_count"] == 1
+
+    def test_re_embed_copy_and_reembed_dispatch_marker_is_cumulative(self, tmp_path):
+        """F3: simulate re_embed's copy-path + re-embed-path double-dispatch into
+        one staging path across several papers — the exact shape that produced the
+        live-cutover bug (marker held only the last per-paper batch). After the
+        full staging build the marker MUST equal the cumulative staging table, and
+        ``paper_count`` must dedupe a paper that appears in BOTH dispatch paths.
+
+        Mirrors re_embed.py:528 (copy_chunks) + :558 (re_embed_chunks), each a
+        separate per-paper ``write_chunks`` call into ``staging_lancedb_path``.
+        """
+        import lancedb
+
+        from ingest.store import CORPUS_VERSION_MARKER_NAME, write_chunks
+
+        staging = tmp_path / "lancedb_staging"
+
+        # P1: unchanged chunks copied (copy path), then a changed chunk re-embedded
+        # (re-embed path) — same paper across BOTH dispatch paths, distinct chunks.
+        p1_copy = [_make_chunk("2301.00001", "stmt", "copy a", suffix="a" * 16),
+                   _make_chunk("2301.00001", "stmt", "copy b", suffix="b" * 16)]
+        write_chunks(p1_copy, _make_synthetic_embeddings(p1_copy, seed=1), lancedb_path=staging)
+        p1_reembed = [_make_chunk("2301.00001", "proof", "reembed c", suffix="c" * 16)]
+        write_chunks(
+            p1_reembed, _make_synthetic_embeddings(p1_reembed, seed=2), lancedb_path=staging
+        )
+
+        # P2: copy path only (unchanged paper).
+        p2_copy = [_make_chunk("2302.00002", "stmt", "p2 a", suffix="d" * 16),
+                   _make_chunk("2302.00002", "stmt", "p2 b", suffix="e" * 16)]
+        write_chunks(p2_copy, _make_synthetic_embeddings(p2_copy, seed=3), lancedb_path=staging)
+
+        # P3: re-embed path only (changed paper).
+        p3_reembed = [_make_chunk("2303.00003", "proof", f"p3 {i}", suffix=f"{i:016x}")
+                      for i in range(3)]
+        write_chunks(
+            p3_reembed, _make_synthetic_embeddings(p3_reembed, seed=4), lancedb_path=staging
+        )
+
+        marker = json.loads((staging / CORPUS_VERSION_MARKER_NAME).read_text())
+        tbl = lancedb.connect(str(staging)).open_table(CHUNKS_TABLE_NAME)
+        # 2 + 1 + 2 + 3 = 8 rows across 3 distinct papers (P1 in both paths once).
+        assert marker["chunk_count"] == tbl.count_rows() == 8  # pre-fix: 3 (last call)
+        assert marker["paper_count"] == 3  # pre-fix: 1 (last paper only)
