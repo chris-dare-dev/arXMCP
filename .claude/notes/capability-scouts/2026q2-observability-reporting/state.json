@@ -1,0 +1,116 @@
+{
+  "id": "2026q2-observability-reporting",
+  "kind": "capability-scout",
+  "created_at": "2026-05-28T19:58:59Z",
+  "updated_at": "2026-05-28T20:23:26Z",
+  "phase": "complete",
+  "phase_history": [
+    {
+      "phase": "init",
+      "at": "2026-05-28T19:58:59Z"
+    },
+    {
+      "phase": "survey-running",
+      "at": "2026-05-28T20:00:37Z"
+    },
+    {
+      "phase": "survey-complete",
+      "at": "2026-05-28T20:10:12Z"
+    },
+    {
+      "phase": "synthesize-running",
+      "at": "2026-05-28T20:14:38Z"
+    },
+    {
+      "phase": "synthesize-complete",
+      "at": "2026-05-28T20:14:38Z"
+    },
+    {
+      "phase": "challenge-running",
+      "at": "2026-05-28T20:14:38Z"
+    },
+    {
+      "phase": "challenge-complete",
+      "at": "2026-05-28T20:20:00Z"
+    },
+    {
+      "phase": "prioritize-running",
+      "at": "2026-05-28T20:20:24Z"
+    },
+    {
+      "phase": "complete",
+      "at": "2026-05-28T20:23:26Z"
+    }
+  ],
+  "scout_brief": "Focus: observability & reporting \u2014 logging, metrics (/metrics, Prometheus), operator-facing reporting (daily-report, marker/corpus-version reporting). MOTIVATING BUG: ingest/store.py::write_chunks writes corpus-version.json with chunk_count=len(chunks)/paper_count from only the LAST per-paper batch (bulk_ingest + re_embed call it once per paper) -> notebook markers read chunk_count=106 while the real table has 10298 rows; a ~100x silent discrepancy NOTHING flagged (surfaced only by manual inspection during the live cutover). Scout for capabilities that make this CLASS of bug \u2014 a persisted metadata field silently diverging from ground truth, wrong values in startup logs/reports going unnoticed \u2014 easy to catch automatically: invariant/consistency checks at write or startup (marker counts vs table row count), structured logging with assertable fields, metrics exposing ground-truth-vs-recorded deltas, a reporting/diff surface, drift/regression alarms. Bias toward LOCAL-FIRST, single-workstation, no-new-heavy-infra options.",
+  "survey_mode": "standard",
+  "survey_briefs": [
+    ".claude/notes/capability-scouts/2026q2-observability-reporting/survey/comparative-brief.md",
+    ".claude/notes/capability-scouts/2026q2-observability-reporting/survey/research-frontier-brief.md",
+    ".claude/notes/capability-scouts/2026q2-observability-reporting/survey/oss-trends-brief.md",
+    ".claude/notes/capability-scouts/2026q2-observability-reporting/survey/multi-agent-brief.md",
+    ".claude/notes/capability-scouts/2026q2-observability-reporting/survey/adversary-brief.md"
+  ],
+  "scouts_dispatched": [
+    "comparative",
+    "research-frontier",
+    "oss-trends",
+    "multi-agent",
+    "adversary"
+  ],
+  "scouts_returned": [
+    "comparative",
+    "research-frontier",
+    "oss-trends",
+    "multi-agent",
+    "adversary"
+  ],
+  "synthesis_path": ".claude/notes/capability-scouts/2026q2-observability-reporting/artifacts/synthesis.md",
+  "candidate_count": 16,
+  "challenge_path": ".claude/notes/capability-scouts/2026q2-observability-reporting/artifacts/challenge.md",
+  "challenge_finding_counts": {
+    "critical": 0,
+    "high": 4,
+    "medium": 10,
+    "low": 0
+  },
+  "final_report_path": ".claude/notes/capability-scouts/2026q2-observability-reporting/artifacts/final-report.md",
+  "ranked_candidates": [
+    {
+      "id": "CAND-1",
+      "title": "Compute corpus counts from the table not the batch",
+      "rice": 36.0,
+      "rank": 1
+    },
+    {
+      "id": "CAND-3",
+      "title": "Corpus-size Prometheus gauges marker-vs-actual",
+      "rice": 9.6,
+      "rank": 2
+    },
+    {
+      "id": "CAND-9",
+      "title": "Daily-report corpus-integrity section",
+      "rice": 3.0,
+      "rank": 3
+    },
+    {
+      "id": "CAND-2",
+      "title": "Startup reconciliation invariant -> degraded",
+      "rice": 2.4,
+      "rank": 4
+    },
+    {
+      "id": "CAND-4",
+      "title": "Structured JSON logging + assertable write fields",
+      "rice": 2.4,
+      "rank": 5
+    },
+    {
+      "id": "CAND-5",
+      "title": "Reconciliation regression tests",
+      "rice": 1.8,
+      "rank": 6
+    }
+  ]
+}
