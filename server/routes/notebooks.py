@@ -950,11 +950,20 @@ async def upload_paper(
                 "completed.",
                 target_path,
             )
-        elif parse_tracker.is_running(slug):
+        elif parse_tracker.is_running(slug) or await store.has_running_parse(
+            slug
+        ):
             # A parse is already in flight for this notebook; refuse
             # to schedule a second one (m6 FM-3 — Semaphore(1) global
             # cap would queue but the per-notebook check rejects the
             # collision earlier with a clear signal).
+            #
+            # m6 F4: check BOTH the in-memory tracker (live tasks)
+            # AND the DB ``has_running_parse`` fallback (cross-restart
+            # + closes the TOCTOU window where two near-simultaneous
+            # uploads both observe is_running==False before either
+            # task is registered). Mirrors trigger_ingest's two-layer
+            # collision check.
             logger.warning(
                 "parse_tracker: slug=%s already parsing; new upload "
                 "kept on disk but NOT scheduled. Operator must wait.",

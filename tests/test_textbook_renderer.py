@@ -59,6 +59,44 @@ class TestBuildLatexWrapper:
         assert "\\documentclass" in out
         assert "\\end{document}" in out
 
+    def test_structural_command_in_body_neutralized(self) -> None:
+        """m6 F3: a bare \\end{document} in the body must NOT terminate
+        the envelope early; content after it must survive."""
+        body = "before $x$\n\\end{document}\nAFTER $y$"
+        out = _build_latex_wrapper(body)
+        # The AFTER content survives into the wrapped document.
+        assert "AFTER $y$" in out
+        # There is exactly ONE real \end{document} — the envelope's
+        # closing one. The body's structural command was neutralized
+        # (its backslash replaced with \textbackslash{}).
+        # Count actual \end{document} occurrences NOT preceded by the
+        # textbackslash neutralization marker.
+        assert out.rstrip().endswith("\\end{document}")
+        assert "\\textbackslash{}end{document}" in out
+
+    def test_begin_document_in_body_neutralized(self) -> None:
+        body = "x $a$\n\\begin{document}\ny $b$"
+        out = _build_latex_wrapper(body)
+        assert "y $b$" in out
+        assert "\\textbackslash{}begin{document}" in out
+
+    def test_documentclass_in_body_neutralized(self) -> None:
+        body = "intro\n\\documentclass{book}\noutro"
+        out = _build_latex_wrapper(body)
+        assert "outro" in out
+        assert "\\textbackslash{}documentclass" in out
+
+    def test_plain_math_untouched_by_sanitizer(self) -> None:
+        """The structural-command sanitizer must NOT touch ordinary
+        math / prose — only the three document-structure commands."""
+        body = "$\\frac{a}{b}$ and \\sum and \\begin{align}x\\end{align}"
+        out = _build_latex_wrapper(body)
+        # \begin{align} / \end{align} are NOT document-structure
+        # commands — they pass through unchanged.
+        assert "\\begin{align}" in out
+        assert "\\end{align}" in out
+        assert "\\textbackslash{}" not in out
+
 
 class TestFlatPaperId:
     @pytest.mark.parametrize(
@@ -267,6 +305,75 @@ class TestRenderMineruToHtmlSurface:
                 mineru_result, parsed_dir, "textbook:my-book",
             )
         assert result.output_html_path.is_file()
+
+    def test_multi_class_ltx_error_counted(self, tmp_path: Path) -> None:
+        """m6 F6: ltx_ERROR as a token within a multi-class attribute
+        (or on a <span>, or single-quoted) must be counted."""
+        mineru_result = _build_minimal_mineru_result(tmp_path)
+        parsed_dir = tmp_path / "parsed"
+        parsed_dir.mkdir()
+
+        def fake_parse(main_tex, parsed_dir, paper_id):  # noqa: ARG001
+            out_dir = parsed_dir / paper_id
+            out_dir.mkdir(parents=True, exist_ok=True)
+            (out_dir / "index.html").write_text(
+                "<!DOCTYPE html><html><body>"
+                '<span class="ltx_ERROR ltx_font_bold">e1</span>'
+                "<math class='ltx_ERROR'>e2</math>"  # single-quoted
+                '<math class="ltx_Math">ok</math>'
+                "</body></html>",
+                encoding="utf-8",
+            )
+            return None
+
+        with patch.object(
+            textbook_renderer, "parse_with_latexml", side_effect=fake_parse,
+        ):
+            result = render_mineru_to_html(
+                mineru_result, parsed_dir, "textbook:my-book",
+            )
+        # Two ltx_ERROR tokens (multi-class span + single-quoted math).
+        assert result.latex_error_annotations == 2
+
+    def test_symlink_in_images_not_dereferenced(
+        self, tmp_path: Path,
+    ) -> None:
+        """m6 F5: a symlink under MinerU's images/ must be PRESERVED
+        (not dereferenced), so external target content is never copied
+        into the notebook tree."""
+        mineru_result = _build_minimal_mineru_result(tmp_path)
+        pdf_stem = mineru_result.markdown_path.stem
+        images_dir = mineru_result.output_dir / pdf_stem / "auto" / "images"
+        images_dir.mkdir(parents=True, exist_ok=True)
+        # Plant a symlink pointing outside the notebook tree.
+        secret = tmp_path / "secret.txt"
+        secret.write_text("SENSITIVE", encoding="utf-8")
+        (images_dir / "evil.png").symlink_to(secret)
+        parsed_dir = tmp_path / "parsed"
+        parsed_dir.mkdir()
+
+        def fake_parse(main_tex, parsed_dir, paper_id):  # noqa: ARG001
+            (parsed_dir / paper_id).mkdir(parents=True, exist_ok=True)
+            (parsed_dir / paper_id / "index.html").write_text("<html></html>")
+            return None
+
+        with patch.object(
+            textbook_renderer, "parse_with_latexml", side_effect=fake_parse,
+        ):
+            result = render_mineru_to_html(
+                mineru_result, parsed_dir, "textbook:my-book",
+            )
+        dest = result.output_html_path.parent / "images" / "evil.png"
+        # The entry is preserved as a symlink, NOT a regular file with
+        # the dereferenced secret content.
+        assert dest.is_symlink()
+        # Reading it would follow the symlink, but the COPIED tree
+        # never contains a regular file holding 'SENSITIVE'.
+        copied_regular_files = [
+            p for p in (result.output_html_path.parent / "images").iterdir()
+            if p.is_file() and not p.is_symlink()
+        ]
+        assert copied_regular_files == []
 
 
 # ---------------------------------------------------------------------------

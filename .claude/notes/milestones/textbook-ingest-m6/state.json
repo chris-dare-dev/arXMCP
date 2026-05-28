@@ -1,14 +1,20 @@
 {
   "brief_source": "",
   "created_at": "2026-05-28T02:31:11Z",
-  "critics_run": [],
+  "critics_run": [
+    {
+      "critic": "adversary",
+      "output_path": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/textbook-ingest-m6/critique-adversary.md",
+      "summary": "0C/2H/4M/1L"
+    }
+  ],
   "critique_finding_counts": {
     "critical": 0,
-    "high": 0,
-    "low": 0,
-    "medium": 0
+    "high": 2,
+    "low": 1,
+    "medium": 4
   },
-  "critique_path": null,
+  "critique_path": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/textbook-ingest-m6/critique-merged.md",
   "deferred_findings": [],
   "external_writes_authorized": false,
   "external_writes_completed": false,
@@ -16,14 +22,16 @@
   "fixed_findings": [],
   "id": "textbook-ingest-m6",
   "implementation_base": "ea8eb8d754cd91625c85970d42b4c9fd4e608e46",
-  "implementation_branch": null,
-  "implementation_commit_range": null,
-  "implementation_commits": [],
+  "implementation_branch": "main",
+  "implementation_commit_range": "ea8eb8d754cd91625c85970d42b4c9fd4e608e46..191ddd83b7d9b9e7bf3065799f9445e96ce1477f",
+  "implementation_commits": [
+    "191ddd83b7d9b9e7bf3065799f9445e96ce1477f"
+  ],
   "implementation_path": "inline",
   "implementation_specialist": null,
   "invalidated_findings": [],
   "milestone_brief": "# Milestone: textbook-ingest-m6 \u2014 Textbook PDF end-to-end ingestion (e2 closure)\n\n**Epic:** textbook-ingest-e2 (PDFs become HTML5+MathML via sandboxed MinerU) \u2014 closure milestone.\n**Type:** value \u2014 operator can `POST /ui/api/notebooks` with a textbook PDF and ultimately see HTML5+MathML on disk under `var/arxmcp/notebooks/<slug>/parsed/<textbook_id>/`.\n**Estimated size:** L (renderer + background task + status poll + route wiring + tests + notebook schema bump 3\u21924).\n**Dependencies:** m1-m5 shipped; B1 (MinerU install) shipped.\n**Roadmap link:** `plans/textbook-ingest-roadmap.md` \u00a7textbook-ingest-e2 outcome statement.\n\n## Background \u2014 what already exists\n\n- **m5 shipped** `ingest/textbook_parser.py::run_mineru_sandboxed(pdf_path, output_dir) -> MinerUResult` with `markdown_path` + `content_list_path` (the structured JSON) + tail-truncated stdout/stderr + wall_clock_s. This is the contract m6 consumes.\n- **m4 shipped** the upload pre-flight gate at `server/routes/notebooks.py::_run_pdf_preflight`; PDFs that reach m6's pipeline have already passed magic-byte + polyglot tail + page count + JS tokens + size cap (200 MB for textbook notebooks).\n- **m3 shipped** the `notebook_kind` field on the notebook record (arxiv|textbook).\n- **m6 (THIS milestone, NOT to be confused with the m6 notebook-upload route handler already in `server/routes/notebooks.py`)** is the integration milestone that closes e2.\n- **The existing ar5iv/LaTeXML path** at `tools/arxiv_fetch.py::parse_with_latexml` is the precedent for the LaTeXML re-render. It expects LaTeX source, not markdown.\n- The e2 epic outcome verbatim: \"Operator-uploaded PDF (\u2264200 MB per textbook notebook) flows through a sandboxed MinerU 2.5 subprocess [now 3.2.0 per B1], then the existing LaTeXML pass, then writes parsed HTML5+MathML to `var/arxmcp/notebooks/<slug>/parsed/<paper-or-textbook-id>/index.html`.\"\n\n## Scope \u2014 acceptance criteria\n\n### Core renderer module\n- [ ] New module `ingest/textbook_renderer.py` exposing `render_mineru_to_html(result: MinerUResult, output_html_path: Path) -> RenderResult` where `RenderResult` is a frozen dataclass with `output_html_path: Path`, `wall_clock_s: float`, `stdout_tail: str`, `stderr_tail: str`, `math_block_count: int`.\n- [ ] Strategy: researchers MUST pick ONE of:\n  - **(A)** Wrap MinerU's markdown as a LaTeX document; pass through `latexmlc` once; get HTML5+MathML.\n  - **(B)** Walk MinerU's content_list.json extracting math blocks; render each via `latexmlmath` (or a per-block latexmlc); reassemble HTML+MathML.\n  - **(C)** Treat MinerU's markdown as input to a markdown library (mistune / markdown-it-py) and post-process math blocks (convert LaTeX inline math `$..$` and display math `$$..$$` to MathML via latexmlmath per block).\n  - Decision factor: re-use of the existing `tools/arxiv_fetch.py::parse_with_latexml` pattern (subprocess discipline + sandbox), correctness on math-heavy textbook content, throughput.\n- [ ] Subprocess discipline mirrors `tools/cdm_eval.py::_run_subprocess_with_pgkill`: `start_new_session=True`, `os.killpg`, drained second `communicate(timeout=5)`, env scrubbing.\n- [ ] If invoking `latexmlc`/`latexmlmath`, gate behind the existing `requires_latexmlc` marker on integration tests (no new marker).\n- [ ] Output path: `var/arxmcp/notebooks/<slug>/parsed/<textbook_id>/index.html` per the e2 outcome statement.\n\n### Notebook record schema bump (3 \u2192 4)\n- [ ] `server/notebooks_store.py::SCHEMA_VERSION = 4`.\n- [ ] Three new columns via `ALTER TABLE notebooks ADD COLUMN`:\n  - `parse_status TEXT NOT NULL DEFAULT 'pending'` \u2014 enum: `pending` | `running` | `complete` | `failed` | `skipped` (skipped = arxiv-kind, no parse).\n  - `parse_error TEXT NOT NULL DEFAULT ''`.\n  - `parsed_html_path TEXT NOT NULL DEFAULT ''`.\n- [ ] Migration test: existing v3 DB rows survive the bump.\n- [ ] arxiv-kind notebooks land with `parse_status='skipped'` (no MinerU pipeline).\n- [ ] textbook-kind notebooks land with `parse_status='pending'`.\n\n### Upload route wiring\n- [ ] `server/routes/notebooks.py` POST handler, for `notebook_kind=\"textbook\"` notebooks, after pre-flight passes:\n  - Writes the PDF to `var/arxmcp/notebooks/<slug>/pdfs/<filename>.pdf` (m4 already does this).\n  - Schedules a background task: MinerU \u2192 renderer \u2192 HTML5+MathML on disk \u2192 update notebook record.\n  - Returns `202 Accepted` with `{parse_status: \"pending\", textbook_id: \"<slug>\", parse_status_url: \"/ui/api/notebooks/<slug>/parse-status\"}`.\n- [ ] Background task uses FastAPI's `BackgroundTasks` (researchers verify this is the right mechanism; project is single-workstation per CLAUDE.md \u00a74.1, so heavier queues are likely overkill).\n- [ ] On task success: update `parse_status='complete'`, `parsed_html_path` set, raw MinerU output dir retained for debugging (researchers decide retention policy).\n- [ ] On task failure (subprocess timeout, MinerU exit, renderer failure): update `parse_status='failed'`, `parse_error` set to a tail of the failure message.\n- [ ] Concurrency: if a second textbook upload arrives while one is parsing, researchers MUST decide \u2014 serialize (process pool of 1) or accept GPU/MLX memory pressure.\n\n### Status-poll endpoint\n- [ ] `GET /ui/api/notebooks/<slug>/parse-status` returning JSON: `{parse_status, parse_error?, parsed_html_path?, wall_clock_s?, updated_at}`.\n- [ ] Returns 404 on unknown slug.\n- [ ] Loopback-only (origin validation already in place).\n\n### Configuration\n- [ ] `ARXMCP_MINERU_BIN`, `ARXMCP_MINERU_TIMEOUT_S` \u2014 inherited from m5.\n- [ ] Optional new `ARXMCP_TEXTBOOK_RENDER_SYNC` env var (default unset = async background task; set to `\"1\"` for synchronous mode in tests).\n- [ ] `docs/install.md` documents the parse-status endpoint and async behavior.\n\n### Tests\n- [ ] Unit (always run): renderer module with subprocess mocked; verifies the chosen strategy's invocation form, env scrubbing, error path handling.\n- [ ] Integration (`requires_mineru` + `requires_latexmlc` opt-in): end-to-end against a minimal synthetic PDF; verify the index.html exists, contains `<math>` tags, well-formed XML.\n- [ ] Notebook store migration test: v3 \u2192 v4 schema bump preserves data.\n- [ ] Upload route test: textbook upload returns 202 + `parse_status_url`; arxiv upload still works unchanged.\n- [ ] Status-poll endpoint test: returns 404 for unknown slug; returns expected JSON shape for known slugs.\n- [ ] Background task test (synchronous mode via `ARXMCP_TEXTBOOK_RENDER_SYNC=1`): full upload \u2192 render \u2192 HTML check.\n- [ ] BP1 cache-stability: any tool-schema changes re-pin `EXPECTED_TOOL_SCHEMA_SHA256`. Researchers verify no MCP tool surface change.\n\n### Out of scope (explicit; deferred)\n- Hierarchical chunker for book/chapter/section (e3).\n- `search_papers` filter accepting `source_kind=\"textbook\"` (e4).\n- CDM bake-off Phase C against the 20-page textbook fixture (blocked on B2).\n- Multi-textbook batch ingest.\n- Re-ingest UI / cancel pending parse / retry policy.\n- Per-notebook resource quotas.\n- Server restart recovery (if a parse is in-flight when server restarts: parse_status will be stuck at `running` forever \u2014 researchers MUST flag this as a documented limitation OR decide on a recovery strategy).\n\n## Open questions for researchers to resolve\n\n1. **Markdown\u2192HTML+MathML strategy** \u2014 pick A, B, or C above with reasoning. Cite the math-fidelity tradeoffs.\n2. **Background task mechanism** \u2014 FastAPI `BackgroundTasks` vs a separate worker. Project's single-workstation constraint argues for the simpler option; verify the constraint holds.\n3. **Concurrency policy** \u2014 serialize or parallel MinerU? GPU/MLX memory pressure is the binding constraint on Apple Silicon (~38 GB unified memory). What's the limit?\n4. **Server restart mid-parse** \u2014 `parse_status` stuck at `running` is a real bug. Options: (a) recover-on-startup sweep that moves stuck entries to `failed`, (b) document as a known limitation. Pick one.\n5. **MinerU output_dir retention** \u2014 after rendering, do we keep the raw MinerU output tree (debug PDFs, JSONs)? Implications for disk usage and debugging.\n6. **HTML5 output structure** \u2014 operator-facing shape. Sections? Metadata header (title from filename)? Embedded JS for MathML fallback rendering (MathJax)?\n7. **`textbook_id` for the output path** \u2014 what is it? `<filename_stem>`? `<sha256 of PDF bytes>`? The path-traversal regex from m1 must accept it.\n8. **Atomic write** \u2014 rendering writes index.html. If MinerU succeeds but rendering crashes mid-write, we have a partial HTML. Use `<tmp>.html.tmp` + `os.rename` for atomicity?\n\n## Definition of done\n\n- All acceptance criteria boxes ticked or have an explicit \"unmet: reason\" in `implementation-summary.md`.\n- `make test` green (full pytest with new tests passing; existing 3 pre-existing failures untouched).\n- Operator workflow validated: create textbook notebook \u2192 upload PDF \u2192 poll status \u2192 see HTML5+MathML on disk.\n- Three-commit pattern: feat \u2192 rect \u2192 chore.\n- `.claude/docs/security-pdf-sandbox.md` updated in lockstep if the renderer adds any new subprocess.\n- CLAUDE.md \u00a78 updated if any new landmines are discovered.\n\n## Why a single milestone\n- The renderer and the upload-route wiring are coupled \u2014 wiring without rendering is dead code, rendering without wiring is unreachable.\n- Concurrency policy + status endpoint + schema bump are all interlocked (status reflects schema; concurrency policy decides what status means).\n- Splitting into m6a (renderer) + m6b (wiring) would defer the integration test until the LAST commit, which is the named anti-pattern.\n",
-  "phase": "implement-running",
+  "phase": "rectify-running",
   "phase_history": [
     {
       "entered_at": "2026-05-28T02:31:11Z",
@@ -42,8 +50,28 @@
     },
     {
       "entered_at": "2026-05-28T02:42:31Z",
-      "left_at": null,
+      "left_at": "2026-05-28T02:59:09Z",
       "phase": "implement-running"
+    },
+    {
+      "entered_at": "2026-05-28T02:59:09Z",
+      "left_at": "2026-05-28T02:59:24Z",
+      "phase": "implement-complete"
+    },
+    {
+      "entered_at": "2026-05-28T02:59:24Z",
+      "left_at": "2026-05-28T03:16:29Z",
+      "phase": "critique-running"
+    },
+    {
+      "entered_at": "2026-05-28T03:16:29Z",
+      "left_at": "2026-05-28T03:16:37Z",
+      "phase": "critique-complete"
+    },
+    {
+      "entered_at": "2026-05-28T03:16:37Z",
+      "left_at": null,
+      "phase": "rectify-running"
     }
   ],
   "rectification_commit": null,
@@ -62,5 +90,5 @@
   ],
   "research_mode": "standard",
   "research_synthesis": ".claude/notes/milestones/textbook-ingest-m6/research-synthesis.md",
-  "updated_at": "2026-05-28T02:42:31Z"
+  "updated_at": "2026-05-28T03:16:37Z"
 }

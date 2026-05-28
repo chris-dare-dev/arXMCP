@@ -68,14 +68,56 @@ class RenderResult:
     latex_error_annotations: int
 
 
+#: Structural LaTeX commands that, if present in the MinerU markdown
+#: body, would corrupt the envelope: a bare ``\end{document}`` mid-
+#: content terminates the document early and LaTeXML silently drops
+#: everything after it (m6 F3 — content loss). ``\documentclass`` /
+#: ``\begin{document}`` similarly confuse the single-document model.
+#: A math/CS textbook that quotes LaTeX source or has verbatim
+#: listings can plausibly contain these. We neutralize them by
+#: inserting a zero-width-safe break in the command name so LaTeXML
+#: renders them as literal text rather than acting on them.
+_STRUCTURAL_CMD_RE = re.compile(
+    r"\\(end|begin)\s*\{\s*document\s*\}|\\documentclass\b"
+)
+
+
+def _neutralize_structural_commands(markdown_content: str) -> int:
+    """Count structural-command occurrences in the body (m6 F3).
+
+    Used as a quality/observability signal — the actual neutralization
+    happens in :func:`_build_latex_wrapper` via the same regex.
+    """
+    return len(_STRUCTURAL_CMD_RE.findall(markdown_content))
+
+
 def _build_latex_wrapper(markdown_content: str) -> str:
     """Wrap MinerU markdown as a minimal LaTeX document.
 
     Math syntax (``$...$``, ``$$...$$``) passes through unchanged.
     Prose constructs render as literal text in LaTeX — acceptable
     for v1 (the retrieval substrate consumes math, not prose layout).
+
+    m6 F3: structural commands (``\\end{document}``,
+    ``\\begin{document}``, ``\\documentclass``) in the body are
+    neutralized by escaping the leading backslash so LaTeXML renders
+    them as literal text rather than acting on them — otherwise a
+    bare ``\\end{document}`` mid-content would silently truncate the
+    rendered document. The math-bearing ``$...$`` content is
+    untouched (the regex matches only the three document-structure
+    commands).
     """
-    return _LATEX_ENVELOPE.replace("{body}", markdown_content)
+    # Escape the leading backslash of any structural command so it
+    # becomes literal text (``\textbackslash end{document}``-style is
+    # overkill; ``\\end{document}`` → ``\end {document}`` would still
+    # match \end, so insert a brace-group guard instead: replace the
+    # backslash with ``\textbackslash{}`` which LaTeXML renders as a
+    # literal backslash followed by the (now-inert) command name).
+    safe_body = _STRUCTURAL_CMD_RE.sub(
+        lambda m: "\\textbackslash{}" + m.group(0)[1:],
+        markdown_content,
+    )
+    return _LATEX_ENVELOPE.replace("{body}", safe_body)
 
 
 def _flat_paper_id(paper_id: str) -> str:
@@ -167,7 +209,15 @@ def render_mineru_to_html(
         dest_images = work_dir / "images"
         if dest_images.exists():
             shutil.rmtree(dest_images)
-        shutil.copytree(mineru_images, dest_images)
+        # m6 F5: symlinks=True PRESERVES symlinks rather than
+        # dereferencing them. MinerU's output dir is attacker-
+        # influenced (it ran on an uploaded PDF); a symlink planted
+        # under images/ (e.g. images/x -> /etc/passwd) must NOT have
+        # its target content copied into the notebook tree. Preserved
+        # (dangling) symlinks are harmless — nothing downstream
+        # follows them, and the notebook-scoped layout bounds the
+        # blast radius.
+        shutil.copytree(mineru_images, dest_images, symlinks=True)
 
     # 5. Verify the output landed where expected.
     index_html = work_dir / "index.html"
@@ -181,8 +231,16 @@ def render_mineru_to_html(
 
     # 6. Count LaTeXML error annotations — quality signal for the
     #    operator + downstream CDM eval.
+    #    m6 F6: match the ltx_ERROR class as a token within a
+    #    (possibly multi-class, possibly single-quoted) class
+    #    attribute. LaTeXML emits e.g. class="ltx_ERROR ltx_font_bold"
+    #    and can apply the class to <span> as well as <math>; an
+    #    exact `class="ltx_ERROR"` match would silently read 0 on
+    #    those variants and hide math degradation.
     html_text = index_html.read_text(encoding="utf-8")
-    error_count = len(re.findall(r'class="ltx_ERROR"', html_text))
+    error_count = len(
+        re.findall(r"""class=["'][^"']*\bltx_ERROR\b[^"']*["']""", html_text)
+    )
     if error_count > 0:
         logger.warning(
             "textbook_renderer: %d <math class=\"ltx_ERROR\"> annotations "

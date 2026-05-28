@@ -44,7 +44,7 @@
 - [x] No BP1 re-pin (system prompt unchanged).
 
 ### Tests
-- [x] `tests/test_textbook_renderer.py` (NEW; 14 tests, 13 always-run + 1 `requires_latexmlc` opt-in).
+- [x] `tests/test_textbook_renderer.py` (NEW; always-run unit tests covering envelope construction, flat-paper-id, render surface, structural-command sanitization, multi-class ltx_ERROR, symlink containment + 1 `requires_latexmlc` opt-in integration test). Exact count grows during rectification; the gated test count is 1.
 - [x] `tests/test_parse_tracker.py` (NEW; 10 tests).
 - [x] `tests/test_notebook_api.py` (extended): TestParseStatusInitialState (2 tests), TestParseStatusRoute (~3 tests with parametrize), TestParseStatusStoreLayer (5 tests). Schema-migration tests updated for v4.
 - [x] `requires_latexmlc` integration test under `ARXMCP_RUN_REAL_LATEXMLC=1` opt-in (follows the requires_pdflatex pattern from parser-fidelity-eval-m1).

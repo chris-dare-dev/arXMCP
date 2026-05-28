@@ -38,6 +38,7 @@ import asyncio
 import contextlib
 import html
 import logging
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -63,11 +64,60 @@ def _format_parse_error(message: str) -> str:
     (MinerU + LaTeXML already truncate at their boundary); this
     helper formats Python-side exception messages and runtime errors
     consistently.
+
+    m6 F1: redact absolute path prefixes BEFORE escaping so an
+    exception message carrying ``/Users/<name>/.../var/arxmcp/...``
+    does not leak the operator's home dir through ``/parse-status``.
     """
-    truncated = message.encode("utf-8", errors="replace")[
+    redacted = _redact_path_prefix(message)
+    truncated = redacted.encode("utf-8", errors="replace")[
         -PARSE_ERROR_TAIL_MAX_BYTES:
     ]
     return html.escape(truncated.decode("utf-8", errors="replace"))
+
+
+def _redact_path_prefix(text: str) -> str:
+    """Scrub absolute-path prefixes up to ``var/arxmcp/`` to a bare
+    ``var/arxmcp/`` (m6 F1; peer of
+    :func:`server.ingest_tracker.redact_paths`).
+
+    Operates on str (not bytes) because the parse path's stored
+    values are Python-side strings (the rendered html path + Python
+    exception messages), not raw subprocess stderr bytes. The regex
+    handles POSIX (``/Users/<name>/repo/var/arxmcp/...``,
+    ``/home/<name>/repo/var/arxmcp/...``) and tolerates spaces in
+    the username (macOS). Any text NOT containing ``var/arxmcp`` is
+    returned unchanged.
+    """
+    return _ABS_PATH_PREFIX_RE.sub("var/arxmcp/", text)
+
+
+#: str-domain peer of ``ingest_tracker._ABS_PATH_PREFIX_RE``. Matches
+#: an absolute-path prefix (leading ``/`` or ``\``) up to and
+#: including ``var/arxmcp/`` and replaces it with the bare relative
+#: form. Non-greedy so only the prefix is consumed.
+_ABS_PATH_PREFIX_RE = re.compile(r"[/\\][\w /\\.\-]*?var[/\\]arxmcp[/\\]")
+
+
+def redact_html_path(output_html_path: Path) -> str:
+    """Return the ``var/arxmcp/``-relative form of a rendered html
+    path for storage in ``parsed_html_path`` (m6 F1).
+
+    Prefers a clean ``Path.relative_to`` against the ``var/arxmcp``
+    anchor when the segment is present; falls back to the regex
+    scrub otherwise. Guarantees the stored value never contains the
+    absolute repo / home prefix.
+    """
+    parts = output_html_path.parts
+    if "var" in parts:
+        idx = parts.index("var")
+        # Only treat it as the anchor if the next part is 'arxmcp'.
+        if idx + 1 < len(parts) and parts[idx + 1] == "arxmcp":
+            return "/".join(parts[idx:])
+    # Fallback: regex scrub (handles odd layouts) — if nothing
+    # matched, return the original string (no var/arxmcp anchor at
+    # all means it's already relative or an unexpected layout).
+    return _redact_path_prefix(str(output_html_path))
 
 
 class ParseTaskTracker:
@@ -228,11 +278,12 @@ class ParseTaskTracker:
                     )
                 return
 
-            # Success: record the parsed_html_path relative to repo
-            # root if possible (more readable for operators) or
-            # absolute otherwise. Either way, the path is stored
-            # verbatim; consumers must treat it as opaque.
-            html_path_str = str(render_result.output_html_path)
+            # Success: record the parsed_html_path scrubbed to its
+            # ``var/arxmcp/``-relative form (m6 F1). Storing the
+            # absolute path would leak the operator's home dir
+            # through the /parse-status JSON — the m9 redact_paths
+            # discipline applies here too.
+            html_path_str = redact_html_path(render_result.output_html_path)
             await store.update_parse_status(
                 slug,
                 store.PARSE_STATUS_COMPLETE,
@@ -280,4 +331,5 @@ __all__ = [
     "PARSE_ERROR_TAIL_MAX_BYTES",
     "ParseTaskTracker",
     "_format_parse_error",
+    "redact_html_path",
 ]

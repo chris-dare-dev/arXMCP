@@ -736,6 +736,158 @@ class TestParseStatusRoute:
         }
 
 
+#: Minimal valid-enough PDF body that passes the m4 pre-flight gate:
+#: magic bytes %PDF-, no polyglot tail, no JS tokens, 0 declared pages.
+_MINIMAL_PDF = b"%PDF-1.4\nminimal test pdf body for m6 upload tests\n%%EOF\n"
+
+
+class TestTextbookUploadSchedulesParse:
+    """textbook-ingest-m6 F2 — the upload→schedule path.
+
+    The default ``client`` fixture never sets ``app.state.parse_tracker``;
+    this class builds its own client with a mock tracker so the
+    route's parse-dispatch branch is actually exercised (F2 gap).
+    """
+
+    def _client_with_tracker(
+        self, tmp_path: Path, notebooks_base: Path,
+        monkeypatch: pytest.MonkeyPatch, tracker: object | None,
+    ) -> Iterator[TestClient]:
+        import asyncio
+        from unittest.mock import MagicMock
+
+        db_path = tmp_path / "notebooks.db"
+        loop = asyncio.new_event_loop()
+        store = loop.run_until_complete(NotebooksStore.open(db_path))
+        app = FastAPI()
+        app.state.notebooks_store = store
+        if tracker is not None:
+            app.state.parse_tracker = tracker
+        app.include_router(notebooks_router, prefix="/ui/api")
+        monkeypatch.setattr(
+            notebooks_module, "_now_iso",
+            lambda: "2026-05-28T03:00:00+00:00",
+        )
+        client = TestClient(app)
+        client._arxmcp_loop = loop  # type: ignore[attr-defined]
+        client._arxmcp_store = store  # type: ignore[attr-defined]
+        _ = MagicMock  # keep import referenced for readers
+        return client
+
+    def test_upload_schedules_parse_and_flips_running(
+        self, tmp_path: Path, notebooks_base: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from unittest.mock import MagicMock
+
+        tracker = MagicMock()
+        tracker.is_running.return_value = False
+        client = self._client_with_tracker(
+            tmp_path, notebooks_base, monkeypatch, tracker,
+        )
+        try:
+            with client:
+                client.post(
+                    "/ui/api/notebooks",
+                    json={"slug": "sv-book", "notebook_kind": "textbook"},
+                )
+                r = client.post(
+                    "/ui/api/notebooks/sv-book/papers/upload",
+                    data={"paper_id": "textbook:sv-book"},
+                    files={"file": ("book.pdf", _MINIMAL_PDF, "application/pdf")},
+                )
+                assert r.status_code == 201, r.text
+                # The tracker was asked to schedule exactly one parse.
+                tracker.start_parse.assert_called_once()
+                _, kwargs = tracker.start_parse.call_args
+                assert kwargs["slug"] == "sv-book"
+                assert kwargs["paper_id"] == "textbook:sv-book"
+                assert kwargs["output_dir"].name == "_mineru"
+                assert kwargs["parsed_dir"].name == "parsed"
+                # parse_status flipped pending → running.
+                status_r = client.get("/ui/api/notebooks/sv-book/parse-status")
+                assert status_r.json()["parse_status"] == "running"
+        finally:
+            client._arxmcp_loop.run_until_complete(  # type: ignore[attr-defined]
+                client._arxmcp_store.close()  # type: ignore[attr-defined]
+            )
+            client._arxmcp_loop.close()  # type: ignore[attr-defined]
+
+    def test_parse_tracker_absent_keeps_pending(
+        self, tmp_path: Path, notebooks_base: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """F2 second branch: parse_tracker is None → 201, PDF on disk,
+        parse_status stays 'pending' (degraded but non-fatal)."""
+        client = self._client_with_tracker(
+            tmp_path, notebooks_base, monkeypatch, tracker=None,
+        )
+        try:
+            with client:
+                client.post(
+                    "/ui/api/notebooks",
+                    json={"slug": "sv2-book", "notebook_kind": "textbook"},
+                )
+                r = client.post(
+                    "/ui/api/notebooks/sv2-book/papers/upload",
+                    data={"paper_id": "textbook:sv2-book"},
+                    files={"file": ("b.pdf", _MINIMAL_PDF, "application/pdf")},
+                )
+                assert r.status_code == 201, r.text
+                # PDF landed on disk.
+                pdf = notebooks_base / "sv2-book" / "pdfs" / "textbook_sv2-book.pdf"
+                assert pdf.is_file()
+                # Status unchanged — still pending (no tracker to flip it).
+                status_r = client.get("/ui/api/notebooks/sv2-book/parse-status")
+                assert status_r.json()["parse_status"] == "pending"
+        finally:
+            client._arxmcp_loop.run_until_complete(  # type: ignore[attr-defined]
+                client._arxmcp_store.close()  # type: ignore[attr-defined]
+            )
+            client._arxmcp_loop.close()  # type: ignore[attr-defined]
+
+    def test_has_running_parse_refuses_second_schedule(
+        self, tmp_path: Path, notebooks_base: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """F4: even when the in-memory tracker reports is_running=False
+        (e.g. cross-restart), a DB row already at parse_status='running'
+        must block a second schedule via has_running_parse."""
+        from unittest.mock import MagicMock
+
+        tracker = MagicMock()
+        tracker.is_running.return_value = False  # in-memory says idle
+        client = self._client_with_tracker(
+            tmp_path, notebooks_base, monkeypatch, tracker,
+        )
+        try:
+            with client:
+                client.post(
+                    "/ui/api/notebooks",
+                    json={"slug": "sv3-book", "notebook_kind": "textbook"},
+                )
+                # Flip the DB row to 'running' directly (simulating an
+                # orphaned cross-restart row OR a concurrent parse).
+                client._arxmcp_loop.run_until_complete(  # type: ignore[attr-defined]
+                    client._arxmcp_store.update_parse_status(  # type: ignore[attr-defined]
+                        "sv3-book", "running",
+                    )
+                )
+                r = client.post(
+                    "/ui/api/notebooks/sv3-book/papers/upload",
+                    data={"paper_id": "textbook:sv3-book"},
+                    files={"file": ("b.pdf", _MINIMAL_PDF, "application/pdf")},
+                )
+                assert r.status_code == 201, r.text
+                # The DB fallback blocked the second schedule.
+                tracker.start_parse.assert_not_called()
+        finally:
+            client._arxmcp_loop.run_until_complete(  # type: ignore[attr-defined]
+                client._arxmcp_store.close()  # type: ignore[attr-defined]
+            )
+            client._arxmcp_loop.close()  # type: ignore[attr-defined]
+
+
 class TestParseStatusStoreLayer:
     """textbook-ingest-m6 — NotebooksStore parse-status methods.
 

@@ -24,6 +24,7 @@ from server.parse_tracker import (
     PARSE_ERROR_TAIL_MAX_BYTES,
     ParseTaskTracker,
     _format_parse_error,
+    redact_html_path,
 )
 
 # ---------------------------------------------------------------------------
@@ -96,6 +97,52 @@ class TestFormatParseError:
         # bytes — a 1-byte input becomes 3 bytes of output).
         assert len(out.encode("utf-8")) <= PARSE_ERROR_TAIL_MAX_BYTES + 2
         assert "END" in out
+
+    def test_redacts_absolute_path_in_message(self) -> None:
+        """m6 F1: an exception message carrying an absolute path under
+        var/arxmcp must be scrubbed to the var/arxmcp-relative form."""
+        msg = (
+            "RuntimeError: mineru exited 1 on "
+            "/Users/chris.dare/repo/var/arxmcp/notebooks/sv/pdfs/x.pdf"
+        )
+        out = _format_parse_error(msg)
+        assert "/Users/" not in out
+        assert "var/arxmcp/notebooks/sv/pdfs/x.pdf" in out
+
+
+class TestRedactHtmlPath:
+    """m6 F1 — redact_html_path scrubs absolute prefixes."""
+
+    def test_var_arxmcp_relative(self) -> None:
+        p = Path(
+            "/Users/chris.dare/Personal/SourceCode/arXMCP/var/arxmcp/"
+            "notebooks/sv/parsed/textbook_sv/index.html"
+        )
+        out = redact_html_path(p)
+        assert out == (
+            "var/arxmcp/notebooks/sv/parsed/textbook_sv/index.html"
+        )
+        assert "/Users/" not in out
+
+    def test_linux_home_prefix(self) -> None:
+        p = Path(
+            "/home/ci/build/arXMCP/var/arxmcp/notebooks/x/parsed/y/index.html"
+        )
+        out = redact_html_path(p)
+        assert out.startswith("var/arxmcp/")
+        assert "/home/" not in out
+
+    def test_already_relative_path_unchanged(self) -> None:
+        p = Path("var/arxmcp/notebooks/x/parsed/y/index.html")
+        out = redact_html_path(p)
+        assert out == "var/arxmcp/notebooks/x/parsed/y/index.html"
+
+    def test_path_without_var_arxmcp_anchor_falls_back(self) -> None:
+        # No var/arxmcp anchor — regex scrub returns the input
+        # unchanged (nothing to redact).
+        p = Path("/tmp/something/index.html")
+        out = redact_html_path(p)
+        assert out == "/tmp/something/index.html"
 
 
 class TestParseTaskTrackerSurface:

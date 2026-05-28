@@ -86,3 +86,38 @@ prior pipelines actually filed issues #1-#6 for E13 follow-ups, so the
 expectation is "tracked", not "hand-waved". Treat as HIGH because the
 synthesis literally promised tracking and the deliverable evaporates
 without it.
+
+## 2026-05-27 — textbook-ingest-m6 — parsed-path-leak-vs-m9-redact-precedent
+When a tracker milestone stores an on-disk path that surfaces in an
+operator-facing JSON/HTML field (here parsed_html_path via /parse-status),
+check it against the m9 redaction precedent: server/ingest_tracker.py
+::redact_paths scrubs absolute prefixes down to var/arxmcp/. m6's
+server/parse_tracker.py:235 stored str(output_html_path) verbatim — an
+absolute /Users/.../var/arxmcp/... path leaking the home dir/username —
+even though its own code comment claimed it relativizes "if possible".
+The path derives from notebook_dir() -> NOTEBOOKS_BASE which is
+REPO_ROOT-absolute (tools/_notebook_common.py:30,33). Flag HIGH. Same
+"comment says X, code does Y" shape as the bp1/security-doc drift class
+but on the path-redaction surface.
+
+## 2026-05-27 — textbook-ingest-m6 — route-tracker-test-fixture-gap
+For any milestone wiring a background tracker into a route, the route's
+dispatch branch is usually UNTESTED even when the tracker is unit-tested.
+The test client fixture (tests/test_notebook_api.py client) only sets
+app.state.notebooks_store, NOT app.state.parse_tracker — so any upload
+test silently hits the `tracker is None` warn-branch and the
+schedule/start_parse transition has zero coverage. Always grep the route
+test file for `app.state.<tracker_name>` assignment in the fixture; its
+absence = the common-path wiring (arg names, pending->running flip,
+is_running collision branch) ships uncovered. Flag HIGH (test surface).
+
+## 2026-05-27 — textbook-ingest-m6 — latex-wrapper-end-document-injection
+Strategy-A "wrap markdown as LaTeX" renderers that build a fixed
+envelope with str.replace and a hard-coded \end{document} are vulnerable
+to content-loss when the wrapped body contains a literal \end{document}
+(plausible in any math/CS/LaTeX textbook). LaTeXML stops at the first
+\end{document} and silently drops the tail; the renderer's only check is
+"index.html exists", so the truncation is invisible. Also check the
+documented cross-restart 409 fallback (has_running_parse) is actually
+CALLED by the route — m6 implemented+tested it at the store layer but
+never wired it, leaving a TOCTOU + dead code. MEDIUM each.
