@@ -94,7 +94,28 @@ class Config(BaseSettings):
     #: writer-side default), so a single-machine dev setup needs zero
     #: config to point reader-side at the same dataset the ingest
     #: pipeline wrote.
+    #:
+    #: **notebook-retrieval-m1 (fork C):** when :attr:`notebook` is set
+    #: (``ARXMCP_NOTEBOOK=<slug>``), the :meth:`derive_notebook_lancedb_path`
+    #: model-validator OVERRIDES this field with the per-notebook dataset
+    #: path ``var/arxmcp/notebooks/<slug>/lancedb`` before
+    #: ``Resources.startup`` reads it. Setting both ``ARXMCP_NOTEBOOK``
+    #: and ``ARXMCP_LANCEDB_PATH`` explicitly is rejected as ambiguous.
     lancedb_path: Path = Path("var/arxmcp/index/lancedb")
+
+    #: notebook-retrieval-m1 (fork C) — when set to a notebook slug
+    #: (via ``ARXMCP_NOTEBOOK``), the server serves THAT notebook's
+    #: corpus: :meth:`derive_notebook_lancedb_path` rewrites
+    #: :attr:`lancedb_path` to ``var/arxmcp/notebooks/<slug>/lancedb``.
+    #: This is the v1 single-notebook-per-process mode. Default
+    #: ``None`` preserves the shared-corpus behavior byte-for-byte
+    #: (the server attempts ``var/arxmcp/index/lancedb`` exactly as
+    #: it does today — including its ``CorpusNotIngestedError`` when
+    #: that corpus is empty). The eventual per-call multi-notebook
+    #: mode (``filters.notebook=<slug>``, fork A) layers on top and
+    #: reuses the same
+    #: :func:`tools._notebook_common.notebook_lancedb_path` helper.
+    notebook: str | None = None
 
     #: Repo-relative or absolute path to the Kùzu citation-graph DB
     #: directory. Default matches :data:`server.graph_queries.DEFAULT_KUZUDB_PATH`
@@ -376,6 +397,66 @@ class Config(BaseSettings):
     arxiv_ca_bundle_path: Path | None = None
 
     # --- Validators ------------------------------------------------------
+
+    @model_validator(mode="after")
+    def derive_notebook_lancedb_path(self) -> Config:
+        """notebook-retrieval-m1 (fork C) — when ``ARXMCP_NOTEBOOK=<slug>``
+        is set, rewrite :attr:`lancedb_path` to the per-notebook dataset
+        ``var/arxmcp/notebooks/<slug>/lancedb`` BEFORE ``Resources.startup``
+        reads it (the substitution must precede ``read_corpus_version`` —
+        see the notebook-retrieval-m1 synthesis).
+
+        Safety + clarity:
+
+        * The slug is validated (regex + symlink rejection + containment)
+          by :func:`tools._notebook_common.notebook_lancedb_path`, which
+          raises ``NotebookError`` (re-wrapped as ``ValueError`` →
+          pydantic ``ValidationError``) for any path-traversal attempt
+          (Threat 1).
+        * Setting BOTH ``ARXMCP_NOTEBOOK`` and an explicit
+          ``ARXMCP_LANCEDB_PATH`` is rejected as ambiguous — the
+          operator must pick one substrate.
+        * If the notebook directory has not been ingested (no
+          ``lancedb`` dir on disk), fail fast at config-load with a
+          remediation message naming the ingest command, rather than
+          surfacing a deeper ``CorpusNotIngestedError`` from
+          ``Resources.startup`` (AC5 — clean typed error, not a 500).
+
+        No-op when ``notebook`` is ``None`` (the default shared-corpus
+        posture; AC4 — env-unset behavior is byte-identical to today).
+        """
+        if self.notebook is None:
+            return self
+        # Ambiguity guard: notebook + explicit lancedb_path both set.
+        if "lancedb_path" in self.model_fields_set:
+            raise ValueError(
+                "set either ARXMCP_NOTEBOOK or ARXMCP_LANCEDB_PATH, not "
+                f"both (got notebook={self.notebook!r} and an explicit "
+                f"lancedb_path={self.lancedb_path!s}). ARXMCP_NOTEBOOK "
+                "derives the lancedb path from the notebook slug."
+            )
+        # Defer the import: tools._notebook_common is the shared seam
+        # (also called by the future fork-A per-request path). Keeping
+        # it lazy avoids a server→tools import at module load for the
+        # common (notebook-unset) case.
+        from tools._notebook_common import (  # noqa: PLC0415
+            NotebookError,
+            notebook_lancedb_path,
+        )
+        try:
+            derived = notebook_lancedb_path(self.notebook)
+        except NotebookError as exc:
+            raise ValueError(
+                f"invalid ARXMCP_NOTEBOOK={self.notebook!r}: {exc}"
+            ) from exc
+        if not derived.is_dir():
+            raise ValueError(
+                f"ARXMCP_NOTEBOOK={self.notebook!r}: no ingested corpus "
+                f"at {derived!s}. Ingest it first: "
+                f"`uv run python tools/notebook_ingest.py {self.notebook}`."
+            )
+        self.lancedb_path = derived
+        return self
 
     @model_validator(mode="after")
     def reject_non_loopback_bind(self) -> Config:

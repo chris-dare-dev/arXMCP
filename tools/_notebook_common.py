@@ -123,6 +123,30 @@ def notebook_dir(slug: str, *, base: Path | None = None) -> Path:
     return target
 
 
+def notebook_lancedb_path(slug: str, *, base: Path | None = None) -> Path:
+    """Return the per-notebook LanceDB dataset path for ``slug``.
+
+    This is ``notebook_dir(slug) / "lancedb"`` — the same path
+    ``tools/notebook_ingest.py`` writes to and the MCP server reads
+    when notebook-scoped retrieval is active (notebook-retrieval-m1,
+    fork C). It inherits :func:`notebook_dir`'s slug validation +
+    symlink rejection + containment check (Threat 1), so the returned
+    path is safe to hand to ``lancedb.connect``.
+
+    **Shared seam (stepping-stone shaping, notebook-retrieval-m1 AC8):**
+    both the fork-C startup path (`server/config.py` deriving
+    ``lancedb_path`` from ``ARXMCP_NOTEBOOK``) AND the future fork-A
+    per-request routing path (`filters.notebook=<slug>`) call THIS
+    helper, so the C→A migration is additive — A does not re-derive
+    the path or re-implement the slug-safety contract.
+
+    The path may not exist yet (a notebook can be registered before
+    it is ingested); callers that require an ingested corpus check
+    for ``corpus-version.json`` / ``chunks.lance`` themselves.
+    """
+    return notebook_dir(slug, base=base) / "lancedb"
+
+
 def read_paper_ids_from_papers_txt(papers_txt: Path) -> list[str]:
     """Read a notebook's ``papers.txt``, skipping ``#``-comments and blanks.
 
@@ -274,6 +298,7 @@ __all__ = [
     "SLUG_RE",
     "fetch_raw_tex_if_missing",
     "notebook_dir",
+    "notebook_lancedb_path",
     "read_paper_ids_from_papers_txt",
     "validate_slug",
 ]

@@ -321,6 +321,118 @@ class TestConfigValidation:
 
 
 # ===========================================================================
+# notebook-retrieval-m1 (fork C) — ARXMCP_NOTEBOOK derives lancedb_path
+# ===========================================================================
+
+
+class TestNotebookConfig:
+    """ARXMCP_NOTEBOOK=<slug> makes the server serve that notebook's
+    lancedb (fork C). Routing happens in Config.derive_notebook_lancedb_path
+    BEFORE Resources.startup reads lancedb_path."""
+
+    @pytest.fixture
+    def notebooks_base(self, tmp_path: Path, monkeypatch):
+        """Redirect the shared notebook-base constant to a tmp dir so
+        the Config validator's notebook_lancedb_path() resolves there."""
+        from tools import _notebook_common
+
+        base = tmp_path / "notebooks"
+        base.mkdir()
+        monkeypatch.setattr(_notebook_common, "NOTEBOOKS_BASE", base)
+        return base
+
+    def test_notebook_unset_keeps_shared_corpus(self, monkeypatch):
+        """AC4: with ARXMCP_NOTEBOOK unset, lancedb_path is byte-identical
+        to today's default (shared corpus). No new code path fires."""
+        monkeypatch.delenv("ARXMCP_NOTEBOOK", raising=False)
+        cfg = Config()
+        assert cfg.notebook is None
+        assert cfg.lancedb_path == Path("var/arxmcp/index/lancedb")
+
+    def test_notebook_set_derives_lancedb_path(self, notebooks_base):
+        """AC1 (routing): ARXMCP_NOTEBOOK=<slug> rewrites lancedb_path to
+        the per-notebook dataset dir."""
+        (notebooks_base / "demo-nb" / "lancedb").mkdir(parents=True)
+        cfg = Config(notebook="demo-nb")
+        assert cfg.lancedb_path == (notebooks_base / "demo-nb" / "lancedb").resolve()
+
+    def test_notebook_set_via_env(self, notebooks_base, monkeypatch):
+        """The slug arrives via ARXMCP_NOTEBOOK env, not just kwargs."""
+        (notebooks_base / "demo-nb" / "lancedb").mkdir(parents=True)
+        monkeypatch.setenv("ARXMCP_NOTEBOOK", "demo-nb")
+        cfg = Config()
+        assert cfg.notebook == "demo-nb"
+        assert cfg.lancedb_path == (notebooks_base / "demo-nb" / "lancedb").resolve()
+
+    def test_missing_notebook_corpus_clear_error(self, notebooks_base):
+        """AC5: notebook set but never ingested (no lancedb dir) → a
+        clear config-load error naming the ingest command, NOT a deeper
+        CorpusNotIngestedError at Resources.startup."""
+        from pydantic import ValidationError
+
+        # notebooks_base exists but demo-nb/lancedb does not.
+        with pytest.raises(ValidationError, match="notebook_ingest.py demo-nb"):
+            Config(notebook="demo-nb")
+
+    def test_notebook_slug_traversal_rejected(self, notebooks_base):
+        """Threat 1: a path-traversal slug is rejected at config-load
+        (inherited from notebook_lancedb_path → notebook_dir → validate_slug)."""
+        from pydantic import ValidationError
+
+        for bad in ("../etc", "..", "a/b", "ABC", "x"):  # traversal / slash / upper / too-short
+            with pytest.raises(ValidationError):
+                Config(notebook=bad)
+
+    def test_notebook_and_explicit_lancedb_path_rejected(self, notebooks_base):
+        """Ambiguity guard: setting BOTH ARXMCP_NOTEBOOK and an explicit
+        lancedb_path is rejected — the operator must pick one substrate."""
+        from pydantic import ValidationError
+
+        (notebooks_base / "demo-nb" / "lancedb").mkdir(parents=True)
+        with pytest.raises(ValidationError, match="not.*both|either"):
+            Config(notebook="demo-nb", lancedb_path=Path("var/arxmcp/index/lancedb"))
+
+
+class TestNotebookLancedbPathHelper:
+    """AC8 (stepping-stone shaping): the slug→lancedb-path derivation
+    lives in tools._notebook_common.notebook_lancedb_path — the shared
+    seam both fork C (startup) and fork A (per-request) call."""
+
+    def test_helper_returns_notebook_dir_slash_lancedb(self, tmp_path):
+        from tools._notebook_common import notebook_dir, notebook_lancedb_path
+
+        base = tmp_path / "notebooks"
+        (base / "demo-nb").mkdir(parents=True)
+        got = notebook_lancedb_path("demo-nb", base=base)
+        assert got == notebook_dir("demo-nb", base=base) / "lancedb"
+
+    def test_helper_inherits_slug_validation(self, tmp_path):
+        """The helper re-uses notebook_dir's Threat-1 guard — bad slugs
+        raise NotebookError (so the C and A paths share one safety
+        contract, not two divergent ones)."""
+        from tools._notebook_common import NotebookError, notebook_lancedb_path
+
+        base = tmp_path / "notebooks"
+        base.mkdir()
+        for bad in ("../etc", "a/b", "ABC"):
+            with pytest.raises(NotebookError):
+                notebook_lancedb_path(bad, base=base)
+
+    def test_helper_rejects_symlinked_notebook(self, tmp_path):
+        """notebook_dir's m6 F3 symlink rejection flows through the
+        shared helper."""
+        from tools._notebook_common import NotebookError, notebook_lancedb_path
+
+        base = tmp_path / "notebooks"
+        base.mkdir()
+        real = tmp_path / "real"
+        real.mkdir()
+        (base / "spooky").symlink_to(real)
+        with pytest.raises(NotebookError):
+            notebook_lancedb_path("spooky", base=base)
+
+
+# ===========================================================================
 # AC: Starting two server processes on the same port → clear error
 # ===========================================================================
 

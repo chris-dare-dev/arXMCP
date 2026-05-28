@@ -164,6 +164,23 @@ make up
 python -m server.main
 ```
 
+### Serving a notebook corpus
+
+By default the server reads the shared corpus at
+`var/arxmcp/index/lancedb`. To serve a notebook you ingested with
+`tools/notebook_ingest.py`, set `ARXMCP_NOTEBOOK` to its slug:
+
+```sh
+ARXMCP_NOTEBOOK=bridgeland-stability make up
+```
+
+The server then serves that notebook's corpus
+(`var/arxmcp/notebooks/bridgeland-stability/lancedb`). One notebook per
+server process — relaunch with a different `ARXMCP_NOTEBOOK` to switch.
+Setting both `ARXMCP_NOTEBOOK` and `ARXMCP_LANCEDB_PATH` is rejected
+(pick one). If the notebook has not been ingested, the server refuses to
+start with a message naming the ingest command.
+
 The server eager-loads the BGE-M3 model on startup (~5–30 s on
 warm Hugging Face cache, longer on a first-run download). Wait for
 the log line:

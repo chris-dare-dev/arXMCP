@@ -334,6 +334,38 @@ Never commit secrets to the repo. Local-only deployment means there are no
 shared secrets in v1, but `ARXMCP_*_API_KEY` env vars (e.g. for Voyage
 query-time embedding) are read at startup if set.
 
+### Notebook-scoped retrieval (notebook-retrieval-m1, fork C)
+
+By default the server reads the shared corpus at `ARXMCP_LANCEDB_PATH`
+(`var/arxmcp/index/lancedb`). To serve a **per-notebook** corpus
+(ingested under `var/arxmcp/notebooks/<slug>/lancedb/` by
+`tools/notebook_ingest.py`), set:
+
+```
+ARXMCP_NOTEBOOK=bridgeland-stability
+```
+
+`Config.derive_notebook_lancedb_path` then rewrites `lancedb_path` to the
+notebook's dataset dir **before** `Resources.startup` reads it (via the
+shared `tools._notebook_common.notebook_lancedb_path` helper, which
+enforces the slug regex + symlink rejection + containment — Threat 1).
+Contract:
+
+- **One notebook per server process** (v1). To switch notebooks, relaunch
+  with a different `ARXMCP_NOTEBOOK`. The eventual per-call multi-notebook
+  mode (`filters.notebook=<slug>`, fork A) is a follow-up that reuses the
+  same helper.
+- `ARXMCP_NOTEBOOK` and an explicit `ARXMCP_LANCEDB_PATH` are **mutually
+  exclusive** — setting both is rejected at config-load (ambiguous
+  substrate).
+- If the notebook has not been ingested (no `lancedb` dir on disk), the
+  server refuses to start with a remediation message naming the ingest
+  command — it does not surface a deeper `CorpusNotIngestedError`.
+- Retrieval is **dense-only** (the live `search_papers` path: single ANN
+  over `embedding_stmt`, proof chunks excluded) regardless of notebook
+  vs shared corpus — the per-difficulty-class spike confirmed hybrid +
+  rerank regress on the single-topic math corpora notebooks hold.
+
 ## Server lifecycle
 
 > **Updated 2026-05-06 (see E06_S01 in `.claude/roadmap/E06-mcp-server.md`).** The

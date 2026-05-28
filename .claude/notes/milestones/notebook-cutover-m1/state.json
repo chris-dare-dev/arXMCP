@@ -1,0 +1,61 @@
+{
+  "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/roadmap",
+  "created_at": "2026-05-28T03:19:57Z",
+  "critics_run": [],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "low": 0,
+    "medium": 0
+  },
+  "critique_path": null,
+  "deferred_findings": [],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_required": [],
+  "fixed_findings": [],
+  "id": "notebook-cutover-m1",
+  "implementation_base": null,
+  "implementation_branch": null,
+  "implementation_commit_range": null,
+  "implementation_commits": [],
+  "implementation_path": null,
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "### notebook-cutover-m1 \u2014 Add atomic staging\u2192active cutover + rollback for notebook datasets\n\n**Description.** Add a per-notebook cutover capability so re-embedded\nstaging datasets can be promoted to the server's live read path. The\nshared-corpus `make cutover` (E11_S05) is the design precedent \u2014 atomic\ndirectory swap with rollback \u2014 but it is hardcoded to\n`var/arxmcp/index/lancedb` and its 4-gate activation criteria (seed\neval, watchdog, ingest-complete, restore-drill) which do NOT apply to\nper-notebook datasets. This milestone builds the notebook-scoped\nequivalent.\n\n**Design decisions (resolve in research; these are the starting\npositions):**\n\n1. **Cutover is a SEPARATE step, not auto-after-re-embed.** Keep\n   `re_embed_all` writing to staging by default. Add a distinct\n   `make notebook-cutover` target + a `tools/notebook_cutover.py`\n   (or extend `tools/re_embed_all.py` with a `--cutover` flag). The\n   reason cutover stays separate: the operator-followup B-3/AC6\n   measurement workflow (`.claude/notes/milestones/embedder-truncation-m1/operator-followup.md`)\n   needs BOTH active (old) and staging (new) present to compute the\n   pre/post nDCG@5 delta. Auto-promoting would destroy that\n   comparison. This mirrors the shared-corpus flow's deliberate\n   re-embed/cutover separation.\n\n2. **Atomic swap with timestamped backup.** Per notebook:\n   `lancedb` \u2192 `lancedb-prev-<UTC-timestamp>`, then\n   `lancedb-staging` \u2192 `lancedb`. Two `os.rename` calls (atomic on\n   POSIX within a filesystem). Keep the most recent N=2 `lancedb-prev-*`\n   backups; prune older ones to bound disk.\n\n3. **Rollback** (`make notebook-cutover ARGS=\"--rollback --notebook=<slug>\"`):\n   inverse swap \u2014 restore the most recent `lancedb-prev-*` to\n   `lancedb`, move the current `lancedb` back to `lancedb-staging`.\n\n4. **Pre-cutover safety gates** (refuse + exit non-zero, no mutation):\n   - staging dir missing or has no `chunks.lance` \u2192 refuse.\n   - staging `corpus-version.json` version \u2264 active version \u2192 refuse\n     (would be a downgrade; operator passes `--force` to override).\n   - server appears to be running (probe `127.0.0.1:7733/healthz`) \u2192\n     WARN loudly but allow (operator may have a reason); a hot swap\n     while the server holds an open LanceDB handle is the risk.\n   - active `lancedb` missing \u2192 this is the first-ingest case; just\n     promote staging without a backup.\n\n5. **BM25 index after cutover.** The re-embed bumps `corpus_version`;\n   the BM25 index is version-keyed (`var/arxmcp/index/bm25/v<N>/`).\n   Verify whether the cutover must trigger a BM25 rebuild for the\n   newly-active version, or whether the first query rebuilds lazily\n   (`ingest/bm25_indexer.py`). Research must resolve this \u2014 a cutover\n   that leaves BM25 pointing at the old version is a silent\n   retrieval-quality regression.\n\n**Acceptance criteria.**\n\n- **[AC1]** Given a notebook with a healthy `lancedb-staging` whose\n  `corpus_version` > active, When `make notebook-cutover\n  ARGS=\"--notebook=<slug>\"` runs, Then `lancedb` holds the former\n  staging content, a `lancedb-prev-<ts>` backup of the former active\n  exists, and `lancedb-staging` no longer exists. Verified by a\n  subprocess test against a synthetic 2-version fixture.\n- **[AC2]** Given a completed cutover, When `--rollback` runs, Then\n  the former active is restored to `lancedb` and the promoted content\n  moves back to `lancedb-staging`. Round-trip is lossless (chunk\n  counts + corpus_version match the pre-cutover state).\n- **[AC3]** Given a staging `corpus_version` \u2264 active, When cutover\n  runs without `--force`, Then it refuses with exit non-zero and\n  mutates nothing. With `--force`, it proceeds.\n- **[AC4]** Given a missing/empty staging dir, When cutover runs,\n  Then it refuses with a clear error and mutates nothing.\n- **[AC5]** Given `--all-notebooks` (default), When cutover runs,\n  Then every notebook with a promotable staging dir is cut over;\n  per-notebook failures are isolated (one bad notebook does not abort\n  the others) and surfaced in the summary + a non-zero exit.\n- **[AC6]** Backup retention: after a cutover, at most N=2\n  `lancedb-prev-*` dirs remain per notebook; older ones pruned.\n- **[AC7]** BM25 consistency: after cutover, the BM25 index for the\n  newly-active `corpus_version` either exists or is rebuilt by the\n  cutover (resolve which in research). A query against the cut-over\n  notebook must not silently fall back to a stale BM25 version.\n- **[AC8]** `make notebook-cutover` help text + the\n  `tools/notebook_cutover.py` docstring document the\n  measure-then-promote workflow and the rollback command.\n- **[AC9]** The TWO live staging datasets (bridgeland v645, shimura\n  v143) are promotable by the new tool \u2014 verified by the operator\n  running `make notebook-cutover` post-milestone (operator-deferred,\n  cross-referenced in operator-followup.md). The pipeline tests use\n  synthetic fixtures.\n- **[X-1]** `EXPECTED_TOOL_SCHEMA_SHA256` UNCHANGED (no MCP surface).\n- **[X-2]** `EXPECTED_BP1_SHA256` UNCHANGED.\n- **[X-3]** `ruff check .` clean; `make test` green; 2900+ tests.\n- **[X-4]** NO `CHUNKER_VERSION` bump.\n\n**Out of scope (Won't list).**\n\n- Auto-cutover inside `re_embed_all` (deliberately rejected \u2014 breaks\n  the measurement workflow; see design decision 1).\n- The shared-corpus `make cutover` (E11_S05) \u2014 unchanged; this is the\n  notebook-scoped sibling.\n- The 3 non-UTF-8 `.tex` papers (`1506.02744`, `1610.04128`,\n  `2604.26329`) that failed preamble extraction in\n  notebook-preamble-recovery-m1 \u2014 that's a Latin-1-decode-fallback fix\n  in `ingest/preamble.py`, a separate milestone.\n- The `PYTHON ?= python3` Makefile default that resolves to 3.9 on\n  this workstation (operators must pass `PYTHON=python3.12` or use\n  `uv run`). Real annoyance but affects ALL targets, not just these \u2014\n  separate cleanup. **Quick-win note:** the research may recommend\n  documenting the `uv run` invocation in the new target's help text\n  to spare the operator the 3.9 trap.\n- Server-coordinated hot-swap (graceful handle release). The cutover\n  warns if the server is up; coordinating a live reload is future work.\n\n**Dependencies.** None blocking. The live staging data exists and is\nhealthy; AC9's promotion is the operator's post-milestone step.\n\n**Complexity.** M.\n\n**Specialist suggestions.** `security-reviewer` (path containment on\nthe notebook slug \u2192 directory rename surface, Threat 1) +\n`determinism-reviewer` (corpus_version comparison + the BM25-version\nconsistency gate).\n\n**External writes the implementation will require.** None \u2014 all\noperations are local filesystem renames within `var/arxmcp/notebooks/`.\nNo git push, no PR, no infra mutation, no network egress.\n\n**Notes for the researcher agents (phase 1).**\n\n1. Read `make cutover` / the E11_S05 cutover implementation (find it\n   via `grep -rl cutover tools/ ingest/ infra/`) \u2014 it is the atomic-\n   swap + rollback precedent. Quote its swap sequence verbatim and\n   adapt for the per-notebook path layout.\n2. Resolve the BM25 consistency question (AC7) definitively: read\n   `ingest/bm25_indexer.py` and how the notebook retrieval path picks\n   the BM25 version. Does the first query rebuild lazily, or does a\n   stale BM25 silently serve old results?\n3. Confirm the notebook server-read path is `<slug>/lancedb` (not an\n   alias) so the swap actually changes what's served. Check\n   `server/` notebook retrieval resolution.\n4. Quantify backup disk cost: a bridgeland `lancedb` is ~? MB; keeping\n   N=2 `lancedb-prev-*` per notebook across all notebooks \u2014 is N=2 the\n   right retention, or should it be configurable?\n5. Threat-1: the `--notebook=<slug>` arg flows into a directory path.\n   Reuse `tools._notebook_common.validate_slug` + `notebook_dir`\n   (which already enforce the slug regex + symlink rejection). Do NOT\n   re-implement.\n# notebook-preamble-recovery \u2014 Fetch raw .tex on the ar5iv path so preambles can be extracted\n\n**Owner:** Chris Dare\n**Created:** 2026-05-27\n**Status:** scoped\n**Source:** post-`make re-embed-all` log triage on the embedder-truncation-m1 cutover\n\n**Related artifacts (read these first):**\n\n- [`.claude/notes/scans/preamble-without-raw-tex-2026-05-27.md`](../notes/scans/preamble-without-raw-tex-2026-05-27.md)\n  \u2014 the canonical research brief. Diagnoses the gap, surveys five\n  remediation options, recommends **Option A** explicitly, lists\n  files/tests/ACs. **This roadmap milestone is the implementation\n  of Option A.**\n- [`.claude/notes/milestones/embedder-truncation-m1/operator-followup.md`](../notes/milestones/embedder-truncation-m1/operator-followup.md)\n  \u2014 the immediate-prior milestone whose `make re-embed-all` exposed\n  this gap on every ar5iv-only paper (~65 in the live notebook tree).\n\n**Why now.** The Phase-4-shipped `chore(ingest): quiet structural noise\nin re-embed logs` commit (b489048) demoted the per-paper preamble\nERROR + traceback to a single WARNING line. That cleans up the\n**symptom** in the log. This milestone fixes the **root cause**:\n`extract_preamble` requires raw `.tex` on disk, and the ar5iv-only\ningest path never fetches it. Today, 100% of ar5iv-only papers have\n`preamble_ref=null` and `get_definitions` returns\n`{definitions: [], total: 0, index_status: \"absent\"}` for them.\n\n---",
+  "phase": "research-complete",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-28T03:19:57Z",
+      "left_at": "2026-05-28T03:29:41Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-28T03:29:41Z",
+      "left_at": "2026-05-28T03:29:41Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-28T03:29:41Z",
+      "left_at": null,
+      "phase": "research-complete"
+    }
+  ],
+  "rectification_commit": null,
+  "regression_tests_added": [],
+  "research_briefs": [
+    {
+      "agent_id": "researcher-1",
+      "brief_path": ".claude/notes/milestones/notebook-cutover-m1/research-brief-1.md",
+      "summary": "Server reads SHARED corpus not per-notebook lancedb; cutover advances re-embed source"
+    },
+    {
+      "agent_id": "researcher-2",
+      "brief_path": ".claude/notes/milestones/notebook-cutover-m1/research-brief-2.md",
+      "summary": "BM25 global+version-keyed; build pre-swap; 7 failure modes; LanceDB dir move-safe"
+    }
+  ],
+  "research_mode": "standard",
+  "research_synthesis": ".claude/notes/milestones/notebook-cutover-m1/research-synthesis.md",
+  "updated_at": "2026-05-28T03:29:41Z"
+}
