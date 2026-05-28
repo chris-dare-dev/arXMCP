@@ -1,5 +1,30 @@
 # Milestone Researcher — Project Memory
 
+## 2026-05-28 — textbook-ingest-m7 — _compute_chunk_id-hardcodes-arxiv-prefix
+`ingest/chunker.py::_compute_chunk_id` (line 1050) hardcodes `f"arxiv:{paper_id}:{digest}"`.
+Textbook chunker CANNOT call it directly — must implement `_compute_textbook_chunk_id`
+emitting `f"textbook:{slug}:{digest}"`. Same hash discipline (SHA-256, NFC), different prefix.
+
+## 2026-05-28 — textbook-ingest-m7 — page-metadata-lost-through-latexml
+MinerU content_list.json carries `page_idx` per block. LaTeXML HTML5 output has NO
+page_idx attributes — page info is lost in the m6 MinerU→LaTeXML pipeline.
+page_start/page_end must be NULL in m7 v0; flag with comment for m8.
+
+## 2026-05-28 — textbook-ingest-m7 — stacks-project-NOT-latexml-rendered
+live stacks.math.columbia.edu does NOT use LaTeXML (uses custom engine + MathJax).
+4-char tags (01AB) are Stacks-internal, not LaTeXML id attributes. Test fixture
+must be project-original synthetic HTML5 mimicking LaTeXML shape — not scraped.
+
+## 2026-05-28 — textbook-ingest-m7 — ChunkRecord-has-all-m2-fields-no-gap
+`ingest/chunker_types.py::ChunkRecord` already carries ALL textbook-ingest-m2 columns:
+source_kind, license, chapter, page_start, page_end, textbook_slug, parser_used.
+No dataclass extension needed for m7; no CHUNKER_VERSION bump required.
+
+## 2026-05-28 — textbook-ingest-m7 — textbook-chunker-needs-own-version-constant
+CHUNKER_VERSION = "v1.1" is shared by arXiv chunker. Bumping it for textbook-only
+changes forces re-embedding ALL arXiv chunks. Define TEXTBOOK_CHUNKER_VERSION = "tv1.0"
+in ingest/textbook_chunker.py as a separate constant.
+
 ## 2026-05-27 — textbook-ingest-m1 — CHUNK_ID_RE-uses-dollar-not-Z-anchor
 `ingest/identifiers.py::CHUNK_ID_RE` is built as `re.compile(rf"^{CHUNK_ID_PATTERN}$")` —
 uses `$` (not `\Z`). `_PAPER_ID_FULL_PATTERN` already fixed to `\Z` (F3 closure). The
@@ -767,3 +792,92 @@ blocks. Strategy B (per-block latexmlmath via content_list) is inoperable. Use S
 IngestTaskTracker (server/ingest_tracker.py) is the authoritative pattern for fire-and-
 forget background tasks: asyncio.create_task + global Semaphore(1) + DB row before spawn
 + CancelledError handler in shutdown. Raw FastAPI BackgroundTasks has NO lifespan hook.
+
+## 2026-05-28 — notebook-cutover-m1 — BM25-index-is-global-not-per-notebook
+`BM25_INDEX_ROOT = var/arxmcp/index/bm25/` is GLOBAL. Keyed only by `corpus_version`
+integer. Per-notebook BM25 DOES NOT EXIST as a separate namespace. After notebook
+cutover to a new corpus_version, the cutover tool MUST call
+`build_bm25_index(staging_lancedb_path, corpus_version=new_version)` BEFORE the
+rename sequence. The server's auto-build in `BM25Phase.startup` only fires for the
+shared corpus path at server startup — it will NOT build per-notebook BM25.
+
+## 2026-05-28 — notebook-cutover-m1 — two-rename-window-is-not-atomic
+The E11_S05 / notebook-cutover two-rename swap is NOT a single atomic operation.
+Step 1: `os.rename(active, rollback)`. Step 2: `os.rename(staging, active)`.
+Between them, `lancedb/` does not exist. A crash/SIGKILL in that window leaves the
+server unable to start. Mitigation: print recovery instructions BEFORE swapping,
+restore in OSError handler (as in ops/cutover.py:558-568).
+
+## 2026-05-28 — notebook-cutover-m1 — per-notebook-lancedb-is-ingest-source-not-query-path
+`server/routes/notebooks.py:273` sets `lancedb_path = str(nb_dir / "lancedb")` and
+stores it as TEXT in SQLite (metadata only; NOT used for MCP query routing). The MCP
+server's `Resources.startup` reads ONLY `config.lancedb_path` (the SHARED corpus at
+`var/arxmcp/index/lancedb`). The per-notebook `<slug>/lancedb` is (a) the write target
+for `tools/notebook_ingest.py` (initial ingest), and (b) the RE-EMBED SOURCE for
+`re_embed_all.py`. Cutover promotes `lancedb-staging → lancedb` so the next re-embed
+starts from the improved version. BM25 global path `var/arxmcp/index/bm25/v<N>/` keyed
+by per-notebook corpus_version; cutover must call `build_bm25_index` post-swap.
+
+## 2026-05-28 — notebook-retrieval-m1 — shared-corpus-is-empty-server-cannot-start
+`var/arxmcp/index/lancedb/` is empty (64 bytes, no corpus-version.json). The server
+cannot start with default config.lancedb_path. The notebook LanceDbs (bridgeland v369,
+shimura v49) are the ONLY startable corpora today. Any notebook-retrieval design that
+requires the server to be running against the shared corpus must first populate it.
+
+## 2026-05-28 — notebook-retrieval-m1 — bm25-is-global-not-per-notebook
+BM25_INDEX_ROOT is hardcoded: `var/arxmcp/index/bm25/`. The per-version dir `v<N>/`
+is global regardless of which lancedb_path is passed to BM25Phase.startup(). For
+notebook corpus_version=369, the artifact at `var/arxmcp/index/bm25/v369/` is
+automatically used (already built). No per-notebook BM25 path change needed.
+
+## 2026-05-28 — notebook-retrieval-m1 — filters-is-free-form-dict-no-schema-change
+`handle_search_papers` filters arg: `dict[str, Any] | None`. Free-form dict. Adding
+"notebook" to SUPPORTED_FILTER_KEYS is handler-body-only — zero tool schema change,
+zero EXPECTED_TOOL_SCHEMA_SHA256 re-pin, zero BP1 invalidation. BUT: the Field
+description string IS part of the schema hash. Do NOT change filters Field description
+or SEARCH_PAPERS tool description in tools.py to avoid re-pin.
+
+## 2026-05-28 — notebook-retrieval-m1 — filters-dict-is-free-form-no-schema-change
+`server/handlers/search.py::handle_search_papers` types `filters` as
+`dict[str, Any] | None`. FastMCP renders this as `{"type": "object"}` with no
+named properties. Adding `notebook` as a recognized key requires NO `inputSchema`
+change → no EXPECTED_TOOL_SCHEMA_SHA256 re-pin, no BP1 cache invalidation.
+This is the proof for fork-A in notebook-retrieval-m1.
+
+## 2026-05-28 — notebook-retrieval-m1 — cache-key-missing-slug-is-correctness-bug
+`derive_tier1_key` in `server/cache_sqlite.py` keys on: query, filters_json, k,
+corpus_version, level. NO notebook slug. Two notebooks with the same corpus_version
+integer WILL collide in Tier-1. Bridgeland-stability=v369, shimura-varieties=v49.
+Any new notebook reaching v369 or v49 silently gets wrong results from cache.
+Fix: add notebook_slug as a length-prefixed component + bump SCHEMA_VERSION in
+cache_sqlite.py (drops old entries on restart — acceptable cache-cold-start penalty).
+
+## 2026-05-28 — notebook-retrieval-m1 — shared-corpus-empty-server-wont-start
+`var/arxmcp/index/lancedb/corpus-version.json` does NOT exist. `Resources.startup`
+raises `CorpusNotIngestedError` on absent corpus-version.json. The server cannot
+start against the shared corpus today. AC4 ("no regression with shared corpus") is
+aspirational, not current-state. Implementer must decide: notebook-only mode vs
+deferred AC4.
+
+## 2026-05-28 — notebook-retrieval-m1 — resources-singleton-not-multi-corpus
+`server/resources.py::Resources` is a single-corpus dataclass (one chunks_table,
+one bm25_phase, one ann_phase). Opening a per-notebook LanceDB requires a separate
+dict[slug, NotebookResources] + asyncio.Lock lazy-init, NOT touching the global
+Resources singleton. The BGE-M3 embedder module singleton IS shared (server/query_encoder.py).
+
+## 2026-05-28 — textbook-ingest-m7 — _compute_chunk_id-hardcodes-arxiv-prefix
+`ingest/chunker.py::_compute_chunk_id(paper_id, preamble_text, body_text)` returns
+`f"arxiv:{paper_id}:{sha256(...)[:16]}"` — hardcoded `arxiv:` prefix. A textbook
+chunker MUST NOT call this; implement `_compute_textbook_chunk_id(slug, ...)` returning
+`f"textbook:{slug}:{sha256(...)[:16]}"` with identical NFC + UTF-8 discipline.
+
+## 2026-05-28 — textbook-ingest-m7 — _resolve_preamble_doc-fails-for-textbook-paper-ids
+`ingest/chunker.py::_resolve_preamble_doc(paper_id)` reads
+`PREAMBLE_DIR/<paper_id>/preamble.json`. For `paper_id = "textbook:*"` the colon makes
+an invalid filesystem path. Use `preamble_text = ""` (empty) in textbook chunker v0 and
+add a `# TODO(m8): per-chapter preamble inheritance` comment. Do NOT call this helper.
+
+## 2026-05-28 — textbook-ingest-m7 — ChunkRecord-already-has-all-m2-textbook-fields
+All m2 textbook fields (`source_kind`, `license`, `chapter`, `page_start`, `page_end`,
+`textbook_slug`, `parser_used`) are in `ingest/chunker_types.py::ChunkRecord` with
+defaults (source_kind="arxiv", others=None). `to_dict()` serializes all 7. No gap.

@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"/><title>Two-Chapter Textbook Fixture</title>
+<meta name="generator" content="arXMCP/m6/mineru+latexml (synthetic fixture)"/></head>
+<body>
+<article class="ltx_document">
+
+  <section class="ltx_chapter" id="Ch1">
+    <h2 class="ltx_title ltx_title_chapter">Chapter 1. Affine Schemes</h2>
+
+    <section class="ltx_section" id="Ch1.S1">
+      <h3 class="ltx_title ltx_title_section">1.1. The Spectrum of a Ring</h3>
+
+      <div class="ltx_para">
+        <p class="ltx_p">In this chapter we develop the foundations of affine schemes.
+        The central construction associates to a commutative ring its prime spectrum,
+        a topological space equipped with a structure sheaf. We assume familiarity
+        with basic commutative algebra throughout this exposition.</p>
+      </div>
+
+      <div class="ltx_theorem ltx_theorem_theorem" id="Ch1.S1.Thm1">
+        <h6 class="ltx_title ltx_runin ltx_font_bold ltx_title_theorem">Theorem 1.1 (Spec Functoriality).</h6>
+        <div class="ltx_para">
+          <p class="ltx_p">For every ring homomorphism
+          <math xmlns="http://www.w3.org/1998/Math/MathML" display="inline" alttext="\varphi\colon A\to B"><mi>&#x3C6;</mi><mo>:</mo><mi>A</mi><mo>&#x2192;</mo><mi>B</mi></math>
+          the induced map on spectra is continuous.</p>
+        </div>
+      </div>
+
+      <div class="ltx_proof">
+        <h6 class="ltx_title ltx_runin ltx_font_italic ltx_title_proof">Proof.</h6>
+        <div class="ltx_para">
+          <p class="ltx_p">The preimage of a basic open set
+          <math xmlns="http://www.w3.org/1998/Math/MathML" display="inline" alttext="D(f)"><mi>D</mi><mo>(</mo><mi>f</mi><mo>)</mo></math>
+          under the induced map is the basic open set
+          <math xmlns="http://www.w3.org/1998/Math/MathML" display="inline" alttext="D(\varphi(f))"><mi>D</mi><mo>(</mo><mi>&#x3C6;</mi><mo>(</mo><mi>f</mi><mo>)</mo><mo>)</mo></math>.
+          Since basic open sets form a basis for the Zariski topology, continuity follows.</p>
+        </div>
+      </div>
+    </section>
+  </section>
+
+  <section class="ltx_chapter" id="Ch2">
+    <h2 class="ltx_title ltx_title_chapter">Chapter 2. Sheaves of Modules</h2>
+
+    <section class="ltx_section" id="Ch2.S1">
+      <h3 class="ltx_title ltx_title_section">2.1. Quasi-coherent Sheaves</h3>
+
+      <div class="ltx_para">
+        <p class="ltx_p">A quasi-coherent sheaf on an affine scheme corresponds to a module
+        over the underlying ring. This equivalence of categories is the cornerstone of
+        the theory and allows algebraic computations to be reinterpreted geometrically.</p>
+      </div>
+
+      <div class="ltx_theorem ltx_theorem_lemma" id="Ch2.S1.Lem1">
+        <h6 class="ltx_title ltx_runin ltx_font_bold ltx_title_lemma">Lemma 2.1 (Module-Sheaf Equivalence).</h6>
+        <div class="ltx_para">
+          <p class="ltx_p">The global-sections functor and the tilde construction are mutually
+          inverse equivalences between modules and quasi-coherent sheaves.</p>
+        </div>
+      </div>
+
+      <div class="ltx_proof">
+        <h6 class="ltx_title ltx_runin ltx_font_italic ltx_title_proof">Proof.</h6>
+        <div class="ltx_para">
+          <p class="ltx_p">One checks the unit and counit of the adjunction are isomorphisms
+          on the basis of distinguished open sets, then extends by the sheaf condition.</p>
+        </div>
+      </div>
+    </section>
+  </section>
+
+</article>
+</body>
+</html>

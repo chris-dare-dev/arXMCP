@@ -1,0 +1,138 @@
+[
+  {
+    "body_text": "Theorem 1.1 (Spec Functoriality). For every ring homomorphism $\\varphi\\colon A\\to B$ the induced map on spectra is continuous.",
+    "body_tokens": "Theorem Spec Functoriality For every ring homomorphism varphi colon A to B the induced map on spectra is continuous",
+    "chapter": "Chapter 1. Affine Schemes",
+    "chunk_id": "textbook:two-chapter-book:db13537b5ddea925",
+    "chunker_version": "tv0.1",
+    "kind": "stmt",
+    "license": "arxiv-license",
+    "page_end": null,
+    "page_start": null,
+    "paper_id": "textbook:two-chapter-book",
+    "parser_used": "mineru+latexml",
+    "preamble_ref": null,
+    "section_path": [
+      "Chapter 1. Affine Schemes",
+      "1.1. The Spectrum of a Ring"
+    ],
+    "source_kind": "textbook",
+    "textbook_slug": "two-chapter-book",
+    "theorem_label": "Ch1.S1.Thm1",
+    "theorem_name": "Spec Functoriality",
+    "truncated": false
+  },
+  {
+    "body_text": "Proof. The preimage of a basic open set $D(f)$ under the induced map is the basic open set $D(\\varphi(f))$. Since basic open sets form a basis for the Zariski topology, continuity follows.",
+    "body_tokens": "Proof The preimage of a basic open set D f under the induced map is the basic open set D varphi f Since basic open sets form a basis for the Zariski topology continuity follows",
+    "chapter": "Chapter 1. Affine Schemes",
+    "chunk_id": "textbook:two-chapter-book:a5e651a9221c5e28",
+    "chunker_version": "tv0.1",
+    "kind": "proof",
+    "license": "arxiv-license",
+    "page_end": null,
+    "page_start": null,
+    "paper_id": "textbook:two-chapter-book",
+    "parser_used": "mineru+latexml",
+    "preamble_ref": null,
+    "section_path": [
+      "Chapter 1. Affine Schemes",
+      "1.1. The Spectrum of a Ring"
+    ],
+    "source_kind": "textbook",
+    "textbook_slug": "two-chapter-book",
+    "theorem_label": "Ch1.S1.Thm1",
+    "theorem_name": "Spec Functoriality",
+    "truncated": false
+  },
+  {
+    "body_text": "Lemma 2.1 (Module-Sheaf Equivalence). The global-sections functor and the tilde construction are mutually inverse equivalences between modules and quasi-coherent sheaves.",
+    "body_tokens": "Lemma Module-Sheaf Equivalence The global-sections functor and the tilde construction are mutually inverse equivalences between modules and quasi-coherent sheaves",
+    "chapter": "Chapter 2. Sheaves of Modules",
+    "chunk_id": "textbook:two-chapter-book:0c53cb328cd24718",
+    "chunker_version": "tv0.1",
+    "kind": "lemma",
+    "license": "arxiv-license",
+    "page_end": null,
+    "page_start": null,
+    "paper_id": "textbook:two-chapter-book",
+    "parser_used": "mineru+latexml",
+    "preamble_ref": null,
+    "section_path": [
+      "Chapter 2. Sheaves of Modules",
+      "2.1. Quasi-coherent Sheaves"
+    ],
+    "source_kind": "textbook",
+    "textbook_slug": "two-chapter-book",
+    "theorem_label": "Ch2.S1.Lem1",
+    "theorem_name": "Module-Sheaf Equivalence",
+    "truncated": false
+  },
+  {
+    "body_text": "Proof. One checks the unit and counit of the adjunction are isomorphisms on the basis of distinguished open sets, then extends by the sheaf condition.",
+    "body_tokens": "Proof One checks the unit and counit of the adjunction are isomorphisms on the basis of distinguished open sets then extends by the sheaf condition",
+    "chapter": "Chapter 2. Sheaves of Modules",
+    "chunk_id": "textbook:two-chapter-book:e5c1a20bcb4e3dc5",
+    "chunker_version": "tv0.1",
+    "kind": "proof",
+    "license": "arxiv-license",
+    "page_end": null,
+    "page_start": null,
+    "paper_id": "textbook:two-chapter-book",
+    "parser_used": "mineru+latexml",
+    "preamble_ref": null,
+    "section_path": [
+      "Chapter 2. Sheaves of Modules",
+      "2.1. Quasi-coherent Sheaves"
+    ],
+    "source_kind": "textbook",
+    "textbook_slug": "two-chapter-book",
+    "theorem_label": "Ch2.S1.Lem1",
+    "theorem_name": "Module-Sheaf Equivalence",
+    "truncated": false
+  },
+  {
+    "body_text": "In this chapter we develop the foundations of affine schemes. The central construction associates to a commutative ring its prime spectrum, a topological space equipped with a structure sheaf. We assume familiarity with basic commutative algebra throughout this exposition.",
+    "body_tokens": "In this chapter we develop the foundations of affine schemes The central construction associates to a commutative ring its prime spectrum a topological space equipped with a structure sheaf We assume familiarity with basic commutative algebra throughout this exposition",
+    "chapter": "Chapter 1. Affine Schemes",
+    "chunk_id": "textbook:two-chapter-book:f44a150a68fe371c",
+    "chunker_version": "tv0.1",
+    "kind": "section",
+    "license": "arxiv-license",
+    "page_end": null,
+    "page_start": null,
+    "paper_id": "textbook:two-chapter-book",
+    "parser_used": "mineru+latexml",
+    "preamble_ref": null,
+    "section_path": [
+      "Chapter 1. Affine Schemes"
+    ],
+    "source_kind": "textbook",
+    "textbook_slug": "two-chapter-book",
+    "theorem_label": null,
+    "theorem_name": null,
+    "truncated": false
+  },
+  {
+    "body_text": "A quasi-coherent sheaf on an affine scheme corresponds to a module over the underlying ring. This equivalence of categories is the cornerstone of the theory and allows algebraic computations to be reinterpreted geometrically.",
+    "body_tokens": "A quasi-coherent sheaf on an affine scheme corresponds to a module over the underlying ring This equivalence of categories is the cornerstone of the theory and allows algebraic computations to be reinterpreted geometrically",
+    "chapter": "Chapter 2. Sheaves of Modules",
+    "chunk_id": "textbook:two-chapter-book:cd69864be7163550",
+    "chunker_version": "tv0.1",
+    "kind": "section",
+    "license": "arxiv-license",
+    "page_end": null,
+    "page_start": null,
+    "paper_id": "textbook:two-chapter-book",
+    "parser_used": "mineru+latexml",
+    "preamble_ref": null,
+    "section_path": [
+      "Chapter 2. Sheaves of Modules"
+    ],
+    "source_kind": "textbook",
+    "textbook_slug": "two-chapter-book",
+    "theorem_label": null,
+    "theorem_name": null,
+    "truncated": false
+  }
+]
