@@ -121,3 +121,42 @@ to content-loss when the wrapped body contains a literal \end{document}
 documented cross-restart 409 fallback (has_running_parse) is actually
 CALLED by the route — m6 implemented+tested it at the store layer but
 never wired it, leaving a TOCTOU + dead code. MEDIUM each.
+
+## 2026-05-28 — notebook-retrieval-m1 — forkC-structural-isolation-vs-persisted-cache
+When a milestone claims "per-X isolation is automatic because one
+process = one X" (fork-C ARXMCP_NOTEBOOK here), STRESS-TEST the claim
+against PERSISTED state that survives a relaunch with a different X.
+The Tier-1 retrieval cache (`server/cache_sqlite.py`) keys on
+`(query,filters,k,corpus_version,level)` with NO notebook slug, and
+`cache_db_path` default (`var/arxmcp/cache/retrieval.db`) is NOT
+rewritten by the notebook validator — only `lancedb_path` is. So two
+notebook servers relaunched at the SAME shared cache file collide IFF
+their corpus_version collides. corpus_version is the per-dataset
+LanceDB MVCC int (bridgeland=369, shimura=49 on disk — NOT the paper
+count; NOT globally unique), so a fresh small notebook can collide →
+cross-notebook wrong results within the 1h TTL. `RetrievalCache.open`
+does NOT purge_other_corpus_versions and rehydrates ALL unexpired rows.
+Cheapest fix = derive a per-notebook `cache_db_path` sibling in the
+same validator. The "isolation is automatic" reasoning holds WITHIN a
+process but never across relaunches against shared on-disk caches.
+When a config validator rewrites ONE path (lancedb_path), enumerate
+ALL sibling path fields (cache_db_path, ops_dir, data_dir,
+notebooks_db_path) and decide per-field whether sharing is benign
+(data_dir disk metric, ops_dir cron sentinels = benign) or a
+collision vector (cache_db_path = HIGH).
+
+## 2026-05-28 — textbook-ingest-m8 — verify-descope-by-tracing-input-contract
+When a milestone DESCOPES a feature as "structurally inapplicable", do
+NOT take the synthesis at its word — trace the actual INPUT CONTRACT to
+the disputed code. m8 descoped preamble inheritance claiming "MinerU
+sees no author macros". Verified by reading textbook_parser.py:351-357
+(input is `-p <pdf_path>`, a RENDERED PDF) + preamble.py:313-358
+(`extract_preamble` is `.tex`-source-only, FileNotFoundError otherwise).
+The descope was CORRECT. The right adversary move on a descope is to
+confirm the skipped work is genuinely impossible/pointless given the
+real data flow, then mark CLEAN with file:line evidence — an over-eager
+"this skipped work!" HIGH would have been wrong here. Counter-balances
+the "deferred-without-tracking" reflex: a descope backed by a verified
+input-contract argument is shippable, not a dodge. Residual findings on
+such milestones are doc-precision (e.g. off-by-one column counts in the
+decision doc that IS the deliverable), not missing logic.

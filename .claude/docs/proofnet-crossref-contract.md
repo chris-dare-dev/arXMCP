@@ -8,12 +8,14 @@ mapping preserved"* as a documented join contract at zero schema cost.
 
 ## What ProofNet is
 
-ProofNet (Azerbayev et al., arXiv:2302.12433; HF dataset
-`hoskinson-center/proofnet`) is an autoformalization benchmark of 371
-undergraduate-mathematics theorems/exercises (185 validation, 186
-test) drawn from standard textbooks. The project names it as a target
-benchmark in `01-mission-and-context.md` (the sketcher→autoformalizer
-pipeline's evaluation surface).
+ProofNet (Azerbayev et al., arXiv:2302.12433) is an autoformalization
+benchmark of 371 undergraduate-mathematics theorems/exercises (185
+validation, 186 test) drawn from standard textbooks. It is published as
+the GitHub repo `github.com/zhangir-azerbayev/ProofNet` and mirrored as
+the canonical Hugging Face dataset `hoskinson-center/proofnet` — same
+project, two distribution points. The arXMCP design constitution names
+it as a target benchmark in `01-mission-and-context.md` (the
+sketcher→autoformalizer pipeline's evaluation surface).
 
 Each ProofNet entry has 5 fields:
 
@@ -83,7 +85,9 @@ zero data gain (m8 research-brief-2 FM-5).
 ## Why no schema column at m8
 
 - `ChunkRecord` (`ingest/chunker_types.py`) already carries the 4 join
-  fields. `ingest/schema.py::CHUNKS_SCHEMA_V1` needs no 22nd column.
+  fields. `ingest/schema.py::CHUNKS_SCHEMA_V1` needs no new column
+  (verify: `len(CHUNKS_SCHEMA_V1) == 21` — a `proofnet_id` would be an
+  additional field we deliberately omit).
 - A `proofnet_id` column would be NULL for every chunk the chunker
   produces (no auto-population source), and adding it triggers
   `ingest/store.py::_migrate_chunks_schema_if_needed` → a corpus_version

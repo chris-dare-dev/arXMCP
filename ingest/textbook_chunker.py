@@ -36,7 +36,7 @@ Design decisions (research-synthesis §"LOAD-BEARING constraints")
 4. ``page_start`` / ``page_end`` stay ``None`` — MinerU's
    ``content_list.json`` page metadata is not propagated through the
    LaTeXML render. Correlating it back is a future item (not in the e3
-   outcome); see textbook-preamble-decision.md §related-deferrals.
+   outcome); see textbook-preamble-decision.md §"Related deferrals".
 5. ``TEXTBOOK_CHUNKER_VERSION`` is SEPARATE from
    ``chunker_types.CHUNKER_VERSION`` so a textbook-only change never
    forces arXiv corpus re-embedding.
@@ -374,7 +374,7 @@ def _chunk_textbook_impl(
         # markdown→LaTeX→LaTeXML render. Correlating MinerU's
         # content_list.json page_idx back onto rendered chunks is a
         # future item (NOT m8 — not part of the e3 outcome); see
-        # .claude/docs/textbook-preamble-decision.md §"related deferrals".
+        # .claude/docs/textbook-preamble-decision.md §"Related deferrals".
         chunk.page_start = None
         chunk.page_end = None
         chunk.body_tokens = tokenize_body(chunk.body_text)
