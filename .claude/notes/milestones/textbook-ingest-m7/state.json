@@ -1,14 +1,20 @@
 {
   "brief_source": "",
   "created_at": "2026-05-28T03:41:21Z",
-  "critics_run": [],
+  "critics_run": [
+    {
+      "critic": "adversary",
+      "output_path": ".claude/notes/milestones/textbook-ingest-m7/critique-adversary.md",
+      "summary": "0C/0H/3M/2L"
+    }
+  ],
   "critique_finding_counts": {
     "critical": 0,
     "high": 0,
-    "low": 0,
-    "medium": 0
+    "low": 2,
+    "medium": 3
   },
-  "critique_path": null,
+  "critique_path": ".claude/notes/milestones/textbook-ingest-m7/critique-merged.md",
   "deferred_findings": [],
   "external_writes_authorized": false,
   "external_writes_completed": false,
@@ -16,14 +22,16 @@
   "fixed_findings": [],
   "id": "textbook-ingest-m7",
   "implementation_base": "03bdcbe66d39411c862d8d77665d707ae85df6f7",
-  "implementation_branch": null,
-  "implementation_commit_range": null,
-  "implementation_commits": [],
+  "implementation_branch": "main",
+  "implementation_commit_range": "03bdcbe66d39411c862d8d77665d707ae85df6f7..1656ec6f8dffb3b1da0d91a647faf34f1af33805",
+  "implementation_commits": [
+    "1656ec6f8dffb3b1da0d91a647faf34f1af33805"
+  ],
   "implementation_path": "inline",
   "implementation_specialist": null,
   "invalidated_findings": [],
   "milestone_brief": "# Milestone: textbook-ingest-m7 \u2014 Hierarchical textbook chunker (e3 spine)\n\n**Epic:** textbook-ingest-e3 (Textbook structure is chunked book/chapter/section). First of two milestones (m7 = spine; m8 = preamble inheritance + ProofNet mapping).\n**Type:** value \u2014 operator can run the chunker against m6's HTML5+MathML output and inspect book/chapter/section chunks in the CLI.\n**Estimated size:** M-L (new chunker module reusing existing primitives + golden fixtures + tests).\n**Dependencies:** textbook-ingest-e1 (m1-m3 schema: `source_kind`, `chapter`, `page_start`, `page_end`, `textbook_slug`, `parser_used` columns + `textbook:<slug>:<sha>` chunk-id form). e2 (m5/m6) produces the HTML5+MathML this chunker consumes, but golden fixtures decouple m7 development from a live MinerU run.\n**Roadmap link:** `plans/textbook-ingest-roadmap.md` \u00a7textbook-ingest-e3.\n\n## Background \u2014 what already exists\n\n- **`ingest/chunker.py`** (1116 LOC) is the arXiv structural chunker. Public entry `chunk_paper(paper_id) -> list[ChunkRecord]` reads `PARSED_DIR/<paper_id>/index.html` and writes `var/arxmcp/corpus/chunks/<paper_id>/<idx>.json`. Reusable PRIMITIVES m7 should call, NOT reimplement:\n  - `_extract_section_path(tag)` / `_extract_section_chunks(...)` \u2014 HTML5 section walking.\n  - `_extract_chunks_from_container(...)` \u2014 theorem/lemma/proof environment pairing.\n  - `_env_kind(env_name)`, `_is_theorem_like(env_name)`, `_extract_theorem_label/_name` \u2014 environment classification.\n  - `_window_proof_text`, `_truncate_to_token_budget`, `_count_tokens` \u2014 token discipline.\n  - `_compute_chunk_id(paper_id, preamble_text, body_text)` \u2014 deterministic SHA chunk-id.\n  - `_resolve_preamble_doc(paper_id)` \u2014 per-paper preamble (m7 may use as a v0 fallback; textbook-shaped per-chapter inheritance is m8).\n- **`ingest/chunker_types.py::ChunkRecord`** \u2014 the output dataclass. Has a `chunker_version` field. m7 must check whether ChunkRecord already carries `chapter`/`page_start`/`page_end`/`source_kind`/`textbook_slug`/`parser_used` fields, or whether those are LanceDB-schema-only (m2 added them to `ingest/schema.py`). FLAG any gap.\n- **m6 output:** HTML5+MathML at `var/arxmcp/notebooks/<slug>/parsed/<flat_paper_id>/index.html` (text/html, native MathML, LaTeXML-rendered). `flat_paper_id = paper_id.replace(\"/\",\"_\").replace(\":\",\"_\")`, so `textbook:my-book` \u2192 `textbook_my-book`.\n- **spike-3 isolation:** textbook chunks live in the PER-NOTEBOOK LanceDB (`var/arxmcp/notebooks/<slug>/lancedb/`), NOT the shared arXiv corpus. The chunker's write path must respect this blast-radius boundary (`tests/test_textbook_notebook_isolation.py` is the contract).\n- **m1 chunk-id form:** `CHUNK_ID_PATTERN` in `ingest/identifiers.py` accepts `textbook:<slug>:<sha>`. The three-copy byte-equality lock between `ingest/identifiers.py`, `ingest/chunker.py`, `tools/validate_eval_fixtures.py` must stay intact.\n\n## Scope \u2014 acceptance criteria\n\n### Core chunker module\n- [ ] New module `ingest/textbook_chunker.py` exposing `chunk_textbook(slug: str, paper_id: str) -> list[ChunkRecord]` (read m6's notebook-scoped HTML5, emit hierarchical chunks). Mirror `chunk_paper`'s resilience envelope (`PER_PAPER_FAILURE_EXCEPTIONS` catch, failure-log row, returns `[]` on unrecoverable error; programmer bugs propagate).\n- [ ] Detect **book / chapter / section** structure from the HTML5. Textbook HTML has a deeper sectioning hierarchy than arXiv papers (`\\chapter`, `\\part`, `\\section`, `\\subsection`). Map the LaTeXML HTML5 class/heading structure to the three granularity levels (v0 cut per challenger F2 \u2014 NO definition/exercise levels yet).\n- [ ] Emit `ChunkRecord`s tagged with granularity + populate the m2 columns: `source_kind=\"textbook\"`, `chapter` (the chapter label/number), `page_start`/`page_end` (best-effort from MinerU page metadata if available; NULL otherwise), `textbook_slug=slug`, `parser_used` (carry through from the notebook record / m5+m6 = \"mineru+latexml\").\n- [ ] **Reuse** the existing theorem/lemma/proof pairing primitives inside each section \u2014 do NOT reimplement. A theorem-with-proof inside a textbook section must pair exactly as it does for arXiv papers today.\n- [ ] Deterministic chunk-ids via the `textbook:<slug>:<sha>` form. Reuse `_compute_chunk_id` discipline; verify the chunk-id round-trips through `CHUNK_ID_PATTERN`.\n- [ ] Write path: notebook-scoped (respect spike-3 isolation). Decide with researchers: chunk JSONs under `var/arxmcp/notebooks/<slug>/chunks/<flat_paper_id>/` (mirroring the arXiv `corpus/chunks/` layout but notebook-scoped).\n\n### Golden fixtures\n- [ ] A representative HTML5+MathML golden fixture exercising book/chapter/section structure + at least one theorem-with-proof pair + inline/display math. Modeled on a Stacks Project chapter (CC-BY-SA / GFDL \u2014 attribution header required if real content is quoted; otherwise project-original synthetic structure mimicking the Stacks Project's LaTeXML output shape). Lands under `tests/fixtures/textbook_chunker/`.\n- [ ] Golden-fixture diff test: chunk the fixture, assert the emitted ChunkRecords match a committed golden JSON (chunk count, granularity tags, chapter labels, theorem-pair boundaries). Regenerate-on-intent runbook documented (analogous to `.claude/docs/chunker-fixtures.md`).\n\n### Tests\n- [ ] Unit tests for the structure-detection helpers (book/chapter/section boundary mapping) with hand-crafted HTML5 snippets.\n- [ ] Golden-fixture end-to-end test (above).\n- [ ] Isolation regression: textbook chunks do NOT leak into the shared arXiv corpus (extend or cite `tests/test_textbook_notebook_isolation.py`).\n- [ ] chunk-id round-trip test (textbook chunk-ids match `CHUNK_ID_PATTERN`).\n- [ ] Resilience test: malformed/empty HTML5 \u2192 `[]` + failure-log row, no crash.\n\n### Out of scope (deferred to m8 or e3-v1)\n- **Per-chapter preamble inheritance** (textbook-shaped macro resolution) \u2014 m8. m7 uses the existing per-paper preamble resolution as a v0 fallback (or empty preamble) and FLAGS where inheritance will plug in.\n- **ProofNet metadata schema mapping** \u2014 m8.\n- **Definition + exercise chunk levels** \u2014 e3-v1 (Won't-list per challenger F2; lands after CAND-5 `defines` edge).\n- Wiring the chunker into an automated ingest trigger (the operator runs it via CLI in v0; full pipeline wiring is a later concern).\n- Embedding the textbook chunks (BGE-M3) \u2014 separate concern; m7 emits ChunkRecords, embedding is downstream.\n- `search_papers` surfacing of textbook chunks \u2014 e4.\n\n## Open questions for the researcher pair to resolve\n\n1. **ChunkRecord field gap.** Does `ingest/chunker_types.py::ChunkRecord` already carry the m2 textbook columns (`chapter`, `page_start`, `page_end`, `source_kind`, `textbook_slug`, `parser_used`), or are those LanceDB-schema-only? If the dataclass lacks them, m7 must extend ChunkRecord (and check the `chunker_version` bump + any byte-stability implications). Quote the current ChunkRecord definition.\n2. **HTML5 structure \u2192 granularity mapping.** What does LaTeXML emit for `\\chapter` / `\\section` / `\\subsection` (class names, heading tags, `ltx_chapter` / `ltx_section` divs)? How does that differ from the arXiv-paper structure the existing `_extract_section_path` already handles? Can the existing helper be parameterized, or does the textbook path need its own walker?\n3. **Read path + write path.** Confirm: read `var/arxmcp/notebooks/<slug>/parsed/<flat_paper_id>/index.html`; write chunk JSONs where? Notebook-scoped `chunks/` dir? Verify against spike-3's isolation contract.\n4. **page_start/page_end source.** Does MinerU's `content_list.json` (m5's `MinerUResult.content_list_path`) carry page-index metadata per block that the chunker can map to chunk page ranges? Or is page info lost by the time we reach the LaTeXML HTML5? If lost, page columns stay NULL in v0 \u2014 flag it.\n5. **chunker_version + golden-fixture stability.** The existing chunker pins `chunker_version`. A textbook chunker sharing primitives \u2014 does it share the version, or get its own? Golden fixtures must be byte-stable for diff tests.\n6. **Stacks Project fixture provenance.** Real Stacks Project content (CC-BY-SA) vs project-original synthetic. The roadmap says \"from a pre-parsed Stacks Project chapter\" \u2014 but for a committed test fixture, project-original synthetic that MIMICS the LaTeXML output shape avoids redistribution questions. Recommend one.\n\n## Definition of done\n- All acceptance criteria ticked or \"unmet: reason\" in implementation-summary.md.\n- `make test` green (new chunker tests pass; existing 3 pre-existing failures untouched).\n- Operator can run `chunk_textbook(\"<slug>\", \"textbook:<slug>\")` against a notebook with m6-parsed HTML and get book/chapter/section ChunkRecords.\n- Three-commit pattern: feat \u2192 rect \u2192 chore.\n- No BP1 / tool-schema change (the chunker is ingest-side, not MCP-surface) \u2014 verify.\n- Golden-fixture regeneration runbook documented under `.claude/docs/`.\n\n## Why this is the m7/m8 boundary\n- m7 ships a STRUCTURALLY-CORRECT chunker (right boundaries, right granularity tags, theorem-pairing) testable on a golden fixture \u2014 demoable value.\n- m8's per-chapter preamble inheritance + ProofNet mapping are REFINEMENTS that improve math-macro fidelity + benchmark interop on top of m7's correct structure. Splitting keeps each pipeline run ~M and lands a working chunker before the macro-inheritance polish.\n",
-  "phase": "implement-running",
+  "phase": "rectify-running",
   "phase_history": [
     {
       "entered_at": "2026-05-28T03:41:21Z",
@@ -42,8 +50,28 @@
     },
     {
       "entered_at": "2026-05-28T03:48:39Z",
-      "left_at": null,
+      "left_at": "2026-05-28T04:02:43Z",
       "phase": "implement-running"
+    },
+    {
+      "entered_at": "2026-05-28T04:02:43Z",
+      "left_at": "2026-05-28T04:02:51Z",
+      "phase": "implement-complete"
+    },
+    {
+      "entered_at": "2026-05-28T04:02:51Z",
+      "left_at": "2026-05-28T04:08:17Z",
+      "phase": "critique-running"
+    },
+    {
+      "entered_at": "2026-05-28T04:08:17Z",
+      "left_at": "2026-05-28T04:08:17Z",
+      "phase": "critique-complete"
+    },
+    {
+      "entered_at": "2026-05-28T04:08:17Z",
+      "left_at": null,
+      "phase": "rectify-running"
     }
   ],
   "rectification_commit": null,
@@ -62,5 +90,5 @@
   ],
   "research_mode": "standard",
   "research_synthesis": ".claude/notes/milestones/textbook-ingest-m7/research-synthesis.md",
-  "updated_at": "2026-05-28T03:48:39Z"
+  "updated_at": "2026-05-28T04:08:17Z"
 }

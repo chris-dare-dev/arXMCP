@@ -24,6 +24,7 @@ from ingest.textbook_chunker import (
     _collect_chapter_titles,
     _compute_textbook_chunk_id,
     _flat_paper_id,
+    _resolve_notebook_dir,
     _textbook_chunks_dir,
     _textbook_html_path,
     chunk_textbook,
@@ -72,16 +73,19 @@ class TestPathBuilders:
     def test_flat_paper_id(self, paper_id: str, expected_flat: str) -> None:
         assert _flat_paper_id(paper_id) == expected_flat
 
-    def test_html_path_under_notebook(self) -> None:
-        p = _textbook_html_path("sv", "textbook:sv")
-        assert p.parts[-3:] == ("parsed", "textbook_sv", "index.html")
-        assert "notebooks" in p.parts
-        assert "sv" in p.parts
+    def test_html_path_under_notebook(self, tmp_path: Path) -> None:
+        nb_dir = tmp_path / "notebooks" / "sv-book"
+        p = _textbook_html_path(nb_dir, "textbook:sv-book")
+        assert p.parts[-3:] == ("parsed", "textbook_sv-book", "index.html")
+        # nb_dir / parsed / <flat> / index.html → 3 parents up is nb_dir.
+        assert p.parent.parent.parent == nb_dir
 
-    def test_chunks_dir_under_notebook(self) -> None:
-        d = _textbook_chunks_dir("sv", "textbook:sv")
-        assert d.parts[-2:] == ("chunks", "textbook_sv")
-        assert "notebooks" in d.parts
+    def test_chunks_dir_under_notebook(self, tmp_path: Path) -> None:
+        nb_dir = tmp_path / "notebooks" / "sv-book"
+        d = _textbook_chunks_dir(nb_dir, "textbook:sv-book")
+        assert d.parts[-2:] == ("chunks", "textbook_sv-book")
+        # nb_dir / chunks / <flat> → 2 parents up is nb_dir.
+        assert d.parent.parent == nb_dir
 
 
 class TestComputeTextbookChunkId:
@@ -143,6 +147,46 @@ class TestCollectChapterTitles:
         )
         soup = BeautifulSoup(html, "html.parser")
         assert _collect_chapter_titles(soup) == set()
+
+    def test_chapter_heading_without_ltx_title_does_not_pull_section(
+        self,
+    ) -> None:
+        """m7 F1 regression: a chapter heading lacking the generic
+        ``ltx_title`` class must NOT cause the recursive fallback to
+        return the nested SECTION title as the chapter title."""
+        from bs4 import BeautifulSoup
+        html = (
+            '<section class="ltx_chapter">'
+            # Chapter heading carries ltx_title_chapter but NOT the
+            # generic ltx_title — the pre-fix recursive fallback would
+            # descend into the nested section.
+            '<h2 class="ltx_chapter_heading ltx_title_chapter">Chapter 1. Real Chapter</h2>'
+            '<section class="ltx_section">'
+            '<h3 class="ltx_title ltx_title_section">1.1 Nested Section</h3>'
+            '</section>'
+            '</section>'
+        )
+        soup = BeautifulSoup(html, "html.parser")
+        titles = _collect_chapter_titles(soup)
+        # The CHAPTER title is captured; the SECTION title is NOT.
+        assert "Chapter 1. Real Chapter" in titles
+        assert "1.1 Nested Section" not in titles
+
+    def test_identical_chapter_titles_collapse_v0_limitation(self) -> None:
+        """m7 F2: two chapters with identical title text collapse to one
+        set entry. Pins the documented v0 limitation; flip when m8
+        disambiguates by ordinal/id."""
+        from bs4 import BeautifulSoup
+        html = (
+            '<section class="ltx_chapter">'
+            '<h2 class="ltx_title ltx_title_chapter">Introduction</h2>'
+            '</section>'
+            '<section class="ltx_chapter">'
+            '<h2 class="ltx_title ltx_title_chapter">Introduction</h2>'
+            '</section>'
+        )
+        soup = BeautifulSoup(html, "html.parser")
+        assert _collect_chapter_titles(soup) == {"Introduction"}
 
 
 # ---------------------------------------------------------------------------
@@ -232,7 +276,9 @@ class TestGoldenFixture:
         _install_fixture(base, self.SLUG, self.PAPER_ID)
         with patch("ingest.textbook_chunker.NOTEBOOKS_BASE", base):
             chunk_textbook(self.SLUG, self.PAPER_ID)
-            out_dir = _textbook_chunks_dir(self.SLUG, self.PAPER_ID)
+            # _textbook_chunks_dir now takes the resolved notebook dir.
+            nb_dir = _resolve_notebook_dir(self.SLUG)
+            out_dir = _textbook_chunks_dir(nb_dir, self.PAPER_ID)
         json_files = sorted(out_dir.glob("*.json"))
         # 6 chunk JSONs + 1 manifest.
         assert len(json_files) == 7
@@ -335,3 +381,53 @@ class TestResilience:
         # _validate_paper_id raises InvalidPaperIDError (a ValueError).
         with pytest.raises(ValueError):
             chunk_textbook("good-slug", "not a valid paper id")
+
+    def test_symlink_notebook_dir_refused(self, tmp_path: Path) -> None:
+        """m7 F3 regression: if var/arxmcp/notebooks/<slug> is a symlink,
+        chunk_textbook refuses (routes through notebook_dir's symlink
+        guard) rather than reading/writing through it."""
+        base = tmp_path / "notebooks"
+        base.mkdir()
+        # Point the slug at an out-of-tree real directory via symlink.
+        outside = tmp_path / "outside-target"
+        outside.mkdir()
+        (base / "evil-nb").symlink_to(outside, target_is_directory=True)
+        with (
+            patch("ingest.textbook_chunker.NOTEBOOKS_BASE", base),
+            pytest.raises(ValueError, match="unsafe notebook slug"),
+        ):
+            chunk_textbook("evil-nb", "textbook:evil-nb")
+
+
+class TestTheoremLabelAutoId:
+    """m7 F5: a textbook theorem with a LaTeXML auto-id yields
+    theorem_label=None (the fixture uses explicit Ch-prefixed ids that
+    are treated as user labels; this guards the auto-id path)."""
+
+    AUTO_ID_HTML = (
+        "<!DOCTYPE html><html><body><article class='ltx_document'>"
+        '<section class="ltx_chapter" id="Ch1">'
+        '<h2 class="ltx_title ltx_title_chapter">Chapter 1. Foo</h2>'
+        '<section class="ltx_section" id="S1">'
+        '<h3 class="ltx_title ltx_title_section">1.1 Bar</h3>'
+        # LaTeXML auto-id shape (matches _AUTO_ID_RE: S<N>.Thm<word><N>).
+        '<div class="ltx_theorem ltx_theorem_theorem" id="S1.Thmtheorem1">'
+        '<h6 class="ltx_title ltx_runin ltx_title_theorem">Theorem 1.1.</h6>'
+        '<div class="ltx_para"><p class="ltx_p">An auto-id theorem whose '
+        "label LaTeXML generated rather than the author.</p></div>"
+        "</div></section></section></article></body></html>"
+    )
+
+    def test_auto_id_theorem_label_is_none(self, tmp_path: Path) -> None:
+        base = tmp_path / "notebooks"
+        flat = "textbook_autoid-nb"
+        dest = base / "autoid-nb" / "parsed" / flat
+        dest.mkdir(parents=True)
+        (dest / "index.html").write_text(self.AUTO_ID_HTML, encoding="utf-8")
+        with patch("ingest.textbook_chunker.NOTEBOOKS_BASE", base):
+            records = chunk_textbook("autoid-nb", "textbook:autoid-nb")
+        stmt = next(r for r in records if r.kind == "stmt")
+        assert stmt.theorem_label is None, (
+            "LaTeXML auto-id theorems must yield theorem_label=None "
+            "(the id matched _AUTO_ID_RE, so it is not a user label)"
+        )

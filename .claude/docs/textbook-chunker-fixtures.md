@@ -94,3 +94,11 @@ drift `body_tokens`, which is why that SHA is pinned (Threat 6).
   metadata is lost in the m6 markdown→LaTeX→LaTeXML render).
 - Preamble is empty (`""`) — m8 adds per-chapter preamble inheritance.
 - No definition/exercise chunk levels (e3-v1, after CAND-5 `defines` edge).
+- **Identical chapter titles collapse (m7 F2).** `_collect_chapter_titles`
+  returns a `set[str]`, so two `ltx_chapter` elements with the SAME title
+  text (e.g. two chapters both titled "Introduction" in a multi-part
+  volume) map to one entry — chunks from both resolve the same `chapter`
+  label. The `chunk_id` stays unique (content-addressable), so this is a
+  label-fidelity limit, NOT data loss or an id collision. Disambiguating
+  identical titles (by chapter ordinal / element id) is m8 scope. Pinned
+  by `test_identical_chapter_titles_collapse_v0_limitation`.

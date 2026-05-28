@@ -63,7 +63,7 @@ from ingest.chunker import (
 )
 from ingest.chunker_types import ChunkRecord
 from ingest.tokenizer import tokenize_body
-from tools._notebook_common import NotebookError, validate_slug
+from tools._notebook_common import NotebookError, notebook_dir
 
 logger = logging.getLogger(__name__)
 
@@ -101,22 +101,32 @@ def _flat_paper_id(paper_id: str) -> str:
     return paper_id.replace("/", "_").replace(":", "_")
 
 
-def _textbook_html_path(slug: str, paper_id: str) -> Path:
-    """Resolve m6's HTML5 output path for this textbook."""
-    return (
-        NOTEBOOKS_BASE / slug / "parsed" / _flat_paper_id(paper_id)
-        / "index.html"
-    )
+def _resolve_notebook_dir(slug: str) -> Path:
+    """Return the symlink-checked, containment-checked notebook dir.
+
+    Routes through ``tools._notebook_common.notebook_dir`` (m6 F3) so
+    the textbook chunker shares the same belt-and-braces posture as the
+    rest of the notebook surface (notebook_init / fetch / ingest /
+    purge): ``validate_slug`` (primary regex defense) + symlink refusal
+    + ``.resolve()`` containment. Passing ``base=NOTEBOOKS_BASE`` keeps
+    the test-patch of this module's constant effective.
+    """
+    return notebook_dir(slug, base=NOTEBOOKS_BASE)
 
 
-def _textbook_chunks_dir(slug: str, paper_id: str) -> Path:
+def _textbook_html_path(nb_dir: Path, paper_id: str) -> Path:
+    """Resolve m6's HTML5 output path under a resolved notebook dir."""
+    return nb_dir / "parsed" / _flat_paper_id(paper_id) / "index.html"
+
+
+def _textbook_chunks_dir(nb_dir: Path, paper_id: str) -> Path:
     """Per-notebook chunk-JSON output dir (mirrors arXiv corpus/chunks/)."""
-    return NOTEBOOKS_BASE / slug / "chunks" / _flat_paper_id(paper_id)
+    return nb_dir / "chunks" / _flat_paper_id(paper_id)
 
 
-def _textbook_chunk_log_path(slug: str) -> Path:
+def _textbook_chunk_log_path(nb_dir: Path) -> Path:
     """Per-notebook chunk-failure log (analogous to corpus chunk.log)."""
-    return NOTEBOOKS_BASE / slug / "ops" / "chunk-failures.log"
+    return nb_dir / "ops" / "chunk-failures.log"
 
 
 # ---------------------------------------------------------------------------
@@ -167,22 +177,64 @@ def _section_title_text(section_tag: Tag) -> str | None:
     return text or None
 
 
+def _chapter_title_text(chapter_tag: Tag) -> str | None:
+    """Extract a chapter element's OWN title (m7 F1).
+
+    Prefers a non-recursive match on the chapter-specific
+    ``ltx_title_chapter`` class — this prevents the recursive
+    ``_section_title_text`` fallback from descending into the chapter's
+    first nested ``ltx_section`` and returning the SECTION title when
+    the chapter heading itself lacks the generic ``ltx_title`` class
+    (some LaTeXML configs emit ``ltx_title_chapter`` only). Falls back
+    to ``_section_title_text`` only when no chapter-specific title is
+    found.
+    """
+    def _has_chapter_title(c: object) -> bool:
+        return isinstance(c, str) and "ltx_title_chapter" in c.split()
+
+    title_tag = chapter_tag.find(
+        True, class_=_has_chapter_title, recursive=False
+    )
+    if title_tag is None:
+        # Some LaTeXML configs nest the chapter heading one level deeper
+        # (but still tagged ltx_title_chapter) — recursive match is safe
+        # here because we match the CHAPTER-specific class, not the
+        # generic ltx_title that a nested section would carry.
+        title_tag = chapter_tag.find(True, class_=_has_chapter_title)
+    if title_tag is not None:
+        text = " ".join(title_tag.get_text(separator=" ").split())
+        if text:
+            return text
+    # Last resort: the generic title extractor (matches the
+    # section_path breadcrumb for the well-formed case).
+    return _section_title_text(chapter_tag)
+
+
 def _collect_chapter_titles(soup: BeautifulSoup) -> set[str]:
     """Return the set of chapter-level section titles in the document.
 
     Finds every element whose class list contains ``ltx_chapter`` and
-    collects its title text. A chunk's ``chapter`` field is then the
+    collects its OWN title text (via :func:`_chapter_title_text`, which
+    prefers the ``ltx_title_chapter`` class to avoid pulling a nested
+    section title — m7 F1). A chunk's ``chapter`` field is then the
     first ``section_path`` breadcrumb that is in this set (robust to a
-    ``\\part`` above the chapter — the part title is NOT in the set, so
-    it is skipped). Empty set ⇒ no chapter structure ⇒ all chunks get
-    ``chapter=None`` (m7 FM-1: a flat/article-class textbook).
+    ``\\part`` above the chapter). Empty set ⇒ no chapter structure ⇒
+    all chunks get ``chapter=None`` (m7 FM-1: flat/article-class).
+
+    **v0 limitation (m7 F2):** two ``ltx_chapter`` elements with the
+    SAME title text collapse to one set entry, so their chunks become
+    indistinguishable on the ``chapter`` field. The chunk_id stays
+    unique (content-addressable), so this is a label-fidelity limit,
+    not data loss. Disambiguating identical chapter titles (by ordinal
+    / element id) is deferred to m8. Realistic trigger: two chapters
+    both titled "Introduction" in a multi-part lecture-notes volume.
     """
     titles: set[str] = set()
     for el in soup.find_all(True):
         if not isinstance(el, Tag):
             continue
         if "ltx_chapter" in _get_classes(el):
-            t = _section_title_text(el)
+            t = _chapter_title_text(el)
             if t:
                 titles.add(t)
     return titles
@@ -231,22 +283,25 @@ def chunk_textbook(slug: str, paper_id: str) -> list[ChunkRecord]:
     Writes ``var/arxmcp/notebooks/<slug>/chunks/<flat_paper_id>/<hash>.json``
     per chunk + a ``chunk_manifest.json``. Does NOT write LanceDB.
     """
-    # Validate OUTSIDE the resilience envelope so a bad slug/paper_id
-    # surfaces to the caller (mirrors chunk_paper's _validate_paper_id
-    # placement). validate_slug raises NotebookError; _validate_paper_id
-    # raises InvalidPaperIDError.
+    # Validate OUTSIDE the resilience envelope so a bad/unsafe slug or
+    # paper_id surfaces to the caller (mirrors chunk_paper's
+    # _validate_paper_id placement). notebook_dir runs validate_slug +
+    # symlink refusal + containment (m7 F3); _validate_paper_id raises
+    # InvalidPaperIDError (a ValueError).
     try:
-        validate_slug(slug)
+        nb_dir = _resolve_notebook_dir(slug)
     except NotebookError as exc:
-        raise ValueError(f"invalid notebook slug {slug!r}: {exc}") from exc
+        raise ValueError(
+            f"invalid or unsafe notebook slug {slug!r}: {exc}"
+        ) from exc
     _validate_paper_id(paper_id)
 
     start = time.monotonic()
     try:
-        return _chunk_textbook_impl(slug, paper_id)
+        return _chunk_textbook_impl(nb_dir, slug, paper_id)
     except PER_PAPER_FAILURE_EXCEPTIONS as exc:
         elapsed = time.monotonic() - start
-        _log_chunk_failure(slug, paper_id, elapsed, str(exc))
+        _log_chunk_failure(nb_dir, paper_id, elapsed, str(exc))
         logger.error(
             "[%s/%s] chunk_textbook failed: %s",
             slug, paper_id, exc, exc_info=True,
@@ -254,8 +309,10 @@ def chunk_textbook(slug: str, paper_id: str) -> list[ChunkRecord]:
         return []
 
 
-def _chunk_textbook_impl(slug: str, paper_id: str) -> list[ChunkRecord]:
-    parsed_html = _textbook_html_path(slug, paper_id)
+def _chunk_textbook_impl(
+    nb_dir: Path, slug: str, paper_id: str
+) -> list[ChunkRecord]:
+    parsed_html = _textbook_html_path(nb_dir, paper_id)
     if not parsed_html.exists():
         raise FileNotFoundError(
             f"parsed textbook HTML not found at {parsed_html}; "
@@ -271,7 +328,7 @@ def _chunk_textbook_impl(slug: str, paper_id: str) -> list[ChunkRecord]:
 
     # Cleanup BEFORE assembly (mirrors chunk_paper F1): a downstream
     # raise leaves the dir empty rather than retaining stale JSONs.
-    out_dir = _textbook_chunks_dir(slug, paper_id)
+    out_dir = _textbook_chunks_dir(nb_dir, paper_id)
     out_dir.mkdir(parents=True, exist_ok=True)
     for stale in out_dir.glob("*.json"):
         stale.unlink()
@@ -392,14 +449,15 @@ def _write_textbook_manifest(
 
 
 def _log_chunk_failure(
-    slug: str, paper_id: str, elapsed_s: float, message: str
+    nb_dir: Path, paper_id: str, elapsed_s: float, message: str
 ) -> None:
     """Append a TSV failure row to the per-notebook chunk-failure log.
 
     Format: ``<paper_id>\\tfail\\t<elapsed_s>\\t<message>`` (mirrors the
     arXiv ``chunk.log``). Fields are sanitized to strip tab/newline.
+    ``nb_dir`` is the already-resolved (symlink-checked) notebook dir.
     """
-    log_path = _textbook_chunk_log_path(slug)
+    log_path = _textbook_chunk_log_path(nb_dir)
     log_path.parent.mkdir(parents=True, exist_ok=True)
     row = (
         f"{_sanitize_log_field(paper_id)}\tfail\t{elapsed_s:.1f}\t"
@@ -410,8 +468,8 @@ def _log_chunk_failure(
             fh.write(row)
     except OSError:
         logger.warning(
-            "[%s/%s] could not write chunk-failure log at %s",
-            slug, paper_id, log_path,
+            "[%s] could not write chunk-failure log at %s",
+            paper_id, log_path,
         )
 
 
