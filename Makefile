@@ -1,4 +1,4 @@
-.PHONY: help bootstrap test eval up ingest delta re-embed re-embed-all ingest-recover-preambles watchdog cutover daily-report parser-failures-report sbom refresh-arxiv-ca
+.PHONY: help bootstrap test eval up ingest delta re-embed re-embed-all ingest-recover-preambles watchdog cutover notebook-cutover daily-report parser-failures-report sbom refresh-arxiv-ca
 
 # Override with `make test PYTHON=python3.13` if your default python3 is too old.
 PYTHON ?= python3
@@ -234,6 +234,29 @@ cutover:
 		f'arXMCP requires Python >= 3.$(MIN_PY_MINOR); got {sys.version_info[:2]}. \
 Try: make cutover PYTHON=python3.$(MIN_PY_MINOR)'"
 	$(PYTHON) -m ops.cutover $(ARGS)
+
+notebook-cutover:
+	@# notebook-cutover-m1 — per-notebook staging->active cutover.
+	@# Promotes each notebook's re-embedded var/arxmcp/notebooks/<slug>/
+	@# lancedb-staging to the live lancedb/ via an atomic two-rename swap
+	@# (lancedb/ -> lancedb-prev-<ts>/, lancedb-staging/ -> lancedb/),
+	@# building the staging BM25 index first and keeping N=2 backups.
+	@#
+	@# MEASURE-THEN-PROMOTE: run your pre/post comparison BEFORE this —
+	@# cutover destroys the side-by-side (old active vs new staging).
+	@# Defaults to ALL promotable notebooks; restrict with
+	@# ARGS="--notebook=<slug>". Rollback: ARGS="--rollback
+	@# --notebook=<slug>". Downgrade override: add --force.
+	@#
+	@# RESTART the server after a cutover — it holds an open LanceDB
+	@# handle on the old inode and serves stale data until restarted.
+	@#
+	@# NOTE on ARGS: paths inside ARGS must not contain spaces — Make's
+	@# shell expansion splits at whitespace before argparse sees them.
+	@$(PYTHON) -c "import sys; assert sys.version_info >= (3, $(MIN_PY_MINOR)), \
+		f'arXMCP requires Python >= 3.$(MIN_PY_MINOR); got {sys.version_info[:2]}. \
+Try: make notebook-cutover PYTHON=python3.$(MIN_PY_MINOR)'"
+	$(PYTHON) -m tools.notebook_cutover $(ARGS)
 
 daily-report:
 	@# E14_S04 — daily ops metrics report. Scrapes /metrics from
