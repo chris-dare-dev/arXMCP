@@ -295,3 +295,92 @@ e2's MinerU integration.
 install) and Phase B (fixture completion) as separate sessions;
 once both complete, the bake-off (Phase C) is a single afternoon's
 work. Until then, e2 entry is gated on this spike result.
+
+---
+
+## B1 status update — 2026-05-27 (install COMPLETE)
+
+**B1 status changed from BLOCKED → DONE.**
+
+### What landed
+
+- Venv at `~/venvs/mineru/` (Python 3.12.13).
+- `mineru` 3.2.0 installed via `uv pip install --python
+  ~/venvs/mineru/bin/python "mineru[pipeline,mlx]==3.2.0"`.
+- Binary at `~/venvs/mineru/bin/mineru`; ``mineru --version`` →
+  "mineru, version 3.2.0".
+- MLX (Apple Silicon GPU) functional. `mlx.core.metal.device_info()`
+  reports Apple M4 Max with 38 GB unified memory, `applegpu_g16s`
+  architecture. Default device = GPU.
+- Installed disk size: 1.2 GB (Python code + dependency wheels).
+
+### Decision deltas from the original spike
+
+The capability-scout pdf-ingest-2026 challenger T2 ruling pinned
+**MinerU 2.5**. The operator chose **MinerU 3.2.0** (latest, released
+2026-05-26 — the same day as this spike update). Rationale: the
+2.5.x line is ~6 months and 6 minor releases behind; 3.x ships
+additional backends (`hybrid-auto-engine`, `vlm-auto-engine`) and
+upstream-claimed accuracy lifts. **Consequence:** the public-data
+CDM numbers from §"Public-data CDM numbers" above were measured
+against MinerU 2.0/2.5 era benchmarks. The 3.2 CDM band on
+arXMCP's specific textbook fixture is **unknown** until the
+bake-off (Phase C) runs.
+
+The capability-scout's challenger T2 decision matrix still
+applies (CDM ≥ 0.95 ship / [0.85, 0.95) ship + open CAND-8 /
+< 0.85 escalate to CAND-8); only the EVIDENCE for which band 3.2
+lands in is pending Phase C.
+
+The operator also chose the `[pipeline,mlx]` extras (NOT plain
+`[pipeline]` from the spike doc). The MLX extra enables Apple
+Silicon GPU acceleration via Apple's native ML framework. CDM
+numbers may differ from upstream CUDA-path benchmarks; the
+bake-off will be the falsifiability gate.
+
+### Outstanding before Phase C bake-off
+
+1. **Model weights NOT yet downloaded.** MinerU lazy-downloads
+   ONNX model checkpoints on first PDF invocation. Run
+   ``~/venvs/mineru/bin/mineru-models-download -s huggingface
+   -m pipeline`` to pre-fetch the pipeline models (~5-7 GB from
+   Hugging Face); or let the first ``mineru -p <pdf> -o <dir>``
+   call do it lazily.
+
+2. **`mineru` is NOT on the default PATH.** Either prepend
+   `~/venvs/mineru/bin` to PATH in the operator's shell rc, or
+   wait for m5 to introduce the `ARXMCP_MINERU_BIN` env-var
+   pattern that points at the absolute path. The m5
+   implementation's subprocess invocation will use the absolute
+   path either way.
+
+3. **B2 (textbook fixture) is the gating remaining blocker.** The
+   3 textbook-style class dirs
+   (`hartshorne-style`, `griffiths-harris-style`, `milne-style`)
+   are still empty; the parser-fidelity-eval CDM gate needs ≥ 20
+   fixture pages at CDM ≥ 0.85 to pass the promotion threshold.
+
+### Updated [MUST] assumption status
+
+> "MinerU 2.5 CDM lift on the curated textbook fixture is ≥0.05
+> over the all-zero baseline."
+
+**Status:** PARTIALLY UNBLOCKED. B1 cleared (MinerU 3.2.0 installed
++ MLX functional). B2 remains the gate. Once B2 completes:
+
+- Run ``mineru-models-download -s huggingface -m pipeline`` to
+  pre-fetch model weights (1-time, ~5-7 GB).
+- Run the Phase C bake-off (this doc, above).
+- Update this section with the actual CDM number + decision-rule
+  result.
+
+### Hardware capability note (for m5 design)
+
+The Apple M4 Max with 38 GB unified memory significantly EXCEEDS
+the spike-2 sandbox profile's 4 GB `RLIMIT_AS` cap
+(`.claude/docs/security-pdf-sandbox.md`). The cap is intentionally
+TIGHTER than the hardware ceiling — it's a defense against
+decompression-bomb resource exhaustion, not a performance limit.
+m5's implementation should retain the 4 GB cap as specified;
+the unused 34 GB of hardware capacity is correctly reserved for
+other operator workloads (the OS, other processes, etc.).
