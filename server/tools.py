@@ -139,8 +139,11 @@ logger = logging.getLogger(__name__)
 #: key, resolving the doc-accuracy drift where the same ``tools/list``
 #: payload's ToolMeta said source_kind was filterable while the
 #: parameter schema said "other keys are ignored". inputSchema bytes
-#: changed → coordinated re-pin of EXPECTED_TOOL_SCHEMA_SHA256 + (via
-#: the ``tool_schema_version`` _meta) EXPECTED_BP1_SHA256.
+#: changed → re-pin of EXPECTED_TOOL_SCHEMA_SHA256 ONLY. BP1 was
+#: verified NOT to drift: tests/test_prompts.py hashes only
+#: {name, description} per tool, so the Field description (which lives in
+#: the inputSchema) and the bumped version (which lives in the per-tool
+#: ``tool_schema_version`` _meta) are both OUTSIDE the BP1 byte region.
 TOOL_SCHEMA_VERSION: int = 15
 
 #: URI scheme for chunk resource_links per the design note. Used by
