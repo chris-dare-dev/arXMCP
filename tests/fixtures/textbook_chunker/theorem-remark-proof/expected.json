@@ -1,0 +1,93 @@
+[
+  {
+    "body_text": "Theorem 1.1 (Heine-Borel). A subset of $\\mathbb{R}^n$ is compact if and only if it is closed and bounded.",
+    "body_tokens": "Theorem Heine-Borel A subset of mathbb_R n is compact if and only if it is closed and bounded",
+    "chapter": "Chapter 1. Compactness",
+    "chunk_id": "textbook:theorem-remark-proof:f28064b14d0613e5",
+    "chunker_version": "tv0.1",
+    "kind": "stmt",
+    "license": "arxiv-license",
+    "page_end": null,
+    "page_start": null,
+    "paper_id": "textbook:theorem-remark-proof",
+    "parser_used": "mineru+latexml",
+    "preamble_ref": null,
+    "section_path": [
+      "Chapter 1. Compactness",
+      "1.1. Open Covers"
+    ],
+    "source_kind": "textbook",
+    "textbook_slug": "theorem-remark-proof",
+    "theorem_label": "Ch1.S1.Thm1",
+    "theorem_name": "Heine-Borel",
+    "truncated": false
+  },
+  {
+    "body_text": "Remark 1.2. The forward direction fails in infinite-dimensional normed spaces, where closed bounded sets need not be compact.",
+    "body_tokens": "Remark The forward direction fails in infinite-dimensional normed spaces where closed bounded sets need not be compact",
+    "chapter": "Chapter 1. Compactness",
+    "chunk_id": "textbook:theorem-remark-proof:5913181e2cb982f6",
+    "chunker_version": "tv0.1",
+    "kind": "remark",
+    "license": "arxiv-license",
+    "page_end": null,
+    "page_start": null,
+    "paper_id": "textbook:theorem-remark-proof",
+    "parser_used": "mineru+latexml",
+    "preamble_ref": null,
+    "section_path": [
+      "Chapter 1. Compactness",
+      "1.1. Open Covers"
+    ],
+    "source_kind": "textbook",
+    "textbook_slug": "theorem-remark-proof",
+    "theorem_label": "Ch1.S1.Rem1",
+    "theorem_name": null,
+    "truncated": false
+  },
+  {
+    "body_text": "Proof. Reduce to the case of a closed box via boundedness, then apply the finite-subcover argument to a bisection sequence. The converse follows from continuity of the coordinate projections.",
+    "body_tokens": "Proof Reduce to the case of a closed box via boundedness then apply the finite-subcover argument to a bisection sequence The converse follows from continuity of the coordinate projections",
+    "chapter": "Chapter 1. Compactness",
+    "chunk_id": "textbook:theorem-remark-proof:32109aed1c9e5997",
+    "chunker_version": "tv0.1",
+    "kind": "proof",
+    "license": "arxiv-license",
+    "page_end": null,
+    "page_start": null,
+    "paper_id": "textbook:theorem-remark-proof",
+    "parser_used": "mineru+latexml",
+    "preamble_ref": null,
+    "section_path": [
+      "Chapter 1. Compactness",
+      "1.1. Open Covers"
+    ],
+    "source_kind": "textbook",
+    "textbook_slug": "theorem-remark-proof",
+    "theorem_label": null,
+    "theorem_name": null,
+    "truncated": false
+  },
+  {
+    "body_text": "This section establishes the Heine-Borel property and its consequences. Textbooks frequently interpose a remark between a theorem and its proof; this fixture exercises that structure to confirm the chunker does not falsely pair across the intervening remark.",
+    "body_tokens": "This section establishes the Heine-Borel property and its consequences Textbooks frequently interpose a remark between a theorem and its proof this fixture exercises that structure to confirm the chunker does not falsely pair across the intervening remark",
+    "chapter": "Chapter 1. Compactness",
+    "chunk_id": "textbook:theorem-remark-proof:c6f4abde2aeed2b2",
+    "chunker_version": "tv0.1",
+    "kind": "section",
+    "license": "arxiv-license",
+    "page_end": null,
+    "page_start": null,
+    "paper_id": "textbook:theorem-remark-proof",
+    "parser_used": "mineru+latexml",
+    "preamble_ref": null,
+    "section_path": [
+      "Chapter 1. Compactness"
+    ],
+    "source_kind": "textbook",
+    "textbook_slug": "theorem-remark-proof",
+    "theorem_label": null,
+    "theorem_name": null,
+    "truncated": false
+  }
+]

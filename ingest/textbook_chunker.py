@@ -24,14 +24,19 @@ Design decisions (research-synthesis §"LOAD-BEARING constraints")
    the ``arxiv:`` prefix. Uses :func:`_compute_textbook_chunk_id` which
    emits ``textbook:<slug>:<sha>`` with the SAME hash discipline.
 2. Does NOT call ``_resolve_preamble_doc`` — it resolves the arXiv
-   preamble store (wrong tree; the ``:`` is an invalid path byte). v0
-   uses an empty preamble. (TODO m8: per-chapter preamble inheritance.)
+   preamble store (wrong tree; the ``:`` is an invalid path byte).
+   ``preamble_text`` is PERMANENTLY ``""`` for PDF-sourced textbooks
+   (textbook-ingest-m8 OQ-1 decision): MinerU emits math already
+   expanded at the PDF-render level, so there are no author macros to
+   inherit. NOT a placeholder — see
+   ``.claude/docs/textbook-preamble-decision.md``.
 3. Replicates the ``_chunk_paper_impl`` dedup loop — same body + empty
    preamble → same chunk_id; without dedup the second JSON would
    silently overwrite the first on disk (m7 FM-4).
-4. ``page_start`` / ``page_end`` stay ``None`` in v0 — MinerU's
+4. ``page_start`` / ``page_end`` stay ``None`` — MinerU's
    ``content_list.json`` page metadata is not propagated through the
-   LaTeXML render. (TODO m8: correlate ``content_list.json`` page_idx.)
+   LaTeXML render. Correlating it back is a future item (not in the e3
+   outcome); see textbook-preamble-decision.md §related-deferrals.
 5. ``TEXTBOOK_CHUNKER_VERSION`` is SEPARATE from
    ``chunker_types.CHUNKER_VERSION`` so a textbook-only change never
    forces arXiv corpus re-embedding.
@@ -365,19 +370,32 @@ def _chunk_textbook_impl(
         chunk.parser_used = TEXTBOOK_PARSER_USED
         chunk.chunker_version = TEXTBOOK_CHUNKER_VERSION
         chunk.chapter = _chapter_for_chunk(chunk, chapter_titles)
-        # page_start/page_end stay None in v0 — page metadata is lost in
-        # the m6 markdown→LaTeX→LaTeXML render. TODO(m8): correlate
-        # MinerUResult.content_list_path page_idx.
+        # page_start/page_end stay None: page metadata is lost in the m6
+        # markdown→LaTeX→LaTeXML render. Correlating MinerU's
+        # content_list.json page_idx back onto rendered chunks is a
+        # future item (NOT m8 — not part of the e3 outcome); see
+        # .claude/docs/textbook-preamble-decision.md §"related deferrals".
         chunk.page_start = None
         chunk.page_end = None
         chunk.body_tokens = tokenize_body(chunk.body_text)
 
     # SHA pass — replace the placeholder id with the content-addressable
-    # textbook chunk-id. v0 uses an empty preamble (TODO m8: per-chapter
-    # preamble inheritance). The dedup loop is LOAD-BEARING (m7 FM-4):
+    # textbook chunk-id. The dedup loop is LOAD-BEARING (m7 FM-4):
     # same body + empty preamble → same chunk_id → the second JSON would
     # overwrite the first on disk without it.
-    preamble_text = ""  # TODO(m8): per-chapter preamble inheritance
+    #
+    # PREAMBLE DECISION (textbook-ingest-m8, OQ-1): preamble_text is
+    # PERMANENTLY "" for PDF-sourced textbooks, and preamble_ref stays
+    # None. This is NOT a v0 placeholder — it is the correct steady
+    # state. The arXiv preamble lever (04-parsing-and-chunking.md)
+    # expands UNEXPANDED author macros (\newcommand/\def) from a .tex
+    # source; the PDF→MinerU→LaTeXML path has none — MinerU emits math
+    # already expanded at the PDF-render level (\mathbb{F}, never \F).
+    # A future .tex-source textbook ingest path (separate epic) would
+    # call ingest.preamble.extract_preamble; until such a path exists
+    # there is nothing to inherit. Full rationale + evidence:
+    # .claude/docs/textbook-preamble-decision.md.
+    preamble_text = ""
     seen: dict[str, str] = {}  # chunk_id -> body_text fingerprint
     deduped_chunks: list[ChunkRecord] = []
     for chunk in all_chunks:

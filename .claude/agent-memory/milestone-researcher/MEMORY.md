@@ -1,5 +1,18 @@
 # Milestone Researcher — Project Memory
 
+## 2026-05-28 — textbook-ingest-m8 — ProofNet-schema-5-fields-id-is-TextbookPipe-exercise
+ProofNet (hoskinson-center/proofnet on HuggingFace, arXiv:2302.12433) has 5 fields:
+id, nl_statement, nl_proof, formal_statement, src_header. id follows `Textbook|exercise_N_Ma`
+(e.g. `Rudin|exercise_1_1a`). For PDF-sourced textbooks, `theorem_label` from MinerU+LaTeXML
+is auto-generated (not the author label), so cross-reference by label is unreliable. Do NOT
+add proofnet_id to schema — document the join contract in .claude/docs/ instead.
+
+## 2026-05-28 — textbook-ingest-m8 — PDF-MinerU-path-kills-preamble-inheritance-unconditionally
+OQ-1 reading (a) wins with certainty: MinerU processes rendered PDF glyphs; author macros
+are expanded before PDF rendering. No `\newcommand` survives. `preamble_text=""` is correct
+and permanent for PDF-sourced textbooks. Replace `# TODO(m8)` with a decision comment;
+do NOT build a .tex preamble extractor for a path that cannot produce .tex.
+
 ## 2026-05-28 — textbook-ingest-m7 — _compute_chunk_id-hardcodes-arxiv-prefix
 `ingest/chunker.py::_compute_chunk_id` (line 1050) hardcodes `f"arxiv:{paper_id}:{digest}"`.
 Textbook chunker CANNOT call it directly — must implement `_compute_textbook_chunk_id`
@@ -881,3 +894,17 @@ add a `# TODO(m8): per-chapter preamble inheritance` comment. Do NOT call this h
 All m2 textbook fields (`source_kind`, `license`, `chapter`, `page_start`, `page_end`,
 `textbook_slug`, `parser_used`) are in `ingest/chunker_types.py::ChunkRecord` with
 defaults (source_kind="arxiv", others=None). `to_dict()` serializes all 7. No gap.
+
+## 2026-05-28 — textbook-ingest-m8 — pdf-path-has-no-preamble-macros-already-expanded
+`ingest/textbook_renderer.py` writes a throwaway `main.tex` envelope with only
+`\usepackage{amsmath,amssymb}` — no author macros. MinerU expands macros at PDF render
+time. `preamble_text=""` and `preamble_ref=None` are the CORRECT PERMANENT values for
+`mineru+latexml` chunks, not a TODO. Any future `.tex`-source textbook path would need
+its own preamble extraction; do not build it on the PDF path.
+
+## 2026-05-28 — textbook-ingest-m8 — proofnet-cross-reference-needs-no-schema-field
+ChunkRecord already has `textbook_slug + chapter + theorem_name + theorem_label` —
+enough to cross-reference any chunk to a ProofNet entry by (textbook, theorem-number).
+Adding `proofnet_id` as a nullable column has zero data gain (PDFs carry no ProofNet IDs)
+and requires schema migration + hash re-pin. Use a documented cross-reference contract,
+not a new schema field.

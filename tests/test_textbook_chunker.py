@@ -431,3 +431,60 @@ class TestTheoremLabelAutoId:
             "LaTeXML auto-id theorems must yield theorem_label=None "
             "(the id matched _AUTO_ID_RE, so it is not a user label)"
         )
+
+
+class TestTheoremRemarkProofPairingAudit:
+    """textbook-ingest-m8 theorem-pairing audit: confirm the textbook
+    chunker inherits the arXiv-tested non-pairing behavior when a remark
+    is interposed between a theorem and its proof.
+
+    The shared pairing primitives (`_extract_chunks_from_container`,
+    `_is_structural_sibling`) are CSS-class-based and arXiv-neutral, so
+    no code change was needed for m8 — this fixture is defense-in-depth
+    proof that the textbook path behaves correctly. Contrast with the
+    two-chapter fixture where adjacent theorem+proof DO pair (the proof
+    inherits the theorem's name/label).
+    """
+
+    SLUG = "theorem-remark-proof"
+    PAPER_ID = "textbook:theorem-remark-proof"
+
+    def _run(self, tmp_path: Path) -> list:
+        base = tmp_path / "notebooks"
+        _install_fixture(base, self.SLUG, self.PAPER_ID, fixture_id=self.SLUG)
+        with patch("ingest.textbook_chunker.NOTEBOOKS_BASE", base):
+            return chunk_textbook(self.SLUG, self.PAPER_ID)
+
+    def test_matches_golden(self, tmp_path: Path) -> None:
+        actual = [r.to_dict() for r in self._run(tmp_path)]
+        expected = json.loads(
+            (FIXTURE_ROOT / self.SLUG / "expected.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        assert actual == expected
+
+    def test_four_chunks_emitted(self, tmp_path: Path) -> None:
+        kinds = sorted(r.kind for r in self._run(tmp_path))
+        assert kinds == ["proof", "remark", "section", "stmt"]
+
+    def test_proof_is_orphan_not_paired(self, tmp_path: Path) -> None:
+        """The intervening remark breaks pairing: the proof is an ORPHAN
+        (theorem_name/label both None). A PAIRED proof — as in the
+        two-chapter fixture — would inherit the theorem's name + label.
+        This is the meaningful non-pairing signal."""
+        records = self._run(tmp_path)
+        proof = next(r for r in records if r.kind == "proof")
+        assert proof.theorem_name is None, (
+            "orphan proof must NOT inherit a theorem name — the remark "
+            "between theorem and proof should have broken the pairing"
+        )
+        assert proof.theorem_label is None
+
+    def test_theorem_emitted_standalone_with_identity(
+        self, tmp_path: Path,
+    ) -> None:
+        records = self._run(tmp_path)
+        stmt = next(r for r in records if r.kind == "stmt")
+        assert stmt.theorem_name == "Heine-Borel"
+        assert stmt.chapter == "Chapter 1. Compactness"

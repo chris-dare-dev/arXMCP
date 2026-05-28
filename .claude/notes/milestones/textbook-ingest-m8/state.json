@@ -1,0 +1,66 @@
+{
+  "brief_source": "",
+  "created_at": "2026-05-28T04:28:24Z",
+  "critics_run": [],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "low": 0,
+    "medium": 0
+  },
+  "critique_path": null,
+  "deferred_findings": [],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_required": [],
+  "fixed_findings": [],
+  "id": "textbook-ingest-m8",
+  "implementation_base": "56397647634a3120f729f994f673e55d064391e0",
+  "implementation_branch": null,
+  "implementation_commit_range": null,
+  "implementation_commits": [],
+  "implementation_path": "inline",
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "# Milestone: textbook-ingest-m8 \u2014 Preamble inheritance + ProofNet mapping (e3 close)\n\n**Epic:** textbook-ingest-e3 (Textbook structure is chunked book/chapter/section). Second of two milestones (m7 = spine shipped; m8 = refinements, closes e3).\n**Type:** value/enabler \u2014 improves math-macro fidelity + benchmark interop on top of m7's correct chunk structure.\n**Estimated size:** M (refinements on the m7 spine).\n**Dependencies:** m7 (shipped \u2014 `ingest/textbook_chunker.py` with `tv0.1` chunks, empty preamble, NULL pages). e1 schema.\n**Roadmap link:** `plans/textbook-ingest-roadmap.md` \u00a7textbook-ingest-e3 outcome: *\"Per-chapter preamble inheritance works (textbook-shaped, not paper-shaped). ProofNet metadata schema mapping preserved.\"*\n\n## Background \u2014 what m7 left for m8\n\n- m7's `chunk_textbook` uses `preamble_text = \"\"` (a `# TODO(m8)` marker) \u2014 it does NOT call the arXiv `_resolve_preamble_doc` (which resolves the arXiv preamble store and fails for `textbook:<slug>` paper_ids). Every textbook chunk currently has `preamble_ref=None`.\n- The arXiv preamble system: `ingest/preamble.py::extract_preamble(paper_id)` scans the paper's **root .tex source** for `\\newcommand`/`\\def`/`\\DeclareMathOperator`/`\\let` macros, builds `preamble_text` (newline-joined macro defs) + `preamble_hash`. The embedder PREPENDS `preamble_text` to each chunk's body before BGE-M3 encoding (so the model sees macro definitions alongside body math that references them). `preamble_ref` (16-hex of the hash) is stamped on each ChunkRecord.\n\n## \u26a0\ufe0f THE LOAD-BEARING TENSION \u2014 researchers MUST resolve first\n\n**Per-chapter preamble inheritance presupposes a `.tex` source with a macro preamble. But the m5/m6 textbook ingest path is PDF \u2192 MinerU \u2192 markdown \u2192 LaTeXML.** MinerU extracts math from a *rendered PDF* \u2014 macros are already expanded to their rendered form (`\\F` rendered as \ud835\udd3d \u2192 MinerU emits `\\mathbb{F}`, not the `\\F` macro). There is NO `.tex` preamble in the m5/m6 path; there are no author macros to inherit.\n\nSo the researchers MUST resolve, BEFORE any implementation:\n\n**OQ-1 (BLOCKING): Does per-chapter preamble inheritance apply to the PDF\u2192MinerU path at all?** Three candidate readings \u2014 pick one with evidence:\n   - **(a) Inapplicable to the PDF path.** No `.tex` preamble survives MinerU; preamble stays empty for PDF-sourced textbooks. m8's preamble work would target only a FUTURE `.tex`-source textbook path that does not yet exist \u2014 i.e. m8 would build unwired infrastructure. If so, RECOMMEND DESCOPING the preamble half of m8 (or reducing it to a documented design note + a hook), and refocus m8 on ProofNet mapping + theorem-pairing polish.\n   - **(b) Applicable via a `.tex`-source textbook path that m8 should also introduce.** Some textbooks (Stacks Project, Milne's notes) ARE distributed as `.tex`. If m8 adds a `.tex`-source ingest variant, per-chapter preamble inheritance is real. But that expands scope well beyond \"refinements\" and overlaps the m5/m6 PDF assumption \u2014 FLAG as scope creep.\n   - **(c) Reinterpreted.** MinerU's markdown may contain *recurring notation* (not author macros) that a synthesized \"preamble\" of common-symbol context could help the embedder with. This is a stretch of the roadmap's wording \u2014 assess whether it's worth anything.\n\n   **Whichever reading wins, state it explicitly and size the implementation accordingly. Do NOT build a `.tex`-preamble extractor for a path that cannot produce `.tex` without flagging it as unwired infrastructure.**\n\n**OQ-2 (BLOCKING): What concretely is \"ProofNet metadata schema mapping preserved\"?** The roadmap phrase is thin. ProofNet (Azerbayev et al., arXiv:2302.12433; `github.com/zhangir-azerbayev/ProofNet`) is an autoformalization benchmark: ~371 undergraduate theorems (Rudin, Artin, etc.) each with a natural-language statement + a formal Lean statement + source (textbook + theorem number). Candidate readings:\n   - **(a) Schema-carry.** Ensure the textbook chunk schema can CARRY a ProofNet linkage field (e.g. `proofnet_id`) so a downstream autoformalization eval can map a chunk \u2192 its ProofNet entry. A nullable column / ChunkRecord field, populated when a match is known. Most aligned with the project's sketcher\u2192autoformalizer mission (`01-mission-and-context.md` names ProofNet as a target benchmark).\n   - **(b) Provenance preservation.** If a textbook source carries ProofNet annotations, preserve them through chunking (unlikely \u2014 textbook PDFs don't carry ProofNet ids).\n   - **(c) Theorem-name/label fidelity.** Preserve enough theorem metadata (`theorem_name`, `theorem_label`, chapter, source) that a chunk can be CROSS-REFERENCED to a ProofNet entry by (textbook, theorem-number) even without an explicit id column.\n   \n   Resolve which reading the milestone delivers. Check whether the ChunkRecord / chunks schema already has the fields needed, or whether a (nullable, additive) extension is required. If a schema change, assess the m2-migration + byte-stability implications.\n\n## Scope \u2014 acceptance criteria (CONDITIONAL on OQ-1 / OQ-2 resolution)\n\nThe synthesis will finalize scope. Provisional ACs, to be confirmed/cut by research:\n\n### Theorem-pairing integration polish (DEFINITELY in scope \u2014 independent of OQ-1/OQ-2)\n- [ ] Audit m7's reuse of the theorem/proof pairing primitives against textbook-shaped input: are there textbook structures (theorem split across a page boundary, proof in a `\\subsection` sibling, numbered-environment variants common in textbooks but rare in arXiv) where pairing degrades? Add golden-fixture coverage for any gap found.\n- [ ] If a real pairing gap exists, fix it in `ingest/chunker.py` (shared primitive) ONLY if the fix is arXiv-safe (does not regress arXiv chunking \u2014 the existing chunker tests must stay green); otherwise document + defer.\n\n### Per-chapter preamble inheritance (CONDITIONAL \u2014 per OQ-1)\n- [ ] IF reading (a) wins: replace m7's `# TODO(m8)` empty-preamble with a documented decision (PDF path has no preamble; `preamble_ref` stays None for PDF-sourced textbooks) + remove the misleading TODO. Possibly a thin hook for a future `.tex`-source path.\n- [ ] IF reading (b)/(c) wins: implement the chosen mechanism with a synthetic `.tex` fixture + per-chapter scope resolution, tested for determinism (byte-stable preamble_hash).\n\n### ProofNet metadata mapping (CONDITIONAL \u2014 per OQ-2)\n- [ ] Deliver the resolved reading: a schema-carry field, a cross-reference helper, or a documented provenance contract. If a ChunkRecord/schema field is added, it is additive + nullable + does not perturb the LanceDB schema hash for existing rows.\n\n### Always-in-scope hygiene\n- [ ] Update `.claude/docs/textbook-chunker-fixtures.md` if fixtures change.\n- [ ] If `TEXTBOOK_CHUNKER_VERSION` bumps (any change to textbook chunk content), bump it (`tv0.1` \u2192 `tv0.2`) and regenerate golden `expected.json` per the runbook \u2014 but NOT `chunker_types.CHUNKER_VERSION` (arXiv must not re-embed).\n- [ ] No BP1 / MCP tool-schema change (ingest-side) \u2014 verify.\n- [ ] Three-copy paper_id lock untouched.\n\n## Out of scope (deferred)\n- A new `.tex`-source textbook ingest path (if OQ-1 reading (b) tempts it \u2014 that's a separate epic, not m8).\n- Definition/exercise chunk levels (e3-v1).\n- Actually running a ProofNet eval against textbook chunks (consumes the mapping; separate work).\n- `search_papers` surfacing of textbook chunks (e4).\n- Embedding the textbook chunks (downstream).\n\n## Definition of done\n- OQ-1 + OQ-2 resolved in the synthesis with explicit reasoning; scope finalized.\n- All confirmed ACs ticked or \"unmet: reason\" in implementation-summary.md.\n- `make test` green (3 pre-existing failures untouched; arXiv chunker tests stay green if a shared primitive is touched).\n- Three-commit pattern: feat \u2192 rect \u2192 chore.\n- e3 epic is closed at m8 completion (per the m7/m8 decomposition the operator approved).\n\n## Note on milestone honesty\nThis milestone may legitimately conclude (via research) that one or both of its named halves should DESCOPE \u2014 the roadmap outcome was written before the PDF-vs-.tex preamble tension was understood. If research concludes the preamble half is unwired infrastructure, the RIGHT outcome is a smaller m8 (ProofNet mapping + pairing polish + a documented preamble decision) \u2014 NOT building an extractor for a path that can't feed it. Surface this at the synthesis gate.\n",
+  "phase": "implement-running",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-28T04:28:24Z",
+      "left_at": "2026-05-28T04:28:24Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-28T04:28:24Z",
+      "left_at": "2026-05-28T04:34:53Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-28T04:34:53Z",
+      "left_at": "2026-05-28T04:34:53Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-05-28T04:34:53Z",
+      "left_at": null,
+      "phase": "implement-running"
+    }
+  ],
+  "rectification_commit": null,
+  "regression_tests_added": [],
+  "research_briefs": [
+    {
+      "agent_id": "researcher-1",
+      "brief_path": ".claude/notes/milestones/textbook-ingest-m8/research-brief-1.md",
+      "summary": "OQ-1=descope preamble; OQ-2=no schema, doc crossref; pairing ok"
+    },
+    {
+      "agent_id": "researcher-2",
+      "brief_path": ".claude/notes/milestones/textbook-ingest-m8/research-brief-2.md",
+      "summary": "OQ-1(a) confident; ProofNet id={Textbook}|{ex}; theorem_label low-fidelity for PDF"
+    }
+  ],
+  "research_mode": "standard",
+  "research_synthesis": ".claude/notes/milestones/textbook-ingest-m8/research-synthesis.md",
+  "updated_at": "2026-05-28T04:34:53Z"
+}

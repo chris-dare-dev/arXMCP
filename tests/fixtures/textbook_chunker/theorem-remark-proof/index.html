@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"/><title>Theorem-Remark-Proof Audit Fixture</title>
+<meta name="generator" content="arXMCP/m6/mineru+latexml (synthetic fixture)"/></head>
+<body>
+<article class="ltx_document">
+
+  <section class="ltx_chapter" id="Ch1">
+    <h2 class="ltx_title ltx_title_chapter">Chapter 1. Compactness</h2>
+
+    <section class="ltx_section" id="Ch1.S1">
+      <h3 class="ltx_title ltx_title_section">1.1. Open Covers</h3>
+
+      <div class="ltx_para">
+        <p class="ltx_p">This section establishes the Heine-Borel property and
+        its consequences. Textbooks frequently interpose a remark between a
+        theorem and its proof; this fixture exercises that structure to confirm
+        the chunker does not falsely pair across the intervening remark.</p>
+      </div>
+
+      <div class="ltx_theorem ltx_theorem_theorem" id="Ch1.S1.Thm1">
+        <h6 class="ltx_title ltx_runin ltx_font_bold ltx_title_theorem">Theorem 1.1 (Heine-Borel).</h6>
+        <div class="ltx_para">
+          <p class="ltx_p">A subset of
+          <math xmlns="http://www.w3.org/1998/Math/MathML" display="inline" alttext="\mathbb{R}^n"><msup><mi>&#x211D;</mi><mi>n</mi></msup></math>
+          is compact if and only if it is closed and bounded.</p>
+        </div>
+      </div>
+
+      <div class="ltx_theorem ltx_theorem_remark" id="Ch1.S1.Rem1">
+        <h6 class="ltx_title ltx_runin ltx_font_bold ltx_title_remark">Remark 1.2.</h6>
+        <div class="ltx_para">
+          <p class="ltx_p">The forward direction fails in infinite-dimensional
+          normed spaces, where closed bounded sets need not be compact.</p>
+        </div>
+      </div>
+
+      <div class="ltx_proof">
+        <h6 class="ltx_title ltx_runin ltx_font_italic ltx_title_proof">Proof.</h6>
+        <div class="ltx_para">
+          <p class="ltx_p">Reduce to the case of a closed box via boundedness,
+          then apply the finite-subcover argument to a bisection sequence.
+          The converse follows from continuity of the coordinate projections.</p>
+        </div>
+      </div>
+    </section>
+  </section>
+
+</article>
+</body>
+</html>
