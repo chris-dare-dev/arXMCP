@@ -133,7 +133,15 @@ logger = logging.getLogger(__name__)
 #: The filter is enforced as a LanceDB pre-filter on the dense path +
 #: a chunk_id-prefix branch on the BM25 path. Description bytes changed
 #: → BP1 re-pin via ``pytest --update-tool-schema-hash``.
-TOOL_SCHEMA_VERSION: int = 14
+#: v15: textbook-ingest-m9 / e4 rectification (critique F3) — the
+#: ``filters`` parameter Field description (rendered into the live
+#: ``tools/list`` inputSchema) now names ``source_kind`` as an honored
+#: key, resolving the doc-accuracy drift where the same ``tools/list``
+#: payload's ToolMeta said source_kind was filterable while the
+#: parameter schema said "other keys are ignored". inputSchema bytes
+#: changed → coordinated re-pin of EXPECTED_TOOL_SCHEMA_SHA256 + (via
+#: the ``tool_schema_version`` _meta) EXPECTED_BP1_SHA256.
+TOOL_SCHEMA_VERSION: int = 15
 
 #: URI scheme for chunk resource_links per the design note. Used by
 #: handlers that switch to resource_link mode when payloads exceed

@@ -456,6 +456,27 @@ def _build_arrow_table(
                 f"{chunk.source_kind!r} which is not in the allowed "
                 f"set {sorted(_ALLOWED_SOURCE_KINDS)!r}"
             )
+        # textbook-ingest-m9 / e4 rect F6: the chunk_id PREFIX and the
+        # source_kind COLUMN must agree. The dense retrieval path filters
+        # on the authoritative source_kind column; the BM25 path infers
+        # source_kind from the chunk_id prefix
+        # (server/retrieval/bm25.py:_source_kind_from_chunk_id). If a
+        # chunk were written with a "textbook:"-prefixed id but
+        # source_kind="arxiv" (or vice versa, via a chunker bug), the two
+        # paths would classify the same chunk differently. Enforcing the
+        # invariant at write time makes the prefix a guaranteed-reliable
+        # proxy so the two paths can never disagree. ``arxiv:`` ⇔
+        # "arxiv"; ``textbook:`` ⇔ "textbook".
+        expected_prefix = f"{chunk.source_kind}:"
+        if not chunk.chunk_id.startswith(expected_prefix):
+            raise ValueError(
+                f"chunk {chunk.chunk_id} has source_kind="
+                f"{chunk.source_kind!r} but its chunk_id does not start "
+                f"with the matching prefix {expected_prefix!r}; the "
+                f"chunk_id prefix and source_kind column must agree so "
+                f"the dense (column) and BM25 (prefix) retrieval paths "
+                f"classify the chunk identically"
+            )
         # m2 rect F4: ``parser_used`` is a documented enum. None
         # means failure / unknown (accepted). Any other value must
         # be in ``_ALLOWED_PARSER_USED`` so a chunker bug or driver

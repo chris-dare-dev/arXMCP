@@ -1339,6 +1339,7 @@ class TestSourceKindPrefilter:
         )
         tb_chunk.source_kind = "textbook"
         tb_chunk.textbook_slug = "sv-book"
+        tb_chunk.paper_id = "textbook:sv-book"
         tb_chunk.chunk_id = "textbook:sv-book:" + "b" * 16
         chunks = [arxiv_chunk, tb_chunk]
         embeddings = _make_synthetic_embeddings(chunks, seed=7)
@@ -1387,3 +1388,174 @@ class TestSourceKindPrefilter:
             .to_arrow()
         )
         assert rows.column("source_kind").to_pylist() == ["arxiv"]
+
+    # ----- e4 rect F4: combined predicate on a REAL LanceDB -----
+
+    def test_combined_paper_id_and_source_kind_real_lancedb(self, tmp_path):
+        """e4 rect F4 (MEDIUM): the combined ``(paper_id IN (...)) AND
+        (source_kind = '...')`` predicate the handler builds for two
+        simultaneous filters must actually EXECUTE on a real LanceDB —
+        not merely match a string against the fake builder in
+        test_search_filter.py. A LanceDB SQL-dialect quirk or wrong
+        parenthesization would slip past the string assertion but fail
+        here."""
+        tbl = self._open(self._seed_mixed_corpus(tmp_path))
+        qv = np.zeros(EMBEDDING_DIM, dtype=np.float32)
+        rows = (
+            tbl.search(qv, vector_column_name="embedding_stmt")
+            .where(
+                "(paper_id IN ('textbook:sv-book')) AND "
+                "(source_kind = 'textbook')",
+                prefilter=True,
+            )
+            .limit(10)
+            .to_arrow()
+        )
+        assert rows.column("chunk_id").to_pylist() == [
+            "textbook:sv-book:" + "b" * 16
+        ]
+
+    def test_combined_predicate_empty_intersection(self, tmp_path):
+        """e4 rect F4 (MEDIUM): a combined predicate whose two clauses
+        select disjoint rows (the arxiv chunk's paper_id ANDed with
+        source_kind='textbook') returns ZERO rows — the AND really
+        intersects, it does not union."""
+        tbl = self._open(self._seed_mixed_corpus(tmp_path))
+        qv = np.zeros(EMBEDDING_DIM, dtype=np.float32)
+        rows = (
+            tbl.search(qv, vector_column_name="embedding_stmt")
+            .where(
+                "(paper_id IN ('2401.00001')) AND "
+                "(source_kind = 'textbook')",
+                prefilter=True,
+            )
+            .limit(10)
+            .to_arrow()
+        )
+        assert rows.num_rows == 0
+
+    # ----- e4 rect F2: the FM-1 under-fill rationale, actually tested -----
+
+    def _seed_underfill_corpus(self, tmp_path):
+        """20 arxiv chunks NEAR the query vector + 1 textbook chunk FAR
+        from it. This is the corpus shape FM-1 warns about: a mostly-arxiv
+        top-k where the textbook chunk falls outside a small unfiltered
+        cutoff. Vectors are hand-built (not random) so the ordering is
+        deterministic: arxiv ≈ e_0 (query), textbook = e_1 (orthogonal)."""
+        from ingest.schema import EmbedRecord
+        from ingest.store import write_chunks
+
+        chunks: list[ChunkRecord] = []
+        stmt_ids: list[str] = []
+        stmt_vecs: list[np.ndarray] = []
+        for i in range(20):
+            c = _make_chunk(
+                f"2401.1{i:04d}", "stmt", f"arxiv body {i}",
+                suffix=f"{i:016x}",
+            )  # source_kind defaults to "arxiv"
+            v = np.zeros(EMBEDDING_DIM, dtype=np.float32)
+            v[0] = 1.0
+            v[1] = 0.001 * (i + 1)  # distinct but all hugging e_0
+            v /= np.linalg.norm(v)
+            chunks.append(c)
+            stmt_ids.append(c.chunk_id)
+            stmt_vecs.append(v)
+        tb = _make_chunk(
+            "2401.20000", "stmt", "textbook body about varieties",
+            suffix="b" * 16,
+        )
+        tb.source_kind = "textbook"
+        tb.textbook_slug = "sv-book"
+        tb.paper_id = "textbook:sv-book"
+        tb.chunk_id = "textbook:sv-book:" + "b" * 16
+        tv = np.zeros(EMBEDDING_DIM, dtype=np.float32)
+        tv[1] = 1.0  # orthogonal to the query → farthest of all 21 rows
+        chunks.append(tb)
+        stmt_ids.append(tb.chunk_id)
+        stmt_vecs.append(tv)
+
+        embeddings = EmbedRecord(
+            chunk_ids_stmt=stmt_ids,
+            embedding_stmt=np.stack(stmt_vecs, axis=0),
+            chunk_ids_proof=[],
+            embedding_proof=np.zeros((0, EMBEDDING_DIM), dtype=np.float32),
+            embedder_version=EMBEDDER_VERSION,
+        )
+        lancedb_path = tmp_path / "lancedb"
+        write_chunks(chunks, embeddings, lancedb_path=lancedb_path)
+        return lancedb_path
+
+    def test_underfill_prefilter_recovers_textbook(self, tmp_path):
+        """e4 rect F2 (HIGH): the LOAD-BEARING FM-1 rationale. With 20
+        arxiv chunks closer to the query than 1 textbook chunk and a
+        small ``.limit(5)``, the textbook chunk is NOT in the unfiltered
+        top-k — so a POST-retrieval filter would drop it (zero results).
+        A true PRE-filter restricts the ANN search space to textbook rows
+        FIRST and recovers it. This test fails iff the pre-filter ever
+        degrades to a post-filter (e.g. a refactor drops prefilter=True
+        or filters _arrow_to_rows output)."""
+        tbl = self._open(self._seed_underfill_corpus(tmp_path))
+        qv = np.zeros(EMBEDDING_DIM, dtype=np.float32)
+        qv[0] = 1.0
+        # (a) Unfiltered top-5: the textbook chunk is absent (farthest).
+        unfiltered = (
+            tbl.search(qv, vector_column_name="embedding_stmt")
+            .limit(5)
+            .to_arrow()
+        )
+        assert "textbook" not in set(
+            unfiltered.column("source_kind").to_pylist()
+        )
+        # (b) Pre-filtered top-5: the textbook chunk IS recovered. Only a
+        # restrict-then-search pre-filter can return it; a post-filter
+        # over the arxiv-only top-5 would return zero rows.
+        prefiltered = (
+            tbl.search(qv, vector_column_name="embedding_stmt")
+            .where("source_kind = 'textbook'", prefilter=True)
+            .limit(5)
+            .to_arrow()
+        )
+        assert prefiltered.column("source_kind").to_pylist() == ["textbook"]
+        assert prefiltered.column("chunk_id").to_pylist() == [
+            "textbook:sv-book:" + "b" * 16
+        ]
+
+
+# ===========================================================================
+# TestWriteChunksPrefixInvariant — textbook-ingest-m9 / e4 rect F6
+# write_chunks rejects a chunk whose chunk_id PREFIX disagrees with its
+# source_kind COLUMN, so the dense (column) and BM25 (prefix) retrieval
+# paths can never classify the same chunk differently.
+# ===========================================================================
+
+
+class TestWriteChunksPrefixInvariant:
+    def test_textbook_kind_with_arxiv_prefix_rejected(self, tmp_path):
+        """source_kind='textbook' but an ``arxiv:`` chunk_id → ValueError."""
+        from ingest.store import write_chunks
+
+        c = _make_chunk("2401.00003", "stmt", "body", suffix="c" * 16)
+        c.source_kind = "textbook"  # chunk_id still "arxiv:..." → mismatch
+        embeddings = _make_synthetic_embeddings([c], seed=3)
+        with pytest.raises(ValueError, match="prefix"):
+            write_chunks([c], embeddings, lancedb_path=tmp_path / "lancedb")
+
+    def test_arxiv_kind_with_textbook_prefix_rejected(self, tmp_path):
+        """source_kind='arxiv' (default) but a ``textbook:`` chunk_id →
+        ValueError."""
+        from ingest.store import write_chunks
+
+        c = _make_chunk("2401.00004", "stmt", "body", suffix="d" * 16)
+        c.chunk_id = "textbook:sv-book:" + "d" * 16  # source_kind stays arxiv
+        embeddings = _make_synthetic_embeddings([c], seed=4)
+        with pytest.raises(ValueError, match="prefix"):
+            write_chunks([c], embeddings, lancedb_path=tmp_path / "lancedb")
+
+    def test_matching_prefix_and_kind_accepted(self, tmp_path):
+        """A textbook chunk whose prefix and source_kind agree writes
+        cleanly (guards against the invariant over-firing)."""
+        from ingest.store import write_chunks
+
+        tb = _make_textbook_chunk("sv-book", suffix="e" * 16)
+        embeddings = _make_synthetic_embeddings([tb], seed=5)
+        write_chunks([tb], embeddings, lancedb_path=tmp_path / "lancedb")  # no raise

@@ -108,12 +108,13 @@ DEFAULT_TOP_N: int = 200
 #: cost ~100ms+ — over-fetching is the right trade.
 OVER_FETCH_FACTOR: int = 4
 
-#: Filter keys the chunks table CAN honor in v1. The chunks schema
+#: Filter keys the chunks table CAN honor. The chunks schema
 #: (``ingest/schema.py:69-118``) carries ``paper_id``, ``kind``,
-#: ``chunker_version``, ``embedder_version``, ``preamble_ref``. For
-#: v1 we honor only ``paper_id`` — the others are unlikely in agent
-#: queries and a precise filter API for them lands when the
-#: ``papers`` metadata table ships.
+#: ``chunker_version``, ``embedder_version``, ``preamble_ref``,
+#: ``source_kind``. We honor ``paper_id`` and ``source_kind`` (m9 /
+#: e4) — the others are unlikely in agent queries and a precise
+#: filter API for them lands when the ``papers`` metadata table ships.
+#: Mirrors ``server.handlers.search.SUPPORTED_FILTER_KEYS``.
 SUPPORTED_FILTER_KEYS: frozenset[str] = frozenset({"paper_id", "source_kind"})
 
 #: Filter keys the brief lists but the chunks table does NOT carry.

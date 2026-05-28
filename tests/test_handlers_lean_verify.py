@@ -167,8 +167,11 @@ class TestToolRegistration:
         feedback-m3), 12->13 (textbook-ingest-m3), 13->14 (textbook-
         ingest-m9 / e4 — SEARCH_PAPERS source_kind filter description
         edit drifted the global version; lean_verify result shape
+        unchanged), 14->15 (textbook-ingest-m9 / e4 rectification —
+        critique-F3 filters-parameter inputSchema description fix
+        drifted the global version; lean_verify result shape again
         unchanged)."""
-        assert TOOL_SCHEMA_VERSION == 14
+        assert TOOL_SCHEMA_VERSION == 15
 
         schema_path = (
             Path(__file__).parent.parent

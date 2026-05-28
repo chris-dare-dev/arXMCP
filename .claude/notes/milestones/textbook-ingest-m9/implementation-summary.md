@@ -32,7 +32,7 @@
 - [x] Tool-schema + snippet-contract + BP1 hash tests green post-re-pin.
 
 ### Out of scope (documented follow-up)
-- The literal Milne/Caraiani live demo + the **missing `tools/notebook_textbook_ingest.py` driver** (embed m7's textbook chunk JSONs → write the notebook LanceDB). m7 writes chunk JSONs only; nothing loads them into a notebook's lancedb. Flagged as a follow-up at e4 close.
+- The literal Milne/Caraiani live demo + the **missing `tools/notebook_textbook_ingest.py` driver** (embed m7's textbook chunk JSONs → write the notebook LanceDB). m7 writes chunk JSONs only; nothing loads them into a notebook's lancedb. **Tracked at [chris-dare-dev/arXMCP#8](https://github.com/chris-dare-dev/arXMCP/issues/8)** (filed at e4 close per the m9 critique F1 — the deferral is now live, not lost).
 
 ## Files changed
 - `server/handlers/search.py` (source_kind predicate + validation + combined .where + _arrow_to_rows + SUPPORTED_FILTER_KEYS)

@@ -598,6 +598,53 @@ def test_supported_filter_keys_matches_expected() -> None:
     assert frozenset({"paper_id", "source_kind"}) == SUPPORTED_FILTER_KEYS
 
 
+def test_filters_field_description_names_source_kind() -> None:
+    """e4 rect F3 (MEDIUM): the ``filters`` parameter Field description
+    — which FastMCP renders into the live ``tools/list`` inputSchema —
+    MUST name ``source_kind`` as an honored key. Before this fix the
+    same ``tools/list`` payload contradicted itself: the ToolMeta said
+    source_kind was filterable while the parameter schema said "other
+    keys are ignored". Guards against that doc-vs-validator drift
+    re-surfacing on the inputSchema surface."""
+    import typing
+
+    from server.handlers.search import handle_search_papers
+
+    hints = typing.get_type_hints(handle_search_papers, include_extras=True)
+    filters_ann = hints["filters"]
+    # Annotated[dict|None, Field(...)] → the FieldInfo is in __metadata__.
+    field_info = filters_ann.__metadata__[0]
+    assert "source_kind" in field_info.description, (
+        "filters Field description must name source_kind so the "
+        "tools/list inputSchema agrees with the ToolMeta description"
+    )
+
+
+def test_arrow_to_rows_null_source_kind_falls_back_to_arxiv() -> None:
+    """e4 rect F5 (MEDIUM): _arrow_to_rows emits source_kind="arxiv" when
+    the column value is NULL — a legacy row that slipped past the m2
+    backfill. The defensive ``sk if sk is not None else "arxiv"`` branch
+    (search.py:_arrow_to_rows) had zero coverage: _make_arrow_table
+    defaults source_kind to "arxiv" and no test ever fed None. This pins
+    the documented fallback so a future edit (e.g. to "unknown", or
+    removing it and tripping the result schema's required +
+    additionalProperties:false) is caught."""
+    from server.handlers.search import _arrow_to_rows
+
+    # Key present with value None → a real NULL in the arrow column
+    # (_make_arrow_table's r.get default only fires when the key is absent).
+    table = _make_arrow_table([
+        {
+            "chunk_id": "arxiv:2401.00001:abcdef0123456789",
+            "paper_id": "2401.00001",
+            "source_kind": None,
+        },
+    ])
+    rows = _arrow_to_rows(table)
+    assert len(rows) == 1
+    assert rows[0]["source_kind"] == "arxiv"
+
+
 # ---------------------------------------------------------------------------
 # Rectification regression tests (F1, F2, F3, F4 from critique-merged)
 # ---------------------------------------------------------------------------

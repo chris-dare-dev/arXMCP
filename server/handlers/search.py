@@ -347,8 +347,9 @@ async def handle_search_papers(
             description=(
                 "Optional filters. Honors 'paper_id' as a str or "
                 "list[str] (up to 100 items, each validated against "
-                "the arXiv paper_id format); other keys are ignored "
-                "and surface in 'filter_warnings'."
+                "the arXiv paper_id format) and 'source_kind' "
+                "('arxiv' or 'textbook'); these compose (AND). Other "
+                "keys are ignored and surface in 'filter_warnings'."
             ),
         ),
     ] = None,
@@ -364,9 +365,12 @@ async def handle_search_papers(
     into the ANN call (proof-verify-handler-wiring-m1). The ``paper_id``
     value may be a single string or a list of strings, capped at
     ``MAX_PAPER_ID_FILTER_ITEMS`` items, with each element validated
-    against ``ingest.identifiers.is_valid_paper_id``. Other filter
-    keys (``categories``, ``year_min``, etc.) are still ignored and
-    surface in ``filter_warnings``.
+    against ``ingest.identifiers.is_valid_paper_id``. ``source_kind``
+    (``"arxiv"`` / ``"textbook"``, e4) is honored end-to-end via a
+    LanceDB pre-filter and composes with ``paper_id`` (ANDed into a
+    single ``.where()``). Other filter keys (``categories``,
+    ``year_min``, etc.) are still ignored and surface in
+    ``filter_warnings``.
 
     ``cursor`` is still deferred to a future milestone.
     """
