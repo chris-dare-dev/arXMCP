@@ -587,7 +587,15 @@ def _extract_chunks_from_container(
         # Detect ltx_proof (orphan — no preceding theorem in this scope)
         # ----------------------------------------------------------------
         if _has_class(child, "ltx_proof"):
-            logger.warning(
+            # DEBUG (not WARNING): an orphan proof — a <div class="ltx_proof">
+            # not immediately preceded by a theorem environment — is a
+            # *structural* feature of many real papers (math.AG corpus
+            # alone produces 10-30 per long paper). The chunker correctly
+            # tags these as kind='proof'; no operator action is required.
+            # Promoting to WARNING level made the log unreadable during
+            # corpus-wide re-embeds. Operators who want the per-paper
+            # detail can set the chunker logger to DEBUG.
+            logger.debug(
                 "[%s] orphan proof at index %d in <%s>; emitting as kind='proof'",
                 paper_id,
                 i,

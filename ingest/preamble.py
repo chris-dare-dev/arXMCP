@@ -359,9 +359,26 @@ def extract_preamble(paper_id: str) -> PreambleDoc:
     except PER_PAPER_FAILURE_EXCEPTIONS as exc:
         elapsed = time.monotonic() - start
         _log_preamble_failure(paper_id, elapsed, str(exc))
-        logger.error(
-            "[%s] extract_preamble failed: %s", paper_id, exc, exc_info=True
-        )
+        # Structural ar5iv-only-path case: raw .tex not on disk. Expected
+        # for any paper ingested via the ar5iv-HTML-only fallback (the
+        # majority of post-2007 papers). The chunker already logs a
+        # WARNING with the message at the call site; emitting an ERROR
+        # + full traceback here doubles the noise for an expected
+        # branch. WARNING-with-no-traceback is the right severity.
+        # The proper remediation is the preamble-without-raw-tex-m1
+        # milestone (see .claude/notes/scans/preamble-without-raw-tex-
+        # 2026-05-27.md) — fetch raw .tex via tools/arxiv_fetch.
+        # All other PER_PAPER_FAILURE_EXCEPTIONS (real disk OSError,
+        # unicode errors, malformed .tex) keep the ERROR + traceback.
+        if isinstance(exc, FileNotFoundError):
+            logger.warning(
+                "[%s] extract_preamble: %s", paper_id, exc
+            )
+        else:
+            logger.error(
+                "[%s] extract_preamble failed: %s",
+                paper_id, exc, exc_info=True,
+            )
         raise
 
 

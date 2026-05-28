@@ -95,6 +95,25 @@ from ingest.preamble import load_preamble
 
 logger = logging.getLogger(__name__)
 
+# Quiet two third-party log streams that dominate the embedder's cold-
+# start + per-paper output without carrying actionable signal:
+#
+# - ``httpx`` emits an INFO line per HF-Hub GET/HEAD (model.safetensors
+#   probe, tokenizer config, etc.). Repeats on every long-run process
+#   restart. Real network failures are still surfaced at WARNING+.
+# - ``transformers.tokenization_utils_base`` emits "Token indices
+#   sequence length is longer than the specified maximum sequence
+#   length" whenever a pre-tokenization length exceeds the model's
+#   max_position_embeddings. Misleading: the warning text claims
+#   "indexing errors", but the embedder always passes
+#   ``max_length=MAX_TOKENS`` to the encode call which truncates
+#   safely. Real tokenizer errors propagate as exceptions, not as
+#   this logger warning.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("transformers.tokenization_utils_base").setLevel(
+    logging.ERROR
+)
+
 
 # ---------------------------------------------------------------------------
 # Pinned model identity (Threat 6, 08-security-observability-ops.md)
