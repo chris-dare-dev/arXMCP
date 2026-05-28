@@ -32,15 +32,40 @@ from tools._notebook_common import NotebookError, validate_slug
 # ---------------------------------------------------------------------------
 
 
+# ===========================================================================
+# AUTOUSE SAFETY-NET FIXTURE — read this before adding any new test below.
+# ===========================================================================
+#
+# The fixture `_autouse_safety_net_mock_raw_tex_fetch` below applies to
+# EVERY test in this module via `autouse=True`. It does two things:
+#
+#   1. Sets ARXMCP_CONTACT_EMAIL=test@example.com so notebook_fetch.run()'s
+#      AC7 hard-check passes without each test having to set it.
+#      Tests that exercise the "env var unset" branch MUST call
+#      ``monkeypatch.delenv("ARXMCP_CONTACT_EMAIL", raising=False)``.
+#
+#   2. NO-OPS `notebook_fetch.fetch_raw_tex_if_missing` so existing
+#      ar5iv-hit tests don't accidentally hit `export.arxiv.org`.
+#      Tests that exercise the REAL raw-tex fetch path MUST explicitly
+#      override the patch with their own ``monkeypatch.setattr(...)``
+#      (Python monkeypatch is stack-based; inner patch wins).
+#
+# F4 rect (notebook-preamble-recovery-m1 critique): the prior name
+# `_default_notebook_fetch_env` was too generic and easy to miss. The
+# new name embeds both `autouse_safety_net` AND `mock_raw_tex_fetch` so
+# a `grep` for either term surfaces this fixture immediately. A future
+# milestone that adds a real-network integration test in this file MUST
+# either rename its test to make the bypass obvious OR override the
+# patch inside the test body — silently relying on the no-op is a bug.
+# ===========================================================================
+
+
 @pytest.fixture(autouse=True)
-def _default_notebook_fetch_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """notebook-preamble-recovery-m1: set ARXMCP_CONTACT_EMAIL +
-    no-op the raw-tex fetch helper by default. Tests that exercise the
-    raw-tex path explicitly override the helper with their own
-    monkeypatch (Python's monkeypatch is stack-based; the inner patch
-    wins). Tests that exercise the AC7 "missing env var" branch
-    explicitly call ``monkeypatch.delenv``.
-    """
+def _autouse_safety_net_mock_raw_tex_fetch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """See the SAFETY-NET docblock above. Renamed in F4 rect for
+    grep-discoverability."""
     monkeypatch.setenv("ARXMCP_CONTACT_EMAIL", "test@example.com")
     monkeypatch.setattr(
         notebook_fetch,
@@ -1005,6 +1030,226 @@ def test_recover_preambles_requires_arxmcp_contact_email(
     monkeypatch.delenv("ARXMCP_CONTACT_EMAIL", raising=False)
     with pytest.raises(NotebookError, match="ARXMCP_CONTACT_EMAIL"):
         recover_preambles.run(sleep_seconds=0.0)
+
+
+def test_recover_preambles_continues_past_tarball_bomb(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """F1 rect: a RuntimeError("refusing to extract path outside dest")
+    from fetch_eprint on paper 2-of-3 must NOT abort the back-fill loop.
+    Papers 1 and 3 must still process; the bombed paper goes into the
+    new ``security_events`` bucket (NOT ``other_fetch_errors``).
+    """
+    import urllib.error  # noqa: F401  (kept for parity with sibling tests)
+
+    from tools import recover_preambles
+
+    parsed_dir = tmp_path / "parsed"
+    for pid in ("0001.00001", "0002.00002", "0003.00003"):
+        (parsed_dir / pid).mkdir(parents=True)
+        (parsed_dir / pid / "index.html").write_text("<html></html>")
+    preamble_dir = tmp_path / "preamble"
+    preamble_dir.mkdir()
+    raw_dir = tmp_path / "raw"
+    raw_dir.mkdir()
+    monkeypatch.setattr(recover_preambles, "CORPUS_PARSED_DIR", parsed_dir)
+    monkeypatch.setattr(recover_preambles, "PREAMBLE_OUTPUT_DIR", preamble_dir)
+    monkeypatch.setattr(recover_preambles, "CORPUS_RAW_DIR", raw_dir)
+    monkeypatch.setattr(recover_preambles.time, "sleep", lambda s: None)
+
+    seen: list[str] = []
+
+    def _selective_bomb(paper_id, raw, **kw):
+        seen.append(paper_id)
+        if paper_id == "0002.00002":
+            raise RuntimeError(
+                "refusing to extract path outside dest: ../etc/passwd"
+            )
+        (raw / paper_id).mkdir(parents=True, exist_ok=True)
+        (raw / paper_id / "main.tex").write_text(r"\documentclass{article}")
+
+    monkeypatch.setattr(
+        "tools.arxiv_fetch.fetch_eprint", _selective_bomb,
+    )
+    monkeypatch.setattr(
+        recover_preambles, "extract_preamble", lambda pid: None,
+    )
+
+    summary = recover_preambles.run(sleep_seconds=0.0)
+    # F1 contract: all three were attempted; back-fill did not abort.
+    assert seen == ["0001.00001", "0002.00002", "0003.00003"]
+    # Bombed paper landed in security_events, NOT other_fetch_errors.
+    assert summary.security_events == ["0002.00002"]
+    assert summary.other_fetch_errors == []
+    # The other two completed.
+    assert summary.preamble_recovered == 2
+
+
+def test_recover_preambles_continues_past_url_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """F1 rect: a urllib.error.URLError (DNS / connection-reset, NOT a
+    HTTPError subclass) on one paper must NOT abort the loop. The paper
+    lands in ``other_fetch_errors``."""
+    import urllib.error
+
+    from tools import recover_preambles
+
+    parsed_dir = tmp_path / "parsed"
+    for pid in ("0001.00001", "0002.00002"):
+        (parsed_dir / pid).mkdir(parents=True)
+        (parsed_dir / pid / "index.html").write_text("<html></html>")
+    preamble_dir = tmp_path / "preamble"
+    preamble_dir.mkdir()
+    raw_dir = tmp_path / "raw"
+    raw_dir.mkdir()
+    monkeypatch.setattr(recover_preambles, "CORPUS_PARSED_DIR", parsed_dir)
+    monkeypatch.setattr(recover_preambles, "PREAMBLE_OUTPUT_DIR", preamble_dir)
+    monkeypatch.setattr(recover_preambles, "CORPUS_RAW_DIR", raw_dir)
+    monkeypatch.setattr(recover_preambles.time, "sleep", lambda s: None)
+
+    def _flaky_dns(paper_id, raw, **kw):
+        if paper_id == "0001.00001":
+            raise urllib.error.URLError("DNS resolution failed")
+        (raw / paper_id).mkdir(parents=True, exist_ok=True)
+        (raw / paper_id / "main.tex").write_text(r"\documentclass{article}")
+
+    monkeypatch.setattr(
+        "tools.arxiv_fetch.fetch_eprint", _flaky_dns,
+    )
+    monkeypatch.setattr(
+        recover_preambles, "extract_preamble", lambda pid: None,
+    )
+
+    summary = recover_preambles.run(sleep_seconds=0.0)
+    assert summary.preamble_recovered == 1
+    assert len(summary.other_fetch_errors) == 1
+    assert summary.other_fetch_errors[0][0] == "0001.00001"
+
+
+def test_fetch_raw_tex_helper_oversize_runtime_error_not_security_event(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """F2 rect: a RuntimeError("response too large for ...: Content-Length")
+    from the 100 MB cap must log at WARNING (oversize) and NOT
+    at ERROR with "SECURITY EVENT". Operator review distinguishes
+    DoS-mitigation rejects from path-traversal attempts."""
+    raw_dir = tmp_path / "raw"
+    raw_dir.mkdir()
+
+    def _oversize(paper_id, raw, **kw):
+        raise RuntimeError(
+            "response too large for 0001.00001: Content-Length 999999999 > cap 104857600"
+        )
+
+    monkeypatch.setattr("tools.arxiv_fetch.fetch_eprint", _oversize)
+
+    from tools._notebook_common import fetch_raw_tex_if_missing as real_helper
+    with caplog.at_level("WARNING", logger="notebook_common"):
+        rc = real_helper("0001.00001", raw_dir)
+    assert rc is False
+    # The oversize path uses WARNING + "oversized", NOT
+    # ERROR + "SECURITY EVENT".
+    relevant = [r for r in caplog.records if "0001.00001" in r.message]
+    assert any(
+        r.levelname == "WARNING" and "oversized" in r.message
+        for r in relevant
+    )
+    assert not any(
+        "SECURITY EVENT" in r.message for r in relevant
+    )
+
+
+def test_fetch_raw_tex_helper_idempotent_with_subdir_tex(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """F7 rect: idempotency gate uses rglob, so a paper with .tex only
+    in subdirs (e.g. ``chapters/intro.tex``) is correctly recognized as
+    already-present and the helper returns True without calling
+    fetch_eprint."""
+    raw_dir = tmp_path / "raw"
+    paper_dir = raw_dir / "0001.00001"
+    (paper_dir / "chapters").mkdir(parents=True)
+    (paper_dir / "chapters" / "intro.tex").write_text(r"\documentclass{book}")
+    # NOTE: no top-level main.tex; only subdir tex.
+
+    def _must_not_fetch(*args, **kw):
+        raise RuntimeError("F7 regression: fetch_eprint should not be called")
+
+    monkeypatch.setattr("tools.arxiv_fetch.fetch_eprint", _must_not_fetch)
+
+    from tools._notebook_common import fetch_raw_tex_if_missing as real_helper
+    rc = real_helper("0001.00001", raw_dir)
+    assert rc is True
+
+
+def test_recover_preambles_real_extract_preamble_end_to_end(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """F3 rect: integration test that exercises the REAL
+    ingest.preamble.extract_preamble against a synthetic .tex file
+    written by a mocked fetch_eprint. Anchors AC2's mechanical
+    promise that "raw_tex_fetched → preamble.json written" — without
+    this, a future refactor of extract_preamble could silently stop
+    producing preambles while this milestone's tests all still pass.
+    """
+    from ingest import preamble as ingest_preamble
+    from tools import recover_preambles
+
+    parsed_dir = tmp_path / "parsed"
+    (parsed_dir / "0001.00001").mkdir(parents=True)
+    (parsed_dir / "0001.00001" / "index.html").write_text("<html></html>")
+    preamble_dir = tmp_path / "preamble"
+    preamble_dir.mkdir()
+    raw_dir = tmp_path / "raw"
+    raw_dir.mkdir()
+
+    monkeypatch.setattr(recover_preambles, "CORPUS_PARSED_DIR", parsed_dir)
+    monkeypatch.setattr(recover_preambles, "PREAMBLE_OUTPUT_DIR", preamble_dir)
+    monkeypatch.setattr(recover_preambles, "CORPUS_RAW_DIR", raw_dir)
+    # CRUCIAL: extract_preamble reads from ingest.preamble.RAW_DIR
+    # and writes to ingest.preamble.PREAMBLE_DIR — patch those so the
+    # real implementation runs against tmp_path.
+    monkeypatch.setattr(ingest_preamble, "RAW_DIR", raw_dir)
+    monkeypatch.setattr(ingest_preamble, "PREAMBLE_DIR", preamble_dir)
+    monkeypatch.setattr(recover_preambles.time, "sleep", lambda s: None)
+
+    # Mock fetch_eprint to write a real synthetic .tex containing a
+    # macro that extract_preamble must recover.
+    def _write_real_tex(paper_id, raw, **kw):
+        (raw / paper_id).mkdir(parents=True, exist_ok=True)
+        (raw / paper_id / "main.tex").write_text(
+            "\\documentclass{article}\n"
+            "\\newcommand{\\foo}{bar}\n"
+            "\\begin{document}\n"
+            "Hello world.\n"
+            "\\end{document}\n",
+            encoding="utf-8",
+        )
+
+    monkeypatch.setattr(
+        "tools.arxiv_fetch.fetch_eprint", _write_real_tex,
+    )
+
+    summary = recover_preambles.run(sleep_seconds=0.0)
+    # AC2: preamble.json materialized for the candidate paper.
+    assert summary.preamble_recovered == 1
+    pj = preamble_dir / "0001.00001" / "preamble.json"
+    assert pj.is_file(), (
+        "AC2 regression: extract_preamble did not write preamble.json "
+        "via the back-fill driver's integration path."
+    )
+    import json as _json  # noqa: PLC0415
+    data = _json.loads(pj.read_text())
+    # The macro must appear in the recovered preamble_text.
+    assert "\\newcommand" in data.get("preamble_text", "")
+    assert "\\foo" in data.get("preamble_text", "")
 
 
 def test_recover_preambles_404_classified_as_withdrawn(

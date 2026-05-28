@@ -190,7 +190,12 @@ def fetch_raw_tex_if_missing(
     past `False` returns (AC4).
     """
     paper_raw_dir = raw_dir / paper_id
-    if paper_raw_dir.is_dir() and any(paper_raw_dir.glob("*.tex")):
+    # F7 rect: use rglob (recursive) to match _select_root_tex's
+    # actual search semantics in ingest/preamble.py. arXiv tarballs
+    # occasionally extract `.tex` only into subdirs (e.g.
+    # `chapters/intro.tex`); the previous top-level-only `.glob`
+    # would re-fetch those papers on every back-fill re-run.
+    if paper_raw_dir.is_dir() and any(paper_raw_dir.rglob("*.tex")):
         # Idempotent skip: raw .tex already present from a prior run.
         logger.debug(
             "[%s] raw_tex: skip — paper_raw_dir already has .tex files",
@@ -216,13 +221,34 @@ def fetch_raw_tex_if_missing(
         )
         return False
     except RuntimeError as exc:
-        # Path-traversal attempt during _safe_extract — log as ERROR
-        # (security event), not WARNING. Notebook run continues but
-        # the operator should investigate the tarball.
-        logger.error(
-            "[%s] raw_tex: SECURITY EVENT during tarball extraction: %s",
-            paper_id, exc,
-        )
+        # F2 rect: fetch_eprint raises RuntimeError from TWO distinct
+        # sites — _safe_extract (path-traversal, real security event)
+        # AND _extract_eprint_response (100 MB Content-Length cap, a
+        # DoS-mitigation reject). Disambiguate so ops review surfaces
+        # the right category. Message-prefix matching is fragile but
+        # acceptable here — both prefixes are stable Python literals
+        # in tools/arxiv_fetch.py.
+        msg = str(exc)
+        if "outside dest" in msg:
+            logger.error(
+                "[%s] raw_tex: SECURITY EVENT (path traversal): %s",
+                paper_id, exc,
+            )
+        elif "too large" in msg or "cap exceeded" in msg:
+            # Oversize response — DoS-mitigation reject, NOT a
+            # tarball-bomb. Log at WARNING (resource-exhaustion is
+            # still a real signal, but not a path-traversal attempt).
+            logger.warning(
+                "[%s] raw_tex: oversized response rejected: %s",
+                paper_id, exc,
+            )
+        else:
+            # Unexpected RuntimeError shape. Log at ERROR so it
+            # surfaces in ops review even if it's a new failure mode.
+            logger.error(
+                "[%s] raw_tex: unexpected RuntimeError: %s",
+                paper_id, exc,
+            )
         return False
     except (OSError, tarfile.TarError, gzip.BadGzipFile) as exc:
         # Disk failures, malformed tarballs, corrupt gzip. Recoverable

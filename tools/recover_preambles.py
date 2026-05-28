@@ -43,10 +43,12 @@ Exit codes::
 from __future__ import annotations
 
 import argparse
+import gzip
 import http
 import logging
 import os
 import sys
+import tarfile
 import time
 import urllib.error
 from dataclasses import dataclass, field
@@ -88,6 +90,10 @@ class RecoverySummary:
     preamble_failed: list[tuple[str, str]] = field(default_factory=list)
     withdrawn_404: list[str] = field(default_factory=list)
     other_fetch_errors: list[tuple[str, str]] = field(default_factory=list)
+    # F1 rect: track security events (path traversal in tarball)
+    # distinctly from generic fetch errors. Mis-categorizing as
+    # other_fetch_errors would hide a real attack signal in ops review.
+    security_events: list[str] = field(default_factory=list)
 
 
 def _has_preamble_json(paper_id: str) -> bool:
@@ -96,19 +102,33 @@ def _has_preamble_json(paper_id: str) -> bool:
 
 
 def _has_raw_tex(paper_id: str) -> bool:
-    """Return True iff at least one ``.tex`` exists under the paper's raw dir."""
+    """Return True iff at least one ``.tex`` exists under the paper's raw dir.
+
+    F7 rect: use rglob (recursive) to match _select_root_tex's search
+    semantics. Some arXiv tarballs put .tex only in subdirs.
+    """
     paper_raw_dir = CORPUS_RAW_DIR / paper_id
-    return paper_raw_dir.is_dir() and any(paper_raw_dir.glob("*.tex"))
+    return paper_raw_dir.is_dir() and any(paper_raw_dir.rglob("*.tex"))
 
 
 def _fetch_raw_tex_with_503_backoff(paper_id: str) -> str:
     """Call fetch_raw_tex_if_missing with 503 retry loop.
 
     Returns one of: ``"ok"``, ``"already_present"``, ``"withdrawn_404"``,
-    ``"max_backoff_exceeded"``, ``"other_error"``. The notebook
-    `fetch_raw_tex_if_missing` helper swallows 503 (logs and returns
-    False); for the back-fill we want explicit retry-with-backoff so a
-    transient arXiv overload doesn't drop the remaining papers.
+    ``"max_backoff_exceeded"``, ``"security_event"``, ``"other_error"``.
+
+    F1 rect: the original implementation only caught
+    ``urllib.error.HTTPError``. A ``RuntimeError`` (tarball-bomb /
+    100 MB cap), ``URLError`` (DNS / connection-reset), ``OSError``
+    (disk), or ``tarfile.TarError`` (malformed archive) would
+    propagate and abort the entire back-fill mid-loop, contradicting
+    ``run()``'s docstring contract. The envelope is now the same
+    superset the per-paper helper uses (``_notebook_common.py``).
+
+    The notebook `fetch_raw_tex_if_missing` helper swallows 503
+    (logs and returns False); for the back-fill we want explicit
+    retry-with-backoff so a transient arXiv overload doesn't drop
+    the remaining papers.
     """
     if _has_raw_tex(paper_id):
         return "already_present"
@@ -148,6 +168,35 @@ def _fetch_raw_tex_with_503_backoff(paper_id: str) -> str:
             logger.warning(
                 "[%s] http %d on /e-print/: %s",
                 paper_id, exc.code, exc,
+            )
+            return "other_error"
+        except RuntimeError as exc:
+            # F1 rect: catch RuntimeError instead of letting it
+            # propagate. F2 rect: disambiguate path-traversal from
+            # the 100 MB Content-Length cap — both raise RuntimeError
+            # from tools/arxiv_fetch.py but the operator response
+            # differs (security investigation vs retry-after-bug-fix).
+            msg = str(exc)
+            if "outside dest" in msg:
+                logger.error(
+                    "[%s] SECURITY EVENT (path traversal): %s",
+                    paper_id, exc,
+                )
+                return "security_event"
+            logger.warning(
+                "[%s] fetch failed (likely oversize): %s", paper_id, exc,
+            )
+            return "other_error"
+        except (
+            urllib.error.URLError,
+            OSError,
+            tarfile.TarError,
+            gzip.BadGzipFile,
+        ) as exc:
+            # F1 rect: network errors, disk failures, malformed
+            # tarballs, corrupt gzip. Recoverable; back-fill continues.
+            logger.warning(
+                "[%s] fetch failed: %s", paper_id, exc,
             )
             return "other_error"
 
@@ -218,7 +267,15 @@ def run(
         elif outcome == "withdrawn_404":
             summary.withdrawn_404.append(paper_id)
             continue  # no .tex → can't extract preamble
+        elif outcome == "security_event":
+            # F1 rect: separate bucket so operator review surfaces
+            # path-traversal attempts without conflating with generic
+            # fetch errors. extract_preamble must NOT run on a
+            # bombed tarball (the tarball's contents are partial).
+            summary.security_events.append(paper_id)
+            continue
         else:
+            # "max_backoff_exceeded", "other_error"
             summary.other_fetch_errors.append((paper_id, outcome))
             continue
 
@@ -251,11 +308,19 @@ def _print_summary(summary: RecoverySummary) -> None:
         f"preamble_recovered={summary.preamble_recovered} "
         f"preamble_failed={len(summary.preamble_failed)} "
         f"withdrawn_404={len(summary.withdrawn_404)} "
+        f"security_events={len(summary.security_events)} "
         f"other_fetch_errors={len(summary.other_fetch_errors)}"
     )
     if summary.withdrawn_404:
         print("\nWithdrawn (404) papers (preamble unrecoverable):", file=sys.stderr)
         for pid in summary.withdrawn_404:
+            print(f"  {pid}", file=sys.stderr)
+    if summary.security_events:
+        print(
+            "\nSECURITY EVENTS (path-traversal in tarball — investigate):",
+            file=sys.stderr,
+        )
+        for pid in summary.security_events:
             print(f"  {pid}", file=sys.stderr)
     if summary.other_fetch_errors:
         print("\nFetch errors (re-runnable):", file=sys.stderr)

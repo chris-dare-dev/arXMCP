@@ -62,3 +62,13 @@ under a single `apiVersion: 1` can be safely mounted to BOTH provisioning subdir
 from each subdir. However, if an operator naively "splits" the file by extracting only
 the `providers:` section, the resulting dashboards file will lack `apiVersion: 1` and
 Grafana will reject it. YAML comments should say "mount at both paths" not "split."
+
+## 2026-05-27 — notebook-preamble-recovery-m1 — makefile-operator-warning-help-visibility
+
+Makefile recipe comments prefixed with `@#` are SILENT at runtime — they are not printed
+even when the target runs. If a target has a material consequence for the operator
+(e.g. "this will trigger a 2-4h downstream re-embed"), that warning must appear in the
+`help` target's `@echo` block, not only in the recipe comment block. Flag as MEDIUM
+when an OPERATOR WARNING is buried in `@#` comments but absent from `make help` output.
+Pattern confirmed in arXMCP: ingest-recover-preambles had its chunk_id rotation warning
+only in recipe comments. Fix: add a second @echo line under the help entry.

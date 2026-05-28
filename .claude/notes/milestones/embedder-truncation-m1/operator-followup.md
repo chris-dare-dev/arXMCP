@@ -83,3 +83,55 @@ If you'd rather measure B-3 with the embedder-truncation-m1 changes in
 isolation (no preamble confound), run `make eval` against the live
 bridgeland-stability notebook BEFORE running `make ingest-recover-preambles`,
 then re-measure AFTER. The delta isolates the preamble contribution.
+
+## 3. notebook-preamble-recovery-m1 — AC3 explicit operator deliverable
+
+**AC3:** the back-fill must recover preamble.json for ≥ 90% of the 137
+already-ingested ar5iv-only papers (the count as of 2026-05-28; verify
+via `ls var/arxmcp/corpus/parsed/ | wc -l` at run time).
+
+**Checklist (operator):**
+1. Run `make ingest-recover-preambles` (estimated ~7 minutes at 3 s/paper
+   politeness for 137 papers; longer if any 503 backoff hits).
+2. Read the final summary line — record `total=N` and
+   `preamble_recovered=P`.
+3. Compute `P / N`. AC3 PASS iff `P / N ≥ 0.90`.
+4. If AC3 FAILS: inspect the stderr categories — `withdrawn_404`
+   (unrecoverable; subtract from denominator before re-judging),
+   `security_events` (investigate the tarball), `other_fetch_errors`
+   (re-run; transient).
+5. Record `P`, `N`, and the pass/fail ratio in this file under a new
+   "AC3 measurement (recorded by operator on YYYY-MM-DD)" section.
+
+## 4. notebook-preamble-recovery-m1 — AC6 `get_definitions` canary
+
+**AC6:** after the back-fill + a subsequent `make re-embed-all`, the
+`get_definitions` MCP tool must return `total > 0` for at least one
+canary paper that previously returned `{total: 0,
+index_status: "absent"}`.
+
+**Checklist (operator):**
+1. Pick a canary paper from the bridgeland-stability notebook that is
+   known to use `\newcommand` (any paper from the 2010s-era list; e.g.
+   `1207.4980` which uses `\AA`, `\Hom`, etc.).
+2. BEFORE running `make ingest-recover-preambles`, call
+   `get_definitions` for the canary via the MCP server and confirm the
+   current state is `{total: 0, index_status: "absent"}`.
+3. Run `make ingest-recover-preambles` then `make re-embed-all`.
+4. After re-embed completes AND the definitions indexer has run (see
+   `ingest/index_definitions.py` — may need a separate
+   `python -m ingest.index_definitions` invocation; check the runbook),
+   call `get_definitions` for the canary again.
+5. AC6 PASS iff the post-back-fill result has `total > 0` AND each
+   definition row carries `lhs` + `rhs` + `paper_id == <canary>`.
+6. Record canary paper_id, before-total, after-total, and a sample
+   definition row in this file under a new "AC6 measurement" section.
+
+## Why these checklists live here
+
+Per the F5 finding in the notebook-preamble-recovery-m1 critique
+(`.claude/notes/milestones/notebook-preamble-recovery-m1/critique-merged.md`):
+"deferred-to-operator with no enumerated check" is the exact failure
+mode this file was created to prevent. Explicit checklist items force
+the deliverable into the operator's workflow rather than letting it
+silently drop.

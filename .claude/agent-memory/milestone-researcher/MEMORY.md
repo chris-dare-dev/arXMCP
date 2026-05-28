@@ -681,3 +681,35 @@ MinerU (layer 2) sees the decompressed stream. Document in pdfid.py docstring.
 tools/security/__init__.py must be committed alongside pdfid.py. Missing __init__
 causes ModuleNotFoundError on fresh checkout. Pattern applies to any new package
 under tools/.
+
+## 2026-05-27 — notebook-preamble-recovery-m1 — all-137-not-65-ar5iv-papers-missing-raw-tex
+Milestone brief cited "~65 papers in the live notebook tree." Live measurement: `corpus/parsed/`
+has 137 papers, `corpus/raw/` has 0 directories. ALL 137 are missing raw tex. `ingest-recover-preambles`
+should target all of `corpus/parsed/`, not notebook-scoped papers only.
+
+## 2026-05-27 — notebook-preamble-recovery-m1 — fetch_eprint-creates-raw-subdir-internally
+`tools/arxiv_fetch.fetch_eprint(paper_id, raw_dir)` receives the PARENT dir and appends `paper_id`
+internally: `raw_dir = raw_dir / paper_id; raw_dir.mkdir(parents=True, exist_ok=True)`. The returned
+`FetchResult.raw_dir` IS the paper-scoped dir. Do NOT pre-create the directory before calling.
+
+## 2026-05-27 — notebook-preamble-recovery-m1 — _notebook_common-has-no-CORPUS_RAW_DIR
+`tools/_notebook_common.py` defines `CORPUS_PARSED_DIR`, `CORPUS_CHUNKS_DIR`, `CORPUS_EMBEDDINGS_DIR`
+but NO `CORPUS_RAW_DIR`. Any milestone adding raw-tex fetch to the notebook path must add this constant
+to `_notebook_common.py` and `__all__`, then monkeypatch it in tests.
+
+## 2026-05-28 — notebook-preamble-recovery-m1 — fetch_eprint-caller-owns-sleep
+`tools/arxiv_fetch.fetch_eprint` does NOT sleep internally. Its docstring states:
+"Caller is responsible for the politeness sleep BEFORE invoking this." Per-paper cost
+for notebook_fetch becomes ~6s (3s ar5iv + 3s e-print) when raw-tex fetch added.
+Any new helper wrapping fetch_eprint must call politeness_sleep() explicitly.
+
+## 2026-05-28 — notebook-preamble-recovery-m1 — notebook-tests-in-test-notebook-scripts
+There is NO `tests/test_notebook_fetch.py`. All notebook_fetch tests live in
+`tests/tools/test_notebook_scripts.py`. New tests for notebook_fetch changes go there.
+The fixture pattern monkeypatches `notebook_fetch.try_cache` and `_notebook_common.CORPUS_*`.
+
+## 2026-05-28 — notebook-preamble-recovery-m1 — _notebook_common-missing-CORPUS_RAW_DIR
+`tools/_notebook_common.py` defines CORPUS_PARSED_DIR, CORPUS_CHUNKS_DIR, CORPUS_EMBEDDINGS_DIR
+but NOT CORPUS_RAW_DIR. Any milestone adding a fetch_raw_tex_if_missing helper must add
+CORPUS_RAW_DIR = REPO_ROOT / "var" / "arxmcp" / "corpus" / "raw" to _notebook_common.py
+and update the test fixture's monkeypatch to redirect it.
