@@ -272,6 +272,14 @@ async def create_notebook(
     # serialize cleanly across the boundary).
     lancedb_path = str(nb_dir / "lancedb")
 
+    # textbook-ingest-m6: textbook-kind notebooks land with
+    # ``parse_status='pending'`` so the upload route's parse-task
+    # scheduler observes the right initial state. arxiv-kind keeps
+    # the column-level default ('skipped') by passing
+    # ``parse_status=None``.
+    initial_parse_status = (
+        "pending" if body.notebook_kind == "textbook" else None
+    )
     try:
         await store.create_notebook(
             slug=body.slug,
@@ -279,6 +287,7 @@ async def create_notebook(
             lancedb_path=lancedb_path,
             created_at=_now_iso(),
             notebook_kind=body.notebook_kind,
+            parse_status=initial_parse_status,
         )
     except sqlite3.IntegrityError as e:
         # FM-5: duplicate slug. The async lock inside NotebooksStore
@@ -703,6 +712,7 @@ def _run_pdf_preflight(content: bytes) -> None:
     status_code=status.HTTP_201_CREATED,
 )
 async def upload_paper(
+    request: Request,
     slug: str,
     paper_id: str = Form(...),  # noqa: B008  (FastAPI DI pattern)
     file: UploadFile = File(...),  # noqa: B008  (FastAPI DI pattern)
@@ -919,10 +929,57 @@ async def upload_paper(
         )
 
     logger.info(
-        "uploaded ar5iv html: slug=%s paper_id=%s bytes=%d "
-        "claimed_filename=%r",
+        "uploaded %s: slug=%s paper_id=%s bytes=%d claimed_filename=%r",
+        "pdf" if is_textbook else "ar5iv html",
         slug, paper_id, len(content), file.filename,
     )
+
+    # textbook-ingest-m6: schedule the parse task for textbook uploads.
+    # The notebook's parse_status was set to 'pending' at notebook
+    # creation; transition to 'running' here, then dispatch the
+    # MinerU → renderer pipeline via ParseTaskTracker.
+    if is_textbook:
+        parse_tracker = getattr(request.app.state, "parse_tracker", None)
+        if parse_tracker is None:
+            # The tracker is wired by the lifespan; absence means
+            # the daemon is not fully booted. Refuse the parse
+            # dispatch (file IS on disk; operator can retry).
+            logger.warning(
+                "parse_tracker absent — textbook PDF saved at %s but "
+                "no parse scheduled. Lifespan startup may not have "
+                "completed.",
+                target_path,
+            )
+        elif parse_tracker.is_running(slug):
+            # A parse is already in flight for this notebook; refuse
+            # to schedule a second one (m6 FM-3 — Semaphore(1) global
+            # cap would queue but the per-notebook check rejects the
+            # collision earlier with a clear signal).
+            logger.warning(
+                "parse_tracker: slug=%s already parsing; new upload "
+                "kept on disk but NOT scheduled. Operator must wait.",
+                slug,
+            )
+        else:
+            await store.update_parse_status(
+                slug, store.PARSE_STATUS_RUNNING, parse_error="",
+            )
+            mineru_output_dir = nb_dir / "parsed" / flat_paper_id / "_mineru"
+            mineru_output_dir.mkdir(parents=True, exist_ok=True)
+            parsed_dir = nb_dir / "parsed"
+            parse_tracker.start_parse(
+                slug=slug,
+                pdf_path=target_path,
+                paper_id=paper_id,
+                output_dir=mineru_output_dir,
+                parsed_dir=parsed_dir,
+                store=store,
+            )
+            logger.info(
+                "parse scheduled: slug=%s paper_id=%s "
+                "mineru_output=%s parsed_dir=%s",
+                slug, paper_id, mineru_output_dir, parsed_dir,
+            )
 
     return HTMLResponse(
         status_code=status.HTTP_201_CREATED,
@@ -1144,6 +1201,49 @@ async def latest_ingest(
             stderr_tail=row["stderr_tail"],
         ),
     )
+
+
+@router.get("/notebooks/{slug}/parse-status")
+async def parse_status(
+    slug: str,
+    store: NotebooksStore = Depends(get_notebooks_store),  # noqa: B008  (FastAPI DI pattern)
+) -> dict[str, str]:
+    """Return the textbook-parse status for ``slug`` (textbook-ingest-m6).
+
+    Returns JSON (not htmx HTML) — operators and scripts can poll
+    this endpoint directly. The five terminal states are:
+
+    - ``skipped``  — arxiv-kind notebook; no parse pipeline applies.
+    - ``pending``  — textbook notebook created but no PDF uploaded yet.
+    - ``running``  — parse task is in flight (MinerU + LaTeXML).
+    - ``complete`` — parse succeeded; ``parsed_html_path`` populated.
+    - ``failed``   — parse failed; ``parse_error`` carries the
+      HTML-escaped tail of the failure.
+
+    Returns 404 if the slug is unknown; 422 if malformed.
+    """
+    try:
+        validate_slug(slug)
+    except NotebookError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e),
+        ) from e
+
+    notebook = await store.get_notebook(slug)
+    if notebook is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"notebook {slug!r} not found",
+        )
+
+    return {
+        "slug": slug,
+        "notebook_kind": notebook["notebook_kind"],
+        "parse_status": notebook["parse_status"],
+        "parse_error": notebook["parse_error"],
+        "parsed_html_path": notebook["parsed_html_path"],
+    }
 
 
 def _ingest_status_fragment(

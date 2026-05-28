@@ -330,6 +330,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # docker `restart: on-failure`).
     from server.ingest_tracker import IngestTaskTracker  # noqa: PLC0415
     from server.notebooks_store import NotebooksStore  # noqa: PLC0415
+    from server.parse_tracker import ParseTaskTracker  # noqa: PLC0415
 
     try:
         app.state.notebooks_store = await NotebooksStore.open(
@@ -365,9 +366,27 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 "IngestTracker startup recovery: marked %d orphaned "
                 "running row(s) as failed", recovered,
             )
+        # textbook-ingest-m6 FM-4: orphan-recovery for parse rows.
+        # Any ``parse_status='running'`` row at startup is by
+        # definition orphaned because the new daemon has not yet
+        # accepted any uploads. Mark all such rows as ``failed``.
+        recovered_parses = await app.state.notebooks_store.mark_orphaned_parses_failed(
+            message="server restarted mid-parse (m6 FM-4 recovery)",
+        )
+        if recovered_parses:
+            logger.info(
+                "ParseTracker startup recovery: marked %d orphaned "
+                "parse row(s) as failed", recovered_parses,
+            )
         # m9: ingest task tracker — fire-and-forget subprocess
         # registry for the UI ingest trigger.
         app.state.ingest_tracker = IngestTaskTracker()
+        # textbook-ingest-m6: parse task tracker — fire-and-forget
+        # registry for the textbook PDF parse pipeline (MinerU +
+        # LaTeXML). Mirrors IngestTaskTracker; runs in-process via
+        # asyncio.to_thread (the heavy lifting subprocess-isolates
+        # via the m5 + LaTeXML helpers).
+        app.state.parse_tracker = ParseTaskTracker()
         if mcp_server is not None:
             async with mcp_server.session_manager.run():
                 yield
@@ -382,6 +401,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         ingest_tracker = getattr(app.state, "ingest_tracker", None)
         if ingest_tracker is not None:
             await ingest_tracker.shutdown()
+        # textbook-ingest-m6: same shutdown discipline as the ingest
+        # tracker — cancel in-flight parse tasks before the store
+        # closes so the cancel-path can write terminal-state rows.
+        parse_tracker = getattr(app.state, "parse_tracker", None)
+        if parse_tracker is not None:
+            await parse_tracker.shutdown()
         # m7: close the NotebooksStore connection BEFORE Resources
         # shutdown so its async lock can drain cleanly. The store is
         # cheap to close (just a sqlite3.Connection.close); failures

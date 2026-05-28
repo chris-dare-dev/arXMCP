@@ -659,6 +659,246 @@ class TestNotebookKind:
             assert r.json()["notebook_kind"] == kind
 
 
+class TestParseStatusInitialState:
+    """textbook-ingest-m6 — initial parse_status semantics on create.
+
+    arxiv-kind notebooks inherit the column-level SQLite DEFAULT
+    ('skipped'). textbook-kind notebooks land with the route-handler
+    override 'pending' so the upload route's parse-task scheduler
+    observes the right initial state.
+    """
+
+    def test_arxiv_kind_lands_skipped(
+        self, client: TestClient,
+    ) -> None:
+        client.post(
+            "/ui/api/notebooks",
+            json={"slug": "demo-nb", "notebook_kind": "arxiv"},
+        )
+        r = client.get("/ui/api/notebooks/demo-nb/parse-status")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["notebook_kind"] == "arxiv"
+        assert body["parse_status"] == "skipped"
+        assert body["parse_error"] == ""
+        assert body["parsed_html_path"] == ""
+
+    def test_textbook_kind_lands_pending(
+        self, client: TestClient,
+    ) -> None:
+        client.post(
+            "/ui/api/notebooks",
+            json={"slug": "sv-textbook", "notebook_kind": "textbook"},
+        )
+        r = client.get("/ui/api/notebooks/sv-textbook/parse-status")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["notebook_kind"] == "textbook"
+        assert body["parse_status"] == "pending"
+        assert body["parse_error"] == ""
+        assert body["parsed_html_path"] == ""
+
+
+class TestParseStatusRoute:
+    """textbook-ingest-m6 — GET /parse-status endpoint coverage."""
+
+    def test_unknown_slug_404(self, client: TestClient) -> None:
+        r = client.get("/ui/api/notebooks/no-such-slug/parse-status")
+        assert r.status_code == 404, r.text
+        assert "not found" in r.json()["detail"]
+
+    @pytest.mark.parametrize(
+        "bad_slug",
+        ["UPPER", "with space", "with.dot", "ends-", "-starts"],
+    )
+    def test_malformed_slug_422(
+        self, client: TestClient, bad_slug: str,
+    ) -> None:
+        r = client.get(f"/ui/api/notebooks/{bad_slug}/parse-status")
+        assert r.status_code in (404, 422), r.text  # 404 if FastAPI
+        # routed missing-resource first; 422 if the validate_slug
+        # check fired. Either is acceptable; the key contract is
+        # NOT 200 for an invalid slug.
+
+    def test_response_shape_minimal(self, client: TestClient) -> None:
+        """Verify the JSON keys we promise in the parse-status contract."""
+        client.post(
+            "/ui/api/notebooks",
+            json={"slug": "test-nb", "notebook_kind": "textbook"},
+        )
+        r = client.get("/ui/api/notebooks/test-nb/parse-status")
+        assert r.status_code == 200
+        body = r.json()
+        # The five documented fields are present.
+        assert set(body.keys()) == {
+            "slug", "notebook_kind",
+            "parse_status", "parse_error", "parsed_html_path",
+        }
+
+
+class TestParseStatusStoreLayer:
+    """textbook-ingest-m6 — NotebooksStore parse-status methods.
+
+    Covers update_parse_status, has_running_parse, and the
+    mark_orphaned_parses_failed lifespan-startup sweep.
+    """
+
+    def test_update_parse_status_persists(
+        self, tmp_path: Path,
+    ) -> None:
+        """update_parse_status writes the three fields; read-back via
+        get_notebook reflects the update."""
+        import asyncio
+
+        db_path = tmp_path / "notebooks.db"
+
+        async def _run() -> dict[str, str]:
+            store = await NotebooksStore.open(db_path)
+            try:
+                await store.create_notebook(
+                    slug="test-nb",
+                    display_name="t",
+                    lancedb_path="/tmp/test-nb/lancedb",
+                    created_at="2026-05-28T00:00:00+00:00",
+                    notebook_kind="textbook",
+                    parse_status="pending",
+                )
+                updated = await store.update_parse_status(
+                    "test-nb", "complete",
+                    parse_error="",
+                    parsed_html_path="/some/parsed/index.html",
+                )
+                assert updated is True
+                row = await store.get_notebook("test-nb")
+            finally:
+                await store.close()
+            return row
+
+        row = asyncio.run(_run())
+        assert row["parse_status"] == "complete"
+        assert row["parse_error"] == ""
+        assert row["parsed_html_path"] == "/some/parsed/index.html"
+
+    def test_update_parse_status_unknown_slug_returns_false(
+        self, tmp_path: Path,
+    ) -> None:
+        import asyncio
+
+        db_path = tmp_path / "notebooks.db"
+
+        async def _run() -> bool:
+            store = await NotebooksStore.open(db_path)
+            try:
+                return await store.update_parse_status(
+                    "nonexistent-slug", "complete",
+                )
+            finally:
+                await store.close()
+
+        assert asyncio.run(_run()) is False
+
+    def test_has_running_parse_true_when_running(
+        self, tmp_path: Path,
+    ) -> None:
+        import asyncio
+
+        db_path = tmp_path / "notebooks.db"
+
+        async def _run() -> tuple[bool, bool]:
+            store = await NotebooksStore.open(db_path)
+            try:
+                await store.create_notebook(
+                    slug="nb-running",
+                    display_name="r",
+                    lancedb_path="/tmp/nb-running/lancedb",
+                    created_at="2026-05-28T00:00:00+00:00",
+                    notebook_kind="textbook",
+                    parse_status="pending",
+                )
+                before = await store.has_running_parse("nb-running")
+                await store.update_parse_status(
+                    "nb-running", "running",
+                )
+                after = await store.has_running_parse("nb-running")
+            finally:
+                await store.close()
+            return before, after
+
+        before, after = asyncio.run(_run())
+        assert before is False  # 'pending' is not 'running'
+        assert after is True
+
+    def test_mark_orphaned_parses_failed_flips_running_to_failed(
+        self, tmp_path: Path,
+    ) -> None:
+        import asyncio
+
+        db_path = tmp_path / "notebooks.db"
+
+        async def _run() -> dict[str, str]:
+            store = await NotebooksStore.open(db_path)
+            try:
+                # Seed a notebook + flip it to 'running'.
+                await store.create_notebook(
+                    slug="nb-orphan",
+                    display_name="o",
+                    lancedb_path="/tmp/nb-orphan/lancedb",
+                    created_at="2026-05-28T00:00:00+00:00",
+                    notebook_kind="textbook",
+                    parse_status="running",  # pre-orphan
+                )
+                # Sweep.
+                recovered = await store.mark_orphaned_parses_failed(
+                    message="server restarted mid-parse",
+                )
+                assert recovered == 1
+                row = await store.get_notebook("nb-orphan")
+            finally:
+                await store.close()
+            return row
+
+        row = asyncio.run(_run())
+        assert row["parse_status"] == "failed"
+        # message is HTML-escaped.
+        assert "server restarted mid-parse" in row["parse_error"]
+
+    def test_mark_orphaned_parses_skips_non_running(
+        self, tmp_path: Path,
+    ) -> None:
+        """The sweep MUST NOT touch rows in 'skipped', 'pending',
+        'complete', or 'failed' states — only 'running'."""
+        import asyncio
+
+        db_path = tmp_path / "notebooks.db"
+
+        async def _run() -> int:
+            store = await NotebooksStore.open(db_path)
+            try:
+                for slug, ps in [
+                    ("arxiv-nb", None),  # → 'skipped' via DEFAULT
+                    ("tb-pending", "pending"),
+                    ("tb-complete", "complete"),
+                    ("tb-failed", "failed"),
+                ]:
+                    await store.create_notebook(
+                        slug=slug,
+                        display_name=slug,
+                        lancedb_path=f"/tmp/{slug}/lancedb",
+                        created_at="2026-05-28T00:00:00+00:00",
+                        notebook_kind=("arxiv" if slug == "arxiv-nb"
+                                       else "textbook"),
+                        parse_status=ps,
+                    )
+                recovered = await store.mark_orphaned_parses_failed(
+                    message="sweep test",
+                )
+            finally:
+                await store.close()
+            return recovered
+
+        assert asyncio.run(_run()) == 0
+
+
 class TestNotebookKindMigration:
     """m3 — SQLite ALTER TABLE migration backfills pre-m3
     ``notebooks.db`` rows with ``notebook_kind='arxiv'``.
@@ -727,7 +967,8 @@ class TestNotebookKindMigration:
     def test_v3_schema_user_version_set(
         self, tmp_path: Path,
     ) -> None:
-        """After NotebooksStore.open on a fresh DB, PRAGMA user_version=3."""
+        """After NotebooksStore.open on a fresh DB, PRAGMA user_version
+        is the CURRENT SCHEMA_VERSION (4 after textbook-ingest-m6)."""
         import asyncio
         import sqlite3
 
@@ -746,7 +987,7 @@ class TestNotebookKindMigration:
                 await store.close()
 
         version = asyncio.run(_open_close())
-        assert version == 3
+        assert version == 4
 
     def test_v1_to_v3_migration_runs_both_blocks(
         self, tmp_path: Path,
@@ -839,14 +1080,23 @@ class TestNotebookKindMigration:
             }
 
         result = asyncio.run(_run())
-        assert result["version"] == 3
+        assert result["version"] == 4
         assert result["ingest_runs_present"] is True
         assert "notebook_kind" in result["cols"]
+        # textbook-ingest-m6 columns also present after v3→v4.
+        assert "parse_status" in result["cols"]
+        assert "parse_error" in result["cols"]
+        assert "parsed_html_path" in result["cols"]
         # The legacy row's m3 column backfilled to 'arxiv'.
         rows = result["rows"]
         assert len(rows) == 1
         assert rows[0]["slug"] == "v1-legacy"
         assert rows[0]["notebook_kind"] == "arxiv"
+        # textbook-ingest-m6 column-level DEFAULT backfills correctly:
+        # legacy arxiv-kind rows land as 'skipped', NOT 'pending'.
+        assert rows[0]["parse_status"] == "skipped"
+        assert rows[0]["parse_error"] == ""
+        assert rows[0]["parsed_html_path"] == ""
 
     def test_open_is_idempotent_against_v3(
         self, tmp_path: Path,
@@ -916,7 +1166,7 @@ class TestNotebookKindMigration:
             return v_first, cols_first, v_second, cols_second
 
         v1, c1, v2, c2 = asyncio.run(_open_close_open())
-        assert v1 == 3 and v2 == 3
+        assert v1 == 4 and v2 == 4
         # Schema byte-stable across re-opens.
         assert c1 == c2, (
             f"notebooks columns drifted across re-open: "

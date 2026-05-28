@@ -74,6 +74,44 @@ Two environment variables control the m5 sandbox driver
   [60, 3600]. Parsed at module load — out-of-range values raise
   `RuntimeError` at server startup rather than silently clamping.
 
+### Textbook ingest end-to-end (m6 + later)
+
+After uploading a PDF to a `notebook_kind="textbook"` notebook, the
+m6 background pipeline runs MinerU + LaTeXML to produce HTML5+MathML.
+The upload returns immediately (201 with the HTML row fragment); the
+parse runs in the background. Poll the parse status via:
+
+```
+GET /ui/api/notebooks/<slug>/parse-status
+```
+
+The endpoint returns JSON with the following fields:
+
+```json
+{
+  "slug": "<notebook-slug>",
+  "notebook_kind": "textbook",
+  "parse_status": "pending|running|complete|failed|skipped",
+  "parse_error": "<HTML-escaped tail; empty unless failed>",
+  "parsed_html_path": "<absolute path to index.html; empty unless complete>"
+}
+```
+
+States:
+- **`skipped`** — arxiv-kind notebook; no parse pipeline applies.
+- **`pending`** — textbook notebook created but no PDF uploaded yet.
+- **`running`** — MinerU + LaTeXML pipeline is in flight (typically 5–30 min).
+- **`complete`** — `parsed_html_path` points at the rendered `index.html`.
+- **`failed`** — `parse_error` carries an HTML-escaped tail of the failure.
+
+The parse pipeline is **serialized via `asyncio.Semaphore(1)`** —
+at most one MinerU/LaTeXML run happens at a time across all
+notebooks to avoid GPU/MLX memory pressure on Apple Silicon.
+
+After a server restart, any rows stuck in `parse_status='running'`
+are reset to `failed` at lifespan startup (`mark_orphaned_parses_failed`
+sweep). Operators can retry the upload to schedule a fresh parse.
+
 **Platform note (macOS):** the 4 GB virtual-memory cap
 (`RLIMIT_AS`) that the sandbox profile prescribes is **not enforceable
 on macOS** (the Darwin kernel keeps the hard limit at `RLIM_INFINITY`

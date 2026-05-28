@@ -9,11 +9,27 @@ subprocess.
 **Scope:** the textbook-ingest pipeline's PDF-handling subprocess
 calls — primarily `mineru` (parser per pdf-ingest-2026 CAND-1; **B1
 shipped MinerU 3.2.0** with `[pipeline,mlx]` extras, validated by smoke
-test on Milne SVI 2026-05-27) but also any future ColPali / pdfid /
-VLM helpers under the same trust boundary. Older revisions of this
-doc referenced "MinerU 2.5"; the 3.2.0 pin supersedes — the
-architectural change (MinerU 3.x spawns an internal FastAPI server
-subprocess) is annotated where load-bearing.
+test on Milne SVI 2026-05-27) but also the **m6 LaTeXML re-render pass**
+(`latexmlc` invoked by `ingest/textbook_renderer.py` via the existing
+`tools/arxiv_fetch.py::parse_with_latexml` helper) and any future
+ColPali / pdfid / VLM helpers under the same trust boundary. Older
+revisions of this doc referenced "MinerU 2.5"; the 3.2.0 pin
+supersedes — the architectural change (MinerU 3.x spawns an internal
+FastAPI server subprocess) is annotated where load-bearing.
+
+**m6 latexmlc peer-subprocess (textbook-ingest-m6).** After MinerU
+emits markdown, the m6 renderer wraps it as a minimal LaTeX document
+(`\documentclass{article}\usepackage{amsmath,amssymb}\begin{document}…
+\end{document}`) and invokes `latexmlc --format=html5` via the existing
+`parse_with_latexml` helper — which inherits the E13_S03 LaTeXML
+sandbox profile (sandbox-exec on macOS, bwrap on Linux) AND the
+process-group kill discipline (`start_new_session=True` + `os.killpg`
+on `TimeoutExpired`). Markdown prose constructs (``## headers``,
+``**emphasis**``, ``[links](urls)``) render as literal characters in
+the HTML output — best-effort; the math (`$..$` / `$$..$$`) renders
+correctly as MathML. The retrieval substrate consumes math, not prose
+layout, so prose-render imperfection is invisible at the chunker
+boundary.
 
 **Threat tier:** Peer of Threat 3 (LaTeXML sandbox) and the
 parser-fidelity-eval-m1 CDM sandbox

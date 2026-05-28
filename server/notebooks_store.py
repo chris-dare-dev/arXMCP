@@ -65,7 +65,14 @@ logger = logging.getLogger(__name__)
 #: ``if current_version < N:`` block in ``_open_sync`` using
 #: ``CREATE TABLE IF NOT EXISTS`` / ``ALTER TABLE`` and bump
 #: SCHEMA_VERSION; do NOT drop existing tables.
-SCHEMA_VERSION: int = 3
+#:
+#: v3→v4 is the textbook-ingest-m6 ADDITIVE migration adding three
+#: parse-tracking columns to ``notebooks``: ``parse_status``,
+#: ``parse_error``, ``parsed_html_path``. The column-level DEFAULT
+#: ``'skipped'`` backfills every existing arxiv-kind row safely;
+#: textbook-kind rows MUST be created with an explicit
+#: ``parse_status='pending'`` by the route layer.
+SCHEMA_VERSION: int = 4
 
 
 class NotebooksStore:
@@ -195,6 +202,35 @@ class NotebooksStore:
                     "TEXT NOT NULL DEFAULT 'arxiv'"
                 )
                 conn.execute("PRAGMA user_version = 3")
+            # v3 -> v4: textbook-ingest-m6 ADDITIVE migration. Three
+            # parse-tracking columns on the ``notebooks`` table:
+            #
+            # - ``parse_status`` — enum
+            #   ``{skipped, pending, running, complete, failed}``.
+            #   Column-level DEFAULT ``'skipped'`` so existing arxiv-
+            #   kind rows backfill correctly. The route handler
+            #   explicitly sets ``parse_status='pending'`` when
+            #   creating a textbook-kind notebook.
+            # - ``parse_error`` — HTML-escaped tail of any subprocess
+            #   stderr captured at the parse-task boundary.
+            # - ``parsed_html_path`` — relative path under
+            #   ``var/arxmcp/notebooks/<slug>/parsed/`` to the
+            #   rendered ``index.html``. Empty until the parse task
+            #   reports complete.
+            if current_version < 4:
+                conn.execute(
+                    "ALTER TABLE notebooks ADD COLUMN parse_status "
+                    "TEXT NOT NULL DEFAULT 'skipped'"
+                )
+                conn.execute(
+                    "ALTER TABLE notebooks ADD COLUMN parse_error "
+                    "TEXT NOT NULL DEFAULT ''"
+                )
+                conn.execute(
+                    "ALTER TABLE notebooks ADD COLUMN parsed_html_path "
+                    "TEXT NOT NULL DEFAULT ''"
+                )
+                conn.execute("PRAGMA user_version = 4")
             return conn
 
         conn = await asyncio.to_thread(_open_sync)
@@ -219,15 +255,17 @@ class NotebooksStore:
     async def list_notebooks(self) -> list[dict[str, str]]:
         """Return all notebook rows ordered by ``created_at DESC``.
 
-        textbook-ingest-m3 added ``notebook_kind`` to the row dict;
-        existing notebook.db rows are backfilled to ``"arxiv"`` by the
-        v2→v3 SQLite DEFAULT migration.
+        textbook-ingest-m3 added ``notebook_kind``; textbook-ingest-m6
+        added ``parse_status`` + ``parse_error`` + ``parsed_html_path``.
+        Existing notebook.db rows are backfilled by the v2→v3 and v3→v4
+        SQLite DEFAULT migrations (arxiv-kind → ``parse_status='skipped'``).
         """
         async with self._lock:
             def _query() -> list[dict[str, str]]:
                 rows = self._conn.execute(
                     "SELECT slug, display_name, lancedb_path, "
-                    "created_at, notebook_kind "
+                    "created_at, notebook_kind, parse_status, "
+                    "parse_error, parsed_html_path "
                     "FROM notebooks ORDER BY created_at DESC, slug ASC"
                 ).fetchall()
                 return [
@@ -235,6 +273,9 @@ class NotebooksStore:
                         "slug": r[0], "display_name": r[1],
                         "lancedb_path": r[2], "created_at": r[3],
                         "notebook_kind": r[4],
+                        "parse_status": r[5],
+                        "parse_error": r[6],
+                        "parsed_html_path": r[7],
                     }
                     for r in rows
                 ]
@@ -243,13 +284,16 @@ class NotebooksStore:
     async def get_notebook(self, slug: str) -> dict[str, str] | None:
         """Return one notebook row by slug, or ``None`` if absent.
 
-        textbook-ingest-m3: ``notebook_kind`` included in the dict.
+        textbook-ingest-m3: ``notebook_kind`` included.
+        textbook-ingest-m6: ``parse_status`` + ``parse_error`` +
+        ``parsed_html_path`` included.
         """
         async with self._lock:
             def _query() -> dict[str, str] | None:
                 row = self._conn.execute(
                     "SELECT slug, display_name, lancedb_path, "
-                    "created_at, notebook_kind "
+                    "created_at, notebook_kind, parse_status, "
+                    "parse_error, parsed_html_path "
                     "FROM notebooks WHERE slug = ?",
                     (slug,),
                 ).fetchone()
@@ -259,6 +303,9 @@ class NotebooksStore:
                     "slug": row[0], "display_name": row[1],
                     "lancedb_path": row[2], "created_at": row[3],
                     "notebook_kind": row[4],
+                    "parse_status": row[5],
+                    "parse_error": row[6],
+                    "parsed_html_path": row[7],
                 }
             return await asyncio.to_thread(_query)
 
@@ -269,6 +316,7 @@ class NotebooksStore:
         lancedb_path: str,
         created_at: str,
         notebook_kind: str = "arxiv",
+        parse_status: str | None = None,
     ) -> None:
         """Insert a notebook row. Raises :class:`sqlite3.IntegrityError`
         on duplicate slug — the REST handler catches and translates to
@@ -279,17 +327,34 @@ class NotebooksStore:
         semantics. The route layer's ``NotebookCreate`` Pydantic model
         enforces the ``{arxiv, textbook}`` enum domain before the call
         reaches this writer.
+
+        textbook-ingest-m6: ``parse_status`` defaults to ``None``, in
+        which case the SQLite column-level DEFAULT (``'skipped'``)
+        applies — correct for arxiv-kind. The route handler explicitly
+        passes ``parse_status='pending'`` for textbook-kind so the
+        upload-route's parse-task scheduler observes the right initial
+        state.
         """
         async with self._lock:
             def _insert() -> None:
-                self._conn.execute(
-                    "INSERT INTO notebooks "
-                    "(slug, display_name, lancedb_path, created_at, "
-                    " notebook_kind) "
-                    "VALUES (?, ?, ?, ?, ?)",
-                    (slug, display_name, lancedb_path, created_at,
-                     notebook_kind),
-                )
+                if parse_status is None:
+                    self._conn.execute(
+                        "INSERT INTO notebooks "
+                        "(slug, display_name, lancedb_path, created_at, "
+                        " notebook_kind) "
+                        "VALUES (?, ?, ?, ?, ?)",
+                        (slug, display_name, lancedb_path, created_at,
+                         notebook_kind),
+                    )
+                else:
+                    self._conn.execute(
+                        "INSERT INTO notebooks "
+                        "(slug, display_name, lancedb_path, created_at, "
+                        " notebook_kind, parse_status) "
+                        "VALUES (?, ?, ?, ?, ?, ?)",
+                        (slug, display_name, lancedb_path, created_at,
+                         notebook_kind, parse_status),
+                    )
             await asyncio.to_thread(_insert)
 
     async def delete_notebook(self, slug: str) -> bool:
@@ -504,6 +569,121 @@ class NotebooksStore:
                         safe_message,
                         self.INGEST_STATUS_RUNNING,
                         cutoff_iso,
+                    ),
+                )
+                return cur.rowcount
+            return await asyncio.to_thread(_update)
+
+
+    # ------------------------------------------------------------------
+    # Parse-status (textbook-ingest-m6)
+    # ------------------------------------------------------------------
+
+    #: Terminal-state values for the ``parse_status`` column.
+    PARSE_STATUS_SKIPPED: str = "skipped"
+    PARSE_STATUS_PENDING: str = "pending"
+    PARSE_STATUS_RUNNING: str = "running"
+    PARSE_STATUS_COMPLETE: str = "complete"
+    PARSE_STATUS_FAILED: str = "failed"
+
+    async def update_parse_status(
+        self,
+        slug: str,
+        status: str,
+        *,
+        parse_error: str | None = None,
+        parsed_html_path: str | None = None,
+    ) -> bool:
+        """Update the parse-status columns for a notebook.
+
+        ``parse_error`` and ``parsed_html_path`` are ``None``-passable
+        so callers can update one column without disturbing the others;
+        ``None`` leaves the existing value untouched. Returns ``True``
+        if a row was updated, ``False`` if the slug is unknown.
+
+        textbook-ingest-m6 contract: the route layer pre-escapes
+        ``parse_error`` content (the storage layer is the single
+        source of truth for "stderr_tail is already safe-to-render
+        HTML" per the m9 ingest_tracker precedent).
+        """
+        async with self._lock:
+            def _update() -> bool:
+                # Build the UPDATE dynamically so ``None`` arguments
+                # leave the existing column value alone.
+                sets: list[str] = ["parse_status = ?"]
+                params: list[object] = [status]
+                if parse_error is not None:
+                    sets.append("parse_error = ?")
+                    params.append(parse_error)
+                if parsed_html_path is not None:
+                    sets.append("parsed_html_path = ?")
+                    params.append(parsed_html_path)
+                params.append(slug)
+                cur = self._conn.execute(
+                    f"UPDATE notebooks SET {', '.join(sets)} WHERE slug = ?",
+                    tuple(params),
+                )
+                return cur.rowcount > 0
+            return await asyncio.to_thread(_update)
+
+    async def has_running_parse(self, slug: str) -> bool:
+        """Cross-restart fallback for the 409 collision check.
+
+        Mirrors :meth:`has_running_ingest`. Used by the upload route
+        to refuse a second textbook parse for the same slug while
+        the first is still running — paired with the in-memory
+        ``ParseTaskTracker.is_running(slug)`` for live-process checks.
+        """
+        async with self._lock:
+            def _check() -> bool:
+                row = self._conn.execute(
+                    "SELECT 1 FROM notebooks "
+                    "WHERE slug = ? AND parse_status = ? LIMIT 1",
+                    (slug, self.PARSE_STATUS_RUNNING),
+                ).fetchone()
+                return row is not None
+            return await asyncio.to_thread(_check)
+
+    async def mark_orphaned_parses_failed(
+        self,
+        message: str,
+    ) -> int:
+        """Mark every ``parse_status='running'`` row as ``failed``
+        with ``parse_error=message``.
+
+        Called at lifespan startup (textbook-ingest-m6 FM-4): if the
+        daemon died mid-parse the previous task's done-callback never
+        fired and the row would stay ``running`` forever; mark it as
+        ``failed`` before the new daemon accepts uploads for the same
+        slug.
+
+        Returns the number of rows updated.
+
+        Mirrors the contract of :meth:`mark_orphaned_runs_failed`:
+        ``message`` is HTML-escaped before storage so the
+        ``parse_error`` column is always safe-to-render HTML at the
+        boundary.
+
+        Note: unlike the ingest counterpart, parses do not have a
+        per-row ``started_at`` timestamp (the parse-status fields
+        live on the notebooks row, not a separate runs table); the
+        recovery sweep matches ALL ``running`` rows unconditionally.
+        This is safe because the lifespan startup runs BEFORE the
+        new ParseTaskTracker accepts any new parse — any in-flight
+        ``running`` row is by definition orphaned.
+        """
+        async with self._lock:
+            def _update() -> int:
+                safe_message = html.escape(message)
+                cur = self._conn.execute(
+                    "UPDATE notebooks SET "
+                    "  parse_status = ?, "
+                    "  parse_error = ? "
+                    "WHERE parse_status = ?",
+                    (
+                        self.PARSE_STATUS_FAILED,
+                        safe_message,
+                        self.PARSE_STATUS_RUNNING,
                     ),
                 )
                 return cur.rowcount

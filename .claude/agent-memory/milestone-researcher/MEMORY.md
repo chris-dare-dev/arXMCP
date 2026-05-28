@@ -733,3 +733,37 @@ loopback-only and exits when idle.
 MinerU 3.2.0 pipeline backend output tree: `<output_dir>/<stem>/<parse_method>/<stem>.md`
 NOT `<output_dir>/<stem>.md`. For `-b pipeline -m auto`: `<output_dir>/<stem>/auto/<stem>.md`.
 Always glob for the .md file after process exits; never hardcode a flat path.
+
+## 2026-05-28 — textbook-ingest-m6 — latexmlc-does-not-accept-markdown
+Strategy A (wrap markdown as LaTeX -> latexmlc once) is NOT viable for MinerU output.
+latexmlc is a LaTeX compiler; it does not understand `## Section`, `**bold**`, or
+markdown links. Feeding it MinerU's .md file without a full markdown->LaTeX converter
+would fail on every non-LaTeX construct. Strategy C (markdown-it-py prose + latexmlmath
+per math block) is the correct path when the input is LaTeX-flavored markdown.
+
+## 2026-05-28 — textbook-ingest-m6 — parse-status-column-default-must-be-skipped
+NotebooksStore v3->v4 migration: `parse_status TEXT NOT NULL DEFAULT 'pending'` is WRONG
+for the column-level default. Existing rows are ALL arxiv-kind; they should backfill to
+'skipped', not 'pending'. Use `DEFAULT 'skipped'` at the column level; set 'pending'
+explicitly in the create_notebook write path when notebook_kind='textbook'.
+
+## 2026-05-28 — textbook-ingest-m6 — ingest-tracker-pattern-not-BackgroundTasks
+FastAPI BackgroundTasks is request-scoped and unsuitable for 30-min MinerU runs.
+The project's established pattern is asyncio.create_task + asyncio.Semaphore(1)
+via IngestTaskTracker in server/ingest_tracker.py. Replicate this pattern for
+parse tasks (ParseTaskTracker or extend IngestTaskTracker).
+
+## 2026-05-28 — textbook-ingest-m6 — latexmlmath-bare-snippet-no-delimiters-needed
+`latexmlmath \frac{a}{b}` works without `$...$` — bare snippet → display="block" MathML.
+With `$...$` → display="inline". Output is a MathML fragment, NOT a full document.
+~1s Perl startup per call makes per-equation strategy (B/C) infeasible for 500-page books.
+
+## 2026-05-28 — textbook-ingest-m6 — mineru-content-list-has-no-equation-blocks
+MinerU 3.2.0 content_list.json contains ONLY {text, page_footnote, page_number} block
+types for text-heavy pages. Math is embedded as `$...$` strings within `type:"text"` 
+blocks. Strategy B (per-block latexmlmath via content_list) is inoperable. Use Strategy A.
+
+## 2026-05-28 — textbook-ingest-m6 — ingest-tracker-is-canonical-background-task-pattern
+IngestTaskTracker (server/ingest_tracker.py) is the authoritative pattern for fire-and-
+forget background tasks: asyncio.create_task + global Semaphore(1) + DB row before spawn
++ CancelledError handler in shutdown. Raw FastAPI BackgroundTasks has NO lifespan hook.
