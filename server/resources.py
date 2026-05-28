@@ -216,6 +216,40 @@ class Singleflight:
 # ---------------------------------------------------------------------------
 
 
+def compute_chunk_count_divergence(
+    marker_count: int, actual_count: int, tolerance: float
+) -> str | None:
+    """Return the divergence direction if the live chunk count diverges
+    from the marker beyond ``tolerance``, else ``None``
+    (corpus-integrity-observability-m2).
+
+    The pure, deterministic core of the startup reconciliation invariant —
+    extracted so every edge case is unit-testable without booting the
+    server. Returns ``"rows_added"`` (actual > marker), ``"rows_lost"``
+    (actual < marker), or ``None`` (within tolerance / not comparable).
+
+    - FM-2: ``actual_count < 0`` is the count-unavailable sentinel →
+      ``None`` (caller skips; no false degrade).
+    - FM-3: a zero/empty marker never div-by-zeros; ``0`` vs ``0`` is not
+      a divergence, ``0`` vs ``>0`` is.
+    - FM-4: a 1-row absolute floor stops micro-corpora alarming on a
+      single-row delta even when ``tolerance * marker < 1``.
+    - FM-6: symmetric in direction — both rows lost and rows added
+      diverge.
+    """
+    if actual_count < 0:
+        return None
+    if marker_count <= 0:
+        diverged = actual_count > 0
+    else:
+        diverged = abs(actual_count - marker_count) > max(
+            1, tolerance * marker_count
+        )
+    if not diverged:
+        return None
+    return "rows_added" if actual_count > marker_count else "rows_lost"
+
+
 @dataclass
 class Resources:
     """Process-wide state for the FastAPI app.
@@ -283,6 +317,14 @@ class Resources:
     #: and by ``server.observability.metrics.DEGRADED_MODE_ACTIVE``
     #: scrape refresh.
     degraded: DegradedState | None = None
+    #: Live ``chunks_table.count_rows()`` captured ONCE at startup
+    #: (corpus-integrity-observability-m2). ``-1`` sentinel means the
+    #: count could not be read (``count_rows()`` raised — FM-2). Read by
+    #: :func:`server.health.refresh_metrics_from_singleton_state` to set
+    #: the ``arxmcp_corpus_chunk_count_actual`` gauge WITHOUT re-scanning
+    #: per ``/metrics`` scrape. STALE BY DESIGN: the server serves a
+    #: pinned corpus version for its full lifetime; restart to refresh.
+    startup_chunk_count: int = -1
     # notebook-retrieval-m2 (fork A): bounded LRU registry of per-call
     # notebook chunks-tables, keyed by validated slug → (table, info).
     # Lazily opened on the first ``filters.notebook=<slug>`` query and
@@ -374,6 +416,67 @@ class Resources:
                 "Resources.startup: opened LanceDB chunks at version=%d",
                 corpus_info.version,
             )
+
+        # 2b. Corpus-count reconciliation invariant
+        # (corpus-integrity-observability-m2). Compute count_rows() ONCE
+        # (O(1) Lance fragment metadata) and cache it on the instance so
+        # the /metrics gauges read a startup snapshot, never a per-scrape
+        # scan. Reconcile against the marker's chunk_count: a divergence
+        # beyond the configured tolerance (with a 1-row absolute floor) is
+        # a WARN-and-serve signal — retrieval is unaffected — that flips
+        # /readyz to degraded so an operator notices the silent drift the
+        # m1 bug class produced.
+        #
+        # FM-2: count_rows() failure is NON-FATAL — sentinel -1, skip the
+        #   check, gauges report -1.0 so operators see the count-miss.
+        # FM-7: if the LanceDB N-1 fallback already set ``degraded``
+        #   (corpus_corruption — strictly more severe), do NOT clobber it;
+        #   skip reconciliation. The cached count is still set either way.
+        try:
+            startup_chunk_count = await loop.run_in_executor(
+                None, chunks_table.count_rows
+            )
+        except Exception as exc:  # noqa: BLE001 — non-fatal observability
+            logger.warning(
+                "Resources.startup: count_rows() failed (%s); skipping "
+                "chunk_count reconciliation. Retrieval is unaffected.",
+                exc,
+            )
+            startup_chunk_count = -1
+
+        if degraded is not None:
+            logger.info(
+                "Resources.startup: skipping chunk_count reconciliation "
+                "(degraded=%s already active — more severe).",
+                degraded.reason,
+            )
+        else:
+            direction = compute_chunk_count_divergence(
+                marker_count=corpus_info.chunk_count,
+                actual_count=startup_chunk_count,
+                tolerance=config.corpus_chunk_count_tolerance,
+            )
+            if direction is not None:
+                logger.warning(
+                    "Resources.startup: corpus chunk_count DIVERGED — "
+                    "marker=%d actual=%d direction=%s tolerance=%.3f. "
+                    "Serving anyway (retrieval unaffected); /readyz will "
+                    "report degraded(reason=chunk_count_diverged). Re-run "
+                    "ingest to reconcile the marker.",
+                    corpus_info.chunk_count,
+                    startup_chunk_count,
+                    direction,
+                    config.corpus_chunk_count_tolerance,
+                )
+                # D2: fallback_version / original_version carry
+                # corpus_corruption semantics and are N/A for a count
+                # divergence; use the pinned version for both (no actual
+                # version fallback occurred).
+                degraded = DegradedState(
+                    reason="chunk_count_diverged",
+                    fallback_version=corpus_info.version,
+                    original_version=corpus_info.version,
+                )
 
         # 3. Eager BGE-M3 load (forces query_encoder's singletons to
         #    populate; subsequent calls hit cached model + tokenizer).
@@ -673,6 +776,7 @@ class Resources:
             lean_repl=None,
             warm=True,
             degraded=degraded,
+            startup_chunk_count=startup_chunk_count,
         )
 
         # 6e. Lean REPL subprocess harness (verification-feedback-m2).
@@ -1025,4 +1129,5 @@ __all__ = [
     "ResourceStartupError",
     "Resources",
     "Singleflight",
+    "compute_chunk_count_divergence",
 ]

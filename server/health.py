@@ -96,6 +96,28 @@ CORPUS_VERSION_GAUGE = Gauge(
     "corpus version.",
 )
 
+#: corpus-integrity-observability-m2 — the marker's ``chunk_count`` read
+#: once at startup. Compared against CORPUS_CHUNK_COUNT_ACTUAL; a
+#: persistent gap means the corpus-version.json marker disagrees with the
+#: live table (the silent ~100x drift the m1 bug class produced).
+CORPUS_CHUNK_COUNT_MARKER = Gauge(
+    "arxmcp_corpus_chunk_count_marker",
+    "chunk_count from corpus-version.json, read once at startup. "
+    "Compare with arxmcp_corpus_chunk_count_actual; a persistent gap "
+    "means the marker disagrees with the live chunks table.",
+)
+
+#: corpus-integrity-observability-m2 — the live ``chunks_table.count_rows()``
+#: captured ONCE at startup (cached on Resources.startup_chunk_count). NOT
+#: recomputed per scrape. ``-1`` means count_rows() failed at startup
+#: (Resources.startup FM-2). Equals the marker gauge on the happy path.
+CORPUS_CHUNK_COUNT_ACTUAL = Gauge(
+    "arxmcp_corpus_chunk_count_actual",
+    "Live chunks-table row count read once at startup. -1 = count "
+    "unavailable. Equals arxmcp_corpus_chunk_count_marker on the happy "
+    "path; a gap indicates corpus/marker divergence.",
+)
+
 #: Per-resource warm state (0 = not loaded, 1 = warm). One time series
 #: per resource label.
 RESOURCE_WARM_GAUGE = Gauge(
@@ -249,6 +271,15 @@ def refresh_metrics_from_singleton_state(resources: Resources) -> None:
 
     # Gauges: instantaneous truth.
     CORPUS_VERSION_GAUGE.set(resources.corpus_info.version)
+    # corpus-integrity-observability-m2: O(1) reads of the startup-cached
+    # count + the marker count. NEVER call count_rows() here — that would
+    # violate the "computed at most once at startup" AC. Both are cached
+    # Python integers (startup_chunk_count = -1 when count_rows() failed).
+    # getattr-defended so a partial/duck-typed Resources (e.g. during the
+    # startup race window, or a minimal test fake) reports the -1 sentinel
+    # rather than raising inside a scrape handler.
+    CORPUS_CHUNK_COUNT_MARKER.set(getattr(resources.corpus_info, "chunk_count", -1))
+    CORPUS_CHUNK_COUNT_ACTUAL.set(getattr(resources, "startup_chunk_count", -1))
     PROCESS_START_TIME_GAUGE.set(resources.process_start_time_seconds)
     for res_name in ("embedder", "lancedb", "reranker"):
         RESOURCE_WARM_GAUGE.labels(resource=res_name).set(
@@ -636,7 +667,12 @@ def refresh_degraded_mode_metric(resources: Resources) -> None:
     if degraded is None:
         # Reset known labels to 0. The label space is bounded by
         # the DegradedState.reason enum — small enough to enumerate.
-        for reason in ("corpus_corruption", "hosted_embedder_outage"):
+        # "chunk_count_diverged" added by corpus-integrity-observability-m2.
+        for reason in (
+            "corpus_corruption",
+            "hosted_embedder_outage",
+            "chunk_count_diverged",
+        ):
             DEGRADED_MODE_ACTIVE.labels(reason=reason).set(0.0)
         return
     DEGRADED_MODE_ACTIVE.labels(reason=degraded.reason).set(1.0)
@@ -656,6 +692,8 @@ def reset_metrics_for_tests() -> None:
 
 
 __all__ = [
+    "CORPUS_CHUNK_COUNT_ACTUAL",
+    "CORPUS_CHUNK_COUNT_MARKER",
     "CORPUS_VERSION_GAUGE",
     "EMBED_SINGLEFLIGHT_DEDUP_COUNTER",
     "PROCESS_START_TIME_GAUGE",

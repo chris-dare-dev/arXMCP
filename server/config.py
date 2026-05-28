@@ -264,6 +264,16 @@ class Config(BaseSettings):
 
     log_level: str = "INFO"
 
+    #: Tolerance for the startup corpus-count reconciliation invariant
+    #: (corpus-integrity-observability-m2). At ``Resources.startup`` the
+    #: server compares the live ``chunks_table.count_rows()`` against the
+    #: marker's ``chunk_count``; a divergence beyond this fraction logs a
+    #: WARN and flips ``/readyz`` to ``degraded`` (WARN-and-serve —
+    #: retrieval is unaffected). Default 0.05 (5%). A 1-row absolute floor
+    #: is applied on top so tiny corpora do not alarm on a single-row
+    #: delta. Set via ``ARXMCP_CORPUS_CHUNK_COUNT_TOLERANCE``.
+    corpus_chunk_count_tolerance: float = 0.05
+
     #: Root directory for runtime state — corpus, indices, caches,
     #: ops sentinels. The disk-full scrape hook (E14_S05 D4) calls
     #: ``shutil.disk_usage(data_dir)`` so the gauge reflects the
@@ -637,6 +647,20 @@ class Config(BaseSettings):
                 f"ARXMCP_EQ_TED_WEIGHT must be in [0.0, 1.0]; got {v}. "
                 f"0.0 = pure cosine (no TED), 1.0 = pure TED (no "
                 f"cosine), 0.5 = equal weights (default)."
+            )
+        return v
+
+    @field_validator("corpus_chunk_count_tolerance")
+    @classmethod
+    def validate_corpus_chunk_count_tolerance(cls, v: float) -> float:
+        """The reconciliation tolerance is a fraction in [0, 1].
+        0.0 = exact match required (any delta beyond the 1-row floor
+        degrades /readyz); 1.0 = effectively disabled (only a >100%
+        delta degrades). Default 0.05 = 5%."""
+        if not 0.0 <= v <= 1.0:
+            raise ValueError(
+                f"ARXMCP_CORPUS_CHUNK_COUNT_TOLERANCE must be in "
+                f"[0.0, 1.0]; got {v}."
             )
         return v
 
