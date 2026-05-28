@@ -144,7 +144,15 @@ logger = logging.getLogger(__name__)
 #: {name, description} per tool, so the Field description (which lives in
 #: the inputSchema) and the bumped version (which lives in the per-tool
 #: ``tool_schema_version`` _meta) are both OUTSIDE the BP1 byte region.
-TOOL_SCHEMA_VERSION: int = 15
+#: v16: textbook-ingest-m11 / e5 (CLOSES e5) — get_chunk's RESPONSE
+#: envelope grows a ``truncated_for_license`` flag (present+true only when
+#: a non-open-access chunk's body is sliced to 300 chars per the
+#: license-truncation policy) + a ``chunk.license`` token. This is a
+#: response-shape change only — the GET_CHUNK ToolMeta description and
+#: inputSchema are UNCHANGED, so EXPECTED_TOOL_SCHEMA_SHA256 re-pins (via
+#: the ``_meta.tool_schema_version`` echo) but EXPECTED_BP1_SHA256 does
+#: NOT (same as the m11 prediction; BP1 hashes {name, description} only).
+TOOL_SCHEMA_VERSION: int = 16
 
 #: URI scheme for chunk resource_links per the design note. Used by
 #: handlers that switch to resource_link mode when payloads exceed

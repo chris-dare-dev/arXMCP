@@ -170,8 +170,10 @@ class TestToolRegistration:
         unchanged), 14->15 (textbook-ingest-m9 / e4 rectification —
         critique-F3 filters-parameter inputSchema description fix
         drifted the global version; lean_verify result shape again
-        unchanged)."""
-        assert TOOL_SCHEMA_VERSION == 15
+        unchanged), 15->16 (textbook-ingest-m11 / e5 — get_chunk
+        truncated_for_license response flag drifted the global version;
+        lean_verify result shape once more unchanged)."""
+        assert TOOL_SCHEMA_VERSION == 16
 
         schema_path = (
             Path(__file__).parent.parent

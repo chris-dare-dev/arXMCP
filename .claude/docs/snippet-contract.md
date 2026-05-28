@@ -176,11 +176,12 @@ alongside the shared arXiv corpus. **`source_kind` now surfaces in
 the search-result envelope as of textbook-ingest-m9 / e4** — each
 result row carries a `source_kind` field (`"arxiv"` | `"textbook"`),
 and `search_papers` accepts `filters.source_kind` to restrict by
-origin (LanceDB pre-filter on the dense path). The OTHER m2 columns
-(`license`, `chapter`, `page_start`, `page_end`, `textbook_slug`,
-`parser_used`) still do NOT surface in the envelope — they remain
-storage-layer-only, available downstream when e5
-(`truncated_for_license` enforcement) ships.
+origin (LanceDB pre-filter on the dense path). **`license` now drives
+the `get_chunk` non-OA truncation policy as of textbook-ingest-m11 / e5
+and is surfaced in the `get_chunk` chunk dict — see section (g).** The
+remaining m2 columns (`chapter`, `page_start`, `page_end`,
+`textbook_slug`, `parser_used`) still do NOT surface in any envelope —
+they remain storage-layer-only.
 
 Columns added on `chunks` (all nullable, default applied via
 `ChunkRecord` defaults for new writes and via the in-place
@@ -196,12 +197,13 @@ Columns added on `chunks` (all nullable, default applied via
 | `textbook_slug` | utf8 | NULL | `"shimura-varieties"` | Textbook chunks only |
 | `parser_used` | utf8 | NULL | `"ar5iv"`, `"latexml"`, `"mineru+latexml"` | Best-effort |
 
-**Snippet-rendering semantics unchanged in m2.** A future
-`truncated_for_license: true` flag on the snippet envelope (lands
-with textbook-ingest-e5) will trim non-OA textbook chunks to 300
-characters and set the flag for downstream agents. m2 does NOT
-enforce this — every snippet still emits the full 150-char
-byte-prefix from `body_text` per section (a).
+**Snippet-rendering semantics unchanged in m2; license truncation
+shipped in m11.** The `truncated_for_license` flag is now ENFORCED on
+`get_chunk` as of textbook-ingest-m11 / e5 — see section (g) for the
+full policy. The 150-char `search_papers` snippet (section a) is
+UNCHANGED: 150 < the 300-char license cap, so a snippet never exposes
+more than a non-OA chunk would be allowed; the flag lands on `get_chunk`
+only, not on `search_papers` result rows.
 
 **BP1 cache discipline** (per
 `.claude/notes/07-multi-agent-caching.md`): m2 did NOT re-pin
@@ -218,6 +220,53 @@ existing row, and NULL for the five textbook-only columns. This
 preserves downstream filter semantics (`WHERE license =
 'arxiv-license'` finds every arXiv row, old and new) — see FM-6
 in the m2 research synthesis.
+
+## (g) Non-OA license truncation (textbook-ingest-m11 / e5)
+
+`get_chunk` is the ONLY MCP tool that surfaces a full chunk body
+(the `search_papers` snippet is capped at 150 chars; `find_equation`,
+`get_definitions`, `find_lemma_by_name` return no `body_text`). So the
+copyright-compliance truncation policy is enforced there and only there.
+
+**Policy.** A chunk whose `license` token is NOT in the open-access
+allowlist has its body truncated to `LICENSE_TRUNCATION_CHARS` (= 300)
+characters, and the `get_chunk` response carries `truncated_for_license:
+true`. Open-access chunks return their full body (subject only to the
+pre-existing 256 KB byte-cap). The policy + allowlist live in
+[`server/license_policy.py`](../../server/license_policy.py).
+
+**Open-access allowlist** (exact-string, case-sensitive):
+`arxiv-license`, `CC-BY`, `CC-BY-SA`, `CC0`, `public-domain`, `GFDL`.
+`arxiv-license` (the dominant corpus license) and the CC family / GFDL /
+public-domain are redistributable. Everything else
+(`author-distributed`, `copyrighted`, `"no explicit license"`, unknown
+tokens) is non-OA.
+
+**Fail closed.** A `None`, empty, or unknown `license` is treated as
+NON-open-access (truncated). The conservative default for copyright
+compliance — an un-tagged chunk never leaks its full body.
+
+**`truncated_for_license` is present-and-true ONLY when truncation
+fires** — absent otherwise, mirroring `body_truncated` (the byte-cap
+flag) and `filters_applied` (m2). Absence + the surfaced `chunk.license`
+token together tell the agent the body is complete.
+
+**Ordering / precedence (load-bearing).** License truncation runs on the
+sanitized INNER body BEFORE the byte-cap AND before the
+`<retrieved_chunk>` delimiter wrap (section e). This ordering is the only
+one that prevents a non-OA body from leaking >300 chars via *any* path:
+- a ≤300-char body never trips the 256 KB byte-cap, so a non-OA chunk
+  NEVER emits a `resource_link` to its full body (m11 FM-2);
+- the delimiter tags wrap the already-truncated body, so truncation can
+  never slice a `</retrieved_chunk>` tag (m11 FM-1).
+`str` slicing is Unicode-codepoint-safe (never splits a multibyte char).
+
+**No new schema column.** `truncated_for_license` is a runtime RESPONSE
+flag only — it is NOT persisted to the chunks table. `TOOL_SCHEMA_VERSION`
+bumped 15 → 16 for the response-shape change; `EXPECTED_TOOL_SCHEMA_SHA256`
+re-pinned (the `_meta.tool_schema_version` echo). `EXPECTED_BP1_SHA256`
+was NOT re-pinned — the GET_CHUNK ToolMeta description is unchanged, and
+BP1 hashes only `{name, description}` per tool.
 
 ## Out of scope
 

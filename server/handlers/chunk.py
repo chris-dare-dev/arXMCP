@@ -20,6 +20,7 @@ from typing import Annotated, Any
 from pydantic import Field
 
 from ingest.identifiers import is_valid_chunk_id
+from server.license_policy import LICENSE_TRUNCATION_CHARS, is_open_access
 from server.observability.sanitize import sanitize_retrieved_text
 from server.tools import (
     enforce_byte_cap,
@@ -73,12 +74,31 @@ async def handle_get_chunk(
     # in-place when the structured payload exceeds the cap).
     raw_body = row["body_text"] or ""
     sanitized_body = sanitize_retrieved_text(raw_body)
+    # textbook-ingest-m11 (e5): license-based content truncation. A
+    # NON-open-access chunk (license not in the OA allowlist; fail-closed
+    # on None/"") may legally surface only a short excerpt — slice the
+    # INNER sanitized body to LICENSE_TRUNCATION_CHARS (=300) chars HERE,
+    # BEFORE enforce_byte_cap and BEFORE wrap_retrieved_text. This
+    # ordering is load-bearing (m11 FM-1/FM-2):
+    #  - a <=300-char body never trips the 256 KB byte-cap, so a non-OA
+    #    chunk can NEVER emit a resource_link to its full body (FM-2);
+    #  - the <retrieved_chunk> delimiters wrap the already-truncated body,
+    #    so truncation can't slice a delimiter tag (FM-1).
+    # ``str`` slicing is Unicode-codepoint-safe (never splits a char).
+    license_token = row["license"] or ""
+    license_truncated = False
+    if not is_open_access(license_token) and len(sanitized_body) > LICENSE_TRUNCATION_CHARS:
+        sanitized_body = sanitized_body[:LICENSE_TRUNCATION_CHARS]
+        license_truncated = True
     chunk = {
         "body_text": sanitized_body,
         "chunk_id": row["chunk_id"],
         "chunker_version": row["chunker_version"],
         "embedder_version": row["embedder_version"],
         "kind": row["kind"],
+        # m11: surface the license token so an agent can see WHY a body
+        # was (or was not) license-truncated.
+        "license": license_token,
         "paper_id": row["paper_id"],
         "preamble_ref": row["preamble_ref"],
         "section_path": list(row["section_path"]) if row["section_path"] else [],
@@ -93,6 +113,12 @@ async def handle_get_chunk(
         "include_referenced_applied": False,  # v1: deferred to E07_S03
         "unused_args": _record_unused_args(include_referenced, include_equations),
     }
+    # m11: surface the flag ONLY when license truncation fired, mirroring
+    # the absent-when-false convention of ``body_truncated`` (set by
+    # enforce_byte_cap) + ``filters_applied`` (m2). Absence + the surfaced
+    # ``chunk.license`` token together tell the agent the body is full.
+    if license_truncated:
+        payload["truncated_for_license"] = True
     # F1 fix from E06_S03 critique: tell enforce_byte_cap that
     # body_text is nested under ``chunk``, not at the top level.
     # Without the explicit path, the cap would silently fail to
