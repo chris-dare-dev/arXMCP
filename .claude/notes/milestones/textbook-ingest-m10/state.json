@@ -1,0 +1,105 @@
+{
+  "brief_source": "",
+  "created_at": "2026-05-28T17:02:52Z",
+  "critics_run": [
+    "adversary"
+  ],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "low": 2,
+    "medium": 3
+  },
+  "critique_path": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/textbook-ingest-m10/critique-merged.md",
+  "deferred_findings": [],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_performed": [],
+  "external_writes_required": [],
+  "fixed_findings": [
+    "F1",
+    "F2",
+    "F3",
+    "F4",
+    "F5"
+  ],
+  "id": "textbook-ingest-m10",
+  "implementation_base": "ca95ccb1878eb348119718a213b76b7cbbe014c2",
+  "implementation_branch": "main",
+  "implementation_commit_range": "ca95ccb1878eb348119718a213b76b7cbbe014c2..ce74e618aa423d5bc4555ae6728adf7d381f93e8",
+  "implementation_commits": [
+    "ce74e618aa423d5bc4555ae6728adf7d381f93e8"
+  ],
+  "implementation_path": "inline",
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "textbook-ingest-m10 (e5 part 1 of 2) \u2014 Raise the PDF upload cap to 200 MB ONLY for kind:'textbook' notebooks; keep kind:'arxiv' notebooks at the current 10 MB. Finalize .claude/docs/security-pdf-sandbox.md to match the now-built hardening.\n\nCONTEXT \u2014 much of e5's original 'PDF hardening' outcome already landed during e2 (m4-m6): the threat doc .claude/docs/security-pdf-sandbox.md (486 lines, covers Threat 8 embedded-JS + Threat 3.5 polyglot), the vendored pdfid at tools/security/pdfid.py, and the polyglot/JS pre-flight gate in server/routes/notebooks.py are all BUILT. The one un-built piece of the hardening outcome is the upload-size carve-out, plus a doc-accuracy pass.\n\nTODAY: the upload route /ui/api/notebooks/*/papers/upload is capped at 10 MB by the PURE-ASGI BodySizeCap middleware in server/middleware.py (~line 855; raised from the 1 MB default REQUEST_BODY_MAX_BYTES via a route-specific override). The notebook_kind field (kind: arxiv|textbook) was added to the notebooks store in m3 (server/notebooks_store.py). Full book PDFs (Bourbaki/Milne/Caraiani) routinely exceed 10 MB, so textbook notebooks need a 200 MB ceiling.\n\nCENTRAL DESIGN TENSION (resolve in research): the middleware enforces the cap via the content-length header BEFORE the route handler runs. Varying the cap by notebook kind requires EITHER (a) resolving the notebook's kind from the slug in the request path at middleware time (a notebooks-store lookup inside ASGI middleware \u2014 adds I/O + coupling), OR (b) raising the middleware ceiling to 200 MB globally and enforcing the stricter 10 MB for non-textbook notebooks inside the route handler (but then a 200 MB body from an arxiv notebook could be buffered/streamed before rejection \u2014 DoS regression). Pick the option that PRESERVES the DoS protection (do NOT buffer 200 MB for an arxiv-kind notebook) AND the pure-ASGI constraint (BaseHTTPMiddleware is project-banned per E06_S01 F1). A content-length precheck keyed on notebook-kind, rejecting early with 413, is likely the right shape.\n\nACCEPTANCE CRITERIA:\n- A >10 MB and <=200 MB PDF upload to a kind:'textbook' notebook succeeds (passes the size gate); the same upload to a kind:'arxiv' notebook is rejected 413.\n- A >200 MB upload is rejected 413 even for textbook notebooks.\n- The carve-out preserves existing DoS protection: a non-textbook notebook must NOT buffer a 200 MB body before rejection.\n- Pure-ASGI middleware only; assert banned for invariants (use if...raise); local-first; no anthropic SDK.\n- No MCP tool-schema surface change is expected, so NO EXPECTED_TOOL_SCHEMA_SHA256 / EXPECTED_BP1_SHA256 re-pin unless a tool description genuinely changes (flag if it does).\n- .claude/docs/security-pdf-sandbox.md updated to document the 200 MB textbook carve-out and to confirm its pdfid/polyglot references match the built code (tools/security/pdfid.py + server/routes/notebooks.py).\n- Tests: textbook >10MB accepted, arxiv >10MB rejected 413, >200MB rejected, notebook-kind resolution path, and the malformed/missing content-length edge cases the existing middleware already guards.\n\nOUT OF SCOPE: the non-OA license truncation (300-char + truncated_for_license flag) \u2014 that is m11 (e5 part 2 of 2). Doc placement: agent-internal docs under .claude/.\n",
+  "phase": "complete",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-28T17:02:52Z",
+      "left_at": "2026-05-28T17:03:24Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-28T17:03:24Z",
+      "left_at": "2026-05-28T17:09:56Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-28T17:09:56Z",
+      "left_at": "2026-05-28T17:10:11Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-05-28T17:10:11Z",
+      "left_at": "2026-05-28T17:18:14Z",
+      "phase": "implement-running"
+    },
+    {
+      "entered_at": "2026-05-28T17:18:14Z",
+      "left_at": "2026-05-28T17:18:27Z",
+      "phase": "implement-complete"
+    },
+    {
+      "entered_at": "2026-05-28T17:18:27Z",
+      "left_at": "2026-05-28T17:23:18Z",
+      "phase": "critique-running"
+    },
+    {
+      "entered_at": "2026-05-28T17:23:18Z",
+      "left_at": "2026-05-28T17:23:18Z",
+      "phase": "critique-complete"
+    },
+    {
+      "entered_at": "2026-05-28T17:23:18Z",
+      "left_at": "2026-05-28T17:30:15Z",
+      "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-05-28T17:30:15Z",
+      "left_at": null,
+      "phase": "complete"
+    }
+  ],
+  "rectification_commit": "5316bfb86de63eb01ec2ef53dd1b62932036c465",
+  "regression_tests_added": [
+    "tests/test_pdf_preflight.py::TestSecurityDocSymbolContract",
+    "tests/test_pdf_preflight.py::TestUploadPathContentLengthGuards::test_missing_content_length_passes_middleware_to_route"
+  ],
+  "research_briefs": [
+    {
+      "agent_id": "researcher-1",
+      "brief_path": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/textbook-ingest-m10/research-brief-1.md",
+      "summary": "carve-out shipped in m4; m10=doc pass+tests"
+    },
+    {
+      "agent_id": "researcher-2",
+      "brief_path": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/textbook-ingest-m10/research-brief-2.md",
+      "summary": "doc-only; do not re-implement; OQ1 on C-L test"
+    }
+  ],
+  "research_mode": "standard",
+  "research_synthesis": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/textbook-ingest-m10/research-synthesis.md",
+  "updated_at": "2026-05-28T17:30:15Z"
+}
