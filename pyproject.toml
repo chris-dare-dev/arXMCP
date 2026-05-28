@@ -180,6 +180,18 @@ dev = [
     "ruff>=0.5",
     "pytest>=8.0",
 ]
+# textbook-ingest e2 — PDF parsing via MinerU 3.x. Typically installed
+# into a SEPARATE venv (~/venvs/mineru/) because MinerU pulls a large
+# PyTorch + ONNX-runtime + transformers tree that would balloon the
+# project venv. The arXMCP server invokes MinerU as a subprocess via
+# the absolute path in ARXMCP_MINERU_BIN; this extra is for operators
+# who want everything in one venv (rare; not the recommended setup).
+# Pin matches the B1 install validation (3.2.0 + smoke-tested on M4 Max
+# + MLX). The `[pipeline]` extra selects the CPU-pipeline backend; the
+# `[mlx]` extra is opt-in for Apple Silicon GPU. See docs/install.md.
+pdf = [
+    "mineru[pipeline]>=3.2.0,<4",
+]
 
 [tool.ruff]
 line-length = 100
@@ -202,4 +214,5 @@ markers = [
     "requires_full_corpus: tests that assert against a fully-ingested 200K-paper corpus (E11_S01 sanity tests). Skipped by default; opt-in via `pytest -m requires_full_corpus` AND `ARXMCP_RUN_FULL_CORPUS_TESTS=1`. Pre-condition: operator has run `make ingest` end-to-end and the staging LanceDB has ≥ 100K chunks.",
     "requires_lean_repl: tests that invoke the real Lean 4 REPL subprocess (verification-feedback-m2+). Skipped by default; opt-in by setting BOTH ARXMCP_LAKE_PATH (absolute path to the lake binary) and ARXMCP_LEAN_REPL_DIR (a built leanprover-community/repl directory). Lean is a system dependency, not a pip dep — see .claude/notes/spikes/verification-feedback-spike-2.md.",
     "requires_pdflatex: tests that invoke the real `pdflatex` + `pdftoppm` binaries (parser-fidelity-eval-m1 CDM gate). Skipped by default; opt-in via `pytest -m requires_pdflatex` AND `ARXMCP_RUN_REAL_PDFLATEX=1`. Requires pdflatex (part of texlive: `brew install --cask mactex-no-gui` / `apt install texlive-base`) and pdftoppm (part of poppler-utils: `brew install poppler` / `apt install poppler-utils`) installed locally. Subprocess sandbox follows the same `start_new_session=True` + `os.killpg` discipline as LaTeXML per `.claude/docs/security-cdm-sandbox.md`.",
+    "requires_mineru: tests that invoke the real `mineru` binary (textbook-ingest-m5 PDF parser subprocess driver). Skipped by default; opt-in via `pytest -m requires_mineru` AND `ARXMCP_RUN_REAL_MINERU=1` AND `ARXMCP_MINERU_BIN` set to the absolute path of the mineru binary (typically `~/venvs/mineru/bin/mineru` — install via `uv venv ~/venvs/mineru && uv pip install --python ~/venvs/mineru/bin/python 'mineru[pipeline,mlx]'`). Subprocess sandbox profile is documented at `.claude/docs/security-pdf-sandbox.md`. RLIMIT_AS 4 GB cap is Linux-only — macOS does NOT enforce (verified live test); wall timeout is the only memory backstop on Darwin.",
 ]

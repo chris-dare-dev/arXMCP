@@ -430,8 +430,33 @@ Things that LOOK shipped but aren't fully wired — don't be surprised:
    Python 3.9; the project requires 3.11+. Use
    `/Users/chris.dare/Library/Python/3.9/bin/uv run python -m pytest`.
 
-9. **Doc-layout consolidation (2026-05-10).** TIER-GATES, all of `docs/*`
-   except `install.md`, and `server/prompts.md` moved into `.claude/`.
+9. **`resource.setrlimit(RLIMIT_AS, ...)` is non-functional on macOS.**
+   Verified live test on Darwin 25.4.0 / Apple M4 Max
+   (textbook-ingest-m5 research-brief-2): the Darwin kernel keeps the
+   hard limit at `RLIM_INFINITY` and refuses lowering at the process
+   level — `setrlimit(RLIMIT_AS, (4GB, 4GB))` raises `ValueError:
+   current limit exceeds maximum limit`. Any subprocess sandbox that
+   uses `preexec_fn=_set_rlimits` on Darwin will crash the child with
+   a Python traceback in stderr BEFORE exec. The m5 driver
+   (`ingest/textbook_parser.py`) gates the preexec_fn on
+   `sys.platform == "linux"` and emits a WARN log on other platforms;
+   the 30-min wall timeout is the only memory backstop on macOS.
+   `server/lean_repl.py` has the same broken-on-Darwin guard
+   (`sys.platform != "win32"`) — separate follow-up issue at
+   `chris-dare-dev/arXMCP`.
+
+10. **MinerU 3.x grandchild FastAPI server survives `os.killpg`.**
+    MinerU 3.x CLI spawns an internal `LocalAPIServer`
+    (FastAPI/uvicorn) with its own `start_new_session=True` (confirmed
+    at `mineru/cli/api_client.py:153`), creating a grandchild in a
+    different process group. `os.killpg` on the outer CLI's pgid does
+    NOT reap the grandchild. The gap is accepted (loopback-only, no
+    external network); see
+    [`.claude/docs/security-pdf-sandbox.md`](.claude/docs/security-pdf-sandbox.md)
+    §"explicitly does NOT do".
+
+11. **Doc-layout consolidation (2026-05-10).** TIER-GATES, all of `docs/*`
+    except `install.md`, and `server/prompts.md` moved into `.claude/`.
    The README is now project-scope-only. Tests that hard-pin doc paths
    were updated in lockstep. Don't reintroduce Markdown into `server/`,
    `ingest/`, etc.

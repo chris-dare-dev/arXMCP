@@ -7,9 +7,13 @@ discipline are settled before any operator-supplied PDF reaches a
 subprocess.
 
 **Scope:** the textbook-ingest pipeline's PDF-handling subprocess
-calls — primarily `mineru` (parser per pdf-ingest-2026 CAND-1) but
-also any future ColPali / pdfid / VLM helpers under the same trust
-boundary.
+calls — primarily `mineru` (parser per pdf-ingest-2026 CAND-1; **B1
+shipped MinerU 3.2.0** with `[pipeline,mlx]` extras, validated by smoke
+test on Milne SVI 2026-05-27) but also any future ColPali / pdfid /
+VLM helpers under the same trust boundary. Older revisions of this
+doc referenced "MinerU 2.5"; the 3.2.0 pin supersedes — the
+architectural change (MinerU 3.x spawns an internal FastAPI server
+subprocess) is annotated where load-bearing.
 
 **Threat tier:** Peer of Threat 3 (LaTeXML sandbox) and the
 parser-fidelity-eval-m1 CDM sandbox
@@ -65,76 +69,96 @@ expensive to catch inside MinerU's processing loop.
 ## Implementation: subprocess discipline (pdflatex/cdm-sandbox parallel)
 
 Mirrors `tools/cdm_eval.py::render_latex_to_image` (parser-fidelity-
-eval-m1 pattern) plus the Lean REPL m3 `RLIMIT_AS` cap. The
-function-shape below is **prescriptive for e2** — it documents the
-exact discipline the implementer must follow, not just a template.
+eval-m1 pattern) plus the Lean REPL m3 `RLIMIT_AS` cap. The shape
+below is **prescriptive for e2** — it documents the exact discipline
+the implementer must follow. Canonical implementation lives at
+`ingest/textbook_parser.py` (shipped in textbook-ingest-m5). When the
+two diverge, the implementation wins and this doc updates in lockstep
+(m4 F2 anti-pattern: stale docstring is a HIGH-severity finding).
 
 ```python
-import resource  # POSIX only; Windows no-op with a WARN log
+import resource  # Linux-only — see _RLIMIT_AS_PLATFORM below
 import subprocess
 import signal
 import os
+import sys
 import contextlib
 
 #: Virtual-memory ceiling for the MinerU subprocess. 4 GB is ~2x the
 #: nominal working set on a 500-page textbook (measured offline);
 #: leaves room for transformer attention spikes without admitting
-#: decompression-bomb scenarios.
+#: decompression-bomb scenarios. LINUX ONLY — see macOS gap below.
 _MINERU_RLIMIT_AS_BYTES = 4 * 1024 * 1024 * 1024  # 4 GB
 
-#: Hard wall-clock cap. 30 min covers Bourbaki-grade textbooks on
-#: M2-class hardware (~1-3 pages/sec). Longer PDFs need batch-mode
-#: ingest, not a single subprocess invocation.
-_MINERU_WALL_TIMEOUT_S = 30 * 60  # 30 min
+#: Wall-clock cap. 30 min covers Bourbaki-grade textbooks on
+#: M2-class hardware (~1-3 pages/sec). Configurable via
+#: ``ARXMCP_MINERU_TIMEOUT_S`` env var (range [60, 3600]).
+_DEFAULT_TIMEOUT_S = 30 * 60
 
-def _set_mineru_rlimits() -> None:
-    """preexec_fn for ``subprocess.Popen``. Caps virtual memory.
+#: Platform on which RLIMIT_AS is enforceable. Verified live test on
+#: Darwin 25.4.0 / Apple M4 Max (textbook-ingest-m5 research-brief-2):
+#: ``setrlimit(RLIMIT_AS, (4GB, 4GB))`` raises ``ValueError`` because
+#: the macOS kernel keeps the hard limit at RLIM_INFINITY and refuses
+#: lowering. On Darwin the wall timeout is the ONLY memory backstop;
+#: see CLAUDE.md §8.
+_RLIMIT_AS_PLATFORM = "linux"
 
-    POSIX only. On Windows the function is replaced by a no-op
-    (with a WARN log at import time of the host module).
-    """
-    resource.setrlimit(
-        resource.RLIMIT_AS,
-        (_MINERU_RLIMIT_AS_BYTES, _MINERU_RLIMIT_AS_BYTES),
-    )
+if sys.platform == _RLIMIT_AS_PLATFORM:
+    def _set_mineru_rlimits() -> None:
+        """preexec_fn for subprocess.Popen. Caps virtual memory."""
+        resource.setrlimit(
+            resource.RLIMIT_AS,
+            (_MINERU_RLIMIT_AS_BYTES, _MINERU_RLIMIT_AS_BYTES),
+        )
+else:
+    _set_mineru_rlimits = None  # WARN at import time
 
-def _scrub_subprocess_env() -> dict[str, str]:
+def _scrub_subprocess_env(output_dir: Path) -> dict[str, str]:
     """Return a minimal env for the MinerU subprocess.
 
-    Strips proxies, AWS / GCP / Azure credentials, anything that
-    could enable network egress or credential leak. Whitelists only
-    the variables MinerU genuinely needs (PATH for binary lookup;
-    TMPDIR for its own scratch; HOME for ~/.cache lookup of bundled
-    ONNX models).
+    Strips proxies, AWS / GCP / Azure / HuggingFace credentials.
+    Whitelists ONLY the variables MinerU genuinely needs (PATH for
+    binary lookup; HOME for ~/.cache lookup of bundled ONNX models;
+    LANG / LC_ALL for locale). ``TMPDIR`` is explicitly OVERRIDDEN to
+    ``str(output_dir)`` rather than inherited, preventing cross-
+    notebook scratch contamination (textbook-ingest-m5 research-
+    synthesis §D4 — failure-mode FM-8).
     """
-    keep = ("PATH", "TMPDIR", "HOME", "LANG", "LC_ALL")
-    return {k: os.environ[k] for k in keep if k in os.environ}
+    keep = ("PATH", "HOME", "LANG", "LC_ALL")
+    env = {k: os.environ[k] for k in keep if k in os.environ}
+    env["TMPDIR"] = str(output_dir)
+    return env
 
-def run_mineru_sandboxed(pdf_path: Path, output_dir: Path) -> str:
-    """Run MinerU 2.5 on a PDF with the e2 sandbox profile.
+def run_mineru_sandboxed(pdf_path: Path, output_dir: Path) -> MinerUResult:
+    """Run MinerU 3.2.0 on a PDF with the e2 sandbox profile.
 
     All three defense layers active:
-    - RLIMIT_AS 4 GB cap via preexec_fn
-    - 30-min wall timeout + process-group kill on expiry
-    - cwd-confined tmpdir (no access outside output_dir)
+    - RLIMIT_AS 4 GB cap via preexec_fn (LINUX ONLY)
+    - 30-min default wall timeout + process-group kill on expiry
+    - cwd-confined tmpdir + TMPDIR override (no access outside output_dir)
     - scrubbed env (no proxies, no credentials)
     - no shell escape (Popen args, not shell=True)
     """
-    sandbox_env = _scrub_subprocess_env()
+    sandbox_env = _scrub_subprocess_env(output_dir)
+    cmd = [
+        mineru_bin, "-p", str(pdf_path), "-o", str(output_dir),
+        "-b", "pipeline", "-m", "auto",  # 3.x defaults to hybrid-auto-engine
+    ]
+    spawn_kwargs = {}
+    if _set_mineru_rlimits is not None:
+        spawn_kwargs["preexec_fn"] = _set_mineru_rlimits
     proc = subprocess.Popen(
-        ["mineru", "-p", str(pdf_path), "-o", str(output_dir)],
+        cmd,
         cwd=output_dir,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
         start_new_session=True,
         env=sandbox_env,
-        preexec_fn=(
-            _set_mineru_rlimits if hasattr(resource, "setrlimit") else None
-        ),
+        **spawn_kwargs,
     )
     try:
-        stdout, stderr = proc.communicate(timeout=_MINERU_WALL_TIMEOUT_S)
+        stdout, stderr = proc.communicate(timeout=_DEFAULT_TIMEOUT_S)
     except subprocess.TimeoutExpired:
         with contextlib.suppress(ProcessLookupError, OSError):
             os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
@@ -144,9 +168,10 @@ def run_mineru_sandboxed(pdf_path: Path, output_dir: Path) -> str:
     if proc.returncode != 0:
         raise RuntimeError(
             f"mineru exited {proc.returncode} on {pdf_path.name}: "
-            f"{stderr[:500]}"
+            f"{stderr[-500:]}"
         )
-    return stdout
+    # MinerU 3.x output tree: output_dir/<stem>/auto/<stem>.md
+    return MinerUResult(...)
 ```
 
 `start_new_session=True` puts MinerU in its own process group. On
@@ -157,6 +182,18 @@ that outlive a bare `proc.kill()`.
 The `preexec_fn` runs in the child between `fork()` and `exec()` so
 the limits are inherited by the entire process tree. Anything MinerU
 spawns afterward (e.g. its ONNX worker pool) is also capped.
+
+**MinerU 3.x architectural caveat (load-bearing).** MinerU 3.x CLI
+launches an internal `LocalAPIServer` (FastAPI/uvicorn) for the actual
+parsing work; the outer `mineru` process is a thin CLI client. The
+internal server is spawned with its OWN `start_new_session=True`
+(confirmed at `mineru/cli/api_client.py:153`), creating a grandchild
+in a different process group. `os.killpg` on the outer CLI's pgid
+does NOT reap the grandchild FastAPI server. The gap is **accepted**
+because the grandchild listens on loopback only with no external
+network — worst case is an orphan uvicorn holding GPU memory until
+idle-timeout reaps it. See §"What this milestone explicitly does NOT
+do" below.
 
 ---
 
@@ -285,6 +322,35 @@ threat surface.)
   enforcement for non-OA chunks. Neither is in scope for the
   subprocess sandbox.
 
+- **Does NOT reap MinerU 3.x's grandchild FastAPI server on
+  timeout.** Documented in §Implementation. The grandchild is
+  loopback-only with no external network; worst case is an orphaned
+  uvicorn process holding GPU/MLX memory until idle-timeout reaps
+  it. Sealing this gap would require either `psutil.children(
+  recursive=True)` (introduces a hard dependency) or switching to
+  Python 3.11+'s `Popen(process_group=0)` paired with a manual
+  grandchild walk — neither change passes the cost/benefit threshold
+  given the loopback-only blast radius. Re-evaluate if MinerU adds a
+  network-egress backend.
+
+- **Does NOT enforce RLIMIT_AS on macOS.** Verified by live test
+  (Darwin 25.4.0, Apple M4 Max): `resource.setrlimit(RLIMIT_AS,
+  (4GB, 4GB))` raises `ValueError: current limit exceeds maximum
+  limit` because the Darwin kernel keeps the hard limit at
+  RLIM_INFINITY and refuses lowering at the process level. The
+  `_set_mineru_rlimits` preexec_fn is gated on `sys.platform ==
+  "linux"`; on Darwin the function is `None` and a WARN log fires at
+  module import. **On macOS the 30-min wall timeout is the only
+  memory backstop.** Production deployments per
+  [`docs/install.md`](../../docs/install.md) are Linux containers
+  (where the cap IS enforced); macOS hits this gap only in developer
+  workflows where the threat is qualitatively lower (operator-
+  supplied PDFs, not adversarial inbound traffic). Sealing the
+  Darwin path would require either `sandbox-exec` profiles (slow,
+  out of scope per §earlier-omission) or `ulimit -v` from a shell
+  wrapper (adds a fork hop without strong correctness gains over the
+  wall timeout). CLAUDE.md §8 documents the landmine.
+
 These omissions are deliberate, documented, and conservative. If the
 textbook ingest later runs in a context with elevated risk (an
 operator-facing service vs. a `pytest` integration test or single-
@@ -367,27 +433,38 @@ This is documented behavior, not a security flaw.
 
 ---
 
-## Open questions for e2 implementer
+## Resolved questions (textbook-ingest-m5 closed these)
 
-1. **MinerU version pin.** The pdf-ingest-2026 challenger T2 ruling
-   was "MinerU 2.5". Verify the 2.5 release is the right tagged
-   version (vs. 2.5.1 / 2.5.2 / 3.x at the time of e2 entry).
+1. **MinerU version pin.** ✅ Resolved by B1: MinerU **3.2.0** with
+   `[pipeline,mlx]` extras, validated by direct-API smoke test on
+   Milne SVI (3 pages, 33 s, M4 Max + MLX). The 2.5 → 3.x bump brought
+   the internal-API-server architecture documented in §Implementation.
 
-2. **Pre-flight `pdfid` vendoring location.** `tools/security/pdfid.py`
-   is the proposed home (per CAND-2). Confirm with operator that this
-   is the right layout vs. a `server/security/` sibling.
+2. **Pre-flight `pdfid` vendoring location.** ✅ Resolved by
+   textbook-ingest-m4: shipped at `tools/security/pdfid.py` (NOT
+   `server/security/`). 7 dangerous tokens detected; canonical list
+   at `tools/security/pdfid.py::DANGEROUS_PDF_NAMES`.
 
-3. **Wall-timeout default.** 30 min is documented above. Operators
-   running Bourbaki Tome 5 (~600 pages) may legitimately exceed this
-   on slower hardware. Make the timeout configurable via
-   `ARXMCP_MINERU_TIMEOUT_S` env var with a documented minimum
-   (60s) and maximum (3600s).
+3. **Wall-timeout default.** ✅ Resolved: 30 min default,
+   configurable via `ARXMCP_MINERU_TIMEOUT_S` (range [60, 3600],
+   parsed at module load with explicit RuntimeError on out-of-range
+   per the no-silent-clamp AC).
 
-4. **OOM behavior on macOS.** Darwin's POSIX `setrlimit(RLIMIT_AS)`
-   is honored but the kernel uses a soft-vs-hard distinction that
-   differs from Linux. Verify on M2-class hardware that the
-   `RLIMIT_AS` exhaustion produces a clean exit (SIGKILL or
-   nonzero return) rather than a soft hang.
+4. **OOM behavior on macOS.** ✅ Resolved (NEGATIVE finding):
+   `resource.setrlimit(RLIMIT_AS, ...)` raises `ValueError` on
+   Darwin — verified live test on Apple M4 Max. The RLIMIT_AS cap is
+   **non-functional on macOS** because the kernel keeps the hard
+   limit at RLIM_INFINITY. The implementation gates `preexec_fn` on
+   `sys.platform == "linux"`; macOS gets a WARN log at import and
+   relies on the 30-min wall timeout as the only memory backstop.
+   See §"What this milestone explicitly does NOT do" for the
+   accepted-gap rationale.
 
-These are e2-design questions, not gating issues for this spike's
-ship.
+## Outstanding follow-up (out of m5 scope)
+
+- **`server/lean_repl.py` audit.** The Lean REPL m3 RLIMIT_AS
+  precedent uses `sys.platform != "win32"` as the guard — passing
+  on Darwin where setrlimit will fail in the child. This is likely
+  a latent bug analogous to the one m5 found and fixed. File a
+  GitHub issue at `chris-dare-dev/arXMCP` for audit; not in m5 scope
+  because Lean REPL is a separate subsystem.

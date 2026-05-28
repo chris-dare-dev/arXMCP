@@ -41,6 +41,48 @@ beyond Python ≥3.11. The optional **bulk ingest pipeline** (E11_S01,
   fallback for papers whose ar5iv cache misses, AND by the daily
   drift-detector cron. Not needed for the MCP server itself.
 
+### Optional textbook-ingest dep — MinerU
+
+The textbook-ingest pipeline (`textbook-ingest-e2`) parses
+operator-supplied PDFs via **MinerU 3.x** running in a sandboxed
+subprocess. MinerU pulls a large PyTorch + ONNX + transformers tree —
+install it into a **separate venv** rather than the project venv:
+
+```sh
+# macOS / Apple Silicon (MLX backend)
+uv venv ~/venvs/mineru
+uv pip install --python ~/venvs/mineru/bin/python 'mineru[pipeline,mlx]'
+
+# Linux (CPU pipeline only)
+uv venv ~/venvs/mineru
+uv pip install --python ~/venvs/mineru/bin/python 'mineru[pipeline]'
+
+# Pre-download the ONNX model weights (one-time, ~5-7 GB)
+~/venvs/mineru/bin/mineru-models-download -s huggingface -m pipeline
+```
+
+Two environment variables control the m5 sandbox driver
+(`ingest/textbook_parser.py`):
+
+- **`ARXMCP_MINERU_BIN`** — absolute path to the `mineru` CLI binary.
+  Required for textbook-ingest. Example:
+  `export ARXMCP_MINERU_BIN=~/venvs/mineru/bin/mineru`. Without it
+  the driver falls back to `shutil.which("mineru")` and raises
+  `RuntimeError` if not found.
+- **`ARXMCP_MINERU_TIMEOUT_S`** — wall-clock cap on a single MinerU
+  invocation in seconds. Default 1800 (30 min). Valid range
+  [60, 3600]. Parsed at module load — out-of-range values raise
+  `RuntimeError` at server startup rather than silently clamping.
+
+**Platform note (macOS):** the 4 GB virtual-memory cap
+(`RLIMIT_AS`) that the sandbox profile prescribes is **not enforceable
+on macOS** (the Darwin kernel keeps the hard limit at `RLIM_INFINITY`
+and refuses lowering — verified live test on Darwin 25.4.0 / Apple
+M4 Max). On macOS the 30-min wall timeout is the only memory backstop.
+Linux deployments get the full RLIMIT_AS cap as designed. See
+[`.claude/docs/security-pdf-sandbox.md`](../.claude/docs/security-pdf-sandbox.md)
+for the full sandbox profile rationale.
+
 After install, both binaries are on `$PATH`:
 
 ```sh

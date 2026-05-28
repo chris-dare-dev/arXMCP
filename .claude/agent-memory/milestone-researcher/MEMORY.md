@@ -713,3 +713,23 @@ The fixture pattern monkeypatches `notebook_fetch.try_cache` and `_notebook_comm
 but NOT CORPUS_RAW_DIR. Any milestone adding a fetch_raw_tex_if_missing helper must add
 CORPUS_RAW_DIR = REPO_ROOT / "var" / "arxmcp" / "corpus" / "raw" to _notebook_common.py
 and update the test fixture's monkeypatch to redirect it.
+
+## 2026-05-28 — textbook-ingest-m5 — macOS-RLIMIT_AS-cannot-be-lowered
+On Darwin (macOS), `resource.setrlimit(RLIMIT_AS, (any_value, any_value))`
+raises `ValueError: current limit exceeds maximum limit` — the hard limit is
+RLIM_INFINITY and cannot be reduced from Python. The `hasattr(resource, "setrlimit")`
+guard in the spike-2 doc is INSUFFICIENT (passes on macOS but child crashes).
+Use `sys.platform == "linux"` guard ONLY. Document gap explicitly on macOS.
+
+## 2026-05-28 — textbook-ingest-m5 — MinerU-3x-spawns-internal-FastAPI-server
+MinerU 3.2.0 CLI is NOT a simple subprocess — it spawns an internal FastAPI/uvicorn
+server (LocalAPIServer) in a new process group when invoked without `--api-url`.
+The grandchild FastAPI server uses its own `start_new_session=True`, placing it in
+a DIFFERENT process group than the outer CLI. `os.killpg` on the outer CLI's pgid
+does NOT reap the grandchild server. Document as accepted gap; the server is
+loopback-only and exits when idle.
+
+## 2026-05-28 — textbook-ingest-m5 — MinerU-3x-output-tree-is-nested-not-flat
+MinerU 3.2.0 pipeline backend output tree: `<output_dir>/<stem>/<parse_method>/<stem>.md`
+NOT `<output_dir>/<stem>.md`. For `-b pipeline -m auto`: `<output_dir>/<stem>/auto/<stem>.md`.
+Always glob for the .md file after process exits; never hardcode a flat path.
