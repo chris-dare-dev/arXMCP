@@ -99,6 +99,7 @@ from ingest.embedder import (
 from ingest.schema import (
     CHUNKS_SCHEMA_V1,
     CHUNKS_TABLE_NAME,
+    LANCE_STORAGE_OPTIONS,
     EmbedRecord,
 )
 
@@ -822,7 +823,14 @@ def write_chunks(
         # (no NULL-vs-default ambiguity in downstream filters).
         _migrate_chunks_schema_if_needed(tbl)
     else:
-        tbl = db.create_table(CHUNKS_TABLE_NAME, schema=CHUNKS_SCHEMA_V1)
+        # storage_options pins the on-disk Lance format (m2). See
+        # ingest.schema.LANCE_STORAGE_OPTIONS for the why + the
+        # silent-drop gotcha on the bare data_storage_version kwarg.
+        tbl = db.create_table(
+            CHUNKS_TABLE_NAME,
+            schema=CHUNKS_SCHEMA_V1,
+            storage_options=LANCE_STORAGE_OPTIONS,
+        )
 
     # Idempotent upsert by chunk_id (D5). LanceDB's merge_insert
     # accepts either a PyArrow Table or a list of dicts; we pass the

@@ -33,7 +33,11 @@ from typing import Any
 
 import pyarrow as pa
 
-from ingest.schema import EQUATIONS_SCHEMA_V1, EQUATIONS_TABLE_NAME
+from ingest.schema import (
+    EQUATIONS_SCHEMA_V1,
+    EQUATIONS_TABLE_NAME,
+    LANCE_STORAGE_OPTIONS,
+)
 from server.retrieval.equations import parse_mathml_to_tree, tree_to_json
 
 logger = logging.getLogger(__name__)
@@ -63,9 +67,12 @@ def open_or_create_equations_table(lancedb_path: str | Path) -> Any:
     try:
         return db.open_table(EQUATIONS_TABLE_NAME)
     except (ValueError, FileNotFoundError):
+        # storage_options pins the on-disk Lance format (m2). See
+        # ingest.schema.LANCE_STORAGE_OPTIONS for the rationale.
         return db.create_table(
             EQUATIONS_TABLE_NAME,
             schema=EQUATIONS_SCHEMA_V1,
+            storage_options=LANCE_STORAGE_OPTIONS,
         )
 
 

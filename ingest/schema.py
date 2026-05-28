@@ -86,6 +86,29 @@ EMBEDDING_COLUMN_NAMES = ("embedding_stmt", "embedding_proof")
 
 
 # ---------------------------------------------------------------------------
+# On-disk format pin (notebook-ops-hardening-m2)
+# ---------------------------------------------------------------------------
+
+# Explicit Lance on-disk storage-format pin, passed as ``storage_options``
+# to EVERY ``db.create_table(...)`` call (chunks, definitions, equations).
+# Without it the format follows whatever default the installed lancedb ships;
+# a ``uv``/``pip`` upgrade could then silently migrate new tables to a format
+# a pinned reader can't decode. Making the value explicit means a future
+# default change shows up as a divergence at create time (or in release notes)
+# rather than as silent on-disk drift under existing data.
+#
+# CRITICAL (lancedb 0.30.2): the modern key is
+# ``storage_options={"new_table_data_storage_version": "stable"}``. The bare
+# ``data_storage_version="stable"`` kwarg is accepted by
+# ``LanceDBConnection.create_table`` but SILENTLY DROPPED (never forwarded to
+# the Rust layer) — it looks correct and does nothing. Do NOT revert to it.
+# ``"stable"`` is the documented default (today: Lance format major 3); it
+# only governs NEW tables — existing datasets take the ``open_table`` path and
+# are untouched, and ``merge_insert`` appends in the table's existing format.
+LANCE_STORAGE_OPTIONS = {"new_table_data_storage_version": "stable"}
+
+
+# ---------------------------------------------------------------------------
 # Schema v1 — the canonical ``chunks`` table layout
 # ---------------------------------------------------------------------------
 

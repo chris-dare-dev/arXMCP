@@ -62,7 +62,11 @@ from typing import TYPE_CHECKING, Any
 import pyarrow as pa
 
 from ingest.preamble import load_preamble
-from ingest.schema import DEFINITIONS_SCHEMA_V1, DEFINITIONS_TABLE_NAME
+from ingest.schema import (
+    DEFINITIONS_SCHEMA_V1,
+    DEFINITIONS_TABLE_NAME,
+    LANCE_STORAGE_OPTIONS,
+)
 
 if TYPE_CHECKING:
     from ingest.preamble_types import PreambleDoc
@@ -330,9 +334,12 @@ def open_or_create_definitions_table(
     try:
         return db.open_table(DEFINITIONS_TABLE_NAME)
     except (ValueError, FileNotFoundError):
+        # storage_options pins the on-disk Lance format (m2). See
+        # ingest.schema.LANCE_STORAGE_OPTIONS for the rationale.
         return db.create_table(
             DEFINITIONS_TABLE_NAME,
             schema=DEFINITIONS_SCHEMA_V1,
+            storage_options=LANCE_STORAGE_OPTIONS,
         )
 
 

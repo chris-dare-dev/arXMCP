@@ -57,6 +57,13 @@ dependencies = [
     # lancedb: vector store for the chunks table (E04_S01). Embedded
     #   storage under ``var/arxmcp/index/lancedb/``; native MVCC + HNSW
     #   index support. PyArrow-backed schema discipline.
+    #   On-disk format pin (notebook-ops-hardening-m2): every
+    #   ``db.create_table`` passes
+    #   ``storage_options={"new_table_data_storage_version": "stable"}``
+    #   (see ``ingest.schema.LANCE_STORAGE_OPTIONS``) so a version bump
+    #   here can't silently migrate the on-disk format under a pinned
+    #   reader. The upper bound is intentionally NOT tightened yet — add
+    #   ``<0.31`` only if a real format regression is observed.
     "lancedb>=0.6",
     # pyarrow: schema definition for the LanceDB ``chunks`` table
     #   (E04_S01). The single source of truth for all downstream readers

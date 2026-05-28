@@ -114,7 +114,21 @@ class NotebooksStore:
                 check_same_thread=False,
             )
             conn.execute("PRAGMA journal_mode=WAL")
-            conn.execute("PRAGMA synchronous=NORMAL")
+            # Durability (notebook-ops-hardening-m2): notebooks.db holds
+            # user-authored, NON-regenerable state (notebook membership,
+            # uploaded-paper provenance), so it earns full crash durability.
+            #   synchronous=FULL: in WAL mode, NORMAL can roll back the last
+            #     committed transaction on power loss; FULL adds a WAL sync
+            #     after every commit -> ACID-durable across power loss.
+            #   fullfsync=ON: macOS only. Forces a true fcntl(F_FULLFSYNC)
+            #     instead of the kernel's deferrable fsync (same neutered-fsync
+            #     theme as CLAUDE.md gotcha #9). This is CONNECTION-scoped (it
+            #     does NOT persist to a fresh connection), so it must be set
+            #     here, on every open; setting it once and re-opening is a
+            #     silent no-op. (cache_sqlite.py / theorem_names_store.py stay
+            #     NORMAL on purpose: regenerable caches, not correctness state.)
+            conn.execute("PRAGMA synchronous=FULL")
+            conn.execute("PRAGMA fullfsync=ON")
             # FM-7: FK enforcement is per-connection in SQLite (default
             # OFF). MUST set before any DELETE on the notebooks table
             # for the cascade to fire.
