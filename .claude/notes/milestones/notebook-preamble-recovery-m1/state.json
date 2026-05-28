@@ -1,0 +1,66 @@
+{
+  "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/roadmap",
+  "created_at": "2026-05-28T00:48:58Z",
+  "critics_run": [],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "low": 0,
+    "medium": 0
+  },
+  "critique_path": null,
+  "deferred_findings": [],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_required": [],
+  "fixed_findings": [],
+  "id": "notebook-preamble-recovery-m1",
+  "implementation_base": "aec46ce7d1b5a93e00170d61ee58c1f966dec48e",
+  "implementation_branch": null,
+  "implementation_commit_range": null,
+  "implementation_commits": [],
+  "implementation_path": "inline",
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "### notebook-preamble-recovery-m1 \u2014 Extend `notebook_fetch.py` to also pull raw `.tex` via `fetch_eprint`\n\n**Description.** Per the scan brief's Option A: after every ar5iv-cache\nhit in `tools/notebook_fetch.py`, also call\n`tools.arxiv_fetch.fetch_eprint(...)` to download the arXiv `/e-print/`\ntarball and extract it under `var/arxmcp/corpus/raw/<paper_id>/`. The\nexisting `ingest/preamble.py::extract_preamble` then short-circuits to\nits happy path without modification \u2014 it reads from\n`RAW_DIR / paper_id`, runs the macro regex, and emits\n`var/arxmcp/corpus/parsed/<paper_id>/preamble.json` which downstream\nindexers (`index_definitions.py`) and the embedder's\n`load_preamble(...)` already consume.\n\nThe `fetch_eprint` helper is shipped: see `tools/arxiv_fetch.py`. It\nrespects the 3-second politeness contract per request to\n`export.arxiv.org` and honors the same 100 MB Threat 7 cap as\n`ar5iv_fetch`. No new HTTP layer, no LaTeXML subprocess, no new\ndependency.\n\nTwo surfaces to extend:\n\n1. **`tools/notebook_fetch.py`** \u2014 after a successful `try_cache(...)`\n   hit, invoke a new `fetch_raw_tex_if_missing(paper_id)` helper.\n   Skip-and-log on failure (treat 503 / network error the same way\n   the ar5iv path treats LaTeXML miss). Keeps the notebook ingest\n   robust against transient arXiv outages.\n\n2. **`tools/_notebook_common.py`** \u2014 new\n   `fetch_raw_tex_if_missing(paper_id)` helper wrapping `fetch_eprint`\n   with the skip-and-log semantics. Returns `True` on success, `False`\n   on skip; the caller (notebook_fetch) does not abort on `False`.\n\n3. **`Makefile`** \u2014 add a `make ingest-recover-preambles` target that\n   back-fills the 65+ already-ingested ar5iv papers without rerunning\n   the full ingest. Walks\n   `var/arxmcp/corpus/parsed/*/index.html` \u2192 checks for\n   `var/arxmcp/corpus/raw/<paper_id>/` \u2192 if absent, calls\n   `fetch_eprint` + `extract_preamble`. Idempotent.\n\n**Acceptance criteria.**\n\n- **[AC1]** Given a notebook with N papers ingested via\n  `tools/notebook_fetch.py`, When the fetch completes, Then for every\n  paper whose ar5iv pull succeeded, the directory\n  `var/arxmcp/corpus/raw/<paper_id>/` exists and contains at least one\n  `.tex` file. (Skip-and-log on per-paper failure is allowed and must\n  be surfaced in the run summary, mirroring ar5iv's\n  `fetched=N rate_limited=R missing=K` format.)\n- **[AC2]** Given a paper whose raw `.tex` fetch succeeded, When\n  `ingest.preamble.extract_preamble(paper_id)` runs against it, Then\n  the call returns a `PreambleDoc` (not `None`) and writes\n  `var/arxmcp/corpus/parsed/<paper_id>/preamble.json`.\n- **[AC3]** Given the back-fill target (`make ingest-recover-preambles`),\n  When run against the current tree (65+ ar5iv-only papers without\n  preambles), Then \u2265 90% of those papers gain a `preamble.json` (the\n  other \u226410% may legitimately have no recoverable preamble \u2014 withdrawn\n  papers, malformed tarballs, etc.).\n- **[AC4]** Given an arXiv 503 / network failure on a single paper's\n  `/e-print/` fetch, When the notebook ingest continues, Then the\n  notebook-level run does NOT abort. The paper is logged to\n  `var/arxmcp/ops/parser-failures/preamble.log` with a recoverable\n  status code that distinguishes \"rate-limited\" from \"404 / withdrawn\".\n- **[AC5]** Given a paper whose preamble has been back-filled, When\n  the next `make re-embed-all` runs against the notebook, Then the\n  emitted records carry a non-null `preamble_ref` and the chunk_ids\n  rotate accordingly (because `_compute_chunk_id` is preamble-\n  sensitive). This is the **intended** behavior \u2014 LanceDB MVCC\n  handles the version bump cleanly per the chunker-fixtures runbook.\n- **[AC6]** Given a paper whose preamble has been back-filled, When\n  the `get_definitions` MCP tool is invoked for that paper, Then the\n  result envelope contains `total > 0` definition rows (assuming the\n  paper's preamble has any `\\newcommand` / `\\DeclareMathOperator`\n  definitions \u2014 most do). Spot-check on one canary paper in the\n  implementation summary.\n- **[AC7]** `ARXMCP_CONTACT_EMAIL` becomes required for\n  `tools/notebook_fetch.py` (previously only required for\n  `fetch_seed.py`). Document in the `notebook_fetch.py` docstring and\n  the `make` target wrapper. Fail loudly with a clear error message\n  if unset.\n- **[X-1]** `EXPECTED_TOOL_SCHEMA_SHA256` UNCHANGED (no MCP surface\n  edit; `get_definitions` already accepts `paper_id`).\n- **[X-2]** `EXPECTED_BP1_SHA256` UNCHANGED.\n- **[X-3]** `ruff check .` clean and `make test` green; 2778+ tests\n  passing on macOS / Linux.\n- **[X-4]** No `CHUNKER_VERSION` bump in this milestone \u2014 the chunker\n  isn't changed. Chunk_id rotation on AC5 happens via body-content\n  change (preamble bytes flow into the hash), not via a global\n  version bump.\n\n**Out of scope (Won't list).**\n\n- Re-running `make re-embed-all` as part of this milestone. The\n  re-embed is operator-driven (3-8 hour wall-clock); the AC5\n  measurement happens on the operator's next `make re-embed-all` run.\n- Switching to a 32K-context embedder (out of scope; deferred from\n  embedder-truncation-m1).\n- Sub-chunking oversized statement chunks (separate milestone).\n- Changing `get_definitions`' index-status semantics. The handler\n  already documents \"empty result, not an error\" for missing\n  preambles; the fix is upstream (populate the preambles), not in\n  the handler.\n- A new MCP tool for preamble inspection. The\n  `get_definitions` surface is sufficient.\n- Threading raw-tex fetch into the FastAPI `notebooks` upload route\n  (`server/routes/notebooks.py::add_paper`). That route adds a junction\n  row only; ingest happens out-of-band via `notebook_ingest.py`.\n\n**Dependencies.** None blocking. `embedder-truncation-m1`'s re-embed\nran successfully (operator confirmed); this milestone's AC5 builds\non that re-embed having landed.\n\n**Complexity.** S (\u2248\u00bd day per the scan brief's estimate).\n\n**Specialist suggestions.** `security-reviewer` (Threat 7 surface \u2014\nadding a second egress path to `export.arxiv.org`, mirroring the\nexisting `arxiv_fetch.fetch_eprint` pattern).\n\n**External writes the implementation will require.** None \u2014 the only\nexternal request is `GET https://export.arxiv.org/e-print/<paper_id>`,\nwhich is the SAME endpoint `tools/fetch_seed.py` already uses with\nthe SAME politeness contract. No new external endpoint, no PR, no\ngit push, no infra mutation.\n\n**Notes for the researcher agents (phase 1).**\n\n1. Confirm `tools/arxiv_fetch.fetch_eprint` is import-stable and that\n   its return contract is compatible with extracting into\n   `var/arxmcp/corpus/raw/<paper_id>/`. Check the existing usage in\n   `tools/fetch_seed.py`.\n2. The scan brief's option-survey (A through E) is canonical; do NOT\n   re-litigate the choice of Option A unless you find a load-bearing\n   constraint the scan brief missed.\n3. Inspect `var/arxmcp/ops/parser-failures/preamble.log` to size the\n   real back-fill scope (65 was a rough estimate from the live tree;\n   confirm by walking `var/arxmcp/corpus/parsed/*/index.html` and\n   diffing against `var/arxmcp/corpus/raw/*/`).\n4. The politeness sleep is per-request to `export.arxiv.org`, NOT\n   shared with the ar5iv budget (per the scan brief and\n   `ingest/ar5iv_fetch.py:29-33`). Sleep budgets compose additively;\n   make sure the helper doesn't double-sleep.\n5. The `make ingest-recover-preambles` target should accept\n   `ARGS=\"--notebook=<slug>\"` to scope the back-fill to one notebook,\n   matching the existing `make` target convention. Default is \"all\n   parsed papers.\"",
+  "phase": "implement-running",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-28T00:48:58Z",
+      "left_at": "2026-05-28T00:49:11Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-28T00:49:11Z",
+      "left_at": "2026-05-28T00:57:06Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-28T00:57:06Z",
+      "left_at": "2026-05-28T00:57:18Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-05-28T00:57:18Z",
+      "left_at": null,
+      "phase": "implement-running"
+    }
+  ],
+  "rectification_commit": null,
+  "regression_tests_added": [],
+  "research_briefs": [
+    {
+      "agent_id": "researcher-1",
+      "brief_path": ".claude/notes/milestones/notebook-preamble-recovery-m1/research-brief-1.md",
+      "summary": "Option A as scoped; scope is 137 papers; CORPUS_RAW_DIR missing; fetch_eprint creates paper subdir internally"
+    },
+    {
+      "agent_id": "researcher-2",
+      "brief_path": ".claude/notes/milestones/notebook-preamble-recovery-m1/research-brief-2.md",
+      "summary": "Caller owns sleep; full exception envelope; withdrawn-paper asymmetry; chunk_id-rotation warning required"
+    }
+  ],
+  "research_mode": "standard",
+  "research_synthesis": ".claude/notes/milestones/notebook-preamble-recovery-m1/research-synthesis.md",
+  "updated_at": "2026-05-28T00:57:18Z"
+}

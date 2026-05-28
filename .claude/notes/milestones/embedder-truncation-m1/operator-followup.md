@@ -56,3 +56,30 @@ This file was created in the `embedder-truncation-m1` rectification
 phase as the fix for adversary finding **F7 (MEDIUM)** — "B-3 deferral
 lacks a tracking artifact." See
 `.claude/notes/milestones/embedder-truncation-m1/critique-merged.md`.
+
+## Cross-reference: notebook-preamble-recovery-m1
+
+The follow-up milestone `notebook-preamble-recovery-m1` shipped on
+2026-05-28 and adds raw `.tex` fetching to the ar5iv path so
+`extract_preamble` can run on every paper. It also adds a
+`make ingest-recover-preambles` target that back-fills the 137
+already-ingested ar5iv-only papers without re-running ingest.
+
+**Recommended operator sequence:**
+
+1. Run `make ingest-recover-preambles` (~7 minutes at 3 s/paper
+   politeness; one-shot).
+2. Then run `make re-embed-all` to rotate chunk_ids for the back-filled
+   papers (preamble bytes flow into `_compute_chunk_id`'s hash). Expect
+   `re_embedded ≫ copied` for the affected notebooks; 2-4 hours of
+   additional CPU on top of the original B-3 measurement window.
+3. THEN record the B-3 nDCG@5 baseline + post-bump numbers against
+   `var/arxmcp/notebooks/bridgeland-stability/queries.json`. The
+   preamble re-population is part of the measurement window — comparing
+   pre-preamble vs post-preamble retrieval is a meaningful signal
+   independent of the token-budget bump.
+
+If you'd rather measure B-3 with the embedder-truncation-m1 changes in
+isolation (no preamble confound), run `make eval` against the live
+bridgeland-stability notebook BEFORE running `make ingest-recover-preambles`,
+then re-measure AFTER. The delta isolates the preamble contribution.

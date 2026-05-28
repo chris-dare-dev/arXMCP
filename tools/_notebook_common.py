@@ -16,8 +16,14 @@ the belt-and-braces secondary check.
 
 from __future__ import annotations
 
+import gzip
+import logging
 import re
+import tarfile
+import urllib.error
 from pathlib import Path
+
+logger = logging.getLogger("notebook_common")
 
 # Repo root resolved from this file's location: tools/_notebook_common.py
 # → tools/ → repo root.
@@ -28,6 +34,11 @@ NOTEBOOKS_BASE: Path = REPO_ROOT / "var" / "arxmcp" / "notebooks"
 CORPUS_PARSED_DIR: Path = REPO_ROOT / "var" / "arxmcp" / "corpus" / "parsed"
 CORPUS_CHUNKS_DIR: Path = REPO_ROOT / "var" / "arxmcp" / "corpus" / "chunks"
 CORPUS_EMBEDDINGS_DIR: Path = REPO_ROOT / "var" / "arxmcp" / "corpus" / "embeddings"
+# notebook-preamble-recovery-m1: raw `.tex` source root. Used by the
+# `fetch_raw_tex_if_missing` helper and the `tools/recover_preambles.py`
+# back-fill script. `fetch_eprint` internally appends `paper_id` so this
+# is the PARENT dir, never the per-paper subdir.
+CORPUS_RAW_DIR: Path = REPO_ROOT / "var" / "arxmcp" / "corpus" / "raw"
 
 # Slug regex — same constraint the roadmap skill applies to its own
 # slugs. Lowercase ASCII + digits + hyphens, 3-31 chars, must start
@@ -135,14 +146,107 @@ def read_paper_ids_from_papers_txt(papers_txt: Path) -> list[str]:
     return out
 
 
+def fetch_raw_tex_if_missing(
+    paper_id: str,
+    raw_dir: Path,
+    *,
+    contact_email: str | None = None,
+) -> bool:
+    """Ensure raw `.tex` source for ``paper_id`` exists under ``raw_dir``.
+
+    notebook-preamble-recovery-m1 — Option A from the scan brief at
+    ``.claude/notes/scans/preamble-without-raw-tex-2026-05-27.md``.
+
+    ``raw_dir`` is the PARENT directory (e.g. ``var/arxmcp/corpus/raw/``);
+    ``fetch_eprint`` appends ``paper_id`` internally and creates the
+    paper-specific subdir.
+
+    Idempotency gate: if ``raw_dir / paper_id`` already exists AND
+    contains at least one ``.tex`` file, return ``True`` without
+    network egress. Operators can re-run the back-fill freely.
+
+    Politeness: this helper does NOT sleep — the caller owns the
+    politeness budget (3-second inter-request spacing per arXiv TOU,
+    same contract `fetch_eprint` documents). Always call
+    ``politeness_sleep(start_time)`` BEFORE invoking this helper if
+    the previous call was a network request to ``export.arxiv.org``.
+
+    Exception envelope (matches `fetch_seed.py`):
+      - ``urllib.error.HTTPError`` — 404 (withdrawn paper), 503 (rate
+        limit), any other non-2xx. Caller handles 503 backoff if needed.
+      - ``RuntimeError`` — path-traversal attempt during tarball
+        extraction (``_safe_extract`` Threat-1 mitigation). Logged at
+        ERROR level (security event), not WARNING.
+      - ``OSError`` — disk full, permission denied, gzip decode error
+        propagated as OSError subclass.
+      - ``tarfile.TarError`` — malformed tarball.
+      - ``gzip.BadGzipFile`` — corrupt gzip payload.
+
+    Returns
+    -------
+    ``True`` if raw `.tex` is now on disk (either was already there,
+    or was successfully fetched and extracted). ``False`` on any
+    per-paper failure — the notebook run / back-fill MUST continue
+    past `False` returns (AC4).
+    """
+    paper_raw_dir = raw_dir / paper_id
+    if paper_raw_dir.is_dir() and any(paper_raw_dir.glob("*.tex")):
+        # Idempotent skip: raw .tex already present from a prior run.
+        logger.debug(
+            "[%s] raw_tex: skip — paper_raw_dir already has .tex files",
+            paper_id,
+        )
+        return True
+
+    # Late import to avoid cycles: tools.arxiv_fetch imports nothing
+    # from _notebook_common, but keeping the import lazy means tests
+    # that don't exercise the raw-tex path don't pay the import cost.
+    from tools.arxiv_fetch import fetch_eprint  # noqa: PLC0415
+
+    try:
+        fetch_eprint(paper_id, raw_dir, contact_email=contact_email)
+    except urllib.error.HTTPError as exc:
+        # 404 (withdrawn), 503 (rate limit), and friends. Caller may
+        # implement retry/backoff above; the inline notebook path
+        # logs + returns False so the operator re-runs later.
+        reason = "withdrawn_404" if exc.code == 404 else f"http_{exc.code}"
+        logger.warning(
+            "[%s] raw_tex: %s on /e-print/ (%s); preamble will be empty",
+            paper_id, reason, exc,
+        )
+        return False
+    except RuntimeError as exc:
+        # Path-traversal attempt during _safe_extract — log as ERROR
+        # (security event), not WARNING. Notebook run continues but
+        # the operator should investigate the tarball.
+        logger.error(
+            "[%s] raw_tex: SECURITY EVENT during tarball extraction: %s",
+            paper_id, exc,
+        )
+        return False
+    except (OSError, tarfile.TarError, gzip.BadGzipFile) as exc:
+        # Disk failures, malformed tarballs, corrupt gzip. Recoverable
+        # per-paper miss; notebook run continues.
+        logger.warning(
+            "[%s] raw_tex: extraction failed (%s); preamble will be empty",
+            paper_id, exc,
+        )
+        return False
+
+    logger.info("[%s] raw_tex: fetched + extracted", paper_id)
+    return True
+
+
 __all__ = [
     "CORPUS_CHUNKS_DIR",
     "CORPUS_EMBEDDINGS_DIR",
     "CORPUS_PARSED_DIR",
+    "CORPUS_RAW_DIR",
     "NOTEBOOKS_BASE",
     "NotebookError",
     "REPO_ROOT",
     "SLUG_RE",
+    "fetch_raw_tex_if_missing",
     "notebook_dir",
     "read_paper_ids_from_papers_txt",
     "validate_slug",

@@ -32,6 +32,23 @@ from tools._notebook_common import NotebookError, validate_slug
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture(autouse=True)
+def _default_notebook_fetch_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """notebook-preamble-recovery-m1: set ARXMCP_CONTACT_EMAIL +
+    no-op the raw-tex fetch helper by default. Tests that exercise the
+    raw-tex path explicitly override the helper with their own
+    monkeypatch (Python's monkeypatch is stack-based; the inner patch
+    wins). Tests that exercise the AC7 "missing env var" branch
+    explicitly call ``monkeypatch.delenv``.
+    """
+    monkeypatch.setenv("ARXMCP_CONTACT_EMAIL", "test@example.com")
+    monkeypatch.setattr(
+        notebook_fetch,
+        "fetch_raw_tex_if_missing",
+        lambda *args, **kwargs: True,
+    )
+
+
 @pytest.fixture
 def notebooks_base(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Redirect every script's NOTEBOOKS_BASE to a tmp dir."""
@@ -672,3 +689,366 @@ def test_ingest_warns_about_stale_bm25_versions(
     err = capsys.readouterr().err
     assert "WARN" in err
     assert "BM25 version directories exist" in err
+
+
+# ---------------------------------------------------------------------------
+# notebook-preamble-recovery-m1 — raw .tex fetch + preamble back-fill
+# ---------------------------------------------------------------------------
+
+
+def test_fetch_raw_tex_if_missing_invoked_after_ar5iv_hit(
+    notebooks_base: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    """AC1: after every ar5iv hit, fetch_raw_tex_if_missing fires."""
+    _seed_notebook(notebooks_base, "demo", ["2303.07061", "0705.3794"])
+
+    def _local_cache_hit(paper_id, **kw):
+        return Ar5ivResult(
+            paper_id=paper_id, hit=True, cache_path=Path("/x"),
+            parsed_path=Path("/y"), reason="ok_local_cache",
+        )
+    monkeypatch.setattr(notebook_fetch, "try_cache", _local_cache_hit)
+
+    invocations: list[str] = []
+
+    def _record_call(paper_id, raw_dir, **kw):
+        invocations.append(paper_id)
+        return True
+
+    monkeypatch.setattr(notebook_fetch, "fetch_raw_tex_if_missing", _record_call)
+
+    rc = notebook_fetch.run("demo", sleep_seconds=0.0)
+    out = capsys.readouterr().out
+    assert invocations == ["2303.07061", "0705.3794"]
+    assert "raw_tex_recovered=2" in out
+    assert "raw_tex_missing=0" in out
+    assert rc == 0
+
+
+def test_fetch_raw_tex_if_missing_failure_does_not_abort_notebook(
+    notebooks_base: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    """AC4: a False return from fetch_raw_tex_if_missing (503/404/network)
+    must NOT abort the notebook run; subsequent papers still process.
+    """
+    _seed_notebook(notebooks_base, "demo", ["2303.07061", "0705.3794", "1106.3430"])
+
+    def _local_cache_hit(paper_id, **kw):
+        return Ar5ivResult(
+            paper_id=paper_id, hit=True, cache_path=Path("/x"),
+            parsed_path=Path("/y"), reason="ok_local_cache",
+        )
+    monkeypatch.setattr(notebook_fetch, "try_cache", _local_cache_hit)
+
+    # First paper succeeds, second fails (simulating 503), third succeeds.
+    calls: list[str] = []
+
+    def _selective_fail(paper_id, raw_dir, **kw):
+        calls.append(paper_id)
+        return paper_id != "0705.3794"
+
+    monkeypatch.setattr(notebook_fetch, "fetch_raw_tex_if_missing", _selective_fail)
+
+    rc = notebook_fetch.run("demo", sleep_seconds=0.0)
+    out = capsys.readouterr().out
+    # All three were attempted (AC4).
+    assert calls == ["2303.07061", "0705.3794", "1106.3430"]
+    assert "raw_tex_recovered=2" in out
+    assert "raw_tex_missing=1" in out
+    # The notebook run continues — ar5iv part still all OK.
+    assert "from_cache=3" in out
+    assert rc == 0
+
+
+def test_fetch_raw_tex_if_missing_idempotent_when_raw_dir_populated(
+    notebooks_base: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Idempotency: when raw_dir/<paper_id>/*.tex exists, helper returns
+    True WITHOUT calling fetch_eprint."""
+    raw_dir = tmp_path / "raw"
+    (raw_dir / "2303.07061").mkdir(parents=True)
+    (raw_dir / "2303.07061" / "main.tex").write_text(r"\documentclass{article}")
+
+    fetch_eprint_calls: list[str] = []
+
+    def _record_eprint(paper_id, raw, **kw):
+        fetch_eprint_calls.append(paper_id)
+        raise RuntimeError("must not be called")
+
+    monkeypatch.setattr("tools.arxiv_fetch.fetch_eprint", _record_eprint)
+    # Use the REAL helper, not the autouse no-op:
+    from tools._notebook_common import fetch_raw_tex_if_missing as real_helper
+    rc = real_helper("2303.07061", raw_dir)
+    assert rc is True
+    assert fetch_eprint_calls == []
+
+
+def test_fetch_raw_tex_if_missing_404_returns_false(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """FM-3: HTTPError(404) on /e-print/ logged as withdrawn_404; returns False."""
+    import urllib.error
+
+    raw_dir = tmp_path / "raw"
+    raw_dir.mkdir()
+
+    def _withdrawn(paper_id, raw, **kw):
+        raise urllib.error.HTTPError(
+            url="https://export.arxiv.org/e-print/0000.00001",
+            code=404, msg="Not Found", hdrs={}, fp=None,
+        )
+
+    monkeypatch.setattr("tools.arxiv_fetch.fetch_eprint", _withdrawn)
+
+    from tools._notebook_common import fetch_raw_tex_if_missing as real_helper
+    with caplog.at_level("WARNING", logger="notebook_common"):
+        rc = real_helper("0000.00001", raw_dir)
+    assert rc is False
+    assert any("withdrawn_404" in r.message for r in caplog.records)
+
+
+def test_fetch_raw_tex_if_missing_tarball_bomb_logs_error_returns_false(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """FM-1: RuntimeError from _safe_extract (path-traversal symlink)
+    is logged at ERROR level (security event) and returns False so the
+    notebook run continues."""
+    raw_dir = tmp_path / "raw"
+    raw_dir.mkdir()
+
+    def _bomb(paper_id, raw, **kw):
+        raise RuntimeError(
+            "refusing to extract path outside dest: ../../etc/passwd"
+        )
+
+    monkeypatch.setattr("tools.arxiv_fetch.fetch_eprint", _bomb)
+
+    from tools._notebook_common import fetch_raw_tex_if_missing as real_helper
+    with caplog.at_level("ERROR", logger="notebook_common"):
+        rc = real_helper("0000.00001", raw_dir)
+    assert rc is False
+    assert any(
+        "SECURITY EVENT" in r.message and r.levelname == "ERROR"
+        for r in caplog.records
+    )
+
+
+def test_notebook_fetch_run_requires_arxmcp_contact_email(
+    notebooks_base: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AC7: notebook_fetch.run() fails fast with a clear NotebookError
+    when ARXMCP_CONTACT_EMAIL is unset. Enforcement at run-time, NOT
+    import-time (so tests that don't exercise the raw-tex path don't
+    have to set the env var)."""
+    _seed_notebook(notebooks_base, "demo", ["2303.07061"])
+    monkeypatch.delenv("ARXMCP_CONTACT_EMAIL", raising=False)
+    with pytest.raises(NotebookError, match="ARXMCP_CONTACT_EMAIL"):
+        notebook_fetch.run("demo", sleep_seconds=0.0)
+
+
+# ---------------------------------------------------------------------------
+# tools/recover_preambles.py — back-fill script
+# ---------------------------------------------------------------------------
+
+
+def test_recover_preambles_skips_paper_with_existing_preamble(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The back-fill must short-circuit on papers whose preamble.json
+    already exists — no fetch_eprint call, no extract_preamble call."""
+    from tools import recover_preambles
+
+    parsed_dir = tmp_path / "parsed"
+    preamble_dir = tmp_path / "preamble"
+    (parsed_dir / "2303.07061").mkdir(parents=True)
+    (parsed_dir / "2303.07061" / "index.html").write_text("<html></html>")
+    (preamble_dir / "2303.07061").mkdir(parents=True)
+    (preamble_dir / "2303.07061" / "preamble.json").write_text(
+        '{"paper_id": "2303.07061"}'
+    )
+    monkeypatch.setattr(recover_preambles, "CORPUS_PARSED_DIR", parsed_dir)
+    monkeypatch.setattr(recover_preambles, "PREAMBLE_OUTPUT_DIR", preamble_dir)
+
+    def _must_not_fetch(*args, **kw):
+        raise RuntimeError("fetch must not be called")
+
+    monkeypatch.setattr(
+        "tools.arxiv_fetch.fetch_eprint", _must_not_fetch,
+    )
+
+    summary = recover_preambles.run(sleep_seconds=0.0)
+    assert summary.total_candidates == 1
+    assert summary.already_has_preamble == 1
+    assert summary.preamble_recovered == 0
+
+
+def test_recover_preambles_notebook_scope_filter(
+    notebooks_base: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """--notebook=<slug> scopes the back-fill to papers in that
+    notebook's papers.txt, NOT every paper under corpus/parsed/."""
+    from tools import recover_preambles
+
+    # Three papers in parsed/ but only one in the notebook's papers.txt
+    parsed_dir = tmp_path / "parsed"
+    for pid in ("2303.07061", "0705.3794", "1106.3430"):
+        (parsed_dir / pid).mkdir(parents=True)
+        (parsed_dir / pid / "index.html").write_text("<html></html>")
+    preamble_dir = tmp_path / "preamble"
+    preamble_dir.mkdir()
+    raw_dir = tmp_path / "raw"
+    raw_dir.mkdir()
+
+    _seed_notebook(notebooks_base, "demo", ["2303.07061"])
+    monkeypatch.setattr(recover_preambles, "CORPUS_PARSED_DIR", parsed_dir)
+    monkeypatch.setattr(recover_preambles, "PREAMBLE_OUTPUT_DIR", preamble_dir)
+    monkeypatch.setattr(recover_preambles, "CORPUS_RAW_DIR", raw_dir)
+    monkeypatch.setattr(
+        recover_preambles, "NOTEBOOKS_BASE", notebooks_base, raising=False,
+    )
+
+    seen: list[str] = []
+
+    def _fake_fetch_eprint(paper_id, raw, **kw):
+        seen.append(paper_id)
+        (raw / paper_id).mkdir(parents=True, exist_ok=True)
+        (raw / paper_id / "main.tex").write_text(r"\documentclass{article}")
+
+    monkeypatch.setattr(
+        "tools.arxiv_fetch.fetch_eprint", _fake_fetch_eprint,
+    )
+    monkeypatch.setattr(
+        recover_preambles, "extract_preamble", lambda pid: None,
+    )
+
+    summary = recover_preambles.run(
+        notebook_slug="demo", sleep_seconds=0.0,
+    )
+    # Only the notebook's paper was attempted (not all three in parsed/).
+    assert summary.total_candidates == 1
+    assert seen == ["2303.07061"]
+
+
+def test_recover_preambles_503_backoff_retries_then_succeeds(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FM-2 (back-fill side): fetch_eprint raises HTTPError(503) on the
+    first call, then succeeds. The back-fill must NOT give up; it must
+    sleep + retry up to MAX_503_BACKOFF_SECONDS."""
+    import urllib.error
+
+    from tools import recover_preambles
+
+    parsed_dir = tmp_path / "parsed"
+    (parsed_dir / "2303.07061").mkdir(parents=True)
+    (parsed_dir / "2303.07061" / "index.html").write_text("<html></html>")
+    preamble_dir = tmp_path / "preamble"
+    preamble_dir.mkdir()
+    raw_dir = tmp_path / "raw"
+    raw_dir.mkdir()
+    monkeypatch.setattr(recover_preambles, "CORPUS_PARSED_DIR", parsed_dir)
+    monkeypatch.setattr(recover_preambles, "PREAMBLE_OUTPUT_DIR", preamble_dir)
+    monkeypatch.setattr(recover_preambles, "CORPUS_RAW_DIR", raw_dir)
+    # Skip the real sleep so the test doesn't take 60 s.
+    monkeypatch.setattr(recover_preambles.time, "sleep", lambda s: None)
+
+    call_count = {"n": 0}
+
+    def _flaky_fetch(paper_id, raw, **kw):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            raise urllib.error.HTTPError(
+                url="https://export.arxiv.org/e-print/2303.07061",
+                code=503, msg="Service Unavailable",
+                hdrs={"Retry-After": "1"}, fp=None,
+            )
+        (raw / paper_id).mkdir(parents=True, exist_ok=True)
+        (raw / paper_id / "main.tex").write_text(r"\documentclass{article}")
+
+    monkeypatch.setattr(
+        "tools.arxiv_fetch.fetch_eprint", _flaky_fetch,
+    )
+    monkeypatch.setattr(
+        recover_preambles, "extract_preamble", lambda pid: None,
+    )
+
+    summary = recover_preambles.run(sleep_seconds=0.0)
+    assert call_count["n"] == 2  # retried exactly once
+    assert summary.raw_tex_fetched == 1
+    assert summary.preamble_recovered == 1
+
+
+def test_recover_preambles_requires_arxmcp_contact_email(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AC7: recover_preambles.run() also enforces ARXMCP_CONTACT_EMAIL."""
+    from tools import recover_preambles
+
+    monkeypatch.delenv("ARXMCP_CONTACT_EMAIL", raising=False)
+    with pytest.raises(NotebookError, match="ARXMCP_CONTACT_EMAIL"):
+        recover_preambles.run(sleep_seconds=0.0)
+
+
+def test_recover_preambles_404_classified_as_withdrawn(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FM-3: HTTPError(404) on /e-print/ is recorded as withdrawn_404,
+    NOT as a fetch error. The paper is skipped; extract_preamble is
+    NOT called."""
+    import urllib.error
+
+    from tools import recover_preambles
+
+    parsed_dir = tmp_path / "parsed"
+    (parsed_dir / "2303.07061").mkdir(parents=True)
+    (parsed_dir / "2303.07061" / "index.html").write_text("<html></html>")
+    preamble_dir = tmp_path / "preamble"
+    preamble_dir.mkdir()
+    raw_dir = tmp_path / "raw"
+    raw_dir.mkdir()
+    monkeypatch.setattr(recover_preambles, "CORPUS_PARSED_DIR", parsed_dir)
+    monkeypatch.setattr(recover_preambles, "PREAMBLE_OUTPUT_DIR", preamble_dir)
+    monkeypatch.setattr(recover_preambles, "CORPUS_RAW_DIR", raw_dir)
+    monkeypatch.setattr(recover_preambles.time, "sleep", lambda s: None)
+
+    def _withdrawn(paper_id, raw, **kw):
+        raise urllib.error.HTTPError(
+            url="https://export.arxiv.org/e-print/2303.07061",
+            code=404, msg="Not Found", hdrs={}, fp=None,
+        )
+
+    monkeypatch.setattr(
+        "tools.arxiv_fetch.fetch_eprint", _withdrawn,
+    )
+    extract_calls: list[str] = []
+
+    def _record_extract(pid):
+        extract_calls.append(pid)
+    monkeypatch.setattr(
+        recover_preambles, "extract_preamble", _record_extract,
+    )
+
+    summary = recover_preambles.run(sleep_seconds=0.0)
+    assert summary.withdrawn_404 == ["2303.07061"]
+    assert summary.preamble_recovered == 0
+    # extract_preamble must NOT be called on a withdrawn paper
+    assert extract_calls == []

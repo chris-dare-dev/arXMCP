@@ -1,4 +1,4 @@
-.PHONY: help bootstrap test eval up ingest delta re-embed re-embed-all watchdog cutover daily-report parser-failures-report sbom refresh-arxiv-ca
+.PHONY: help bootstrap test eval up ingest delta re-embed re-embed-all ingest-recover-preambles watchdog cutover daily-report parser-failures-report sbom refresh-arxiv-ca
 
 # Override with `make test PYTHON=python3.13` if your default python3 is too old.
 PYTHON ?= python3
@@ -15,6 +15,7 @@ help:
 	@echo "  make delta       Run the OAI-PMH nightly delta loop (E11_S02; see docs/ops/delta-loop.md)"
 	@echo "  make re-embed    Run the partial re-embed driver (E11_S03; see docs/ops/re-embed-runbook.md)"
 	@echo "  make re-embed-all Re-embed every LanceDB dataset (shared + notebook-scoped; embedder-truncation-m1)"
+	@echo "  make ingest-recover-preambles  Back-fill raw .tex + preamble.json for ar5iv-only papers (notebook-preamble-recovery-m1)"
 	@echo "  make watchdog    Run the drift watchdog against staging (E11_S04; see docs/ops/drift-watchdog.md)"
 	@echo "  make cutover     Activate the staging corpus as the new active (E11_S05; see docs/ops/cutover-runbook.md)"
 	@echo "  make daily-report           Scrape /metrics and write the daily ops report (E14_S04; see docs/ops/daily-ops-cadence.md)"
@@ -145,6 +146,32 @@ re-embed:
 		f'arXMCP requires Python >= 3.$(MIN_PY_MINOR); got {sys.version_info[:2]}. \
 Try: make re-embed PYTHON=python3.$(MIN_PY_MINOR)'"
 	$(PYTHON) -m ingest.re_embed $(ARGS)
+
+ingest-recover-preambles:
+	@# notebook-preamble-recovery-m1 — back-fill raw .tex + preamble.json
+	@# for papers that were ar5iv-ingested before this milestone shipped.
+	@# Walks var/arxmcp/corpus/parsed/ (137 papers live as of 2026-05-28;
+	@# 0 in corpus/raw/). For each missing preamble.json: politeness_sleep,
+	@# fetch_eprint with 503 backoff, extract_preamble.
+	@#
+	@# Requires ARXMCP_CONTACT_EMAIL (User-Agent for /e-print/).
+	@#
+	@# OPERATOR WARNING: after this completes, the next `make re-embed-all`
+	@# will detect that body+preamble of every back-filled paper now
+	@# differs (preamble bytes flow into the chunk_id hash), so re_embed
+	@# produces re_embedded ≫ copied for the affected notebooks —
+	@# expect 2-4 hours additional CPU. This is INTENDED (AC5).
+	@#
+	@# NOTE on ARGS: paths inside ARGS must not contain spaces. Use
+	@# `ARGS="--notebook=<slug>"` to scope to one notebook's papers.txt;
+	@# `ARGS="--limit=N"` for smoke-testing.
+	@#
+	@# Concurrency: run ONE back-fill at a time (no per-paper lock; the
+	@# arXiv politeness contract is collective across all your machines).
+	@$(PYTHON) -c "import sys; assert sys.version_info >= (3, $(MIN_PY_MINOR)), \
+		f'arXMCP requires Python >= 3.$(MIN_PY_MINOR); got {sys.version_info[:2]}. \
+Try: make ingest-recover-preambles PYTHON=python3.$(MIN_PY_MINOR)'"
+	$(PYTHON) -m tools.recover_preambles $(ARGS)
 
 re-embed-all:
 	@# embedder-truncation-m1 — notebook-aware re-embed driver.
