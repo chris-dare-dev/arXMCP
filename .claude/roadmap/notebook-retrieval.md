@@ -198,3 +198,141 @@ changes are local server code + tests. No git push / PR / infra / API.
    BGE-M3 cold-start cost of opening a second corpus.
 6. Be explicit in the synthesis about whether this is ONE shippable
    milestone or needs `/roadmap` decomposition.
+
+---
+
+### notebook-retrieval-m2 — Per-call notebook routing (fork A): one server, many notebooks
+
+**Owner:** Chris Dare
+**Created:** 2026-05-28
+**Status:** scoped — QUEUED (run after m1 shipped 2026-05-28; m1 = fork C, complete)
+
+**Description.** Generalize m1's fork C (one-notebook-per-process via
+`ARXMCP_NOTEBOOK`) to fork A: a `filters.notebook=<slug>` argument on
+`search_papers` routes a single call to THAT notebook's
+`var/arxmcp/notebooks/<slug>/lancedb` — WITHOUT a server relaunch, so one
+running server serves many notebooks across calls. m1 front-loaded the shared
+seam `tools._notebook_common.notebook_lancedb_path(slug)` (m1 AC8) precisely
+so this is additive, not a rewrite. Demo target: with the server running and
+NO `ARXMCP_NOTEBOOK` set, `search_papers(query="Bridgeland's original
+definition…", filters={"notebook": "bridgeland-stability"})` surfaces
+`0705.3794`, and a second call with `filters={"notebook":
+"shimura-varieties"}` serves shimura chunks from the SAME process.
+
+**LOAD-BEARING CORRECTIONS to the m1 omnibus brief above (do NOT regress).**
+The stale m1 brief (AC2, fork-1 prose) assumed the full
+BM25 → ANN → RRF → rerank pipeline. THREE spikes
+(`spike-accuracy-fork-analysis.md`, `spike-accuracy-by-difficulty-class.md`,
+`spike-dual-column-fusion.md`) measured **dense-only over `embedding_stmt`
+as the accuracy ceiling** on these notebooks — BM25/RRF/rerank AND dual-column
+(`embedding_proof`) fusion are all net-negative on top-1 precision. **m2 routes
+the SAME dense-only path m1 ships, just per-call.** Do not wire the hybrid
+pipeline; do not query `embedding_proof`. The fork-1 decision is LOCKED to (A)
+— `filters` is a free-form `dict[str, Any]` (m1 verified), so adding a
+`notebook` key needs NO `inputSchema` change → no `EXPECTED_TOOL_SCHEMA_SHA256`
+re-pin, no BP1 cache invalidation.
+
+**The forks m1 deferred to m2 (this is the real m2 substance):**
+
+1. **Slug-in-cache-key — THE central refactor.** m1's F1 fix used STRUCTURAL
+   per-notebook isolation: one process = one notebook = one `cache_db_path`
+   sibling (`var/arxmcp/notebooks/<slug>/cache/retrieval.db`). Fork A breaks
+   that premise — one process now serves MANY notebooks per-request against ONE
+   `cache_db_path`. The Tier-1 key
+   (`server/cache_sqlite.py:107-180`: `query, filters, k, corpus_version,
+   level`) carries NO notebook slug, and `corpus_version` is per-dataset MVCC
+   (NOT globally unique → bridgeland v369 and a fresh notebook v369 collide).
+   **m2 MUST add the notebook slug to the Tier-1 key** — the slug-in-key
+   refactor m1 explicitly deferred. Reconcile cleanly with m1's F1: with fork A,
+   the per-process notebook is unset, so the m1 per-notebook `cache_db_path`
+   derivation becomes a no-op and m2 reverts to the shared `cache_db_path` +
+   slug-in-key. Do NOT leave two competing isolation mechanisms.
+2. **Per-notebook table registry.** `Resources.startup` opens ONE
+   `chunks_table` at startup (`server/resources.py:332`). Fork A needs a
+   slug → table cache (lazy open + memoize per slug, bounded). Resolve the
+   cleanest seam — a `Resources.notebook_table(slug)` lazy registry vs a
+   request-scoped open — in `server/handlers/search.py` + the Resources
+   abstraction. Threat-1 slug validation BEFORE any open.
+3. **Per-notebook `corpus_version` echo.** The result envelope echoes
+   `corpus_version`. With per-call notebooks, the echoed value MUST be the
+   NOTEBOOK's pinned version, not the (empty) shared corpus's. Confirm the
+   envelope construction in `server/handlers/search.py`.
+4. **Threat-1 at the filters boundary.** The slug arrives in agent-supplied
+   `filters` JSON and flows to a filesystem path. It MUST be validated via
+   `tools._notebook_common.validate_slug` (regex + symlink rejection +
+   containment) at the handler boundary BEFORE any path use — the
+   E09_S03-style "never source a path from agent JSON without validation"
+   contract. This is the same guard m1 applied at config-load, now at the
+   per-call boundary.
+
+**Acceptance criteria (corrected, dense-only).**
+
+- **[AC1]** `search_papers(query=…, filters={"notebook":"bridgeland-stability"})`
+  returns rows from that notebook's lancedb (not the empty shared corpus);
+  `0705.3794` in top-k. Integration test against a synthetic 2-notebook fixture
+  (no real BGE-M3 — mirror m1's hermetic `Resources.startup` pattern).
+- **[AC2]** Retrieval is the SAME dense-only path (single ANN over
+  `embedding_stmt`, proof chunks excluded, `retrieval_mode="dense_only"`);
+  envelope byte-shape-identical to a shared-corpus query.
+- **[AC3]** Two notebooks, same query string, overlapping `corpus_version` →
+  the Tier-1 cache does NOT cross-serve (slug now in the key). Regression test
+  with a synthetic 2-notebook cache scenario (cf. m1's
+  `test_notebook_cache_files_are_isolated`, now at the key level).
+- **[AC4]** No `filters.notebook` → byte-identical to today (shared corpus, or
+  the fork-C `ARXMCP_NOTEBOOK` path if that env is set). No regression. Both
+  fork-C (env) and fork-A (per-call) must coexist; define precedence if both
+  are present (recommend: explicit per-call `filters.notebook` wins, documented).
+- **[AC5]** A non-existent / empty notebook slug in `filters` → clean typed
+  error or empty result, NOT a 500. A path-traversal slug is rejected by
+  `validate_slug` at the boundary.
+- **[AC6]** The envelope's `corpus_version` is the NOTEBOOK's pinned version.
+- **[AC7]** Reconcile m1's F1 per-notebook `cache_db_path` with the new
+  slug-in-key — one isolation mechanism, not two. Document the reconciliation.
+- **[AC8]** Docs: update `.claude/notes/06-mcp-server-design.md` (fork A
+  routing) + `07-multi-agent-caching.md` (slug-in-key) + `docs/install.md` if
+  operator-visible.
+- **[X-1]** `EXPECTED_TOOL_SCHEMA_SHA256` UNCHANGED (free-form `filters` dict —
+  verify, do not assume).
+- **[X-2]** `EXPECTED_BP1_SHA256` UNCHANGED.
+- **[X-3]** `ruff check .` clean; `make test` green.
+
+**Out of scope.** Multi-notebook federation in ONE call (still one notebook per
+call). Notebook-scoped variants of the other 6 tools (`get_definitions`,
+`find_lemma_by_name`, `find_equation`, `get_chunk`, `get_paper`,
+`cite_neighbors`) — same pattern, later milestones. Per-notebook `/readyz`
+warming. Any retrieval-MODE change (dual-column / hybrid / rerank — all closed
+by the spikes; this milestone is routing only).
+
+**Dependencies.** m1 shipped (fork C + the `notebook_lancedb_path` helper + the
+per-notebook `cache_db_path` derivation to reconcile). Notebook lancedbs
+populated (bridgeland-stability, shimura-varieties).
+
+**Complexity.** M. The substance is the slug-in-key refactor + the table
+registry + the F1 reconciliation; the routing itself is a thin handler change
+on top of the m1 helper.
+
+**Specialist suggestions.** `cache-stability-reviewer` (slug-in-key correctness
++ BP1 byte-stability) + `determinism-reviewer` (cross-notebook cache-key
+isolation).
+
+**External writes the implementation will require.** None — local server code +
+tests + docs.
+
+**Notes for the researcher agents (phase 1).**
+
+1. Quote the `search_papers` handler signature in `server/handlers/search.py`
+   verbatim — confirm `filters` is `dict[str, Any] | None` (m1's claim) so (A)
+   needs no schema re-pin. If it is a typed model, FLAG IT (changes X-1).
+2. Quote the Tier-1 key construction (`server/cache_sqlite.py:107-180`) +
+   `server/cache.py` cache-key path verbatim; design the minimal slug-injection
+   that keeps the key byte-stable for the no-notebook case (AC4 — unset slug
+   must produce a key byte-identical to today).
+3. Read m1's `server/config.py::derive_notebook_lancedb_path` + the m1 critique
+   `critique-merged.md` (F1) — the F1 reconciliation (AC7) is load-bearing.
+4. Resolve the table-registry seam: `grep -rn "def get_resources\|class Resources\|chunks_table"` —
+   decide lazy per-slug memoization vs request-scoped open; bound the cache.
+5. Enumerate failure modes: notebook missing/empty, corpus_version collision
+   (now slug-keyed), traversal slug in filters, fork-C + fork-A both set,
+   second-corpus cold-open cost, a slug that exists on disk but is un-ingested.
+6. Confirm whether this is ONE shippable milestone or needs `/roadmap`
+   decomposition (the slug-in-key refactor is the risk axis).

@@ -1,0 +1,2102 @@
+{
+  "rows": [
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "dense_only",
+      "query_id": "bridge-q1",
+      "difficulty": "easy",
+      "expected_relevant_papers": [
+        "0705.3794",
+        "0712.1083"
+      ],
+      "top_unique_papers": [
+        "0705.3794",
+        "0712.1083",
+        "2411.18554",
+        "1809.10344",
+        "2408.00519",
+        "1902.08184",
+        "1510.04089",
+        "1009.4372",
+        "1309.4265",
+        "1607.08199"
+      ],
+      "paper_precision_at_10": 0.2,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "adjacent_in_top10": 7,
+      "elapsed_ms": 5813.642124994658
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "dense_only",
+      "query_id": "bridge-q2",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "1207.4980",
+        "1309.4265",
+        "1410.1585",
+        "1510.04089",
+        "1607.08199"
+      ],
+      "top_unique_papers": [
+        "1207.4980",
+        "2408.00519",
+        "1902.08184",
+        "1410.1585",
+        "1309.4265",
+        "1106.3430",
+        "1703.10839",
+        "1607.08199",
+        "1912.06935",
+        "0708.2247"
+      ],
+      "paper_precision_at_10": 0.4,
+      "paper_recall_at_10": 0.8,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "adjacent_in_top10": 4,
+      "elapsed_ms": 51.16691696457565
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "dense_only",
+      "query_id": "bridge-q3",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "1207.4980",
+        "1309.4265",
+        "1510.04089",
+        "1607.08199",
+        "2305.17213",
+        "2402.07154",
+        "2408.00519"
+      ],
+      "top_unique_papers": [
+        "1607.08199",
+        "1703.10839",
+        "1410.1585",
+        "2408.00519",
+        "1510.04089",
+        "1309.4265",
+        "1607.01262",
+        "2305.17213",
+        "2411.18554",
+        "0712.1083"
+      ],
+      "paper_precision_at_10": 0.5,
+      "paper_recall_at_10": 0.7142857142857143,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "adjacent_in_top10": 7,
+      "elapsed_ms": 55.093167000450194
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "dense_only",
+      "query_id": "bridge-q4",
+      "difficulty": "adversarial",
+      "expected_relevant_papers": [
+        "2203.17148",
+        "2303.07061",
+        "2407.18229"
+      ],
+      "top_unique_papers": [
+        "2203.17148",
+        "2407.18229",
+        "2303.07061",
+        "2403.00548",
+        "1912.06504"
+      ],
+      "paper_precision_at_10": 0.3,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "adjacent_in_top10": 1,
+      "elapsed_ms": 48.16033295355737
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "dense_only",
+      "query_id": "bridge-q5",
+      "difficulty": "easy",
+      "expected_relevant_papers": [
+        "0808.3351"
+      ],
+      "top_unique_papers": [
+        "1703.10839",
+        "1605.06568",
+        "1912.06935",
+        "0808.3351",
+        "1902.08184",
+        "1509.07657",
+        "1610.04128",
+        "1112.5114",
+        "1804.00132"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": false,
+      "rank_of_first_relevant": 4,
+      "adjacent_in_top10": 9,
+      "elapsed_ms": 50.83012499380857
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "dense_only",
+      "query_id": "bridge-q6",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "0811.2435",
+        "1905.00748",
+        "2412.08531"
+      ],
+      "top_unique_papers": [
+        "1912.06504",
+        "0811.2435",
+        "0712.1083",
+        "2403.00548",
+        "1703.02776",
+        "1905.00748",
+        "1902.08184",
+        "2303.07061",
+        "1302.7030",
+        "1312.1748"
+      ],
+      "paper_precision_at_10": 0.2,
+      "paper_recall_at_10": 0.6666666666666666,
+      "top1_in_expected": false,
+      "rank_of_first_relevant": 2,
+      "adjacent_in_top10": 6,
+      "elapsed_ms": 50.25670793838799
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "dense_only",
+      "query_id": "bridge-q7",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "1406.0908"
+      ],
+      "top_unique_papers": [
+        "1406.0908",
+        "1607.01262",
+        "1902.08184",
+        "0708.2247",
+        "2412.08531",
+        "1703.10839",
+        "1112.5114",
+        "1410.1585",
+        "1912.06935",
+        "0705.3794"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "adjacent_in_top10": 3,
+      "elapsed_ms": 47.61208302807063
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "dense_only",
+      "query_id": "bridge-q8",
+      "difficulty": "adversarial",
+      "expected_relevant_papers": [
+        "1605.06568"
+      ],
+      "top_unique_papers": [
+        "1605.06568",
+        "1912.06935",
+        "1902.08184",
+        "1509.07657",
+        "1411.1799",
+        "2501.16157",
+        "1909.08968",
+        "1112.5114",
+        "2305.17213",
+        "2412.08531"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "adjacent_in_top10": 8,
+      "elapsed_ms": 57.709458051249385
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "dense_only",
+      "query_id": "bridge-q9",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "0705.3794",
+        "1310.8266",
+        "1406.2566",
+        "2505.03433"
+      ],
+      "top_unique_papers": [
+        "2408.00519",
+        "2505.03433",
+        "1310.8266",
+        "1607.01262",
+        "1902.08184",
+        "1009.4372",
+        "1912.06935",
+        "1302.7030",
+        "1406.0908",
+        "2412.08531"
+      ],
+      "paper_precision_at_10": 0.2,
+      "paper_recall_at_10": 0.5,
+      "top1_in_expected": false,
+      "rank_of_first_relevant": 2,
+      "adjacent_in_top10": 6,
+      "elapsed_ms": 56.544457911513746
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "dense_only",
+      "query_id": "bridge-q10",
+      "difficulty": "adversarial",
+      "expected_relevant_papers": [
+        "1302.7030",
+        "1509.07657"
+      ],
+      "top_unique_papers": [
+        "1302.7030",
+        "1106.3430",
+        "1406.2566",
+        "1912.06935",
+        "1703.10839",
+        "1009.4372",
+        "1410.1585",
+        "2408.00519",
+        "1309.4265",
+        "2505.03433"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 0.5,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "adjacent_in_top10": 2,
+      "elapsed_ms": 55.927124922163785
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "dense_dual_paper",
+      "query_id": "bridge-q1",
+      "difficulty": "easy",
+      "expected_relevant_papers": [
+        "0705.3794",
+        "0712.1083"
+      ],
+      "top_unique_papers": [
+        "0705.3794",
+        "1902.08184",
+        "1912.06935",
+        "2411.18554",
+        "1410.1585",
+        "1607.01262",
+        "1009.4372",
+        "1703.10839",
+        "1406.0908",
+        "0712.1083"
+      ],
+      "paper_precision_at_10": 0.2,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "adjacent_in_top10": 8,
+      "elapsed_ms": 80.85129095707089
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "dense_dual_paper",
+      "query_id": "bridge-q2",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "1207.4980",
+        "1309.4265",
+        "1410.1585",
+        "1510.04089",
+        "1607.08199"
+      ],
+      "top_unique_papers": [
+        "1902.08184",
+        "2408.00519",
+        "1703.10839",
+        "1912.06935",
+        "1410.1585",
+        "1510.04089",
+        "1607.01262",
+        "1207.4980",
+        "1309.4265",
+        "1106.3430"
+      ],
+      "paper_precision_at_10": 0.4,
+      "paper_recall_at_10": 0.8,
+      "top1_in_expected": false,
+      "rank_of_first_relevant": 5,
+      "adjacent_in_top10": 6,
+      "elapsed_ms": 58.35566599853337
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "dense_dual_paper",
+      "query_id": "bridge-q3",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "1207.4980",
+        "1309.4265",
+        "1510.04089",
+        "1607.08199",
+        "2305.17213",
+        "2402.07154",
+        "2408.00519"
+      ],
+      "top_unique_papers": [
+        "1703.10839",
+        "1410.1585",
+        "2305.17213",
+        "2411.18554",
+        "1510.04089",
+        "1902.08184",
+        "1912.06935",
+        "1607.01262",
+        "1406.0908",
+        "0705.3794"
+      ],
+      "paper_precision_at_10": 0.2,
+      "paper_recall_at_10": 0.2857142857142857,
+      "top1_in_expected": false,
+      "rank_of_first_relevant": 3,
+      "adjacent_in_top10": 8,
+      "elapsed_ms": 62.911791959777474
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "dense_dual_paper",
+      "query_id": "bridge-q4",
+      "difficulty": "adversarial",
+      "expected_relevant_papers": [
+        "2203.17148",
+        "2303.07061",
+        "2407.18229"
+      ],
+      "top_unique_papers": [
+        "1912.06504",
+        "2403.00548",
+        "2203.17148",
+        "2407.18229",
+        "2303.07061",
+        "1406.0908",
+        "2305.17213",
+        "1912.06935",
+        "1902.08184",
+        "2501.16157"
+      ],
+      "paper_precision_at_10": 0.3,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": false,
+      "rank_of_first_relevant": 3,
+      "adjacent_in_top10": 7,
+      "elapsed_ms": 58.1121250288561
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "dense_dual_paper",
+      "query_id": "bridge-q5",
+      "difficulty": "easy",
+      "expected_relevant_papers": [
+        "0808.3351"
+      ],
+      "top_unique_papers": [
+        "1912.06935",
+        "1703.10839",
+        "1605.06568",
+        "1902.08184",
+        "1112.5114",
+        "1804.00132",
+        "0808.3351",
+        "1509.07657",
+        "1802.03762",
+        "1212.6170"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": false,
+      "rank_of_first_relevant": 7,
+      "adjacent_in_top10": 9,
+      "elapsed_ms": 51.346707972697914
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "dense_dual_paper",
+      "query_id": "bridge-q6",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "0811.2435",
+        "1905.00748",
+        "2412.08531"
+      ],
+      "top_unique_papers": [
+        "1905.00748",
+        "1312.1748",
+        "1902.08184",
+        "1410.1585",
+        "1912.06504",
+        "2408.00519",
+        "1310.8266",
+        "2403.00548",
+        "1406.0908",
+        "1607.01262"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 0.3333333333333333,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "adjacent_in_top10": 9,
+      "elapsed_ms": 56.9580839946866
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "dense_dual_paper",
+      "query_id": "bridge-q7",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "1406.0908"
+      ],
+      "top_unique_papers": [
+        "1406.0908",
+        "1902.08184",
+        "1607.01262",
+        "0705.3794",
+        "1704.03546",
+        "1410.1585",
+        "1703.10839",
+        "2408.00519",
+        "1912.06935",
+        "0708.2247"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "adjacent_in_top10": 9,
+      "elapsed_ms": 53.33412508480251
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "dense_dual_paper",
+      "query_id": "bridge-q8",
+      "difficulty": "adversarial",
+      "expected_relevant_papers": [
+        "1605.06568"
+      ],
+      "top_unique_papers": [
+        "1605.06568",
+        "2501.16157",
+        "2305.17213",
+        "1411.1799",
+        "1912.06935",
+        "1902.08184",
+        "1703.10839",
+        "2412.08531",
+        "1804.00132",
+        "1509.07657"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "adjacent_in_top10": 9,
+      "elapsed_ms": 62.81716702505946
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "dense_dual_paper",
+      "query_id": "bridge-q9",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "0705.3794",
+        "1310.8266",
+        "1406.2566",
+        "2505.03433"
+      ],
+      "top_unique_papers": [
+        "1902.08184",
+        "1310.8266",
+        "2505.03433",
+        "1912.06935",
+        "2408.00519",
+        "2412.08531",
+        "1607.01262",
+        "1410.1585",
+        "0705.3794",
+        "1406.0908"
+      ],
+      "paper_precision_at_10": 0.3,
+      "paper_recall_at_10": 0.75,
+      "top1_in_expected": false,
+      "rank_of_first_relevant": 2,
+      "adjacent_in_top10": 7,
+      "elapsed_ms": 60.222707921639085
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "dense_dual_paper",
+      "query_id": "bridge-q10",
+      "difficulty": "adversarial",
+      "expected_relevant_papers": [
+        "1302.7030",
+        "1509.07657"
+      ],
+      "top_unique_papers": [
+        "1912.06935",
+        "1302.7030",
+        "1703.10839",
+        "1410.1585",
+        "1406.0908",
+        "2305.17213",
+        "1106.3430",
+        "1406.2566",
+        "1902.08184",
+        "2501.16157"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 0.5,
+      "top1_in_expected": false,
+      "rank_of_first_relevant": 2,
+      "adjacent_in_top10": 9,
+      "elapsed_ms": 61.74033309798688
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "dense_dual_chunk",
+      "query_id": "bridge-q1",
+      "difficulty": "easy",
+      "expected_relevant_papers": [
+        "0705.3794",
+        "0712.1083"
+      ],
+      "top_unique_papers": [
+        "0705.3794",
+        "0712.1083",
+        "1705.01001",
+        "1410.1585",
+        "2411.18554",
+        "1809.10344",
+        "1912.06935",
+        "2408.00519",
+        "1902.08184",
+        "2505.03433"
+      ],
+      "paper_precision_at_10": 0.2,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "adjacent_in_top10": 7,
+      "elapsed_ms": 60.09612500201911
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "dense_dual_chunk",
+      "query_id": "bridge-q2",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "1207.4980",
+        "1309.4265",
+        "1410.1585",
+        "1510.04089",
+        "1607.08199"
+      ],
+      "top_unique_papers": [
+        "1207.4980",
+        "1902.08184",
+        "1912.06935",
+        "2408.00519",
+        "1703.10839",
+        "1410.1585",
+        "1309.4265",
+        "1510.04089",
+        "2407.06974",
+        "1106.3430"
+      ],
+      "paper_precision_at_10": 0.4,
+      "paper_recall_at_10": 0.8,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "adjacent_in_top10": 7,
+      "elapsed_ms": 51.68637493625283
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "dense_dual_chunk",
+      "query_id": "bridge-q3",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "1207.4980",
+        "1309.4265",
+        "1510.04089",
+        "1607.08199",
+        "2305.17213",
+        "2402.07154",
+        "2408.00519"
+      ],
+      "top_unique_papers": [
+        "1607.08199",
+        "1703.10839",
+        "2305.17213",
+        "1410.1585",
+        "2411.18554",
+        "1902.08184",
+        "2408.00519",
+        "1510.04089",
+        "1912.06935",
+        "1309.4265"
+      ],
+      "paper_precision_at_10": 0.5,
+      "paper_recall_at_10": 0.7142857142857143,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "adjacent_in_top10": 8,
+      "elapsed_ms": 61.13608297891915
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "dense_dual_chunk",
+      "query_id": "bridge-q4",
+      "difficulty": "adversarial",
+      "expected_relevant_papers": [
+        "2203.17148",
+        "2303.07061",
+        "2407.18229"
+      ],
+      "top_unique_papers": [
+        "1912.06504",
+        "2203.17148",
+        "2403.00548",
+        "2407.18229",
+        "1406.0908",
+        "2303.07061",
+        "2305.17213",
+        "1912.06935",
+        "1902.08184",
+        "2501.16157"
+      ],
+      "paper_precision_at_10": 0.3,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": false,
+      "rank_of_first_relevant": 2,
+      "adjacent_in_top10": 5,
+      "elapsed_ms": 50.9971670107916
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "dense_dual_chunk",
+      "query_id": "bridge-q5",
+      "difficulty": "easy",
+      "expected_relevant_papers": [
+        "0808.3351"
+      ],
+      "top_unique_papers": [
+        "1703.10839",
+        "1912.06935",
+        "1902.08184",
+        "1605.06568",
+        "0808.3351",
+        "1509.07657",
+        "1112.5114",
+        "1802.03762",
+        "1212.6170",
+        "2305.17213"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": false,
+      "rank_of_first_relevant": 5,
+      "adjacent_in_top10": 10,
+      "elapsed_ms": 50.142333027906716
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "dense_dual_chunk",
+      "query_id": "bridge-q6",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "0811.2435",
+        "1905.00748",
+        "2412.08531"
+      ],
+      "top_unique_papers": [
+        "1912.06504",
+        "2408.00519",
+        "0811.2435",
+        "1312.1748",
+        "0712.1083",
+        "1410.1585",
+        "1310.8266",
+        "1905.00748",
+        "1902.08184",
+        "1912.06935"
+      ],
+      "paper_precision_at_10": 0.2,
+      "paper_recall_at_10": 0.6666666666666666,
+      "top1_in_expected": false,
+      "rank_of_first_relevant": 3,
+      "adjacent_in_top10": 6,
+      "elapsed_ms": 54.6784169273451
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "dense_dual_chunk",
+      "query_id": "bridge-q7",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "1406.0908"
+      ],
+      "top_unique_papers": [
+        "1406.0908",
+        "1607.01262",
+        "1704.03546",
+        "1902.08184",
+        "2501.16157",
+        "0708.2247",
+        "0705.3794",
+        "2305.17213",
+        "2412.08531",
+        "1312.1748"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "adjacent_in_top10": 4,
+      "elapsed_ms": 51.76774994470179
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "dense_dual_chunk",
+      "query_id": "bridge-q8",
+      "difficulty": "adversarial",
+      "expected_relevant_papers": [
+        "1605.06568"
+      ],
+      "top_unique_papers": [
+        "1605.06568",
+        "2501.16157",
+        "2305.17213",
+        "1703.10839",
+        "1912.06935",
+        "1802.03762",
+        "1902.08184",
+        "1509.07657",
+        "1411.1799",
+        "2402.07154"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "adjacent_in_top10": 8,
+      "elapsed_ms": 59.368708985857666
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "dense_dual_chunk",
+      "query_id": "bridge-q9",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "0705.3794",
+        "1310.8266",
+        "1406.2566",
+        "2505.03433"
+      ],
+      "top_unique_papers": [
+        "1705.01001",
+        "2408.00519",
+        "1902.08184",
+        "2505.03433",
+        "1310.8266",
+        "2412.08531",
+        "1607.01262",
+        "1912.06935",
+        "1406.2566",
+        "0705.3794"
+      ],
+      "paper_precision_at_10": 0.4,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": false,
+      "rank_of_first_relevant": 4,
+      "adjacent_in_top10": 6,
+      "elapsed_ms": 59.52316604088992
+    },
+    {
+      "notebook": "bridgeland-stability",
+      "pipeline": "dense_dual_chunk",
+      "query_id": "bridge-q10",
+      "difficulty": "adversarial",
+      "expected_relevant_papers": [
+        "1302.7030",
+        "1509.07657"
+      ],
+      "top_unique_papers": [
+        "1302.7030",
+        "1912.06935",
+        "1406.0908",
+        "1902.08184",
+        "1106.3430",
+        "2501.16157",
+        "1406.2566",
+        "1310.8266",
+        "1703.10839",
+        "1212.6170"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 0.5,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "adjacent_in_top10": 5,
+      "elapsed_ms": 61.510832980275154
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "dense_only",
+      "query_id": "shimura-q1",
+      "difficulty": "easy",
+      "expected_relevant_papers": [
+        "1105.0887",
+        "2310.16184"
+      ],
+      "top_unique_papers": [
+        "1105.0887",
+        "2310.16184",
+        "2402.05727",
+        "1511.02418",
+        "2409.03689",
+        "2502.20645",
+        "2109.08788",
+        "1909.01898"
+      ],
+      "paper_precision_at_10": 0.2,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "adjacent_in_top10": 1,
+      "elapsed_ms": 62.44804197922349
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "dense_only",
+      "query_id": "shimura-q2",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "1512.01149",
+        "2402.05727",
+        "2409.03689"
+      ],
+      "top_unique_papers": [
+        "1512.01149",
+        "2402.05727",
+        "2409.03689",
+        "2310.16184",
+        "1105.0887",
+        "1511.02418",
+        "1909.01898",
+        "2109.08788",
+        "2502.20645",
+        "1306.2070"
+      ],
+      "paper_precision_at_10": 0.3,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "adjacent_in_top10": 1,
+      "elapsed_ms": 60.95733295660466
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "dense_only",
+      "query_id": "shimura-q3",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "1306.2070",
+        "1511.02418",
+        "1909.01898"
+      ],
+      "top_unique_papers": [
+        "1909.01898",
+        "1306.2070",
+        "2310.16184",
+        "2502.20645",
+        "1511.02418",
+        "1512.01149",
+        "1105.0887",
+        "2109.08788"
+      ],
+      "paper_precision_at_10": 0.3,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "adjacent_in_top10": 3,
+      "elapsed_ms": 58.17791703157127
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "dense_only",
+      "query_id": "shimura-q4",
+      "difficulty": "easy",
+      "expected_relevant_papers": [
+        "2109.08788"
+      ],
+      "top_unique_papers": [
+        "2109.08788",
+        "2402.05727",
+        "1909.01898",
+        "2310.16184",
+        "2502.20645",
+        "1511.02418",
+        "1105.0887",
+        "2409.03689"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "adjacent_in_top10": 7,
+      "elapsed_ms": 53.43183293007314
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "dense_only",
+      "query_id": "shimura-q5",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "2408.16571"
+      ],
+      "top_unique_papers": [
+        "2408.16571",
+        "2502.20645",
+        "1909.01898",
+        "2310.16184",
+        "2501.07944",
+        "1511.02418",
+        "1306.2070",
+        "2409.03689",
+        "1105.0887",
+        "2109.08788"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "adjacent_in_top10": 6,
+      "elapsed_ms": 56.180792045779526
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "dense_only",
+      "query_id": "shimura-q6",
+      "difficulty": "easy",
+      "expected_relevant_papers": [
+        "2502.20645"
+      ],
+      "top_unique_papers": [
+        "2502.20645",
+        "2310.16184",
+        "1909.01898",
+        "1105.0887",
+        "1306.2070"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "adjacent_in_top10": 0,
+      "elapsed_ms": 56.221375009045005
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "dense_only",
+      "query_id": "shimura-q7",
+      "difficulty": "adversarial",
+      "expected_relevant_papers": [
+        "2402.05727"
+      ],
+      "top_unique_papers": [
+        "2402.05727",
+        "2409.03689",
+        "1105.0887",
+        "2310.16184",
+        "2502.20645",
+        "1511.02418",
+        "1512.01149",
+        "2109.08788",
+        "1909.01898"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "adjacent_in_top10": 6,
+      "elapsed_ms": 52.830624976195395
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "dense_only",
+      "query_id": "shimura-q8",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "1512.01149",
+        "2310.16184",
+        "2402.05727",
+        "2409.03689"
+      ],
+      "top_unique_papers": [
+        "1105.0887",
+        "2310.16184",
+        "2409.03689",
+        "2402.05727",
+        "1511.02418",
+        "1512.01149",
+        "1909.01898",
+        "2502.20645",
+        "2109.08788"
+      ],
+      "paper_precision_at_10": 0.4,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": false,
+      "rank_of_first_relevant": 2,
+      "adjacent_in_top10": 5,
+      "elapsed_ms": 51.985250087454915
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "dense_only",
+      "query_id": "shimura-q9",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "1511.02418",
+        "1909.01898"
+      ],
+      "top_unique_papers": [
+        "1511.02418",
+        "2502.20645",
+        "1909.01898",
+        "2409.03689",
+        "1105.0887",
+        "2310.16184",
+        "1512.01149",
+        "2402.05727",
+        "1306.2070",
+        "2109.08788"
+      ],
+      "paper_precision_at_10": 0.2,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "adjacent_in_top10": 4,
+      "elapsed_ms": 45.43633305002004
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "dense_only",
+      "query_id": "shimura-q10",
+      "difficulty": "adversarial",
+      "expected_relevant_papers": [
+        "1511.02418"
+      ],
+      "top_unique_papers": [
+        "1511.02418",
+        "1909.01898",
+        "2310.16184",
+        "2409.03689",
+        "1105.0887",
+        "2402.05727",
+        "2109.08788",
+        "1512.01149",
+        "2502.20645"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "adjacent_in_top10": 7,
+      "elapsed_ms": 56.042084004729986
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "dense_dual_paper",
+      "query_id": "shimura-q1",
+      "difficulty": "easy",
+      "expected_relevant_papers": [
+        "1105.0887",
+        "2310.16184"
+      ],
+      "top_unique_papers": [
+        "2109.08788",
+        "2502.20645",
+        "1511.02418",
+        "1909.01898",
+        "2409.03689",
+        "1105.0887",
+        "1512.01149",
+        "2310.16184",
+        "2402.05727",
+        "1306.2070"
+      ],
+      "paper_precision_at_10": 0.2,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": false,
+      "rank_of_first_relevant": 6,
+      "adjacent_in_top10": 8,
+      "elapsed_ms": 61.23975000809878
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "dense_dual_paper",
+      "query_id": "shimura-q2",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "1512.01149",
+        "2402.05727",
+        "2409.03689"
+      ],
+      "top_unique_papers": [
+        "1512.01149",
+        "2409.03689",
+        "2109.08788",
+        "1511.02418",
+        "2502.20645",
+        "1909.01898",
+        "1306.2070",
+        "2402.05727",
+        "2310.16184",
+        "1105.0887"
+      ],
+      "paper_precision_at_10": 0.3,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "adjacent_in_top10": 7,
+      "elapsed_ms": 57.67399992328137
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "dense_dual_paper",
+      "query_id": "shimura-q3",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "1306.2070",
+        "1511.02418",
+        "1909.01898"
+      ],
+      "top_unique_papers": [
+        "1909.01898",
+        "1306.2070",
+        "2502.20645",
+        "1511.02418",
+        "1512.01149",
+        "2109.08788",
+        "2310.16184",
+        "2409.03689",
+        "1105.0887",
+        "2501.07944"
+      ],
+      "paper_precision_at_10": 0.3,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "adjacent_in_top10": 7,
+      "elapsed_ms": 60.68141700234264
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "dense_dual_paper",
+      "query_id": "shimura-q4",
+      "difficulty": "easy",
+      "expected_relevant_papers": [
+        "2109.08788"
+      ],
+      "top_unique_papers": [
+        "2109.08788",
+        "1909.01898",
+        "2502.20645",
+        "1511.02418",
+        "1512.01149",
+        "2402.05727",
+        "2310.16184",
+        "1306.2070",
+        "1105.0887",
+        "2409.03689"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "adjacent_in_top10": 9,
+      "elapsed_ms": 58.19370795506984
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "dense_dual_paper",
+      "query_id": "shimura-q5",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "2408.16571"
+      ],
+      "top_unique_papers": [
+        "2502.20645",
+        "1909.01898",
+        "1511.02418",
+        "2409.03689",
+        "1306.2070",
+        "1512.01149",
+        "2109.08788",
+        "2408.16571",
+        "2310.16184",
+        "2501.07944"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": false,
+      "rank_of_first_relevant": 8,
+      "adjacent_in_top10": 9,
+      "elapsed_ms": 57.904207962565124
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "dense_dual_paper",
+      "query_id": "shimura-q6",
+      "difficulty": "easy",
+      "expected_relevant_papers": [
+        "2502.20645"
+      ],
+      "top_unique_papers": [
+        "2502.20645",
+        "2310.16184",
+        "1909.01898",
+        "1306.2070",
+        "1105.0887",
+        "1511.02418",
+        "1512.01149",
+        "2109.08788"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "adjacent_in_top10": 7,
+      "elapsed_ms": 59.478792012669146
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "dense_dual_paper",
+      "query_id": "shimura-q7",
+      "difficulty": "adversarial",
+      "expected_relevant_papers": [
+        "2402.05727"
+      ],
+      "top_unique_papers": [
+        "2502.20645",
+        "1512.01149",
+        "2409.03689",
+        "1511.02418",
+        "1909.01898",
+        "2109.08788",
+        "2402.05727",
+        "1105.0887",
+        "1306.2070",
+        "2310.16184"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": false,
+      "rank_of_first_relevant": 7,
+      "adjacent_in_top10": 9,
+      "elapsed_ms": 59.168624924495816
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "dense_dual_paper",
+      "query_id": "shimura-q8",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "1512.01149",
+        "2310.16184",
+        "2402.05727",
+        "2409.03689"
+      ],
+      "top_unique_papers": [
+        "2409.03689",
+        "1512.01149",
+        "1511.02418",
+        "2109.08788",
+        "1909.01898",
+        "2502.20645",
+        "1105.0887",
+        "2310.16184",
+        "2402.05727",
+        "1306.2070"
+      ],
+      "paper_precision_at_10": 0.4,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "adjacent_in_top10": 6,
+      "elapsed_ms": 58.20325005333871
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "dense_dual_paper",
+      "query_id": "shimura-q9",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "1511.02418",
+        "1909.01898"
+      ],
+      "top_unique_papers": [
+        "1909.01898",
+        "1511.02418",
+        "2502.20645",
+        "1512.01149",
+        "1306.2070",
+        "2409.03689",
+        "2109.08788",
+        "1105.0887",
+        "2310.16184",
+        "2402.05727"
+      ],
+      "paper_precision_at_10": 0.2,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "adjacent_in_top10": 8,
+      "elapsed_ms": 49.632125068455935
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "dense_dual_paper",
+      "query_id": "shimura-q10",
+      "difficulty": "adversarial",
+      "expected_relevant_papers": [
+        "1511.02418"
+      ],
+      "top_unique_papers": [
+        "1909.01898",
+        "1511.02418",
+        "2502.20645",
+        "2409.03689",
+        "1512.01149",
+        "2109.08788",
+        "1306.2070",
+        "2310.16184",
+        "1105.0887",
+        "2402.05727"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": false,
+      "rank_of_first_relevant": 2,
+      "adjacent_in_top10": 9,
+      "elapsed_ms": 60.908209066838026
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "dense_dual_chunk",
+      "query_id": "shimura-q1",
+      "difficulty": "easy",
+      "expected_relevant_papers": [
+        "1105.0887",
+        "2310.16184"
+      ],
+      "top_unique_papers": [
+        "1105.0887",
+        "1512.01149",
+        "2310.16184",
+        "2109.08788",
+        "2502.20645",
+        "2402.05727",
+        "1511.02418",
+        "1909.01898",
+        "2409.03689",
+        "1306.2070"
+      ],
+      "paper_precision_at_10": 0.2,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "adjacent_in_top10": 5,
+      "elapsed_ms": 63.41599998995662
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "dense_dual_chunk",
+      "query_id": "shimura-q2",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "1512.01149",
+        "2402.05727",
+        "2409.03689"
+      ],
+      "top_unique_papers": [
+        "1512.01149",
+        "2409.03689",
+        "2402.05727",
+        "2310.16184",
+        "2109.08788",
+        "2502.20645",
+        "1105.0887",
+        "1511.02418",
+        "1909.01898",
+        "1306.2070"
+      ],
+      "paper_precision_at_10": 0.3,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "adjacent_in_top10": 0,
+      "elapsed_ms": 58.25883394572884
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "dense_dual_chunk",
+      "query_id": "shimura-q3",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "1306.2070",
+        "1511.02418",
+        "1909.01898"
+      ],
+      "top_unique_papers": [
+        "1909.01898",
+        "2502.20645",
+        "1306.2070",
+        "2310.16184",
+        "1511.02418",
+        "1512.01149",
+        "2409.03689",
+        "2109.08788",
+        "2501.07944",
+        "1105.0887"
+      ],
+      "paper_precision_at_10": 0.3,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "adjacent_in_top10": 3,
+      "elapsed_ms": 59.693458024412394
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "dense_dual_chunk",
+      "query_id": "shimura-q4",
+      "difficulty": "easy",
+      "expected_relevant_papers": [
+        "2109.08788"
+      ],
+      "top_unique_papers": [
+        "1512.01149",
+        "2109.08788",
+        "1909.01898",
+        "2402.05727",
+        "2310.16184",
+        "2502.20645",
+        "1511.02418",
+        "1105.0887",
+        "1306.2070",
+        "2409.03689"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": false,
+      "rank_of_first_relevant": 2,
+      "adjacent_in_top10": 6,
+      "elapsed_ms": 56.39345804229379
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "dense_dual_chunk",
+      "query_id": "shimura-q5",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "2408.16571"
+      ],
+      "top_unique_papers": [
+        "2408.16571",
+        "2502.20645",
+        "1909.01898",
+        "1511.02418",
+        "2409.03689",
+        "2310.16184",
+        "1512.01149",
+        "2501.07944",
+        "1306.2070",
+        "1105.0887"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "adjacent_in_top10": 7,
+      "elapsed_ms": 62.79391597490758
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "dense_dual_chunk",
+      "query_id": "shimura-q6",
+      "difficulty": "easy",
+      "expected_relevant_papers": [
+        "2502.20645"
+      ],
+      "top_unique_papers": [
+        "2502.20645",
+        "2310.16184",
+        "1909.01898",
+        "1511.02418",
+        "1512.01149",
+        "2109.08788",
+        "1306.2070",
+        "1105.0887"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "adjacent_in_top10": 1,
+      "elapsed_ms": 55.86108402349055
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "dense_dual_chunk",
+      "query_id": "shimura-q7",
+      "difficulty": "adversarial",
+      "expected_relevant_papers": [
+        "2402.05727"
+      ],
+      "top_unique_papers": [
+        "2402.05727",
+        "2502.20645",
+        "1512.01149",
+        "2409.03689",
+        "1105.0887",
+        "1306.2070",
+        "1909.01898",
+        "2310.16184",
+        "2109.08788",
+        "1511.02418"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "adjacent_in_top10": 6,
+      "elapsed_ms": 57.519250083714724
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "dense_dual_chunk",
+      "query_id": "shimura-q8",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "1512.01149",
+        "2310.16184",
+        "2402.05727",
+        "2409.03689"
+      ],
+      "top_unique_papers": [
+        "1105.0887",
+        "1512.01149",
+        "2109.08788",
+        "2310.16184",
+        "2409.03689",
+        "1511.02418",
+        "1306.2070",
+        "1909.01898",
+        "2402.05727",
+        "2502.20645"
+      ],
+      "paper_precision_at_10": 0.4,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": false,
+      "rank_of_first_relevant": 2,
+      "adjacent_in_top10": 6,
+      "elapsed_ms": 107.80749993864447
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "dense_dual_chunk",
+      "query_id": "shimura-q9",
+      "difficulty": "hard",
+      "expected_relevant_papers": [
+        "1511.02418",
+        "1909.01898"
+      ],
+      "top_unique_papers": [
+        "1511.02418",
+        "1909.01898",
+        "1306.2070",
+        "2502.20645",
+        "1512.01149",
+        "2409.03689",
+        "1105.0887",
+        "2109.08788",
+        "2310.16184",
+        "2402.05727"
+      ],
+      "paper_precision_at_10": 0.2,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "adjacent_in_top10": 4,
+      "elapsed_ms": 53.64075000397861
+    },
+    {
+      "notebook": "shimura-varieties",
+      "pipeline": "dense_dual_chunk",
+      "query_id": "shimura-q10",
+      "difficulty": "adversarial",
+      "expected_relevant_papers": [
+        "1511.02418"
+      ],
+      "top_unique_papers": [
+        "1511.02418",
+        "1909.01898",
+        "2502.20645",
+        "1306.2070",
+        "2310.16184",
+        "1512.01149",
+        "2109.08788",
+        "2409.03689",
+        "1105.0887",
+        "2402.05727"
+      ],
+      "paper_precision_at_10": 0.1,
+      "paper_recall_at_10": 1.0,
+      "top1_in_expected": true,
+      "rank_of_first_relevant": 1,
+      "adjacent_in_top10": 9,
+      "elapsed_ms": 58.088624966330826
+    }
+  ],
+  "summary": {
+    "dense_only": {
+      "overall": {
+        "n": 20,
+        "mean_p10": 0.20500000000000002,
+        "mean_r10": 0.909047619047619,
+        "top1_rate": 0.8,
+        "mean_ms": 342.03270414145663
+      },
+      "easy": {
+        "n": 5,
+        "mean_p10": 0.13999999999999999,
+        "mean_r10": 1.0,
+        "top1_rate": 0.8,
+        "mean_ms": 1207.3146999813616
+      },
+      "hard": {
+        "n": 10,
+        "mean_p10": 0.27,
+        "mean_r10": 0.868095238095238,
+        "top1_rate": 0.7,
+        "mean_ms": 53.34109580144286
+      },
+      "adversarial": {
+        "n": 5,
+        "mean_p10": 0.13999999999999999,
+        "mean_r10": 0.9,
+        "top1_rate": 1.0,
+        "mean_ms": 54.133924981579185
+      }
+    },
+    "dense_dual_paper": {
+      "overall": {
+        "n": 20,
+        "mean_p10": 0.19000000000000003,
+        "mean_r10": 0.8834523809523809,
+        "top1_rate": 0.5,
+        "mean_ms": 59.48670415091328
+      },
+      "easy": {
+        "n": 5,
+        "mean_p10": 0.13999999999999999,
+        "mean_r10": 1.0,
+        "top1_rate": 0.6,
+        "mean_ms": 62.222049781121314
+      },
+      "hard": {
+        "n": 10,
+        "mean_p10": 0.24000000000000005,
+        "mean_r10": 0.8169047619047619,
+        "top1_rate": 0.6,
+        "mean_ms": 57.58773749694228
+      },
+      "adversarial": {
+        "n": 5,
+        "mean_p10": 0.13999999999999999,
+        "mean_r10": 0.9,
+        "top1_rate": 0.2,
+        "mean_ms": 60.549291828647256
+      }
+    },
+    "dense_dual_chunk": {
+      "overall": {
+        "n": 20,
+        "mean_p10": 0.21500000000000002,
+        "mean_r10": 0.934047619047619,
+        "top1_rate": 0.7,
+        "mean_ms": 59.71899164142087
+      },
+      "easy": {
+        "n": 5,
+        "mean_p10": 0.13999999999999999,
+        "mean_r10": 1.0,
+        "top1_rate": 0.6,
+        "mean_ms": 57.181800017133355
+      },
+      "hard": {
+        "n": 10,
+        "mean_p10": 0.29000000000000004,
+        "mean_r10": 0.9180952380952381,
+        "top1_rate": 0.7,
+        "mean_ms": 62.09862487157807
+      },
+      "adversarial": {
+        "n": 5,
+        "mean_p10": 0.13999999999999999,
+        "mean_r10": 0.9,
+        "top1_rate": 0.8,
+        "mean_ms": 57.496916805393994
+      }
+    }
+  },
+  "lifts": {
+    "overall": {
+      "dense_dual_paper": {
+        "top1_lift": -0.30000000000000004,
+        "r10_lift": -0.025595238095238115,
+        "p10_lift": -0.014999999999999986
+      },
+      "dense_dual_chunk": {
+        "top1_lift": -0.10000000000000009,
+        "r10_lift": 0.025000000000000022,
+        "p10_lift": 0.010000000000000009
+      }
+    },
+    "easy": {
+      "dense_dual_paper": {
+        "top1_lift": -0.20000000000000007,
+        "r10_lift": 0.0,
+        "p10_lift": 0.0
+      },
+      "dense_dual_chunk": {
+        "top1_lift": -0.20000000000000007,
+        "r10_lift": 0.0,
+        "p10_lift": 0.0
+      }
+    },
+    "hard": {
+      "dense_dual_paper": {
+        "top1_lift": -0.09999999999999998,
+        "r10_lift": -0.05119047619047612,
+        "p10_lift": -0.02999999999999997
+      },
+      "dense_dual_chunk": {
+        "top1_lift": 0.0,
+        "r10_lift": 0.050000000000000044,
+        "p10_lift": 0.020000000000000018
+      }
+    },
+    "adversarial": {
+      "dense_dual_paper": {
+        "top1_lift": -0.8,
+        "r10_lift": 0.0,
+        "p10_lift": 0.0
+      },
+      "dense_dual_chunk": {
+        "top1_lift": -0.19999999999999996,
+        "r10_lift": 0.0,
+        "p10_lift": 0.0
+      }
+    }
+  },
+  "transitions": [
+    {
+      "query_id": "bridge-q1",
+      "difficulty": "easy",
+      "dense_top1": true,
+      "dense_rank1": 1,
+      "dense_r10": 1.0,
+      "dense_dual_paper_top1": true,
+      "dense_dual_paper_rank1": 1,
+      "dense_dual_paper_r10": 1.0,
+      "dense_dual_chunk_top1": true,
+      "dense_dual_chunk_rank1": 1,
+      "dense_dual_chunk_r10": 1.0
+    },
+    {
+      "query_id": "bridge-q10",
+      "difficulty": "adversarial",
+      "dense_top1": true,
+      "dense_rank1": 1,
+      "dense_r10": 0.5,
+      "dense_dual_paper_top1": false,
+      "dense_dual_paper_rank1": 2,
+      "dense_dual_paper_r10": 0.5,
+      "dense_dual_chunk_top1": true,
+      "dense_dual_chunk_rank1": 1,
+      "dense_dual_chunk_r10": 0.5
+    },
+    {
+      "query_id": "bridge-q2",
+      "difficulty": "hard",
+      "dense_top1": true,
+      "dense_rank1": 1,
+      "dense_r10": 0.8,
+      "dense_dual_paper_top1": false,
+      "dense_dual_paper_rank1": 5,
+      "dense_dual_paper_r10": 0.8,
+      "dense_dual_chunk_top1": true,
+      "dense_dual_chunk_rank1": 1,
+      "dense_dual_chunk_r10": 0.8
+    },
+    {
+      "query_id": "bridge-q3",
+      "difficulty": "hard",
+      "dense_top1": true,
+      "dense_rank1": 1,
+      "dense_r10": 0.7142857142857143,
+      "dense_dual_paper_top1": false,
+      "dense_dual_paper_rank1": 3,
+      "dense_dual_paper_r10": 0.2857142857142857,
+      "dense_dual_chunk_top1": true,
+      "dense_dual_chunk_rank1": 1,
+      "dense_dual_chunk_r10": 0.7142857142857143
+    },
+    {
+      "query_id": "bridge-q4",
+      "difficulty": "adversarial",
+      "dense_top1": true,
+      "dense_rank1": 1,
+      "dense_r10": 1.0,
+      "dense_dual_paper_top1": false,
+      "dense_dual_paper_rank1": 3,
+      "dense_dual_paper_r10": 1.0,
+      "dense_dual_chunk_top1": false,
+      "dense_dual_chunk_rank1": 2,
+      "dense_dual_chunk_r10": 1.0
+    },
+    {
+      "query_id": "bridge-q5",
+      "difficulty": "easy",
+      "dense_top1": false,
+      "dense_rank1": 4,
+      "dense_r10": 1.0,
+      "dense_dual_paper_top1": false,
+      "dense_dual_paper_rank1": 7,
+      "dense_dual_paper_r10": 1.0,
+      "dense_dual_chunk_top1": false,
+      "dense_dual_chunk_rank1": 5,
+      "dense_dual_chunk_r10": 1.0
+    },
+    {
+      "query_id": "bridge-q6",
+      "difficulty": "hard",
+      "dense_top1": false,
+      "dense_rank1": 2,
+      "dense_r10": 0.6666666666666666,
+      "dense_dual_paper_top1": true,
+      "dense_dual_paper_rank1": 1,
+      "dense_dual_paper_r10": 0.3333333333333333,
+      "dense_dual_chunk_top1": false,
+      "dense_dual_chunk_rank1": 3,
+      "dense_dual_chunk_r10": 0.6666666666666666
+    },
+    {
+      "query_id": "bridge-q7",
+      "difficulty": "hard",
+      "dense_top1": true,
+      "dense_rank1": 1,
+      "dense_r10": 1.0,
+      "dense_dual_paper_top1": true,
+      "dense_dual_paper_rank1": 1,
+      "dense_dual_paper_r10": 1.0,
+      "dense_dual_chunk_top1": true,
+      "dense_dual_chunk_rank1": 1,
+      "dense_dual_chunk_r10": 1.0
+    },
+    {
+      "query_id": "bridge-q8",
+      "difficulty": "adversarial",
+      "dense_top1": true,
+      "dense_rank1": 1,
+      "dense_r10": 1.0,
+      "dense_dual_paper_top1": true,
+      "dense_dual_paper_rank1": 1,
+      "dense_dual_paper_r10": 1.0,
+      "dense_dual_chunk_top1": true,
+      "dense_dual_chunk_rank1": 1,
+      "dense_dual_chunk_r10": 1.0
+    },
+    {
+      "query_id": "bridge-q9",
+      "difficulty": "hard",
+      "dense_top1": false,
+      "dense_rank1": 2,
+      "dense_r10": 0.5,
+      "dense_dual_paper_top1": false,
+      "dense_dual_paper_rank1": 2,
+      "dense_dual_paper_r10": 0.75,
+      "dense_dual_chunk_top1": false,
+      "dense_dual_chunk_rank1": 4,
+      "dense_dual_chunk_r10": 1.0
+    },
+    {
+      "query_id": "shimura-q1",
+      "difficulty": "easy",
+      "dense_top1": true,
+      "dense_rank1": 1,
+      "dense_r10": 1.0,
+      "dense_dual_paper_top1": false,
+      "dense_dual_paper_rank1": 6,
+      "dense_dual_paper_r10": 1.0,
+      "dense_dual_chunk_top1": true,
+      "dense_dual_chunk_rank1": 1,
+      "dense_dual_chunk_r10": 1.0
+    },
+    {
+      "query_id": "shimura-q10",
+      "difficulty": "adversarial",
+      "dense_top1": true,
+      "dense_rank1": 1,
+      "dense_r10": 1.0,
+      "dense_dual_paper_top1": false,
+      "dense_dual_paper_rank1": 2,
+      "dense_dual_paper_r10": 1.0,
+      "dense_dual_chunk_top1": true,
+      "dense_dual_chunk_rank1": 1,
+      "dense_dual_chunk_r10": 1.0
+    },
+    {
+      "query_id": "shimura-q2",
+      "difficulty": "hard",
+      "dense_top1": true,
+      "dense_rank1": 1,
+      "dense_r10": 1.0,
+      "dense_dual_paper_top1": true,
+      "dense_dual_paper_rank1": 1,
+      "dense_dual_paper_r10": 1.0,
+      "dense_dual_chunk_top1": true,
+      "dense_dual_chunk_rank1": 1,
+      "dense_dual_chunk_r10": 1.0
+    },
+    {
+      "query_id": "shimura-q3",
+      "difficulty": "hard",
+      "dense_top1": true,
+      "dense_rank1": 1,
+      "dense_r10": 1.0,
+      "dense_dual_paper_top1": true,
+      "dense_dual_paper_rank1": 1,
+      "dense_dual_paper_r10": 1.0,
+      "dense_dual_chunk_top1": true,
+      "dense_dual_chunk_rank1": 1,
+      "dense_dual_chunk_r10": 1.0
+    },
+    {
+      "query_id": "shimura-q4",
+      "difficulty": "easy",
+      "dense_top1": true,
+      "dense_rank1": 1,
+      "dense_r10": 1.0,
+      "dense_dual_paper_top1": true,
+      "dense_dual_paper_rank1": 1,
+      "dense_dual_paper_r10": 1.0,
+      "dense_dual_chunk_top1": false,
+      "dense_dual_chunk_rank1": 2,
+      "dense_dual_chunk_r10": 1.0
+    },
+    {
+      "query_id": "shimura-q5",
+      "difficulty": "hard",
+      "dense_top1": true,
+      "dense_rank1": 1,
+      "dense_r10": 1.0,
+      "dense_dual_paper_top1": false,
+      "dense_dual_paper_rank1": 8,
+      "dense_dual_paper_r10": 1.0,
+      "dense_dual_chunk_top1": true,
+      "dense_dual_chunk_rank1": 1,
+      "dense_dual_chunk_r10": 1.0
+    },
+    {
+      "query_id": "shimura-q6",
+      "difficulty": "easy",
+      "dense_top1": true,
+      "dense_rank1": 1,
+      "dense_r10": 1.0,
+      "dense_dual_paper_top1": true,
+      "dense_dual_paper_rank1": 1,
+      "dense_dual_paper_r10": 1.0,
+      "dense_dual_chunk_top1": true,
+      "dense_dual_chunk_rank1": 1,
+      "dense_dual_chunk_r10": 1.0
+    },
+    {
+      "query_id": "shimura-q7",
+      "difficulty": "adversarial",
+      "dense_top1": true,
+      "dense_rank1": 1,
+      "dense_r10": 1.0,
+      "dense_dual_paper_top1": false,
+      "dense_dual_paper_rank1": 7,
+      "dense_dual_paper_r10": 1.0,
+      "dense_dual_chunk_top1": true,
+      "dense_dual_chunk_rank1": 1,
+      "dense_dual_chunk_r10": 1.0
+    },
+    {
+      "query_id": "shimura-q8",
+      "difficulty": "hard",
+      "dense_top1": false,
+      "dense_rank1": 2,
+      "dense_r10": 1.0,
+      "dense_dual_paper_top1": true,
+      "dense_dual_paper_rank1": 1,
+      "dense_dual_paper_r10": 1.0,
+      "dense_dual_chunk_top1": false,
+      "dense_dual_chunk_rank1": 2,
+      "dense_dual_chunk_r10": 1.0
+    },
+    {
+      "query_id": "shimura-q9",
+      "difficulty": "hard",
+      "dense_top1": true,
+      "dense_rank1": 1,
+      "dense_r10": 1.0,
+      "dense_dual_paper_top1": true,
+      "dense_dual_paper_rank1": 1,
+      "dense_dual_paper_r10": 1.0,
+      "dense_dual_chunk_top1": true,
+      "dense_dual_chunk_rank1": 1,
+      "dense_dual_chunk_r10": 1.0
+    }
+  ],
+  "config": {
+    "top_k": 10,
+    "ann_top_fetch": 50,
+    "pipelines": [
+      "dense_only",
+      "dense_dual_paper",
+      "dense_dual_chunk"
+    ],
+    "notebooks": [
+      "bridgeland-stability",
+      "shimura-varieties"
+    ],
+    "proof_arm_prefilter": "kind = 'proof'"
+  }
+}
