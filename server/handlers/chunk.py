@@ -84,7 +84,13 @@ async def handle_get_chunk(
     #    chunk can NEVER emit a resource_link to its full body (FM-2);
     #  - the <retrieved_chunk> delimiters wrap the already-truncated body,
     #    so truncation can't slice a delimiter tag (FM-1).
-    # ``str`` slicing is Unicode-codepoint-safe (never splits a char).
+    # ``str`` slicing is Unicode-codepoint-safe (never splits a char). The
+    # 300-char excerpt MAY end mid-LaTeX/MathML ($..., \begin{equation}...,
+    # <math>...) — that is intentional for a non-OA chunk (a partial
+    # fair-use excerpt, not a renderable unit) and is harmless:
+    # wrap_retrieved_text escapes any sliced delimiter tag. Do NOT "fix"
+    # this by truncating on a token boundary — that risks surfacing >300
+    # chars (m11 rect F3).
     license_token = row["license"] or ""
     license_truncated = False
     if not is_open_access(license_token) and len(sanitized_body) > LICENSE_TRUNCATION_CHARS:

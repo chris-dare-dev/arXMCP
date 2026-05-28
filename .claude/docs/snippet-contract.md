@@ -268,6 +268,24 @@ re-pinned (the `_meta.tool_schema_version` echo). `EXPECTED_BP1_SHA256`
 was NOT re-pinned — the GET_CHUNK ToolMeta description is unchanged, and
 BP1 hashes only `{name, description}` per tool.
 
+**GET_CHUNK description trade-off (m11 rect F1, deferred).** The GET_CHUNK
+ToolMeta description still reads "Fetch the full body…" and does NOT
+mention the 300-char non-OA cap. Editing it to mention truncation would
+drift `EXPECTED_BP1_SHA256` (the description is in the BP1 byte region)
+and force a coordinated re-pin + a one-time prompt-cache invalidation
+across all agent roles. The deliberate call is to keep the description
+BP1-stable and rely on the runtime `truncated_for_license` flag +
+surfaced `chunk.license` token + this section as the contract — the
+description is accurate for 100% of the arXiv corpus (all `arxiv-license`,
+hence OA) and only incomplete for non-OA textbook chunks, which the agent
+discovers reactively.
+
+**Scope note (revisit at E11).** This policy currently lives ONLY in
+`get_chunk` because it is the only full-body surface today. When E11
+backfills `get_paper.abstract` (NULL at v1, byte-capped at 1024 chars),
+re-evaluate whether the license-truncation policy must extend to that
+surface for non-OA textbook chunks (m11 rect F4).
+
 ## Out of scope
 
 - LLM-generated summaries (permanently dropped — see section b).

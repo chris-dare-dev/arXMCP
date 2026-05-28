@@ -192,3 +192,31 @@ class TestGetChunkLicenseTruncation:
         assert "truncated_for_license" not in r
         assert r.get("body_truncated") is True
         assert "resource_link_uri" in r
+
+    # ----- m11 rect F2: content-identity + the exact 300/301 boundary -----
+
+    def test_truncation_surfaces_the_first_300_chars_verbatim(self, res) -> None:
+        """e5/m11 rect F2: a uniform body can't distinguish first-300 from
+        last-300 or a wrong-source slice. Seed a DISTINCT-prefix body and
+        assert the surfaced excerpt is ``sanitized_body[:300]`` byte-for-byte
+        — guards the slice SOURCE and OFFSET, not just the length."""
+        body = "ABCDEFGHIJ" * 40  # 400 distinct chars
+        r = _get(res, chunk_id=_NONOA_ID, body_text=body, license_token="author-distributed")
+        inner = _inner(r["chunk"]["body_text"])
+        assert inner == body[:300], "must surface the FIRST 300 chars of the body"
+        assert r["truncated_for_license"] is True
+
+    def test_boundary_301_truncates_300_exactly_keeps_full(self, res) -> None:
+        """e5/m11 rect F2: the guard is ``> 300`` (NOT ``>=``). A 301-char
+        non-OA body truncates to exactly 300 + flag; a 300-char non-OA body
+        returns all 300 chars with NO flag. Pins the off-by-one."""
+        # 301 chars -> truncated to 300 + flag.
+        body_301 = "p" * 301
+        r301 = _get(res, chunk_id=_NONOA_ID, body_text=body_301, license_token="author-distributed")
+        assert len(_inner(r301["chunk"]["body_text"])) == LICENSE_TRUNCATION_CHARS
+        assert r301["truncated_for_license"] is True
+        # Exactly 300 chars -> NOT truncated (guard is strict >), no flag.
+        body_300 = "q" * 300
+        r300 = _get(res, chunk_id=_NONOA_ID, body_text=body_300, license_token="author-distributed")
+        assert _inner(r300["chunk"]["body_text"]) == body_300
+        assert "truncated_for_license" not in r300
