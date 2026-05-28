@@ -1,14 +1,20 @@
 {
   "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/roadmap",
   "created_at": "2026-05-28T03:34:04Z",
-  "critics_run": [],
+  "critics_run": [
+    {
+      "critic": "adversary",
+      "output_path": ".claude/notes/milestones/notebook-retrieval-m1/critique-adversary.md",
+      "summary": "SHIP-WITH-FIXES; F1 HIGH cache-isolation; F2-F4 MEDIUM; F5 LOW"
+    }
+  ],
   "critique_finding_counts": {
     "critical": 0,
-    "high": 0,
-    "low": 0,
-    "medium": 0
+    "high": 1,
+    "low": 1,
+    "medium": 3
   },
-  "critique_path": null,
+  "critique_path": ".claude/notes/milestones/notebook-retrieval-m1/critique-merged.md",
   "deferred_findings": [],
   "external_writes_authorized": false,
   "external_writes_completed": false,
@@ -16,14 +22,16 @@
   "fixed_findings": [],
   "id": "notebook-retrieval-m1",
   "implementation_base": "da9a800f3eaf08d9549f73f1a108ce55d8a9d671",
-  "implementation_branch": null,
-  "implementation_commit_range": null,
-  "implementation_commits": [],
+  "implementation_branch": "main",
+  "implementation_commit_range": "da9a800f3eaf08d9549f73f1a108ce55d8a9d671..56397647634a3120f729f994f673e55d064391e0",
+  "implementation_commits": [
+    "56397647634a3120f729f994f673e55d064391e0"
+  ],
   "implementation_path": "inline",
   "implementation_specialist": null,
   "invalidated_findings": [],
   "milestone_brief": "### notebook-retrieval-m1 \u2014 First vertical slice: one notebook queryable end-to-end\n\n**Description.** Make a single notebook's chunks retrievable through the\nMCP `search_papers` tool, opening the notebook's own\n`var/arxmcp/notebooks/<slug>/lancedb/` as the retrieval substrate when a\nnotebook is selected. Deliver the full BM25 \u2192 ANN \u2192 RRF \u2192 rerank pipeline\nagainst the notebook corpus, returning ranked chunk results with the same\nenvelope shape as a shared-corpus query. Demo target: a `search_papers`\ncall scoped to `bridgeland-stability` returns relevant chunks from the 53\ningested papers (e.g. the `bridge-q1` \"Bridgeland's original definition\"\nquery from `var/arxmcp/notebooks/bridgeland-stability/queries.json` surfaces\n`0705.3794`).\n\n**Design forks for the research phase to resolve (these are the\nload-bearing decisions; pick with evidence, do not average):**\n\n1. **Notebook selection mechanism.** Three candidates:\n   - **(A) `filters.notebook=<slug>`** on `search_papers`. ATTRACTIVE IF\n     `filters` is typed as a free-form `dict` (then adding a `notebook`\n     key needs NO inputSchema change \u2192 **no `EXPECTED_TOOL_SCHEMA_SHA256`\n     re-pin, no BP1 cache invalidation**). Research MUST verify the\n     `filters` arg type in the `search_papers` handler signature. This is\n     the recommended starting position IF the no-re-pin property holds.\n   - **(B) Session-bound notebook** \u2014 `Mcp-Session-Id` \u2192 notebook mapping\n     in `SessionState` (`server/session.py`), set via a header or a small\n     new tool. More stateful; a new tool would re-pin BP1.\n   - **(C) Server-launch-param** \u2014 one notebook per server instance\n     (`ARXMCP_NOTEBOOK` env in `server/config.py`). Simplest; inflexible\n     (can't query two notebooks from one server). Acceptable for a v1\n     single-user slice.\n   Research recommends ONE; the synthesis locks it.\n\n2. **Retrieval routing.** `get_resources()` returns a startup-bound\n   singleton (`.corpus`, `.bm25`, `.degraded`) pointing at the shared\n   corpus. A notebook query needs a Resources-equivalent bound to the\n   notebook's lancedb. Options: a per-notebook Resources cache (open +\n   memoize per slug), or a request-scoped Corpus open. Research resolves\n   the cleanest seam in `server/handlers/search.py` + the Resources\n   abstraction (find via `grep -rn \"def get_resources\\|class Resources\"`).\n\n3. **BM25 per-notebook.** BM25 is global + version-keyed\n   (`var/arxmcp/index/bm25/v<N>/`), built by `notebook_ingest.py` at the\n   notebook's `corpus_version`. The notebook query's BM25 phase must use\n   the NOTEBOOK's corpus_version, not the shared corpus's. Research\n   confirms how `server/retrieval/bm25.py::BM25Phase` resolves its\n   version and whether a notebook query can point it at the right one.\n\n4. **Cache-key isolation.** The 3-tier retrieval cache keys on\n   `corpus_version + query + filters + k + level`. Two notebooks could\n   collide if their corpus_versions overlap (each notebook's LanceDB\n   starts versioning independently). The cache key MUST include the\n   notebook identity (slug) so notebook-A's results never serve a\n   notebook-B query. Research confirms the current cache key construction\n   in `server/cache.py`.\n\n5. **Readiness / degraded-state.** `/readyz` currently gates on the\n   shared corpus + BGE-M3 warm. A notebook query against a missing /\n   empty notebook lancedb should return a clean empty result or a clear\n   error, NOT a 500. Research confirms the degraded-state surface.\n\n**Acceptance criteria (first vertical slice).**\n\n- **[AC1]** Given a `search_papers` call selecting notebook\n  `bridgeland-stability` (mechanism per the research-locked fork 1), When\n  the query is `\"Bridgeland's original definition of a stability condition\n  on a triangulated category\"`, Then the result rows are drawn from the\n  notebook's `lancedb` (not the empty shared corpus) and `0705.3794`\n  appears in the top-k. Verified by an integration test against the live\n  notebook OR a synthetic notebook fixture (research decides which is\n  testable without a real BGE-M3 download).\n- **[AC2]** Given a notebook selection, When retrieval runs, Then the full\n  BM25 \u2192 ANN \u2192 RRF \u2192 rerank pipeline executes against the notebook corpus\n  and the result envelope is byte-shape-identical to a shared-corpus query\n  (same fields, snippet contract honored).\n- **[AC3]** Given two notebooks with overlapping corpus_versions, When each\n  is queried with the same query string, Then the 3-tier cache does NOT\n  serve notebook-A's cached payload for a notebook-B query (cache key\n  includes notebook identity). Regression test with a synthetic 2-notebook\n  cache scenario.\n- **[AC4]** Given a `search_papers` call with NO notebook selection, When\n  the query runs, Then behavior is byte-identical to today (shared corpus;\n  no regression). Snapshot test.\n- **[AC5]** Given a notebook selection for a non-existent / empty notebook,\n  When queried, Then a clean empty result (or a typed error) is returned,\n  NOT a 500 / unhandled exception.\n- **[AC6]** BM25 for the notebook query uses the NOTEBOOK's corpus_version\n  (verified \u2014 a notebook query does not silently use the shared corpus's\n  BM25 index).\n- **[AC7]** Documentation: update `.claude/notes/06-mcp-server-design.md`\n  (or the relevant note) with the notebook-retrieval routing, and the\n  `docs/install.md` / operator surface if the selection mechanism is\n  operator-visible.\n- **[X-1]** `EXPECTED_TOOL_SCHEMA_SHA256` \u2014 UNCHANGED if fork-1 resolves\n  to (A) `filters.notebook` over a free-form dict; otherwise a SINGLE\n  coordinated re-pin documented in the implementation summary. The\n  research synthesis MUST state which.\n- **[X-2]** `EXPECTED_BP1_SHA256` \u2014 UNCHANGED unless the system prompt /\n  tool surface changes; if it changes, re-pin once.\n- **[X-3]** `ruff check .` clean; `make test` green; 2900+ tests.\n\n**Out of scope (Won't list \u2014 these are follow-up milestones).**\n\n- Multi-notebook concurrent querying from a single tool call (cross-notebook\n  federation). v1 selects ONE notebook per call.\n- The per-notebook cutover tooling (`notebook-cutover-m1`) \u2014 only needed once\n  re-embeds must compound; absorb later if fork-2 makes per-notebook lancedb\n  the live substrate.\n- Notebook-scoped variants of the other tools (`get_definitions`,\n  `find_lemma_by_name`, `find_equation`, `cite_neighbors`) \u2014 v1 wires only\n  `search_papers`. The others follow the same pattern in a v2.\n- A new MCP tool for notebook selection if fork-1 resolves to (A) or (C)\n  (no new tool \u2192 no BP1 re-pin).\n- Per-notebook `/readyz` gating (warming every notebook's BGE columns at\n  startup). v1 opens the notebook lancedb lazily on first query.\n- Migrating the existing shared-corpus query semantics. The shared corpus\n  stays the default (AC4).\n\n**Dependencies.** The notebook lancedb datasets exist and are populated\n(bridgeland-stability, shimura-varieties). The preamble back-fill landed in\nthose notebooks' STAGING (not active) \u2014 for THIS milestone's testing, the\nactive `lancedb` (v369 / v49) is sufficient (it has chunks, just no\npreambles). Preamble freshness is orthogonal to wiring up retrieval.\n\n**Complexity.** M-L. If the research synthesis concludes the surface is\ntoo large for one milestone (e.g. fork-1 forces a BP1 re-pin AND the cache\nisolation AND the Resources refactor are each non-trivial), it should\nrecommend decomposing into a family via the `/roadmap` skill rather than\nforcing a thin pipeline. FLAG THIS in the synthesis if so.\n\n**Specialist suggestions.** `cache-stability-reviewer` (BP1 byte-stability\non the tool surface + the 3-tier cache-key isolation) + `mcp-protocol-reviewer`\n(if the tool schema changes) + `determinism-reviewer` (cache key correctness\nacross notebooks).\n\n**External writes the implementation will require.** None expected \u2014 all\nchanges are local server code + tests. No git push / PR / infra / API.\n\n**Notes for the researcher agents (phase 1).**\n\n1. **Resolve fork 1 FIRST and decisively** \u2014 read the `search_papers`\n   handler signature in `server/handlers/search.py`: is `filters` typed as\n   a free-form `dict[str, Any]` (\u2192 adding `notebook` needs no schema change\n   \u2192 no BP1 re-pin, the cleanest path)? Or is it a typed Pydantic model\n   (\u2192 adding a field re-pins)? This single fact determines whether (A) is\n   viable. Quote the signature verbatim.\n2. Read `server/handlers/search.py` end-to-end, `get_resources()` /\n   `Resources` (grep for the definition), `server/corpus.py`,\n   `server/cache.py` (cache-key construction), `server/retrieval/bm25.py`\n   (BM25 version resolution), `server/config.py`, `server/session.py`\n   (for fork 1B). Quote the cache-key construction + the Resources\n   startup binding verbatim.\n3. Confirm the shared corpus is actually empty (`var/arxmcp/index/lancedb`\n   has no `chunks` table) so the \"papers un-queryable today\" claim is\n   precise.\n4. Read `.claude/notes/06-mcp-server-design.md` + `07-multi-agent-caching.md`\n   (cache discipline) + `02-architecture-overview.md` + the\n   `textbook-ingest-roadmap.md` isolation requirement. Surface any\n   constraint that forces a particular fork.\n5. Enumerate failure modes around: notebook lancedb missing/empty,\n   corpus_version collision in the cache, BM25 version mismatch, a notebook\n   query falling through to the (empty) shared corpus silently, and the\n   BGE-M3 cold-start cost of opening a second corpus.\n6. Be explicit in the synthesis about whether this is ONE shippable\n   milestone or needs `/roadmap` decomposition.",
-  "phase": "implement-running",
+  "phase": "complete",
   "phase_history": [
     {
       "entered_at": "2026-05-28T03:34:04Z",
@@ -42,11 +50,36 @@
     },
     {
       "entered_at": "2026-05-28T04:24:30Z",
-      "left_at": null,
+      "left_at": "2026-05-28T04:34:28Z",
       "phase": "implement-running"
+    },
+    {
+      "entered_at": "2026-05-28T04:34:28Z",
+      "left_at": "2026-05-28T04:34:38Z",
+      "phase": "implement-complete"
+    },
+    {
+      "entered_at": "2026-05-28T04:34:38Z",
+      "left_at": "2026-05-28T04:41:32Z",
+      "phase": "critique-running"
+    },
+    {
+      "entered_at": "2026-05-28T04:41:32Z",
+      "left_at": "2026-05-28T04:41:32Z",
+      "phase": "critique-complete"
+    },
+    {
+      "entered_at": "2026-05-28T04:41:32Z",
+      "left_at": "2026-05-28T04:56:39Z",
+      "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-05-28T04:56:39Z",
+      "left_at": null,
+      "phase": "complete"
     }
   ],
-  "rectification_commit": null,
+  "rectification_commit": "c9c96c008d06a977d1c1f6b663ab43dd1cabcd67",
   "regression_tests_added": [],
   "research_briefs": [
     {
@@ -62,5 +95,5 @@
   ],
   "research_mode": "standard",
   "research_synthesis": ".claude/notes/milestones/notebook-retrieval-m1/research-synthesis.md",
-  "updated_at": "2026-05-28T04:24:30Z"
+  "updated_at": "2026-05-28T04:56:39Z"
 }
