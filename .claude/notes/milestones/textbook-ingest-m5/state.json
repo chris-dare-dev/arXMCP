@@ -15,9 +15,20 @@
     "medium": 4
   },
   "critique_path": ".claude/notes/milestones/textbook-ingest-m5/critique-merged.md",
-  "deferred_findings": [],
-  "external_writes_authorized": false,
-  "external_writes_completed": false,
+  "deferred_findings": [
+    "F8",
+    "F9"
+  ],
+  "external_writes_authorized": true,
+  "external_writes_completed": true,
+  "external_writes_executed": [
+    {
+      "target": "chris-dare-dev/arXMCP",
+      "type": "gh_issue_create",
+      "url": "https://github.com/chris-dare-dev/arXMCP/issues/7",
+      "why": "closes m5 F3"
+    }
+  ],
   "external_writes_required": [
     {
       "blocking": true,
@@ -26,7 +37,14 @@
       "why": "close m5 adversary F3 \u2014 file follow-up for server/lean_repl.py broken-on-Darwin RLIMIT_AS guard"
     }
   ],
-  "fixed_findings": [],
+  "fixed_findings": [
+    "F1",
+    "F2",
+    "F4",
+    "F5",
+    "F6",
+    "F7"
+  ],
   "id": "textbook-ingest-m5",
   "implementation_base": "8dda5ae6639a693438d17c019172ea2c5c591182",
   "implementation_branch": "main",
@@ -38,6 +56,9 @@
   "implementation_specialist": null,
   "invalidated_findings": [],
   "milestone_brief": "# Milestone: textbook-ingest-m5 \u2014 Sandboxed MinerU subprocess driver (e2 entry)\n\n**Epic:** textbook-ingest-e2 (PDFs become HTML5+MathML via sandboxed MinerU)\n**Type:** value \u2014 first technical milestone of e2; m4 closed the upload-side perimeter, m5 lands the layer-2 defense.\n**Estimated size:** M-L (subprocess driver + comprehensive test surface + macOS OOM verification).\n**Dependencies:** textbook-ingest-m1..m4 (shipped) + B1 (MinerU 3.2.0 install validated by smoke test). UNBLOCKED.\n**Roadmap link:** `plans/textbook-ingest-roadmap.md` \u00a7textbook-ingest-e2 + spike-2 `.claude/docs/security-pdf-sandbox.md`.\n\n## Background \u2014 what already exists\n\n- `.claude/docs/security-pdf-sandbox.md` is the **prescriptive contract** for this milestone's subprocess discipline. The pseudo-code in \u00a7Implementation IS the design \u2014 implement per spec, deviating only where reality forces it (macOS OOM behavior).\n- m4 shipped the upload-side pre-flight gate (`server/routes/notebooks.py::_run_pdf_preflight`). PDFs that reach m5's subprocess have already passed 5 independent rejection vectors (magic-byte, polyglot tail, page count, JS tokens, size cap).\n- B1 shipped MinerU 3.2.0 with `[pipeline,mlx]` extras at `~/venvs/mineru/`. Validated by direct-API smoke test on Milne SVI (3 pages, 33 s, MLX + Apple M4 Max GPU). spike-2 referenced \"MinerU 2.5\" but B1 shipped 3.2.0 \u2014 explicit deviation, validated.\n- spike-3 shipped `tests/test_textbook_notebook_isolation.py` validating per-notebook LanceDB blast-radius (layer-3 defense).\n\n## Scope \u2014 acceptance criteria\n\n### Core driver\n- [ ] New module `ingest/textbook_parser.py` exposing `run_mineru_sandboxed(pdf_path: Path, output_dir: Path, *, timeout_s: int | None = None) -> MinerUResult` per spike-2's prescriptive signature.\n- [ ] `MinerUResult` dataclass (frozen) carries: `output_dir: Path`, `markdown_path: Path` (the primary text artifact), `content_list_path: Path` (the structured JSON), `stdout: str`, `stderr: str`, `wall_clock_s: float`. Result is what m6 will consume.\n- [ ] RLIMIT_AS 4 GB cap via `preexec_fn=_set_mineru_rlimits` (POSIX only). Windows: function is a no-op with a WARN log at import time of the host module (test verifies the WARN fires on Windows-shaped import, but the actual feature is POSIX-only).\n- [ ] Default 30-min wall timeout configurable via `ARXMCP_MINERU_TIMEOUT_S` env var (min 60s, max 3600s; reject out-of-range at module load with a clear RuntimeError, not silent clamp).\n- [ ] Process-group kill via `start_new_session=True` + `os.killpg(os.getpgid(proc.pid), SIGKILL)` on timeout. Drain PIPE with second `communicate(timeout=5)` to avoid deadlock.\n- [ ] Scrubbed env via `_scrub_subprocess_env()`. Whitelist exactly: `PATH`, `TMPDIR`, `HOME`, `LANG`, `LC_ALL`. NO `HF_HOME`, `HF_TOKEN`, `AWS_*`, `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`. Test pins the whitelist set.\n\n### Invocation form (researchers MUST pick one, not defer)\n- [ ] Either CLI form (`[\"mineru\", \"-p\", str(pdf_path), \"-o\", str(output_dir), \"-b\", \"pipeline\"]`) OR Python-wrapper form (a small `ingest/_mineru_runner.py` that imports `do_parse` and is invoked as `[sys.executable, \"-m\", \"ingest._mineru_runner\", str(pdf_path), str(output_dir)]`).\n- [ ] If CLI form: binary resolution via `ARXMCP_MINERU_BIN` env var with default search of PATH. Document the operator's typical setup (`export ARXMCP_MINERU_BIN=~/venvs/mineru/bin/mineru`).\n- [ ] If Python-wrapper form: the wrapper module must be self-contained (no project imports beyond stdlib) so it can run under the MinerU venv's Python interpreter (we cannot assume the project venv has MinerU; the smoke test confirmed MinerU was installed in a separate venv).\n\n### Tests\n- [ ] `requires_mineru` pytest marker registered in `pyproject.toml` (analogous to `requires_pdflatex`, `requires_lean_repl`, `requires_latexmlc`).\n- [ ] Unit tests (always run): mock `subprocess.Popen`; verify `preexec_fn` set on POSIX, `start_new_session=True`, env scrubbed (set equality check), timeout passed through. Verify TimeoutExpired path: assert `killpg` called with correct PID, second communicate called.\n- [ ] Integration tests (`requires_mineru` opt-in via env var): real MinerU on a 1-2 page synthetic PDF (NOT Milne SVI \u2014 keep test fast under 30s). Verify MinerUResult fields populated.\n- [ ] Sandbox enforcement tests (opt-in, slow):\n  - **macOS OOM verification** (the open question from spike-2 \u00a7Open questions #4): synthesize a workload that breaches 4 GB virtual memory; verify subprocess exits with nonzero or signal, NOT a soft hang. If macOS does not enforce hard kill, document the gap and defer to a future milestone with an explicit follow-up issue.\n  - **Wall timeout**: time-bound test that artificially exceeds timeout (mock or short-timeout config); verify `killpg` path fires and TimeoutExpired propagates.\n  - **Network egress refusal**: integration test that points the subprocess at a sentinel URL (e.g. via env override of a known-safe MinerU model path); verify either connection-refused or no-attempt. May be infeasible to test reliably \u2014 if so, document the gap with an explicit defer.\n\n### Configuration + docs\n- [ ] Document `ARXMCP_MINERU_BIN` and `ARXMCP_MINERU_TIMEOUT_S` in `docs/install.md` operator-facing section.\n- [ ] Update `pyproject.toml` to add `mineru>=3.2.0,<4` to extras `[pdf]` (NOT to default deps \u2014 keeps wheel light; matches `requires_mineru` marker pattern).\n- [ ] Add a CLAUDE.md \u00a78 entry documenting any landmines discovered during m5 (especially macOS OOM behavior, MinerU 3.2.0 packaging defects, etc.).\n\n### Out of scope (explicit; deferred)\n- LaTeXML re-rendering of MinerU markdown \u2192 HTML5+MathML (m6)\n- Wiring into the FastAPI upload route handler (m6)\n- `search_papers` filter accepting `source_kind=\"textbook\"` (e4)\n- Hierarchical chunker for book/chapter/section (e3)\n- CDM bake-off Phase C (blocked on B2 fixture curation)\n- Performance optimization beyond the B1 baseline (~0.09 pages/sec on M4 Max + MLX)\n- `sandbox-exec` / seccomp / landlock \u2014 explicitly deferred per spike-2 \u00a7\"What this milestone explicitly does NOT do\"\n\n## Open questions for the researcher pair to resolve\n\n1. **Invocation form?** CLI vs Python-wrapper. Trade-off: CLI is the spike-2 default and simpler to sandbox but adds binary resolution. Python-wrapper is more flexible but exposes a runner module under tests/. Pick one with explicit reasoning.\n2. **`mineru` binary resolution semantics.** If CLI, what's the default behavior when `ARXMCP_MINERU_BIN` is unset? Search PATH (which won't find the venv binary) \u2192 fall through to `requires_mineru` skip? Or fail loudly at module load?\n3. **`requires_mineru` skip semantics \u2014 same as `requires_pdflatex`?** I.e. test runs only if both `pytest -m requires_mineru` AND `ARXMCP_RUN_REAL_MINERU=1` are set.\n4. **macOS RLIMIT_AS reliability.** Spike-2 \u00a7Open questions #4 \u2014 verify via test, not assumption. If macOS doesn't enforce hard kill on overflow, document and defer hardening to a future milestone with an explicit follow-up issue.\n5. **Subprocess stdout volume.** MinerU's pipeline backend produces multi-MB of stdout (model load messages, per-page progress, RGBA/depth diagnostics). The MinerUResult.stdout field will be enormous if captured raw. Either tail-truncate (last 8 KB?) or stream to a log file under output_dir/. Pick one.\n6. **MinerU model weight prerequisite.** B1 downloaded model weights to `~/.cache/mineru/`. If the subprocess runs with a scrubbed `HOME`, the cache will be re-fetched (or fail). The whitelist includes `HOME` to preserve this, but document the prereq in install.md.\n\n## Why a single milestone\n- Subprocess discipline has low coupling to other concerns (no DB writes, no MCP surface change). Clean module boundary.\n- Tests are the contract. Security guarantees are unverifiable post-hoc; they must land with their regression guards.\n- m6 (LaTeXML re-render + upload-route wiring) is genuinely a separate concern.\n\n## Definition of done\n- All acceptance criteria boxes ticked or have an explicit \"unmet: reason\" in implementation-summary.md.\n- `make test` green (ruff + full pytest suite; new `requires_mineru` tests skipped by default).\n- Sandbox profile doc (`.claude/docs/security-pdf-sandbox.md`) updated in lockstep with any deviation from its prescriptive code (avoids the \"stale docstring\" anti-pattern that bit m3 + m4).\n- One implementation commit, one rect commit, one chore-notes commit (the canonical 3-commit pattern).\n",
+  "partial_findings": [
+    "F3"
+  ],
   "phase": "rectify-running",
   "phase_history": [
     {
@@ -81,8 +102,14 @@
       "phase": "rectify-running"
     }
   ],
-  "rectification_commit": null,
-  "regression_tests_added": [],
+  "rectification_commit": "4617c9aa3656214fe170fd7a01980c40beb4acc7",
+  "regression_tests_added": [
+    "tests/test_textbook_parser.py::TestLocateOutputs::test_glob_fallback_picks_paired_files",
+    "tests/test_textbook_parser.py::TestLocateOutputs::test_glob_fallback_finds_first_paired",
+    "tests/test_textbook_parser.py::TestRunMineruSandboxedSurface::test_timeout_triggers_killpg",
+    "tests/test_textbook_parser.py::TestRunMineruSandboxedSurface::test_default_timeout_used_when_none",
+    "tests/test_textbook_parser.py::TestPlatformSetup::test_warn_fires_on_non_linux_import"
+  ],
   "research_briefs": [
     {
       "agent_id": "researcher-1",
@@ -97,5 +124,5 @@
   ],
   "research_mode": "standard",
   "research_synthesis": ".claude/notes/milestones/textbook-ingest-m5/research-synthesis.md",
-  "updated_at": "2026-05-28T02:10:21Z"
+  "updated_at": "2026-05-28T02:16:25Z"
 }

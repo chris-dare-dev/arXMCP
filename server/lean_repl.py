@@ -177,10 +177,8 @@ class LeanRepl:
         # ValueError on Darwin because the kernel keeps the hard
         # limit at RLIM_INFINITY). The condition below is too loose:
         # on Darwin it passes and the child crashes with ValueError
-        # between fork() and exec(). Follow-up issue tracking the
-        # tightening of this guard to `sys.platform == "linux"`
-        # filed at chris-dare-dev/arXMCP (see textbook-ingest-m5
-        # rectification commit body for the issue URL).
+        # between fork() and exec(). Follow-up audit tracked at
+        # https://github.com/chris-dare-dev/arXMCP/issues/7.
         spawn_kwargs: dict[str, Any] = {}
         if (
             rlimit_as_bytes
