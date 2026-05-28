@@ -284,6 +284,38 @@ class TestLocateOutputs:
         with pytest.raises(RuntimeError, match="no .md file found"):
             _locate_outputs(tmp_path, "doc")
 
+    def test_glob_fallback_picks_paired_files(self, tmp_path: Path) -> None:
+        """Regression for m5 F4: fallback must NEVER cross-pair files
+        from different parse-method subdirs.
+        """
+        # Mismatched layout: dirA has .md only, dirB has .json only.
+        dir_a = tmp_path / "dirA"
+        dir_a.mkdir()
+        (dir_a / "x.md").write_text("# A\n")
+        dir_b = tmp_path / "dirB"
+        dir_b.mkdir()
+        (dir_b / "y_content_list.json").write_text("[]")
+        with pytest.raises(RuntimeError, match="no paired"):
+            _locate_outputs(tmp_path, "doc")
+
+    def test_glob_fallback_finds_first_paired(self, tmp_path: Path) -> None:
+        """When multiple md files exist, return the FIRST one whose
+        sibling _content_list.json is present.
+        """
+        # First md (alphabetically) has no companion; second does.
+        dir_a = tmp_path / "a-no-companion"
+        dir_a.mkdir()
+        (dir_a / "x.md").write_text("# A\n")
+        dir_b = tmp_path / "b-with-companion"
+        dir_b.mkdir()
+        md_b = dir_b / "y.md"
+        cl_b = dir_b / "y_content_list.json"
+        md_b.write_text("# B\n")
+        cl_b.write_text("[]")
+        rmd, rcl = _locate_outputs(tmp_path, "doc")
+        assert rmd == md_b
+        assert rcl == cl_b
+
 
 class TestPlatformSetup:
     """Module-level platform-specific RLIMIT setup."""
@@ -307,6 +339,42 @@ class TestPlatformSetup:
             # macOS and Windows get None + WARN at import.
             assert textbook_parser._set_mineru_rlimits is None
             assert textbook_parser._resource is None
+
+    def test_warn_fires_on_non_linux_import(self, tmp_path: Path) -> None:
+        """Closes m5 F7: regression guard that the macOS/Windows WARN
+        log fires at module import.
+
+        The WARN is the only operator signal that the verified-live
+        macOS RLIMIT_AS gap is in effect; silently dropping it would
+        leave Darwin operators believing the 4 GB cap is active when
+        only the wall timeout is.
+
+        Spawns a subprocess that overrides ``sys.platform = "darwin"``
+        BEFORE importing the module, captures stderr, and asserts the
+        WARN appears. Subprocess isolation avoids the in-process
+        ``importlib.reload`` pollution that would invalidate
+        ``isinstance(x, MinerUResult)`` checks in downstream tests.
+        """
+        script = tmp_path / "darwin_import_check.py"
+        script.write_text(
+            "import sys\n"
+            "sys.platform = 'darwin'\n"
+            "import logging\n"
+            "logging.basicConfig(level=logging.WARNING)\n"
+            "from ingest import textbook_parser  # noqa: F401\n"
+        )
+        result = subprocess.run(
+            [sys.executable, str(script)],
+            capture_output=True, text=True, check=False,
+            cwd=str(Path(__file__).resolve().parents[1]),
+        )
+        assert result.returncode == 0, (
+            f"subprocess exited {result.returncode}: stderr={result.stderr!r}"
+        )
+        assert "RLIMIT_AS cap not enforceable on platform" in result.stderr, (
+            f"expected RLIMIT_AS WARN in subprocess stderr; got: "
+            f"{result.stderr!r}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -412,26 +480,39 @@ class TestRunMineruSandboxedSurface:
 
     def test_timeout_triggers_killpg(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
         pdf, out_dir = self._make_pdf_and_outputs(tmp_path)
         monkeypatch.setenv("ARXMCP_MINERU_BIN", _create_fake_bin(tmp_path))
-        # A first communicate() raises TimeoutExpired; the second drain
-        # call returns cleanly.
+        # First communicate() raises TimeoutExpired; the second drain
+        # call returns non-empty tail output. Closes m5 F5 — assert
+        # the drained stderr surfaces in the WARN log.
         proc = MagicMock(spec=subprocess.Popen)
         proc.pid = 12345
         proc.communicate.side_effect = [
             subprocess.TimeoutExpired(cmd="mineru", timeout=1),
-            ("", ""),
+            ("late stdout chunk", "[ERROR] killed mid-decode at offset 42"),
         ]
+        import logging
         with (
+            caplog.at_level(logging.WARNING, logger="ingest.textbook_parser"),
             patch.object(subprocess, "Popen", return_value=proc),
             patch.object(os, "killpg") as mock_killpg,
-            patch.object(os, "getpgid", return_value=12345),pytest.raises(subprocess.TimeoutExpired)
+            patch.object(os, "getpgid", return_value=12345),
+            pytest.raises(subprocess.TimeoutExpired),
         ):
             run_mineru_sandboxed(pdf, out_dir, timeout_s=60)
         mock_killpg.assert_called_once_with(12345, signal.SIGKILL)
         # The drain call MUST follow the killpg.
         assert proc.communicate.call_count == 2
+        # F5 regression: drained stderr tail captured in WARN log.
+        warn_msgs = [
+            r.getMessage() for r in caplog.records
+            if r.levelname == "WARNING"
+        ]
+        assert any(
+            "killed mid-decode at offset 42" in m for m in warn_msgs
+        ), f"drain stderr not captured in WARN log: {warn_msgs!r}"
 
     def test_invalid_pdf_path_raises(self, tmp_path: Path) -> None:
         with pytest.raises(RuntimeError, match="pdf_path is not a file"):
@@ -470,17 +551,31 @@ class TestRunMineruSandboxedSurface:
     def test_default_timeout_used_when_none(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
+        """Closes m5 F6: prove `timeout_s=None` uses the module-load
+        ``_CONFIGURED_TIMEOUT_S`` rather than a hard-coded literal.
+
+        The pre-fix test asserted ``timeout == _CONFIGURED_TIMEOUT_S``,
+        which was a tautology — both sides resolve to the same module-
+        level constant. To actually detect a regression where the
+        driver started ignoring _CONFIGURED_TIMEOUT_S, we patch the
+        constant in-module to a sentinel value and verify the driver
+        picks IT up.
+        """
         pdf, out_dir = self._make_pdf_and_outputs(tmp_path)
         monkeypatch.setenv("ARXMCP_MINERU_BIN", _create_fake_bin(tmp_path))
+        sentinel_timeout = 173  # a value that cannot coincide with the default
+        monkeypatch.setattr(
+            textbook_parser, "_CONFIGURED_TIMEOUT_S", sentinel_timeout,
+        )
         with patch.object(
             subprocess, "Popen", return_value=_fake_proc(),
         ) as mock_popen:
             run_mineru_sandboxed(pdf, out_dir, timeout_s=None)
-        # communicate() got the module-load default.
         proc = mock_popen.return_value
         proc.communicate.assert_called_once()
         _, comm_kwargs = proc.communicate.call_args
-        assert comm_kwargs["timeout"] == textbook_parser._CONFIGURED_TIMEOUT_S
+        # If the driver had hard-coded 1800, this would fail with 173 != 1800.
+        assert comm_kwargs["timeout"] == sentinel_timeout
 
 
 def _create_fake_bin(tmp_path: Path) -> str:

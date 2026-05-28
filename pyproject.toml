@@ -180,18 +180,15 @@ dev = [
     "ruff>=0.5",
     "pytest>=8.0",
 ]
-# textbook-ingest e2 — PDF parsing via MinerU 3.x. Typically installed
-# into a SEPARATE venv (~/venvs/mineru/) because MinerU pulls a large
-# PyTorch + ONNX-runtime + transformers tree that would balloon the
-# project venv. The arXMCP server invokes MinerU as a subprocess via
-# the absolute path in ARXMCP_MINERU_BIN; this extra is for operators
-# who want everything in one venv (rare; not the recommended setup).
-# Pin matches the B1 install validation (3.2.0 + smoke-tested on M4 Max
-# + MLX). The `[pipeline]` extra selects the CPU-pipeline backend; the
-# `[mlx]` extra is opt-in for Apple Silicon GPU. See docs/install.md.
-pdf = [
-    "mineru[pipeline]>=3.2.0,<4",
-]
+# textbook-ingest e2 — PDF parsing via MinerU 3.x is INTENTIONALLY NOT
+# in a project extra. MinerU's dep tree caps transformers at v4, which
+# would silently downgrade the BGE-M3 / BGE-reranker stack the project
+# ships against (textbook-ingest-m5 F1 finding). Operators install
+# MinerU into a SEPARATE venv (~/venvs/mineru/) and point the m5
+# driver at the binary via ARXMCP_MINERU_BIN. Project tests use
+# `requires_mineru` marker + opt-in env var; project venv never
+# imports the mineru package directly.
+# See docs/install.md for the install procedure.
 
 [tool.ruff]
 line-length = 100

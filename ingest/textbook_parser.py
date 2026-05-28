@@ -258,6 +258,10 @@ def _locate_outputs(output_dir: Path, pdf_stem: str) -> tuple[Path, Path]:
     Per research-synthesis §D3: probe the documented path first,
     fall back to a glob, raise RuntimeError if no markdown found
     (FM-4 mitigation).
+
+    The fallback ONLY accepts md+content_list pairs that share a
+    parent directory — never pairs files from different parse
+    subdirectories. Closes m5 adversary F4.
     """
     direct_md = output_dir / pdf_stem / "auto" / f"{pdf_stem}.md"
     direct_cl = (
@@ -267,7 +271,6 @@ def _locate_outputs(output_dir: Path, pdf_stem: str) -> tuple[Path, Path]:
         return direct_md, direct_cl
 
     md_candidates = sorted(output_dir.rglob("*.md"))
-    cl_candidates = sorted(output_dir.rglob("*_content_list.json"))
     if not md_candidates:
         listing = sorted(p.relative_to(output_dir) for p in output_dir.rglob("*"))
         raise RuntimeError(
@@ -276,12 +279,17 @@ def _locate_outputs(output_dir: Path, pdf_stem: str) -> tuple[Path, Path]:
             f"MinerU output-tree convention may have changed; see "
             f"research-synthesis §D3 (FM-4)."
         )
-    if not cl_candidates:
-        raise RuntimeError(
-            f"MinerU exited 0 and produced {md_candidates[0]!s} but no "
-            f"_content_list.json companion. Output tree partial."
-        )
-    return md_candidates[0], cl_candidates[0]
+    # Closes m5 F4: pair-match in same parent dir, do not cross-pair.
+    for md in md_candidates:
+        cl = md.with_name(f"{md.stem}_content_list.json")
+        if cl.is_file():
+            return md, cl
+    raise RuntimeError(
+        f"MinerU exited 0 and produced markdown candidates "
+        f"({[str(p.relative_to(output_dir)) for p in md_candidates]!r}) "
+        f"but no paired _content_list.json in the same parent dir for "
+        f"any of them. Output tree partial — m6 cannot consume."
+    )
 
 
 def run_mineru_sandboxed(
@@ -375,15 +383,20 @@ def run_mineru_sandboxed(
     except subprocess.TimeoutExpired:
         # Kill the process group; MinerU 3.x's grandchild FastAPI
         # service may survive (see security-pdf-sandbox.md). Drain
-        # the PIPEs to avoid deadlock during cleanup.
+        # the PIPEs to avoid deadlock during cleanup. Capture the
+        # drain output and surface in the WARN log — closes m5 F5
+        # (timeout-path observability gap).
         with contextlib.suppress(ProcessLookupError, OSError):
             os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        drained_stderr: str = ""
         with contextlib.suppress(subprocess.TimeoutExpired):
-            proc.communicate(timeout=_DRAIN_TIMEOUT_S)
+            drained = proc.communicate(timeout=_DRAIN_TIMEOUT_S)
+            drained_stderr = drained[1] or ""
         logger.warning(
             "textbook_parser: mineru exceeded %ds wall timeout for "
-            "%s; killed pgid=%s",
+            "%s; killed pgid=%s; drain stderr tail: %s",
             effective_timeout, pdf_path.name, proc.pid,
+            _tail(drained_stderr, 1024),
         )
         raise
 

@@ -172,6 +172,15 @@ class LeanRepl:
         # ``preexec_fn`` argument at all (the constructor rejects even
         # ``preexec_fn=None`` on some versions / is documented as
         # POSIX-only).
+        # KNOWN BROKEN ON macOS — see CLAUDE.md §8 #9 (verified by
+        # textbook-ingest-m5: setrlimit(RLIMIT_AS, ...) raises
+        # ValueError on Darwin because the kernel keeps the hard
+        # limit at RLIM_INFINITY). The condition below is too loose:
+        # on Darwin it passes and the child crashes with ValueError
+        # between fork() and exec(). Follow-up issue tracking the
+        # tightening of this guard to `sys.platform == "linux"`
+        # filed at chris-dare-dev/arXMCP (see textbook-ingest-m5
+        # rectification commit body for the issue URL).
         spawn_kwargs: dict[str, Any] = {}
         if (
             rlimit_as_bytes

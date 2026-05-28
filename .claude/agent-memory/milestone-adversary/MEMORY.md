@@ -61,3 +61,28 @@ the matching code path. Treat this as the same shape as the
 bp1-description-vs-handler-validator-drift class — both are "doc says
 X, code does Y" but on different surfaces (BP1 surface vs threat-model
 doc surface). See [[security-doc-drift-on-multi-byte-magic-sniff]].
+
+## 2026-05-28 — textbook-ingest-m5 — uv-lock-transitive-major-version-downgrade
+Adding a `[project.optional-dependencies].<extra>` entry to pyproject.toml
+can silently force a major-version DOWNGRADE of an existing direct dep.
+m5 added `mineru[pipeline]>=3.2.0,<4`; MinerU pins `transformers<5`, so
+the project's transformers dropped 5.8.0 → 4.57.6 in uv.lock. Diff check:
+`git diff <range> -- uv.lock | grep "^[-+]version = "` + `grep "^-name = "`
+flags this. Cross-check removed packages against transitive deps of
+project's direct deps — removal implies downgrade. Major-version downgrade
+of a core dep (transformers powers BGE-M3 + reranker) with `requires_model`
+tests skipped by default = unverified change. Flag HIGH.
+See [[uv-lock-transitive-major-version-downgrade]].
+
+## 2026-05-28 — textbook-ingest-m5 — deferred-without-tracking
+F-FLAG-1 from research-synthesis explicitly said file a follow-up GitHub
+issue at `chris-dare-dev/arXMCP` for `server/lean_repl.py` RLIMIT_AS audit.
+implementation-summary said "Outstanding follow-up: server/lean_repl.py
+audit (separate issue)". `gh issue list --repo chris-dare-dev/arXMCP`
+shows ONLY Threats 2/6/7 — no entry filed. "Deferred without tracking"
+is the named anti-pattern. Always `gh issue list` the repo when an
+implementation summary punts something to "separate follow-up issue" —
+prior pipelines actually filed issues #1-#6 for E13 follow-ups, so the
+expectation is "tracked", not "hand-waved". Treat as HIGH because the
+synthesis literally promised tracking and the deliverable evaporates
+without it.
