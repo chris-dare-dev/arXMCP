@@ -20,7 +20,15 @@
        here are server-written enums / timestamps; the Jinja2 env autoescapes
        (server/routes/ui.py) so they are XSS-safe — do NOT add `| safe`. #}
     <dt>Parse status</dt>
-    <dd><span class="status-badge status-badge--{{ parse_status_css }}">{{ notebook.parse_status | default('unknown', true) }}</span></dd>
+    <dd>
+      <span class="status-badge status-badge--{{ parse_status_css }}">{{ notebook.parse_status | default('unknown', true) }}</span>
+      {# m1 rect F3: clarify that "skipped" is normal for arxiv-kind notebooks
+         (they have no PDF to parse) so the operator does not misread it as
+         "not indexed" — the "Last indexed" line below is the indexing signal. #}
+      {% if notebook.notebook_kind == 'arxiv' %}
+        <span class="hint">PDF parse — arxiv notebooks skip this; see "Last indexed" below for indexing</span>
+      {% endif %}
+    </dd>
     <dt>Last indexed</dt>
     <dd>
       {% if latest_run and (latest_run.finished_at or latest_run.started_at) %}

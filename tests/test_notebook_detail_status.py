@@ -141,6 +141,39 @@ class TestParseStatusBadge:
         assert "status-badge--warn" in r.text  # forward-compat css fallback
 
 
+    @pytest.mark.parametrize(
+        ("parse_status", "expected_css"),
+        [
+            ("complete", "ok"),
+            ("skipped", "ok"),
+            ("pending", "warn"),
+            ("running", "warn"),
+            ("failed", "down"),
+        ],
+    )
+    def test_known_enum_maps_to_expected_badge_class(
+        self, detail_client, parse_status, expected_css
+    ):
+        """m1 rect F1: each known parse_status enum value maps to its
+        _PARSE_STATUS_CSS class (complete/skipped->ok, pending/running->warn,
+        failed->down) and renders the value literally."""
+        client, db_path = detail_client
+        _create_notebook(client, "enum-nb")
+        conn = sqlite3.connect(str(db_path))
+        try:
+            conn.execute(
+                "UPDATE notebooks SET parse_status = ? WHERE slug = ?",
+                (parse_status, "enum-nb"),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        r = client.get("/ui/notebooks/enum-nb")
+        assert r.status_code == 200
+        assert f"status-badge--{expected_css}" in r.text
+        assert parse_status in r.text
+
+
 class TestFreshnessSignal:
     def test_last_indexed_renders_after_a_finished_run(self, detail_client):
         """AC1/AC2: with a finished ingest run, the page shows the
@@ -155,6 +188,23 @@ class TestFreshnessSignal:
         assert r.status_code == 200
         assert "2026-05-28T03:30:00Z" in r.text
         assert "ingest success" in r.text
+        assert "Never indexed" not in r.text
+
+    def test_failed_run_renders_finished_at_and_failed_status(
+        self, detail_client
+    ):
+        """m1 rect F1: a FAILED ingest run still renders its finished_at + the
+        'failed' status (the freshness line is not success-only)."""
+        client, db_path = detail_client
+        _create_notebook(client, "failed-nb")
+        _insert_ingest_run(
+            db_path, "failed-nb",
+            status="failed", finished_at="2026-05-28T03:25:00Z",
+        )
+        r = client.get("/ui/notebooks/failed-nb")
+        assert r.status_code == 200
+        assert "2026-05-28T03:25:00Z" in r.text
+        assert "ingest failed" in r.text
         assert "Never indexed" not in r.text
 
     def test_running_run_with_no_finished_at_falls_back_to_started(
