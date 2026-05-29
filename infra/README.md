@@ -16,8 +16,11 @@ Two compose files ship today:
   docker compose -f infra/docker-compose.yml up --wait    # blocks until /readyz 200
   ```
   See [`../docs/install.md`](../docs/install.md) § "Run via Docker Compose" for
-  the full flow (incl. the Linux-only `chown` pre-step). The **ingest service +
-  a Litestream sidecar are a deliberate v1 increment** — not yet shipped.
+  the full flow (incl. the Linux-only `chown` pre-step). **Corpus prerequisite:**
+  the server warms its corpus eagerly at startup, so `var/arxmcp` must already
+  hold an ingested corpus (or set `ARXMCP_NOTEBOOK=<slug>`) — an empty tree makes
+  the container EXIT at startup, not serve a 503. The **ingest service + a
+  Litestream sidecar are a deliberate v1 increment** — not yet shipped.
 
 - [`observability/phoenix-compose.yml`](observability/phoenix-compose.yml) —
   opt-in Phoenix UI + OTLP collector (E14_S03). Run with:

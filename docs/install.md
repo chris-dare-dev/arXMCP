@@ -172,8 +172,21 @@ server as a non-root container (UID 1000), published on **loopback only**
 v1 increment (see *Out of scope*); the stdio shim still runs on the host, not
 in Docker.
 
+> **Corpus prerequisite (required).** The server warms its corpus EAGERLY at
+> startup, so it needs a populated corpus BEFORE `docker compose up` — either an
+> ingested shared corpus at `var/arxmcp/index/lancedb` (seed-fetch + ingest;
+> see *Optional ingest system deps* above and the line about running the ingest
+> pipeline in *Troubleshooting*) OR a notebook corpus served via
+> `ARXMCP_NOTEBOOK=<slug>` (set it in the compose `environment:` block). With an
+> EMPTY `var/arxmcp` (just after `make bootstrap`), `open_chunks_table` raises
+> `FileNotFoundError` and the container **EXITS at startup** (it does NOT serve a
+> 503) — `docker compose up --wait` then reports the service unhealthy and exits
+> non-zero. Populate the corpus first.
+
 ```sh
 # 1. Create the gitignored var/arxmcp/ tree the container bind-mounts.
+#    (Then populate a corpus — see the Corpus prerequisite note above; an
+#    empty var/arxmcp makes the container exit at startup.)
 make bootstrap
 
 # 2. One-time ownership pre-step — LINUX ONLY:
@@ -206,6 +219,14 @@ Notes:
   absent from the compose env; the v1 ingest service will require it.
 - **Resource limits.** `mem_limit: 8g` / `cpus: 4.0` are conservative starting
   points (BGE-M3 + the reranker + LanceDB); tune in `infra/docker-compose.yml`.
+- **Bind-mount scope.** The compose mounts the ENTIRE repo-root `var/arxmcp`
+  read-write (matching the image `WORKDIR /app` + `VOLUME /app/var/arxmcp`).
+  That includes notebook metadata (`cache/notebooks.db`), uploaded PDFs, every
+  per-notebook corpus, and the restic-relevant ops tree — not just the shared
+  index the server-only v0 reads. This is acceptable under the loopback-only
+  single-workstation threat model (you own the host + data), but it is broader
+  than "server only"; a future v1 ingest increment may narrow the mount to the
+  subset each service needs.
 
 ### Serving a notebook corpus
 

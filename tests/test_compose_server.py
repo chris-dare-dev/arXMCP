@@ -107,8 +107,11 @@ def test_in_container_bind_override_env() -> None:
     assert env.get("ARXMCP_BIND_HOST") == "0.0.0.0", (
         "ARXMCP_BIND_HOST must be 0.0.0.0 inside the container"
     )
-    assert env.get("ARXMCP_UNSAFE_NETWORK_BIND") in ("1", "true", "True"), (
-        "ARXMCP_UNSAFE_NETWORK_BIND must be set or config parse rejects the "
+    # m3 critique F5: pin to the exact value the compose uses ("1") rather
+    # than a looser set — the accepted value must remain a pydantic-settings
+    # bool-truthy string AND match what the container actually sets.
+    assert env.get("ARXMCP_UNSAFE_NETWORK_BIND") == "1", (
+        "ARXMCP_UNSAFE_NETWORK_BIND must be '1' or config parse rejects the "
         "0.0.0.0 bind"
     )
 
@@ -140,6 +143,46 @@ def test_resource_limits_set() -> None:
     assert "cpus" in svc, "cpus required"
 
 
+def test_restart_policy_is_no() -> None:
+    """m3 critique F2: restart is a recorded judgment call (RESOLVED #2 — v0
+    uses 'no', diverging from 08-security's 'always-on'). Pin it so a silent
+    regression to 'unless-stopped' (which reloads BGE-M3 ~2.3GB on every
+    reboot) is caught. Operators who WANT auto-restart change it deliberately
+    (documented in docs/install.md) — and would update this test."""
+    svc = _service(yaml.safe_load(COMPOSE_PATH.read_text(encoding="utf-8")))
+    assert svc.get("restart") == "no", (
+        f"server restart policy must be 'no' for v0 (explicit operator "
+        f"control; see RESOLVED #2); got {svc.get('restart')!r}"
+    )
+
+
+def test_install_doc_states_corpus_prerequisite() -> None:
+    """m3 critique F1 regression guard: the documented compose happy-path
+    crashes at startup on an empty corpus (the server warms eagerly;
+    open_chunks_table raises FileNotFoundError → uvicorn exits). The
+    "Run via Docker Compose" section MUST tell the operator a corpus is
+    required first, or the headline flow is non-functional for a fresh user."""
+    install = (REPO_ROOT / "docs" / "install.md").read_text(encoding="utf-8")
+    marker = "Run via Docker Compose"
+    assert marker in install, "compose section missing from docs/install.md"
+    section = install.split(marker, 1)[1]
+    # Bound the window to this section (stop at the next H3) so the assertion
+    # is about the compose flow, not the bare-metal troubleshooting note.
+    section = section.split("\n### ", 1)[0]
+    lowered = section.lower()
+    assert "corpus prerequisite" in lowered, (
+        "compose section must carry a 'Corpus prerequisite' callout"
+    )
+    assert "ingest" in lowered or "arxmcp_notebook" in lowered, (
+        "compose section must point at the ingest path or ARXMCP_NOTEBOOK "
+        "as the way to populate a corpus before `docker compose up`"
+    )
+    assert "exit" in lowered, (
+        "compose section must warn that an empty corpus EXITS the container "
+        "at startup (not a graceful 503)"
+    )
+
+
 def test_builds_from_project_dockerfile() -> None:
     svc = _service(yaml.safe_load(COMPOSE_PATH.read_text(encoding="utf-8")))
     build = svc.get("build", {})
@@ -159,10 +202,21 @@ def test_dockerfile_base_images_are_sha256_pinned() -> None:
     assert len(from_lines) >= 2, (
         f"expected >=2 FROM python: stages; got {from_lines!r}"
     )
+    digests = []
     for ln in from_lines:
         assert "@sha256:" in ln, (
             f"FROM line is not digest-pinned: {ln!r}"
         )
+        # Extract the hex digest after @sha256: up to the next space (the
+        # `AS <stage>` suffix).
+        digest = ln.split("@sha256:", 1)[1].split()[0]
+        digests.append(digest)
+    # m3 critique F4: enforce the "Keep both stages on the SAME digest" comment
+    # — divergent builder/runtime base images is a reproducibility/supply-chain
+    # foot-gun (wheel built against one libc/openssl, run against another).
+    assert len(set(digests)) == 1, (
+        f"all FROM python: stages must share ONE @sha256 digest; got {digests!r}"
+    )
 
 
 @pytest.mark.skipif(

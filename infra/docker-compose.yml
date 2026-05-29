@@ -43,6 +43,13 @@ services:
       #
       # The container path matches the Dockerfile's WORKDIR /app + VOLUME
       # /app/var/arxmcp. Run `make bootstrap` first so the host tree exists.
+      #
+      # SCOPE (m3 critique F3): this mounts the ENTIRE var/arxmcp read-write —
+      # incl. cache/notebooks.db, uploaded PDFs, every per-notebook corpus, and
+      # the restic-relevant ops tree — not just the shared index this server-only
+      # v0 reads. Acceptable under the loopback-only single-workstation threat
+      # model (operator owns host + data); a future v1 ingest increment may
+      # narrow the mount per-service. See docs/install.md §"Bind-mount scope".
       - ../var/arxmcp:/app/var/arxmcp
 
     environment:
