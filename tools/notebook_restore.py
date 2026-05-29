@@ -164,6 +164,18 @@ def _read_manifest(tar: tarfile.TarFile) -> dict:
         raise NotebookError(
             "bundle is missing required member 'manifest.json'"
         ) from exc
+    # m7-rect F3: ``_read_manifest`` runs BEFORE the full ``_safe_member``
+    # pre-pass, so guard the manifest.json member's type explicitly here.
+    # Python ``tarfile.extractfile`` silently follows intra-archive symlinks
+    # — a SYMTYPE/LNKTYPE manifest.json could otherwise be sourced from a
+    # member of the attacker's choice (no persistent side effect, but the
+    # parsed dict would be attacker-controlled). The pre-pass would catch
+    # this too; this is defense-in-depth for the ordering smell.
+    if member.issym() or member.islnk():
+        raise NotebookError(
+            "bundle 'manifest.json' is a sym/hardlink member (refused; "
+            "tarfile.extractfile silently follows intra-archive links)"
+        )
     extracted = tar.extractfile(member)
     if extracted is None:
         raise NotebookError("bundle 'manifest.json' is not a regular file")
@@ -265,6 +277,25 @@ def _restore_db_rows(
                     f"to overwrite (cascades to notebook_papers)"
                 )
             if exists:
+                # m7-rect F2: emit a stderr WARN before the destructive
+                # DELETE — mirrors the ``tools/notebook_purge.py`` precedent
+                # ("--force does NOT silence the warning"). Operator-auditable
+                # trace of what's about to go.
+                old_name_row = conn.execute(
+                    "SELECT display_name FROM notebooks WHERE slug = ?",
+                    (slug,),
+                ).fetchone()
+                old_paper_count = conn.execute(
+                    "SELECT COUNT(*) FROM notebook_papers WHERE slug = ?",
+                    (slug,),
+                ).fetchone()[0]
+                print(
+                    f"WARN: --force will DELETE notebook {slug!r} "
+                    f"(display={(old_name_row[0] if old_name_row else '')!r}, "
+                    f"{old_paper_count} paper(s) via FK cascade) before "
+                    f"re-INSERT from the bundle.",
+                    file=sys.stderr,
+                )
                 conn.execute(
                     "DELETE FROM notebooks WHERE slug = ?", (slug,)
                 )
@@ -342,9 +373,14 @@ def restore_bundle(
             # m7 D4 step 8: target lancedb_path is DERIVED from the target
             # base; never reuse the m6-omitted absolute path.
             target_lancedb_path = str(target_dir / "lancedb")
-            # DB rows first (transactional; rolls back on any error). m6's
-            # extraction is non-transactional so we want the DB to be sane
-            # even if extraction fails mid-stream.
+            # m7-rect F1: DB rows first so a tar-extract failure surfaces a
+            # rollback-state where the operator runs ``notebook_purge.py
+            # <slug> --force`` to clear the DB row + removes the half-populated
+            # ``<base>/<slug>/`` dir manually. The DB row + on-disk assets are
+            # designed to be INDEPENDENTLY PURGEABLE (synthesis D4); a
+            # mid-stream extract failure leaves a ``notebooks`` row pointing at
+            # a partial dir — NOT a "sane DB". The operator-recovery path is
+            # the honest framing, not "atomicity".
             _restore_db_rows(
                 db_path,
                 slug=slug,

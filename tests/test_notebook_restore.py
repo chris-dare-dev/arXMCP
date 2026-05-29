@@ -233,13 +233,35 @@ class TestMaliciousBundle:
         self, bundle: Path, tgt_base: Path, tgt_db: Path
     ) -> NotebookError:
         """Restore must raise NotebookError; the target slug dir must NOT have
-        been created (the pre-pass aborts BEFORE any extraction)."""
+        been created (the pre-pass aborts BEFORE any extraction); AND
+        (m7-rect F4) the DB must be UNCHANGED (no half-committed transaction)."""
         _init_target_db(tgt_db)
         with pytest.raises(NotebookError) as exc:
             restore_bundle(
                 bundle, notebooks_base=tgt_base, db_path=tgt_db, force=False
             )
         assert not (tgt_base / _GOOD_SLUG).exists()
+        # m7-rect F4: the DB must not carry a half-committed row.
+        conn = sqlite3.connect(str(tgt_db))
+        try:
+            n_nb = conn.execute(
+                "SELECT COUNT(*) FROM notebooks WHERE slug = ?",
+                (_GOOD_SLUG,),
+            ).fetchone()[0]
+            n_papers = conn.execute(
+                "SELECT COUNT(*) FROM notebook_papers WHERE slug = ?",
+                (_GOOD_SLUG,),
+            ).fetchone()[0]
+        finally:
+            conn.close()
+        assert n_nb == 0, (
+            f"DB carries {n_nb} notebooks row(s) for {_GOOD_SLUG!r} after "
+            f"rejection — restore_bundle leaked a DB write before aborting."
+        )
+        assert n_papers == 0, (
+            f"DB carries {n_papers} paper row(s) for {_GOOD_SLUG!r} after "
+            f"rejection."
+        )
         return exc.value
 
     def test_absolute_path_member_rejected(self, tmp_path) -> None:
@@ -257,6 +279,9 @@ class TestMaliciousBundle:
         assert ".." in str(err) or "traversal" in str(err).lower()
 
     def test_symlink_member_rejected(self, tmp_path) -> None:
+        """m7-rect F5: pin Layer 1's specific 'sym/hardlink' message — so a
+        future refactor that weakens ``_safe_member`` doesn't pass silently on
+        Layer 2 (PEP 706 ``filter='data'``) alone."""
         bundle = tmp_path / "evil.tar"
         sym = _det_tarinfo("good-nb/sym")
         sym.type = tarfile.SYMTYPE
@@ -264,7 +289,7 @@ class TestMaliciousBundle:
         sym.size = 0
         _write_tar(bundle, [_manifest_member(_GOOD_MANIFEST), (sym, None)])
         err = self._assert_rejected(bundle, tmp_path / "tgt", tmp_path / "tgt.db")
-        assert "link" in str(err).lower()
+        assert "sym/hardlink" in str(err).lower()  # Layer 1's message
 
     def test_hardlink_member_rejected(self, tmp_path) -> None:
         bundle = tmp_path / "evil.tar"
@@ -274,7 +299,7 @@ class TestMaliciousBundle:
         hl.size = 0
         _write_tar(bundle, [_manifest_member(_GOOD_MANIFEST), (hl, None)])
         err = self._assert_rejected(bundle, tmp_path / "tgt", tmp_path / "tgt.db")
-        assert "link" in str(err).lower()
+        assert "sym/hardlink" in str(err).lower()  # Layer 1's message
 
     def test_device_member_rejected(self, tmp_path) -> None:
         bundle = tmp_path / "evil.tar"
@@ -345,6 +370,30 @@ class TestManifestContract:
             )
         assert "slug" in str(exc.value).lower()
 
+    def test_symtype_manifest_json_rejected(self, tmp_path) -> None:
+        """m7-rect F3: a SYMTYPE ``manifest.json`` member is rejected by
+        ``_read_manifest``'s early guard BEFORE ``tar.extractfile`` is called
+        (which would silently follow the intra-archive symlink and parse an
+        attacker-chosen JSON body). Defense-in-depth for the ordering smell:
+        ``_safe_member`` runs LATER, so the early guard is what closes this
+        class on the consumer side."""
+        bundle = tmp_path / "evil.tar"
+        sym = _det_tarinfo("manifest.json")
+        sym.type = tarfile.SYMTYPE
+        sym.linkname = "other.json"
+        sym.size = 0
+        _write_tar(bundle, [(sym, None)])
+        tgt_db = tmp_path / "tgt.db"
+        _init_target_db(tgt_db)
+        with pytest.raises(NotebookError) as exc:
+            restore_bundle(
+                bundle,
+                notebooks_base=tmp_path / "tgt",
+                db_path=tgt_db,
+            )
+        assert "manifest" in str(exc.value).lower()
+        assert "sym/hardlink" in str(exc.value).lower()
+
     def test_manifest_top_slug_disagrees_with_notebook_slug(self, tmp_path) -> None:
         bad_manifest = dict(
             _GOOD_MANIFEST,
@@ -393,7 +442,7 @@ class TestForceSemantics:
         assert "already exists in DB" in str(exc.value)
         assert "--force" in str(exc.value)
 
-    def test_existing_db_row_with_force_overwrites(self, tmp_path) -> None:
+    def test_existing_db_row_with_force_overwrites(self, tmp_path, capsys) -> None:
         bundle = self._build_minimal_bundle(tmp_path)
         tgt_base = tmp_path / "tgt"
         tgt_db = tmp_path / "tgt.db"
@@ -401,6 +450,7 @@ class TestForceSemantics:
         restore_bundle(
             bundle, notebooks_base=tgt_base, db_path=tgt_db, force=False
         )
+        capsys.readouterr()  # discard any output from the first restore
         # With --force, the DB row is replaced (DELETE + INSERT cascades).
         report = restore_bundle(
             bundle, notebooks_base=tgt_base, db_path=tgt_db, force=True
@@ -408,6 +458,51 @@ class TestForceSemantics:
         assert report.forced is True
         nb, _ = _read_target_rows(tgt_db, _GOOD_SLUG)
         assert nb is not None
+        # m7-rect F2: --force MUST emit a stderr WARN before the DELETE
+        # (precedent: tools/notebook_purge.py — "--force does NOT silence
+        # the warning"). The line names the slug + paper count.
+        err = capsys.readouterr().err
+        assert "WARN" in err
+        assert "--force" in err
+        assert _GOOD_SLUG in err
+        assert "paper(s)" in err
+
+    def test_force_warning_lists_pre_existing_paper_count(
+        self, tmp_path, capsys
+    ) -> None:
+        """m7-rect F2 regression guard: the WARN line correctly enumerates
+        the count of papers that the cascade is about to destroy. Seed two
+        papers into the existing slug via the source server, then
+        --force-restore an EMPTY-papers bundle and assert ``2 paper(s)`` in
+        the WARN."""
+        bundle = self._build_minimal_bundle(tmp_path)
+        tgt_base = tmp_path / "tgt"
+        tgt_db = tmp_path / "tgt.db"
+        _init_target_db(tgt_db)
+        # First restore (no force): inserts the row with 0 papers.
+        restore_bundle(
+            bundle, notebooks_base=tgt_base, db_path=tgt_db, force=False
+        )
+        # Add two papers directly to the target DB before --force-restore.
+        conn = sqlite3.connect(str(tgt_db))
+        try:
+            conn.executemany(
+                "INSERT INTO notebook_papers (slug, paper_id, added_at) "
+                "VALUES (?, ?, ?)",
+                [
+                    (_GOOD_SLUG, "2401.00001", "2026-05-29T00:00:00+00:00"),
+                    (_GOOD_SLUG, "2401.00002", "2026-05-29T00:00:00+00:00"),
+                ],
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        capsys.readouterr()
+        restore_bundle(
+            bundle, notebooks_base=tgt_base, db_path=tgt_db, force=True
+        )
+        err = capsys.readouterr().err
+        assert "2 paper(s)" in err
 
     def test_existing_on_disk_dir_rejected_even_with_force(self, tmp_path) -> None:
         """m7 D2: on-disk clobber is REFUSED unconditionally. --force is for
@@ -449,6 +544,39 @@ class TestCLI:
         out = capsys.readouterr().out
         assert "restored" in out
         assert _GOOD_SLUG in out
+
+    def test_main_force_flag_plumbed_through(self, tmp_path, capsys) -> None:
+        """m7-rect F6: assert the argparse ``--force`` flag actually plumbs to
+        ``restore_bundle(force=True)`` end-to-end — closes the wiring gap (a
+        future typo like ``force=args.foce`` would slip past the Python-level
+        tests that call ``restore_bundle()`` directly)."""
+        bundle = tmp_path / "ok.tar"
+        _write_tar(bundle, [_manifest_member(_GOOD_MANIFEST)])
+        tgt_base = tmp_path / "tgt"
+        tgt_db = tmp_path / "tgt.db"
+        _init_target_db(tgt_db)
+        # First restore without --force.
+        rc1 = main([
+            str(bundle),
+            "--notebooks-base", str(tgt_base),
+            "--db", str(tgt_db),
+        ])
+        assert rc1 == 0
+        capsys.readouterr()  # discard first-pass output
+        # Second restore needs --force — wired through argparse.
+        rc2 = main([
+            str(bundle),
+            "--notebooks-base", str(tgt_base),
+            "--db", str(tgt_db),
+            "--force",
+        ])
+        assert rc2 == 0
+        captured = capsys.readouterr()
+        # The F2 stderr WARN confirms --force reached _restore_db_rows.
+        assert "WARN" in captured.err
+        assert "--force" in captured.err
+        # The success print on stdout carries the "--force; DB row overwritten" tag.
+        assert "--force" in captured.out
 
     def test_main_failure_exit_code(self, tmp_path, capsys) -> None:
         bundle = tmp_path / "missing-manifest.tar"

@@ -43,7 +43,7 @@ base+db. (Epic e3, piece 2/2 — **completes the roadmap.**)
   `--force`. Separation keeps file-write and DB-write security surfaces
   independently auditable.
 
-### `tests/test_notebook_restore.py` (new, 16 tests)
+### `tests/test_notebook_restore.py` (new, 19 tests — 3 added in m7-rect for F2/F3/F6; F4/F5 strengthened existing helpers/asserts)
 - **End-to-end round-trip** — seed source via the m6 fixture (TestClient), GET
   the export route, write the tar, `restore_bundle()` into a SEPARATE fresh
   base+db, assert: DB rows match (slug, display_name, notebook_kind,
