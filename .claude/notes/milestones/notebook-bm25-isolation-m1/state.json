@@ -1,0 +1,102 @@
+{
+  "brief_source": "",
+  "created_at": "2026-05-29T17:00:10Z",
+  "critics_run": [],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "low": 1,
+    "medium": 3
+  },
+  "critique_path": ".claude/notes/milestones/notebook-bm25-isolation-m1/critique-adversary.md",
+  "deferred_findings": [],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_required": [],
+  "fixed_findings": [
+    "F1",
+    "F2",
+    "F3",
+    "F4"
+  ],
+  "id": "notebook-bm25-isolation-m1",
+  "implementation_base": "096be650bbe1cc673fa62a94f6e263551156c945",
+  "implementation_branch": "main",
+  "implementation_commit_range": "d073c0a2c63a863d1a951cae0f2d11e1f56392b3..f6138a5",
+  "implementation_commits": [
+    "f6138a5"
+  ],
+  "implementation_path": "delegated",
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "notebook-bm25-isolation-m1 \u2014 Per-notebook BM25 index root (fork-C startup collision)\n\nThe follow-up filed by notebook-cutover-m1's F1 (HIGH). Read that critique first:\n.claude/notes/milestones/notebook-cutover-m1/critique-merged.md (F1, lines 28-37).\n\nPROBLEM. The BM25 index root is GLOBAL and keyed ONLY by the per-dataset MVCC version\ninteger: BM25_INDEX_ROOT = var/arxmcp/index/bm25/ and bm25_index_dir(version) ->\nBM25_INDEX_ROOT / f\"v{version}\" (ingest/bm25_indexer.py:104,114). Fork-C\n(ARXMCP_NOTEBOOK=<slug>) serves a per-notebook corpus: the config model-validator\nderive_notebook_lancedb_path rewrites lancedb_path to var/arxmcp/notebooks/<slug>/lancedb\n(server/config.py:98-118), and the cache is isolated too (cache_db_path,\nnotebooks_db_path). BUT the BM25 root is NOT isolated \u2014 it stays the global\nvar/arxmcp/index/bm25/v<N>/. So a notebook (e.g. shimura at v49) and the shared corpus\n(or another notebook) at the same version integer N COLLIDE on bm25/vN/. Fork-C startup\n(server/resources.py BM25Phase.startup, ~:407-413) loads bm25/vN/bm25.pkl and\ncross-checks its chunk_ids against the LIVE (notebook) LanceDB table (E07_S01 F4); a\ncollision makes the notebook unbootable (chunk_id mismatch) or serves the wrong index /\nphantom candidates.\n\nFIX. Isolate the BM25 root per-notebook \u2014 the BM25 analog of the existing fork-C\nlancedb_path / cache_db_path isolation. For fork-C the BM25 root should live under the\nnotebook's own tree (e.g. var/arxmcp/notebooks/<slug>/index/bm25/v<N>/), derived the same\nway derive_notebook_lancedb_path rewrites lancedb_path. The shared (non-notebook) server\nkeeps the global var/arxmcp/index/bm25/v<N>/ root UNCHANGED.\n\nLIKELY SEAMS (researchers verify CURRENT file:line):\n- ingest/bm25_indexer.py: BM25_INDEX_ROOT (:104), bm25_index_dir(version) (:114),\n  build_bm25_index (:245) \u2014 must accept/derive a configurable root, not hardcode the\n  global constant.\n- server/config.py: add a bm25_index_root field (default the global root), rewritten by\n  the fork-C model-validator alongside lancedb_path (mirror derive_notebook_lancedb_path,\n  :98-118).\n- server/resources.py + server/retrieval (BM25Phase.startup, ~:407-413): derive the BM25\n  root from config so fork-C loads/builds under the notebook root.\n- Confirm whether the eval/CLI build paths (tools/, ingest CLIs) that call\n  build_bm25_index need the root threaded too.\n\nACCEPTANCE CRITERIA:\n- A fork-C server (ARXMCP_NOTEBOOK=<slug>) loads/builds its BM25 index under the\n  notebook's OWN root (var/arxmcp/notebooks/<slug>/index/bm25/v<N>/), NOT the global root.\n- The shared (non-notebook) server uses the global var/arxmcp/index/bm25/v<N>/ root,\n  unchanged (no regression to the existing shared-corpus path).\n- Regression test: two datasets at the SAME version integer N (shared + notebook, or two\n  notebooks) resolve to DIFFERENT BM25 roots \u2014 no collision, no chunk_id cross-check\n  failure. MUST fail on the pre-fix global-root code.\n- EXPECTED_TOOL_SCHEMA_SHA256 + EXPECTED_BP1_SHA256 UNCHANGED (no MCP tool surface change);\n  no CHUNKER_VERSION bump; make test green.\n\nCONSTRAINTS: local-first; no new dependency; assert banned for invariants in server/+ingest/;\npure-ASGI only (n/a here). Optionally note whether notebook_cutover.py can now safely\nre-add the per-notebook BM25 build (was removed by F1) \u2014 but that re-add is OPTIONAL /\ncan be a separate follow-up; the core deliverable is the per-notebook root + fork-C\nstartup coordination.\n\nExternal writes: none expected (purely local).",
+  "phase": "complete",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-29T17:00:10Z",
+      "left_at": "2026-05-29T17:00:49Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-29T17:00:49Z",
+      "left_at": "2026-05-29T17:06:52Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-29T17:06:52Z",
+      "left_at": "2026-05-29T17:07:24Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-05-29T17:07:24Z",
+      "left_at": "2026-05-29T17:31:25Z",
+      "phase": "implement-running"
+    },
+    {
+      "entered_at": "2026-05-29T17:31:25Z",
+      "left_at": "2026-05-29T17:31:25Z",
+      "phase": "implement-complete"
+    },
+    {
+      "entered_at": "2026-05-29T17:31:25Z",
+      "left_at": "2026-05-29T17:37:21Z",
+      "phase": "critique-running"
+    },
+    {
+      "entered_at": "2026-05-29T17:37:21Z",
+      "left_at": "2026-05-29T17:37:21Z",
+      "phase": "critique-complete"
+    },
+    {
+      "entered_at": "2026-05-29T17:37:21Z",
+      "left_at": "2026-05-29T17:44:13Z",
+      "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-05-29T17:44:13Z",
+      "left_at": null,
+      "phase": "complete"
+    }
+  ],
+  "rectification_commit": "27ccb542485728609be53b04d0000099a24a882a",
+  "regression_tests_added": [
+    "tests/test_bm25.py",
+    "tests/test_server_startup.py",
+    "tests/tools/test_notebook_scripts.py"
+  ],
+  "research_briefs": [
+    {
+      "agent_id": "researcher-1",
+      "brief_path": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/notebook-bm25-isolation-m1/research-brief-1.md",
+      "summary": "seam map; index_root param; keep BM25_INDEX_ROOT global for ~40 tests"
+    },
+    {
+      "agent_id": "researcher-2",
+      "brief_path": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/notebook-bm25-isolation-m1/research-brief-2.md",
+      "summary": "7 FMs; None-default preserves monkeypatch; remove notebook_ingest sentinel"
+    }
+  ],
+  "research_mode": "standard",
+  "research_synthesis": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/notebook-bm25-isolation-m1/research-synthesis.md",
+  "updated_at": "2026-05-29T17:44:13Z"
+}
