@@ -240,14 +240,52 @@ What to back up:
   + chunker + embedder, but takes ~1–2 days of GPU time.
 - **Kùzu graph:** `/var/arxmcp/index/kuzu/`. Re-buildable from OpenAlex +
   INSPIRE, takes hours.
+- **Notebooks (user data):** `/var/arxmcp/notebooks/`
+  (notebook-ops-hardening-m1). Contains **user-uploaded PDFs** (the ONLY
+  source copy), `papers.txt` / `queries.json` (user-authored), and the
+  per-notebook LanceDB embedding store + `lancedb-prev-*` rollback targets.
+  Non-regenerable in practice — re-embedding needs MinerU + LaTeXML + BGE-M3
+  and the source PDFs may not be re-obtainable. The per-notebook query cache
+  `/<slug>/cache/retrieval.db` IS regenerable and is **excluded**
+  (`--exclude "*/cache/retrieval.db"`).
+- **Notebook metadata:** `/var/arxmcp/cache/notebooks.db`
+  (notebook-ops-hardening-m1). **EXCEPTION to the cache-exclusion policy
+  below** — it is user-authored state (notebook membership, slugs,
+  uploaded-paper provenance), not a regenerable cache. It runs in WAL mode
+  (`synchronous=FULL` + `fullfsync=ON` since notebook-ops-hardening-m2), so
+  the backup wrapper runs `PRAGMA wal_checkpoint(TRUNCATE)` on it
+  (`ops/checkpoint_notebooks_db.py`) **before** the snapshot — a file-level
+  copy of a WAL-mode DB without a checkpoint can restore a state behind the
+  last committed transaction.
 - **Caches:** `/var/arxmcp/cache/`. NOT backed up; re-buildable on demand.
+  **Exception:** `notebooks.db` (above) is backed up; the regenerable
+  `retrieval.db` query caches (global + per-notebook) stay excluded.
 
 Strategy: nightly snapshot via `restic` (https://restic.net) to a local NAS
 or to Backblaze B2 (S3-compatible, $6/TB/month, deduped). The user constraint
 "no S3" was about not paying AWS for arXiv; B2 for backup is a different
-question and a small cost (~$3/month for 500GB).
+question and a small cost (~$3/month for 500GB). The include-list is a
+`--files-from-verbatim -` manifest in `ops/cron/arxmcp-backup.sh`; retention
+is `--keep-daily 7 --keep-weekly 4 --keep-monthly 12` with `--group-by host`
+(so a manifest change does not fragment the retention window into separate
+paths-groups).
 
-Restore drill: quarterly. Document the runbook.
+Restore drill: quarterly. Runs `restic check --read-data-subset=5%` (pack-file
+integrity) then a restore + smoke check (`ops/restore_drill_check.py`) that
+verifies LanceDB rows, the Kùzu graph, and — since
+notebook-ops-hardening-m1 — `notebooks.db` (`PRAGMA integrity_check`) plus a
+restored-PDF count. Document the runbook.
+
+Residual backup risks (documented, accepted):
+- **Torn LanceDB snapshot:** a file-level copy of a LanceDB dataset mid-write
+  could reference a half-written fragment. Mitigated by the ~90-min gap
+  between the ingest close (~04:05) and the backup (04:10); LanceDB MVCC
+  commits the version marker last.
+- **Pruned deleted-notebook snapshot:** notebook deletion is metadata-only
+  (the on-disk `/<slug>/` survives until `tools/notebook_purge.py`). If both
+  the on-disk purge has run AND the retention window has aged out the last
+  snapshot containing it, the data is gone. Acceptable for a single-operator
+  workstation.
 
 ## Daily ops cadence
 

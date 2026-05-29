@@ -5,6 +5,8 @@ and shell-wrapper hygiene."""
 from __future__ import annotations
 
 import os
+import shutil
+import subprocess
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -124,6 +126,97 @@ class TestBackupShellWrapper:
     def test_wrapper_runs_forget_prune(self):
         text = self.wrapper.read_text(encoding="utf-8")
         assert "restic forget --prune" in text
+
+
+class TestBackupWrapperSyntax:
+    """notebook-ops-hardening-m1 regression guard.
+
+    The backup body runs inside ``exec flock ... bash -euo pipefail -c
+    '<body>'`` — a single-quoted string. A stray literal apostrophe inside
+    the body (e.g. ``restic's``) prematurely closes that quote, so the
+    whole script fails to parse and can never run. That bug shipped in
+    E11_S05 and went undetected because every other test in this file only
+    greps the script TEXT — none of them actually parse it. ``restic`` is
+    not installed here, so it was never executed end-to-end either. These
+    tests parse the script so the quote-balance class is caught going
+    forward (the script is now materially more complex)."""
+
+    wrapper = REPO_ROOT / "ops" / "cron" / "arxmcp-backup.sh"
+
+    def test_wrapper_parses_under_bash_n(self):
+        """bash -n must accept the whole script. An odd number of body
+        apostrophes (the E11_S05 bug) makes bash report 'unexpected EOF
+        while looking for matching'."""
+        bash = shutil.which("bash")
+        if bash is None:  # pragma: no cover - bash is always present here
+            import pytest
+
+            pytest.skip("bash not on PATH")
+        result = subprocess.run(
+            [bash, "-n", str(self.wrapper)],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, (
+            f"arxmcp-backup.sh failed `bash -n`:\n{result.stderr}"
+        )
+
+    def test_body_single_quotes_balanced(self):
+        """The bash -c '<body>' wrapper requires an EVEN number of
+        apostrophes; an odd count means a stray literal apostrophe is
+        breaking the body quote (belt-and-suspenders for bash -n)."""
+        text = self.wrapper.read_text(encoding="utf-8")
+        assert text.count("'") % 2 == 0, (
+            "odd apostrophe count — a literal ' is breaking the "
+            "single-quoted bash -c body"
+        )
+
+
+class TestNotebookBackupScope:
+    """notebook-ops-hardening-m1: notebook data + metadata enter scope."""
+
+    wrapper = REPO_ROOT / "ops" / "cron" / "arxmcp-backup.sh"
+
+    def test_checkpoint_helper_exists(self):
+        helper = REPO_ROOT / "ops" / "checkpoint_notebooks_db.py"
+        assert helper.is_file()
+
+    def test_manifest_uses_files_from_verbatim(self):
+        text = self.wrapper.read_text(encoding="utf-8")
+        assert "--files-from-verbatim -" in text
+        # The manifest is piped from printf, not passed positionally.
+        assert 'printf "%s\\n" "${BACKUP_PATHS[@]}"' in text
+
+    def test_manifest_includes_notebook_paths(self):
+        text = self.wrapper.read_text(encoding="utf-8")
+        assert "/var/arxmcp/notebooks" in text
+        assert "/var/arxmcp/cache/notebooks.db" in text
+
+    def test_manifest_excludes_per_notebook_query_cache(self):
+        text = self.wrapper.read_text(encoding="utf-8")
+        assert '--exclude "*/cache/retrieval.db"' in text
+
+    def test_wal_checkpoint_runs_before_backup(self):
+        """The TRUNCATE checkpoint MUST precede the restic backup so the
+        file-level copy of the WAL-mode notebooks.db is self-consistent."""
+        text = self.wrapper.read_text(encoding="utf-8")
+        ckpt = text.index("checkpoint_notebooks_db.py")
+        # Anchor on the actual backup INVOCATION (printf | restic), not the
+        # header-comment mention of --files-from-verbatim.
+        backup = text.index('printf "%s\\n" "${BACKUP_PATHS[@]}"')
+        assert ckpt < backup, (
+            "WAL checkpoint must run before the restic backup"
+        )
+
+    def test_forget_uses_group_by_host(self):
+        text = self.wrapper.read_text(encoding="utf-8")
+        assert "--group-by host" in text
+
+    def test_sentinel_paths_list_notebooks(self):
+        """Both backup-status.json writes must list the new paths."""
+        text = self.wrapper.read_text(encoding="utf-8")
+        assert text.count("/var/arxmcp/notebooks\"") >= 2
+        assert text.count("/var/arxmcp/cache/notebooks.db\"") >= 2
 
 
 class TestGitignoreDiscipline:

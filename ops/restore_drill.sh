@@ -45,6 +45,14 @@ FLAG_PATH="${REPO_ROOT}/var/arxmcp/ops/restore-drill-passed.flag"
 
 mkdir -p "$(dirname "${FLAG_PATH}")"
 
+# notebook-ops-hardening-m1: verify pack-file integrity before the
+# restore. --read-data-subset=5% randomly reads 5% of pack data and
+# confirms it is unmodified since write (a structural-only `restic check`
+# does not read pack bytes). With `set -euo pipefail` a non-zero exit
+# here aborts the drill — a failed integrity check IS a drill failure.
+echo "Verifying repository integrity (restic check --read-data-subset=5%)..."
+restic check --read-data-subset=5%
+
 # Pick the most-recent snapshot via restic's --json output and
 # Python (no jq dep).
 SNAPSHOT_ID="$(restic snapshots --json | python3 -c \

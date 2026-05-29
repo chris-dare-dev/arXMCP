@@ -156,6 +156,82 @@ def smoke_check_kuzu(restore_path: Path) -> int | None:
     return paper_count
 
 
+def _locate_notebooks_db(restore_path: Path) -> Path | None:
+    """Find the restored ``notebooks.db`` via rglob.
+
+    notebook-ops-hardening-m1. Same path-prefix-agnostic discovery as
+    ``_locate_lancedb_root`` (closes adversary F1 from E11_S05): restic
+    preserves absolute source paths under ``--target``, so a backup of
+    ``/opt/arxmcp/var/arxmcp/cache/notebooks.db`` restored to
+    ``/tmp/...`` lands at ``/tmp/.../opt/arxmcp/var/arxmcp/cache/notebooks.db``.
+    Hardcoding the prefix would miss it. Prefer the shallowest match.
+    """
+    candidates = sorted(
+        restore_path.rglob("notebooks.db"),
+        key=lambda p: len(p.parts),
+    )
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def smoke_check_notebooks(restore_path: Path) -> tuple[bool, int]:
+    """Verify restored notebook metadata + uploaded PDFs.
+
+    notebook-ops-hardening-m1. Returns
+    ``(notebooks_db_found, notebook_pdf_count)``.
+
+    ``notebooks.db`` absence is ACCEPTABLE (a pre-m1 snapshot taken before
+    notebooks entered backup scope, or a fresh install with no notebooks)
+    and returns ``(False, <pdf count>)`` — it does NOT fail the drill. A
+    ``notebooks.db`` that EXISTS but fails ``PRAGMA integrity_check`` raises
+    ``RuntimeError`` (a corrupt restore is a real backup failure).
+    """
+    import sqlite3  # noqa: PLC0415
+
+    db_path = _locate_notebooks_db(restore_path)
+    # Count uploaded PDFs anywhere under a restored ``notebooks/`` subtree
+    # (covers both ``pdf-deferred/`` and ``pdfs/`` layouts).
+    pdf_count = sum(
+        1
+        for p in restore_path.rglob("*.pdf")
+        if p.is_file() and "notebooks" in p.parts
+    )
+    if db_path is None:
+        logger.info(
+            "restore_drill: notebooks.db absent under %s — skipping "
+            "(notebook pdfs=%d)",
+            restore_path, pdf_count,
+        )
+        return (False, pdf_count)
+    try:
+        conn = sqlite3.connect(str(db_path))
+        try:
+            row = conn.execute("PRAGMA integrity_check").fetchone()
+        finally:
+            conn.close()
+    except sqlite3.Error as exc:
+        # A garbage/truncated file raises "file is not a database" rather
+        # than returning a non-ok row. Treat any sqlite error as a failed
+        # integrity check so run_check (which catches RuntimeError) reports
+        # it as a drill failure rather than crashing.
+        raise RuntimeError(
+            f"restored notebooks.db at {db_path} failed "
+            f"PRAGMA integrity_check (sqlite error): {exc}"
+        ) from exc
+    if row is None or row[0] != "ok":
+        raise RuntimeError(
+            f"restored notebooks.db at {db_path} failed "
+            f"PRAGMA integrity_check: {row}"
+        )
+    logger.info(
+        "restore_drill: notebooks.db ok at %s (notebook pdfs=%d)",
+        db_path, pdf_count,
+    )
+    return (True, pdf_count)
+
+
 def write_pass_sentinel(
     *,
     flag_path: Path,
@@ -163,12 +239,16 @@ def write_pass_sentinel(
     restore_path: Path,
     lancedb_row_count: int,
     kuzu_paper_count: int | None,
+    notebooks_db_found: bool = False,
+    notebook_pdf_count: int = 0,
 ) -> None:
     """Atomically write the restore-drill-passed.flag."""
     flag_path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "kuzu_paper_count": kuzu_paper_count,
         "lancedb_row_count": lancedb_row_count,
+        "notebook_pdf_count": notebook_pdf_count,
+        "notebooks_db_found": notebooks_db_found,
         "restore_path": str(restore_path),
         "restored_at": _utc_iso(),
         "smoke_check": "passed",
@@ -192,6 +272,7 @@ def run_check(
     try:
         rows = smoke_check_lancedb(restore_path)
         papers = smoke_check_kuzu(restore_path)
+        nb_found, nb_pdfs = smoke_check_notebooks(restore_path)
     except RuntimeError as exc:
         logger.error("restore_drill: %s", exc)
         return 1
@@ -201,10 +282,14 @@ def run_check(
         restore_path=restore_path,
         lancedb_row_count=rows,
         kuzu_paper_count=papers,
+        notebooks_db_found=nb_found,
+        notebook_pdf_count=nb_pdfs,
     )
     print(
         f"restore drill PASSED: lancedb_rows={rows} "
-        f"kuzu_papers={papers if papers is not None else '-'}"
+        f"kuzu_papers={papers if papers is not None else '-'} "
+        f"notebooks_db={'yes' if nb_found else 'no'} "
+        f"notebook_pdfs={nb_pdfs}"
     )
     return 0
 
@@ -250,5 +335,6 @@ __all__ = [
     "run_check",
     "smoke_check_kuzu",
     "smoke_check_lancedb",
+    "smoke_check_notebooks",
     "write_pass_sentinel",
 ]

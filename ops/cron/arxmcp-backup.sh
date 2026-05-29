@@ -2,9 +2,16 @@
 # E11_S05 nightly restic backup wrapper.
 #
 # Backs up the corpus (`var/arxmcp/index/lancedb/`,
-# `var/arxmcp/index/kuzu/`, `var/arxmcp/corpus/chunks/`) to the
+# `var/arxmcp/index/kuzu/`, `var/arxmcp/corpus/chunks/`) plus
+# non-regenerable notebook data (`var/arxmcp/notebooks/` and the
+# notebook-metadata DB `var/arxmcp/cache/notebooks.db`) to the
 # repository configured in `ops/restic-env.sh`. Applies retention
 # (7 daily / 4 weekly / 12 monthly) after the backup completes.
+#
+# notebook-ops-hardening-m1: the include-list is passed as a
+# `--files-from-verbatim -` manifest (printf piped to restic stdin),
+# and `notebooks.db` is WAL-checkpointed before the snapshot so the
+# file-level copy is self-consistent without -wal/-shm sidecars.
 #
 # Schedule: nightly at 03:30 (90 min after the delta loop fires)
 # via `ops/systemd/arxmcp-backup.{service,timer}` OR a crontab.
@@ -67,26 +74,59 @@ STATUS_FILE="'"${REPO_ROOT}"'/var/arxmcp/ops/backup-status.json"
 TMP_STATUS="${STATUS_FILE}.tmp"
 STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
+# notebook-ops-hardening-m1: include non-regenerable user data.
+#   - notebooks/ (whole subtree): uploaded PDFs (pdf-deferred/, pdfs/),
+#     papers.txt, queries.json, the per-notebook LanceDB embedding store,
+#     and lancedb-prev-* rollback targets. Included despite LanceDB being
+#     nominally regenerable because re-embedding (MinerU + LaTeXML +
+#     BGE-M3) is expensive and the uploaded PDFs are the ONLY source copy.
+#     The per-notebook query cache (cache/retrieval.db) IS regenerable and
+#     is excluded below.
+#   - cache/notebooks.db: notebook metadata. An EXCEPTION to the general
+#     "var/arxmcp/cache/ is not backed up" policy: it is user-authored
+#     state, not a regenerable cache (retrieval.db stays excluded). See
+#     .claude/notes/08-security-observability-ops.md.
 BACKUP_PATHS=(
     "'"${REPO_ROOT}"'/var/arxmcp/index/lancedb"
     "'"${REPO_ROOT}"'/var/arxmcp/index/kuzu"
     "'"${REPO_ROOT}"'/var/arxmcp/corpus/chunks"
+    "'"${REPO_ROOT}"'/var/arxmcp/notebooks"
+    "'"${REPO_ROOT}"'/var/arxmcp/cache/notebooks.db"
 )
 
-# Run the backup. Exclude transient artifacts.
+# notebook-ops-hardening-m1 (CRITICAL): TRUNCATE-checkpoint the
+# notebooks.db WAL before the snapshot so the file-level copy is
+# self-consistent without -wal/-shm sidecars. Without this, a restore
+# can silently roll back to a state behind the last committed
+# transaction. WARN (do not fail) on a busy/partial checkpoint: a
+# slightly-behind DB is degraded, not corrupt, and the 03:30 backup runs
+# in the idle window.
+NOTEBOOKS_DB="'"${REPO_ROOT}"'/var/arxmcp/cache/notebooks.db"
+CHECKPOINT_STATUS="$(python3 "'"${REPO_ROOT}"'/ops/checkpoint_notebooks_db.py" "${NOTEBOOKS_DB}" 2>/dev/null || echo error)"
+case "${CHECKPOINT_STATUS}" in
+    ok|absent|no-wal) ;;
+    *) echo "WARN: notebooks.db WAL checkpoint status=${CHECKPOINT_STATUS}; backup may capture a slightly-stale notebooks.db" >&2 ;;
+esac
+
+# Run the backup. The include-list is a --files-from-verbatim -
+# manifest (one literal path per line on stdin via printf) per the
+# notebook-ops-hardening-m1 AC. --files-from-verbatim is include-only;
+# exclusions stay as separate --exclude flags. */cache/retrieval.db
+# drops the regenerable per-notebook query cache.
 #
-# Closes infra-safety IS4: capture restic's exit code
+# Closes infra-safety IS4: capture the restic exit code
 # explicitly. restic exits 3 on PARTIAL success (some files
 # unreadable, e.g. hot LanceDB compaction). Treat exit 3 as
 # partial — sentinel records "status: partial" so the
 # operator can distinguish it from total failure.
 set +e
-SNAPSHOT_JSON="$(restic backup \
+SNAPSHOT_JSON="$(printf "%s\n" "${BACKUP_PATHS[@]}" | restic backup \
+    --files-from-verbatim - \
     --exclude "*.lock" \
     --exclude "*.tmp" \
     --exclude "lancedb-staging-tmp" \
+    --exclude "*/cache/retrieval.db" \
     --json \
-    "${BACKUP_PATHS[@]}" \
     | tail -n 1)"
 RESTIC_BACKUP_EXIT=$?
 set -e
@@ -114,7 +154,9 @@ cat > "${TMP_STATUS}" <<EOF
   "paths_backed_up": [
     "'"${REPO_ROOT}"'/var/arxmcp/index/lancedb",
     "'"${REPO_ROOT}"'/var/arxmcp/index/kuzu",
-    "'"${REPO_ROOT}"'/var/arxmcp/corpus/chunks"
+    "'"${REPO_ROOT}"'/var/arxmcp/corpus/chunks",
+    "'"${REPO_ROOT}"'/var/arxmcp/notebooks",
+    "'"${REPO_ROOT}"'/var/arxmcp/cache/notebooks.db"
   ],
   "repository": "${RESTIC_REPOSITORY}",
   "restic_backup_exit": ${RESTIC_BACKUP_EXIT},
@@ -130,7 +172,13 @@ mv "${TMP_STATUS}" "${STATUS_FILE}"
 # forget fails, the partial sentinel above remains as the
 # durable record of the backups success.
 set +e
+# notebook-ops-hardening-m1: --group-by host (not the default
+# host,paths). When the include-list changes, the default groups
+# pre-change and post-change snapshots into separate paths-groups, each
+# getting its own 7/4/12 window. --group-by host keeps a single unified
+# retention window as the manifest evolves.
 restic forget --prune \
+    --group-by host \
     --keep-daily 7 \
     --keep-weekly 4 \
     --keep-monthly 12
@@ -161,7 +209,9 @@ cat > "${TMP_STATUS}" <<EOF
   "paths_backed_up": [
     "'"${REPO_ROOT}"'/var/arxmcp/index/lancedb",
     "'"${REPO_ROOT}"'/var/arxmcp/index/kuzu",
-    "'"${REPO_ROOT}"'/var/arxmcp/corpus/chunks"
+    "'"${REPO_ROOT}"'/var/arxmcp/corpus/chunks",
+    "'"${REPO_ROOT}"'/var/arxmcp/notebooks",
+    "'"${REPO_ROOT}"'/var/arxmcp/cache/notebooks.db"
   ],
   "repository": "${RESTIC_REPOSITORY}",
   "restic_backup_exit": ${RESTIC_BACKUP_EXIT},

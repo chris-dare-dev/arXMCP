@@ -20,9 +20,27 @@ This runbook covers:
   `ops/restic-env.sh`).
 * First-time repository initialization (`restic init`).
 * Nightly scheduling via systemd timer or cron.
-* Retention policy (7 daily / 4 weekly / 12 monthly).
-* The pre-cutover restore drill (`ops/restore_drill.sh`).
+* Retention policy (7 daily / 4 weekly / 12 monthly,
+  `--group-by host`).
+* The pre-cutover restore drill (`ops/restore_drill.sh`), which now
+  runs `restic check --read-data-subset=5%` then verifies the restore.
 * Catastrophic full-restore procedure.
+
+**What is backed up** (the `--files-from-verbatim -` manifest in
+`ops/cron/arxmcp-backup.sh`):
+
+* `var/arxmcp/index/lancedb/`, `var/arxmcp/index/kuzu/`,
+  `var/arxmcp/corpus/chunks/` — corpus + indices (re-buildable, but slow).
+* `var/arxmcp/notebooks/` — **user data** (notebook-ops-hardening-m1):
+  uploaded PDFs, `papers.txt` / `queries.json`, the per-notebook LanceDB
+  store + `lancedb-prev-*` rollback targets. Non-regenerable in practice.
+* `var/arxmcp/cache/notebooks.db` — notebook metadata
+  (notebook-ops-hardening-m1). **Exception** to the "caches are not backed
+  up" rule; WAL-checkpointed (`PRAGMA wal_checkpoint(TRUNCATE)` via
+  `ops/checkpoint_notebooks_db.py`) before the snapshot.
+
+**Excluded** (regenerable): `*/cache/retrieval.db` (global + per-notebook
+query caches), `*.lock`, `*.tmp`, `lancedb-staging-tmp`.
 
 It does NOT cover the cutover activation itself — see
 [cutover-runbook.md](cutover-runbook.md).
@@ -273,7 +291,9 @@ is safe if no `arxmcp-backup` process is actually running.
   "paths_backed_up": [
     ".../var/arxmcp/index/lancedb",
     ".../var/arxmcp/index/kuzu",
-    ".../var/arxmcp/corpus/chunks"
+    ".../var/arxmcp/corpus/chunks",
+    ".../var/arxmcp/notebooks",
+    ".../var/arxmcp/cache/notebooks.db"
   ],
   "repository": "/mnt/nas/arxmcp",
   "snapshot_id": "abc12345",
@@ -288,12 +308,19 @@ is safe if no `arxmcp-backup` process is actually running.
 {
   "kuzu_paper_count": 50,
   "lancedb_row_count": 1234,
+  "notebook_pdf_count": 2,
+  "notebooks_db_found": true,
   "restore_path": "/tmp/arxmcp-restore-drill",
   "restored_at": "2026-05-15T04:00:00Z",
   "smoke_check": "passed",
   "snapshot_id": "abc12345"
 }
 ```
+
+`notebooks_db_found` is `false` (not an error) when restoring a pre-m1
+snapshot taken before notebooks entered backup scope, or on a fresh install
+with no notebooks. `notebook_pdf_count` counts uploaded PDFs found under the
+restored `notebooks/` subtree.
 
 ---
 
