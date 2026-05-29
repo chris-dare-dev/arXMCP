@@ -839,11 +839,16 @@ def run_delta(
         write_ingest_summary(
             ops_dir,
             "oai_delta",
-            papers_processed=summary.records_total,
+            # corpus-integrity-observability-e3 F4: papers_processed counts
+            # INGEST WORK (succeeded + failed), excluding deletions. records_total
+            # includes deleted records, which produce no chunks and would inflate
+            # the gauge + break the processed == succeeded + failed invariant the
+            # bulk path satisfies.
+            papers_processed=summary.records_ingested + summary.records_failed,
             papers_succeeded=summary.records_ingested,
             papers_failed=summary.records_failed,
             chunks_written_this_run=_chunks_written_this_run,
-            total_rows_after_commit=0,  # not available at this level; 0 is safe
+            total_rows_after_commit=0,  # not surfaced as a gauge; 0 is safe
             elapsed_seconds=summary.elapsed_seconds,
         )
     except Exception:

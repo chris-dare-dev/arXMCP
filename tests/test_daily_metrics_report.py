@@ -498,6 +498,24 @@ class TestIngestionThroughputSection:
         section = out.split("## Ingestion throughput")[1].split("##")[0]
         assert "n/a" in section
 
+    def test_zero_gauges_absent_sentinel_render_na_not_zero(
+        self, tmp_path: pathlib.Path
+    ):
+        """corpus-integrity-observability-e3 F2: server UP but sentinel absent →
+        refresh_sentinel_metrics sets the gauges to 0.0, so /metrics exposes
+        ``...papers 0.0``. The report must render papers/chunks as n/a (a 0.0
+        timestamp = "never ingested"), NOT "0" — which would read as "the last
+        run ingested nothing", the silent-lie class spike-3 warned about."""
+        out = render_report(
+            self._ingest_gauges(papers=0.0, chunks=0.0, ts=0.0),
+            self._NOW,
+            ops_dir=tmp_path,  # no ingest-summary.json present
+        )
+        section = out.split("## Ingestion throughput")[1].split("##")[0]
+        assert "| papers (last run) | n/a |" in section
+        assert "| chunks (last run) | n/a |" in section
+        assert "| papers (last run) | 0 |" not in section  # pre-fix rendered "0"
+
     def test_driver_rendered_from_sentinel_file(self, tmp_path: pathlib.Path):
         """``driver`` is read from ``ingest-summary.json`` directly
         (not a Prometheus label) and surfaced in the row."""

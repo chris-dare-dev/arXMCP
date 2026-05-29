@@ -405,6 +405,75 @@ class TestRunDelta:
         assert state["last_resumption_token"] is None
         assert state["last_run_paper_count"] == 2
 
+    def test_writes_ingest_summary_sentinel(self, tmp_path):
+        """corpus-integrity-observability-e3 F3: run_delta writes the
+        ingest-summary.json sentinel at end-of-run (AC2)."""
+        import json as _json
+
+        fetcher = _MockFetcher([_final_page(["2401.00001", "2401.00002"])])
+        with patch(
+            "ingest.oai_delta.ingest_one_paper",
+            side_effect=lambda pid, **kw: _ok_paper_outcome(pid),
+        ):
+            run_delta(
+                sets=("math:math:AG",),
+                from_date="2026-05-14",
+                until_date="2026-05-14",
+                lancedb_staging_path=tmp_path / "lancedb-staging",
+                state_path=tmp_path / "state.json",
+                log_path=tmp_path / "delta.log",
+                failures_path=tmp_path / "delta.jsonl",
+                timeout_flag_path=tmp_path / "timeout.flag",
+                ops_dir=tmp_path,
+                fetch_page=fetcher,
+                sleep_between_pages=lambda _t: None,
+            )
+        sentinel = tmp_path / "ingest-summary.json"
+        assert sentinel.is_file()
+        payload = _json.loads(sentinel.read_text(encoding="utf-8"))
+        assert payload["schema_version"] == 1
+        assert payload["driver"] == "oai_delta"
+        assert payload["papers_processed"] == 2
+
+    def test_papers_processed_excludes_deletions(self, tmp_path):
+        """corpus-integrity-observability-e3 F4: a delta run with a deletion must
+        NOT count the deletion in papers_processed — processed == succeeded +
+        failed (consistent with the bulk path). records_total includes deletions
+        and would inflate the arxmcp_ingest_last_run_papers gauge."""
+        import json as _json
+
+        mixed = _wrap_response(
+            _record("2401.00001") + _record("2401.00099", deleted=True)
+        )
+        fetcher = _MockFetcher([mixed])
+        with patch(
+            "ingest.oai_delta.ingest_one_paper",
+            side_effect=lambda pid, **kw: _ok_paper_outcome(pid),
+        ):
+            summary = run_delta(
+                sets=("math:math:AG",),
+                from_date="2026-05-14",
+                until_date="2026-05-14",
+                lancedb_staging_path=tmp_path / "lancedb-staging",
+                state_path=tmp_path / "state.json",
+                log_path=tmp_path / "delta.log",
+                failures_path=tmp_path / "delta.jsonl",
+                timeout_flag_path=tmp_path / "timeout.flag",
+                ops_dir=tmp_path,
+                fetch_page=fetcher,
+                sleep_between_pages=lambda _t: None,
+            )
+        assert summary.records_deleted == 1
+        assert summary.records_ingested == 1
+        payload = _json.loads(
+            (tmp_path / "ingest-summary.json").read_text(encoding="utf-8")
+        )
+        assert payload["papers_processed"] == 1  # pre-fix: 2 (records_total)
+        assert (
+            payload["papers_processed"]
+            == payload["papers_succeeded"] + payload["papers_failed"]
+        )
+
     def test_deleted_record_skips_pipeline_and_doesnt_write(self, tmp_path):
         body = _wrap_response(_record("2401.00099", deleted=True))
         fetcher = _MockFetcher([body])

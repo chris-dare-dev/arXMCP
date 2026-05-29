@@ -882,9 +882,10 @@ def write_chunks(
         rows_updated=rows_updated,
         indices_created=indices_created,
         paper_id=chunks[0].paper_id if chunks else "",
-        # total_rows_after_commit is populated below after count_rows().
+        # total_rows_after_commit is populated below (after count_rows()); the
+        # stats row is appended AFTER that block so the audit log captures the
+        # real value, not 0 (corpus-integrity-observability-e3 critique F1).
     )
-    _append_store_stats(stats)
 
     # E04_S03: write the corpus-version marker file as a postcondition
     # of every successful ingest run. The marker is the authoritative
@@ -974,6 +975,14 @@ def write_chunks(
             target_path,
             exc,
         )
+
+    # corpus-integrity-observability-e3 F1: append the audit row AFTER the
+    # marker block so WriteStats.total_rows_after_commit (set inside the try at
+    # count_rows() time) is serialized to store-stats.jsonl. Appending before
+    # the populate left the audit field always-0. On a count_rows() failure the
+    # field stays 0 (count unavailable) and the row is still appended —
+    # best-effort, matching the marker-write contract.
+    _append_store_stats(stats)
 
     return dataset_version
 

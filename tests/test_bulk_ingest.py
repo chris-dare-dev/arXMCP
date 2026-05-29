@@ -165,6 +165,47 @@ class TestRunBulkIngest:
         assert summary.ar5iv_hit_rate == 1.0
         assert not failures.exists()  # no failures, no JSONL line
 
+    def test_writes_ingest_summary_sentinel(self, tmp_path):
+        """corpus-integrity-observability-e3 F3: run_bulk_ingest writes the
+        ingest-summary.json sentinel at end-of-run (AC2). The driver WIRING was
+        untested behind a best-effort try/except — a broken call would be
+        silently swallowed."""
+        import json as _json
+
+        paper_ids = ["2401.00001", "2401.00002"]
+        with patch(
+            "ingest.bulk_ingest.ingest_one_paper",
+            side_effect=[_ok_outcome(p) for p in paper_ids],
+        ):
+            run_bulk_ingest(
+                paper_ids,
+                failures_path=tmp_path / "bulk.jsonl",
+                log_path=tmp_path / "ingestion.log",
+                ops_dir=tmp_path,
+                progress_interval=10,
+            )
+        sentinel = tmp_path / "ingest-summary.json"
+        assert sentinel.is_file()
+        payload = _json.loads(sentinel.read_text(encoding="utf-8"))
+        assert payload["schema_version"] == 1
+        assert payload["driver"] == "bulk_ingest"
+        assert payload["papers_processed"] == 2
+        assert payload["papers_succeeded"] == 2
+        assert payload["papers_failed"] == 0
+
+    def test_dry_run_does_not_write_ingest_summary(self, tmp_path):
+        """The dry-run path returns before the sentinel write — a no-op run
+        leaves no observability artifact."""
+        run_bulk_ingest(
+            ["2401.00001"],
+            failures_path=tmp_path / "bulk.jsonl",
+            log_path=tmp_path / "ingestion.log",
+            ops_dir=tmp_path,
+            progress_interval=10,
+            dry_run=True,
+        )
+        assert not (tmp_path / "ingest-summary.json").is_file()
+
     def test_mixed_success_and_failure(self, tmp_path):
         failures = tmp_path / "bulk.jsonl"
         log = tmp_path / "ingestion.log"

@@ -521,6 +521,27 @@ class TestStoreStats:
         assert isinstance(row["lancedb_version"], int)
         assert isinstance(row["elapsed_s"], (int, float))
 
+    def test_total_rows_after_commit_recorded_not_zero(self, tmp_path):
+        """corpus-integrity-observability-e3 F1: the audit row must capture the
+        committed ``total_rows_after_commit`` (= count_rows after commit), not 0.
+        Pre-fix the append ran BEFORE the field was populated, so it shipped
+        always-0 in store-stats.jsonl (the field's only consumer)."""
+        import ingest.store as store_mod
+        from ingest.store import write_chunks
+
+        chunks = _make_corpus(3)
+        embeddings = _make_synthetic_embeddings(chunks, seed=9)
+        write_chunks(chunks, embeddings, lancedb_path=tmp_path / "lancedb")
+        row = json.loads(
+            store_mod.STORE_STATS_PATH.read_text(encoding="utf-8")
+            .strip()
+            .splitlines()[-1]
+        )
+        # total_rows_after_commit = committed table count = 3 (fresh table);
+        # equals chunk_count here. Pre-fix this was 0.
+        assert row["total_rows_after_commit"] == 3
+        assert row["paper_id"]  # paper_id was already correct (set before append)
+
 
 # ===========================================================================
 # TestLoadEmbedRecord — NPZ loader helper

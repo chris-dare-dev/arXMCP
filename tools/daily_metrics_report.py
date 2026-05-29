@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import json
 import logging
 import os
 import pathlib
@@ -435,6 +436,13 @@ def render_report(
     _effective_ops_dir = ops_dir if ops_dir is not None else DEFAULT_OPS_DIR
     ingest_driver = _ingest_summary_driver(_effective_ops_dir)
 
+    # F2: a 0.0/NaN timestamp means "no run recorded" — either the server is
+    # cold (gauge absent → NaN) or it is up but the sentinel is absent
+    # (refresh_sentinel_metrics sets the gauges to 0.0). In BOTH cases the
+    # papers/chunks counts are meaningless, so render them "n/a" rather than
+    # "0" (which reads as "the last run ingested nothing" — a silent lie).
+    _ingest_recorded = not (ingest_ts != ingest_ts or ingest_ts == 0.0)
+
     def _ingest_age_str(ts: float) -> str:
         if ts != ts or ts == 0.0:
             return "n/a"
@@ -449,8 +457,14 @@ def render_report(
     lines.append("")
     lines.append("| Field | Value |")
     lines.append("|---|---:|")
-    lines.append(f"| papers (last run) | {_int_cell(ingest_papers)} |")
-    lines.append(f"| chunks (last run) | {_int_cell(ingest_chunks)} |")
+    lines.append(
+        f"| papers (last run) | "
+        f"{_int_cell(ingest_papers) if _ingest_recorded else 'n/a'} |"
+    )
+    lines.append(
+        f"| chunks (last run) | "
+        f"{_int_cell(ingest_chunks) if _ingest_recorded else 'n/a'} |"
+    )
     lines.append(f"| driver | {ingest_driver if ingest_driver is not None else 'n/a'} |")
     lines.append(f"| last run age | {_ingest_age_str(ingest_ts)} |")
     lines.append("")
@@ -542,10 +556,15 @@ def _ingest_summary_driver(ops_dir: pathlib.Path) -> str | None:
     try:
         if not sentinel.is_file():
             return None
-        raw = sentinel.read_text(encoding="utf-8")
-        if len(raw.encode("utf-8")) > 64 * 1024:
+        # F5: stat-before-read (mirror server/health.py::_read_capped) so an
+        # oversized file is rejected WITHOUT materializing its full body.
+        if sentinel.stat().st_size > 64 * 1024:
             return None
-        payload = __import__("json").loads(raw)
+        payload = json.loads(sentinel.read_text(encoding="utf-8"))
+        # F5: distrust an unknown schema layout, matching the server reader's
+        # schema_version-first guard (server/health.py).
+        if payload.get("schema_version") != 1:
+            return None
         val = payload.get("driver")
         return str(val) if val is not None else None
     except Exception:
