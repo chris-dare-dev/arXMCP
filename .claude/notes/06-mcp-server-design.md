@@ -267,6 +267,28 @@ All chunks and equations are exposed as resources at deterministic URIs:
 `resources/list` returns paginated paper-level entries; per-chunk listing is
 handled via `search_papers` (we don't enumerate 5M chunks).
 
+> **notebook-surface-expansion-m4 (2026-05) — the FIRST live MCP resources.**
+> The `chunks` / `equations` / `papers` URIs above are the original design
+> sketch and are NOT yet registered. The first resources actually registered on
+> the server are the **notebook** corpus-discovery resources (so a pipeline agent
+> can enumerate available corpora at zero BP1 cost):
+>
+> - `arxmcp://notebooks` — concrete index; `resources/read` →
+>   `{count, notebooks:[{slug, display_name, uri}]}`.
+> - `arxmcp://notebooks/{slug}` — template; `resources/read` → one notebook's
+>   METADATA (`slug`, `display_name`, `notebook_kind`, `created_at`,
+>   `parse_status`, `paper_count`, `is_ingested`). Read-only — no chunk content;
+>   the absolute `lancedb_path` is deliberately NOT exposed (host-path info-leak).
+>
+> Registered in `server/mcp_resources.py::register_resources` (called after
+> tool registration, before `mount_mcp`). `validate_slug` runs first on the
+> `{slug}` path; operator-authored fields are wrapped in `<retrieved_notebook>`
+> (Threat 2). Adding resources does NOT touch the `tools/list` bytes or the
+> BP1/BP2 hashes — resources are a separate JSON-RPC method (pinned by
+> `tests/test_mcp_resources.py`; proven byte-identical by
+> `notebook-surface-expansion-spike-1`). FastMCP advertises
+> `capabilities.resources.subscribe=False` — `resources/subscribe` is deferred.
+
 ## Determinism contract for tool results
 
 (Repeating the rule from [02-architecture-overview.md](02-architecture-overview.md)

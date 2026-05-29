@@ -338,6 +338,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.notebooks_store = await NotebooksStore.open(
             config.notebooks_db_path
         )
+        # notebook-surface-expansion-m4: wire the live store for the MCP
+        # resource callbacks (they have no FastAPI request/DI), mirroring
+        # set_resources above. Same event loop as FastMCP → store awaits safe.
+        from server.mcp_resources import set_notebooks_store  # noqa: PLC0415
+
+        set_notebooks_store(app.state.notebooks_store)
         # m9 FM-5 + m9 rect F2: orphan-recovery — mark any
         # ``status='running'`` row older than 5 minutes as ``failed``
         # BEFORE accepting new ingest triggers. Covers daemon-crash-
@@ -644,6 +650,7 @@ def create_app(config: Config | None = None) -> FastAPI:
         from mcp.server.fastmcp import FastMCP
 
         from server._mcp_mount import mount_mcp
+        from server.mcp_resources import register_resources
         from server.tools import register_all as register_all_tools
 
         # ``json_response=True`` makes responses single-shot
@@ -656,6 +663,12 @@ def create_app(config: Config | None = None) -> FastAPI:
         # streamable_http_app() snapshots the registered tools at
         # mount time (synthesis D11).
         register_all_tools(mcp_server)
+        # notebook-surface-expansion-m4: register notebooks as MCP
+        # resources (resources/list + read). MUST be after tools and
+        # BEFORE mount_mcp — same snapshot-at-mount constraint. Adds NO
+        # tools, so the tools/list + BP1 hashes stay byte-identical
+        # (spike-1 GO; pinned by tests/test_mcp_resources.py).
+        register_resources(mcp_server)
         mount_mcp(app, mcp_server)
         # F2 fix (E06_S01): stash on app.state so the lifespan can
         # thread the session-manager lifespan into ours.

@@ -428,6 +428,12 @@ def envelope(
 #: See ``.claude/docs/security-threat-2-audit.md``.
 _WRAP_TAG_CHUNK = "retrieved_chunk"
 _WRAP_TAG_EQUATION = "retrieved_equation"
+#: notebook-surface-expansion-m4: operator-authored notebook metadata
+#: (display_name / slug) returned via the MCP ``resources/read`` surface is
+#: wrapped in ``<retrieved_notebook>`` so a consuming pipeline agent treats it
+#: as DATA, not instructions (Threat 2). This is NOT a tool / not in ALL_TOOLS,
+#: so it does not affect the ``tools/list`` byte-stability hash.
+_WRAP_TAG_NOTEBOOK = "retrieved_notebook"
 
 
 def wrap_retrieved_text(
@@ -476,7 +482,10 @@ def wrap_retrieved_text(
     """
     if not text:
         return ""
-    tag = _WRAP_TAG_EQUATION if kind == "equation" else _WRAP_TAG_CHUNK
+    tag = {
+        "equation": _WRAP_TAG_EQUATION,
+        "notebook": _WRAP_TAG_NOTEBOOK,
+    }.get(kind, _WRAP_TAG_CHUNK)
     open_tag = f"<{tag}>"
     close_tag = f"</{tag}>"
     escaped_open = open_tag.replace("<", "&lt;").replace(">", "&gt;")
