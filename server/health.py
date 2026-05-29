@@ -119,6 +119,20 @@ CORPUS_CHUNK_COUNT_ACTUAL = Gauge(
     "path; a gap indicates corpus/marker divergence.",
 )
 
+#: corpus-integrity-observability-m3 (scout CAND-10) — total HNSW unindexed
+#: rows across all ANN indexes, read ONCE at startup. -1 = could not determine
+#: (index API raised, or no ANN index exists); 0 = checked & clean; >0 =
+#: abnormal (rows committed without an index rebuild → ANN brute-forces them, a
+#: silent perf degradation). Non-zero is ALWAYS abnormal in normal operation
+#: (_create_indices runs synchronously in write_chunks). Alert on > 0.
+CORPUS_UNINDEXED_ROWS = Gauge(
+    "arxmcp_corpus_unindexed_rows",
+    "Total HNSW unindexed rows across all ANN indexes, read once at startup. "
+    "-1 = unavailable (index API raised, or no ANN index). 0 = fully indexed "
+    "(normal). >0 = abnormal: ANN brute-forces those rows; re-run ingest to "
+    "rebuild.",
+)
+
 #: Per-resource warm state (0 = not loaded, 1 = warm). One time series
 #: per resource label.
 RESOURCE_WARM_GAUGE = Gauge(
@@ -517,6 +531,11 @@ def refresh_metrics_from_singleton_state(resources: Resources) -> None:
     # a genuine missing-field wiring bug as the FM-2 count-unavailable signal.)
     CORPUS_CHUNK_COUNT_MARKER.set(resources.corpus_info.chunk_count)
     CORPUS_CHUNK_COUNT_ACTUAL.set(resources.startup_chunk_count)
+    # corpus-integrity-observability-m3: O(1) read of the startup-cached
+    # unindexed-rows tripwire (NEVER re-queries index_stats here — the
+    # "computed once at startup" contract). getattr-defended for a partial /
+    # duck-typed Resources (mirrors the chunk-count reads above).
+    CORPUS_UNINDEXED_ROWS.set(getattr(resources, "startup_unindexed_rows", -1))
     PROCESS_START_TIME_GAUGE.set(resources.process_start_time_seconds)
     for res_name in ("embedder", "lancedb", "reranker"):
         RESOURCE_WARM_GAUGE.labels(resource=res_name).set(
@@ -981,6 +1000,7 @@ def reset_metrics_for_tests() -> None:
 __all__ = [
     "CORPUS_CHUNK_COUNT_ACTUAL",
     "CORPUS_CHUNK_COUNT_MARKER",
+    "CORPUS_UNINDEXED_ROWS",
     "CORPUS_VERSION_GAUGE",
     "EMBED_SINGLEFLIGHT_DEDUP_COUNTER",
     "PROCESS_START_TIME_GAUGE",

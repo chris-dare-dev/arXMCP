@@ -250,6 +250,45 @@ def compute_chunk_count_divergence(
     return "rows_added" if actual_count > marker_count else "rows_lost"
 
 
+def compute_unindexed_rows(table: Any) -> tuple[int, list[str]]:
+    """Sum HNSW ``num_unindexed_rows`` across all ANN indexes on ``table``
+    (corpus-integrity-observability-m3 / scout CAND-10). Returns
+    ``(value, per_index_breakdown)`` where ``value`` is:
+
+    - ``-1`` — could NOT determine: no resolvable ANN index exists (an empty
+      ``list_indices()``, or every ``index_stats()`` returned ``None``). A
+      never-indexed corpus brute-forces EVERY row, so reporting ``0`` there
+      would be a dangerous false-clean (synthesis D2);
+    - ``0`` — checked & clean: ≥1 index, all report 0 unindexed rows;
+    - ``>0`` — abnormal: some index has rows the ANN graph doesn't cover, so
+      ANN queries brute-force over them.
+
+    The pure, deterministic core of the m3 tripwire — extracted so the
+    sentinel rule is unit-testable with a fake table without booting the
+    server. Index names are DISCOVERED via ``list_indices()`` (never
+    hardcoded). Does NOT catch exceptions — the caller's try/except maps an
+    API failure to the same ``-1`` sentinel. ``index_stats(name)`` may return
+    ``None`` (unknown/dropped index) and is skipped.
+
+    NB lancedb 0.30.2: ``list_indices()`` → ``Iterable[IndexConfig]`` (``.name``);
+    ``index_stats(name)`` → ``Optional[IndexStatistics]`` (``.num_unindexed_rows``).
+    """
+    total = 0
+    index_count = 0
+    breakdown: list[str] = []
+    for cfg in table.list_indices():
+        stats = table.index_stats(cfg.name)
+        if stats is None:
+            continue
+        index_count += 1
+        n = int(stats.num_unindexed_rows)
+        total += n
+        breakdown.append(f"{cfg.name}={n}")
+    if index_count == 0:
+        return -1, breakdown
+    return total, breakdown
+
+
 @dataclass
 class Resources:
     """Process-wide state for the FastAPI app.
@@ -329,6 +368,16 @@ class Resources:
     #: when ``enable_rerank`` is on — that is a separate concern; do NOT
     #: couple it to this cached value.)
     startup_chunk_count: int = -1
+    #: Total HNSW unindexed rows across all ANN indexes, read ONCE at startup
+    #: (corpus-integrity-observability-m3 / scout CAND-10). ``-1`` = could not
+    #: determine (index API raised, or no ANN index exists); ``0`` = checked &
+    #: clean; ``>0`` = abnormal (rows committed without an index rebuild → ANN
+    #: brute-forces them). Read by
+    #: :func:`server.health.refresh_metrics_from_singleton_state` to set the
+    #: ``arxmcp_corpus_unindexed_rows`` gauge WITHOUT re-querying per scrape.
+    #: STALE BY DESIGN: the server is pinned to its corpus version for its
+    #: lifetime; restart to refresh.
+    startup_unindexed_rows: int = -1
     # notebook-retrieval-m2 (fork A): bounded LRU registry of per-call
     # notebook chunks-tables, keyed by validated slug → (table, info).
     # Lazily opened on the first ``filters.notebook=<slug>`` query and
@@ -481,6 +530,72 @@ class Resources:
                     fallback_version=corpus_info.version,
                     original_version=corpus_info.version,
                 )
+
+        # 2c. HNSW unindexed-rows tripwire (corpus-integrity-observability-m3 /
+        # scout CAND-10). _create_indices (ingest/store.py) runs SYNCHRONOUSLY
+        # inside write_chunks, so on the normal post-ingest path every ANN index
+        # fully covers the table (num_unindexed_rows == 0). A non-zero count
+        # therefore means rows were committed without a matching index rebuild
+        # (partial write / corruption / a future async-index path) and ANN
+        # queries silently brute-force over those rows — correct results, but a
+        # silent perf degradation. We surface it as a WARN + the
+        # arxmcp_corpus_unindexed_rows gauge (NOT a /readyz degrade: brute-force
+        # ANN is still CORRECT, so a 503 would be an over-reaction for a
+        # perf-only anomaly).
+        #
+        # Sentinel discipline (m3 synthesis D2): startup_unindexed_rows is
+        #   -1  → could NOT determine (the index API raised, OR no ANN index
+        #         exists at all — a never-indexed corpus brute-forces EVERYTHING,
+        #         so reporting 0 there would be a dangerous false-clean);
+        #    0  → checked & clean (>=1 index, all report 0 unindexed);
+        #   >0  → abnormal (some index has unindexed rows).
+        # FM-2: any failure is NON-FATAL (-1 + WARN, never abort startup). FM-7:
+        # skip entirely when `degraded` is already set (corpus_corruption is more
+        # severe — do not clobber). MVCC-safe: index_stats on the version-pinned
+        # handle reflects that version's coverage. Index names are DISCOVERED via
+        # list_indices() — never hardcoded. STALE BY DESIGN (startup-cached;
+        # restart to refresh). NB list_indices()/index_stats() are sync I/O →
+        # run_in_executor; index_stats(name) can return None → guard.
+        if degraded is not None:
+            startup_unindexed_rows = -1
+            logger.info(
+                "Resources.startup: skipping unindexed-rows check "
+                "(degraded=%s already active — more severe).",
+                degraded.reason,
+            )
+        else:
+            try:
+                startup_unindexed_rows, _idx_breakdown = (
+                    await loop.run_in_executor(
+                        None, compute_unindexed_rows, chunks_table
+                    )
+                )
+            except Exception as exc:  # noqa: BLE001 — non-fatal observability
+                startup_unindexed_rows = -1
+                _idx_breakdown = []
+                logger.warning(
+                    "Resources.startup: index_stats()/list_indices() "
+                    "unavailable (%s); skipping unindexed-rows check. "
+                    "Retrieval is unaffected.",
+                    exc,
+                )
+            else:
+                if startup_unindexed_rows > 0:
+                    logger.warning(
+                        "Resources.startup: %d unindexed HNSW rows detected "
+                        "(%s) — ANN queries brute-force over these rows. "
+                        "Non-zero is ALWAYS abnormal (partial write / "
+                        "corruption); re-run ingest to rebuild the index.",
+                        startup_unindexed_rows,
+                        ", ".join(_idx_breakdown),
+                    )
+                elif startup_unindexed_rows < 0:
+                    logger.warning(
+                        "Resources.startup: no resolvable ANN index found "
+                        "(list_indices returned none / index_stats "
+                        "unavailable); unindexed-rows coverage UNKNOWN. "
+                        "Re-run ingest to build the HNSW indexes.",
+                    )
 
         # 3. Eager BGE-M3 load (forces query_encoder's singletons to
         #    populate; subsequent calls hit cached model + tokenizer).
@@ -782,6 +897,7 @@ class Resources:
             warm=True,
             degraded=degraded,
             startup_chunk_count=startup_chunk_count,
+            startup_unindexed_rows=startup_unindexed_rows,
         )
 
         # 6e. Lean REPL subprocess harness (verification-feedback-m2).
@@ -1135,4 +1251,5 @@ __all__ = [
     "Resources",
     "Singleflight",
     "compute_chunk_count_divergence",
+    "compute_unindexed_rows",
 ]

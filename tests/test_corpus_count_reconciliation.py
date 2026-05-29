@@ -261,6 +261,13 @@ class TestStartupReconciliation:
             assert any(
                 "skipping chunk_count reconciliation" in m for m in msgs
             )
+            # corpus-integrity-observability-m3 FM-7: the unindexed-rows check
+            # ALSO skips when degraded is already set (more severe) — cached
+            # -1, with an INFO note, never clobbering corpus_corruption.
+            assert resources.startup_unindexed_rows == -1
+            assert any(
+                "skipping unindexed-rows check" in m for m in msgs
+            )
         finally:
             asyncio.run(resources.shutdown())
 
@@ -447,3 +454,216 @@ class TestConfigToleranceValidator:
 
     def test_default_is_five_percent(self):
         assert Config().corpus_chunk_count_tolerance == 0.05
+
+
+# ===========================================================================
+# corpus-integrity-observability-m3 — HNSW unindexed-rows guard (CAND-10)
+# ===========================================================================
+
+
+def _index_table(real_tbl, *, list_indices, index_stats):
+    """Wrap a real LanceDB table, overriding ONLY list_indices/index_stats
+    (delegating everything else — count_rows, to_arrow, etc.) so a startup
+    test can dictate the unindexed-rows the m3 guard sees."""
+
+    class _Proxy:
+        def __getattr__(self, name):
+            if name == "list_indices":
+                return list_indices
+            if name == "index_stats":
+                return index_stats
+            return getattr(real_tbl, name)
+
+    return _Proxy()
+
+
+class TestComputeUnindexedRows:
+    """The pure D2 decision core: -1 = could-not-determine (no resolvable ANN
+    index), 0 = checked & clean, >0 = abnormal. Unit-tested without booting."""
+
+    @staticmethod
+    def _table(pairs):
+        """pairs: list of (index_name, num_unindexed_rows | None)."""
+
+        def list_indices():
+            return [SimpleNamespace(name=n) for n, _ in pairs]
+
+        def index_stats(name):
+            for n, v in pairs:
+                if n == name:
+                    return None if v is None else SimpleNamespace(
+                        num_unindexed_rows=v
+                    )
+            return None
+
+        return SimpleNamespace(list_indices=list_indices, index_stats=index_stats)
+
+    def test_all_clean_returns_zero(self):
+        from server.resources import compute_unindexed_rows
+
+        value, breakdown = compute_unindexed_rows(
+            self._table([("embedding_stmt_idx", 0), ("embedding_proof_idx", 0)])
+        )
+        assert value == 0
+        assert breakdown == ["embedding_stmt_idx=0", "embedding_proof_idx=0"]
+
+    def test_unindexed_rows_summed(self):
+        from server.resources import compute_unindexed_rows
+
+        value, _ = compute_unindexed_rows(
+            self._table([("embedding_stmt_idx", 7), ("embedding_proof_idx", 3)])
+        )
+        assert value == 10
+
+    def test_no_index_returns_minus_one_not_zero(self):
+        """D2: a never-indexed corpus brute-forces EVERY row — reporting 0
+        would be a dangerous false-clean. Empty list_indices() → -1."""
+        from server.resources import compute_unindexed_rows
+
+        value, breakdown = compute_unindexed_rows(self._table([]))
+        assert value == -1
+        assert breakdown == []
+
+    def test_all_stats_none_returns_minus_one(self):
+        from server.resources import compute_unindexed_rows
+
+        value, _ = compute_unindexed_rows(
+            self._table([("a", None), ("b", None)])
+        )
+        assert value == -1  # no resolvable index
+
+    def test_none_stat_is_skipped_not_counted(self):
+        from server.resources import compute_unindexed_rows
+
+        value, breakdown = compute_unindexed_rows(
+            self._table([("a", None), ("b", 3)])
+        )
+        assert value == 3  # only the resolvable index counts
+        assert breakdown == ["b=3"]
+
+
+class TestUnindexedRowsStartup:
+    """Real Resources.startup (mocked model) wired through the m3 guard via a
+    table proxy that dictates list_indices/index_stats."""
+
+    def test_unindexed_rows_warns_and_caches(self, tmp_path, monkeypatch, caplog):
+        """AC-1: unindexed rows → WARN + the count cached on Resources."""
+        import server.resources as res_mod  # noqa: PLC0415
+
+        _patch_model(monkeypatch)
+        lancedb_path = tmp_path / "lancedb"
+        _seed_corpus(lancedb_path, n=2)
+        real_open = res_mod.open_chunks_table_with_fallback
+
+        def fake_open(*args, **kwargs):
+            tbl, degraded = real_open(*args, **kwargs)
+            li = lambda: [  # noqa: E731
+                SimpleNamespace(name="embedding_stmt_idx"),
+                SimpleNamespace(name="embedding_proof_idx"),
+            ]
+            ist = lambda name: SimpleNamespace(  # noqa: E731
+                num_unindexed_rows=7 if name == "embedding_stmt_idx" else 0
+            )
+            return _index_table(tbl, list_indices=li, index_stats=ist), degraded
+
+        monkeypatch.setattr(res_mod, "open_chunks_table_with_fallback", fake_open)
+        cfg = Config(lancedb_path=lancedb_path)
+        with caplog.at_level(logging.WARNING, logger="server.resources"):
+            resources = asyncio.run(Resources.startup(cfg))
+        try:
+            assert resources.startup_unindexed_rows == 7
+            assert resources.degraded is None  # NOT a /readyz-degrade (D1)
+            assert any(
+                "unindexed HNSW rows" in r.getMessage() for r in caplog.records
+            )
+        finally:
+            asyncio.run(resources.shutdown())
+
+    def test_fully_indexed_no_warn(self, tmp_path, monkeypatch, caplog):
+        """AC-2: ≥1 index all-clean → 0, no unindexed WARN."""
+        import server.resources as res_mod  # noqa: PLC0415
+
+        _patch_model(monkeypatch)
+        lancedb_path = tmp_path / "lancedb"
+        _seed_corpus(lancedb_path, n=2)
+        real_open = res_mod.open_chunks_table_with_fallback
+
+        def fake_open(*args, **kwargs):
+            tbl, degraded = real_open(*args, **kwargs)
+            li = lambda: [SimpleNamespace(name="embedding_stmt_idx")]  # noqa: E731
+            ist = lambda name: SimpleNamespace(num_unindexed_rows=0)  # noqa: E731
+            return _index_table(tbl, list_indices=li, index_stats=ist), degraded
+
+        monkeypatch.setattr(res_mod, "open_chunks_table_with_fallback", fake_open)
+        cfg = Config(lancedb_path=lancedb_path)
+        with caplog.at_level(logging.WARNING, logger="server.resources"):
+            resources = asyncio.run(Resources.startup(cfg))
+        try:
+            assert resources.startup_unindexed_rows == 0
+            assert not any(
+                "unindexed HNSW rows" in r.getMessage() for r in caplog.records
+            )
+        finally:
+            asyncio.run(resources.shutdown())
+
+    def test_index_api_raises_is_nonfatal(self, tmp_path, monkeypatch, caplog):
+        """FM-1/FM-2: list_indices() raising must NOT abort startup — cached
+        -1, WARN, server warm, /readyz reachable."""
+        import server.resources as res_mod  # noqa: PLC0415
+
+        _patch_model(monkeypatch)
+        lancedb_path = tmp_path / "lancedb"
+        _seed_corpus(lancedb_path, n=2)
+        real_open = res_mod.open_chunks_table_with_fallback
+
+        def fake_open(*args, **kwargs):
+            tbl, degraded = real_open(*args, **kwargs)
+
+            def li():
+                raise RuntimeError("simulated index API failure")
+
+            return (
+                _index_table(tbl, list_indices=li, index_stats=lambda n: None),
+                degraded,
+            )
+
+        monkeypatch.setattr(res_mod, "open_chunks_table_with_fallback", fake_open)
+        cfg = Config(lancedb_path=lancedb_path)
+        with caplog.at_level(logging.WARNING, logger="server.resources"):
+            resources = asyncio.run(Resources.startup(cfg))
+        try:
+            assert resources.warm is True  # served, not aborted
+            assert resources.startup_unindexed_rows == -1
+            assert resources.degraded is None
+            assert any(
+                "index_stats()/list_indices() unavailable" in r.getMessage()
+                for r in caplog.records
+            )
+        finally:
+            asyncio.run(resources.shutdown())
+
+
+class TestUnindexedRowsGauge:
+    """The gauge reads the startup-cached value and NEVER re-queries the index
+    API per scrape (the 'computed once at startup' contract)."""
+
+    def test_gauge_set_from_cache_not_recomputed_per_scrape(self):
+        from server import health as health_mod  # noqa: PLC0415
+
+        resources = _fake_scrape_resources(startup_unindexed_rows=7)
+        # chunks_table carries list_indices/index_stats Mocks so we can assert
+        # the scrape path never touches the index API.
+        resources.chunks_table.list_indices = Mock(return_value=[])
+        resources.chunks_table.index_stats = Mock(return_value=None)
+        for _ in range(3):
+            health_mod.refresh_metrics_from_singleton_state(resources)
+        resources.chunks_table.list_indices.assert_not_called()
+        resources.chunks_table.index_stats.assert_not_called()
+        assert health_mod.CORPUS_UNINDEXED_ROWS._value.get() == 7.0
+
+    def test_minus_one_sentinel_surfaces_on_gauge(self):
+        from server import health as health_mod  # noqa: PLC0415
+
+        resources = _fake_scrape_resources(startup_unindexed_rows=-1)
+        health_mod.refresh_metrics_from_singleton_state(resources)
+        assert health_mod.CORPUS_UNINDEXED_ROWS._value.get() == -1.0
