@@ -1,0 +1,99 @@
+{
+  "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/plans",
+  "created_at": "2026-05-29T18:58:08Z",
+  "critics_fired": [
+    "adversary"
+  ],
+  "critics_run": [],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "low": 0,
+    "medium": 0
+  },
+  "critique_path": null,
+  "critique_paths": [
+    ".claude/notes/milestones/notebook-surface-expansion-m5/critique-adversary.md"
+  ],
+  "deferred_findings": [],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_required": [],
+  "fixed_findings": [],
+  "id": "notebook-surface-expansion-m5",
+  "implementation_base": "96cca0dd0af2a843fcbb008c2b9ddfa83940ff0c",
+  "implementation_branch": "main",
+  "implementation_commit_range": "96cca0dd0af2a843fcbb008c2b9ddfa83940ff0c..85077ca420bce1ac6699ff030393a1aef178fd5f",
+  "implementation_commits": [
+    "85077ca420bce1ac6699ff030393a1aef178fd5f"
+  ],
+  "implementation_path": "inline",
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "### notebook-surface-expansion-m5 \u2014 Static initialize.instructions orients a connecting agent\n\n_(Epic `e2`, piece 2 of 2 \u2014 the spike doc's suggested \"e2-m2\"; numbered `m5`.)_\n\n**Description.** Set a static `instructions=` on the FastMCP construction\n(`FastMCP(\"arxmcp\", json_response=True, instructions=ARXMCP_INSTRUCTIONS)` \u2014\none-line change at `server/main.py:654`, the arg is native to FastMCP 1.27.x per\nspike-1). The string is a reviewable module-level constant (e.g.\n`server/mcp_instructions.py` or `server/prompts.py`): short, factual orientation \u2014\nthe math corpus + target categories, the `arxmcp://notebooks` resources for corpus\ndiscovery, the 8-tool retrieval surface, and the read-only discovery model. This\nis the CAND-11 v0 \u2014 explicitly NOT the full `SYSTEM_PROMPT` (Won't list).\n\n**Acceptance criteria.**\n- Given a client connects, When it reads the MCP `initialize` response, Then the\n  `instructions` field is the static `ARXMCP_INSTRUCTIONS` string.\n- [ ] The instructions constant + the one-line wiring; a **hash-pin test** on the\n  instructions string (its own `EXPECTED_INSTRUCTIONS_SHA256`, intentional-drift\n  discipline \u2014 mirrors `EXPECTED_TOOL_SCHEMA_SHA256`).\n- [ ] Byte-stability guard: `EXPECTED_TOOL_SCHEMA_SHA256` + `EXPECTED_BP1_SHA256`\n  UNCHANGED (no re-pin) \u2014 `instructions` is orthogonal to both (spike-1).\n\n**Dependencies.** `e2`; soft-after `m4` (same FastMCP construction site).\n\n**Complexity.** S\n\n**Specialist suggestion.** `mcp-protocol-reviewer` + `cache-stability-reviewer`.\n\n---\n\n## Phase 4 \u2014 Materialize",
+  "phase": "complete",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-29T18:58:08Z",
+      "left_at": "2026-05-29T18:58:18Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-29T18:58:18Z",
+      "left_at": "2026-05-29T19:03:32Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-29T19:03:32Z",
+      "left_at": "2026-05-29T19:03:33Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-05-29T19:03:33Z",
+      "left_at": "2026-05-29T19:06:33Z",
+      "phase": "implement-running"
+    },
+    {
+      "entered_at": "2026-05-29T19:06:33Z",
+      "left_at": "2026-05-29T19:06:33Z",
+      "phase": "implement-complete"
+    },
+    {
+      "entered_at": "2026-05-29T19:06:33Z",
+      "left_at": "2026-05-29T19:10:33Z",
+      "phase": "critique-running"
+    },
+    {
+      "entered_at": "2026-05-29T19:10:33Z",
+      "left_at": "2026-05-29T19:10:33Z",
+      "phase": "critique-complete"
+    },
+    {
+      "entered_at": "2026-05-29T19:10:33Z",
+      "left_at": "2026-05-29T19:10:33Z",
+      "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-05-29T19:10:33Z",
+      "left_at": null,
+      "phase": "complete"
+    }
+  ],
+  "rectification_commit": null,
+  "regression_tests_added": [],
+  "research_briefs": [
+    {
+      "agent_id": "researcher-1",
+      "brief_path": ".claude/notes/milestones/notebook-surface-expansion-m5/research-brief-1.md",
+      "summary": "mcp_instructions.py + 1-line wiring + hash-pin/wiring/byte-stability tests"
+    },
+    {
+      "agent_id": "researcher-2",
+      "brief_path": ".claude/notes/milestones/notebook-surface-expansion-m5/research-brief-2.md",
+      "summary": "MCP spec instructions=hint; content-safe; 6 FMs; tool-name + length guards"
+    }
+  ],
+  "research_mode": "standard",
+  "research_synthesis": ".claude/notes/milestones/notebook-surface-expansion-m5/research-synthesis.md",
+  "updated_at": "2026-05-29T19:10:33Z"
+}
