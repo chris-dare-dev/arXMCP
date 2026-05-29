@@ -483,16 +483,22 @@ class TestComputeUnindexedRows:
 
     @staticmethod
     def _table(pairs):
-        """pairs: list of (index_name, num_unindexed_rows | None)."""
+        """pairs: (name, num_unindexed | None) or (name, num, index_type).
+
+        index_type defaults to a vector type ('IVF_HNSW_SQ') so existing cases
+        pass the F1 vector-index filter; pass a 3rd element ('BTREE') to model
+        the scalar paper_id index that list_indices() also returns.
+        """
+        norm = [(p[0], p[1], p[2] if len(p) > 2 else "IVF_HNSW_SQ") for p in pairs]
 
         def list_indices():
-            return [SimpleNamespace(name=n) for n, _ in pairs]
+            return [SimpleNamespace(name=n, index_type=t) for n, _, t in norm]
 
         def index_stats(name):
-            for n, v in pairs:
+            for n, v, t in norm:
                 if n == name:
                     return None if v is None else SimpleNamespace(
-                        num_unindexed_rows=v
+                        num_unindexed_rows=v, index_type=t
                     )
             return None
 
@@ -541,6 +547,36 @@ class TestComputeUnindexedRows:
         assert value == 3  # only the resolvable index counts
         assert breakdown == ["b=3"]
 
+    def test_scalar_index_is_not_counted(self):
+        """F1: list_indices() also returns the scalar paper_id BTree. It must NOT
+        be counted as an ANN index — only the vector index contributes."""
+        from server.resources import compute_unindexed_rows
+
+        value, breakdown = compute_unindexed_rows(
+            self._table(
+                [
+                    ("embedding_stmt_idx", 0, "IVF_HNSW_SQ"),
+                    ("paper_id_idx", 0, "BTREE"),
+                ]
+            )
+        )
+        assert value == 0
+        assert breakdown == ["embedding_stmt_idx=0"]  # scalar excluded
+
+    def test_scalar_only_corpus_returns_minus_one(self):
+        """F1 (the cardinal regression): a corpus with ONLY a scalar index (no
+        vector index — e.g. vector indexes skipped on empty embedding columns)
+        must report -1 (no resolvable ANN index), NOT a false-clean 0. Counting
+        the scalar paper_id BTree would defeat the D2 sentinel. Fails on the
+        pre-fix unfiltered code (which returned 0)."""
+        from server.resources import compute_unindexed_rows
+
+        value, breakdown = compute_unindexed_rows(
+            self._table([("paper_id_idx", 0, "BTREE")])
+        )
+        assert value == -1
+        assert breakdown == []
+
 
 class TestUnindexedRowsStartup:
     """Real Resources.startup (mocked model) wired through the m3 guard via a
@@ -558,11 +594,15 @@ class TestUnindexedRowsStartup:
         def fake_open(*args, **kwargs):
             tbl, degraded = real_open(*args, **kwargs)
             li = lambda: [  # noqa: E731
-                SimpleNamespace(name="embedding_stmt_idx"),
-                SimpleNamespace(name="embedding_proof_idx"),
+                SimpleNamespace(name="embedding_stmt_idx", index_type="IvfHnswSq"),
+                SimpleNamespace(name="embedding_proof_idx", index_type="IvfHnswSq"),
+                # the scalar paper_id BTree list_indices() also returns — must be
+                # filtered out (F1); if counted it would skew the total.
+                SimpleNamespace(name="paper_id_idx", index_type="BTree"),
             ]
             ist = lambda name: SimpleNamespace(  # noqa: E731
-                num_unindexed_rows=7 if name == "embedding_stmt_idx" else 0
+                num_unindexed_rows=7 if name == "embedding_stmt_idx" else 0,
+                index_type="BTree" if name == "paper_id_idx" else "IVF_HNSW_SQ",
             )
             return _index_table(tbl, list_indices=li, index_stats=ist), degraded
 
@@ -590,8 +630,12 @@ class TestUnindexedRowsStartup:
 
         def fake_open(*args, **kwargs):
             tbl, degraded = real_open(*args, **kwargs)
-            li = lambda: [SimpleNamespace(name="embedding_stmt_idx")]  # noqa: E731
-            ist = lambda name: SimpleNamespace(num_unindexed_rows=0)  # noqa: E731
+            li = lambda: [  # noqa: E731
+                SimpleNamespace(name="embedding_stmt_idx", index_type="IvfHnswSq")
+            ]
+            ist = lambda name: SimpleNamespace(  # noqa: E731
+                num_unindexed_rows=0, index_type="IVF_HNSW_SQ"
+            )
             return _index_table(tbl, list_indices=li, index_stats=ist), degraded
 
         monkeypatch.setattr(res_mod, "open_chunks_table_with_fallback", fake_open)
@@ -638,6 +682,47 @@ class TestUnindexedRowsStartup:
             assert any(
                 "index_stats()/list_indices() unavailable" in r.getMessage()
                 for r in caplog.records
+            )
+        finally:
+            asyncio.run(resources.shutdown())
+
+    def test_no_resolvable_index_warns_at_boot(
+        self, tmp_path, monkeypatch, caplog
+    ):
+        """F2: the no-resolvable-ANN-index boot path (list_indices() returns []
+        cleanly — NOT an exception, e.g. only a scalar index, or vector indexes
+        skipped) reaches the DISTINCT `elif < 0` WARN ("no resolvable ANN index
+        found / coverage UNKNOWN"), separate from the API-raises branch. Pins -1
+        + that WARN end-to-end; fails if the elif branch is removed."""
+        import server.resources as res_mod  # noqa: PLC0415
+
+        _patch_model(monkeypatch)
+        lancedb_path = tmp_path / "lancedb"
+        _seed_corpus(lancedb_path, n=2)
+        real_open = res_mod.open_chunks_table_with_fallback
+
+        def fake_open(*args, **kwargs):
+            tbl, degraded = real_open(*args, **kwargs)
+            return (
+                _index_table(
+                    tbl, list_indices=lambda: [], index_stats=lambda n: None
+                ),
+                degraded,
+            )
+
+        monkeypatch.setattr(res_mod, "open_chunks_table_with_fallback", fake_open)
+        cfg = Config(lancedb_path=lancedb_path)
+        with caplog.at_level(logging.WARNING, logger="server.resources"):
+            resources = asyncio.run(Resources.startup(cfg))
+        try:
+            assert resources.warm is True
+            assert resources.startup_unindexed_rows == -1
+            assert resources.degraded is None
+            msgs = [r.getMessage() for r in caplog.records]
+            assert any("no resolvable ANN index found" in m for m in msgs)
+            # the DISTINCT no-index WARN, not the API-raises one
+            assert not any(
+                "index_stats()/list_indices() unavailable" in m for m in msgs
             )
         finally:
             asyncio.run(resources.shutdown())

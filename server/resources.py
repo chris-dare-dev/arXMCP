@@ -277,9 +277,25 @@ def compute_unindexed_rows(table: Any) -> tuple[int, list[str]]:
     index_count = 0
     breakdown: list[str] = []
     for cfg in table.list_indices():
+        # m3 critique F1: list_indices() ALSO returns SCALAR indexes — e.g. the
+        # paper_id BTree built unconditionally by _create_indices'
+        # create_scalar_index (live-verified on lancedb 0.30.2:
+        # [embedding_stmt_idx(IvfHnswSq), paper_id_idx(BTree)]). A scalar index
+        # has no ANN-brute-force relevance, and counting it would defeat the D2
+        # sentinel — a corpus whose VECTOR indexes were skipped (empty embedding
+        # columns) but which still has the paper_id BTree would falsely report 0
+        # ("clean") instead of -1 ("no resolvable ANN index"). Filter to vector
+        # index types only (HNSW / IVF families; scalar = BTree/Bitmap/etc.).
         stats = table.index_stats(cfg.name)
         if stats is None:
             continue
+        idx_type = (
+            getattr(cfg, "index_type", None)
+            or getattr(stats, "index_type", "")
+            or ""
+        ).upper()
+        if "HNSW" not in idx_type and "IVF" not in idx_type:
+            continue  # non-vector (scalar) index — not an ANN-coverage signal
         index_count += 1
         n = int(stats.num_unindexed_rows)
         total += n
@@ -572,7 +588,6 @@ class Resources:
                 )
             except Exception as exc:  # noqa: BLE001 — non-fatal observability
                 startup_unindexed_rows = -1
-                _idx_breakdown = []
                 logger.warning(
                     "Resources.startup: index_stats()/list_indices() "
                     "unavailable (%s); skipping unindexed-rows check. "
