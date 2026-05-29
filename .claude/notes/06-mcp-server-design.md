@@ -482,12 +482,17 @@ Contract:
   (loopback-only) this is the triple-layer same-origin defense.
 - **Input validation** — `validate_slug` (path-traversal regex) at every mutation
   boundary; Pydantic `Field(max_length=...)` bounds; control-char strip on
-  `display_name`; PDF upload preflight (JavaScript/polyglot/zip-bomb checks).
+  `display_name`; PDF upload preflight (magic-byte sniff / polyglot tail-scan /
+  JavaScript-token scan / declared-page-count cap). NOTE: there is NO
+  decompression-bomb guard today — that is an OPEN QUESTION for the UI security
+  audit, not a current defense.
 
 > **This UI surface has NOT yet had a dedicated security audit** — E13 (Security
 > Hardening) scoped the audit to the 7-tool MCP surface only. The deferred UI audit
-> is tracked as a filed issue at `chris-dare-dev/arXMCP` (CAND-13;
-> notebook-surface-expansion-m3).
+> is tracked for filing at `chris-dare-dev/arXMCP` (CAND-13;
+> notebook-surface-expansion-m3): the issue body is prepared at
+> `.claude/notes/milestones/notebook-surface-expansion-m3/ui-security-audit-issue.md`
+> and `gh issue create --body-file …` is the Phase-4 external write.
 
 ## What this server does NOT do
 

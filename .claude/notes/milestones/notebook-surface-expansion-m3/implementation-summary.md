@@ -41,7 +41,10 @@ prepared (NOT filed) the UI-security-audit tracking issue for `chris-dare-dev/ar
   --label "area:security"`.
 
 ### Test
-- **`tests/test_constitution_ui_claims.py`** (new, 21 tests w/ parametrization) —
+- **`tests/test_constitution_ui_claims.py`** (new, 24 tests w/ parametrization;
+  3 added in m3-rect for adversary F1/F2/F3 — no "filed issue" overstatement in 06,
+  no "zip-bomb" defense claim + real page-count check named, and the
+  `## Browser UI surface` cross-references resolve) —
   (1) the stale phrase `"the MCP tool surface is the UI"` is ABSENT (case-insensitive)
   across the TOP-LEVEL `.claude/notes/*.md` (NON-recursive — excludes frozen milestone
   critique artifacts) + `CLAUDE.md` + `README.md`; a guard asserts the scanned set is

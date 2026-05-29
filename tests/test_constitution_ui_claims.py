@@ -79,3 +79,52 @@ class TestUiSurfaceDescribed:
         text = CLAUDE_MD.read_text(encoding="utf-8")
         assert "/ui/" in text
         assert "operator console" in text.lower() or "browser operator" in text.lower()
+
+
+class TestDocAccuracyGuards:
+    """m3-rect F1/F2/F3: pin the new 06 UI section to facts the code + repo
+    actually contain — an inaccurate constitution is worse than a stale one."""
+
+    def test_06_does_not_overstate_issue_as_filed(self) -> None:
+        """m3-rect F1: the UI-security-audit issue is PREPARED, not filed (filing
+        is the Phase-4 `gh issue create`). 06 must not claim a 'filed issue'."""
+        text = DESIGN_NOTE.read_text(encoding="utf-8").lower()
+        assert "filed issue" not in text, (
+            "06-mcp-server-design.md claims the UI audit is a 'filed issue', but "
+            "filing is the Phase-4 external write. Say 'tracked for filing' / "
+            "'prepared'; back-fill a real #N only after the issue is actually filed."
+        )
+
+    def test_06_does_not_claim_zipbomb_defense(self) -> None:
+        """m3-rect F2: the PDF preflight has NO decompression-bomb guard (only
+        magic-byte / polyglot / JS-token / page-count checks). 06 must not list
+        'zip-bomb' as a current defense and must name the real page-count check."""
+        text = DESIGN_NOTE.read_text(encoding="utf-8")
+        assert "zip-bomb" not in text.lower(), (
+            "06 lists a 'zip-bomb' check the upload preflight does not implement. "
+            "Real checks: magic-byte / polyglot / JavaScript-token / page-count."
+        )
+        assert "page-count" in text.lower(), (
+            "06 must name the real declared-page-count preflight cap."
+        )
+
+    def test_browser_ui_crossrefs_resolve(self) -> None:
+        """m3-rect F3: 02 / 09 / CLAUDE.md cross-reference 06 § 'Browser UI
+        surface' by title. Assert the referenced heading actually exists in 06
+        (a checked link) and that every referrer's mention is therefore live."""
+        design_text = DESIGN_NOTE.read_text(encoding="utf-8")
+        assert "## Browser UI surface" in design_text, (
+            "06 must keep the literal '## Browser UI surface' heading; renaming it "
+            "would orphan the cross-references in 02/09/CLAUDE.md."
+        )
+        section_title = "Browser UI surface"
+        referrers = [
+            NOTES_DIR / "02-architecture-overview.md",
+            NOTES_DIR / "09-feature-priorities.md",
+            CLAUDE_MD,
+        ]
+        for ref in referrers:
+            assert section_title in ref.read_text(encoding="utf-8"), (
+                f"{ref.relative_to(REPO_ROOT)} should cross-reference "
+                f"06 § '{section_title}' (the live UI-surface section)."
+            )
