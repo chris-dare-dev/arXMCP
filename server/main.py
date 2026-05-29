@@ -121,7 +121,18 @@ _BYTE_CAP_EXEMPT_PREFIXES = (
 
 
 def _is_exempt_path(path: str) -> bool:
-    """Return True if ``path`` should bypass the body-size cap."""
+    """Return True if ``path`` should bypass the body-size cap.
+
+    notebook-surface-expansion-m6: the per-notebook export route
+    ``GET /ui/api/notebooks/<slug>/export`` streams a deterministic tar
+    (PDFs + ar5iv HTML + per-notebook LanceDB + a manifest) that routinely
+    exceeds 256 KB. Exempting only ``.../export`` (NOT the whole
+    ``/ui/api/notebooks/`` subtree, m6 synthesis D1) keeps the cap on every
+    other notebook API response (list / get / htmx fragments) as
+    defense-in-depth — the minimum possible widening.
+    """
+    if path.startswith("/ui/api/notebooks/") and path.endswith("/export"):
+        return True
     return any(path == p or path.startswith(p + "/") for p in _BYTE_CAP_EXEMPT_PREFIXES)
 
 

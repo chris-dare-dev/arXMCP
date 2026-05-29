@@ -36,10 +36,13 @@ from __future__ import annotations
 import contextlib
 import datetime as _dt
 import html
+import io
+import json
 import logging
 import os
 import re
 import sqlite3
+import tarfile
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
@@ -1403,6 +1406,224 @@ def _ingest_status_fragment(
         f" · Run #{run_id}"
         f"{stderr_pre}"
         f"</div>"
+    )
+
+
+# ---------------------------------------------------------------------------
+# notebook-surface-expansion-m6 — portable export bundle (tar + manifest)
+# ---------------------------------------------------------------------------
+
+#: Bundle format version (bump on any breaking manifest-shape change).
+#: m7 (restore) reads this from the manifest before extracting.
+_EXPORT_MANIFEST_FORMAT_VERSION: int = 1
+
+#: ALLOWLIST of notebook-row fields embedded in the manifest (m6 synthesis D3,
+#: mirrors m4 D3/F4). Omits ``lancedb_path`` + ``parsed_html_path`` (absolute
+#: host paths = info-leak class) AND ``parse_error`` (HTML-escaped stderr;
+#: not useful for backup/move and may carry parser path fragments). m7 derives
+#: the path fields from ``notebook_dir(slug)`` in the target base.
+_EXPORT_NOTEBOOK_ALLOWLIST: tuple[str, ...] = (
+    "slug", "display_name", "notebook_kind", "created_at", "parse_status",
+)
+
+#: USTAR member-name max (the format stores names in a fixed-width field;
+#: longer names would require PAX/GNU long-name extensions that drift mtime).
+_EXPORT_USTAR_NAME_MAX: int = 255
+
+
+def _build_export_manifest(
+    notebook: dict, papers: list[dict], slug: str
+) -> bytes:
+    """Build the deterministic manifest.json bytes (m6 D3).
+
+    Allowlists the notebook fields, sorts ``papers`` by ``paper_id`` (stable
+    across exports independent of ``list_papers``' ``added_at DESC`` order),
+    and serializes with ``sort_keys=True`` + canonical JSON separators so the
+    bytes are byte-identical across two exports of the same notebook.
+    """
+    nb_dict = {k: notebook.get(k, "") for k in _EXPORT_NOTEBOOK_ALLOWLIST}
+    nb_dict["slug"] = slug  # route slug is authoritative
+    papers_sorted = sorted(
+        ({"paper_id": p["paper_id"], "added_at": p["added_at"]} for p in papers),
+        key=lambda r: r["paper_id"],
+    )
+    manifest = {
+        "format_version": _EXPORT_MANIFEST_FORMAT_VERSION,
+        "notebook": nb_dict,
+        "papers": papers_sorted,
+        "slug": slug,
+    }
+    return json.dumps(
+        manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    ).encode("utf-8")
+
+
+def _iter_safe_export_members(
+    nb_dir: os.PathLike[str], slug: str
+):
+    """Yield ``(member_name, data_bytes)`` for every safely-exportable file
+    under ``nb_dir`` (m6 D5 preflight).
+
+    Skip + WARN (do NOT abort) for: symlinks (don't embed as SYMTYPE), non-files
+    (dirs/devices/FIFOs), paths whose resolved location escapes ``nb_dir``,
+    member names exceeding USTAR's 255-byte field or carrying control chars.
+    Sorted by slug-relative member name for byte-deterministic order.
+    """
+    from pathlib import Path  # noqa: PLC0415
+
+    nb_path = Path(nb_dir)
+    nb_resolved = nb_path.resolve()
+    for path in sorted(
+        nb_path.rglob("*"), key=lambda p: str(p.relative_to(nb_path))
+    ):
+        rel = path.relative_to(nb_path)
+        if path.is_symlink():
+            logger.warning(
+                "notebook %r export: skipping symlink member %r (m6 D5)",
+                slug, str(rel),
+            )
+            continue
+        if not path.is_file():  # dirs, devices, FIFOs
+            continue
+        try:
+            resolved = path.resolve(strict=False)
+        except OSError:
+            logger.warning(
+                "notebook %r export: skipping unresolvable path %r (m6 D5)",
+                slug, str(rel),
+            )
+            continue
+        if not resolved.is_relative_to(nb_resolved):
+            logger.warning(
+                "notebook %r export: skipping path escaping notebook_dir "
+                "(possible symlink tamper; m6 D5)",
+                slug,
+            )
+            continue
+        member_name = f"{slug}/{rel.as_posix()}"
+        if (
+            len(member_name.encode("utf-8")) > _EXPORT_USTAR_NAME_MAX
+            or any(ord(c) < 0x20 for c in member_name)
+        ):
+            logger.warning(
+                "notebook %r export: skipping member name over USTAR limit "
+                "or containing control chars (m6 D5)",
+                slug,
+            )
+            continue
+        try:
+            data = path.read_bytes()
+        except OSError as exc:
+            logger.warning(
+                "notebook %r export: skipping unreadable file %r (%s; m6 D5)",
+                slug, str(rel), exc,
+            )
+            continue
+        yield member_name, data
+
+
+def _make_deterministic_tarinfo(name: str, size: int) -> tarfile.TarInfo:
+    """A TarInfo with EVERY drift-prone field normalized (m6 D2).
+
+    USTAR + manual construction (NOT ``gettarinfo``) zeroes ``mtime/uid/gid``,
+    blanks ``uname/gname``, pins ``mode = 0o644`` + ``type = REGTYPE`` — so
+    two exports of the same notebook produce byte-identical tar streams.
+    """
+    ti = tarfile.TarInfo(name=name)
+    ti.size = size
+    ti.mtime = 0
+    ti.uid = 0
+    ti.gid = 0
+    ti.uname = ""
+    ti.gname = ""
+    ti.mode = 0o644
+    ti.type = tarfile.REGTYPE
+    return ti
+
+
+@router.get(
+    "/notebooks/{slug}/export",
+    responses={
+        200: {"content": {"application/x-tar": {}}},
+        404: {"description": "notebook not found"},
+        422: {"description": "malformed slug"},
+    },
+)
+async def export_notebook(
+    slug: str,
+    store: NotebooksStore = Depends(get_notebooks_store),  # noqa: B008  (FastAPI DI pattern)
+) -> Response:
+    """Stream a portable, deterministic tar of ONE notebook (m6).
+
+    Bundle layout:
+    - ``manifest.json`` at the bundle root — `format_version`, allowlisted
+      `notebook` row, sorted `papers` rows for THIS slug only.
+    - ``<slug>/<rel>`` members — the notebook's on-disk assets under
+      ``var/arxmcp/notebooks/<slug>/`` (PDFs / ar5iv HTML / per-notebook
+      LanceDB), filtered by the m6 D5 safe-member preflight.
+
+    Security: ``validate_slug`` first (path-traversal guard); ``notebook_dir``
+    containment (refuses a symlinked ``<slug>`` dir); per-member preflight
+    drops symlinks / containment escapes / over-long names. Determinism:
+    USTAR + manual ``TarInfo`` normalization + sorted member order — two
+    exports of the same notebook are byte-identical (the load-bearing AC).
+    Response cap: the export path is exempted in
+    ``server.main._is_exempt_path`` (m6 synthesis D1; narrow suffix-only).
+    """
+    try:
+        validate_slug(slug)
+    except NotebookError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e),
+        ) from e
+    notebook = await store.get_notebook(slug)
+    if notebook is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"notebook {slug!r} not found",
+        )
+    papers = await store.list_papers(slug)
+    try:
+        nb_dir = notebook_dir(slug)
+    except NotebookError as e:
+        # Slug-level symlink / containment failure (m6 F3 / m6 D5). Same
+        # 422 the existing handlers raise for path-traversal errors.
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e),
+        ) from e
+
+    manifest_bytes = _build_export_manifest(notebook, papers, slug)
+
+    buf = io.BytesIO()
+    with tarfile.open(
+        fileobj=buf, mode="w", format=tarfile.USTAR_FORMAT
+    ) as tar:
+        # 1) manifest.json at the bundle root (top-level; m7 reads this
+        #    before extracting the rest).
+        tar.addfile(
+            _make_deterministic_tarinfo("manifest.json", len(manifest_bytes)),
+            io.BytesIO(manifest_bytes),
+        )
+        # 2) Asset files under ``<slug>/<rel>``. If the on-disk dir doesn't
+        #    exist yet (notebook created but never uploaded to), the export
+        #    is just the manifest — still a valid bundle.
+        if nb_dir.is_dir():
+            for member_name, data in _iter_safe_export_members(nb_dir, slug):
+                tar.addfile(
+                    _make_deterministic_tarinfo(member_name, len(data)),
+                    io.BytesIO(data),
+                )
+
+    content = buf.getvalue()
+    return Response(
+        content=content,
+        media_type="application/x-tar",
+        headers={
+            "Content-Disposition": f'attachment; filename="{slug}.tar"',
+            "Content-Length": str(len(content)),
+        },
     )
 
 
