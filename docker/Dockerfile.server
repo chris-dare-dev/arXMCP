@@ -29,7 +29,15 @@
 # Stage 1 — builder (build the project wheel)
 # ---------------------------------------------------------------------------
 
-FROM python:3.11-slim AS builder
+# Base image pinned by @sha256 digest (notebook-ops-hardening-m3). A tag
+# alone is mutable — Docker Hub allows `3.11-slim` to be overwritten — so a
+# compromised builder or upstream push could silently land on a rebuild.
+# This is the multi-arch manifest-list digest (amd64 + arm64/Apple Silicon
+# both resolve), mirroring the @sha256 discipline in
+# infra/observability/phoenix-compose.yml and 08-security-observability-ops.md
+# §Threat 6 (pin by SHA). Re-resolve on a deliberate bump with:
+#   docker buildx imagetools inspect python:3.11-slim
+FROM python:3.11-slim@sha256:a3ab0b966bc4e91546a033e22093cb840908979487a9fc0e6e38295747e49ac0 AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -70,7 +78,9 @@ RUN python -m venv /opt/venv \
 # Stage 2 — runtime
 # ---------------------------------------------------------------------------
 
-FROM python:3.11-slim AS runtime
+# Pinned by @sha256 digest — see the builder-stage rationale above
+# (notebook-ops-hardening-m3). Keep both stages on the SAME digest.
+FROM python:3.11-slim@sha256:a3ab0b966bc4e91546a033e22093cb840908979487a9fc0e6e38295747e49ac0 AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \

@@ -1,0 +1,100 @@
+# arXMCP MCP server — local-first docker-compose stack (server-only v0).
+# notebook-ops-hardening-m3.
+#
+# Invocation (from the repo root):
+#   make bootstrap                       # creates the var/arxmcp/ tree first
+#   docker compose -f infra/docker-compose.yml up --wait
+#   curl -fsS http://127.0.0.1:7733/readyz   # 200 once BGE-M3 + LanceDB warm
+#
+# Scope: the MCP server ONLY. The ingest service + a Litestream sidecar are a
+# deliberate v1 increment (see docs/install.md). The stdio shim is NOT in
+# Docker — it runs on the host as a tiny binary spawned by Claude Code
+# (08-security-observability-ops.md §Docker deployment).
+#
+# Mirrors the already-rectified infra/observability/phoenix-compose.yml
+# (E14_S03) — every hardening below traces to that critique.
+services:
+  server:
+    # Built locally from the project Dockerfile (whose FROM base images are
+    # @sha256-pinned — notebook-ops-hardening-m3). The build context is the
+    # REPO ROOT (one level up): the Dockerfile COPYs server/, ingest/, tools/,
+    # and pyproject.toml from the root.
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.server
+
+    ports:
+      # Host side pinned to LOOPBACK (127.0.0.1). This is the load-bearing
+      # network defense (08-security-observability-ops.md): the LAN can never
+      # reach the server. Do NOT drop the 127.0.0.1: prefix — a bare
+      # "7733:7733" publishes on 0.0.0.0 (all host interfaces).
+      - "127.0.0.1:7733:7733"
+
+    volumes:
+      # CRITICAL — relative bind-mount paths resolve against the COMPOSE
+      # FILE's parent directory (infra/), NOT the operator's CWD (Compose
+      # Specification). This file lives at infra/docker-compose.yml, so ONE
+      # "../" reaches the repo-root var/arxmcp/. (phoenix-compose.yml uses
+      # "../../" only because it sits two levels deep at
+      # infra/observability/.) A bare "./var/arxmcp" would land at
+      # infra/var/arxmcp — an empty stray tree → the server would warm an
+      # empty corpus and /readyz would never return 200. Verified with
+      # `docker compose -f infra/docker-compose.yml config`.
+      #
+      # The container path matches the Dockerfile's WORKDIR /app + VOLUME
+      # /app/var/arxmcp. Run `make bootstrap` first so the host tree exists.
+      - ../var/arxmcp:/app/var/arxmcp
+
+    environment:
+      # 0.0.0.0 is correct INSIDE the container — Docker's bridge network
+      # forwards the loopback host port-binding to the container's 0.0.0.0
+      # listener. The "localhost-only" defense lives on the HOST side via the
+      # ports: 127.0.0.1: prefix above (phoenix-compose.yml §"0.0.0.0 is
+      # correct INSIDE the container"). The server's config validator
+      # (server/config.py::reject_non_loopback_bind) rejects a non-loopback
+      # bind at parse time UNLESS ARXMCP_UNSAFE_NETWORK_BIND=1 — so BOTH vars
+      # are required here, or the container crashes at startup. A WARN log
+      # fires at startup (expected; see .claude/docs/security-binding.md).
+      ARXMCP_BIND_HOST: "0.0.0.0"
+      ARXMCP_UNSAFE_NETWORK_BIND: "1"
+      # NOTE: ARXMCP_CONTACT_EMAIL is intentionally NOT set here — it is an
+      # ingest-tool concern (arXiv politeness), not a server config field, and
+      # the server Config forbids unknown ARXMCP_* vars. The v1 ingest service
+      # will set it.
+
+    healthcheck:
+      # Mirrors the Dockerfile HEALTHCHECK. /readyz returns 200 only once
+      # BGE-M3 + LanceDB are warm; start_period=5m covers a first-run BGE-M3
+      # download (~2.3 GB). `docker compose up --wait` blocks on this gate.
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:7733/readyz"]
+      interval: 30s
+      timeout: 5s
+      start_period: 5m
+      retries: 3
+
+    # Strip all default Linux capabilities + block privilege escalation. The
+    # server listens on a user-space port, reads/writes its bind-mount, and
+    # serves HTTP — none requires a default capability (phoenix IS5).
+    cap_drop: ["ALL"]
+    security_opt:
+      - "no-new-privileges:true"
+
+    # tini reaps zombies + forwards signals on `docker compose down` (belt-
+    # and-suspenders even though the Dockerfile sets tini as ENTRYPOINT).
+    init: true
+
+    # restart: "no" for v0 — the operator brings the server up explicitly
+    # (`docker compose up`). Auto-restart on host reboot would reload BGE-M3
+    # (~2.3 GB RAM) on every boot whether or not the operator is using it;
+    # an operator who wants an always-on server sets `unless-stopped` (see
+    # docs/install.md). NOTE: this diverges from 08-security-observability-ops.md's
+    # "always-on" framing — a deliberate v0 default favouring explicit control.
+    restart: "no"
+
+    # Bound the server so a busy ingest/retrieval session can't fan up the
+    # whole workstation. BGE-M3 + the BGE reranker + LanceDB need more
+    # headroom than the Phoenix sidecar; 8 GB / 4 CPUs is a conservative
+    # starting point, operator-tunable. mem_limit/cpus are the standalone
+    # Compose form (deploy.resources is Swarm-only and silently ignored).
+    mem_limit: 8g
+    cpus: 4.0

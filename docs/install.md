@@ -164,6 +164,49 @@ make up
 python -m server.main
 ```
 
+### Run via Docker Compose (server-only v0)
+
+`infra/docker-compose.yml` builds `docker/Dockerfile.server` and runs the MCP
+server as a non-root container (UID 1000), published on **loopback only**
+(`127.0.0.1:7733`). The ingest service + a Litestream sidecar are a deliberate
+v1 increment (see *Out of scope*); the stdio shim still runs on the host, not
+in Docker.
+
+```sh
+# 1. Create the gitignored var/arxmcp/ tree the container bind-mounts.
+make bootstrap
+
+# 2. One-time ownership pre-step — LINUX ONLY:
+#    On native Linux Docker, bind-mount ownership is literal, so the in-image
+#    UID 1000 must own (or be able to write) var/arxmcp:
+chown -R 1000:1000 var/arxmcp        # native Linux Docker ONLY
+#    On macOS Docker Desktop this is NOT needed — its VirtioFS file-sharing
+#    maps the bind mount to any container UID transparently (validated:
+#    .claude/notes/spikes/notebook-ops-hardening-spike-1.md). Skip the chown.
+
+# 3. Bring the server up and block until it is healthy.
+docker compose -f infra/docker-compose.yml up --wait
+
+# 4. Verify readiness (200 once BGE-M3 + LanceDB are warm; the first run
+#    downloads BGE-M3 ~2.3 GB, so the healthcheck has a 5-minute grace).
+curl -fsS http://127.0.0.1:7733/readyz
+```
+
+Notes:
+
+- **Loopback only.** The host port is pinned to `127.0.0.1`; inside the
+  container the server binds `0.0.0.0` (required for Docker's bridge network),
+  which is why the compose env sets `ARXMCP_UNSAFE_NETWORK_BIND=1`. The LAN can
+  never reach the server. A WARN log about the non-loopback bind is expected.
+- **Restart policy.** The default is `restart: "no"` — you bring the server up
+  explicitly. For an always-on server (auto-restart on reboot), change the
+  `server` service to `restart: "unless-stopped"` (note it reloads BGE-M3
+  ~2.3 GB into RAM on every boot).
+- **`ARXMCP_CONTACT_EMAIL`** is NOT needed by the server and is intentionally
+  absent from the compose env; the v1 ingest service will require it.
+- **Resource limits.** `mem_limit: 8g` / `cpus: 4.0` are conservative starting
+  points (BGE-M3 + the reranker + LanceDB); tune in `infra/docker-compose.yml`.
+
 ### Serving a notebook corpus
 
 By default the server reads the shared corpus at
