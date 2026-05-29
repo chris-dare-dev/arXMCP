@@ -38,6 +38,7 @@ methods are safe to await from a callback.
 from __future__ import annotations
 
 import json
+import logging
 from typing import TYPE_CHECKING, Any
 
 from server.tools import wrap_retrieved_text
@@ -47,6 +48,8 @@ if TYPE_CHECKING:
     from mcp.server.fastmcp import FastMCP
 
     from server.notebooks_store import NotebooksStore
+
+logger = logging.getLogger(__name__)
 
 #: Resource URIs (RFC3986 custom scheme ``arxmcp://``).
 NOTEBOOKS_INDEX_URI = "arxmcp://notebooks"
@@ -103,11 +106,25 @@ async def _notebook_metadata(slug: str) -> dict[str, Any]:
     # is_ingested: does the on-disk LanceDB dir exist? Conveys ingestion state
     # WITHOUT leaking the absolute lancedb_path (m4 synthesis D3). notebook_dir
     # runs the m6 symlink-containment check; treat any rejection as "not
-    # ingested" rather than leaking the failure.
+    # ingested" rather than leaking the failure to the agent.
     try:
         is_ingested = (notebook_dir(slug) / "lancedb").is_dir()
     except NotebookError:
+        # m4-rect F2: a containment/symlink rejection here (m6 F3 hardening) is
+        # a security signal — an out-of-band tamper at var/arxmcp/notebooks/<slug>.
+        # Surface it server-side at WARNING (slug is validate_slug'd, so safe to
+        # log) but still return is_ingested=False to the agent (do NOT leak the
+        # resolved path / failure detail — m10 F5 side-channel discipline).
+        logger.warning(
+            "notebook %r: lancedb-dir containment check rejected "
+            "(possible symlink tamper); reporting is_ingested=False",
+            slug,
+        )
         is_ingested = False
+    # m4-rect F4: this return dict is an EXPLICIT ALLOWLIST (allowlist-by-
+    # projection). The store row also carries lancedb_path / parse_error /
+    # parsed_html_path — those MUST NEVER be added here (lancedb_path is an
+    # absolute host path = info-leak, D3; the others are internal ops state).
     return {
         "slug": notebook["slug"],
         "display_name": notebook.get("display_name", ""),

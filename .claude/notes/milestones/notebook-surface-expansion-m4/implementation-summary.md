@@ -42,7 +42,7 @@ discovers corpora via `resources/list`+`read` at ZERO BP1 cost, with the frozen
   MCP resources + the posture (validate_slug, `<retrieved_notebook>` wrap, no
   `lancedb_path`, subscribe deferred, byte-stability pinned) (D7).
 
-### `tests/test_mcp_resources.py` (new, 13 tests)
+### `tests/test_mcp_resources.py` (new, 17 tests; 4 added in m4-rect)
 Byte-stability guard (`tools/list` hash == `EXPECTED_TOOL_SCHEMA_SHA256` with
 resources registered; two-server comparison; 8 tools unchanged); resources/list +
 templates/list membership; index read enumerates seeded slugs + empty case; detail
