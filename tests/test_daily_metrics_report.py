@@ -271,6 +271,7 @@ class TestCorpusIntegritySection:
     def test_section_present_and_matching_is_ok(self):
         out = render_report(self._gauges(10298.0, 10298.0), self._NOW)
         assert "## Corpus integrity" in out
+        assert "| corpus_version | 645 |" in out
         assert "| marker chunk_count | 10298 |" in out
         assert "| actual chunk_count | 10298 |" in out
         assert "| Status | ok |" in out

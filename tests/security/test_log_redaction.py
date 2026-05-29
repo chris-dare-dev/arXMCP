@@ -581,3 +581,11 @@ class TestAuditDocPresence:
             assert field in body
         assert "ARXMCP_LOG_LEVEL" in body
         assert "Threat" in body
+        # corpus-integrity-observability-e2 F1 guard: the doc must reflect the
+        # current default (JSON via ARXMCP_LOG_FORMAT) and must NOT carry the
+        # pre-e2 "plain text default" claim — so a future default flip cannot
+        # leave this operator-facing security doc silently stale. (Historical
+        # "NOT installed by default at E13_S08" sentences are fine — only the
+        # present-tense "unchanged / plain text" default claim is stale.)
+        assert "ARXMCP_LOG_FORMAT" in body
+        assert "Production stdout shape is unchanged" not in body

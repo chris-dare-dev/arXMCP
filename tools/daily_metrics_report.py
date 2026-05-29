@@ -391,10 +391,12 @@ def render_report(
     actual_ct = _sentinel_gauge(fams, "arxmcp_corpus_chunk_count_actual")
     corpus_ver = _sentinel_gauge(fams, "arxmcp_corpus_version")
 
-    def _count_cell(v: float) -> str:
+    def _int_cell(v: float) -> str:
+        # Render a non-negative integer gauge (chunk_count OR corpus_version).
         # NaN (gauge absent — server down / cold corpus) or a negative value
         # (-1 = m2 FM-2 count_rows() failed at startup) → "n/a"; never render a
-        # bogus "-1".
+        # bogus "-1". corpus_version is never negative, so the guard is a no-op
+        # for it.
         if v != v or v < 0:
             return "n/a"
         return str(int(v))
@@ -410,9 +412,9 @@ def render_report(
     lines.append("")
     lines.append("| Field | Value |")
     lines.append("|---|---:|")
-    lines.append(f"| corpus_version | {_count_cell(corpus_ver)} |")
-    lines.append(f"| marker chunk_count | {_count_cell(marker_ct)} |")
-    lines.append(f"| actual chunk_count | {_count_cell(actual_ct)} |")
+    lines.append(f"| corpus_version | {_int_cell(corpus_ver)} |")
+    lines.append(f"| marker chunk_count | {_int_cell(marker_ct)} |")
+    lines.append(f"| actual chunk_count | {_int_cell(actual_ct)} |")
     lines.append(f"| Status | {'**[DIVERGED]**' if diverged else 'ok'} |")
     lines.append("")
 

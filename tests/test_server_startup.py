@@ -224,6 +224,26 @@ class TestReadinessTransition:
         # count_rows() failed at startup (the -1 sentinel renders as null).
         assert body["chunk_count"] == 2
 
+    def test_readyz_200_body_chunk_count_null_on_sentinel(
+        self, seeded_lancedb, mocked_bge_m3
+    ):
+        """corpus-integrity-observability-e2 F3 (AC2): when count_rows() failed
+        at startup (m2 FM-2 → startup_chunk_count == -1), the /readyz 200 body
+        renders chunk_count as JSON null — never a bogus -1 — while
+        marker_chunk_count still reports the marker count."""
+        cfg = Config(lancedb_path=seeded_lancedb)
+        app = create_app(cfg)
+        reset_metrics_for_tests()
+        with TestClient(app) as client:
+            # Simulate the count-unavailable sentinel after startup; readyz
+            # reads startup_chunk_count at request time.
+            client.app.state.resources.startup_chunk_count = -1
+            r = client.get("/readyz")
+            assert r.status_code == 200
+            body = r.json()
+            assert body["chunk_count"] is None
+            assert body["marker_chunk_count"] == 2
+
     def test_readyz_reaches_200_within_30s(self, seeded_lancedb, mocked_bge_m3):
         """AC: server reaches /readyz 200 within 30 seconds.
 

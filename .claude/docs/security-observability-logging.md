@@ -214,11 +214,14 @@ logger.info("query_received", extra={"query": query})
    args tuple by attribute index, which is fragile and surface-area-
    creating. The caller contract (above) is the v1 mitigation.
 
-4. **The `JsonFormatter` is shipped but NOT installed by default.**
-   Production stdout shape is unchanged — plain text via stdlib's
-   default formatter. The JSON formatter is importable infrastructure
-   used by the test harness and any future operator who wants
-   `12-factor` JSON output. The redaction works regardless of formatter.
+4. **`JsonFormatter` is the default as of corpus-integrity-observability-e2.**
+   Production stdout is 12-factor JSON (one structured line per record), per
+   `08-security-observability-ops.md` §Logging. `ARXMCP_LOG_FORMAT=text` is the
+   escape hatch for human-readable dev output. Redaction is format-independent:
+   `configure()` installs `RedactionFilter` first, THEN sets `JsonFormatter` on
+   the SAME handler, so the format choice never affects redaction. (Through
+   E13_S08 the formatter shipped but was NOT installed by default — e2 flipped
+   it on.)
 
 ## Acceptance-criteria status
 
@@ -248,18 +251,20 @@ logger.info("query_received", extra={"query": query})
    milestone delivers `server/observability/log_filter.py` +
    `server/observability/logging_setup.py` from scratch.
 
-4. **`JsonFormatter` is exported but not installed by default.** The
-   brief mentions "structured JSON logs"; the codebase emits plain text
-   today. Installing the JSON formatter globally would change every
-   operator's stdout shape — orthogonal to redaction. We ship the
-   formatter as importable infrastructure (tests use it; operators may
-   opt in later) and keep production output unchanged.
+4. **`JsonFormatter` default — deferred at E13_S08, shipped at e2.** At E13_S08
+   the formatter was exported as importable infrastructure but NOT installed by
+   default (installing it globally was orthogonal to the redaction audit). The
+   `08-security-observability-ops.md` §Logging "structured JSON logs to stdout
+   (12-factor)" requirement was later satisfied by
+   corpus-integrity-observability-e2, which added `ARXMCP_LOG_FORMAT`
+   (default `json`) and wired `JsonFormatter` inside `configure()` on the same
+   redaction-filtered handler.
 
 ## References
 
 - [`server/observability/log_filter.py`](../../server/observability/log_filter.py) — `RedactionFilter` + `REDACTED_FIELDS`
 - [`server/observability/logging_setup.py`](../../server/observability/logging_setup.py) — `configure()` + `JsonFormatter`
-- [`server/main.py`](../../server/main.py) — calls `configure(cfg.log_level)` after Config loads
+- [`server/main.py`](../../server/main.py) — calls `configure(cfg.log_level, cfg.log_format)` after Config loads
 - [`tests/security/test_log_redaction.py`](../../tests/security/test_log_redaction.py) — full coverage (18 tests)
 - [`server/observability/sanitize.py`](../../server/observability/sanitize.py) — warn-once pattern precedent (E13_S02)
 - Python stdlib `logging.Filter` — <https://docs.python.org/3.11/library/logging.html#logging.Filter>

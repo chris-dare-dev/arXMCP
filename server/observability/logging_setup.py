@@ -15,11 +15,14 @@ loads, this function:
    so an operator can spot the misconfiguration in retrospect even if
    they forgot they set the env var.
 
-Also exports :class:`JsonFormatter` as importable infrastructure for
-tests (and for any future production-side adoption of JSON log
-output). The formatter is NOT installed by default — the redaction
-works regardless of the output format, and changing the default
-stdout shape is out of scope for an audit milestone.
+Also exports :class:`JsonFormatter`. As of
+corpus-integrity-observability-e2 it is installed BY DEFAULT (12-factor
+JSON to stdout, per ``08-security-observability-ops.md`` §Logging);
+``configure(log_format="text")`` opts out for human-readable dev output.
+The formatter always runs AFTER :class:`RedactionFilter` on the same
+handler, so the format choice never affects redaction. (Through E13_S08
+the formatter shipped but was not installed by default — that scope note
+no longer holds.)
 
 **Naming note (deviation from brief).** The brief calls for this file
 to be named ``server/observability/logging.py``. We use
