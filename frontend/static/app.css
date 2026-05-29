@@ -108,3 +108,18 @@ pre.error {
   min-height: 1.2em;
 }
 pre.error:empty { display: none; }
+
+/* notebook-ops-hardening-m4: live operability badge in the footer.
+   Polls /ui/status-badge every 10s; the fragment sets the modifier class. */
+.status-badge {
+  display: inline-block;
+  padding: 0.05rem 0.4rem;
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  font-weight: 600;
+  border: 1px solid var(--border);
+}
+.status-badge--ok   { background: #e6f4ea; color: #1a7f37; border-color: #1a7f37; }
+.status-badge--warn { background: #fdf3e2; color: #8a5a00; border-color: #8a5a00; }
+.status-badge--down { background: var(--error-bg); color: var(--danger); border-color: var(--danger); }

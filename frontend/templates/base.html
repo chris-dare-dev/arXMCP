@@ -56,7 +56,15 @@
     <small>
       Loopback only · same-origin only ·
       Destructive notebook wipe lives in <code>tools/notebook_purge.py</code> ·
-      <a href="/healthz">/healthz</a> · <a href="/readyz">/readyz</a>
+      <a href="/healthz">/healthz</a> · <a href="/readyz">/readyz</a> ·
+      <!-- notebook-ops-hardening-m4: live operability badge. Polls the
+           /ui/status-badge HTML fragment (NOT /status JSON — htmx renders
+           HTML, and a browser XHR to /status would 403 via SecFetchSite).
+           hx-get is same-origin under /ui so the existing CSP connect-src
+           'self' covers it; no CSP change needed. -->
+      <span id="status-badge" class="status-badge"
+            hx-get="/ui/status-badge" hx-trigger="load, every 10s"
+            hx-swap="outerHTML">checking…</span>
     </small>
   </footer>
 </body>

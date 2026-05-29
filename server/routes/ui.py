@@ -141,6 +141,43 @@ def _preview_html_path(slug: str, paper_id: str) -> Path | None:
     return None
 
 
+@router.get(
+    "/status-badge", response_class=HTMLResponse, include_in_schema=False
+)
+async def ui_status_badge(request: Request) -> HTMLResponse:
+    """Live operability badge for the UI shell (notebook-ops-hardening-m4).
+
+    Returns a tiny HTML ``<span>`` fragment the footer badge swaps in via
+    ``hx-get`` / ``hx-trigger="every 10s"``. Backed by the SAME
+    :func:`server.health.compute_health_status` snapshot as the
+    ``/status`` JSON endpoint.
+
+    Lives under ``/ui/`` (NOT ``/status``) on purpose: htmx renders HTML not
+    JSON, and a browser XHR to the non-``/ui`` ``/status`` would be 403'd by
+    ``SecFetchSiteMiddleware`` (which exempts only ``/ui``). **Always returns
+    200** — the badge must render the state (even "DOWN") in the browser; it
+    is a UI fragment, not a probe. The fragment re-emits its own
+    ``hx-get``/``hx-trigger`` so the swapped-in element keeps polling.
+    """
+    import html as _html  # noqa: PLC0415
+
+    from server.health import compute_health_status  # noqa: PLC0415
+
+    resources = getattr(request.app.state, "resources", None)
+    store = getattr(request.app.state, "notebooks_store", None)
+    report = await compute_health_status(resources, store)
+    status = str(report["status"])  # pass | warn | fail
+    summary = str(report["summary"])
+    css = {"pass": "ok", "warn": "warn", "fail": "down"}.get(status, "down")
+    safe = _html.escape(summary)
+    fragment = (
+        f'<span id="status-badge" class="status-badge status-badge--{css}" '
+        f'hx-get="/ui/status-badge" hx-trigger="every 10s" '
+        f'hx-swap="outerHTML" title="{safe}">{safe}</span>'
+    )
+    return HTMLResponse(content=fragment)
+
+
 @router.get("/", response_class=HTMLResponse, include_in_schema=False)
 async def ui_index(
     request: Request,

@@ -1,8 +1,11 @@
-.PHONY: help bootstrap test eval up ingest delta re-embed re-embed-all ingest-recover-preambles watchdog cutover notebook-cutover daily-report parser-failures-report sbom refresh-arxiv-ca
+.PHONY: help bootstrap test eval up status ingest delta re-embed re-embed-all ingest-recover-preambles watchdog cutover notebook-cutover daily-report parser-failures-report sbom refresh-arxiv-ca
 
 # Override with `make test PYTHON=python3.13` if your default python3 is too old.
 PYTHON ?= python3
 MIN_PY_MINOR := 11
+# notebook-ops-hardening-m4: port `make status` curls. Mirrors the server
+# default (server/config.py DEFAULT_BIND_PORT); override via the env var.
+ARXMCP_BIND_PORT ?= 7733
 
 help:
 	@echo "arXMCP development targets:"
@@ -11,6 +14,7 @@ help:
 	@echo "  make test        Run ruff + pytest"
 	@echo "  make eval        Run the Tier-0 retrieval-quality gate (see .claude/TIER-GATES.md)"
 	@echo "  make up          Start the arxmcp-server on 127.0.0.1:7733 (E06_S01)"
+	@echo "  make status      Print a one-line running/ready summary from /status"
 	@echo "  make ingest      Run the bulk ingest orchestrator (E11_S01; see docs/ops/bulk-ingest-runbook.md)"
 	@echo "  make delta       Run the OAI-PMH nightly delta loop (E11_S02; see docs/ops/delta-loop.md)"
 	@echo "  make re-embed    Run the partial re-embed driver (E11_S03; see docs/ops/re-embed-runbook.md)"
@@ -95,6 +99,16 @@ up:
 		f'arXMCP requires Python >= 3.$(MIN_PY_MINOR); got {sys.version_info[:2]}. \
 Try: make up PYTHON=python3.$(MIN_PY_MINOR)'"
 	$(PYTHON) -m server.main
+
+status:
+	@# notebook-ops-hardening-m4: one-action "is it running + ready?".
+	@# curl the /status health+json endpoint and print a human line. A
+	@# 503 (fail), a non-2xx, or an unreachable server all fall through to
+	@# the DOWN line (curl -sf exits non-zero -> the || branch). The
+	@# captured-then-piped form avoids double output on the down path.
+	@out=$$(curl -sf --max-time 5 "http://127.0.0.1:$(ARXMCP_BIND_PORT)/status" 2>/dev/null) \
+		&& printf '%s' "$$out" | $(PYTHON) tools/status_line.py \
+		|| echo "DOWN: arxmcp-server not reachable at 127.0.0.1:$(ARXMCP_BIND_PORT)/status"
 
 ingest:
 	@# E11_S01 — bulk ingest orchestrator. The Python module owns the

@@ -262,6 +262,222 @@ async def readyz(request: Request) -> Response:
 
 
 # ---------------------------------------------------------------------------
+# /status — human-friendly operability endpoint (notebook-ops-hardening-m4)
+# ---------------------------------------------------------------------------
+
+#: Last-backup staleness threshold. The daily restic cron fires ~03:30; a
+#: ``finished_at`` older than this (or an absent backup) flips the backup
+#: check to ``warn``. 25h gives the daily run a full extra hour of grace.
+_BACKUP_STALE_SECONDS: float = 25 * 3600
+
+
+def _iso_now() -> str:
+    from datetime import UTC, datetime  # noqa: PLC0415
+
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+async def compute_health_status(
+    resources: Resources | None,
+    store: object | None = None,
+    *,
+    now: float | None = None,
+) -> dict[str, object]:
+    """Compute the operability snapshot backing BOTH ``/status`` (health+json)
+    and ``/ui/status-badge`` (HTML). notebook-ops-hardening-m4.
+
+    Returns ``{"status", "http_code", "checks", "summary"}`` where ``status``
+    is the IETF ``application/health+json`` top-level value:
+
+    - **not warm / pre-startup → ``"fail"`` (503)** — matches ``/readyz``'s
+      503-before-warm semantics. (AC4: ``/readyz`` itself is untouched.)
+    - **warm + degraded / disk-low / backup-stale → ``"warn"`` (200)** — the
+      server still serves; ``/readyz`` returns 503 for the degraded case but
+      ``/status`` reports a serving-but-degraded 2xx.
+    - **warm + healthy → ``"pass"`` (200)``.
+
+    Every component probe degrades to ``warn`` rather than raising — a status
+    endpoint must never 500. ``now`` is injectable for deterministic tests.
+    """
+    clock = time.time() if now is None else now
+    t = _iso_now()
+    checks: dict[str, list[dict[str, object]]] = {}
+
+    # --- not warm / pre-startup → fail (mirrors /readyz 503-before-warm) ---
+    if resources is None or not resources.warm:
+        for comp, ctype in (("embedder", "component"), ("lancedb", "datastore")):
+            warm = bool(resources and resources.is_resource_warm(comp))
+            checks[f"{comp}:status"] = [
+                {"componentType": ctype, "status": "pass" if warm else "fail",
+                 "time": t}
+            ]
+        uptime = max(
+            0.0, clock - resources.process_start_time_seconds
+        ) if resources is not None else 0.0
+        checks["process:uptime"] = [
+            {"componentType": "system", "observedValue": round(uptime, 1),
+             "observedUnit": "s", "status": "pass", "time": t}
+        ]
+        return {
+            "status": "fail",
+            "http_code": 503,
+            "checks": checks,
+            "summary": "DOWN | server warming up",
+        }
+
+    # --- warm path --------------------------------------------------------
+    degraded = resources.degraded is not None
+
+    checks["embedder:status"] = [
+        {"componentType": "component", "status": "pass", "time": t}
+    ]
+    lancedb_check: dict[str, object] = {
+        "componentType": "datastore", "status": "pass", "time": t,
+    }
+    if degraded:
+        lancedb_check["status"] = "warn"
+        lancedb_check["output"] = (
+            f"fallback_version={resources.degraded.fallback_version}"
+        )
+    checks["lancedb:status"] = [lancedb_check]
+
+    checks["corpus:version"] = [
+        {"componentType": "datastore",
+         "observedValue": resources.corpus_info.version,
+         "observedUnit": "version", "status": "pass", "time": t}
+    ]
+
+    # notebook count — degrade to warn (never 500) if the store is absent or
+    # the query fails.
+    nb_count: int | None = None
+    nb_status = "pass"
+    if store is not None:
+        try:
+            nb_count = len(await store.list_notebooks())
+        except Exception:  # noqa: BLE001 — operability probe, must not 500
+            nb_status = "warn"
+    else:
+        nb_status = "warn"
+    checks["notebooks:count"] = [
+        {"componentType": "datastore", "observedValue": nb_count,
+         "observedUnit": "notebooks", "status": nb_status, "time": t}
+    ]
+
+    # disk utilization (warn when free < the ingest-pause threshold).
+    disk_warn = False
+    try:
+        import shutil  # noqa: PLC0415
+
+        usage = shutil.disk_usage(str(resources.config.data_dir))
+        pct = round(100.0 * usage.used / usage.total, 1) if usage.total else 0.0
+        disk_warn = usage.free < DISK_PAUSE_THRESHOLD_BYTES
+        disk_check: dict[str, object] = {
+            "componentType": "system", "observedValue": pct,
+            "observedUnit": "percent",
+            "status": "warn" if disk_warn else "pass", "time": t,
+        }
+        if disk_warn:
+            disk_check["output"] = (
+                f"free={usage.free // 1024**3}GB < "
+                f"{DISK_PAUSE_THRESHOLD_BYTES // 1024**3}GB threshold"
+            )
+    except OSError:
+        disk_warn = True
+        disk_check = {"componentType": "system", "status": "warn",
+                      "output": "disk_usage failed", "time": t}
+    checks["disk:utilization"] = [disk_check]
+
+    # last-backup recency. Read finished_at defensively; absent or >25h → warn.
+    # (The status-string enum lives in /metrics; here recency is the robust
+    # signal.) backup-status.json carries both ``status`` (overall) and
+    # ``backup_status`` (backup phase) keys; recency does not depend on either.
+    backup_warn = False
+    backup_check: dict[str, object] = {
+        "componentType": "system", "status": "pass", "time": t,
+    }
+    try:
+        backup_path = Path(resources.config.ops_dir) / _BACKUP_STATUS_NAME
+        finished_at = None
+        if backup_path.is_file():
+            raw = _read_capped(backup_path)
+            payload = json.loads(raw) if raw else None
+            if isinstance(payload, dict):
+                finished_at = payload.get("finished_at")
+        if not isinstance(finished_at, str) or not finished_at:
+            backup_warn = True
+            backup_check["status"] = "warn"
+            backup_check["output"] = "no backup recorded"
+        else:
+            from datetime import datetime  # noqa: PLC0415
+
+            age = clock - datetime.fromisoformat(finished_at).timestamp()
+            backup_check["observedValue"] = finished_at
+            if age > _BACKUP_STALE_SECONDS:
+                backup_warn = True
+                backup_check["status"] = "warn"
+                backup_check["output"] = (
+                    f"last backup {int(age // 3600)}h ago (> 25h)"
+                )
+    except (OSError, ValueError, json.JSONDecodeError):
+        backup_warn = True
+        backup_check["status"] = "warn"
+        backup_check["output"] = "backup-status.json unreadable"
+    checks["backup:time"] = [backup_check]
+
+    uptime = max(0.0, clock - resources.process_start_time_seconds)
+    checks["process:uptime"] = [
+        {"componentType": "system", "observedValue": round(uptime, 1),
+         "observedUnit": "s", "status": "pass", "time": t}
+    ]
+
+    any_warn = degraded or disk_warn or backup_warn or nb_status == "warn"
+    status = "warn" if any_warn else "pass"
+    label = {"pass": "READY", "warn": "DEGRADED"}[status]
+    nb_text = "?" if nb_count is None else nb_count
+    summary = (
+        f"{label} | corpus v{resources.corpus_info.version} | "
+        f"{nb_text} notebooks" + (" | degraded" if degraded else "")
+    )
+    return {
+        "status": status,
+        "http_code": 200,
+        "checks": checks,
+        "summary": summary,
+    }
+
+
+@router.get("/status")
+async def status_endpoint(request: Request) -> Response:
+    """Operability snapshot as IETF ``application/health+json``
+    (notebook-ops-hardening-m4).
+
+    A SUPERSET of ``/readyz``: ``status: pass|warn|fail`` + per-component
+    ``checks`` (embedder, lancedb, corpus:version, notebooks:count,
+    disk:utilization, backup:time, process:uptime). HTTP 200 for ``pass`` and
+    ``warn`` (serving, possibly degraded), 503 for ``fail`` (not warm). Unlike
+    ``/readyz`` (which 503s on the degraded case), ``/status`` reports the
+    degraded state as ``warn`` with a 200 so an operator/badge sees
+    "serving-but-degraded" distinctly from "down". ``/readyz`` is unchanged.
+
+    NOT an MCP tool — no tool-schema / BP1 impact. Consumed by ``make status``
+    + the ``/ui/status-badge`` poll.
+    """
+    resources: Resources | None = getattr(request.app.state, "resources", None)
+    store = getattr(request.app.state, "notebooks_store", None)
+    report = await compute_health_status(resources, store)
+    body = {
+        "status": report["status"],
+        "description": "arXMCP MCP server",
+        "checks": report["checks"],
+    }
+    return JSONResponse(
+        status_code=int(report["http_code"]),  # type: ignore[call-overload]
+        content=body,
+        media_type="application/health+json",
+    )
+
+
+# ---------------------------------------------------------------------------
 # Metric refresh helper
 # ---------------------------------------------------------------------------
 

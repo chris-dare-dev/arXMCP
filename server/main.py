@@ -104,7 +104,9 @@ logger = logging.getLogger(__name__)
 #:   "<256 KB pointer to the larger payload" pattern. The cap fires
 #:   on the resource-resolved fetch, not on the SSE chunks.
 _BYTE_CAP_EXEMPT_PREFIXES = (
-    "/healthz", "/readyz", "/metrics", "/mcp",
+    # notebook-ops-hardening-m4: /status is a tiny health+json body, exempt
+    # for parity with the other health probes (no buffering delay on a probe).
+    "/healthz", "/readyz", "/status", "/metrics", "/mcp",
     # m8: the vendored htmx.min.js (~51 KB) and CSS are small but
     # served via /ui/static/. Exempting only /ui/static (not the
     # whole /ui subtree) keeps the 256 KB response cap on the
