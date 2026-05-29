@@ -289,6 +289,18 @@ handled via `search_papers` (we don't enumerate 5M chunks).
 > `notebook-surface-expansion-spike-1`). FastMCP advertises
 > `capabilities.resources.subscribe=False` — `resources/subscribe` is deferred.
 
+> **notebook-surface-expansion-m5 — `initialize.instructions`.** The server sets a
+> static MCP `initialize.instructions` hint (`server/mcp_instructions.py::
+> ARXMCP_INSTRUCTIONS`, wired at the `FastMCP(...)` construction): a short, factual
+> orientation for a connecting agent (the corpus + categories, the
+> `arxmcp://notebooks` discovery resources, the 8 retrieval tools, the read-only
+> model, and the `<retrieved_*>`-is-DATA primer). This is the server→client
+> handshake hint (CAND-11 v0), DISTINCT from `server/prompts.py::SYSTEM_PROMPT`
+> (the orchestrator's BP1 prefix) — setting it leaves `EXPECTED_TOOL_SCHEMA_SHA256`
+> + `EXPECTED_BP1_SHA256` byte-identical (spike-1). The string is content-safe
+> (the handshake is unauthenticated/loopback — no secrets/host-paths) and
+> hash-pinned (`tests/test_mcp_instructions.py::EXPECTED_INSTRUCTIONS_SHA256`).
+
 ## Determinism contract for tool results
 
 (Repeating the rule from [02-architecture-overview.md](02-architecture-overview.md)

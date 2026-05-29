@@ -650,6 +650,7 @@ def create_app(config: Config | None = None) -> FastAPI:
         from mcp.server.fastmcp import FastMCP
 
         from server._mcp_mount import mount_mcp
+        from server.mcp_instructions import ARXMCP_INSTRUCTIONS
         from server.mcp_resources import register_resources
         from server.tools import register_all as register_all_tools
 
@@ -658,7 +659,14 @@ def create_app(config: Config | None = None) -> FastAPI:
         # Required by the E06_S02 stdio shim. Design constitution
         # (``.claude/notes/06-mcp-server-design.md`` line 46): "No
         # protocol-level streaming of tool results."
-        mcp_server = FastMCP("arxmcp", json_response=True)
+        # notebook-surface-expansion-m5: ``instructions=`` sets the MCP
+        # initialize.instructions hint orienting a connecting agent. This is
+        # the server->client handshake field, NOT SYSTEM_PROMPT/BP1 — setting
+        # it leaves tools/list + BP1 byte-identical (spike-1; pinned by
+        # tests/test_mcp_instructions.py).
+        mcp_server = FastMCP(
+            "arxmcp", json_response=True, instructions=ARXMCP_INSTRUCTIONS
+        )
         # E06_S03: tools MUST be registered BEFORE mount_mcp because
         # streamable_http_app() snapshots the registered tools at
         # mount time (synthesis D11).
