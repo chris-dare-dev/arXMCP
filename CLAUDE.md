@@ -40,7 +40,13 @@ content is BOTH operator-facing AND linked from the root README.
 a research-mathematics arXiv corpus to multi-agent Claude pipelines. The
 intended consumer is a Claude **sketcher → autoformalizer → tactician →
 fixer** pipeline attacking research-level mathematics — every sub-agent
-shares one substrate of grounded context through this server.
+shares one substrate of grounded context through this server. Alongside the
+MCP tool surface (the primary agent interface), a **loopback-only Jinja2+htmx
+operator console** at `/ui/` ships with the server for notebook management
+(create / list / ingest / rename / delete / upload); it is deliberately
+minimal and build-chain-free (no SPA, no Node/npm). See
+[`.claude/notes/06-mcp-server-design.md`](.claude/notes/06-mcp-server-design.md)
+§ "Browser UI surface".
 
 The full design rationale lives in
 [`.claude/notes/01-mission-and-context.md`](.claude/notes/01-mission-and-context.md).
@@ -261,8 +267,14 @@ arXMCP/
 │   ├── router_patterns.yaml 18 named patterns
 │   ├── prompts.py           role-prefix constants (BP1+BP2 cache breakpoints)
 │   ├── corpus.py            LanceDB MVCC chunks-table reader
-│   ├── health.py            /healthz + /readyz
-│   └── metrics.py           Prometheus counters
+│   ├── health.py            /healthz + /readyz + /status (health+json; m4)
+│   ├── metrics.py           Prometheus counters
+│   └── routes/              loopback-only browser operator console (Jinja2+htmx)
+│       ├── ui.py            HTML pages: /ui/, /ui/notebooks/{slug}, preview, /ui/status-badge
+│       └── notebooks.py     /ui/api/* REST + htmx (create/list/rename/delete/ingest/upload)
+├── frontend/                operator-console assets (NO SPA / NO Node build chain)
+│   ├── templates/           Jinja2 templates (base, index, notebook_detail); autoescape ON
+│   └── static/              vendored htmx.min.js + minimal CSS (mounted at /ui/static/)
 ├── ingest/                  corpus pipeline (chunker → embedder → indices → graph)
 │   ├── chunker.py           theorem-aware structural chunker
 │   ├── preamble.py          per-paper \newcommand / \def extractor
@@ -338,6 +350,12 @@ These all work TODAY (no stubs):
 
 - **Run the server:** `make up` (or `python -m server.main`) starts the MCP
   server on `127.0.0.1:7733` with Streamable HTTP at `/mcp`.
+- **Browser operator console** at `http://127.0.0.1:7733/ui/` — notebook
+  management (list / create / ingest / rename / delete / upload + ar5iv
+  preview + an operability badge); loopback-only, server-rendered Jinja2+htmx,
+  NO SPA / Node build chain. NOT yet security-audited (E13 scoped it out;
+  tracked at `chris-dare-dev/arXMCP`). See `06-mcp-server-design.md`
+  § "Browser UI surface".
 - **`tools/list`** returns 7 frozen tool meta records (byte-stable for BP1
   cache discipline).
 - **`search_papers`, `get_chunk`, `find_equation`, `get_definitions`,

@@ -148,7 +148,12 @@ all of v1's design choices.
 
 - **Multi-host scaling, replication, leader election.** Single workstation.
 - **Authentication, multi-tenancy, audit logs.** localhost-only.
-- **A web UI.** The MCP tool surface is the UI.
+- **A general-purpose / SPA web UI.** (This note is SUPERSEDED by
+  `.claude/roadmap/README.md`. As of the notebook-ops + notebook-surface
+  streams a loopback-only, server-rendered Jinja2+htmx **operator console**
+  at `/ui/` DOES ship — notebook management only, no SPA / Node build chain.
+  The MCP tool surface remains the primary agent interface. See
+  `06-mcp-server-design.md` § "Browser UI surface".)
 - **PDF figure extraction.** Tier 6 if at all.
 - **OCR of pre-2007 scanned papers.** Mark as degraded coverage.
 - **Translation of non-English papers.** Filter at OAI-PMH harvest.

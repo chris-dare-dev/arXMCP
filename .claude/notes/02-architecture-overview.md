@@ -147,6 +147,12 @@ dataset versions for rollback.
 - General-purpose web search agent capabilities.
 - Auto-discovery of new arXiv categories beyond the four specified
   (math.AG, math.NT, math-ph, hep-th).
-- Beautiful UI. The MCP tool surface is the UI.
+- A beautiful / general-purpose research UI. A loopback-only Jinja2+htmx
+  **operator console** at `/ui/` does ship with the server (notebook
+  management: create / list / ingest / rename / delete / upload, plus an
+  operability badge) — but it is deliberately minimal, server-rendered, and
+  build-chain-free (no SPA, no Node/npm). The MCP tool surface remains the
+  primary agent interface; the console is an operator convenience, not a
+  research front-end. (See `06-mcp-server-design.md` § "Browser UI surface".)
 - Full automation of proof discovery. arXMCP is a power tool for a human-driven
   agent pipeline, not an autonomous solver.

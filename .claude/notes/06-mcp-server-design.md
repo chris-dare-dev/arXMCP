@@ -425,6 +425,70 @@ Contract:
 3. **Shutdown:** drain in-flight requests with a 30-second deadline; close
    LanceDB and Kùzu cleanly; flush metrics.
 
+## Browser UI surface
+
+> **Added by `notebook-surface-expansion-m3` (2026-05).** Earlier revisions of the
+> constitution (and `02-architecture-overview.md` / `09-feature-priorities.md`)
+> treated the MCP tool surface as the sole interface, with no operator UI. That is
+> now STALE: a deliberately minimal,
+> **loopback-only, server-rendered Jinja2 + htmx operator console** ships
+> with the server. It is an operator convenience for notebook management — NOT a
+> general-purpose research front-end, and NOT an SPA. **Hard constraint: no SPA, no
+> Node/npm build chain.** htmx is vendored under `frontend/static/`; templates live
+> under `frontend/templates/`. The MCP tool surface remains the primary agent
+> interface; this console exists alongside it.
+
+**HTML pages — `server/routes/ui.py` (mounted at `/ui/`):**
+
+- `GET /ui/` — landing page: notebook list + create-notebook form.
+- `GET /ui/notebooks/{slug}` — per-notebook detail: paper list, add-by-URL form,
+  drag-drop upload card, parse-status + "last indexed" freshness
+  (notebook-surface-expansion-m1), in-page rename + delete
+  (notebook-surface-expansion-m2), and a live ingest-status poll.
+- `GET /ui/notebooks/{slug}/papers/{paper_id}/preview` — direct-serve of stored
+  ar5iv HTML under an aggressively tight per-response CSP
+  (`CONTENT_SECURITY_POLICY_PREVIEW`) with a `<meta http-equiv="refresh">` strip
+  (E10/m10 hardening).
+- `GET /ui/status-badge` — live operability HTML fragment for the footer badge,
+  backed by the same `compute_health_status` snapshot as `/status`
+  (notebook-ops-hardening-m4).
+
+**REST / htmx API — `server/routes/notebooks.py` (mounted at `/ui/api/`):**
+
+- `GET /ui/api/notebooks` — list; `POST /ui/api/notebooks` — create;
+  `DELETE /ui/api/notebooks/{slug}` — metadata-only delete (the on-disk
+  `var/arxmcp/notebooks/<slug>/` tree is wiped only by `tools/notebook_purge.py`);
+  `PATCH /ui/api/notebooks/{slug}` — rename `display_name` (m2; mass-assignment
+  guarded — `display_name` is the ONLY patchable field).
+- `GET/POST/DELETE /ui/api/notebooks/{slug}/papers[/{paper_id}]` — paper
+  list / add-by-URL / remove; `POST .../papers/upload` — PDF + ar5iv HTML upload
+  (returns an HTML fragment).
+- `POST /ui/api/notebooks/{slug}/ingest` + `GET .../ingest/latest` — ingest
+  trigger + status poll.
+
+**Security posture (the audit baseline; see `08-security-observability-ops.md`):**
+
+- **Loopback-only bind** — `127.0.0.1`; non-loopback rejected at config parse.
+- **Jinja2 autoescape** — the environment is constructed EXPLICITLY with
+  `autoescape=select_autoescape(enabled_extensions=("html","htm","xml"),
+  default_for_string=True)`. Zero `| safe` filters in any template (load-bearing —
+  it is the stored-XSS guard for operator-authored fields like `display_name`).
+- **CSP** — `CONTENT_SECURITY_POLICY_UI` on `/ui/*` pages; tighter
+  `CONTENT_SECURITY_POLICY_PREVIEW` on the ar5iv preview route; `frame-ancestors
+  'none'` in both.
+- **CSRF posture** — no token, by design: `SecFetchSiteMiddleware(exempt_prefixes=
+  ("/ui",))` admits `Sec-Fetch-Site: same-origin` on `/ui/*` and rejects cross-site;
+  combined with `OriginValidationMiddleware` + `HostValidationMiddleware`
+  (loopback-only) this is the triple-layer same-origin defense.
+- **Input validation** — `validate_slug` (path-traversal regex) at every mutation
+  boundary; Pydantic `Field(max_length=...)` bounds; control-char strip on
+  `display_name`; PDF upload preflight (JavaScript/polyglot/zip-bomb checks).
+
+> **This UI surface has NOT yet had a dedicated security audit** — E13 (Security
+> Hardening) scoped the audit to the 7-tool MCP surface only. The deferred UI audit
+> is tracked as a filed issue at `chris-dare-dev/arXMCP` (CAND-13;
+> notebook-surface-expansion-m3).
+
 ## What this server does NOT do
 
 - Embedding model fine-tuning. (Offline tooling, separate project.)
