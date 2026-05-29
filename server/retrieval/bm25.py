@@ -68,6 +68,7 @@ See research-synthesis.md, "Open: how to surface filter_warnings."
 from __future__ import annotations
 
 import asyncio
+import functools
 import json
 import logging
 import os
@@ -372,6 +373,7 @@ class BM25Phase:
         lancedb_path: str | Path,
         corpus_version: int,
         live_chunk_ids: set[str] | None = None,
+        bm25_index_root: Path | None = None,
     ) -> BM25Phase:
         """Async constructor: resolve artifact path, auto-build if
         missing, file-safety-check (TOCTOU-safe via fstat), load,
@@ -388,7 +390,7 @@ class BM25Phase:
             Path to the LanceDB dataset root.
         corpus_version: int
             Pinned corpus version. The artifact at
-            ``var/.../bm25/v<corpus_version>/`` is loaded.
+            ``<bm25_index_root>/v<corpus_version>/`` is loaded.
         live_chunk_ids: set[str] | None
             F4 fix from the E07_S01 critique: optionally cross-check
             that every chunk_id in ``chunk_ids.json`` exists in the
@@ -397,6 +399,12 @@ class BM25Phase:
             production (Resources.startup passes it after opening
             the chunks table); optional in tests that don't have a
             chunks table to cross-check against.
+        bm25_index_root: Path | None
+            notebook-bm25-isolation-m1: optional override for the BM25
+            artifact root. When ``None`` (default), resolves
+            :data:`ingest.bm25_indexer.BM25_INDEX_ROOT` at call time
+            (preserves monkeypatch semantics). Fork-C notebook mode
+            passes ``config.bm25_index_root`` here.
 
         Raises
         ------
@@ -411,10 +419,13 @@ class BM25Phase:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             None,
-            cls._sync_startup,
-            lancedb_path,
-            corpus_version,
-            live_chunk_ids,
+            functools.partial(
+                cls._sync_startup,
+                lancedb_path,
+                corpus_version,
+                live_chunk_ids,
+                bm25_index_root,
+            ),
         )
 
     @classmethod
@@ -423,10 +434,21 @@ class BM25Phase:
         lancedb_path: str | Path,
         corpus_version: int,
         live_chunk_ids: set[str] | None = None,
+        bm25_index_root: Path | None = None,
     ) -> BM25Phase:
         """Sync implementation of :meth:`startup`. Extracted so tests
-        can construct without running a loop."""
-        version_dir = _bm25_version_dir(corpus_version)
+        can construct without running a loop.
+
+        Parameters
+        ----------
+        bm25_index_root: Path | None
+            notebook-bm25-isolation-m1: optional override for the BM25
+            artifact root. When ``None`` (default), resolves
+            :data:`ingest.bm25_indexer.BM25_INDEX_ROOT` at call time
+            (preserves monkeypatch semantics). Fork-C notebook mode
+            passes ``config.bm25_index_root`` here.
+        """
+        version_dir = _bm25_version_dir(corpus_version, index_root=bm25_index_root)
         pkl_path = version_dir / BM25_INDEX_NAME
         ids_path = version_dir / BM25_CHUNK_IDS_NAME
 
@@ -438,7 +460,11 @@ class BM25Phase:
                 "version=%d", version_dir, corpus_version,
             )
             try:
-                build_bm25_index(lancedb_path, corpus_version=corpus_version)
+                build_bm25_index(
+                    lancedb_path,
+                    corpus_version=corpus_version,
+                    index_root=bm25_index_root,
+                )
             except Exception as exc:
                 raise BM25IndexUnavailableError(
                     f"BM25 auto-build failed for corpus_version="

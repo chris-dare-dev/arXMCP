@@ -583,3 +583,132 @@ class TestBM25StatsDataclass:
         assert d["empty_chunks_skipped"] == 2
         assert d["paper_count"] == 4
         assert d["skipped"] is False
+
+
+# ===========================================================================
+# TestBM25IndexRootIsolation — notebook-bm25-isolation-m1
+# AC-3: two builds at the same version N with different index_root
+#       resolve to non-overlapping artifact paths.
+# ===========================================================================
+
+
+class TestBM25IndexRootIsolation:
+    """Regression: per-notebook BM25 index root isolation.
+
+    These tests MUST FAIL on the pre-fix code (before
+    ``notebook-bm25-isolation-m1``) where ``_bm25_version_dir`` always
+    used the global ``BM25_INDEX_ROOT`` and ``build_bm25_index`` had no
+    ``index_root`` parameter.
+
+    Post-fix they pass because the ``index_root`` parameter makes each
+    call use a different directory tree.
+    """
+
+    def test_version_dirs_differ_with_different_index_roots(self, tmp_path):
+        """AC-3: ``_bm25_version_dir(N, index_root=A)`` !=
+        ``_bm25_version_dir(N, index_root=B)`` when A != B.
+
+        This is the structural guarantee that no collision can occur when
+        two callers supply distinct roots for the same version integer.
+        """
+        import ingest.bm25_indexer as bm25_mod
+
+        root_a = tmp_path / "notebook-a" / "index" / "bm25"
+        root_b = tmp_path / "notebook-b" / "index" / "bm25"
+        version = 1
+
+        dir_a = bm25_mod._bm25_version_dir(version, index_root=root_a)
+        dir_b = bm25_mod._bm25_version_dir(version, index_root=root_b)
+
+        assert dir_a != dir_b, (
+            f"Same version {version} with different index_root values "
+            f"must produce different version dirs; got same: {dir_a}"
+        )
+        assert dir_a == root_a / f"v{version}"
+        assert dir_b == root_b / f"v{version}"
+
+    def test_build_bm25_index_per_root_no_overlap(self, tmp_path):
+        """AC-3: two ``build_bm25_index`` calls at the same version N
+        but with different ``index_root`` values produce artifacts in
+        non-overlapping directories.
+
+        Pre-fix this test would fail because both calls would write to
+        the same global-root ``bm25/v<N>/`` directory (or whichever
+        was monkeypatched), and the second call's idempotent-skip would
+        silently leave the first caller's ``chunk_ids.json`` in place.
+
+        Post-fix each call writes to its own root, so the files are
+        fully separated.
+        """
+        import ingest.bm25_indexer as bm25_mod
+
+        root_a = tmp_path / "nb-alpha" / "index" / "bm25"
+        root_b = tmp_path / "nb-beta" / "index" / "bm25"
+
+        # Build two tiny corpora with DIFFERENT chunk_ids so we can
+        # verify each root got its own artifact.
+        lancedb_a = tmp_path / "lancedb_a"
+        lancedb_b = tmp_path / "lancedb_b"
+
+        chunks_a = [_curated_chunk("2301.00001", "aaaa0001", body_tokens="alpha theorem lemma")]
+        embeds_a = _embeddings_for(chunks_a, seed=1)
+        version_a = write_chunks(chunks_a, embeds_a, lancedb_a)
+
+        chunks_b = [_curated_chunk("2302.00002", "bbbb0002", body_tokens="beta corollary proof")]
+        embeds_b = _embeddings_for(chunks_b, seed=2)
+        version_b = write_chunks(chunks_b, embeds_b, lancedb_b)
+
+        # Both notebooks land at version 1 (per-dataset MVCC starts at 1).
+        if version_a != version_b != 1:
+            pytest.skip("Unexpected version numbers; corpus setup changed")
+
+        # Build index for notebook-A under root_a
+        bm25_mod.build_bm25_index(lancedb_a, corpus_version=version_a, index_root=root_a)
+        # Build index for notebook-B under root_b
+        bm25_mod.build_bm25_index(lancedb_b, corpus_version=version_b, index_root=root_b)
+
+        pkl_a = root_a / f"v{version_a}" / bm25_mod.BM25_INDEX_NAME
+        ids_a = root_a / f"v{version_a}" / bm25_mod.BM25_CHUNK_IDS_NAME
+        pkl_b = root_b / f"v{version_b}" / bm25_mod.BM25_INDEX_NAME
+        ids_b = root_b / f"v{version_b}" / bm25_mod.BM25_CHUNK_IDS_NAME
+
+        # Both directories exist and are independent.
+        assert pkl_a.is_file(), f"Missing pkl at {pkl_a}"
+        assert ids_a.is_file(), f"Missing chunk_ids at {ids_a}"
+        assert pkl_b.is_file(), f"Missing pkl at {pkl_b}"
+        assert ids_b.is_file(), f"Missing chunk_ids at {ids_b}"
+
+        # The chunk_ids in each root match their respective corpora.
+        import json as _json
+        ids_list_a = _json.loads(ids_a.read_text())
+        ids_list_b = _json.loads(ids_b.read_text())
+        assert ids_list_a != ids_list_b, (
+            "The two notebooks have different chunk_ids but got the same "
+            f"chunk_ids.json — collision still present: {ids_list_a}"
+        )
+        assert any("2301" in cid for cid in ids_list_a), (
+            f"root_a chunk_ids should contain notebook-A chunks; got {ids_list_a}"
+        )
+        assert any("2302" in cid for cid in ids_list_b), (
+            f"root_b chunk_ids should contain notebook-B chunks; got {ids_list_b}"
+        )
+
+    def test_none_index_root_uses_monkeypatched_global(self, tmp_path, monkeypatch):
+        """FM-6: when ``index_root=None`` (the default), ``_bm25_version_dir``
+        reads ``BM25_INDEX_ROOT`` at call time, so the conftest autouse
+        monkeypatch continues to intercept the path in tests.
+
+        This asserts the lazy-resolution semantic that keeps ~40 existing
+        tests green after the fix.
+        """
+        import ingest.bm25_indexer as bm25_mod
+
+        patched_root = tmp_path / "patched_root"
+        monkeypatch.setattr(bm25_mod, "BM25_INDEX_ROOT", patched_root)
+
+        version = 3
+        result = bm25_mod._bm25_version_dir(version, index_root=None)
+        assert result == patched_root / f"v{version}", (
+            f"index_root=None must resolve to the (patchable) "
+            f"BM25_INDEX_ROOT at call time; got {result}"
+        )

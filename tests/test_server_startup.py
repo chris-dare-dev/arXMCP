@@ -576,6 +576,52 @@ class TestNotebookConfig:
 
         asyncio.run(_roundtrip())
 
+    # ------------------------------------------------------------------
+    # notebook-bm25-isolation-m1 — AC-2 + config field tests
+    # ------------------------------------------------------------------
+
+    def test_shared_config_has_none_bm25_index_root(self, monkeypatch):
+        """AC-2 / FM-4: when ARXMCP_NOTEBOOK is unset, bm25_index_root
+        stays None so the global BM25_INDEX_ROOT is resolved at call
+        time (preserving the conftest monkeypatch for ~40 tests)."""
+        monkeypatch.delenv("ARXMCP_NOTEBOOK", raising=False)
+        cfg = Config()
+        assert cfg.bm25_index_root is None, (
+            "Non-notebook config must have bm25_index_root=None "
+            f"(got {cfg.bm25_index_root!r})"
+        )
+
+    def test_notebook_derives_per_notebook_bm25_index_root(
+        self, notebooks_base, monkeypatch
+    ):
+        """AC-1 / notebook-bm25-isolation-m1: fork-C config derives
+        bm25_index_root = var/arxmcp/notebooks/<slug>/index/bm25,
+        mirroring the cache_db_path isolation pattern."""
+        monkeypatch.delenv("ARXMCP_BM25_INDEX_ROOT", raising=False)
+        _seed_notebook_marker(notebooks_base / "demo-nb" / "lancedb")
+        cfg = Config(notebook="demo-nb")
+        expected = (notebooks_base / "demo-nb" / "index" / "bm25").resolve()
+        assert cfg.bm25_index_root == expected, (
+            f"Fork-C bm25_index_root should be {expected}; "
+            f"got {cfg.bm25_index_root!r}"
+        )
+
+    def test_two_notebooks_derive_distinct_bm25_index_roots(
+        self, notebooks_base, monkeypatch
+    ):
+        """notebook-bm25-isolation-m1 regression: two notebooks derive
+        DISTINCT BM25 roots even when their corpus_version integers
+        collide (per-dataset MVCC means version=1 is reused)."""
+        monkeypatch.delenv("ARXMCP_BM25_INDEX_ROOT", raising=False)
+        _seed_notebook_marker(notebooks_base / "alpha-nb" / "lancedb")
+        _seed_notebook_marker(notebooks_base / "beta-nb" / "lancedb")
+        cfg_a = Config(notebook="alpha-nb")
+        cfg_b = Config(notebook="beta-nb")
+        assert cfg_a.bm25_index_root != cfg_b.bm25_index_root, (
+            "Two notebooks must derive DISTINCT bm25_index_root values; "
+            f"both got {cfg_a.bm25_index_root!r}"
+        )
+
     def test_resources_startup_boots_notebook_corpus(
         self, notebooks_base, mocked_bge_m3, monkeypatch
     ):

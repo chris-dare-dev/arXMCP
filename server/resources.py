@@ -518,6 +518,7 @@ class Resources:
             lancedb_path=config.lancedb_path,
             corpus_version=corpus_info.version,
             live_chunk_ids=live_chunk_ids,
+            bm25_index_root=config.bm25_index_root,
         )
         logger.info(
             "Resources.startup: BM25Phase warm (corpus_size=%d)",

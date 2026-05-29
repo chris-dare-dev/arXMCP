@@ -105,13 +105,29 @@ BM25_INDEX_ROOT = REPO_ROOT / "var" / "arxmcp" / "index" / BM25_DIR_NAME
 BM25_STATS_PATH = REPO_ROOT / "var" / "arxmcp" / "ops" / "bm25-stats.jsonl"
 
 
-def _bm25_version_dir(corpus_version: int) -> Path:
+def _bm25_version_dir(
+    corpus_version: int,
+    index_root: Path | None = None,
+) -> Path:
     """Return the per-version BM25 index directory.
 
     Confines the ``f"v{N}"`` literal to a single function so a future
     rename (e.g. zero-padding to ``v00007``) is a one-line change.
+
+    Parameters
+    ----------
+    corpus_version:
+        MVCC version integer, e.g. 1.
+    index_root:
+        Optional override for the BM25 artifact root. When ``None``
+        (the default), resolves :data:`BM25_INDEX_ROOT` **at call time**
+        so ``monkeypatch.setattr(bm25_mod, "BM25_INDEX_ROOT", ...)``
+        continues to intercept the path in tests (notebook-bm25-isolation-m1).
+        When provided (fork-C notebook mode), uses that path as the root
+        so the per-notebook index is isolated from the shared corpus.
     """
-    return BM25_INDEX_ROOT / f"v{corpus_version}"
+    root = index_root if index_root is not None else BM25_INDEX_ROOT
+    return root / f"v{corpus_version}"
 
 
 # ---------------------------------------------------------------------------
@@ -245,6 +261,7 @@ def _atomic_write_text(out_path: Path, payload: str) -> None:
 def build_bm25_index(
     lancedb_path: str | Path,
     corpus_version: int,
+    index_root: Path | None = None,
 ) -> None:
     """Build and persist the BM25 index for ``corpus_version``.
 
@@ -252,7 +269,8 @@ def build_bm25_index(
     LanceDB dataset version (via :func:`server.corpus.open_chunks_table`),
     fits a :class:`rank_bm25.BM25Okapi` over the whitespace-split token
     streams, and writes ``bm25.pkl`` + ``chunk_ids.json`` to
-    ``<BM25_INDEX_ROOT>/v<corpus_version>/`` atomically.
+    ``<index_root>/v<corpus_version>/`` atomically (where ``index_root``
+    defaults to :data:`BM25_INDEX_ROOT` when ``None``).
 
     .. warning::
 
@@ -303,7 +321,7 @@ def build_bm25_index(
         )
 
     start = time.monotonic()
-    version_dir = _bm25_version_dir(corpus_version)
+    version_dir = _bm25_version_dir(corpus_version, index_root=index_root)
     pkl_path = version_dir / BM25_INDEX_NAME
     ids_path = version_dir / BM25_CHUNK_IDS_NAME
 

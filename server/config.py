@@ -133,6 +133,19 @@ class Config(BaseSettings):
     #: directory is created at ``Resources.startup()`` time.
     cache_db_path: Path = Path("var/arxmcp/cache/retrieval.db")
 
+    #: Per-notebook BM25 index root (notebook-bm25-isolation-m1).
+    #: Default ``None`` means "resolve :data:`ingest.bm25_indexer.BM25_INDEX_ROOT`
+    #: at call time" — preserving the conftest autouse
+    #: ``monkeypatch.setattr(bm25_mod, "BM25_INDEX_ROOT", ...)`` used by
+    #: ~40 tests. When :attr:`notebook` is set, the
+    #: :meth:`derive_notebook_lancedb_path` validator rewrites this to
+    #: ``var/arxmcp/notebooks/<slug>/index/bm25`` (mirroring the
+    #: ``cache_db_path`` isolation) unless ``ARXMCP_BM25_INDEX_ROOT``
+    #: was set explicitly. The shared (non-notebook) path stays ``None``
+    #: so the global root remains in effect (FM-4 — shared default MUST
+    #: stay global).
+    bm25_index_root: Path | None = None
+
     #: SQLite file path for the theorem-names FTS5 index (E10_S02).
     #: Sibling to the LanceDB indices under ``var/arxmcp/index/``;
     #: parent directory is created on first indexer run. When the
@@ -512,6 +525,15 @@ class Config(BaseSettings):
         # and avoids the slug-in-key refactor deferred to m2.
         if "cache_db_path" not in self.model_fields_set:
             self.cache_db_path = derived.parent / "cache" / "retrieval.db"
+        # notebook-bm25-isolation-m1: redirect the BM25 index root to a
+        # per-notebook directory unless ARXMCP_BM25_INDEX_ROOT was set
+        # explicitly. Mirrors the ``cache_db_path`` isolation above.
+        # ``derived.parent`` = ``var/arxmcp/notebooks/<slug>/`` so the
+        # BM25 root becomes ``var/arxmcp/notebooks/<slug>/index/bm25``.
+        # The shared (non-notebook) path stays ``None`` via the
+        # ``if self.notebook is None: return self`` guard above (FM-4).
+        if "bm25_index_root" not in self.model_fields_set:
+            self.bm25_index_root = derived.parent / "index" / "bm25"
         return self
 
     @model_validator(mode="after")
