@@ -1,0 +1,99 @@
+{
+  "brief_source": "",
+  "created_at": "2026-05-29T18:08:11Z",
+  "critics_run": [],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 1,
+    "low": 1,
+    "medium": 1
+  },
+  "critique_path": ".claude/notes/milestones/corpus-integrity-observability-m3/critique-adversary.md",
+  "deferred_findings": [],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_required": [],
+  "fixed_findings": [
+    "F1",
+    "F2",
+    "F3"
+  ],
+  "id": "corpus-integrity-observability-m3",
+  "implementation_base": "9ac322a9b3095426921ca33594897a37266fd65d",
+  "implementation_branch": "main",
+  "implementation_commit_range": "9ac322a9b3095426921ca33594897a37266fd65d..b2b21d7707740033fdd0ac042a0169f0a28dc4ac",
+  "implementation_commits": [
+    "b2b21d7707740033fdd0ac042a0169f0a28dc4ac"
+  ],
+  "implementation_path": "inline",
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "corpus-integrity-observability-m3 \u2014 LanceDB unindexed-rows guard (scout CAND-10)\n\nThe on-theme leftover from the 2026q2-observability-reporting scout. Read its disposition\nfirst: .claude/notes/capability-scouts/2026q2-observability-reporting/artifacts/challenge.md\n(CAND-10, ~line 398) \u2014 MINOR, scope-adjusted to the v0 below.\n\nPROBLEM (same silent-divergence bug class the e1/e2/e3 work killed). The LanceDB chunks\ntable carries two HNSW ANN indexes (on embedding_stmt + embedding_proof). If rows are\ncommitted but the ANN index is NOT rebuilt to cover them, the ANN query silently falls\nback to BRUTE-FORCE over the unindexed rows \u2014 correct results, but a silent performance\ndegradation that NOTHING surfaces. Today ingest/store.py::_create_indices runs\nSYNCHRONOUSLY inside write_chunks (the index is built before write_chunks returns), so in\nnormal operation num_unindexed_rows == 0. That makes this guard a PURE TRIPWIRE: any\nnon-zero value is ALWAYS abnormal (corruption, a partial write, or a future async-index\npath). The operator-facing message must say so.\n\nFIX (mirror m2's startup-reconciliation shape almost exactly \u2014 Resources.startup_chunk_count\n+ the arxmcp_corpus_chunk_count_* gauges + refresh_metrics_from_singleton_state, all\nshipped in corpus-integrity-observability-m2). At Resources.startup, after the LanceDB\ntable is open (and after the m2 count_rows block), compute the total num_unindexed_rows\nONCE, cache it on a new Resources field (e.g. startup_unindexed_rows: int = -1 sentinel),\nand expose it as a scalar Prometheus gauge arxmcp_corpus_unindexed_rows set once from the\ncached value in refresh_metrics_from_singleton_state (NEVER recomputed per /metrics scrape\n\u2014 same contract as the m2 gauges). On a non-zero count: WARN log naming the count + the\nper-index breakdown.\n\nROBUSTNESS (challenge Axis 8). Do NOT hardcode index names. Discover the active ANN index\nnames via tbl.list_indices() (confirm the lancedb 0.30.x API name \u2014 it may be\nlist_indices() / list_indexes()), then call tbl.index_stats(index_name) for each and sum\nnum_unindexed_rows. Wrap the WHOLE thing in try/except: on unknown/unavailable index API\nor any error, log a WARN and set the cached value to the -1 sentinel (gauge reports -1.0\n= \"unavailable\"), and NEVER fail startup (FM-2 style, exactly like m2's count_rows guard).\nThe reconciliation must run only on the happy path (mirror m2 FM-7: if degraded is already\nset by the corpus_corruption fallback, skip \u2014 do not clobber).\n\nOPEN DESIGN QUESTION for research to resolve (cite m2's degraded precedent): should a\nnon-zero unindexed-rows count flip /readyz to degraded (reason=\"unindexed_rows\"), or is\nWARN + gauge sufficient? Lean: WARN + gauge ONLY, NOT degraded \u2014 brute-force ANN still\nserves CORRECT results (just slower), so it is not a correctness degradation the way\nchunk_count divergence / corpus_corruption is. But research should weigh this against the\n\"non-zero is always abnormal\" framing and recommend.\n\nACCEPTANCE CRITERIA:\n- Given a corpus with unindexed rows (simulate via a stubbed index_stats or a real\n  partial-index fixture), when the server starts, then it logs a WARN naming the count\n  and a non-zero arxmcp_corpus_unindexed_rows gauge is exposed.\n- Given a fully-indexed corpus (num_unindexed_rows == 0), when the server starts, then no\n  WARN and the gauge is 0.\n- Given index_stats()/list_indices() unavailable or raising, when the server starts, then\n  it does NOT crash \u2014 the cached value is the -1 sentinel, the gauge reports -1.0, a WARN\n  is logged, and /readyz still reaches 200.\n- The gauge is set once at startup from a single cached value; a test asserts index_stats\n  is NOT called per /metrics scrape (mirror the m2 count_rows-once test).\n- EXPECTED_TOOL_SCHEMA_SHA256 + EXPECTED_BP1_SHA256 UNCHANGED (no MCP tool surface change);\n  no CHUNKER_VERSION bump; make test green.\n\nCONSTRAINTS: local-first; no new dependency; assert BANNED for invariants in server/+ingest/\n(use if ... raise / WARN-and-continue); pure-ASGI only (n/a). Mirror the m2 pattern verbatim\n(Resources cached field + gauge in refresh_metrics_from_singleton_state + getattr-defended\nreads + the degraded zero-out enumeration if a new reason is added). Likely files:\nserver/resources.py (startup + cached field), server/health.py or server/metrics.py (the\ngauge + reader), tests; possibly server/config.py only if a toggle is wanted (probably not).\nRegenerate tests/fixtures/metrics_sample.txt if a new gauge family is added (this bit e2/e3).\n\nExternal writes: none expected (purely local).",
+  "phase": "complete",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-29T18:08:11Z",
+      "left_at": "2026-05-29T18:08:57Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-29T18:08:57Z",
+      "left_at": "2026-05-29T18:16:03Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-29T18:16:03Z",
+      "left_at": "2026-05-29T18:16:25Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-05-29T18:16:25Z",
+      "left_at": "2026-05-29T18:27:16Z",
+      "phase": "implement-running"
+    },
+    {
+      "entered_at": "2026-05-29T18:27:16Z",
+      "left_at": "2026-05-29T18:27:34Z",
+      "phase": "implement-complete"
+    },
+    {
+      "entered_at": "2026-05-29T18:27:34Z",
+      "left_at": "2026-05-29T18:37:20Z",
+      "phase": "critique-running"
+    },
+    {
+      "entered_at": "2026-05-29T18:37:20Z",
+      "left_at": "2026-05-29T18:37:20Z",
+      "phase": "critique-complete"
+    },
+    {
+      "entered_at": "2026-05-29T18:37:20Z",
+      "left_at": "2026-05-29T18:44:10Z",
+      "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-05-29T18:44:10Z",
+      "left_at": null,
+      "phase": "complete"
+    }
+  ],
+  "rectification_commit": "e8ecdaea14999c35f092266a7062ce942344829a",
+  "regression_tests_added": [
+    "tests/test_corpus_count_reconciliation.py"
+  ],
+  "research_briefs": [
+    {
+      "agent_id": "researcher-1",
+      "brief_path": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/corpus-integrity-observability-m3/research-brief-1.md",
+      "summary": "mirror m2; gauge in health.py; lancedb 0.30.2 list_indices+index_stats verified"
+    },
+    {
+      "agent_id": "researcher-2",
+      "brief_path": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/corpus-integrity-observability-m3/research-brief-2.md",
+      "summary": "WARN+gauge not degraded; no-index must be -1 not 0; fixture regen mandatory"
+    }
+  ],
+  "research_mode": "standard",
+  "research_synthesis": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/corpus-integrity-observability-m3/research-synthesis.md",
+  "updated_at": "2026-05-29T18:44:10Z"
+}
