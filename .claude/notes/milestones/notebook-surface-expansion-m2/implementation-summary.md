@@ -45,7 +45,7 @@ new test file).
   `DELETE /ui/api/notebooks/{slug}` behind `hx-confirm`, navigating to `/ui/` on
   success (the just-deleted detail page would 404 on reload).
 
-### `tests/test_notebook_rename_delete.py` (new, 13 tests)
+### `tests/test_notebook_rename_delete.py` (new, 17 tests)
 Self-contained (mirrors `test_notebook_detail_status.py`: private-loop store +
 REST seed through the TestClient portal; no model load). Covers rename
 happy-path (200 + escaped fragment + persists), empty→`—`, malformed slug 422,
@@ -53,7 +53,9 @@ over-long (257) 422, exact-256 boundary accepted, nonexistent 404, control-char
 strip, `<script>` XSS escape (fragment + detail page), mass-assignment ignored
 (slug/kind unchanged, no `evil-nb` conjured); delete round-trip (list omits it,
 sibling survives), delete malformed slug 422, delete nonexistent 404; detail
-page renders the rename form + swap target + Delete button.
+page renders the rename form + swap target + Delete button; and (m2-rect F1)
+renderer equivalence — the fragment `<p>` and the template `<p>` are byte-
+identical in structure and semantically identical in content across 4 names.
 
 ---
 

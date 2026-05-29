@@ -16,7 +16,13 @@
   {# Rename form sits OUTSIDE #display-name-block so it survives the outerHTML
      swap. The base.html JSON-shim serializes the PATCH body to JSON
      ({"display_name": ...}) → the NotebookRename model. On success htmx swaps
-     the <p> in place (no reload); on 4xx the JSON `detail` is surfaced. #}
+     the <p> in place (no reload); on 4xx the JSON `detail` is surfaced.
+     m2-rect F2 (deferred, cosmetic): the `value` ATTRIBUTE below is only the
+     initial server-rendered name; after an in-page rename it is intentionally
+     NOT refreshed. The live input DOM value already reflects what the operator
+     typed (= the new stored name), so a follow-up rename starts from the
+     correct current value; only a hard reload would rewrite the stale
+     attribute. No data-integrity impact (the stored value is authoritative). #}
   <form class="rename-form"
     hx-patch="/ui/api/notebooks/{{ notebook.slug }}"
     hx-target="#display-name-block"

@@ -20,6 +20,8 @@ on a foreign loop). No model load.
 from __future__ import annotations
 
 import asyncio
+import html as _html
+import re as _re
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -78,6 +80,53 @@ def _create_notebook(
         json={"slug": slug, "display_name": display_name, "notebook_kind": kind},
     )
     assert r.status_code in (200, 201), r.text
+
+
+#: m2-rect F1: extract the ``#display-name-block`` <p> element from a render so
+#: a test can compare the two renderers (the Jinja template on the GET page vs
+#: the ``_display_name_fragment`` f-string in the PATCH response). Non-greedy so
+#: it stops at the first ``</p>``; the block has no nested ``</p>``.
+_BLOCK_RE: _re.Pattern[str] = _re.compile(
+    r'<p\b[^>]*id="display-name-block"[^>]*>(.*?)</p>', _re.S
+)
+
+
+def _extract_block(text: str) -> tuple[str, str]:
+    """Return ``(opening_tag, inner_text)`` for the #display-name-block <p>."""
+    m = _BLOCK_RE.search(text)
+    assert m is not None, f"no #display-name-block <p> in: {text[:200]!r}"
+    full = m.group(0)
+    opening = full[: full.index(">") + 1]
+    return opening, m.group(1)
+
+
+class TestRendererEquivalence:
+    @pytest.mark.parametrize(
+        "name",
+        ["", "Foo Bar", "Angle <b> & amp", 'Quote " and \''],
+    )
+    def test_fragment_matches_template_render(self, rd_client, name):
+        """m2-rect F1: the #display-name-block is rendered by TWO independent
+        paths — the Jinja template (GET page) and ``_display_name_fragment``
+        (PATCH response). Pin their equivalence so a future class/id/tag/em-dash
+        edit to one side can't silently desync the htmx outerHTML swap.
+
+        Opening tags must be BYTE-identical (tag + class + id + attribute
+        order). Inner content must be SEMANTICALLY identical: ``html.escape``
+        (fragment) and Jinja autoescape (page) differ only in quote-codepoint
+        representation (``&quot;`` vs ``&#34;``), which html.unescape collapses
+        to the same character — so compare unescaped."""
+        _create_notebook(rd_client, "equiv-nb")
+        frag = rd_client.patch(
+            "/ui/api/notebooks/equiv-nb", json={"display_name": name}
+        )
+        assert frag.status_code == 200, frag.text
+        page = rd_client.get("/ui/notebooks/equiv-nb")
+        assert page.status_code == 200
+        frag_open, frag_inner = _extract_block(frag.text)
+        page_open, page_inner = _extract_block(page.text)
+        assert frag_open == page_open
+        assert _html.unescape(frag_inner) == _html.unescape(page_inner)
 
 
 class TestRename:

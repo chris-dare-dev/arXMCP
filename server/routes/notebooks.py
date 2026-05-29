@@ -380,13 +380,15 @@ async def delete_notebook(
     return None
 
 
-#: notebook-surface-expansion-m2: strip ASCII/C1 control characters from a
-#: display name before storage. A display name is a SINGLE-LINE field — NUL,
-#: newlines, tabs, and other control chars have no legitimate place and would
-#: (a) corrupt the single-line render and (b) enable log-injection. Stripping
-#: only shrinks the string, so the Pydantic ``max_length=256`` bound (validated
-#: on the raw body) still holds afterwards. C1 range 0x80-0x9f is left to
-#: Jinja2/`html.escape` (valid Unicode, not control-significant in HTML).
+#: notebook-surface-expansion-m2: strip C0 control chars + DEL from a display
+#: name before storage. A display name is a SINGLE-LINE field — NUL, newlines,
+#: tabs, and other control chars have no legitimate place and would (a) corrupt
+#: the single-line render and (b) enable log-injection. Stripping only shrinks
+#: the string, so the Pydantic ``max_length=256`` bound (validated on the raw
+#: body) still holds afterwards. m2-rect F3: the C1 range 0x80-0x9f is
+#: intentionally NOT stripped (valid Unicode codepoints, not HTML-control-
+#: significant) — and note neither Jinja2 autoescape nor ``html.escape``
+#: transforms C1 bytes; escaping only touches ``& < > " '``.
 _CONTROL_CHARS_RE: re.Pattern[str] = re.compile(r"[\x00-\x1f\x7f]")
 
 
