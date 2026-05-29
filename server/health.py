@@ -355,6 +355,15 @@ async def compute_health_status(
         try:
             nb_count = len(await store.list_notebooks())
         except Exception:  # noqa: BLE001 — operability probe, must not 500
+            # m4 rect F1: must NOT 500 here, but DO leave a breadcrumb — a
+            # genuine store-layer regression would otherwise render as a
+            # permanent silent warn/null-count with no way to debug. (A real
+            # store failure is a standing condition, so the 10s poll
+            # re-logging it is acceptable signal, not spam.)
+            logger.warning(
+                "/status notebook-store probe failed; reporting warn",
+                exc_info=True,
+            )
             nb_status = "warn"
     else:
         nb_status = "warn"

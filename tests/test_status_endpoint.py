@@ -173,6 +173,58 @@ class TestComputeHealthStatus:
         assert report["status"] == "warn"
         assert report["checks"]["notebooks:count"][0]["observedValue"] is None
 
+    def test_throwing_store_warns_and_logs(self, tmp_path, caplog):
+        """m4 rect F1: a store-layer exception must degrade to warn (never
+        500) AND leave a log breadcrumb (the broad except was unexercised)."""
+        import logging
+
+        _write_recent_backup(tmp_path / "ops")
+
+        class _BoomStore:
+            async def list_notebooks(self):
+                raise RuntimeError("boom")
+
+        res = _FakeResources(
+            warm=True, data_dir=tmp_path, ops_dir=tmp_path / "ops",
+        )
+        with caplog.at_level(logging.WARNING, logger="server.health"):
+            report = _run(compute_health_status(res, _BoomStore()))
+        assert report["status"] == "warn"
+        assert report["checks"]["notebooks:count"][0]["observedValue"] is None
+        assert any(
+            "notebook-store probe failed" in r.getMessage()
+            for r in caplog.records
+        ), "expected a WARNING breadcrumb when the store probe raises"
+
+    def test_now_injection_pins_backup_staleness_boundary(self, tmp_path):
+        """m4 rect F2: exercise the documented ``now`` clock at the
+        _BACKUP_STALE_SECONDS boundary (deterministic, no wall-clock flake)."""
+        from server.health import _BACKUP_STALE_SECONDS
+
+        ops = tmp_path / "ops"
+        ops.mkdir()
+        res = _FakeResources(warm=True, data_dir=tmp_path, ops_dir=ops)
+        fixed_now = 1_900_000_000.0
+
+        def _write(age_seconds: float) -> None:
+            ts = datetime.fromtimestamp(
+                fixed_now - age_seconds, UTC
+            ).strftime("%Y-%m-%dT%H:%M:%SZ")
+            (ops / "backup-status.json").write_text(
+                json.dumps({"finished_at": ts}), encoding="utf-8"
+            )
+
+        # Just inside the window → backup check passes.
+        _write(_BACKUP_STALE_SECONDS - 1)
+        r1 = _run(compute_health_status(res, _FakeStore(1), now=fixed_now))
+        assert r1["checks"]["backup:time"][0]["status"] == "pass"
+
+        # Just over the window → backup check warns.
+        _write(_BACKUP_STALE_SECONDS + 60)
+        r2 = _run(compute_health_status(res, _FakeStore(1), now=fixed_now))
+        assert r2["checks"]["backup:time"][0]["status"] == "warn"
+        assert r2["status"] == "warn"
+
 
 # ---------------------------------------------------------------------------
 # Endpoint wiring (/status, /readyz unchanged, /ui/status-badge)
@@ -301,3 +353,43 @@ class TestMakefileTarget:
         assert "\nstatus:" in mk
         assert "status" in mk.split("\n", 1)[0]  # in .PHONY
         assert "tools/status_line.py" in mk
+
+
+class TestStatusSecFetchSiteDeviation:
+    """m4 rect F4: pin Deviation #1's two premises to the REAL paths via a
+    full create_app middleware stack (the bare-FastAPI tests above bypass
+    SecFetchSiteMiddleware). A future router-prefix change to either path
+    would otherwise silently regress the badge's design."""
+
+    def _client(self, tmp_path, monkeypatch) -> TestClient:
+        # Mirror tests/security/test_sec_fetch_site_carveout.py::_build_test_client
+        # — SecFetchSite fires before handler dispatch, so the (failed) lifespan
+        # is irrelevant; no model load.
+        monkeypatch.setenv("ARXMCP_LANCEDB_PATH", str(tmp_path / "lancedb-empty"))
+        monkeypatch.delenv("ARXMCP_ALLOWED_ORIGINS", raising=False)
+        monkeypatch.delenv("ARXMCP_UNSAFE_NETWORK_BIND", raising=False)
+        monkeypatch.delenv("ARXMCP_CONTACT_EMAIL", raising=False)
+        from server.config import Config
+        from server.main import create_app
+
+        return TestClient(create_app(Config()))
+
+    def test_status_403s_browser_same_origin(self, tmp_path, monkeypatch):
+        """WHY the badge can't hx-get /status: a browser same-origin XHR to the
+        non-/ui /status is 403'd by SecFetchSiteMiddleware."""
+        client = self._client(tmp_path, monkeypatch)
+        r = client.get("/status", headers={"Sec-Fetch-Site": "same-origin"})
+        assert r.status_code == 403
+        assert r.json()["error"] == "sec_fetch_site_forbidden"
+
+    def test_ui_status_badge_not_403_browser_same_origin(
+        self, tmp_path, monkeypatch
+    ):
+        """The badge endpoint under /ui is exempt → NOT 403 (the deviation
+        works); the handler renders a badge even with no warm resources."""
+        client = self._client(tmp_path, monkeypatch)
+        r = client.get(
+            "/ui/status-badge", headers={"Sec-Fetch-Site": "same-origin"}
+        )
+        assert r.status_code != 403
+        assert "status-badge" in r.text
