@@ -7,9 +7,31 @@
 
 <section class="card">
   <h2><code>{{ notebook.slug }}</code></h2>
-  {% if notebook.display_name %}
-    <p class="display-name">{{ notebook.display_name }}</p>
-  {% endif %}
+  {# notebook-surface-expansion-m2: always-rendered display-name block — the
+     stable htmx swap target (#display-name-block). PATCH /ui/api/notebooks/{slug}
+     returns this same <p> re-rendered (server-side html.escape'd in
+     server/routes/notebooks.py::_display_name_fragment). Autoescape applies
+     here too; an empty name shows "—". Do NOT add `| safe`. #}
+  <p class="display-name" id="display-name-block">{{ notebook.display_name or "—" }}</p>
+  {# Rename form sits OUTSIDE #display-name-block so it survives the outerHTML
+     swap. The base.html JSON-shim serializes the PATCH body to JSON
+     ({"display_name": ...}) → the NotebookRename model. On success htmx swaps
+     the <p> in place (no reload); on 4xx the JSON `detail` is surfaced. #}
+  <form class="rename-form"
+    hx-patch="/ui/api/notebooks/{{ notebook.slug }}"
+    hx-target="#display-name-block"
+    hx-swap="outerHTML"
+    hx-on::htmx:response-error="document.getElementById('rename-error').textContent = (function(t){try{return JSON.parse(t).detail||t;}catch(e){return t;}})(event.detail.xhr.responseText)"
+  >
+    <label>
+      Rename
+      <input type="text" name="display_name" maxlength="256"
+             value="{{ notebook.display_name }}"
+             placeholder="Display name">
+    </label>
+    <button type="submit">Rename</button>
+    <pre id="rename-error" class="error" aria-live="polite"></pre>
+  </form>
   <dl class="meta">
     <dt>LanceDB path</dt><dd><code>{{ notebook.lancedb_path }}</code></dd>
     <dt>Created</dt><dd><time>{{ notebook.created_at }}</time></dd>
@@ -39,6 +61,20 @@
       {% endif %}
     </dd>
   </dl>
+  {# notebook-surface-expansion-m2: in-page Delete (wires the existing
+     DELETE /ui/api/notebooks/{slug} behind an hx-confirm). Metadata-only —
+     the hx-confirm text states the on-disk var/ tree is NOT wiped (that is
+     tools/notebook_purge.py's job). On success the notebook no longer exists,
+     so we navigate to /ui/ rather than reload this (now-404) detail page. #}
+  <div class="notebook-actions">
+    <button type="button"
+            hx-delete="/ui/api/notebooks/{{ notebook.slug }}"
+            hx-confirm="Delete notebook '{{ notebook.slug }}'? On-disk data at var/arxmcp/notebooks/{{ notebook.slug }}/ is NOT deleted — run tools/notebook_purge.py to wipe the disk."
+            hx-on::htmx:after-request="if(event.detail.successful) window.location.href='/ui/'"
+            class="danger">
+      Delete notebook
+    </button>
+  </div>
 </section>
 
 <section class="card">

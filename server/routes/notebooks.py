@@ -209,6 +209,20 @@ class NotebookCreate(BaseModel):
     )
 
 
+class NotebookRename(BaseModel):
+    """Body for ``PATCH /ui/api/notebooks/{slug}`` (notebook-surface-expansion-m2).
+
+    Carries ONLY ``display_name`` — slug / notebook_kind / parse_status are
+    NOT acceptable PATCH fields (mass-assignment defense; the store method
+    takes only ``(slug, display_name)``). Same ``max_length=256`` bound as
+    ``NotebookCreate`` → FastAPI returns 422 on an over-long name before the
+    handler body runs. NO ``min_length``: an empty string is a valid value
+    (clears the display name; renders as ``—``).
+    """
+
+    display_name: str = Field(max_length=256)
+
+
 class PaperAdd(BaseModel):
     """Body for ``POST /ui/api/notebooks/{slug}/papers``."""
 
@@ -364,6 +378,75 @@ async def delete_notebook(
     # 204 No Content — explicit None return matches FastAPI's
     # convention for body-less responses.
     return None
+
+
+#: notebook-surface-expansion-m2: strip ASCII/C1 control characters from a
+#: display name before storage. A display name is a SINGLE-LINE field — NUL,
+#: newlines, tabs, and other control chars have no legitimate place and would
+#: (a) corrupt the single-line render and (b) enable log-injection. Stripping
+#: only shrinks the string, so the Pydantic ``max_length=256`` bound (validated
+#: on the raw body) still holds afterwards. C1 range 0x80-0x9f is left to
+#: Jinja2/`html.escape` (valid Unicode, not control-significant in HTML).
+_CONTROL_CHARS_RE: re.Pattern[str] = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def _display_name_fragment(display_name: str) -> str:
+    """Build the htmx-swap fragment for a renamed notebook's display name.
+
+    The PATCH handler returns this in place of the ``#display-name-block``
+    element (``hx-swap="outerHTML"``). Mirrors :func:`_paper_row_html` and
+    ``server.routes.ui.ui_status_badge``: a tiny Python f-string fragment with
+    EVERY interpolated value HTML-escaped via :func:`html.escape` — NOT a
+    Jinja2 partial (m2 synthesis D1). An empty name renders as ``—`` (matching
+    ``index.html``'s ``{{ nb.display_name or "—" }}``). Never wrap this in
+    ``| safe``; the escape here IS the XSS guard for the fragment path.
+    """
+    shown = html.escape(display_name) if display_name else "—"
+    return f'<p class="display-name" id="display-name-block">{shown}</p>'
+
+
+@router.patch(
+    "/notebooks/{slug}",
+    response_class=HTMLResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def rename_notebook(
+    slug: str,
+    body: NotebookRename,
+    store: NotebooksStore = Depends(get_notebooks_store),  # noqa: B008  (FastAPI DI pattern)
+) -> HTMLResponse:
+    """Rename a notebook's ``display_name`` (notebook-surface-expansion-m2).
+
+    Returns the re-rendered ``#display-name-block`` HTML fragment for the
+    detail page's htmx ``outerHTML`` swap. Security posture (synthesis D4):
+
+    - ``validate_slug`` FIRST → 422 on a malformed/path-traversal slug
+      (identical to :func:`delete_notebook`).
+    - Over-long name → 422 via Pydantic ``Field(max_length=256)`` on
+      ``NotebookRename`` (before this body runs).
+    - Mass-assignment closed: ``NotebookRename`` carries only
+      ``display_name``; the store update touches only that column.
+    - Control chars stripped before storage (single-line field; log-injection
+      defense).
+    - XSS: the returned fragment html-escapes the value (NOT ``| safe``).
+    - 404 if the slug is unknown (``update_display_name`` → ``False``).
+    """
+    try:
+        validate_slug(slug)
+    except NotebookError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e),
+        ) from e
+
+    cleaned = _CONTROL_CHARS_RE.sub("", body.display_name)
+    updated = await store.update_display_name(slug, cleaned)
+    if not updated:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"notebook {slug!r} not found",
+        )
+    return HTMLResponse(content=_display_name_fragment(cleaned))
 
 
 # ---------------------------------------------------------------------------

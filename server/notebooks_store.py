@@ -391,6 +391,30 @@ class NotebooksStore:
                 return cur.rowcount > 0
             return await asyncio.to_thread(_delete)
 
+    async def update_display_name(self, slug: str, display_name: str) -> bool:
+        """Rename a notebook (notebook-surface-expansion-m2).
+
+        Single-column ``UPDATE notebooks SET display_name = ?``. The
+        ``display_name`` column already exists at ``SCHEMA_VERSION 4``
+        (``TEXT NOT NULL DEFAULT ''``) — NO migration. An empty string
+        is a valid value (clears the name). Returns ``True`` if a row
+        was updated, ``False`` if the slug is unknown (handler → 404),
+        mirroring :meth:`delete_notebook` / :meth:`update_parse_status`.
+
+        The route layer is the single source of truth for input
+        validation (Pydantic ``max_length=256`` + control-char strip);
+        this method does no escaping (the fragment renderer
+        html-escapes at output time — m2 synthesis D1/D4).
+        """
+        async with self._lock:
+            def _update() -> bool:
+                cur = self._conn.execute(
+                    "UPDATE notebooks SET display_name = ? WHERE slug = ?",
+                    (display_name, slug),
+                )
+                return cur.rowcount > 0
+            return await asyncio.to_thread(_update)
+
     # ------------------------------------------------------------------
     # Papers (junction table)
     # ------------------------------------------------------------------
