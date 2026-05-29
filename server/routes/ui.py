@@ -91,6 +91,21 @@ _env: jinja2.Environment = jinja2.Environment(
 )
 templates: Jinja2Templates = Jinja2Templates(env=_env)
 
+#: notebook-surface-expansion-m1 — map a notebook's ``parse_status`` enum
+#: (server/notebooks_store.py: skipped/pending/running/complete/failed) to the
+#: shared ``.status-badge--{ok,warn,down}`` CSS classes (frontend/static/app.css,
+#: added in notebook-ops-hardening-m4). ``skipped`` is the normal arxiv-kind
+#: state (no PDF parse needed) → ok. ``.get(..., "warn")`` is the forward-compat
+#: fallback: an unknown future status renders amber (attention) rather than
+#: crashing a match/if-chain.
+_PARSE_STATUS_CSS: dict[str, str] = {
+    "complete": "ok",
+    "skipped": "ok",
+    "pending": "warn",
+    "running": "warn",
+    "failed": "down",
+}
+
 router = APIRouter(tags=["ui"])
 
 
@@ -238,10 +253,24 @@ async def ui_notebook_detail(
             and _preview_html_path(slug, paper_id) is not None
         )
         annotated_papers.append({**row, "has_preview": has_preview})
+    # notebook-surface-expansion-m1: per-notebook freshness signal. ONE O(1)
+    # call (NOT per paper); returns the latest ingest-run row or None when the
+    # notebook has never been ingested. The template renders "Never indexed" on
+    # None. notebook["parse_status"] is already present from get_notebook above
+    # (it lives on the notebooks table, not notebook_papers) — no extra query.
+    latest_run = await store.get_latest_ingest_run(slug)
+    parse_status_css = _PARSE_STATUS_CSS.get(
+        notebook.get("parse_status") or "", "warn"
+    )
     return templates.TemplateResponse(
         request=request,
         name="notebook_detail.html",
-        context={"notebook": notebook, "papers": annotated_papers},
+        context={
+            "notebook": notebook,
+            "papers": annotated_papers,
+            "latest_run": latest_run,
+            "parse_status_css": parse_status_css,
+        },
     )
 
 

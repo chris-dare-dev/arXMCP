@@ -13,6 +13,23 @@
   <dl class="meta">
     <dt>LanceDB path</dt><dd><code>{{ notebook.lancedb_path }}</code></dd>
     <dt>Created</dt><dd><time>{{ notebook.created_at }}</time></dd>
+    {# notebook-surface-expansion-m1: notebook-scoped parse status + a
+       last-indexed freshness signal, server-rendered on page open.
+       parse_status lives on the notebooks table (not per-paper); for
+       arxiv-kind notebooks it is always "skipped" (no PDF parse). All values
+       here are server-written enums / timestamps; the Jinja2 env autoescapes
+       (server/routes/ui.py) so they are XSS-safe — do NOT add `| safe`. #}
+    <dt>Parse status</dt>
+    <dd><span class="status-badge status-badge--{{ parse_status_css }}">{{ notebook.parse_status | default('unknown', true) }}</span></dd>
+    <dt>Last indexed</dt>
+    <dd>
+      {% if latest_run and (latest_run.finished_at or latest_run.started_at) %}
+        <time>{{ latest_run.finished_at or latest_run.started_at }}</time>
+        <span class="hint">(ingest {{ latest_run.status }})</span>
+      {% else %}
+        <span class="hint">Never indexed</span>
+      {% endif %}
+    </dd>
   </dl>
 </section>
 
