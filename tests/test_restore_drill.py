@@ -252,6 +252,20 @@ class TestSmokeCheckNotebooks:
         found, _ = smoke_check_notebooks(tmp_path)
         assert found is True
 
+    def test_decoy_notebooks_dir_not_counted(self, tmp_path):
+        """F1/F3: a PDF under some unrelated directory literally named
+        'notebooks' must NOT be counted as an uploaded notebook PDF — the
+        count is anchored to the canonical .../arxmcp/notebooks/ segment."""
+        # 1 real uploaded PDF under the canonical prefix.
+        _seed_notebook_tree(tmp_path, with_db=False, pdfs=1)
+        # A decoy PDF under a non-canonical 'notebooks' dir.
+        decoy = tmp_path / "home" / "user" / "notebooks" / "decoy.pdf"
+        decoy.parent.mkdir(parents=True)
+        decoy.write_bytes(b"%PDF-1.5 decoy")
+        found, pdf_count = smoke_check_notebooks(tmp_path)
+        assert found is False
+        assert pdf_count == 1  # decoy NOT counted
+
     def test_corrupt_db_raises(self, tmp_path):
         """A notebooks.db that exists but fails integrity_check is a real
         backup failure → RuntimeError (caught by run_check as exit 1)."""

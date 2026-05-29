@@ -96,16 +96,31 @@ BACKUP_PATHS=(
 
 # notebook-ops-hardening-m1 (CRITICAL): TRUNCATE-checkpoint the
 # notebooks.db WAL before the snapshot so the file-level copy is
-# self-consistent without -wal/-shm sidecars. Without this, a restore
-# can silently roll back to a state behind the last committed
-# transaction. WARN (do not fail) on a busy/partial checkpoint: a
-# slightly-behind DB is degraded, not corrupt, and the 03:30 backup runs
-# in the idle window.
+# self-consistent without -wal/-shm sidecars. The helper retries on a
+# busy checkpoint. Only a CLEAN status (ok/absent/no-wal) means the main
+# file alone is safe to back up. A residual busy/locked status (a reader
+# held an open transaction through all retries) means committed frames
+# remain ONLY in the un-backed-up -wal: a main-file-only copy taken then
+# is stale OR malformed-on-restore (live-verified: "database disk image
+# is malformed"). So on a degraded status we (a) ALSO back up the
+# -wal/-shm sidecars for this run so the captured set can recover, and
+# (b) force backup_status=partial so the sentinel flags it and `forget`
+# retains the prior good snapshot. stderr is NOT discarded — the helper
+# diagnostics must reach the cron/journal log.
 NOTEBOOKS_DB="'"${REPO_ROOT}"'/var/arxmcp/cache/notebooks.db"
-CHECKPOINT_STATUS="$(python3 "'"${REPO_ROOT}"'/ops/checkpoint_notebooks_db.py" "${NOTEBOOKS_DB}" 2>/dev/null || echo error)"
+CHECKPOINT_STATUS="$(python3 "'"${REPO_ROOT}"'/ops/checkpoint_notebooks_db.py" "${NOTEBOOKS_DB}" || echo error)"
+CHECKPOINT_DEGRADED=0
 case "${CHECKPOINT_STATUS}" in
     ok|absent|no-wal) ;;
-    *) echo "WARN: notebooks.db WAL checkpoint status=${CHECKPOINT_STATUS}; backup may capture a slightly-stale notebooks.db" >&2 ;;
+    *)
+        CHECKPOINT_DEGRADED=1
+        echo "WARN: notebooks.db WAL checkpoint status=${CHECKPOINT_STATUS}; committed frames may remain only in the un-backed-up -wal, so the captured notebooks.db alone may be stale OR corrupt-on-restore. Backing up the -wal/-shm sidecars too and marking this backup partial." >&2
+        for SIDECAR in "${NOTEBOOKS_DB}-wal" "${NOTEBOOKS_DB}-shm"; do
+            if [ -f "${SIDECAR}" ]; then
+                BACKUP_PATHS+=("${SIDECAR}")
+            fi
+        done
+        ;;
 esac
 
 # Run the backup. The include-list is a --files-from-verbatim -
@@ -147,6 +162,12 @@ SNAPSHOT_ID="$(echo "${SNAPSHOT_JSON}" | python3 -c \
 # success.
 BACKUP_STATUS="success"
 if [ "${RESTIC_BACKUP_EXIT}" -eq 3 ]; then
+    BACKUP_STATUS="partial"
+fi
+# notebook-ops-hardening-m1 F1: a degraded WAL checkpoint means notebooks.db
+# was not cleanly captured (sidecars were added, but force partial so the
+# operator sees it and forget keeps the prior good snapshot).
+if [ "${CHECKPOINT_DEGRADED}" -eq 1 ]; then
     BACKUP_STATUS="partial"
 fi
 cat > "${TMP_STATUS}" <<EOF

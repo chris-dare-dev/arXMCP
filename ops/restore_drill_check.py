@@ -176,6 +176,23 @@ def _locate_notebooks_db(restore_path: Path) -> Path | None:
     return None
 
 
+def _under_notebooks_subtree(p: Path) -> bool:
+    """True iff ``p`` lives under a canonical ``.../arxmcp/notebooks/``
+    segment.
+
+    notebook-ops-hardening-m1 F3: anchor to the ``arxmcp`` + ``notebooks``
+    ordered pair rather than matching ANY path component literally equal to
+    ``notebooks`` (which would over-count a corpus PDF that happens to sit
+    under some unrelated ``notebooks`` directory). Mirrors the
+    ``_locate_kuzu_root`` discipline (parent.name == "index").
+    """
+    parts = p.parts
+    return any(
+        parts[i] == "notebooks" and parts[i - 1] == "arxmcp"
+        for i in range(1, len(parts))
+    )
+
+
 def smoke_check_notebooks(restore_path: Path) -> tuple[bool, int]:
     """Verify restored notebook metadata + uploaded PDFs.
 
@@ -191,12 +208,12 @@ def smoke_check_notebooks(restore_path: Path) -> tuple[bool, int]:
     import sqlite3  # noqa: PLC0415
 
     db_path = _locate_notebooks_db(restore_path)
-    # Count uploaded PDFs anywhere under a restored ``notebooks/`` subtree
+    # Count uploaded PDFs under a restored ``.../arxmcp/notebooks/`` subtree
     # (covers both ``pdf-deferred/`` and ``pdfs/`` layouts).
     pdf_count = sum(
         1
         for p in restore_path.rglob("*.pdf")
-        if p.is_file() and "notebooks" in p.parts
+        if p.is_file() and _under_notebooks_subtree(p)
     )
     if db_path is None:
         logger.info(

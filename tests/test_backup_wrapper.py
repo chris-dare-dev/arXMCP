@@ -218,6 +218,25 @@ class TestNotebookBackupScope:
         assert text.count("/var/arxmcp/notebooks\"") >= 2
         assert text.count("/var/arxmcp/cache/notebooks.db\"") >= 2
 
+    def test_degraded_checkpoint_marks_partial(self):
+        """F1: a busy/locked checkpoint must NOT be treated as a clean
+        capture — the wrapper marks it partial and adds the sidecars."""
+        text = self.wrapper.read_text(encoding="utf-8")
+        assert "CHECKPOINT_DEGRADED=1" in text
+        # The degraded path forces partial and appends the WAL sidecars.
+        assert 'BACKUP_PATHS+=("${SIDECAR}")' in text
+        assert "${NOTEBOOKS_DB}-wal" in text
+        assert "${NOTEBOOKS_DB}-shm" in text
+        # And the final status is forced partial when degraded.
+        assert 'BACKUP_STATUS="partial"' in text
+
+    def test_checkpoint_stderr_not_discarded(self):
+        """F2: the checkpoint helper's diagnostics must reach the log, not
+        be swallowed by 2>/dev/null."""
+        text = self.wrapper.read_text(encoding="utf-8")
+        assert 'checkpoint_notebooks_db.py" "${NOTEBOOKS_DB}" 2>/dev/null' \
+            not in text
+
 
 class TestGitignoreDiscipline:
     """Closes synthesis D12: ops/restic-env.sh (the FILLED

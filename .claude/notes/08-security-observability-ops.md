@@ -256,7 +256,12 @@ What to back up:
   the backup wrapper runs `PRAGMA wal_checkpoint(TRUNCATE)` on it
   (`ops/checkpoint_notebooks_db.py`) **before** the snapshot — a file-level
   copy of a WAL-mode DB without a checkpoint can restore a state behind the
-  last committed transaction.
+  last committed transaction. If a concurrent reader blocks the checkpoint
+  (returns `busy` through all retries), committed frames remain only in the
+  `-wal`, so the main file alone is stale OR **malformed-on-restore**
+  (live-verified); on that degraded path the wrapper backs up the `-wal`/`-shm`
+  sidecars too and marks `backup_status: partial` (so `forget` keeps the prior
+  good snapshot).
 - **Caches:** `/var/arxmcp/cache/`. NOT backed up; re-buildable on demand.
   **Exception:** `notebooks.db` (above) is backed up; the regenerable
   `retrieval.db` query caches (global + per-notebook) stay excluded.
