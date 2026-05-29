@@ -123,16 +123,22 @@ _BYTE_CAP_EXEMPT_PREFIXES = (
 def _is_exempt_path(path: str) -> bool:
     """Return True if ``path`` should bypass the body-size cap.
 
-    notebook-surface-expansion-m6: the per-notebook export route
+    notebook-surface-expansion-m6 (rect F2): the per-notebook export route
     ``GET /ui/api/notebooks/<slug>/export`` streams a deterministic tar
     (PDFs + ar5iv HTML + per-notebook LanceDB + a manifest) that routinely
-    exceeds 256 KB. Exempting only ``.../export`` (NOT the whole
-    ``/ui/api/notebooks/`` subtree, m6 synthesis D1) keeps the cap on every
-    other notebook API response (list / get / htmx fragments) as
-    defense-in-depth — the minimum possible widening.
+    exceeds 256 KB. The exemption is **segment-exact** — ONLY
+    ``/ui/api/notebooks/<slug>/export`` matches (5 segments after the leading
+    ``/``); a hypothetical multi-segment future sub-route like
+    ``/ui/api/notebooks/<slug>/papers/<pid>/export`` does NOT inherit the
+    exemption (m6-rect F2 closure: a path-suffix check would over-exempt).
+    Every other notebook API path stays under the 256 KB cap as
+    defense-in-depth.
     """
     if path.startswith("/ui/api/notebooks/") and path.endswith("/export"):
-        return True
+        parts = path.split("/")
+        # ["", "ui", "api", "notebooks", "<slug>", "export"] — exactly 6 parts.
+        if len(parts) == 6 and parts[5] == "export":
+            return True
     return any(path == p or path.startswith(p + "/") for p in _BYTE_CAP_EXEMPT_PREFIXES)
 
 

@@ -1426,9 +1426,17 @@ _EXPORT_NOTEBOOK_ALLOWLIST: tuple[str, ...] = (
     "slug", "display_name", "notebook_kind", "created_at", "parse_status",
 )
 
-#: USTAR member-name max (the format stores names in a fixed-width field;
-#: longer names would require PAX/GNU long-name extensions that drift mtime).
-_EXPORT_USTAR_NAME_MAX: int = 255
+#: USTAR ``name`` field is **100 chars** (not POSIX ``NAME_MAX`` = 255 — that's
+#: the FILESYSTEM cap which is what produced the file in the first place). USTAR
+#: optionally splits a long path at a slash into a 155-char ``prefix`` + 100-char
+#: ``name`` (Python ``tarfile._posix_split_name``), but a single-segment filename
+#: with no slash cannot be split — ``tar.addfile`` would raise
+#: ``ValueError: name is too long`` → unhandled 500. m6-rect F1: gate at 100 so
+#: the preflight skips (and WARNs) the file rather than crashing the export.
+#: PAX/GNU long-name extensions would lift this cap but drift mtime in extended
+#: headers — incompatible with the m6 byte-determinism AC. The discipline is
+#: "partial bundle is better than 500-ing" (synthesis D5).
+_EXPORT_USTAR_NAME_MAX: int = 100
 
 
 def _build_export_manifest(
@@ -1441,7 +1449,14 @@ def _build_export_manifest(
     and serializes with ``sort_keys=True`` + canonical JSON separators so the
     bytes are byte-identical across two exports of the same notebook.
     """
-    nb_dict = {k: notebook.get(k, "") for k in _EXPORT_NOTEBOOK_ALLOWLIST}
+    # m6-rect F5: dict.get(key, "") fires the default only on ABSENT keys, not
+    # on a key whose value IS None — and ``get_notebook`` returns ``parse_status:
+    # None`` for arxiv notebooks NULL'd before textbook-ingest-m6. Coerce
+    # None → "" so the manifest schema is "string, possibly empty", never null.
+    nb_dict = {
+        k: ("" if notebook.get(k) is None else notebook.get(k))
+        for k in _EXPORT_NOTEBOOK_ALLOWLIST
+    }
     nb_dict["slug"] = slug  # route slug is authoritative
     papers_sorted = sorted(
         ({"paper_id": p["paper_id"], "added_at": p["added_at"]} for p in papers),

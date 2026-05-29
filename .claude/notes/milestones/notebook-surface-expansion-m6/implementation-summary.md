@@ -44,7 +44,7 @@ a new test file), ~400 LOC.
   **Narrow-suffix** exemption — every other `/ui/api/notebooks/*` path stays
   capped (defense-in-depth preserved on the small-JSON routes).
 
-### `tests/test_notebook_export.py` (new, 8 tests)
+### `tests/test_notebook_export.py` (new, 14 tests — 6 added in m6-rect for F1+F2+F4+F5)
 - Happy-path: 200 + content-type + filename + manifest shape + allowlist
   asserts (omits `lancedb_path` / `parsed_html_path` / `parse_error`); empty
   notebook → manifest-only tar.
