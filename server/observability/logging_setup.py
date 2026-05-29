@@ -115,9 +115,10 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(payload, default=str, sort_keys=True)
 
 
-def configure(log_level: str) -> None:
+def configure(log_level: str, log_format: str = "json") -> None:
     """Install :class:`RedactionFilter` on every root-logger handler
-    (and on the root logger itself for direct-root emits) and set the
+    (and on the root logger itself for direct-root emits), optionally
+    install :class:`JsonFormatter` on those same handlers, and set the
     root log level from ``log_level``.
 
     F1 rectification (E13_S08 adversary): Python's logging filter
@@ -149,6 +150,12 @@ def configure(log_level: str) -> None:
         ``"INFO"``, ``"WARNING"``, ``"ERROR"``, ``"CRITICAL"``).
         Passed verbatim to ``logging.getLogger().setLevel`` so any
         string the stdlib accepts is also accepted here.
+    :param log_format: ``"json"`` (default, 12-factor) installs
+        :class:`JsonFormatter` on every root handler so each record is
+        emitted as one structured JSON line; ``"text"`` leaves the
+        existing human-readable formatter in place. Either way the
+        :class:`RedactionFilter` is installed first, so the format
+        choice never affects redaction.
     """
     global _debug_warning_emitted
 
@@ -158,9 +165,18 @@ def configure(log_level: str) -> None:
     # install — handler filters fire on propagated child-logger
     # records, which is the production pattern (24+ modules use
     # ``logging.getLogger(__name__)``).
+    #
+    # corpus-integrity-observability-e2: when log_format == "json", install
+    # JsonFormatter on the SAME handler that just got the RedactionFilter —
+    # NEVER a new handler. A second StreamHandler added post-configure would
+    # bypass the filter loop and emit query/body fields un-redacted at INFO+
+    # (Threat 8). Filter-then-format on one handler keeps the chain intact.
+    want_json = str(log_format).strip().lower() == "json"
     for handler in root.handlers:
         if not any(isinstance(f, RedactionFilter) for f in handler.filters):
             handler.addFilter(RedactionFilter())
+        if want_json:
+            handler.setFormatter(JsonFormatter())
 
     # Defense-in-depth: also attach to the root logger so direct-root
     # emits (``logging.info(...)`` without a named child) are

@@ -238,10 +238,20 @@ async def readyz(request: Request) -> Response:
             },
         )
 
+    # corpus-integrity-observability-e2 (scout CAND-6b — the BP1-free cut):
+    # surface the m2 startup-cached corpus counts on the ready body so an
+    # operator (or a probe) sees the marker-vs-table reconciliation without an
+    # extra MCP tool (get_corpus_status stays on the Won't list; /readyz is NOT
+    # MCP surface, so the tool-schema + BP1 hashes are unaffected). A -1
+    # startup_chunk_count (count_rows() failed at startup — m2 FM-2) renders as
+    # null, never a bogus negative count.
+    startup_count = resources.startup_chunk_count
     return JSONResponse(
         status_code=200,
         content={
             "status": "ready",
+            "chunk_count": None if startup_count < 0 else startup_count,
+            "marker_chunk_count": resources.corpus_info.chunk_count,
             "warm": {
                 "embedder": resources.is_resource_warm("embedder"),
                 "lancedb": resources.is_resource_warm("lancedb"),

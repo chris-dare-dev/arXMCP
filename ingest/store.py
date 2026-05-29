@@ -940,6 +940,22 @@ def write_chunks(
             paper_count=paper_count,
             chunk_count=chunk_count,
         )
+        # corpus-integrity-observability-e2 (scout CAND-4): structured,
+        # test-assertable success event on the write path. Emitted INSIDE the
+        # try AFTER the marker write so chunk_count/paper_count are bound and it
+        # fires only on the success path (a marker-write failure is logged by
+        # the except below, not as a spurious "complete"). Aggregate counts are
+        # safe at INFO — the RedactionFilter guards body/query fields only
+        # (08-security-observability-ops.md §Logging).
+        logger.info(
+            "write_chunks_complete",
+            extra={
+                "event": "write_chunks_complete",
+                "corpus_version": dataset_version,
+                "chunk_count": chunk_count,
+                "paper_count": paper_count,
+            },
+        )
     except Exception as exc:
         logger.error(
             "could not write corpus-version.json marker for version %d "

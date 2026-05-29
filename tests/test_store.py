@@ -1708,3 +1708,40 @@ class TestCorpusVersionMarkerReconciliation:
         # 2 + 1 + 2 + 3 = 8 rows across 3 distinct papers (P1 in both paths once).
         assert marker["chunk_count"] == tbl.count_rows() == 8  # pre-fix: 3 (last call)
         assert marker["paper_count"] == 3  # pre-fix: 1 (last paper only)
+
+
+# ===========================================================================
+# corpus-integrity-observability-e2 — structured write-path log event (CAND-4)
+# ===========================================================================
+
+
+class TestWriteChunksStructuredLog:
+    """``write_chunks`` emits a structured, test-assertable
+    ``write_chunks_complete`` INFO event on the success path, carrying the
+    committed corpus_version / chunk_count / paper_count as record attributes
+    (caplog is format-independent — no dependence on JSON vs text output)."""
+
+    def test_write_chunks_emits_structured_complete_event(self, tmp_path, caplog):
+        import logging
+
+        from ingest.store import write_chunks
+
+        lancedb_path = tmp_path / "lancedb"
+        chunks = [_make_chunk("2301.00001", "stmt", f"a {i}") for i in range(3)] + [
+            _make_chunk("2302.00002", "stmt", "b 0")
+        ]
+        emb = _make_synthetic_embeddings(chunks, seed=7)
+        with caplog.at_level(logging.INFO, logger="ingest.store"):
+            version = write_chunks(chunks, emb, lancedb_path=lancedb_path)
+
+        events = [
+            r
+            for r in caplog.records
+            if r.getMessage() == "write_chunks_complete"
+            and getattr(r, "event", None) == "write_chunks_complete"
+        ]
+        assert len(events) == 1, "expected exactly one write_chunks_complete event"
+        rec = events[0]
+        assert rec.corpus_version == version
+        assert rec.chunk_count == 4
+        assert rec.paper_count == 2

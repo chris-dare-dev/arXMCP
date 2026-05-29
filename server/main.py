@@ -726,7 +726,10 @@ if __name__ == "__main__":
     # blocked at the source. See
     # ``.claude/docs/security-observability-logging.md``.
     from server.observability.logging_setup import configure as _configure_logging
-    _configure_logging(cfg.log_level)
+    # corpus-integrity-observability-e2: cfg.log_format ("json" default,
+    # 12-factor) selects the JsonFormatter, installed on the same
+    # redaction-filtered handler inside configure().
+    _configure_logging(cfg.log_level, cfg.log_format)
     # E13_S05 Threat 5 — emit a WARN log at startup if the operator
     # has enabled the unsafe-network-bind escape hatch. This makes
     # the security trade-off VISIBLE in the operational log so an

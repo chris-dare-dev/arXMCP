@@ -211,6 +211,19 @@ class TestReadinessTransition:
         # Reranker disabled by default → not warm.
         assert body["warm"]["reranker"] is False
 
+    def test_readyz_200_body_carries_corpus_counts(self, warm_app):
+        """corpus-integrity-observability-e2 (CAND-6b): the 200 ready body
+        surfaces chunk_count (live, startup-cached) + marker_chunk_count so an
+        operator/probe sees the reconciliation without a new MCP tool. The
+        seeded corpus has 2 chunks → both equal 2."""
+        r = warm_app.get("/readyz")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["marker_chunk_count"] == 2
+        # chunk_count is the m2 startup-cached count (2); None only if
+        # count_rows() failed at startup (the -1 sentinel renders as null).
+        assert body["chunk_count"] == 2
+
     def test_readyz_reaches_200_within_30s(self, seeded_lancedb, mocked_bge_m3):
         """AC: server reaches /readyz 200 within 30 seconds.
 
@@ -275,6 +288,19 @@ class TestConfigValidation:
 
         with pytest.raises(ValidationError, match="loopback"):
             Config(bind_host="192.168.1.1")
+
+    def test_log_format_default_is_json(self):
+        # corpus-integrity-observability-e2: 12-factor JSON is the default.
+        assert Config().log_format == "json"
+
+    def test_log_format_text_accepted_and_normalized(self):
+        assert Config(log_format="TEXT").log_format == "text"
+
+    def test_log_format_invalid_rejected(self):
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError, match="ARXMCP_LOG_FORMAT"):
+            Config(log_format="yaml")
 
     def test_loopback_127_accepted(self):
         cfg = Config(bind_host="127.0.0.1")

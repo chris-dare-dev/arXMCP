@@ -264,6 +264,14 @@ class Config(BaseSettings):
 
     log_level: str = "INFO"
 
+    #: Log output format (corpus-integrity-observability-e2). ``"json"`` emits
+    #: one structured JSON line per record (12-factor; the default per
+    #: ``08-security-observability-ops.md`` §Logging "Structured JSON logs to
+    #: stdout"); ``"text"`` keeps the human-readable stdlib format for local
+    #: dev. The ``RedactionFilter`` runs regardless of format. Set via
+    #: ``ARXMCP_LOG_FORMAT``.
+    log_format: str = "json"
+
     #: Tolerance for the startup corpus-count reconciliation invariant
     #: (corpus-integrity-observability-m2). At ``Resources.startup`` the
     #: server compares the live ``chunks_table.count_rows()`` against the
@@ -649,6 +657,18 @@ class Config(BaseSettings):
                 f"cosine), 0.5 = equal weights (default)."
             )
         return v
+
+    @field_validator("log_format")
+    @classmethod
+    def validate_log_format(cls, v: str) -> str:
+        """Log format must be ``"json"`` (default, 12-factor) or ``"text"``
+        (human-readable dev output). Normalized to lower-case."""
+        normalized = v.strip().lower()
+        if normalized not in {"json", "text"}:
+            raise ValueError(
+                f"ARXMCP_LOG_FORMAT must be 'json' or 'text'; got {v!r}."
+            )
+        return normalized
 
     @field_validator("corpus_chunk_count_tolerance")
     @classmethod

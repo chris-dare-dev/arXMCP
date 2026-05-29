@@ -261,6 +261,12 @@ class TestConfigure:
         root = logging.getLogger()
         saved_filters = list(root.filters)
         saved_level = root.level
+        # corpus-integrity-observability-e2: configure() now also mutates each
+        # root handler's FORMATTER (default log_format="json"). Snapshot +
+        # restore formatters too, so a configure() call here cannot leak a
+        # JsonFormatter onto pytest's own handler and corrupt later tests'
+        # caplog.text.
+        saved_formatters = {h: h.formatter for h in root.handlers}
         _reset_debug_warning_for_tests()
         yield
         # Restore.
@@ -268,6 +274,9 @@ class TestConfigure:
         for f in saved_filters:
             root.addFilter(f)
         root.setLevel(saved_level)
+        for h, fmt in saved_formatters.items():
+            if h in root.handlers:
+                h.setFormatter(fmt)
         _reset_debug_warning_for_tests()
 
     def test_configure_installs_redaction_filter_on_root(self):
@@ -442,6 +451,59 @@ class TestConfigure:
             "DEBUG warn must be one-shot per process; second configure() "
             "emitted a duplicate WARN"
         )
+
+    def test_json_format_installs_formatter_and_keeps_redaction(self):
+        """corpus-integrity-observability-e2 FM-2 (SECURITY-CRITICAL): the
+        default JSON wiring must install JsonFormatter on the SAME handler
+        that carries RedactionFilter — never a new (unfiltered) handler. A
+        bypass would emit query/body fields un-redacted at INFO+.
+        """
+        root = logging.getLogger()
+        stream = io.StringIO()
+        capture = logging.StreamHandler(stream)
+        # No formatter set yet — configure(json) must install JsonFormatter.
+        root.addHandler(capture)
+        try:
+            configure("INFO", "json")
+            assert isinstance(capture.formatter, JsonFormatter), (
+                "configure(log_format='json') must install JsonFormatter on "
+                "the existing handler"
+            )
+            assert any(
+                isinstance(f, RedactionFilter) for f in capture.filters
+            ), "the JSON-formatted handler MUST still carry RedactionFilter"
+            # End-to-end: a sensitive field is redacted AND the line is JSON.
+            child = logging.getLogger("server.test.e2_json_redaction")
+            child.info(
+                "search_papers",
+                extra={"event": "search_papers", "query": "secret query"},
+            )
+            payload = _parse_one(stream)
+            assert "query" not in payload, "JSON path leaked a redacted field"
+            assert payload["event"] == "search_papers"
+        finally:
+            root.removeHandler(capture)
+
+    def test_text_format_leaves_formatter_unchanged(self):
+        """log_format='text' must NOT install JsonFormatter — the
+        human-readable dev path keeps the handler's existing formatter."""
+        root = logging.getLogger()
+        stream = io.StringIO()
+        capture = logging.StreamHandler(stream)
+        sentinel = logging.Formatter("%(message)s")
+        capture.setFormatter(sentinel)
+        root.addHandler(capture)
+        try:
+            configure("INFO", "text")
+            assert capture.formatter is sentinel, (
+                "configure(log_format='text') must not replace the formatter"
+            )
+            # Redaction still installed regardless of format.
+            assert any(
+                isinstance(f, RedactionFilter) for f in capture.filters
+            )
+        finally:
+            root.removeHandler(capture)
 
 
 # ===========================================================================

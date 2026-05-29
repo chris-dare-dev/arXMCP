@@ -247,6 +247,58 @@ class TestF3BackupStateSurface:
         assert "(ok)" in out
 
 
+class TestCorpusIntegritySection:
+    """corpus-integrity-observability-e2 (CAND-9) — the daily report renders a
+    ``## Corpus integrity`` row reconciling marker vs actual chunk_count, makes
+    a divergence operator-visible, and degrades gracefully to ``n/a``."""
+
+    _NOW = datetime.datetime(2026, 5, 17, tzinfo=datetime.UTC)
+
+    @staticmethod
+    def _gauges(marker: float, actual: float, version: float = 645.0) -> str:
+        return (
+            "# HELP arxmcp_corpus_chunk_count_marker marker\n"
+            "# TYPE arxmcp_corpus_chunk_count_marker gauge\n"
+            f"arxmcp_corpus_chunk_count_marker {marker}\n"
+            "# HELP arxmcp_corpus_chunk_count_actual actual\n"
+            "# TYPE arxmcp_corpus_chunk_count_actual gauge\n"
+            f"arxmcp_corpus_chunk_count_actual {actual}\n"
+            "# HELP arxmcp_corpus_version version\n"
+            "# TYPE arxmcp_corpus_version gauge\n"
+            f"arxmcp_corpus_version {version}\n"
+        )
+
+    def test_section_present_and_matching_is_ok(self):
+        out = render_report(self._gauges(10298.0, 10298.0), self._NOW)
+        assert "## Corpus integrity" in out
+        assert "| marker chunk_count | 10298 |" in out
+        assert "| actual chunk_count | 10298 |" in out
+        assert "| Status | ok |" in out
+        assert "[DIVERGED]" not in out
+
+    def test_divergence_is_flagged(self):
+        # The motivating bug shape: marker says 106, table has 10298.
+        out = render_report(self._gauges(106.0, 10298.0), self._NOW)
+        assert "| marker chunk_count | 106 |" in out
+        assert "| actual chunk_count | 10298 |" in out
+        assert "**[DIVERGED]**" in out
+
+    def test_minus_one_sentinel_renders_na_not_negative(self):
+        # m2 FM-2: count_rows() failed at startup → actual gauge is -1.
+        out = render_report(self._gauges(10298.0, -1.0), self._NOW)
+        assert "| actual chunk_count | n/a |" in out
+        assert "-1" not in out.split("## Corpus integrity")[1].split("##")[0]
+        # A -1 sentinel must NOT be reported as a divergence.
+        assert "[DIVERGED]" not in out
+
+    def test_absent_gauges_render_na(self):
+        # Server down / cold corpus → gauges absent from /metrics → NaN → n/a.
+        out = render_report("", self._NOW)
+        assert "## Corpus integrity" in out
+        assert "| actual chunk_count | n/a |" in out
+        assert "[DIVERGED]" not in out
+
+
 class TestRegenFixture:
     """F4 rectification — the fixture regeneration script
     (`tools/regen_metrics_fixture.py`) must produce the SAME bytes

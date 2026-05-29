@@ -382,6 +382,40 @@ def render_report(
     )
     lines.append("")
 
+    # --- Corpus integrity (corpus-integrity-observability-e2 / CAND-9) ----
+    # Reconcile the corpus-version.json marker chunk_count against the live
+    # table count — both startup-cached gauges shipped by m2. A persistent gap
+    # is the silent ~100x divergence bug class made human-visible at daily
+    # cadence. Gauges are startup-cached (stale by design; restart to refresh).
+    marker_ct = _sentinel_gauge(fams, "arxmcp_corpus_chunk_count_marker")
+    actual_ct = _sentinel_gauge(fams, "arxmcp_corpus_chunk_count_actual")
+    corpus_ver = _sentinel_gauge(fams, "arxmcp_corpus_version")
+
+    def _count_cell(v: float) -> str:
+        # NaN (gauge absent — server down / cold corpus) or a negative value
+        # (-1 = m2 FM-2 count_rows() failed at startup) → "n/a"; never render a
+        # bogus "-1".
+        if v != v or v < 0:
+            return "n/a"
+        return str(int(v))
+
+    diverged = (
+        marker_ct == marker_ct  # not NaN
+        and actual_ct == actual_ct  # not NaN
+        and marker_ct >= 0
+        and actual_ct >= 0
+        and int(marker_ct) != int(actual_ct)
+    )
+    lines.append("## Corpus integrity")
+    lines.append("")
+    lines.append("| Field | Value |")
+    lines.append("|---|---:|")
+    lines.append(f"| corpus_version | {_count_cell(corpus_ver)} |")
+    lines.append(f"| marker chunk_count | {_count_cell(marker_ct)} |")
+    lines.append(f"| actual chunk_count | {_count_cell(actual_ct)} |")
+    lines.append(f"| Status | {'**[DIVERGED]**' if diverged else 'ok'} |")
+    lines.append("")
+
     # --- Ingestion throughput (TODO — metrics not yet emitted) -----------
     lines.append("## Ingestion throughput")
     lines.append("")
