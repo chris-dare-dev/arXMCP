@@ -644,10 +644,13 @@ def test_ingest_builds_bm25_under_per_notebook_root(
     call = captured_calls[0]
     index_root = call["kwargs"].get("index_root")
     assert index_root is not None, "index_root must be passed explicitly"
-    assert "myslug" in str(index_root), (
+    # F4: assert structurally on Path.parts (separator-agnostic — a str
+    # substring check with a hard-coded "/" fails on Windows).
+    index_root_parts = Path(index_root).parts
+    assert "myslug" in index_root_parts, (
         f"index_root should be under the notebook dir; got {index_root}"
     )
-    assert "index/bm25" in str(index_root), (
+    assert index_root_parts[-2:] == ("index", "bm25"), (
         f"index_root should be <nb_dir>/index/bm25; got {index_root}"
     )
     # Confirm no .notebook_slug sentinel is written (FM-7: sentinel removed)

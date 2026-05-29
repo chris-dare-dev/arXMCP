@@ -663,6 +663,34 @@ class TestNotebookConfig:
             assert resources.config.lancedb_path == nb_lancedb.resolve()
             assert resources.chunks_table.count_rows() == 2
 
+            # notebook-bm25-isolation-m1 F2: pin that fork-C STARTUP built the
+            # BM25 index under the PER-NOTEBOOK root (config → resources →
+            # BM25Phase.startup auto-build), NOT the global root. Without this
+            # assertion a future refactor that drops the bm25_index_root kwarg
+            # would auto-build into the global root and every other test would
+            # still pass (/readyz would still be 200) — the e3-class
+            # "verified by reading, not pinned" gap.
+            import ingest.bm25_indexer as bm25_mod  # noqa: PLC0415
+
+            nb_bm25_pkl = (
+                notebooks_base
+                / "demo-nb"
+                / "index"
+                / "bm25"
+                / f"v{nb_version}"
+                / bm25_mod.BM25_INDEX_NAME
+            )
+            assert nb_bm25_pkl.is_file(), (
+                f"fork-C startup must build BM25 under the notebook root; "
+                f"missing {nb_bm25_pkl}"
+            )
+            # The global (conftest-patched) BM25 root must NOT carry this
+            # notebook's version dir — proves the per-notebook isolation.
+            assert not (bm25_mod.BM25_INDEX_ROOT / f"v{nb_version}").exists(), (
+                "fork-C must NOT build into the global BM25 root "
+                f"({bm25_mod.BM25_INDEX_ROOT})"
+            )
+
 
 class TestNotebookLancedbPathHelper:
     """AC8 (stepping-stone shaping): the slug→lancedb-path derivation

@@ -658,9 +658,12 @@ class TestBM25IndexRootIsolation:
         embeds_b = _embeddings_for(chunks_b, seed=2)
         version_b = write_chunks(chunks_b, embeds_b, lancedb_b)
 
-        # Both notebooks land at version 1 (per-dataset MVCC starts at 1).
-        if version_a != version_b != 1:
-            pytest.skip("Unexpected version numbers; corpus setup changed")
+        # notebook-bm25-isolation-m1 F1: no version-equality skip. Both
+        # notebooks land at version 1 (per-dataset MVCC starts at 1), but the
+        # isolation guarantee this test asserts — distinct roots produce
+        # non-overlapping artifacts — holds for ANY version integers, so a
+        # skip keyed on the version pairing would only be dead/misleading
+        # logic that could silently mask the AC-3 regression.
 
         # Build index for notebook-A under root_a
         bm25_mod.build_bm25_index(lancedb_a, corpus_version=version_a, index_root=root_a)
@@ -712,3 +715,44 @@ class TestBM25IndexRootIsolation:
             f"index_root=None must resolve to the (patchable) "
             f"BM25_INDEX_ROOT at call time; got {result}"
         )
+
+    def test_idempotent_skip_is_scoped_per_root(self, tmp_path, monkeypatch):
+        """F3: the idempotent rebuild-skip keys on the PER-NOTEBOOK
+        ``<root>/v<N>/`` dir. A second build at the same version under the
+        SAME root skips (no re-read of the table); a build at the same version
+        under a DIFFERENT root rebuilds. This pins the exact mechanism the
+        milestone fixes — pre-fix, notebook B's v1 build no-op'd against
+        notebook A's v1 artifacts in the shared global root.
+
+        Detection: ``open_chunks_table`` is called ONLY on a real build (the
+        skip path returns before it), so spying on it distinguishes
+        skip-vs-rebuild without flaky mtime comparisons.
+        """
+        import ingest.bm25_indexer as bm25_mod
+
+        root_a = tmp_path / "nb-a" / "index" / "bm25"
+        root_b = tmp_path / "nb-b" / "index" / "bm25"
+        chunks = [
+            _curated_chunk("2301.00001", "aaaa0001", body_tokens="alpha lemma")
+        ]
+        lancedb = tmp_path / "lancedb"
+        version = write_chunks(chunks, _embeddings_for(chunks, seed=1), lancedb)
+
+        calls = {"n": 0}
+        real_open = bm25_mod.open_chunks_table
+
+        def _counting_open(*args, **kwargs):
+            calls["n"] += 1
+            return real_open(*args, **kwargs)
+
+        monkeypatch.setattr(bm25_mod, "open_chunks_table", _counting_open)
+
+        bm25_mod.build_bm25_index(lancedb, corpus_version=version, index_root=root_a)
+        assert calls["n"] == 1  # first build reads the table
+
+        bm25_mod.build_bm25_index(lancedb, corpus_version=version, index_root=root_a)
+        assert calls["n"] == 1  # SAME root + version → idempotent skip (no re-read)
+
+        bm25_mod.build_bm25_index(lancedb, corpus_version=version, index_root=root_b)
+        assert calls["n"] == 2  # DIFFERENT root → rebuild (no cross-root skip)
+        assert (root_b / f"v{version}" / bm25_mod.BM25_INDEX_NAME).is_file()
