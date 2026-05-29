@@ -1,0 +1,66 @@
+{
+  "brief_source": "",
+  "created_at": "2026-05-29T14:51:19Z",
+  "critics_run": [],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "low": 0,
+    "medium": 0
+  },
+  "critique_path": null,
+  "deferred_findings": [],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_required": [],
+  "fixed_findings": [],
+  "id": "corpus-integrity-observability-e3",
+  "implementation_base": "67864da063bd9f698885862dca366a5156bf0a17",
+  "implementation_branch": null,
+  "implementation_commit_range": null,
+  "implementation_commits": [],
+  "implementation_path": "delegated",
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "corpus-integrity-observability-e3 \u2014 Ingest throughput observable from /metrics\n\nType: value (enabler-flavored \u2014 closes the note-08 deferred metric stub). Size: M\n(~150 LOC). Depends on e1 (m1+m2, SHIPPED) + spike-3 (DONE \u2014 the design is LOCKED).\n\nTHE DESIGN IS ALREADY DECIDED. Follow\n.claude/notes/spikes/corpus-integrity-observability-spike-3/decision.md VERBATIM \u2014\ndo not re-litigate the counter-vs-gauge question. Read decision.md + research.md\nfirst; they cite exact file:line for every touch point.\n\nLocked decisions (from spike-3 decision.md):\n1. GAUGE (last-run-snapshot), NOT Counter. A sentinel-file Counter written by a\n   cron process that exits between runs cannot hold a durable monotonic total\n   (a corpus rebuild makes it go backwards \u2192 breaks the Counter contract). Gauge\n   matches the cron-exits-between-runs reality.\n2. Metric names (UNLABELED scalar gauges; note-08's _total counter names are\n   OVERRIDDEN): arxmcp_ingest_last_run_papers, arxmcp_ingest_last_run_chunks,\n   arxmcp_ingest_last_run_timestamp_seconds. NO {driver} Prometheus label (single\n   overwritten sentinel + blanket-zero-on-absence would freeze a stale per-driver\n   series); driver rides as a JSON field for the daily-report row only.\n3. ingest-summary.json schema v1 (path var/arxmcp/ops/ingest-summary.json under\n   config.ops_dir; atomic temp+os.replace like oai_delta._write_state; inherits\n   the F1 64KB guard via _read_capped). Fields: schema_version, driver,\n   finished_at (ISO-8601 UTC), elapsed_seconds, papers_processed, papers_succeeded,\n   papers_failed, chunks_written_this_run, total_rows_after_commit.\n4. WriteStats += paper_id + total_rows_after_commit (scout CAND-8; free \u2014 m1 already\n   computes count_rows() in write_chunks).\n\nImplementation surface (decision.md \u00a7\"e3 implementation surface\"):\n- ingest/store.py \u2014 WriteStats fields + populate in write_chunks\n- ingest/ingest_summary.py (NEW) \u2014 write_ingest_summary(ops_dir, driver, summary), atomic\n- ingest/bulk_ingest.py \u2014 call it after run_bulk_ingest loop (success path)\n- ingest/oai_delta.py \u2014 call it after run_delta success path\n- server/metrics.py \u2014 INGEST_LAST_RUN_PAPERS / _CHUNKS / _TIMESTAMP gauges (unlabeled)\n- server/health.py \u2014 refresh_sentinel_metrics += ingest-summary.json reader + _INGEST_SUMMARY_NAME\n  (present \u2192 set gauges; malformed \u2192 WARN + leave prior; absent \u2192 set 0.0; mirror backup-status.json reader)\n- tools/daily_metrics_report.py \u2014 replace the \"Ingestion throughput\" TODO stub with a real row\n  reading the new gauges + driver\n- .claude/notes/08-security-observability-ops.md \u2014 replace the two _total counter rows with the gauge names\n\nAcceptance criteria:\n- arxmcp_ingest_last_run_papers / _chunks / _timestamp_seconds reach /metrics via the\n  ingest-summary.json sentinel read by refresh_sentinel_metrics.\n- A real ingest run (bulk + delta) writes ingest-summary.json atomically with the v1 schema.\n- WriteStats records paper_id + total_rows_after_commit.\n- The daily report renders an Ingestion-throughput row (papers / chunks / driver / freshness)\n  replacing the TODO stub; n/a when the sentinel is absent.\n- note-08 updated (counters -> gauges); EXPECTED_TOOL_SCHEMA_SHA256 + EXPECTED_BP1_SHA256\n  UNCHANGED (no MCP tool); make test green.\n- Tests: writer (happy / missing-dir / atomic) + reader (present / absent / oversized / malformed)\n  + the metrics-fixture regen.\n\nSpecialist: determinism-reviewer concern (the sentinel schema + WriteStats must be deterministic\nand reconcile with the table) \u2014 but no specialist agent registered; the adversary critic suffices.\n\nExternal writes: none (local sentinel under var/arxmcp/ops/, gitignored).",
+  "phase": "implement-running",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-29T14:51:19Z",
+      "left_at": "2026-05-29T14:52:00Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-29T14:52:00Z",
+      "left_at": "2026-05-29T14:58:11Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-29T14:58:11Z",
+      "left_at": "2026-05-29T14:59:07Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-05-29T14:59:07Z",
+      "left_at": null,
+      "phase": "implement-running"
+    }
+  ],
+  "rectification_commit": null,
+  "regression_tests_added": [],
+  "research_briefs": [
+    {
+      "agent_id": "researcher-1",
+      "brief_path": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/corpus-integrity-observability-e3/research-brief-1.md",
+      "summary": "seam verified; gauges in metrics.py; health.py has uncommitted m4 edits"
+    },
+    {
+      "agent_id": "researcher-2",
+      "brief_path": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/corpus-integrity-observability-e3/research-brief-2.md",
+      "summary": "7 FMs mitigated; same-dir tmp + schema_version-first + fixture regen"
+    }
+  ],
+  "research_mode": "standard",
+  "research_synthesis": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/corpus-integrity-observability-e3/research-synthesis.md",
+  "updated_at": "2026-05-29T14:59:07Z"
+}

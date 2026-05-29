@@ -61,6 +61,7 @@ _DRIFT_FLAG_NAME: str = "drift-detected.flag"
 _QUARANTINE_FLAG_NAME: str = "eval-quarantine.flag"
 _DELTA_TIMEOUT_FLAG_NAME: str = "delta-timeout.flag"
 _BACKUP_STATUS_NAME: str = "backup-status.json"
+_INGEST_SUMMARY_NAME: str = "ingest-summary.json"
 _EVAL_REPORTS_DIR: str = "eval-reports"
 
 #: Backup states that the wrapper may emit, in the order
@@ -659,6 +660,56 @@ def refresh_sentinel_metrics(ops_dir: Path) -> None:
         BACKUP_LAST_SUCCESS_GAUGE.set(0.0)
         for s in _BACKUP_STATES:
             BACKUP_STATUS_GAUGE.labels(state=s).set(0.0)
+
+    # --- ingest-summary.json → INGEST_LAST_RUN_* gauges ---------------
+    # corpus-integrity-observability-e3: mirror the backup-status reader.
+    from server.metrics import (  # noqa: PLC0415
+        INGEST_LAST_RUN_CHUNKS,
+        INGEST_LAST_RUN_PAPERS,
+        INGEST_LAST_RUN_TIMESTAMP_SECONDS,
+    )
+
+    ingest_summary = ops_dir / _INGEST_SUMMARY_NAME
+    if ingest_summary.is_file():
+        try:
+            raw = _read_capped(ingest_summary)
+            payload = json.loads(raw) if raw is not None else None
+            if payload is not None:
+                # FM-7: schema_version check FIRST — unknown version means
+                # the reader cannot trust the field layout. Leave prior
+                # gauges intact rather than zeroing (a zero reads as
+                # "never ingested" which is worse than stale).
+                if payload.get("schema_version") != 1:
+                    logger.warning(
+                        "ingest-summary.json at %s has unknown schema_version "
+                        "%r; leaving prior gauge values",
+                        ingest_summary,
+                        payload.get("schema_version"),
+                    )
+                else:
+                    INGEST_LAST_RUN_PAPERS.set(
+                        float(payload.get("papers_processed", 0))
+                    )
+                    INGEST_LAST_RUN_CHUNKS.set(
+                        float(payload.get("chunks_written_this_run", 0))
+                    )
+                    finished_at = payload.get("finished_at")
+                    if isinstance(finished_at, str) and finished_at:
+                        from datetime import datetime  # noqa: PLC0415
+
+                        INGEST_LAST_RUN_TIMESTAMP_SECONDS.set(
+                            datetime.fromisoformat(finished_at).timestamp()
+                        )
+        except (json.JSONDecodeError, OSError, ValueError, KeyError):
+            logger.warning(
+                "ingest-summary.json at %s is malformed; leaving prior gauge values",
+                ingest_summary,
+                exc_info=True,
+            )
+    else:
+        INGEST_LAST_RUN_PAPERS.set(0.0)
+        INGEST_LAST_RUN_CHUNKS.set(0.0)
+        INGEST_LAST_RUN_TIMESTAMP_SECONDS.set(0.0)
 
     # --- eval-reports/corpus_v<N>-*.json → EVAL_NDCG5_GAUGE -----------
     reports_dir = ops_dir / _EVAL_REPORTS_DIR

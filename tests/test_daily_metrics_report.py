@@ -443,3 +443,99 @@ class TestMaybeEmail:
             "email delivery failed" in r.message
             for r in caplog.records
         )
+
+
+# ===========================================================================
+# corpus-integrity-observability-e3 — Ingestion throughput section
+# ===========================================================================
+
+
+class TestIngestionThroughputSection:
+    """Tests for the ``## Ingestion throughput`` section that replaces
+    the TODO stub in ``tools/daily_metrics_report.py``."""
+
+    _NOW = datetime.datetime(2026, 5, 29, 12, 0, 0, tzinfo=datetime.UTC)
+
+    @staticmethod
+    def _ingest_gauges(
+        papers: float = 52.0,
+        chunks: float = 4820.0,
+        ts: float = 1748476800.0,
+    ) -> str:
+        """Build a minimal Prometheus exposition text with the 3 ingest gauges."""
+        return (
+            "# HELP arxmcp_ingest_last_run_papers papers\n"
+            "# TYPE arxmcp_ingest_last_run_papers gauge\n"
+            f"arxmcp_ingest_last_run_papers {papers}\n"
+            "# HELP arxmcp_ingest_last_run_chunks chunks\n"
+            "# TYPE arxmcp_ingest_last_run_chunks gauge\n"
+            f"arxmcp_ingest_last_run_chunks {chunks}\n"
+            "# HELP arxmcp_ingest_last_run_timestamp_seconds ts\n"
+            "# TYPE arxmcp_ingest_last_run_timestamp_seconds gauge\n"
+            f"arxmcp_ingest_last_run_timestamp_seconds {ts}\n"
+        )
+
+    def test_section_present_in_fixture_output(self, capsys):
+        """The section header must appear when the script runs on the
+        regenerated fixture."""
+        rc = main(["--dry-run", "--fixture", str(FIXTURE)])
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "## Ingestion throughput" in out
+
+    def test_present_gauges_render_papers_and_chunks(self, tmp_path: pathlib.Path):
+        out = render_report(self._ingest_gauges(), self._NOW, ops_dir=tmp_path)
+        assert "## Ingestion throughput" in out
+        section = out.split("## Ingestion throughput")[1].split("##")[0]
+        assert "52" in section
+        assert "4820" in section
+
+    def test_absent_gauges_render_na(self, tmp_path: pathlib.Path):
+        """When no ingest gauges are present (server cold / no scrape yet),
+        the section renders n/a values rather than crashing or omitting."""
+        out = render_report("", self._NOW, ops_dir=tmp_path)
+        assert "## Ingestion throughput" in out
+        section = out.split("## Ingestion throughput")[1].split("##")[0]
+        assert "n/a" in section
+
+    def test_driver_rendered_from_sentinel_file(self, tmp_path: pathlib.Path):
+        """``driver`` is read from ``ingest-summary.json`` directly
+        (not a Prometheus label) and surfaced in the row."""
+        import json as _json  # noqa: PLC0415
+
+        payload = {
+            "schema_version": 1,
+            "driver": "oai_delta",
+            "finished_at": "2026-05-29T04:00:00Z",
+            "elapsed_seconds": 45.0,
+            "papers_processed": 10,
+            "papers_succeeded": 9,
+            "papers_failed": 1,
+            "chunks_written_this_run": 890,
+            "total_rows_after_commit": 5000,
+        }
+        (tmp_path / "ingest-summary.json").write_text(
+            _json.dumps(payload) + "\n", encoding="utf-8"
+        )
+        out = render_report(self._ingest_gauges(), self._NOW, ops_dir=tmp_path)
+        assert "oai_delta" in out
+
+    def test_absent_sentinel_driver_renders_na(self, tmp_path: pathlib.Path):
+        """When the sentinel file is absent the driver cell must render n/a."""
+        # No ingest-summary.json in tmp_path.
+        out = render_report(self._ingest_gauges(), self._NOW, ops_dir=tmp_path)
+        section = out.split("## Ingestion throughput")[1].split("##")[0]
+        assert "n/a" in section
+
+    def test_no_crash_on_absent_ingest_summary(self, tmp_path: pathlib.Path):
+        """render_report must not raise when the sentinel file is absent."""
+        out = render_report("", self._NOW, ops_dir=tmp_path)
+        assert "## Ingestion throughput" in out
+
+    def test_fixture_contains_ingest_gauge_families(self):
+        """The regenerated fixture must contain the three new gauge families
+        so dry-run tests exercise the real data path (FM-2)."""
+        text = FIXTURE.read_text(encoding="utf-8")
+        assert "arxmcp_ingest_last_run_papers" in text
+        assert "arxmcp_ingest_last_run_chunks" in text
+        assert "arxmcp_ingest_last_run_timestamp_seconds" in text

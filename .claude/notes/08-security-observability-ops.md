@@ -131,9 +131,10 @@ arxmcp_rerank_calls_total{model,outcome}                counter
 Ingestion (separate process; same metrics endpoint pattern):
 
 ```
-arxmcp_ingest_papers_processed_total{parser,outcome}    counter
+arxmcp_ingest_last_run_papers              gauge  (replaces _papers_processed_total)
+arxmcp_ingest_last_run_chunks              gauge  (replaces _chunks_written_total)
+arxmcp_ingest_last_run_timestamp_seconds   gauge  (finished_at as epoch; freshness signal)
 arxmcp_ingest_paper_duration_seconds{parser,quantile}   summary
-arxmcp_ingest_chunks_written_total                      counter
 arxmcp_ingest_oai_pmh_lag_seconds                       gauge
 ```
 

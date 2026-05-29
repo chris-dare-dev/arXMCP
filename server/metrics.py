@@ -277,6 +277,34 @@ BACKUP_STATUS_GAUGE: Gauge = Gauge(
     labelnames=["state"],
 )
 
+#: corpus-integrity-observability-e3 — ingest last-run snapshot gauges.
+#: Rehydrated from var/arxmcp/ops/ingest-summary.json at /metrics scrape time.
+#: Unlabeled scalars (no {driver} label — only the most-recent run is
+#: reflected; a labelled series would leave non-recent drivers frozen at
+#: stale values; see spike-3 decision.md Decision 2).
+INGEST_LAST_RUN_PAPERS: Gauge = Gauge(
+    "arxmcp_ingest_last_run_papers",
+    "Number of papers processed in the last ingest run, "
+    "rehydrated from var/arxmcp/ops/ingest-summary.json at "
+    "/metrics scrape time. 0.0 when the sentinel is absent.",
+)
+
+INGEST_LAST_RUN_CHUNKS: Gauge = Gauge(
+    "arxmcp_ingest_last_run_chunks",
+    "Number of chunks written in the last ingest run, "
+    "rehydrated from var/arxmcp/ops/ingest-summary.json at "
+    "/metrics scrape time. 0.0 when the sentinel is absent.",
+)
+
+INGEST_LAST_RUN_TIMESTAMP_SECONDS: Gauge = Gauge(
+    "arxmcp_ingest_last_run_timestamp_seconds",
+    "Unix epoch of the last ingest run's finished_at, "
+    "rehydrated from var/arxmcp/ops/ingest-summary.json at "
+    "/metrics scrape time. 0.0 when the sentinel is absent "
+    "(no ingest has run yet). Use now()-this > 86400 to alert "
+    "on a stale ingest.",
+)
+
 
 # ---------------------------------------------------------------------------
 # Tier label constants — string-typed so label space stays canonical
@@ -383,13 +411,17 @@ def reset_eval_metrics_for_tests() -> None:
 
 def reset_sentinel_metrics_for_tests() -> None:
     """Reset the E14_S01 sentinel-source gauges (eval-quarantine,
-    delta-timeout, backup-last-success, backup-status). Mirrors
+    delta-timeout, backup-last-success, backup-status) and the
+    corpus-integrity-observability-e3 ingest gauges. Mirrors
     the other reset_*_for_tests helpers; test-only."""
     EVAL_QUARANTINE_ACTIVE_GAUGE.set(0)
     DELTA_TIMEOUT_ACTIVE_GAUGE.set(0)
     BACKUP_LAST_SUCCESS_GAUGE.set(0)
     for child in list(BACKUP_STATUS_GAUGE._metrics.values()):
         _reset_child(child)
+    INGEST_LAST_RUN_PAPERS.set(0)
+    INGEST_LAST_RUN_CHUNKS.set(0)
+    INGEST_LAST_RUN_TIMESTAMP_SECONDS.set(0)
 
 
 __all__ = [
@@ -404,6 +436,9 @@ __all__ = [
     "DELTA_TIMEOUT_ACTIVE_GAUGE",
     "EVAL_NDCG5_GAUGE",
     "EVAL_QUARANTINE_ACTIVE_GAUGE",
+    "INGEST_LAST_RUN_CHUNKS",
+    "INGEST_LAST_RUN_PAPERS",
+    "INGEST_LAST_RUN_TIMESTAMP_SECONDS",
     "LATEXML_DRIFT_DETECTED_COUNTER",
     "LATEXML_DRIFT_DETECTED_GAUGE",
     "RETRIEVAL_CAP_REJECTIONS_COUNTER",

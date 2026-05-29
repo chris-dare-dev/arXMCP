@@ -89,6 +89,9 @@ DEFAULT_INGESTION_LOG_PATH = (
     REPO_ROOT / "var" / "arxmcp" / "ops" / "ingestion.log"
 )
 
+#: Default ops directory for sentinel files (ingest-summary.json etc.).
+DEFAULT_OPS_DIR = REPO_ROOT / "var" / "arxmcp" / "ops"
+
 #: Progress checkpoint interval — emit a summary line every Nth paper.
 DEFAULT_PROGRESS_INTERVAL = 1000
 
@@ -343,6 +346,7 @@ def run_bulk_ingest(
     parsed_dir: Path = DEFAULT_PARSED_DIR,
     failures_path: Path = DEFAULT_PARSER_FAILURES_PATH,
     log_path: Path = DEFAULT_INGESTION_LOG_PATH,
+    ops_dir: Path = DEFAULT_OPS_DIR,
     progress_interval: int = DEFAULT_PROGRESS_INTERVAL,
     limit: int | None = None,
     dry_run: bool = False,
@@ -373,6 +377,7 @@ def run_bulk_ingest(
     work = paper_ids if limit is None else paper_ids[:limit]
     summary = IngestSummary(papers_total=len(work))
     started = time.monotonic()
+    chunks_written = 0
 
     for n, paper_id in enumerate(work, start=1):
         outcome = ingest_one_paper(
@@ -381,6 +386,7 @@ def run_bulk_ingest(
             ar5iv_cache_dir=ar5iv_cache_dir,
             parsed_dir=parsed_dir,
         )
+        chunks_written += outcome.chunks_written
         if outcome.parser_used == "ar5iv":
             summary.ar5iv_hits += 1
         elif "ar5iv" in outcome.parsers_tried:
@@ -394,6 +400,30 @@ def run_bulk_ingest(
             _log_progress(log_path, summary, paper_id)
 
     summary.elapsed_seconds = time.monotonic() - started
+
+    # corpus-integrity-observability-e3: write the ingest-summary.json
+    # sentinel for /metrics scrape-time exposure. Wrapped in try/except
+    # so a sentinel-write failure does NOT abort an otherwise-successful run.
+    try:
+        from ingest.ingest_summary import write_ingest_summary  # noqa: PLC0415
+
+        write_ingest_summary(
+            ops_dir,
+            "bulk_ingest",
+            papers_processed=summary.papers_total,
+            papers_succeeded=summary.papers_succeeded,
+            papers_failed=summary.papers_failed,
+            chunks_written_this_run=chunks_written,
+            total_rows_after_commit=0,  # not available at this level; 0 is safe
+            elapsed_seconds=summary.elapsed_seconds,
+        )
+    except Exception:
+        logger.warning(
+            "failed to write ingest-summary.json (run already succeeded; "
+            "sentinel is best-effort)",
+            exc_info=True,
+        )
+
     return summary
 
 

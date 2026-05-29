@@ -77,6 +77,9 @@ def populate_registry() -> None:
         CACHE_EVICTIONS_COUNTER,
         CACHE_HITS_COUNTER,
         CACHE_LOOKUPS_COUNTER,
+        INGEST_LAST_RUN_CHUNKS,
+        INGEST_LAST_RUN_PAPERS,
+        INGEST_LAST_RUN_TIMESTAMP_SECONDS,
     )
     from server.observability.metrics import (  # noqa: PLC0415
         EMBED_CALLS_COUNTER,
@@ -113,6 +116,12 @@ def populate_registry() -> None:
     RERANK_CALLS_COUNTER.labels(model="bge-reranker-v2-m3", outcome="ok").inc(60)
     for v in (0.04, 0.09, 0.21):
         RERANK_LATENCY.labels(model="bge-reranker-v2-m3").observe(v)
+
+    # corpus-integrity-observability-e3: seed representative values for
+    # the ingest last-run gauges so TestRegenFixture passes (FM-2).
+    INGEST_LAST_RUN_PAPERS.set(52)
+    INGEST_LAST_RUN_CHUNKS.set(4820)
+    INGEST_LAST_RUN_TIMESTAMP_SECONDS.set(1748476800.0)
 
     # No imports of `generate_latest` until we've staged the
     # registry; the caller invokes it.

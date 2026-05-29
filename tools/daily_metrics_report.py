@@ -78,6 +78,9 @@ DEFAULT_METRICS_URL: str = "http://127.0.0.1:7733/metrics"
 #: Default output directory relative to repo root.
 DEFAULT_OUT_DIR: pathlib.Path = REPO_ROOT / "var/arxmcp/ops/daily-reports"
 
+#: Default ops directory (sentinel files).
+DEFAULT_OPS_DIR: pathlib.Path = REPO_ROOT / "var/arxmcp/ops"
+
 
 # ---------------------------------------------------------------------------
 # Prometheus client-side helpers
@@ -302,7 +305,9 @@ def _fmt_pct(v: float) -> str:
 
 
 def render_report(
-    metrics_text: str, now: datetime.datetime
+    metrics_text: str,
+    now: datetime.datetime,
+    ops_dir: pathlib.Path | None = None,
 ) -> str:
     """Render the markdown report. ``now`` should be timezone-aware
     (UTC); tests inject a fixed value for determinism."""
@@ -418,17 +423,36 @@ def render_report(
     lines.append(f"| Status | {'**[DIVERGED]**' if diverged else 'ok'} |")
     lines.append("")
 
-    # --- Ingestion throughput (TODO — metrics not yet emitted) -----------
+    # --- Ingestion throughput (corpus-integrity-observability-e3) --------
+    # Gauges rehydrated from var/arxmcp/ops/ingest-summary.json at scrape
+    # time (see server/health.py refresh_sentinel_metrics). ``driver`` is
+    # NOT a Prometheus label (spike-3 decision.md Decision 2); read it
+    # from the sentinel file directly.
+    ingest_papers = _sentinel_gauge(fams, "arxmcp_ingest_last_run_papers")
+    ingest_chunks = _sentinel_gauge(fams, "arxmcp_ingest_last_run_chunks")
+    ingest_ts = _sentinel_gauge(fams, "arxmcp_ingest_last_run_timestamp_seconds")
+
+    _effective_ops_dir = ops_dir if ops_dir is not None else DEFAULT_OPS_DIR
+    ingest_driver = _ingest_summary_driver(_effective_ops_dir)
+
+    def _ingest_age_str(ts: float) -> str:
+        if ts != ts or ts == 0.0:
+            return "n/a"
+        age = now.timestamp() - ts
+        if age < 0:
+            return "_clock skew_"
+        h = int(age // 3600)
+        m = int((age % 3600) // 60)
+        return f"{h}h {m}m ago"
+
     lines.append("## Ingestion throughput")
     lines.append("")
-    lines.append(
-        "_Papers ingested + chunks written are not yet exposed via "
-        "`/metrics`; the families `arxmcp_ingest_papers_processed_total` "
-        "and `arxmcp_ingest_chunks_written_total` are named in note 08 "
-        "but no emitter exists yet. See `var/arxmcp/ops/delta-status.json` "
-        "for the most-recent delta run summary, or "
-        "`docs/ops/delta-loop.md` for the operator workflow._"
-    )
+    lines.append("| Field | Value |")
+    lines.append("|---|---:|")
+    lines.append(f"| papers (last run) | {_int_cell(ingest_papers)} |")
+    lines.append(f"| chunks (last run) | {_int_cell(ingest_chunks)} |")
+    lines.append(f"| driver | {ingest_driver if ingest_driver is not None else 'n/a'} |")
+    lines.append(f"| last run age | {_ingest_age_str(ingest_ts)} |")
     lines.append("")
 
     # --- Parser failures (read alongside the metrics scrape) -------------
@@ -503,6 +527,29 @@ def _backup_age_seconds(fams: dict[str, object]) -> float:
     if ts != ts or ts == 0.0:
         return float("nan")
     return datetime.datetime.now(datetime.UTC).timestamp() - ts
+
+
+def _ingest_summary_driver(ops_dir: pathlib.Path) -> str | None:
+    """Return the ``driver`` field from ``ingest-summary.json``, or
+    ``None`` when the sentinel is absent, oversized, or malformed.
+
+    ``driver`` is carried as a JSON field (NOT a Prometheus label —
+    see spike-3 decision.md Decision 2). Reads the sentinel directly
+    rather than via Prometheus so the report can surface the driver name
+    without adding a label to the gauges.
+    """
+    sentinel = ops_dir / "ingest-summary.json"
+    try:
+        if not sentinel.is_file():
+            return None
+        raw = sentinel.read_text(encoding="utf-8")
+        if len(raw.encode("utf-8")) > 64 * 1024:
+            return None
+        payload = __import__("json").loads(raw)
+        val = payload.get("driver")
+        return str(val) if val is not None else None
+    except Exception:
+        return None
 
 
 def _backup_status_active_state(fams: dict[str, object]) -> str | None:

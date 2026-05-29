@@ -147,6 +147,9 @@ DEFAULT_TIMEOUT_FLAG_PATH: Path = (
 #: signal, not a hard timeout.
 DEFAULT_BUDGET_SECONDS: float = 90 * 60.0
 
+#: Default ops directory for sentinel files (ingest-summary.json etc.).
+DEFAULT_OPS_DIR: Path = REPO_ROOT / "var" / "arxmcp" / "ops"
+
 #: Closes F1: total wall-clock cap on the 503-retry/backoff loop.
 #: Per design note 08:200, the delta loop pauses with exponential
 #: backoff and gives up after at most 1 hour.
@@ -687,6 +690,7 @@ def run_delta(
     log_path: Path = DEFAULT_DELTA_LOG_PATH,
     failures_path: Path = DEFAULT_DELTA_PARSER_FAILURES_PATH,
     timeout_flag_path: Path = DEFAULT_TIMEOUT_FLAG_PATH,
+    ops_dir: Path = DEFAULT_OPS_DIR,
     budget_seconds: float = DEFAULT_BUDGET_SECONDS,
     dry_run: bool = False,
     fetch_page=None,
@@ -735,6 +739,8 @@ def run_delta(
 
     summary = DeltaSummary()
     log_path.parent.mkdir(parents=True, exist_ok=True)
+    # corpus-integrity-observability-e3: accumulate per-run chunk count.
+    _chunks_written_this_run: int = 0
 
     all_records: list[HarvestedRecord] = []
     for set_spec in sets:
@@ -795,6 +801,7 @@ def run_delta(
         )
         if outcome is None:
             continue
+        _chunks_written_this_run += outcome.chunks_written
         if outcome.chunks_written > 0:
             summary.records_ingested += 1
         else:
@@ -822,6 +829,29 @@ def run_delta(
         "last_run_duration_seconds": round(summary.elapsed_seconds, 1),
     }
     _write_state(state_path, final_state)
+
+    # corpus-integrity-observability-e3: write ingest-summary.json sentinel
+    # for /metrics scrape-time exposure. Wrapped in try/except so a
+    # sentinel-write failure does NOT abort an otherwise-successful run.
+    try:
+        from ingest.ingest_summary import write_ingest_summary  # noqa: PLC0415
+
+        write_ingest_summary(
+            ops_dir,
+            "oai_delta",
+            papers_processed=summary.records_total,
+            papers_succeeded=summary.records_ingested,
+            papers_failed=summary.records_failed,
+            chunks_written_this_run=_chunks_written_this_run,
+            total_rows_after_commit=0,  # not available at this level; 0 is safe
+            elapsed_seconds=summary.elapsed_seconds,
+        )
+    except Exception:
+        logger.warning(
+            "failed to write ingest-summary.json (run already succeeded; "
+            "sentinel is best-effort)",
+            exc_info=True,
+        )
 
     return summary
 

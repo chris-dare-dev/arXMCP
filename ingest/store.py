@@ -192,6 +192,8 @@ class WriteStats:
     rows_inserted: int = 0
     rows_updated: int = 0
     indices_created: dict[str, bool] = field(default_factory=dict)
+    paper_id: str = ""
+    total_rows_after_commit: int = 0
 
     def to_dict(self) -> dict:
         return {
@@ -199,8 +201,10 @@ class WriteStats:
             "elapsed_s": round(self.elapsed_s, 3),
             "indices_created": dict(self.indices_created),
             "lancedb_version": self.lancedb_version,
+            "paper_id": self.paper_id,
             "rows_inserted": self.rows_inserted,
             "rows_updated": self.rows_updated,
+            "total_rows_after_commit": self.total_rows_after_commit,
         }
 
 
@@ -877,6 +881,8 @@ def write_chunks(
         rows_inserted=rows_inserted,
         rows_updated=rows_updated,
         indices_created=indices_created,
+        paper_id=chunks[0].paper_id if chunks else "",
+        # total_rows_after_commit is populated below after count_rows().
     )
     _append_store_stats(stats)
 
@@ -929,6 +935,10 @@ def write_chunks(
         # `version` and its counts are coherent. A concurrent external writer is
         # out of scope (E11).
         chunk_count = tbl.count_rows()
+        # corpus-integrity-observability-e3 (CAND-8): thread the total-row
+        # count through WriteStats so callers can accumulate run-level
+        # chunks_written for ingest-summary.json without an extra count_rows().
+        stats.total_rows_after_commit = chunk_count
         paper_count = len(
             set(tbl.to_arrow().select(["paper_id"])["paper_id"].to_pylist())
         )

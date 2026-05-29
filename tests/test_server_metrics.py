@@ -47,6 +47,9 @@ from server.metrics import (
     DELTA_TIMEOUT_ACTIVE_GAUGE,
     EVAL_NDCG5_GAUGE,
     EVAL_QUARANTINE_ACTIVE_GAUGE,
+    INGEST_LAST_RUN_CHUNKS,
+    INGEST_LAST_RUN_PAPERS,
+    INGEST_LAST_RUN_TIMESTAMP_SECONDS,
     LATEXML_DRIFT_DETECTED_GAUGE,
     reset_drift_metrics_for_tests,
     reset_eval_metrics_for_tests,
@@ -682,3 +685,147 @@ class TestMetricsEndpoint:
                 'arxmcp_request_total{tool="search_papers",status="ok"} 1.0'
                 in text
             )
+
+
+# ===========================================================================
+# corpus-integrity-observability-e3 — ingest-summary.json reader tests
+# ===========================================================================
+
+
+class TestIngestSummaryReader:
+    """FM-4, FM-5, FM-7 mitigations for the ingest-summary.json reader block
+    in :func:`server.health.refresh_sentinel_metrics`."""
+
+    def _seed_valid(self, ops_dir: Path) -> None:
+        """Write a valid v1 ingest-summary.json to ops_dir."""
+        import json as _json  # noqa: PLC0415
+
+        payload = {
+            "schema_version": 1,
+            "driver": "bulk_ingest",
+            "finished_at": "2026-05-29T04:00:00Z",
+            "elapsed_seconds": 312.4,
+            "papers_processed": 52,
+            "papers_succeeded": 50,
+            "papers_failed": 2,
+            "chunks_written_this_run": 4820,
+            "total_rows_after_commit": 10298,
+        }
+        (ops_dir / "ingest-summary.json").write_text(
+            _json.dumps(payload) + "\n", encoding="utf-8"
+        )
+
+    def test_present_valid_sets_gauges(self, tmp_path: Path, reset_all_metrics):
+        """FM-4 (present): all three gauges are set from the file."""
+        from datetime import UTC, datetime  # noqa: PLC0415
+
+        self._seed_valid(tmp_path)
+        refresh_sentinel_metrics(tmp_path)
+        assert INGEST_LAST_RUN_PAPERS._value.get() == 52.0
+        assert INGEST_LAST_RUN_CHUNKS._value.get() == 4820.0
+        expected_ts = datetime(2026, 5, 29, 4, 0, 0, tzinfo=UTC).timestamp()
+        assert INGEST_LAST_RUN_TIMESTAMP_SECONDS._value.get() == pytest.approx(
+            expected_ts
+        )
+
+    def test_absent_zeros_all_gauges(self, tmp_path: Path, reset_all_metrics):
+        """FM-4 (absent): all three gauges must be set to 0.0 (no ingest yet)."""
+        # Seed prior non-zero values so we can confirm they are zeroed.
+        INGEST_LAST_RUN_PAPERS.set(99.0)
+        INGEST_LAST_RUN_CHUNKS.set(9999.0)
+        INGEST_LAST_RUN_TIMESTAMP_SECONDS.set(1.0)
+
+        refresh_sentinel_metrics(tmp_path)
+        assert INGEST_LAST_RUN_PAPERS._value.get() == 0.0
+        assert INGEST_LAST_RUN_CHUNKS._value.get() == 0.0
+        assert INGEST_LAST_RUN_TIMESTAMP_SECONDS._value.get() == 0.0
+
+    def test_oversized_leaves_prior(
+        self, tmp_path: Path, caplog, reset_all_metrics
+    ):
+        """FM-5 oversized: _read_capped returns None → leave prior gauges."""
+        from server import health as health_mod  # noqa: PLC0415
+
+        # Seed a valid read first so we have a prior value.
+        self._seed_valid(tmp_path)
+        refresh_sentinel_metrics(tmp_path)
+        prior_papers = INGEST_LAST_RUN_PAPERS._value.get()
+        assert prior_papers == 52.0
+
+        # Replace with an oversized file.
+        (tmp_path / "ingest-summary.json").write_bytes(
+            b"{" + b"x" * (health_mod._MAX_SENTINEL_BYTES + 1)
+        )
+        with caplog.at_level("WARNING"):
+            refresh_sentinel_metrics(tmp_path)
+        # Prior gauges must be preserved.
+        assert INGEST_LAST_RUN_PAPERS._value.get() == prior_papers
+
+    def test_malformed_json_warns_and_leaves_prior(
+        self, tmp_path: Path, caplog, reset_all_metrics
+    ):
+        """FM-5 malformed: WARN + leave prior, no crash."""
+        self._seed_valid(tmp_path)
+        refresh_sentinel_metrics(tmp_path)
+        prior_papers = INGEST_LAST_RUN_PAPERS._value.get()
+
+        (tmp_path / "ingest-summary.json").write_text(
+            "{{not valid json}}", encoding="utf-8"
+        )
+        with caplog.at_level("WARNING"):
+            refresh_sentinel_metrics(tmp_path)
+        # Prior value preserved.
+        assert INGEST_LAST_RUN_PAPERS._value.get() == prior_papers
+        assert any(
+            "ingest-summary.json" in rec.message for rec in caplog.records
+        )
+
+    def test_schema_version_mismatch_warns_and_leaves_prior(
+        self, tmp_path: Path, caplog, reset_all_metrics
+    ):
+        """FM-7: unknown schema_version → WARN + leave prior, no crash, no zero."""
+        import json as _json  # noqa: PLC0415
+
+        # Seed a valid read first.
+        self._seed_valid(tmp_path)
+        refresh_sentinel_metrics(tmp_path)
+        prior_papers = INGEST_LAST_RUN_PAPERS._value.get()
+        assert prior_papers == 52.0
+
+        # Write a future-version file.
+        payload = {
+            "schema_version": 99,  # unknown future version
+            "papers_processed": 999,
+        }
+        (tmp_path / "ingest-summary.json").write_text(
+            _json.dumps(payload) + "\n", encoding="utf-8"
+        )
+        with caplog.at_level("WARNING"):
+            refresh_sentinel_metrics(tmp_path)
+        # Prior gauges must NOT be overwritten.
+        assert INGEST_LAST_RUN_PAPERS._value.get() == prior_papers
+        assert any(
+            "unknown schema_version" in rec.message for rec in caplog.records
+        )
+
+    def test_schema_version_mismatch_does_not_zero_gauges(
+        self, tmp_path: Path, reset_all_metrics
+    ):
+        """FM-7 regression guard: schema_version mismatch must NOT silently zero.
+        A zero reads as 'never ingested', which is worse than stale."""
+        import json as _json  # noqa: PLC0415
+
+        # Seed known prior values.
+        INGEST_LAST_RUN_PAPERS.set(42.0)
+        INGEST_LAST_RUN_CHUNKS.set(4242.0)
+        INGEST_LAST_RUN_TIMESTAMP_SECONDS.set(1748476800.0)
+
+        (tmp_path / "ingest-summary.json").write_text(
+            _json.dumps({"schema_version": 2, "papers_processed": 999}) + "\n",
+            encoding="utf-8",
+        )
+        refresh_sentinel_metrics(tmp_path)
+        # All three gauges must retain their prior values, not drop to zero.
+        assert INGEST_LAST_RUN_PAPERS._value.get() == 42.0
+        assert INGEST_LAST_RUN_CHUNKS._value.get() == 4242.0
+        assert INGEST_LAST_RUN_TIMESTAMP_SECONDS._value.get() == 1748476800.0
