@@ -489,10 +489,9 @@ Contract:
 
 > **This UI surface has NOT yet had a dedicated security audit** — E13 (Security
 > Hardening) scoped the audit to the 7-tool MCP surface only. The deferred UI audit
-> is tracked for filing at `chris-dare-dev/arXMCP` (CAND-13;
-> notebook-surface-expansion-m3): the issue body is prepared at
-> `.claude/notes/milestones/notebook-surface-expansion-m3/ui-security-audit-issue.md`
-> and `gh issue create --body-file …` is the Phase-4 external write.
+> is tracked at `chris-dare-dev/arXMCP#9` (CAND-13; notebook-surface-expansion-m3);
+> the issue body lives at
+> `.claude/notes/milestones/notebook-surface-expansion-m3/ui-security-audit-issue.md`.
 
 ## What this server does NOT do
 

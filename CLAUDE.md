@@ -354,7 +354,7 @@ These all work TODAY (no stubs):
   management (list / create / ingest / rename / delete / upload + ar5iv
   preview + an operability badge); loopback-only, server-rendered Jinja2+htmx,
   NO SPA / Node build chain. NOT yet security-audited (E13 scoped it out;
-  tracked at `chris-dare-dev/arXMCP`). See `06-mcp-server-design.md`
+  tracked at `chris-dare-dev/arXMCP#9`). See `06-mcp-server-design.md`
   § "Browser UI surface".
 - **`tools/list`** returns 7 frozen tool meta records (byte-stable for BP1
   cache discipline).

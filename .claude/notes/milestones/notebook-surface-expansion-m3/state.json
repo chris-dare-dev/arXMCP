@@ -1,0 +1,112 @@
+{
+  "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/plans",
+  "created_at": "2026-05-29T17:29:25Z",
+  "critics_fired": [
+    "adversary"
+  ],
+  "critics_run": [],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "low": 1,
+    "medium": 2
+  },
+  "critique_path": null,
+  "critique_paths": [
+    ".claude/notes/milestones/notebook-surface-expansion-m3/critique-adversary.md"
+  ],
+  "deferred_findings": [],
+  "external_writes_authorized": true,
+  "external_writes_completed": true,
+  "external_writes_required": [
+    {
+      "target": "chris-dare-dev/arXMCP",
+      "type": "gh issue create",
+      "why": "file UI-security-audit tracking issue (CAND-13)"
+    }
+  ],
+  "findings_fixed": [
+    "F1",
+    "F2",
+    "F3"
+  ],
+  "fixed_findings": [],
+  "id": "notebook-surface-expansion-m3",
+  "implementation_base": "eb8088db6dc2a8259905939cedb835efc3947059",
+  "implementation_branch": "main",
+  "implementation_commit_range": "eb8088db6dc2a8259905939cedb835efc3947059..23b61d35ded4a2dac1323c40e7ad93d1ca717c0d",
+  "implementation_commits": [
+    "23b61d35ded4a2dac1323c40e7ad93d1ca717c0d"
+  ],
+  "implementation_path": "inline",
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "### notebook-surface-expansion-m3 \u2014 Constitution refreshed + UI-security-audit issue filed\n\n**Description.** Update `.claude/notes/06-mcp-server-design.md` + `CLAUDE.md` to\nDROP the stale \"no frontend exists, by design\" claim \u2014 describe the shipped\nJinja2+htmx UI (`server/routes/ui.py` + `frontend/templates/` + `/ui/api/notebooks/*`\n+ the m4 `/ui/status-badge`) and its loopback / CSP / SecFetchSite posture. FILE\n(do NOT execute) a UI-security-audit tracking issue at `chris-dare-dev/arXMCP`\ncovering `server/routes/ui.py` + `server/routes/notebooks.py` + the templates\n(E13 scoped the UI audit out; CAND-13/CAND-14).\n\n**Acceptance criteria.**\n- [ ] `06-mcp-server-design.md` + `CLAUDE.md` no longer claim \"no frontend\n  exists\"; they describe the actual UI surface. A doc-grep test asserts the\n  stale phrase is gone from both.\n- [ ] A UI-security-audit issue is FILED at `chris-dare-dev/arXMCP` (external\n  write \u2014 Phase-4, per-event authorized) scoping the audit; the audit itself is\n  NOT executed this cycle.\n\n**Dependencies.** `e1`.\n\n**Complexity.** S\n\n**Specialist suggestion.** `\u2014` (docs + a filed issue; the milestone-pipeline\nadversary suffices).\n\n---\n\n## Phase 4 \u2014 Materialize",
+  "phase": "complete",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-29T17:29:25Z",
+      "left_at": "2026-05-29T17:29:51Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-29T17:29:51Z",
+      "left_at": "2026-05-29T17:37:45Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-29T17:37:45Z",
+      "left_at": "2026-05-29T17:37:45Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-05-29T17:37:45Z",
+      "left_at": "2026-05-29T17:44:20Z",
+      "phase": "implement-running"
+    },
+    {
+      "entered_at": "2026-05-29T17:44:20Z",
+      "left_at": "2026-05-29T17:44:20Z",
+      "phase": "implement-complete"
+    },
+    {
+      "entered_at": "2026-05-29T17:44:20Z",
+      "left_at": "2026-05-29T17:50:06Z",
+      "phase": "critique-running"
+    },
+    {
+      "entered_at": "2026-05-29T17:50:06Z",
+      "left_at": "2026-05-29T17:50:06Z",
+      "phase": "critique-complete"
+    },
+    {
+      "entered_at": "2026-05-29T17:50:06Z",
+      "left_at": "2026-05-29T17:54:12Z",
+      "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-05-29T17:54:12Z",
+      "left_at": null,
+      "phase": "complete"
+    }
+  ],
+  "rectification_commit": "a3999128bce4cad18dc24e1edc8c7486222b91b2",
+  "regression_tests_added": [
+    "tests/test_constitution_ui_claims.py"
+  ],
+  "research_briefs": [
+    {
+      "agent_id": "researcher-1",
+      "brief_path": ".claude/notes/milestones/notebook-surface-expansion-m3/research-brief-1.md",
+      "summary": "stale claim in 02+09 (not 06/CLAUDE); add UI desc to 06+CLAUDE; doc-grep test"
+    },
+    {
+      "agent_id": "researcher-2",
+      "brief_path": ".claude/notes/milestones/notebook-surface-expansion-m3/research-brief-2.md",
+      "summary": "issue body to .claude artifact; Phase-4 gh --body-file; broad doc-grep scan"
+    }
+  ],
+  "research_mode": "standard",
+  "research_synthesis": ".claude/notes/milestones/notebook-surface-expansion-m3/research-synthesis.md",
+  "updated_at": "2026-05-29T17:54:12Z"
+}
