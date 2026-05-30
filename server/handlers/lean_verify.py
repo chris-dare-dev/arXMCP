@@ -41,12 +41,14 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import math
 from typing import Annotated, Any, Literal
 
 from mcp.server.fastmcp import Context
 from pydantic import Field
 
 from server.lean_repl import (
+    DEFAULT_QUERY_TIMEOUT_S,
     LeanRepl,
     LeanReplError,
     LeanReplTimeoutError,
@@ -96,13 +98,47 @@ MAX_IMPORTS: int = 64
 #: stream.
 _HEARTBEAT_INTERVAL_S: float = 3.0
 
-#: Nominal total for the ``total`` arg on ``ctx.report_progress``. The
-#: REPL's own per-query timeout is ``DEFAULT_QUERY_TIMEOUT_S = 30`` from
-#: ``server.lean_repl`` — we surface the same number here so a client
-#: progress bar reflects the same wall-clock budget. The reported
-#: progress is capped at ``0.95`` so a slow REPL doesn't appear to
-#: complete before it actually returns.
-_HEARTBEAT_TOTAL_S: float = 30.0
+
+def _heartbeat_progress(elapsed: float) -> float:
+    """Map ``elapsed`` seconds to a strictly-monotonic ``progress`` value
+    in ``[0, 1)`` for ``Context.report_progress``.
+
+    The MCP 2025-06-18 spec MUST: *"The ``progress`` value MUST increase
+    with each notification, even if the total is unknown."* A naive
+    ``min(elapsed / total, 0.95)`` cap (the m4 first-pass implementation)
+    plateaus at ``0.95`` once ``elapsed >= 0.95 * total`` — a MUST
+    violation by construction the moment any future milestone raises
+    ``DEFAULT_QUERY_TIMEOUT_S`` (m4 critique F1). An asymptotic taper
+    ``1 - exp(-elapsed / total)`` is strictly monotonic for all positive
+    ``elapsed`` AND strictly less than 1, so a slow REPL never appears
+    complete before ``query`` returns. We pin ``total`` to
+    ``DEFAULT_QUERY_TIMEOUT_S`` (the only source of truth for the REPL
+    wall-clock budget — m4 critique F2) so a future timeout bump scales
+    the taper accordingly without further code change.
+    """
+    return 1.0 - math.exp(-elapsed / DEFAULT_QUERY_TIMEOUT_S)
+
+
+def _has_progress_token(ctx: Context) -> bool:
+    """Return ``True`` iff the calling agent's ``tools/call`` request
+    included ``_meta.progressToken``.
+
+    Without a token, ``Context.report_progress`` is a documented silent
+    no-op (FastMCP ``server.py``: ``if progress_token is None: return``)
+    — spawning the heartbeat task is pure overhead AND would spam the
+    INFO log with "heartbeat fired" lines that document emissions that
+    never happened (m4 critique F3). This guard lets us skip the
+    heartbeat entirely on the dominant prod path where the client did
+    not opt in to progress.
+
+    Any AttributeError / ValueError on the introspection chain is
+    treated as "no token" — defensive against test shims that don't
+    model the full ``request_context.meta.progressToken`` chain.
+    """
+    try:
+        return ctx.request_context.meta.progressToken is not None
+    except (AttributeError, ValueError):
+        return False
 
 
 async def _emit_progress_heartbeats(ctx: Context) -> None:
@@ -116,17 +152,19 @@ async def _emit_progress_heartbeats(ctx: Context) -> None:
     pattern: the existing m3 ``try/except LeanReplTimeoutError`` /
     ``try/except LeanReplError`` blocks are preserved verbatim).
 
-    **FM-1 (no client progressToken).** ``Context.report_progress`` is a
-    silent no-op when the client did not include
-    ``_meta.progressToken`` in the ``tools/call`` request. This is spec
-    compliant and tests must explicitly mock a non-None token to
-    exercise emission.
+    **FM-1 (no client progressToken).** The caller skips spawning this
+    task entirely when ``_has_progress_token(ctx)`` is False (m4
+    critique F3). Defense-in-depth is the FastMCP no-op behaviour inside
+    ``report_progress`` itself.
 
     **FM-2 (client disconnect mid-emission).** Transport errors during
-    ``ctx.report_progress`` are swallowed inside the loop — a closed SSE
-    channel MUST NOT propagate to the handler, kill the REPL query, or
-    leak through to the caller. The Lean call continues to completion
-    regardless.
+    ``ctx.report_progress`` are caught, logged at WARN, and not
+    propagated to the handler — a closed SSE channel MUST NOT kill the
+    REPL query or leak through to the caller. ``CancelledError`` is a
+    ``BaseException`` subclass on Python 3.8+, so the bare ``Exception``
+    catch correctly does NOT swallow cancellation; this is what lets the
+    ``finally``-cancel discipline in ``handle_lean_verify`` work (m4
+    critique "What was done well").
 
     **FM-3 (post-completion emission).** The caller cancels this task in
     a ``finally`` block; the loop body's ``await asyncio.sleep`` and
@@ -134,33 +172,49 @@ async def _emit_progress_heartbeats(ctx: Context) -> None:
     No emissions occur after ``handle_lean_verify`` returns.
 
     **FM-4 (monotonic progress).** A single local ``elapsed`` counter
-    inside this task is the sole emitter — the spec MUST that
-    ``progress`` increases is satisfied by construction.
+    feeds ``_heartbeat_progress`` (an asymptotic taper); the emitted
+    ``progress`` is STRICTLY increasing by construction — the m4
+    critique F1 plateau-at-0.95 bug is fixed (the asymptote ``1 -
+    exp(-elapsed / total)`` is strictly monotonic on ``[0, ∞)``).
 
     **FM-9 (PII).** The message string is duration-only — never
-    ``snippet``, ``cmd``, or REPL response text. Logging mirrors the
-    emission at INFO with the same scrubbed payload.
+    ``snippet``, ``cmd``, or REPL response text. The structured INFO log
+    fires ONLY on actual emission success (m4 critique F3 — silent
+    swallow + unconditional INFO was misleading).
     """
     elapsed: float = 0.0
     while True:
         await asyncio.sleep(_HEARTBEAT_INTERVAL_S)
         elapsed += _HEARTBEAT_INTERVAL_S
-        # Cap at 0.95 so a slow REPL doesn't appear complete before
-        # ``query`` actually returns. The ``total`` of 30.0 lets a
-        # client progress bar pace against the timeout budget.
-        pct = min(elapsed / _HEARTBEAT_TOTAL_S, 0.95)
+        pct = _heartbeat_progress(elapsed)
         message = f"Lean elaboration running — {elapsed:.0f}s elapsed"
-        # FM-2 — never propagate transport errors to the handler.
-        # A disconnected client is the SDK / session-layer's problem;
-        # the REPL query must still run to completion.
-        with contextlib.suppress(Exception):
-            await ctx.report_progress(pct, total=_HEARTBEAT_TOTAL_S, message=message)
-        # Structured ops log (m4 synthesis §4) — never includes snippet
-        # (m4 FM-9 + 08-security-observability-ops §Logging: sensitive
-        # fields at DEBUG only).
-        logger.info(
-            "lean_verify: progress heartbeat", extra={"elapsed_s": elapsed}
-        )
+        emitted = False
+        try:
+            await ctx.report_progress(
+                pct, total=DEFAULT_QUERY_TIMEOUT_S, message=message
+            )
+            emitted = True
+        except Exception:
+            # FM-2 — never propagate transport errors to the handler.
+            # A disconnected client is the SDK / session-layer's problem;
+            # the REPL query must still run to completion. WARN so ops
+            # sees the SSE-close signal (m4 critique F3 — silent swallow
+            # + INFO "heartbeat fired" was misleading).
+            logger.warning(
+                "lean_verify: progress emission failed "
+                "(client disconnect?)",
+                exc_info=True,
+            )
+        # Structured ops log (m4 synthesis §4) — only on actual
+        # emission success, so the INFO line documents a real
+        # notification, not a no-op (m4 critique F3). Never includes
+        # snippet (m4 FM-9 + 08-security-observability-ops §Logging:
+        # sensitive fields at DEBUG only).
+        if emitted:
+            logger.info(
+                "lean_verify: progress heartbeat",
+                extra={"elapsed_s": elapsed},
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -426,7 +480,10 @@ async def handle_lean_verify(
     cmd = _build_command(snippet, imports_list, mode)
 
     # verification-feedback-m4 — spawn a heartbeat task ONLY when a
-    # FastMCP-injected ``ctx`` is present. Direct-call test sites pass
+    # FastMCP-injected ``ctx`` is present AND the client opted in to
+    # progress via ``_meta.progressToken`` (m4 critique F3 —
+    # spawn-without-token spammed INFO logs with "heartbeat fired" lines
+    # that documented no-op emissions). Direct-call test sites pass
     # ``ctx=None`` and skip emission entirely. The Lean call remains on
     # the main coroutine path (m4 synthesis §3 D1 — preserves the m3
     # ``try/except LeanReplTimeoutError`` / ``try/except LeanReplError``
@@ -434,7 +491,7 @@ async def handle_lean_verify(
     # heartbeat task is cancelled on EVERY exit path — success (FM-3),
     # timeout (FM-7), and other ``LeanReplError`` variants (FM-7).
     heartbeat_task: asyncio.Task[None] | None = None
-    if ctx is not None:
+    if ctx is not None and _has_progress_token(ctx):
         heartbeat_task = asyncio.create_task(_emit_progress_heartbeats(ctx))
 
     try:

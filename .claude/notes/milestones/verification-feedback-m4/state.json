@@ -1,14 +1,20 @@
 {
   "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/plans",
   "created_at": "2026-05-30T15:24:37Z",
+  "critics_dispatched": [
+    "milestone-adversary"
+  ],
   "critics_run": [],
   "critique_finding_counts": {
     "critical": 0,
-    "high": 0,
-    "low": 0,
-    "medium": 0
+    "high": 2,
+    "low": 1,
+    "medium": 2
   },
   "critique_path": null,
+  "critique_paths": {
+    "adversary": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/verification-feedback-m4/critique-adversary.md"
+  },
   "deferred_findings": [],
   "external_writes_authorized": false,
   "external_writes_completed": false,
@@ -16,14 +22,17 @@
   "fixed_findings": [],
   "id": "verification-feedback-m4",
   "implementation_base": "7f9cac993d1e178a23eb8c7cf5de08d63543e9dc",
-  "implementation_branch": null,
-  "implementation_commit_range": null,
-  "implementation_commits": [],
+  "implementation_branch": "main",
+  "implementation_commit_range": "7f9cac993d1e178a23eb8c7cf5de08d63543e9dc..2a3421092c1ab71919d87d7c947d21a1d8f56b28",
+  "implementation_commits": [
+    "2a3421092c1ab71919d87d7c947d21a1d8f56b28"
+  ],
   "implementation_path": "inline",
   "implementation_specialist": null,
+  "implementation_summary_path": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/verification-feedback-m4/implementation-summary.md",
   "invalidated_findings": [],
   "milestone_brief": "### verification-feedback-m4 \u2014 Progress notifications for long-running tools\n\n**Description.** Thread the MCP `Context` through tool handlers and emit `report_progress()` notifications during `lean_verify` calls (5\u201330 s Lean elaboration), so the calling agent sees progress rather than an apparent hang. Folds scout candidate CAND-12; sequenced with the Lean epic because that is where the long-running call lives.\n\n**Acceptance criteria.**\n- [ ] Handler signatures and the `server/tools.py` registration wiring are updated to pass `ctx: Context`; the 7 existing handlers are unchanged in behavior.\n- Given a `lean_verify` call that runs longer than 2 s, When it executes, Then at least one `notifications/progress` message is emitted before the result.\n- [ ] No BP1/BP2 cache-discipline regression \u2014 the `tools/list` bytes are unchanged by the `ctx` plumbing (the `ctx` parameter is server-internal, not part of any tool input schema), so `EXPECTED_TOOL_SCHEMA_SHA256` is unchanged by this milestone.\n- [ ] `make test` green, `ruff check .` clean.\n\n**Dependencies.** `verification-feedback-m3`.\n\n**Complexity.** M\n\n**Specialist suggestion.** `mcp-protocol-reviewer`\n\n---\n\n## Phase 4 \u2014 Materialize",
-  "phase": "implement-running",
+  "phase": "rectify-running",
   "phase_history": [
     {
       "entered_at": "2026-05-30T15:24:37Z",
@@ -42,8 +51,28 @@
     },
     {
       "entered_at": "2026-05-30T15:49:50Z",
-      "left_at": null,
+      "left_at": "2026-05-30T16:00:10Z",
       "phase": "implement-running"
+    },
+    {
+      "entered_at": "2026-05-30T16:00:10Z",
+      "left_at": "2026-05-30T16:00:22Z",
+      "phase": "implement-complete"
+    },
+    {
+      "entered_at": "2026-05-30T16:00:22Z",
+      "left_at": "2026-05-30T16:09:07Z",
+      "phase": "critique-running"
+    },
+    {
+      "entered_at": "2026-05-30T16:09:07Z",
+      "left_at": "2026-05-30T16:09:07Z",
+      "phase": "critique-complete"
+    },
+    {
+      "entered_at": "2026-05-30T16:09:07Z",
+      "left_at": null,
+      "phase": "rectify-running"
     }
   ],
   "rectification_commit": null,
@@ -62,5 +91,5 @@
   ],
   "research_mode": "standard",
   "research_synthesis": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/verification-feedback-m4/research-synthesis.md",
-  "updated_at": "2026-05-30T15:49:50Z"
+  "updated_at": "2026-05-30T16:09:07Z"
 }

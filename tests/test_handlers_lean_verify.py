@@ -1074,6 +1074,23 @@ class TestRealLeanRepl:
 # ===========================================================================
 
 
+class _FakeMeta:
+    """The minimal ``request_context.meta`` chain the m4 handler walks
+    via ``_has_progress_token`` (``ctx.request_context.meta.progressToken``).
+
+    ``progressToken`` of ``None`` matches the FastMCP "client did not
+    opt in" path; a non-None token mirrors a real client request.
+    """
+
+    def __init__(self, progress_token: str | int | None = "test-tok") -> None:
+        self.progressToken = progress_token
+
+
+class _FakeRequestContext:
+    def __init__(self, meta: _FakeMeta) -> None:
+        self.meta = meta
+
+
 class _RecordingCtx:
     """Stand-in for FastMCP's ``Context`` that records every
     ``report_progress`` invocation.
@@ -1082,16 +1099,31 @@ class _RecordingCtx:
     Context class's full MRO (Pydantic + generic machinery) and is slow
     + brittle. A small recorder is sufficient — the m4 contract is just
     "an async ``report_progress(progress, total, message)`` method that
-    captures every call".
+    captures every call" plus the ``request_context.meta.progressToken``
+    introspection chain the handler walks (m4 critique F3 — without the
+    chain, ``_has_progress_token`` returns False and the heartbeat task
+    is never spawned, so emission tests would vacuously pass).
 
     ``raise_on_call`` (optional) makes ``report_progress`` raise — used
     for FM-2 (client disconnect mid-emission) to assert the exception
     does NOT propagate to the handler.
+
+    ``progress_token`` (default ``"test-tok"``) controls the spawn gate.
+    Pass ``None`` to model the FM-1 "client did not opt in" path —
+    ``_has_progress_token`` returns False, no task spawned (m4 critique
+    F4 coverage).
     """
 
-    def __init__(self, raise_on_call: Exception | None = None) -> None:
+    def __init__(
+        self,
+        raise_on_call: Exception | None = None,
+        progress_token: str | int | None = "test-tok",
+    ) -> None:
         self.calls: list[dict[str, Any]] = []
         self._raise = raise_on_call
+        self.request_context = _FakeRequestContext(
+            _FakeMeta(progress_token=progress_token)
+        )
 
     async def report_progress(
         self,
@@ -1198,17 +1230,35 @@ class TestProgressHeartbeat:
                 f"expected >=1 progress emission for a 200ms call at a "
                 f"50ms heartbeat interval; got {len(ctx.calls)} calls"
             )
-            # All emissions carry total=30.0 (the nominal Lean timeout
-            # budget) and a positive monotonic progress value.
+            # All emissions carry total=DEFAULT_QUERY_TIMEOUT_S (the
+            # source of truth for the REPL wall-clock budget — m4
+            # critique F2) and a STRICTLY-monotonic progress value (m4
+            # critique F1 / F5 — the spec MUST is "MUST increase", and
+            # the prior non-strict `sorted` check would silently pass
+            # the plateau-at-0.95 bug).
+            from server.lean_repl import DEFAULT_QUERY_TIMEOUT_S
+
             progresses = [c["progress"] for c in ctx.calls]
-            assert all(0.0 < p <= 0.95 for p in progresses), (
-                f"progress must be in (0, 0.95]; got {progresses}"
+            assert all(0.0 < p < 1.0 for p in progresses), (
+                f"progress must be in (0, 1) — the asymptotic taper "
+                f"never reaches 1; got {progresses}"
             )
-            assert progresses == sorted(progresses), (
-                f"progress MUST monotonically increase per MCP spec; "
-                f"got {progresses}"
+            # Strict increase per MCP spec MUST. `[0.95, 0.95, 0.95]`
+            # passes the prior `sorted` check but fails this one.
+            assert all(
+                a < b for a, b in zip(progresses, progresses[1:], strict=False)
+            ), (
+                f"progress MUST STRICTLY increase per MCP spec "
+                f"(monotonicity MUST, 2025-06-18); got {progresses}"
             )
-            assert all(c["total"] == 30.0 for c in ctx.calls)
+            assert all(
+                c["total"] == DEFAULT_QUERY_TIMEOUT_S for c in ctx.calls
+            ), (
+                f"total MUST track DEFAULT_QUERY_TIMEOUT_S so a future "
+                f"timeout bump scales the heartbeat with it (m4 "
+                f"critique F2); got totals "
+                f"{[c['total'] for c in ctx.calls]}"
+            )
         finally:
             reset_resources_for_tests()
 
@@ -1415,3 +1465,173 @@ class TestProgressHeartbeat:
             "EXPECTED_TOOL_SCHEMA_SHA256 would drift and the BP1 cache "
             "would invalidate across every multi-agent session"
         )
+
+    # ----- m4 rectification (critique F1 / F2 / F3 / F4 / F5) ----------
+
+    def test_f4_no_emission_when_client_omits_progress_token(self):
+        """m4 critique F4: when the client did NOT send
+        ``_meta.progressToken``, ``_has_progress_token`` returns False,
+        the heartbeat task is NEVER spawned, NO emissions occur, and the
+        INFO-log spam is avoided. The handler still returns the result
+        normally. This is the dominant prod path for non-progress-aware
+        agents."""
+        slow_repl = _SlowFakeLeanRepl(responses=[{"env": 0}], delay_s=0.2)
+        _attach_fake_resources(slow_repl)
+        # ``progress_token=None`` ⇒ _has_progress_token returns False.
+        ctx = _RecordingCtx(progress_token=None)
+        try:
+            result = _run(
+                handle_lean_verify(
+                    snippet="theorem t : True := trivial",
+                    imports=[],
+                    mode="full",
+                    ctx=ctx,
+                )
+            )
+            assert result["status"] == "ok"
+            assert ctx.calls == [], (
+                f"no emissions expected when client omits progressToken; "
+                f"got {ctx.calls}"
+            )
+        finally:
+            reset_resources_for_tests()
+
+    def test_f2_total_tracks_default_query_timeout_s(self, monkeypatch):
+        """m4 critique F2: ``total`` MUST track
+        ``server.lean_repl.DEFAULT_QUERY_TIMEOUT_S`` — patching it
+        scales the emitted ``total`` and the asymptotic taper. Without
+        the import, the prior hardcoded ``_HEARTBEAT_TOTAL_S = 30.0``
+        would emit ``total=30.0`` regardless and silently desynchronize
+        from the real REPL budget."""
+        import server.handlers.lean_verify as lv
+        import server.lean_repl as lr
+
+        # Patch the module-level binding the handler READS each tick
+        # (the handler uses ``total=DEFAULT_QUERY_TIMEOUT_S`` — a bare
+        # name resolved against ``server.handlers.lean_verify``'s
+        # module globals at call time, so we patch it there).
+        monkeypatch.setattr(lv, "DEFAULT_QUERY_TIMEOUT_S", 99.0)
+        monkeypatch.setattr(lr, "DEFAULT_QUERY_TIMEOUT_S", 99.0)
+
+        slow_repl = _SlowFakeLeanRepl(responses=[{"env": 0}], delay_s=0.2)
+        _attach_fake_resources(slow_repl)
+        ctx = _RecordingCtx()
+        try:
+            _run(
+                handle_lean_verify(
+                    snippet="theorem t : True := trivial",
+                    imports=[],
+                    mode="full",
+                    ctx=ctx,
+                )
+            )
+            assert len(ctx.calls) >= 1
+            assert all(c["total"] == 99.0 for c in ctx.calls), (
+                f"total MUST track the patched DEFAULT_QUERY_TIMEOUT_S "
+                f"(=99.0); got {[c['total'] for c in ctx.calls]} — "
+                f"hardcoded constant divergence from m4 critique F2"
+            )
+        finally:
+            reset_resources_for_tests()
+
+    def test_f1_progress_never_plateaus(self, monkeypatch):
+        """m4 critique F1: the spec MUST is "progress MUST increase
+        with each notification" — the prior ``min(elapsed / total,
+        0.95)`` cap plateaued at 0.95. The asymptotic taper
+        ``1 - exp(-elapsed / total)`` is strictly monotonic for all
+        positive ``elapsed``. We force the cap region by shrinking
+        ``DEFAULT_QUERY_TIMEOUT_S`` so the taper saturates rapidly
+        within a tractable wall-clock — and confirm strict-monotonic
+        emissions across many ticks."""
+        import server.handlers.lean_verify as lv
+        import server.lean_repl as lr
+
+        # Tiny total + a longer-than-needed delay so MANY heartbeat
+        # ticks fire while the (pre-fix) cap would have plateaued.
+        monkeypatch.setattr(lv, "DEFAULT_QUERY_TIMEOUT_S", 0.1)
+        monkeypatch.setattr(lr, "DEFAULT_QUERY_TIMEOUT_S", 0.1)
+
+        slow_repl = _SlowFakeLeanRepl(responses=[{"env": 0}], delay_s=0.5)
+        _attach_fake_resources(slow_repl)
+        ctx = _RecordingCtx()
+        try:
+            _run(
+                handle_lean_verify(
+                    snippet="theorem t : True := trivial",
+                    imports=[],
+                    mode="full",
+                    ctx=ctx,
+                )
+            )
+            progresses = [c["progress"] for c in ctx.calls]
+            # >=5 ticks at 50ms interval over 500ms call.
+            assert len(progresses) >= 5, (
+                f"expected >=5 emissions to exercise the cap region; "
+                f"got {len(progresses)}"
+            )
+            # STRICT monotonic — the asymptotic taper has no plateau,
+            # so every adjacent pair MUST satisfy a < b.
+            assert all(
+                a < b for a, b in zip(progresses, progresses[1:], strict=False)
+            ), (
+                f"progress plateaued — the cap-at-0.95 bug from m4 "
+                f"critique F1 is back; got {progresses}"
+            )
+            # Strictly less than 1 by construction (asymptote).
+            assert all(p < 1.0 for p in progresses), (
+                f"progress reached 1.0; the asymptote should never "
+                f"saturate; got {progresses}"
+            )
+        finally:
+            reset_resources_for_tests()
+
+    def test_f3_warn_log_on_emission_failure(self, caplog):
+        """m4 critique F3: when ``report_progress`` raises (FM-2 client
+        disconnect), the handler MUST log at WARN — silent swallow +
+        unconditional INFO "heartbeat fired" was misleading. AND the
+        INFO log MUST NOT fire on the failed-emission tick."""
+        import logging as _logging
+
+        slow_repl = _SlowFakeLeanRepl(responses=[{"env": 0}], delay_s=0.15)
+        _attach_fake_resources(slow_repl)
+        ctx = _RecordingCtx(raise_on_call=ConnectionError("SSE closed"))
+        try:
+            with caplog.at_level(
+                _logging.WARNING, logger="server.handlers.lean_verify"
+            ):
+                result = _run(
+                    handle_lean_verify(
+                        snippet="theorem t : True := trivial",
+                        imports=[],
+                        mode="full",
+                        ctx=ctx,
+                    )
+                )
+            assert result["status"] == "ok"
+            warn_records = [
+                r for r in caplog.records if r.levelno == _logging.WARNING
+            ]
+            assert any(
+                "progress emission failed" in r.getMessage()
+                for r in warn_records
+            ), (
+                f"expected a WARN log naming the emission failure; got "
+                f"{[r.getMessage() for r in caplog.records]}"
+            )
+            # The INFO log for "heartbeat fired" MUST NOT appear on the
+            # failed-emission tick (m4 critique F3 — the INFO was firing
+            # unconditionally and overcounting emissions).
+            info_records = [
+                r for r in caplog.records if r.levelno == _logging.INFO
+            ]
+            heartbeat_info_records = [
+                r
+                for r in info_records
+                if "progress heartbeat" in r.getMessage()
+            ]
+            assert heartbeat_info_records == [], (
+                f"INFO 'heartbeat fired' MUST NOT log on a failed "
+                f"emission; got {[r.getMessage() for r in heartbeat_info_records]}"
+            )
+        finally:
+            reset_resources_for_tests()
