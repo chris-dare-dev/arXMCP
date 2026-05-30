@@ -1,5 +1,235 @@
 # Milestone Researcher — Project Memory
 
+## 2026-05-29 — notebook-surface-expansion-m7 — tar-restore-dual-layer-security
+`tools/notebook_restore.py` must have TWO security layers: (1) `_safe_member`
+pre-pass iterating `tar.getmembers()` that REJECTS the whole restore on ANY bad member
+(absolute/`..`/symlink/hardlink/device/FIFO/non-slug-prefix); (2) `filter="data"` on
+`extractall`. `filter="data"` requires Python 3.12 (PEP 706 backport raises DeprecationWarning
+on 3.11). `lancedb_path` omitted from manifest — reconstruct as `notebook_dir(slug)/lancedb`.
+`--force` allows DB-clobber ONLY, NOT on-disk dir overwrite; require `notebook_purge.py` first.
+
+## 2026-05-29 — notebook-surface-expansion-m6 — no-streaming-precedent-use-bytesio-tar
+No `StreamingResponse` or `application/x-tar` exists anywhere in `server/` source.
+For notebook export: build tar in-memory (`tarfile.open(fileobj=BytesIO(), mode="w")`),
+zero all `tarinfo.mtime=0`, iterate files via `sorted(nb_dir.rglob("*"))` for stable order,
+return `StreamingResponse(iter([buf.getvalue()]), media_type="application/x-tar")`.
+
+## 2026-05-29 — notebook-surface-expansion-m6 — manifest-allowlist-omit-host-paths
+The `get_notebook()` dict has `lancedb_path` + `parsed_html_path` — both absolute host paths.
+OMIT from any export manifest (info-leak; backup consumers on another host get wrong paths).
+Allowlist: slug, display_name, notebook_kind, created_at, parse_status. Mirrors m4 D3/F4.
+Use `json.dumps(..., sort_keys=True, separators=(",", ":"))` for deterministic manifest bytes.
+
+## 2026-05-29 — notebook-surface-expansion-m4 — fastmcp-resource-vs-template-split
+`@mcp_server.resource("uri")` with NO `{param}` → concrete `FunctionResource` → appears
+in `resources/list`. `@mcp_server.resource("uri/{param}")` → `ResourceTemplate` → appears
+in `list_resource_templates` only, NOT `resources/list`. To enumerate notebooks in
+`resources/list`, register a concrete index resource + use the template for per-slug reads.
+
+## 2026-05-29 — notebook-surface-expansion-m4 — notebooks-store-in-mcp-callback-pattern
+FastMCP resource callbacks have no FastAPI Request (no DI). Access `NotebooksStore`
+via a module-level global `_notebooks_store` set in the lifespan (mirrors
+`set_resources()` / `get_resources()` pattern in `server/tools.py`). The MCP callbacks
+run in the SAME asyncio event loop as FastAPI — no cross-loop hazard.
+
+## 2026-05-29 — corpus-integrity-observability-m3 — lancedb-list-indices-api-verified
+`tbl.list_indices() -> Iterable[IndexConfig]` (NOT `list_indexes`); `IndexConfig` has
+`.name`, `.columns`, `.index_type`. `tbl.index_stats(name) -> Optional[IndexStatistics]`
+where `IndexStatistics.num_unindexed_rows: int` is the field for the unindexed-rows guard.
+Returns `None` when name not found. Verified on lancedb==0.30.2. No-index-at-all case
+(empty iterable) should set sentinel `-1`, NOT `0`, to avoid false-clean signal.
+
+## 2026-05-29 — corpus-integrity-observability-m3 — warn-only-not-degraded-for-perf-issues
+WARN+gauge is the right pattern when results remain CORRECT (just slower). Degraded/503
+is for CORRECTNESS regressions (corpus_corruption, chunk_count_diverged). Unindexed ANN
+rows = brute-force fallback = correct but slower → WARN+gauge only. This resolves the
+OPEN DESIGN QUESTION in the m3 brief without needing to extend the degraded reason enum.
+
+## 2026-05-29 — notebook-bm25-isolation-m1 — bm25-root-global-monkeypatch-is-load-bearing
+`ingest.bm25_indexer.BM25_INDEX_ROOT` module-global is patched by ~40 tests via
+`tests/conftest.py` autouse `_patched_bm25_index_root`. Any fix that adds an `index_root`
+parameter MUST keep the module-level default pointing at `BM25_INDEX_ROOT` so existing
+tests remain valid. The safe shape: `index_root: Path | None = None` → uses `BM25_INDEX_ROOT`
+when None. Do not rename or remove the module global.
+
+## 2026-05-29 — notebook-bm25-isolation-m1 — sentinel-workaround-is-dead-code-post-fix
+`tools/notebook_ingest.py:132–157` contains a `.notebook_slug` sentinel workaround for
+the global-BM25 collision. Once per-notebook BM25 root is wired, remove this workaround
+entirely — do not keep it as dead code. The docstring (lines 14–21) must also be updated.
+
+
+## 2026-05-29 — notebook-surface-expansion-m1 — parse_status-is-notebook-not-paper-scoped
+`parse_status` is on the `notebooks` table (v3→v4 migration, textbook-ingest-m6), NOT on
+`notebook_papers`. `list_papers()` returns only `paper_id` + `added_at`. Any milestone brief
+that says "per-paper parse_status" is schema drift — the field is notebook-scoped (one value
+for the whole textbook; always 'skipped' for arxiv-kind). Render once in notebook header.
+
+## 2026-05-29 — notebook-surface-expansion-m1 — jinja2-autoescape-explicit-construction
+`server/routes/ui.py` constructs `jinja2.Environment` with `autoescape=jinja2.select_autoescape(
+enabled_extensions=("html","htm","xml"), default_for_string=True)` explicitly. Zero `| safe`
+filters exist in any template. This is load-bearing — never introduce `| safe` for
+`display_name` or other operator-controlled fields (stored-XSS vector).
+
+## 2026-05-29 — corpus-integrity-observability-e3 — sentinel-gauge-placement-rule
+Startup-set gauges (`CORPUS_VERSION_GAUGE`, `CORPUS_CHUNK_COUNT_*`) live in `server/health.py`.
+Scrape-time/sentinel-bridged gauges (`BACKUP_*`, `EVAL_*`, `DELTA_TIMEOUT_*`, etc.) live in
+`server/metrics.py` and are imported lazily inside `refresh_sentinel_metrics`. New sentinel-
+bridged gauges MUST go in `server/metrics.py` — not health.py — to match the established pattern.
+
+## 2026-05-29 — corpus-integrity-observability-e3 — health.py-line-numbers-shift-with-ops-features
+`server/health.py` line numbers shift significantly when notebook-ops-hardening milestones add new
+endpoints. The spike's cited line numbers (`refresh_sentinel_metrics:342`, `_read_capped:444`) are
+unreliable by the time implementation starts. Always re-grep for function names; do NOT trust
+spike-era line numbers in health.py.
+
+## 2026-05-29 — corpus-integrity-observability-e3 — cross-filesystem-tmp-trap
+`os.replace()` is only POSIX-atomic when src and dst are on the same filesystem. Using
+`tempfile.NamedTemporaryFile(dir=None)` defaults to `/tmp`, which may be a different
+filesystem from `var/arxmcp/ops/`. Always use `path.with_suffix(path.suffix + ".tmp")`
+(same dir as target) — copy the `_write_state` idiom from `oai_delta.py:219` verbatim.
+
+## 2026-05-29 — corpus-integrity-observability-e3 — schema_version-check-must-be-first
+Sentinel readers must check `schema_version` BEFORE accessing any field. A missing check
+silently returns `None` for unknown fields and sets gauges to 0.0 — indistinguishable from
+"no ingest has run." Leave-prior on unknown version with a WARNING log is the correct pattern
+(mirrors the `_BACKUP_STATES` unknown-routing pattern in `health.py:631`).
+
+## 2026-05-29 — notebook-ops-hardening-m4 — SecFetchSiteMiddleware-blocks-cross-path-htmx-XHR
+htmx XHRs from `/ui/*` pages to paths NOT under `/ui/` (e.g. `/status`, `/readyz`) carry
+`Sec-Fetch-Site: same-origin`. `SecFetchSiteMiddleware` only allows `same-origin` on its
+`exempt_prefixes` (currently `/ui`). Any new endpoint that htmx polls from `/ui/` pages
+must be added to `exempt_prefixes` in `create_app`, OR placed under `/ui/` itself.
+
+## 2026-05-29 — corpus-integrity-observability-e2 — json-formatter-new-handler-bypasses-redaction
+Installing `JsonFormatter` as a NEW `StreamHandler` after `configure()` runs bypasses
+`RedactionFilter` — `configure()` only protects handlers present at call time. The safe
+wiring is to call `handler.setFormatter(JsonFormatter())` on the EXISTING root handler
+inside `configure()`, not to add a second handler.
+
+## 2026-05-29 — corpus-integrity-observability-e2 — JsonFormatter-exists-not-wired
+`server/observability/logging_setup.py::JsonFormatter` (line 78) exists but is NOT
+installed by default — the E13_S08 audit explicitly scoped it out. The e2 milestone is
+the correct place to wire it via `ARXMCP_LOG_FORMAT={text|json}` (default json).
+The `configure()` function at line 118 only installs `RedactionFilter`; add the
+`JsonFormatter` handler-install there.
+
+## 2026-05-29 — corpus-integrity-observability-e2 — readyz-200-body-no-exhaustive-pin
+The `/readyz` 200 "ready" body (`server/health.py:241-251`) has NO test that asserts
+its exact key set. Adding `chunk_count`/`marker_chunk_count` to the 200 body is additive
+with no existing test update needed. Only the 503 degraded body is exhaustively tested
+(via `TestReadyzChunkCountDivergedBody` in `test_corpus_count_reconciliation.py`).
+
+## 2026-05-29 — notebook-ops-hardening-m3 — compose-file-F1-trap-relative-paths
+`infra/docker-compose.yml` resolves relative bind-mount paths against the compose
+FILE's directory (`infra/`), NOT the repo root. Use `../../var/arxmcp` to reach
+`<repo-root>/var/arxmcp`. Documented in latexml IS4 and phoenix-compose F1 — this is a
+recurrent trap; always verify with `docker compose config` after writing a bind-mount.
+
+## 2026-05-29 — notebook-ops-hardening-m3 — compose-test-pattern-mirror-phoenix
+`tests/test_compose_phoenix.py` is the canonical reference for static compose tests.
+Mirror its structure for any new compose file: `yaml.safe_load` (no Docker dep) for
+port/cap_drop/security_opt/mem_limit/init assertions; optional `docker compose config`
+gated on `shutil.which("docker") is not None`. `pyyaml>=6.0` is already a project dep.
+
+## 2026-05-29 — notebook-ops-hardening-m3 — compose-up-wait-is-the-healthcheck-gate
+`docker compose up --wait` blocks until all services reach running|healthy state. For a
+single-service compose (no depends_on), this IS the AC1 "service_healthy gate honored"
+mechanism. No self-referential depends_on needed. Use `--wait-timeout` for CI-style gates.
+
+## 2026-05-29 — notebook-ops-hardening-m1 — wal-checkpoint-before-restic-backup
+notebooks.db uses WAL mode (PRAGMA journal_mode=WAL). File-level restic backup
+must run `PRAGMA wal_checkpoint(TRUNCATE)` BEFORE `restic backup` fires, or
+the restored DB may be stale/inconsistent. External process can checkpoint
+safely (WAL allows external checkpointer while server is running). Include
+only `notebooks.db` (not -wal/-shm) after checkpoint.
+
+## 2026-05-29 — notebook-ops-hardening-m1 — restic-files-from-verbatim-is-literal
+`--files-from-verbatim -` reads each line as a literal path (no glob, no
+whitespace stripping, no # comment skipping; empty lines skipped). It is
+include-only — excludes require separate `--exclude` flags. Use verbatim,
+not `--files-from`, when paths must be treated literally.
+
+## 2026-05-29 — notebook-ops-hardening-m1 — restic-forget-group-by-paths-fragmentation
+`restic forget` default groups by `host,paths`. Adding new paths to the
+include-manifest creates a NEW snapshot group; old snapshots fall into a
+DIFFERENT group and age out independently. Use `--group-by host` to avoid
+fragmentation as the manifest evolves. Current arxmcp-backup.sh does not
+pass `--group-by`; this is a latent issue to fix when extending the manifest.
+
+## 2026-05-29 — notebook-ops-hardening-m1 — flock-subshell-stdin-and-heredoc
+arxmcp-backup.sh wraps the body in `exec flock -n ... bash -euo pipefail -c '...'`.
+The `--files-from-verbatim -` flag reads stdin. bash heredoc (`<<'EOF'`) creates an
+in-process pipe, NOT inherited stdin — so it works even when the outer stdin is
+/dev/null (cron/systemd). Verify with: `bash -c 'cat <<EOF\nfoo\nEOF'` before landing.
+
+## 2026-05-29 — notebook-ops-hardening-m1 — backup-status-json-paths-backed-up-needs-update
+`ops/cron/arxmcp-backup.sh` writes `paths_backed_up` TWICE (lines 112–127 partial
+sentinel, lines 156–173 final sentinel). Both hardcode the three original paths as
+literal strings inside the single-quote flock heredoc. Adding notebook paths requires
+updating BOTH cat-heredoc blocks — not just BACKUP_PATHS. Easy to miss the second write.
+
+## 2026-05-28 — corpus-integrity-observability-m2 — DegradedState-clobber-guard
+When adding a new DegradedState reason (e.g. "chunk_count_diverged"), check that
+`degraded is None` before setting it. If `open_chunks_table_with_fallback` already
+set reason="corpus_corruption", the new check must skip to avoid clobbering a more
+serious degraded state. Both `refresh_degraded_mode_metric` label enumeration AND
+the skipped-reconciliation log must be updated together.
+
+## 2026-05-28 — corpus-integrity-observability-m2 — prometheus-gauge-set-not-recomputed
+`prometheus_client==0.25.0` Gauge.set(value) stores the value in an atomic;
+generate_latest() reads it directly at scrape time — no user function is called.
+A gauge set once at startup never recomputes. `set_function()` is the
+recompute-on-scrape variant. This is the mechanism behind "count_rows() called
+at most once, never per /metrics scrape" in the brief.
+
+
+## 2026-05-28 — corpus-integrity-m1 — write_chunks-single-call-contract-is-load-bearing
+Moving `write_corpus_version_marker` OUT of `write_chunks` breaks notebook_textbook_ingest.py
+(single-paper callers) and all tests seeding LanceDB via write_chunks. The marker must stay
+inside write_chunks. Fix = replace `len(chunks)` with `tbl.count_rows()` (O(1)) for chunk_count;
+paper_count uses a running set maintained by multi-paper callers and passed in.
+
+## 2026-05-28 — textbook-ingest-m12 — embed-paper-hardcodes-global-corpus-paths
+`embed_paper(paper_id)` in `ingest/embedder.py` hardcodes `CHUNKS_DIR` and `EMBEDDINGS_DIR`
+(arXiv global paths). No public lower-level function accepts `list[ChunkRecord]`. For textbook
+chunks, use the private primitives `_build_embed_input` + `_encode_batch` in a driver-local
+`_embed_chunk_records(chunks, batch_size) -> EmbedRecord` helper. Tests use
+`_make_synthetic_embeddings` from `tests/test_store.py` as the model-free pattern.
+
+## 2026-05-28 — textbook-ingest-m12 — write-chunks-hardcodes-arxiv-chunker-version
+`ingest/store.write_chunks` at line 904 always passes `chunker_version=CHUNKER_VERSION`
+("v1.1") to `write_corpus_version_marker`, even when writing textbook chunks with
+`chunker_version="tv0.1"`. This means the corpus-version.json for a textbook-only
+notebook LanceDB will claim the arXiv chunker version. Acceptable inaccuracy for m12;
+note in a code comment. A future store.py refactor can thread the version through.
+
+## 2026-05-28 — textbook-ingest-m11 — get-chunk-only-full-body-surface
+`get_chunk` is the ONLY handler returning full `body_text`. `search_papers` slices to
+150 chars (SNIPPET_MAX_CHARS); `find_equation`, `find_lemma_by_name` return metadata
+only; `get_definitions` returns macro `expansion` (not chunk body_text). The license-
+truncation gate in m11 is correctly scoped to `get_chunk` only. License truncation must
+be placed AFTER `sanitize_retrieved_text` and BEFORE `enforce_byte_cap` + `wrap_retrieved_text`
+to prevent the resource_link bypass (FM-2) and delimiter-tag slicing (FM-1).
+
+## 2026-05-28 — textbook-ingest-m11 — get-chunk-no-cache-bypass-risk
+`get_chunk` does NOT use the 3-tier retrieval cache (`server/cache.py`). It goes
+directly to LanceDB. Cache-key correctness is not a risk for m11 license truncation.
+The retrieval cache is for `search_papers` query results only.
+
+## 2026-05-28 — textbook-ingest-m10 — upload-cap-already-shipped-in-m4
+The 200 MB middleware envelope + 10 MB per-kind handler check BOTH shipped in
+textbook-ingest-m4 (state: complete). `server/main.py:549` sets
+`prefix_caps={"/ui/api/notebooks": 200*1024*1024}`; handler check at
+`server/routes/notebooks.py:824`. m10 is a doc-accuracy pass + 2-3 new tests only.
+The accepted trade-off (200 MB buffered before 10 MB arxiv-kind rejection) is
+loopback-only acceptable; documented in `server/main.py:532-545`.
+
+## 2026-05-28 — textbook-ingest-m10 — security-pdf-sandbox-doc-function-name-wrong
+`.claude/docs/security-pdf-sandbox.md` line 226 shows `_pdf_has_javascript(pdf_path: Path)`
+but the actual code uses `_pdf_find_javascript(content: bytes)` (aliased from
+`tools.security.pdfid.find_javascript`). Any milestone touching the sandbox doc
+must fix this signature mismatch.
+
 ## 2026-05-28 — textbook-ingest-m9 — no-textbook-embed-write-path-exists
 `chunk_textbook` writes chunk JSONs to `var/arxmcp/notebooks/<slug>/chunks/` ONLY.
 No driver calls `chunk_textbook` externally; no embed→write-notebook-LanceDB path
@@ -207,6 +437,27 @@ Brief says "pinned in `server/config.py` as `DEFAULT_EMBED_SHA` and `DEFAULT_RER
 but these don't exist. Config has `rerank_model_sha` field (for drift check), but no
 module constant. Embedder SHA lives only in ingest/embedder.py::BGE_M3_COMMIT_SHA.
 No need to add config constants — module-level ones are already canonical.
+
+## 2026-05-28 — notebook-retrieval-m2 — slug-in-key-via-filter-preservation
+DO NOT strip `notebook` from `filters` before calling `derive_tier1_key`. The
+`canonical_key_components` helper already length-prefixes `filters_json` — leaving
+`notebook` in the dict means the key IS slug-scoped without adding a new key component.
+Strip `notebook` ONLY from the predicate-building path (LanceDB `.where()`). Tier-2
+`_filter_fingerprint` also uses `filters`, so it's automatically slug-scoped too.
+
+## 2026-05-28 — notebook-retrieval-m2 — notebook-is-routing-key-not-filter-key
+`"notebook"` must NOT be added to `SUPPORTED_FILTER_KEYS` (which has two copies:
+`server/handlers/search.py:249` and `server/retrieval/bm25.py:117`). It is a routing
+key processed before predicate-building. Adding it to `filter_warnings` is also wrong —
+it would emit a spurious warning on every notebook-scoped call. Strip silently after
+routing; do NOT echo in `filters_applied` or `filter_warnings`.
+
+## 2026-05-28 — notebook-retrieval-m2 — fork-C-and-fork-A-coexist-via-per-call-wins
+m1 set `cache_db_path` = per-notebook sibling when `ARXMCP_NOTEBOOK` is set (fork-C).
+m2 fork-A uses the shared `cache_db_path` (ARXMCP_NOTEBOOK unset). When BOTH are set
+(env + per-call filters), per-call `filters.notebook` wins — the handler opens the
+per-call table regardless of the process-level default. These two mechanisms are
+compatible because they live at different code layers.
 
 ## 2026-05-19 — E13_S07 — e11-s02-100mb-cap-not-shipped
 Brief asserts "E11_S02 already enforces the 100 MB content-length cap." FALSE.
@@ -925,3 +1176,127 @@ enough to cross-reference any chunk to a ProofNet entry by (textbook, theorem-nu
 Adding `proofnet_id` as a nullable column has zero data gain (PDFs carry no ProofNet IDs)
 and requires schema migration + hash re-pin. Use a documented cross-reference contract,
 not a new schema field.
+
+## 2026-05-28 — textbook-ingest-m10 — upload-cap-carve-out-already-built-in-m4
+The 200 MB textbook / 10 MB arxiv upload cap was fully implemented in textbook-ingest-m4
+(complete). `server/main.py` prefix_caps = {"/ui/api/notebooks": 200MB}; handler checks
+`_ARXIV_UPLOAD_MAX_BYTES` for arxiv notebooks. `tests/test_pdf_preflight.py::TestUploadCapPerKind`
+and `TestMiddlewareEnvelope` cover all ACs. m10 is a doc-only pass on `.claude/docs/security-pdf-sandbox.md`.
+
+## 2026-05-28 — textbook-ingest-m11 — no-get-chunk-result-schema-file
+There is NO `server/schemas/get_chunk_result.json`. Only `search_papers_result.json`
+and `lean_verify_result.json` exist. Both echo global `TOOL_SCHEMA_VERSION` in their
+`version`/`$id` fields. Any TOOL_SCHEMA_VERSION bump must update both files.
+
+## 2026-05-28 — textbook-ingest-m11 — get-chunk-does-not-read-license-column
+`server/handlers/chunk.py` builds the chunk dict (lines 76-87) WITHOUT reading the
+`license` column from the Arrow row. Any handler that needs `license` must explicitly
+add `row.get("license") or ""` — no helpers exist yet.
+
+## 2026-05-28 — textbook-ingest-m11 — m11-re-pin-scope-confirmed
+m11 bumps TOOL_SCHEMA_VERSION 15→16 (result-shape change convention). Re-pins:
+EXPECTED_TOOL_SCHEMA_SHA256 (yes), EXPECTED_BP1_SHA256 (NO — GET_CHUNK description
+unchanged; BP1 = {name, description} only per test_prompts.py:464).
+
+## 2026-05-28 — notebook-ops-hardening-m2 — fullfsync-is-connection-scoped-not-db-scoped
+`PRAGMA fullfsync=ON` does NOT persist to disk. On macOS, a fresh sqlite3 connection to the
+same file reads back fullfsync=0. Must be set on every connection in _open_sync. Regression
+tests reading fullfsync MUST use the SAME connection (store._conn), not a separate sqlite3.connect().
+`synchronous=FULL` (int 2) DOES persist. Confirmed on Darwin 25.4.0 / Python 3.12.
+
+## 2026-05-28 — notebook-ops-hardening-m2 — lancedb-data_storage_version-deprecated-in-0.30
+lancedb 0.30.x: `data_storage_version` kwarg on `create_table` is DEPRECATED. Default is "stable".
+Modern pin: `lancedb.connect(path, storage_options={"new_table_data_storage_version": "stable"})`.
+Current install (0.30.2) already defaults to stable + v2_manifest_paths. Pin explicitly to
+survive future default changes.
+
+## 2026-05-28 — corpus-integrity-observability-m2 — DegradedState-reason-enum-zero-out
+`refresh_degraded_mode_metric` (server/health.py:638) hardcodes the known reason strings
+("corpus_corruption", "hosted_embedder_outage") in its zero-out pass. Any new
+`DegradedState.reason` value (e.g. "chunk_count_diverged") MUST be added to that
+enumeration; otherwise the gauge for that reason never resets to 0 on startup.
+
+## 2026-05-28 — corpus-integrity-observability-m2 — count_rows-must-use-run_in_executor
+`chunks_table.count_rows()` is SYNCHRONOUS I/O in LanceDB. Any call inside an async
+function (Resources.startup is async) MUST be wrapped in `await loop.run_in_executor(None,
+chunks_table.count_rows)` — same pattern as the LanceDB open in resources.py:355.
+
+## 2026-05-28 — notebook-ops-hardening-m2 — lancedb-data_storage_version-silently-dropped
+In lancedb 0.30.2, `data_storage_version` kwarg to `db.create_table()` is SILENTLY DROPPED:
+`LanceDBConnection.create_table` accepts it but never forwards it to `LanceTable.create`.
+CORRECT approach: `storage_options={"new_table_data_storage_version": "stable"}`.
+The deprecated path (LanceTable.create) would translate it, but it is never reached via db.create_table().
+
+## 2026-05-29 — notebook-ops-hardening-m3 — compose-relative-path-depth-matters
+`infra/docker-compose.yml` (1 level deep) uses `../var/arxmcp` for bind mounts.
+`infra/observability/phoenix-compose.yml` (2 levels deep) uses `../../var/arxmcp`.
+Compose v2 resolves paths against the COMPOSE FILE dir, not CWD. Always count
+levels from the compose file location, not from the repo root.
+
+## 2026-05-29 — notebook-ops-hardening-m3 — dockerfile-base-image-sha256-not-pinned
+docker/Dockerfile.server has TWO `FROM python:3.11-slim` lines (builder + runtime),
+NEITHER pinned with @sha256. The AC for m3 requires sha256 pins. The implementer
+must `docker pull python:3.11-slim` to obtain the multi-arch manifest digest.
+Use `docker buildx imagetools inspect python:3.11-slim` for the manifest digest.
+
+## 2026-05-29 — notebook-ops-hardening-m3 — ARXMCP_CONTACT_EMAIL-not-in-Config
+ARXMCP_CONTACT_EMAIL is NOT a Config field. Config uses `extra="forbid"` — setting
+it as ARXMCP_CONTACT_EMAIL in a compose environment block would raise ValidationError
+at startup. It is only needed by ingest tools, not the MCP server. Never set it
+in the server compose environment.
+
+## 2026-05-29 — notebook-ops-hardening-m4 — SecFetchSite-only-exempts-ui-prefix
+`SecFetchSiteMiddleware` in `server/middleware.py` exempts ONLY paths matching
+`/ui` or `/ui/*` from the `{none}` → `{none, same-origin}` relaxation. Any
+htmx badge pointing `hx-get` at a non-`/ui` endpoint (e.g. `/status`) will get
+403-rejected for `Sec-Fetch-Site: same-origin`. Always route badge endpoints
+to `/ui/status-badge` (or any `/ui/*` path), not to bare API paths.
+
+## 2026-05-29 — notebook-ops-hardening-m4 — htmx-does-not-render-JSON
+htmx `hx-get` swaps the raw response body into the DOM as text. If the endpoint
+returns `application/health+json`, the badge renders `{"status":"pass",...}` as
+raw text — not a styled badge. Health+json endpoints need a companion
+`/ui/status-badge` HTML-fragment route for htmx polling.
+
+## 2026-05-29 — notebook-ops-hardening-m4 — health+json-spec-fields
+IETF draft-inadarei-api-health-check: top-level `status` MUST be `pass|warn|fail`;
+HTTP 2xx for pass/warn, 4xx-5xx for fail. `checks` keys are `{component}:{measurement}`.
+`corpus_version`/`notebook_count`/`uptime` belong inside `checks` entries (not ad-hoc
+
+## 2026-05-29 — notebook-surface-expansion-m3 — stale-no-frontend-phrase-lives-in-three-files
+"The MCP tool surface is the UI" (stale no-frontend claim) lives in BOTH
+`02-architecture-overview.md:150` AND `09-feature-priorities.md:151`, NOT just in
+`06-mcp-server-design.md`. A doc-grep test must scan ALL `.claude/notes/*.md` + `CLAUDE.md`
+for this phrase; a narrow scan (only the two brief-named files) passes vacuously.
+top-level keys). Content-Type: `application/health+json`.
+
+## 2026-05-29 — corpus-integrity-observability-m3 — lancedb-index-names-are-column-plus-idx
+lancedb 0.30.2 auto-names indexes `<column_name>_idx` when no `name=` kwarg is passed to
+`create_index`. `_create_indices` produces `"embedding_stmt_idx"` + `"embedding_proof_idx"`,
+NOT `"hnsw_stmt"` / `"hnsw_proof"` as the docstring claims. Use `tbl.list_indices()` to
+discover names — do NOT hardcode. `IndexStatistics.num_unindexed_rows` is the field to sum.
+`list_indices()` returns ANN indexes only (scalar indexes excluded from the result).
+
+## 2026-05-29 — notebook-surface-expansion-m4 — mcp-resources-sec-fetch-site-on-mcp-path
+`SecFetchSiteMiddleware` exempts only `/ui` prefix (`exempt_prefixes=("/ui",)`).
+`/mcp` is NOT exempt → only `Sec-Fetch-Site: none` passes through (CLI/shim, not browsers).
+`resources/*` calls live on `/mcp` → same triple-layer protection as tool calls. No new
+middleware needed for resources. Browser-originated cross-site XHR to resources → 403.
+
+## 2026-05-29 — notebook-surface-expansion-m4 — lancedb-path-is-info-leak-in-resources-read
+`NotebooksStore.list_notebooks()` returns `lancedb_path` = absolute on-disk path.
+Exposing this to an agent via `resources/read` leaks host username + project structure.
+Recommendation: omit `lancedb_path` from `resources/read` response or replace with
+`is_ingested: bool`. This overrides the milestone brief's spec; flag to implementer.
+
+## 2026-05-29 — notebook-surface-expansion-m5 — initialize-instructions-module-separation
+MCP `initialize.instructions` constant MUST live in `server/mcp_instructions.py`, NOT
+`server/prompts.py`. Reason: prompts.py has AST literal-only checks + BP1 coupling;
+mixing instructions there risks accidental orchestrator wiring. Separate module +
+separate `EXPECTED_INSTRUCTIONS_SHA256` pin in its own test file is the pattern.
+
+## 2026-05-29 — notebook-surface-expansion-m5 — instructions-is-advisory-not-security
+MCP spec 2025-06-18: `instructions?: string` — "MAY be added to the system prompt."
+This is CLIENT-OPTIONAL orientation, not a security control. Cannot substitute for
+server-side `<retrieved_*>` delimiters (Threat 2). But DO include a pointer to the
+`<retrieved_*>` convention in the string — it primes agents before the first tool call.

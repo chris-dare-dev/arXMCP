@@ -14,8 +14,22 @@
   "deferred_findings": [
     "F4"
   ],
-  "external_writes_authorized": false,
-  "external_writes_completed": false,
+  "external_writes_authorized": true,
+  "external_writes_completed": true,
+  "external_writes_performed": [
+    {
+      "status": "done",
+      "target": "origin/main",
+      "type": "git_push",
+      "why": "ship m12 triple"
+    },
+    {
+      "status": "done",
+      "target": "chris-dare-dev/arXMCP#8",
+      "type": "gh_issue_close",
+      "why": "m12 closes the driver follow-up"
+    }
+  ],
   "external_writes_required": [
     {
       "target": "origin/main",
@@ -113,5 +127,5 @@
   ],
   "research_mode": "standard",
   "research_synthesis": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/textbook-ingest-m12/research-synthesis.md",
-  "updated_at": "2026-05-28T20:20:03Z"
+  "updated_at": "2026-05-28T20:30:23Z"
 }

@@ -63,6 +63,26 @@ from each subdir. However, if an operator naively "splits" the file by extractin
 the `providers:` section, the resulting dashboards file will lack `apiVersion: 1` and
 Grafana will reject it. YAML comments should say "mount at both paths" not "split."
 
+## 2026-05-29 — notebook-ops-hardening-m3 — curl-in-runtime-stage-healthcheck-gate
+
+When a compose healthcheck AND a Dockerfile HEALTHCHECK both use
+`curl -fsS http://127.0.0.1:<port>/readyz`, confirm `curl` is actually installed
+in the RUNTIME stage (not just the builder). A missing curl in the runtime apt-get
+block means `docker compose up --wait` hangs indefinitely — the healthcheck command
+always fails, the service never transitions to healthy, compose blocks forever.
+Pattern: read the runtime-stage `apt-get install` block and grep for `curl`.
+Severity if missing: HIGH (docker compose up --wait deadlock on every cold start).
+
+## 2026-05-29 — notebook-ops-hardening-m4 — makefile-or-chain-conflates-failure-paths
+
+In a Makefile recipe of the form `@out=$$(cmd) && process "$$out" || echo "DOWN"`,
+the `||` fires on BOTH `cmd` failure AND `process` failure. If `cmd` succeeds but
+`process` crashes, the operator sees "DOWN" with exit 0 — a silent false negative.
+Fix: use `if out=$$(cmd); then process "$$out"; else echo "DOWN"; fi`. The `if/else`
+form isolates each failure path and lets `process` propagate its own non-zero exit.
+Severity: MEDIUM. Applies to any status/health Makefile target that combines a
+fallible capture with a fallible pipe into a single `&&/||` chain.
+
 ## 2026-05-27 — notebook-preamble-recovery-m1 — makefile-operator-warning-help-visibility
 
 Makefile recipe comments prefixed with `@#` are SILENT at runtime — they are not printed

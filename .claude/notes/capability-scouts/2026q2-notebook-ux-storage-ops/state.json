@@ -1,0 +1,122 @@
+{
+  "id": "2026q2-notebook-ux-storage-ops",
+  "kind": "capability-scout",
+  "created_at": "2026-05-28T20:38:36Z",
+  "updated_at": "2026-05-28T21:02:41Z",
+  "phase": "complete",
+  "phase_history": [
+    {
+      "phase": "init",
+      "at": "2026-05-28T20:38:36Z"
+    },
+    {
+      "phase": "survey-running",
+      "at": "2026-05-28T20:40:13Z"
+    },
+    {
+      "phase": "survey-complete",
+      "at": "2026-05-28T20:50:27Z"
+    },
+    {
+      "phase": "synthesize-running",
+      "at": "2026-05-28T20:51:48Z"
+    },
+    {
+      "phase": "synthesize-complete",
+      "at": "2026-05-28T20:54:38Z"
+    },
+    {
+      "phase": "challenge-running",
+      "at": "2026-05-28T20:54:53Z"
+    },
+    {
+      "phase": "challenge-complete",
+      "at": "2026-05-28T20:59:37Z"
+    },
+    {
+      "phase": "prioritize-running",
+      "at": "2026-05-28T20:59:37Z"
+    },
+    {
+      "phase": "complete",
+      "at": "2026-05-28T21:02:41Z"
+    }
+  ],
+  "scout_brief": "Focus theme: \"Notebook management UX + durable notebook storage + operability (is-it-running) + container packaging\" for arXMCP.\n\nThe operator wants to investigate four linked capability areas. Scout the 2026 state-of-the-art and the OSS/Docker landscape for CONCRETE, local-first-compatible options arXMCP could adopt, and measure each against what already exists.\n\nACCURATE CURRENT STATE (verified \u2014 do not re-litigate existence, assess the DELTA):\n1. A SERVER-RENDERED FRONTEND ALREADY EXISTS but is minimal: server/routes/ui.py (Jinja2 HTML pages: notebook index + detail/browse, ar5iv preview from m8), frontend/templates/ + frontend/static/, and a REST API at server/routes/notebooks.py (/ui/api/notebooks/*: create notebook, upload PDF/HTML, per-kind 200MB/10MB cap). The design constitution (.claude/notes/06-mcp-server-design.md / CLAUDE.md) still says \"no frontend exists, by design\" \u2014 that is STALE; surface the drift. QUESTION: should arXMCP invest in a richer notebook-management frontend (add/remove papers, manage notebooks, see ingest/parse status, search UI), and if so what shape (keep server-rendered Jinja2+HTMX? a small SPA? a separate container?) WITHOUT violating local-first / loopback-only / the no-anthropic-SDK-at-runtime / pure-ASGI constraints?\n\n2. NOTEBOOK STORAGE is local-filesystem only: per-notebook data under var/arxmcp/notebooks/<slug>/ (LanceDB + chunks + parsed HTML + pdfs), metadata in SQLite at var/arxmcp/cache/notebooks.db (server/notebooks_store.py), all under gitignored var/arxmcp/. It is NOT tracked code. The real gap: no portability / backup / durability / multi-device story; single-workstation. QUESTION: what LOCAL-FIRST-compatible storage upgrades exist \u2014 self-hosted S3-compatible object storage (MinIO, SeaweedFS, Garage), container volumes, litestream/SQLite replication, restic (E14 already ships restic backup \u2014 check), Docker named volumes vs bind mounts \u2014 to make notebook storage durable + portable + backed-up without a cloud dependency? HARD CONSTRAINT: local-first, no AWS S3 / requester-pays / multi-host-only dependency (this is an adversary axis in 08-security-observability-ops.md). Anything cloud-only is out; self-hosted-in-a-container is in.\n\n3. OPERABILITY (\"is the server running?\"): /healthz (liveness), /readyz (readiness, 503 until BGE-M3 + LanceDB warm), /metrics (Prometheus) all exist. The gap is a HUMAN-FRIENDLY running/ready indicator (a status surface in the UI, a make status / CLI check, a docker healthcheck surfaced to the operator, a tray/desktop indicator?). QUESTION: lightweight operability patterns for a single-operator local MCP server.\n\n4. CONTAINER PACKAGING: docker/Dockerfile.server exists (single image, non-root, tini, HEALTHCHECK on /readyz); there is NO docker-compose yet (infra/README.md is the E14 placeholder; infra/ has prometheus/observability/latexml/ca dirs). QUESTION: a docker-compose stack tying together the MCP server + notebook storage (volume or MinIO) + the frontend + observability (Prometheus/Phoenix already integrated) \u2014 what does a clean local-first compose stack look like, and does it unlock the storage + frontend + operability goals together?\n\nBias every finding toward CONCRETE deltas vs the current code, cite license + stars + last-commit for any OSS, respect the no-fork policy (ideas not import targets), and weigh every option against the local-first / loopback-only / single-workstation contract. Flag where the design constitution (notably the \"no frontend by design\" claim) needs updating.",
+  "survey_mode": "standard",
+  "survey_briefs": [
+    ".claude/notes/capability-scouts/2026q2-notebook-ux-storage-ops/survey/comparative-brief.md",
+    ".claude/notes/capability-scouts/2026q2-notebook-ux-storage-ops/survey/research-frontier-brief.md",
+    ".claude/notes/capability-scouts/2026q2-notebook-ux-storage-ops/survey/oss-trends-brief.md",
+    ".claude/notes/capability-scouts/2026q2-notebook-ux-storage-ops/survey/multi-agent-brief.md",
+    ".claude/notes/capability-scouts/2026q2-notebook-ux-storage-ops/survey/adversary-brief.md"
+  ],
+  "scouts_dispatched": [
+    "comparative",
+    "research-frontier",
+    "oss-trends",
+    "multi-agent",
+    "adversary"
+  ],
+  "scouts_returned": [
+    "comparative",
+    "research-frontier",
+    "oss-trends",
+    "multi-agent",
+    "adversary"
+  ],
+  "synthesis_path": ".claude/notes/capability-scouts/2026q2-notebook-ux-storage-ops/artifacts/synthesis.md",
+  "candidate_count": 18,
+  "challenge_path": ".claude/notes/capability-scouts/2026q2-notebook-ux-storage-ops/artifacts/challenge.md",
+  "challenge_finding_counts": {
+    "critical": 1,
+    "high": 2,
+    "medium": 6,
+    "low": 9
+  },
+  "final_report_path": ".claude/notes/capability-scouts/2026q2-notebook-ux-storage-ops/artifacts/final-report.md",
+  "ranked_candidates": [
+    {
+      "id": "CAND-2",
+      "title": "Extend restic backup to notebook data",
+      "rice": 28.8,
+      "rank": 1
+    },
+    {
+      "id": "CAND-3",
+      "title": "SQLite synchronous=FULL durability",
+      "rice": 28.8,
+      "rank": 2
+    },
+    {
+      "id": "CAND-6",
+      "title": "make status + UI status badge",
+      "rice": 9.6,
+      "rank": 3
+    },
+    {
+      "id": "CAND-1",
+      "title": "Base docker-compose.yml (server-only v0)",
+      "rice": 6.75,
+      "rank": 4
+    },
+    {
+      "id": "CAND-16",
+      "title": "LanceDB format version-pin",
+      "rice": 3.6,
+      "rank": 5
+    },
+    {
+      "id": "CAND-18",
+      "title": "restic retention + check drill",
+      "rice": 3.6,
+      "rank": 5
+    },
+    {
+      "id": "CAND-5",
+      "title": "/status JSON endpoint",
+      "rice": 3.0,
+      "rank": 7
+    }
+  ]
+}
