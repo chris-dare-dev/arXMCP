@@ -120,6 +120,7 @@ pre.error:empty { display: none; }
   font-weight: 600;
   border: 1px solid var(--border);
 }
-.status-badge--ok   { background: #e6f4ea; color: #1a7f37; border-color: #1a7f37; }
-.status-badge--warn { background: #fdf3e2; color: #8a5a00; border-color: #8a5a00; }
-.status-badge--down { background: var(--error-bg); color: var(--danger); border-color: var(--danger); }
+.status-badge--ok       { background: #e6f4ea; color: #1a7f37; border-color: #1a7f37; }
+.status-badge--warn     { background: #fdf3e2; color: #8a5a00; border-color: #8a5a00; }
+.status-badge--ops-warn { background: #eef2f7; color: #475569; border-color: #94a3b8; }
+.status-badge--down     { background: var(--error-bg); color: var(--danger); border-color: var(--danger); }

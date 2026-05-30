@@ -156,6 +156,66 @@ def _preview_html_path(slug: str, paper_id: str) -> Path | None:
     return None
 
 
+#: ui-badge-disambiguate — check keys whose non-``pass`` state means the
+#: operator should ACT (the badge label flips to "DEGRADED"). All other
+#: non-``pass`` checks are ops-side / informational and produce the softer
+#: "WARN" label. Keep in lockstep with the check-key set built in
+#: :func:`server.health.compute_health_status` — if you add a check there,
+#: classify it here (membership = retrieval-side, omission = ops-side).
+#:
+#: Today's bucket assignments:
+#:   retrieval-side (here)  : embedder:status, lancedb:status,
+#:                            corpus:version, notebooks:count
+#:   ops-side (fall-through): backup:time, disk:utilization, process:uptime
+_RETRIEVAL_CHECK_KEYS: frozenset[str] = frozenset({
+    "embedder:status",
+    "lancedb:status",
+    "corpus:version",
+    "notebooks:count",
+})
+
+
+def _classify_status_badge(report: dict) -> tuple[str, str]:
+    """Return ``(label, css_modifier)`` for the operator-console badge.
+
+    The four outcomes:
+
+    - ``fail``                   → ``("DOWN", "down")``      — server not warm.
+    - ``warn`` with any retrieval check non-pass → ``("DEGRADED", "warn")``
+      — operator should ACT (corpus drift, lancedb MVCC fallback, embedder
+      down, notebooks-store probe failure).
+    - ``warn`` with only ops-side checks non-pass → ``("WARN", "ops-warn")``
+      — informational (backup not yet run, disk near threshold).
+    - ``pass``                    → ``("READY", "ok")``.
+
+    The badge MUST re-derive the label by inspecting ``report["checks"]``
+    rather than reading ``report["summary"]`` — :func:`compute_health_status`
+    pre-renders ``"DEGRADED"`` for ALL warn cases (it is shared with the
+    ``make status`` CLI where terminal context wants the loudest label).
+    """
+    status = str(report.get("status") or "fail")
+    if status == "fail":
+        return ("DOWN", "down")
+    if status == "pass":
+        return ("READY", "ok")
+    # status == "warn": split by check classification.
+    checks = report.get("checks")
+    if not isinstance(checks, dict):
+        # Defensive: schema drift fallback — preserve today's "DEGRADED"
+        # behavior so a future health-shape change cannot silently mask a
+        # real retrieval degradation behind a softer "WARN" label.
+        return ("DEGRADED", "warn")
+    for key in _RETRIEVAL_CHECK_KEYS:
+        entries = checks.get(key) or []
+        for entry in entries:
+            if (
+                isinstance(entry, dict)
+                and entry.get("status") not in (None, "pass")
+            ):
+                return ("DEGRADED", "warn")
+    return ("WARN", "ops-warn")
+
+
 @router.get(
     "/status-badge", response_class=HTMLResponse, include_in_schema=False
 )
@@ -173,6 +233,12 @@ async def ui_status_badge(request: Request) -> HTMLResponse:
     200** — the badge must render the state (even "DOWN") in the browser; it
     is a UI fragment, not a probe. The fragment re-emits its own
     ``hx-get``/``hx-trigger`` so the swapped-in element keeps polling.
+
+    Label disambiguation (ui-badge-disambiguate): "DEGRADED" means a
+    retrieval-relevant check is non-pass (operator should act); "WARN" means
+    only ops-side checks (backup, disk, uptime) are non-pass (informational,
+    retrieval is unaffected). Both share the same `warn`-flavored top-level
+    `/status` status but render with distinct labels + CSS classes.
     """
     import html as _html  # noqa: PLC0415
 
@@ -181,9 +247,12 @@ async def ui_status_badge(request: Request) -> HTMLResponse:
     resources = getattr(request.app.state, "resources", None)
     store = getattr(request.app.state, "notebooks_store", None)
     report = await compute_health_status(resources, store)
-    status = str(report["status"])  # pass | warn | fail
-    summary = str(report["summary"])
-    css = {"pass": "ok", "warn": "warn", "fail": "down"}.get(status, "down")
+    label, css = _classify_status_badge(report)
+    raw_summary = str(report.get("summary") or "")
+    # Replace compute_health_status()'s leading READY/DEGRADED token with the
+    # disambiguated label. Format is "{LABEL} | corpus v{N} | {M} notebooks".
+    pipe = raw_summary.find("|")
+    summary = label + raw_summary[pipe:] if pipe >= 0 else label
     safe = _html.escape(summary)
     fragment = (
         f'<span id="status-badge" class="status-badge status-badge--{css}" '

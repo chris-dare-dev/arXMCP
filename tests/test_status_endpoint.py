@@ -311,6 +311,159 @@ class TestStatusBadge:
         assert r.status_code == 200  # badge always 200 (it is a UI fragment)
         assert "status-badge--down" in r.text
 
+    # ui-badge-disambiguate AC1: any retrieval-side check non-pass → DEGRADED
+    # + status-badge--warn (operator should ACT — corpus / lancedb /
+    # embedder / notebooks layer is impaired).
+    def test_badge_retrieval_warn_renders_degraded_label(self, tmp_path):
+        """Retrieval-side warn (lancedb degraded) → 'DEGRADED' label +
+        status-badge--warn class. The current live signal for corpus
+        drift / MVCC fallback flows through ``lancedb:status = warn``."""
+        _write_recent_backup(tmp_path / "ops")
+        res = _FakeResources(
+            warm=True,
+            degraded=_FakeDegraded(
+                reason="corpus_corruption", fallback_version=6,
+                original_version=7,
+            ),
+            data_dir=tmp_path, ops_dir=tmp_path / "ops",
+        )
+        with TestClient(_app_with(res, _FakeStore(2))) as c:
+            r = c.get("/ui/status-badge")
+        assert r.status_code == 200
+        assert "status-badge--warn" in r.text
+        # The CSS class for "ops-only-warn" must NOT appear here — this is
+        # the disambiguation: retrieval-warn uses --warn, ops-warn uses
+        # --ops-warn. (The substring guard catches a future operator
+        # collapse back to a single shared class.)
+        assert "status-badge--ops-warn" not in r.text
+        assert "DEGRADED" in r.text
+        assert "WARN |" not in r.text  # the ops-only label must not appear
+
+    # ui-badge-disambiguate AC2: when ONLY ops-side checks are non-pass,
+    # the badge label is "WARN" and the class is status-badge--ops-warn —
+    # NOT "DEGRADED" (which would actively mislead an operator post-fix
+    # when restic just hasn't run yet).
+    def test_badge_ops_only_warn_renders_distinct_label(self, tmp_path):
+        """No backup-status.json → backup:time warns; all retrieval-side
+        checks are 'pass'. Pre-fix this rendered as 'DEGRADED' (the bug);
+        post-fix it must render 'WARN' + status-badge--ops-warn."""
+        # ops dir exists but contains no backup-status.json → backup warn.
+        (tmp_path / "ops").mkdir()
+        res = _FakeResources(
+            warm=True, data_dir=tmp_path, ops_dir=tmp_path / "ops",
+        )
+        with TestClient(_app_with(res, _FakeStore(2))) as c:
+            r = c.get("/ui/status-badge")
+        assert r.status_code == 200
+        assert "status-badge--ops-warn" in r.text
+        # Must NOT render the retrieval-degraded class — that is the very
+        # collision this milestone removed.
+        assert "status-badge--warn\"" not in r.text  # exact class boundary
+        assert "DEGRADED" not in r.text
+        assert "WARN" in r.text  # the disambiguated label
+
+    # ui-badge-disambiguate FM-1 regression guard: when BOTH a retrieval-side
+    # check AND an ops-side check are non-pass, retrieval wins (DEGRADED).
+    # Otherwise an operator would see "WARN" and dismiss a real degradation.
+    def test_badge_mixed_retrieval_and_ops_warn_prefers_degraded(self, tmp_path):
+        """Both lancedb degraded AND backup absent → retrieval wins, badge
+        is 'DEGRADED' + status-badge--warn (NOT the softer ops-warn)."""
+        # No backup-status.json → backup:time warns; degraded → lancedb warns.
+        (tmp_path / "ops").mkdir()
+        res = _FakeResources(
+            warm=True,
+            degraded=_FakeDegraded(
+                reason="corpus_corruption", fallback_version=6,
+                original_version=7,
+            ),
+            data_dir=tmp_path, ops_dir=tmp_path / "ops",
+        )
+        with TestClient(_app_with(res, _FakeStore(2))) as c:
+            r = c.get("/ui/status-badge")
+        assert r.status_code == 200
+        assert "DEGRADED" in r.text
+        assert "status-badge--ops-warn" not in r.text
+
+
+class TestClassifyStatusBadge:
+    """Unit coverage for the ``_classify_status_badge`` helper (ui-badge-
+    disambiguate). The endpoint-level tests above exercise the live wiring;
+    these tests pin the helper's contract under edge inputs that are
+    expensive to stage via a full TestClient (schema drift, malformed
+    entries, ALL retrieval-key membership)."""
+
+    def _classify(self, report):
+        from server.routes.ui import _classify_status_badge
+
+        return _classify_status_badge(report)
+
+    def test_fail_short_circuits_to_down(self):
+        assert self._classify({"status": "fail", "checks": {}}) == ("DOWN", "down")
+
+    def test_pass_returns_ready_ok(self):
+        assert self._classify({"status": "pass", "checks": {}}) == ("READY", "ok")
+
+    def test_warn_with_empty_checks_falls_through_to_ops_warn(self):
+        # Empty checks dict + status==warn means we can find no retrieval
+        # signal → "WARN" (the ops-only path). This is the safer default
+        # than always-DEGRADED, because the live ops checks (backup/disk)
+        # are the only ones that can flip top-level warn today.
+        assert self._classify({"status": "warn", "checks": {}}) == ("WARN", "ops-warn")
+
+    def test_warn_with_non_dict_checks_defaults_to_degraded(self):
+        # FM-2 (schema drift): if checks is a list or None, preserve
+        # today's "DEGRADED" so a real retrieval degradation cannot hide
+        # behind a future shape change.
+        assert self._classify({"status": "warn", "checks": []}) == ("DEGRADED", "warn")
+        assert self._classify({"status": "warn", "checks": None}) == ("DEGRADED", "warn")
+        assert self._classify({"status": "warn"}) == ("DEGRADED", "warn")
+
+    def test_warn_with_each_retrieval_key_renders_degraded(self):
+        from server.routes.ui import _RETRIEVAL_CHECK_KEYS
+
+        for key in _RETRIEVAL_CHECK_KEYS:
+            report = {
+                "status": "warn",
+                "checks": {key: [{"status": "warn"}]},
+            }
+            assert self._classify(report) == ("DEGRADED", "warn"), key
+
+    def test_warn_with_retrieval_check_fail_also_renders_degraded(self):
+        # ``status != "pass"`` covers both ``warn`` and ``fail`` per AC1.
+        report = {
+            "status": "warn",
+            "checks": {"lancedb:status": [{"status": "fail"}]},
+        }
+        assert self._classify(report) == ("DEGRADED", "warn")
+
+    def test_warn_with_ops_only_keys_renders_ops_warn(self):
+        report = {
+            "status": "warn",
+            "checks": {
+                "backup:time": [{"status": "warn"}],
+                "disk:utilization": [{"status": "pass"}],
+                # Retrieval-side keys present but all "pass".
+                "embedder:status": [{"status": "pass"}],
+                "lancedb:status": [{"status": "pass"}],
+                "corpus:version": [{"status": "pass"}],
+                "notebooks:count": [{"status": "pass"}],
+            },
+        }
+        assert self._classify(report) == ("WARN", "ops-warn")
+
+    def test_warn_with_malformed_entry_is_ignored(self):
+        # Non-dict entries (e.g. a future tuple shape) should not crash;
+        # the loop treats them as missing.
+        report = {
+            "status": "warn",
+            "checks": {
+                "lancedb:status": ["bogus_string", None, 42],
+                # Real ops-side warn must still produce "WARN".
+                "backup:time": [{"status": "warn"}],
+            },
+        }
+        assert self._classify(report) == ("WARN", "ops-warn")
+
 
 # ---------------------------------------------------------------------------
 # make status parser + Makefile target
