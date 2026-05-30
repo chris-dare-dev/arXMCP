@@ -38,9 +38,12 @@ Design references:
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
 from typing import Annotated, Any, Literal
 
+from mcp.server.fastmcp import Context
 from pydantic import Field
 
 from server.lean_repl import (
@@ -79,6 +82,85 @@ MAX_IMPORT_LINE_LEN: int = 256
 #: Maximum number of context imports. A 64-import payload is well above
 #: realistic per-snippet usage and keeps the prepended preamble bounded.
 MAX_IMPORTS: int = 64
+
+
+# ---------------------------------------------------------------------------
+# Progress notifications (verification-feedback-m4)
+# ---------------------------------------------------------------------------
+
+#: Heartbeat cadence for ``notifications/progress`` emitted while the
+#: Lean REPL is elaborating. Chosen to satisfy the spec SHOULD on
+#: rate-limiting (FM-6 from the m4 synthesis — every 2–3 s is right for
+#: a 5–30 s call). At 3 s a 30 s elaboration produces ~10 emissions —
+#: enough heartbeat for the calling agent UI; too few to flood the SSE
+#: stream.
+_HEARTBEAT_INTERVAL_S: float = 3.0
+
+#: Nominal total for the ``total`` arg on ``ctx.report_progress``. The
+#: REPL's own per-query timeout is ``DEFAULT_QUERY_TIMEOUT_S = 30`` from
+#: ``server.lean_repl`` — we surface the same number here so a client
+#: progress bar reflects the same wall-clock budget. The reported
+#: progress is capped at ``0.95`` so a slow REPL doesn't appear to
+#: complete before it actually returns.
+_HEARTBEAT_TOTAL_S: float = 30.0
+
+
+async def _emit_progress_heartbeats(ctx: Context) -> None:
+    """Emit ``notifications/progress`` every ``_HEARTBEAT_INTERVAL_S``
+    seconds until cancelled.
+
+    Runs as a separate :class:`asyncio.Task` while ``handle_lean_verify``
+    awaits ``lean_repl.query``. The Lean call remains on the main
+    coroutine (per the m4 synthesis §3 D1 resolution — R1's
+    single-heartbeat-task pattern over R2's two-task ``asyncio.wait``
+    pattern: the existing m3 ``try/except LeanReplTimeoutError`` /
+    ``try/except LeanReplError`` blocks are preserved verbatim).
+
+    **FM-1 (no client progressToken).** ``Context.report_progress`` is a
+    silent no-op when the client did not include
+    ``_meta.progressToken`` in the ``tools/call`` request. This is spec
+    compliant and tests must explicitly mock a non-None token to
+    exercise emission.
+
+    **FM-2 (client disconnect mid-emission).** Transport errors during
+    ``ctx.report_progress`` are swallowed inside the loop — a closed SSE
+    channel MUST NOT propagate to the handler, kill the REPL query, or
+    leak through to the caller. The Lean call continues to completion
+    regardless.
+
+    **FM-3 (post-completion emission).** The caller cancels this task in
+    a ``finally`` block; the loop body's ``await asyncio.sleep`` and
+    ``await ctx.report_progress`` both yield ``CancelledError`` cleanly.
+    No emissions occur after ``handle_lean_verify`` returns.
+
+    **FM-4 (monotonic progress).** A single local ``elapsed`` counter
+    inside this task is the sole emitter — the spec MUST that
+    ``progress`` increases is satisfied by construction.
+
+    **FM-9 (PII).** The message string is duration-only — never
+    ``snippet``, ``cmd``, or REPL response text. Logging mirrors the
+    emission at INFO with the same scrubbed payload.
+    """
+    elapsed: float = 0.0
+    while True:
+        await asyncio.sleep(_HEARTBEAT_INTERVAL_S)
+        elapsed += _HEARTBEAT_INTERVAL_S
+        # Cap at 0.95 so a slow REPL doesn't appear complete before
+        # ``query`` actually returns. The ``total`` of 30.0 lets a
+        # client progress bar pace against the timeout budget.
+        pct = min(elapsed / _HEARTBEAT_TOTAL_S, 0.95)
+        message = f"Lean elaboration running — {elapsed:.0f}s elapsed"
+        # FM-2 — never propagate transport errors to the handler.
+        # A disconnected client is the SDK / session-layer's problem;
+        # the REPL query must still run to completion.
+        with contextlib.suppress(Exception):
+            await ctx.report_progress(pct, total=_HEARTBEAT_TOTAL_S, message=message)
+        # Structured ops log (m4 synthesis §4) — never includes snippet
+        # (m4 FM-9 + 08-security-observability-ops §Logging: sensitive
+        # fields at DEBUG only).
+        logger.info(
+            "lean_verify: progress heartbeat", extra={"elapsed_s": elapsed}
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -301,6 +383,16 @@ async def handle_lean_verify(
             ),
         ),
     ] = "full",
+    # verification-feedback-m4: FastMCP-injected MCP context for emitting
+    # ``notifications/progress`` heartbeats during the 5–30 s Lean
+    # elaboration. FastMCP excludes ``Context``-typed parameters from
+    # ``inputSchema`` via ``find_context_parameter`` →
+    # ``skip_names=[ctx]`` in ``Tool.from_function``, so this addition
+    # does NOT alter ``tools/list`` bytes — ``EXPECTED_TOOL_SCHEMA_SHA256``
+    # is unchanged. Default ``None`` preserves backward compatibility for
+    # the direct-call test sites (``asyncio.run(handle_lean_verify(...))``
+    # without ``ctx``); when ``None``, the heartbeat task is not spawned.
+    ctx: Context | None = None,
 ) -> dict[str, Any]:
     # Normalize None -> empty list (the mutable-default-arg lint).
     imports_list: list[str] = list(imports) if imports else []
@@ -333,8 +425,26 @@ async def handle_lean_verify(
 
     cmd = _build_command(snippet, imports_list, mode)
 
+    # verification-feedback-m4 — spawn a heartbeat task ONLY when a
+    # FastMCP-injected ``ctx`` is present. Direct-call test sites pass
+    # ``ctx=None`` and skip emission entirely. The Lean call remains on
+    # the main coroutine path (m4 synthesis §3 D1 — preserves the m3
+    # ``try/except LeanReplTimeoutError`` / ``try/except LeanReplError``
+    # structure verbatim). The ``try/finally`` below guarantees the
+    # heartbeat task is cancelled on EVERY exit path — success (FM-3),
+    # timeout (FM-7), and other ``LeanReplError`` variants (FM-7).
+    heartbeat_task: asyncio.Task[None] | None = None
+    if ctx is not None:
+        heartbeat_task = asyncio.create_task(_emit_progress_heartbeats(ctx))
+
     try:
-        resp = await lean_repl.query({"cmd": cmd})
+        try:
+            resp = await lean_repl.query({"cmd": cmd})
+        finally:
+            if heartbeat_task is not None:
+                heartbeat_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await heartbeat_task
     except LeanReplTimeoutError as exc:
         # FM-2 / m3 critique F3 — kill + respawn so the next call
         # doesn't read this call's stale stdout. The lean-sandbox-design

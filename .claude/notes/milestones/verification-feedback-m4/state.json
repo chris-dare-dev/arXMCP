@@ -1,0 +1,66 @@
+{
+  "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/plans",
+  "created_at": "2026-05-30T15:24:37Z",
+  "critics_run": [],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "low": 0,
+    "medium": 0
+  },
+  "critique_path": null,
+  "deferred_findings": [],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_required": [],
+  "fixed_findings": [],
+  "id": "verification-feedback-m4",
+  "implementation_base": "7f9cac993d1e178a23eb8c7cf5de08d63543e9dc",
+  "implementation_branch": null,
+  "implementation_commit_range": null,
+  "implementation_commits": [],
+  "implementation_path": "inline",
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "### verification-feedback-m4 \u2014 Progress notifications for long-running tools\n\n**Description.** Thread the MCP `Context` through tool handlers and emit `report_progress()` notifications during `lean_verify` calls (5\u201330 s Lean elaboration), so the calling agent sees progress rather than an apparent hang. Folds scout candidate CAND-12; sequenced with the Lean epic because that is where the long-running call lives.\n\n**Acceptance criteria.**\n- [ ] Handler signatures and the `server/tools.py` registration wiring are updated to pass `ctx: Context`; the 7 existing handlers are unchanged in behavior.\n- Given a `lean_verify` call that runs longer than 2 s, When it executes, Then at least one `notifications/progress` message is emitted before the result.\n- [ ] No BP1/BP2 cache-discipline regression \u2014 the `tools/list` bytes are unchanged by the `ctx` plumbing (the `ctx` parameter is server-internal, not part of any tool input schema), so `EXPECTED_TOOL_SCHEMA_SHA256` is unchanged by this milestone.\n- [ ] `make test` green, `ruff check .` clean.\n\n**Dependencies.** `verification-feedback-m3`.\n\n**Complexity.** M\n\n**Specialist suggestion.** `mcp-protocol-reviewer`\n\n---\n\n## Phase 4 \u2014 Materialize",
+  "phase": "implement-running",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-30T15:24:37Z",
+      "left_at": "2026-05-30T15:32:01Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-30T15:32:01Z",
+      "left_at": "2026-05-30T15:49:26Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-30T15:49:26Z",
+      "left_at": "2026-05-30T15:49:50Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-05-30T15:49:50Z",
+      "left_at": null,
+      "phase": "implement-running"
+    }
+  ],
+  "rectification_commit": null,
+  "regression_tests_added": [],
+  "research_briefs": [
+    {
+      "agent_id": "researcher-1",
+      "brief_path": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/verification-feedback-m4/research-brief-1.md",
+      "summary": "R1 seam map: ctx on lean_verify only; heartbeat task every 3s; BP1+TS hash both unchanged"
+    },
+    {
+      "agent_id": "researcher-2",
+      "brief_path": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/verification-feedback-m4/research-brief-2.md",
+      "summary": "R2 MCP spec + 9 failure modes; FM-1 vacuous AC; FM-8 BP1 risk; 3s cadence"
+    }
+  ],
+  "research_mode": "standard",
+  "research_synthesis": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/verification-feedback-m4/research-synthesis.md",
+  "updated_at": "2026-05-30T15:49:50Z"
+}

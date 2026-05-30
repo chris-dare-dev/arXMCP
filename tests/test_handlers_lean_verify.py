@@ -1067,3 +1067,351 @@ class TestRealLeanRepl:
             f"failed to apply. result={result!r}"
         )
         assert result["status"] in {"error", "timeout", "unavailable"}
+
+
+# ===========================================================================
+# Tier 1e — verification-feedback-m4 progress notifications
+# ===========================================================================
+
+
+class _RecordingCtx:
+    """Stand-in for FastMCP's ``Context`` that records every
+    ``report_progress`` invocation.
+
+    We do NOT use ``MagicMock(spec=Context)`` because the spec walks the
+    Context class's full MRO (Pydantic + generic machinery) and is slow
+    + brittle. A small recorder is sufficient — the m4 contract is just
+    "an async ``report_progress(progress, total, message)`` method that
+    captures every call".
+
+    ``raise_on_call`` (optional) makes ``report_progress`` raise — used
+    for FM-2 (client disconnect mid-emission) to assert the exception
+    does NOT propagate to the handler.
+    """
+
+    def __init__(self, raise_on_call: Exception | None = None) -> None:
+        self.calls: list[dict[str, Any]] = []
+        self._raise = raise_on_call
+
+    async def report_progress(
+        self,
+        progress: float,
+        total: float | None = None,
+        message: str | None = None,
+    ) -> None:
+        self.calls.append(
+            {"progress": progress, "total": total, "message": message}
+        )
+        if self._raise is not None:
+            raise self._raise
+
+
+class _SlowFakeLeanRepl(_FakeLeanRepl):
+    """``_FakeLeanRepl`` variant whose ``query`` sleeps ``delay_s``
+    before returning. Lets the heartbeat task get >=1 tick in before
+    ``query`` returns (AC-2 / AC-6) and exercises the FM-7 path when
+    ``raise_with`` is set + ``delay_s`` > 0.
+    """
+
+    def __init__(
+        self,
+        responses: list[dict[str, Any]] | None = None,
+        raise_with: Exception | None = None,
+        delay_s: float = 0.0,
+    ) -> None:
+        super().__init__(responses=responses, raise_with=raise_with)
+        self._delay_s = delay_s
+
+    async def query(self, command: dict[str, Any]) -> dict[str, Any]:
+        self.commands.append(command)
+        if self._delay_s > 0:
+            await asyncio.sleep(self._delay_s)
+        if self._raise_with is not None:
+            raise self._raise_with
+        return self._responses.pop(0)
+
+
+class TestProgressHeartbeat:
+    """m4 acceptance criteria.
+
+    AC-2: Given a ``lean_verify`` call that runs longer than the
+    heartbeat interval, when it executes, then >= 1
+    ``notifications/progress`` message is emitted before the result.
+
+    AC-4: Given ``ctx is None`` (the existing direct-call test sites),
+    when the handler runs, then no heartbeat task is spawned and the
+    query still works.
+
+    AC-5: Given ``query`` raises ``LeanReplTimeoutError`` or
+    ``LeanReplError`` mid-await, when the handler runs, then the
+    heartbeat task is cancelled (no leaked emissions after the
+    exception) — explicit regression tests for both exception types.
+
+    AC-6: Given ``query`` succeeds, when the handler returns the
+    result, then the heartbeat task is cancelled BEFORE the result is
+    returned — no post-completion emissions (spec MUST).
+
+    AC-7: Progress ``message`` field contains ONLY duration/elapsed
+    text — no ``snippet`` / ``cmd`` substring ever leaks (FM-9).
+    """
+
+    @pytest.fixture(autouse=True)
+    def _fast_heartbeat(self, monkeypatch):
+        """Crank the heartbeat down to 50 ms so tests don't sleep for
+        seconds. We still verify the >=1-emission AC-2 with a query
+        delay of 200 ms (>= 4 heartbeat intervals)."""
+        from server.handlers import lean_verify as lv
+
+        monkeypatch.setattr(lv, "_HEARTBEAT_INTERVAL_S", 0.05)
+        # Total stays at 30.0 so the reported progress / total ratio
+        # reflects the real units; the cap at 0.95 still holds.
+
+    def test_ac4_no_emission_when_ctx_is_none(self, fake_resources_with_repl):
+        """AC-4: no ``ctx`` → no heartbeat task → query runs normally.
+        The existing test suite passes this transitively; the explicit
+        assertion is that ``handle_lean_verify`` works without a ``ctx``
+        kwarg at all."""
+        _fake, repl = fake_resources_with_repl
+        repl._responses.append({"env": 0})
+        result = _run(
+            handle_lean_verify(snippet="theorem t : 1+1=2 := rfl", imports=[])
+        )
+        assert result["status"] == "ok"
+
+    def test_ac2_emits_progress_before_result_for_slow_call(self):
+        """AC-2: a >3-heartbeat-interval REPL call emits >=1 progress
+        notification before the result returns."""
+        slow_repl = _SlowFakeLeanRepl(responses=[{"env": 0}], delay_s=0.2)
+        _attach_fake_resources(slow_repl)
+        ctx = _RecordingCtx()
+        try:
+            result = _run(
+                handle_lean_verify(
+                    snippet="theorem t : True := trivial",
+                    imports=[],
+                    mode="full",
+                    ctx=ctx,
+                )
+            )
+            assert result["status"] == "ok"
+            assert len(ctx.calls) >= 1, (
+                f"expected >=1 progress emission for a 200ms call at a "
+                f"50ms heartbeat interval; got {len(ctx.calls)} calls"
+            )
+            # All emissions carry total=30.0 (the nominal Lean timeout
+            # budget) and a positive monotonic progress value.
+            progresses = [c["progress"] for c in ctx.calls]
+            assert all(0.0 < p <= 0.95 for p in progresses), (
+                f"progress must be in (0, 0.95]; got {progresses}"
+            )
+            assert progresses == sorted(progresses), (
+                f"progress MUST monotonically increase per MCP spec; "
+                f"got {progresses}"
+            )
+            assert all(c["total"] == 30.0 for c in ctx.calls)
+        finally:
+            reset_resources_for_tests()
+
+    def test_ac7_message_contains_no_snippet_or_cmd_text(self):
+        """AC-7 / FM-9: progress messages MUST contain only elapsed-time
+        text, never the user-supplied Lean source. A leaked snippet is
+        a security regression."""
+        secret_snippet = (
+            "theorem secret_internal_proof : 1+1=2 := SECRETSAUCE_token_xyz"
+        )
+        slow_repl = _SlowFakeLeanRepl(responses=[{"env": 0}], delay_s=0.15)
+        _attach_fake_resources(slow_repl)
+        ctx = _RecordingCtx()
+        try:
+            _run(
+                handle_lean_verify(
+                    snippet=secret_snippet,
+                    imports=["Mathlib.SECRET_IMPORT"],
+                    mode="full",
+                    ctx=ctx,
+                )
+            )
+            assert len(ctx.calls) >= 1
+            for call in ctx.calls:
+                msg = call["message"] or ""
+                assert "SECRETSAUCE" not in msg, (
+                    f"snippet text leaked into progress message: {msg!r}"
+                )
+                assert "SECRET_IMPORT" not in msg, (
+                    f"imports leaked into progress message: {msg!r}"
+                )
+                assert "theorem" not in msg, (
+                    f"snippet text leaked into progress message: {msg!r}"
+                )
+                # The message MUST be the elapsed-time format.
+                assert "elapsed" in msg.lower(), (
+                    f"expected 'elapsed' in progress message; got {msg!r}"
+                )
+        finally:
+            reset_resources_for_tests()
+
+    def test_ac6_no_emission_after_result_returns(self):
+        """AC-6 / FM-3: the heartbeat task MUST be cancelled before the
+        handler returns. Sleep briefly AFTER the handler returns and
+        assert the emission count did not grow — i.e. the cancellation
+        actually fired in ``finally``."""
+        slow_repl = _SlowFakeLeanRepl(responses=[{"env": 0}], delay_s=0.15)
+        _attach_fake_resources(slow_repl)
+        ctx = _RecordingCtx()
+
+        async def _go():
+            result = await handle_lean_verify(
+                snippet="theorem t : True := trivial",
+                imports=[],
+                mode="full",
+                ctx=ctx,
+            )
+            count_at_return = len(ctx.calls)
+            # Sleep WELL past the heartbeat interval; a leaked task would
+            # add emissions during this sleep.
+            await asyncio.sleep(0.25)
+            assert len(ctx.calls) == count_at_return, (
+                f"heartbeat task leaked: {count_at_return} emissions at "
+                f"return, {len(ctx.calls)} after 250ms sleep"
+            )
+            return result
+
+        try:
+            result = _run(_go())
+            assert result["status"] == "ok"
+        finally:
+            reset_resources_for_tests()
+
+    def test_ac5a_heartbeat_cancelled_on_lean_repl_timeout(self, monkeypatch):
+        """AC-5 / FM-7: ``LeanReplTimeoutError`` mid-await must cancel
+        the heartbeat task in ``finally`` — no emissions leak after the
+        exception. Also asserts the m3 timeout-kill-respawn path runs
+        unchanged (the heartbeat wrapping must NOT regress it)."""
+        from server.lean_repl import LeanReplTimeoutError
+
+        slow_timeout_repl = _SlowFakeLeanRepl(
+            raise_with=LeanReplTimeoutError("simulated 30s timeout"),
+            delay_s=0.15,
+        )
+        fake = _attach_fake_resources(slow_timeout_repl)
+
+        respawned = _FakeLeanRepl()
+
+        async def _fake_spawn_from_config(config):
+            return respawned
+
+        import server.lean_repl as lean_mod
+
+        monkeypatch.setattr(
+            lean_mod.LeanRepl, "spawn_from_config", _fake_spawn_from_config
+        )
+
+        ctx = _RecordingCtx()
+
+        async def _go():
+            result = await handle_lean_verify(
+                snippet="theorem t : True := trivial",
+                imports=[],
+                mode="full",
+                ctx=ctx,
+            )
+            count_at_return = len(ctx.calls)
+            # Past the heartbeat interval — a leaked task would tick.
+            await asyncio.sleep(0.25)
+            assert len(ctx.calls) == count_at_return, (
+                f"heartbeat leaked across LeanReplTimeoutError path: "
+                f"{count_at_return} at return, {len(ctx.calls)} after "
+                f"250ms sleep"
+            )
+            return result
+
+        try:
+            result = _run(_go())
+            # m3 contract preserved: timeout envelope, respawn happened.
+            assert result["status"] == "timeout"
+            assert slow_timeout_repl.closed is True
+            assert fake.lean_repl is respawned
+        finally:
+            reset_resources_for_tests()
+
+    def test_ac5b_heartbeat_cancelled_on_lean_repl_error(self):
+        """AC-5 / FM-7: non-timeout ``LeanReplError`` mid-await must
+        also cancel the heartbeat. The handler returns an error envelope
+        (m3 contract), not the timeout envelope."""
+        from server.lean_repl import LeanReplError
+
+        erroring_repl = _SlowFakeLeanRepl(
+            raise_with=LeanReplError("REPL crashed: non-JSON response"),
+            delay_s=0.15,
+        )
+        _attach_fake_resources(erroring_repl)
+
+        ctx = _RecordingCtx()
+
+        async def _go():
+            result = await handle_lean_verify(
+                snippet="theorem t : True := trivial",
+                imports=[],
+                mode="full",
+                ctx=ctx,
+            )
+            count_at_return = len(ctx.calls)
+            await asyncio.sleep(0.25)
+            assert len(ctx.calls) == count_at_return, (
+                f"heartbeat leaked across LeanReplError path: "
+                f"{count_at_return} at return, {len(ctx.calls)} after "
+                f"250ms sleep"
+            )
+            return result
+
+        try:
+            result = _run(_go())
+            # m3 contract: status=error envelope (not "timeout").
+            assert result["status"] == "error"
+            assert result["lean_status"] == "available"
+            assert "REPL crashed" in result["messages"][0]["text"]
+        finally:
+            reset_resources_for_tests()
+
+    def test_fm2_disconnected_ctx_does_not_break_handler(self):
+        """FM-2 (client disconnect mid-emission). ``ctx.report_progress``
+        raises a transport-closed exception. The handler MUST still
+        complete the REPL query normally — the disconnection is the
+        SDK / session layer's problem, not the handler's."""
+        slow_repl = _SlowFakeLeanRepl(responses=[{"env": 0}], delay_s=0.15)
+        _attach_fake_resources(slow_repl)
+        ctx = _RecordingCtx(raise_on_call=ConnectionError("SSE closed"))
+        try:
+            result = _run(
+                handle_lean_verify(
+                    snippet="theorem t : True := trivial",
+                    imports=[],
+                    mode="full",
+                    ctx=ctx,
+                )
+            )
+            # Query succeeded despite the ctx raising.
+            assert result["status"] == "ok"
+            # At least one report_progress was attempted (and raised).
+            assert len(ctx.calls) >= 1
+        finally:
+            reset_resources_for_tests()
+
+    def test_fm8_ctx_excluded_from_input_schema(self):
+        """FM-8 / AC-3 cardinal correctness: FastMCP's
+        ``find_context_parameter`` returns ``"ctx"`` for the m4 handler,
+        which causes ``Tool.from_function`` to add ``ctx`` to
+        ``skip_names`` for ``func_metadata`` — therefore ``ctx`` does
+        NOT appear in the tool's ``inputSchema``. The companion
+        BP1-hash test in ``tests/test_server_tool_schema.py`` is the
+        full byte-stability proof; this test guards the upstream
+        mechanism FastMCP relies on."""
+        from mcp.server.fastmcp.utilities.context_injection import (
+            find_context_parameter,
+        )
+
+        assert find_context_parameter(handle_lean_verify) == "ctx", (
+            "FastMCP must recognise ctx for injection — without this "
+            "EXPECTED_TOOL_SCHEMA_SHA256 would drift and the BP1 cache "
+            "would invalidate across every multi-agent session"
+        )

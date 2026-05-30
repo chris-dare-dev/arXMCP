@@ -1,5 +1,21 @@
 # Milestone Researcher — Project Memory
 
+## 2026-05-30 — verification-feedback-m4 — progress-heartbeat-two-task-pattern
+FastMCP `Context.report_progress` silently no-ops when client sends no `_meta.progressToken`
+(per mcp==1.27.1 source). For `lean_verify` heartbeat: spawn TWO `asyncio.create_task` —
+one for `lean_repl.query()`, one for the heartbeat loop — join with `asyncio.wait(
+return_when=FIRST_COMPLETED)`, cancel heartbeat in `try/finally`. 3s interval satisfies
+spec "SHOULD rate limit". `ctx: Context` annotation does NOT appear in inputSchema;
+`EXPECTED_TOOL_SCHEMA_SHA256` is UNCHANGED. Tests must mock a non-None `progressToken`
+to exercise the emission path (without it, `report_progress` no-ops and tests only
+confirm the no-op).
+
+## 2026-05-30 — verification-feedback-m4 — contextvar-vs-ctx-prior-decision
+`server/middleware.py:1427` contains an explicit prior decision against threading
+`Context` through all 7 handlers: "threading one through would touch all 7 handlers
++ risk a TOOL_SCHEMA_VERSION bump if FastMCP exposes it on the wire." For m4, ONLY
+`handle_lean_verify` gets `ctx: Context` — the 7 existing handlers are NOT modified.
+
 ## 2026-05-29 — notebook-surface-expansion-m7 — tar-restore-dual-layer-security
 `tools/notebook_restore.py` must have TWO security layers: (1) `_safe_member`
 pre-pass iterating `tar.getmembers()` that REJECTS the whole restore on ANY bad member
@@ -1300,3 +1316,10 @@ MCP spec 2025-06-18: `instructions?: string` — "MAY be added to the system pro
 This is CLIENT-OPTIONAL orientation, not a security control. Cannot substitute for
 server-side `<retrieved_*>` delimiters (Threat 2). But DO include a pointer to the
 `<retrieved_*>` convention in the string — it primes agents before the first tool call.
+
+## 2026-05-30 — verification-feedback-m4 — fastmcp-context-injection-via-functools-wraps
+`_wrap_with_observability` uses `@functools.wraps(handler)`. Python 3.12 `inspect.signature`
+follows `__wrapped__` by default, so FastMCP's `find_context_parameter` / `func_metadata(skip_names=...)`
+correctly detects `ctx: Context` through the wrapper. Adding `ctx: Context | None = None` to a
+handler AS THE LAST PARAM works without touching `register_all` or the wrapper. `TOOL_SCHEMA_VERSION`
+and both SHA256 hashes are UNCHANGED (Context is in `skip_names`, never enters `inputSchema`).
