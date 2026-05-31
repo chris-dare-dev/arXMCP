@@ -28,57 +28,28 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
-import numpy as np
 import pytest
 
-from ingest.chunker_types import CHUNKER_VERSION, ChunkRecord
-from ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
-from ingest.schema import EmbedRecord
-from ingest.store import write_chunks
 from server.config import Config
 from server.corpus import DegradedState
 from server.resources import Resources, compute_chunk_count_divergence
 
+# corpus-integrity-completion-m3 rect F3: `_seed_corpus` and
+# `_patch_model` moved to tests/_corpus_helpers.py so both this
+# file and tests/test_server_startup_integration.py share ONE
+# contract. Aliases preserved below so the existing call sites in
+# this file keep their leading-underscore form (test-local
+# convention); the shared module uses the public names.
+from tests._corpus_helpers import (
+    patch_bge_m3_model as _patch_model,
+)
+from tests._corpus_helpers import (
+    seed_corpus as _seed_corpus,
+)
+
 # ===========================================================================
 # Helpers
 # ===========================================================================
-
-
-def _seed_corpus(lancedb_path: Path, *, n: int = 2) -> int:
-    """Ingest a tiny n-chunk / n-paper corpus; return its corpus_version.
-
-    Mirrors tests/test_server_startup.py::_seed_corpus. The marker's
-    chunk_count == n after this (m1 made the marker table-derived).
-    """
-    chunks = [
-        ChunkRecord(
-            chunk_id=f"arxiv:2307.0000{i}:{'0' * 16}",
-            paper_id=f"2307.0000{i}",
-            kind="stmt",
-            section_path=[],
-            theorem_name=None,
-            theorem_label=None,
-            body_text=f"chunk body {i}",
-            body_tokens=f"chunk body {i}",
-            preamble_ref=None,
-            chunker_version=CHUNKER_VERSION,
-        )
-        for i in range(1, n + 1)
-    ]
-    rng = np.random.default_rng(42)
-    rows = []
-    for _ in chunks:
-        v = rng.standard_normal(EMBEDDING_DIM).astype(np.float32)
-        v /= np.linalg.norm(v)
-        rows.append(v)
-    embeddings = EmbedRecord(
-        chunk_ids_stmt=[c.chunk_id for c in chunks],
-        embedding_stmt=np.stack(rows, axis=0),
-        chunk_ids_proof=[],
-        embedding_proof=np.zeros((0, EMBEDDING_DIM), dtype=np.float32),
-        embedder_version=EMBEDDER_VERSION,
-    )
-    return write_chunks(chunks, embeddings, lancedb_path=lancedb_path)
 
 
 def _overwrite_marker_chunk_count(lancedb_path: Path, new_count: int) -> None:
@@ -88,21 +59,6 @@ def _overwrite_marker_chunk_count(lancedb_path: Path, new_count: int) -> None:
     data = json.loads(marker.read_text(encoding="utf-8"))
     data["chunk_count"] = new_count
     marker.write_text(json.dumps(data), encoding="utf-8")
-
-
-def _patch_model(monkeypatch) -> None:
-    """Mock the BGE-M3 load in BOTH the query_encoder module and the
-    resources module (resources.py binds ``_get_model`` by name via
-    ``from server.query_encoder import _get_model``, so patching only
-    query_encoder is insufficient — notebook-retrieval-m2 lesson)."""
-    import server.query_encoder as qe_mod
-    import server.resources as res_mod
-
-    fake_model = object()
-    fake_tokenizer = object()
-    for mod in (qe_mod, res_mod):
-        monkeypatch.setattr(mod, "_get_model", lambda: fake_model)
-        monkeypatch.setattr(mod, "_get_tokenizer", lambda: fake_tokenizer)
 
 
 def _fake_scrape_resources(**overrides):

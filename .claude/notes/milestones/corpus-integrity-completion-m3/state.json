@@ -1,14 +1,19 @@
 {
   "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/plans",
   "created_at": "2026-05-31T22:23:10Z",
-  "critics_run": [],
+  "critics_run": [
+    {
+      "critic": "adversary",
+      "output_path": ".claude/notes/milestones/corpus-integrity-completion-m3/critique-adversary.md"
+    }
+  ],
   "critique_finding_counts": {
     "critical": 0,
-    "high": 0,
-    "low": 0,
-    "medium": 0
+    "high": 2,
+    "low": 1,
+    "medium": 3
   },
-  "critique_path": null,
+  "critique_path": ".claude/notes/milestones/corpus-integrity-completion-m3/critique-merged.md",
   "deferred_findings": [],
   "external_writes_authorized": false,
   "external_writes_completed": false,
@@ -16,14 +21,16 @@
   "fixed_findings": [],
   "id": "corpus-integrity-completion-m3",
   "implementation_base": "1a398f77fa7f5a6f8ff3ae3f70e8a51ddd2e65f5",
-  "implementation_branch": null,
-  "implementation_commit_range": null,
-  "implementation_commits": [],
+  "implementation_branch": "main",
+  "implementation_commit_range": "1a398f77fa7f5a6f8ff3ae3f70e8a51ddd2e65f5..6b3f4222c2c37d5b4d114254b88f65f27db8e774",
+  "implementation_commits": [
+    "6b3f4222c2c37d5b4d114254b88f65f27db8e774"
+  ],
   "implementation_path": "inline",
   "implementation_specialist": null,
   "invalidated_findings": [],
   "milestone_brief": "see plans/corpus-integrity-completion-roadmap.md::corpus-integrity-completion-m3 \u2014 end-to-end multi-paper write\u2192/readyz integration test + mutation test",
-  "phase": "implement-running",
+  "phase": "rectify-running",
   "phase_history": [
     {
       "entered_at": "2026-05-31T22:23:10Z",
@@ -42,8 +49,28 @@
     },
     {
       "entered_at": "2026-05-31T22:30:32Z",
-      "left_at": null,
+      "left_at": "2026-05-31T22:37:06Z",
       "phase": "implement-running"
+    },
+    {
+      "entered_at": "2026-05-31T22:37:06Z",
+      "left_at": "2026-05-31T22:37:06Z",
+      "phase": "implement-complete"
+    },
+    {
+      "entered_at": "2026-05-31T22:37:06Z",
+      "left_at": "2026-05-31T22:43:58Z",
+      "phase": "critique-running"
+    },
+    {
+      "entered_at": "2026-05-31T22:43:58Z",
+      "left_at": "2026-05-31T22:43:58Z",
+      "phase": "critique-complete"
+    },
+    {
+      "entered_at": "2026-05-31T22:43:58Z",
+      "left_at": null,
+      "phase": "rectify-running"
     }
   ],
   "rectification_commit": null,
@@ -62,5 +89,5 @@
   ],
   "research_mode": "standard",
   "research_synthesis": ".claude/notes/milestones/corpus-integrity-completion-m3/research-synthesis.md",
-  "updated_at": "2026-05-31T22:30:32Z"
+  "updated_at": "2026-05-31T22:43:58Z"
 }
