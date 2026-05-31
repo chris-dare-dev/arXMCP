@@ -320,3 +320,13 @@ serializes/returns the object and confirm the populate happens BEFORE
 the earliest consumer. Same "doc/summary says X, code does Y" family as
 the bp1/security-doc drift class, but on the dataclass-ordering surface.
 Flag HIGH (broken AC on common path + actively false summary claim).
+
+## 2026-05-31 — notebook-paper-discovery-m2 — strip-quote-empty-phrase
+When a library sanitizes user keywords with `value.strip()` then wraps
+in double-quotes (`field:"cleaned"`), a whitespace-only input produces a
+degenerate empty phrase `field:""`. Always test the whitespace-only
+keyword path: either raise ValueError, skip the clause, or document the
+arXiv API behavior for empty phrases. The guard belongs in the sanitizer
+(return None + skip clause), not in the caller. MEDIUM when the library
+will be used by a driver that populates keywords from user-controlled
+metadata (e.g., notebook descriptions).

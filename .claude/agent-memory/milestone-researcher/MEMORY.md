@@ -1410,3 +1410,14 @@ and both SHA256 hashes are UNCHANGED (Context is in `skip_names`, never enters `
 `ops/cron/arxmcp-backup.sh` ALREADY includes `var/arxmcp/cache/notebooks.db` as an explicit
 backup path (line 94). Any additive column migration to `notebooks.db` is automatically
 covered — no change to the backup script is needed unless a NEW file path is introduced.
+
+## 2026-05-31 — notebook-paper-discovery-m2 — defusedxml-is-project-dep-use-for-external-xml
+`defusedxml>=0.7` is already in `pyproject.toml` dependencies (added E10_S03 for MathML parsing).
+Any NEW external-origin XML parser (e.g. arXiv Atom feeds) MUST use `defusedxml.ElementTree`,
+not stdlib `xml.etree.ElementTree`. The curate_seed.py Atom parser uses stdlib — a known
+inconsistency to fix when extracting to a shared library.
+
+## 2026-05-31 — notebook-paper-discovery-m2 — arxiv-api-error-as-200-with-error-entry
+arXiv API returns HTTP 200 for malformed queries, with a single entry whose `<id>` contains
+`/api/errors#`. Parse-time detection: raise RuntimeError if any entry's id contains that
+pattern. DO NOT rely on HTTP status codes for arXiv API error detection.

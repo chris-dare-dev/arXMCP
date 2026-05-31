@@ -1,0 +1,106 @@
+{
+  "brief_source": "C:/Users/cedar/Documents/Personal Projects/Source Code/arXMCP/plans",
+  "created_at": "2026-05-31T17:00:21Z",
+  "critics_run": [
+    {
+      "critic": "adversary",
+      "output_path": "C:/Users/cedar/Documents/Personal Projects/Source Code/arXMCP/.claude/notes/milestones/notebook-paper-discovery-m2/critique-adversary.md",
+      "summary": "SHIP; 1 MEDIUM 2 LOW"
+    }
+  ],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "low": 2,
+    "medium": 1
+  },
+  "critique_path": "C:/Users/cedar/Documents/Personal Projects/Source Code/arXMCP/.claude/notes/milestones/notebook-paper-discovery-m2/critique-merged.md",
+  "deferred_findings": [
+    "F2",
+    "F3"
+  ],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_required": [],
+  "fixed_findings": [
+    "F1"
+  ],
+  "id": "notebook-paper-discovery-m2",
+  "implementation_base": "babe092963453cae92ee1ffd279c7ea7e535ec87",
+  "implementation_branch": "main",
+  "implementation_commit_range": "babe092963453cae92ee1ffd279c7ea7e535ec87..dc33ba1748e0945fba473c99ed16eb5041de529f",
+  "implementation_commits": [
+    "dc33ba1748e0945fba473c99ed16eb5041de529f"
+  ],
+  "implementation_path": "inline",
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "### notebook-paper-discovery-m2 \u2014 Reusable arXiv Atom API library\n\n**Description.** Extract the arXiv-API functions from `tools/curate_seed.py` into a shared\n`tools/_arxiv_api.py` (mirroring `tools/_notebook_common.py`), generalize the query builder\nto compose `cat:<category> AND abs:<keywords>` / `ti:<keywords>`, add offset pagination, and\ninject the politeness sleep so callers/tests control it. Rewire `curate_seed.py` as a thin\nwrapper with no behavior change.\n\n**Acceptance criteria.**\n- [ ] `tools/_arxiv_api.py` exposes `build_query_url(category, abs_keywords=None, ti_keywords=None, start=0, max_results=\u2026)`, `fetch_candidates(\u2026, sleep=time.sleep)`, `parse_atom_feed()`.\n- [ ] Query builder composes category + `abs:`/`ti:` keyword clauses (the topic-keyword support `curate_seed.py` lacks today \u2014 challenger MINOR-1).\n- [ ] Pagination loops via `start` + `max_results` (\u2264 2000/page) with the \u22653s sleep between pages.\n- [ ] `curate_seed.py` is rewired to import from `_arxiv_api.py`; its existing tests pass unchanged.\n- [ ] New unit tests mock the HTTP layer (no live arXiv calls in CI), following the `graph_ingest.py` monkeypatch pattern.\n\n**Dependencies.** `notebook-paper-discovery-e1`.\n\n**Complexity.** S\n\n**Specialist suggestion.** `security-reviewer` (network egress + Atom-XML parsing of untrusted input)",
+  "phase": "complete",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-31T17:00:21Z",
+      "left_at": "2026-05-31T17:00:57Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-31T17:00:57Z",
+      "left_at": "2026-05-31T17:06:25Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-31T17:06:25Z",
+      "left_at": "2026-05-31T17:06:36Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-05-31T17:06:36Z",
+      "left_at": "2026-05-31T17:39:01Z",
+      "phase": "implement-running"
+    },
+    {
+      "entered_at": "2026-05-31T17:39:01Z",
+      "left_at": "2026-05-31T17:39:01Z",
+      "phase": "implement-complete"
+    },
+    {
+      "entered_at": "2026-05-31T17:39:01Z",
+      "left_at": "2026-05-31T17:46:36Z",
+      "phase": "critique-running"
+    },
+    {
+      "entered_at": "2026-05-31T17:46:36Z",
+      "left_at": "2026-05-31T17:46:36Z",
+      "phase": "critique-complete"
+    },
+    {
+      "entered_at": "2026-05-31T17:46:36Z",
+      "left_at": "2026-05-31T17:48:25Z",
+      "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-05-31T17:48:25Z",
+      "left_at": null,
+      "phase": "complete"
+    }
+  ],
+  "rectification_commit": "0aba6c7af2e8f147df20c10fe1203849c529e2e4",
+  "regression_tests_added": [
+    "tests/test_arxiv_api.py::TestBuildQueryURL::test_whitespace_only_keyword_skips_clause"
+  ],
+  "research_briefs": [
+    {
+      "agent_id": "researcher-1",
+      "brief_path": "C:/Users/cedar/Documents/Personal Projects/Source Code/arXMCP/.claude/notes/milestones/notebook-paper-discovery-m2/research-brief-1.md",
+      "summary": "extract 3 fns + Candidate; re-export; fetch_candidates->list[Candidate]"
+    },
+    {
+      "agent_id": "researcher-2",
+      "brief_path": "C:/Users/cedar/Documents/Personal Projects/Source Code/arXMCP/.claude/notes/milestones/notebook-paper-discovery-m2/research-brief-2.md",
+      "summary": "defusedxml + 3-guard pagination + quote keywords; 6 failure modes"
+    }
+  ],
+  "research_mode": "standard",
+  "research_synthesis": "C:/Users/cedar/Documents/Personal Projects/Source Code/arXMCP/.claude/notes/milestones/notebook-paper-discovery-m2/research-synthesis.md",
+  "updated_at": "2026-05-31T17:48:25Z"
+}
