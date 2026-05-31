@@ -1481,6 +1481,22 @@ class TestNotebookTopicMetadata:
         assert rows[0]["discovery_category"] == "math.AG"
         assert rows[0]["description"] == "Bridgeland stability on K3 surfaces"
 
+    def test_create_strips_control_chars_from_description(
+        self, client: TestClient,
+    ) -> None:
+        """rect F1: the create path strips C0 control chars + DEL from
+        ``description`` before storage, mirroring the PATCH /topic path,
+        so the design-note 'control chars stripped before storage'
+        contract holds regardless of which write path created the row."""
+        r = client.post(
+            "/ui/api/notebooks",
+            json={"slug": "ctl-nb", "description": "\x01tab\nline\x7f"},
+        )
+        assert r.status_code == 201, r.text
+        assert r.json()["description"] == "tabline"
+        rows = client.get("/ui/api/notebooks").json()
+        assert rows[0]["description"] == "tabline"
+
     def test_create_empty_category_allowed(self, client: TestClient) -> None:
         """FM-1: an empty discovery_category is valid (not specified)."""
         r = client.post(

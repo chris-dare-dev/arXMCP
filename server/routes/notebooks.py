@@ -358,6 +358,14 @@ async def create_notebook(
     initial_parse_status = (
         "pending" if body.notebook_kind == "textbook" else None
     )
+    # notebook-paper-discovery-m1 rect F1: strip C0 control chars + DEL
+    # from ``description`` BEFORE storage, mirroring the PATCH /topic path
+    # (``update_notebook_topic``) and the rename handler. The design-note
+    # contract (.claude/notes/notebook-discovery-model.md §1) states the
+    # field is "control chars stripped before storage"; m2's arXiv query
+    # builder reads it as an ``abs:``/``ti:`` keyword string, so it must
+    # be clean text regardless of which write path created the notebook.
+    cleaned_description = _CONTROL_CHARS_RE.sub("", body.description)
     try:
         await store.create_notebook(
             slug=body.slug,
@@ -367,7 +375,7 @@ async def create_notebook(
             notebook_kind=body.notebook_kind,
             parse_status=initial_parse_status,
             discovery_category=body.discovery_category,
-            description=body.description,
+            description=cleaned_description,
         )
     except sqlite3.IntegrityError as e:
         # FM-5: duplicate slug. The async lock inside NotebooksStore
@@ -409,7 +417,7 @@ async def create_notebook(
         "lancedb_path": lancedb_path,
         "notebook_kind": body.notebook_kind,
         "discovery_category": body.discovery_category,
-        "description": body.description,
+        "description": cleaned_description,
     }
 
 
