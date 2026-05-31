@@ -23,91 +23,43 @@ Usage:
 Then eyeball the TSV, pick 50 IDs that look like single-author / small
 collaboration / amsart-style submissions, and append them to
 tools/seed-papers.txt.
+
+notebook-paper-discovery-m2: the arXiv Atom API surface (``Candidate``,
+``build_query_url``, ``parse_atom_feed``, ``fetch_candidates``) moved into the
+shared ``tools/_arxiv_api.py`` library so the m3 notebook-discovery driver can
+reuse it. They are re-exported here so existing imports
+(``from tools.curate_seed import Candidate, build_query_url, …``) keep working.
+Only the CLI-specific ``filter_candidates`` heuristic and ``main()`` live here.
 """
 
 from __future__ import annotations
 
 import argparse
 import sys
-import time
-import urllib.parse
-import urllib.request
-import xml.etree.ElementTree as ET
-from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from tools.arxiv_fetch import (
-    POLITENESS_SLEEP_SECONDS,
-    build_user_agent,
+from tools._arxiv_api import (
+    ARXIV_API_URL,
+    ATOM_NS,
+    Candidate,
+    build_query_url,
+    fetch_candidates,
+    parse_atom_feed,
 )
+from tools.arxiv_fetch import POLITENESS_SLEEP_SECONDS
 
-ARXIV_API_URL = "https://export.arxiv.org/api/query"
-ATOM_NS = {"atom": "http://www.w3.org/2005/Atom", "arxiv": "http://arxiv.org/schemas/atom"}
-
-
-@dataclass(frozen=True)
-class Candidate:
-    paper_id: str
-    submitted_year: int
-    n_authors: int
-    primary_category: str
-    abstract_head: str
-
-    def as_tsv_row(self) -> str:
-        return "\t".join(
-            [
-                self.paper_id,
-                str(self.submitted_year),
-                str(self.n_authors),
-                self.primary_category,
-                self.abstract_head[:120],
-            ]
-        )
-
-
-def build_query_url(category: str, start: int, max_results: int) -> str:
-    params = {
-        "search_query": f"cat:{category}",
-        "start": str(start),
-        "max_results": str(max_results),
-        "sortBy": "submittedDate",
-        "sortOrder": "descending",
-    }
-    return f"{ARXIV_API_URL}?{urllib.parse.urlencode(params)}"
-
-
-def parse_atom_feed(xml_bytes: bytes) -> list[Candidate]:
-    root = ET.fromstring(xml_bytes)
-    out: list[Candidate] = []
-    for entry in root.findall("atom:entry", ATOM_NS):
-        id_url = (entry.findtext("atom:id", default="", namespaces=ATOM_NS) or "").strip()
-        paper_id = id_url.rsplit("/", 1)[-1]
-        if "v" in paper_id:
-            paper_id = paper_id.split("v", 1)[0]
-
-        published = entry.findtext("atom:published", default="", namespaces=ATOM_NS) or ""
-        try:
-            year = datetime.fromisoformat(published.replace("Z", "+00:00")).year
-        except ValueError:
-            year = 0
-
-        authors = entry.findall("atom:author", ATOM_NS)
-        primary = entry.find("arxiv:primary_category", ATOM_NS)
-        primary_cat = primary.attrib.get("term", "") if primary is not None else ""
-
-        summary = (entry.findtext("atom:summary", default="", namespaces=ATOM_NS) or "").strip()
-        abstract_head = " ".join(summary.split())
-
-        out.append(
-            Candidate(
-                paper_id=paper_id,
-                submitted_year=year,
-                n_authors=len(authors),
-                primary_category=primary_cat,
-                abstract_head=abstract_head,
-            )
-        )
-    return out
+# Re-exported for backward-compatible imports (tests/test_fetch_seed.py and any
+# other caller importing these names from tools.curate_seed). The canonical
+# definitions live in tools/_arxiv_api.py.
+__all__ = [
+    "ARXIV_API_URL",
+    "ATOM_NS",
+    "Candidate",
+    "build_query_url",
+    "fetch_candidates",
+    "filter_candidates",
+    "parse_atom_feed",
+]
 
 
 def filter_candidates(
@@ -123,15 +75,6 @@ def filter_candidates(
         and c.submitted_year >= min_year
         and len(c.abstract_head) >= min_abstract_chars
     ]
-
-
-def fetch_candidates(category: str, max_results: int, contact_email: str | None = None) -> bytes:
-    url = build_query_url(category, start=0, max_results=max_results)
-    req = urllib.request.Request(  # noqa: S310 — fixed export.arxiv.org host
-        url, headers={"User-Agent": build_user_agent(contact_email)}
-    )
-    with urllib.request.urlopen(req, timeout=60.0) as resp:  # noqa: S310
-        return resp.read()
 
 
 def main() -> int:
@@ -154,18 +97,19 @@ def main() -> int:
         file=sys.stderr,
     )
     print(
-        f"# politeness: 1 request, sleeping {POLITENESS_SLEEP_SECONDS}s before any follow-up",
+        f"# politeness: paginating at <= {POLITENESS_SLEEP_SECONDS}s/page via "
+        "tools._arxiv_api",
         file=sys.stderr,
     )
 
     try:
-        feed_bytes = fetch_candidates(args.category, args.max_results)
+        # fetch_candidates owns pagination + parse + the inter-page politeness
+        # sleep; for max_results <= 2000 this is a single request.
+        candidates = fetch_candidates(args.category, args.max_results)
     except Exception as e:  # noqa: BLE001
         print(f"FETCH FAILED: {e}", file=sys.stderr)
         return 2
-    time.sleep(POLITENESS_SLEEP_SECONDS)
 
-    candidates = parse_atom_feed(feed_bytes)
     filtered = filter_candidates(
         candidates,
         primary_category=args.category,
