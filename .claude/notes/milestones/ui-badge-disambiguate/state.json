@@ -15,11 +15,17 @@
     "medium": 2
   },
   "critique_path": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/ui-badge-disambiguate/critique-merged.md",
-  "deferred_findings": [],
+  "deferred_findings": [
+    "F4"
+  ],
   "external_writes_authorized": false,
   "external_writes_completed": false,
   "external_writes_required": [],
-  "fixed_findings": [],
+  "fixed_findings": [
+    "F1",
+    "F2",
+    "F3"
+  ],
   "id": "ui-badge-disambiguate",
   "implementation_base": "ca2c274bb2fc4e1e130f896c4df7de3b6f2efea2",
   "implementation_branch": "main",
@@ -31,7 +37,7 @@
   "implementation_specialist": null,
   "invalidated_findings": [],
   "milestone_brief": "Disambiguate the operator-console status badge in server/routes/ui.py::ui_status_badge so that retrieval-degraded states (corpus/embedder/lancedb/notebooks) and ops-warn states (backup time, disk utilization, process uptime) render with distinct labels and styles. Today both render identically as 'DEGRADED', which was actively misleading after restic-not-yet-run produced a backup:time warn on an otherwise-pass corpus.\n\nAcceptance criteria:\n1. When lancedb:status, corpus:version, embedder:status, or notebooks:count is non-pass, badge label includes 'DEGRADED'.\n2. When ONLY backup:time, disk:utilization, or process:uptime is non-pass, badge label is 'WARN' (not 'DEGRADED').\n3. Existing badge tests in tests/test_routes_ui.py (search for status-badge / ui_status_badge) updated for the new disambiguation.\n4. make test green, ruff clean, BP1/tool-schema hashes unchanged (no MCP surface touched).\n5. No new dependencies, no SPA, no JS beyond htmx. status-badge--warn already exists in frontend/static/app.css; possibly add an --ops-warn variant for clarity.\n\nScope: server/routes/ui.py::ui_status_badge (lines 162-195 in current HEAD), frontend/templates as needed, frontend/static/app.css for any new style variant, tests/test_routes_ui.py for assertions.",
-  "phase": "rectify-running",
+  "phase": "complete",
   "phase_history": [
     {
       "entered_at": "2026-05-30T23:43:58Z",
@@ -70,12 +76,21 @@
     },
     {
       "entered_at": "2026-05-31T00:02:47Z",
-      "left_at": null,
+      "left_at": "2026-05-31T00:07:38Z",
       "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-05-31T00:07:38Z",
+      "left_at": null,
+      "phase": "complete"
     }
   ],
-  "rectification_commit": null,
-  "regression_tests_added": [],
+  "rectification_commit": "5ba6af646ef690a9529f24a33d3b47bb453b84b4",
+  "regression_tests_added": [
+    "tests/test_status_endpoint.py::TestStatusBadge::test_badge_retrieval_warn_renders_degraded_label",
+    "tests/test_status_endpoint.py::TestStatusBadge::test_badge_ops_only_warn_renders_distinct_label",
+    "tests/test_status_endpoint.py::TestClassifyStatusBadge::test_warn_with_each_ops_key_renders_ops_warn"
+  ],
   "research_briefs": [
     {
       "agent_id": "researcher-1",
@@ -90,5 +105,5 @@
   ],
   "research_mode": "standard",
   "research_synthesis": ".claude/notes/milestones/ui-badge-disambiguate/research-synthesis.md",
-  "updated_at": "2026-05-31T00:02:47Z"
+  "updated_at": "2026-05-31T00:07:38Z"
 }
