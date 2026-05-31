@@ -40,11 +40,6 @@ from tools._notebook_common import (
 
 logger = logging.getLogger("notebook_repair_registry")
 
-#: Default ``notebooks.db`` path — mirrors
-#: :data:`server.operator_settings.DEFAULT_DB_PATH`. Imported lazily in
-#: :func:`main` to keep module-import cost light for tests.
-_DEFAULT_DB_PATH: Path = Path("var/arxmcp/cache/notebooks.db")
-
 
 def _read_marker_safely(
     notebook_lance_path: Path,

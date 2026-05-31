@@ -92,3 +92,13 @@ even when the target runs. If a target has a material consequence for the operat
 when an OPERATOR WARNING is buried in `@#` comments but absent from `make help` output.
 Pattern confirmed in arXMCP: ingest-recover-preambles had its chunk_id rotation warning
 only in recipe comments. Fix: add a second @echo line under the help entry.
+
+## 2026-05-31 — onboarding-uplift-m3 — makefile-phony-group-vs-help-taxonomy-mismatch
+
+When the `.PHONY` split uses named comment groups (e.g. "FIRST-TIME?", "CORPUS
+LIFECYCLE", "REPAIR / RECONCILE"), the comment at each stanza promises that it "pairs
+with the section it describes". If new targets are appended to a `.PHONY` stanza that
+does NOT match the `make help` section they appear in, the taxonomy drifts silently.
+Flag as MEDIUM when `.PHONY` group label and `make help` section label disagree for
+the same target. Fix: either align the `.PHONY` stanza comment to match the help
+section, OR add a separate help section that mirrors the `.PHONY` group name.

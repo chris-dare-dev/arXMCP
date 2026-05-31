@@ -931,15 +931,20 @@ async def reconcile_marker(
     nb_lance = notebook_lancedb_path(slug)
     old_info, err = _read_marker_safely(nb_lance)
     if err == "no_marker":
+        # m3 critique F1: do NOT leak the absolute install path. Match
+        # the sibling notebook_health endpoint's redacted form (which
+        # already references the slug instead of `nb_lance`). Aligns
+        # with the project's `redact_paths` precedent at
+        # server/ingest_tracker.py:81.
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"no corpus-version.json at {nb_lance}; "
+            detail=f"no corpus-version.json for {slug!r}; "
                    "run `make ingest` first",
         )
     if err == "malformed":
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"corpus-version.json at {nb_lance} is malformed; "
+            detail=f"corpus-version.json for {slug!r} is malformed; "
                    "operator investigation required",
         )
 

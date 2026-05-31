@@ -313,9 +313,15 @@ def _build_remediation_block(report: dict, css: str) -> str:
         # docs/install.md for the troubleshooting matrix.
         lines = ["status non-pass — see docs/install.md troubleshooting"]
     body = "<br>".join(_html.escape(line) for line in lines)
+    # m3 critique F3: the parent <span> already declares
+    # aria-live="polite" + aria-atomic="true" (lines ~278 above), so
+    # a nested aria-live on this <small> would create a nested live
+    # region — screen readers handle nested live regions
+    # inconsistently (some announce twice, some announce both). The
+    # parent's atomic group covers this <small>'s contents on each
+    # 10s poll. UPL-3 contract preserved.
     return (
-        f'<small class="status-badge__remediation" aria-live="polite">'
-        f'{body}</small>'
+        f'<small class="status-badge__remediation">{body}</small>'
     )
 
 

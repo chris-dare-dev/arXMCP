@@ -352,6 +352,54 @@ class TestReconcileMarker:
         )
         assert rv.status_code == 422
 
+    def test_422_detail_omits_absolute_path(
+        self, client, notebooks_base
+    ):
+        """m3 critique F1 regression guard: 422 detail strings MUST
+        NOT leak absolute install paths (``/Users/<username>/...``).
+        Matches the sibling ``notebook_health`` endpoint's redacted
+        form (which references the slug instead of the lancedb path).
+        Aligns with the project's `redact_paths` precedent at
+        ``server/ingest_tracker.py:81``."""
+        # AC: no_marker case
+        rv = client.post(
+            "/ui/api/notebooks",
+            json={"slug": "no-marker-nb", "display_name": "N"},
+        )
+        assert rv.status_code == 201
+        rv = client.post(
+            "/ui/api/notebooks/no-marker-nb/reconcile-marker"
+        )
+        assert rv.status_code == 422
+        detail = rv.json()["detail"]
+        # F1 cardinal: the lancedb absolute path MUST NOT appear.
+        assert "/var/arxmcp" not in detail, (
+            f"F1 regression: 422 detail leaks absolute path; "
+            f"got {detail!r}"
+        )
+        # And the slug DOES appear (matches notebook_health pattern).
+        assert "no-marker-nb" in detail
+
+        # AC: malformed case — same redaction discipline.
+        rv = client.post(
+            "/ui/api/notebooks",
+            json={"slug": "bad-marker-nb", "display_name": "B"},
+        )
+        assert rv.status_code == 201
+        lance = notebooks_base / "bad-marker-nb" / "lancedb"
+        lance.mkdir(parents=True)
+        (lance / "corpus-version.json").write_text("{ truncated")
+        rv = client.post(
+            "/ui/api/notebooks/bad-marker-nb/reconcile-marker"
+        )
+        assert rv.status_code == 422
+        detail = rv.json()["detail"]
+        assert "/var/arxmcp" not in detail, (
+            f"F1 regression: malformed 422 detail leaks absolute path; "
+            f"got {detail!r}"
+        )
+        assert "bad-marker-nb" in detail
+
 
 # ===========================================================================
 # AC3 — GET /ui/api/notebooks/{slug}/health
@@ -531,6 +579,31 @@ class TestStatusBadgeRemediation:
         # css="ok" short-circuits before inspection.
         block = _build_remediation_block(report, css="ok")
         assert block == ""
+
+    def test_remediation_small_does_not_redeclare_aria_live(self):
+        """m3 critique F3 regression guard: the inner ``<small>``
+        remediation block MUST NOT redeclare ``aria-live`` — the
+        parent ``<span>`` already declares
+        ``aria-live="polite" aria-atomic="true"`` and nested live
+        regions cause inconsistent screen-reader announcement. The
+        UPL-3 contract from ui-attractive-polish-m1 requires the
+        atomic group to be the announce unit; a nested live region
+        breaks that."""
+        from server.routes.ui import _build_remediation_block
+
+        report = {
+            "checks": {
+                "corpus:version": [{"status": "warn"}],
+            }
+        }
+        block = _build_remediation_block(report, css="warn")
+        assert "<small" in block
+        # Cardinal F3 assertion: ZERO ``aria-live`` attributes inside
+        # the inner block (the parent <span> declares it once).
+        assert "aria-live" not in block, (
+            f"F3 regression: inner <small> redeclared aria-live; "
+            f"got {block!r}"
+        )
 
 
 # ===========================================================================

@@ -65,9 +65,9 @@ marker drift bugs we hand-fixed earlier this session.
       `tests/test_prompts.py`. Plus the structural
       `TestNoMCPSurfaceTouch` guard that asserts the new m3 modules
       don't import from `server.tools` or reference `ALL_TOOLS`.
-- [x] **AC9** 37 new regression tests across two new files
-      (`tests/test_m3_endpoints.py`: 26 tests;
-      `tests/test_m3_cli.py`: 11 tests).
+- [x] **AC9** 39 new regression tests across two new files
+      (`tests/test_m3_endpoints.py`: 28 tests including the rect
+      additions for F1 + F3; `tests/test_m3_cli.py`: 11 tests).
 
 ## File deltas
 
