@@ -20,11 +20,19 @@
     "medium": 4
   },
   "critique_path": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/onboarding-uplift-m1/critique-merged.md",
-  "deferred_findings": [],
+  "deferred_findings": [
+    "F6"
+  ],
   "external_writes_authorized": false,
   "external_writes_completed": false,
   "external_writes_required": [],
-  "fixed_findings": [],
+  "fixed_findings": [
+    "F1",
+    "F2",
+    "F3",
+    "F4",
+    "F5"
+  ],
   "id": "onboarding-uplift-m1",
   "implementation_base": "be099b339859b3583e35ec1922a92a3b143d7aaf",
   "implementation_branch": "main",
@@ -37,7 +45,7 @@
   "implementation_summary_path": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/onboarding-uplift-m1/implementation-summary.md",
   "invalidated_findings": [],
   "milestone_brief": "onboarding-uplift-m1: env-var error rewrite + ARXMCP_CONTACT_EMAIL doc sweep + /mcp trailing-slash note. See .claude/notes/uplift/startup-ux/ for full context (current-state-critique.md, streamlined-flow-proposal.md, decisions.md).",
-  "phase": "rectify-running",
+  "phase": "complete",
   "phase_history": [
     {
       "entered_at": "2026-05-31T01:59:11Z",
@@ -76,12 +84,20 @@
     },
     {
       "entered_at": "2026-05-31T02:27:40Z",
-      "left_at": null,
+      "left_at": "2026-05-31T02:33:23Z",
       "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-05-31T02:33:23Z",
+      "left_at": null,
+      "phase": "complete"
     }
   ],
-  "rectification_commit": null,
-  "regression_tests_added": [],
+  "rectification_commit": "5a82802e062cfae45ec8bce7e721b265540ef571",
+  "regression_tests_added": [
+    "tests/test_server_startup.py::TestEnvVarScan::test_contact_email_carve_out_names_ingest_tools (extended)",
+    "tests/test_server_startup.py::TestEnvVarScan::test_error_message_does_not_dump_all_declared_vars (threshold raised)"
+  ],
   "research_briefs": [
     {
       "agent_id": "researcher-1",
@@ -96,5 +112,5 @@
   ],
   "research_mode": "standard",
   "research_synthesis": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/onboarding-uplift-m1/research-synthesis.md",
-  "updated_at": "2026-05-31T02:27:40Z"
+  "updated_at": "2026-05-31T02:33:23Z"
 }
