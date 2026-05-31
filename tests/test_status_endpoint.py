@@ -521,9 +521,22 @@ class TestStatusLineParser:
 
 class TestMakefileTarget:
     def test_status_target_exists(self):
+        """m3 / m2 critique F8: the Makefile's single ``.PHONY`` line
+        was split into per-section stanzas. ``status`` now lives in the
+        OPS / MAINTENANCE stanza rather than the first line. This test
+        walks EVERY ``.PHONY:`` stanza for the target name."""
+        import re as _re
+
         mk = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
         assert "\nstatus:" in mk
-        assert "status" in mk.split("\n", 1)[0]  # in .PHONY
+        # Collect targets from ALL .PHONY: lines (multi-line declarations
+        # are a valid Make pattern).
+        phony_targets: list[str] = []
+        for m in _re.finditer(r"^\.PHONY:\s+(.+)$", mk, _re.MULTILINE):
+            phony_targets.extend(m.group(1).split())
+        assert "status" in phony_targets, (
+            f".PHONY stanzas must list 'status'; got {phony_targets}"
+        )
         assert "tools/status_line.py" in mk
 
 

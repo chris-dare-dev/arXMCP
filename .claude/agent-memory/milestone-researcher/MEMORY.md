@@ -1,5 +1,29 @@
 # Milestone Researcher — Project Memory
 
+## 2026-05-31 — onboarding-uplift-m3 — startup-chunk-count-is-shared-corpus-not-per-notebook
+`Resources.startup_chunk_count` measures the SHARED global corpus (`var/arxmcp/index/lancedb/`),
+NOT any per-notebook LanceDB. Per-notebook health endpoints MUST read the notebook's own
+`corpus-version.json` + call `open_chunks_table(notebook_lancedb_path(slug), version=N).count_rows()`
+on-demand. The brief's "use cached startup_chunk_count" safety check applies to `/status` only.
+
+## 2026-05-31 — onboarding-uplift-m3 — repair-registry-display-name-created-at-convention
+For `repair-registry` re-registering an on-disk notebook dir: use `display_name=""`,
+`created_at=_now_iso()` (registration time, NOT the marker's ingest `created_at`),
+`notebook_kind="arxiv"` (can't infer from disk). Operator renames via PATCH afterward.
+
+## 2026-05-31 — onboarding-uplift-m3 — details-outerHTML-swap-loses-open-state
+htmx `hx-swap="outerHTML"` on the status-badge replaces the entire `<span>` every 10s.
+A `<details>` child element's `open` attribute is LOST on each poll — the tooltip auto-closes
+every 10s regardless of user interaction. `hx-preserve` prevents any content update (defeats
+the badge purpose). Safer pattern: a `<small>` sub-element visible only when `css != "ok"`,
+no `<details>` toggle needed.
+
+## 2026-05-31 — onboarding-uplift-m3 — reconcile-marker-preserve-created-at-for-idempotency
+`write_corpus_version_marker` sets `created_at=datetime.now(UTC)` on each call. A reconcile
+rewrite that uses the same pattern produces a different timestamp and a different file even when
+chunk_count is unchanged. To achieve true byte-identical idempotency on re-run, preserve the
+ORIGINAL `created_at` from the marker that was read, and only update `chunk_count`/`paper_count`.
+
 ## 2026-05-31 — onboarding-uplift-m2 — user-version-shared-across-stores
 `PRAGMA user_version` is per-database-FILE, not per-table. When two stores
 (`NotebooksStore`, `OperatorSettingsStore`) open the same `notebooks.db`,
@@ -13,6 +37,27 @@ and stdlib only — no `tools/` imports. Adding `from tools._notebook_common imp
 would create a new cross-direction import (`ingest/ → tools/`). The safer path:
 expose a standalone helper in `server/operator_settings.py` and import from there
 in `ingest/` files (avoids the circular dependency risk entirely).
+
+## 2026-05-31 — ui-attractive-polish-m3 — htmx-request-class-on-form-not-button
+When a `<form hx-post>` is submitted, htmx 2.0.10 applies `htmx-request`
+to the `<form>` element itself, NOT to the `<button type="submit">` child.
+CSS selector `button.htmx-request` alone will NOT dim the button on
+form-submission. Add `form.htmx-request button[type="submit"]` as an
+additional selector in the spinner CSS chain.
+
+## 2026-05-31 — ui-attractive-polish-m3 — dark-accent-white-text-contrast-fail
+White (`#fff`) text on Primer dark `--accent: #58a6ff` gives only ~3.1:1
+contrast — FAILS WCAG SC 1.4.3 (4.5:1 required for 0.875rem/14px button text).
+Fix: add `button, .button { color: #0d1117; }` inside the dark-mode `:root`
+block. Dark text on #58a6ff = ~7.2:1, passes easily.
+
+## 2026-05-31 — ui-attractive-polish-m3 — hx-disabled-elt-form-vs-button
+htmx docs confirm `hx-disabled-elt` adds the HTML `disabled` attribute.
+`<form>` has NO standard `disabled` attribute in HTML spec — applying
+`hx-disabled-elt="this"` to a `<form>` may silently no-op. Always apply
+to `<button type="submit">` or standalone `<button type="button">` elements.
+htmx does NOT auto-apply `aria-disabled` — native `<button disabled>` is
+accessible via the browser's accessibility tree without explicit aria.
 
 ## 2026-05-31 — ui-attractive-polish-m2 — svg-favicon-no-css-vars
 SVG favicons rendered in the browser tab context do NOT inherit the page's CSS,

@@ -69,16 +69,25 @@ class TestTierGatesExists:
 class TestMakeEvalTarget:
     def test_eval_target_in_phony(self):
         """``eval`` is in the ``.PHONY`` list — guards against a
-        future ``eval/`` directory shadowing the target."""
+        future ``eval/`` directory shadowing the target.
+
+        onboarding-uplift-m3 / m2 critique F8 closure: the Makefile's
+        single 219-char ``.PHONY`` line was split into per-section
+        stanzas grouped by topic (FIRST-TIME?, CORPUS LIFECYCLE, OPS,
+        NOTEBOOK CRUD, REPAIR/RECONCILE). This test now collects
+        targets from EVERY ``.PHONY:`` line in the file rather than
+        the first match.
+        """
         content = MAKEFILE_PATH.read_text(encoding="utf-8")
-        # Match "eval" as a whole word in the .PHONY line.
-        phony_match = re.search(r"^\.PHONY:\s+(.+)$", content, re.MULTILINE)
-        assert phony_match is not None, (
-            "Makefile must declare a .PHONY line"
-        )
-        phony_targets = phony_match.group(1).split()
+        phony_targets: list[str] = []
+        for phony_match in re.finditer(
+            r"^\.PHONY:\s+(.+)$", content, re.MULTILINE
+        ):
+            phony_targets.extend(phony_match.group(1).split())
+        assert phony_targets, "Makefile must declare at least one .PHONY line"
         assert "eval" in phony_targets, (
-            f".PHONY must list 'eval'; got {phony_targets}"
+            f".PHONY must list 'eval' across some stanza; "
+            f"got {phony_targets}"
         )
 
     def test_eval_recipe_invokes_correct_pytest_path(self):

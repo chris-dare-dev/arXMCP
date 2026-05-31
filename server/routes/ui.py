@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Iterable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -264,13 +265,114 @@ async def ui_status_badge(request: Request) -> HTMLResponse:
     # readers stop announcing badge state changes after the first poll
     # (research-synthesis.md §2 — both Phase-1 researchers flagged this
     # independently as the most-critical implementation risk for m1).
+    # onboarding-uplift-m3 (AC5): when status is non-pass, append a
+    # static <small> remediation block with operator-actionable hints
+    # naming the failing check + the Make command to heal it. m3
+    # synthesis §3 D2 EXPLICITLY rejected <details>/<summary> because
+    # hx-swap="outerHTML" replaces the entire <span> every 10s and
+    # would snap any <details> closed on each poll. A static <small>
+    # block visible-when-degraded has no open-state to lose.
+    remediation = _build_remediation_block(report, css)
     fragment = (
         f'<span id="status-badge" class="status-badge status-badge--{css}" '
         f'aria-live="polite" aria-atomic="true" '
         f'hx-get="/ui/status-badge" hx-trigger="every 10s" '
-        f'hx-swap="outerHTML" title="{safe}">{safe}</span>'
+        f'hx-swap="outerHTML" title="{safe}">{safe}{remediation}</span>'
     )
     return HTMLResponse(content=fragment)
+
+
+def _build_remediation_block(report: dict, css: str) -> str:
+    """Build the operator-actionable ``<small>`` remediation block
+    appended to the badge when status is non-``ok``.
+
+    Renders one ``<br>``-separated line per failing check, naming the
+    check + the Make command to heal it. Returns an empty string when
+    css == ``"ok"`` (no remediation needed).
+
+    Per m3 synthesis §3 D2 / FM-6 — the block contains NO raw paths;
+    only check names and Make command strings. The operator-trusted
+    loopback context means we can include the slug, but exposing
+    ``var/arxmcp/notebooks/<slug>/lancedb/`` would be noisy and
+    unnecessary (the Make command does the path lookup internally).
+
+    Static block (no JS, no <details>) per the same D2 — a JS-driven
+    open/close-preserving tooltip would violate CLAUDE.md §4.7's no-
+    build-chain rule. The visual affordance is the CSS-styled
+    background colour (status-badge--warn / --down / --ops-warn)
+    plus the small text block under the main label.
+    """
+    if css == "ok":
+        return ""
+    import html as _html  # noqa: PLC0415
+
+    lines = list(_remediation_lines_for_checks(report.get("checks")))
+    if not lines:
+        # Fallback: surface the raw status without leaking internal
+        # structure. Operators following this hint go to
+        # docs/install.md for the troubleshooting matrix.
+        lines = ["status non-pass — see docs/install.md troubleshooting"]
+    body = "<br>".join(_html.escape(line) for line in lines)
+    return (
+        f'<small class="status-badge__remediation" aria-live="polite">'
+        f'{body}</small>'
+    )
+
+
+def _remediation_lines_for_checks(checks: object) -> Iterable[str]:
+    """Map non-``pass`` health checks to one operator-actionable line each.
+
+    Inspects ``report["checks"]`` — same source ``_classify_status_badge``
+    uses — and yields per-check remediation strings keyed off the well-
+    known check names from ``server/health.py::compute_health_status``.
+
+    Unknown / future checks fall through to a generic "investigate"
+    line so a check rename or addition can't silently produce an empty
+    tooltip.
+    """
+    if not isinstance(checks, dict):
+        return
+    # Map each check key to a human-readable name + remediation. Ordered
+    # by criticality so retrieval-side appears first in the block.
+    _CHECK_REMEDIATION: dict[str, tuple[str, str]] = {
+        "corpus:version": (
+            "corpus version marker drift",
+            "run `make reconcile NOTEBOOK=<slug>` to heal",
+        ),
+        "lancedb:status": (
+            "lancedb dataset health",
+            "check the boot log for fallback_version warnings",
+        ),
+        "embedder:status": (
+            "BGE-M3 embedder not loaded",
+            "wait for warmup, or restart with `make up`",
+        ),
+        "notebooks:count": (
+            "notebook registry / disk mismatch",
+            "run `make repair-registry` to heal",
+        ),
+        "backup:time": (
+            "no recent backup recorded",
+            "run the restic backup job (see docs/ops/backup-runbook.md)",
+        ),
+        "disk:utilization": (
+            "disk free space below threshold",
+            "free space or expand the volume",
+        ),
+        "process:uptime": (
+            "server process newly started",
+            "informational — wait for caches to warm",
+        ),
+    }
+    for key, (name, action) in _CHECK_REMEDIATION.items():
+        entries = checks.get(key) or []
+        for entry in entries:
+            if (
+                isinstance(entry, dict)
+                and entry.get("status") not in (None, "pass")
+            ):
+                yield f"{name}: {action}"
+                break  # one line per check (not per entry)
 
 
 @router.get("/", response_class=HTMLResponse, include_in_schema=False)

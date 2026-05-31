@@ -361,6 +361,46 @@ class CorpusVersionInfo:
             "version": self.version,
         }
 
+    def with_counts(
+        self, *, chunk_count: int, paper_count: int
+    ) -> CorpusVersionInfo:
+        """Return a copy with ``chunk_count`` + ``paper_count`` overridden;
+        every other field (including ``created_at``) preserved verbatim.
+
+        Used by ``onboarding-uplift-m3``'s ``reconcile-marker``
+        endpoint + the ``tools/notebook_reconcile_marker.py`` CLI to
+        produce a recount marker that is **byte-identical** to a prior
+        reconcile result for the same drift state. Per m3 synthesis §3
+        D4 / FM-10: a repeated ``make reconcile`` MUST be a true
+        no-op (not just same-data-but-different-timestamp), so
+        ``created_at`` is preserved from the existing marker rather
+        than refreshed to ``now()``.
+
+        Validates that the new counts are non-negative integers — a
+        recount producing a negative value would mean the LanceDB
+        ``count_rows()`` / ``count_distinct(paper_id)`` returned a
+        bad result, which should fail loud at this layer rather than
+        write a corrupt marker.
+        """
+        if not isinstance(chunk_count, int) or chunk_count < 0:
+            raise ValueError(
+                f"chunk_count must be a non-negative int, "
+                f"got {type(chunk_count).__name__} ({chunk_count!r})"
+            )
+        if not isinstance(paper_count, int) or paper_count < 0:
+            raise ValueError(
+                f"paper_count must be a non-negative int, "
+                f"got {type(paper_count).__name__} ({paper_count!r})"
+            )
+        return CorpusVersionInfo(
+            version=self.version,
+            chunker_version=self.chunker_version,
+            embedder_version=self.embedder_version,
+            created_at=self.created_at,
+            paper_count=paper_count,
+            chunk_count=chunk_count,
+        )
+
     @classmethod
     def from_dict(cls, data: dict) -> CorpusVersionInfo:
         """Inverse of :meth:`to_dict`. Lenient on ``created_at``.

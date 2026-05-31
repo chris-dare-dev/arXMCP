@@ -43,6 +43,7 @@ import os
 import re
 import sqlite3
 import tarfile
+from pathlib import Path
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
@@ -62,8 +63,10 @@ from pydantic import BaseModel, Field
 
 from ingest.identifiers import is_valid_arxiv_paper_id, is_valid_paper_id
 from tools._notebook_common import (
+    NOTEBOOKS_BASE,
     NotebookError,
     notebook_dir,
+    notebook_lancedb_path,
     validate_slug,
 )
 from tools.security.pdfid import find_javascript as _pdf_find_javascript
@@ -589,6 +592,476 @@ async def remove_paper(
             ),
         )
     return None
+
+
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# onboarding-uplift-m3 — repair-registry + reconcile-marker + per-notebook
+# health endpoints
+# ---------------------------------------------------------------------------
+#
+# Heals the two drift bugs we hand-fixed earlier this session:
+#
+# 1. On-disk vs SQLite-registry split — older milestone work created
+#    notebook dirs (var/arxmcp/notebooks/<slug>/) without registering them
+#    in notebooks.db::notebooks. The UI shows zero notebooks while a
+#    healthy corpus exists on disk. ``POST /ui/api/admin/repair-registry``
+#    walks the dirs, registers any missing slug via the canonical
+#    ``NotebooksStore.create_notebook`` path (m2 F1 lesson: never direct
+#    SQLite INSERT to the ``notebooks`` table).
+#
+# 2. corpus-version.json marker drift — the pre-m1 ``write_chunks`` wrote
+#    the marker per-batch instead of cumulative, leaving production
+#    notebooks with massively-stale chunk_counts. ``POST /ui/api/notebooks/<slug>/reconcile-marker``
+#    opens the per-notebook LanceDB at the marker's pinned version (MVCC
+#    snapshot — concurrent-ingest-safe per m3 synthesis FM-1), recounts
+#    rows + distinct paper_ids, and atomically rewrites the marker.
+#
+# Plus a per-notebook ``GET /ui/api/notebooks/<slug>/health`` drift
+# report endpoint that surfaces marker-vs-reality skew for any single
+# notebook (operator-triggered diagnostic; NOT a hot poll).
+
+
+def _read_marker_safely(
+    notebook_lance_path: Path,
+) -> tuple[object | None, str | None]:
+    """Read a per-notebook ``corpus-version.json`` marker without raising.
+
+    Returns ``(info, None)`` on success, ``(None, "no_marker")`` when the
+    file is absent, ``(None, "malformed")`` when the JSON is invalid.
+
+    Used by ``repair_registry`` (which classifies each dir's outcome via
+    this discriminator) and ``reconcile_marker`` (which 422s on
+    ``no_marker``). The error path is structured rather than raised so
+    the walk loop in ``repair_registry`` keeps going across the
+    remaining dirs.
+    """
+    from server.corpus import read_corpus_version  # local
+
+    try:
+        info = read_corpus_version(notebook_lance_path)
+    except (ValueError, OSError, json.JSONDecodeError) as exc:
+        logger.warning(
+            "m3 marker read failed at %s: %s",
+            notebook_lance_path,
+            exc,
+        )
+        return None, "malformed"
+    if info is None:
+        return None, "no_marker"
+    return info, None
+
+
+def _recount_notebook_lancedb(
+    notebook_lance_path: Path, *, version: int
+) -> tuple[int, int]:
+    """Open the per-notebook LanceDB at the pinned ``version`` (MVCC
+    snapshot — m3 synthesis FM-1 / FM-2: concurrent-ingest-safe) and
+    return ``(chunk_count, distinct_paper_count)``.
+
+    Uses ``server.corpus.open_chunks_table(...)`` which calls
+    ``tbl.checkout(version)`` in-place — confirmed snapshot-consistent
+    by ``tests/test_mvcc.py::TestVersionPinning``. The handle is
+    read-only after checkout; concurrent ``tbl.add()`` from an
+    in-flight ingest produces a NEW version > N and cannot affect
+    counts at version N.
+
+    Distinct paper_id count uses PyArrow's ``pc.count_distinct``
+    (m3 synthesis §3 D3 — preferred over pandas ``nunique`` for fewer
+    allocations).
+    """
+    import pyarrow.compute as pc  # noqa: PLC0415
+
+    from server.corpus import open_chunks_table  # local
+
+    tbl = open_chunks_table(notebook_lance_path, version=version)
+    chunk_count = tbl.count_rows()
+    arrow_tbl = tbl.to_arrow()
+    paper_count = int(pc.count_distinct(arrow_tbl["paper_id"]).as_py())
+    return chunk_count, paper_count
+
+
+def _write_marker_atomically(
+    notebook_lance_path: Path, info: object
+) -> None:
+    """Rewrite ``corpus-version.json`` atomically — mirrors
+    ``ingest/store.py::write_corpus_version_marker`` verbatim (m3
+    synthesis §2 — load-bearing facts).
+
+    POSIX-atomic ``os.replace`` requires the tmp file to be co-located
+    with the target on the same filesystem (m3 synthesis FM-2 +
+    cross-filesystem-tmp-trap memory entry). Tmp filename carries PID
+    + uuid hex to prevent collision between concurrent rewriters.
+
+    The JSON payload uses ``sort_keys=True`` + the minimal separator
+    set so a re-run against an unchanged state produces a byte-identical
+    file (m3 synthesis §3 D4 idempotency).
+    """
+    import uuid  # noqa: PLC0415
+
+    out_path = notebook_lance_path / "corpus-version.json"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    # ``info`` is a ``CorpusVersionInfo``; we use its alphabetical-key
+    # ``to_dict`` to match the existing marker's byte-shape. The
+    # serializer arguments mirror ``ingest/store.py::write_corpus_version_marker``
+    # VERBATIM (sort_keys=True, ensure_ascii=False, default
+    # separators, trailing "\n"). Diverging here would break the
+    # byte-identical idempotency contract from m3 synthesis §3 D4
+    # (a re-run would produce different bytes despite identical data).
+    payload = (
+        json.dumps(info.to_dict(), ensure_ascii=False, sort_keys=True)  # type: ignore[attr-defined]
+        + "\n"
+    )
+    tmp = out_path.with_suffix(
+        f"{out_path.suffix}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp"
+    )
+    try:
+        tmp.write_text(payload, encoding="utf-8")
+        os.replace(tmp, out_path)
+    finally:
+        with contextlib.suppress(OSError):
+            tmp.unlink(missing_ok=True)
+
+
+class _RepairRegistryResult(BaseModel):
+    """Response body for ``POST /ui/api/admin/repair-registry``.
+
+    Four buckets correspond to the four per-dir outcomes the walker
+    distinguishes — all are operator-actionable signals:
+    - ``registered``: previously-orphan dir now in notebooks.db.
+    - ``already_registered``: dir's slug was ALREADY in the registry
+      (the IntegrityError-on-duplicate path; expected on re-runs).
+    - ``skipped_no_marker``: dir exists but no
+      ``lancedb/corpus-version.json`` — likely a scaffolded notebook
+      where ``make ingest`` hasn't run yet.
+    - ``skipped_malformed_marker``: marker file exists but JSON is
+      invalid OR fails ``CorpusVersionInfo.from_dict`` field validation.
+      Operator investigates manually.
+    """
+
+    registered: list[str]
+    already_registered: list[str]
+    skipped_no_marker: list[str]
+    skipped_malformed_marker: list[str]
+
+
+class _ReconcileResult(BaseModel):
+    """Response body for ``POST /ui/api/notebooks/{slug}/reconcile-marker``.
+
+    ``drift_resolved`` is ``after.chunk_count - before.chunk_count`` —
+    positive when the marker under-counted (the typical pre-m1 case),
+    negative if the marker over-counted, zero for an idempotent re-run.
+    """
+
+    slug: str
+    before: dict[str, int]
+    after: dict[str, int]
+    drift_resolved: int
+
+
+class _NotebookHealthResult(BaseModel):
+    """Response body for ``GET /ui/api/notebooks/{slug}/health``.
+
+    ``status`` is the operator-actionable summary:
+    - ``ok``: marker + LanceDB agree.
+    - ``drift``: marker disagrees with the LanceDB recount (run
+      ``make reconcile NOTEBOOK=<slug>``).
+    - ``no_marker``: ``make ingest`` hasn't run yet.
+    - ``malformed_marker``: marker JSON is invalid; investigate.
+    """
+
+    slug: str
+    status: str
+    marker_chunk_count: int | None
+    actual_chunk_count: int | None
+    marker_paper_count: int | None
+    actual_paper_count: int | None
+    drift: int | None
+    corpus_version: int | None
+    detail: str | None
+
+
+@router.post(
+    "/admin/repair-registry",
+    status_code=status.HTTP_200_OK,
+    response_model=_RepairRegistryResult,
+)
+async def repair_registry(
+    store: NotebooksStore = Depends(get_notebooks_store),  # noqa: B008
+) -> _RepairRegistryResult:
+    """Walk ``var/arxmcp/notebooks/`` and register any on-disk dirs
+    with a valid ``corpus-version.json`` marker that are NOT already
+    in ``notebooks.db::notebooks``.
+
+    Per m3 synthesis §1 + §3 D2 — every registration goes through
+    :meth:`NotebooksStore.create_notebook` (the canonical writer; m2
+    F1 lesson). ``sqlite3.IntegrityError`` on duplicate slug is the
+    expected ``already_registered`` path. The walk's per-dir
+    ``_read_marker_safely`` catches malformed markers and continues
+    (FM-7 mitigation).
+
+    Loopback-only deployment is the auth boundary (m3 synthesis §2 +
+    R1 §"Note on /admin/ prefix"); no additional middleware needed.
+    """
+    registered: list[str] = []
+    already_registered: list[str] = []
+    skipped_no_marker: list[str] = []
+    skipped_malformed: list[str] = []
+
+    existing_slugs = {row["slug"] for row in await store.list_notebooks()}
+
+    if not NOTEBOOKS_BASE.is_dir():
+        # No on-disk notebooks tree yet — nothing to walk.
+        logger.info(
+            "repair-registry: %s does not exist; nothing to walk",
+            NOTEBOOKS_BASE,
+        )
+        return _RepairRegistryResult(
+            registered=[],
+            already_registered=[],
+            skipped_no_marker=[],
+            skipped_malformed_marker=[],
+        )
+
+    for child in sorted(NOTEBOOKS_BASE.iterdir()):
+        if not child.is_dir() or child.is_symlink():
+            continue
+        slug = child.name
+        # Validate the slug at the boundary — refuse to register names
+        # that fail the regex (catches stray test dirs, hidden files,
+        # etc.). NotebookError → skip.
+        try:
+            validate_slug(slug)
+        except NotebookError:
+            logger.debug(
+                "repair-registry: skipping %s (invalid slug)", child
+            )
+            continue
+
+        nb_lance = child / "lancedb"
+        info, err = _read_marker_safely(nb_lance)
+        if err == "no_marker":
+            skipped_no_marker.append(slug)
+            continue
+        if err == "malformed":
+            skipped_malformed.append(slug)
+            continue
+
+        if slug in existing_slugs:
+            already_registered.append(slug)
+            continue
+
+        # New registration — route through NotebooksStore.create_notebook
+        # (the canonical writer; raises IntegrityError on duplicate, which
+        # we wouldn't hit because the existing_slugs check above already
+        # filtered, but the catch is belt-and-braces against TOCTOU vs a
+        # concurrent ``create_notebook`` call).
+        try:
+            await store.create_notebook(
+                slug=slug,
+                display_name="",
+                lancedb_path=str(notebook_lancedb_path(slug)),
+                created_at=_now_iso(),
+            )
+            registered.append(slug)
+            logger.info(
+                "repair-registry: registered slug=%s "
+                "version=%d chunks=%d papers=%d",
+                slug, info.version, info.chunk_count, info.paper_count,  # type: ignore[attr-defined]
+            )
+        except sqlite3.IntegrityError:
+            # TOCTOU — a concurrent ``create_notebook`` won the race.
+            already_registered.append(slug)
+
+    logger.info(
+        "repair-registry: registered=%d already=%d "
+        "skipped_no_marker=%d skipped_malformed=%d",
+        len(registered), len(already_registered),
+        len(skipped_no_marker), len(skipped_malformed),
+    )
+    return _RepairRegistryResult(
+        registered=registered,
+        already_registered=already_registered,
+        skipped_no_marker=skipped_no_marker,
+        skipped_malformed_marker=skipped_malformed,
+    )
+
+
+@router.post(
+    "/notebooks/{slug}/reconcile-marker",
+    status_code=status.HTTP_200_OK,
+    response_model=_ReconcileResult,
+)
+async def reconcile_marker(
+    slug: str,
+    store: NotebooksStore = Depends(get_notebooks_store),  # noqa: B008
+) -> _ReconcileResult:
+    """Recount a notebook's LanceDB at the marker's pinned version and
+    atomically rewrite the marker JSON.
+
+    Per m3 synthesis §1 + FM-1: the LanceDB is opened at the marker's
+    ``version`` field — NEVER ``version=None``. MVCC checkout-at-version
+    provides a snapshot-consistent recount even if a concurrent ingest
+    is producing v+1. The marker rewrite uses the canonical
+    ``ingest/store.py`` atomic pattern (tmp co-located + ``os.replace``).
+
+    ``created_at`` is preserved from the existing marker so a repeated
+    ``make reconcile`` is **byte-identical** (m3 synthesis §3 D4 / FM-10).
+
+    Errors:
+    - 404 if the notebook is not registered in ``notebooks.db``.
+    - 422 if the marker is absent (notebook scaffolded but never
+      ingested; "run make ingest first").
+    - 422 if the marker is malformed JSON.
+    """
+    try:
+        validate_slug(slug)
+    except NotebookError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+
+    if await store.get_notebook(slug) is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"notebook {slug!r} not registered",
+        )
+
+    nb_lance = notebook_lancedb_path(slug)
+    old_info, err = _read_marker_safely(nb_lance)
+    if err == "no_marker":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"no corpus-version.json at {nb_lance}; "
+                   "run `make ingest` first",
+        )
+    if err == "malformed":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"corpus-version.json at {nb_lance} is malformed; "
+                   "operator investigation required",
+        )
+
+    # MVCC-pinned recount.
+    new_chunks, new_papers = _recount_notebook_lancedb(
+        nb_lance, version=old_info.version  # type: ignore[attr-defined]
+    )
+    new_info = old_info.with_counts(  # type: ignore[attr-defined]
+        chunk_count=new_chunks, paper_count=new_papers
+    )
+    _write_marker_atomically(nb_lance, new_info)
+
+    drift_resolved = new_chunks - old_info.chunk_count  # type: ignore[attr-defined]
+    logger.info(
+        "reconcile-marker: slug=%s version=%d "
+        "before_chunks=%d after_chunks=%d "
+        "before_papers=%d after_papers=%d drift_resolved=%d",
+        slug, old_info.version,  # type: ignore[attr-defined]
+        old_info.chunk_count, new_chunks,  # type: ignore[attr-defined]
+        old_info.paper_count, new_papers,  # type: ignore[attr-defined]
+        drift_resolved,
+    )
+    return _ReconcileResult(
+        slug=slug,
+        before={
+            "chunk_count": old_info.chunk_count,  # type: ignore[attr-defined]
+            "paper_count": old_info.paper_count,  # type: ignore[attr-defined]
+        },
+        after={"chunk_count": new_chunks, "paper_count": new_papers},
+        drift_resolved=drift_resolved,
+    )
+
+
+@router.get(
+    "/notebooks/{slug}/health",
+    response_model=_NotebookHealthResult,
+)
+async def notebook_health(
+    slug: str,
+    store: NotebooksStore = Depends(get_notebooks_store),  # noqa: B008
+) -> _NotebookHealthResult:
+    """Per-notebook drift report.
+
+    Live recount (NOT cached) — per m3 synthesis §3 D1: the
+    ``Resources.startup_chunk_count`` cache is the SHARED corpus count,
+    not per-notebook. This endpoint is an operator-triggered
+    diagnostic (NOT a 10s auto-poll; the SHARED ``/status`` endpoint is
+    what the badge polls). Per-notebook startup caching is m6 scope.
+
+    Status classification:
+    - ``ok``: marker chunk_count + paper_count both match the LanceDB
+      recount.
+    - ``drift``: marker disagrees with recount in EITHER count.
+    - ``no_marker``: ``corpus-version.json`` absent
+      (notebook scaffolded but never ingested).
+    - ``malformed_marker``: marker JSON invalid.
+    """
+    try:
+        validate_slug(slug)
+    except NotebookError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+
+    if await store.get_notebook(slug) is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"notebook {slug!r} not registered",
+        )
+
+    nb_lance = notebook_lancedb_path(slug)
+    info, err = _read_marker_safely(nb_lance)
+    if err == "no_marker":
+        return _NotebookHealthResult(
+            slug=slug,
+            status="no_marker",
+            marker_chunk_count=None,
+            actual_chunk_count=None,
+            marker_paper_count=None,
+            actual_paper_count=None,
+            drift=None,
+            corpus_version=None,
+            detail="no corpus-version.json; run `make ingest` first",
+        )
+    if err == "malformed":
+        return _NotebookHealthResult(
+            slug=slug,
+            status="malformed_marker",
+            marker_chunk_count=None,
+            actual_chunk_count=None,
+            marker_paper_count=None,
+            actual_paper_count=None,
+            drift=None,
+            corpus_version=None,
+            detail="corpus-version.json is malformed; investigate",
+        )
+
+    actual_chunks, actual_papers = _recount_notebook_lancedb(
+        nb_lance, version=info.version  # type: ignore[attr-defined]
+    )
+    marker_chunks = info.chunk_count  # type: ignore[attr-defined]
+    marker_papers = info.paper_count  # type: ignore[attr-defined]
+    drift = actual_chunks - marker_chunks
+    in_sync = drift == 0 and marker_papers == actual_papers
+    return _NotebookHealthResult(
+        slug=slug,
+        status="ok" if in_sync else "drift",
+        marker_chunk_count=marker_chunks,
+        actual_chunk_count=actual_chunks,
+        marker_paper_count=marker_papers,
+        actual_paper_count=actual_papers,
+        drift=drift,
+        corpus_version=info.version,  # type: ignore[attr-defined]
+        detail=None
+        if in_sync
+        else (
+            f"marker says {marker_chunks} chunks / {marker_papers} papers; "
+            f"LanceDB has {actual_chunks} chunks / {actual_papers} papers. "
+            f"Run `make reconcile NOTEBOOK={slug}` to heal."
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------

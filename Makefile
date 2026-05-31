@@ -1,4 +1,26 @@
-.PHONY: help bootstrap test eval up status ingest delta re-embed re-embed-all ingest-recover-preambles watchdog cutover notebook-cutover daily-report parser-failures-report sbom refresh-arxiv-ca init add notebook-list
+# m2 critique F8 / m3: split the single 219-char .PHONY line into per-section
+# groups for readability. Each .PHONY: stanza below pairs with the section
+# it describes — adding a new target means appending it to the matching
+# group rather than scrolling to find a single mega-line.
+
+# FIRST-TIME? — the onboarding-uplift verbs an operator needs on a
+# fresh clone before they can ingest + query.
+.PHONY: help bootstrap up
+
+# CORPUS LIFECYCLE — bulk-ingest + reindex paths (E11).
+.PHONY: ingest delta re-embed re-embed-all ingest-recover-preambles
+
+# OPS / MAINTENANCE — daily checks, status, drift, cutover.
+.PHONY: test eval status watchdog cutover notebook-cutover
+.PHONY: daily-report parser-failures-report sbom refresh-arxiv-ca
+
+# NOTEBOOK CRUD (m2) — first-class Make verbs for the notebook
+# lifecycle (proposal §9; backed by tools/notebook_*.py + /ui/api/*).
+.PHONY: init add notebook-list
+
+# REPAIR / RECONCILE (m3) — heal the on-disk-vs-registry split + the
+# corpus-version.json marker drift bugs.
+.PHONY: repair-registry reconcile
 
 # Override with `make test PYTHON=python3.13` if your default python3 is too old.
 PYTHON ?= python3
@@ -28,6 +50,13 @@ help:
 	@echo "                                 appends to var/arxmcp/notebooks/<slug>/papers.txt."
 	@echo "  make notebook-list             List registered notebooks (live REST if server up,"
 	@echo "                                 else direct SQLite read)."
+	@echo "  make repair-registry           Re-register on-disk notebooks missing from"
+	@echo "                                 notebooks.db. Server-up curls"
+	@echo "                                 POST /ui/api/admin/repair-registry;"
+	@echo "                                 server-down opens NotebooksStore directly."
+	@echo "  make reconcile NOTEBOOK=<slug> Heal corpus-version.json marker drift for one"
+	@echo "                                 notebook. Pass NOTEBOOK= for per-notebook;"
+	@echo "                                 omit for the SHARED global corpus."
 	@echo "  make ingest                    Bulk-ingest the seed corpus into the shared LanceDB"
 	@echo "                                 (E11_S01; see docs/ops/bulk-ingest-runbook.md)."
 	@echo "  make up                        Start the arxmcp-server on 127.0.0.1:7733."
@@ -479,4 +508,67 @@ notebook-list:
 			| $(PYTHON) -c 'import json,sys; rows=json.load(sys.stdin); print(f"{len(rows)} notebook(s) — via /ui/api/notebooks:"); [print(f"  {r[\"slug\"]} ({r.get(\"display_name\") or r[\"slug\"]})") for r in rows]'; \
 	else \
 		$(PYTHON) -m tools.notebook_list_offline; \
+	fi
+
+# ============================================================================
+# onboarding-uplift-m3: heal registry-vs-disk + corpus-version.json drift
+# ============================================================================
+#
+# Two heal commands. Server-up = curl the REST endpoint; server-down =
+# direct Python via tools/notebook_repair_registry.py +
+# tools/notebook_reconcile_marker.py (which themselves route writes
+# through NotebooksStore.create_notebook — m2 critique F1 lesson:
+# never direct SQLite INSERT to the notebooks table).
+#
+# See proposal §9 + decisions.md + .claude/notes/milestones/onboarding-uplift-m3/.
+
+repair-registry:
+	@# AC4 — walk var/arxmcp/notebooks/ and register on-disk dirs that
+	@# have a valid corpus-version.json marker but aren't in
+	@# notebooks.db. Live REST when server up; direct NotebooksStore
+	@# walk when down. Idempotent at both paths (INSERT OR IGNORE
+	@# semantic on the server side; existing-slugs filter on the CLI).
+	@if curl -sf --max-time 2 "http://127.0.0.1:$(ARXMCP_BIND_PORT)/healthz" >/dev/null 2>&1; then \
+		echo "server up — POST /ui/api/admin/repair-registry"; \
+		curl -sf --fail-with-body --max-time 30 \
+			-X POST -H "Content-Type: application/json" \
+			"http://127.0.0.1:$(ARXMCP_BIND_PORT)/ui/api/admin/repair-registry" \
+			|| { echo "ERROR: REST call failed — see above" >&2; exit 1; }; \
+		echo; \
+	else \
+		echo "server down — running tools.notebook_repair_registry"; \
+		$(PYTHON) -m tools.notebook_repair_registry; \
+	fi
+
+reconcile:
+	@# AC4 — recount the LanceDB at the marker's pinned version and
+	@# atomically rewrite corpus-version.json (m3 synthesis §3 D4
+	@# byte-identical idempotency: re-runs against unchanged state are
+	@# byte-identical, not just same-data). Pass NOTEBOOK=<slug> for
+	@# per-notebook; omit for the SHARED global corpus reconcile.
+	@if [ -z "$(NOTEBOOK)" ]; then \
+		echo "no NOTEBOOK= passed — reconciling SHARED global corpus"; \
+		SCOPE_SLUG=""; SCOPE_LABEL="shared"; \
+	else \
+		SCOPE_SLUG="$(NOTEBOOK)"; SCOPE_LABEL="$(NOTEBOOK)"; \
+	fi; \
+	if curl -sf --max-time 2 "http://127.0.0.1:$(ARXMCP_BIND_PORT)/healthz" >/dev/null 2>&1; then \
+		if [ -z "$$SCOPE_SLUG" ]; then \
+			echo "server-up + no NOTEBOOK= → falling back to CLI (REST path is per-notebook only)"; \
+			$(PYTHON) -m tools.notebook_reconcile_marker --shared; \
+		else \
+			echo "server up — POST /ui/api/notebooks/$$SCOPE_SLUG/reconcile-marker"; \
+			curl -sf --fail-with-body --max-time 30 \
+				-X POST -H "Content-Type: application/json" \
+				"http://127.0.0.1:$(ARXMCP_BIND_PORT)/ui/api/notebooks/$$SCOPE_SLUG/reconcile-marker" \
+				|| { echo "ERROR: REST call failed — see above" >&2; exit 1; }; \
+			echo; \
+		fi; \
+	else \
+		echo "server down — running tools.notebook_reconcile_marker"; \
+		if [ -z "$$SCOPE_SLUG" ]; then \
+			$(PYTHON) -m tools.notebook_reconcile_marker --shared; \
+		else \
+			$(PYTHON) -m tools.notebook_reconcile_marker "$$SCOPE_SLUG"; \
+		fi; \
 	fi
