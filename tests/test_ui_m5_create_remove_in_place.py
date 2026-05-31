@@ -467,8 +467,11 @@ class TestUPL12V1DeleteTemplateChanges:
     def test_index_no_legacy_location_reload_on_remove_button(self) -> None:
         # Belt-and-braces: zero `location.reload` calls survive in
         # index.html (both the create form AND the remove button were
-        # converted; the only remaining hooks are the new ones).
-        assert "location.reload" not in INDEX_HTML
+        # converted; the only remaining hooks are the new ones). Strip
+        # Jinja2 comments first so the documentation prose
+        # ("the legacy location.reload() flow") doesn't false-positive.
+        no_jinja = _re.sub(r"\{#.*?#\}", "", INDEX_HTML, flags=_re.DOTALL)
+        assert "location.reload" not in no_jinja
 
 
 # ---------------------------------------------------------------------------
@@ -525,15 +528,23 @@ class TestUPL8V1DarkModePillContrast:
             assert f"color: {fg}" in dark, (name, fg)
 
     def test_th_dark_background_redeclared(self) -> None:
-        # UPL-8 v1: th { background: #161b22 } inside the dark block
-        # so the light #f0f0f0 doesn't show on the dark canvas.
+        # UPL-8 v1: th { background: #161b22; } inside the dark block
+        # so the light #f0f0f0 doesn't show on the dark canvas. Match
+        # with optional trailing semicolon to be lenient against
+        # CSS-formatter changes.
         dark_block_re = _re.compile(
             r"@media\s*\(\s*prefers-color-scheme:\s*dark\s*\)\s*\{(.*?)\n\}",
             flags=_re.S,
         )
         m = dark_block_re.search(APP_CSS_NO_COMMENTS)
         assert m is not None
-        assert "th { background: #161b22 }" in m.group(1)
+        block = m.group(1)
+        rule_re = _re.compile(
+            r"\bth\s*\{\s*background:\s*#161b22\s*;?\s*\}", flags=_re.S
+        )
+        assert rule_re.search(block), (
+            "expected `th { background: #161b22 }` inside dark @media block"
+        )
 
     @pytest.mark.parametrize(("name", "bg", "fg"), PILLS)
     def test_pill_contrast_passes_wcag_aa(

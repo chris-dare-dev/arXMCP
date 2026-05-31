@@ -149,22 +149,33 @@ class TestUPL19TableWrap:
             "is not wrapped by <div class=\"table-wrap\">"
         )
 
-    def test_body_max_width_980px_preserved(self) -> None:
-        # The wider clamp(640px, 92vw, 1400px) expansion is descoped to
-        # v1 per the challenger. m2 v0 preserves the 980px ceiling. If
-        # a future v1 PR changes the body rule to clamp(...) but leaves
-        # the m2 documentation comment intact, the regression would slip
-        # past a substring match — m2-rect F1 widens the guard to scan
-        # the comment-stripped CSS AND pin the match to the body { ... }
-        # block specifically.
+    def test_body_max_width_uses_v1_clamp(self) -> None:
+        # m5 (UPL-19 v1) lifted the m2 v0 980px ceiling to
+        # clamp(640px, 92vw, 1400px) — the wider-monitor expansion
+        # promised by the m2 challenger's v0/v1 split. The test
+        # previously asserted the v0 ceiling was preserved; the
+        # ASSERTION FLIPS at the v1 ship boundary. This test now
+        # pins the v1 clamp() to ensure no future PR silently
+        # reverts the wider expansion.
         body_block = _re.search(
-            r"body\s*\{[^}]*max-width:\s*980px[^}]*\}",
+            r"body\s*\{[^}]*max-width:\s*clamp\(\s*640px\s*,\s*92vw\s*,\s*1400px\s*\)[^}]*\}",
             APP_CSS_NO_COMMENTS,
             flags=_re.S,
         )
         assert body_block is not None, (
-            "UPL-19 v0: body { max-width: 980px } is the v0 ceiling; "
-            "the wider clamp(...) is descoped to v1 per the challenger."
+            "UPL-19 v1: body { max-width: clamp(640px, 92vw, 1400px) } "
+            "is the v1 wider clamp (m5; supersedes v0's 980px ceiling)."
+        )
+        # And the legacy 980px ceiling MUST NOT survive in the body
+        # rule (negative regression).
+        legacy = _re.search(
+            r"body\s*\{[^}]*max-width:\s*980px[^}]*\}",
+            APP_CSS_NO_COMMENTS,
+            flags=_re.S,
+        )
+        assert legacy is None, (
+            "UPL-19 v1 regression: legacy max-width: 980px should be "
+            "gone from the body rule. m5 superseded it with clamp()."
         )
 
     def test_body_max_width_guard_discriminates(self) -> None:
