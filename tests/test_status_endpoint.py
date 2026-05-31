@@ -338,6 +338,11 @@ class TestStatusBadge:
         assert "status-badge--ops-warn" not in r.text
         assert "DEGRADED" in r.text
         assert "WARN |" not in r.text  # the ops-only label must not appear
+        # F1 + F3 regression guard (rect): pin the full label-and-trailer
+        # phrase, including the space before the first pipe. A previous
+        # implementation used ``label + raw_summary[pipe:]`` which dropped
+        # the space and rendered "DEGRADED| corpus v7 ...".
+        assert "DEGRADED | corpus v7 | 2 notebooks" in r.text
 
     # ui-badge-disambiguate AC2: when ONLY ops-side checks are non-pass,
     # the badge label is "WARN" and the class is status-badge--ops-warn —
@@ -361,6 +366,9 @@ class TestStatusBadge:
         assert "status-badge--warn\"" not in r.text  # exact class boundary
         assert "DEGRADED" not in r.text
         assert "WARN" in r.text  # the disambiguated label
+        # F1 + F3 regression guard (rect): full label-and-trailer phrase
+        # including the space before the first pipe.
+        assert "WARN | corpus v7 | 2 notebooks" in r.text
 
     # ui-badge-disambiguate FM-1 regression guard: when BOTH a retrieval-side
     # check AND an ops-side check are non-pass, retrieval wins (DEGRADED).
@@ -450,6 +458,17 @@ class TestClassifyStatusBadge:
             },
         }
         assert self._classify(report) == ("WARN", "ops-warn")
+
+    # F2 regression guard (rect): symmetric to
+    # ``test_warn_with_each_retrieval_key_renders_degraded`` — each ops-side
+    # key, exercised IN ISOLATION, must produce ("WARN", "ops-warn").
+    # Catches a future regression that accidentally moves one ops key into
+    # ``_RETRIEVAL_CHECK_KEYS`` (e.g. a typo like "disk:utilisation"
+    # leaking the retrieval-side path).
+    def test_warn_with_each_ops_key_renders_ops_warn(self):
+        for key in ("backup:time", "disk:utilization", "process:uptime"):
+            report = {"status": "warn", "checks": {key: [{"status": "warn"}]}}
+            assert self._classify(report) == ("WARN", "ops-warn"), key
 
     def test_warn_with_malformed_entry_is_ignored(self):
         # Non-dict entries (e.g. a future tuple shape) should not crash;

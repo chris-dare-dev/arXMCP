@@ -250,9 +250,12 @@ async def ui_status_badge(request: Request) -> HTMLResponse:
     label, css = _classify_status_badge(report)
     raw_summary = str(report.get("summary") or "")
     # Replace compute_health_status()'s leading READY/DEGRADED token with the
-    # disambiguated label. Format is "{LABEL} | corpus v{N} | {M} notebooks".
-    pipe = raw_summary.find("|")
-    summary = label + raw_summary[pipe:] if pipe >= 0 else label
+    # disambiguated label, preserving the " | corpus v..." trailer (and the
+    # leading space before the first pipe — health.py renders
+    # "{LABEL} | corpus v{N} | {M} notebooks", and a naive `find("|")` slice
+    # would drop the space).
+    _, sep, rest = raw_summary.partition("|")
+    summary = f"{label} {sep}{rest}" if sep else label
     safe = _html.escape(summary)
     fragment = (
         f'<span id="status-badge" class="status-badge status-badge--{css}" '
