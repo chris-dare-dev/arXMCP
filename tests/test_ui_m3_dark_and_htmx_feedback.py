@@ -459,26 +459,31 @@ class TestCrossMilestoneSafety:
         assert ":focus:not(:focus-visible) {" in APP_CSS_NO_COMMENTS
 
     def test_app_css_under_soft_cap(self) -> None:
-        # Soft cap on `app.css` line count. Trajectory: m1 left it at
-        # 190, m2 at 216, m3 (feat) at 287. m3-rect raised it further:
-        # the F1 dark-mode input visibility fix + F2 tertiary-text grey
-        # remap + F3 color-scheme declaration added ~19 lines of
-        # NECESSARY CSS (WCAG SC 1.4.3 compliance — see m3-rect for the
-        # adversary finding chain). m4 raises the cap further to 335:
-        # UPL-22 added .status-badge.htmx-settling badge-flash keyframes
-        # (cross-milestone affordance for the m4-status-badge) and
-        # UPL-13 added a ::view-transition-old/new duration override
-        # (200ms snappy crossfade for htmx 2.0.10's native View
-        # Transitions integration). Both live inside a single
-        # consolidated prefers-reduced-motion:no-preference block to
-        # minimize line cost. A future milestone either ships under
-        # 335 or argues for another cap raise. The CLAUDE.md soft cap
-        # itself is loose — this test's value is the discriminating gate.
+        # Soft cap on `app.css` line count. Trajectory:
+        #   m1=190 → m2=216 → m3-feat=287 → m3-rect=330 (F1/F2/F3 WCAG
+        #   corrections) → m4=335 (UPL-22 + UPL-13 consolidated into
+        #   ONE @media block) → m5=370 (UPL-19 v1 body clamp + UPL-8 v1
+        #   four dark-mode pill remaps + th dark surface + UPL-12 v1
+        #   row-fade keyframe — consolidated into EXISTING
+        #   prefers-reduced-motion:no-preference block).
+        # Documentation comments dominate the cost — kept because the
+        # rationale chain (Primer-Dark anchoring, swap-delay gating,
+        # clamp() trade-off) is load-bearing for future agents. A
+        # future milestone either ships under 370 or argues for
+        # another cap raise (or splits into tokens.css + app.css per
+        # the documented escape-hatch in KR5).
+        # CRITICAL: this cap MUST move in lockstep with the m4/m5 cap
+        # test in tests/test_ui_m4_in_place_add_paper.py — the two
+        # caps MUST agree (m4-rect F1 lesson; restated in m5 synthesis
+        # C8).
         line_count = APP_CSS.count("\n") + (1 if not APP_CSS.endswith("\n") else 0)
-        assert line_count <= 335, (
-            f"app.css is {line_count} lines — over the 335-line cap "
-            f"(revised in m4 from 330 → 335 to accommodate UPL-22 badge "
-            f"flash + UPL-13 View Transitions duration override). Consider "
-            f"stripping documentation comments, splitting the file (e.g. "
-            f"tokens.css + app.css), or arguing for another revision."
+        assert line_count <= 370, (
+            f"app.css is {line_count} lines — over the 370-line cap "
+            f"(revised in m5 from m4's 335 to accommodate UPL-19 v1 body "
+            f"clamp + UPL-8 v1 dark pill remap + UPL-12 v1 row-fade "
+            f"keyframe). Consider stripping documentation comments, "
+            f"splitting the file (e.g. tokens.css + app.css per the "
+            f"escape-hatch noted in KR5), or arguing for another revision. "
+            f"NOTE: the m4/m5 cap test in tests/test_ui_m4_in_place_add_paper.py "
+            f"must also move in lockstep — the two caps MUST agree."
         )

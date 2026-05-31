@@ -613,22 +613,26 @@ class TestCrossMilestoneSafety:
         )
 
     def test_app_css_under_revised_soft_cap(self) -> None:
-        # m4-rect F1: single source of truth — this cap mirrors the m3 test
-        # file's cap exactly. Trajectory: m1 = 190 → m2 = 216 → m3-feat =
-        # 287 → m3-rect = 330 (F1/F2/F3 WCAG corrections) → m4 = 335
-        # (UPL-22 flash keyframes + UPL-13 ::view-transition duration
-        # override, consolidated into ONE @media block to minimise line
-        # cost). If a future milestone raises the cap again, BOTH this
-        # test AND tests/test_ui_m3_dark_and_htmx_feedback.py::
-        # TestCrossMilestoneSafety::test_app_css_under_soft_cap must move
-        # in lockstep — the two caps MUST agree.
+        # m5: single source of truth — this cap mirrors the m3 test
+        # file's cap exactly. Trajectory:
+        #   m1=190 → m2=216 → m3-feat=287 → m3-rect=330 (WCAG) →
+        #   m4=335 (UPL-22 + UPL-13) → m5=370 (UPL-19 v1 body clamp +
+        #   UPL-8 v1 four dark-mode pill remaps + th dark surface +
+        #   UPL-12 v1 row-fade keyframe — all consolidated into the
+        #   existing dark @media block and the existing
+        #   prefers-reduced-motion:no-preference block to minimise
+        #   line cost).
+        # If a future milestone raises the cap again, BOTH this test
+        # AND tests/test_ui_m3_dark_and_htmx_feedback.py::
+        # TestCrossMilestoneSafety::test_app_css_under_soft_cap must
+        # move in lockstep — the two caps MUST agree.
         line_count = APP_CSS.count("\n") + (1 if not APP_CSS.endswith("\n") else 0)
-        assert line_count <= 335, (
-            f"app.css is {line_count} lines — over the 335-line cap (revised "
-            f"in m4 from m3-rect's 330 to accommodate UPL-22 badge flash + "
-            f"UPL-13 View Transitions duration override). Consider stripping "
-            f"documentation comments, splitting the file (e.g. tokens.css + "
-            f"app.css), or arguing for another revision. NOTE: the m3 cap "
-            f"test in tests/test_ui_m3_dark_and_htmx_feedback.py must also "
-            f"move in lockstep — the two caps MUST agree."
+        assert line_count <= 370, (
+            f"app.css is {line_count} lines — over the 370-line cap (revised "
+            f"in m5 from m4's 335 to accommodate UPL-19 v1 body clamp + "
+            f"UPL-8 v1 dark pill remap + UPL-12 v1 row-fade keyframe). "
+            f"Consider stripping documentation comments, splitting the file "
+            f"(e.g. tokens.css + app.css), or arguing for another revision. "
+            f"NOTE: the m3/m5 cap test in tests/test_ui_m3_dark_and_htmx_feedback.py "
+            f"must also move in lockstep — the two caps MUST agree."
         )

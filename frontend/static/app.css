@@ -28,7 +28,13 @@ body {
   margin: 0;
   padding: 1rem;
   line-height: 1.5;
-  max-width: 980px;
+  /* ui-attractive-polish-m5 (UPL-19 v1): lift the m2 v0 980px ceiling
+     to clamp(640px, 92vw, 1400px) so the papers table breathes on
+     27"/4K monitors while preserving a 640px floor on narrow
+     viewports. m2's .table-wrap { overflow-x: auto } still handles
+     sub-640px viewports correctly. clamp() is Baseline Widely
+     Available (broad browser support since 2020). */
+  max-width: clamp(640px, 92vw, 1400px);
   margin-left: auto;
   margin-right: auto;
 }
@@ -265,6 +271,23 @@ button.danger:focus-visible { outline-color: var(--danger); outline-offset: 3px;
                        { color: #b3b9c0; } /* ~9:1 on --bg / --card-bg */
   .card .note, .card .empty { color: #9ba1a8; } /* italic captions/empty */
   .card .display-name  { color: #c9d1d9; } /* ~13:1 */
+
+  /* ui-attractive-polish-m5 (UPL-8 v1): dark-mode redeclaration of the
+     4 .status-badge--* modifier classes + th background. The light-mode
+     pill colors (#e6f4ea / #fdf3e2 / #eef2f7 / #fff4f2) are too pale
+     for --bg #0d1117 and would read as bright pastel blotches; the
+     dark pairs below are Primer-Dark-anchored and WCAG-AA-verified
+     (text contrast ≥ 4.5:1, border ≥ 3:1 vs canvas) per the m5
+     research-synthesis C4 contrast table. Border = text for visual
+     uniformity (light-mode's ops-warn anomaly was the odd-one-out;
+     m5 simplifies to single-color across all 4 pills). The companion
+     th { background } redeclaration prevents the light #f0f0f0 header
+     from showing against the dark canvas. */
+  .status-badge--ok       { background: #0d2818; color: #3fb950; border-color: #3fb950; }
+  .status-badge--warn     { background: #3d2a07; color: #d29922; border-color: #d29922; }
+  .status-badge--ops-warn { background: #1c2230; color: #8b949e; border-color: #8b949e; }
+  .status-badge--down     { background: #3d1216; color: #f85149; border-color: #f85149; }
+  th { background: #161b22; }
 }
 
 /* ui-attractive-polish-m3 (UPL-11): in-flight loading-state styling
@@ -329,5 +352,19 @@ button.danger.htmx-request:focus-visible { outline-width: 3px; }
   ::view-transition-old(root),
   ::view-transition-new(root) {
     animation-duration: 200ms;
+  }
+  /* ui-attractive-polish-m5 (UPL-12 v1): row-fade for in-place
+     notebook removal. htmx applies .htmx-swapping to the swap target
+     (the <tr> reached via hx-target="closest tr") for the
+     hx-swap="outerHTML swap:200ms" delay window; animation-fill-mode:
+     forwards keeps opacity at 0 through the settle phase so the row
+     doesn't flash back before removal. Duration MUST match the
+     swap:200ms modifier in index.html. */
+  tr.htmx-swapping {
+    animation: row-fade-out 200ms ease-out forwards;
+  }
+  @keyframes row-fade-out {
+    from { opacity: 1; }
+    to   { opacity: 0; }
   }
 }

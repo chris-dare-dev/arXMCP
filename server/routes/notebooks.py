@@ -299,11 +299,16 @@ async def list_notebooks(
 @router.post(
     "/notebooks",
     status_code=status.HTTP_201_CREATED,
+    # ui-attractive-polish-m5 (UPL-12 v1): union return (HTMLResponse
+    # | dict) — mirrors the m4 add_paper precedent. response_model=None
+    # suppresses FastAPI's Pydantic-model autogeneration on the union.
+    response_model=None,
 )
 async def create_notebook(
     body: NotebookCreate,
+    request: Request,
     store: NotebooksStore = Depends(get_notebooks_store),  # noqa: B008  (FastAPI DI pattern)
-) -> dict[str, str]:
+) -> HTMLResponse | dict[str, str]:
     """Create a new notebook.
 
     Idempotency contract (m7 AC #1): a duplicate slug returns HTTP
@@ -315,6 +320,20 @@ async def create_notebook(
     (idempotent via ``mkdir(parents=True, exist_ok=True)``). The
     directory may ALREADY exist from a prior notebook with the same
     slug (m7 AC #3 — DELETE is metadata-only).
+
+    ui-attractive-polish-m5 (UPL-12 v1): content-negotiation on the
+    ``HX-Request: true`` header. htmx clients get a ``<tr>`` fragment
+    for ``hx-swap="beforeend"`` into ``#notebooks-tbody`` (no full-
+    page reload); non-htmx clients (curl, scripts) still get the
+    existing JSON dict body. Mirrors the m4 ``add_paper`` precedent
+    exactly — Spike-2 pre-flight applies: validation runs BEFORE the
+    response fork; the fragment uses ``_notebook_row_html`` (which
+    html.escape()s every interpolated value); the ``HX-Request``
+    header is a client hint NOT a trust boundary. The HTML branch
+    deliberately omits the host-path-leak ``lancedb_path`` field
+    (per ``06-mcp-server-design.md`` note on lancedb_path info-leak)
+    — the JSON branch preserves it for backwards compatibility with
+    scripted callers.
     """
     # FM-2: slug regex via shared helper.
     try:
@@ -366,12 +385,16 @@ async def create_notebook(
     # builder reads it as an ``abs:``/``ti:`` keyword string, so it must
     # be clean text regardless of which write path created the notebook.
     cleaned_description = _CONTROL_CHARS_RE.sub("", body.description)
+    # ui-attractive-polish-m5 (UPL-12 v1): capture once for both the
+    # store insert + the fragment response (mirrors m4 add_paper at
+    # the equivalent call site).
+    created_at = _now_iso()
     try:
         await store.create_notebook(
             slug=body.slug,
             display_name=body.display_name,
             lancedb_path=lancedb_path,
-            created_at=_now_iso(),
+            created_at=created_at,
             notebook_kind=body.notebook_kind,
             parse_status=initial_parse_status,
             discovery_category=body.discovery_category,
@@ -411,6 +434,22 @@ async def create_notebook(
             ),
         ) from e
 
+    # ui-attractive-polish-m5 (UPL-12 v1): content-negotiation.
+    # Starlette normalizes header names to lowercase, so "hx-request"
+    # is the canonical key (matches the m4 add_paper precedent).
+    # The HTML fragment omits ``lancedb_path`` (host-path leak per
+    # 06-mcp-server-design.md); the JSON branch preserves it for
+    # scripted callers.
+    if request.headers.get("hx-request") == "true":
+        return HTMLResponse(
+            status_code=status.HTTP_201_CREATED,
+            content=_notebook_row_html(
+                slug=body.slug,
+                display_name=body.display_name,
+                notebook_kind=body.notebook_kind,
+                created_at=created_at,
+            ),
+        )
     return {
         "slug": body.slug,
         "display_name": body.display_name,
@@ -424,11 +463,17 @@ async def create_notebook(
 @router.delete(
     "/notebooks/{slug}",
     status_code=status.HTTP_204_NO_CONTENT,
+    # ui-attractive-polish-m5 (UPL-12 v1): union return (Response |
+    # None) — Response for the HX-Request branch (200 empty body so
+    # htmx applies hx-swap="outerHTML" — htmx 2.0.10 explicitly skips
+    # the swap on 204), None for the existing 204 default path.
+    response_model=None,
 )
 async def delete_notebook(
     slug: str,
+    request: Request,
     store: NotebooksStore = Depends(get_notebooks_store),  # noqa: B008  (FastAPI DI pattern)
-) -> None:
+) -> Response | None:
     """Drop the notebook's metadata + cascade to ``notebook_papers``.
 
     Metadata-only — does NOT touch on-disk
@@ -436,6 +481,20 @@ async def delete_notebook(
     explicit job of ``tools/notebook_purge.py``.
 
     404 if the slug doesn't exist (no row to delete).
+
+    ui-attractive-polish-m5 (UPL-12 v1): content-negotiation on the
+    ``HX-Request: true`` header. The vendored htmx 2.0.10 explicitly
+    sets ``{code:"204",swap:false}`` in its responseHandling config,
+    so a 204 response would short-circuit the row-removal swap. The
+    HX-Request branch returns 200 with an empty body so htmx's
+    ``hx-swap="outerHTML"`` on the remove button (with
+    ``hx-target="closest tr"``) actually removes the ``<tr>``. The
+    non-htmx path keeps the historical 204 — verified harmless for
+    existing JSON-direct tests (``test_notebook_api.py`` +
+    ``test_notebook_rename_delete.py`` both call without HX-Request).
+    Spike-2 pre-flight applies: ``validate_slug`` precedes the fork;
+    the 404-on-missing check precedes the fork; the HX-Request
+    header is a renderer hint NOT a trust boundary.
     """
     try:
         validate_slug(slug)
@@ -451,6 +510,11 @@ async def delete_notebook(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"notebook {slug!r} not found",
         )
+    # ui-attractive-polish-m5 (UPL-12 v1): HX-Request → 200 empty so
+    # the htmx swap removes the row; non-htmx → 204 (default per
+    # @router.delete decorator).
+    if request.headers.get("hx-request") == "true":
+        return Response(status_code=status.HTTP_200_OK, content=b"")
     # 204 No Content — explicit None return matches FastAPI's
     # convention for body-less responses.
     return None
@@ -1826,6 +1890,65 @@ def _paper_row_html(
         f'<td>{html.escape(added_at)}</td>'
         f'{preview_cell}'
         f'<td>added</td>'
+        f"</tr>"
+    )
+
+
+def _notebook_row_html(
+    *,
+    slug: str,
+    display_name: str | None,
+    notebook_kind: str,
+    created_at: str,
+) -> str:
+    """Build a single notebooks-index ``<tr>`` fragment.
+
+    Used by ``create_notebook``'s HX-Request branch
+    (ui-attractive-polish-m5 / UPL-12 v1). Mirrors the m4
+    ``_paper_row_html`` precedent exactly:
+
+    - Per-value ``html.escape()`` is load-bearing (Spike-2 pre-flight
+      checklist: server-fragment correctness). The display_name field
+      is operator-controlled; an XSS payload like
+      ``<img src=x onerror=alert(1)>`` MUST escape to ``&lt;img ...``.
+    - The Actions cell shows ONLY an ``Open`` link (NO Remove button
+      on the immediate post-create row). Mirrors m4's "added" pattern:
+      immediately providing Remove is UX confusion; the next page-load
+      restores the standard Remove affordance via the rendered
+      template.
+    - ``lancedb_path`` is deliberately NOT interpolated (host-path
+      leak per ``06-mcp-server-design.md`` note on lancedb_path
+      info-leak). The JSON branch in ``create_notebook`` keeps
+      returning it for scripted callers.
+    - The 4-column schema matches the rendered ``index.html`` body:
+      Slug / Display name / Created / Actions.
+
+    Args:
+        slug: the notebook slug, post-``validate_slug``.
+        display_name: operator-supplied display name; may be ``None``
+            or empty string. Rendered as "—" when falsy, mirroring
+            the template's ``{{ nb.display_name or "—" }}``.
+        notebook_kind: server-validated via Pydantic ``Pattern``
+            constraint. Not currently rendered (the ``index.html``
+            template doesn't show kind), but kept in the signature
+            for future column additions.
+        created_at: server-generated via ``_now_iso()`` — never raw
+            request data.
+    """
+    # Mirror the template's `{{ nb.display_name or "—" }}` for empty
+    # display_name (None or ""). Escape AFTER the falsy fallback.
+    display_text = display_name if display_name else "—"
+    # `notebook_kind` is accepted but not rendered today; accepting
+    # it future-proofs the helper signature without changing the
+    # rendered surface.
+    _ = notebook_kind
+    return (
+        f'<tr data-slug="{html.escape(slug)}">'
+        f'<td><code>{html.escape(slug)}</code></td>'
+        f'<td>{html.escape(display_text)}</td>'
+        f'<td><time>{html.escape(created_at)}</time></td>'
+        f'<td><a href="/ui/notebooks/{html.escape(slug)}" '
+        f'class="button">Open</a></td>'
         f"</tr>"
     )
 

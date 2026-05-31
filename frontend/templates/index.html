@@ -9,10 +9,20 @@
     Slug pattern: lowercase letters, digits, hyphens — 3–31 chars,
     must start with a letter (matches <code>tools/_notebook_common.SLUG_RE</code>).
   </p>
+  {# ui-attractive-polish-m5 (UPL-12 v1): in-place htmx swap replaces
+     the legacy location.reload() flow. The server returns a <tr>
+     fragment when HX-Request:true; hx-target/hx-swap append it to
+     the #notebooks-tbody. The success hook ALSO (a) removes the
+     #notebooks-empty placeholder row if present (so the table shows
+     only real rows after the first create from empty state), (b)
+     calls this.reset() to clear the form for a follow-up create
+     (mirrors the m4-F3 carryover pattern on the add-paper form). #}
   <form
     hx-post="/ui/api/notebooks"
     hx-disabled-elt="find button"
-    hx-on::htmx:after-request="if(event.detail.successful) location.reload()"
+    hx-target="#notebooks-tbody"
+    hx-swap="beforeend"
+    hx-on::htmx:after-request="if(event.detail.successful){document.getElementById('notebooks-empty')?.remove();this.reset();}"
     hx-on::htmx:response-error="document.getElementById('create-error').textContent = (function(t){try{return JSON.parse(t).detail||t;}catch(e){return t;}})(event.detail.xhr.responseText)"
   >
     <label>
@@ -53,41 +63,59 @@
 
 <section class="card">
   <h2>Existing notebooks ({{ notebooks|length }})</h2>
-  {% if not notebooks %}
-    <p class="empty">No notebooks yet. Create one above.</p>
-  {% else %}
-    {# ui-attractive-polish-m2 (UPL-19 v0): wrap the table in
-       .table-wrap (overflow-x:auto) so mobile viewports get horizontal
-       scroll inside the card instead of clipping the Open/Remove
-       buttons off the right edge. The wrapper is INSIDE the else-block
-       so empty-state still renders cleanly. #}
-    <div class="table-wrap">
-      <table class="notebooks">
-        <thead>
-          <tr><th>Slug</th><th>Display name</th><th>Created</th><th></th></tr>
-        </thead>
-        <tbody id="notebook-list">
-          {% for nb in notebooks %}
-          <tr data-slug="{{ nb.slug }}">
-            <td><code>{{ nb.slug }}</code></td>
-            <td>{{ nb.display_name or "—" }}</td>
-            <td><time>{{ nb.created_at }}</time></td>
-            <td>
-              <a href="/ui/notebooks/{{ nb.slug }}" class="button">Open</a>
-              <button type="button"
-                      hx-delete="/ui/api/notebooks/{{ nb.slug }}"
-                      hx-disabled-elt="this"
-                      hx-confirm="Remove notebook '{{ nb.slug }}' from the UI? On-disk data at var/arxmcp/notebooks/{{ nb.slug }}/ is NOT deleted — run tools/notebook_purge.py to wipe the disk."
-                      hx-on::htmx:after-request="if(event.detail.successful) location.reload()"
-                      class="danger">
-                Remove
-              </button>
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  {% endif %}
+  {# ui-attractive-polish-m5 (UPL-12 v1): the table+tbody are now
+     ALWAYS rendered (no {% if not notebooks %} wrap) so the htmx
+     hx-target="#notebooks-tbody" swap target is always present —
+     including the first create from an empty state. The empty-state
+     message moves INSIDE the tbody as a 4-column-spanning placeholder
+     row (id="notebooks-empty"); the create form's success hook
+     removes it after the first successful append.
+     m1 UPL-3: aria-live="polite" on the tbody so screen readers
+     announce the swap-in.
+     ui-attractive-polish-m2 (UPL-19 v0): .table-wrap (overflow-x:auto)
+     wraps the table so narrow viewports get horizontal scroll inside
+     the card instead of clipping the Open/Remove buttons. #}
+  <div class="table-wrap">
+    <table class="notebooks">
+      <thead>
+        <tr><th>Slug</th><th>Display name</th><th>Created</th><th></th></tr>
+      </thead>
+      <tbody id="notebooks-tbody" aria-live="polite">
+        {% if not notebooks %}
+        <tr id="notebooks-empty"><td colspan="4" class="empty">No notebooks yet. Create one above.</td></tr>
+        {% endif %}
+        {% for nb in notebooks %}
+        <tr data-slug="{{ nb.slug }}">
+          <td><code>{{ nb.slug }}</code></td>
+          <td>{{ nb.display_name or "—" }}</td>
+          <td><time>{{ nb.created_at }}</time></td>
+          <td>
+            <a href="/ui/notebooks/{{ nb.slug }}" class="button">Open</a>
+            {# ui-attractive-polish-m5 (UPL-12 v1): in-place row removal
+               via hx-target="closest tr" hx-swap="outerHTML swap:200ms".
+               The 200ms swap-delay window gates the row-fade keyframe
+               in app.css (gated by prefers-reduced-motion: no-preference);
+               after the window htmx replaces the <tr> with the empty
+               200 response body, effectively removing it. The legacy
+               hx-on::htmx:after-request="location.reload()" is replaced.
+               NOTE: this button IS inside a <tr> (the htmx "closest tr"
+               CSS-selector ascent works); the delete-notebook button in
+               notebook_detail.html is NOT inside a <tr> and stays on
+               its existing window.location.href='/ui/' navigation. #}
+            <button type="button"
+                    hx-delete="/ui/api/notebooks/{{ nb.slug }}"
+                    hx-disabled-elt="this"
+                    hx-target="closest tr"
+                    hx-swap="outerHTML swap:200ms"
+                    hx-confirm="Remove notebook '{{ nb.slug }}' from the UI? On-disk data at var/arxmcp/notebooks/{{ nb.slug }}/ is NOT deleted — run tools/notebook_purge.py to wipe the disk."
+                    class="danger">
+              Remove
+            </button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </section>
 {% endblock %}

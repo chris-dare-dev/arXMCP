@@ -157,11 +157,18 @@
      screen readers automatically without any new attribute. m3's
      hx-disabled-elt="find button" stays for the submit-button disable +
      m3's .htmx-request styling for the in-flight spinner. #}
+  {# ui-attractive-polish-m5 (m4-F3 carryover): clear the URL input on
+     a successful in-place swap so a follow-up paste doesn't double-fire
+     into a 409. The pre-m4 location.reload() flow incidentally cleared
+     the form; the m4 beforeend swap doesn't. Compatible with the m4
+     negative-regression test (which asserts only `location.reload`
+     absence). #}
   <form
     hx-post="/ui/api/notebooks/{{ notebook.slug }}/papers"
     hx-disabled-elt="find button"
     hx-target="#papers-tbody"
     hx-swap="beforeend"
+    hx-on::htmx:after-request="if(event.detail.successful) this.reset()"
     hx-on::htmx:response-error="document.getElementById('paste-error').textContent = (function(t){try{return JSON.parse(t).detail||t;}catch(e){return t;}})(event.detail.xhr.responseText)"
   >
     <label>
