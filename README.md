@@ -1,5 +1,19 @@
 # arXMCP
 
+<!--
+  Badges: the GitHub-dynamic ones (downloads, last-commit, release) render
+  once the repo is public and (for downloads/release) once a release is cut.
+  The static ones always render. See docs/releasing.md.
+-->
+[![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue.svg)](pyproject.toml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![MCP spec](https://img.shields.io/badge/MCP-2025--06--18-blueviolet.svg)](https://modelcontextprotocol.io/specification/2025-06-18)
+[![Lint: ruff](https://img.shields.io/badge/lint-ruff-261230.svg)](https://github.com/astral-sh/ruff)
+[![Status](https://img.shields.io/badge/status-pre--release-orange.svg)](CHANGES.md)
+[![Release](https://img.shields.io/github/v/release/chris-dare-dev/arXMCP?display_name=tag&sort=semver)](https://github.com/chris-dare-dev/arXMCP/releases)
+[![Downloads](https://img.shields.io/github/downloads/chris-dare-dev/arXMCP/total.svg)](https://github.com/chris-dare-dev/arXMCP/releases)
+[![Last commit](https://img.shields.io/github/last-commit/chris-dare-dev/arXMCP.svg)](https://github.com/chris-dare-dev/arXMCP/commits)
+
 A local-first [Model Context Protocol (MCP)](https://modelcontextprotocol.io/specification/2025-06-18)
 server that exposes a research-mathematics arXiv corpus to multi-agent Claude
 pipelines. arXMCP is the substrate a Claude **sketcher → autoformalizer →
@@ -11,196 +25,96 @@ references, citation neighborhoods) from a single, version-pinned corpus.
 
 ## What it does
 
-Run the long-running `arxmcp-server` process; register the stateless
-`arxmcp-shim` in Claude Code's `~/.claude.json`; sub-agents then call MCP
-tools over loopback `127.0.0.1:7733`. The server exposes seven tools on
-`tools/list`:
+Run the long-running `arxmcp-server`; register the stateless `arxmcp-shim`
+in Claude Code's `~/.claude.json`; sub-agents then call MCP tools over
+loopback `127.0.0.1:7733`. The server exposes **eight** tools:
 
 | Tool | Capability |
 |---|---|
-| `search_papers` | Dense ANN over BGE-M3 `embedding_stmt`; level=`theorem` / `section` / `paper`. |
+| `search_papers` | Dense ANN over BGE-M3 statement embeddings; `level` = `theorem` / `section` / `paper`; notebook + `paper_id` filters. |
 | `get_chunk` | Direct LanceDB chunk lookup with a 256 KB inline cap + `resource_link` fallback. |
-| `find_equation` | Dense-only fallback over `embedding_stmt` (full equation TED index is on the roadmap). |
-| `get_definitions` | Per-paper `\newcommand` / `\DeclareMathOperator` / `\def` macro table. |
-| `find_lemma_by_name` | Case-insensitive substring scan over `theorem_name`. |
+| `find_equation` | MathML → Zhang–Shasha tree-edit-distance fused with dense cosine; LaTeX falls back to dense-only. |
+| `get_definitions` | Per-paper `\newcommand` / `\DeclareMathOperator` / `\def` notation table with term lookup. |
+| `find_lemma_by_name` | SQLite FTS5 theorem-name index — exact → trigram → fuzzy Jaccard. |
 | `get_paper` | Chunks-synthesized per-paper metadata. |
-| `cite_neighbors` | Citation-graph traversal (`cites` / `cited_by` / `depends_on`, depth 1-2). |
+| `cite_neighbors` | Kùzu citation-graph traversal (`cites` / `cited_by` / `depends_on`, depth 1–2). |
+| `lean_verify` | Verify a Lean 4 snippet against a managed local kernel (gated by `ARXMCP_ENABLE_LEAN`). |
 
-Under the hood the server runs a 3-tier retrieval cache (SQLite exact + FAISS
-semantic + LRU rerank-set), enforces per-session retrieval caps, routes
-queries to one of four agent roles via a regex classifier, and ships a Kùzu
-citation graph populated from OpenAlex + INSPIRE-HEP + intra-paper
-`\ref{}` chains. All transport is MCP 2025-06-18 Streamable HTTP — single-
-shot `application/json`, loopback bind only.
+Under the hood: a 3-tier retrieval cache (SQLite exact + FAISS semantic + LRU
+rerank-set), per-session retrieval caps, a regex query router, a Kùzu
+citation graph from OpenAlex + INSPIRE-HEP + intra-paper `\ref{}` chains, and
+a loopback-only [operator console](docs/usage.md#the-operator-console) at
+`/ui/` for notebook management. Corpus is organized into independently
+ingested **notebooks**; textbook PDFs ingest via MinerU + LaTeXML. All
+transport is MCP 2025-06-18 Streamable HTTP, loopback bind only. See the
+[architecture chapter](docs/architecture.md).
 
-## How to use it
-
-Full operator setup: [`docs/install.md`](docs/install.md).
-
-Quick version:
+## Quick start
 
 ```bash
-# 1. bootstrap (Python ≥3.11, create venv, install deps, create var/ tree)
+# 1. bootstrap (Python ≥3.11): create venv, install deps, create var/ tree
 python3 -m venv .venv && source .venv/bin/activate
 make bootstrap
 
-# 2. fetch the 50-paper math.AG seed corpus (one-time)
-#    The fetch tools (NOT `make up`) require ARXMCP_CONTACT_EMAIL
-#    for the arXiv polite-pool User-Agent. The server rejects it.
-export ARXMCP_CONTACT_EMAIL=you@example.com   # arXiv TOS §3 polite pool
-python tools/fetch_seed.py                    # idempotent
-unset ARXMCP_CONTACT_EMAIL                    # the server forbids it
+# 2. create a notebook and add papers (EMAIL persists the arXiv polite-pool
+#    contact so the server never needs ARXMCP_CONTACT_EMAIL)
+make init NOTEBOOK=demo EMAIL=you@example.com
+make add  NOTEBOOK=demo PAPER=1309.4265
 
-# 3. start the MCP server on 127.0.0.1:7733
-make up
+# 3. ingest, then serve it
+make ingest ARGS="--paper-ids-file=tools/seed-papers.txt --limit=5"
+ARXMCP_NOTEBOOK=demo make up        # MCP server on 127.0.0.1:7733
 
-# 4. register the stdio shim in Claude Code's ~/.claude.json
-#    (see docs/install.md for the JSON snippet)
+# 4. register the stdio shim in Claude Code's ~/.claude.json (see docs/install.md)
 ```
 
-Other entry points: `make help`, `make test` (ruff + pytest), `make eval`
-(retrieval-quality gate).
+`make help` lists every target. Full setup is in the
+[install guide](docs/install.md); end-to-end tasks are in the
+[usage guide](docs/usage.md).
 
-## Operations
+## Documentation
 
-Operator runbooks live under [`docs/ops/`](docs/ops/). The
-[**runbook index**](docs/ops/README.md) is the single entry-point
-for failure and maintenance scenarios; the table below lists
-the underlying files directly.
-
-| Runbook | Epic | When to use |
-|---|---|---|
-| [`latexml-drift-runbook.md`](docs/ops/latexml-drift-runbook.md) | E10_S04 | LaTeXML version drift detected (daily cron alert) |
-| [`bulk-ingest-runbook.md`](docs/ops/bulk-ingest-runbook.md) | E11_S01 | Initial bulk ingest of the Academic Torrents corpus |
-| [`delta-loop.md`](docs/ops/delta-loop.md) | E11_S02 | Nightly OAI-PMH delta harvest |
-| [`re-embed-runbook.md`](docs/ops/re-embed-runbook.md) | E11_S03 | Partial re-embed after a chunker or embedder bump |
-| [`drift-watchdog.md`](docs/ops/drift-watchdog.md) | E11_S04 | nDCG@5 regression watchdog after staging updates |
-| [`cutover-runbook.md`](docs/ops/cutover-runbook.md) | E11_S05 | 200K staging → active cutover activation + rollback |
-| [`backup-restore.md`](docs/ops/backup-restore.md) | E11_S05 | restic backup + restore drill |
-| [`daily-ops-cadence.md`](docs/ops/daily-ops-cadence.md) | E14_S04 | Daily/weekly/quarterly cron + systemd schedule |
-| [`parser-failure-review.md`](docs/ops/parser-failure-review.md) | E14_S04 | Weekly parser-failures triage workflow |
-| [`failure-modes.md`](docs/ops/failure-modes.md) | E14_S05 | Detection + recovery for the 9 documented failure modes |
-| [`notebook-modes.md`](docs/ops/notebook-modes.md) | pv-m3 | Multi-notebook deployment topology (per-daemon vs per-call filter) |
-| [`corpus-drift-runbook.md`](docs/ops/corpus-drift-runbook.md) | corpus-integrity-completion-m1+m2 | `ArXMCPCorpusCountRowsFailed` / `ArXMCPCorpusUnindexedRows` alert; `make reconcile` for marker drift |
-
-### Parser fidelity evaluation
-
-A CDM (Character Detection Matching) eval gate at
-[`tools/cdm_eval.py`](tools/cdm_eval.py) measures how faithfully a
-PDF parser preserves math-formula content (LaTeX → MathML →
-LaTeXML round-trip). Lands as the **prerequisite** for any future
-PDF-parser-bake-off milestone — see
-[`.claude/TIER-GATES.md`](.claude/TIER-GATES.md) for the gate
-definition.
-
-**How to run** (requires `pdflatex` + `pdftoppm` system binaries —
-not installed by default):
-
-```bash
-# macOS
-brew install --cask mactex-no-gui && brew install poppler
-
-# Debian/Ubuntu
-sudo apt install texlive-base poppler-utils
-
-# Run the CDM gate (opt-in via env var + marker)
-ARXMCP_RUN_REAL_PDFLATEX=1 \
-  uv run python -m pytest tests/eval/test_parser_fidelity.py \
-    -m requires_pdflatex
-```
-
-**What scores mean** (CDM F1 in [0, 1]). The four bands below are
-**arXMCP-chosen** — anchored on the Nougat-on-clean-papers ~85%
-baseline for the 0.85 boundary and the CDM paper's worked examples
-for the perfect/near-perfect distinction, but the 0.70 boundary and
-the secondary-parser recommendation are project judgment, not
-published guidelines. **Re-tune as parser-bake-off data accumulates**
-on the 20-page fixture below; do not cite these as upstream
-authority.
-
-| CDM score | Interpretation (arXMCP-chosen) |
+| Guide | For |
 |---|---|
-| **≥ 0.95** | Near-perfect math fidelity — comparable to LaTeXML-on-source baseline |
-| **0.85 – 0.95** | Acceptable for textbook ingest (Tier-1 promotion threshold) |
-| **0.70 – 0.85** | Marginal; recommend secondary parser (e.g., Mathpix-batch) on the worst pages |
-| **< 0.70** | Math fidelity contract not met — parser rejected for Path A |
+| [Install](docs/install.md) | Setup + Claude Code registration. |
+| [Usage](docs/usage.md) | Notebooks, ingest, search, the operator console. |
+| [MCP tool API](docs/api.md) | The exact tool surface agents call. |
+| [Architecture](docs/architecture.md) | How retrieval, caching, and the graph fit together. |
+| [Operations](docs/ops/README.md) | Corpus lifecycle, failures, daily cadence. |
+| [Observability](docs/observability/README.md) | Metrics, tracing, Phoenix, Grafana. |
+| [Evaluation](docs/evaluation.md) | Retrieval-quality + parser-fidelity gates. |
+| [Support](docs/support.md) | Troubleshooting and how to get help. |
 
-The 0.85 threshold matches the parsing-note baseline (Nougat
-~85% on clean papers) and reflects the project's "math fidelity
-over coverage" stance from
-[`.claude/notes/01-mission-and-context.md`](.claude/notes/01-mission-and-context.md).
-Neither the CDM paper (arXiv:2409.03643) nor OmniDocBench defines
-the 0.70 / 0.95 boundaries — those are arXMCP's working defaults.
+**Operations runbooks** — the [operations index](docs/ops/README.md) is the
+entry point. Common runbooks:
+[bulk ingest](docs/ops/bulk-ingest-runbook.md) ·
+[delta loop](docs/ops/delta-loop.md) ·
+[re-embed](docs/ops/re-embed-runbook.md) ·
+[drift watchdog](docs/ops/drift-watchdog.md) ·
+[LaTeXML drift](docs/ops/latexml-drift-runbook.md) ·
+[cutover](docs/ops/cutover-runbook.md) ·
+[backup & restore](docs/ops/backup-restore.md).
 
-The 20-page eval fixture at
-[`tests/eval/textbook_fixtures/`](tests/eval/textbook_fixtures/)
-ships with 2 example pages; operator-hand-curated pages land
-incrementally per `tests/eval/textbook_fixtures/README.md`.
-
-### Importing the dashboard
-
-A provisioned Grafana dashboard with cache hit-ratio and latency panels
-lives at [`infra/observability/grafana-dashboard.json`](infra/observability/grafana-dashboard.json).
-Provisioning config split into two physical files (so each mounts at
-the path Grafana actually expects):
-
-- [`infra/observability/grafana-datasource.yml`](infra/observability/grafana-datasource.yml)
-  — Prometheus datasource block.
-- [`infra/observability/grafana-dashboard-provider.yml`](infra/observability/grafana-dashboard-provider.yml)
-  — dashboards provider block (points Grafana at the dashboard JSON).
-
-**Option A — manual UI import** (one-off, simplest):
-
-1. Open Grafana → **Dashboards → New → Import**.
-2. Upload `infra/observability/grafana-dashboard.json` (or paste its
-   contents) and select your Prometheus datasource.
-3. The dashboard appears as `arXMCP — Cache and Latency`.
-
-**Option B — provisioned auto-load** (durable across Grafana restarts):
-
-Mount the three files directly into Grafana's provisioning tree (no
-manual splitting required — F8 closure from the E14_Tier5plus
-critique):
-
-```bash
-# On the host running Grafana, mount:
-#   infra/observability/grafana-datasource.yml
-#     → /etc/grafana/provisioning/datasources/arxmcp.yml
-#   infra/observability/grafana-dashboard-provider.yml
-#     → /etc/grafana/provisioning/dashboards/arxmcp.yml
-#   infra/observability/grafana-dashboard.json
-#     → /etc/grafana/provisioning/dashboards/arxmcp/arxmcp-cache-latency.json
-
-# Then `docker restart grafana` (or equivalent) — dashboard auto-loads.
-```
-
-**Grafana-in-container networking gotcha.** The datasource YAML
-hardcodes `url: http://localhost:9090`. When Grafana itself runs in
-a container, `localhost` resolves to the Grafana container — not the
-host. Two common fixes (documented inline in
-`grafana-datasource.yml`):
-
-- Docker Desktop (macOS/Windows): change to `http://host.docker.internal:9090`.
-- Linux Docker with a shared compose stack: change to a Prometheus
-  service alias like `http://prometheus:9090`.
-
-Tested against Grafana 10.x and 11.x (`schemaVersion: 39`). Requires
-a Prometheus datasource scraping the arXMCP `/metrics` endpoint.
+Contributing: [CONTRIBUTING.md](CONTRIBUTING.md) ·
+Security: [SECURITY.md](SECURITY.md) ·
+Changes: [CHANGES.md](CHANGES.md) ·
+Releases: [docs/releasing.md](docs/releasing.md).
 
 ## Repo layout
 
 ```
 arXMCP/
-├── server/         long-running MCP server (FastAPI + Streamable HTTP; owns indices + caches)
-├── ingest/         corpus ingestion pipeline (chunker, embedder, BM25, citation-graph ingest)
-├── shim/           stateless stdio↔HTTP bridge registered in Claude Code's ~/.claude.json
-├── tools/          dev utilities (seed fetch, eval-fixture validator)
-├── tests/          pytest suite + retrieval-quality eval harness under tests/eval/
-├── docker/         multi-stage Dockerfile (non-root user, tini, HEALTHCHECK on /readyz)
-├── infra/          deployment manifests
-├── docs/           operator-facing documentation (install + setup)
-├── var/            gitignored data tree (created by `make bootstrap`)
-└── .claude/        agent-internal: design notes, roadmap, milestones, internal docs
+├── server/     long-running MCP server (FastAPI + Streamable HTTP; indices + caches + /ui/ console)
+├── ingest/     corpus pipeline (chunker, embedder, BM25, citation-graph ingest)
+├── shim/       stateless stdio↔HTTP bridge registered in Claude Code's ~/.claude.json
+├── frontend/   operator-console templates + vendored htmx/CSS (no SPA, no Node build chain)
+├── tools/      dev + ingest utilities (seed/notebook fetch, eval gates, ops reports)
+├── tests/      pytest suite + retrieval-quality eval harness under tests/eval/
+├── docker/     multi-stage Dockerfile (non-root, tini, HEALTHCHECK on /readyz)
+├── infra/      deployment + observability manifests
+├── docs/       user/operator-facing documentation (this README's chapters)
+├── var/        gitignored data tree (created by `make bootstrap`)
+└── .claude/    agent-internal: design notes, roadmap, milestones, engineering refs
 ```
 
 ## Hard constraints
@@ -217,11 +131,9 @@ These never change:
 
 ## License
 
-MIT. See [`pyproject.toml`](pyproject.toml).
+[MIT](LICENSE). © 2026 Chris Dare.
 
 ---
 
-For agent context, design notes, working conventions, and the milestone
-history, see [`CLAUDE.md`](CLAUDE.md) and the `.claude/` directory.
-Changes are tracked in [`CHANGES.md`](CHANGES.md). Security reporting:
-[`SECURITY.md`](SECURITY.md). Ownership: [`OWNERS.md`](OWNERS.md).
+For agent context, design notes, and working conventions, see
+[`CLAUDE.md`](CLAUDE.md) and the [`.claude/`](.claude/) directory.

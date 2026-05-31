@@ -1,13 +1,26 @@
-# Changes
+# Changelog
 
-Epic-grain changelog. Per-milestone detail is in
-[`.claude/notes/milestones/<EXX_SYY>/`](.claude/notes/milestones/) (each has
-a research synthesis, implementation summary, critique-merged, and
-state.json). Per-commit detail is in `git log`.
+The notable changes to arXMCP. The format loosely follows
+[Keep a Changelog](https://keepachangelog.com/), and the project adheres to
+[Semantic Versioning](https://semver.org/) (currently in the `0.x`
+pre-release line — see [docs/releasing.md](docs/releasing.md)).
 
-This file groups changes by **epic** rather than version because arXMCP is
-not yet versioned beyond `0.1.0`. The next semver bump will land with the
-production cutover (E11).
+Two layers live here:
+
+- **Releases** — versioned, dated sections (`## [x.y.z] — date`) and the
+  rolling `## Unreleased` section above them. This is the layer that maps to
+  git tags and [GitHub Releases](https://github.com/chris-dare-dev/arXMCP/releases).
+- **Epic history** — the longer-form, epic-grain record (E01–E14) below the
+  releases, kept because arXMCP shipped its substrate epic-by-epic before
+  adopting tagged releases.
+
+Per-milestone detail is in
+[`.claude/notes/milestones/<EXX_SYY>/`](.claude/notes/milestones/); per-commit
+detail is in `git log`.
+
+> **First release.** `v0.1.0` will tag the current pre-release substrate
+> (E01–E14). It is prepared but not yet cut — see
+> [docs/releasing.md](docs/releasing.md).
 
 ---
 
@@ -486,10 +499,21 @@ The agent runtime can now traverse the citation graph in 2 MCP rounds.
 
 ---
 
-## Pending epics
+## Epic status
 
-E10 (specialized indices: equation TED, FTS5 theorem-name index),
-E11 (scale cutover: production ingest driver, 200K backfill),
-E13 (security audit), E14 (observability/ops). E12 scoped-out
-(folded into E11). See [`.claude/roadmap/README.md`](.claude/roadmap/README.md)
-for current status.
+E01–E11, E13, E14 have **shipped** (E12 scoped-out, folded into E11);
+specialized indices (E10), scale cutover (E11), security audit (E13), and
+observability/ops (E14) are all in `main`. A handful of Tier-5/6+ follow-ups
+remain unstarted. See [`.claude/roadmap/README.md`](.claude/roadmap/README.md)
+for the authoritative per-milestone status.
+
+---
+
+## Releases
+
+No git tags cut yet; `v0.1.0` is prepared (see
+[docs/releasing.md](docs/releasing.md)). Once releases exist, link each
+version section to its compare range, e.g.:
+
+- [Unreleased]: https://github.com/chris-dare-dev/arXMCP/compare/v0.1.0...HEAD
+- [0.1.0]: https://github.com/chris-dare-dev/arXMCP/releases/tag/v0.1.0

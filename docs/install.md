@@ -1,12 +1,10 @@
-# Installing arxmcp for Claude Code
+# Installing arXMCP for Claude Code
 
-The arxmcp package ships two artifacts:
+arXMCP ships two artifacts:
 
-- **`arxmcp-server`** — the long-running MCP server (E06_S01) that
-  owns the BGE-M3 embedder, the LanceDB index, and (when E07 lands)
-  the BM25 + reranker pipeline. Run as a single instance per
-  workstation.
-- **`arxmcp-shim`** — a tiny stdio↔HTTP bridge (E06_S02). Claude
+- **`arxmcp-server`** — the long-running MCP server that owns the BGE-M3
+  embedder and the LanceDB index. Run as a single instance per workstation.
+- **`arxmcp-shim`** — a tiny stdio↔HTTP bridge. Claude
   Code spawns one shim process per sub-agent (per the
   `~/.claude.json` registration); each shim forwards JSON-RPC
   frames to the same shared `arxmcp-server`.
@@ -18,18 +16,24 @@ across separate Claude context windows.
 
 ## 1. Install
 
+arXMCP is **not yet published to PyPI** — install from source. This puts both
+`arxmcp-server` and `arxmcp-shim` on your `$PATH`:
+
 ```sh
-pipx install arxmcp        # preferred — isolates the install
-# or:
-pip install arxmcp         # if you want it in your active venv
+git clone https://github.com/chris-dare-dev/arXMCP.git && cd arXMCP
+python3 -m venv .venv && source .venv/bin/activate
+make bootstrap             # editable install (pip install -e ".[dev]") + var/ tree
 ```
+
+(When a release is published to PyPI, `pipx install arxmcp` will become the
+preferred path — see [releasing.md](releasing.md).)
 
 ### Optional ingest system deps
 
 The runtime server (`arxmcp-server`) has no system dependencies
-beyond Python ≥3.11. The optional **bulk ingest pipeline** (E11_S01,
-`make ingest`) and the **LaTeXML drift detector** (E10_S04,
-`ops/cron/latexml-drift-check.sh`) need two system binaries:
+beyond Python ≥3.11. The optional **bulk ingest pipeline**
+(`make ingest`) and the **LaTeXML drift detector**
+(`ops/cron/latexml-drift-check.sh`) need two system binaries:
 
 - **`aria2c`** — BitTorrent client used to download the Academic
   Torrents arXiv source dump. `brew install aria2` (macOS) or
@@ -43,10 +47,10 @@ beyond Python ≥3.11. The optional **bulk ingest pipeline** (E11_S01,
 
 ### Optional textbook-ingest dep — MinerU
 
-The textbook-ingest pipeline (`textbook-ingest-e2`) parses
-operator-supplied PDFs via **MinerU 3.x** running in a sandboxed
-subprocess. MinerU pulls a large PyTorch + ONNX + transformers tree —
-install it into a **separate venv** rather than the project venv:
+The textbook-ingest pipeline parses operator-supplied PDFs via
+**MinerU 3.x** running in a sandboxed subprocess. MinerU pulls a large
+PyTorch + ONNX + transformers tree — install it into a **separate venv**
+rather than the project venv:
 
 ```sh
 # macOS / Apple Silicon (MLX backend)
@@ -61,7 +65,7 @@ uv pip install --python ~/venvs/mineru/bin/python 'mineru[pipeline]'
 ~/venvs/mineru/bin/mineru-models-download -s huggingface -m pipeline
 ```
 
-Two environment variables control the m5 sandbox driver
+Two environment variables control the sandbox driver
 (`ingest/textbook_parser.py`):
 
 - **`ARXMCP_MINERU_BIN`** — absolute path to the `mineru` CLI binary.
@@ -74,52 +78,15 @@ Two environment variables control the m5 sandbox driver
   [60, 3600]. Parsed at module load — out-of-range values raise
   `RuntimeError` at server startup rather than silently clamping.
 
-### Textbook ingest end-to-end (m6 + later)
+Once MinerU is installed, the end-to-end textbook parse workflow
+(upload → background parse → `parse-status` polling) is covered in the
+[usage guide](usage.md#textbook-pdf-ingest).
 
-After uploading a PDF to a `notebook_kind="textbook"` notebook, the
-m6 background pipeline runs MinerU + LaTeXML to produce HTML5+MathML.
-The upload returns immediately (201 with the HTML row fragment); the
-parse runs in the background. Poll the parse status via:
-
-```
-GET /ui/api/notebooks/<slug>/parse-status
-```
-
-The endpoint returns JSON with the following fields:
-
-```json
-{
-  "slug": "<notebook-slug>",
-  "notebook_kind": "textbook",
-  "parse_status": "pending|running|complete|failed|skipped",
-  "parse_error": "<HTML-escaped tail; empty unless failed>",
-  "parsed_html_path": "<absolute path to index.html; empty unless complete>"
-}
-```
-
-States:
-- **`skipped`** — arxiv-kind notebook; no parse pipeline applies.
-- **`pending`** — textbook notebook created but no PDF uploaded yet.
-- **`running`** — MinerU + LaTeXML pipeline is in flight (typically 5–30 min).
-- **`complete`** — `parsed_html_path` points at the rendered `index.html`.
-- **`failed`** — `parse_error` carries an HTML-escaped tail of the failure.
-
-The parse pipeline is **serialized via `asyncio.Semaphore(1)`** —
-at most one MinerU/LaTeXML run happens at a time across all
-notebooks to avoid GPU/MLX memory pressure on Apple Silicon.
-
-After a server restart, any rows stuck in `parse_status='running'`
-are reset to `failed` at lifespan startup (`mark_orphaned_parses_failed`
-sweep). Operators can retry the upload to schedule a fresh parse.
-
-**Platform note (macOS):** the 4 GB virtual-memory cap
-(`RLIMIT_AS`) that the sandbox profile prescribes is **not enforceable
-on macOS** (the Darwin kernel keeps the hard limit at `RLIM_INFINITY`
-and refuses lowering — verified live test on Darwin 25.4.0 / Apple
-M4 Max). On macOS the 30-min wall timeout is the only memory backstop.
-Linux deployments get the full RLIMIT_AS cap as designed. See
-[`.claude/docs/security-pdf-sandbox.md`](../.claude/docs/security-pdf-sandbox.md)
-for the full sandbox profile rationale.
+> **Platform note (macOS):** the sandbox's 4 GB virtual-memory cap
+> (`RLIMIT_AS`) is **not enforceable on macOS** — the Darwin kernel refuses
+> to lower it, so the 30-min wall timeout is the only memory backstop there
+> (Linux gets the full cap). Full rationale:
+> [`.claude/docs/security-pdf-sandbox.md`](../.claude/docs/security-pdf-sandbox.md).
 
 After install, both binaries are on `$PATH`:
 
@@ -145,18 +112,11 @@ your existing entries):
 }
 ```
 
-> **MCP endpoint path.** The shim POSTs to `/mcp/` (with the trailing
-> slash) — it appends the path internally to the `--server` base URL,
-> so the registration above is correct as-is. Custom HTTP clients
-> (whether POSTing JSON-RPC requests or issuing a GET to listen on the
-> SSE stream) should address `/mcp/` directly:
-> `http://127.0.0.1:7733/mcp/`. The mount is at `/mcp` but
-> FastAPI/Starlette 307-redirects bare `/mcp` → `/mcp/`, which most
-> HTTP clients handle for GET but drop POST bodies on (and a misbehaving
-> proxy may not follow the redirect at all for either method) — this is
-> a FastAPI mount idiosyncrasy, not an MCP spec requirement (see MCP
-> 2025-06-18 Streamable HTTP: the example endpoint is unslashed). See
-> *Troubleshooting* below.
+> **MCP endpoint path.** The registration above is correct as-is — the shim
+> appends `/mcp/` (with the trailing slash) to the `--server` base URL.
+> Custom HTTP clients should POST to `http://127.0.0.1:7733/mcp/` directly:
+> FastAPI 307-redirects bare `/mcp` → `/mcp/`, and clients commonly drop the
+> POST body on that redirect. See *Troubleshooting* for the symptom.
 
 The block above is **verbatim** the snippet from
 [`.claude/notes/06-mcp-server-design.md`](../.claude/notes/06-mcp-server-design.md)
@@ -308,8 +268,8 @@ ready, so a misordered start surfaces clearly rather than hanging.
 echo '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | arxmcp-shim
 ```
 
-Should print a JSON line containing `"tools": [...]` (empty until
-E06_S03 lands the seven canonical tools). If you see
+Should print a JSON line containing `"tools": [...]` — the eight canonical
+tools (see [the API reference](api.md)). If you see
 `FATAL: cannot reach arxmcp-server`, the server is not running on
 the configured port; double-check `make up` is alive.
 
@@ -317,7 +277,7 @@ the configured port; double-check `make up` is alive.
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `arxmcp-shim: command not found` | pipx/pip didn't install | re-run `pipx install arxmcp` |
+| `arxmcp-shim: command not found` | the editable install didn't run, or the venv isn't activated | activate the venv and re-run `make bootstrap` (§1) |
 | Shim exits with `FATAL: arxmcp-server returned 503` | Server is mid-warmup or LanceDB corpus is missing | wait for `/readyz` 200, or run the ingest pipeline first |
 | Shim hangs on first request | `json_response=True` not set on server, so it returns SSE the shim can't parse | the v1 server sets it by default; this should not happen on a fresh install |
 | `Mcp-Session-Id` errors | spec violation upstream | report; shim captures session-id from response headers per MCP 2025-06-18 |
