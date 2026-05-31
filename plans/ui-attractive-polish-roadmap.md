@@ -1,0 +1,511 @@
+# UI attractive polish — close the bare-bones gap — Roadmap
+
+**Slug:** `ui-attractive-polish`
+**Created:** 2026-05-31T01:55:30Z
+**Status:** init
+
+<!--
+This roadmap is itself the state. Re-invoking the `roadmap` skill on
+this file resumes from the first un-populated phase. Sections below
+contain `{{TOKEN}}` placeholders until their phase runs.
+
+Phases:
+  1. REFINE     — How-Might-We, sharpening questions, assumptions, OKR, Won't list
+  2. DECOMPOSE  — technique, epics, INVEST, specialist suggestions
+  3. SEQUENCE   — MoSCoW, RICE, Now/Next/Later, spike lane, Now-lane milestones
+  4. MATERIALIZE — validation results, optional GitHub bundle, next-step handoff
+-->
+
+---
+
+## Phase 1 — Refine
+
+<!-- populated by REFINE phase 2026-05-30; brief = head-350 of
+.claude/notes/frontend-uplifts/2026-05-ui-polish/artifacts/final-report.md
+(itself the output of a 4-scout / 1-challenger / 25-candidate discovery
+pipeline). Sharpening was answered from the discovery artifacts in lieu
+of a fresh Q&A pass with the user — the brief IS the polished output of
+a discovery skill, so questions like "what does attractive mean?" are
+already named at the UPL-N level. -->
+
+### How Might We
+
+How might we raise arXMCP's `/ui/` operator console from "shipped
+correctness, bare on a11y and visual polish" to **2026-SOTA-parity for
+a dense-info dev-tool surface**, **for a single loopback-only operator
+(Chris)**, **without introducing a Node/npm build chain or widening the
+deferred UI security audit** (`chris-dare-dev/arXMCP#9`)?
+
+### Sharpening questions answered
+
+1. **Is "attractive and less bare-bones" subjective enough to need
+   re-scoping?** No — the uplift's discovery pipeline already named the
+   gap concretely: zero `prefers-reduced-motion`, zero `:focus-visible`,
+   zero `aria-live` on success swap targets, no skip-link, no dark mode,
+   no `tabular-nums`, no htmx-in-flight feedback, mobile table overflow,
+   `location.reload()` on every successful create. "Attractive" =
+   closing these named gaps via pure-CSS / native-Web-API / vendored-
+   single-file drops only. The 25 candidates in
+   `.claude/notes/frontend-uplifts/2026-05-ui-polish/artifacts/synthesis.md`
+   are the concretization.
+
+2. **What's the operator workflow this UI serves?** The single operator
+   (Chris) manages notebooks (corpora), adds papers via URL or upload,
+   kicks off ingest runs, watches polling status, deletes / renames
+   notebooks. The "live, scannable, quietly animated, keyboard-honest"
+   tone is the right anchor — biased toward dense-info dev-tool patterns
+   (Linear, Vercel Dashboard, Raycast, Zed) + scholarly platforms
+   (arXiv abstract, ar5iv, Distill). NOT a SaaS marketing surface.
+
+3. **What's the budget envelope across the program?** Five tracks per the
+   final report's §5: Track A (foundational a11y, ≈S), Track B (visible
+   polish, ≈S), Track C (dark + htmx feedback, ≈M), Track D (in-place
+   swaps + View Transitions, ≈M+ + audit-coordination), Track E (bug-
+   fixes — RUN AS PARALLEL milestones, NOT in this roadmap's Now lane
+   per final-report §5 Track E). Single milestone (Track A) ships
+   immediately; the rest sequence over several weeks.
+
+4. **What's the UI-security-audit dependency?** Track D candidates (UPL-12
+   in-place swaps, UPL-13 View Transitions) materially widen
+   `chris-dare-dev/arXMCP#9`. Land Track A → Track B → Track C first;
+   defer Track D until the audit is either greenlit OR descoped to
+   not-blocking. The audit landing is therefore a soft dependency
+   captured as a Spike-lane discovery item.
+
+5. **Why are UPL-5/6/7 (the CRITICAL bug-fixes) NOT in this roadmap's
+   Now lane?** Per the final report §5 Track E + the challenger's
+   §6.3 diagnostic concern on UPL-5: those are regressions on shipped
+   functionality (silent rename, raw-JSON empty-states, raw-JSON
+   middleware rejection) — not "polish." They each get their own
+   `/milestone-pipeline ui-rename-422-fix-bm1` etc., run in parallel
+   with this roadmap, and the v0 for UPL-5 starts with a reproduce-
+   first spike (capture the actual emitted PATCH body before coding
+   any fix to the JSON-shim). Bundling them into the polish roadmap
+   would obscure the "fix-anyway, RICE-independent" framing.
+
+### Assumptions
+
+- `[MUST]` **arXMCP's `/ui/` stack stays Jinja2 + vendored htmx + a
+  single CSS file** — i.e. CLAUDE.md §4.7 (no-build-chain, no SPA,
+  no Node, no npm) remains a project-level hard constraint for the
+  whole program. (Validated by existing constitution; no spike needed.)
+- `[MUST]` **A11y baselines (`prefers-reduced-motion`, `:focus-visible`,
+  `aria-live`, skip-link) deliver real value to a single-operator
+  loopback console** — not just compliance theater. (Chris uses
+  keyboard nav, may use screen-reader testing; even self-use benefits.
+  Validated by inspection of the visual-scout brief — destructive red
+  buttons currently have NO visible keyboard focus on Safari.)
+- `[MUST]` **The View Transitions API integration with htmx 2.0.10 works
+  via the `htmx:beforeSwap` event + `document.startViewTransition()`
+  pattern** documented in MDN and the library-scout brief. If `htmx.swap()`
+  re-entry has the wrong signature, UPL-13 silently breaks every
+  interaction. **Validated by Spike-1.**
+- `[SHOULD]` **Browser baselines for `:has()`, View Transitions API,
+  `color-mix()`, `popover` attribute are stable enough to ship as
+  primary behavior** for Chris's actual browser (Chrome on macOS, per
+  the visual scout's live-walk evidence). Library-scout cites Baseline
+  Widely Available status for `color-mix()` (2025-11) and Newly→Widely
+  Available for `:has()` (~2026-06); View Transitions same-document
+  Baseline Widely Available in Chrome+Safari, no-op in Firefox.
+- `[SHOULD]` **The dark-mode color choices anchored to GitHub Primer's
+  dark scale meet WCAG AA contrast for the existing 8 tokens** without
+  needing a parallel token system. Falls back to "ship v0 with 8 base
+  tokens only; defer status-pill dark-mode remap to v1" per challenger
+  finding on UPL-8.
+- `[MIGHT]` **htmx 2.0.10's `hx-trigger="every 2s [condition]"`
+  composes** (poll-backoff candidate UPL-21). Spike-2 verifies; if
+  it doesn't, fallback is server-side `HX-Trigger` interval-swap OR
+  inline Page-Visibility listener.
+- `[MIGHT]` **Chris's monitor is wide enough that expanding `body {
+  max-width: 980px }` to `clamp(640px, 92vw, 1400px)` improves the
+  workflow** (UPL-19 v1). The v0 (just `.table-wrap` wrappers) ships
+  the mobile fix without this assumption.
+
+### Objective
+
+**Raise arXMCP's `/ui/` operator console to 2026-SOTA-parity for a
+dense-info dev-tool surface — closing the named a11y, dark-mode, and
+htmx-feedback gaps via pure-CSS / native-Web-API / vendored-single-file
+techniques only — while preserving the no-build-chain constitution and
+not widening the open UI security audit until that audit lands.**
+
+### Key Results
+
+1. **By 2026-06-15:** the 4 foundational a11y baselines from UPL-1..4
+   (`prefers-reduced-motion` universal gate, `:focus-visible` outline
+   ring, `aria-live="polite"` on 4 htmx success swap targets +
+   `aria-atomic` on the status-badge, skip-to-main-content link) are
+   live in `frontend/static/app.css` + `frontend/templates/base.html`,
+   confirmed by **manual keyboard-walk of all 3 routes + 1 fragment
+   without losing focus** AND **macOS VoiceOver smoke-test announces
+   at least the rename success and ingest-poll transitions**.
+2. **By 2026-06-30:** `@media (prefers-color-scheme: dark)` is honored
+   across all 3 HTML routes — light and dark token sets BOTH pass
+   WCAG AA non-text contrast (3:1) for `--fg` on `--bg` and `--card-bg`,
+   measured via a checker against the post-edit CSS.
+3. **By 2026-06-30:** `htmx-request` styling produces visible in-flight
+   feedback (opacity dim + spinner) on at least 5 of the 7 htmx-bound
+   forms (Create / Rename / Add paper / Upload / Ingest / Remove
+   notebook / Remove paper) within 100ms of click, measured by DevTools
+   Performance recording of one happy-path interaction per form.
+4. **By 2026-07-15:** at least one of the three legacy `location.reload()`
+   flows (target: add-paper, per the challenger's v0-narrow recommendation
+   for UPL-12) is converted to an in-place htmx swap, eliminating the
+   full-page white flash on that flow — verified by recording a 60-fps
+   capture showing no `unload`/`load` event sequence on a successful add.
+5. **Across the program:** total `frontend/static/app.css` size stays
+   under **300 lines** (currently 126; budget +174 lines of pure CSS)
+   AND **zero new npm dependencies, package.json files, or build-chain
+   artifacts** are introduced (re-validated by `make test` passing +
+   ruff clean + the existing `tests/test_vendored_assets_integrity.py`
+   continuing to pin only `htmx.min.js`).
+
+### Won't (explicit out-of-scope)
+
+- **No SPA migration** — Next.js / React / Vue / Svelte / Vite remain
+  CLAUDE.md §4.7 BLOCKERs. Re-pinned across notebook-surface-expansion
+  m3 and m5.
+- **No npm-installable libraries** — Tailwind / shadcn / Radix / Framer
+  Motion / GSAP-pro / Recharts / Zustand / TanStack / Alpine.js are all
+  enumerated in the final-report §6 rejection set.
+- **No custom web font** (Inter / IBM Plex / Source Serif) — would add
+  CSP `font-src` widening + network fetch; system-ui stack at
+  `app.css:18` is excellent on macOS / Linux / Windows.
+- **No Cmd-K command palette** — final-report §6 parks this until
+  notebook count grows past ~20 OR a search surface lands. The
+  current 3-page surface doesn't justify a global-keyboard-handler
+  modal trap.
+- **No marketing surface or hero imagery** — arXMCP has no marketing
+  surface; the README is the only public face.
+- **No multi-user / auth / OAuth** — loopback-only design is the
+  security model; the `SecFetchSiteMiddleware` + `OriginValidationMiddleware`
+  triple defense is load-bearing.
+- **No SVG illustrations for empty states** — UPL-17 ships the
+  copy + CTA upgrade only; designer-asset budget is not in scope.
+- **No UPL-5/6/7 bug-fix work inside THIS roadmap** — they run as
+  parallel `/milestone-pipeline ui-rename-422-fix-bm1` /
+  `ui-preview-empty-bm2` / `ui-secfetch-html-bm3` invocations per the
+  final-report §5 Track E. Bundling them into the polish roadmap
+  obscures the "fix-anyway, RICE-independent" framing.
+- **No `idiomorph` vendoring** — final-report §6 parks; arXMCP's swap
+  targets are small enough that morphdom-style diffing isn't load-
+  bearing. Revisit if focus-loss / scroll-jump becomes a real
+  observed problem.
+- **No `:has()`-driven layout primitives** — library-scout flagged
+  Baseline status as Newly→Widely-Available ~2026-06. Use only as
+  progressive enhancement (e.g. inside UPL-15's table-row hover
+  rules), never as a load-bearing layout.
+
+---
+
+## Phase 2 — Decompose
+
+### Technique
+
+**Vertical slicing + enabler stories.** Each epic delivers an
+operator-visible behavior change (keyboard nav working / dark mode
+honored / in-flight feedback / no full-page flash on create), not a
+horizontal layer. Deviation from the default was unnecessary — the
+4-track structure surfaced by the discovery pipeline IS a clean
+vertical-slice decomposition.
+
+### Epics
+
+#### ui-attractive-polish-e1 — `/ui/` keyboard-walkable and screen-reader-honest
+
+- **Type:** value
+- **Specialist suggestion:** `—` (CSS + Jinja2 attribute additions only;
+  no parser/cache/MCP/security path matches. The milestone-pipeline's
+  default adversary critic suffices.)
+- **Outcome:** the four foundational a11y baselines (UPL-1..4) are live;
+  Chris can keyboard-walk all 3 routes + 1 fragment without losing focus;
+  VoiceOver announces htmx success swaps; the universal `prefers-
+  reduced-motion` gate is in place so no future motion candidate is a
+  Phase-3 BLOCKER. Closes KR-1.
+- **Estimated size:** S (4 × XS items bundled)
+- **INVEST check:** I clean (zero deps on later epics; ships first),
+  N clean (each UPL inside can be deferred individually), V clean
+  (Chris-visible keyboard walk improvement), E clean (T-shirt S),
+  S clean (1 week max), T clean (KR-1 has manual-walk + VoiceOver-
+  smoke-test gates).
+- **Dependencies:** none
+- **Won't conflict check:** none
+- **Inside:** UPL-1, UPL-2, UPL-3, UPL-4 — see
+  `.claude/notes/frontend-uplifts/2026-05-ui-polish/artifacts/final-report.md`
+  §4 ranks 1-4.
+
+#### ui-attractive-polish-e2 — `/ui/` numerically calm and mobile-readable
+
+- **Type:** value
+- **Specialist suggestion:** `—` (CSS + template wrapper edits + 1
+  static asset only)
+- **Outcome:** the dense-info polish layer — `tabular-nums` removes
+  digit-jitter on every htmx swap; `color-mix()` adoption replaces the
+  imprecise `filter: brightness(1.08)` hover; `.table-wrap { overflow-x:
+  auto }` fixes mobile table clipping; `aria-hidden` on footer separators
+  silences SR noise; a tiny SVG favicon eliminates devtools 403 noise.
+  Operator-visible improvement: numbers stop dancing, mobile is usable,
+  hover states feel intentional. Also: lays the `color-mix()` foundation
+  for e3's dark-mode status-pill derivation.
+- **Estimated size:** S (5 × XS bundled)
+- **INVEST check:** I clean (no dep on other epics for v0 ship; UPL-9
+  inside is itself a forward-dep for e3 but ships first), N clean
+  (each UPL drops individually), V clean (jitter-free typography +
+  mobile fix are immediately visible), E clean, S clean (1 week),
+  T clean (KR-3 sub-clause + measurable contrast checks).
+- **Dependencies:** none (and unblocks e3 via UPL-9)
+- **Won't conflict check:** none
+- **Inside:** UPL-9, UPL-10, UPL-19 v0, UPL-23, UPL-25 — final-report
+  §5 Track B.
+
+#### ui-attractive-polish-e3 — `/ui/` dark-mode-honest and click-acknowledged
+
+- **Type:** value
+- **Specialist suggestion:** `—` (CSS + `hx-disabled-elt` attribute
+  additions on htmx forms; no parser/cache/MCP/security path matches.
+  However: the universal-selector `*` rule in UPL-1 + the new
+  `.htmx-request` styling combine in subtle ways with macOS Safari's
+  WebKit transition-event semantics — the adversary critic should
+  manual-verify on Safari before close.)
+- **Outcome:** `@media (prefers-color-scheme: dark)` is honored — the
+  white-flash-on-dark-OS goes away. `.htmx-request` styling produces
+  visible click-acknowledgement on every htmx-bound form within 100ms.
+  Operator-visible improvement: dark-mode operators feel respected;
+  every click feels acknowledged. Closes KR-2 + KR-3.
+- **Estimated size:** M (UPL-8 v0 S + UPL-11 S + integration testing
+  ≈ M total; cross-browser verification adds buffer)
+- **INVEST check:** I borderline — depends on e1 (UPL-1 `prefers-reduced-
+  motion` gate is prereq for UPL-11's spinner animation per challenger)
+  and e2 (UPL-9 `color-mix()` is prereq for v0 dark-mode pill
+  derivations, though v0 sidesteps the status-pill remap entirely);
+  N clean, V clean, E clean, S clean (≤ 2 weeks), T clean (KR-2 +
+  KR-3 are measurable).
+- **Dependencies:** e1, e2 (hard sequencing edge)
+- **Won't conflict check:** none — UPL-11 uses only htmx core CSS hooks
+  (`htmx-request` auto-class), no new vendored asset.
+- **Inside:** UPL-8 v0 (8 base tokens only — defer status-pill dark-mode
+  remap to a v1 follow-on), UPL-11.
+
+#### ui-attractive-polish-e4 — `/ui/` swap-fluent and flash-free on success
+
+- **Type:** value
+- **Specialist suggestion:** `security-reviewer` — see
+  `.claude/skills/roadmap/references/specialist-contracts.md`. UPL-12
+  introduces new server-side fragment-rendering endpoints in
+  `server/routes/notebooks.py`; UPL-13 adds an htmx-event-bridge inline
+  script in `base.html` (within the existing `'unsafe-inline'`
+  allowance, but adds JS to the un-audited UI surface
+  `chris-dare-dev/arXMCP#9`). UPL-22's `htmx-settling` flash relies on
+  the `color-mix()` derivation from e2.
+- **Outcome:** the legacy `location.reload()` add-paper flow is
+  converted to an in-place htmx swap — the full-page white flash on
+  successful "Add paper by URL" is gone. View Transitions API wraps
+  the m2 rename swap + the new add-paper swap with a ~200ms crossfade
+  on Chrome/Safari (no-op on Firefox). The footer status-badge gets a
+  fixed-width slot + a flash on every 10s swap so operators see "the
+  badge just refreshed." Operator-visible improvement: the UI starts
+  feeling like a real SPA without ever becoming one. Closes KR-4.
+- **Estimated size:** M (UPL-12 v0 M + UPL-13 S + UPL-22 XS +
+  audit-coordination overhead ≈ M+; soft-capped at M by descoping to
+  add-paper-only per challenger.)
+- **INVEST check:** I borderline — depends on e1 (UPL-3 `aria-live` on
+  swap targets is prereq for UPL-12 swap UX) AND e3 (UPL-11 `htmx-request`
+  in-flight feedback is prereq for UPL-12 per challenger's §6.1 — without
+  in-flight signal, the no-reload flow has LESS affordance than the
+  reload flow it replaces); also has a soft dependency on the UI
+  security audit landing (`chris-dare-dev/arXMCP#9` — see §6.2 of the
+  challenge). N clean (the v0 add-paper-only narrowing is the
+  negotiation), V clean, E clean (M with v0 scope), S clean (3 weeks
+  max if audit-coord is sequenced post-Track-C, not parallel), T clean
+  (KR-4 is the 60-fps capture gate).
+- **Dependencies:** e1, e2, e3, AND the UI security audit
+  (`chris-dare-dev/arXMCP#9`) must be at least scoped before kickoff —
+  represented in SEQUENCE as a Spike-lane "audit-coordination" item.
+- **Won't conflict check:** none — UPL-12's content-negotiation pattern
+  (HX-Request → fragment, else JSON) is server-side; no SPA migration.
+  UPL-13's inline JS uses the existing `'unsafe-inline'` allowance,
+  no CSP widening.
+- **Inside:** UPL-12 v0 (add-paper only), UPL-13, UPL-22.
+
+---
+
+## Phase 3 — Sequence
+
+### MoSCoW assignment
+
+- **Must** (≤ 60% of total effort): `ui-attractive-polish-e1`, `ui-attractive-polish-e2`
+- **Should**: `ui-attractive-polish-e3`
+- **Could**: `ui-attractive-polish-e4`
+- **Won't (this cycle)**: (none — the Won't list in Phase 1 captures the architectural/scope rejections; no epic was demoted here)
+
+**`score-moscow.py` result:** `OK: Must = 25.0% (≤ 60% cap)` —
+2.00pm / 8.00pm total. The Must cap is comfortably under the 60%
+ceiling; this gives Phase 4's MATERIALIZE room to push e3 to Must if a
+discovery-time finding bumps its priority.
+
+### RICE ranking — Musts
+
+| ID | Reach | Impact | Confidence | Effort | Score |
+|---|---:|---:|---:|---:|---:|
+| `ui-attractive-polish-e1` | 10 | 1.00 | 100% | 1.00 | 10.0 |
+| `ui-attractive-polish-e2` | 10 | 1.00 | 95% | 1.00 | 9.5 |
+
+_No `*` markers — both Musts have evidenced confidence (e1 = 4-brief unanimous + Baseline-Widely-Available CSS APIs; e2 = 4-brief on UPL-10, 2-brief on UPL-19, 1-brief but cheap on UPL-23/25). RICE ranks e1 ahead of e2 by a thin margin reflecting UPL-19's lower triangulation; ship m1 first._
+
+### Now / Next / Later
+
+- **Now** (fully spec'd, in-flight or next-up):
+  - `ui-attractive-polish-e1` (1 milestone `m1` below — RICE 10.0)
+  - `ui-attractive-polish-e2` (1 milestone `m2` below — RICE 9.5)
+- **Next** (shaped, awaiting capacity):
+  - `ui-attractive-polish-e3` (dark mode + htmx feedback; depends on m1's `prefers-reduced-motion` gate and m2's `color-mix()` adoption; not yet sliced into milestones — shape during Phase-4 reflection if e1+e2 land cleanly)
+- **Later** (outcome-only, low-confidence horizon):
+  - `ui-attractive-polish-e4` (in-place swaps + View Transitions + footer-badge flash; depends on e3 AND the open UI security audit `chris-dare-dev/arXMCP#9` reaching at least a scoped state per Spike-2)
+
+### Spike / discovery lane
+
+- `ui-attractive-polish-spike-1` — verify htmx 2.0.10's `htmx.swap()`
+  re-entry signature for the `htmx:beforeSwap` + `document.startView
+  Transition()` integration pattern. Work in a worktree, write a
+  throwaway HTML page that emits an htmx swap inside `startViewTransition`,
+  observe whether the swap completes AND the rename-form swap in
+  `/ui/notebooks/<slug>` still fires correctly. (≤ 1 day, validates
+  `[MUST]` assumption #3 — the View Transitions API integration with
+  htmx 2.0.10. If the call signature has the wrong shape, UPL-13 in
+  e4 silently breaks every htmx interaction; better to spike this
+  before e3 even starts, since the discovery shape impacts e4's
+  feasibility.)
+
+- `ui-attractive-polish-spike-2` — scope the open UI security audit
+  (`chris-dare-dev/arXMCP#9`) against e4's incremental surface. Either
+  (a) define audit-pass criteria with the `security-reviewer`
+  specialist + open a tracking issue for the audit's actual landing,
+  OR (b) descope e4 to not-blocking by descoping UPL-12 to documentation-
+  only ("plan to convert when the audit lands"). Produce a decision
+  memo at `.claude/notes/ui-attractive-polish-spike-2.md`. (≤ 2 days,
+  validates the soft dependency on the audit before e4 promotes from
+  Later to Next.)
+
+### Milestones — Now lane
+
+<!--
+Each Now-lane milestone is its own H3 below. Heading format is
+`### <slug>-mN — Title` exactly — milestone-pipeline's init-state.sh
+greps for this. Do not change it.
+-->
+
+### ui-attractive-polish-m1 — Foundational a11y baselines (UPL-1..4)
+
+**Description.** Bundle the four foundational a11y baselines from the
+uplift's RICE-rank-1 candidates into one CSS + template edit pass.
+Establishes the `prefers-reduced-motion` gate, the `:focus-visible`
+outline-ring, the `aria-live` parity on htmx success swap targets, and
+the skip-to-main-content link. Implementation = pure CSS additions to
+`frontend/static/app.css` + 5 attribute additions across 3 templates +
+1 HTML line in `base.html`. No new vendored asset. No JS. No CSP impact.
+
+**Acceptance criteria.**
+- [ ] **UPL-1** — `@media (prefers-reduced-motion: reduce)` universal block at the bottom of `frontend/static/app.css` clamps `animation-duration`, `animation-iteration-count`, `transition-duration`, `animation-delay`, `transition-delay`, and `scroll-behavior` (per challenger MINOR finding adding delay coverage).
+- [ ] **UPL-2** — `:focus-visible` outline rules for `button, .button, a, input, select, textarea, [tabindex]` using `var(--accent)` at 2px solid with `outline-offset: 2px`. `button.danger:focus-visible` uses `outline-color: var(--danger)` (per challenger finding — destructive controls deserve the LOUDEST focus ring, not the quietest). `:focus:not(:focus-visible)` resets outline.
+- [ ] **UPL-3** — `aria-live="polite"` added to `#display-name-block` (`frontend/templates/notebook_detail.html:15`), `#ingest-status` (`:161`), `#papers-tbody` (`:180`); `#status-badge` (`frontend/templates/base.html:65`) gets `aria-live="polite" aria-atomic="true"`. The 5 existing `pre.error[aria-live="polite"]` regions are left unchanged.
+- [ ] **UPL-4** — `<a class="skip-link" href="#main">Skip to main content</a>` added as the FIRST child of `<body>` in `frontend/templates/base.html`. The existing `<main>` gets `id="main" tabindex="-1"`. CSS rule for `.skip-link` visually-hides off-screen until `:focus-visible`, then reveals at `left: 1rem; top: 1rem` with `background: var(--accent); color: #fff`.
+- [ ] **Verification — keyboard walk:** start with focus on URL bar, Tab forward through `/ui/`; skip-link is the first focus stop (visible); subsequent Tabs reach the Create form's display-name input, then the Create button, then each notebook row's Open link and Remove button. Every focused element shows the `--accent` ring (or the `--danger` ring for `button.danger`). Repeat on `/ui/notebooks/bridgeland-stability` — Tab reaches the Rename input, then Rename submit, then Add-paper URL input, etc. No element shows the browser-default focus ring.
+- [ ] **Verification — VoiceOver smoke-test:** on `/ui/notebooks/bridgeland-stability`, trigger a successful rename via the Rename form. VoiceOver announces the new display name (`#display-name-block` swap reaches an `aria-live` region). Wait 10s for the next status-badge poll; VoiceOver announces the badge content as one atomic string (e.g. "READY · corpus v645 · 2 notebooks"). The status badge poll fires `aria-live` because of `aria-atomic="true"`.
+- [ ] `make test` exits 0 (ruff + pytest, ≤2129 tests passing on macOS / Linux).
+- [ ] Final `frontend/static/app.css` line count ≤ 165 (current 126 + budget 30 for UPL-1+UPL-2+UPL-4; UPL-3 adds zero CSS).
+
+**Dependencies.** epic `ui-attractive-polish-e1`. No prior milestone deps. Independent of UPL-5/6/7 bug-fix track.
+
+**Complexity.** S (≤ 1 day execution including the 4-phase milestone-pipeline; total CSS+HTML changes ≈ 40-50 lines; manual keyboard + VoiceOver verification is the largest time slice).
+
+**Specialist suggestion.** `—` (CSS + Jinja2 attribute additions only; milestone-pipeline's default adversary critic covers it).
+
+### ui-attractive-polish-m2 — Visible polish layer (UPL-9, UPL-10, UPL-19 v0, UPL-23, UPL-25)
+
+**Description.** The dense-info polish layer. `tabular-nums` ends digit
+jitter on every htmx poll. `color-mix()` adoption replaces the imprecise
+`filter: brightness(1.08)` button hover with a token-derivable shade,
+and lays the foundation for e3's dark-mode status-pill derivation.
+`.table-wrap` `<div>`s fix the mobile table-overflow bug visible in the
+visual scout's mobile screenshots. `aria-hidden` on footer `·`
+interpuncts removes SR noise. A trivial SVG favicon kills the
+`/favicon.ico → 403` devtools noise. All pure CSS / template wrap edits /
+one static asset.
+
+**Acceptance criteria.**
+- [ ] **UPL-10** — `time, .status-badge, dl.meta dd, td code { font-variant-numeric: tabular-nums; }` added to `frontend/static/app.css`. Verify on `/ui/`: the Created column in `table.notebooks` no longer reflows horizontally across page reloads with different ISO timestamps.
+- [ ] **UPL-19 v0** — `<div class="table-wrap">` wrappers around both `<table class="notebooks">` (`frontend/templates/index.html:37` line approximately) and `<table class="papers">` (`frontend/templates/notebook_detail.html:176` line approximately). CSS rule `.table-wrap { overflow-x: auto; }` added to `app.css`. **Do NOT** ship the `body { max-width: min(95vw, 1400px) }` expansion in this milestone (per challenger finding — descope to v1; keep the 980px ceiling for now).
+- [ ] **UPL-9** — replace `filter: brightness(1.08)` at `frontend/static/app.css:87` (or wherever the button-hover rule lives) with `background: color-mix(in oklab, var(--accent) 88%, white);` and `border-color: color-mix(in oklab, var(--accent) 80%, var(--fg));` (or similar — the exact derivation chosen by the implementer; verify hover state still meets WCAG AA contrast on light-mode `--bg`). Establishes the `color-mix()` pattern for e3 to extend.
+- [ ] **UPL-23** — wrap each `·` interpunct in `frontend/templates/base.html:57-67` (the 5 footer separators) in `<span aria-hidden="true">·</span>`. Verify via VoiceOver on `/ui/` — footer reads only the link labels, no "middle dot" / "interpunct" announcements between them.
+- [ ] **UPL-25** — create `frontend/static/favicon.svg` (a trivial 32×32 SVG — e.g. a small `<rect>` filled with `var(--accent)` color OR a stylized "arX" monogram; implementer's choice). Add `<link rel="icon" href="/ui/static/favicon.svg" type="image/svg+xml">` to `<head>` in `frontend/templates/base.html`. Verify DevTools network log on `/ui/` no longer shows `GET /favicon.ico → 403`; instead, the SVG is fetched once and cached.
+- [ ] **Verification — mobile screenshot:** at 390×844 viewport (iPhone 12 dimensions), navigate to `/ui/notebooks/bridgeland-stability` — the papers table is scrollable WITHIN the card boundary (horizontal scroll fits inside the `.card` container), NOT clipped off the right edge of the viewport with no recovery affordance. Capture and save to `.claude/notes/milestones/ui-attractive-polish-m2/mobile-after.png`.
+- [ ] `make test` exits 0.
+- [ ] `frontend/static/VENDORED.md` updated if the SVG favicon counts as a vendored asset (likely no — it's hand-authored, not vendored). If updated, the `tests/test_vendored_assets_integrity.py` test continues to pass.
+- [ ] Final `frontend/static/app.css` line count ≤ 175 (m1's 165 + m2's ≈ 10 new lines for tabular-nums + table-wrap + color-mix).
+
+**Dependencies.** epic `ui-attractive-polish-e2`. Soft sequencing edge: SHIPS AFTER m1 (so the foundational a11y baselines land first), but m2's content has no hard dep on m1's content — could ship in either order if budget required.
+
+**Complexity.** S (~ 0.5-1 day execution; the mobile verification + favicon design are the largest time slices).
+
+**Specialist suggestion.** `—`.
+
+---
+
+## Phase 4 — Materialize
+
+### Validation
+
+- `validate-roadmap.py`: **pass** (`OK: ui-attractive-polish-roadmap.md valid (phases populated: Refine, Decompose, Sequence)`)
+- Must-cap: **25.0%** (≤ 60% — comfortable headroom; e3 could promote to Must if a discovery finding warranted it)
+- All Now-lane milestones have AC: **yes** (m1: 7 AC items including 2 verification gates; m2: 8 AC items including mobile-screenshot evidence)
+- Slug format valid: **yes** (`ui-attractive-polish` matches `^[a-z][a-z0-9-]{2,30}$` and does not match `^e\d+$`)
+
+### GitHub tickets
+
+Not requested (no `--github` flag). To bundle epic + story bodies for
+`gh issue create`, re-invoke as
+`roadmap ui-attractive-polish --github`. Per project policy, the skill
+will write the bundle but never invoke `gh` itself.
+
+### Next step
+
+First Now-lane milestone: `ui-attractive-polish-m1`. To execute it
+end-to-end via the 4-phase milestone-pipeline (research → implement →
+critique → rectify), run:
+
+    /milestone-pipeline ui-attractive-polish-m1
+
+This skill will not invoke milestone-pipeline. Cache stays warmer if
+you start the milestone-pipeline session within 5 minutes of this
+roadmap completing.
+
+After `m1` ships, run `m2` similarly:
+
+    /milestone-pipeline ui-attractive-polish-m2
+
+Then reflect: if both ship cleanly, shape epic `e3` into milestones
+(re-invoke `/roadmap ui-attractive-polish` to resume — the doc IS the
+state, and Phase 4 will see e3 in the Next lane and prompt to shape
+it). If a Spike was needed first, kick off `Spike-1` (htmx 2.0.10
+View Transitions integration verification) BEFORE shaping e3's
+milestones.
+
+### Parallel bug-fix track (not in this roadmap)
+
+Per the Won't list and the final-report §5 Track E, the three CRITICAL
+bugs from the visual scout (UPL-5 silent rename failure, UPL-6 raw-JSON
+preview empty-state, UPL-7 raw-JSON SecFetchSiteMiddleware rejection)
+ship as **independent `/milestone-pipeline` invocations**, NOT as part
+of this roadmap. Suggested kickoffs (run any time, no roadmap-dep):
+
+    /milestone-pipeline ui-rename-422-fix-bm1     # UPL-5 (reproduce-first per challenger)
+    /milestone-pipeline ui-preview-empty-bm2      # UPL-6
+    /milestone-pipeline ui-secfetch-html-bm3      # UPL-7 (consider the FastAPI-exception-handler v0 split per challenger)
+
+These are fix-anyway items: their RICE scores are low (R bounded to
+specific routes) but they erode shipped behavior. Bundle them with this
+roadmap's polish milestones only if/when the operator chooses to.
+
+---
+
+<!-- end:roadmap -->

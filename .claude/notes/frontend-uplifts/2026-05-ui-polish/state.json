@@ -1,0 +1,139 @@
+{
+  "id": "2026-05-ui-polish",
+  "kind": "frontend-uplift",
+  "created_at": "2026-05-31T00:34:59Z",
+  "updated_at": "2026-05-31T01:52:35Z",
+  "phase": "complete",
+  "phase_history": [
+    {
+      "phase": "init",
+      "at": "2026-05-31T00:34:59Z"
+    },
+    {
+      "phase": "discover-running",
+      "at": "2026-05-31T00:35:31Z"
+    },
+    {
+      "phase": "discover-complete",
+      "at": "2026-05-31T01:35:28Z"
+    },
+    {
+      "phase": "synthesize-running",
+      "at": "2026-05-31T01:35:35Z"
+    },
+    {
+      "phase": "synthesize-complete",
+      "at": "2026-05-31T01:41:21Z"
+    },
+    {
+      "phase": "challenge-running",
+      "at": "2026-05-31T01:41:27Z"
+    },
+    {
+      "phase": "challenge-complete",
+      "at": "2026-05-31T01:48:38Z"
+    },
+    {
+      "phase": "prioritize-running",
+      "at": "2026-05-31T01:48:44Z"
+    },
+    {
+      "phase": "complete",
+      "at": "2026-05-31T01:52:35Z"
+    }
+  ],
+  "uplift_brief": "Make arXMCP's /ui/ operator console more attractive and less bare-bones. The current surface is 3 Jinja2 templates + a single 126-line CSS file + vendored htmx 2.0.10, light-mode-fixed, with 8 CSS variables and zero prefers-reduced-motion / focus-visible / aria-live / skip-link discipline. Bias toward foundational a11y baselines first (prefers-reduced-motion gate, focus-visible styling, aria-live on htmx swap targets, skip-link), then visual polish via pure-CSS APIs / native Web APIs / vendored single-file drops only. Hard constraint: CLAUDE.md \u00a74.7 no-build-chain \u2014 no npm, no Node, no SPA, no React, no Tailwind, no shadcn, no Framer, no Recharts, no Zustand, no bundler. Everything must drop into frontend/static/ as a vendored single file or a CSS edit.",
+  "discover_mode": "standard",
+  "pages_to_walk": [],
+  "agents_dispatched": [
+    "visual-scout",
+    "library-scout",
+    "inspiration-scout",
+    "current-state-critic"
+  ],
+  "agents_returned": [
+    "visual-scout",
+    "library-scout",
+    "inspiration-scout",
+    "current-state-critic"
+  ],
+  "discover_briefs": [
+    ".claude/notes/frontend-uplifts/2026-05-ui-polish/discover/visual-scout-brief.md",
+    ".claude/notes/frontend-uplifts/2026-05-ui-polish/discover/library-scout-brief.md",
+    ".claude/notes/frontend-uplifts/2026-05-ui-polish/discover/inspiration-scout-brief.md",
+    ".claude/notes/frontend-uplifts/2026-05-ui-polish/discover/current-state-critic-brief.md"
+  ],
+  "screenshot_dir": ".claude/notes/frontend-uplifts/2026-05-ui-polish/screenshots",
+  "synthesis_path": ".claude/notes/frontend-uplifts/2026-05-ui-polish/artifacts/synthesis.md",
+  "candidate_count": 25,
+  "challenge_path": ".claude/notes/frontend-uplifts/2026-05-ui-polish/artifacts/challenge.md",
+  "challenge_finding_counts": {
+    "critical": 0,
+    "high": 3,
+    "medium": 8,
+    "low": 14
+  },
+  "final_report_path": ".claude/notes/frontend-uplifts/2026-05-ui-polish/artifacts/final-report.md",
+  "ranked_candidates": [
+    {
+      "id": "UPL-1",
+      "title": "prefers-reduced-motion universal gate",
+      "rice": 52.0,
+      "rank": 1
+    },
+    {
+      "id": "UPL-2",
+      "title": ":focus-visible baseline ring",
+      "rice": 52.0,
+      "rank": 1
+    },
+    {
+      "id": "UPL-3",
+      "title": "aria-live on htmx success swap targets",
+      "rice": 52.0,
+      "rank": 1
+    },
+    {
+      "id": "UPL-4",
+      "title": "Skip-to-main-content link",
+      "rice": 26.0,
+      "rank": 4
+    },
+    {
+      "id": "UPL-10",
+      "title": "tabular-nums on timestamps + counts",
+      "rice": 20.0,
+      "rank": 5
+    },
+    {
+      "id": "UPL-19",
+      "title": "Mobile responsiveness (table-wrap v0)",
+      "rice": 20.0,
+      "rank": 5
+    },
+    {
+      "id": "UPL-8",
+      "title": "prefers-color-scheme dark (v0)",
+      "rice": 10.0,
+      "rank": 7
+    },
+    {
+      "id": "UPL-11",
+      "title": "htmx-request styling on in-flight buttons",
+      "rice": 8.0,
+      "rank": 8
+    },
+    {
+      "id": "UPL-15",
+      "title": "Table-row hover + focus-within",
+      "rice": 6.0,
+      "rank": 9
+    },
+    {
+      "id": "UPL-22",
+      "title": "Footer badge fixed-width + flash",
+      "rice": 6.0,
+      "rank": 9
+    }
+  ]
+}
