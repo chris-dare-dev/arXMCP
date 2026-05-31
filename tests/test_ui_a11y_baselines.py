@@ -225,11 +225,14 @@ class TestUPL3StaticTemplateAriaLive:
         attrs = NOTEBOOK_DETAIL_HTML[idx : idx + 300]
         assert 'aria-live="polite"' in attrs
 
-    def test_ingest_status_template_has_aria_live(self) -> None:
-        # notebook_detail.html — the static "Loading…" placeholder.
+    def test_ingest_status_template_has_aria_live_and_aria_atomic(self) -> None:
+        # notebook_detail.html — the static "Loading…" placeholder. Both
+        # attributes are required for parity with the swap fragments (m1-rect
+        # F1 added aria-atomic).
         idx = NOTEBOOK_DETAIL_HTML.index('id="ingest-status"')
         attrs = NOTEBOOK_DETAIL_HTML[idx : idx + 500]
         assert 'aria-live="polite"' in attrs
+        assert 'aria-atomic="true"' in attrs
 
     def test_papers_tbody_template_has_aria_live(self) -> None:
         # notebook_detail.html — beforeend swap target; the tbody itself is
@@ -264,11 +267,14 @@ class TestUPL3DisplayNameFragmentAriaLive:
 
 
 class TestUPL3IngestStatusFragmentAriaLive:
-    """Every ``_ingest_status_fragment`` branch emits ``aria-live`` on its <div>.
+    """Every ``_ingest_status_fragment`` branch emits ``aria-live`` AND
+    ``aria-atomic`` on its <div>.
 
     Four code paths: none / running / success / failed. All four must carry
-    the attribute or VoiceOver loses the announcement chain at the
-    transition.
+    BOTH attributes — ``aria-live`` so the live-region fires after the
+    outerHTML swap, and ``aria-atomic="true"`` (m1-rect F1) so the AT re-reads
+    the whole composite string ("Status: success · Finished … · Run #42")
+    rather than guessing diffs on a whole-element replacement.
     """
 
     def test_ingest_status_fragment_none_includes_aria_live(self) -> None:
@@ -283,6 +289,7 @@ class TestUPL3IngestStatusFragmentAriaLive:
         )
         assert 'data-status="none"' in out
         assert 'aria-live="polite"' in out
+        assert 'aria-atomic="true"' in out
 
     def test_ingest_status_fragment_running_includes_aria_live(self) -> None:
         out = _ingest_status_fragment(
@@ -296,6 +303,7 @@ class TestUPL3IngestStatusFragmentAriaLive:
         )
         assert 'data-status="running"' in out
         assert 'aria-live="polite"' in out
+        assert 'aria-atomic="true"' in out
 
     def test_ingest_status_fragment_success_includes_aria_live(self) -> None:
         out = _ingest_status_fragment(
@@ -309,6 +317,7 @@ class TestUPL3IngestStatusFragmentAriaLive:
         )
         assert 'data-status="success"' in out
         assert 'aria-live="polite"' in out
+        assert 'aria-atomic="true"' in out
 
     def test_ingest_status_fragment_failed_includes_aria_live(self) -> None:
         out = _ingest_status_fragment(
@@ -322,6 +331,7 @@ class TestUPL3IngestStatusFragmentAriaLive:
         )
         assert 'data-status="failed"' in out
         assert 'aria-live="polite"' in out
+        assert 'aria-atomic="true"' in out
 
 
 # ---------------------------------------------------------------------------

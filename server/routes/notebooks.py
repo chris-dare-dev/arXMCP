@@ -1373,16 +1373,23 @@ def _ingest_status_fragment(
     ``<pre>`` here.
     """
     # ui-attractive-polish-m1 (UPL-3): every fragment branch below MUST emit
-    # aria-live="polite" on the new <div id="ingest-status">. The outerHTML
-    # swap REPLACES the element each poll cycle; without aria-live on the
-    # replacement, screen readers stop announcing ingest run-state transitions
-    # (running -> success/failed) after the first swap. The initial template
-    # placeholder in notebook_detail.html also carries aria-live, but the
-    # swap chain runs entirely through these fragments.
+    # aria-live="polite" AND aria-atomic="true" on the new
+    # <div id="ingest-status">. The outerHTML swap REPLACES the element each
+    # poll cycle; without aria-live on the replacement, screen readers stop
+    # announcing ingest run-state transitions (running -> success/failed)
+    # after the first swap. aria-atomic="true" is added in m1-rect F1 for
+    # parity with the badge fragment in server/routes/ui.py — the
+    # ingest-status content is a composite string ("Status: success ·
+    # Finished … · Run #42") and atomic-true tells the AT to re-read the
+    # whole region, not just the changed nodes. Otherwise AT behavior on a
+    # whole-element-replaced node varies (some announce everything, some
+    # nothing — the parity gap surfaces as a regression at first manual
+    # VoiceOver test).
     safe_slug = html.escape(slug)
     if status == "none":
         return (
-            f'<div id="ingest-status" data-status="none" aria-live="polite" '
+            f'<div id="ingest-status" data-status="none" '
+            f'aria-live="polite" aria-atomic="true" '
             f'hx-get="/ui/api/notebooks/{safe_slug}/ingest/latest" '
             f'hx-trigger="every 2s" hx-target="#ingest-status" '
             f'hx-swap="outerHTML">'
@@ -1391,7 +1398,8 @@ def _ingest_status_fragment(
         )
     if status == "running":
         return (
-            f'<div id="ingest-status" data-status="running" aria-live="polite" '
+            f'<div id="ingest-status" data-status="running" '
+            f'aria-live="polite" aria-atomic="true" '
             f'hx-get="/ui/api/notebooks/{safe_slug}/ingest/latest" '
             f'hx-trigger="every 2s" hx-target="#ingest-status" '
             f'hx-swap="outerHTML">'
@@ -1402,7 +1410,8 @@ def _ingest_status_fragment(
         )
     if status == "success":
         return (
-            f'<div id="ingest-status" data-status="success" aria-live="polite">'
+            f'<div id="ingest-status" data-status="success" '
+            f'aria-live="polite" aria-atomic="true">'
             f"Status: success"
             f" · Finished {html.escape(finished_at or '')}"
             f" · Run #{run_id}"
@@ -1415,7 +1424,8 @@ def _ingest_status_fragment(
         f"<pre>{stderr_tail}</pre>" if stderr_tail else ""
     )
     return (
-        f'<div id="ingest-status" data-status="failed" aria-live="polite">'
+        f'<div id="ingest-status" data-status="failed" '
+        f'aria-live="polite" aria-atomic="true">'
         f"Status: failed"
         f" · Exit {safe_exit}"
         f" · Run #{run_id}"
