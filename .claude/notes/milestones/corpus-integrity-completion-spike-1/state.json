@@ -18,7 +18,17 @@
   "external_writes_authorized": false,
   "external_writes_completed": false,
   "external_writes_required": [],
-  "fixed_findings": [],
+  "fixed_findings": [
+    "F1",
+    "F2",
+    "F3",
+    "F4",
+    "F5",
+    "F6",
+    "F7",
+    "F8"
+  ],
+  "follow_ups": [],
   "id": "corpus-integrity-completion-spike-1",
   "implementation_base": "297b69074d3b05077fd73066a0b42c1ae50ecdea",
   "implementation_branch": "main",
@@ -30,7 +40,7 @@
   "implementation_specialist": null,
   "invalidated_findings": [],
   "milestone_brief": "",
-  "phase": "rectify-running",
+  "phase": "complete",
   "phase_history": [
     {
       "entered_at": "2026-05-31T22:55:25Z",
@@ -69,11 +79,16 @@
     },
     {
       "entered_at": "2026-05-31T23:12:45Z",
-      "left_at": null,
+      "left_at": "2026-05-31T23:16:03Z",
       "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-05-31T23:16:03Z",
+      "left_at": null,
+      "phase": "complete"
     }
   ],
-  "rectification_commit": null,
+  "rectification_commit": "9fb81fe98fac53af18172384da2e97de0027920d",
   "regression_tests_added": [],
   "research_briefs": [
     {
@@ -89,5 +104,5 @@
   ],
   "research_mode": "standard",
   "research_synthesis": ".claude/notes/milestones/corpus-integrity-completion-spike-1/research-synthesis.md",
-  "updated_at": "2026-05-31T23:12:45Z"
+  "updated_at": "2026-05-31T23:16:03Z"
 }
