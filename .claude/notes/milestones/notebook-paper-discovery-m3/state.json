@@ -1,0 +1,103 @@
+{
+  "brief_source": "C:/Users/cedar/Documents/Personal Projects/Source Code/arXMCP/plans",
+  "created_at": "2026-05-31T18:20:20Z",
+  "critics_run": [
+    {
+      "critic": "adversary",
+      "output_path": "C:/Users/cedar/Documents/Personal Projects/Source Code/arXMCP/.claude/notes/milestones/notebook-paper-discovery-m3/critique-adversary.md",
+      "summary": "SHIP-WITH-FIXES; 1 MEDIUM (dedup versioned ids)"
+    }
+  ],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "low": 0,
+    "medium": 1
+  },
+  "critique_path": "C:/Users/cedar/Documents/Personal Projects/Source Code/arXMCP/.claude/notes/milestones/notebook-paper-discovery-m3/critique-merged.md",
+  "deferred_findings": [],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_required": [],
+  "fixed_findings": [
+    "F1"
+  ],
+  "id": "notebook-paper-discovery-m3",
+  "implementation_base": "05697597979f6f19a55d6a93d849d459285a76ea",
+  "implementation_branch": "main",
+  "implementation_commit_range": "05697597979f6f19a55d6a93d849d459285a76ea..cd7d2a095dca1348c25649ee909344dd816ea199",
+  "implementation_commits": [
+    "cd7d2a095dca1348c25649ee909344dd816ea199"
+  ],
+  "implementation_path": "inline",
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "### notebook-paper-discovery-m3 \u2014 arXiv Atom discovery driver for a notebook\n\n**Description.** Add `tools/discover_for_notebook.py` that, given a notebook slug, reads its\n`discovery_category` + keywords, queries `_arxiv_api.py`, deduplicates candidates against the\nnotebook's `notebook_papers` junction, and returns a ranked candidate list (paper_id, title,\nabstract head, submitted date). Deterministic and LLM-free; relevance is left to the operator\nand the downstream agent.\n\n**Acceptance criteria.**\n- Given a notebook with `discovery_category=math.AG` and keywords \"Bridgeland stability\", When the driver runs, Then it returns \u22651 candidate and 0 papers already present in `notebook_papers`.\n- [ ] Requests hit only official arXiv API endpoints (0 requests to robots.txt-disallowed paths); the \u22653s politeness contract is preserved.\n- [ ] Output is deterministic given a fixed mocked API response (stable ordering).\n- [ ] Unit tests mock the HTTP layer; no live network calls in CI.\n\n**Dependencies.** `notebook-paper-discovery-m1`, `notebook-paper-discovery-m2`; informed by `spike-1`.\n\n**Complexity.** M\n\n**Specialist suggestion.** `security-reviewer` (egress + dedup against operator data)",
+  "phase": "complete",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-31T18:20:20Z",
+      "left_at": "2026-05-31T18:21:01Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-31T18:21:01Z",
+      "left_at": "2026-05-31T18:27:55Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-31T18:27:55Z",
+      "left_at": "2026-05-31T18:27:56Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-05-31T18:27:56Z",
+      "left_at": "2026-05-31T19:28:25Z",
+      "phase": "implement-running"
+    },
+    {
+      "entered_at": "2026-05-31T19:28:25Z",
+      "left_at": "2026-05-31T19:28:25Z",
+      "phase": "implement-complete"
+    },
+    {
+      "entered_at": "2026-05-31T19:28:25Z",
+      "left_at": "2026-05-31T19:35:11Z",
+      "phase": "critique-running"
+    },
+    {
+      "entered_at": "2026-05-31T19:35:11Z",
+      "left_at": "2026-05-31T19:35:11Z",
+      "phase": "critique-complete"
+    },
+    {
+      "entered_at": "2026-05-31T19:35:11Z",
+      "left_at": "2026-05-31T19:36:42Z",
+      "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-05-31T19:36:42Z",
+      "left_at": null,
+      "phase": "complete"
+    }
+  ],
+  "rectification_commit": "b5069c536e60e5a8fca71c61b61663f794301826",
+  "regression_tests_added": [
+    "tests/test_discover_for_notebook.py::TestDiscoverHappyPath::test_dedup_handles_versioned_existing_paper"
+  ],
+  "research_briefs": [
+    {
+      "agent_id": "researcher-1",
+      "brief_path": "C:/Users/cedar/Documents/Personal Projects/Source Code/arXMCP/.claude/notes/milestones/notebook-paper-discovery-m3/research-brief-1.md",
+      "summary": "extend Candidate title+submitted_date; driver returns mapped shape; asyncio.run wrapper"
+    },
+    {
+      "agent_id": "researcher-2",
+      "brief_path": "C:/Users/cedar/Documents/Personal Projects/Source Code/arXMCP/.claude/notes/milestones/notebook-paper-discovery-m3/research-brief-2.md",
+      "summary": "6 failure modes; dedup format aligned; empty-category->ValueError; egress unchanged"
+    }
+  ],
+  "research_mode": "standard",
+  "research_synthesis": "C:/Users/cedar/Documents/Personal Projects/Source Code/arXMCP/.claude/notes/milestones/notebook-paper-discovery-m3/research-synthesis.md",
+  "updated_at": "2026-05-31T19:36:42Z"
+}

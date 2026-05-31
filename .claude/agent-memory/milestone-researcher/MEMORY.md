@@ -1421,3 +1421,16 @@ inconsistency to fix when extracting to a shared library.
 arXiv API returns HTTP 200 for malformed queries, with a single entry whose `<id>` contains
 `/api/errors#`. Parse-time detection: raise RuntimeError if any entry's id contains that
 pattern. DO NOT rely on HTTP status codes for arXiv API error detection.
+
+## 2026-05-31 — notebook-paper-discovery-m3 — Candidate-missing-title-and-date
+`tools/_arxiv_api.py:Candidate` (m2) has NO `title` field and stores only `submitted_year: int`,
+NOT a full date string. The m3 brief requires `(paper_id, title, abstract_head, submitted_date)`.
+The Atom `<atom:title>` element IS present in every feed entry (RFC 4287 required). Fix: extend
+`Candidate` with `title: str = ""` and `submitted_date: str = ""` in `_arxiv_api.py`, parse them
+in `parse_atom_feed`. Check for direct `Candidate(...)` positional-arg constructors in tests before extending.
+
+## 2026-05-31 — notebook-paper-discovery-m3 — dedup-order-preserving-pattern
+For dedup of discovery candidates: use `existing_ids = {row["paper_id"] for row in store.list_papers(slug)}`
+then `[c for c in candidates if c.paper_id not in existing_ids]`. Both `parse_atom_feed` and the
+`add_paper` route strip version suffix, so IDs align. Set-comprehension lookup is O(1); list
+comprehension preserves arXiv sort order. Do NOT use set difference — it does not preserve order.

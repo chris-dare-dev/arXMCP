@@ -330,3 +330,16 @@ arXiv API behavior for empty phrases. The guard belongs in the sanitizer
 (return None + skip clause), not in the caller. MEDIUM when the library
 will be used by a driver that populates keywords from user-controlled
 metadata (e.g., notebook descriptions).
+
+## 2026-05-31 — notebook-paper-discovery-m3 — dedup-set-versioned-id-mismatch
+When a dedup set is built from a stored junction table AND the table can hold
+versioned IDs (e.g. `2604.26204v3` stored verbatim by URL-paste route), while
+the feed parser strips the vN suffix (producing `2604.26204`), the set
+membership test silently fails — the paper is re-proposed. Pattern: check if
+the join-table write path can store versioned IDs (grep `is_valid_arxiv_paper_id`
+accepts `v\d+`; check the route's test for stored value). Then verify the
+dedup set construction normalizes BOTH sides, or strips on one side to match.
+Synthesis FM-d "add_paper produces un-versioned IDs" was falsified by
+`tests/test_notebook_api.py:264`. Tests that seed the store with unversioned
+IDs directly via `store.add_paper()` do NOT exercise the route-path versioning.
+MEDIUM (silent dedup failure; fix is ≤5 LOC strip on the existing_ids side).
