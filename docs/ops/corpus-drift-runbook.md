@@ -1,78 +1,273 @@
-# Corpus-drift operator runbook
+# Corpus-drift runbook
 
-**Status:** PLACEHOLDER — full content lands in `corpus-integrity-completion-m2`.
-**Created by:** `corpus-integrity-completion-m1` (rect F3 + IS1) — exists so the
-`runbook_url` annotation on the two new corpus-integrity alert rules does not
-resolve to a GitHub 404 during the gap between m1 and m2.
+**Use when:** the server-side `arxmcp_corpus_chunk_count_actual`
+or `arxmcp_corpus_unindexed_rows` Prometheus gauges trigger one of
+the two corpus-integrity alerts shipped in
+`infra/prometheus/alerts.yml`:
 
-This file is **operator-readable now** but is intentionally thin until m2 ships
-the full Symptom / Quick triage / Likely causes / Remediation / Escalation
-sections.
+- `ArXMCPCorpusCountRowsFailed` (severity: critical, for: 10m) —
+  fires when `arxmcp_corpus_chunk_count_actual == -1`, the
+  sentinel set by `server/health.py` when
+  `chunks_table.count_rows()` raised at startup.
+- `ArXMCPCorpusUnindexedRows` (severity: warning, for: 1h) — fires
+  when `arxmcp_corpus_unindexed_rows > 0`, indicating one or more
+  rows are committed to the chunks table without a HNSW index
+  rebuild.
 
----
-
-## Alerts covered by this runbook
-
-Both rules ship in `infra/prometheus/alerts.yml`
-(`corpus-integrity-completion-m1`):
-
-### `ArXMCPCorpusCountRowsFailed` (severity: critical, for: 10m)
-
-**What it means.** The arXMCP server's startup `chunks_table.count_rows()`
-call raised. The exposed Prometheus gauge `arxmcp_corpus_chunk_count_actual`
-is set to `-1` (the canonical "count failed" sentinel; see
-`server/health.py:115-120`). The marker-vs-actual reconciliation surfaced
-by `GET /readyz` is unreliable as long as the gauge reports `-1`.
-
-**Immediate triage (m1 minimum).**
-1. Check the server logs for the `Resources.startup FM-2` error path
-   (search for the `Resources.startup` event class).
-2. Verify the LanceDB dataset at the configured `lancedb_path` is readable
-   on disk (`ls -la $LANCEDB_PATH/_versions/`).
-3. If the dataset is corrupt or missing, restore from the most recent
-   restic backup per `docs/ops/backup-restore.md`.
-
-### `ArXMCPCorpusUnindexedRows` (severity: warning, for: 1h)
-
-**What it means.** The HNSW ANN index has one or more rows committed to the
-chunks table without a successful index rebuild. The Prometheus gauge
-`arxmcp_corpus_unindexed_rows` reports a positive value (see
-`server/health.py:128-134`). ANN queries brute-force those rows — results
-stay correct but get slower.
-
-**Immediate triage (m1 minimum).**
-1. Confirm the count by scraping `/metrics` and looking at
-   `arxmcp_corpus_unindexed_rows`.
-2. Re-run the ingest pipeline; `ingest/store.py::_create_indices` runs
-   synchronously inside `write_chunks` and will rebuild the index.
-3. If re-ingestion does not clear the gauge, check the LanceDB index API
-   error stream and consider a manual `tbl.create_index(...)` per the
-   LanceDB docs.
+This runbook does **not** cover above-tolerance marker drift
+(gauge ≥ 0 but ≠ marker). That case fires `ArXMCPDegradedMode` with
+`reason="chunk_count_diverged"` and is handled by
+[`failure-modes.md#degraded-modes`](failure-modes.md#degraded-modes).
 
 ---
 
-## Why this is a placeholder
+## Symptom
 
-The full runbook content (with operator-tested remediation procedures,
-escalation paths, and rollback steps for the
-`tools/notebook_reconcile_marker.py` CLI) ships in
-`corpus-integrity-completion-m2`. That milestone authors the canonical
-Symptom / Quick triage / Likely causes / Remediation / Escalation
-sections following the pattern of the other 4 operator runbooks in this
-directory (`failure-modes.md`, `backup-restore.md`, `drift-watchdog.md`,
-`latexml-drift-runbook.md`).
+### ArXMCPCorpusCountRowsFailed (critical)
 
-m1 ships the alert rules; m2 ships the full content here. Both rules'
-`runbook_url` annotation references this file path; this PLACEHOLDER
-stops the GitHub 404 in the m1→m2 gap so an operator hitting an alert
-during that window lands on a runnable next step (the Immediate triage
-sections above) rather than a broken link.
+The Prometheus gauge `arxmcp_corpus_chunk_count_actual` reports
+`-1` for ≥ 10 minutes. `GET /readyz` returns
+`"chunk_count": null` (the `-1` sentinel is normalized to JSON
+`null`; `marker_chunk_count` still reports the corpus-version.json
+value). The server is **serving stale-and-unverifiable retrieval**
+— the marker is intact but the live row count cannot be confirmed.
+
+### ArXMCPCorpusUnindexedRows (warning)
+
+The Prometheus gauge `arxmcp_corpus_unindexed_rows` reports a
+value > 0 for ≥ 1 hour. `GET /readyz` returns
+`"status": "ready"` (correctness is preserved). ANN queries
+silently **brute-force the unindexed rows** — retrieval is correct
+but latency on `search_papers` grows linearly with the unindexed
+count.
+
+---
+
+## Quick triage
+
+Confirm the alert in ≤ 60 seconds before opening Remediation.
+
+### Both alerts — first 3 commands
+
+```bash
+# 1. Confirm the gauge values from Prometheus directly.
+curl -s http://127.0.0.1:7733/metrics | grep -E '^arxmcp_corpus_(chunk_count_actual|unindexed_rows) '
+
+# 2. Confirm via the /readyz health surface.
+curl -s http://127.0.0.1:7733/readyz | jq '{
+    status, chunk_count, marker_chunk_count
+}'
+
+# 3. Confirm the marker file is intact (relevant for BOTH alerts —
+#    a missing/malformed marker can cascade into either gauge).
+cat var/arxmcp/index/lancedb/corpus-version.json
+```
+
+Expected on the happy path: `arxmcp_corpus_chunk_count_actual` ≥ 0,
+`arxmcp_corpus_unindexed_rows == 0`, `chunk_count ==
+marker_chunk_count`, marker JSON parses cleanly. Any deviation
+narrows the cause.
+
+### Quick checks per alert
+
+| Alert | If `arxmcp_*` gauge reads | Then go to |
+|---|---|---|
+| CountRowsFailed | `-1` | [Likely causes → S1 / S7](#likely-causes) |
+| UnindexedRows | `> 0` and gauge has been steady | [Likely causes → S2](#likely-causes) |
+
+---
+
+## Likely causes
+
+Numbered by the synthesis failure-mode table; remediation steps
+under [Remediation](#remediation) reference these IDs.
+
+### S1 — `count_rows()` raised on a cold-corrupted LanceDB
+
+The chunks-table dataset is present but the underlying Lance fragment
+metadata is corrupt or the path is unreadable. `count_rows()` raises
+`lance.LanceError` or `OSError`; `server/health.py` catches it and
+sets `startup_chunk_count = -1`. Persists across server restarts as
+long as the dataset is still broken.
+
+### S2 — Ingest crashed mid-write, leaving unindexed rows
+
+`ingest/store.py::write_chunks` committed row writes but
+`_create_indices` raised before completing the HNSW rebuild. The
+gauge is set once at startup from `startup_unindexed_rows`; the
+condition persists until the next successful ingest run completes
+its synchronous `_create_indices` call.
+
+**Rebuild-window calibration (closes m1 IS2):** on the 50-paper seed
+corpus, `_create_indices` finishes in well under one minute; on a
+full 200K-paper corpus a complete ingest + reindex can take several
+hours. The `for: 1h` window on `ArXMCPCorpusUnindexedRows` is sized
+to filter post-full-ingest rebuild windows at full scale — see the
+`latexml-drift-runbook.md` §"Timing estimates" table for the
+per-corpus-size wall-clock numbers used to pick this.
+
+### S7 — `arxmcp_corpus_chunk_count_actual` persists at `-1` across restarts
+
+After confirming S1 is NOT the cause, the most common root is a
+filesystem-mount or container-volume misconfiguration: the
+`ARXMCP_LANCEDB_PATH` env var points at a path that no longer
+exists or is unreadable. Server logs `Resources.startup FM-2` on
+every restart. Distinguishes from S1 because the dataset itself is
+fine — just unreachable from the running server.
+
+### Out of scope for these alerts
+
+- **S3 — Operator manually edited or deleted corpus-version.json.**
+  Triggers `DegradedState('chunk_count_diverged')` →
+  `ArXMCPDegradedMode`, **not** one of this runbook's alerts. Fix
+  via `make reconcile`; see
+  [`failure-modes.md#degraded-modes`](failure-modes.md#degraded-modes).
+- **S4 — Cold-clone deployment before first ingest.** An empty
+  chunks-table returns `count_rows() = 0` (not `-1`), so
+  `ArXMCPCorpusCountRowsFailed` does **not** fire. Fix via
+  `make ingest`.
+
+---
+
+## Remediation
+
+Per-alert procedures. Both reference the existing
+`tools/notebook_reconcile_marker.py` CLI and the `make reconcile` /
+`make ingest` Makefile targets.
+
+### Fix S1 / S7 — `count_rows()` failure
+
+`make reconcile` does **not** fix this — reconcile operates on the
+marker file only, not on a broken Lance dataset.
+
+```bash
+# 1. Stop the server cleanly.
+make down   # or `pkill -f 'python -m server.main'` if no Make target
+
+# 2. Inspect the dataset directory. The version-N subdirectory must
+#    be a valid Lance fragment tree (manifests, data, indices/).
+ls -la var/arxmcp/index/lancedb/_versions/
+cat var/arxmcp/index/lancedb/corpus-version.json  # confirm intact
+
+# 3a. (S1) If the dataset shows manifest corruption, restore from
+#     the latest restic snapshot.
+#     See docs/ops/backup-restore.md §"Restore drill".
+
+# 3b. (S7) If the dataset looks fine on disk but the path is
+#     unreadable from the server process, verify env + permissions.
+echo $ARXMCP_LANCEDB_PATH                      # is it set right?
+ls -la "$ARXMCP_LANCEDB_PATH"                  # readable?
+# In a container: confirm the volume mount is intact and the UID
+# inside the container can read the host path.
+
+# 4. Bring the server back up. Successful startup clears the cached
+#    -1 from the gauge (which is read once at startup; see
+#    server/health.py:111-120).
+make up
+
+# 5. Re-trigger the triage commands to confirm.
+curl -s http://127.0.0.1:7733/readyz | jq '.chunk_count'
+# Expected: integer ≥ 0; null means -1 is still set.
+```
+
+If `chunk_count` remains `null` after a restart against a known-good
+dataset, escalate.
+
+### Fix S2 — unindexed rows
+
+`make reconcile` does **not** fix this either — reconcile rewrites
+the marker, not the index.
+
+```bash
+# 1. Re-run the bulk ingest orchestrator. _create_indices runs
+#    synchronously inside write_chunks; a successful run rebuilds
+#    the HNSW index for every committed row.
+make ingest                            # full bulk re-run
+# or scope to the last batch only:
+# make ingest ARGS="--paper-ids-file=<last-batch.txt>"
+
+# 2. Restart the server so the startup_unindexed_rows gauge is
+#    re-read. The gauge is cached at startup (see
+#    server/health.py:122-134); without a restart the alert
+#    continues firing even after the index rebuilds.
+make down && make up
+
+# 3. Confirm the gauge cleared.
+curl -s http://127.0.0.1:7733/metrics | grep arxmcp_corpus_unindexed_rows
+# Expected: arxmcp_corpus_unindexed_rows 0
+```
+
+### Reference — `make reconcile` (in case S3 was the real symptom)
+
+`make reconcile` recounts the LanceDB at the version pinned in
+`corpus-version.json` and atomically rewrites the marker fields if
+they drifted from the live row count. It is the right tool for
+**marker drift** (gauge ≥ 0 but ≠ marker), not for the two alerts
+this runbook covers.
+
+```bash
+# Shared global corpus (the case ArXMCPDegradedMode covers most
+# commonly). When the server is up there is no REST endpoint for
+# the shared corpus — `make reconcile` always falls back to the
+# `tools.notebook_reconcile_marker --shared` CLI here. This is
+# expected behavior; see Makefile:560-589 for the routing logic.
+make reconcile
+
+# Per-notebook corpus (only relevant if a notebook is the source
+# of the alert; the m2 alerts fire on the shared corpus gauges):
+make reconcile NOTEBOOK=my-notebook-slug
+```
+
+Expected stdout on success:
+
+```
+reconcile-marker [shared]: version=42 before=10298 chunks / 217 papers
+  after=10298 chunks / 217 papers drift_resolved=0
+```
+
+Exit code `1` + stderr `ERROR: ...` means the marker was malformed
+or the LanceDB recount itself raised — see [Escalation](#escalation).
+
+---
+
+## Escalation
+
+If the Remediation procedure does not clear the alert within 30
+minutes (or `make reconcile` exits 1 unrecoverably):
+
+1. **Capture state for the issue tracker.** Snapshot the marker file,
+   the relevant gauge readings, and the most recent server-startup
+   log lines:
+   ```bash
+   cat var/arxmcp/index/lancedb/corpus-version.json > /tmp/marker.json
+   curl -s http://127.0.0.1:7733/metrics | grep ^arxmcp_corpus_ > /tmp/gauges.txt
+   journalctl -u arxmcp-server.service --since '30 minutes ago' > /tmp/startup.log
+   ```
+   The marker file is **not** sensitive (paper counts + version
+   integer + chunker/embedder hashes); it can be attached to a
+   public issue per the threat model in
+   [`.claude/notes/08-security-observability-ops.md`](../../.claude/notes/08-security-observability-ops.md).
+2. **Restore from backup.** If the Lance dataset is genuinely
+   corrupt, follow
+   [`backup-restore.md`](backup-restore.md) §"Restore drill" to
+   roll back to the most recent restic snapshot.
+3. **Open an issue** at
+   <https://github.com/chris-dare-dev/arXMCP/issues> labeled
+   `ops/corpus-integrity` with the captured state and the
+   commands already attempted.
+
+---
 
 ## See also
 
-- `infra/prometheus/alerts.yml` — the rule definitions
-- `plans/corpus-integrity-completion-roadmap.md` — the parent epic
-- `.claude/notes/capability-scouts/corpus-integrity-observability/` —
-  the discovery work behind these alerts
-- `docs/ops/backup-restore.md`, `docs/ops/drift-watchdog.md` — adjacent
-  operator runbooks following the same structure m2 will adopt here.
+- [`infra/prometheus/alerts.yml`](../../infra/prometheus/alerts.yml)
+  — the rule definitions for both alerts covered here.
+- [`failure-modes.md`](failure-modes.md) — the broader corpus
+  failure-mode index; covers `ArXMCPDegradedMode` and LanceDB
+  corruption beyond the narrow scope of this runbook.
+- [`backup-restore.md`](backup-restore.md) — restic snapshot +
+  restore procedure referenced in S1.
+- [`tools/notebook_reconcile_marker.py`](../../tools/notebook_reconcile_marker.py)
+  — the CLI behind `make reconcile`.
+- [`server/health.py`](../../server/health.py) lines 105-134 — the
+  two gauge definitions + their docstring contracts.

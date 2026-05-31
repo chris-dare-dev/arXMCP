@@ -81,6 +81,7 @@ the underlying files directly.
 | [`parser-failure-review.md`](docs/ops/parser-failure-review.md) | E14_S04 | Weekly parser-failures triage workflow |
 | [`failure-modes.md`](docs/ops/failure-modes.md) | E14_S05 | Detection + recovery for the 9 documented failure modes |
 | [`notebook-modes.md`](docs/ops/notebook-modes.md) | pv-m3 | Multi-notebook deployment topology (per-daemon vs per-call filter) |
+| [`corpus-drift-runbook.md`](docs/ops/corpus-drift-runbook.md) | corpus-integrity-completion-m1+m2 | `ArXMCPCorpusCountRowsFailed` / `ArXMCPCorpusUnindexedRows` alert; `make reconcile` for marker drift |
 
 ### Parser fidelity evaluation
 
