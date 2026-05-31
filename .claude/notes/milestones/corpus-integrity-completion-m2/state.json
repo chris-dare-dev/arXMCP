@@ -14,11 +14,29 @@
     "medium": 4
   },
   "critique_path": ".claude/notes/milestones/corpus-integrity-completion-m2/critique-merged.md",
-  "deferred_findings": [],
+  "deferred_findings": [
+    "F7",
+    "F8",
+    "F9"
+  ],
   "external_writes_authorized": false,
   "external_writes_completed": false,
   "external_writes_required": [],
-  "fixed_findings": [],
+  "fixed_findings": [
+    "F1",
+    "F2",
+    "F3",
+    "F4",
+    "F5",
+    "F6"
+  ],
+  "follow_ups": [
+    "F7: ARXMCP_NOTEBOOK-mode path-substitution note in corpus-drift-runbook Quick triage \u2014 fold into a future per-notebook-deployment docs sweep",
+    "F8: corpus-drift-runbook make-reconcile example uses drift_resolved=0 (idempotent no-op); a future docs-polish should show drift_resolved=N>0 since that is the diagnostic success case",
+    "F9: corpus-drift-runbook Quick triage step 3 (cat corpus-version.json) has no error-handling for the S3-symptom missing-marker case; out-of-scope text in Likely causes already covers it but a one-liner short-circuit would be cleaner",
+    "F2-extension: failure-modes.md does not have a Degraded modes H2 anchor \u2014 m2 rect documented this but did not add the anchor (AC-4 forbade touching the other 4 runbooks); a future docs sweep should add the H2 to failure-modes.md and re-attach the anchor in alerts.yml ArXMCPDegradedMode runbook_url plus the m2 corpus-drift runbook references",
+    "CLAUDE.md section 7 stale entry: lists make ingest as a stub but ingest/bulk_ingest.py ships as the real E11_S01 orchestrator. m2 synthesis Mismatch B documented; future docs sweep should fix section 7 itself"
+  ],
   "id": "corpus-integrity-completion-m2",
   "implementation_base": "5a8c7f0a494231c4dfef9e559bf54ec6d58af849",
   "implementation_branch": "main",
@@ -30,7 +48,7 @@
   "implementation_specialist": null,
   "invalidated_findings": [],
   "milestone_brief": "see plans/corpus-integrity-completion-roadmap.md::corpus-integrity-completion-m2 \u2014 author full docs/ops/corpus-drift-runbook.md content (REPLACING the m1 placeholder) + README Common-tasks one-liner for make reconcile",
-  "phase": "rectify-running",
+  "phase": "complete",
   "phase_history": [
     {
       "entered_at": "2026-05-31T20:17:07Z",
@@ -69,11 +87,16 @@
     },
     {
       "entered_at": "2026-05-31T20:38:33Z",
-      "left_at": null,
+      "left_at": "2026-05-31T20:42:03Z",
       "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-05-31T20:42:03Z",
+      "left_at": null,
+      "phase": "complete"
     }
   ],
-  "rectification_commit": null,
+  "rectification_commit": "8180a0c75317a874cea8c86dd81d9eb45c295647",
   "regression_tests_added": [],
   "research_briefs": [
     {
@@ -89,5 +112,5 @@
   ],
   "research_mode": "standard",
   "research_synthesis": ".claude/notes/milestones/corpus-integrity-completion-m2/research-synthesis.md",
-  "updated_at": "2026-05-31T20:38:33Z"
+  "updated_at": "2026-05-31T20:42:03Z"
 }
