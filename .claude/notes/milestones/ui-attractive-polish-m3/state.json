@@ -1,0 +1,113 @@
+{
+  "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/plans",
+  "created_at": "2026-05-31T04:15:44Z",
+  "critics_run": [
+    {
+      "critic": "adversary",
+      "output_path": ".claude/notes/milestones/ui-attractive-polish-m3/critique-adversary.md",
+      "summary": "0C 1H 2M 1L; F1 HIGH text-input dark-mode invisibility; F2/F3 MEDIUM"
+    }
+  ],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 1,
+    "low": 1,
+    "medium": 2
+  },
+  "critique_path": ".claude/notes/milestones/ui-attractive-polish-m3/critique-merged.md",
+  "deferred_findings": [
+    "F4"
+  ],
+  "external_writes_authorized": true,
+  "external_writes_completed": true,
+  "external_writes_required": [
+    {
+      "target": "origin/main",
+      "type": "git_push",
+      "why": "land chore(plans) for roadmap m3 edits + feat + rect + chore triple per CLAUDE.md \u00a74.3"
+    }
+  ],
+  "fixed_findings": [
+    "F1",
+    "F2",
+    "F3"
+  ],
+  "id": "ui-attractive-polish-m3",
+  "implementation_base": "e69de9c1b9486b9f91283ce336fc2b6806eb3378",
+  "implementation_branch": "main",
+  "implementation_commit_range": "e69de9c1b9486b9f91283ce336fc2b6806eb3378..58bfb4123612c9507b8fd3cf20c6f0d9ca8e57bc",
+  "implementation_commits": [
+    "58bfb4123612c9507b8fd3cf20c6f0d9ca8e57bc"
+  ],
+  "implementation_path": "inline",
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "### ui-attractive-polish-m3 \u2014 Dark mode + htmx-request feedback (UPL-8 v0 + UPL-11)\n\n**Description.** Bundle the two e3 polish items into one CSS pass that\nships dark-mode parity and per-click visual feedback together. Both\ndepend on m1 + m2 (which are shipped on `origin/main`), so this is\nfoundation-clean. **UPL-8 v0** adds a `@media (prefers-color-scheme:\ndark) { :root { \u2026 } }` block re-declaring the 8 base tokens with\nGitHub-Primer-anchored dark values; per the challenger v0/v1 split,\nthe `.status-badge--*` modifier remap + table-header dark surface +\nfreshness color stay descoped to a v1 follow-on (so dark-mode\noperators see consistent body chrome but the colored status pills\nkeep their light-mode contrast until v1 \u2014 visually inconsistent but\na11y-safe). **UPL-11** adds CSS targeting htmx's auto-applied\n`htmx-request` class so every in-flight button dims + becomes\nnon-clickable + shows a tiny CSS-only spinner (the spin animation\nitself is gated by `prefers-reduced-motion: no-preference`, which\nm1 already established). Also adds `hx-disabled-elt=\"this\"` to the\nhtmx-bound forms for keyboard a11y parity (so a focused-but-disabled\nbutton doesn't accept Tab-triggered Enter activation mid-request).\n\n**Acceptance criteria.**\n- [ ] **UPL-8 v0** \u2014 `@media (prefers-color-scheme: dark) { :root { \u2026 } }` block added to `frontend/static/app.css`. Re-declares all 8 vars (`--fg`, `--bg`, `--card-bg`, `--border`, `--accent`, `--danger`, `--error-bg`, `--mono`) with GitHub-Primer-anchored dark values (e.g. `--fg: #e8e8e8`, `--bg: #0d1117`, `--card-bg: #161b22`, `--border: #30363d`, `--accent: #58a6ff`, `--danger: #f85149`, `--error-bg: #2a1a18`, `--mono` unchanged). Status-pill modifier remap + table-header dark surface + freshness color all stay light-mode (descoped to v1).\n- [ ] **UPL-8 v0 verification** \u2014 both light and dark token sets pass WCAG AA non-text contrast (\u2265 3:1) for `--fg` on `--bg` AND `--fg` on `--card-bg`. Verify via an offline checker or by inspection of the chosen hex pairs; record the contrast ratios in the milestone's implementation-summary.\n- [ ] **UPL-11** \u2014 CSS rules for the auto-applied htmx classes added to `app.css`:\n    - `button.htmx-request, .button.htmx-request { opacity: 0.6; pointer-events: none; cursor: wait; }` (unconditional \u2014 these are SIGNAL, not motion).\n    - `.htmx-request::after { content: \"\"; display: inline-block; width: 0.8em; height: 0.8em; margin-left: 0.5em; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; vertical-align: middle; }` (the spinner shape).\n    - `@media (prefers-reduced-motion: no-preference) { .htmx-request::after { animation: spin 0.6s linear infinite; } @keyframes spin { to { transform: rotate(360deg); } } }` (the spin animation gated by m1's foundational gate).\n- [ ] **UPL-11 form attribute parity** \u2014 add `hx-disabled-elt=\"this\"` to the 7 htmx-bound forms (Create notebook in `index.html`; Rename / Add-paper / Upload / Ingest now in `notebook_detail.html`; Remove notebook + Remove paper as button-only deletes). Ensures keyboard users can't double-fire a request via Enter-while-disabled.\n- [ ] **Verification \u2014 `make test` exits 0** (via the canonical `/Users/chris.dare/Library/Python/3.9/bin/uv run python -m ruff check . && uv run python -m pytest`). All 41 existing m1+m2 tests still pass; new m3 tests added.\n- [ ] **Verification \u2014 manual cross-browser walk** \u2014 Chris loads `/ui/` on Chrome + Safari on macOS with the OS theme toggled (Settings \u2192 Appearance \u2192 Dark vs Light). Both routes (`/ui/` + `/ui/notebooks/<slug>`) render coherently in both modes \u2014 no light-mode flash on dark-OS, no broken contrast on light-OS. Also: click \"Ingest now\" with a cold subprocess pool; the button visibly dims + shows a spinner within 100ms; double-click attempt rejected.\n- [ ] **Verification \u2014 manual VoiceOver smoke-test** \u2014 VoiceOver on the focused-then-disabled button announces \"dim\" / \"disabled\" state via the `hx-disabled-elt` attribute's `aria-disabled` injection (htmx auto-applies); the spinner is invisible to AT (no `aria-label` on the `::after` content).\n- [ ] **Regression test** at `tests/test_ui_m3_dark_and_htmx_feedback.py` (new file) \u2014 asserts the `@media (prefers-color-scheme: dark)` block exists + redeclares all 8 vars + the `.htmx-request` CSS rules exist with the correct selectors + the spin keyframe is inside the `prefers-reduced-motion: no-preference` block + every htmx-bound `<form>` in the templates carries `hx-disabled-elt=\"this\"`.\n- [ ] Final `frontend/static/app.css` line count \u2264 270 (current 216 + budget ~50 for dark-mode block + htmx-request styling).\n\n**Dependencies.** epic `ui-attractive-polish-e3`. **Hard prereqs (now shipped):** m1's `prefers-reduced-motion` gate (anchors the spinner animation guard); m2's `color-mix()` adoption (not strictly required for v0 since the status-pill remap is descoped, but the pattern lives now). **No new spike** \u2014 both pure-CSS APIs are Baseline Widely Available; the implementation can proceed without measurement.\n\n**Complexity.** M (~ 1\u20132 days execution including the 4-phase milestone-pipeline; ~50 LOC CSS + 7 attribute additions on htmx forms + the new test file; manual cross-browser theme verification + VoiceOver smoke-test are the largest time slices). Per the milestone-pipeline complexity scale: M is the right grade (1\u20133 days). Could split into m3 (dark mode) + m4 (htmx-request) but the m1+m2 precedent is to bundle multiple UPLs into one milestone; bundling here saves one full pipeline overhead.\n\n**Specialist suggestion.** `\u2014` (CSS + Jinja2 attribute additions only; milestone-pipeline's default adversary critic covers the surface \u2014 token-discipline, prefers-reduced-motion gate compliance, htmx-attribute correctness).\n\n---\n\n## Phase 4 \u2014 Materialize",
+  "phase": "complete",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-31T04:15:44Z",
+      "left_at": "2026-05-31T04:15:44Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-31T04:15:44Z",
+      "left_at": "2026-05-31T04:25:10Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-31T04:25:10Z",
+      "left_at": "2026-05-31T04:25:22Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-05-31T04:25:22Z",
+      "left_at": "2026-05-31T04:30:43Z",
+      "phase": "implement-running"
+    },
+    {
+      "entered_at": "2026-05-31T04:30:43Z",
+      "left_at": "2026-05-31T04:30:43Z",
+      "phase": "implement-complete"
+    },
+    {
+      "entered_at": "2026-05-31T04:30:43Z",
+      "left_at": "2026-05-31T04:35:59Z",
+      "phase": "critique-running"
+    },
+    {
+      "entered_at": "2026-05-31T04:35:59Z",
+      "left_at": "2026-05-31T04:35:59Z",
+      "phase": "critique-complete"
+    },
+    {
+      "entered_at": "2026-05-31T04:35:59Z",
+      "left_at": "2026-05-31T04:40:49Z",
+      "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-05-31T04:40:49Z",
+      "left_at": null,
+      "phase": "complete"
+    }
+  ],
+  "rectification_commit": "08b9c53087892a2861456e1b33db5b4038e48161",
+  "regression_tests_added": [
+    "tests/test_ui_m3_dark_and_htmx_feedback.py"
+  ],
+  "research_briefs": [
+    {
+      "agent_id": "researcher-1",
+      "brief_path": ".claude/notes/milestones/ui-attractive-polish-m3/research-brief-1.md",
+      "summary": "--border #30363d fails SC 1.4.11 (1.55:1); use #6e7681. Danger ring at 0.6 opacity = 2.57:1 fails."
+    },
+    {
+      "agent_id": "researcher-2",
+      "brief_path": ".claude/notes/milestones/ui-attractive-polish-m3/research-brief-2.md",
+      "summary": "White text on #58a6ff (dark --accent) = 3.1:1 fails SC 1.4.3. hx-disabled-elt on form is non-standard; use on submit button."
+    }
+  ],
+  "research_mode": "standard",
+  "research_synthesis": ".claude/notes/milestones/ui-attractive-polish-m3/research-synthesis.md",
+  "updated_at": "2026-05-31T04:40:49Z"
+}
