@@ -45,8 +45,11 @@ python3 -m venv .venv && source .venv/bin/activate
 make bootstrap
 
 # 2. fetch the 50-paper math.AG seed corpus (one-time)
+#    The fetch tools (NOT `make up`) require ARXMCP_CONTACT_EMAIL
+#    for the arXiv polite-pool User-Agent. The server rejects it.
 export ARXMCP_CONTACT_EMAIL=you@example.com   # arXiv TOS §3 polite pool
 python tools/fetch_seed.py                    # idempotent
+unset ARXMCP_CONTACT_EMAIL                    # the server forbids it
 
 # 3. start the MCP server on 127.0.0.1:7733
 make up

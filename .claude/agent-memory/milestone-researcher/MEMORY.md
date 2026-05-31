@@ -1,5 +1,13 @@
 # Milestone Researcher — Project Memory
 
+## 2026-05-31 — ui-attractive-polish-m1 — outerHTML-swap-breaks-aria-live
+htmx `hx-swap="outerHTML"` REPLACES the element — the new element from the server
+must carry `aria-live` in its markup or the live region silently stops announcing
+after the first swap. For m1 UPL-3: add `aria-live="polite"` to BOTH the static
+template element AND the server-rendered fragment in `server/routes/notebooks.py`
+(for `#display-name-block` and `#ingest-status`). `#papers-tbody` uses `beforeend`
+(element is NOT replaced) so this hazard does not apply there.
+
 ## 2026-05-30 — verification-feedback-m4 — progress-heartbeat-two-task-pattern
 FastMCP `Context.report_progress` silently no-ops when client sends no `_meta.progressToken`
 (per mcp==1.27.1 source). For `lean_verify` heartbeat: spawn TWO `asyncio.create_task` —

@@ -60,6 +60,7 @@ seconds."
 from __future__ import annotations
 
 import asyncio
+import difflib
 import json
 import logging
 import os
@@ -261,6 +262,89 @@ class BodySizeCapMiddleware:
 # ---------------------------------------------------------------------------
 
 
+#: Known-but-server-unsupported ``ARXMCP_*`` env vars that come from
+#: CLI / ingest-pipeline tools, NOT from the server's :class:`Config`.
+#: Setting one of these before ``make up`` is a predictable footgun
+#: (the docs used to tell operators to do exactly that — closed by
+#: ``onboarding-uplift-m1``); the scan still rejects them — they would
+#: silently bypass the server's documented config — but with a tailored
+#: carve-out message that names the tools that DO consume the var, so
+#: the operator can unset it for the server and use it where it's
+#: meaningful.
+#:
+#: Maps env-var name → human-readable hint. To add a new ingest-tool
+#: var, append an entry here; ``_format_unknown_arxmcp_env_var``
+#: prefers this lookup over the generic ``difflib`` suggestion. Keys
+#: must be ``ARXMCP_*``-prefixed (the scan only inspects that
+#: namespace).
+_KNOWN_INGEST_ENV_VARS: dict[str, str] = {
+    "ARXMCP_CONTACT_EMAIL": (
+        "is NOT a server config var; it is read by the CLI fetch tools "
+        "(tools/notebook_fetch.py, tools/recover_preambles.py, "
+        "ingest/inspire_ingest.py) for the arXiv polite-pool User-Agent. "
+        "Unset it for the server."
+    ),
+}
+
+
+def _format_unknown_arxmcp_env_var(
+    env_name: str, declared: frozenset[str]
+) -> str:
+    """Build a one-/two-line human-readable hint for a single unknown
+    ``ARXMCP_*`` env var.
+
+    Branches in priority order (per ``onboarding-uplift-m1`` synthesis
+    §3 D1 + D2):
+
+    1. **Ingest-tool carve-out.** ``ARXMCP_CONTACT_EMAIL`` and any
+       future ingest-pipeline var registered in
+       ``_KNOWN_INGEST_ENV_VARS`` gets a tailored "this is a CLI-tool
+       var; unset it for the server" message naming the modules that
+       DO consume it.
+    2. **Close-match suggestion.** ``difflib.get_close_matches`` with
+       ``n=1, cutoff=0.7`` over the declared set. ``0.7`` is tighter
+       than Python's ``0.6`` default — preferred per m1 synthesis D2:
+       a wrong suggestion (e.g. ``ARXMCP_BIND_HOTS`` → ``ARXMCP_KUZU_PATH``)
+       is worse UX than no suggestion at all. Genuine typos (transposed
+       / dropped characters) still clear ``0.7``.
+    3. **Short-form fallback.** No close match → list the top-3 nearest
+       declared vars at ``cutoff=0.0`` so the operator can scan for a
+       likely intent without the full 32-var dump.
+
+    Output is intentionally compact: the scan fires before
+    ``logging.basicConfig`` on the uvicorn-import path (FM-3), so the
+    user sees one block via ``sys.stderr.write`` in
+    ``_build_module_app``. Multi-paragraph prose would be lost.
+    """
+    carve_out_hint = _KNOWN_INGEST_ENV_VARS.get(env_name)
+    if carve_out_hint is not None:
+        return f"  - {env_name} {carve_out_hint}"
+
+    # Close-match suggestion (D2: tighter cutoff than the default 0.6).
+    suggestions = difflib.get_close_matches(
+        env_name, sorted(declared), n=1, cutoff=0.7
+    )
+    if suggestions:
+        return f"  - {env_name}: did you mean {suggestions[0]}?"
+
+    # Short-form fallback — top 3 nearest at cutoff=0.0, NOT the full
+    # 32-var dump. ``cutoff=0.0`` still applies SequenceMatcher ordering;
+    # an empty result here is only possible when ``declared`` itself is
+    # empty (impossible at runtime — Config has 32 declared fields).
+    nearest = difflib.get_close_matches(
+        env_name, sorted(declared), n=3, cutoff=0.0
+    )
+    if nearest:
+        return (
+            f"  - {env_name} is not a declared ARXMCP_* var; nearest: "
+            f"{', '.join(nearest)}. Full list: server/config.py::Config."
+        )
+    return (  # pragma: no cover — declared is non-empty at runtime
+        f"  - {env_name} is not a declared ARXMCP_* var. See "
+        f"server/config.py::Config for the full list."
+    )
+
+
 def _scan_unknown_arxmcp_env_vars(config: Config) -> None:
     """Reject any ``ARXMCP_*`` env var not declared on :class:`Config`.
 
@@ -270,19 +354,34 @@ def _scan_unknown_arxmcp_env_vars(config: Config) -> None:
     or a documented-but-unimplemented var like ``ARXMCP_OTEL_ENDPOINT``
     is silently ignored. This scan walks ``os.environ`` for every
     ``ARXMCP_*`` key and asserts it maps to a declared field.
+
+    ``onboarding-uplift-m1`` replaces the prior 30-line declared-var
+    dump with per-var hints: an ingest-tool carve-out for
+    ``ARXMCP_CONTACT_EMAIL`` (the documented footgun the m1 doc sweep
+    removed from CLAUDE.md / README.md / Makefile), a
+    ``difflib.get_close_matches`` (``n=1, cutoff=0.7``) suggestion for
+    typos like ``ARXMCP_BIND_HOTS``, and a short-form "nearest 3"
+    fallback otherwise. The dynamic ``Config.model_fields`` source is
+    preserved — adding a new ``Config`` field automatically extends
+    ``declared`` (m1 synthesis FM-5 mitigation).
     """
-    declared = {f"ARXMCP_{name.upper()}" for name in Config.model_fields}
-    unknown = []
-    for env_name in os.environ:
-        if env_name.startswith("ARXMCP_") and env_name not in declared:
-            unknown.append(env_name)
-    if unknown:
-        raise ValueError(
-            f"unknown ARXMCP_* environment variables: {sorted(unknown)}. "
-            f"Declared variables: {sorted(declared)}. A typo here would "
-            f"silently bypass the documented config — fix or remove the "
-            f"variable."
-        )
+    declared = frozenset(
+        f"ARXMCP_{name.upper()}" for name in Config.model_fields
+    )
+    unknown = sorted(
+        env_name
+        for env_name in os.environ
+        if env_name.startswith("ARXMCP_") and env_name not in declared
+    )
+    if not unknown:
+        return
+    hints = "\n".join(
+        _format_unknown_arxmcp_env_var(name, declared) for name in unknown
+    )
+    raise ValueError(
+        "unknown ARXMCP_* environment variables — each would silently "
+        "bypass the documented config; fix or remove:\n" + hints
+    )
 
 
 # ---------------------------------------------------------------------------

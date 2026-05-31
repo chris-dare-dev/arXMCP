@@ -512,9 +512,14 @@ make test                                                    # ruff + pytest
 ### Start the MCP server (local dev)
 
 ```bash
-export ARXMCP_CONTACT_EMAIL=you@example.com
 make up
 ```
+
+The server REJECTS `ARXMCP_CONTACT_EMAIL` (it's an ingest-tool var, not
+a server config knob — `tools/notebook_fetch.py`,
+`tools/recover_preambles.py`, `ingest/inspire_ingest.py` consume it for
+the arXiv polite-pool User-Agent). Unset it for `make up` and only
+export it in shells where you're running an ingest CLI.
 
 Health: `curl http://127.0.0.1:7733/healthz` (always 200),
 `curl http://127.0.0.1:7733/readyz` (200 once BGE-M3 + LanceDB warm).

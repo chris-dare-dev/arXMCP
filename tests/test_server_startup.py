@@ -1252,6 +1252,111 @@ class TestEnvVarScan:
         with pytest.raises(ValueError, match="unknown ARXMCP_"):
             create_app(cfg)
 
+    # --- onboarding-uplift-m1 (AC2 + AC9): close-match + carve-out -----
+
+    def test_close_match_suggestion_for_typo(self, monkeypatch):
+        """AC2 / m1 synthesis §3 D2: a typo like ``ARXMCP_BIND_HOTS``
+        (transposed last two chars) MUST trigger
+        ``difflib.get_close_matches`` and yield a suggestion naming
+        the correct ``ARXMCP_BIND_HOST``.
+
+        Assertions follow m1 synthesis §3 D3 / FM-4 (test brittleness):
+        check independent predicates — the typo name appears AND the
+        suggested correct name appears — not the full sentence wording.
+        That keeps the test stable under future wording refactors.
+        """
+        from server.main import _scan_unknown_arxmcp_env_vars
+
+        monkeypatch.setenv("ARXMCP_BIND_HOTS", "127.0.0.1")
+        with pytest.raises(ValueError) as exc_info:
+            _scan_unknown_arxmcp_env_vars(Config(bind_host="127.0.0.1"))
+        msg = str(exc_info.value)
+        assert "ARXMCP_BIND_HOTS" in msg, (
+            f"close-match message must name the typo; got {msg!r}"
+        )
+        assert "ARXMCP_BIND_HOST" in msg, (
+            f"close-match message must suggest the correct var; got {msg!r}"
+        )
+
+    def test_contact_email_carve_out_names_ingest_tools(self, monkeypatch):
+        """AC1 / AC9 / m1 synthesis §3 D1: ``ARXMCP_CONTACT_EMAIL`` is
+        an ingest-tool var; the scan must STILL raise (it would
+        silently bypass the server's documented config) but with a
+        tailored carve-out message naming the tools that DO consume it
+        and instructing the operator to unset it for the server.
+
+        Companion to ``test_contact_email_env_var_rejected`` (the
+        pre-m1 regression guard for the var rejection itself, which
+        also continues to pass — the new message still names
+        ``ARXMCP_CONTACT_EMAIL``).
+
+        Brittleness discipline (m1 FM-4): assert independent predicates
+        — variable name + carve-out semantic ("ingest" or "not a
+        server" or named tools) — not the full sentence wording.
+        """
+        from server.main import _scan_unknown_arxmcp_env_vars
+
+        monkeypatch.setenv("ARXMCP_CONTACT_EMAIL", "x@y")
+        with pytest.raises(ValueError) as exc_info:
+            _scan_unknown_arxmcp_env_vars(Config(bind_host="127.0.0.1"))
+        msg = str(exc_info.value)
+        # Independent predicates: variable name + at least one ingest-tool
+        # name + the "unset" instruction. None of these is the full
+        # sentence; future wording refactors that preserve the semantics
+        # leave this test green.
+        assert "ARXMCP_CONTACT_EMAIL" in msg, (
+            f"carve-out must name the variable; got {msg!r}"
+        )
+        # At least one of the ingest-tool modules MUST be named so the
+        # operator can find where the var is actually consumed. The
+        # synthesis names three: tools/notebook_fetch.py,
+        # tools/recover_preambles.py, ingest/inspire_ingest.py.
+        assert any(
+            tool in msg
+            for tool in (
+                "tools/notebook_fetch.py",
+                "tools/recover_preambles.py",
+                "ingest/inspire_ingest.py",
+            )
+        ), (
+            f"carve-out must name an ingest-tool module so the operator "
+            f"can locate where the var is actually consumed; got {msg!r}"
+        )
+        assert "unset" in msg.lower(), (
+            f"carve-out must instruct the operator to unset the var for "
+            f"the server; got {msg!r}"
+        )
+
+    def test_error_message_does_not_dump_all_declared_vars(self, monkeypatch):
+        """AC1 / m1 synthesis goal — the prior 30-line declared-vars
+        dump (every ARXMCP_* knob enumerated in the error) is replaced
+        by per-var hints. Assert the new message names at most a
+        handful of declared vars, not all 32.
+
+        This is the cardinal "the error stopped being scary" test —
+        the 32-var dump was the BLOCKER B1 signal the operator
+        couldn't visually parse. A regression that re-introduces it
+        would re-open the BLOCKER without breaking any other assertion.
+        """
+        from server.main import _scan_unknown_arxmcp_env_vars
+
+        monkeypatch.setenv("ARXMCP_DOES_NOT_EXIST_AT_ALL", "x")
+        with pytest.raises(ValueError) as exc_info:
+            _scan_unknown_arxmcp_env_vars(Config(bind_host="127.0.0.1"))
+        msg = str(exc_info.value)
+        # Count distinct ARXMCP_* substrings in the message. The new
+        # behaviour names: the offending var + up to 3 nearest. So 4
+        # ARXMCP_-prefixed strings is the realistic upper bound for the
+        # short-form fallback path; 32 (the full declared set) is the
+        # bug we're guarding against. Set the threshold at 10 — well
+        # above the realistic max, well below the regression signal.
+        arxmcp_mentions = msg.count("ARXMCP_")
+        assert arxmcp_mentions < 10, (
+            f"error message mentions {arxmcp_mentions} ARXMCP_* names — "
+            f"the 30-line declared-vars dump regressed. Expected <10. "
+            f"Message: {msg!r}"
+        )
+
 
 # Suppress unused-import warning — `time` is used in the docstring example.
 _ = time

@@ -34,8 +34,10 @@ help:
 	@echo ""
 	@echo "Override the python interpreter with: make test PYTHON=python3.13"
 	@echo ""
-	@echo "Before fetching from arXiv, export ARXMCP_CONTACT_EMAIL=<your-email>"
-	@echo "(used in the User-Agent string per arXiv TOS)."
+	@echo "Before running the arXiv CLI fetch tools (tools/notebook_fetch.py,"
+	@echo "tools/recover_preambles.py, ingest/inspire_ingest.py — NOT"
+	@echo "'make up'; the server REJECTS the var), export"
+	@echo "ARXMCP_CONTACT_EMAIL=<your-email> for the User-Agent (arXiv TOS)."
 
 bootstrap:
 	@$(PYTHON) -c "import sys; assert sys.version_info >= (3, $(MIN_PY_MINOR)), \
@@ -59,7 +61,10 @@ bootstrap:
 	@echo ""
 	@echo "Bootstrap complete. var/arxmcp/ tree created."
 	@if [ -z "$$ARXMCP_CONTACT_EMAIL" ]; then \
-		echo "WARNING: export ARXMCP_CONTACT_EMAIL=<your-email> before fetching from arXiv."; \
+		echo "NOTE: export ARXMCP_CONTACT_EMAIL=<your-email> before running"; \
+		echo "the arXiv CLI fetch tools (tools/notebook_fetch.py,"; \
+		echo "tools/recover_preambles.py, ingest/inspire_ingest.py)."; \
+		echo "The server itself REJECTS the var — keep it unset for 'make up'."; \
 	fi
 
 test:
