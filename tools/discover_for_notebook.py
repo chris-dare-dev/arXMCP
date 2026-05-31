@@ -52,6 +52,16 @@ class DiscoveryCandidate:
     submitted_date: str
 
 
+def _strip_version(paper_id: str) -> str:
+    """Drop the trailing ``vN`` suffix, mirroring ``_arxiv_api.parse_atom_feed``.
+
+    The junction may store a versioned id (URL-paste route), while feed
+    candidates are already un-versioned; normalising both to this key makes the
+    dedup membership test align (rect F1).
+    """
+    return paper_id.split("v", 1)[0] if "v" in paper_id else paper_id
+
+
 async def discover_for_notebook_async(
     store: NotebooksStore,
     slug: str,
@@ -91,11 +101,17 @@ async def discover_for_notebook_async(
         sleep=sleep,
     )
 
-    # Dedup against the notebook's existing papers. Both sides store
-    # un-versioned ids (parse_atom_feed strips the vN suffix; add_paper does
-    # too), so the set membership test aligns. Order-preserving filter keeps the
-    # arXiv submittedDate-descending ranking → deterministic for a fixed feed.
-    existing_ids = {p["paper_id"] for p in await store.list_papers(slug)}
+    # Dedup against the notebook's existing papers. The candidate side is
+    # un-versioned (parse_atom_feed strips the vN suffix), but the junction can
+    # hold a VERSIONED id: the URL-paste route stores whatever
+    # is_valid_arxiv_paper_id accepts, e.g. "2604.26204v3" from
+    # https://arxiv.org/abs/2604.26204v3 (rect F1; tests/test_notebook_api.py).
+    # Normalise the stored side to the same un-versioned key so a paper the
+    # operator already added is never re-proposed. Order-preserving filter keeps
+    # the arXiv submittedDate-descending ranking → deterministic for a fixed feed.
+    existing_ids = {
+        _strip_version(p["paper_id"]) for p in await store.list_papers(slug)
+    }
     return [
         DiscoveryCandidate(
             paper_id=c.paper_id,

@@ -104,6 +104,34 @@ class TestDiscoverHappyPath:
         assert out[0].submitted_date == "2023-07-02T00:00:00Z"
         assert out[0].abstract_head.startswith("abstract describing 2307.00002")
 
+    def test_dedup_handles_versioned_existing_paper(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # rect F1: the URL-paste route stores VERSIONED ids (e.g. 2307.00001v2);
+        # parse_atom_feed strips the suffix, so dedup must normalise the stored
+        # side or the paper is silently re-proposed every run.
+        monkeypatch.setattr(
+            _arxiv_api, "_fetch_url",
+            lambda url, contact_email=None: _feed(_THREE),
+        )
+
+        async def _run() -> list[DiscoveryCandidate]:
+            store = await _seed_store(tmp_path / "notebooks.db")
+            # Simulate URL-paste adding a versioned id for the first feed paper.
+            await store.add_paper(
+                "bridgeland", "2307.00001v2", "2026-05-31T00:00:00+00:00",
+            )
+            try:
+                return await discover_for_notebook_async(
+                    store, "bridgeland", sleep=_NOOP_SLEEP,
+                )
+            finally:
+                await store.close()
+
+        out = asyncio.run(_run())
+        # 2307.00001v2 in the junction matches 2307.00001 from the feed -> deduped.
+        assert [c.paper_id for c in out] == ["2307.00002", "2307.00003"]
+
     def test_deterministic_across_calls(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
