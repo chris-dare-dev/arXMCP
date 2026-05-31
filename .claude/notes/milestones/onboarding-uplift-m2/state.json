@@ -20,11 +20,22 @@
     "medium": 4
   },
   "critique_path": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/onboarding-uplift-m2/critique-merged.md",
-  "deferred_findings": [],
+  "deferred_findings": [
+    "F8"
+  ],
   "external_writes_authorized": false,
   "external_writes_completed": false,
   "external_writes_required": [],
-  "fixed_findings": [],
+  "fixed_findings": [
+    "F1",
+    "F2",
+    "F3",
+    "F4",
+    "F5",
+    "F6",
+    "F7",
+    "IS1"
+  ],
   "id": "onboarding-uplift-m2",
   "implementation_base": "40f3552febaa921140a650397a5cf4488dab250d",
   "implementation_branch": "main",
@@ -37,7 +48,7 @@
   "implementation_summary_path": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/onboarding-uplift-m2/implementation-summary.md",
   "invalidated_findings": [],
   "milestone_brief": "**Make targets that match the mental model.** m2 of the startup-UX uplift sequence (proposal at `.claude/notes/uplift/startup-ux/streamlined-flow-proposal.md` \u00a79; decisions locked at `.claude/notes/uplift/startup-ux/decisions.md`).\n\nGoal: give the CLI persona (\"Sam, ML engineer scripting a pipeline\") a coherent set of `make <verb> <KEY>=<value>` targets that thin-wrap the existing `tools/notebook_*.py` modules + `/ui/api/notebooks/*` REST endpoints. Today the operator must invoke each tool by its full Python path. m2 lifts the common verbs to first-class Make targets.\n\n**Decisions baked in:**\n- **D1** (bootstrap mode OFF) \u2014 m2 does NOT touch the boot-time corpus guard. Cold-start still fatals. That's m4.\n- **D2** (corpus-level ingest, not per-notebook) \u2014 the new make API does NOT include `make ingest NOTEBOOK=<slug>`. The shipped per-notebook LanceDB path (`notebook-retrieval-m2` fork A/C) STAYS as the advanced opt-in; the default `make ingest` continues to drive the shared global corpus (today's stub at `Makefile:117-133`). For m2, `make add NOTEBOOK=<slug> PAPER=<id>` tags the paper in the SQLite notebook label AND ingests into the shared corpus if not already present. No per-notebook lancedb is written by the new path.\n- **D4** (operator settings \u2192 SQLite) \u2014 operator preferences live as a new `operator_settings` table inside `var/arxmcp/cache/notebooks.db`. Schema: `(key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)`. First key is `contact_email`. Reads/writes via a new `server/operator_settings.py` module mirroring the existing `notebooks_store.py` pattern.\n\n**Concrete scope (~5 files, ~200 LOC main + tests):**\n\n1. **`server/operator_settings.py`** (NEW, ~80 LOC) \u2014 `OperatorSettingsStore` class with `get(key, default=None)`, `set(key, value)`, `delete(key)`. SQLite WAL mode. Creates the `operator_settings` table on first open (idempotent CREATE TABLE IF NOT EXISTS + schema-version row). Lives in the same `notebooks.db` file as the existing `notebooks` table \u2014 single SQLite file, two tables. Defensive: works whether server is running or not (the SQLite file is openable cross-process).\n\n2. **`tools/_notebook_common.py` extension** (~15 LOC) \u2014 add `resolve_contact_email(arg)` helper: prefer explicit CLI arg \u2192 fallback to `OperatorSettingsStore.get(\"contact_email\")` \u2192 fallback to `os.environ[\"ARXMCP_CONTACT_EMAIL\"]` \u2192 raise NotebookError (\"no contact email; pass --email or run `make init NOTEBOOK=... EMAIL=...`\"). Every fetch CLI (`tools/notebook_fetch.py`, `tools/recover_preambles.py`, `ingest/inspire_ingest.py`, `ingest/graph_ingest.py`, `tools/arxiv_fetch.py`) wires through this helper.\n\n3. **`Makefile` additions** (~5 new targets + help reorg):\n   - `make init NOTEBOOK=<slug> [EMAIL=<email>]` \u2014 calls `python tools/notebook_init.py <slug>` (existing) + writes EMAIL to `operator_settings` if provided. Idempotent.\n   - `make add NOTEBOOK=<slug> PAPER=<id>` \u2014 POSTs to `/ui/api/notebooks/<slug>/papers` if `/healthz` is 200; fallback to writing the paper-id to `var/arxmcp/notebooks/<slug>/papers.txt` (the existing notebook_init scaffold). Per D2: the add does NOT trigger per-notebook lancedb ingest; the user separately runs `make ingest` (shared-corpus path) to get the paper's chunks into the served corpus.\n   - `make notebook-list` \u2014 `curl /ui/api/notebooks` (server up) OR direct SQLite read (server down). One row per notebook with slug + paper count.\n   - `make status` \u2014 `curl /status` (server up) OR offline summary (notebook count, ingested-papers-count, last marker version). Single human-readable line.\n   - `make help` block reorg: new \"FIRST TIME?\" section at the top listing the 4 targets above + `make bootstrap` and `make up`. The existing target list moves below.\n\n4. **`tests/test_operator_settings.py`** (NEW) \u2014 round-trip set/get/delete, schema migration, concurrent reader (server running) + writer (CLI), empty-value handling.\n\n5. **`tests/test_make_targets.py`** (NEW) \u2014 execute each new Make target with a fake `notebooks.db` + mocked server, assert the right side effects (SQLite row, REST call, fallback behavior).\n\n**Acceptance criteria:**\n- AC1: `make init NOTEBOOK=demo EMAIL=me@example.com` creates the notebook scaffold AND persists the email; running the same command twice is idempotent.\n- AC2: After AC1, `python tools/notebook_fetch.py demo` succeeds WITHOUT `ARXMCP_CONTACT_EMAIL` set in the env \u2014 `resolve_contact_email` reads from `operator_settings`.\n- AC3: `make add NOTEBOOK=demo PAPER=2401.00001` works whether the server is up or down (REST when up, file append when down). Idempotent (re-adding a present paper is a no-op).\n- AC4: `make notebook-list` works whether the server is up or down.\n- AC5: `make status` works whether the server is up or down.\n- AC6: `make help` lists the new \"FIRST TIME?\" targets first, then the existing detail-target list. No existing target is removed or renamed.\n- AC7: `make test` green, `ruff check .` clean.\n- AC8: `EXPECTED_TOOL_SCHEMA_SHA256` + `EXPECTED_BP1_SHA256` UNCHANGED (no MCP-surface touch).\n- AC9: New regression tests in both new test files.\n\n**Out of scope (later milestones):**\n- `make reconcile` (heal stale corpus-version.json) \u2192 m3.\n- `make repair-registry` (re-register on-disk notebook dirs missing from notebooks.db) \u2192 m3.\n- `POST /ui/api/notebooks/<slug>/reconcile-marker`, `GET /ui/api/notebooks/<slug>/health`, `POST /ui/api/admin/repair-registry` \u2192 m3 (server-side REST API additions).\n- Bootstrap mode / soft cold-start / `make up-wizard` \u2192 m4.\n- Wizard / first-boot detection / `frontend/templates/wizard.html` \u2192 m5.\n- Per-notebook freshness UI \u2192 m6.\n- Any change to the per-notebook LanceDB routing in `server/handlers/search.py:424-520` (D2: that stays as advanced opt-in).\n\n**Effort:** 1-2 hours. Touch ~5 files. No new architecture; D4 locks the operator-settings shape. Purely local. No external writes.",
-  "phase": "rectify-running",
+  "phase": "complete",
   "phase_history": [
     {
       "entered_at": "2026-05-31T03:26:13Z",
@@ -76,12 +87,22 @@
     },
     {
       "entered_at": "2026-05-31T04:09:30Z",
-      "left_at": null,
+      "left_at": "2026-05-31T04:19:39Z",
       "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-05-31T04:19:39Z",
+      "left_at": null,
+      "phase": "complete"
     }
   ],
-  "rectification_commit": null,
-  "regression_tests_added": [],
+  "rectification_commit": "e3ec3f37a4b17bdd957606e25a3d7ac5aeaa4bee",
+  "regression_tests_added": [
+    "tests/test_make_targets.py::TestMakeInit::test_row_survives_first_server_open",
+    "tests/test_make_targets.py::TestNotebookListOffline::test_user_version_unchanged_after_list",
+    "tests/test_make_targets.py::TestResolveContactEmail::test_sqlite_shadows_env_var_emits_info_log",
+    "tests/test_make_targets.py::TestResolveContactEmail::test_no_shadow_log_when_only_sqlite_set"
+  ],
   "research_briefs": [
     {
       "agent_id": "researcher-1",
@@ -96,5 +117,5 @@
   ],
   "research_mode": "standard",
   "research_synthesis": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/onboarding-uplift-m2/research-synthesis.md",
-  "updated_at": "2026-05-31T04:09:30Z"
+  "updated_at": "2026-05-31T04:19:39Z"
 }
