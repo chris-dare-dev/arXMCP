@@ -278,10 +278,21 @@ class BodySizeCapMiddleware:
 #: must be ``ARXMCP_*``-prefixed (the scan only inspects that
 #: namespace).
 _KNOWN_INGEST_ENV_VARS: dict[str, str] = {
+    # m1 critique F1: the prior version named 3 of 5 actual consumers
+    # and omitted ``tools/fetch_seed.py`` — the very tool the README
+    # quick-start runs at line 51, which is the most likely path a
+    # user follows before hitting this error. Now lists every direct
+    # ``os.environ.get("ARXMCP_CONTACT_EMAIL")`` reader: the
+    # ``tools/arxiv_fetch.py`` shared library (consumed transitively
+    # by ``tools/fetch_seed.py``, ``tools/fetch_one_paper.py``,
+    # ``tools/curate_seed.py``) + the two notebook-stage tools that
+    # call it directly + the two ingest CLIs.
     "ARXMCP_CONTACT_EMAIL": (
-        "is NOT a server config var; it is read by the CLI fetch tools "
-        "(tools/notebook_fetch.py, tools/recover_preambles.py, "
-        "ingest/inspire_ingest.py) for the arXiv polite-pool User-Agent. "
+        "is NOT a server config var; it is read by the arXiv-facing "
+        "CLI tools (tools/arxiv_fetch.py library + "
+        "tools/fetch_seed.py, tools/notebook_fetch.py, "
+        "tools/recover_preambles.py; ingest/inspire_ingest.py and "
+        "ingest/graph_ingest.py) for the arXiv polite-pool User-Agent. "
         "Unset it for the server."
     ),
 }
@@ -351,9 +362,13 @@ def _scan_unknown_arxmcp_env_vars(config: Config) -> None:
     Closes F4 from the E06_S01 critique. ``pydantic-settings``'s
     ``extra="forbid"`` only fires for direct ``__init__`` kwargs —
     NOT for env-var input. So a typo like ``ARXMCP_BIND_HOST_TYPO``
-    or a documented-but-unimplemented var like ``ARXMCP_OTEL_ENDPOINT``
-    is silently ignored. This scan walks ``os.environ`` for every
-    ``ARXMCP_*`` key and asserts it maps to a declared field.
+    is silently ignored at the Pydantic layer. This scan walks
+    ``os.environ`` for every ``ARXMCP_*`` key and asserts it maps to
+    a declared field. (The original docstring also cited
+    ``ARXMCP_OTEL_ENDPOINT`` as an example of the "documented-but-
+    unimplemented" class — m1 critique F2: ``ARXMCP_OTEL_ENDPOINT``
+    is now declared on ``Config`` (E14 observability landed) and
+    would be accepted, so the example was retired.)
 
     ``onboarding-uplift-m1`` replaces the prior 30-line declared-var
     dump with per-var hints: an ingest-tool carve-out for

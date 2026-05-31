@@ -147,13 +147,16 @@ your existing entries):
 
 > **MCP endpoint path.** The shim POSTs to `/mcp/` (with the trailing
 > slash) — it appends the path internally to the `--server` base URL,
-> so the registration above is correct as-is. If you build a custom
-> HTTP client (not via the shim), POST to `http://127.0.0.1:7733/mcp/`
-> directly. The mount is at `/mcp` but FastAPI/Starlette 307-redirects
-> bare `/mcp` → `/mcp/`, and most HTTP clients drop POST bodies on the
-> redirect — this is a FastAPI mount idiosyncrasy, not an MCP spec
-> requirement (see MCP 2025-06-18 Streamable HTTP: the example endpoint
-> is unslashed). See *Troubleshooting* below.
+> so the registration above is correct as-is. Custom HTTP clients
+> (whether POSTing JSON-RPC requests or issuing a GET to listen on the
+> SSE stream) should address `/mcp/` directly:
+> `http://127.0.0.1:7733/mcp/`. The mount is at `/mcp` but
+> FastAPI/Starlette 307-redirects bare `/mcp` → `/mcp/`, which most
+> HTTP clients handle for GET but drop POST bodies on (and a misbehaving
+> proxy may not follow the redirect at all for either method) — this is
+> a FastAPI mount idiosyncrasy, not an MCP spec requirement (see MCP
+> 2025-06-18 Streamable HTTP: the example endpoint is unslashed). See
+> *Troubleshooting* below.
 
 The block above is **verbatim** the snippet from
 [`.claude/notes/06-mcp-server-design.md`](../.claude/notes/06-mcp-server-design.md)
@@ -319,7 +322,7 @@ the configured port; double-check `make up` is alive.
 | Shim hangs on first request | `json_response=True` not set on server, so it returns SSE the shim can't parse | the v1 server sets it by default; this should not happen on a fresh install |
 | `Mcp-Session-Id` errors | spec violation upstream | report; shim captures session-id from response headers per MCP 2025-06-18 |
 | Custom HTTP client POSTs to `http://127.0.0.1:7733/mcp` and gets an empty body or 307 | FastAPI/Starlette 307-redirects bare `/mcp` to `/mcp/`; most HTTP clients drop the POST body on the redirect | POST to `http://127.0.0.1:7733/mcp/` (with the trailing slash). The `arxmcp-shim` does this transparently; only direct curl / custom clients are affected. |
-| Server FATALs at boot with `unknown ARXMCP_* environment variables: …ARXMCP_CONTACT_EMAIL…` | `ARXMCP_CONTACT_EMAIL` is an ingest-tool var, not a server config knob; the server's strict-typo check rejects it | `unset ARXMCP_CONTACT_EMAIL` before `make up`. Only export it in shells where you're running the arXiv CLI fetch tools (`tools/notebook_fetch.py`, `tools/recover_preambles.py`, `ingest/inspire_ingest.py`). |
+| Server FATALs at boot with `unknown ARXMCP_* environment variables` mentioning `ARXMCP_CONTACT_EMAIL` | `ARXMCP_CONTACT_EMAIL` is an ingest-tool var, not a server config knob; the server's strict-typo check rejects it | `unset ARXMCP_CONTACT_EMAIL` before `make up`. Only export it in shells where you're running an arXiv CLI fetch tool (`tools/fetch_seed.py`, `tools/notebook_fetch.py`, `tools/recover_preambles.py`, `ingest/inspire_ingest.py`, `ingest/graph_ingest.py`). |
 
 ## Why a separate shim process per sub-agent
 

@@ -1308,19 +1308,40 @@ class TestEnvVarScan:
             f"carve-out must name the variable; got {msg!r}"
         )
         # At least one of the ingest-tool modules MUST be named so the
-        # operator can find where the var is actually consumed. The
-        # synthesis names three: tools/notebook_fetch.py,
-        # tools/recover_preambles.py, ingest/inspire_ingest.py.
-        assert any(
-            tool in msg
-            for tool in (
-                "tools/notebook_fetch.py",
-                "tools/recover_preambles.py",
-                "ingest/inspire_ingest.py",
-            )
-        ), (
+        # operator can find where the var is actually consumed. m1
+        # critique F1: the prior 3-tool list omitted tools/fetch_seed.py
+        # (the very tool the README quick-start runs); the rectification
+        # extended the carve-out hint to name all 5 actual consumers
+        # + the tools/arxiv_fetch.py shared library. The expanded
+        # ``tools=`` tuple here documents the operator paths and is
+        # used by BOTH the at-least-one assertion below AND the
+        # README-quick-start tool assertion (which is the cardinal
+        # F1 regression guard — without ``tools/fetch_seed.py`` the
+        # user following the documented README path lands on an error
+        # that names tools they DIDN'T run).
+        tools = (
+            "tools/arxiv_fetch.py",
+            "tools/fetch_seed.py",
+            "tools/notebook_fetch.py",
+            "tools/recover_preambles.py",
+            "ingest/inspire_ingest.py",
+            "ingest/graph_ingest.py",
+        )
+        assert any(tool in msg for tool in tools), (
             f"carve-out must name an ingest-tool module so the operator "
             f"can locate where the var is actually consumed; got {msg!r}"
+        )
+        # m1 critique F1 regression guard — the README quick-start runs
+        # ``python tools/fetch_seed.py``, so the user's most likely
+        # mental link from "where did I export this?" to "where do I
+        # need it?" goes through fetch_seed. A carve-out hint that
+        # omits this name re-opens the F1 defect.
+        assert "tools/fetch_seed.py" in msg, (
+            f"carve-out MUST name tools/fetch_seed.py — it is the tool "
+            f"the README quick-start runs (line 51), and omitting it "
+            f"means an operator who follows the README and forgets "
+            f"`unset` lands on an error pointing at tools they didn't "
+            f"run (m1 critique F1); got {msg!r}"
         )
         assert "unset" in msg.lower(), (
             f"carve-out must instruct the operator to unset the var for "
@@ -1351,10 +1372,19 @@ class TestEnvVarScan:
         # bug we're guarding against. Set the threshold at 10 — well
         # above the realistic max, well below the regression signal.
         arxmcp_mentions = msg.count("ARXMCP_")
-        assert arxmcp_mentions < 10, (
+        # m1 critique F3: threshold raised from <10 to <20. The
+        # single-unknown short-form-fallback case mentions ~5 names
+        # (offending + 3 nearest + the header phrase); a future
+        # multi-unknown realistic test with 3 unknowns across all 3
+        # branches (carve-out + typo + short-form) lands at ~9 — at
+        # the prior 10-threshold boundary. 20 is comfortably tolerant
+        # of multi-unknown workloads AND still far below the 32+ count
+        # that was the BLOCKER B1 signal.
+        assert arxmcp_mentions < 20, (
             f"error message mentions {arxmcp_mentions} ARXMCP_* names — "
-            f"the 30-line declared-vars dump regressed. Expected <10. "
-            f"Message: {msg!r}"
+            f"the 30-line declared-vars dump regressed. Expected <20 "
+            f"(realistic max ~10 for 3 unknowns across all 3 branches; "
+            f"32 was the BLOCKER B1 signal). Message: {msg!r}"
         )
 
 
