@@ -303,6 +303,33 @@ class TestUPL12PreFlightChecklist:
         )
         assert r.status_code == 422, r.text
 
+    def test_old_style_paper_id_through_html_branch(
+        self, m4_client: TestClient
+    ) -> None:
+        # m4-rect F2 (MEDIUM): _arxiv_url_to_paper_id (via
+        # is_valid_arxiv_paper_id at ingest/identifiers.py) accepts BOTH
+        # new-style (2604.00001) AND old-style (hep-th/0001234) paper IDs.
+        # Pre-rect, every HTML-branch test in this file exercised only
+        # new-style IDs, so the renderer's behaviour for the slash-bearing
+        # old-style form was undocumented. The slash is HTML-safe (only
+        # `< > & "` are escape-relevant) so this is NOT an XSS path, but
+        # the assertion surface that "Spike-2 13-item pre-flight checklist
+        # is mechanically exercised" (impl-summary AC row 10) needs the
+        # full input range to mean what it claims.
+        r = m4_client.post(
+            "/ui/api/notebooks/test-nb/papers",
+            json={"arxiv_url": "https://arxiv.org/abs/hep-th/0001234"},
+            headers={"HX-Request": "true"},
+        )
+        assert r.status_code == 201, r.text
+        assert "text/html" in r.headers.get("content-type", "").lower()
+        text = r.text
+        assert 'data-paper-id="hep-th/0001234"' in text
+        assert "<td>hep-th/0001234</td>" in text
+        # has_preview=False branch (URL-paste writes no ar5iv HTML on
+        # disk) — disabled-look Preview affordance present.
+        assert "upload an ar5iv HTML to enable preview" in text
+
 
 # ---------------------------------------------------------------------------
 # UPL-12 v0 — template changes on the add-paper form
@@ -586,15 +613,22 @@ class TestCrossMilestoneSafety:
         )
 
     def test_app_css_under_revised_soft_cap(self) -> None:
-        # m3-rect revised the cap from 300 → 330. m4 adds ~25 LOC (UPL-22
-        # min-width + flash keyframe + UPL-13 duration override). Should
-        # land around 330. If we blow past 330, the test fires and
-        # triggers another design conversation.
+        # m4-rect F1: single source of truth — this cap mirrors the m3 test
+        # file's cap exactly. Trajectory: m1 = 190 → m2 = 216 → m3-feat =
+        # 287 → m3-rect = 330 (F1/F2/F3 WCAG corrections) → m4 = 335
+        # (UPL-22 flash keyframes + UPL-13 ::view-transition duration
+        # override, consolidated into ONE @media block to minimise line
+        # cost). If a future milestone raises the cap again, BOTH this
+        # test AND tests/test_ui_m3_dark_and_htmx_feedback.py::
+        # TestCrossMilestoneSafety::test_app_css_under_soft_cap must move
+        # in lockstep — the two caps MUST agree.
         line_count = APP_CSS.count("\n") + (1 if not APP_CSS.endswith("\n") else 0)
-        assert line_count <= 350, (
-            f"app.css is {line_count} lines — over the 350-line cap (revised "
-            f"from m3's 330 to accommodate m4's UPL-22 flash + UPL-13 duration "
-            f"override). Consider stripping documentation comments, splitting "
-            f"the file (e.g. tokens.css + app.css), or arguing for another "
-            f"revision."
+        assert line_count <= 335, (
+            f"app.css is {line_count} lines — over the 335-line cap (revised "
+            f"in m4 from m3-rect's 330 to accommodate UPL-22 badge flash + "
+            f"UPL-13 View Transitions duration override). Consider stripping "
+            f"documentation comments, splitting the file (e.g. tokens.css + "
+            f"app.css), or arguing for another revision. NOTE: the m3 cap "
+            f"test in tests/test_ui_m3_dark_and_htmx_feedback.py must also "
+            f"move in lockstep — the two caps MUST agree."
         )

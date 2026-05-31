@@ -1624,13 +1624,24 @@ def _paper_row_html(
     pre-flight checklist item: server-fragment correctness).
 
     m10: the table has FOUR columns (Paper ID, Added, Preview, Actions)
-    to match the rendered ``notebook_detail.html`` body. The upload
-    handler always writes ar5iv HTML to disk (``has_preview=True``
-    default — Preview cell is a live link); the m4 URL-paste branch
-    writes NO file (``has_preview=False`` — Preview cell renders the
-    m10-rect-F6 disabled-look ``<span class="hint">`` so the operator
-    sees the same affordance the next page-load gives them, not a
-    broken 404 link).
+    to match the rendered ``notebook_detail.html`` body. The ar5iv-HTML
+    upload path writes a file readable by the preview route
+    (``has_preview=True`` default — Preview cell is a live link); the
+    m4 URL-paste branch writes NO file (``has_preview=False`` — Preview
+    cell renders the m10-rect-F6 disabled-look ``<span class="hint">``
+    so the operator sees the same affordance the next page-load gives
+    them, not a broken 404 link).
+
+    .. note::
+       The textbook PDF upload path (``notebook_kind="textbook"``) also
+       currently defaults to ``has_preview=True``, which renders a
+       Preview link that 404s until the textbook parse pipeline
+       completes. This is a pre-existing m8 behaviour (the m4 patch did
+       not introduce it); the m4-rect critique flagged the docstring
+       drift, not the behaviour itself. Tracked separately under the
+       m9 parse-tracker work (out of m4 scope) — a future milestone
+       should thread ``has_preview=False`` from the textbook-upload
+       branch until parse completes.
 
     The Actions cell shows "added" (was "uploaded" pre-m4; renamed for
     neutrality across both paths). Neither path shows a Remove button
