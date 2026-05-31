@@ -1,0 +1,140 @@
+{
+  "id": "corpus-integrity-observability",
+  "kind": "capability-scout",
+  "created_at": "2026-05-31T18:46:12Z",
+  "updated_at": "2026-05-31T19:17:07Z",
+  "phase": "complete",
+  "phase_history": [
+    {
+      "phase": "init",
+      "at": "2026-05-31T18:46:12Z"
+    },
+    {
+      "phase": "survey-running",
+      "at": "2026-05-31T18:46:44Z"
+    },
+    {
+      "phase": "survey-complete",
+      "at": "2026-05-31T18:58:26Z"
+    },
+    {
+      "phase": "synthesize-running",
+      "at": "2026-05-31T18:58:33Z"
+    },
+    {
+      "phase": "synthesize-complete",
+      "at": "2026-05-31T19:04:24Z"
+    },
+    {
+      "phase": "challenge-running",
+      "at": "2026-05-31T19:04:31Z"
+    },
+    {
+      "phase": "challenge-complete",
+      "at": "2026-05-31T19:14:10Z"
+    },
+    {
+      "phase": "prioritize-running",
+      "at": "2026-05-31T19:14:17Z"
+    },
+    {
+      "phase": "complete",
+      "at": "2026-05-31T19:17:07Z"
+    }
+  ],
+  "scout_brief": "Focus: observability & reporting \u2014 logging, metrics (/metrics, Prometheus), and operator-facing reporting (daily-report, marker/corpus-version reporting, ops dashboards). MOTIVATING BUG (just root-caused): ingest/store.py::write_chunks writes corpus-version.json with chunk_count=len(chunks)/paper_count from only the LAST per-paper batch (bulk_ingest + re_embed call it once per paper), so notebook markers read chunk_count=106 while the real table has 10298 rows \u2014 a ~100x silent discrepancy that NOTHING flagged (it surfaced only by manual inspection during the live cutover). Scout for capabilities that would make this CLASS of bug \u2014 a persisted metadata field silently diverging from ground truth, and wrong values in startup logs / reports going unnoticed \u2014 easy to catch automatically: e.g. invariant/consistency checks at write or startup (marker counts vs table row count), structured logging with assertable fields, metrics that expose ground-truth vs recorded deltas, a reporting/diff surface, drift/regression alarms. Bias toward LOCAL-FIRST, single-workstation, no-new-heavy-infra options consistent with arXMCP's constraints.",
+  "survey_mode": "standard",
+  "survey_briefs": [
+    ".claude/notes/capability-scouts/corpus-integrity-observability/survey/adversary-brief.md",
+    ".claude/notes/capability-scouts/corpus-integrity-observability/survey/comparative-brief.md",
+    ".claude/notes/capability-scouts/corpus-integrity-observability/survey/multi-agent-brief.md",
+    ".claude/notes/capability-scouts/corpus-integrity-observability/survey/oss-trends-brief.md",
+    ".claude/notes/capability-scouts/corpus-integrity-observability/survey/research-frontier-brief.md"
+  ],
+  "scouts_dispatched": [
+    "comparative",
+    "research-frontier",
+    "oss-trends",
+    "multi-agent",
+    "adversary"
+  ],
+  "scouts_returned": [
+    "adversary",
+    "comparative",
+    "multi-agent",
+    "oss-trends",
+    "research-frontier"
+  ],
+  "synthesis_path": ".claude/notes/capability-scouts/corpus-integrity-observability/artifacts/synthesis.md",
+  "candidate_count": 25,
+  "challenge_path": ".claude/notes/capability-scouts/corpus-integrity-observability/artifacts/challenge.md",
+  "challenge_finding_counts": {
+    "critical": 0,
+    "high": 3,
+    "medium": 9,
+    "low": 13
+  },
+  "final_report_path": ".claude/notes/capability-scouts/corpus-integrity-observability/artifacts/final-report.md",
+  "ranked_candidates": [
+    {
+      "id": "CAND-1",
+      "title": "Prometheus alert rules",
+      "rice": 36.0,
+      "rank": 1
+    },
+    {
+      "id": "CAND-3",
+      "title": "WAP write-time gate",
+      "rice": 7.2,
+      "rank": 2
+    },
+    {
+      "id": "CAND-8",
+      "title": "E2E integration test",
+      "rice": 7.2,
+      "rank": 3
+    },
+    {
+      "id": "CAND-6",
+      "title": "BM25 version cross-check",
+      "rice": 3.6,
+      "rank": 4
+    },
+    {
+      "id": "CAND-4",
+      "title": "structlog migration",
+      "rice": 2.4,
+      "rank": 5
+    },
+    {
+      "id": "CAND-10",
+      "title": "paper_id min/max",
+      "rice": 1.8,
+      "rank": 6
+    },
+    {
+      "id": "CAND-15",
+      "title": "chunk_id liveness",
+      "rice": 1.8,
+      "rank": 7
+    },
+    {
+      "id": "CAND-19",
+      "title": "make audit",
+      "rice": 1.8,
+      "rank": 8
+    },
+    {
+      "id": "CAND-20",
+      "title": "mcpdiff snapshot",
+      "rice": 1.8,
+      "rank": 9
+    },
+    {
+      "id": "CAND-21",
+      "title": "corpus-checks.yml",
+      "rice": 1.8,
+      "rank": 10
+    }
+  ]
+}
