@@ -206,3 +206,46 @@ class TestDiscoverErrors:
         r = client.post("/ui/api/notebooks/bridgeland/discover")
         assert r.status_code == 502, r.text
         assert "discovery failed" in r.json()["detail"]
+
+    def test_malformed_xml_502_not_500(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # rect m4-F1: arXiv returns a non-XML maintenance/redirect page ->
+        # parse_atom_feed raises RuntimeError (converted from ParseError) ->
+        # the route maps it to 502, NOT an unhandled 500.
+        monkeypatch.setattr(
+            _arxiv_api, "_fetch_url",
+            lambda url, contact_email=None: b"<html><body>503 unavailable",
+        )
+        _make_notebook(client)
+        r = client.post("/ui/api/notebooks/bridgeland/discover")
+        assert r.status_code == 502, r.text
+        assert "discovery failed" in r.json()["detail"]
+
+
+class TestDiscoverAddRoundTrip:
+    def test_add_from_discover_fragment_records_paper(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # rect m4-F2: close the AC2 gap — extract the Add mini-form's arxiv_url
+        # from the discover fragment and POST it (as the browser's JSON shim
+        # would) to the existing add-paper route; assert the junction records it.
+        import re
+
+        monkeypatch.setattr(
+            _arxiv_api, "_fetch_url",
+            lambda url, contact_email=None: _feed(_THREE),
+        )
+        _make_notebook(client)
+        frag = client.post("/ui/api/notebooks/bridgeland/discover")
+        assert frag.status_code == 200, frag.text
+        urls = re.findall(
+            r'value="(https://arxiv\.org/abs/[^"]+)"', frag.text
+        )
+        assert urls, "no arxiv_url found in the discover fragment"
+        add = client.post(
+            "/ui/api/notebooks/bridgeland/papers", json={"arxiv_url": urls[0]},
+        )
+        assert add.status_code == 201, add.text
+        papers = client.get("/ui/api/notebooks/bridgeland/papers").json()
+        assert any(p["paper_id"] in urls[0] for p in papers)

@@ -161,9 +161,19 @@ def parse_atom_feed(xml_bytes: bytes) -> list[Candidate]:
     """Parse an arXiv Atom feed into ``Candidate`` rows.
 
     Uses ``defusedxml`` (XXE / entity-expansion safe). Raises
-    ``RuntimeError`` if the feed is an arXiv error entry (FM-6).
+    ``RuntimeError`` if the feed is an arXiv error entry (FM-6) OR if the bytes
+    are not well-formed XML (rect m4-F1: arXiv can return an HTML maintenance /
+    redirect page instead of Atom, which ``DET.fromstring`` raises as a
+    ``ParseError`` — a ``SyntaxError`` subclass that callers' ``RuntimeError``
+    handlers would otherwise miss, surfacing as a 500). Mirrors the
+    ``server/retrieval/equations.py`` ``DET.ParseError`` precedent.
     """
-    root = DET.fromstring(xml_bytes)
+    try:
+        root = DET.fromstring(xml_bytes)
+    except DET.ParseError as exc:
+        raise RuntimeError(
+            f"arXiv returned a non-XML / malformed response: {exc}"
+        ) from exc
     out: list[Candidate] = []
     for entry in root.findall("atom:entry", ATOM_NS):
         id_url = (

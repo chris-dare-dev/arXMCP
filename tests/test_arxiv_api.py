@@ -153,6 +153,14 @@ class TestParseAtomFeed:
         with pytest.raises(RuntimeError, match="error entry"):
             parse_atom_feed(feed)
 
+    def test_non_xml_response_raises_runtimeerror(self) -> None:
+        # rect m4-F1: arXiv can return an HTML maintenance/redirect page; the
+        # defusedxml ParseError (a SyntaxError subclass) is converted to
+        # RuntimeError so callers' RuntimeError handlers catch it (no 500).
+        with pytest.raises(RuntimeError, match="non-XML"):
+            # Unclosed/garbage bytes (e.g. a truncated response) -> ParseError.
+            parse_atom_feed(b"<html><body>503 Service Unavailable")
+
 
 class TestFetchCandidates:
     def test_single_page_no_sleep(self, monkeypatch: pytest.MonkeyPatch) -> None:
