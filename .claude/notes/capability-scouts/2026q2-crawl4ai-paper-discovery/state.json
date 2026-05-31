@@ -1,0 +1,110 @@
+{
+  "id": "2026q2-crawl4ai-paper-discovery",
+  "kind": "capability-scout",
+  "created_at": "2026-05-31T04:36:57Z",
+  "updated_at": "2026-05-31T05:04:46Z",
+  "phase": "complete",
+  "phase_history": [
+    {
+      "phase": "init",
+      "at": "2026-05-31T04:36:57Z"
+    },
+    {
+      "phase": "survey-running",
+      "at": "2026-05-31T04:37:19Z"
+    },
+    {
+      "phase": "survey-complete",
+      "at": "2026-05-31T04:51:30Z"
+    },
+    {
+      "phase": "synthesize-running",
+      "at": "2026-05-31T04:52:45Z"
+    },
+    {
+      "phase": "synthesize-complete",
+      "at": "2026-05-31T04:55:26Z"
+    },
+    {
+      "phase": "challenge-running",
+      "at": "2026-05-31T04:55:26Z"
+    },
+    {
+      "phase": "challenge-complete",
+      "at": "2026-05-31T05:01:50Z"
+    },
+    {
+      "phase": "prioritize-running",
+      "at": "2026-05-31T05:01:50Z"
+    },
+    {
+      "phase": "complete",
+      "at": "2026-05-31T05:04:46Z"
+    }
+  ],
+  "scout_brief": "Integrate crawl4ai (https://github.com/unclecode/crawl4ai) into arXMCP to add a paper-discovery capability: given a notebook's topic area (e.g. 'Bridgeland stability conditions'), autonomously go discover NEW arXiv papers in that area and add them as additional context to the notebook. The stated goal/hope from the user is that crawl4ai-based scraping could sidestep arXiv's rate-limiting. Scope: (1) whether crawl4ai is the right tool vs arXiv official API/OAI-PMH which arXMCP already uses, (2) the rate-limiting / arXiv ToS reality, (3) how a discover-related-papers-for-a-notebook feature would fit arXMCP existing ingest pipeline + MCP tool surface + notebook model, (4) the local-first / no-fork / no-Node constraints. Heavy bias toward concrete deltas vs arXMCP current ingest capability.",
+  "survey_mode": "standard",
+  "survey_briefs": [
+    ".claude/notes/capability-scouts/2026q2-crawl4ai-paper-discovery/survey/comparative-brief.md",
+    ".claude/notes/capability-scouts/2026q2-crawl4ai-paper-discovery/survey/research-frontier-brief.md",
+    ".claude/notes/capability-scouts/2026q2-crawl4ai-paper-discovery/survey/oss-trends-brief.md",
+    ".claude/notes/capability-scouts/2026q2-crawl4ai-paper-discovery/survey/multi-agent-brief.md",
+    ".claude/notes/capability-scouts/2026q2-crawl4ai-paper-discovery/survey/adversary-brief.md"
+  ],
+  "scouts_dispatched": [
+    "comparative",
+    "research-frontier",
+    "oss-trends",
+    "multi-agent",
+    "adversary"
+  ],
+  "scouts_returned": [
+    "comparative",
+    "research-frontier",
+    "oss-trends",
+    "multi-agent",
+    "adversary"
+  ],
+  "synthesis_path": ".claude/notes/capability-scouts/2026q2-crawl4ai-paper-discovery/artifacts/synthesis.md",
+  "candidate_count": 14,
+  "challenge_path": ".claude/notes/capability-scouts/2026q2-crawl4ai-paper-discovery/artifacts/challenge.md",
+  "challenge_finding_counts": {
+    "critical": 0,
+    "high": 5,
+    "medium": 4,
+    "low": 5
+  },
+  "final_report_path": ".claude/notes/capability-scouts/2026q2-crawl4ai-paper-discovery/artifacts/final-report.md",
+  "ranked_candidates": [
+    {
+      "id": "CAND-1",
+      "title": "arXiv Atom topic-discovery channel",
+      "rice": 9.0,
+      "rank": 1
+    },
+    {
+      "id": "CAND-5",
+      "title": "Notebook topic/description field",
+      "rice": 6.0,
+      "rank": 2
+    },
+    {
+      "id": "CAND-4",
+      "title": "Local citation+embedding expansion",
+      "rice": 4.5,
+      "rank": 3
+    },
+    {
+      "id": "CAND-10",
+      "title": "Discovery orchestrator + console panel",
+      "rice": 2.7,
+      "rank": 4
+    },
+    {
+      "id": "CAND-8",
+      "title": "OAI-PMH topic-relevance filter",
+      "rice": 1.5,
+      "rank": 5
+    }
+  ]
+}

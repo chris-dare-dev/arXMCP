@@ -1405,3 +1405,8 @@ follows `__wrapped__` by default, so FastMCP's `find_context_parameter` / `func_
 correctly detects `ctx: Context` through the wrapper. Adding `ctx: Context | None = None` to a
 handler AS THE LAST PARAM works without touching `register_all` or the wrapper. `TOOL_SCHEMA_VERSION`
 and both SHA256 hashes are UNCHANGED (Context is in `skip_names`, never enters `inputSchema`).
+
+## 2026-05-31 — notebook-paper-discovery-m1 — restic-backup-covers-whole-db-file
+`ops/cron/arxmcp-backup.sh` ALREADY includes `var/arxmcp/cache/notebooks.db` as an explicit
+backup path (line 94). Any additive column migration to `notebooks.db` is automatically
+covered — no change to the backup script is needed unless a NEW file path is introduced.

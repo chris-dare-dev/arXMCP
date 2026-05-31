@@ -1,0 +1,105 @@
+{
+  "brief_source": "C:/Users/cedar/Documents/Personal Projects/Source Code/arXMCP/plans",
+  "created_at": "2026-05-31T15:00:14Z",
+  "critics_run": [
+    {
+      "critic": "adversary",
+      "output_path": "C:/Users/cedar/Documents/Personal Projects/Source Code/arXMCP/.claude/notes/milestones/notebook-paper-discovery-m1/critique-adversary.md",
+      "summary": "SHIP-WITH-FIXES; 1 MEDIUM 1 LOW"
+    }
+  ],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "low": 1,
+    "medium": 1
+  },
+  "critique_path": "C:/Users/cedar/Documents/Personal Projects/Source Code/arXMCP/.claude/notes/milestones/notebook-paper-discovery-m1/critique-merged.md",
+  "deferred_findings": [
+    "F2"
+  ],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_required": [],
+  "fixed_findings": [
+    "F1"
+  ],
+  "id": "notebook-paper-discovery-m1",
+  "implementation_base": "867edb726addb8b51ceac87a83c24a707af9d366",
+  "implementation_branch": "main",
+  "implementation_commit_range": "867edb726addb8b51ceac87a83c24a707af9d366..82e3ba5939e5f8919dbbedadef1533ee3f365922",
+  "implementation_commits": [
+    "82e3ba5939e5f8919dbbedadef1533ee3f365922"
+  ],
+  "implementation_path": "inline",
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "### notebook-paper-discovery-m1 \u2014 Notebook topic metadata (schema v4\u2192v5) + discovery-model note\n\n**Description.** Give a notebook a machine-readable research interest. Add an additive\nv4\u2192v5 SQLite migration to `server/notebooks_store.py` introducing `discovery_category`\n(validated against the four target arXiv categories) and free-text `description`, surface\nboth in the operator-console create + edit forms, and commit a 1\u20132 page \"notebook discovery\nmodel\" note under `.claude/notes/` that fixes the field schema, the propose\u2192confirm model,\nand the post-aggregation channel-dedup boundary (CC-4) so later milestones share one model.\n\n**Acceptance criteria.**\n- [ ] v4\u2192v5 migration adds `discovery_category TEXT NOT NULL DEFAULT ''` + `description TEXT NOT NULL DEFAULT ''`; existing rows migrate with defaults (no DROP, no data loss).\n- [ ] `discovery_category` is validated against `{math.AG, math.NT, math-ph, hep-th}` (empty string allowed) via `if \u2026 raise`, not `assert` (`CLAUDE.md \u00a74.7`).\n- Given an operator on the notebook create/edit form, When they set a topic area + category, Then both persist and re-render on reload.\n- [ ] The new columns are included in the restic backup scope.\n- [ ] `.claude/notes/<name>.md` discovery-model note committed (field schema + propose\u2192confirm + dedup boundary), placed per `CLAUDE.md \u00a71`.\n- [ ] `make test` green (ruff clean; prior passing count preserved).\n\n**Dependencies.** `notebook-paper-discovery-e1`; informed by `spike-2`.\n\n**Complexity.** S\n\n**Specialist suggestion.** `\u2014` (additive SQLite migration; covered by milestone-pipeline's adversary critic)",
+  "phase": "complete",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-31T15:00:14Z",
+      "left_at": "2026-05-31T15:00:31Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-31T15:00:31Z",
+      "left_at": "2026-05-31T15:06:20Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-31T15:06:20Z",
+      "left_at": "2026-05-31T15:06:33Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-05-31T15:06:33Z",
+      "left_at": "2026-05-31T16:27:10Z",
+      "phase": "implement-running"
+    },
+    {
+      "entered_at": "2026-05-31T16:27:10Z",
+      "left_at": "2026-05-31T16:37:30Z",
+      "phase": "implement-complete"
+    },
+    {
+      "entered_at": "2026-05-31T16:37:30Z",
+      "left_at": "2026-05-31T16:43:58Z",
+      "phase": "critique-running"
+    },
+    {
+      "entered_at": "2026-05-31T16:43:58Z",
+      "left_at": "2026-05-31T16:44:09Z",
+      "phase": "critique-complete"
+    },
+    {
+      "entered_at": "2026-05-31T16:44:09Z",
+      "left_at": "2026-05-31T16:46:42Z",
+      "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-05-31T16:46:42Z",
+      "left_at": null,
+      "phase": "complete"
+    }
+  ],
+  "rectification_commit": "31ec0e919d6612b6e3e1d28ca868870fcf79555c",
+  "regression_tests_added": [
+    "tests/test_notebook_api.py::TestNotebookTopicMetadata::test_create_strips_control_chars_from_description"
+  ],
+  "research_briefs": [
+    {
+      "agent_id": "researcher-1",
+      "brief_path": "C:/Users/cedar/Documents/Personal Projects/Source Code/arXMCP/.claude/notes/milestones/notebook-paper-discovery-m1/research-brief-1.md",
+      "summary": "in-codebase walk; v4->v5 + PATCH /topic + form fields; backup already covers notebooks.db"
+    },
+    {
+      "agent_id": "researcher-2",
+      "brief_path": "C:/Users/cedar/Documents/Personal Projects/Source Code/arXMCP/.claude/notes/milestones/notebook-paper-discovery-m1/research-brief-2.md",
+      "summary": "migration safety + 5 failure modes; BEGIN/COMMIT atomic block; autoescape ON"
+    }
+  ],
+  "research_mode": "standard",
+  "research_synthesis": "C:/Users/cedar/Documents/Personal Projects/Source Code/arXMCP/.claude/notes/milestones/notebook-paper-discovery-m1/research-synthesis.md",
+  "updated_at": "2026-05-31T16:46:42Z"
+}
