@@ -151,6 +151,10 @@ pre.error:empty { display: none; }
   font-size: 0.75rem;
   font-weight: 600;
   border: 1px solid var(--border);
+  /* m4 UPL-22: stable footer width across state changes (READY/WARN/
+     DEGRADED/DOWN/ops-warn). 14ch fits "DEGRADED · corpus v999 · 99
+     notebooks". Font-family is --mono so ch is predictable. */
+  min-width: 14ch;
 }
 .status-badge--ok       { background: #e6f4ea; color: #1a7f37; border-color: #1a7f37; }
 .status-badge--warn     { background: #fdf3e2; color: #8a5a00; border-color: #8a5a00; }
@@ -303,4 +307,27 @@ button.danger.htmx-request:focus-visible { outline-width: 3px; }
     animation: spin 0.6s linear infinite;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
+}
+
+/* ui-attractive-polish-m4: badge flash (UPL-22) + View Transitions
+   duration override (UPL-13). Both gated by prefers-reduced-motion:
+   no-preference per m1's discipline (reduced-motion users get the
+   universal clamp). UPL-22: htmx auto-applies .htmx-settling to swap
+   targets — the flash signals "the badge just refreshed"; color-mix()
+   from m2 keeps it tied to --accent. UPL-13: htmx 2.0.10 opts into the
+   native View Transitions API via globalViewTransitions = true in
+   base.html; 200ms keeps the operator console snappy vs the browser
+   default ~250ms. */
+@media (prefers-reduced-motion: no-preference) {
+  .status-badge.htmx-settling {
+    animation: badge-flash 400ms ease-out;
+  }
+  @keyframes badge-flash {
+    from { background: color-mix(in oklab, var(--accent) 30%, transparent); }
+    to   { background: transparent; }
+  }
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation-duration: 200ms;
+  }
 }

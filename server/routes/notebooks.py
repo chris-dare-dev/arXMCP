@@ -499,18 +499,34 @@ async def list_papers(
 @router.post(
     "/notebooks/{slug}/papers",
     status_code=status.HTTP_201_CREATED,
+    # m4: union return (HTMLResponse | dict) — FastAPI can't autogenerate
+    # a Pydantic model from the union, and there's no value in trying.
+    response_model=None,
 )
 async def add_paper(
     slug: str,
     body: PaperAdd,
+    request: Request,
     store: NotebooksStore = Depends(get_notebooks_store),  # noqa: B008  (FastAPI DI pattern)
-) -> dict[str, str]:
+) -> HTMLResponse | dict[str, str]:
     """Normalize an arxiv URL to a paper_id and insert a junction row.
 
     AC #2: validates URL via :func:`_arxiv_url_to_paper_id` (host
     whitelist + path-prefix check + ``is_valid_paper_id`` regex).
     Returns 422 on a malformed URL; 404 if the notebook doesn't
     exist; 409 on duplicate ``(slug, paper_id)``.
+
+    ui-attractive-polish-m4 (UPL-12 v0): content-negotiation on the
+    ``HX-Request: true`` header. htmx clients get a ``<tr>`` fragment
+    for ``hx-swap="beforeend"`` into ``#papers-tbody`` (no full-page
+    reload); non-htmx clients (curl, scripts) still get the existing
+    JSON dict body. The Spike-2 pre-flight checklist confirms this
+    branch adds no novel attack surface beyond the m8 upload-handler
+    precedent: validation runs BEFORE the response fork; the fragment
+    uses ``_paper_row_html`` (which html.escape()s every interpolated
+    value); the ``HX-Request`` header is a client hint NOT a trust
+    boundary; ``SecFetchSiteMiddleware`` + ``CONTENT_SECURITY_POLICY_UI``
+    + ``validate_slug`` + ``_arxiv_url_to_paper_id`` are all unchanged.
     """
     try:
         validate_slug(slug)
@@ -536,9 +552,13 @@ async def add_paper(
             ),
         )
 
+    # m4 UPL-12 v0: capture once for both the store insert + the fragment
+    # response (mirrors the upload handler's pattern at the equivalent
+    # call site). _now_iso() returns "YYYY-MM-DDTHH:MM:SS+00:00".
+    added_at = _now_iso()
     try:
         await store.add_paper(
-            slug=slug, paper_id=paper_id, added_at=_now_iso(),
+            slug=slug, paper_id=paper_id, added_at=added_at,
         )
     except sqlite3.IntegrityError as e:
         raise HTTPException(
@@ -548,6 +568,20 @@ async def add_paper(
             ),
         ) from e
 
+    # m4 UPL-12 v0: content-negotiation. Starlette normalizes header
+    # names to lowercase, so "hx-request" is the canonical key. The
+    # has_preview=False arg renders the m10-rect-F6 disabled-look
+    # placeholder (URL-paste writes no ar5iv HTML on disk).
+    if request.headers.get("hx-request") == "true":
+        return HTMLResponse(
+            status_code=status.HTTP_201_CREATED,
+            content=_paper_row_html(
+                slug=slug,
+                paper_id=paper_id,
+                added_at=added_at,
+                has_preview=False,
+            ),
+        )
     return {"slug": slug, "paper_id": paper_id}
 
 
@@ -1572,39 +1606,63 @@ async def upload_paper(
     )
 
 
-def _paper_row_html(slug: str, paper_id: str, added_at: str) -> str:
-    """Build an HTML ``<tr>`` fragment for the upload handler's
-    htmx-swap response.
+def _paper_row_html(
+    slug: str,
+    paper_id: str,
+    added_at: str,
+    *,
+    has_preview: bool = True,
+) -> str:
+    """Build an HTML ``<tr>`` fragment for the upload + URL-paste handlers'
+    htmx-swap responses.
 
     Kept as a Python helper rather than a Jinja2 partial because the
-    fragment is tiny and inlining keeps the upload handler
-    self-contained. All interpolated values are HTML-escaped via
-    :func:`html.escape` — paper_id is regex-validated upstream and
-    cannot contain HTML-significant characters today, but escaping
-    is defensive.
+    fragment is tiny and inlining keeps the handlers self-contained.
+    All interpolated values are HTML-escaped via :func:`html.escape` —
+    paper_id is regex-validated upstream and cannot contain HTML-
+    significant characters today, but escaping is defensive (Spike-2
+    pre-flight checklist item: server-fragment correctness).
 
-    m10: the table now has FOUR columns (Paper ID, Added, Preview,
-    Actions) to match the rendered ``notebook_detail.html`` body.
-    The Preview cell is always a live link in this fragment because
-    the upload handler just wrote the notebook-scoped ar5iv HTML to
-    disk — ``has_preview`` is True by construction. The Actions
-    cell shows "uploaded" rather than a Remove button (the m8
-    pattern: immediately providing Remove after upload is UX
-    confusion; the next page-load restores the standard Remove
-    affordance via the rendered template).
+    m10: the table has FOUR columns (Paper ID, Added, Preview, Actions)
+    to match the rendered ``notebook_detail.html`` body. The upload
+    handler always writes ar5iv HTML to disk (``has_preview=True``
+    default — Preview cell is a live link); the m4 URL-paste branch
+    writes NO file (``has_preview=False`` — Preview cell renders the
+    m10-rect-F6 disabled-look ``<span class="hint">`` so the operator
+    sees the same affordance the next page-load gives them, not a
+    broken 404 link).
+
+    The Actions cell shows "added" (was "uploaded" pre-m4; renamed for
+    neutrality across both paths). Neither path shows a Remove button
+    on the immediate post-success row — the m8 pattern: immediately
+    providing Remove after the action is UX confusion; the next
+    page-load restores the standard Remove affordance via the rendered
+    template.
     """
-    preview_url = (
-        f"/ui/notebooks/{html.escape(slug)}/papers/"
-        f"{html.escape(paper_id)}/preview"
-    )
+    if has_preview:
+        preview_cell = (
+            f'<td><a href="/ui/notebooks/{html.escape(slug)}/papers/'
+            f'{html.escape(paper_id)}/preview" target="_blank" '
+            f'rel="noopener">Preview</a></td>'
+        )
+    else:
+        # m4 (UPL-12 v0): URL-paste writes no ar5iv HTML on disk. Mirror
+        # the m10-rect-F6 "no preview" pattern from notebook_detail.html
+        # (a disabled-look <span> with a tooltip pointing the operator
+        # to the upload card) so the operator sees the same affordance
+        # the next page-load gives them.
+        preview_cell = (
+            '<td><span class="hint" '
+            'title="upload an ar5iv HTML to enable preview">'
+            'Preview</span></td>'
+        )
     return (
         f'<tr data-slug="{html.escape(slug)}" '
         f'data-paper-id="{html.escape(paper_id)}">'
         f'<td>{html.escape(paper_id)}</td>'
         f'<td>{html.escape(added_at)}</td>'
-        f'<td><a href="{preview_url}" target="_blank" rel="noopener">'
-        f"Preview</a></td>"
-        f'<td>uploaded</td>'
+        f'{preview_cell}'
+        f'<td>added</td>'
         f"</tr>"
     )
 

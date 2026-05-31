@@ -49,6 +49,16 @@
       // serializing evt.detail.parameters otherwise.
       evt.detail.body = JSON.stringify(body);
     });
+    // ui-attractive-polish-m4 (UPL-13): native htmx 2.0.10 View
+    // Transitions opt-in (Spike-1 finding). htmx calls
+    // document.startViewTransition() internally with an
+    // `if (document.startViewTransition)` guard, so Chrome+Safari
+    // (macOS 15+) get smooth crossfades; Firefox gracefully no-ops.
+    // No CSP change — this line lives inside the existing
+    // 'unsafe-inline' allowance covering the shim above. NO
+    // htmx:beforeSwap-wrapper code (the htmx-1.x pattern that the
+    // m3-era synthesis described is obsolete in 2.x).
+    htmx.config.globalViewTransitions = true;
   </script>
 </head>
 <body>

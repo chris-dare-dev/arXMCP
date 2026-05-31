@@ -96,10 +96,20 @@
     Accepted forms: <code>https://arxiv.org/abs/&lt;id&gt;</code> or
     <code>https://ar5iv.labs.arxiv.org/html/&lt;id&gt;</code>.
   </p>
+  {# ui-attractive-polish-m4 (UPL-12 v0): converted from location.reload()
+     to in-place htmx swap. The server-side add-paper handler returns an
+     HTML <tr> fragment when HX-Request: true (content-negotiation; see
+     server/routes/notebooks.py::add_paper). The fragment appends to
+     #papers-tbody via hx-swap="beforeend"; m1's aria-live="polite" on the
+     tbody (line ~215 — UPL-3) fires the live-region announcement for
+     screen readers automatically without any new attribute. m3's
+     hx-disabled-elt="find button" stays for the submit-button disable +
+     m3's .htmx-request styling for the in-flight spinner. #}
   <form
     hx-post="/ui/api/notebooks/{{ notebook.slug }}/papers"
     hx-disabled-elt="find button"
-    hx-on::htmx:after-request="if(event.detail.successful) location.reload()"
+    hx-target="#papers-tbody"
+    hx-swap="beforeend"
     hx-on::htmx:response-error="document.getElementById('paste-error').textContent = (function(t){try{return JSON.parse(t).detail||t;}catch(e){return t;}})(event.detail.xhr.responseText)"
   >
     <label>

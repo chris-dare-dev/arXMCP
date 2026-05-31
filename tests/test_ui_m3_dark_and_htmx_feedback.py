@@ -461,17 +461,21 @@ class TestCrossMilestoneSafety:
         # the F1 dark-mode input visibility fix + F2 tertiary-text grey
         # remap + F3 color-scheme declaration added ~19 lines of
         # NECESSARY CSS (WCAG SC 1.4.3 compliance — see m3-rect for the
-        # adversary finding chain). The original 300 cap was set in the
-        # m3 feat-commit test before the rect-driven additions were
-        # known. m3-rect revises the cap to 330 with this docstring
-        # noting the increase, so a future milestone either ships under
-        # 330 or argues for another cap raise. The CLAUDE.md soft cap
+        # adversary finding chain). m4 raises the cap further to 335:
+        # UPL-22 added .status-badge.htmx-settling badge-flash keyframes
+        # (cross-milestone affordance for the m4-status-badge) and
+        # UPL-13 added a ::view-transition-old/new duration override
+        # (200ms snappy crossfade for htmx 2.0.10's native View
+        # Transitions integration). Both live inside a single
+        # consolidated prefers-reduced-motion:no-preference block to
+        # minimize line cost. A future milestone either ships under
+        # 335 or argues for another cap raise. The CLAUDE.md soft cap
         # itself is loose — this test's value is the discriminating gate.
         line_count = APP_CSS.count("\n") + (1 if not APP_CSS.endswith("\n") else 0)
-        assert line_count <= 330, (
-            f"app.css is {line_count} lines — over the 330-line cap "
-            f"(revised in m3-rect from 300 → 330 to accommodate the F1/F2/F3 "
-            f"WCAG corrections). Consider stripping documentation comments, "
-            f"splitting the file (e.g. tokens.css + app.css), or arguing for "
-            f"another revision."
+        assert line_count <= 335, (
+            f"app.css is {line_count} lines — over the 335-line cap "
+            f"(revised in m4 from 330 → 335 to accommodate UPL-22 badge "
+            f"flash + UPL-13 View Transitions duration override). Consider "
+            f"stripping documentation comments, splitting the file (e.g. "
+            f"tokens.css + app.css), or arguing for another revision."
         )
