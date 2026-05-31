@@ -211,6 +211,25 @@ async def readyz(request: Request) -> Response:
         request.app.state, "resources", None
     )
 
+    # onboarding-uplift-m4 F2: bootstrap mode → 200 with status "bootstrap".
+    # Synthesis §3 D1: a 503 causes the shim to treat the server as down,
+    # defeating the wizard flow. Return 200 so the shim forwards MCP calls
+    # (which the orchestrator-level stub-check in tools.py handles).
+    if resources is not None and getattr(resources, "bootstrap_mode_active", False):
+        warm_map = {
+            "embedder": False,
+            "lancedb": False,
+            "reranker": False,
+        }
+        return JSONResponse(
+            status_code=200,
+            content={
+                "status": "bootstrap",
+                "bootstrap_mode_active": True,
+                "warm": warm_map,
+            },
+        )
+
     # Resources not yet attached → still in lifespan startup window.
     if resources is None or not resources.warm:
         # Probe the per-resource state if we have a partial Resources
@@ -317,6 +336,23 @@ async def compute_health_status(
     clock = time.time() if now is None else now
     t = _iso_now()
     checks: dict[str, list[dict[str, object]]] = {}
+
+    # --- bootstrap mode → warn (server is serving stub responses) ---
+    # onboarding-uplift-m4 F2: mirrors the /readyz bootstrap branch.
+    # Returns "warn" (200) rather than "fail" (503) so operator dashboards
+    # see "serving but degraded" — the server is up, just awaiting first ingest.
+    if resources is not None and getattr(resources, "bootstrap_mode_active", False):
+        uptime = max(0.0, clock - resources.process_start_time_seconds)
+        checks["process:uptime"] = [
+            {"componentType": "system", "observedValue": round(uptime, 1),
+             "observedUnit": "s", "status": "pass", "time": t}
+        ]
+        return {
+            "status": "warn",
+            "http_code": 200,
+            "checks": checks,
+            "summary": "bootstrap | awaiting first ingest",
+        }
 
     # --- not warm / pre-startup → fail (mirrors /readyz 503-before-warm) ---
     if resources is None or not resources.warm:
@@ -520,16 +556,21 @@ def refresh_metrics_from_singleton_state(resources: Resources) -> None:
     from server.query_encoder import get_singleflight_dedup_count
 
     # Gauges: instantaneous truth.
-    CORPUS_VERSION_GAUGE.set(resources.corpus_info.version)
-    # corpus-integrity-observability-m2: O(1) reads of the startup-cached
-    # count + the marker count from a fully-constructed Resources. NEVER call
-    # count_rows() here — the gauges read the cached ints
-    # (startup_chunk_count = -1 only when count_rows() failed at startup). The
-    # reconciliation/gauge path computes the count exactly once at startup; a
-    # /metrics scrape never recomputes it. (Direct access, matching the
-    # corpus_info.version read above — F4: no getattr sentinel that would mask
-    # a genuine missing-field wiring bug as the FM-2 count-unavailable signal.)
-    CORPUS_CHUNK_COUNT_MARKER.set(resources.corpus_info.chunk_count)
+    # onboarding-uplift-m4 F1: in bootstrap mode corpus_info is None.
+    # Skip the corpus_info gauges — Prometheus reports them as absent,
+    # which is correct for bootstrap mode. Mirror the getattr defense
+    # at line 538 (startup_unindexed_rows) for the corpus_info reads.
+    if resources.corpus_info is not None:
+        CORPUS_VERSION_GAUGE.set(resources.corpus_info.version)
+        # corpus-integrity-observability-m2: O(1) reads of the startup-cached
+        # count + the marker count from a fully-constructed Resources. NEVER call
+        # count_rows() here — the gauges read the cached ints
+        # (startup_chunk_count = -1 only when count_rows() failed at startup). The
+        # reconciliation/gauge path computes the count exactly once at startup; a
+        # /metrics scrape never recomputes it. (Direct access, matching the
+        # corpus_info.version read above — F4: no getattr sentinel that would mask
+        # a genuine missing-field wiring bug as the FM-2 count-unavailable signal.)
+        CORPUS_CHUNK_COUNT_MARKER.set(resources.corpus_info.chunk_count)
     CORPUS_CHUNK_COUNT_ACTUAL.set(resources.startup_chunk_count)
     # corpus-integrity-observability-m3: O(1) read of the startup-cached
     # unindexed-rows tripwire (NEVER re-queries index_stats here — the

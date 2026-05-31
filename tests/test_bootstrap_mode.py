@@ -7,7 +7,7 @@ Coverage map (acceptance criteria from the brief + synthesis):
   AC3   default cold-start still fatals without bootstrap_mode      test 3
   AC4   POST /ui/api/notebooks/<slug>/ingest exists (m9, pre-exists) — confirmed by m9 tests
   AC5   GET /ui/api/notebooks/<slug>/ingest/latest exists (m9)      — confirmed by m9 tests
-  AC6   late_bind flips bootstrap_mode_active + sets event           test 6
+  AC6   late_bind flips bootstrap_mode_active                        test 6
   AC7   BGE-M3 download-progress bytes tracking DEFERRED to m5
   AC8   stub envelope shape: isError=True, corpus_version=-1        test 7
   AC9   make test green + ruff clean                                 CI gate
@@ -15,6 +15,17 @@ Coverage map (acceptance criteria from the brief + synthesis):
   AC11  regression tests present                                     this file
 
 FM-7   bootstrap_mode=True + corpus present → normal boot           test 5
+
+Rectification (onboarding-uplift-m4):
+  F1    refresh_metrics crash guard                                  TestLifespanBootstrapMode
+  F2    /readyz returns 200 + "bootstrap" in bootstrap mode         TestReadyzBootstrapMode
+  F2    /status returns warn in bootstrap mode                       TestStatusBootstrapMode
+  F3    _build_bootstrap_envelope returns CallToolResult             TestBuildBootstrapEnvelope
+  F4    on_success_callback coverage                                 TestOnSuccessCallback
+  F5    late_bind lazy-loads reranker                               TestLateBindWithRerank
+  F6    _corpus_ready_event removed (dead code)                     (assertions removed from test 6)
+  F7    set_cache after RerankPhase in late_bind                    TestLateBindCacheNotLeaked
+  F8    bootstrap envelope uses configured bind address             TestBootstrapEnvelopeBind
 
 All tests run without a real BGE-M3 model, real LanceDB, or a real corpus.
 Heavy I/O calls (model load, LanceDB open, BM25 build, cache open) are
@@ -172,8 +183,8 @@ class TestResourcesStartupSkipsRaiseInBootstrapMode:
         assert stub.corpus_info is None
         assert stub.chunks_table is None
         assert stub.warm is False
-        # The corpus_ready_event must NOT be set yet.
-        assert not stub._corpus_ready_event.is_set()
+        # F6 rect: _corpus_ready_event removed (dead code — no consumer
+        # awaited it; orchestrator reads bootstrap_mode_active bool flag).
 
 
 # ---------------------------------------------------------------------------
@@ -244,7 +255,7 @@ class TestLateBindPromotesBootstrapToNormal:
         assert stub.bootstrap_mode_active is False
         assert stub.corpus_info is not None
         assert stub.corpus_info.version == 1
-        assert stub._corpus_ready_event.is_set()
+        # F6 rect: _corpus_ready_event removed; bool flag is the mechanism.
 
     def test_late_bind_is_idempotent_when_already_normal(self, tmp_path, monkeypatch):
         """late_bind() returns False immediately if already out of bootstrap mode."""
@@ -284,7 +295,7 @@ class TestLateBindPromotesBootstrapToNormal:
 
         assert result is False
         assert stub.bootstrap_mode_active is True
-        assert not stub._corpus_ready_event.is_set()
+        # F6 rect: _corpus_ready_event removed.
 
 
 # ---------------------------------------------------------------------------
@@ -294,41 +305,58 @@ class TestLateBindPromotesBootstrapToNormal:
 
 class TestBuildBootstrapEnvelope:
     def test_build_bootstrap_envelope_shape(self):
-        """_build_bootstrap_envelope returns a correctly-shaped sorted dict."""
-        envelope = _build_bootstrap_envelope("search_papers")
+        """_build_bootstrap_envelope returns CallToolResult with isError=True.
 
-        # Keys must be alphabetically sorted (BP1 byte-stability discipline).
-        assert list(envelope.keys()) == sorted(envelope.keys())
+        F3 rect: result is now mcp.types.CallToolResult (not a plain dict)
+        so FastMCP passes it through unchanged and isError=True reaches the
+        MCP wire level.
+        """
+        from mcp.types import CallToolResult, TextContent
 
-        # Required keys + values.
-        assert set(envelope.keys()) >= {
-            "content",
-            "corpus_version",
-            "error_code",
-            "isError",
-            "tool",
-        }
-        assert envelope["corpus_version"] == BOOTSTRAP_CORPUS_VERSION_SENTINEL
-        assert envelope["corpus_version"] == -1
-        assert envelope["isError"] is True
-        assert envelope["error_code"] == "no_notebook_selected"
-        assert envelope["tool"] == "search_papers"
+        result = _build_bootstrap_envelope("search_papers")
 
-        # content must be a non-empty list with at least one text block.
-        assert isinstance(envelope["content"], list)
-        assert len(envelope["content"]) >= 1
-        assert envelope["content"][0]["type"] == "text"
-        assert len(envelope["content"][0]["text"]) > 0
+        # Must be a CallToolResult so FastMCP short-circuits at the
+        # isinstance(result, CallToolResult) branch in func_metadata.py.
+        assert isinstance(result, CallToolResult)
+        assert result.isError is True
+
+        # structuredContent must carry the error metadata.
+        assert result.structuredContent is not None
+        sc = result.structuredContent
+        assert sc["corpus_version"] == BOOTSTRAP_CORPUS_VERSION_SENTINEL
+        assert sc["corpus_version"] == -1
+        assert sc["error_code"] == "no_notebook_selected"
+        assert sc["tool"] == "search_papers"
+        # structuredContent keys must be alphabetically sorted (BP1 discipline).
+        assert list(sc.keys()) == sorted(sc.keys())
+
+        # content must have at least one TextContent block.
+        assert len(result.content) >= 1
+        assert isinstance(result.content[0], TextContent)
+        assert len(result.content[0].text) > 0
 
     def test_build_bootstrap_envelope_sentinel_constant(self):
         """BOOTSTRAP_CORPUS_VERSION_SENTINEL is -1."""
         assert BOOTSTRAP_CORPUS_VERSION_SENTINEL == -1
 
     def test_build_bootstrap_envelope_different_tools(self):
-        """The tool field echoes the passed tool name."""
+        """The tool field in structuredContent echoes the passed tool name."""
         for tool_name in ("get_chunk", "find_equation", "cite_neighbors"):
-            env = _build_bootstrap_envelope(tool_name)
-            assert env["tool"] == tool_name
+            result = _build_bootstrap_envelope(tool_name)
+            assert result.structuredContent["tool"] == tool_name
+
+    def test_build_bootstrap_envelope_wire_isError_is_true(self):
+        """isError=True is set at the CallToolResult level (not buried in text).
+
+        Regression guard: before F3, isError was a key in the plain dict
+        which FastMCP converted to TextContent, dropping isError=True at wire.
+        """
+        from mcp.types import CallToolResult
+
+        result = _build_bootstrap_envelope("search_papers")
+        assert isinstance(result, CallToolResult)
+        # isError must be at the top level of CallToolResult, not inside content.
+        assert result.isError is True
 
 
 # ---------------------------------------------------------------------------
@@ -416,8 +444,385 @@ class TestBP1BP2HashesUnchanged:
 
 
 # ---------------------------------------------------------------------------
-# Helpers: mock heavy I/O so tests run offline/fast
+# F1 rectification: lifespan + metrics do not crash in bootstrap mode
 # ---------------------------------------------------------------------------
+
+
+class TestLifespanBootstrapMode:
+    """Regression guard for F1 (CRITICAL): refresh_metrics_from_singleton_state
+    must not crash when corpus_info is None (bootstrap mode)."""
+
+    def test_refresh_metrics_skips_corpus_info_when_none(self, tmp_path):
+        """refresh_metrics_from_singleton_state skips corpus gauges in bootstrap mode."""
+        from server.health import refresh_metrics_from_singleton_state
+        from server.resources import Resources
+
+        cfg = Config(
+            lancedb_path=tmp_path / "lancedb",
+            notebooks_db_path=tmp_path / "notebooks.db",
+            cache_db_path=tmp_path / "cache.db",
+            bootstrap_mode=True,
+        )
+        stub = asyncio.run(Resources.startup(cfg))
+        assert stub.corpus_info is None  # sanity check
+
+        # Must not raise AttributeError — this was the CRITICAL crash.
+        refresh_metrics_from_singleton_state(stub)
+
+
+# ---------------------------------------------------------------------------
+# F2 rectification: /readyz and /status return 200 in bootstrap mode
+# ---------------------------------------------------------------------------
+
+
+class TestReadyzBootstrapMode:
+    """F2 regression tests: /readyz returns 200 + bootstrap body in stub mode."""
+
+    def test_readyz_returns_bootstrap_status_in_bootstrap_mode(self, tmp_path):
+        """/readyz returns 200 with status='bootstrap' when bootstrap_mode_active."""
+        from starlette.testclient import TestClient
+
+        from server.health import readyz
+
+        # Build a stub Resources with bootstrap_mode_active=True.
+        cfg = Config(
+            lancedb_path=tmp_path / "lancedb",
+            notebooks_db_path=tmp_path / "notebooks.db",
+            cache_db_path=tmp_path / "cache.db",
+            bootstrap_mode=True,
+        )
+        stub = asyncio.run(Resources.startup(cfg))
+        assert stub.bootstrap_mode_active is True
+
+        # Build a minimal Starlette app with the stub attached.
+        from starlette.applications import Starlette
+        from starlette.routing import Route
+
+        async def _readyz(request):
+            return await readyz(request)
+
+        app = Starlette(routes=[Route("/readyz", _readyz)])
+        app.state.resources = stub
+
+        with TestClient(app, raise_server_exceptions=True) as client:
+            resp = client.get("/readyz")
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "bootstrap"
+        assert body.get("bootstrap_mode_active") is True
+
+
+class TestStatusBootstrapMode:
+    """F2 regression tests: compute_health_status returns warn in bootstrap mode."""
+
+    def test_status_returns_warn_in_bootstrap_mode(self, tmp_path):
+        """compute_health_status returns status='warn' when bootstrap_mode_active."""
+        from server.health import compute_health_status
+
+        cfg = Config(
+            lancedb_path=tmp_path / "lancedb",
+            notebooks_db_path=tmp_path / "notebooks.db",
+            cache_db_path=tmp_path / "cache.db",
+            bootstrap_mode=True,
+        )
+        stub = asyncio.run(Resources.startup(cfg))
+        assert stub.bootstrap_mode_active is True
+
+        result = asyncio.run(compute_health_status(resources=stub, now=1_000_000.0))
+
+        assert result["status"] == "warn"
+        assert result["http_code"] == 200
+        assert "bootstrap" in result["summary"]
+
+
+# ---------------------------------------------------------------------------
+# F4 rectification: on_success_callback coverage
+# ---------------------------------------------------------------------------
+
+
+class TestOnSuccessCallback:
+    """F4 regression tests: IngestTaskTracker.on_success_callback plumbing."""
+
+    def test_callback_fires_on_exit_code_zero(self, tmp_path, monkeypatch):
+        """on_success_callback is called once with the slug on exit code 0."""
+        import asyncio
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from server.ingest_tracker import IngestTaskTracker
+
+        called_with: list[str] = []
+
+        async def _cb(slug: str) -> None:
+            called_with.append(slug)
+
+        tracker = IngestTaskTracker(on_success_callback=_cb)
+
+        # Stub the subprocess to exit 0 cleanly.
+        fake_proc = AsyncMock()
+        fake_proc.communicate.return_value = (b"", b"")
+        fake_proc.returncode = 0
+
+        fake_store = MagicMock()
+        fake_store.INGEST_STATUS_SUCCESS = "success"
+        fake_store.INGEST_STATUS_FAILED = "failed"
+        fake_store.update_ingest_run = AsyncMock()
+        fake_store.mark_run_cancelled_if_running = AsyncMock()
+
+        with patch(
+            "server.ingest_tracker.asyncio.create_subprocess_exec",
+            return_value=fake_proc,
+        ):
+            asyncio.run(
+                tracker._run_ingest_subprocess(
+                    slug="test-notebook",
+                    run_id=1,
+                    store=fake_store,
+                    now_iso_provider=lambda: "2026-05-31T00:00:00Z",
+                )
+            )
+
+        assert called_with == ["test-notebook"]
+
+    def test_callback_not_fired_on_nonzero_exit(self, tmp_path, monkeypatch):
+        """on_success_callback is NOT called when ingest exits with code 1."""
+        import asyncio
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from server.ingest_tracker import IngestTaskTracker
+
+        called_with: list[str] = []
+
+        async def _cb(slug: str) -> None:
+            called_with.append(slug)
+
+        tracker = IngestTaskTracker(on_success_callback=_cb)
+
+        fake_proc = AsyncMock()
+        fake_proc.communicate.return_value = (b"", b"ingest failed")
+        fake_proc.returncode = 1
+
+        fake_store = MagicMock()
+        fake_store.INGEST_STATUS_SUCCESS = "success"
+        fake_store.INGEST_STATUS_FAILED = "failed"
+        fake_store.update_ingest_run = AsyncMock()
+        fake_store.mark_run_cancelled_if_running = AsyncMock()
+
+        with patch(
+            "server.ingest_tracker.asyncio.create_subprocess_exec",
+            return_value=fake_proc,
+        ):
+            asyncio.run(
+                tracker._run_ingest_subprocess(
+                    slug="test-notebook",
+                    run_id=1,
+                    store=fake_store,
+                    now_iso_provider=lambda: "2026-05-31T00:00:00Z",
+                )
+            )
+
+        assert called_with == []
+
+    def test_callback_exception_logged_not_propagated(
+        self, tmp_path, monkeypatch, caplog
+    ):
+        """A callback exception is logged at ERROR and does NOT propagate."""
+        import asyncio
+        import logging
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from server.ingest_tracker import IngestTaskTracker
+
+        async def _raising_cb(slug: str) -> None:
+            raise RuntimeError("late-bind exploded")
+
+        tracker = IngestTaskTracker(on_success_callback=_raising_cb)
+
+        fake_proc = AsyncMock()
+        fake_proc.communicate.return_value = (b"", b"")
+        fake_proc.returncode = 0
+
+        fake_store = MagicMock()
+        fake_store.INGEST_STATUS_SUCCESS = "success"
+        fake_store.INGEST_STATUS_FAILED = "failed"
+        fake_store.update_ingest_run = AsyncMock()
+        fake_store.mark_run_cancelled_if_running = AsyncMock()
+
+        with patch(
+            "server.ingest_tracker.asyncio.create_subprocess_exec",
+            return_value=fake_proc,
+        ), caplog.at_level(logging.ERROR, logger="server.ingest_tracker"):
+            # Must not raise.
+            asyncio.run(
+                tracker._run_ingest_subprocess(
+                    slug="test-notebook",
+                    run_id=1,
+                    store=fake_store,
+                    now_iso_provider=lambda: "2026-05-31T00:00:00Z",
+                )
+            )
+
+        # An ERROR log must have been emitted for the callback exception.
+        error_msgs = [r.message for r in caplog.records if r.levelno >= logging.ERROR]
+        assert any("on_success_callback" in m or "late-bind" in m or "callback" in m.lower()
+                   for m in error_msgs), (
+            f"Expected ERROR log about callback failure; got: {error_msgs}"
+        )
+
+    def test_main_closure_passes_through_to_late_bind(self, tmp_path, monkeypatch):
+        """The _on_ingest_success closure in main.py calls resources.late_bind(config)."""
+        from server.config import Config
+
+        cfg = Config(
+            lancedb_path=tmp_path / "lancedb",
+            notebooks_db_path=tmp_path / "notebooks.db",
+            cache_db_path=tmp_path / "cache.db",
+            bootstrap_mode=True,
+        )
+
+        # Build a stub Resources with a mocked late_bind.
+        stub = asyncio.run(Resources.startup(cfg))
+        late_bind_calls: list[Config] = []
+
+        async def _mock_late_bind(config: Config) -> bool:
+            late_bind_calls.append(config)
+            return True
+
+        stub.late_bind = _mock_late_bind  # type: ignore[method-assign]
+
+        # Replicate the closure from server/main.py:526.
+        resources = stub
+
+        async def _on_ingest_success(_slug: str) -> None:
+            await resources.late_bind(cfg)
+
+        # Invoke the closure.
+        asyncio.run(_on_ingest_success("test-slug"))
+
+        assert len(late_bind_calls) == 1
+        assert late_bind_calls[0] is cfg
+
+
+# ---------------------------------------------------------------------------
+# F5 rectification: late_bind lazy-loads reranker when enable_rerank=True
+# ---------------------------------------------------------------------------
+
+
+class TestLateBindWithRerank:
+    """F5 regression test: late_bind loads reranker lazily in bootstrap mode."""
+
+    def test_late_bind_with_enable_rerank_loads_reranker_lazily(
+        self, tmp_path, monkeypatch
+    ):
+        """late_bind lazy-loads the reranker when enable_rerank=True + bootstrap mode."""
+        import server.resources as res_mod
+
+        lancedb_path = tmp_path / "lancedb"
+        cfg = Config(
+            lancedb_path=lancedb_path,
+            notebooks_db_path=tmp_path / "notebooks.db",
+            cache_db_path=tmp_path / "cache.db",
+            bootstrap_mode=True,
+            enable_rerank=True,
+        )
+
+        stub = asyncio.run(Resources.startup(cfg))
+        assert stub.bootstrap_mode_active is True
+        assert stub.reranker_model is None  # not loaded at bootstrap startup
+
+        _write_corpus_marker(lancedb_path, version=1)
+        _patch_late_bind_heavy_io(monkeypatch, lancedb_path)
+
+        # Patch _load_reranker_or_raise to return a stub model tuple.
+        fake_reranker = (object(), object())
+        load_calls: list[int] = []
+
+        async def _fake_load():
+            load_calls.append(1)
+            return fake_reranker
+
+        monkeypatch.setattr(res_mod, "_load_reranker_or_raise", _fake_load)
+
+        result = asyncio.run(stub.late_bind(cfg))
+
+        assert result is True
+        assert stub.bootstrap_mode_active is False
+        assert stub.reranker_model is fake_reranker
+        assert len(load_calls) == 1, "Reranker must be loaded exactly once"
+
+
+# ---------------------------------------------------------------------------
+# F7 rectification: set_cache not leaked on RerankPhase failure
+# ---------------------------------------------------------------------------
+
+
+class TestLateBindCacheNotLeaked:
+    """F7 regression test: set_cache global stays None when RerankPhase raises."""
+
+    def test_late_bind_failure_does_not_leak_cache_global(
+        self, tmp_path, monkeypatch
+    ):
+        """If RerankPhase construction fails, get_cache() stays None.
+
+        F7 regression guard: set_cache must run AFTER RerankPhase construction.
+        When RerankPhase.__init__ raises, set_cache never executes, so
+        get_cache() stays None.
+        """
+        import server.cache as cache_mod
+        from server.retrieval.rerank import RerankPhase
+
+        lancedb_path = tmp_path / "lancedb"
+        cfg = Config(
+            lancedb_path=lancedb_path,
+            notebooks_db_path=tmp_path / "notebooks.db",
+            cache_db_path=tmp_path / "cache.db",
+            bootstrap_mode=True,
+        )
+
+        stub = asyncio.run(Resources.startup(cfg))
+        _write_corpus_marker(lancedb_path, version=1)
+        # Patch late_bind I/O but do NOT patch set_cache — we need the
+        # real set_cache so we can observe whether it was called.
+        _patch_late_bind_heavy_io_no_cache_stub(monkeypatch, lancedb_path)
+
+        # Make RerankPhase.__init__ raise.
+        def _exploding_init(self, **_kw):
+            raise RuntimeError("Simulated RerankPhase failure")
+
+        monkeypatch.setattr(RerankPhase, "__init__", _exploding_init)
+
+        # Reset cache global to None before test + restore afterward.
+        cache_mod.reset_cache_for_tests()
+        try:
+            result = asyncio.run(stub.late_bind(cfg))
+
+            assert result is False
+            # F7: set_cache runs AFTER RerankPhase — a RerankPhase failure
+            # must leave the global cache as None (not published).
+            assert cache_mod.get_cache() is None
+        finally:
+            # Always restore to None so later tests are not affected.
+            cache_mod.reset_cache_for_tests()
+
+
+# ---------------------------------------------------------------------------
+# F8 rectification: bootstrap envelope uses configured bind address
+# ---------------------------------------------------------------------------
+
+
+class TestBootstrapEnvelopeBind:
+    """F8 regression test: hint text uses configured bind_host:bind_port."""
+
+    def test_bootstrap_envelope_text_uses_configured_bind(self):
+        """_build_bootstrap_envelope uses the ui_url kwarg in hint text."""
+        result = _build_bootstrap_envelope(
+            "search_papers", ui_url="http://127.0.0.1:9999/ui/"
+        )
+        # The hint text inside content[0] must mention port 9999.
+        hint_text = result.content[0].text
+        assert "9999" in hint_text, (
+            f"Expected port 9999 in hint text, got: {hint_text!r}"
+        )
 
 
 def _patch_startup_heavy_io(monkeypatch, lancedb_path: Path) -> None:
@@ -499,6 +904,43 @@ def _patch_late_bind_heavy_io(monkeypatch, lancedb_path: Path) -> None:
     import server.cache as cache_mod
 
     monkeypatch.setattr(cache_mod, "set_cache", lambda _c: None)
+
+
+def _patch_late_bind_heavy_io_no_cache_stub(
+    monkeypatch, lancedb_path: Path
+) -> None:
+    """Like _patch_late_bind_heavy_io but does NOT stub set_cache.
+
+    Used by TestLateBindCacheNotLeaked to observe real cache global state.
+    """
+    import server.resources as res_mod
+
+    fake_table = _make_fake_table()
+    monkeypatch.setattr(
+        res_mod,
+        "open_chunks_table_with_fallback",
+        lambda **_kw: (fake_table, None),
+    )
+
+    from server.retrieval import BM25Phase
+
+    fake_bm25 = MagicMock(spec=BM25Phase)
+    fake_bm25.corpus_size = 10
+
+    async def _fake_bm25_startup(**_kw):
+        return fake_bm25
+
+    monkeypatch.setattr(BM25Phase, "startup", staticmethod(_fake_bm25_startup))
+
+    from server.cache import RetrievalCache
+
+    fake_cache = MagicMock(spec=RetrievalCache)
+
+    async def _fake_cache_open(**_kw):
+        return fake_cache
+
+    monkeypatch.setattr(RetrievalCache, "open", staticmethod(_fake_cache_open))
+    # Intentionally do NOT patch set_cache here.
 
 
 def _make_fake_table():

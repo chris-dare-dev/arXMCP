@@ -3,7 +3,7 @@
 # it describes — adding a new target means appending it to the matching
 # group rather than scrolling to find a single mega-line.
 
-# FIRST-TIME? — the onboarding-uplift verbs an operator needs on a
+# FIRST TIME? — the onboarding-uplift verbs an operator needs on a
 # fresh clone before they can ingest + query.
 .PHONY: help bootstrap up up-wizard
 

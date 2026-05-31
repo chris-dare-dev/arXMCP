@@ -48,6 +48,9 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+if TYPE_CHECKING:
+    from mcp.types import CallToolResult
+
 from server.observability.metrics import (
     REQUEST_COUNTER,
     REQUEST_INFLIGHT,
@@ -404,12 +407,16 @@ def reset_resources_for_tests() -> None:
 BOOTSTRAP_CORPUS_VERSION_SENTINEL: int = -1
 
 
-def _build_bootstrap_envelope(tool_name: str) -> dict[str, Any]:
-    """Return the structured no-corpus stub response for bootstrap mode.
+def _build_bootstrap_envelope(
+    tool_name: str,
+    *,
+    ui_url: str = "http://127.0.0.1:7733/ui/",
+) -> CallToolResult:
+    """Return the MCP-wire bootstrap stub response for bootstrap mode.
 
     Returned by :func:`_wrap_with_observability` when
     ``resources.bootstrap_mode_active is True``, BEFORE dispatching to
-    the per-tool handler. Constructing the dict literally (NOT calling
+    the per-tool handler. Constructing the result literally (NOT calling
     :func:`envelope`) is load-bearing: ``envelope()`` calls
     ``get_resources().corpus_info.version``, which crashes with
     ``AttributeError`` when ``corpus_info is None`` (bootstrap mode).
@@ -418,24 +425,38 @@ def _build_bootstrap_envelope(tool_name: str) -> dict[str, Any]:
     error envelopes with ``isError: true`` are the correct mechanism for
     business-logic errors.  ``error_code="no_notebook_selected"`` tells
     the caller the operation is retry-able once an ingest completes.
+
+    Returns a :class:`mcp.types.CallToolResult` instance so FastMCP's
+    ``convert_result`` short-circuits at the ``isinstance(result,
+    CallToolResult)`` branch (func_metadata.py:114-118) and passes it
+    through unchanged — preserving ``isError=True`` at the MCP wire level.
+
+    Args:
+        tool_name: The name of the tool being stubbed (echoed in
+            structuredContent for diagnostics).
+        ui_url: URL of the operator console.  Passed from the configured
+            bind address by :func:`_wrap_with_observability`; defaults to
+            the factory default so callers without Resources context work.
     """
-    payload: dict[str, Any] = {
-        "content": [
-            {
-                "type": "text",
-                "text": (
-                    "No corpus ingested yet. Open the operator console at "
-                    "http://127.0.0.1:7733/ui/ to create a notebook and "
-                    "start ingestion, then retry this tool call."
-                ),
-            }
-        ],
-        "corpus_version": BOOTSTRAP_CORPUS_VERSION_SENTINEL,
-        "error_code": "no_notebook_selected",
-        "isError": True,
-        "tool": tool_name,
-    }
-    return _sort_dict(payload)
+    from mcp.types import CallToolResult, TextContent  # noqa: PLC0415
+
+    structured = _sort_dict(
+        {
+            "corpus_version": BOOTSTRAP_CORPUS_VERSION_SENTINEL,
+            "error_code": "no_notebook_selected",
+            "tool": tool_name,
+        }
+    )
+    hint = (
+        f"No corpus ingested yet. Open the operator console at "
+        f"{ui_url} to create a notebook and "
+        f"start ingestion, then retry this tool call."
+    )
+    return CallToolResult(
+        content=[TextContent(type="text", text=hint)],
+        structuredContent=structured,
+        isError=True,
+    )
 
 
 def envelope(
@@ -809,7 +830,16 @@ def _wrap_with_observability(tool_name: str, handler: Any) -> Any:
                 except ResourcesNotReadyError:
                     _r = None
                 if _r is not None and getattr(_r, "bootstrap_mode_active", False):
-                    result = _build_bootstrap_envelope(tool_name)
+                    # onboarding-uplift-m4 F8: thread configured bind address
+                    # into hint text so operator doesn't get a wrong URL.
+                    try:
+                        _ui_url = (
+                            f"http://{_r.config.bind_host}:"
+                            f"{_r.config.bind_port}/ui/"
+                        )
+                    except Exception:  # noqa: BLE001
+                        _ui_url = "http://127.0.0.1:7733/ui/"
+                    result = _build_bootstrap_envelope(tool_name, ui_url=_ui_url)
                     status = "ok"
                     return result
 

@@ -441,7 +441,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         raise
 
     app.state.resources = resources
-    refresh_metrics_from_singleton_state(resources)
+    # onboarding-uplift-m4 F1: skip metrics refresh in bootstrap mode.
+    # corpus_info is None in bootstrap mode; refresh_metrics_from_singleton_state
+    # now guards corpus_info reads internally, but the belt-and-suspenders
+    # check here avoids the scrape overhead when there's nothing to report.
+    if not getattr(resources, "bootstrap_mode_active", False):
+        refresh_metrics_from_singleton_state(resources)
 
     # E06_S03: tool handlers reach the live Resources via a
     # module-level reference set here. Synthesis D8 — handlers

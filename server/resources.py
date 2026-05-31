@@ -421,11 +421,10 @@ class Resources:
     # Checked by the orchestrator stub-check in server.tools before
     # dispatching handlers; handlers must NOT check this directly.
     bootstrap_mode_active: bool = False
-    # One-way asyncio.Event set by ``late_bind`` once the corpus is ready.
-    # Preferred over Lock+flag (synthesis D2): the event loop is single-
-    # threaded, set() is an atomic one-way operation, and handlers can check
-    # ``not event.is_set()`` cheaply on the hot path without lock overhead.
-    _corpus_ready_event: asyncio.Event = field(default_factory=asyncio.Event)
+    # _corpus_ready_event REMOVED (onboarding-uplift-m4 F6 rect):
+    # no consumer awaits it; the orchestrator stub-check reads the
+    # bootstrap_mode_active bool flag. If a future /ui/api/bootstrap-status
+    # poll endpoint wants event semantics, re-add it then.
 
     # ------------------------------------------------------------------
     # Startup / shutdown
@@ -1086,10 +1085,21 @@ class Resources:
                 cache_db_path=config.cache_db_path,
                 corpus_version=corpus_info.version,
             )
-            set_cache(retrieval_cache)
 
             # Build rerank phase (using existing semaphore/singleflight).
             from server.retrieval.rerank import RerankPhase  # noqa: PLC0415
+
+            # onboarding-uplift-m4 F5: in bootstrap mode, the startup stub
+            # skips the reranker eager-load (reranker_model stays None).
+            # Lazy-load here BEFORE constructing RerankPhase so the
+            # enabled=True + model_handle=None combination doesn't raise.
+            if config.enable_rerank and self.reranker_model is None:
+                logger.info(
+                    "Resources.late_bind: lazily loading BGE-reranker-v2-m3 "
+                    "(skipped at bootstrap startup)"
+                )
+                self.reranker_model = await _load_reranker_or_raise()
+                logger.info("Resources.late_bind: BGE-reranker-v2-m3 warm")
 
             rerank_phase = RerankPhase(
                 chunks_table=chunks_table,
@@ -1099,9 +1109,14 @@ class Resources:
                 model_handle=self.reranker_model,
             )
 
-            # In-place mutate fields.  Set bootstrap_mode_active = False
-            # BEFORE setting the event so any coroutine awaiting the event
-            # sees the flipped flag when it wakes.
+            # onboarding-uplift-m4 F7: publish cache AFTER RerankPhase
+            # construction succeeds — "build everything, then publish
+            # atomically". If RerankPhase raises, set_cache never runs
+            # so get_cache() stays None (no leaked global state).
+            set_cache(retrieval_cache)
+
+            # In-place mutate fields.  Flip bootstrap_mode_active = False
+            # LAST so all other fields are settled before handlers see False.
             self.corpus_info = corpus_info
             self.chunks_table = chunks_table
             self.bm25_phase = bm25_phase
@@ -1111,7 +1126,6 @@ class Resources:
             self.degraded = degraded
             self.warm = True
             self.bootstrap_mode_active = False
-            self._corpus_ready_event.set()
 
             logger.info(
                 "Resources.late_bind: promoted to normal operation "
