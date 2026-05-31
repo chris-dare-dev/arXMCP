@@ -1,0 +1,114 @@
+{
+  "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/plans",
+  "created_at": "2026-05-31T02:07:36Z",
+  "critics_run": [
+    {
+      "critic": "adversary",
+      "output_path": ".claude/notes/milestones/ui-attractive-polish-m1/critique-adversary.md",
+      "summary": "0C 0H 2M 3L; F1 aria-atomic parity gap; F2 line-count doc drift"
+    }
+  ],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "low": 3,
+    "medium": 2
+  },
+  "critique_path": ".claude/notes/milestones/ui-attractive-polish-m1/critique-merged.md",
+  "deferred_findings": [
+    "F3",
+    "F4",
+    "F5"
+  ],
+  "external_writes_authorized": true,
+  "external_writes_completed": true,
+  "external_writes_required": [
+    {
+      "target": "origin/main",
+      "type": "git_push",
+      "why": "land the feat+rect+chore commit triple per CLAUDE.md \u00a74.3"
+    }
+  ],
+  "fixed_findings": [
+    "F1",
+    "F2"
+  ],
+  "id": "ui-attractive-polish-m1",
+  "implementation_base": "924d5ada6d351a9e7feb2a72410cbcb9d37a4e01",
+  "implementation_branch": "main",
+  "implementation_commit_range": "924d5ada6d351a9e7feb2a72410cbcb9d37a4e01..c5adff323a326d6bc4dc1704f72282d3af759d37",
+  "implementation_commits": [
+    "c5adff323a326d6bc4dc1704f72282d3af759d37"
+  ],
+  "implementation_path": "inline",
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "### ui-attractive-polish-m1 \u2014 Foundational a11y baselines (UPL-1..4)\n\n**Description.** Bundle the four foundational a11y baselines from the\nuplift's RICE-rank-1 candidates into one CSS + template edit pass.\nEstablishes the `prefers-reduced-motion` gate, the `:focus-visible`\noutline-ring, the `aria-live` parity on htmx success swap targets, and\nthe skip-to-main-content link. Implementation = pure CSS additions to\n`frontend/static/app.css` + 5 attribute additions across 3 templates +\n1 HTML line in `base.html`. No new vendored asset. No JS. No CSP impact.\n\n**Acceptance criteria.**\n- [ ] **UPL-1** \u2014 `@media (prefers-reduced-motion: reduce)` universal block at the bottom of `frontend/static/app.css` clamps `animation-duration`, `animation-iteration-count`, `transition-duration`, `animation-delay`, `transition-delay`, and `scroll-behavior` (per challenger MINOR finding adding delay coverage).\n- [ ] **UPL-2** \u2014 `:focus-visible` outline rules for `button, .button, a, input, select, textarea, [tabindex]` using `var(--accent)` at 2px solid with `outline-offset: 2px`. `button.danger:focus-visible` uses `outline-color: var(--danger)` (per challenger finding \u2014 destructive controls deserve the LOUDEST focus ring, not the quietest). `:focus:not(:focus-visible)` resets outline.\n- [ ] **UPL-3** \u2014 `aria-live=\"polite\"` added to `#display-name-block` (`frontend/templates/notebook_detail.html:15`), `#ingest-status` (`:161`), `#papers-tbody` (`:180`); `#status-badge` (`frontend/templates/base.html:65`) gets `aria-live=\"polite\" aria-atomic=\"true\"`. The 5 existing `pre.error[aria-live=\"polite\"]` regions are left unchanged.\n- [ ] **UPL-4** \u2014 `<a class=\"skip-link\" href=\"#main\">Skip to main content</a>` added as the FIRST child of `<body>` in `frontend/templates/base.html`. The existing `<main>` gets `id=\"main\" tabindex=\"-1\"`. CSS rule for `.skip-link` visually-hides off-screen until `:focus-visible`, then reveals at `left: 1rem; top: 1rem` with `background: var(--accent); color: #fff`.\n- [ ] **Verification \u2014 keyboard walk:** start with focus on URL bar, Tab forward through `/ui/`; skip-link is the first focus stop (visible); subsequent Tabs reach the Create form's display-name input, then the Create button, then each notebook row's Open link and Remove button. Every focused element shows the `--accent` ring (or the `--danger` ring for `button.danger`). Repeat on `/ui/notebooks/bridgeland-stability` \u2014 Tab reaches the Rename input, then Rename submit, then Add-paper URL input, etc. No element shows the browser-default focus ring.\n- [ ] **Verification \u2014 VoiceOver smoke-test:** on `/ui/notebooks/bridgeland-stability`, trigger a successful rename via the Rename form. VoiceOver announces the new display name (`#display-name-block` swap reaches an `aria-live` region). Wait 10s for the next status-badge poll; VoiceOver announces the badge content as one atomic string (e.g. \"READY \u00b7 corpus v645 \u00b7 2 notebooks\"). The status badge poll fires `aria-live` because of `aria-atomic=\"true\"`.\n- [ ] `make test` exits 0 (ruff + pytest, \u22642129 tests passing on macOS / Linux).\n- [ ] Final `frontend/static/app.css` line count \u2264 165 (current 126 + budget 30 for UPL-1+UPL-2+UPL-4; UPL-3 adds zero CSS).\n\n**Dependencies.** epic `ui-attractive-polish-e1`. No prior milestone deps. Independent of UPL-5/6/7 bug-fix track.\n\n**Complexity.** S (\u2264 1 day execution including the 4-phase milestone-pipeline; total CSS+HTML changes \u2248 40-50 lines; manual keyboard + VoiceOver verification is the largest time slice).\n\n**Specialist suggestion.** `\u2014` (CSS + Jinja2 attribute additions only; milestone-pipeline's default adversary critic covers it).",
+  "phase": "complete",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-31T02:07:36Z",
+      "left_at": "2026-05-31T02:07:55Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-31T02:07:55Z",
+      "left_at": "2026-05-31T02:14:56Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-31T02:14:56Z",
+      "left_at": "2026-05-31T02:16:11Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-05-31T02:16:11Z",
+      "left_at": "2026-05-31T02:29:23Z",
+      "phase": "implement-running"
+    },
+    {
+      "entered_at": "2026-05-31T02:29:23Z",
+      "left_at": "2026-05-31T02:29:39Z",
+      "phase": "implement-complete"
+    },
+    {
+      "entered_at": "2026-05-31T02:29:39Z",
+      "left_at": "2026-05-31T02:35:19Z",
+      "phase": "critique-running"
+    },
+    {
+      "entered_at": "2026-05-31T02:35:19Z",
+      "left_at": "2026-05-31T02:35:19Z",
+      "phase": "critique-complete"
+    },
+    {
+      "entered_at": "2026-05-31T02:35:19Z",
+      "left_at": "2026-05-31T03:23:13Z",
+      "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-05-31T03:23:13Z",
+      "left_at": null,
+      "phase": "complete"
+    }
+  ],
+  "rectification_commit": "dc30b93ecb2474c30ba320847f3d655c9d50b8bd",
+  "regression_tests_added": [
+    "tests/test_ui_a11y_baselines.py"
+  ],
+  "research_briefs": [
+    {
+      "agent_id": "researcher-1",
+      "brief_path": ".claude/notes/milestones/ui-attractive-polish-m1/research-brief-1.md",
+      "summary": "Implement UPL-1..4 as CSS additions + aria attrs; update outerHTML f-strings too"
+    },
+    {
+      "agent_id": "researcher-2",
+      "brief_path": ".claude/notes/milestones/ui-attractive-polish-m1/research-brief-2.md",
+      "summary": "Implement UPL-1..4 as pure CSS + 5 ARIA attrs; server fragments need aria-live too"
+    }
+  ],
+  "research_mode": "standard",
+  "research_synthesis": ".claude/notes/milestones/ui-attractive-polish-m1/research-synthesis.md",
+  "updated_at": "2026-05-31T03:23:13Z"
+}
