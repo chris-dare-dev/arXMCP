@@ -90,6 +90,16 @@ class TestBuildQueryURL:
         url = build_query_url("math.AG", abs_keywords='a"b')
         assert _search_query(url) == 'cat:math.AG AND abs:"ab"'
 
+    def test_whitespace_only_keyword_skips_clause(self) -> None:
+        # rect F1: a keyword that is blank after stripping quotes+whitespace
+        # (e.g. an empty notebook description) must NOT emit a degenerate
+        # abs:"" / ti:"" phrase — the clause is dropped entirely.
+        assert _search_query(build_query_url("math.AG", abs_keywords="   ")) == "cat:math.AG"
+        assert _search_query(build_query_url("math.AG", ti_keywords='""')) == "cat:math.AG"
+        # A blank abs but real ti still yields only the ti clause.
+        url = build_query_url("math.AG", abs_keywords="  ", ti_keywords="moduli")
+        assert _search_query(url) == 'cat:math.AG AND ti:"moduli"'
+
     def test_empty_category_raises(self) -> None:
         with pytest.raises(ValueError, match="category"):
             build_query_url("")

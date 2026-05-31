@@ -88,15 +88,22 @@ class Candidate:
         )
 
 
-def _keyword_clause(field: str, value: str) -> str:
+def _keyword_clause(field: str, value: str) -> str | None:
     """Build a quoted ``field:"phrase"`` clause from operator keywords.
 
     The value is wrapped in double quotes so the arXiv parser treats it as a
     literal phrase — this neutralises injected boolean operators / field
     prefixes (FM-3) AND gives exact-phrase relevance. Any embedded double
     quote is stripped first so it cannot terminate the phrase early.
+
+    Returns ``None`` when the value is empty after stripping quotes +
+    whitespace, so the caller drops the clause entirely rather than emitting a
+    degenerate ``field:""`` phrase (rect F1: m3 populates these from notebook
+    descriptions, which may be blank after stripping).
     """
     cleaned = value.replace('"', "").strip()
+    if not cleaned:
+        return None
     return f'{field}:"{cleaned}"'
 
 
@@ -122,9 +129,13 @@ def build_query_url(
 
     search_query = f"cat:{category}"
     if abs_keywords:
-        search_query += f" AND {_keyword_clause('abs', abs_keywords)}"
+        abs_clause = _keyword_clause("abs", abs_keywords)
+        if abs_clause:
+            search_query += f" AND {abs_clause}"
     if ti_keywords:
-        search_query += f" AND {_keyword_clause('ti', ti_keywords)}"
+        ti_clause = _keyword_clause("ti", ti_keywords)
+        if ti_clause:
+            search_query += f" AND {ti_clause}"
 
     params = {
         "search_query": search_query,
