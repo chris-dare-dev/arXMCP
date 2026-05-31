@@ -50,6 +50,13 @@ def test_arxmcp_group_present():
 def test_required_alerts_present():
     """E14_S05 D7 — these alerts must exist (the failure-mode
     runbook references them by name).
+
+    corpus-integrity-completion-m1 extends the required set with
+    the two new corpus-integrity rules so a future change cannot
+    silently remove them. The two new rules' runbook_url points
+    at docs/ops/corpus-drift-runbook.md (which sibling m2 will
+    create; m1 references the path optimistically per the
+    roadmap's accepted-risk note).
     """
     spec = yaml.safe_load(ALERTS_PATH.read_text(encoding="utf-8"))
     alerts: set[str] = set()
@@ -62,6 +69,10 @@ def test_required_alerts_present():
         "ArXMCPDiskFull",
         "ArXMCPDegradedMode",
         "ArXMCPBackupStale",
+        # corpus-integrity-completion-m1: forward regression
+        # protection for the new corpus-integrity rules.
+        "ArXMCPCorpusCountRowsFailed",
+        "ArXMCPCorpusUnindexedRows",
     }
     missing = required - alerts
     assert not missing, (

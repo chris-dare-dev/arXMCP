@@ -108,3 +108,65 @@ groups:
             re-rendering. See the runbook for the recovery
             procedure.
           runbook_url: "https://github.com/chris-dare-dev/arXMCP/blob/main/docs/ops/latexml-drift-runbook.md"
+
+      # corpus-integrity-completion-m1 — `count_rows()` startup
+      # failure sentinel. The m2 gauge sets
+      # arxmcp_corpus_chunk_count_actual = -1 ONLY when
+      # `chunks_table.count_rows()` raises at startup (an empty
+      # table returns 0, not -1, so cold-clone deployments before
+      # the first ingest do NOT trip this rule). The 10m `for:`
+      # suppresses one-shot startup hiccups; 20 scrapes at the
+      # 30s group interval. Critical because the marker-vs-actual
+      # reconciliation in `/readyz` is unreliable as long as the
+      # gauge reports -1. The above-tolerance drift case (gauge
+      # >= 0 but differs from the marker) is already covered by
+      # `ArXMCPDegradedMode` via `DegradedState('chunk_count_diverged')`;
+      # no duplicate rule is added here per the
+      # corpus-integrity-observability scout's CAND-1 challenger
+      # MINOR resolution (final-report §3 Rank 1).
+      - alert: ArXMCPCorpusCountRowsFailed
+        expr: arxmcp_corpus_chunk_count_actual == -1
+        for: 10m
+        labels:
+          severity: critical
+          component: corpus
+        annotations:
+          summary: "arXMCP corpus count_rows() failed at startup"
+          description: |
+            arxmcp_corpus_chunk_count_actual has reported -1
+            (count_rows() raised at startup) for 10 minutes.
+            The marker-vs-actual reconciliation surfaced by
+            /readyz is unreliable until this resolves. Inspect
+            the LanceDB dataset at the path the server is
+            pointing at, and run the reconcile CLI per the
+            runbook.
+          runbook_url: "https://github.com/chris-dare-dev/arXMCP/blob/main/docs/ops/corpus-drift-runbook.md"
+
+      # corpus-integrity-completion-m1 — HNSW unindexed-rows
+      # tripwire. The m3 gauge surfaces any rows committed to the
+      # chunks table without a successful HNSW index rebuild;
+      # `_create_indices` runs synchronously inside `write_chunks`
+      # so in normal operation the gauge is 0. A non-zero value
+      # is ALWAYS abnormal: ANN brute-forces those rows
+      # (silent perf degradation, NOT a correctness regression —
+      # hence severity:warning per the m3 "WARN+gauge when results
+      # remain correct" pattern). The 1h `for:` filters any
+      # transient startup + rebuild window. The `-1` "unknown"
+      # sentinel does NOT trip this rule (`-1 > 0` is false) — that
+      # case is covered by `ArXMCPDegradedMode`.
+      - alert: ArXMCPCorpusUnindexedRows
+        expr: arxmcp_corpus_unindexed_rows > 0
+        for: 1h
+        labels:
+          severity: warning
+          component: corpus
+        annotations:
+          summary: "arXMCP HNSW ANN index has unindexed rows"
+          description: |
+            arxmcp_corpus_unindexed_rows = {{ $value }} (>0)
+            for 1 hour. One or more rows were committed to the
+            chunks table without a successful HNSW index rebuild.
+            ANN queries brute-force those rows; results stay
+            correct but get slower. Re-run ingest to rebuild
+            the index per the runbook.
+          runbook_url: "https://github.com/chris-dare-dev/arXMCP/blob/main/docs/ops/corpus-drift-runbook.md"
