@@ -52,7 +52,6 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 import time
 
@@ -68,6 +67,7 @@ from tools._notebook_common import (
     fetch_raw_tex_if_missing,
     notebook_dir,
     read_paper_ids_from_papers_txt,
+    resolve_contact_email,
     validate_slug,
 )
 
@@ -81,22 +81,24 @@ def run(slug: str, *, sleep_seconds: float = POLITENESS_SLEEP_SECONDS) -> int:
     politeness sleep). Production callers should leave it at the
     default 3.0 s.
 
-    AC7 (notebook-preamble-recovery-m1): ARXMCP_CONTACT_EMAIL is
-    required at run() entry. Fail loudly with a clear NotebookError
-    rather than letting per-paper RuntimeErrors leak from
-    ``build_user_agent`` deep inside the loop. The check is at
-    run-time (not import-time) so tests that don't exercise the raw-
-    tex path don't need to set the env var.
+    AC7 (notebook-preamble-recovery-m1): a contact email is required
+    at run() entry. Fail loudly with a clear NotebookError rather
+    than letting per-paper RuntimeErrors leak from ``build_user_agent``
+    deep inside the loop. The check is at run-time (not import-time)
+    so tests that don't exercise the raw-tex path don't need to
+    provide the email.
+
+    onboarding-uplift-m2: resolution goes through
+    :func:`tools._notebook_common.resolve_contact_email` — priority
+    chain is (1) explicit arg [unused here; CLI takes no --email],
+    (2) SQLite ``operator_settings`` (via ``make init EMAIL=…``),
+    (3) ``ARXMCP_CONTACT_EMAIL`` env var, (4) raise. The historical
+    env-var path still works; SQLite is the new canonical mechanism.
     """
-    if not os.environ.get("ARXMCP_CONTACT_EMAIL"):
-        raise NotebookError(
-            "ARXMCP_CONTACT_EMAIL is required for notebook ingest. "
-            "Export it in your shell before re-running: "
-            "export ARXMCP_CONTACT_EMAIL=you@example.com (arXiv TOU §3 "
-            "politeness-contract — used in the /e-print/ User-Agent "
-            "header). See .claude/notes/scans/preamble-without-raw-tex-"
-            "2026-05-27.md for context."
-        )
+    # m2 — replace the bare-env check with the priority chain. The
+    # helper raises ``NotebookError`` with the canonical
+    # ``make init EMAIL=…`` remediation hint if every source is empty.
+    resolve_contact_email(None)
     validate_slug(slug)
     nb_dir = notebook_dir(slug)
     papers_txt = nb_dir / "papers.txt"

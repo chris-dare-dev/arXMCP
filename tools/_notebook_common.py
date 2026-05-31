@@ -147,6 +147,68 @@ def notebook_lancedb_path(slug: str, *, base: Path | None = None) -> Path:
     return notebook_dir(slug, base=base) / "lancedb"
 
 
+def resolve_contact_email(
+    arg: str | None,
+    *,
+    db_path: Path | None = None,
+) -> str:
+    """Resolve the arXiv polite-pool ``contact_email`` for a CLI
+    invocation (``onboarding-uplift-m2``).
+
+    Priority chain (m2 synthesis §1 + §3 D1):
+
+    1. **Explicit ``arg``** — the caller already has it (e.g. an
+       ``--email`` CLI flag was passed). Wins outright.
+    2. **SQLite via :func:`server.operator_settings.get_contact_email`**
+       — the persisted operator pref set by
+       ``make init NOTEBOOK=… EMAIL=…``. Sticky across shell restarts.
+       This is the m2 mechanism that lets the CLI fetch tools work
+       without re-exporting the env var every session.
+    3. **``ARXMCP_CONTACT_EMAIL`` env var** — the historical pre-m2
+       contract. Continues to work for operators who set it in their
+       ``.envrc`` / shell init.
+    4. **Raise :class:`NotebookError`** — every source exhausted; tell
+       the operator the canonical fix is ``make init … EMAIL=…``.
+
+    If both SQLite and the env var carry a (different) value, SQLite
+    wins (per synthesis D1 — sticky pref over shell ephemera) and
+    nothing is logged at INFO (would be noise on every CLI call); the
+    operator's `make init EMAIL=...` is the documented override.
+
+    The ``db_path`` argument is for tests — production callers pass
+    the default (which resolves to
+    ``var/arxmcp/cache/notebooks.db``).
+    """
+    if arg:
+        return arg
+    # Import locally to keep ``tools/_notebook_common.py``
+    # import-cost light and to avoid a hard dependency on the
+    # ``server`` package at module-import time (CLI tools may run in
+    # a stripped-down virtualenv during early bootstrap).
+    from server.operator_settings import DEFAULT_DB_PATH, get_contact_email
+
+    persisted = get_contact_email(db_path or DEFAULT_DB_PATH)
+    if persisted:
+        return persisted
+    # Final fallback — the historical env-var contract that the m1
+    # carve-out still warns operators NOT to set for `make up`. The
+    # CLI tools (this code path) have always read it directly; m2
+    # additively offers the SQLite path.
+    import os  # noqa: PLC0415
+
+    env_value = os.environ.get("ARXMCP_CONTACT_EMAIL")
+    if env_value:
+        return env_value
+    raise NotebookError(
+        "no contact email available: pass --email <addr>, OR run "
+        "`make init NOTEBOOK=<slug> EMAIL=<addr>` to persist it in "
+        "the operator_settings store, OR `export "
+        "ARXMCP_CONTACT_EMAIL=<addr>` in this shell. The arXiv "
+        "polite-pool User-Agent contract (arXiv TOS §3) requires a "
+        "contact email on every request."
+    )
+
+
 def read_paper_ids_from_papers_txt(papers_txt: Path) -> list[str]:
     """Read a notebook's ``papers.txt``, skipping ``#``-comments and blanks.
 

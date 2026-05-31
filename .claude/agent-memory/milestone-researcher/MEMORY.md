@@ -1,5 +1,34 @@
 # Milestone Researcher — Project Memory
 
+## 2026-05-31 — onboarding-uplift-m2 — user-version-shared-across-stores
+`PRAGMA user_version` is per-database-FILE, not per-table. When two stores
+(`NotebooksStore`, `OperatorSettingsStore`) open the same `notebooks.db`,
+their migrations must share a single version sequence in `NotebooksStore._open_sync`.
+Recommended: add v4→v5 block for `operator_settings` table there; `OperatorSettingsStore`
+asserts `user_version >= 5` but does NOT run its own migrations.
+
+## 2026-05-31 — onboarding-uplift-m2 — ingest-to-tools-import-direction
+`ingest/` files (`inspire_ingest.py`, `graph_ingest.py`) currently import from `ingest/`
+and stdlib only — no `tools/` imports. Adding `from tools._notebook_common import X`
+would create a new cross-direction import (`ingest/ → tools/`). The safer path:
+expose a standalone helper in `server/operator_settings.py` and import from there
+in `ingest/` files (avoids the circular dependency risk entirely).
+
+## 2026-05-31 — ui-attractive-polish-m2 — svg-favicon-no-css-vars
+SVG favicons rendered in the browser tab context do NOT inherit the page's CSS,
+so `fill="var(--accent)"` silently renders as black. Use the hardcoded hex
+`fill="#1e5b8a"` (matching `--accent`) in `frontend/static/favicon.svg`.
+Also: `<link rel="icon" href="/ui/static/favicon.svg">` redirects the browser's
+`/favicon.ico` 403 (SecFetchSite blocks non-`/ui/` requests with `same-origin`
+Sec-Fetch-Site) to the `/ui/static/` mount which IS in the exempt prefix — no
+SecFetchSite or CSP change needed.
+
+## 2026-05-31 — ui-attractive-polish-m2 — vendored-md-only-covers-third-party
+`frontend/static/VENDORED.md` + `tests/test_vendored_assets_integrity.py` only
+track THIRD-PARTY vendored assets (currently only `htmx.min.js`). Project-authored
+files like `app.css` and `favicon.svg` are explicitly NOT tracked. Adding a
+hand-authored SVG requires NO update to `VENDORED.md` or the integrity test.
+
 ## 2026-05-31 — ui-attractive-polish-m1 — outerHTML-swap-breaks-aria-live
 htmx `hx-swap="outerHTML"` REPLACES the element — the new element from the server
 must carry `aria-live` in its markup or the live region silently stops announcing

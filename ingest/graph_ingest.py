@@ -772,12 +772,17 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
-    contact_email = os.environ.get("ARXMCP_CONTACT_EMAIL")
+    # onboarding-uplift-m2: priority chain — SQLite operator_settings
+    # (via `make init EMAIL=...`) wins over env var. Imported directly
+    # from ``server.operator_settings`` (synthesis §3 D3).
+    from server.operator_settings import get_contact_email  # noqa: PLC0415
+
+    contact_email = get_contact_email() or os.environ.get("ARXMCP_CONTACT_EMAIL")
     if not contact_email:
         sys.stderr.write(
-            "ERROR: ARXMCP_CONTACT_EMAIL is required for OpenAlex polite-pool "
-            "compliance.\n"
-            "       Export it in your shell before running this script.\n"
+            "ERROR: contact email required for OpenAlex polite-pool compliance.\n"
+            "       Run `make init NOTEBOOK=<slug> EMAIL=<addr>` to persist it,\n"
+            "       OR `export ARXMCP_CONTACT_EMAIL=<addr>` in this shell.\n"
         )
         return 2
 

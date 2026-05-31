@@ -1,4 +1,4 @@
-.PHONY: help bootstrap test eval up status ingest delta re-embed re-embed-all ingest-recover-preambles watchdog cutover notebook-cutover daily-report parser-failures-report sbom refresh-arxiv-ca
+.PHONY: help bootstrap test eval up status ingest delta re-embed re-embed-all ingest-recover-preambles watchdog cutover notebook-cutover daily-report parser-failures-report sbom refresh-arxiv-ca init add notebook-list
 
 # Override with `make test PYTHON=python3.13` if your default python3 is too old.
 PYTHON ?= python3
@@ -6,16 +6,36 @@ MIN_PY_MINOR := 11
 # notebook-ops-hardening-m4: port `make status` curls. Mirrors the server
 # default (server/config.py DEFAULT_BIND_PORT); override via the env var.
 ARXMCP_BIND_PORT ?= 7733
+# onboarding-uplift-m2: per-call args for `make init` / `make add`.
+# Override on the command line: `make init NOTEBOOK=demo EMAIL=me@x`.
+NOTEBOOK ?=
+EMAIL ?=
+PAPER ?=
 
 help:
 	@echo "arXMCP development targets:"
 	@echo ""
-	@echo "  make bootstrap   Set up dev env and create var/arxmcp/ tree"
+	@echo "  FIRST TIME? (onboarding-uplift-m2):"
+	@echo "  make bootstrap                 Set up dev env and create var/arxmcp/ tree"
+	@echo "  make init NOTEBOOK=<slug> [EMAIL=<addr>]"
+	@echo "                                 Scaffold a notebook on disk + register it in"
+	@echo "                                 notebooks.db; optionally persist your arXiv"
+	@echo "                                 polite-pool email to operator_settings"
+	@echo "                                 (CLI fetch tools read it without env var)."
+	@echo "  make add NOTEBOOK=<slug> PAPER=<arxiv-id>"
+	@echo "                                 Tag a paper into a notebook. POSTs to the"
+	@echo "                                 running server if /healthz is up; else"
+	@echo "                                 appends to var/arxmcp/notebooks/<slug>/papers.txt."
+	@echo "  make notebook-list             List registered notebooks (live REST if server up,"
+	@echo "                                 else direct SQLite read)."
+	@echo "  make ingest                    Bulk-ingest the seed corpus into the shared LanceDB"
+	@echo "                                 (E11_S01; see docs/ops/bulk-ingest-runbook.md)."
+	@echo "  make up                        Start the arxmcp-server on 127.0.0.1:7733."
+	@echo ""
+	@echo "  EVERYTHING ELSE:"
 	@echo "  make test        Run ruff + pytest"
 	@echo "  make eval        Run the Tier-0 retrieval-quality gate (see .claude/TIER-GATES.md)"
-	@echo "  make up          Start the arxmcp-server on 127.0.0.1:7733 (E06_S01)"
 	@echo "  make status      Print a one-line running/ready summary from /status"
-	@echo "  make ingest      Run the bulk ingest orchestrator (E11_S01; see docs/ops/bulk-ingest-runbook.md)"
 	@echo "  make delta       Run the OAI-PMH nightly delta loop (E11_S02; see docs/ops/delta-loop.md)"
 	@echo "  make re-embed    Run the partial re-embed driver (E11_S03; see docs/ops/re-embed-runbook.md)"
 	@echo "  make re-embed-all Re-embed every LanceDB dataset (shared + notebook-scoped; embedder-truncation-m1)"
@@ -381,3 +401,72 @@ refresh-arxiv-ca:
 		mv $$tmp infra/ca/arxiv-ca-bundle.pem || { rm -f $$tmp; echo "ERROR: mv failed; bundle NOT updated (temp file removed)." >&2; exit 1; }; \
 		echo "OK: bundle refreshed at infra/ca/arxiv-ca-bundle.pem (all three hosts verified)."; \
 		echo "Review the diff and commit: git diff infra/ca/arxiv-ca-bundle.pem"
+
+
+# ============================================================================
+# onboarding-uplift-m2: thin Make wrappers for the notebook lifecycle
+# ============================================================================
+#
+# Each target is a thin shell over an existing `tools/notebook_*.py` module
+# or a `/ui/api/notebooks/*` REST endpoint. See proposal at
+# .claude/notes/uplift/startup-ux/streamlined-flow-proposal.md §9 + decisions
+# at .claude/notes/uplift/startup-ux/decisions.md (D2: corpus-level ingest,
+# D4: operator settings in SQLite). The synthesis at
+# .claude/notes/milestones/onboarding-uplift-m2/research-synthesis.md is
+# the locked design.
+#
+# Pattern: `make <verb> NOTEBOOK=<slug> [EMAIL=<addr>] [PAPER=<id>]`.
+
+init:
+	@# AC1 — scaffold the notebook dir + register in notebooks.db + persist
+	@# EMAIL to operator_settings (if given). Fully offline-capable; no
+	@# server needed. notebook_init.py handles all three side effects
+	@# idempotently (m2 synthesis §3 D2).
+	@[ -n "$(NOTEBOOK)" ] || { echo "ERROR: NOTEBOOK= required. Usage: make init NOTEBOOK=<slug> [EMAIL=<addr>]" >&2; exit 1; }
+	@if [ -n "$(EMAIL)" ]; then \
+		$(PYTHON) -m tools.notebook_init $(NOTEBOOK) --email "$(EMAIL)"; \
+	else \
+		$(PYTHON) -m tools.notebook_init $(NOTEBOOK); \
+	fi
+
+add:
+	@# AC3 — tag a paper into a notebook. If server is up
+	@# (/healthz 200), POST to /ui/api/notebooks/<slug>/papers with the
+	@# constructed arXiv URL. If server is down (curl exit 7), append the
+	@# bare paper_id to var/arxmcp/notebooks/<slug>/papers.txt with
+	@# idempotency (grep -qxF || echo). REST 404 / 5xx is a CLEAN error
+	@# — never auto-fallback (would create orphan papers.txt rows;
+	@# m2 synthesis §3 D5 / FM-5).
+	@[ -n "$(NOTEBOOK)" ] || { echo "ERROR: NOTEBOOK= required. Usage: make add NOTEBOOK=<slug> PAPER=<id>" >&2; exit 1; }
+	@[ -n "$(PAPER)" ] || { echo "ERROR: PAPER= required. Usage: make add NOTEBOOK=<slug> PAPER=<id>" >&2; exit 1; }
+	@if curl -sf --max-time 2 "http://127.0.0.1:$(ARXMCP_BIND_PORT)/healthz" >/dev/null 2>&1; then \
+		echo "server up — POST /ui/api/notebooks/$(NOTEBOOK)/papers"; \
+		curl -sf --fail-with-body --max-time 30 \
+			-X POST -H "Content-Type: application/json" \
+			-d '{"arxiv_url":"https://arxiv.org/abs/$(PAPER)"}' \
+			"http://127.0.0.1:$(ARXMCP_BIND_PORT)/ui/api/notebooks/$(NOTEBOOK)/papers" \
+			|| { echo "ERROR: REST call failed — see above" >&2; exit 1; }; \
+		echo; \
+	else \
+		[ -d "var/arxmcp/notebooks/$(NOTEBOOK)" ] || { echo "ERROR: notebook '$(NOTEBOOK)' not initialized — run 'make init NOTEBOOK=$(NOTEBOOK)' first" >&2; exit 1; }; \
+		papers_txt="var/arxmcp/notebooks/$(NOTEBOOK)/papers.txt"; \
+		if grep -qxF "$(PAPER)" $$papers_txt 2>/dev/null; then \
+			echo "server down — $(PAPER) already in $$papers_txt (no-op)"; \
+		else \
+			echo "$(PAPER)" >> $$papers_txt; \
+			echo "server down — appended $(PAPER) to $$papers_txt"; \
+		fi; \
+	fi
+
+notebook-list:
+	@# AC4 — list registered notebooks. Live REST when server up
+	@# (curl /ui/api/notebooks → one-line jq via python -c), else the
+	@# offline helper opens notebooks.db directly via
+	@# tools/notebook_list_offline.py (which uses NotebooksStore so
+	@# any pending migrations auto-run on open).
+	@if curl -sf --max-time 2 "http://127.0.0.1:$(ARXMCP_BIND_PORT)/healthz" >/dev/null 2>&1; then \
+		curl -sf --max-time 5 "http://127.0.0.1:$(ARXMCP_BIND_PORT)/ui/api/notebooks" \
+			| $(PYTHON) -c 'import json,sys; rows=json.load(sys.stdin); print(f"{len(rows)} notebook(s) — via /ui/api/notebooks:"); [print(f"  {r[\"slug\"]} ({r.get(\"display_name\") or r[\"slug\"]})") for r in rows]'; \
+	else \
+		$(PYTHON) -m tools.notebook_list_offline; \
+	fi

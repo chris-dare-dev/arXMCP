@@ -46,7 +46,6 @@ import argparse
 import gzip
 import http
 import logging
-import os
 import sys
 import tarfile
 import time
@@ -65,6 +64,7 @@ from tools._notebook_common import (
     NOTEBOOKS_BASE,
     NotebookError,
     read_paper_ids_from_papers_txt,
+    resolve_contact_email,
     validate_slug,
 )
 
@@ -233,12 +233,11 @@ def run(
     per-paper failures (404, 503, etc.) — those are logged and
     aggregated.
     """
-    if not os.environ.get("ARXMCP_CONTACT_EMAIL"):
-        raise NotebookError(
-            "ARXMCP_CONTACT_EMAIL is required for recover_preambles "
-            "(arXiv TOU §3 — used in the /e-print/ User-Agent). "
-            "Export it: export ARXMCP_CONTACT_EMAIL=you@example.com"
-        )
+    # onboarding-uplift-m2: priority chain — explicit arg → SQLite
+    # operator_settings → ARXMCP_CONTACT_EMAIL env var → raise. The
+    # historical env-var path still works; `make init EMAIL=...` is
+    # the new canonical mechanism.
+    resolve_contact_email(None)
 
     candidates = _discover_candidates(notebook_slug)
     if not candidates:

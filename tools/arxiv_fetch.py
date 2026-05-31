@@ -94,15 +94,32 @@ class ParseResult:
 def build_user_agent(contact_email: str | None = None) -> str:
     """Format the User-Agent per arXiv TOS §3 (politeness contract).
 
-    Reads ARXMCP_CONTACT_EMAIL from the environment if not given. Raises
-    if neither source supplies a value — we never send anonymous traffic
-    to arXiv.
+    Priority chain (onboarding-uplift-m2 D1 + D4):
+
+    1. **Explicit ``contact_email``** — the caller already has it.
+    2. **SQLite ``operator_settings.contact_email``** — persisted
+       via ``make init NOTEBOOK=… EMAIL=…``. Sticky across shell
+       restarts; the m2 canonical mechanism.
+    3. **``ARXMCP_CONTACT_EMAIL`` env var** — the historical pre-m2
+       contract.
+    4. **Raise** :class:`RuntimeError` — no source supplied a value.
+       We never send anonymous traffic to arXiv.
     """
-    email = contact_email or os.environ.get("ARXMCP_CONTACT_EMAIL")
+    if contact_email:
+        email: str | None = contact_email
+    else:
+        # m2: consult SQLite operator_settings before falling back to
+        # the env var. ``get_contact_email`` returns ``None`` if the
+        # file doesn't exist yet — that's the cold-bootstrap case
+        # where only the env var has been set.
+        from server.operator_settings import get_contact_email  # noqa: PLC0415
+
+        email = get_contact_email() or os.environ.get("ARXMCP_CONTACT_EMAIL")
     if not email:
         raise RuntimeError(
-            "ARXMCP_CONTACT_EMAIL is required (arXiv TOS §3 — politeness contract). "
-            "Export it in your shell before running any tool that hits arxiv.org."
+            "no contact email available (arXiv TOS §3 — politeness contract). "
+            "Run `make init NOTEBOOK=<slug> EMAIL=<addr>` to persist it, OR "
+            "`export ARXMCP_CONTACT_EMAIL=<addr>` in this shell."
         )
     return ARXIV_USER_AGENT_TEMPLATE.format(email=email)
 
