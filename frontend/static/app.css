@@ -2,6 +2,12 @@
    No external fonts; no CDN. Single file; ships under /ui/static/app.css. */
 
 :root {
+  /* ui-attractive-polish-m3-rect F3: declare color-scheme so browsers
+     auto-darken UA-styled controls (form-element internals, scrollbars,
+     default focus rings, default caret color, native <select> dropdowns)
+     when prefers-color-scheme: dark fires. Without this declaration the
+     UA defaults stay light-mode even when the page tokens flip. */
+  color-scheme: light dark;
   --fg: #1a1a1a;
   --bg: #f8f8f8;
   --card-bg: #fff;
@@ -242,6 +248,19 @@ button.danger:focus-visible { outline-color: var(--danger); outline-offset: 3px;
      1.4.3 for 14px button text. Dark text on the lighter dark-mode
      --accent gives ~7.2:1. Restore contrast. */
   button, .button { color: #0d1117; }
+
+  /* m3-rect F1: dark-mode input visibility — light --fg on hardcoded
+     #fff = 1.22:1 (invisible). Override both bg + color. */
+  input[type="text"], input[type="url"], input[type="file"] {
+    background: var(--card-bg);
+    color: var(--fg);
+  }
+  /* m3-rect F2: remap hardcoded tertiary-text greys (#444-#888 at
+     app.css:33,35,36,50-53,99) — they fail SC 1.4.3 on dark bg. */
+  header .subtitle, footer, footer a, .card .hint, dl.meta dt
+                       { color: #b3b9c0; } /* ~9:1 on --bg / --card-bg */
+  .card .note, .card .empty { color: #9ba1a8; } /* italic captions/empty */
+  .card .display-name  { color: #c9d1d9; } /* ~13:1 */
 }
 
 /* ui-attractive-polish-m3 (UPL-11): in-flight loading-state styling
