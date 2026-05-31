@@ -68,13 +68,23 @@ _ERROR_ID_MARKER: str = "/api/errors#"
 
 @dataclass(frozen=True)
 class Candidate:
-    """One arXiv paper parsed from an Atom feed entry."""
+    """One arXiv paper parsed from an Atom feed entry.
+
+    ``title`` and ``submitted_date`` (notebook-paper-discovery-m3) are appended
+    with defaults so the dataclass stays backward-compatible: ``as_tsv_row`` and
+    the curate-seed CLI ignore them, and the only construction site is
+    :func:`parse_atom_feed` (keyword args). ``submitted_year`` (int) is retained
+    for ``as_tsv_row``; ``submitted_date`` is the raw ISO-8601 ``<published>``
+    string the m3 discovery driver surfaces.
+    """
 
     paper_id: str
     submitted_year: int
     n_authors: int
     primary_category: str
     abstract_head: str
+    title: str = ""
+    submitted_date: str = ""
 
     def as_tsv_row(self) -> str:
         return "\t".join(
@@ -187,6 +197,12 @@ def parse_atom_feed(xml_bytes: bytes) -> list[Candidate]:
         ).strip()
         abstract_head = " ".join(summary.split())
 
+        # notebook-paper-discovery-m3: <title> (required Atom element) and the
+        # raw <published> ISO-8601 string the discovery driver surfaces.
+        title = " ".join(
+            (entry.findtext("atom:title", default="", namespaces=ATOM_NS) or "").split()
+        )
+
         out.append(
             Candidate(
                 paper_id=paper_id,
@@ -194,6 +210,8 @@ def parse_atom_feed(xml_bytes: bytes) -> list[Candidate]:
                 n_authors=len(authors),
                 primary_category=primary_cat,
                 abstract_head=abstract_head,
+                title=title,
+                submitted_date=published.strip(),
             )
         )
     return out

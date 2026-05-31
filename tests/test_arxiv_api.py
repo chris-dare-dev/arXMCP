@@ -113,6 +113,32 @@ class TestParseAtomFeed:
         assert cands[0].n_authors == 1
         assert cands[0].primary_category == "math.AG"
 
+    def test_extracts_title_and_submitted_date(self) -> None:
+        # notebook-paper-discovery-m3: <title> + raw <published> are captured.
+        feed = (
+            b'<?xml version="1.0" encoding="UTF-8"?>'
+            b'<feed xmlns="http://www.w3.org/2005/Atom"'
+            b' xmlns:arxiv="http://arxiv.org/schemas/atom">'
+            b"<entry>"
+            b"<id>http://arxiv.org/abs/2307.01156v2</id>"
+            b"<title>Stability conditions\n  on K3 surfaces</title>"
+            b"<published>2023-07-04T18:30:00Z</published>"
+            b"<summary>long enough abstract</summary>"
+            b"<author><name>A. Author</name></author>"
+            b'<arxiv:primary_category term="math.AG"/>'
+            b"</entry></feed>"
+        )
+        c = parse_atom_feed(feed)[0]
+        # title is whitespace-collapsed; submitted_date is the raw ISO string.
+        assert c.title == "Stability conditions on K3 surfaces"
+        assert c.submitted_date == "2023-07-04T18:30:00Z"
+
+    def test_missing_title_defaults_empty(self) -> None:
+        # The existing fixture has no <title>; the field defaults to "".
+        c = parse_atom_feed(_feed(1))[0]
+        assert c.title == ""
+        assert c.submitted_date == "2023-07-04T18:30:00Z"
+
     def test_error_entry_raises(self) -> None:
         # FM-6: arXiv signals errors as HTTP-200 with an /api/errors# id.
         feed = (
