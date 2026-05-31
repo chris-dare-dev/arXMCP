@@ -154,11 +154,22 @@ not widening the open UI security audit until that audit lands.**
    full-page white flash on that flow — verified by recording a 60-fps
    capture showing no `unload`/`load` event sequence on a successful add.
 5. **Across the program:** total `frontend/static/app.css` size stays
-   under **300 lines** (currently 126; budget +174 lines of pure CSS)
-   AND **zero new npm dependencies, package.json files, or build-chain
-   artifacts** are introduced (re-validated by `make test` passing +
-   ruff clean + the existing `tests/test_vendored_assets_integrity.py`
-   continuing to pin only `htmx.min.js`).
+   under **365 lines** (trajectory: m1 = 190 → m2 = 216 → m3-feat = 287
+   → m3-rect = 330 → m4 = 335-cap actual 333; m5 budget = +30 lines for
+   UPL-8 v1 four dark-mode pill remaps + `th { background }` dark
+   surface + UPL-12 v1 row-fade keyframe). The original 300-line target
+   was set pre-WCAG-correction; the m3-rect F1/F2/F3 dark-mode fixes
+   (mandatory; SC 1.4.3 / 1.4.11 compliance) and m4's UPL-22 + UPL-13
+   additions (consolidated into ONE `@media (prefers-reduced-motion:
+   no-preference)` block to minimise line cost) drove the cap past 300;
+   restated to 365 here with explicit budget for m5's CSS-only
+   additions. **Splitting `app.css` into `tokens.css` + `app.css`** is
+   the documented escape hatch if a future milestone needs more
+   headroom — both cap-tests (m3 + m4) carry the note. AND **zero new
+   npm dependencies, package.json files, or build-chain artifacts** are
+   introduced (re-validated by `make test` passing + ruff clean + the
+   existing `tests/test_vendored_assets_integrity.py` continuing to pin
+   only `htmx.min.js`).
 
 ### Won't (explicit out-of-scope)
 
@@ -358,12 +369,13 @@ _No `*` markers — both Musts have evidenced confidence (e1 = 4-brief unanimous
   - `ui-attractive-polish-m1` (epic e1; commits `924d5ad..40f3552` — feat `c5adff3` + rect `dc30b93` + chore `40f3552`). Foundational a11y baselines UPL-1..4. RICE 10.0. Status: terminal.
   - `ui-attractive-polish-m2` (epic e2; commits `40f3552..fdd28d4` — feat `672ad81` + rect `4f1f664` + chore `fdd28d4`). Visible polish layer UPL-9/10/19v0/23/25. RICE 9.5. Status: terminal.
   - `ui-attractive-polish-m3` (epic e3; commits `e69de9c..b66fa1e` — chore-plans `e69de9c` + feat `58bfb41` + rect `08b9c53` + chore `b66fa1e`). Dark mode + htmx-request feedback UPL-8 v0 + UPL-11. **Critique surfaced 1 HIGH (text-input dark-mode invisibility) + 2 MED + 1 LOW; all fixed in rect.** Status: terminal.
+  - `ui-attractive-polish-m4` (epic e4; commits `d69f253..574f1c2` — chore-plans `d69f253` + feat `81f38b0` + rect `df58b27` + chore `574f1c2`). In-place add-paper swap + native View Transitions + status-badge flash UPL-12 v0 + UPL-13 + UPL-22. **Critique returned SHIP — 0 CRITICAL / 0 HIGH / 2 MEDIUM / 2 LOW; 3/4 fixed (F1 cap-drift, F2 old-style arXiv ID HTML-branch coverage, F4 `_paper_row_html` docstring), F3 (form `this.reset()` on success — LOW) deferred to m5.** Status: terminal.
 - **Now** (fully spec'd, in-flight or next-up):
-  - `ui-attractive-polish-e4` (promoted from Next after m3 shipped + BOTH spikes returned PASS). 1 milestone `m4` below (UPL-12 v0 add-paper in-place swap + UPL-13 View Transitions + UPL-22 status-badge flash).
+  - `ui-attractive-polish-m5` — Finish UPL-12 (create-notebook + remove-notebook flows) + UPL-8 v1 dark-mode pill remap + UPL-19 v1 wider clamp + m4-F3 form reset. Spans epics e2 (UPL-19 v1), e3 (UPL-8 v1), e4 (UPL-12 v1 + m4-F3). No new spikes — Spike-2 pre-flight checklist is precedent (applies once per new fragment endpoint).
 - **Next** (shaped, awaiting capacity):
-  - (empty — m4 v1 follow-ons (UPL-12 v1 for create/remove flows, UPL-8 v1 dark-mode status-pill remap, UPL-19 v1 wider clamp) can shape into m5 after m4 ships)
+  - (empty — m5 is the wind-down milestone for this roadmap)
 - **Later** (outcome-only, low-confidence horizon):
-  - (empty — no further epics planned at this layer; future polish would start a new roadmap)
+  - (empty — after m5, all four epics have shipped their v0 + v1 layers; further `/ui/` polish would start a NEW roadmap — e.g. Cmd-K palette, Inter font, SVG empty-state illustrations — all currently on this roadmap's explicit Won't list)
 
 ### Spike / discovery lane
 
@@ -582,14 +594,83 @@ original e4 sketch:
 
 ---
 
+### ui-attractive-polish-m5 — Finish UPL-12 (create + remove flows) + UPL-8 v1 dark-mode pill remap + UPL-19 v1 wider clamp + m4-F3 form reset
+
+**Description.** Wind-down milestone for the e2 / e3 / e4 v0 → v1 deltas
+in one bundle. m4 v0 converted ONE (1) of the three legacy
+`location.reload()` flows to in-place htmx swap (add-paper); m5 converts
+the remaining two (create-notebook + remove-notebook), each gated by
+its own pass through the Spike-2 13-item pre-flight checklist (now
+precedent from m4 — no new spike required). UPL-8 v1 closes the m3
+descope by remapping the 4 `.status-badge--*` modifier classes inside
+the dark `@media` block + redeclaring `th { background }` for the dark
+surface. UPL-19 v1 lifts the body clamp from `max-width: 980px` to
+`clamp(640px, 92vw, 1400px)` so the papers table breathes on wider
+monitors (m2 v0 deliberately preserved the 980 ceiling). m4-F3 (LOW
+deferred) lands the 1-line
+`hx-on::htmx:after-request="if(event.detail.successful) this.reset()"`
+on the add-paper form so the URL input clears after a successful swap
+(pre-m4 `location.reload()` did this incidentally).
+
+**Pre-flight checklist (Spike-2 — load-bearing AC the adversary critic verifies TWICE, once per new fragment endpoint).**
+
+*Apply each item below to BOTH `POST /ui/api/notebooks` (create) AND
+the htmx-DELETE-with-row-removal pattern on `DELETE
+/ui/api/notebooks/{slug}` (remove).*
+
+*Server-fragment correctness (issue #9 open Q5):*
+- [ ] Each new HTML fragment branch uses `html.escape()` for every interpolated value (mirror `_paper_row_html` from m4 / `_notebook_row_html` to be added in m5).
+- [ ] Zero `| safe` filters or `Markup(...)` calls in any new code OR existing templates touched by m5. Verify by grep.
+- [ ] Content-negotiation on `HX-Request: true` header routes browser-htmx requests to the fragment branch; curl / non-htmx clients still get the existing JSON body (create: `{slug, kind}`; remove: 204 No Content).
+- [ ] The fragment renderer interpolates ONLY validated, escaped, server-controlled values — never raw request body or header values.
+
+*Middleware integrity (issue #9 open Q1):*
+- [ ] `SecFetchSiteMiddleware` carve-out at `("/ui",)` unchanged (`git diff server/middleware.py` should have zero hunks in the m5 implementation commit).
+- [ ] Origin + Host loopback validation unchanged.
+- [ ] `CONTENT_SECURITY_POLICY_UI` unchanged (no `'unsafe-eval'`, no new `connect-src`, `frame-ancestors 'none'` preserved).
+
+*Input validation invariants (issue #9 open Q3):*
+- [ ] `validate_slug` called at every new mutation entry-point before the renderer constructs the fragment (applies to BOTH create AND remove; create generates the slug server-side from `slugify(notebook_name)` and must re-validate the result).
+- [ ] `validate_notebook_kind` + the existing `notebook_name` Pydantic `Field(max_length=…)` bounds unchanged on the create endpoint.
+- [ ] Remove endpoint rejects path-traversal slugs (e.g. `../../../etc/passwd`) with 422 BEFORE any row-removal fragment is returned.
+
+*Test surface:*
+- [ ] **XSS payload injection** for the create-notebook fragment: send `notebook_name = '<img src=x onerror=alert(1)>'` through the HX-Request branch; assert the rendered HTML contains `&lt;img` not `<img` in both the `<td>` cells AND any `data-*` attributes.
+- [ ] **Content-negotiation parity** for both endpoints: send the same request with and without `HX-Request: true`; assert JSON response vs `text/html` fragment.
+- [ ] **Slug-validation gate test** for the remove endpoint: send a path-traversal slug; assert 422 BEFORE the row-removal fragment is reached.
+
+**Acceptance criteria.**
+
+- [ ] **UPL-12 v1 (create-notebook)** — `POST /ui/api/notebooks` handler in `server/routes/notebooks.py` returns an HTML `<tr>` fragment matching the notebooks-index `<tbody>` schema when `HX-Request: true` is present (content-negotiation); existing JSON branch preserved for curl/non-htmx clients. Add a new `_notebook_row_html(slug, display_name, kind, created_at)` helper following the `_paper_row_html` precedent (per-value `html.escape()`). The form in `frontend/templates/index.html` switches `hx-on::htmx:after-request="location.reload()"` to `hx-target="#notebooks-tbody" hx-swap="beforeend"` (add `aria-live="polite"` to the tbody — mirrors m1's UPL-3 swap-target pattern).
+- [ ] **UPL-12 v1 (remove-notebook)** — `DELETE /ui/api/notebooks/{slug}` returns 200 with an empty body when `HX-Request: true`; the remove-button HTML in both `index.html` (notebooks list) AND `notebook_detail.html` (per-paper remove) carries `hx-target="closest tr" hx-swap="outerHTML swap:200ms"` so htmx removes the row in place. The 200ms swap-modifier gates a brief row fade-out keyframe in `app.css` gated by `prefers-reduced-motion: no-preference`. The JSON branch remains 204 No Content for non-htmx clients.
+- [ ] **UPL-8 v1 — dark-mode `.status-badge--*` modifier remap** — inside `@media (prefers-color-scheme: dark)` in `app.css`, redeclare the 4 modifier classes (`--ok`, `--warn`, `--ops-warn`, `--down`) with Primer-dark-anchored colors that pass WCAG SC 1.4.3 (≥ 4.5:1 text contrast) and SC 1.4.11 (≥ 3:1 non-text contrast) against the dark `--bg #0d1117`. Light-mode hex literals (`#e6f4ea` / `#fdf3e2` / `#eef2f7` / `#fff4f2`) are too pale for the dark surface; suggested replacements: `--ok` → `#0d2818` bg + `#3fb950` text; `--warn` → `#3d2a07` bg + `#d29922` text; `--ops-warn` → `#1c2230` bg + `#8b949e` text; `--down` → `#3d1216` bg + `#f85149` text (verify each pair against the WebAIM Contrast Checker before commit).
+- [ ] **UPL-8 v1 — `th { background }` dark redeclaration** — inside the same dark `@media` block, redeclare `th { background: #161b22 }` so table headers don't show the light `#f0f0f0` (from line ~110) against the dark `--bg`.
+- [ ] **UPL-19 v1** — `body` rule in `app.css` swaps `max-width: 980px` for `max-width: clamp(640px, 92vw, 1400px)`. Verify on a 13"/15"/27" monitor walk that (a) the papers table layout doesn't break, (b) typography reading rhythm stays comfortable at the upper bound (1400px ≈ 70ch at 16px), (c) m2's `.table-wrap { overflow-x: auto }` still handles narrow-viewport overflow.
+- [ ] **m4-F3** — `frontend/templates/notebook_detail.html` add-paper form gains `hx-on::htmx:after-request="if(event.detail.successful) this.reset()"`. Compatible with the m4 negative-regression test (which asserts only `location.reload` absence, not the absence of all after-request hooks).
+- [ ] **The Spike-2 pre-flight checklist above** (13 items × 2 new fragment endpoints) is satisfied. A new test file `tests/test_ui_m5_create_remove_in_place.py` covers them mechanically, mirroring m4's `tests/test_ui_m4_in_place_add_paper.py` test-class structure.
+- [ ] **All 92 m1+m2+m3+m4 UI tests still pass** (specifically: `tests/test_ui_a11y_baselines.py` + `tests/test_ui_m2_polish.py` + `tests/test_ui_m3_dark_and_htmx_feedback.py` + `tests/test_ui_m4_in_place_add_paper.py`). m5 adds new test file(s) but modifies zero existing assertions.
+- [ ] **Verification — manual cross-browser walk** (Chris pre-KR-4 update): on Chrome + Safari macOS, (a) click "Create notebook" on the index — observe no full-page flash, smooth row append under View Transitions; (b) click "Remove notebook" on the index AND "Remove" on a paper row inside a notebook — observe smooth row fade-out, no full-page flash. Firefox no-ops the VT crossfade cleanly.
+- [ ] **Verification — VoiceOver smoke-test**: the create-notebook fragment append announces via the new `#notebooks-tbody` `aria-live="polite"`; the remove-paper row removal also announces via the existing `#papers-tbody` `aria-live="polite"`.
+- [ ] **Verification — issue #9 hygiene**: m5 does NOT close issue #9 (the full UI audit remains open as a separate effort). m5's implementation-summary should note that the pre-flight checklist was satisfied INSIDE m5's scope (not the full audit), AND that issue #9's open Q5 (render-path divergence) now has TWO additional fragment endpoints covered by the pattern.
+- [ ] Final `frontend/static/app.css` line count ≤ 365 (current 333 + budget ~30 for UPL-8 v1 four pill remaps + `th` dark redeclaration + UPL-12 v1 row-fade keyframe). The m4-revised cap of 335 raises to 365 with explicit budget; KR5 carries the same number. If the cap looks like it'll blow, split `app.css` into `tokens.css` + `app.css` per the cap-test docstrings (escape-hatch noted there).
+
+**Dependencies.** spans epics `ui-attractive-polish-e2` (UPL-19 v1) + `ui-attractive-polish-e3` (UPL-8 v1) + `ui-attractive-polish-e4` (UPL-12 v1 + m4-F3 carryover). **Hard prereqs (all shipped):** m1's `prefers-reduced-motion` gate (anchors the new row-fade keyframe); m2's `color-mix()` + `.table-wrap` overflow primitive (UPL-19 v1's wider clamp leans on `.table-wrap` to keep overflow correct); m3's dark-mode `@media` block + `.htmx-request` styling (UPL-8 v1 extends m3's dark block); m4's `_paper_row_html` precedent + Spike-2 pre-flight pattern + UPL-13 native View Transitions (`globalViewTransitions = true` auto-applies to the new create/remove swaps). **No new spikes** — Spike-2 pre-flight is precedent.
+
+**Complexity.** M (~ 2–3 days execution including the 4-phase milestone-pipeline). Largest time slices: (a) two new fragment-rendering endpoints with content-negotiation + new `_notebook_row_html` helper (mechanically mirrors m4's `_paper_row_html` extension), (b) UPL-8 v1 dark-mode contrast verification (compute and verify 4 color pairs against WCAG SC 1.4.3 / 1.4.11 using WebAIM Contrast Checker), (c) UPL-19 v1 cross-monitor verification.
+
+**Specialist suggestion.** `security-reviewer` — same lens as m4. Two new HTML fragment branches; the Spike-2 pre-flight applies twice. UPL-8 v1 + UPL-19 v1 + m4-F3 are CSS/template-only and don't independently require specialist attention, but the adversary critic should still walk the m3-rect F1/F2/F3 WCAG-correction lessons against the new dark-mode pill colors before declaring SHIP.
+
+---
+
 ## Phase 4 — Materialize
 
 ### Validation
 
-- `validate-roadmap.py`: **pass** (`OK: ui-attractive-polish-roadmap.md valid (phases populated: Refine, Decompose, Sequence)`)
-- Must-cap: **25.0%** (≤ 60% — comfortable headroom; e3 could promote to Must if a discovery finding warranted it)
-- All Now-lane milestones have AC: **yes** (m1: 7 AC items including 2 verification gates; m2: 8 AC items including mobile-screenshot evidence)
+- `validate-roadmap.py`: **pass** (`OK: ui-attractive-polish-roadmap.md valid (phases populated: Refine, Decompose, Sequence, Materialize)`)
+- Must-cap: **25.0%** (≤ 60% — unchanged; m5 spans epics e2 / e3 / e4 but inherits their existing MoSCoW classifications; no re-scoring needed)
+- All Now-lane milestones have AC: **yes** (m1: 7 AC items; m2: 8 AC items; m3: 8 AC items; m4: 13 AC items including 13-item Spike-2 checklist; m5: 13 AC items including 13-item Spike-2 checklist applied to 2 endpoints)
 - Slug format valid: **yes** (`ui-attractive-polish` matches `^[a-z][a-z0-9-]{2,30}$` and does not match `^e\d+$`)
+- Cap-drift acknowledgement: KR5 restated 300 → 365 with explicit per-milestone trajectory + `tokens.css` split escape-hatch documented
 
 ### GitHub tickets
 
@@ -600,50 +681,37 @@ will write the bundle but never invoke `gh` itself.
 
 ### Next step
 
-**m1, m2, m3 are all shipped + both spikes returned PASS** (see the
-"Shipped" section and the marked-complete Spike-lane entries under
-Phase 3 — Now / Next / Later above). The current Now-lane milestone
-is **`ui-attractive-polish-m4`** (In-place add-paper swap + View
-Transitions + footer-badge flash, bundling UPL-12 v0 + UPL-13 +
-UPL-22). To execute it end-to-end via the 4-phase milestone-pipeline
+**m1, m2, m3, m4 are all shipped + both spikes returned PASS** (see
+the "Shipped" section and the marked-complete Spike-lane entries
+under Phase 3 — Now / Next / Later above). The current Now-lane
+milestone is **`ui-attractive-polish-m5`** — the wind-down milestone
+bundling UPL-12 v1 (create-notebook + remove-notebook conversion to
+in-place htmx swap), UPL-8 v1 (dark-mode `.status-badge--*` modifier
+remap + `th { background }` dark surface), UPL-19 v1 (wider body
+clamp), and the deferred m4-F3 (form `this.reset()` on add-paper
+success). To execute it end-to-end via the 4-phase milestone-pipeline
 (research → implement → critique → rectify), run:
 
-    /milestone-pipeline ui-attractive-polish-m4
+    /milestone-pipeline ui-attractive-polish-m5
 
 This skill will not invoke milestone-pipeline. Cache stays warmer if
 you start the milestone-pipeline session within 5 minutes of this
 roadmap completing.
 
-**The m4 brief is materially simpler than the original e4 sketch.**
-Both spikes returned PASS and narrowed the work:
+**No new spikes required for m5.** The Spike-2 pre-flight checklist
+defined in m4 is precedent — m5's two new fragment endpoints
+(create-notebook + remove-notebook) each get their own pass through
+the 13-item checklist during the m5 adversary-critic phase. UPL-13
+(htmx 2.0.10 native `globalViewTransitions = true`, shipped in m4)
+auto-applies to the new create/remove swaps; no JS wrapper required.
 
-- **Spike-1**: UPL-13 dropped from S effort + audit-widening to **XS
-  (1 LOC config flag)** — htmx 2.0.10 has native View Transitions
-  integration. No `htmx:beforeSwap` wrapper, no `htmx.swap()`
-  re-entry, no new inline-JS audit surface. Just
-  `htmx.config.globalViewTransitions = true;`.
-- **Spike-2**: UPL-12 ships in m4 v0 (add-paper only) with the
-  **e4 pre-flight checklist** as load-bearing AC — 13 mechanically
-  verifiable items the milestone-pipeline adversary critic checks
-  during Phase 3 (server-fragment correctness, middleware integrity,
-  input validation, test surface). Issue #9 (the full UI audit) stays
-  open as a separate effort; it is NOT a m4 dependency.
-
-After `m4` ships, the next decision point is **m5** — a future
-follow-on bundling the v1 deferred items:
-
-- **UPL-12 v1**: convert create-notebook + remove-notebook flows
-  (each new fragment endpoint gets its own Spike-2 pre-flight check
-  pass).
-- **UPL-8 v1**: dark-mode `.status-badge--*` modifier remap +
-  `th { background }` dark surface + freshness color (descoped from
-  m3 per the challenger v0/v1 split).
-- **UPL-19 v1**: `body { max-width: clamp(640px, 92vw, 1400px) }`
-  wider-monitor expansion (descoped from m2).
-
-Re-invoke `/roadmap ui-attractive-polish` after m4 ships to slice
-e4 v1 into m5 (or to wind down the roadmap if the m5 polish doesn't
-justify another milestone).
+**After m5 ships, this roadmap is fully closed.** All four epics
+(e1 / e2 / e3 / e4) will have shipped their v0 + v1 layers. The
+4-phase pipeline artifacts live under
+`.claude/notes/milestones/ui-attractive-polish-m{1..5}/`. Any further
+`/ui/` polish would start a NEW roadmap — e.g. a Cmd-K command
+palette, Inter font adoption, SVG empty-state illustrations — all of
+which are on this roadmap's explicit Won't list (Phase 1).
 
 ### Parallel bug-fix track (not in this roadmap)
 
