@@ -1,9 +1,9 @@
 # Rectification Summary — onboarding-uplift-m4
 
-**Rect commit:** (see below — filled after commit)
+**Rect commit:** 636e5f7
 **Base commit:** 071d4b1
 **Date:** 2026-05-31T00:00:00Z
-**Branch:** worktree-agent-a0ec232fef4c7fe49
+**Branch:** main (cherry-picked from worktree-agent-a0ec232fef4c7fe49)
 
 ## Findings closed
 

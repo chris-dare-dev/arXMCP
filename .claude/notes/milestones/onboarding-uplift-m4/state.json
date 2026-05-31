@@ -1,0 +1,164 @@
+{
+  "brief_source": "",
+  "created_at": "2026-05-31T14:54:02Z",
+  "critics_run": [
+    "adversary",
+    "infra-safety"
+  ],
+  "critique_finding_counts": {
+    "critical": 1,
+    "high": 4,
+    "low": 3,
+    "medium": 5
+  },
+  "critique_path": ".claude/notes/milestones/onboarding-uplift-m4/critique-adversary.md",
+  "deferred_findings": [
+    {
+      "id": "F10",
+      "reason": "forward-compat nit; defer to next refactor touching Resources dataclass",
+      "severity": "LOW"
+    },
+    {
+      "id": "F11",
+      "reason": "docstring nit; defer",
+      "severity": "LOW"
+    },
+    {
+      "id": "IS2",
+      "reason": "Makefile help epoch tag stale; defer to m5 (next milestone touching FIRST TIME? section)",
+      "severity": "LOW"
+    }
+  ],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_required": [],
+  "fixed_findings": [
+    {
+      "id": "F1",
+      "severity": "CRITICAL",
+      "status": "fixed"
+    },
+    {
+      "id": "F2",
+      "severity": "HIGH",
+      "status": "fixed"
+    },
+    {
+      "id": "F3",
+      "severity": "HIGH",
+      "status": "fixed"
+    },
+    {
+      "id": "F4",
+      "severity": "HIGH",
+      "status": "fixed"
+    },
+    {
+      "id": "F5",
+      "severity": "HIGH",
+      "status": "fixed"
+    },
+    {
+      "id": "F6",
+      "severity": "MEDIUM",
+      "status": "fixed"
+    },
+    {
+      "id": "F7",
+      "severity": "MEDIUM",
+      "status": "fixed"
+    },
+    {
+      "id": "F8",
+      "severity": "MEDIUM",
+      "status": "fixed"
+    },
+    {
+      "id": "F9",
+      "severity": "MEDIUM",
+      "status": "fixed"
+    },
+    {
+      "id": "IS1",
+      "severity": "MEDIUM",
+      "status": "fixed"
+    }
+  ],
+  "id": "onboarding-uplift-m4",
+  "implementation_base": "d69f253032e6b4fbacdcc0ea8d177158100757a6",
+  "implementation_branch": "main",
+  "implementation_commit_range": "574f1c2..071d4b1",
+  "implementation_commits": [
+    "071d4b1"
+  ],
+  "implementation_path": "delegated",
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "**Bootstrap mode + ingest-status REST.** m4 of the startup-UX uplift (proposal at `.claude/notes/uplift/startup-ux/streamlined-flow-proposal.md` \u00a79; decisions at `.claude/notes/uplift/startup-ux/decisions.md`).\n\nGoal: let a fresh-clone user boot the server WITHOUT having to first run `tools/notebook_init.py` + `tools/notebook_fetch.py` + `tools/notebook_ingest.py` from the CLI. Today `Resources.startup` raises `CorpusNotIngestedError` if no `corpus-version.json` marker exists, fatalling the boot. After m4, an opt-in **bootstrap mode** lets the server boot anyway with the MCP tool surface returning a structured \"no_notebook_selected\" 503 (operator opens the UI, picks a notebook, ingests via the new REST endpoint, and the server late-binds into normal operation without a restart).\n\n**Decisions inherited:**\n- **D1** (bootstrap mode default OFF) \u2014 opt-in via `ARXMCP_BOOTSTRAP_MODE=1 make up` OR the new `make up-wizard` Make target. NO auto-detect on fresh clone (synthesis \u00a73 D1 explicitly: \"no silent flip; no production-deploy footgun\"). A misconfigured production deploy where someone deleted the corpus continues to fatal the boot \u2014 operators want loud failures there.\n- **D5** (BGE-M3 first-run download \u2192 real bytes-progress) \u2014 intercept `huggingface_hub`'s tqdm callbacks; expose `bytes_done` / `bytes_total` via the new `GET /ui/api/notebooks/<slug>/ingest-status` endpoint.\n- **m2 critique F1 lesson** \u2014 every write to `notebooks.db::notebooks` MUST go through `NotebooksStore.create_notebook`. Direct SQLite INSERTs are BANNED.\n\n**Concrete scope (~7-9 files, ~600 LOC main + tests):**\n\n1. **`server/config.py`** \u2014 add `bootstrap_mode: bool = False` field with env var `ARXMCP_BOOTSTRAP_MODE` (`Field(False, validation_alias=\"ARXMCP_BOOTSTRAP_MODE\")`). Pydantic env-var-to-bool coercion (\"1\", \"true\", \"yes\" \u2192 True). Document the field thoroughly.\n\n2. **`server/resources.py`** \u2014 `Resources.startup` gains a branch: when `config.bootstrap_mode is True` AND the shared `corpus-version.json` is missing, SKIP `CorpusNotIngestedError`, register a \"no-corpus stub\" reader, log INFO `Resources.startup: bootstrap mode active; MCP tools return 503 until ingest completes`. The stub reader is a sentinel that the MCP handlers detect and translate into a structured 503 response.\n\n3. **MCP tool handlers** \u2014 every handler that depends on the chunks table (search, get_chunk, find_equation, etc.) needs a single uniform \"bootstrap-mode \u2192 return error envelope\" check at the top. Probably a small helper in `server/tools.py` or `server/handlers/__init__.py` that returns `envelope({\"error\": \"no_notebook_selected\", \"message\": \"...\"})` when `resources.bootstrap_mode_active` is true.\n\n4. **`server/routes/notebooks.py`** \u2014 TWO new endpoints:\n   - **`POST /ui/api/notebooks/<slug>/ingest`** \u2014 starts an async background task that runs the fetch+chunk+embed+write pipeline for the notebook. Returns 202 + a job_id. Idempotency: if an ingest for this slug is already running, return 409. Stored in `app.state.ingest_jobs` (dict keyed by slug \u2192 `IngestJob` dataclass with phase, counters, last_error, started_at).\n   - **`GET /ui/api/notebooks/<slug>/ingest-status`** \u2014 reads `app.state.ingest_jobs[slug]` and returns the structured status: `{phase: \"idle\" | \"downloading_model\" | \"fetching\" | \"chunking\" | \"embedding\" | \"indexing\" | \"done\" | \"failed\", bytes_done: int, bytes_total: int, papers_done: int, papers_total: int, last_error: str | None, started_at: ISO8601, finished_at: ISO8601 | None}`.\n\n5. **`server/ingest_orchestrator.py`** (NEW, or extend existing) \u2014 the async function that runs end-to-end ingest for a notebook, updating the shared `IngestJob` state object after each phase. Wraps `tools.notebook_fetch.run` + `tools.notebook_ingest.run` (or the equivalent inline) and instruments progress hooks.\n\n6. **BGE-M3 download progress shim (D5)** \u2014 `huggingface_hub` uses `tqdm` for download progress. Wrap or monkeypatch `huggingface_hub.utils.tqdm` to write `n` / `total` into a thread-local that the ingest orchestrator reads + projects into the `IngestJob.bytes_done` / `bytes_total` fields. Only fires on FIRST-RUN (model not in `~/.cache/huggingface/hub/`).\n\n7. **`Makefile`** \u2014 new `make up-wizard` target that runs `ARXMCP_BOOTSTRAP_MODE=1 $(PYTHON) -m server.main`. Help-block extension explaining what bootstrap mode is.\n\n8. **Late-binding semantics** \u2014 after the first successful ingest in bootstrap mode, the server MUST switch from \"stub reader\" to \"real reader\" without a restart. The `Resources.startup_chunk_count`, `chunks_table` handle, and `corpus_info` (`CorpusVersionInfo`) all need to be re-read post-ingest. The MCP-tool stub-check helper must consult a flag like `resources.bootstrap_mode_active` that flips to False after late-binding completes.\n\n9. **Tests** (~300 LOC):\n   - `tests/test_bootstrap_mode.py` \u2014 `Resources.startup` with bootstrap mode + no marker = no exception; with bootstrap mode OFF + no marker = `CorpusNotIngestedError`; MCP tool handlers in stub mode return 503-flavored envelope; late-binding after a fake \"ingest done\" flips the active flag.\n   - `tests/test_ingest_endpoints.py` \u2014 POST /ingest returns 202 + job_id; concurrent POST returns 409; GET /ingest-status returns the structured shape; phase transitions tracked.\n   - `tests/test_bge_m3_progress.py` \u2014 mock `huggingface_hub.utils.tqdm`; assert the shim populates `bytes_done` / `bytes_total` on the shared state object.\n\n**Acceptance criteria:**\n- AC1: `ARXMCP_BOOTSTRAP_MODE=1 make up` boots a fresh server with NO `corpus-version.json`. `Resources.startup` does NOT raise `CorpusNotIngestedError`. `/healthz` returns 200. `/readyz` returns 200 with a `bootstrap` status (or 503 if you prefer \u2014 synthesis decides). The UI at `/ui/` is reachable.\n- AC2: `make up-wizard` works equivalently (sets the env var automatically).\n- AC3: Default behavior (no env var, no `make up-wizard`) is UNCHANGED \u2014 cold-start without `corpus-version.json` still fatals with `CorpusNotIngestedError` (D1: no silent flip).\n- AC4: `POST /ui/api/notebooks/<slug>/ingest` returns 202 with a JSON body containing the job-id and \"started\" status. Background task runs end-to-end. Second concurrent POST against the same slug returns 409.\n- AC5: `GET /ui/api/notebooks/<slug>/ingest-status` returns the structured progress shape with the right phase + counter fields.\n- AC6: After the first successful ingest in bootstrap mode, subsequent MCP tool calls work normally \u2014 late-binding flips the stub off without a restart. Operator can immediately query via the MCP shim.\n- AC7: BGE-M3 first-run download (when no `~/.cache/huggingface/hub/models--BAAI--bge-m3/` exists) populates `bytes_done` + `bytes_total` in the ingest-status response. Subsequent ingests (model already downloaded) skip the `downloading_model` phase.\n- AC8: MCP tool handlers in stub mode return a structured `{\"error\": \"no_notebook_selected\", \"message\": \"<actionable hint>\"}` envelope (the m1 + m3 redaction patterns apply: no raw paths in the message).\n- AC9: `make test` green, `ruff check .` clean.\n- AC10: `EXPECTED_TOOL_SCHEMA_SHA256` + `EXPECTED_BP1_SHA256` UNCHANGED (no MCP `tools/list` schema touch; bootstrap mode is a server-internal state, not a tool input).\n- AC11: New regression tests in `tests/test_bootstrap_mode.py` + `tests/test_ingest_endpoints.py` (+ optionally `tests/test_bge_m3_progress.py`).\n\n**Cardinal safety checks (for the adversary):**\n- The bootstrap-mode stub reader MUST NOT serve stale data after a half-failed first ingest (proposal \u00a79 m4 spec: \"adversary needs to confirm the stub reader can't accidentally serve stale data after a half-failed first ingest\").\n- The SIGTERM path during a mid-flight ingest MUST clean up properly (proposal \u00a79: \"infra-safety needs to confirm the SIGTERM path during ingest is clean\") \u2014 kill the background asyncio.Task, mark IngestJob as \"failed\", do NOT leave a half-written `corpus-version.json` marker.\n- The MCP tool stub-check helper MUST be the FIRST line of every handler that depends on the chunks table \u2014 a missed handler returns a 5xx instead of the structured stub envelope.\n- The late-binding flip MUST be observable: after ingest completes, the next MCP tool call MUST succeed (not still see the stub).\n- Per the m3 critique F1 lesson: any new on-disk dir creation in the background-task path MUST be paired with a `NotebooksStore.create_notebook` call (no orphan dirs).\n- The `huggingface_hub.tqdm` shim MUST not break for users on `HF_HUB_OFFLINE=1` (the project's test discipline) \u2014 gracefully degrade to \"model not downloading\" rather than crashing.\n\n**Out of scope (m5+):**\n- The wizard UI itself (`frontend/templates/wizard.html`) \u2192 m5.\n- First-boot detection at `GET /ui/` that renders the wizard when `notebooks.db` is empty \u2192 m5.\n- \"Try a 3-paper sample\" canonical seed \u2192 m5.\n- Per-notebook freshness UI panel that polls `ingest-status` \u2192 m6.\n- Cancellation endpoint (`DELETE /ui/api/notebooks/<slug>/ingest`) \u2192 m6.\n\n**Effort:** 2-3 days per proposal \u00a79. Touch ~7-9 files. NEW architecture surface: the bootstrap-mode lifecycle (Resources.startup branch + late-binding) + the background-task ingest pattern + the BGE-M3 progress shim. Purely local. No external writes.\n\n**No external writes required.**",
+  "phase": "complete",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-31T14:54:02Z",
+      "left_at": "2026-05-31T14:54:02Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-31T14:54:02Z",
+      "left_at": "2026-05-31T15:01:31Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-31T15:01:31Z",
+      "left_at": "2026-05-31T15:01:31Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-05-31T15:01:31Z",
+      "left_at": "2026-05-31T16:56:08Z",
+      "phase": "implement-running"
+    },
+    {
+      "entered_at": "2026-05-31T16:56:08Z",
+      "left_at": "2026-05-31T16:56:19Z",
+      "phase": "implement-complete"
+    },
+    {
+      "entered_at": "2026-05-31T16:56:19Z",
+      "left_at": "2026-05-31T17:07:22Z",
+      "phase": "critique-running"
+    },
+    {
+      "entered_at": "2026-05-31T17:07:22Z",
+      "left_at": "2026-05-31T17:08:15Z",
+      "phase": "critique-complete"
+    },
+    {
+      "entered_at": "2026-05-31T17:08:15Z",
+      "left_at": "2026-05-31T17:45:13Z",
+      "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-05-31T17:45:13Z",
+      "left_at": null,
+      "phase": "complete"
+    }
+  ],
+  "rect_commit": "636e5f7",
+  "rectification_commit": null,
+  "regression_tests_added": [],
+  "research_briefs": [
+    {
+      "agent_id": "researcher-1",
+      "brief_path": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/onboarding-uplift-m4/research-brief-1.md",
+      "summary": "seam map; envelope() crashes on stub corpus_info; ARXMCP_NOTEBOOK conflict"
+    },
+    {
+      "agent_id": "researcher-2",
+      "brief_path": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/onboarding-uplift-m4/research-brief-2.md",
+      "summary": "m9 already ships ingest endpoints; asyncio.Event for late-bind; readyz=200"
+    }
+  ],
+  "research_mode": "standard",
+  "research_synthesis": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/onboarding-uplift-m4/research-synthesis.md",
+  "updated_at": "2026-05-31T17:45:13Z"
+}
