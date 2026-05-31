@@ -1,4 +1,4 @@
-/* arXMCP UI — minimal CSS (m8 + m1..m4 + ui-attractive-polish-m1/m2).
+/* arXMCP UI — minimal CSS (m8 + m1..m4 + ui-attractive-polish-m1/m2/m3).
    No external fonts; no CDN. Single file; ships under /ui/static/app.css. */
 
 :root {
@@ -213,4 +213,75 @@ button.danger:focus-visible { outline-color: var(--danger); outline-offset: 3px;
     transition-delay: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* ui-attractive-polish-m3 (UPL-8 v0): @media (prefers-color-scheme: dark)
+   re-declares the 8 base tokens with GitHub-Primer-anchored values. The
+   .status-badge--{ok,warn,ops-warn,down} hardcoded colors at
+   `.status-badge--*` rules above AND the `th { background: #f0f0f0 }`
+   table-header are explicitly DESCOPED to v1 per the challenger UPL-8
+   v0/v1 split — they stay light-mode in dark UI (internally consistent
+   light bg + dark text, but contrast-jarring against the dark card).
+   Acceptable for v0; v1 will remap them. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fg: #e8e8e8;        /* ~14:1 on --bg, ~12:1 on --card-bg */
+    --bg: #0d1117;        /* Primer canvas.default */
+    --card-bg: #161b22;   /* Primer canvas.subtle */
+    --border: #6e7681;    /* synthesis §2 C1: Primer canonical #30363d
+                             fails SC 1.4.11 (1.55:1); #6e7681 passes
+                             with margin (4.12:1). One stop lighter on
+                             the Primer grey scale. */
+    --accent: #58a6ff;    /* Primer accent.fg */
+    --danger: #f85149;    /* Primer danger.fg */
+    --error-bg: #2a1a18;  /* dark analogue of light #fff4f2 */
+    /* --mono unchanged */
+  }
+
+  /* synthesis §2 C2: white text on #58a6ff is only ~3.1:1 — fails SC
+     1.4.3 for 14px button text. Dark text on the lighter dark-mode
+     --accent gives ~7.2:1. Restore contrast. */
+  button, .button { color: #0d1117; }
+}
+
+/* ui-attractive-polish-m3 (UPL-11): in-flight loading-state styling
+   triggered by htmx's auto-applied `.htmx-request` CSS class. htmx
+   applies the class to the element with the hx-* attribute — for a
+   `<form hx-post>` that's the FORM, for a `<button hx-delete>` that's
+   the BUTTON. The combined selector chain (synthesis §2 C5) handles
+   both cases: form-descendant submit button OR direct button-as-
+   requester. opacity/pointer-events/cursor are UNCONDITIONAL (signal,
+   not motion — per challenger m1 UPL-11 finding); only the spin
+   animation is gated by `prefers-reduced-motion: no-preference`. */
+form.htmx-request button[type="submit"],
+button.htmx-request,
+.button.htmx-request {
+  opacity: 0.6;
+  pointer-events: none;
+  cursor: wait;
+}
+
+/* synthesis §2 C3: when a danger button is focused-AND-in-flight, the
+   m1 `outline: 2px solid var(--danger)` ring at the new 0.6 opacity
+   falls to ~2.57:1 on --card-bg — fails SC 1.4.11 (3:1 non-text). A
+   wider ring at 0.6 opacity is visually equivalent to a thinner ring
+   at full opacity. 1-LOC compensation. */
+button.danger.htmx-request:focus-visible { outline-width: 3px; }
+
+@media (prefers-reduced-motion: no-preference) {
+  form.htmx-request button[type="submit"]::after,
+  button.htmx-request::after,
+  .button.htmx-request::after {
+    content: "";
+    display: inline-block;
+    width: 0.8em;
+    height: 0.8em;
+    margin-left: 0.5em;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    vertical-align: middle;
+    animation: spin 0.6s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
 }

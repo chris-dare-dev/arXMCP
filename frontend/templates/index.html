@@ -11,6 +11,7 @@
   </p>
   <form
     hx-post="/ui/api/notebooks"
+    hx-disabled-elt="find button"
     hx-on::htmx:after-request="if(event.detail.successful) location.reload()"
     hx-on::htmx:response-error="document.getElementById('create-error').textContent = (function(t){try{return JSON.parse(t).detail||t;}catch(e){return t;}})(event.detail.xhr.responseText)"
   >
@@ -54,6 +55,7 @@
               <a href="/ui/notebooks/{{ nb.slug }}" class="button">Open</a>
               <button type="button"
                       hx-delete="/ui/api/notebooks/{{ nb.slug }}"
+                      hx-disabled-elt="this"
                       hx-confirm="Remove notebook '{{ nb.slug }}' from the UI? On-disk data at var/arxmcp/notebooks/{{ nb.slug }}/ is NOT deleted — run tools/notebook_purge.py to wipe the disk."
                       hx-on::htmx:after-request="if(event.detail.successful) location.reload()"
                       class="danger">

@@ -32,6 +32,7 @@
     hx-patch="/ui/api/notebooks/{{ notebook.slug }}"
     hx-target="#display-name-block"
     hx-swap="outerHTML"
+    hx-disabled-elt="find button"
     hx-on::htmx:response-error="document.getElementById('rename-error').textContent = (function(t){try{return JSON.parse(t).detail||t;}catch(e){return t;}})(event.detail.xhr.responseText)"
   >
     <label>
@@ -80,6 +81,7 @@
   <div class="notebook-actions">
     <button type="button"
             hx-delete="/ui/api/notebooks/{{ notebook.slug }}"
+            hx-disabled-elt="this"
             hx-confirm="Delete notebook '{{ notebook.slug }}'? On-disk data at var/arxmcp/notebooks/{{ notebook.slug }}/ is NOT deleted — run tools/notebook_purge.py to wipe the disk."
             hx-on::htmx:after-request="if(event.detail.successful) window.location.href='/ui/'"
             class="danger">
@@ -96,6 +98,7 @@
   </p>
   <form
     hx-post="/ui/api/notebooks/{{ notebook.slug }}/papers"
+    hx-disabled-elt="find button"
     hx-on::htmx:after-request="if(event.detail.successful) location.reload()"
     hx-on::htmx:response-error="document.getElementById('paste-error').textContent = (function(t){try{return JSON.parse(t).detail||t;}catch(e){return t;}})(event.detail.xhr.responseText)"
   >
@@ -122,6 +125,7 @@
     hx-encoding="multipart/form-data"
     hx-target="#papers-tbody"
     hx-swap="beforeend"
+    hx-disabled-elt="find button"
     hx-on::htmx:response-error="document.getElementById('upload-error').textContent = (function(t){try{return JSON.parse(t).detail||t;}catch(e){return t;}})(event.detail.xhr.responseText)"
   >
     <label>
@@ -153,6 +157,7 @@
     hx-post="/ui/api/notebooks/{{ notebook.slug }}/ingest"
     hx-target="#ingest-status"
     hx-swap="outerHTML"
+    hx-disabled-elt="find button"
     hx-on::htmx:response-error="document.getElementById('ingest-error').textContent = (function(t){try{return JSON.parse(t).detail||t;}catch(e){return t;}})(event.detail.xhr.responseText)"
   >
     <button type="submit">Ingest now</button>
@@ -234,6 +239,7 @@
         <td>
           <button type="button"
                   hx-delete="/ui/api/notebooks/{{ notebook.slug }}/papers/{{ p.paper_id }}"
+                  hx-disabled-elt="this"
                   hx-confirm="Remove paper '{{ p.paper_id }}' from notebook '{{ notebook.slug }}'?"
                   hx-on::htmx:after-request="if(event.detail.successful) this.closest('tr').remove()"
                   class="danger">
