@@ -422,11 +422,16 @@ init:
 	@# EMAIL to operator_settings (if given). Fully offline-capable; no
 	@# server needed. notebook_init.py handles all three side effects
 	@# idempotently (m2 synthesis §3 D2).
+	@# m2 critique IS1: quote NOTEBOOK + EMAIL so an inadvertent space
+	@# (e.g. ``make init NOTEBOOK="my slug"``) raises a clean argparse
+	@# error from Python instead of word-splitting into extra positional
+	@# arguments. The slug regex enforces no-whitespace at the Python
+	@# layer; this is belt-and-braces.
 	@[ -n "$(NOTEBOOK)" ] || { echo "ERROR: NOTEBOOK= required. Usage: make init NOTEBOOK=<slug> [EMAIL=<addr>]" >&2; exit 1; }
 	@if [ -n "$(EMAIL)" ]; then \
-		$(PYTHON) -m tools.notebook_init $(NOTEBOOK) --email "$(EMAIL)"; \
+		$(PYTHON) -m tools.notebook_init "$(NOTEBOOK)" --email "$(EMAIL)"; \
 	else \
-		$(PYTHON) -m tools.notebook_init $(NOTEBOOK); \
+		$(PYTHON) -m tools.notebook_init "$(NOTEBOOK)"; \
 	fi
 
 add:
@@ -439,6 +444,11 @@ add:
 	@# m2 synthesis §3 D5 / FM-5).
 	@[ -n "$(NOTEBOOK)" ] || { echo "ERROR: NOTEBOOK= required. Usage: make add NOTEBOOK=<slug> PAPER=<id>" >&2; exit 1; }
 	@[ -n "$(PAPER)" ] || { echo "ERROR: PAPER= required. Usage: make add NOTEBOOK=<slug> PAPER=<id>" >&2; exit 1; }
+	@# m2 critique IS1 (LOW): quote every shell-word interpolation of
+	@# Make + shell variables. NOTEBOOK validation at the Python layer
+	@# (slug regex) already rejects whitespace, but the Make recipe
+	@# must not depend on that — a future contributor reading the
+	@# recipe in isolation expects shell-safe quoting.
 	@if curl -sf --max-time 2 "http://127.0.0.1:$(ARXMCP_BIND_PORT)/healthz" >/dev/null 2>&1; then \
 		echo "server up — POST /ui/api/notebooks/$(NOTEBOOK)/papers"; \
 		curl -sf --fail-with-body --max-time 30 \
@@ -450,10 +460,10 @@ add:
 	else \
 		[ -d "var/arxmcp/notebooks/$(NOTEBOOK)" ] || { echo "ERROR: notebook '$(NOTEBOOK)' not initialized — run 'make init NOTEBOOK=$(NOTEBOOK)' first" >&2; exit 1; }; \
 		papers_txt="var/arxmcp/notebooks/$(NOTEBOOK)/papers.txt"; \
-		if grep -qxF "$(PAPER)" $$papers_txt 2>/dev/null; then \
+		if grep -qxF "$(PAPER)" "$$papers_txt" 2>/dev/null; then \
 			echo "server down — $(PAPER) already in $$papers_txt (no-op)"; \
 		else \
-			echo "$(PAPER)" >> $$papers_txt; \
+			echo "$(PAPER)" >> "$$papers_txt"; \
 			echo "server down — appended $(PAPER) to $$papers_txt"; \
 		fi; \
 	fi

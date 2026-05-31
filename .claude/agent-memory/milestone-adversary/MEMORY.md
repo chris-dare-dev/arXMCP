@@ -4,6 +4,7 @@
 - [escape-on-emit-untested-for-new-wrap-kind](escape-on-emit-untested-for-new-wrap-kind.md) — new wrap_retrieved_text kind: injection test seeds instruction-LIKE string w/ no literal delimiter, so escape-on-emit for the new kind goes untested → MEDIUM (notebook-surface-expansion-m4 F1/F3)
 - [ustar-name-field-100-not-255](ustar-name-field-100-not-255.md) — USTAR name field is 100 chars (+155 prefix split), NOT 255; preflight at 255 admits filenames tarfile then refuses → HIGH (notebook-surface-expansion-m6 F1)
 - [tarfile-extractfile-follows-intra-archive-symlinks](tarfile-extractfile-follows-intra-archive-symlinks.md) — tar.extractfile silently follows SYMTYPE→another-member; relevant when manifest read precedes safe-member pre-pass; PEP 706 filter="data" does NOT cover extractfile → LOW ordering (notebook-surface-expansion-m7 F3)
+- [cli-direct-sqlite-vs-destructive-v0-v1](cli-direct-sqlite-vs-destructive-v0-v1.md) — CLI writes notebooks row w/o touching user_version + async store's v0→v1 is DROP TABLE → silent wipe on first server boot; mask: shared-DB test → CRITICAL (onboarding-uplift-m2 F1)
 
 ## 2026-05-27 — textbook-ingest-m2 — lancedb-cast-nullability-inference
 LanceDB `tbl.add_columns({col: "cast('literal' as string)"})` produces a

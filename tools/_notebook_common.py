@@ -185,18 +185,34 @@ def resolve_contact_email(
     # import-cost light and to avoid a hard dependency on the
     # ``server`` package at module-import time (CLI tools may run in
     # a stripped-down virtualenv during early bootstrap).
+    import os  # noqa: PLC0415
+
     from server.operator_settings import DEFAULT_DB_PATH, get_contact_email
 
     persisted = get_contact_email(db_path or DEFAULT_DB_PATH)
+    env_value = os.environ.get("ARXMCP_CONTACT_EMAIL")
     if persisted:
+        # m2 critique F4 rectification (MEDIUM): emit an INFO log when
+        # the SQLite-persisted value shadows a different env-var value.
+        # The shadowing is intentional (synthesis §3 D1 — sticky pref
+        # over shell ephemera) but the synthesis FM-3 explicitly
+        # prescribed surfacing it so operators can diagnose the
+        # "but my export wasn't picked up" case. Operators who want
+        # the env var to win can clear the SQLite pref with
+        # ``make init NOTEBOOK=<slug> EMAIL=<new-addr>``.
+        if env_value and env_value != persisted:
+            logger.info(
+                "resolve_contact_email: SQLite operator_settings.contact_email "
+                "(%s) shadows env var ARXMCP_CONTACT_EMAIL (%s); "
+                "set EMAIL= on `make init` to update the persisted value.",
+                persisted,
+                env_value,
+            )
         return persisted
     # Final fallback — the historical env-var contract that the m1
     # carve-out still warns operators NOT to set for `make up`. The
     # CLI tools (this code path) have always read it directly; m2
     # additively offers the SQLite path.
-    import os  # noqa: PLC0415
-
-    env_value = os.environ.get("ARXMCP_CONTACT_EMAIL")
     if env_value:
         return env_value
     raise NotebookError(

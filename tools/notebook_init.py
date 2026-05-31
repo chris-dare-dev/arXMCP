@@ -41,8 +41,8 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
-import sqlite3
 import sys
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -128,79 +128,77 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _register_notebook_in_sqlite(slug: str, *, db_path: Path) -> None:
-    """Insert a notebooks.db row for ``slug`` via direct SQLite
-    ``INSERT OR IGNORE`` — synchronous, no server dependency.
+def _register_notebook_in_sqlite(
+    slug: str,
+    *,
+    db_path: Path,
+    notebooks_base: Path | None = None,
+) -> None:
+    """Register a notebook row in ``notebooks.db::notebooks`` via the
+    canonical :class:`server.notebooks_store.NotebooksStore` path —
+    the **single owner** of the table's schema + migrations.
 
-    Mirrors the four connection pragmas from
-    :class:`server.notebooks_store.NotebooksStore` (m2 synthesis §2).
-    Uses ``INSERT OR IGNORE`` so a re-run on an existing slug is a
-    no-op — the m2 idempotency guarantee from AC1.
+    **m2 critique F1 rectification (CRITICAL fix).** The prior
+    implementation wrote the row via a direct ``sqlite3.Connection``
+    with ``CREATE TABLE IF NOT EXISTS notebooks (…)`` and ``INSERT OR
+    IGNORE``, deliberately not touching ``PRAGMA user_version`` per
+    synthesis §3 D1. On a fresh-clone path that left ``user_version=0``;
+    when the operator later ran ``make up`` for the first time,
+    :meth:`NotebooksStore.open` entered the v0→v1 migration block at
+    ``server/notebooks_store.py:154-156`` which runs ``DROP TABLE IF
+    EXISTS notebooks`` UNCONDITIONALLY, destroying the row inserted by
+    ``make init``. The exact 404 AC3 was built to prevent re-emerged
+    on the cold-clone path — live-reproduced.
 
-    The default-column values mirror the v4 schema of
-    ``NotebooksStore``: ``display_name=''``, ``notebook_kind='arxiv'``,
-    ``parse_status='skipped'``, ``parse_error=''``,
-    ``parsed_html_path=''``. The ``lancedb_path`` is the per-notebook
-    Variant-1 path; per m2 synthesis §3 D2 the default ``make ingest``
-    path stays at the shared global corpus, so this column is recorded
-    but does NOT pre-create the directory.
+    The rectification routes the write through
+    :meth:`NotebooksStore.open` + :meth:`NotebooksStore.create_notebook`
+    so the proper v0→v4 migration runs once, ``user_version`` is
+    correctly bumped to ``SCHEMA_VERSION``, and ``make up`` later sees a
+    current-version DB and skips all destructive migrations. Pays
+    ~30 ms of asyncio event-loop spin in the CLI; eliminates the dual-
+    schema-creator hazard entirely.
+
+    Idempotency on the new path: ``create_notebook`` raises
+    ``IntegrityError`` on a duplicate slug; we catch it and treat it as
+    a no-op (matches the original ``INSERT OR IGNORE`` semantics).
     """
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    nb_lancedb = notebook_lancedb_path(slug)
+    nb_lancedb = notebook_lancedb_path(slug, base=notebooks_base)
     now = (
         datetime.now(UTC)
         .isoformat(timespec="seconds")
         .replace("+00:00", "Z")
     )
 
-    conn = sqlite3.connect(
-        str(db_path),
-        isolation_level=None,
-        check_same_thread=False,
-    )
-    try:
-        # Match NotebooksStore.open's pragmas verbatim (m2 synthesis §2):
-        # WAL + FULL + fullfsync + foreign_keys + a 5s busy_timeout. The
-        # notebooks.db file's user_version is owned by NotebooksStore;
-        # this script must NOT touch it (m2 synthesis §3 D1).
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA synchronous=FULL")
-        conn.execute("PRAGMA fullfsync=ON")
-        conn.execute("PRAGMA foreign_keys = ON")
-        conn.execute("PRAGMA busy_timeout=5000")
+    # Local imports — ``NotebooksStore`` carries an asyncio dependency
+    # we don't want at module-import time (CLI tools may run in a
+    # stripped-down environment before the server package is installed).
+    import sqlite3 as _sqlite3  # noqa: PLC0415
 
-        # Defensive: if the file is brand-new (no NotebooksStore.open()
-        # has run yet), the ``notebooks`` table does not exist. Create
-        # it with the v4-shape columns so this script can run
-        # standalone. The NotebooksStore migration path is also safe to
-        # run later — its CREATE statements use IF NOT EXISTS from v1
-        # onward.
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS notebooks ("
-            "  slug          TEXT PRIMARY KEY,"
-            "  display_name  TEXT NOT NULL DEFAULT '',"
-            "  lancedb_path  TEXT NOT NULL,"
-            "  created_at    TEXT NOT NULL,"
-            "  notebook_kind TEXT NOT NULL DEFAULT 'arxiv',"
-            "  parse_status  TEXT NOT NULL DEFAULT 'skipped',"
-            "  parse_error   TEXT NOT NULL DEFAULT '',"
-            "  parsed_html_path TEXT NOT NULL DEFAULT ''"
-            ")"
-        )
+    from server.notebooks_store import NotebooksStore  # noqa: PLC0415
 
-        cur = conn.execute(
-            "INSERT OR IGNORE INTO notebooks ("
-            "  slug, display_name, lancedb_path, created_at, "
-            "  notebook_kind, parse_status, parse_error, parsed_html_path"
-            ") VALUES (?, ?, ?, ?, 'arxiv', 'skipped', '', '')",
-            (slug, "", str(nb_lancedb), now),
-        )
-        if cur.rowcount > 0:
-            print(f"registered notebook {slug!r} in {db_path}")
-        else:
-            print(f"notebook {slug!r} already registered in {db_path}")
-    finally:
-        conn.close()
+    async def _register() -> bool:
+        store = await NotebooksStore.open(db_path)
+        try:
+            try:
+                await store.create_notebook(
+                    slug=slug,
+                    display_name="",
+                    lancedb_path=str(nb_lancedb),
+                    created_at=now,
+                )
+                return True
+            except _sqlite3.IntegrityError:
+                # Pre-existing slug — preserves the ``INSERT OR IGNORE``
+                # semantic the original direct-SQLite path provided.
+                return False
+        finally:
+            await store.close()
+
+    inserted = asyncio.run(_register())
+    if inserted:
+        print(f"registered notebook {slug!r} in {db_path}")
+    else:
+        print(f"notebook {slug!r} already registered in {db_path}")
 
 
 def _persist_email(email: str, *, db_path: Path) -> None:
@@ -221,6 +219,7 @@ def run(
     email: str | None = None,
     register: bool = True,
     db_path: Path | None = None,
+    notebooks_base: Path | None = None,
 ) -> int:
     """Pure function — accepts a slug + optional email + register
     flag, returns an exit code.
@@ -229,9 +228,28 @@ def run(
     entry just wires argparse into it. The ``db_path`` arg is for
     tests; production callers pass ``None`` (defaults to
     ``var/arxmcp/cache/notebooks.db``).
+
+    **m2 critique F5 — partial-state recovery.** The three side
+    effects (on-disk scaffold; SQLite registry row via
+    :func:`_register_notebook_in_sqlite`; ``contact_email`` upsert
+    via :func:`_persist_email`) are NOT performed in a single SQLite
+    transaction — each opens its own connection. SIGINT or
+    ``KeyboardInterrupt`` between any two of them leaves the
+    operator in a partial state (e.g. notebook scaffolded + registered
+    but email not persisted). Recovery is to **re-run the same
+    command** — all three steps are individually idempotent
+    (``nb_dir.exists()`` short-circuit; ``create_notebook`` raising
+    IntegrityError → no-op; ``INSERT OR REPLACE`` on the email upsert),
+    so a re-run completes whichever steps were missed without
+    duplicating side effects.
     """
     validate_slug(slug)
-    nb_dir = notebook_dir(slug)
+    # m2 critique F3 (MEDIUM): accept a ``notebooks_base`` override
+    # so tests can redirect ``tools/notebook_init.run`` away from the
+    # operator's real ``var/arxmcp/notebooks/`` tree. Production
+    # callers pass ``None`` and the helper resolves to
+    # :data:`tools._notebook_common.NOTEBOOKS_BASE`.
+    nb_dir = notebook_dir(slug, base=notebooks_base)
 
     # On-disk scaffold — original idempotent behavior preserved.
     if nb_dir.exists():
@@ -259,7 +277,11 @@ def run(
         db_path = DEFAULT_DB_PATH
 
     if register:
-        _register_notebook_in_sqlite(slug, db_path=db_path)  # type: ignore[arg-type]
+        _register_notebook_in_sqlite(
+            slug,
+            db_path=db_path,  # type: ignore[arg-type]
+            notebooks_base=notebooks_base,
+        )
 
     if email is not None:
         _persist_email(email, db_path=db_path)  # type: ignore[arg-type]

@@ -18,7 +18,6 @@ from __future__ import annotations
 import contextlib
 import io
 import os
-import shutil
 import sqlite3
 import subprocess
 from contextlib import redirect_stdout
@@ -36,156 +35,174 @@ class TestMakeInit:
     :func:`tools.notebook_init.run`. We test the entry point directly
     rather than shelling out to ``make`` — the Make recipe is a
     one-line ``$(PYTHON) -m tools.notebook_init …`` wrapper.
+
+    m2 critique F3 rectification (MEDIUM): every test in this class
+    redirects ``tools.notebook_init.run`` to a per-test ``tmp_path``
+    via the ``notebooks_base`` + ``db_path`` kwargs. Nothing is
+    written to ``var/arxmcp/cache/notebooks.db`` or
+    ``var/arxmcp/notebooks/`` — no shared-workstation pollution, no
+    parallel-test-run hazard.
     """
 
     @pytest.fixture
-    def fresh_slug(self, tmp_path):
-        """Generate a tmp slug that doesn't already exist on disk.
-        ``tools.notebook_init.run`` uses the real ``NOTEBOOKS_BASE``
-        (production-shape testing — tests for the slug-level
-        idempotency / SQLite-registration interactions).
+    def env(self, tmp_path):
+        """Per-test isolated ``(slug, notebooks_base, db_path)``
+        triple — fully scoped to ``tmp_path``."""
+        slug = "m2-mk-test-zz"
+        notebooks_base = tmp_path / "notebooks"
+        notebooks_base.mkdir()
+        db_path = tmp_path / "cache" / "notebooks.db"
+        return slug, notebooks_base, db_path
 
-        Cleans up on teardown by removing both the on-disk dir AND the
-        SQLite row (the row was written to the SHARED notebooks.db, so
-        we must restore the registry to its prior state).
-        """
-        from tools._notebook_common import NOTEBOOKS_BASE
-
-        slug = "m2-mk-test-zz"  # static; relies on this slug being unused
-        nb = NOTEBOOKS_BASE / slug
-        db = Path("var/arxmcp/cache/notebooks.db")
-
-        def _cleanup():
-            if nb.exists():
-                shutil.rmtree(nb)
-            if db.exists():
-                # ``isolation_level=None`` → autocommit; default
-                # ``sqlite3.connect`` opens an implicit transaction on
-                # DML that needs explicit commit — easy to forget in
-                # a teardown.
-                conn = sqlite3.connect(str(db), isolation_level=None)
-                try:
-                    # ``operator_settings`` may not exist yet if no
-                    # m2 code has run against this DB; guard
-                    # accordingly.
-                    conn.execute(
-                        "DELETE FROM notebooks WHERE slug = ?", (slug,)
-                    )
-                    tables = {
-                        r[0]
-                        for r in conn.execute(
-                            "SELECT name FROM sqlite_master "
-                            "WHERE type='table'"
-                        ).fetchall()
-                    }
-                    if "operator_settings" in tables:
-                        conn.execute(
-                            "DELETE FROM operator_settings "
-                            "WHERE key = 'contact_email' "
-                            "  AND value = 'm2-mk@example.com'"
-                        )
-                finally:
-                    conn.close()
-
-        # Setup: scrub any residue from a prior failed test.
-        _cleanup()
-        yield slug
-        # Teardown: scrub again.
-        _cleanup()
-
-    def test_creates_on_disk_scaffold(self, fresh_slug):
-        from tools._notebook_common import NOTEBOOKS_BASE
+    def test_creates_on_disk_scaffold(self, env):
         from tools.notebook_init import run
 
-        rc = run(fresh_slug)
+        slug, notebooks_base, db_path = env
+        rc = run(
+            slug,
+            db_path=db_path,
+            notebooks_base=notebooks_base,
+            register=False,  # focus on the on-disk scaffold here
+        )
         assert rc == 0
-        nb = NOTEBOOKS_BASE / fresh_slug
+        nb = notebooks_base / slug
         assert nb.is_dir()
         assert (nb / "papers.txt").is_file()
         assert (nb / "queries.json").is_file()
 
-    def test_registers_notebook_in_sqlite(self, fresh_slug):
+    def test_registers_notebook_in_sqlite(self, env):
         """AC1 cardinal: the new --register flag (default ON) inserts
         a ``notebooks`` row so ``make add`` (server-up) doesn't 404."""
         from tools.notebook_init import run
 
-        run(fresh_slug)
+        slug, notebooks_base, db_path = env
+        run(slug, db_path=db_path, notebooks_base=notebooks_base)
 
-        db = Path("var/arxmcp/cache/notebooks.db")
-        conn = sqlite3.connect(str(db))
+        conn = sqlite3.connect(str(db_path))
         try:
             row = conn.execute(
                 "SELECT slug, notebook_kind FROM notebooks WHERE slug = ?",
-                (fresh_slug,),
+                (slug,),
             ).fetchone()
         finally:
             conn.close()
         assert row is not None, (
-            f"notebook {fresh_slug!r} not registered in notebooks.db — "
+            f"notebook {slug!r} not registered in notebooks.db — "
             "AC1 SQLite-registration regression"
         )
         assert row[1] == "arxiv"
 
-    def test_persists_email_when_given(self, fresh_slug):
+    def test_row_survives_first_server_open(self, env):
+        """m2 critique F1 regression guard (CRITICAL): the row written
+        by ``_register_notebook_in_sqlite`` MUST survive a subsequent
+        ``NotebooksStore.open`` call. Before the F1 fix, the v0->v1
+        migration's DROP TABLE destroyed the row on a fresh-clone DB."""
+        import asyncio
+
+        from server.notebooks_store import NotebooksStore
+        from tools.notebook_init import run
+
+        slug, notebooks_base, db_path = env
+        run(slug, db_path=db_path, notebooks_base=notebooks_base)
+
+        async def _check():
+            store = await NotebooksStore.open(db_path)
+            try:
+                return await store.list_notebooks()
+            finally:
+                await store.close()
+
+        rows = asyncio.run(_check())
+        assert any(r["slug"] == slug for r in rows), (
+            f"F1 regression: row {slug!r} destroyed by "
+            f"NotebooksStore.open's v0->v1 migration; got {rows}"
+        )
+
+    def test_persists_email_when_given(self, env):
         """AC1 + AC2 link: the EMAIL arg flows through to
         operator_settings, where ``resolve_contact_email`` reads it."""
-        from server.operator_settings import get_contact_email
+        from server.operator_settings import get_setting
         from tools.notebook_init import run
 
-        run(fresh_slug, email="m2-mk@example.com")
-        assert get_contact_email() == "m2-mk@example.com"
+        slug, notebooks_base, db_path = env
+        run(
+            slug,
+            db_path=db_path,
+            notebooks_base=notebooks_base,
+            email="m2-mk@example.com",
+        )
+        assert get_setting("contact_email", db_path=db_path) == (
+            "m2-mk@example.com"
+        )
 
-    def test_skips_email_persist_when_none(self, fresh_slug):
+    def test_skips_email_persist_when_none(self, env):
         """Calling ``make init NOTEBOOK=foo`` without EMAIL must NOT
         wipe an existing operator pref — both edits are independent."""
-        from server.operator_settings import (
-            delete_setting,
-            get_contact_email,
-            set_setting,
-        )
+        from server.operator_settings import get_setting, set_setting
         from tools.notebook_init import run
 
-        set_setting("contact_email", "pre-existing@example.com")
-        try:
-            run(fresh_slug, email=None)
-            assert get_contact_email() == "pre-existing@example.com"
-        finally:
-            delete_setting("contact_email")
+        slug, notebooks_base, db_path = env
+        set_setting(
+            "contact_email", "pre-existing@example.com", db_path=db_path
+        )
+        run(
+            slug,
+            db_path=db_path,
+            notebooks_base=notebooks_base,
+            email=None,
+        )
+        assert get_setting("contact_email", db_path=db_path) == (
+            "pre-existing@example.com"
+        )
 
-    def test_idempotent_double_run(self, fresh_slug):
+    def test_idempotent_double_run(self, env):
         """AC1 idempotency: re-running ``make init`` is a no-op on all
         three side-effects."""
-        from tools._notebook_common import NOTEBOOKS_BASE
         from tools.notebook_init import run
 
+        slug, notebooks_base, db_path = env
         # First call.
-        run(fresh_slug, email="m2-mk@example.com")
-        nb = NOTEBOOKS_BASE / fresh_slug
+        run(
+            slug,
+            db_path=db_path,
+            notebooks_base=notebooks_base,
+            email="m2-mk@example.com",
+        )
+        nb = notebooks_base / slug
         papers_mtime_1 = (nb / "papers.txt").stat().st_mtime
         # Second call must NOT rewrite the scaffold (the scaffold-exists
         # branch returns before touching the files).
-        run(fresh_slug, email="m2-mk@example.com")
+        run(
+            slug,
+            db_path=db_path,
+            notebooks_base=notebooks_base,
+            email="m2-mk@example.com",
+        )
         papers_mtime_2 = (nb / "papers.txt").stat().st_mtime
         assert papers_mtime_1 == papers_mtime_2, (
             "papers.txt mtime changed on re-run — scaffold idempotency "
             "regression"
         )
 
-    def test_no_register_flag_skips_sqlite_write(self, fresh_slug):
+    def test_no_register_flag_skips_sqlite_write(self, env):
         """The --no-register escape hatch is for tests / pre-population
         callers; verify it actually skips the INSERT."""
         from tools.notebook_init import run
 
-        run(fresh_slug, register=False)
+        slug, notebooks_base, db_path = env
+        run(
+            slug,
+            db_path=db_path,
+            notebooks_base=notebooks_base,
+            register=False,
+        )
 
-        db = Path("var/arxmcp/cache/notebooks.db")
-        if not db.exists():
+        if not db_path.exists():
             return  # nothing inserted — vacuously satisfies the contract
-        conn = sqlite3.connect(str(db))
+        conn = sqlite3.connect(str(db_path))
         try:
             row = conn.execute(
-                "SELECT slug FROM notebooks WHERE slug = ?",
-                (fresh_slug,),
+                "SELECT slug FROM notebooks WHERE slug = ?", (slug,)
             ).fetchone()
         finally:
             conn.close()
@@ -275,6 +292,64 @@ class TestResolveContactEmail:
         assert "EMAIL=" in msg or "--email" in msg
         assert "ARXMCP_CONTACT_EMAIL" in msg
 
+    def test_sqlite_shadows_env_var_emits_info_log(
+        self, isolated_db, caplog
+    ):
+        """m2 critique F4 regression guard (MEDIUM): when SQLite has a
+        ``contact_email`` AND the env var is ALSO set to a different
+        value, emit an INFO log so operators can diagnose "but my
+        export wasn't picked up". The shadowing is intentional
+        (synthesis §3 D1) but discoverable per FM-3."""
+        import logging
+
+        from server.operator_settings import set_setting
+        from tools._notebook_common import resolve_contact_email
+
+        set_setting("contact_email", "sqlite@x", db_path=isolated_db)
+        os.environ["ARXMCP_CONTACT_EMAIL"] = "env@x"
+        try:
+            with caplog.at_level(
+                logging.INFO, logger="notebook_common"
+            ):
+                result = resolve_contact_email(
+                    None, db_path=isolated_db
+                )
+            assert result == "sqlite@x"
+            shadow_logs = [
+                r
+                for r in caplog.records
+                if "shadow" in r.getMessage().lower()
+            ]
+            assert shadow_logs, (
+                f"F4 regression: expected INFO log naming SQLite "
+                f"shadowing env var; got {[r.getMessage() for r in caplog.records]}"
+            )
+        finally:
+            os.environ.pop("ARXMCP_CONTACT_EMAIL", None)
+
+    def test_no_shadow_log_when_only_sqlite_set(
+        self, isolated_db, caplog
+    ):
+        """The shadow-log fires ONLY when BOTH are set to different
+        values. Just SQLite + no env var must NOT log."""
+        import logging
+
+        from server.operator_settings import set_setting
+        from tools._notebook_common import resolve_contact_email
+
+        set_setting("contact_email", "sqlite@x", db_path=isolated_db)
+        os.environ.pop("ARXMCP_CONTACT_EMAIL", None)
+        with caplog.at_level(logging.INFO, logger="notebook_common"):
+            resolve_contact_email(None, db_path=isolated_db)
+        shadow_logs = [
+            r
+            for r in caplog.records
+            if "shadow" in r.getMessage().lower()
+        ]
+        assert not shadow_logs, (
+            "shadow log fired when only SQLite was set; expected silence"
+        )
+
 
 # ===========================================================================
 # AC4 — make notebook-list offline path
@@ -361,6 +436,66 @@ class TestNotebookListOffline:
         assert "2 notebook(s)" in out
         assert "m2-list-a" in out
         assert "m2-list-b" in out
+
+    def test_user_version_unchanged_after_list(self, tmp_path, capsys):
+        """m2 critique F2 regression guard (HIGH): the offline lister
+        MUST NOT mutate the DB. Pre-create a notebooks.db at
+        ``user_version=2`` with a populated ``notebooks`` table; run
+        the lister; assert ``user_version`` and the row are both
+        unchanged. Before the F2 fix this test would have failed
+        because ``NotebooksStore.open`` ran the full v0->v4 migration
+        on every call."""
+        from tools.notebook_list_offline import main
+
+        db = tmp_path / "preserve.db"
+        conn = sqlite3.connect(str(db), isolation_level=None)
+        try:
+            # Plant a v2-shape ``notebooks`` table with one row.
+            conn.execute(
+                "CREATE TABLE notebooks ("
+                "  slug TEXT PRIMARY KEY,"
+                "  display_name TEXT NOT NULL DEFAULT '',"
+                "  lancedb_path TEXT NOT NULL,"
+                "  created_at TEXT NOT NULL"
+                ")"
+            )
+            conn.execute(
+                "INSERT INTO notebooks VALUES (?, ?, ?, ?)",
+                ("preserve-me", "preserve display", "/tmp/p", "2026-01-01"),
+            )
+            conn.execute("PRAGMA user_version = 2")
+        finally:
+            conn.close()
+
+        rc = main([str(db)])
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "preserve-me" in out, (
+            "F2 regression: lister did not surface the planted row"
+        )
+        # Cardinal F2 assertion: user_version unchanged.
+        conn = sqlite3.connect(str(db), isolation_level=None)
+        try:
+            user_version = conn.execute(
+                "PRAGMA user_version"
+            ).fetchone()[0]
+            cols = [
+                r[1]
+                for r in conn.execute(
+                    "PRAGMA table_info(notebooks)"
+                ).fetchall()
+            ]
+        finally:
+            conn.close()
+        assert user_version == 2, (
+            f"F2 regression: lister bumped user_version to "
+            f"{user_version}; expected 2 (lister MUST be read-only)"
+        )
+        # And the table shape was NOT migrated (still 4 cols, not 8).
+        assert len(cols) == 4, (
+            f"F2 regression: lister ALTER TABLE'd the schema "
+            f"({len(cols)} cols, expected 4)"
+        )
 
 
 # ===========================================================================

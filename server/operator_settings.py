@@ -199,13 +199,43 @@ def _open_sync(db_path: Path) -> sqlite3.Connection:
     pragma + migration stack applied. The caller owns the connection
     and MUST ``close()`` it.
 
-    On first file creation, ``chmod 0o600`` is applied — the file
+    On first file creation, the file is created with mode ``0o600``
+    via an atomic ``os.open(..., O_CREAT | O_EXCL, 0o600)`` — the file
     holds the operator's email (PII). Pre-existing files are NEVER
     retroactively chmodded (m2 synthesis §3 D6 — operators may have
     set perms intentionally; silent tightening would be a surprise).
+
+    **m2 critique F6 rectification (MEDIUM).** The prior implementation
+    did ``path.exists()`` → ``sqlite3.connect`` → conditional chmod,
+    which had a TOCTOU race: between the ``exists()`` check and the
+    ``connect`` (which auto-creates), another process could pre-create
+    the file with different perms, after which our chmod would
+    retroactively tighten an existing file — violating the D6
+    promise. The atomic ``O_CREAT | O_EXCL`` pattern eliminates the
+    race: either WE create the file with 0o600, or it pre-existed
+    (``EEXIST`` raised) and we don't touch its perms.
     """
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    file_existed = db_path.exists()
+
+    # Atomic create-with-mode (m2 critique F6): O_EXCL means the call
+    # fails with FileExistsError if the file already exists; the mode
+    # arg is applied by the kernel during create. The fd we get back
+    # is immediately closed — sqlite3.connect then re-opens via its
+    # own path (we couldn't reuse the fd anyway — SQLite owns its
+    # connection lifecycle).
+    file_created_by_us = False
+    try:
+        fd = os.open(
+            str(db_path),
+            os.O_RDWR | os.O_CREAT | os.O_EXCL,
+            0o600,
+        )
+        os.close(fd)
+        file_created_by_us = True
+    except FileExistsError:
+        # File pre-existed — leave perms alone per D6.
+        pass
+
     conn = sqlite3.connect(
         str(db_path),
         isolation_level=None,
@@ -213,18 +243,21 @@ def _open_sync(db_path: Path) -> sqlite3.Connection:
     )
     _apply_pragmas(conn)
     _apply_migrations(conn)
-    if not file_existed:
-        # Threat-model (PII / m2 synthesis FM-4): tighten perms on
-        # FIRST create. Best-effort — chmod failures on exotic
-        # filesystems are logged but never fatal.
-        try:
-            os.chmod(db_path, 0o600)
-        except OSError:
-            logger.exception(
-                "OperatorSettingsStore: chmod 0o600 on %s failed; "
-                "operator should verify perms manually",
-                db_path,
-            )
+
+    if not file_created_by_us:
+        return conn
+    # Belt-and-braces: on platforms where the umask interferes with
+    # O_CREAT's mode arg (some exotic filesystems do), explicitly
+    # chmod to 0o600. No-op on the happy path where O_EXCL already
+    # gave us the right mode.
+    try:
+        os.chmod(db_path, 0o600)
+    except OSError:
+        logger.exception(
+            "OperatorSettingsStore: chmod 0o600 on %s failed; "
+            "operator should verify perms manually",
+            db_path,
+        )
     return conn
 
 

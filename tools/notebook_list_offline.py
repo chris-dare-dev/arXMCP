@@ -1,44 +1,80 @@
 """Offline notebook lister (``onboarding-uplift-m2``).
 
 Backs ``make notebook-list``'s server-down path. Opens
-``var/arxmcp/cache/notebooks.db`` directly via
-:class:`server.notebooks_store.NotebooksStore` (which auto-runs any
-pending migrations) and prints one ``  <slug> (<display_name>)`` line
-per registered notebook — matching the server-up REST path's output
-format.
+``var/arxmcp/cache/notebooks.db`` directly via raw :mod:`sqlite3`
+(NOT via :class:`server.notebooks_store.NotebooksStore` — see m2
+critique F2 / HIGH below) and prints one ``  <slug> (<display_name>)``
+line per registered notebook, matching the server-up REST path's
+output format.
 
 The server-up path lives inline in the Makefile recipe (a one-liner
 ``curl /ui/api/notebooks | python -c …``); only the server-down path
 needs Python's async / context-manager machinery, which doesn't fit
 cleanly in a ``-c`` one-liner.
 
+**m2 critique F2 rectification (HIGH fix).** The prior implementation
+called :meth:`NotebooksStore.open` which runs the FULL v0→v4 migration
+sequence on the operator's only copy of ``notebooks.db`` — including
+the destructive ``DROP TABLE IF EXISTS notebooks`` in the v0→v1 block
+at ``server/notebooks_store.py:154-156``. A "list" command silently
+mutating the schema was the surprise; combined with m2 critique F1's
+cold-DB scenario, listing AFTER ``make init`` would have destroyed the
+just-registered row. The rectified path opens a raw read-only
+``sqlite3.Connection`` (``mode=ro`` via URI), runs a single SELECT
+over the two columns we display, and treats a missing ``notebooks``
+table as "no notebooks yet" rather than running migrations. The file
+is NEVER written to.
+
 Usage:
 
     uv run python -m tools.notebook_list_offline
 
-Exit 0 always (a missing DB or empty notebooks table is informational,
+Exit 0 always (a missing DB / empty notebooks table is informational,
 not an error).
 """
 
 from __future__ import annotations
 
-import asyncio
+import sqlite3
 import sys
 from pathlib import Path
 
-from server.notebooks_store import NotebooksStore
+# m2 critique F7 rectification (LOW): single source of truth for the
+# canonical ``notebooks.db`` path. Imported from
+# :mod:`server.operator_settings` rather than redeclared here.
+from server.operator_settings import DEFAULT_DB_PATH
 
-DEFAULT_DB_PATH: Path = Path("var/arxmcp/cache/notebooks.db")
 
+def _list_notebooks_read_only(db_path: Path) -> list[tuple[str, str]]:
+    """Return ``[(slug, display_name), ...]`` from ``db_path`` without
+    ever writing to the file.
 
-async def _list_notebooks(db_path: Path) -> list[dict[str, str]]:
-    if not db_path.exists():
-        return []
-    store = await NotebooksStore.open(db_path)
+    Uses SQLite's ``mode=ro`` URI parameter so any accidental write
+    attempt raises ``sqlite3.OperationalError`` immediately. A missing
+    ``notebooks`` table is treated as "no notebooks yet" — the table
+    may legitimately not exist on a fresh file that's only been
+    touched by :class:`server.operator_settings.OperatorSettingsStore`
+    (which creates ``operator_settings`` but not ``notebooks``).
+    """
+    # ``mode=ro`` is a SQLite URI parameter — disables ALL writes
+    # including PRAGMA-driven internal bookkeeping. Belt-and-braces
+    # against future contributors accidentally adding a write here.
+    uri = f"file:{db_path}?mode=ro"
+    conn = sqlite3.connect(uri, uri=True)
     try:
-        return await store.list_notebooks()
+        try:
+            cur = conn.execute(
+                "SELECT slug, display_name FROM notebooks "
+                "ORDER BY created_at DESC, slug ASC"
+            )
+            return [(slug, display) for slug, display in cur.fetchall()]
+        except sqlite3.OperationalError:
+            # Table doesn't exist — treat as "no notebooks yet". The
+            # operator's mental model: a fresh file that no
+            # ``make init`` has touched contains no notebooks.
+            return []
     finally:
-        await store.close()
+        conn.close()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -53,17 +89,12 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
 
-    rows = asyncio.run(_list_notebooks(db_path))
+    rows = _list_notebooks_read_only(db_path)
     print(f"{len(rows)} notebook(s) — via notebooks.db (server down):")
-    for r in rows:
-        # ``NotebooksStore.list_notebooks`` returns ``list[dict[str, str]]``
-        # — each row has the 8 v4-schema columns (slug, display_name,
-        # lancedb_path, created_at, notebook_kind, parse_status,
-        # parse_error, parsed_html_path). Print slug + display_name
-        # (falling back to slug if display is empty).
-        slug = r.get("slug", "<?>")
-        display = r.get("display_name") or slug
-        print(f"  {slug} ({display})")
+    for slug, display in rows:
+        # Fall back to slug if display_name is empty (matches the
+        # server-up REST path's formatting).
+        print(f"  {slug} ({display or slug})")
     return 0
 
 
