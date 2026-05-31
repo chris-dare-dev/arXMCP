@@ -11,7 +11,13 @@
     "medium": 2
   },
   "critique_path": ".claude/notes/milestones/ui-attractive-polish-m4/critique-adversary.md",
-  "deferred_findings": [],
+  "deferred_findings": [
+    {
+      "id": "F3",
+      "reason": "minor UX polish (form reset on success); deferred to m5 follow-on",
+      "severity": "LOW"
+    }
+  ],
   "external_writes_authorized": false,
   "external_writes_completed": false,
   "external_writes_required": [
@@ -21,7 +27,11 @@
       "why": "land pre-step chore(plans,notes) + feat + rect + chore triple per CLAUDE.md \u00a74.3"
     }
   ],
-  "fixed_findings": [],
+  "fixed_findings": [
+    "F1",
+    "F2",
+    "F4"
+  ],
   "id": "ui-attractive-polish-m4",
   "implementation_base": "d69f253032e6b4fbacdcc0ea8d177158100757a6",
   "implementation_branch": "main",
@@ -33,7 +43,7 @@
   "implementation_specialist": null,
   "invalidated_findings": [],
   "milestone_brief": "### ui-attractive-polish-m4 \u2014 In-place add-paper swap + View Transitions + footer-badge flash (UPL-12 v0 + UPL-13 + UPL-22)\n\n**Description.** Ship the three e4 polish items now that both spikes have\nreturned PASS. The roadmap-AC scope is **narrowed by both spikes** vs the\noriginal e4 sketch:\n- **UPL-12 v0 narrowed to add-paper only** (per m2 final-report\n  challenger MAJOR finding) \u2014 convert ONE legacy `location.reload()`\n  flow (`POST /ui/api/notebooks/{slug}/papers` URL-paste in\n  `notebook_detail.html:~97`) to an in-place htmx swap that returns a\n  `<tr>` fragment appended to `#papers-tbody`. The other two legacy\n  flows (create-notebook, remove-notebook) stay on `location.reload()`\n  in m4 v0; converting them is a future m5 (each new fragment endpoint\n  gets its own Spike-2 pre-flight check pass).\n- **UPL-13 simplified to a 1-LOC config flag** (per Spike-1) \u2014 add\n  `htmx.config.globalViewTransitions = true;` to the existing inline\n  JSON-shim block in `base.html`. htmx 2.0.10 calls\n  `document.startViewTransition()` internally; no user-JS wrapper, no\n  audit-widening, no new `htmx.swap()` re-entry call site.\n- **UPL-22 unchanged** \u2014 CSS-only `.status-badge` `min-width: 14ch`\n  for footer reflow stability + a brief `.htmx-settling` flash keyframe\n  on swap-in (gated by m1's `prefers-reduced-motion: no-preference`).\n\n**Pre-flight checklist (Spike-2 \u2014 load-bearing AC the adversary critic verifies).**\n\n*Server-fragment correctness (issue #9 open Q5):*\n- [ ] The new add-paper HTML fragment branch uses `html.escape()` for every interpolated value (pattern-match `_paper_row_html` at `server/routes/notebooks.py:1575-1604`).\n- [ ] Zero `| safe` filters or `Markup(...)` calls anywhere in the new code OR existing templates. Verify by grep.\n- [ ] Content-negotiation on `HX-Request: true` header routes browser-htmx requests to the fragment branch; curl / non-htmx clients still get the existing JSON body.\n- [ ] The fragment renderer interpolates ONLY validated, escaped, server-controlled values \u2014 never raw request body or header values.\n\n*Middleware integrity (issue #9 open Q1):*\n- [ ] `SecFetchSiteMiddleware` carve-out at `(\"/ui\",)` unchanged (`git diff server/middleware.py` should have zero hunks in the m4 implementation commit).\n- [ ] Origin + Host loopback validation unchanged.\n- [ ] `CONTENT_SECURITY_POLICY_UI` unchanged (no `'unsafe-eval'`, no new `connect-src`, `frame-ancestors 'none'` preserved).\n\n*Input validation invariants (issue #9 open Q3):*\n- [ ] `validate_slug` called at every new mutation entry-point before the renderer constructs the fragment.\n- [ ] `is_valid_arxiv_paper_id` rejects unparseable URLs before any server-side state mutation.\n- [ ] Pydantic `Field(max_length=...)` bounds on the URL-paste payload model unchanged.\n\n*Test surface:*\n- [ ] **XSS payload injection test** at `tests/test_ui_m4_fragment_xss.py` (or sibling): send `display_name = '<img src=x onerror=alert(1)>'` through the new HX-Request branch; assert the rendered HTML contains `&lt;img` not `<img`.\n- [ ] **Content-negotiation test**: send the same request with and without `HX-Request: true`; assert JSON response vs `text/html` `<tr>` fragment.\n- [ ] **Slug-validation gate test**: send a path-traversal slug (e.g. `../../../etc/passwd`); assert 422 BEFORE the renderer is reached.\n\n**Acceptance criteria.**\n\n- [ ] **UPL-12 v0** \u2014 `POST /ui/api/notebooks/{slug}/papers` URL-paste handler in `server/routes/notebooks.py` returns an HTML `<tr>` fragment when `HX-Request: true` header is present (content-negotiation); existing JSON branch preserved for curl/non-htmx clients. The form in `frontend/templates/notebook_detail.html:~97` switches `hx-on::htmx:after-request=\"location.reload()\"` to `hx-target=\"#papers-tbody\" hx-swap=\"beforeend\"` (with `aria-live=\"polite\"` on the tbody \u2014 m1 already adopted that). Reuse `_paper_row_html` or extend it; per Spike-2 the existing helper is the correct precedent.\n- [ ] **UPL-13** \u2014 add `htmx.config.globalViewTransitions = true;` to the existing inline `<script defer>` block in `frontend/templates/base.html` (within the existing `'unsafe-inline'` CSP allowance \u2014 zero CSP change). Per Spike-1, this enables `document.startViewTransition()` automatically on every htmx swap; htmx's internal `if (document.startViewTransition)` guards graceful Firefox no-op. NO `htmx:beforeSwap`-wrapper code (that was an obsolete htmx-1.x pattern).\n- [ ] **UPL-13 \u2014 optional CSS duration override** (recommended): add\n    ```css\n    @media (prefers-reduced-motion: no-preference) {\n      ::view-transition-old(root), ::view-transition-new(root) {\n        animation-duration: 200ms;\n      }\n    }\n    ```\n    to `frontend/static/app.css`. Default crossfade is ~250ms; 200ms keeps the operator console snappy. Gated by m1's `prefers-reduced-motion` discipline.\n- [ ] **UPL-22** \u2014 extend `.status-badge` rule in `app.css` with `min-width: 14ch` so the footer doesn't reflow across DEGRADED/WARN/OK/DOWN/ops-warn state changes. Add a `.htmx-settling` flash keyframe on `#status-badge` (~400ms ease-out, gated by `prefers-reduced-motion: no-preference`).\n- [ ] **The Spike-2 pre-flight checklist above** (13 items) is satisfied. The m3-pattern regression-test file `tests/test_ui_m4_*.py` covers them mechanically.\n- [ ] **All 61 m1+m2+m3 tests still pass.** Specifically: `tests/test_ui_a11y_baselines.py` (23) + `tests/test_ui_m2_polish.py` (18) + `tests/test_ui_m3_dark_and_htmx_feedback.py` (20). m4 adds new test file(s) but modifies zero existing assertions.\n- [ ] **Verification \u2014 manual cross-browser walk** (Chris pre-KR-4): click \"Add by URL\" with a real arXiv URL on Chrome + Safari on macOS; observe (a) no full-page flash (UPL-12 working), (b) a smooth ~200ms crossfade of the new `<tr>` (UPL-13 working on Chrome+Safari; Firefox no-ops cleanly). Click \"Remove notebook\" in a different session; the OLD `location.reload()` flow STILL fires (m4 v0 didn't convert that \u2014 flag for m5).\n- [ ] **Verification \u2014 VoiceOver smoke-test** (Chris pre-KR-4): the new paper-row append should announce via the `#papers-tbody` `aria-live=\"polite\"` region (m1's UPL-3 swap-target a11y).\n- [ ] **Verification \u2014 issue #9 hygiene**: m4 does NOT close issue #9 (the full audit remains open as a separate effort). m4's implementation-summary should note that the pre-flight checklist was satisfied INSIDE m4's scope (not the full audit).\n- [ ] Final `frontend/static/app.css` line count \u2264 330 (current 306 + budget ~20 for the View-Transitions duration override + UPL-22's `min-width` + flash keyframe). The m3-rect-revised cap of 330 has just enough room.\n\n**Dependencies.** epic `ui-attractive-polish-e4`. **Hard prereqs (now shipped):** m1's `prefers-reduced-motion` gate (anchors the spin keyframe + the UPL-22 flash gate); m2's `color-mix()` adoption (UPL-22's flash keyframe uses `color-mix(in oklab, var(--accent) 30%, transparent)` per the original synthesis); m3's `.htmx-request` styling (the new add-paper button gets m3's in-flight feedback automatically \u2014 confirms the m3 + m4 stack composes cleanly). **Both spikes PASS** (Spike-1: htmx native View Transitions; Spike-2: e4 pre-flight checklist defined). **Issue #9** stays open as a separate effort; NOT a m4 dependency.\n\n**Complexity.** M (~ 1\u20132 days execution including the 4-phase milestone-pipeline). Largest time slices: (a) the new add-paper fragment handler + content-negotiation branch + 3 new tests for the pre-flight checklist, (b) the manual cross-browser View Transitions verification.\n\n**Specialist suggestion.** `security-reviewer` \u2014 see `.claude/skills/roadmap/references/specialist-contracts.md`. UPL-12 introduces a new server-side fragment-rendering branch and the Spike-2 pre-flight checklist explicitly invokes security-correctness axes (XSS, content-negotiation, input-validation gates). The adversary critic should run with the `security-reviewer` lens engaged for the m4 critique. UPL-13 + UPL-22 do not need specialist attention (Spike-1 confirmed zero audit-widening; UPL-22 is CSS-only).\n\n---\n\n## Phase 4 \u2014 Materialize",
-  "phase": "rectify-running",
+  "phase": "complete",
   "phase_history": [
     {
       "entered_at": "2026-05-31T14:52:30Z",
@@ -72,10 +82,16 @@
     },
     {
       "entered_at": "2026-05-31T15:24:25Z",
-      "left_at": null,
+      "left_at": "2026-05-31T15:26:32Z",
       "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-05-31T15:26:32Z",
+      "left_at": null,
+      "phase": "complete"
     }
   ],
+  "rect_commit": "df58b27eec0d43dc0df3258dd5751473637b94c8",
   "rectification_commit": null,
   "regression_tests_added": [],
   "research_briefs": [
@@ -92,5 +108,5 @@
   ],
   "research_mode": "standard",
   "research_synthesis": ".claude/notes/milestones/ui-attractive-polish-m4/research-synthesis.md",
-  "updated_at": "2026-05-31T15:24:25Z"
+  "updated_at": "2026-05-31T15:26:32Z"
 }
