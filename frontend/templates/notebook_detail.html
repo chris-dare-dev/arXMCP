@@ -143,6 +143,39 @@
 </section>
 
 <section class="card">
+  <h2>Discover papers</h2>
+  <p class="hint">
+    Find new arXiv papers matching this notebook's topic (set in
+    <em>Topic &amp; discovery</em> above). Candidates already in this notebook
+    are filtered out; click <strong>Add</strong> to record one, then use
+    <em>Ingest</em> below to embed it. Results are not saved — click
+    <strong>Discover</strong> to (re-)run.
+  </p>
+  {# notebook-paper-discovery-m4: the Discover button POSTs to
+     /ui/api/notebooks/{slug}/discover, which runs the m3 arXiv-Atom driver and
+     returns the #discover-results fragment (server-rendered + html.escape'd in
+     server/routes/notebooks.py::_discover_results_fragment — the candidate
+     title/abstract come from the arXiv API, so escaping is the XSS guard; do
+     NOT add `| safe`). The candidate queue is EPHEMERAL (no persistence). The
+     outerHTML swap REPLACES #discover-results, so the fragment re-emits
+     aria-live (ui-attractive-polish-m1 lesson). On 4xx/502 the JSON detail is
+     surfaced in #discover-error. #}
+  <form
+    hx-post="/ui/api/notebooks/{{ notebook.slug }}/discover"
+    hx-target="#discover-results"
+    hx-swap="outerHTML"
+    hx-disabled-elt="find button"
+    hx-on::htmx:response-error="document.getElementById('discover-error').textContent = (function(t){try{return JSON.parse(t).detail||t;}catch(e){return t;}})(event.detail.xhr.responseText)"
+  >
+    <button type="submit">Discover</button>
+    <pre id="discover-error" class="error" aria-live="polite"></pre>
+  </form>
+  <div id="discover-results" aria-live="polite" aria-atomic="true">
+    <p class="hint">No discovery run yet — click Discover above.</p>
+  </div>
+</section>
+
+<section class="card">
   <h2>Add paper by URL</h2>
   <p class="hint">
     Accepted forms: <code>https://arxiv.org/abs/&lt;id&gt;</code> or

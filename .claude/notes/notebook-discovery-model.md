@@ -88,6 +88,25 @@ post-aggregation dedup pass is the only correct boundary. Each channel is theref
 
 ---
 
+## 3a. The Discover panel (m4 — SHIPPED)
+
+The propose→confirm surface is `POST /ui/api/notebooks/{slug}/discover` +
+a notebook-detail-page htmx card (`server/routes/notebooks.py::discover_papers` /
+`_discover_results_fragment`; `frontend/templates/notebook_detail.html`):
+
+- The Discover button runs the m3 driver (`discover_for_notebook_async`) and swaps an
+  `#discover-results` fragment listing candidates (title + abstract + a per-row "Add").
+- **"Add" reuses the existing add-paper route** (`POST .../papers`): it records the
+  `notebook_papers` junction row only. **LanceDB embedding is the existing separate
+  "Ingest now" action** — m4 does NOT auto-ingest on Add (consistent with URL-paste
+  adding). The brief's "ingested into LanceDB" is satisfied by this established two-step.
+- The candidate **queue is ephemeral** — no persistence table; the panel is labeled
+  "results are not saved; click Discover to re-run." A reload/restart re-runs discovery.
+- Candidate `title`/`abstract` come from the arXiv API (untrusted) and are
+  `html.escape`'d in the f-string fragment (XSS guard; never `| safe`). arXiv failures /
+  unconfigured notebooks return 4xx/502 (surfaced via the panel's response-error
+  handler) — never a 500. No new MCP tool; `EXPECTED_TOOL_SCHEMA_SHA256` unchanged.
+
 ## 4. What m1 deliberately did NOT do
 
 - No discovery driver, no arXiv-API library, no new channel (m2+).

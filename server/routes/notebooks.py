@@ -62,6 +62,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
 from ingest.identifiers import is_valid_arxiv_paper_id, is_valid_paper_id
+from server.operator_settings import get_contact_email
 from tools._notebook_common import (
     NOTEBOOKS_BASE,
     NotebookError,
@@ -69,10 +70,12 @@ from tools._notebook_common import (
     notebook_lancedb_path,
     validate_slug,
 )
+from tools.discover_for_notebook import discover_for_notebook_async
 from tools.security.pdfid import find_javascript as _pdf_find_javascript
 
 if TYPE_CHECKING:
     from server.notebooks_store import NotebooksStore
+    from tools.discover_for_notebook import DiscoveryCandidate
 
 logger = logging.getLogger(__name__)
 
@@ -679,6 +682,137 @@ async def update_notebook_topic(
     return HTMLResponse(
         content=_topic_fragment(body.discovery_category, cleaned_desc)
     )
+
+
+# ---------------------------------------------------------------------------
+# Discover (notebook-paper-discovery-m4)
+# ---------------------------------------------------------------------------
+
+
+def _safe_contact_email() -> str | None:
+    """Best-effort contact email for the arXiv polite User-Agent.
+
+    Reads the operator-settings ``contact_email`` when available; any failure
+    (settings table absent, db missing) degrades to ``None`` —
+    ``fetch_candidates`` accepts ``None``. Never raises into the request path.
+    """
+    try:
+        return get_contact_email()
+    except Exception:  # noqa: BLE001 — best-effort; discovery must not fail on this
+        return None
+
+
+def _discover_results_fragment(
+    slug: str, candidates: list[DiscoveryCandidate],
+) -> str:
+    """Build the htmx-swap fragment listing discovered candidates.
+
+    Returned by ``POST /ui/api/notebooks/{slug}/discover`` in place of
+    ``#discover-results`` (``hx-swap="outerHTML"``). Mirrors
+    :func:`_paper_row_html` / :func:`_topic_fragment`: a Python f-string with
+    EVERY interpolated value HTML-escaped via :func:`html.escape` — NOT a Jinja2
+    partial (autoescape does not cover f-strings). The candidate ``title`` and
+    ``abstract_head`` come from the arXiv API (external, untrusted), so escaping
+    IS the XSS guard (FM-A); never wrap any of this in ``| safe``.
+    ``aria-live`` is re-emitted on the swapped element so screen readers announce
+    the result. The candidate queue is EPHEMERAL — the panel says so.
+    """
+    safe_slug = html.escape(slug)
+    if not candidates:
+        body = '<p class="empty">No new candidates found for this topic.</p>'
+    else:
+        rows: list[str] = []
+        for c in candidates:
+            pid = html.escape(c.paper_id)
+            # "Add" reuses the existing add-paper route (records the
+            # notebook_papers junction row; LanceDB embedding is the separate
+            # "Ingest now" step, exactly like URL-paste adding).
+            rows.append(
+                '<li class="discover-candidate">'
+                f'<p class="discover-title">{html.escape(c.title) or "—"}</p>'
+                f'<p class="discover-meta"><code>{pid}</code> · '
+                f'<time>{html.escape(c.submitted_date)}</time></p>'
+                f'<p class="discover-abstract">{html.escape(c.abstract_head)}</p>'
+                f'<form hx-post="/ui/api/notebooks/{safe_slug}/papers"'
+                ' hx-target="#papers-tbody" hx-swap="beforeend"'
+                ' hx-disabled-elt="find button">'
+                '<input type="hidden" name="arxiv_url" '
+                f'value="https://arxiv.org/abs/{pid}">'
+                '<button type="submit">Add</button>'
+                "</form>"
+                "</li>"
+            )
+        body = (
+            f'<p class="hint">{len(candidates)} new candidate(s) — results are '
+            "not saved; click Discover to re-run.</p>"
+            f'<ul class="discover-list">{"".join(rows)}</ul>'
+        )
+    return (
+        '<div id="discover-results" aria-live="polite" aria-atomic="true">'
+        f"{body}</div>"
+    )
+
+
+@router.post(
+    "/notebooks/{slug}/discover",
+    response_class=HTMLResponse,
+    status_code=status.HTTP_200_OK,
+    response_model=None,
+)
+async def discover_papers(
+    slug: str,
+    store: NotebooksStore = Depends(get_notebooks_store),  # noqa: B008  (FastAPI DI pattern)
+) -> HTMLResponse:
+    """Discover new arXiv papers for a notebook's topic (notebook-paper-discovery-m4).
+
+    Loopback-only operator-console action. Runs the m3 arXiv-Atom discovery
+    driver (the async core) for the notebook's ``discovery_category`` +
+    ``description``, deduplicates against ``notebook_papers``, and returns an
+    htmx fragment of candidate rows with per-row "Add" buttons. PROPOSE-only:
+    "Add" records the paper via the existing add-paper route; LanceDB embedding
+    is the separate "Ingest now" action. The candidate queue is EPHEMERAL.
+
+    Security posture (security-reviewer): ``validate_slug`` first (path-traversal
+    defense); candidate ``title``/``abstract`` are html.escape'd in the fragment
+    (XSS guard); arXiv failures and unconfigured notebooks return 4xx/502 (the
+    panel's ``hx-on::htmx:response-error`` surfaces the detail) — never a 500.
+    The route inherits ``SecFetchSite`` + ``OriginValidation`` on ``/ui/*``.
+    NOTE: the synchronous arXiv fetch briefly blocks the event loop — accepted
+    for the single-operator loopback console (``MAX_RESPONSE_BYTES`` caps the
+    response).
+    """
+    try:
+        validate_slug(slug)
+    except NotebookError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e),
+        ) from e
+
+    if await store.get_notebook(slug) is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"notebook {slug!r} not found",
+        )
+
+    try:
+        candidates = await discover_for_notebook_async(
+            store, slug, contact_email=_safe_contact_email(),
+        )
+    except ValueError as e:
+        # Notebook exists but has no discovery_category set (not configured).
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e),
+        ) from e
+    except (RuntimeError, OSError) as e:
+        # arXiv unreachable / error-entry / parse failure — never surface a 500.
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"discovery failed: {e}",
+        ) from e
+
+    return HTMLResponse(content=_discover_results_fragment(slug, candidates))
 
 
 # ---------------------------------------------------------------------------
