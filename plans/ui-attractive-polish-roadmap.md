@@ -357,36 +357,53 @@ _No `*` markers — both Musts have evidenced confidence (e1 = 4-brief unanimous
 - **Shipped** (commits on `origin/main`):
   - `ui-attractive-polish-m1` (epic e1; commits `924d5ad..40f3552` — feat `c5adff3` + rect `dc30b93` + chore `40f3552`). Foundational a11y baselines UPL-1..4. RICE 10.0. Status: terminal.
   - `ui-attractive-polish-m2` (epic e2; commits `40f3552..fdd28d4` — feat `672ad81` + rect `4f1f664` + chore `fdd28d4`). Visible polish layer UPL-9/10/19v0/23/25. RICE 9.5. Status: terminal.
+  - `ui-attractive-polish-m3` (epic e3; commits `e69de9c..b66fa1e` — chore-plans `e69de9c` + feat `58bfb41` + rect `08b9c53` + chore `b66fa1e`). Dark mode + htmx-request feedback UPL-8 v0 + UPL-11. **Critique surfaced 1 HIGH (text-input dark-mode invisibility) + 2 MED + 1 LOW; all fixed in rect.** Status: terminal.
 - **Now** (fully spec'd, in-flight or next-up):
-  - `ui-attractive-polish-e3` (promoted from Next after m1+m2 shipped — its hard prereqs are now realized: m1's `prefers-reduced-motion` gate and m2's `color-mix()` pattern are both live on main). 1 milestone `m3` below.
+  - `ui-attractive-polish-e4` (promoted from Next after m3 shipped + BOTH spikes returned PASS). 1 milestone `m4` below (UPL-12 v0 add-paper in-place swap + UPL-13 View Transitions + UPL-22 status-badge flash).
 - **Next** (shaped, awaiting capacity):
-  - `ui-attractive-polish-e4` (in-place swaps + View Transitions + footer-badge flash). Hard-gated on **Spike-1** (htmx 2.0.10 + View Transitions integration verification, below) AND soft-gated on **Spike-2** (UI security audit scoping at `chris-dare-dev/arXMCP#9`). Cannot promote to Now until at least Spike-1 returns ok.
+  - (empty — m4 v1 follow-ons (UPL-12 v1 for create/remove flows, UPL-8 v1 dark-mode status-pill remap, UPL-19 v1 wider clamp) can shape into m5 after m4 ships)
 - **Later** (outcome-only, low-confidence horizon):
   - (empty — no further epics planned at this layer; future polish would start a new roadmap)
 
 ### Spike / discovery lane
 
-- `ui-attractive-polish-spike-1` — verify htmx 2.0.10's `htmx.swap()`
-  re-entry signature for the `htmx:beforeSwap` + `document.startView
-  Transition()` integration pattern. Work in a worktree, write a
-  throwaway HTML page that emits an htmx swap inside `startViewTransition`,
-  observe whether the swap completes AND the rename-form swap in
-  `/ui/notebooks/<slug>` still fires correctly. (≤ 1 day, validates
-  `[MUST]` assumption #3 — the View Transitions API integration with
-  htmx 2.0.10. If the call signature has the wrong shape, UPL-13 in
-  e4 silently breaks every htmx interaction; better to spike this
-  before e3 even starts, since the discovery shape impacts e4's
-  feasibility.)
+- `ui-attractive-polish-spike-1` — **STATUS: PASS** (decision memo:
+  `.claude/notes/ui-attractive-polish-spike-1.md`, ~30 min actual vs
+  ≤ 1 day budget). Key finding: htmx 2.0.10 has **native first-class
+  View Transitions integration** (the `htmx:beforeSwap` + manual
+  `document.startViewTransition()` re-entry pattern the original brief
+  cited was an htmx-1.x workaround, obsolete in 2.x). Two native opt-ins
+  documented at `htmx.org/docs/#view-transitions`:
+  - **Global:** `htmx.config.globalViewTransitions = true` (1 LOC).
+  - **Per-element:** `hx-swap="<style> transition:true"`.
+  Confirmed by inspecting the vendored `frontend/static/htmx.min.js`
+  (`Q.swap = _e`; `globalViewTransitions: false` in default config;
+  internal `document.startViewTransition(function(){i()...})` call site).
+  **Implication for UPL-13**: drops from S effort + audit-widening
+  (~5 LOC inline JS) to **XS (1 LOC config flag, zero audit-widening)** —
+  uses the existing `'unsafe-inline'` CSP allowance for the inline
+  JSON-shim block in `base.html`. Risk eliminated: no user JS for htmx
+  to call with the wrong signature; htmx handles it internally with a
+  `if (document.startViewTransition)` graceful-degradation guard.
 
-- `ui-attractive-polish-spike-2` — scope the open UI security audit
-  (`chris-dare-dev/arXMCP#9`) against e4's incremental surface. Either
-  (a) define audit-pass criteria with the `security-reviewer`
-  specialist + open a tracking issue for the audit's actual landing,
-  OR (b) descope e4 to not-blocking by descoping UPL-12 to documentation-
-  only ("plan to convert when the audit lands"). Produce a decision
-  memo at `.claude/notes/ui-attractive-polish-spike-2.md`. (≤ 2 days,
-  validates the soft dependency on the audit before e4 promotes from
-  Later to Next.)
+- `ui-attractive-polish-spike-2` — **STATUS: PASS (hybrid (a))** (decision
+  memo: `.claude/notes/ui-attractive-polish-spike-2.md`, ~45 min actual
+  vs ≤ 2 day budget). Key finding: the framing as a binary fork ((a) full
+  audit, (b) descope UPL-12) was wrong — issue #9 ALREADY exists as the
+  tracking issue, and UPL-12 v0's incremental surface doesn't widen any
+  of issue #9's 5 open questions (CSRF posture, upload polyglot,
+  path-traversal on preview, CSP `unsafe-inline` scope, render-path
+  divergence). The marginal axis (render-path divergence on the new
+  add-paper fragment) is bounded by an **e4 pre-flight checklist** that
+  the m4 milestone-pipeline adversary critic verifies — 13 mechanically
+  checkable items across 4 axes (server-fragment correctness, middleware
+  integrity, input validation, test surface). The fragment-rendering
+  precedent (`_paper_row_html`, `_display_name_fragment`,
+  `ui_status_badge`, `_ingest_status_fragment`) is already audited-by-
+  pattern via `html.escape()` per value. **Implication for e4**: ship
+  UPL-12 v0 (add-paper only) as planned in m4 with the pre-flight
+  checklist as load-bearing AC; issue #9 stays open as a separate
+  effort (the full audit is NOT a m4 dependency).
 
 ### Milestones — Now lane
 
@@ -491,6 +508,78 @@ button doesn't accept Tab-triggered Enter activation mid-request).
 
 **Specialist suggestion.** `—` (CSS + Jinja2 attribute additions only; milestone-pipeline's default adversary critic covers the surface — token-discipline, prefers-reduced-motion gate compliance, htmx-attribute correctness).
 
+### ui-attractive-polish-m4 — In-place add-paper swap + View Transitions + footer-badge flash (UPL-12 v0 + UPL-13 + UPL-22)
+
+**Description.** Ship the three e4 polish items now that both spikes have
+returned PASS. The roadmap-AC scope is **narrowed by both spikes** vs the
+original e4 sketch:
+- **UPL-12 v0 narrowed to add-paper only** (per m2 final-report
+  challenger MAJOR finding) — convert ONE legacy `location.reload()`
+  flow (`POST /ui/api/notebooks/{slug}/papers` URL-paste in
+  `notebook_detail.html:~97`) to an in-place htmx swap that returns a
+  `<tr>` fragment appended to `#papers-tbody`. The other two legacy
+  flows (create-notebook, remove-notebook) stay on `location.reload()`
+  in m4 v0; converting them is a future m5 (each new fragment endpoint
+  gets its own Spike-2 pre-flight check pass).
+- **UPL-13 simplified to a 1-LOC config flag** (per Spike-1) — add
+  `htmx.config.globalViewTransitions = true;` to the existing inline
+  JSON-shim block in `base.html`. htmx 2.0.10 calls
+  `document.startViewTransition()` internally; no user-JS wrapper, no
+  audit-widening, no new `htmx.swap()` re-entry call site.
+- **UPL-22 unchanged** — CSS-only `.status-badge` `min-width: 14ch`
+  for footer reflow stability + a brief `.htmx-settling` flash keyframe
+  on swap-in (gated by m1's `prefers-reduced-motion: no-preference`).
+
+**Pre-flight checklist (Spike-2 — load-bearing AC the adversary critic verifies).**
+
+*Server-fragment correctness (issue #9 open Q5):*
+- [ ] The new add-paper HTML fragment branch uses `html.escape()` for every interpolated value (pattern-match `_paper_row_html` at `server/routes/notebooks.py:1575-1604`).
+- [ ] Zero `| safe` filters or `Markup(...)` calls anywhere in the new code OR existing templates. Verify by grep.
+- [ ] Content-negotiation on `HX-Request: true` header routes browser-htmx requests to the fragment branch; curl / non-htmx clients still get the existing JSON body.
+- [ ] The fragment renderer interpolates ONLY validated, escaped, server-controlled values — never raw request body or header values.
+
+*Middleware integrity (issue #9 open Q1):*
+- [ ] `SecFetchSiteMiddleware` carve-out at `("/ui",)` unchanged (`git diff server/middleware.py` should have zero hunks in the m4 implementation commit).
+- [ ] Origin + Host loopback validation unchanged.
+- [ ] `CONTENT_SECURITY_POLICY_UI` unchanged (no `'unsafe-eval'`, no new `connect-src`, `frame-ancestors 'none'` preserved).
+
+*Input validation invariants (issue #9 open Q3):*
+- [ ] `validate_slug` called at every new mutation entry-point before the renderer constructs the fragment.
+- [ ] `is_valid_arxiv_paper_id` rejects unparseable URLs before any server-side state mutation.
+- [ ] Pydantic `Field(max_length=...)` bounds on the URL-paste payload model unchanged.
+
+*Test surface:*
+- [ ] **XSS payload injection test** at `tests/test_ui_m4_fragment_xss.py` (or sibling): send `display_name = '<img src=x onerror=alert(1)>'` through the new HX-Request branch; assert the rendered HTML contains `&lt;img` not `<img`.
+- [ ] **Content-negotiation test**: send the same request with and without `HX-Request: true`; assert JSON response vs `text/html` `<tr>` fragment.
+- [ ] **Slug-validation gate test**: send a path-traversal slug (e.g. `../../../etc/passwd`); assert 422 BEFORE the renderer is reached.
+
+**Acceptance criteria.**
+
+- [ ] **UPL-12 v0** — `POST /ui/api/notebooks/{slug}/papers` URL-paste handler in `server/routes/notebooks.py` returns an HTML `<tr>` fragment when `HX-Request: true` header is present (content-negotiation); existing JSON branch preserved for curl/non-htmx clients. The form in `frontend/templates/notebook_detail.html:~97` switches `hx-on::htmx:after-request="location.reload()"` to `hx-target="#papers-tbody" hx-swap="beforeend"` (with `aria-live="polite"` on the tbody — m1 already adopted that). Reuse `_paper_row_html` or extend it; per Spike-2 the existing helper is the correct precedent.
+- [ ] **UPL-13** — add `htmx.config.globalViewTransitions = true;` to the existing inline `<script defer>` block in `frontend/templates/base.html` (within the existing `'unsafe-inline'` CSP allowance — zero CSP change). Per Spike-1, this enables `document.startViewTransition()` automatically on every htmx swap; htmx's internal `if (document.startViewTransition)` guards graceful Firefox no-op. NO `htmx:beforeSwap`-wrapper code (that was an obsolete htmx-1.x pattern).
+- [ ] **UPL-13 — optional CSS duration override** (recommended): add
+    ```css
+    @media (prefers-reduced-motion: no-preference) {
+      ::view-transition-old(root), ::view-transition-new(root) {
+        animation-duration: 200ms;
+      }
+    }
+    ```
+    to `frontend/static/app.css`. Default crossfade is ~250ms; 200ms keeps the operator console snappy. Gated by m1's `prefers-reduced-motion` discipline.
+- [ ] **UPL-22** — extend `.status-badge` rule in `app.css` with `min-width: 14ch` so the footer doesn't reflow across DEGRADED/WARN/OK/DOWN/ops-warn state changes. Add a `.htmx-settling` flash keyframe on `#status-badge` (~400ms ease-out, gated by `prefers-reduced-motion: no-preference`).
+- [ ] **The Spike-2 pre-flight checklist above** (13 items) is satisfied. The m3-pattern regression-test file `tests/test_ui_m4_*.py` covers them mechanically.
+- [ ] **All 61 m1+m2+m3 tests still pass.** Specifically: `tests/test_ui_a11y_baselines.py` (23) + `tests/test_ui_m2_polish.py` (18) + `tests/test_ui_m3_dark_and_htmx_feedback.py` (20). m4 adds new test file(s) but modifies zero existing assertions.
+- [ ] **Verification — manual cross-browser walk** (Chris pre-KR-4): click "Add by URL" with a real arXiv URL on Chrome + Safari on macOS; observe (a) no full-page flash (UPL-12 working), (b) a smooth ~200ms crossfade of the new `<tr>` (UPL-13 working on Chrome+Safari; Firefox no-ops cleanly). Click "Remove notebook" in a different session; the OLD `location.reload()` flow STILL fires (m4 v0 didn't convert that — flag for m5).
+- [ ] **Verification — VoiceOver smoke-test** (Chris pre-KR-4): the new paper-row append should announce via the `#papers-tbody` `aria-live="polite"` region (m1's UPL-3 swap-target a11y).
+- [ ] **Verification — issue #9 hygiene**: m4 does NOT close issue #9 (the full audit remains open as a separate effort). m4's implementation-summary should note that the pre-flight checklist was satisfied INSIDE m4's scope (not the full audit).
+- [ ] Final `frontend/static/app.css` line count ≤ 330 (current 306 + budget ~20 for the View-Transitions duration override + UPL-22's `min-width` + flash keyframe). The m3-rect-revised cap of 330 has just enough room.
+
+**Dependencies.** epic `ui-attractive-polish-e4`. **Hard prereqs (now shipped):** m1's `prefers-reduced-motion` gate (anchors the spin keyframe + the UPL-22 flash gate); m2's `color-mix()` adoption (UPL-22's flash keyframe uses `color-mix(in oklab, var(--accent) 30%, transparent)` per the original synthesis); m3's `.htmx-request` styling (the new add-paper button gets m3's in-flight feedback automatically — confirms the m3 + m4 stack composes cleanly). **Both spikes PASS** (Spike-1: htmx native View Transitions; Spike-2: e4 pre-flight checklist defined). **Issue #9** stays open as a separate effort; NOT a m4 dependency.
+
+**Complexity.** M (~ 1–2 days execution including the 4-phase milestone-pipeline). Largest time slices: (a) the new add-paper fragment handler + content-negotiation branch + 3 new tests for the pre-flight checklist, (b) the manual cross-browser View Transitions verification.
+
+**Specialist suggestion.** `security-reviewer` — see `.claude/skills/roadmap/references/specialist-contracts.md`. UPL-12 introduces a new server-side fragment-rendering branch and the Spike-2 pre-flight checklist explicitly invokes security-correctness axes (XSS, content-negotiation, input-validation gates). The adversary critic should run with the `security-reviewer` lens engaged for the m4 critique. UPL-13 + UPL-22 do not need specialist attention (Spike-1 confirmed zero audit-widening; UPL-22 is CSS-only).
+
 ---
 
 ## Phase 4 — Materialize
@@ -511,30 +600,50 @@ will write the bundle but never invoke `gh` itself.
 
 ### Next step
 
-**Both m1 and m2 are shipped** (see the "Shipped" section under
+**m1, m2, m3 are all shipped + both spikes returned PASS** (see the
+"Shipped" section and the marked-complete Spike-lane entries under
 Phase 3 — Now / Next / Later above). The current Now-lane milestone
-is **`ui-attractive-polish-m3`** (Dark mode + htmx-request feedback,
-bundling UPL-8 v0 + UPL-11). To execute it end-to-end via the 4-phase
-milestone-pipeline (research → implement → critique → rectify), run:
+is **`ui-attractive-polish-m4`** (In-place add-paper swap + View
+Transitions + footer-badge flash, bundling UPL-12 v0 + UPL-13 +
+UPL-22). To execute it end-to-end via the 4-phase milestone-pipeline
+(research → implement → critique → rectify), run:
 
-    /milestone-pipeline ui-attractive-polish-m3
+    /milestone-pipeline ui-attractive-polish-m4
 
 This skill will not invoke milestone-pipeline. Cache stays warmer if
 you start the milestone-pipeline session within 5 minutes of this
 roadmap completing.
 
-After `m3` ships, the next decision point is **e4** (in-place htmx
-swaps + View Transitions + footer-badge flash). Before m4 can be
-scoped, **Spike-1** must complete — verify htmx 2.0.10's
-`htmx.swap()` re-entry signature inside `document.startViewTransition()`
-in a worktree. If Spike-1 returns ok, m4 can be sliced from e4;
-**Spike-2** (UI security audit scoping at `chris-dare-dev/arXMCP#9`)
-soft-gates whether m4's audit-coordination cost is acceptable. Both
-spikes live in the Spike lane above.
+**The m4 brief is materially simpler than the original e4 sketch.**
+Both spikes returned PASS and narrowed the work:
 
-Re-invoke `/roadmap ui-attractive-polish` after m3 ships to slice
-e4 into m4 (and possibly m5 for the v1 follow-ons UPL-8 status-pill
-remap + UPL-19 v1 wider clamp).
+- **Spike-1**: UPL-13 dropped from S effort + audit-widening to **XS
+  (1 LOC config flag)** — htmx 2.0.10 has native View Transitions
+  integration. No `htmx:beforeSwap` wrapper, no `htmx.swap()`
+  re-entry, no new inline-JS audit surface. Just
+  `htmx.config.globalViewTransitions = true;`.
+- **Spike-2**: UPL-12 ships in m4 v0 (add-paper only) with the
+  **e4 pre-flight checklist** as load-bearing AC — 13 mechanically
+  verifiable items the milestone-pipeline adversary critic checks
+  during Phase 3 (server-fragment correctness, middleware integrity,
+  input validation, test surface). Issue #9 (the full UI audit) stays
+  open as a separate effort; it is NOT a m4 dependency.
+
+After `m4` ships, the next decision point is **m5** — a future
+follow-on bundling the v1 deferred items:
+
+- **UPL-12 v1**: convert create-notebook + remove-notebook flows
+  (each new fragment endpoint gets its own Spike-2 pre-flight check
+  pass).
+- **UPL-8 v1**: dark-mode `.status-badge--*` modifier remap +
+  `th { background }` dark surface + freshness color (descoped from
+  m3 per the challenger v0/v1 split).
+- **UPL-19 v1**: `body { max-width: clamp(640px, 92vw, 1400px) }`
+  wider-monitor expansion (descoped from m2).
+
+Re-invoke `/roadmap ui-attractive-polish` after m4 ships to slice
+e4 v1 into m5 (or to wind down the roadmap if the m5 polish doesn't
+justify another milestone).
 
 ### Parallel bug-fix track (not in this roadmap)
 
