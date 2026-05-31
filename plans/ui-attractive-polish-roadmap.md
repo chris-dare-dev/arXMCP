@@ -354,13 +354,15 @@ _No `*` markers — both Musts have evidenced confidence (e1 = 4-brief unanimous
 
 ### Now / Next / Later
 
+- **Shipped** (commits on `origin/main`):
+  - `ui-attractive-polish-m1` (epic e1; commits `924d5ad..40f3552` — feat `c5adff3` + rect `dc30b93` + chore `40f3552`). Foundational a11y baselines UPL-1..4. RICE 10.0. Status: terminal.
+  - `ui-attractive-polish-m2` (epic e2; commits `40f3552..fdd28d4` — feat `672ad81` + rect `4f1f664` + chore `fdd28d4`). Visible polish layer UPL-9/10/19v0/23/25. RICE 9.5. Status: terminal.
 - **Now** (fully spec'd, in-flight or next-up):
-  - `ui-attractive-polish-e1` (1 milestone `m1` below — RICE 10.0)
-  - `ui-attractive-polish-e2` (1 milestone `m2` below — RICE 9.5)
+  - `ui-attractive-polish-e3` (promoted from Next after m1+m2 shipped — its hard prereqs are now realized: m1's `prefers-reduced-motion` gate and m2's `color-mix()` pattern are both live on main). 1 milestone `m3` below.
 - **Next** (shaped, awaiting capacity):
-  - `ui-attractive-polish-e3` (dark mode + htmx feedback; depends on m1's `prefers-reduced-motion` gate and m2's `color-mix()` adoption; not yet sliced into milestones — shape during Phase-4 reflection if e1+e2 land cleanly)
+  - `ui-attractive-polish-e4` (in-place swaps + View Transitions + footer-badge flash). Hard-gated on **Spike-1** (htmx 2.0.10 + View Transitions integration verification, below) AND soft-gated on **Spike-2** (UI security audit scoping at `chris-dare-dev/arXMCP#9`). Cannot promote to Now until at least Spike-1 returns ok.
 - **Later** (outcome-only, low-confidence horizon):
-  - `ui-attractive-polish-e4` (in-place swaps + View Transitions + footer-badge flash; depends on e3 AND the open UI security audit `chris-dare-dev/arXMCP#9` reaching at least a scoped state per Spike-2)
+  - (empty — no further epics planned at this layer; future polish would start a new roadmap)
 
 ### Spike / discovery lane
 
@@ -449,6 +451,46 @@ one static asset.
 
 **Specialist suggestion.** `—`.
 
+### ui-attractive-polish-m3 — Dark mode + htmx-request feedback (UPL-8 v0 + UPL-11)
+
+**Description.** Bundle the two e3 polish items into one CSS pass that
+ships dark-mode parity and per-click visual feedback together. Both
+depend on m1 + m2 (which are shipped on `origin/main`), so this is
+foundation-clean. **UPL-8 v0** adds a `@media (prefers-color-scheme:
+dark) { :root { … } }` block re-declaring the 8 base tokens with
+GitHub-Primer-anchored dark values; per the challenger v0/v1 split,
+the `.status-badge--*` modifier remap + table-header dark surface +
+freshness color stay descoped to a v1 follow-on (so dark-mode
+operators see consistent body chrome but the colored status pills
+keep their light-mode contrast until v1 — visually inconsistent but
+a11y-safe). **UPL-11** adds CSS targeting htmx's auto-applied
+`htmx-request` class so every in-flight button dims + becomes
+non-clickable + shows a tiny CSS-only spinner (the spin animation
+itself is gated by `prefers-reduced-motion: no-preference`, which
+m1 already established). Also adds `hx-disabled-elt="this"` to the
+htmx-bound forms for keyboard a11y parity (so a focused-but-disabled
+button doesn't accept Tab-triggered Enter activation mid-request).
+
+**Acceptance criteria.**
+- [ ] **UPL-8 v0** — `@media (prefers-color-scheme: dark) { :root { … } }` block added to `frontend/static/app.css`. Re-declares all 8 vars (`--fg`, `--bg`, `--card-bg`, `--border`, `--accent`, `--danger`, `--error-bg`, `--mono`) with GitHub-Primer-anchored dark values (e.g. `--fg: #e8e8e8`, `--bg: #0d1117`, `--card-bg: #161b22`, `--border: #30363d`, `--accent: #58a6ff`, `--danger: #f85149`, `--error-bg: #2a1a18`, `--mono` unchanged). Status-pill modifier remap + table-header dark surface + freshness color all stay light-mode (descoped to v1).
+- [ ] **UPL-8 v0 verification** — both light and dark token sets pass WCAG AA non-text contrast (≥ 3:1) for `--fg` on `--bg` AND `--fg` on `--card-bg`. Verify via an offline checker or by inspection of the chosen hex pairs; record the contrast ratios in the milestone's implementation-summary.
+- [ ] **UPL-11** — CSS rules for the auto-applied htmx classes added to `app.css`:
+    - `button.htmx-request, .button.htmx-request { opacity: 0.6; pointer-events: none; cursor: wait; }` (unconditional — these are SIGNAL, not motion).
+    - `.htmx-request::after { content: ""; display: inline-block; width: 0.8em; height: 0.8em; margin-left: 0.5em; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; vertical-align: middle; }` (the spinner shape).
+    - `@media (prefers-reduced-motion: no-preference) { .htmx-request::after { animation: spin 0.6s linear infinite; } @keyframes spin { to { transform: rotate(360deg); } } }` (the spin animation gated by m1's foundational gate).
+- [ ] **UPL-11 form attribute parity** — add `hx-disabled-elt="this"` to the 7 htmx-bound forms (Create notebook in `index.html`; Rename / Add-paper / Upload / Ingest now in `notebook_detail.html`; Remove notebook + Remove paper as button-only deletes). Ensures keyboard users can't double-fire a request via Enter-while-disabled.
+- [ ] **Verification — `make test` exits 0** (via the canonical `/Users/chris.dare/Library/Python/3.9/bin/uv run python -m ruff check . && uv run python -m pytest`). All 41 existing m1+m2 tests still pass; new m3 tests added.
+- [ ] **Verification — manual cross-browser walk** — Chris loads `/ui/` on Chrome + Safari on macOS with the OS theme toggled (Settings → Appearance → Dark vs Light). Both routes (`/ui/` + `/ui/notebooks/<slug>`) render coherently in both modes — no light-mode flash on dark-OS, no broken contrast on light-OS. Also: click "Ingest now" with a cold subprocess pool; the button visibly dims + shows a spinner within 100ms; double-click attempt rejected.
+- [ ] **Verification — manual VoiceOver smoke-test** — VoiceOver on the focused-then-disabled button announces "dim" / "disabled" state via the `hx-disabled-elt` attribute's `aria-disabled` injection (htmx auto-applies); the spinner is invisible to AT (no `aria-label` on the `::after` content).
+- [ ] **Regression test** at `tests/test_ui_m3_dark_and_htmx_feedback.py` (new file) — asserts the `@media (prefers-color-scheme: dark)` block exists + redeclares all 8 vars + the `.htmx-request` CSS rules exist with the correct selectors + the spin keyframe is inside the `prefers-reduced-motion: no-preference` block + every htmx-bound `<form>` in the templates carries `hx-disabled-elt="this"`.
+- [ ] Final `frontend/static/app.css` line count ≤ 270 (current 216 + budget ~50 for dark-mode block + htmx-request styling).
+
+**Dependencies.** epic `ui-attractive-polish-e3`. **Hard prereqs (now shipped):** m1's `prefers-reduced-motion` gate (anchors the spinner animation guard); m2's `color-mix()` adoption (not strictly required for v0 since the status-pill remap is descoped, but the pattern lives now). **No new spike** — both pure-CSS APIs are Baseline Widely Available; the implementation can proceed without measurement.
+
+**Complexity.** M (~ 1–2 days execution including the 4-phase milestone-pipeline; ~50 LOC CSS + 7 attribute additions on htmx forms + the new test file; manual cross-browser theme verification + VoiceOver smoke-test are the largest time slices). Per the milestone-pipeline complexity scale: M is the right grade (1–3 days). Could split into m3 (dark mode) + m4 (htmx-request) but the m1+m2 precedent is to bundle multiple UPLs into one milestone; bundling here saves one full pipeline overhead.
+
+**Specialist suggestion.** `—` (CSS + Jinja2 attribute additions only; milestone-pipeline's default adversary critic covers the surface — token-discipline, prefers-reduced-motion gate compliance, htmx-attribute correctness).
+
 ---
 
 ## Phase 4 — Materialize
@@ -469,26 +511,30 @@ will write the bundle but never invoke `gh` itself.
 
 ### Next step
 
-First Now-lane milestone: `ui-attractive-polish-m1`. To execute it
-end-to-end via the 4-phase milestone-pipeline (research → implement →
-critique → rectify), run:
+**Both m1 and m2 are shipped** (see the "Shipped" section under
+Phase 3 — Now / Next / Later above). The current Now-lane milestone
+is **`ui-attractive-polish-m3`** (Dark mode + htmx-request feedback,
+bundling UPL-8 v0 + UPL-11). To execute it end-to-end via the 4-phase
+milestone-pipeline (research → implement → critique → rectify), run:
 
-    /milestone-pipeline ui-attractive-polish-m1
+    /milestone-pipeline ui-attractive-polish-m3
 
 This skill will not invoke milestone-pipeline. Cache stays warmer if
 you start the milestone-pipeline session within 5 minutes of this
 roadmap completing.
 
-After `m1` ships, run `m2` similarly:
+After `m3` ships, the next decision point is **e4** (in-place htmx
+swaps + View Transitions + footer-badge flash). Before m4 can be
+scoped, **Spike-1** must complete — verify htmx 2.0.10's
+`htmx.swap()` re-entry signature inside `document.startViewTransition()`
+in a worktree. If Spike-1 returns ok, m4 can be sliced from e4;
+**Spike-2** (UI security audit scoping at `chris-dare-dev/arXMCP#9`)
+soft-gates whether m4's audit-coordination cost is acceptable. Both
+spikes live in the Spike lane above.
 
-    /milestone-pipeline ui-attractive-polish-m2
-
-Then reflect: if both ship cleanly, shape epic `e3` into milestones
-(re-invoke `/roadmap ui-attractive-polish` to resume — the doc IS the
-state, and Phase 4 will see e3 in the Next lane and prompt to shape
-it). If a Spike was needed first, kick off `Spike-1` (htmx 2.0.10
-View Transitions integration verification) BEFORE shaping e3's
-milestones.
+Re-invoke `/roadmap ui-attractive-polish` after m3 ships to slice
+e4 into m4 (and possibly m5 for the v1 follow-ons UPL-8 status-pill
+remap + UPL-19 v1 wider clamp).
 
 ### Parallel bug-fix track (not in this roadmap)
 
