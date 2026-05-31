@@ -204,6 +204,31 @@ class Config(BaseSettings):
     #: ``RerankerUnavailableError`` precedent: trust the operator).
     enable_lean: bool = False
 
+    #: onboarding-uplift-m4 — opt-in "wizard mode" for fresh-clone
+    #: operators who want to boot the server BEFORE any corpus exists.
+    #: Default ``False`` preserves the historical behaviour: a cold-start
+    #: (no ``corpus-version.json`` marker) is FATAL and the server
+    #: refuses to start (synthesis D1).
+    #:
+    #: When ``True`` AND no corpus marker is present:
+    #: ``Resources.startup`` skips :class:`CorpusNotIngestedError`, sets
+    #: :attr:`Resources.bootstrap_mode_active` = ``True``, and returns a
+    #: stub instance with ``corpus_info=None`` / ``chunks_table=None``.
+    #: Every MCP tool call is short-circuited to a structured
+    #: ``no_notebook_selected`` envelope (via
+    #: :func:`server.tools._build_bootstrap_envelope`) until the first
+    #: successful ingest fires :meth:`Resources.late_bind`.
+    #:
+    #: FM-7: if ``bootstrap_mode=True`` AND the corpus IS already
+    #: ingested, the flag is silently ignored and the server boots
+    #: normally.  A restart with ``ARXMCP_BOOTSTRAP_MODE=1`` after
+    #: ingest succeeds is therefore benign.
+    #:
+    #: The ``make up-wizard`` convenience target sets this env var
+    #: automatically.  Operators wanting the wizard flow set
+    #: ``ARXMCP_BOOTSTRAP_MODE=1`` or run ``make up-wizard``.
+    bootstrap_mode: bool = False
+
     #: verification-feedback-m2 — directory of the built
     #: ``leanprover-community/repl`` package; the subprocess ``cwd`` for
     #: ``lake exe repl`` (``lake`` sets ``LEAN_PATH`` for that package).

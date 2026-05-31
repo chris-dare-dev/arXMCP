@@ -5,7 +5,7 @@
 
 # FIRST-TIME? — the onboarding-uplift verbs an operator needs on a
 # fresh clone before they can ingest + query.
-.PHONY: help bootstrap up
+.PHONY: help bootstrap up up-wizard
 
 # CORPUS LIFECYCLE — bulk-ingest + reindex paths (E11).
 .PHONY: ingest delta re-embed re-embed-all ingest-recover-preambles
@@ -53,6 +53,10 @@ help:
 	@echo "  make ingest                    Bulk-ingest the seed corpus into the shared LanceDB"
 	@echo "                                 (E11_S01; see docs/ops/bulk-ingest-runbook.md)."
 	@echo "  make up                        Start the arxmcp-server on 127.0.0.1:7733."
+	@echo "  make up-wizard                 Start with ARXMCP_BOOTSTRAP_MODE=1 (fresh-clone"
+	@echo "                                 wizard mode). MCP tools return no_notebook_selected"
+	@echo "                                 envelope until first ingest completes; server then"
+	@echo "                                 promotes itself in-process (no restart needed)."
 	@echo ""
 	@echo "  REPAIR / RECONCILE (onboarding-uplift-m3) — corrective maintenance, NOT first-time:"
 	@echo "  make repair-registry           Re-register on-disk notebooks missing from"
@@ -155,6 +159,17 @@ up:
 		f'arXMCP requires Python >= 3.$(MIN_PY_MINOR); got {sys.version_info[:2]}. \
 Try: make up PYTHON=python3.$(MIN_PY_MINOR)'"
 	$(PYTHON) -m server.main
+
+# onboarding-uplift-m4: wizard-mode entry point for fresh-clone operators.
+# Sets ARXMCP_BOOTSTRAP_MODE=1 so the server boots without a corpus;
+# MCP tools return the structured no_notebook_selected envelope until the
+# first ingest completes and Resources.late_bind() promotes the process.
+# Does NOT require a pre-existing corpus-version.json.
+up-wizard:
+	@$(PYTHON) -c "import sys; assert sys.version_info >= (3, $(MIN_PY_MINOR)), \
+		f'arXMCP requires Python >= 3.$(MIN_PY_MINOR); got {sys.version_info[:2]}. \
+Try: make up-wizard PYTHON=python3.$(MIN_PY_MINOR)'"
+	ARXMCP_BOOTSTRAP_MODE=1 $(PYTHON) -m server.main
 
 status:
 	@# notebook-ops-hardening-m4: one-action "is it running + ready?".

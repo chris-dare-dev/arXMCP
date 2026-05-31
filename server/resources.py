@@ -319,8 +319,14 @@ class Resources:
     """
 
     config: Config
-    corpus_info: CorpusVersionInfo
-    chunks_table: Any  # lancedb.table.Table — typed via duck-shape to avoid heavy import in tests
+    # onboarding-uplift-m4: both nullable in bootstrap mode (when
+    # ARXMCP_BOOTSTRAP_MODE=1 and no corpus marker exists). The
+    # orchestrator-level stub-check in server.tools._build_bootstrap_envelope
+    # handles the None path — handlers never reach corpus_info.version in
+    # bootstrap mode.  On the normal (non-bootstrap) path these are always
+    # populated by Resources.startup before /readyz opens.
+    corpus_info: CorpusVersionInfo | None
+    chunks_table: Any | None  # lancedb.table.Table — typed via duck-shape; None in bootstrap mode
     embed_semaphore: asyncio.Semaphore
     rerank_semaphore: asyncio.Semaphore
     rerank_singleflight: Singleflight
@@ -408,6 +414,18 @@ class Resources:
         default_factory=OrderedDict
     )
     _notebook_tables_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    # onboarding-uplift-m4: bootstrap mode support.
+    # ``bootstrap_mode_active`` is True only when ARXMCP_BOOTSTRAP_MODE=1
+    # AND no corpus marker was present at startup.  Flips to False
+    # permanently after ``late_bind`` completes successfully (one-way).
+    # Checked by the orchestrator stub-check in server.tools before
+    # dispatching handlers; handlers must NOT check this directly.
+    bootstrap_mode_active: bool = False
+    # One-way asyncio.Event set by ``late_bind`` once the corpus is ready.
+    # Preferred over Lock+flag (synthesis D2): the event loop is single-
+    # threaded, set() is an atomic one-way operation, and handlers can check
+    # ``not event.is_set()`` cheaply on the hot path without lock overhead.
+    _corpus_ready_event: asyncio.Event = field(default_factory=asyncio.Event)
 
     # ------------------------------------------------------------------
     # Startup / shutdown
@@ -437,14 +455,56 @@ class Resources:
            this returns successfully.
         """
         # 1. Corpus marker — REFUSE TO START on absent (synthesis D5).
+        # onboarding-uplift-m4: bootstrap_mode=True + absent marker → skip
+        # CorpusNotIngestedError and return a stub instance immediately.
+        # bootstrap_mode=True + PRESENT marker → log INFO and ignore the
+        # hint (FM-7); continue with normal boot.
         corpus_info = read_corpus_version(config.lancedb_path)
         if corpus_info is None:
-            marker = Path(config.lancedb_path) / "corpus-version.json"
-            raise CorpusNotIngestedError(
-                f"corpus-version.json not found at {marker}; "
-                f"run the ingest pipeline first. The server "
-                f"refuses to start on a cold-start corpus state."
+            if not config.bootstrap_mode:
+                marker = Path(config.lancedb_path) / "corpus-version.json"
+                raise CorpusNotIngestedError(
+                    f"corpus-version.json not found at {marker}; "
+                    f"run the ingest pipeline first. The server "
+                    f"refuses to start on a cold-start corpus state. "
+                    f"(Operators wanting a fresh-clone wizard flow: set "
+                    f"ARXMCP_BOOTSTRAP_MODE=1 or run `make up-wizard`.)"
+                )
+            # Bootstrap mode: no corpus yet. Build a minimal stub instance
+            # and return early — BGE-M3, LanceDB, BM25, cache, Lean are
+            # all deferred until late_bind() is called after first ingest.
+            logger.info(
+                "Resources.startup: bootstrap mode active; no corpus marker "
+                "found at %s — MCP tools will return stub-mode envelope until "
+                "ingest completes and Resources.late_bind() is called",
+                Path(config.lancedb_path) / "corpus-version.json",
             )
+            embed_semaphore = asyncio.Semaphore(config.max_concurrent_embeddings)
+            rerank_semaphore = asyncio.Semaphore(config.max_concurrent_reranks)
+            rerank_singleflight = Singleflight()
+            stub = cls(
+                config=config,
+                corpus_info=None,
+                chunks_table=None,
+                embed_semaphore=embed_semaphore,
+                rerank_semaphore=rerank_semaphore,
+                rerank_singleflight=rerank_singleflight,
+                warm=False,
+                bootstrap_mode_active=True,
+            )
+            return stub
+
+        if config.bootstrap_mode:
+            # FM-7: corpus is already ingested; the flag is a hint, not
+            # an override.  Log and continue with normal boot.
+            logger.info(
+                "Resources.startup: ARXMCP_BOOTSTRAP_MODE=1 requested but "
+                "corpus marker already present at %s (version=%d); "
+                "booting normally (bootstrap_mode hint ignored)",
+                Path(config.lancedb_path) / "corpus-version.json",
+                corpus_info.version,
+            )
+
         logger.info(
             "Resources.startup: pinning corpus_version=%d (paper_count=%d, "
             "chunk_count=%d, chunker=%s, embedder=%s)",
@@ -950,6 +1010,124 @@ class Resources:
 
         logger.info("Resources.startup: warm")
         return instance
+
+    async def late_bind(self, config: Config) -> bool:
+        """Promote a bootstrap-mode stub to a fully-operational instance.
+
+        Called by :class:`server.ingest_tracker.IngestTaskTracker`'s
+        ``on_success_callback`` after the first ingest subprocess exits 0.
+        Idempotent: returns ``False`` immediately if
+        ``bootstrap_mode_active`` is already ``False`` (either a previous
+        call succeeded, or the server booted normally).
+
+        Failure modes:
+        - ``corpus-version.json`` still absent after exit 0 (FM-3): logs
+          WARN and returns ``False`` without flipping.  The next ingest
+          run will retry.
+        - Any other exception (LanceDB open, BM25 build, cache open):
+          logged at ERROR, NOT propagated.  The stub remains active;
+          the operator can trigger a retry via another ingest.
+
+        Returns ``True`` on successful promotion, ``False`` otherwise.
+        """
+        if not self.bootstrap_mode_active:
+            return False
+
+        corpus_info = read_corpus_version(config.lancedb_path)
+        if corpus_info is None:
+            logger.warning(
+                "Resources.late_bind: corpus marker still absent after "
+                "ingest exited 0 (FM-3); staying in bootstrap mode. "
+                "The next successful ingest will retry.",
+            )
+            return False
+
+        try:
+            loop = asyncio.get_running_loop()
+
+            # Open the LanceDB chunks table at the pinned version.
+            chunks_table, degraded = await loop.run_in_executor(
+                None,
+                lambda: open_chunks_table_with_fallback(
+                    lancedb_path=config.lancedb_path,
+                    version=corpus_info.version,
+                ),
+            )
+            if degraded is not None:
+                logger.warning(
+                    "Resources.late_bind: LanceDB OPENED IN DEGRADED MODE "
+                    "(reason=%s); serving fallback version %d",
+                    degraded.reason,
+                    degraded.fallback_version,
+                )
+
+            # Build BM25 phase.
+            from server.retrieval import BM25Phase  # noqa: PLC0415
+
+            live_chunk_ids = set(
+                chunks_table.to_arrow().column("chunk_id").to_pylist()
+            )
+            bm25_phase = await BM25Phase.startup(
+                lancedb_path=config.lancedb_path,
+                corpus_version=corpus_info.version,
+                live_chunk_ids=live_chunk_ids,
+                bm25_index_root=config.bm25_index_root,
+            )
+
+            # Build ANN phase.
+            from server.retrieval import ANNPhase  # noqa: PLC0415
+
+            ann_phase = ANNPhase(chunks_table=chunks_table)
+
+            # Open retrieval cache.
+            from server.cache import RetrievalCache, set_cache  # noqa: PLC0415
+
+            retrieval_cache = await RetrievalCache.open(
+                cache_db_path=config.cache_db_path,
+                corpus_version=corpus_info.version,
+            )
+            set_cache(retrieval_cache)
+
+            # Build rerank phase (using existing semaphore/singleflight).
+            from server.retrieval.rerank import RerankPhase  # noqa: PLC0415
+
+            rerank_phase = RerankPhase(
+                chunks_table=chunks_table,
+                rerank_singleflight=self.rerank_singleflight,
+                rerank_semaphore=self.rerank_semaphore,
+                enabled=config.enable_rerank,
+                model_handle=self.reranker_model,
+            )
+
+            # In-place mutate fields.  Set bootstrap_mode_active = False
+            # BEFORE setting the event so any coroutine awaiting the event
+            # sees the flipped flag when it wakes.
+            self.corpus_info = corpus_info
+            self.chunks_table = chunks_table
+            self.bm25_phase = bm25_phase
+            self.ann_phase = ann_phase
+            self.rerank_phase = rerank_phase
+            self.cache = retrieval_cache
+            self.degraded = degraded
+            self.warm = True
+            self.bootstrap_mode_active = False
+            self._corpus_ready_event.set()
+
+            logger.info(
+                "Resources.late_bind: promoted to normal operation "
+                "(corpus_version=%d, paper_count=%d, chunk_count=%d)",
+                corpus_info.version,
+                corpus_info.paper_count,
+                corpus_info.chunk_count,
+            )
+            return True
+
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "Resources.late_bind: promotion failed; staying in "
+                "bootstrap mode. Retry via another ingest run."
+            )
+            return False
 
     async def notebook_table(
         self, slug: str

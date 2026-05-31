@@ -519,7 +519,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             )
         # m9: ingest task tracker — fire-and-forget subprocess
         # registry for the UI ingest trigger.
-        app.state.ingest_tracker = IngestTaskTracker()
+        # onboarding-uplift-m4: closure binds the tracker to
+        # resources.late_bind so a successful first ingest promotes
+        # the server from bootstrap mode to normal operation without
+        # a restart.
+        async def _on_ingest_success(_slug: str) -> None:
+            await resources.late_bind(config)
+
+        app.state.ingest_tracker = IngestTaskTracker(
+            on_success_callback=_on_ingest_success,
+        )
         # textbook-ingest-m6: parse task tracker — fire-and-forget
         # registry for the textbook PDF parse pipeline (MinerU +
         # LaTeXML). Mirrors IngestTaskTracker; runs in-process via

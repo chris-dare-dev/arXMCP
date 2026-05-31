@@ -396,6 +396,48 @@ def reset_resources_for_tests() -> None:
 # ---------------------------------------------------------------------------
 
 
+#: onboarding-uplift-m4 — sentinel corpus_version echoed in every
+#: bootstrap-mode stub response.  Mirrors the ``startup_chunk_count``
+#: "could not determine" pattern (``-1``).  Named as a constant so the
+#: adversary tests, the test suite, and future code reference the same
+#: literal rather than scattering magic ``-1`` values.
+BOOTSTRAP_CORPUS_VERSION_SENTINEL: int = -1
+
+
+def _build_bootstrap_envelope(tool_name: str) -> dict[str, Any]:
+    """Return the structured no-corpus stub response for bootstrap mode.
+
+    Returned by :func:`_wrap_with_observability` when
+    ``resources.bootstrap_mode_active is True``, BEFORE dispatching to
+    the per-tool handler. Constructing the dict literally (NOT calling
+    :func:`envelope`) is load-bearing: ``envelope()`` calls
+    ``get_resources().corpus_info.version``, which crashes with
+    ``AttributeError`` when ``corpus_info is None`` (bootstrap mode).
+
+    Per the MCP 2025-06-18 spec §"Tool Execution Errors": structured
+    error envelopes with ``isError: true`` are the correct mechanism for
+    business-logic errors.  ``error_code="no_notebook_selected"`` tells
+    the caller the operation is retry-able once an ingest completes.
+    """
+    payload: dict[str, Any] = {
+        "content": [
+            {
+                "type": "text",
+                "text": (
+                    "No corpus ingested yet. Open the operator console at "
+                    "http://127.0.0.1:7733/ui/ to create a notebook and "
+                    "start ingestion, then retry this tool call."
+                ),
+            }
+        ],
+        "corpus_version": BOOTSTRAP_CORPUS_VERSION_SENTINEL,
+        "error_code": "no_notebook_selected",
+        "isError": True,
+        "tool": tool_name,
+    }
+    return _sort_dict(payload)
+
+
 def envelope(
     payload: dict[str, Any],
     *,
@@ -756,6 +798,21 @@ def _wrap_with_observability(tool_name: str, handler: Any) -> Any:
             status = "error"
             result: Any = None
             try:
+                # onboarding-uplift-m4: orchestrator-level bootstrap stub-check.
+                # Short-circuit BEFORE dispatching to the per-handler to avoid
+                # crashing on corpus_info.version when corpus_info is None.
+                # Status="ok" because the server is behaving correctly — it's
+                # a business-logic signal per MCP 2025-06-18 spec §"Tool
+                # Execution Errors".
+                try:
+                    _r = get_resources()
+                except ResourcesNotReadyError:
+                    _r = None
+                if _r is not None and getattr(_r, "bootstrap_mode_active", False):
+                    result = _build_bootstrap_envelope(tool_name)
+                    status = "ok"
+                    return result
+
                 result = await handler(*args, **kwargs)
                 status = "ok"
                 return result
@@ -873,7 +930,9 @@ def register_all(mcp_server: FastMCP) -> None:
 
 __all__ = [
     "ALL_TOOLS",
+    "BOOTSTRAP_CORPUS_VERSION_SENTINEL",
     "CHUNK_RESOURCE_URI_SCHEME",
+    "_build_bootstrap_envelope",
     "CITE_NEIGHBORS",
     "FIND_EQUATION",
     "FIND_LEMMA_BY_NAME",

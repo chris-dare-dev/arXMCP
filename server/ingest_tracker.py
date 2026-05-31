@@ -49,6 +49,8 @@ import sys
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from server.notebooks_store import NotebooksStore
 
 logger = logging.getLogger(__name__)
@@ -123,9 +125,24 @@ class IngestTaskTracker:
     in-flight tasks on daemon stop.
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        on_success_callback: Callable[[str], Awaitable[None]] | None = None,
+    ) -> None:
+        """Construct the tracker.
+
+        Args:
+            on_success_callback: Optional async callable invoked after
+                a successful ingest subprocess exits 0.  Receives the
+                slug as its single argument.  Exceptions are logged at
+                ERROR and NOT propagated (FM-3 from m4 synthesis §3 D6)
+                so a late-bind failure never leaves the ingest-status
+                row in a bad state or prevents the task from completing.
+        """
         self._tasks: dict[str, asyncio.Task] = {}
         self._global_cap = asyncio.Semaphore(1)
+        self._on_success_callback = on_success_callback
 
     def is_running(self, slug: str) -> bool:
         """Return True if a live in-flight task exists for ``slug``.
@@ -296,6 +313,21 @@ class IngestTaskTracker:
                 exit_code=exit_code,
                 stderr_tail=stderr_tail if status == store.INGEST_STATUS_FAILED else None,
             )
+            # onboarding-uplift-m4: fire on_success_callback after a
+            # successful ingest so Resources.late_bind() can promote the
+            # server from bootstrap mode to normal operation in-process.
+            # Exceptions are logged at ERROR and NOT propagated (FM-3 /
+            # synthesis D6) — a late-bind failure must never corrupt the
+            # DB row or re-raise through the task.
+            if exit_code == 0 and self._on_success_callback is not None:
+                try:
+                    await self._on_success_callback(slug)
+                except Exception:  # noqa: BLE001
+                    logger.exception(
+                        "IngestTaskTracker on_success_callback raised for "
+                        "slug=%s; bootstrap late-bind may not have occurred",
+                        slug,
+                    )
 
     async def shutdown(self, *, timeout_seconds: float = 5.0) -> None:
         """Cancel every in-flight task and await with a short timeout.
