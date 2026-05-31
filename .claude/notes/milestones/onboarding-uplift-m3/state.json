@@ -24,7 +24,13 @@
   "external_writes_authorized": false,
   "external_writes_completed": false,
   "external_writes_required": [],
-  "fixed_findings": [],
+  "fixed_findings": [
+    "F1",
+    "F2",
+    "F3",
+    "F4",
+    "IS1"
+  ],
   "id": "onboarding-uplift-m3",
   "implementation_base": "08b9c53087892a2861456e1b33db5b4038e48161",
   "implementation_branch": "main",
@@ -37,7 +43,7 @@
   "implementation_summary_path": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/onboarding-uplift-m3/implementation-summary.md",
   "invalidated_findings": [],
   "milestone_brief": "**Repair + reconcile endpoints.** m3 of the startup-UX uplift (proposal at `.claude/notes/uplift/startup-ux/streamlined-flow-proposal.md` \u00a79; decisions at `.claude/notes/uplift/startup-ux/decisions.md`).\n\nGoal: give the operator a *cure* for the two registry/marker drift bugs we hand-fixed earlier this session. Today, when the on-disk `var/arxmcp/notebooks/<slug>/` dirs and the SQLite `notebooks` registry get out of sync, the only fix is hand-written SQL. When the `corpus-version.json` marker drifts from the actual LanceDB row count (the m1/m2 chunk_count regressions), the only fix is a hand-written Python recompute. m3 lifts both into operator-facing REST endpoints + Make targets + a UI badge that explains the DEGRADED label.\n\n**Concrete scope (~6 files, ~450 LOC main + tests):**\n\n1. **`POST /ui/api/admin/repair-registry`** (NEW REST endpoint) \u2014 Walks `var/arxmcp/notebooks/`. For every on-disk dir with a `corpus-version.json` marker that is NOT registered in `notebooks.db::notebooks`, inserts a row via the canonical `NotebooksStore.create_notebook` path (idempotent). Returns `{\"registered\": [\"slug-a\", \"slug-b\"], \"already_registered\": [\"slug-c\"], \"skipped_no_marker\": [\"empty-dir\"]}`. Audit-logged at INFO. Closes the on-disk-vs-registry gap the m1 critique flagged.\n\n2. **`POST /ui/api/notebooks/<slug>/reconcile-marker`** (NEW REST endpoint) \u2014 Opens the per-notebook LanceDB at the pinned `corpus-version.json` version, counts actual rows (`tbl.count_rows()`) + distinct paper_ids, and rewrites the marker JSON preserving `version` / `chunker_version` / `embedder_version` / `created_at`. Returns `{\"before\": {chunk_count: 824, paper_count: 1}, \"after\": {chunk_count: 5266, paper_count: 12}, \"drift_resolved\": 4442}`. Audit-logged at INFO with the delta. Cardinal regression guard: a concurrent ingest writing to the same LanceDB while the reconcile is reading should not produce torn writes (the LanceDB checkout-at-version contract handles this \u2014 verify).\n\n3. **`GET /ui/api/notebooks/<slug>/health`** (NEW REST endpoint) \u2014 Per-notebook drift report. Returns `{marker_chunks, actual_chunks, marker_paper_count, actual_paper_count, drift_count, drift_pct, corpus_version, last_marker_update, unindexed_rows_at_startup, status: \"ok\" | \"drift\" | \"stale\"}`. The shared global corpus continues to surface via the existing `/status` endpoint; this is per-notebook for fork-A / fork-C operators.\n\n4. **`make repair-registry`** + **`make reconcile NOTEBOOK=<slug>`** (NEW Make targets) \u2014 Thin curl wrappers when server up; direct Python (open `NotebooksStore` / `lancedb`) when server down. Per m2's pattern.\n\n5. **`/ui/status-badge` tooltip extension** \u2014 Today the badge is just text + colour. When `status=\"degraded\"` OR `warn`, render a `<details>` tooltip that explains: (a) which check fired (`corpus:version drift`, `notebooks:count mismatch`, `backup:time stale`), (b) the remediation command (`make reconcile NOTEBOOK=<slug>` for marker drift; `make repair-registry` for registry drift). The tooltip is operator-actionable \u2014 answers \"what do I do about this?\" within the badge.\n\n6. **m2 critique F8 (deferred LOW)** \u2014 Split the `Makefile:1` `.PHONY` line into multiple `.PHONY: \u2026` declarations grouped by section. m3 tidy-up.\n\n**Decisions inherited:**\n- **D2 (corpus-level ingest)** \u2014 `reconcile-marker` operates on the per-notebook LanceDB. The shared global corpus has its own marker at `var/arxmcp/index/lancedb/corpus-version.json`; if the operator wants to reconcile THAT one, pass `--shared` (or omit `NOTEBOOK=`). The Make recipe handles both.\n- **D4 (operator settings in SQLite)** \u2014 unchanged; m3 doesn't touch operator_settings.\n- **D5 \u2014 make add 404 vs connection-refused distinction** \u2014 extended to the new endpoints (404 = clean error, never silent fallback).\n- **m2 critique F1 lesson** \u2014 both new endpoints route writes through `NotebooksStore` (the canonical owner of the `notebooks` table schema). Direct SQLite writes are BANNED in m3 code paths.\n\n**Acceptance criteria:**\n- AC1: `POST /ui/api/admin/repair-registry` finds on-disk dirs (e.g. the live `shimura-varieties`, `bridgeland-stability`) missing from `notebooks.db` and registers them via `NotebooksStore.create_notebook`. Idempotent (re-running adds zero rows). Returns the structured response shape.\n- AC2: `POST /ui/api/notebooks/<slug>/reconcile-marker` against a notebook with drift (live test: hand-author a marker with `chunk_count=99` against a table that actually has N>99 rows) recomputes + rewrites the marker. Audit-logged with before/after delta.\n- AC3: `GET /ui/api/notebooks/<slug>/health` returns the structured drift report; the `status` field correctly reports `\"drift\"` when marker disagrees with actual, `\"ok\"` when in sync, `\"stale\"` when marker is >24h old.\n- AC4: `make repair-registry` and `make reconcile [NOTEBOOK=<slug>]` work server-up (curl) and server-down (direct Python). Idempotent. Match the m2 dual-mode pattern.\n- AC5: `/ui/status-badge` now renders an actionable `<details>` tooltip when degraded/warn, naming the affected check AND the remediation Make command.\n- AC6: Makefile `.PHONY` split into per-section declarations (closes m2 F8).\n- AC7: `make test` green, `ruff check .` clean.\n- AC8: `EXPECTED_TOOL_SCHEMA_SHA256` + `EXPECTED_BP1_SHA256` UNCHANGED (the new REST endpoints are at `/ui/api/`, NOT the MCP `/mcp/` surface).\n- AC9: New regression tests for each endpoint + each Make target + the badge tooltip rendering.\n\n**Cardinal safety checks (for the adversary):**\n- The `reconcile-marker` endpoint MUST NOT mutate the LanceDB itself \u2014 only rewrites the JSON sidecar. The LanceDB is opened in checkout-at-version mode (read-only).\n- The `repair-registry` endpoint MUST use `NotebooksStore.create_notebook` (the canonical writer) \u2014 NOT a direct SQLite INSERT. m2 critique F1 lesson.\n- A concurrent ingest writing to the same LanceDB while `reconcile-marker` is reading MUST NOT produce torn results. Verify the LanceDB version-pinning semantics.\n- The badge tooltip MUST NOT leak internal state (e.g. file paths) at the operator-facing level. Stick to \"drift in <check-name>; run <make-target> to heal\".\n- The `health` endpoint MUST NOT cause an expensive scan on every request \u2014 use the pre-cached `Resources.startup_chunk_count` / `startup_unindexed_rows` for the actual values rather than re-counting per call.\n\n**Out of scope (m4+):**\n- Bootstrap mode / soft cold-start \u2192 m4\n- BGE-M3 download bytes progress \u2192 m4\n- Wizard \u2192 m5\n- Per-notebook freshness panel on the notebook detail page \u2192 m6\n\n**Effort:** ~1 day (proposal \u00a79 says \"1 day. Run the pipeline.\"). Touch ~6-8 files. New architecture surface is the 3 REST endpoints (additive). Purely local.\n\n**No external writes required.**",
-  "phase": "rectify-running",
+  "phase": "complete",
   "phase_history": [
     {
       "entered_at": "2026-05-31T04:32:17Z",
@@ -76,12 +82,20 @@
     },
     {
       "entered_at": "2026-05-31T05:13:29Z",
-      "left_at": null,
+      "left_at": "2026-05-31T05:19:22Z",
       "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-05-31T05:19:22Z",
+      "left_at": null,
+      "phase": "complete"
     }
   ],
-  "rectification_commit": null,
-  "regression_tests_added": [],
+  "rectification_commit": "b242eb4517475f69af476fb5dcd9ecefc88b6f6e",
+  "regression_tests_added": [
+    "tests/test_m3_endpoints.py::TestReconcileMarker::test_422_detail_omits_absolute_path",
+    "tests/test_m3_endpoints.py::TestStatusBadgeRemediation::test_remediation_small_does_not_redeclare_aria_live"
+  ],
   "research_briefs": [
     {
       "agent_id": "researcher-1",
@@ -96,5 +110,5 @@
   ],
   "research_mode": "standard",
   "research_synthesis": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/onboarding-uplift-m3/research-synthesis.md",
-  "updated_at": "2026-05-31T05:13:29Z"
+  "updated_at": "2026-05-31T05:19:22Z"
 }
