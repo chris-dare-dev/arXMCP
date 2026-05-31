@@ -11,9 +11,13 @@ Regression tests for the 5 visible-polish items from the
   surface that changes on htmx swap (``time``, ``.status-badge``,
   ``dl.meta dd``, ``td code``).
 - **UPL-19 v0** ``<div class="table-wrap">`` wrapping both tables +
-  ``.table-wrap { overflow-x: auto }`` in CSS. The wider
-  ``body { max-width: clamp(…) }`` expansion is descoped to v1 — the
-  regression test ASSERTS the current ``980px`` ceiling stays.
+  ``.table-wrap { overflow-x: auto }`` in CSS. m2 v0 preserved the
+  ``980px`` ceiling; **m5 (UPL-19 v1)** lifted that to
+  ``clamp(640px, 92vw, 1400px)`` so the papers table breathes on
+  27"/4K monitors. The regression test was renamed
+  (``test_body_max_width_uses_v1_clamp``) and the assertion flipped
+  at the v1 ship boundary — m5 also added a negative-regression
+  check that ``max-width: 980px`` is absent from the body block.
 - **UPL-23** Five footer ``·`` interpuncts wrapped in
   ``<span aria-hidden="true">·</span>``. The assertion checks both
   that wrappers exist AND that no bare interpunct survives the wrap.
@@ -178,25 +182,15 @@ class TestUPL19TableWrap:
             "gone from the body rule. m5 superseded it with clamp()."
         )
 
-    def test_body_max_width_guard_discriminates(self) -> None:
-        # Per m2-rect F1 critic's regression-guard suggestion: prove the
-        # F1-rectified guard has discriminating power by mutating a
-        # synthetic CSS string with the v1 clamp() and asserting the
-        # pinned regex no longer matches.
-        synthetic_v1 = APP_CSS_NO_COMMENTS.replace(
-            "max-width: 980px",
-            "max-width: clamp(640px, 92vw, 1400px)",
-        )
-        body_block = _re.search(
-            r"body\s*\{[^}]*max-width:\s*980px[^}]*\}",
-            synthetic_v1,
-            flags=_re.S,
-        )
-        assert body_block is None, (
-            "Test self-check: the F1-rectified guard should fail to "
-            "match against synthetic v1 CSS — if it does, the guard "
-            "is not discriminating."
-        )
+    # m5-rect F1: `test_body_max_width_guard_discriminates` was DELETED.
+    # The test was a v0 self-check that mutated `max-width: 980px` →
+    # `clamp(...)` and asserted the legacy regex no longer matched.
+    # m5 ships UPL-19 v1 (the lift), so the original substring no
+    # longer exists in `app.css`; the `.replace()` became a no-op and
+    # the assertion held vacuously regardless of input. The negative-
+    # regression check in `test_body_max_width_uses_v1_clamp` above
+    # already pins "max-width: 980px not in body block" — the
+    # discriminator test added no additional safety.
 
 
 # ---------------------------------------------------------------------------

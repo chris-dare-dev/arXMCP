@@ -299,6 +299,42 @@ class TestUPL12V1CreatePreFlightChecklist:
         # to JSON.
         assert "application/json" in r.headers.get("content-type", "").lower()
 
+    def test_create_textbook_kind_returns_same_fragment_shape(
+        self, m5_client: TestClient
+    ) -> None:
+        # m5-rect F4: ``_notebook_row_html`` accepts ``notebook_kind``
+        # but DROPS it from the rendered fragment (the index.html
+        # template doesn't show kind today). Verify the textbook-kind
+        # code path through the HTML branch produces a fragment
+        # visually indistinguishable from the arxiv-kind case AND
+        # does NOT leak the upstream ``parse_status="pending"`` flag
+        # (which the create handler sets at notebooks.py:300-302 for
+        # textbook-kind notebooks). Regression guard against a future
+        # template adding a kind column expecting the helper to
+        # render it.
+        r = m5_client.post(
+            "/ui/api/notebooks",
+            json={
+                "slug": "tb-nb",
+                "display_name": "Hartshorne",
+                "notebook_kind": "textbook",
+            },
+            headers={"HX-Request": "true"},
+        )
+        assert r.status_code == 201, r.text
+        assert "text/html" in r.headers.get("content-type", "").lower()
+        text = r.text
+        # 4-column schema, same as arxiv (no kind column today).
+        assert '<tr data-slug="tb-nb">' in text
+        assert "<td><code>tb-nb</code></td>" in text
+        assert "<td>Hartshorne</td>" in text
+        # Kind is dropped from the row — accepted by helper signature
+        # but unused (per the helper docstring's future-proofing note).
+        assert "textbook" not in text
+        # parse_status NOT leaked into the HTML branch either.
+        assert "pending" not in text
+        assert "parse_status" not in text
+
 
 # ---------------------------------------------------------------------------
 # UPL-12 v1 (create) — index.html template changes
