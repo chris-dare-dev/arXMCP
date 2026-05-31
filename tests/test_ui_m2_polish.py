@@ -151,12 +151,40 @@ class TestUPL19TableWrap:
 
     def test_body_max_width_980px_preserved(self) -> None:
         # The wider clamp(640px, 92vw, 1400px) expansion is descoped to
-        # v1 per the challenger. m2 v0 preserves the 980px ceiling.
-        # If a future commit accidentally lands the v1 expansion, this
-        # test reminds the implementer it requires its own milestone.
-        assert "max-width: 980px" in APP_CSS, (
-            "UPL-19 v0: body max-width: 980px is the v0 ceiling; the "
-            "wider clamp(...) is descoped to v1 per the challenger."
+        # v1 per the challenger. m2 v0 preserves the 980px ceiling. If
+        # a future v1 PR changes the body rule to clamp(...) but leaves
+        # the m2 documentation comment intact, the regression would slip
+        # past a substring match — m2-rect F1 widens the guard to scan
+        # the comment-stripped CSS AND pin the match to the body { ... }
+        # block specifically.
+        body_block = _re.search(
+            r"body\s*\{[^}]*max-width:\s*980px[^}]*\}",
+            APP_CSS_NO_COMMENTS,
+            flags=_re.S,
+        )
+        assert body_block is not None, (
+            "UPL-19 v0: body { max-width: 980px } is the v0 ceiling; "
+            "the wider clamp(...) is descoped to v1 per the challenger."
+        )
+
+    def test_body_max_width_guard_discriminates(self) -> None:
+        # Per m2-rect F1 critic's regression-guard suggestion: prove the
+        # F1-rectified guard has discriminating power by mutating a
+        # synthetic CSS string with the v1 clamp() and asserting the
+        # pinned regex no longer matches.
+        synthetic_v1 = APP_CSS_NO_COMMENTS.replace(
+            "max-width: 980px",
+            "max-width: clamp(640px, 92vw, 1400px)",
+        )
+        body_block = _re.search(
+            r"body\s*\{[^}]*max-width:\s*980px[^}]*\}",
+            synthetic_v1,
+            flags=_re.S,
+        )
+        assert body_block is None, (
+            "Test self-check: the F1-rectified guard should fail to "
+            "match against synthetic v1 CSS — if it does, the guard "
+            "is not discriminating."
         )
 
 
@@ -273,4 +301,17 @@ class TestUPL25Favicon:
         assert '<link rel="icon"' in head_block, (
             "UPL-25: <link rel=\"icon\"> is not inside <head> — browser "
             "won't pick it up"
+        )
+
+    def test_favicon_listed_in_vendored_md_inventory(self) -> None:
+        # m2-rect F3: the favicon is project-authored (like app.css) and
+        # must appear in the VENDORED.md inventory so an auditor reading
+        # the manifest can tell at a glance that the static directory's
+        # contents are accounted for. Without inventory disclosure, the
+        # next project-authored static asset slips in unnoticed.
+        vendored = (FRONTEND_STATIC / "VENDORED.md").read_text(encoding="utf-8")
+        assert "favicon.svg" in vendored, (
+            "m2-rect F3: frontend/static/VENDORED.md missing favicon.svg "
+            "inventory entry — every static file should be listed with "
+            "its provenance (vendored vs project-authored)."
         )

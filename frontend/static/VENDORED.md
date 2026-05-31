@@ -36,3 +36,9 @@ above AND the constant in the test in lockstep.
 ### `app.css`
 
 Project-authored, not vendored. No hash recorded.
+
+### `favicon.svg`
+
+Project-authored, not vendored. No hash recorded. (Added in
+ui-attractive-polish-m2 / UPL-25 to eliminate the `/favicon.ico → 403`
+SecFetchSite devtools noise.)
