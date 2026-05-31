@@ -5,6 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}arXMCP — notebooks{% endblock %}</title>
   <link rel="stylesheet" href="/ui/static/app.css">
+  {# ui-attractive-polish-m2 (UPL-25): SVG favicon served from /ui/static/
+     (same-origin under the /ui carve-out, no SecFetchSite or CSP change
+     needed — img-src 'self' in CONTENT_SECURITY_POLICY_UI already covers
+     it). Eliminates the /favicon.ico → 403 devtools noise. The fill
+     color is hardcoded #1e5b8a (matching --accent) because favicons
+     render in browser-tab context and don't inherit page CSS variables. #}
+  <link rel="icon" href="/ui/static/favicon.svg" type="image/svg+xml">
   <!-- htmx 2.0.10 vendored at frontend/static/htmx.min.js (0BSD; m8 AC #5). -->
   <script src="/ui/static/htmx.min.js" defer></script>
   <!-- m8 rect F1: the m7 JSON routes require application/json, but
@@ -63,9 +70,14 @@
   </main>
   <footer>
     <small>
-      Loopback only · same-origin only ·
-      Destructive notebook wipe lives in <code>tools/notebook_purge.py</code> ·
-      <a href="/healthz">/healthz</a> · <a href="/readyz">/readyz</a> ·
+      {# ui-attractive-polish-m2 (UPL-23): the 5 footer middle-dot
+         separators are decorative. Wrapping in <span aria-hidden="true">
+         keeps them off the accessibility tree so VoiceOver/NVDA don't
+         interrupt the link list by reading "middle dot" / "interpunct"
+         between every textual segment. Static HTML — no htmx interaction. #}
+      Loopback only <span aria-hidden="true">·</span> same-origin only <span aria-hidden="true">·</span>
+      Destructive notebook wipe lives in <code>tools/notebook_purge.py</code> <span aria-hidden="true">·</span>
+      <a href="/healthz">/healthz</a> <span aria-hidden="true">·</span> <a href="/readyz">/readyz</a> <span aria-hidden="true">·</span>
       <!-- notebook-ops-hardening-m4: live operability badge. Polls the
            /ui/status-badge HTML fragment (NOT /status JSON — htmx renders
            HTML, and a browser XHR to /status would 403 via SecFetchSite).

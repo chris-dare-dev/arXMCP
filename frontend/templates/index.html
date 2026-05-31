@@ -34,30 +34,37 @@
   {% if not notebooks %}
     <p class="empty">No notebooks yet. Create one above.</p>
   {% else %}
-    <table class="notebooks">
-      <thead>
-        <tr><th>Slug</th><th>Display name</th><th>Created</th><th></th></tr>
-      </thead>
-      <tbody id="notebook-list">
-        {% for nb in notebooks %}
-        <tr data-slug="{{ nb.slug }}">
-          <td><code>{{ nb.slug }}</code></td>
-          <td>{{ nb.display_name or "—" }}</td>
-          <td><time>{{ nb.created_at }}</time></td>
-          <td>
-            <a href="/ui/notebooks/{{ nb.slug }}" class="button">Open</a>
-            <button type="button"
-                    hx-delete="/ui/api/notebooks/{{ nb.slug }}"
-                    hx-confirm="Remove notebook '{{ nb.slug }}' from the UI? On-disk data at var/arxmcp/notebooks/{{ nb.slug }}/ is NOT deleted — run tools/notebook_purge.py to wipe the disk."
-                    hx-on::htmx:after-request="if(event.detail.successful) location.reload()"
-                    class="danger">
-              Remove
-            </button>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    {# ui-attractive-polish-m2 (UPL-19 v0): wrap the table in
+       .table-wrap (overflow-x:auto) so mobile viewports get horizontal
+       scroll inside the card instead of clipping the Open/Remove
+       buttons off the right edge. The wrapper is INSIDE the else-block
+       so empty-state still renders cleanly. #}
+    <div class="table-wrap">
+      <table class="notebooks">
+        <thead>
+          <tr><th>Slug</th><th>Display name</th><th>Created</th><th></th></tr>
+        </thead>
+        <tbody id="notebook-list">
+          {% for nb in notebooks %}
+          <tr data-slug="{{ nb.slug }}">
+            <td><code>{{ nb.slug }}</code></td>
+            <td>{{ nb.display_name or "—" }}</td>
+            <td><time>{{ nb.created_at }}</time></td>
+            <td>
+              <a href="/ui/notebooks/{{ nb.slug }}" class="button">Open</a>
+              <button type="button"
+                      hx-delete="/ui/api/notebooks/{{ nb.slug }}"
+                      hx-confirm="Remove notebook '{{ nb.slug }}' from the UI? On-disk data at var/arxmcp/notebooks/{{ nb.slug }}/ is NOT deleted — run tools/notebook_purge.py to wipe the disk."
+                      hx-on::htmx:after-request="if(event.detail.successful) location.reload()"
+                      class="danger">
+                Remove
+              </button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   {% endif %}
 </section>
 {% endblock %}

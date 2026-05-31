@@ -190,6 +190,13 @@
   {% if not papers %}
     <p class="empty">No papers yet. Add one above.</p>
   {% endif %}
+  {# ui-attractive-polish-m2 (UPL-19 v0): wrap the table in .table-wrap
+     (overflow-x:auto) so mobile viewports scroll inside the card rather
+     than clipping the Preview / Remove column off the right edge. The
+     wrapper is OUTSIDE the <table> but INSIDE the <section class="card">;
+     m1's aria-live="polite" on <tbody id="papers-tbody"> below is
+     untouched. #}
+  <div class="table-wrap">
   <table class="papers">
     <thead>
       <tr><th>Paper ID</th><th>Added</th><th>Preview</th><th></th></tr>
@@ -237,5 +244,6 @@
       {% endfor %}
     </tbody>
   </table>
+  </div>{# /.table-wrap (UPL-19 v0) #}
 </section>
 {% endblock %}

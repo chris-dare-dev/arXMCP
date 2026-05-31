@@ -1,4 +1,4 @@
-/* arXMCP UI — minimal CSS (m8 + m1..m4 + ui-attractive-polish-m1).
+/* arXMCP UI — minimal CSS (m8 + m1..m4 + ui-attractive-polish-m1/m2).
    No external fonts; no CDN. Single file; ships under /ui/static/app.css. */
 
 :root {
@@ -84,7 +84,15 @@ button, .button {
   text-decoration: none;
   font-family: inherit;
 }
-button:hover, .button:hover { filter: brightness(1.08); }
+/* ui-attractive-polish-m2 (UPL-9): replace `filter: brightness(1.08)` with
+   color-mix() in the oklab color space for a perceptually-uniform hover
+   shade. oklab is MDN-recommended over srgb for color mixing (srgb produces
+   "overly dark or grayish mixes"). Baseline Widely Available. The base
+   button rule sets `border: none`, so a border-color clause would be inert
+   here (research-synthesis §3 D2) — background-only swap. */
+button:hover, .button:hover {
+  background: color-mix(in oklab, var(--accent) 88%, white);
+}
 button.danger { background: var(--danger); }
 
 dl.meta { display: grid; grid-template-columns: max-content 1fr; gap: 0.25rem 1rem; margin: 0; }
@@ -95,6 +103,24 @@ table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
 th, td { text-align: left; padding: 0.5rem 0.5rem; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
 th { background: #f0f0f0; font-weight: 600; }
 table code { font-family: var(--mono); font-size: 0.85rem; }
+
+/* ui-attractive-polish-m2 (UPL-19 v0): mobile-overflow fix for both tables
+   (notebooks + papers). Wrap the <table> in <div class="table-wrap"> in
+   index.html + notebook_detail.html — the wrapper scrolls horizontally
+   ONLY when content overflows (overflow-x:auto, scrollbar auto-hides on
+   macOS/iOS). The body { max-width: 980px } ceiling is preserved per
+   the challenger's UPL-19 v0/v1 split (the wider clamp ships in v1). */
+.table-wrap { overflow-x: auto; }
+
+/* ui-attractive-polish-m2 (UPL-10): tabular-nums on every numeric surface
+   that changes on htmx swap (status-badge corpus version + notebooks count;
+   <time> elements in tables and metadata; per-paper IDs in <code>). The
+   OpenType tnum feature is shipped by every system-ui font in the body
+   stack (SF Pro, Segoe UI, Noto Sans), so the high-level CSS property
+   suffices — no font-feature-settings fallback needed. */
+time, .status-badge, dl.meta dd, td code {
+  font-variant-numeric: tabular-nums;
+}
 
 pre.error {
   background: var(--error-bg);
