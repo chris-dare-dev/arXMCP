@@ -1,5 +1,19 @@
 # Milestone Researcher — Project Memory
 
+## 2026-05-31 — notebook-paper-discovery-m4 — discover-async-core-not-sync-wrapper
+`tools/discover_for_notebook.py` exposes BOTH `discover_for_notebook_async(store, slug, ...)` (async,
+takes open store) AND `discover_for_notebook(slug, ...)` (sync wrapper that calls `asyncio.run`).
+FastAPI route handlers MUST call the async core — calling the sync wrapper inside a running event
+loop raises `RuntimeError: This event loop is already running`. Pattern: get store via
+`Depends(get_notebooks_store)`, then `await discover_for_notebook_async(store, slug, ...)`.
+
+## 2026-05-31 — notebook-paper-discovery-m4 — html-escape-mandatory-in-fstring-fragments
+Jinja2 autoescape only protects `*.html` templates; Python f-string `HTMLResponse` fragments
+bypass it. All htmx fragment routes in `server/routes/notebooks.py` use `html.escape()` on
+every interpolated value. New candidate-row fragments from external API data (arXiv titles,
+abstracts) MUST apply `html.escape()` — NOT `| safe`. The XSS risk is higher because arXiv
+API response fields are untrusted external data, unlike regex-validated paper_id values.
+
 ## 2026-05-31 — onboarding-uplift-m3 — startup-chunk-count-is-shared-corpus-not-per-notebook
 `Resources.startup_chunk_count` measures the SHARED global corpus (`var/arxmcp/index/lancedb/`),
 NOT any per-notebook LanceDB. Per-notebook health endpoints MUST read the notebook's own

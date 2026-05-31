@@ -6,6 +6,7 @@
 - [tarfile-extractfile-follows-intra-archive-symlinks](tarfile-extractfile-follows-intra-archive-symlinks.md) — tar.extractfile silently follows SYMTYPE→another-member; relevant when manifest read precedes safe-member pre-pass; PEP 706 filter="data" does NOT cover extractfile → LOW ordering (notebook-surface-expansion-m7 F3)
 - [cli-direct-sqlite-vs-destructive-v0-v1](cli-direct-sqlite-vs-destructive-v0-v1.md) — CLI writes notebooks row w/o touching user_version + async store's v0→v1 is DROP TABLE → silent wipe on first server boot; mask: shared-DB test → CRITICAL (onboarding-uplift-m2 F1)
 - [dark-mode-token-redeclaration-vs-hardcoded-color-literals](dark-mode-token-redeclaration-vs-hardcoded-color-literals.md) — @media dark redeclares :root tokens but hardcoded #hex literals (input bg #fff, tertiary greys) bypass the cascade → HIGH (ui-attractive-polish-m3 F1)
+- [parseerror-not-runtimeerror-in-except-tuple](parseerror-not-runtimeerror-in-except-tuple.md) — `xml.etree.ElementTree.ParseError` is a `SyntaxError` subclass, NOT `RuntimeError`/`OSError`; a catch block listing the latter two as "parse failure" coverage is wrong → HIGH (notebook-paper-discovery-m4 F1)
 
 ## 2026-05-27 — textbook-ingest-m2 — lancedb-cast-nullability-inference
 LanceDB `tbl.add_columns({col: "cast('literal' as string)"})` produces a
