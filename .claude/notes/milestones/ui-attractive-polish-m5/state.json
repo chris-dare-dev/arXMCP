@@ -1,15 +1,23 @@
 {
   "brief_source": "/Users/chris.dare/Personal/SourceCode/arXMCP/plans",
   "created_at": "2026-05-31T17:25:11Z",
-  "critics_run": [],
+  "critics_run": [
+    "adversary"
+  ],
   "critique_finding_counts": {
     "critical": 0,
     "high": 0,
-    "low": 0,
-    "medium": 0
+    "low": 2,
+    "medium": 4
   },
-  "critique_path": null,
-  "deferred_findings": [],
+  "critique_path": ".claude/notes/milestones/ui-attractive-polish-m5/critique-adversary.md",
+  "deferred_findings": [
+    {
+      "id": "F6",
+      "reason": "pre-existing m6/m7 create vs rename C0-strip inconsistency; not introduced by m5; tracked for separate pipeline invocation",
+      "severity": "LOW"
+    }
+  ],
   "external_writes_authorized": false,
   "external_writes_completed": false,
   "external_writes_required": [
@@ -19,17 +27,26 @@
       "why": "land m5 feat + rect (if any) + chore(notes) finalize per CLAUDE.md \u00a74.3"
     }
   ],
-  "fixed_findings": [],
+  "fixed_findings": [
+    "F1",
+    "F2",
+    "F3",
+    "F4",
+    "F5"
+  ],
   "id": "ui-attractive-polish-m5",
   "implementation_base": "efd8d3683e9cdcf67a58bfb85fca0783bb01639d",
-  "implementation_branch": null,
-  "implementation_commit_range": null,
-  "implementation_commits": [],
+  "implementation_branch": "main",
+  "implementation_commit_range": "78c8f6f74dbaa3deb1eef7e8e9b9d05f53e6c4ad..3b2aaeb079a1f02302cf24f72d093d83ec8bfdaa",
+  "implementation_commits": [
+    "df65b47",
+    "3b2aaeb079a1f02302cf24f72d093d83ec8bfdaa"
+  ],
   "implementation_path": "inline",
   "implementation_specialist": null,
   "invalidated_findings": [],
   "milestone_brief": "### ui-attractive-polish-m5 \u2014 Finish UPL-12 (create + remove flows) + UPL-8 v1 dark-mode pill remap + UPL-19 v1 wider clamp + m4-F3 form reset\n\n**Description.** Wind-down milestone for the e2 / e3 / e4 v0 \u2192 v1 deltas\nin one bundle. m4 v0 converted ONE (1) of the three legacy\n`location.reload()` flows to in-place htmx swap (add-paper); m5 converts\nthe remaining two (create-notebook + remove-notebook), each gated by\nits own pass through the Spike-2 13-item pre-flight checklist (now\nprecedent from m4 \u2014 no new spike required). UPL-8 v1 closes the m3\ndescope by remapping the 4 `.status-badge--*` modifier classes inside\nthe dark `@media` block + redeclaring `th { background }` for the dark\nsurface. UPL-19 v1 lifts the body clamp from `max-width: 980px` to\n`clamp(640px, 92vw, 1400px)` so the papers table breathes on wider\nmonitors (m2 v0 deliberately preserved the 980 ceiling). m4-F3 (LOW\ndeferred) lands the 1-line\n`hx-on::htmx:after-request=\"if(event.detail.successful) this.reset()\"`\non the add-paper form so the URL input clears after a successful swap\n(pre-m4 `location.reload()` did this incidentally).\n\n**Pre-flight checklist (Spike-2 \u2014 load-bearing AC the adversary critic verifies TWICE, once per new fragment endpoint).**\n\n*Apply each item below to BOTH `POST /ui/api/notebooks` (create) AND\nthe htmx-DELETE-with-row-removal pattern on `DELETE\n/ui/api/notebooks/{slug}` (remove).*\n\n*Server-fragment correctness (issue #9 open Q5):*\n- [ ] Each new HTML fragment branch uses `html.escape()` for every interpolated value (mirror `_paper_row_html` from m4 / `_notebook_row_html` to be added in m5).\n- [ ] Zero `| safe` filters or `Markup(...)` calls in any new code OR existing templates touched by m5. Verify by grep.\n- [ ] Content-negotiation on `HX-Request: true` header routes browser-htmx requests to the fragment branch; curl / non-htmx clients still get the existing JSON body (create: `{slug, kind}`; remove: 204 No Content).\n- [ ] The fragment renderer interpolates ONLY validated, escaped, server-controlled values \u2014 never raw request body or header values.\n\n*Middleware integrity (issue #9 open Q1):*\n- [ ] `SecFetchSiteMiddleware` carve-out at `(\"/ui\",)` unchanged (`git diff server/middleware.py` should have zero hunks in the m5 implementation commit).\n- [ ] Origin + Host loopback validation unchanged.\n- [ ] `CONTENT_SECURITY_POLICY_UI` unchanged (no `'unsafe-eval'`, no new `connect-src`, `frame-ancestors 'none'` preserved).\n\n*Input validation invariants (issue #9 open Q3):*\n- [ ] `validate_slug` called at every new mutation entry-point before the renderer constructs the fragment (applies to BOTH create AND remove; create generates the slug server-side from `slugify(notebook_name)` and must re-validate the result).\n- [ ] `validate_notebook_kind` + the existing `notebook_name` Pydantic `Field(max_length=\u2026)` bounds unchanged on the create endpoint.\n- [ ] Remove endpoint rejects path-traversal slugs (e.g. `../../../etc/passwd`) with 422 BEFORE any row-removal fragment is returned.\n\n*Test surface:*\n- [ ] **XSS payload injection** for the create-notebook fragment: send `notebook_name = '<img src=x onerror=alert(1)>'` through the HX-Request branch; assert the rendered HTML contains `&lt;img` not `<img` in both the `<td>` cells AND any `data-*` attributes.\n- [ ] **Content-negotiation parity** for both endpoints: send the same request with and without `HX-Request: true`; assert JSON response vs `text/html` fragment.\n- [ ] **Slug-validation gate test** for the remove endpoint: send a path-traversal slug; assert 422 BEFORE the row-removal fragment is reached.\n\n**Acceptance criteria.**\n\n- [ ] **UPL-12 v1 (create-notebook)** \u2014 `POST /ui/api/notebooks` handler in `server/routes/notebooks.py` returns an HTML `<tr>` fragment matching the notebooks-index `<tbody>` schema when `HX-Request: true` is present (content-negotiation); existing JSON branch preserved for curl/non-htmx clients. Add a new `_notebook_row_html(slug, display_name, kind, created_at)` helper following the `_paper_row_html` precedent (per-value `html.escape()`). The form in `frontend/templates/index.html` switches `hx-on::htmx:after-request=\"location.reload()\"` to `hx-target=\"#notebooks-tbody\" hx-swap=\"beforeend\"` (add `aria-live=\"polite\"` to the tbody \u2014 mirrors m1's UPL-3 swap-target pattern).\n- [ ] **UPL-12 v1 (remove-notebook)** \u2014 `DELETE /ui/api/notebooks/{slug}` returns 200 with an empty body when `HX-Request: true`; the remove-button HTML in both `index.html` (notebooks list) AND `notebook_detail.html` (per-paper remove) carries `hx-target=\"closest tr\" hx-swap=\"outerHTML swap:200ms\"` so htmx removes the row in place. The 200ms swap-modifier gates a brief row fade-out keyframe in `app.css` gated by `prefers-reduced-motion: no-preference`. The JSON branch remains 204 No Content for non-htmx clients.\n- [ ] **UPL-8 v1 \u2014 dark-mode `.status-badge--*` modifier remap** \u2014 inside `@media (prefers-color-scheme: dark)` in `app.css`, redeclare the 4 modifier classes (`--ok`, `--warn`, `--ops-warn`, `--down`) with Primer-dark-anchored colors that pass WCAG SC 1.4.3 (\u2265 4.5:1 text contrast) and SC 1.4.11 (\u2265 3:1 non-text contrast) against the dark `--bg #0d1117`. Light-mode hex literals (`#e6f4ea` / `#fdf3e2` / `#eef2f7` / `#fff4f2`) are too pale for the dark surface; suggested replacements: `--ok` \u2192 `#0d2818` bg + `#3fb950` text; `--warn` \u2192 `#3d2a07` bg + `#d29922` text; `--ops-warn` \u2192 `#1c2230` bg + `#8b949e` text; `--down` \u2192 `#3d1216` bg + `#f85149` text (verify each pair against the WebAIM Contrast Checker before commit).\n- [ ] **UPL-8 v1 \u2014 `th { background }` dark redeclaration** \u2014 inside the same dark `@media` block, redeclare `th { background: #161b22 }` so table headers don't show the light `#f0f0f0` (from line ~110) against the dark `--bg`.\n- [ ] **UPL-19 v1** \u2014 `body` rule in `app.css` swaps `max-width: 980px` for `max-width: clamp(640px, 92vw, 1400px)`. Verify on a 13\"/15\"/27\" monitor walk that (a) the papers table layout doesn't break, (b) typography reading rhythm stays comfortable at the upper bound (1400px \u2248 70ch at 16px), (c) m2's `.table-wrap { overflow-x: auto }` still handles narrow-viewport overflow.\n- [ ] **m4-F3** \u2014 `frontend/templates/notebook_detail.html` add-paper form gains `hx-on::htmx:after-request=\"if(event.detail.successful) this.reset()\"`. Compatible with the m4 negative-regression test (which asserts only `location.reload` absence, not the absence of all after-request hooks).\n- [ ] **The Spike-2 pre-flight checklist above** (13 items \u00d7 2 new fragment endpoints) is satisfied. A new test file `tests/test_ui_m5_create_remove_in_place.py` covers them mechanically, mirroring m4's `tests/test_ui_m4_in_place_add_paper.py` test-class structure.\n- [ ] **All 92 m1+m2+m3+m4 UI tests still pass** (specifically: `tests/test_ui_a11y_baselines.py` + `tests/test_ui_m2_polish.py` + `tests/test_ui_m3_dark_and_htmx_feedback.py` + `tests/test_ui_m4_in_place_add_paper.py`). m5 adds new test file(s) but modifies zero existing assertions.\n- [ ] **Verification \u2014 manual cross-browser walk** (Chris pre-KR-4 update): on Chrome + Safari macOS, (a) click \"Create notebook\" on the index \u2014 observe no full-page flash, smooth row append under View Transitions; (b) click \"Remove notebook\" on the index AND \"Remove\" on a paper row inside a notebook \u2014 observe smooth row fade-out, no full-page flash. Firefox no-ops the VT crossfade cleanly.\n- [ ] **Verification \u2014 VoiceOver smoke-test**: the create-notebook fragment append announces via the new `#notebooks-tbody` `aria-live=\"polite\"`; the remove-paper row removal also announces via the existing `#papers-tbody` `aria-live=\"polite\"`.\n- [ ] **Verification \u2014 issue #9 hygiene**: m5 does NOT close issue #9 (the full UI audit remains open as a separate effort). m5's implementation-summary should note that the pre-flight checklist was satisfied INSIDE m5's scope (not the full audit), AND that issue #9's open Q5 (render-path divergence) now has TWO additional fragment endpoints covered by the pattern.\n- [ ] Final `frontend/static/app.css` line count \u2264 365 (current 333 + budget ~30 for UPL-8 v1 four pill remaps + `th` dark redeclaration + UPL-12 v1 row-fade keyframe). The m4-revised cap of 335 raises to 365 with explicit budget; KR5 carries the same number. If the cap looks like it'll blow, split `app.css` into `tokens.css` + `app.css` per the cap-test docstrings (escape-hatch noted there).\n\n**Dependencies.** spans epics `ui-attractive-polish-e2` (UPL-19 v1) + `ui-attractive-polish-e3` (UPL-8 v1) + `ui-attractive-polish-e4` (UPL-12 v1 + m4-F3 carryover). **Hard prereqs (all shipped):** m1's `prefers-reduced-motion` gate (anchors the new row-fade keyframe); m2's `color-mix()` + `.table-wrap` overflow primitive (UPL-19 v1's wider clamp leans on `.table-wrap` to keep overflow correct); m3's dark-mode `@media` block + `.htmx-request` styling (UPL-8 v1 extends m3's dark block); m4's `_paper_row_html` precedent + Spike-2 pre-flight pattern + UPL-13 native View Transitions (`globalViewTransitions = true` auto-applies to the new create/remove swaps). **No new spikes** \u2014 Spike-2 pre-flight is precedent.\n\n**Complexity.** M (~ 2\u20133 days execution including the 4-phase milestone-pipeline). Largest time slices: (a) two new fragment-rendering endpoints with content-negotiation + new `_notebook_row_html` helper (mechanically mirrors m4's `_paper_row_html` extension), (b) UPL-8 v1 dark-mode contrast verification (compute and verify 4 color pairs against WCAG SC 1.4.3 / 1.4.11 using WebAIM Contrast Checker), (c) UPL-19 v1 cross-monitor verification.\n\n**Specialist suggestion.** `security-reviewer` \u2014 same lens as m4. Two new HTML fragment branches; the Spike-2 pre-flight applies twice. UPL-8 v1 + UPL-19 v1 + m4-F3 are CSS/template-only and don't independently require specialist attention, but the adversary critic should still walk the m3-rect F1/F2/F3 WCAG-correction lessons against the new dark-mode pill colors before declaring SHIP.\n\n---\n\n## Phase 4 \u2014 Materialize",
-  "phase": "implement-running",
+  "phase": "complete",
   "phase_history": [
     {
       "entered_at": "2026-05-31T17:25:11Z",
@@ -48,10 +65,36 @@
     },
     {
       "entered_at": "2026-05-31T17:35:44Z",
-      "left_at": null,
+      "left_at": "2026-05-31T18:05:56Z",
       "phase": "implement-running"
+    },
+    {
+      "entered_at": "2026-05-31T18:05:56Z",
+      "left_at": "2026-05-31T18:06:04Z",
+      "phase": "implement-complete"
+    },
+    {
+      "entered_at": "2026-05-31T18:06:04Z",
+      "left_at": "2026-05-31T18:14:58Z",
+      "phase": "critique-running"
+    },
+    {
+      "entered_at": "2026-05-31T18:14:58Z",
+      "left_at": "2026-05-31T18:15:14Z",
+      "phase": "critique-complete"
+    },
+    {
+      "entered_at": "2026-05-31T18:15:14Z",
+      "left_at": "2026-05-31T18:18:13Z",
+      "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-05-31T18:18:13Z",
+      "left_at": null,
+      "phase": "complete"
     }
   ],
+  "rect_commit": "aa1e978e667883e74193668275b196a3ff733f19",
   "rectification_commit": null,
   "regression_tests_added": [],
   "research_briefs": [
@@ -68,5 +111,5 @@
   ],
   "research_mode": "standard",
   "research_synthesis": ".claude/notes/milestones/ui-attractive-polish-m5/research-synthesis.md",
-  "updated_at": "2026-05-31T17:35:44Z"
+  "updated_at": "2026-05-31T18:18:13Z"
 }
