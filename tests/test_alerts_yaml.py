@@ -108,6 +108,82 @@ def test_alert_rule_shape():
             )
 
 
+# corpus-integrity-completion-m1 rect F1 + F2: pin the SHAPE the AC mandates,
+# not just the NAMES. test_required_alerts_present pins that the two new
+# corpus-integrity rules EXIST; these tests pin that their `runbook_url`
+# annotation is present AND that their `for:` durations match the AC.
+# A future commit cannot silently drop the runbook_url or retune `for:`
+# without one of these tests failing.
+_CORPUS_INTEGRITY_RULES = {
+    # name → expected `for:` duration string
+    "ArXMCPCorpusCountRowsFailed": "10m",
+    "ArXMCPCorpusUnindexedRows": "1h",
+}
+_RUNBOOK_URL_PREFIX = (
+    "https://github.com/chris-dare-dev/arXMCP/blob/main/docs/ops/"
+)
+
+
+def _alerts_by_name() -> dict[str, dict]:
+    """Helper: return {alert_name: rule_dict} for every rule in alerts.yml."""
+    spec = yaml.safe_load(ALERTS_PATH.read_text(encoding="utf-8"))
+    out: dict[str, dict] = {}
+    for group in spec["groups"]:
+        for rule in group.get("rules", []):
+            if "alert" in rule:
+                out[rule["alert"]] = rule
+    return out
+
+
+def test_runbook_url_present_for_required_alerts():
+    """corpus-integrity-completion-m1 rect F1: every alert in the
+    required set (test_required_alerts_present) MUST carry a
+    `runbook_url` annotation pointing at the project's docs/ops/
+    GitHub path. Closes the gap where the existing
+    test_alert_rule_shape requires the `annotations` BLOCK exist
+    but not the `runbook_url` KEY — a future commit could silently
+    drop the link on a critical-severity rule without test failure.
+    """
+    by_name = _alerts_by_name()
+    required = {
+        "ArXMCPDiskFull",
+        "ArXMCPDegradedMode",
+        "ArXMCPBackupStale",
+        "ArXMCPCorpusCountRowsFailed",
+        "ArXMCPCorpusUnindexedRows",
+    }
+    for name in sorted(required):
+        rule = by_name.get(name)
+        assert rule is not None, f"required alert {name!r} missing"
+        url = rule.get("annotations", {}).get("runbook_url")
+        assert url is not None, (
+            f"alert {name!r} missing annotations.runbook_url"
+        )
+        assert url.startswith(_RUNBOOK_URL_PREFIX), (
+            f"alert {name!r} runbook_url {url!r} does not start "
+            f"with {_RUNBOOK_URL_PREFIX!r}"
+        )
+
+
+def test_corpus_integrity_alert_durations():
+    """corpus-integrity-completion-m1 rect F2: pin the AC-mandated
+    `for:` durations for the two new corpus-integrity rules. The
+    10m on the critical rule is the startup-hiccup suppression
+    window; the 1h on the warning rule is the HNSW rebuild window.
+    Either one being retuned without orchestrator review is a
+    behavior change that must surface as a test failure.
+    """
+    by_name = _alerts_by_name()
+    for name, expected_for in sorted(_CORPUS_INTEGRITY_RULES.items()):
+        rule = by_name.get(name)
+        assert rule is not None, f"alert {name!r} missing"
+        actual = rule.get("for")
+        assert actual == expected_for, (
+            f"alert {name!r}: expected for={expected_for!r}, "
+            f"got for={actual!r}"
+        )
+
+
 def test_disk_full_threshold_matches_implementation():
     """The Prometheus expression ``arxmcp_disk_free_bytes < 10737418240``
     must match the implementation's
