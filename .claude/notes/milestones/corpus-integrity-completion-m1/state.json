@@ -18,11 +18,24 @@
     "medium": 4
   },
   "critique_path": ".claude/notes/milestones/corpus-integrity-completion-m1/critique-merged.md",
-  "deferred_findings": [],
+  "deferred_findings": [
+    "F4",
+    "F5",
+    "IS2"
+  ],
   "external_writes_authorized": false,
   "external_writes_completed": false,
   "external_writes_required": [],
-  "fixed_findings": [],
+  "fixed_findings": [
+    "F1",
+    "F2",
+    "F3",
+    "IS1"
+  ],
+  "follow_ups": [
+    "F4: component:corpus routing impact \u2014 fold into Grafana/Alertmanager routing config milestone (E14_S09 per alerts.yml header)",
+    "IS2: for:1h rebuild-window citation \u2014 fold into corpus-integrity-completion-m2 alongside full corpus-drift-runbook.md content"
+  ],
   "id": "corpus-integrity-completion-m1",
   "implementation_base": "ff00f49dfe4ddb604c2f420dbfc0921225069084",
   "implementation_branch": "main",
@@ -34,7 +47,7 @@
   "implementation_specialist": null,
   "invalidated_findings": [],
   "milestone_brief": "see /tmp/m1-brief.md and plans/corpus-integrity-completion-roadmap.md::corpus-integrity-completion-m1",
-  "phase": "rectify-running",
+  "phase": "complete",
   "phase_history": [
     {
       "entered_at": "2026-05-31T19:53:26Z",
@@ -73,12 +86,20 @@
     },
     {
       "entered_at": "2026-05-31T20:10:38Z",
-      "left_at": null,
+      "left_at": "2026-05-31T20:12:41Z",
       "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-05-31T20:12:41Z",
+      "left_at": null,
+      "phase": "complete"
     }
   ],
-  "rectification_commit": null,
-  "regression_tests_added": [],
+  "rectification_commit": "951d3f384683f238227f1c0a152691ad6e683214",
+  "regression_tests_added": [
+    "tests/test_alerts_yaml.py::test_runbook_url_present_for_required_alerts",
+    "tests/test_alerts_yaml.py::test_corpus_integrity_alert_durations"
+  ],
   "research_briefs": [
     {
       "agent_id": "researcher-1",
@@ -93,5 +114,5 @@
   ],
   "research_mode": "standard",
   "research_synthesis": ".claude/notes/milestones/corpus-integrity-completion-m1/research-synthesis.md",
-  "updated_at": "2026-05-31T20:10:38Z"
+  "updated_at": "2026-05-31T20:12:41Z"
 }
