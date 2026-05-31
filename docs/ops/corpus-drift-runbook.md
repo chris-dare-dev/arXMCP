@@ -17,7 +17,9 @@ the two corpus-integrity alerts shipped in
 This runbook does **not** cover above-tolerance marker drift
 (gauge ≥ 0 but ≠ marker). That case fires `ArXMCPDegradedMode` with
 `reason="chunk_count_diverged"` and is handled by
-[`failure-modes.md#degraded-modes`](failure-modes.md#degraded-modes).
+[`failure-modes.md`](failure-modes.md) (no `#degraded-modes` anchor
+exists today — read the file's top-level H2 list to find the
+relevant section; corrected per m2 rect F2).
 
 ---
 
@@ -98,13 +100,18 @@ gauge is set once at startup from `startup_unindexed_rows`; the
 condition persists until the next successful ingest run completes
 its synchronous `_create_indices` call.
 
-**Rebuild-window calibration (closes m1 IS2):** on the 50-paper seed
-corpus, `_create_indices` finishes in well under one minute; on a
-full 200K-paper corpus a complete ingest + reindex can take several
-hours. The `for: 1h` window on `ArXMCPCorpusUnindexedRows` is sized
-to filter post-full-ingest rebuild windows at full scale — see the
-`latexml-drift-runbook.md` §"Timing estimates" table for the
-per-corpus-size wall-clock numbers used to pick this.
+**Rebuild-window calibration (closes m1 IS2; corrected per m2 rect
+F6):** `_create_indices` runs synchronously inside `write_chunks` —
+it builds the HNSW index over every freshly committed row before
+`write_chunks` returns. On the 50-paper seed corpus that bulk index
+build completes in well under one minute; on a full 200K-paper
+corpus an end-to-end ingest + index-build can take several hours
+under HNSW defaults (`M=16`, `efConstruction=200`). The `for: 1h`
+window on `ArXMCPCorpusUnindexedRows` is the rough upper bound on
+the index-build wall-clock at full scale; the alert fires only when
+an unindexed-rows condition PERSISTS beyond a single normal-ingest
+window — i.e. an actual crash mid-write, not a transient post-ingest
+rebuild in flight.
 
 ### S7 — `arxmcp_corpus_chunk_count_actual` persists at `-1` across restarts
 
@@ -121,7 +128,9 @@ fine — just unreachable from the running server.
   Triggers `DegradedState('chunk_count_diverged')` →
   `ArXMCPDegradedMode`, **not** one of this runbook's alerts. Fix
   via `make reconcile`; see
-  [`failure-modes.md#degraded-modes`](failure-modes.md#degraded-modes).
+  [`failure-modes.md`](failure-modes.md) (`#degraded-modes` anchor
+  not present; the LanceDB-corruption + degraded-mode discussion
+  spans multiple H2 sections, corrected per m2 rect F2).
 - **S4 — Cold-clone deployment before first ingest.** An empty
   chunks-table returns `count_rows() = 0` (not `-1`), so
   `ArXMCPCorpusCountRowsFailed` does **not** fire. Fix via
@@ -142,7 +151,10 @@ marker file only, not on a broken Lance dataset.
 
 ```bash
 # 1. Stop the server cleanly.
-make down   # or `pkill -f 'python -m server.main'` if no Make target
+#    No `make down` target exists today (m2 rect F1); use pkill on
+#    the main entrypoint, or whatever systemd/launchd unit your
+#    deployment harness uses.
+pkill -f 'python -m server.main'
 
 # 2. Inspect the dataset directory. The version-N subdirectory must
 #    be a valid Lance fragment tree (manifests, data, indices/).
@@ -161,8 +173,9 @@ ls -la "$ARXMCP_LANCEDB_PATH"                  # readable?
 # inside the container can read the host path.
 
 # 4. Bring the server back up. Successful startup clears the cached
-#    -1 from the gauge (which is read once at startup; see
-#    server/health.py:111-120).
+#    -1 from the gauge (which is read once at startup — see the
+#    `CORPUS_CHUNK_COUNT_ACTUAL` docstring in server/health.py;
+#    m2 rect F5: dropped fragile line-number references).
 make up
 
 # 5. Re-trigger the triage commands to confirm.
@@ -187,10 +200,13 @@ make ingest                            # full bulk re-run
 # make ingest ARGS="--paper-ids-file=<last-batch.txt>"
 
 # 2. Restart the server so the startup_unindexed_rows gauge is
-#    re-read. The gauge is cached at startup (see
-#    server/health.py:122-134); without a restart the alert
-#    continues firing even after the index rebuilds.
-make down && make up
+#    re-read. The gauge is cached at startup (see the
+#    `CORPUS_UNINDEXED_ROWS` docstring in server/health.py);
+#    without a restart the alert continues firing even after the
+#    index rebuilds.
+#    (m2 rect F1: no `make down` target exists; pkill the main
+#    entrypoint then `make up`.)
+pkill -f 'python -m server.main' && make up
 
 # 3. Confirm the gauge cleared.
 curl -s http://127.0.0.1:7733/metrics | grep arxmcp_corpus_unindexed_rows
@@ -237,7 +253,10 @@ minutes (or `make reconcile` exits 1 unrecoverably):
 
 1. **Capture state for the issue tracker.** Snapshot the marker file,
    the relevant gauge readings, and the most recent server-startup
-   log lines:
+   log lines (the `journalctl` form below assumes a systemd unit
+   `arxmcp-server.service`; if your deployment uses a different
+   process manager, substitute its equivalent — e.g.
+   `docker logs arxmcp-server --since 30m > /tmp/startup.log`):
    ```bash
    cat var/arxmcp/index/lancedb/corpus-version.json > /tmp/marker.json
    curl -s http://127.0.0.1:7733/metrics | grep ^arxmcp_corpus_ > /tmp/gauges.txt
@@ -247,6 +266,18 @@ minutes (or `make reconcile` exits 1 unrecoverably):
    integer + chunker/embedder hashes); it can be attached to a
    public issue per the threat model in
    [`.claude/notes/08-security-observability-ops.md`](../../.claude/notes/08-security-observability-ops.md).
+
+   > **Before attaching `/tmp/startup.log` to a public issue (m2
+   > rect F3):** if the operator raised log verbosity to DEBUG
+   > during troubleshooting, the 30-minute slice may contain full
+   > user-submitted MCP query strings and partial chunk bodies —
+   > sensitive per
+   > [`.claude/notes/08-security-observability-ops.md`](../../.claude/notes/08-security-observability-ops.md)
+   > §Logging. Scan the file for `DEBUG` entries containing
+   > `query=`, `chunk_body=`, or absolute home-directory paths
+   > (`/Users/...`, `/home/...`). Redact or attach to a private
+   > channel if found. The marker + gauges captures above carry no
+   > equivalent sensitivity.
 2. **Restore from backup.** If the Lance dataset is genuinely
    corrupt, follow
    [`backup-restore.md`](backup-restore.md) §"Restore drill" to

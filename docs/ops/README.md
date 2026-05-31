@@ -29,7 +29,7 @@ references and per-feature design docs live in
 | 6 | [corpus-version rollback](corpus-rollback.md) | A bad `corpus_version` bump produced regressed nDCG@5; revert to N-1 via LanceDB MVCC. |
 | 7 | [LaTeXML worker restart](latexml-restart.md) | A LaTeXML subprocess hung or LaTeXML output drift was detected. |
 | 8 | [drift watchdog alert response](drift-watchdog.md) | `arxmcp_eval_ndcg5` regressed against the baseline; gate ingestion until the source is identified. |
-| 9 | [corpus-drift runbook](corpus-drift-runbook.md) | `ArXMCPCorpusCountRowsFailed` (`arxmcp_corpus_chunk_count_actual == -1`) or `ArXMCPCorpusUnindexedRows` (`arxmcp_corpus_unindexed_rows > 0`) fired; `make reconcile` for marker drift. |
+| 9 | [corpus-drift runbook](corpus-drift-runbook.md) | `ArXMCPCorpusCountRowsFailed` (`arxmcp_corpus_chunk_count_actual == -1`) or `ArXMCPCorpusUnindexedRows` (`arxmcp_corpus_unindexed_rows > 0`) fired; `make reconcile` for marker drift. **Note:** uses a 5-section operator-alert pattern (Symptom / Quick triage / Likely causes / Remediation / Escalation) per the m1+m2 AC, NOT the 4-part Symptoms/Detection/Steps/Verification skeleton this index documents above — the two map conceptually but the section headers differ. |
 
 ---
 
