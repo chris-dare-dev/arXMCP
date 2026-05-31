@@ -361,8 +361,11 @@ class TestUPL11HxDisabledEltAttributes:
         index_forms = form_re.findall(INDEX_HTML)
         detail_forms = form_re.findall(NOTEBOOK_DETAIL_HTML)
         all_forms = index_forms + detail_forms
-        assert len(all_forms) == 5, (
-            f"Expected 5 htmx-bound <form> elements total (1 index + 4 "
+        # notebook-paper-discovery-m1 added the topic-edit <form> on the
+        # detail page (PATCH /ui/api/notebooks/{slug}/topic), bringing the
+        # detail count from 4 to 5 (1 index + 5 detail = 6).
+        assert len(all_forms) == 6, (
+            f"Expected 6 htmx-bound <form> elements total (1 index + 5 "
             f"detail); found {len(all_forms)}"
         )
         for form in all_forms:

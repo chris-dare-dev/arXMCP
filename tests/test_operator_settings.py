@@ -253,8 +253,14 @@ class TestSchemaSentinel:
                 "SELECT value FROM operator_settings "
                 "WHERE key = '__schema_version__'"
             ).fetchone()
-            # NotebooksStore.SCHEMA_VERSION today is 4 (synthesis §2).
-            assert user_version == 4
+            # NotebooksStore owns PRAGMA user_version. Assert against the
+            # live constant so a future schema bump (e.g. v4→v5 in
+            # notebook-paper-discovery-m1) doesn't break this cross-store
+            # coupling test.
+            from server.notebooks_store import (
+                SCHEMA_VERSION as NOTEBOOKS_SCHEMA_VERSION,
+            )
+            assert user_version == NOTEBOOKS_SCHEMA_VERSION
             assert sentinel is not None
             assert int(sentinel[0]) == SCHEMA_VERSION
             # And both tables are intact.

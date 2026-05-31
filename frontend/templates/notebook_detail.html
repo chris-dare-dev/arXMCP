@@ -91,6 +91,58 @@
 </section>
 
 <section class="card">
+  <h2>Topic &amp; discovery</h2>
+  <p class="hint">
+    The research interest the m2–m4 arXiv discovery channels will use to
+    propose new papers for this notebook. Category is a fixed arXiv code;
+    topic is free-text keywords. Both are optional.
+  </p>
+  {# notebook-paper-discovery-m1: always-rendered topic block — the stable
+     htmx swap target (#topic-block). PATCH /ui/api/notebooks/{slug}/topic
+     returns this same <div> re-rendered (server-side html.escape'd in
+     server/routes/notebooks.py::_topic_fragment). Autoescape applies here
+     too; empty values show "—". Do NOT add `| safe`. aria-live="polite"
+     so screen-readers announce the updated topic after the outerHTML swap;
+     the swap REPLACES this element, so _topic_fragment MUST also emit the
+     attribute on its returned <div> (research-synthesis.md §3). #}
+  <div class="topic-block" id="topic-block" aria-live="polite">
+    <p class="topic-category">Discovery category: <code>{{ notebook.discovery_category or "—" }}</code></p>
+    <p class="topic-description">{{ notebook.description or "—" }}</p>
+  </div>
+  {# Topic form sits OUTSIDE #topic-block so it survives the outerHTML swap.
+     The base.html JSON-shim serializes the PATCH body to JSON
+     ({"discovery_category": ..., "description": ...}) → NotebookTopicUpdate.
+     On success htmx swaps the <div> in place (no reload); on 4xx the JSON
+     `detail` is surfaced. The dedicated /topic sub-route keeps the rename
+     endpoint's contract untouched (mass-assignment defense). #}
+  <form class="topic-form"
+    hx-patch="/ui/api/notebooks/{{ notebook.slug }}/topic"
+    hx-target="#topic-block"
+    hx-swap="outerHTML"
+    hx-disabled-elt="find button"
+    hx-on::htmx:response-error="document.getElementById('topic-error').textContent = (function(t){try{return JSON.parse(t).detail||t;}catch(e){return t;}})(event.detail.xhr.responseText)"
+  >
+    <label>
+      Discovery category
+      <select name="discovery_category">
+        <option value="" {% if not notebook.discovery_category %}selected{% endif %}>Not specified</option>
+        <option value="math.AG" {% if notebook.discovery_category == 'math.AG' %}selected{% endif %}>math.AG — Algebraic Geometry</option>
+        <option value="math.NT" {% if notebook.discovery_category == 'math.NT' %}selected{% endif %}>math.NT — Number Theory</option>
+        <option value="math-ph" {% if notebook.discovery_category == 'math-ph' %}selected{% endif %}>math-ph — Mathematical Physics</option>
+        <option value="hep-th" {% if notebook.discovery_category == 'hep-th' %}selected{% endif %}>hep-th — High Energy Physics (Theory)</option>
+      </select>
+    </label>
+    <label>
+      Topic / keywords
+      <textarea name="description" maxlength="512" rows="2"
+                placeholder="Bridgeland stability conditions on K3 surfaces">{{ notebook.description }}</textarea>
+    </label>
+    <button type="submit">Save topic</button>
+    <pre id="topic-error" class="error" aria-live="polite"></pre>
+  </form>
+</section>
+
+<section class="card">
   <h2>Add paper by URL</h2>
   <p class="hint">
     Accepted forms: <code>https://arxiv.org/abs/&lt;id&gt;</code> or

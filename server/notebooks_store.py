@@ -72,7 +72,15 @@ logger = logging.getLogger(__name__)
 #: ``'skipped'`` backfills every existing arxiv-kind row safely;
 #: textbook-kind rows MUST be created with an explicit
 #: ``parse_status='pending'`` by the route layer.
-SCHEMA_VERSION: int = 4
+#:
+#: v4→v5 is the notebook-paper-discovery-m1 ADDITIVE migration adding
+#: two columns that give a notebook a machine-readable research
+#: interest for topic-driven paper discovery (the m2–m4 channels):
+#: ``discovery_category`` (an arXiv category code validated at the
+#: route layer against ``{math.AG, math.NT, math-ph, hep-th}``) and
+#: free-text ``description``. Column-level DEFAULT ``''`` backfills
+#: every existing row; the route layer is the validation authority.
+SCHEMA_VERSION: int = 5
 
 
 class NotebooksStore:
@@ -249,6 +257,42 @@ class NotebooksStore:
                     "TEXT NOT NULL DEFAULT ''"
                 )
                 conn.execute("PRAGMA user_version = 4")
+            # v4 -> v5: notebook-paper-discovery-m1 ADDITIVE migration.
+            # Two columns on ``notebooks`` give a notebook a machine-
+            # readable research interest for topic-driven paper discovery
+            # (m2-m4): ``discovery_category`` (an arXiv category code,
+            # validated at the route layer against
+            # {math.AG, math.NT, math-ph, hep-th}) and free-text
+            # ``description``. Column-level DEFAULT '' backfills every
+            # existing row in O(1) (no row-rewrite).
+            #
+            # Unlike the v1->v4 blocks (each a single ALTER), v4->v5 adds
+            # TWO columns. A crash BETWEEN the two ALTERs would leave the
+            # DB half-migrated (``user_version`` still 4 but
+            # ``discovery_category`` already present), so the next open
+            # re-runs the block and the first ALTER raises
+            # ``sqlite3.OperationalError: duplicate column name``,
+            # crash-looping the daemon at startup. Wrap the two ALTERs +
+            # the version bump in an explicit BEGIN/COMMIT so the whole
+            # step is atomic and re-runnable. The connection is
+            # ``isolation_level=None`` (autocommit), so the transaction
+            # MUST be opened explicitly.
+            if current_version < 5:
+                conn.execute("BEGIN")
+                try:
+                    conn.execute(
+                        "ALTER TABLE notebooks ADD COLUMN "
+                        "discovery_category TEXT NOT NULL DEFAULT ''"
+                    )
+                    conn.execute(
+                        "ALTER TABLE notebooks ADD COLUMN "
+                        "description TEXT NOT NULL DEFAULT ''"
+                    )
+                    conn.execute("PRAGMA user_version = 5")
+                    conn.execute("COMMIT")
+                except Exception:
+                    conn.execute("ROLLBACK")
+                    raise
             return conn
 
         conn = await asyncio.to_thread(_open_sync)
@@ -283,7 +327,8 @@ class NotebooksStore:
                 rows = self._conn.execute(
                     "SELECT slug, display_name, lancedb_path, "
                     "created_at, notebook_kind, parse_status, "
-                    "parse_error, parsed_html_path "
+                    "parse_error, parsed_html_path, "
+                    "discovery_category, description "
                     "FROM notebooks ORDER BY created_at DESC, slug ASC"
                 ).fetchall()
                 return [
@@ -294,6 +339,8 @@ class NotebooksStore:
                         "parse_status": r[5],
                         "parse_error": r[6],
                         "parsed_html_path": r[7],
+                        "discovery_category": r[8],
+                        "description": r[9],
                     }
                     for r in rows
                 ]
@@ -311,7 +358,8 @@ class NotebooksStore:
                 row = self._conn.execute(
                     "SELECT slug, display_name, lancedb_path, "
                     "created_at, notebook_kind, parse_status, "
-                    "parse_error, parsed_html_path "
+                    "parse_error, parsed_html_path, "
+                    "discovery_category, description "
                     "FROM notebooks WHERE slug = ?",
                     (slug,),
                 ).fetchone()
@@ -324,6 +372,8 @@ class NotebooksStore:
                     "parse_status": row[5],
                     "parse_error": row[6],
                     "parsed_html_path": row[7],
+                    "discovery_category": row[8],
+                    "description": row[9],
                 }
             return await asyncio.to_thread(_query)
 
@@ -335,10 +385,19 @@ class NotebooksStore:
         created_at: str,
         notebook_kind: str = "arxiv",
         parse_status: str | None = None,
+        discovery_category: str = "",
+        description: str = "",
     ) -> None:
         """Insert a notebook row. Raises :class:`sqlite3.IntegrityError`
         on duplicate slug — the REST handler catches and translates to
         HTTP 409 (FM-5).
+
+        notebook-paper-discovery-m1: ``discovery_category`` +
+        ``description`` default to ``''`` so existing callers that don't
+        supply them keep empty topic metadata. The route layer's
+        ``_validate_discovery_category`` enforces the
+        ``{math.AG, math.NT, math-ph, hep-th, ''}`` domain before the
+        call reaches this writer; this method does no validation.
 
         textbook-ingest-m3: ``notebook_kind`` default ``"arxiv"`` so
         existing callers that don't supply it keep arXiv-corpus
@@ -359,19 +418,21 @@ class NotebooksStore:
                     self._conn.execute(
                         "INSERT INTO notebooks "
                         "(slug, display_name, lancedb_path, created_at, "
-                        " notebook_kind) "
-                        "VALUES (?, ?, ?, ?, ?)",
+                        " notebook_kind, discovery_category, description) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?)",
                         (slug, display_name, lancedb_path, created_at,
-                         notebook_kind),
+                         notebook_kind, discovery_category, description),
                     )
                 else:
                     self._conn.execute(
                         "INSERT INTO notebooks "
                         "(slug, display_name, lancedb_path, created_at, "
-                        " notebook_kind, parse_status) "
-                        "VALUES (?, ?, ?, ?, ?, ?)",
+                        " notebook_kind, parse_status, "
+                        " discovery_category, description) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                         (slug, display_name, lancedb_path, created_at,
-                         notebook_kind, parse_status),
+                         notebook_kind, parse_status,
+                         discovery_category, description),
                     )
             await asyncio.to_thread(_insert)
 
@@ -411,6 +472,39 @@ class NotebooksStore:
                 cur = self._conn.execute(
                     "UPDATE notebooks SET display_name = ? WHERE slug = ?",
                     (display_name, slug),
+                )
+                return cur.rowcount > 0
+            return await asyncio.to_thread(_update)
+
+    async def update_topic(
+        self,
+        slug: str,
+        discovery_category: str,
+        description: str,
+    ) -> bool:
+        """Update a notebook's topic metadata (notebook-paper-discovery-m1).
+
+        Two-column ``UPDATE notebooks SET discovery_category = ?,
+        description = ?``. Both columns exist at ``SCHEMA_VERSION 5``
+        (``TEXT NOT NULL DEFAULT ''``). Empty strings are valid (clear
+        the topic). Returns ``True`` if a row was updated, ``False`` if
+        the slug is unknown (handler → 404), mirroring
+        :meth:`update_display_name`.
+
+        The route layer is the single source of truth for input
+        validation (``_validate_discovery_category`` for the category
+        enum, Pydantic ``max_length`` for the free-text description);
+        this method does no escaping (the fragment renderer
+        html-escapes at output time, mirroring
+        :meth:`update_display_name`).
+        """
+        async with self._lock:
+            def _update() -> bool:
+                cur = self._conn.execute(
+                    "UPDATE notebooks SET "
+                    "discovery_category = ?, description = ? "
+                    "WHERE slug = ?",
+                    (discovery_category, description, slug),
                 )
                 return cur.rowcount > 0
             return await asyncio.to_thread(_update)

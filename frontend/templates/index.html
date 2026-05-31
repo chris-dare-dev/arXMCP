@@ -25,6 +25,27 @@
       <input type="text" name="display_name" maxlength="256"
              placeholder="Bridgeland stability conditions">
     </label>
+    {# notebook-paper-discovery-m1: topic metadata that the m2-m4 arXiv
+       discovery channels read. discovery_category is a fixed enum
+       (server-validated against {math.AG, math.NT, math-ph, hep-th});
+       the empty option means "not specified". description is free text
+       rendered autoescaped server-side — do NOT add `| safe` anywhere
+       these values are shown. #}
+    <label>
+      Discovery category (optional)
+      <select name="discovery_category">
+        <option value="">Not specified</option>
+        <option value="math.AG">math.AG — Algebraic Geometry</option>
+        <option value="math.NT">math.NT — Number Theory</option>
+        <option value="math-ph">math-ph — Mathematical Physics</option>
+        <option value="hep-th">hep-th — High Energy Physics (Theory)</option>
+      </select>
+    </label>
+    <label>
+      Topic / keywords (optional)
+      <textarea name="description" maxlength="512" rows="2"
+                placeholder="Bridgeland stability conditions on K3 surfaces"></textarea>
+    </label>
     <button type="submit">Create</button>
     <pre id="create-error" class="error" aria-live="polite"></pre>
   </form>

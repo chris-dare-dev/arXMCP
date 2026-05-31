@@ -185,6 +185,31 @@ def get_notebooks_store(request: Request) -> NotebooksStore:
     return store
 
 
+#: notebook-paper-discovery-m1: the arXiv categories a notebook may
+#: declare for topic-driven discovery (CLAUDE.md §2 target set:
+#: ``math.AG``, ``math.NT``, ``math-ph``, ``hep-th``). The empty string
+#: is ALSO valid (no category declared) and is checked separately so a
+#: blank field is never rejected.
+_VALID_DISCOVERY_CATEGORIES: frozenset[str] = frozenset(
+    {"math.AG", "math.NT", "math-ph", "hep-th"}
+)
+
+
+def _validate_discovery_category(value: str) -> None:
+    """Raise :class:`NotebookError` if ``value`` is a non-empty non-member.
+
+    The empty string is accepted (no category declared — FM-1). Per
+    ``CLAUDE.md §4.7`` this uses ``if … raise``, NOT ``assert`` (Python
+    ``-O`` strips asserts). The route handlers translate ``NotebookError``
+    to HTTP 422, mirroring :func:`validate_slug`'s call sites.
+    """
+    if value and value not in _VALID_DISCOVERY_CATEGORIES:
+        raise NotebookError(
+            f"discovery_category {value!r} is not one of "
+            f"{sorted(_VALID_DISCOVERY_CATEGORIES)} (or empty)"
+        )
+
+
 # ---------------------------------------------------------------------------
 # Request body models
 # ---------------------------------------------------------------------------
@@ -213,6 +238,13 @@ class NotebookCreate(BaseModel):
         default="arxiv",
         pattern="^(arxiv|textbook)$",
     )
+    # notebook-paper-discovery-m1: optional topic metadata for the
+    # m2-m4 discovery channels. ``discovery_category`` is enum-validated
+    # at the handler via ``_validate_discovery_category`` (Pydantic
+    # max_length here is only a defense-in-depth length bound, NOT the
+    # enum check). ``description`` is free text, rendered autoescaped.
+    discovery_category: str = Field(default="", max_length=32)
+    description: str = Field(default="", max_length=512)
 
 
 class NotebookRename(BaseModel):
@@ -227,6 +259,22 @@ class NotebookRename(BaseModel):
     """
 
     display_name: str = Field(max_length=256)
+
+
+class NotebookTopicUpdate(BaseModel):
+    """Body for ``PATCH /ui/api/notebooks/{slug}/topic`` (notebook-paper-discovery-m1).
+
+    Carries ONLY the two topic-metadata fields — ``slug`` /
+    ``display_name`` / ``notebook_kind`` / ``parse_status`` are NOT
+    acceptable here (mass-assignment defense; the dedicated ``/topic``
+    sub-route keeps the rename endpoint's contract untouched). Both
+    fields accept an empty string (clears the topic). ``discovery_category``
+    is enum-validated in the handler via ``_validate_discovery_category``;
+    the ``max_length`` bounds here are only defense-in-depth.
+    """
+
+    discovery_category: str = Field(default="", max_length=32)
+    description: str = Field(default="", max_length=512)
 
 
 class PaperAdd(BaseModel):
@@ -277,6 +325,16 @@ async def create_notebook(
             detail=str(e),
         ) from e
 
+    # notebook-paper-discovery-m1: reject a bad discovery_category at
+    # the route boundary (empty string is allowed — FM-1).
+    try:
+        _validate_discovery_category(body.discovery_category)
+    except NotebookError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e),
+        ) from e
+
     # Belt-and-braces: notebook_dir runs the m6 F3 symlink-rejection
     # containment check before any mkdir.
     try:
@@ -308,6 +366,8 @@ async def create_notebook(
             created_at=_now_iso(),
             notebook_kind=body.notebook_kind,
             parse_status=initial_parse_status,
+            discovery_category=body.discovery_category,
+            description=body.description,
         )
     except sqlite3.IntegrityError as e:
         # FM-5: duplicate slug. The async lock inside NotebooksStore
@@ -348,6 +408,8 @@ async def create_notebook(
         "display_name": body.display_name,
         "lancedb_path": lancedb_path,
         "notebook_kind": body.notebook_kind,
+        "discovery_category": body.discovery_category,
+        "description": body.description,
     }
 
 
@@ -463,6 +525,88 @@ async def rename_notebook(
             detail=f"notebook {slug!r} not found",
         )
     return HTMLResponse(content=_display_name_fragment(cleaned))
+
+
+def _topic_fragment(discovery_category: str, description: str) -> str:
+    """Build the htmx-swap fragment for a notebook's topic metadata.
+
+    The ``PATCH /ui/api/notebooks/{slug}/topic`` handler returns this in
+    place of the ``#topic-block`` element (``hx-swap="outerHTML"``).
+    Mirrors :func:`_display_name_fragment`: a tiny Python f-string with
+    EVERY interpolated value HTML-escaped via :func:`html.escape` — NOT a
+    Jinja2 partial. An empty value renders as ``—``. Never wrap this in
+    ``| safe``; the escape here IS the XSS guard for the fragment path.
+    ``aria-live="polite"`` is carried on the swapped element so screen
+    readers announce the updated topic after the outerHTML swap (the swap
+    REPLACES the element, so the attribute must live in the fragment too).
+    """
+    cat = html.escape(discovery_category) if discovery_category else "—"
+    desc = html.escape(description) if description else "—"
+    return (
+        '<div class="topic-block" id="topic-block" aria-live="polite">'
+        f'<p class="topic-category">Discovery category: <code>{cat}</code></p>'
+        f'<p class="topic-description">{desc}</p>'
+        "</div>"
+    )
+
+
+@router.patch(
+    "/notebooks/{slug}/topic",
+    response_class=HTMLResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def update_notebook_topic(
+    slug: str,
+    body: NotebookTopicUpdate,
+    store: NotebooksStore = Depends(get_notebooks_store),  # noqa: B008  (FastAPI DI pattern)
+) -> HTMLResponse:
+    """Update a notebook's topic metadata (notebook-paper-discovery-m1).
+
+    Returns the re-rendered ``#topic-block`` HTML fragment for the detail
+    page's htmx ``outerHTML`` swap. Security posture mirrors
+    :func:`rename_notebook`:
+
+    - ``validate_slug`` FIRST → 422 on a malformed/path-traversal slug.
+    - ``_validate_discovery_category`` → 422 on a non-empty non-member
+      category (empty string accepted — FM-1).
+    - Over-long fields → 422 via Pydantic ``max_length`` on
+      ``NotebookTopicUpdate`` (before this body runs).
+    - Mass-assignment closed: ``NotebookTopicUpdate`` carries only the two
+      topic fields; the store update touches only those columns. The
+      rename endpoint is untouched.
+    - Control chars stripped from ``description`` before storage
+      (log-injection defense, mirroring the rename path).
+    - XSS: the returned fragment html-escapes both values (NOT ``| safe``).
+    - 404 if the slug is unknown (``update_topic`` → ``False``).
+    """
+    try:
+        validate_slug(slug)
+    except NotebookError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e),
+        ) from e
+
+    try:
+        _validate_discovery_category(body.discovery_category)
+    except NotebookError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e),
+        ) from e
+
+    cleaned_desc = _CONTROL_CHARS_RE.sub("", body.description)
+    updated = await store.update_topic(
+        slug, body.discovery_category, cleaned_desc
+    )
+    if not updated:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"notebook {slug!r} not found",
+        )
+    return HTMLResponse(
+        content=_topic_fragment(body.discovery_category, cleaned_desc)
+    )
 
 
 # ---------------------------------------------------------------------------

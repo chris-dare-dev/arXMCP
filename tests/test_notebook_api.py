@@ -1120,7 +1120,7 @@ class TestNotebookKindMigration:
         self, tmp_path: Path,
     ) -> None:
         """After NotebooksStore.open on a fresh DB, PRAGMA user_version
-        is the CURRENT SCHEMA_VERSION (4 after textbook-ingest-m6)."""
+        is the CURRENT SCHEMA_VERSION (5 after notebook-paper-discovery-m1)."""
         import asyncio
         import sqlite3
 
@@ -1139,7 +1139,7 @@ class TestNotebookKindMigration:
                 await store.close()
 
         version = asyncio.run(_open_close())
-        assert version == 4
+        assert version == 5
 
     def test_v1_to_v3_migration_runs_both_blocks(
         self, tmp_path: Path,
@@ -1232,13 +1232,16 @@ class TestNotebookKindMigration:
             }
 
         result = asyncio.run(_run())
-        assert result["version"] == 4
+        assert result["version"] == 5
         assert result["ingest_runs_present"] is True
         assert "notebook_kind" in result["cols"]
         # textbook-ingest-m6 columns also present after v3→v4.
         assert "parse_status" in result["cols"]
         assert "parse_error" in result["cols"]
         assert "parsed_html_path" in result["cols"]
+        # notebook-paper-discovery-m1 columns present after v4→v5.
+        assert "discovery_category" in result["cols"]
+        assert "description" in result["cols"]
         # The legacy row's m3 column backfilled to 'arxiv'.
         rows = result["rows"]
         assert len(rows) == 1
@@ -1318,7 +1321,7 @@ class TestNotebookKindMigration:
             return v_first, cols_first, v_second, cols_second
 
         v1, c1, v2, c2 = asyncio.run(_open_close_open())
-        assert v1 == 4 and v2 == 4
+        assert v1 == 5 and v2 == 5
         # Schema byte-stable across re-opens.
         assert c1 == c2, (
             f"notebooks columns drifted across re-open: "
@@ -1327,3 +1330,227 @@ class TestNotebookKindMigration:
         # m3 rect F4: notebook_kind survived re-open without
         # re-running the v3 ALTER.
         assert "notebook_kind" in c2
+
+
+# ---------------------------------------------------------------------------
+# notebook-paper-discovery-m1: v4→v5 migration + topic metadata
+# ---------------------------------------------------------------------------
+
+
+class TestV4ToV5Migration:
+    """notebook-paper-discovery-m1 — additive v4→v5 migration adds
+    ``discovery_category`` + ``description`` with empty-string defaults.
+    """
+
+    def test_v4_to_v5_backfills_empty_topic(self, tmp_path: Path) -> None:
+        """A pre-m1 (v4) row backfills to empty topic fields, survives the
+        migration, and the DB lands at user_version 5."""
+        import asyncio
+        import sqlite3
+
+        db_path = tmp_path / "notebooks.db"
+
+        async def _seed_v4_and_query_v5() -> tuple[dict[str, str], int]:
+            conn = sqlite3.connect(str(db_path))
+            try:
+                # Full v4 notebooks shape (all 8 columns present).
+                conn.execute(
+                    "CREATE TABLE notebooks ("
+                    "  slug             TEXT PRIMARY KEY,"
+                    "  display_name     TEXT NOT NULL DEFAULT '',"
+                    "  lancedb_path     TEXT NOT NULL,"
+                    "  created_at       TEXT NOT NULL,"
+                    "  notebook_kind    TEXT NOT NULL DEFAULT 'arxiv',"
+                    "  parse_status     TEXT NOT NULL DEFAULT 'skipped',"
+                    "  parse_error      TEXT NOT NULL DEFAULT '',"
+                    "  parsed_html_path TEXT NOT NULL DEFAULT ''"
+                    ")"
+                )
+                conn.execute(
+                    "CREATE TABLE notebook_papers ("
+                    "  slug      TEXT NOT NULL,"
+                    "  paper_id  TEXT NOT NULL,"
+                    "  added_at  TEXT NOT NULL,"
+                    "  PRIMARY KEY (slug, paper_id)"
+                    ")"
+                )
+                conn.execute(
+                    "INSERT INTO notebooks "
+                    "(slug, display_name, lancedb_path, created_at) "
+                    "VALUES (?, ?, ?, ?)",
+                    (
+                        "legacy-v4",
+                        "Legacy v4",
+                        "/tmp/legacy/lancedb",
+                        "2026-02-01T00:00:00+00:00",
+                    ),
+                )
+                conn.execute("PRAGMA user_version = 4")
+                conn.commit()
+            finally:
+                conn.close()
+
+            store = await NotebooksStore.open(db_path)
+            try:
+                rows = await store.list_notebooks()
+                assert len(rows) == 1, "legacy row must survive migration"
+                row = rows[0]
+            finally:
+                await store.close()
+
+            conn = sqlite3.connect(str(db_path))
+            try:
+                version = int(
+                    conn.execute("PRAGMA user_version").fetchone()[0]
+                )
+            finally:
+                conn.close()
+            return row, version
+
+        row, version = asyncio.run(_seed_v4_and_query_v5())
+        assert version == 5
+        assert row["slug"] == "legacy-v4"
+        assert row["discovery_category"] == "", (
+            "legacy rows must backfill discovery_category='' via the "
+            "v4→v5 ALTER TABLE DEFAULT"
+        )
+        assert row["description"] == ""
+
+    def test_v4_to_v5_is_idempotent(self, tmp_path: Path) -> None:
+        """Re-opening a v5 DB does not re-run the v4→v5 block (which would
+        raise ``duplicate column name``); the BEGIN/COMMIT block is
+        re-runnable and columns are byte-stable across re-opens."""
+        import asyncio
+        import sqlite3
+
+        db_path = tmp_path / "notebooks.db"
+
+        async def _open_twice() -> tuple[int, list[str], int, list[str]]:
+            store = await NotebooksStore.open(db_path)
+            await store.close()
+            conn = sqlite3.connect(str(db_path))
+            try:
+                v1 = int(conn.execute("PRAGMA user_version").fetchone()[0])
+                c1 = sorted(
+                    r[1] for r in conn.execute(
+                        "PRAGMA table_info(notebooks)"
+                    ).fetchall()
+                )
+            finally:
+                conn.close()
+            # Second open: existing v5 DB — must NOT crash.
+            store = await NotebooksStore.open(db_path)
+            await store.close()
+            conn = sqlite3.connect(str(db_path))
+            try:
+                v2 = int(conn.execute("PRAGMA user_version").fetchone()[0])
+                c2 = sorted(
+                    r[1] for r in conn.execute(
+                        "PRAGMA table_info(notebooks)"
+                    ).fetchall()
+                )
+            finally:
+                conn.close()
+            return v1, c1, v2, c2
+
+        v1, c1, v2, c2 = asyncio.run(_open_twice())
+        assert v1 == 5 and v2 == 5
+        assert c1 == c2
+        assert "discovery_category" in c2
+        assert "description" in c2
+
+
+class TestNotebookTopicMetadata:
+    """notebook-paper-discovery-m1 — create + edit topic metadata via the
+    REST surface; validation, round-trip persistence, and XSS-safety."""
+
+    def test_create_with_topic_roundtrips(self, client: TestClient) -> None:
+        r = client.post(
+            "/ui/api/notebooks",
+            json={
+                "slug": "bridgeland",
+                "display_name": "Bridgeland",
+                "discovery_category": "math.AG",
+                "description": "Bridgeland stability on K3 surfaces",
+            },
+        )
+        assert r.status_code == 201, r.text
+        assert r.json()["discovery_category"] == "math.AG"
+        # FM-4 + FM-5: persisted and surfaced via list_notebooks.
+        rows = client.get("/ui/api/notebooks").json()
+        assert rows[0]["discovery_category"] == "math.AG"
+        assert rows[0]["description"] == "Bridgeland stability on K3 surfaces"
+
+    def test_create_empty_category_allowed(self, client: TestClient) -> None:
+        """FM-1: an empty discovery_category is valid (not specified)."""
+        r = client.post(
+            "/ui/api/notebooks",
+            json={"slug": "no-cat", "discovery_category": ""},
+        )
+        assert r.status_code == 201, r.text
+        assert r.json()["discovery_category"] == ""
+
+    def test_create_invalid_category_422(self, client: TestClient) -> None:
+        r = client.post(
+            "/ui/api/notebooks",
+            json={"slug": "bad-cat", "discovery_category": "math.QQ"},
+        )
+        assert r.status_code == 422, r.text
+        assert "discovery_category" in r.json()["detail"]
+
+    def test_patch_topic_updates_both_fields(
+        self, client: TestClient,
+    ) -> None:
+        client.post("/ui/api/notebooks", json={"slug": "demo-nb"})
+        r = client.patch(
+            "/ui/api/notebooks/demo-nb/topic",
+            json={
+                "discovery_category": "math.NT",
+                "description": "L-functions",
+            },
+        )
+        assert r.status_code == 200, r.text
+        # Fragment echoes the new values (html-escaped).
+        assert "math.NT" in r.text
+        assert "L-functions" in r.text
+        assert 'id="topic-block"' in r.text
+        # Persisted: get_notebook via list reflects the update.
+        rows = client.get("/ui/api/notebooks").json()
+        assert rows[0]["discovery_category"] == "math.NT"
+        assert rows[0]["description"] == "L-functions"
+
+    def test_patch_topic_invalid_category_422(
+        self, client: TestClient,
+    ) -> None:
+        client.post("/ui/api/notebooks", json={"slug": "demo-nb"})
+        r = client.patch(
+            "/ui/api/notebooks/demo-nb/topic",
+            json={"discovery_category": "cs.LO", "description": ""},
+        )
+        assert r.status_code == 422, r.text
+
+    def test_patch_topic_unknown_slug_404(
+        self, client: TestClient,
+    ) -> None:
+        r = client.patch(
+            "/ui/api/notebooks/ghost/topic",
+            json={"discovery_category": "", "description": "x"},
+        )
+        assert r.status_code == 404, r.text
+
+    def test_patch_topic_escapes_description(
+        self, client: TestClient,
+    ) -> None:
+        """FM-2: the returned fragment html-escapes a hostile description;
+        no raw <script> reaches the swap target."""
+        client.post("/ui/api/notebooks", json={"slug": "demo-nb"})
+        r = client.patch(
+            "/ui/api/notebooks/demo-nb/topic",
+            json={
+                "discovery_category": "",
+                "description": "<script>alert(1)</script>",
+            },
+        )
+        assert r.status_code == 200, r.text
+        assert "<script>" not in r.text
+        assert "&lt;script&gt;" in r.text
