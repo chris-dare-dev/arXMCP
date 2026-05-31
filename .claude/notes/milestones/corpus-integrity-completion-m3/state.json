@@ -18,7 +18,17 @@
   "external_writes_authorized": false,
   "external_writes_completed": false,
   "external_writes_required": [],
-  "fixed_findings": [],
+  "fixed_findings": [
+    "F1",
+    "F2",
+    "F3",
+    "F4",
+    "F5",
+    "F6"
+  ],
+  "follow_ups": [
+    "F2-extension: add a second mutation test that monkey-patches server/routes/notebooks._rewrite_corpus_version_marker (the parallel marker writer that mirrors ingest/store.py::write_corpus_version_marker but bypasses the module-local binding). The same shape would also extend coverage to tools/notebook_reconcile_marker.py. m3 rect F2 documented the coverage gap; this is the rigorous fix for a future ops-hardening epic."
+  ],
   "id": "corpus-integrity-completion-m3",
   "implementation_base": "1a398f77fa7f5a6f8ff3ae3f70e8a51ddd2e65f5",
   "implementation_branch": "main",
@@ -30,7 +40,7 @@
   "implementation_specialist": null,
   "invalidated_findings": [],
   "milestone_brief": "see plans/corpus-integrity-completion-roadmap.md::corpus-integrity-completion-m3 \u2014 end-to-end multi-paper write\u2192/readyz integration test + mutation test",
-  "phase": "rectify-running",
+  "phase": "complete",
   "phase_history": [
     {
       "entered_at": "2026-05-31T22:23:10Z",
@@ -69,12 +79,21 @@
     },
     {
       "entered_at": "2026-05-31T22:43:58Z",
-      "left_at": null,
+      "left_at": "2026-05-31T22:52:23Z",
       "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-05-31T22:52:23Z",
+      "left_at": null,
+      "phase": "complete"
     }
   ],
-  "rectification_commit": null,
-  "regression_tests_added": [],
+  "rectification_commit": "056b438eeb3956a70a90afc463de724c15f65b35",
+  "regression_tests_added": [
+    "tests/test_server_startup_integration.py::test_chunk_count_marker_equals_table_after_multi_paper_write",
+    "tests/test_server_startup_integration.py::test_pre_m1_bug_shape_is_caught_by_integration",
+    "tests/test_server_startup_integration.py::test_synthetic_corpus_size_exceeds_divergence_tolerance_floor"
+  ],
   "research_briefs": [
     {
       "agent_id": "researcher-1",
@@ -89,5 +108,5 @@
   ],
   "research_mode": "standard",
   "research_synthesis": ".claude/notes/milestones/corpus-integrity-completion-m3/research-synthesis.md",
-  "updated_at": "2026-05-31T22:43:58Z"
+  "updated_at": "2026-05-31T22:52:23Z"
 }
