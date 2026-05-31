@@ -45,11 +45,20 @@
   </script>
 </head>
 <body>
+  {# ui-attractive-polish-m1 (UPL-4): skip-to-main-content link.
+     WCAG SC 2.4.1 (Level A) — keyboard users bypass the header on first Tab.
+     Visually hidden until :focus-visible (see .skip-link in app.css);
+     activation moves keyboard focus into <main id="main" tabindex="-1">. #}
+  <a class="skip-link" href="#main">Skip to main content</a>
   <header>
     <h1><a href="/ui/">arXMCP notebooks</a></h1>
     <p class="subtitle">Per-notebook arXiv corpora for the <code>/proof-verify</code> pipeline.</p>
   </header>
-  <main>
+  {# ui-attractive-polish-m1 (UPL-4): id="main" is the skip-link target;
+     tabindex="-1" makes <main> programmatically focusable (not Tab-traversable)
+     so activating the skip link actually moves keyboard focus here, not just
+     scrolls. Per MDN tabindex docs + WebAIM G1. #}
+  <main id="main" tabindex="-1">
     {% block content %}{% endblock %}
   </main>
   <footer>
@@ -62,7 +71,17 @@
            HTML, and a browser XHR to /status would 403 via SecFetchSite).
            hx-get is same-origin under /ui so the existing CSP connect-src
            'self' covers it; no CSP change needed. -->
+      {# ui-attractive-polish-m1 (UPL-3): aria-live="polite" + aria-atomic="true"
+         so screen readers announce badge state transitions (READY/DEGRADED/
+         WARN/DOWN/ops-warn) instead of silent flips. atomic=true reads the
+         whole composite string ("READY · corpus v… · N notebooks") once per
+         change rather than only the changed substring. CRITICAL: the
+         outerHTML swap REPLACES this <span> entirely on each 10s poll, so
+         the SERVER-SIDE fragment in server/routes/ui.py::ui_status_badge
+         MUST also carry these attributes — otherwise the live region goes
+         silent after the first poll (research-synthesis.md §2). #}
       <span id="status-badge" class="status-badge"
+            aria-live="polite" aria-atomic="true"
             hx-get="/ui/status-badge" hx-trigger="load, every 10s"
             hx-swap="outerHTML">checking…</span>
     </small>

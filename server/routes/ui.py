@@ -257,8 +257,16 @@ async def ui_status_badge(request: Request) -> HTMLResponse:
     _, sep, rest = raw_summary.partition("|")
     summary = f"{label} {sep}{rest}" if sep else label
     safe = _html.escape(summary)
+    # ui-attractive-polish-m1 (UPL-3): aria-live="polite" + aria-atomic="true"
+    # MUST be on the SWAP RESULT (this fragment), not only on the initial
+    # render in base.html. htmx hx-swap="outerHTML" replaces the <span>
+    # entirely every 10s — if the new element omits these attributes, screen
+    # readers stop announcing badge state changes after the first poll
+    # (research-synthesis.md §2 — both Phase-1 researchers flagged this
+    # independently as the most-critical implementation risk for m1).
     fragment = (
         f'<span id="status-badge" class="status-badge status-badge--{css}" '
+        f'aria-live="polite" aria-atomic="true" '
         f'hx-get="/ui/status-badge" hx-trigger="every 10s" '
         f'hx-swap="outerHTML" title="{safe}">{safe}</span>'
     )

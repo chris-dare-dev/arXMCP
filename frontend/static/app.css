@@ -1,5 +1,5 @@
-/* arXMCP UI — minimal CSS (m8). No external fonts; no CDN.
-   Single file; ships under /ui/static/app.css. */
+/* arXMCP UI — minimal CSS (m8 + m1..m4 + ui-attractive-polish-m1).
+   No external fonts; no CDN. Single file; ships under /ui/static/app.css. */
 
 :root {
   --fg: #1a1a1a;
@@ -124,3 +124,67 @@ pre.error:empty { display: none; }
 .status-badge--warn     { background: #fdf3e2; color: #8a5a00; border-color: #8a5a00; }
 .status-badge--ops-warn { background: #eef2f7; color: #475569; border-color: #94a3b8; }
 .status-badge--down     { background: var(--error-bg); color: var(--danger); border-color: var(--danger); }
+
+/* ui-attractive-polish-m1 (UPL-4): skip-to-main-content link. WebAIM G1
+   canonical pattern — visually hidden off-screen by default; revealed on
+   :focus-visible at a fixed viewport position so it survives mid-page scrolls.
+   The matching `<main id="main" tabindex="-1">` element in base.html receives
+   programmatic keyboard focus on activation (without tabindex some browsers
+   silently fail to move focus, scrolling only). */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: auto;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+.skip-link:focus-visible {
+  position: fixed;
+  left: 1rem;
+  top: 1rem;
+  width: auto;
+  height: auto;
+  z-index: 9999;
+  padding: 0.5rem 1rem;
+  background: var(--accent);
+  color: #fff;
+  border-radius: 4px;
+  text-decoration: none;
+}
+
+/* ui-attractive-polish-m1 (UPL-2): :focus-visible baseline outline ring.
+   WCAG SC 2.4.7 (Level AA) — keyboard focus indicators visible. The
+   --accent ring on every interactive element except button.danger, which
+   uses --danger at outline-offset:3px so the ring stays visible against
+   the red destructive fill. The :focus:not(:focus-visible) reset
+   suppresses the ring for mouse clicks (which preserve :focus but not
+   :focus-visible). */
+button:focus-visible, .button:focus-visible,
+input:focus-visible, a:focus-visible,
+select:focus-visible, textarea:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+button.danger:focus-visible { outline-color: var(--danger); outline-offset: 3px; }
+:focus:not(:focus-visible) { outline: none; }
+
+/* ui-attractive-polish-m1 (UPL-1): prefers-reduced-motion universal gate.
+   No transitions/animations exist in this file today (verified by
+   research-brief-1), so this clamp has no immediate behavioral effect — it
+   future-proofs every motion candidate that lands in subsequent milestones
+   (UPL-11, UPL-13, UPL-15, UPL-22). Per motion-vocabulary.md MOT-NO-5,
+   any future animation that omits the no-preference gate is now a
+   Phase-3 BLOCKER. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    animation-delay: 0.01ms !important;
+    transition-delay: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

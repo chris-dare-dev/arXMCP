@@ -11,8 +11,13 @@
      stable htmx swap target (#display-name-block). PATCH /ui/api/notebooks/{slug}
      returns this same <p> re-rendered (server-side html.escape'd in
      server/routes/notebooks.py::_display_name_fragment). Autoescape applies
-     here too; an empty name shows "—". Do NOT add `| safe`. #}
-  <p class="display-name" id="display-name-block">{{ notebook.display_name or "—" }}</p>
+     here too; an empty name shows "—". Do NOT add `| safe`.
+     ui-attractive-polish-m1 (UPL-3): aria-live="polite" so screen-readers
+     announce the renamed value after the outerHTML swap. CRITICAL: the swap
+     REPLACES this element, so _display_name_fragment in server/routes/
+     notebooks.py MUST also emit the attribute on its returned <p> — see
+     research-synthesis.md §2. #}
+  <p class="display-name" id="display-name-block" aria-live="polite">{{ notebook.display_name or "—" }}</p>
   {# Rename form sits OUTSIDE #display-name-block so it survives the outerHTML
      swap. The base.html JSON-shim serializes the PATCH body to JSON
      ({"display_name": ...}) → the NotebookRename model. On success htmx swaps
@@ -157,9 +162,15 @@
        fragment that replaces this div via hx-swap="outerHTML". The
        polling fragment carries hx-trigger="every 2s"; terminal-state
        fragments OMIT the trigger AND the polling endpoint returns
-       HTTP 286 to stop client polling (htmx-documented mechanism). -->
+       HTTP 286 to stop client polling (htmx-documented mechanism).
+       ui-attractive-polish-m1 (UPL-3): aria-live="polite" announces
+       run-state transitions (queued -> running -> complete/failed)
+       to screen readers. CRITICAL: the outerHTML swap REPLACES this
+       <div>; every fragment in _ingest_status_fragment (none/running/
+       success/failed) MUST also emit aria-live="polite". -->
   <div id="ingest-status"
        data-status="placeholder"
+       aria-live="polite"
        hx-get="/ui/api/notebooks/{{ notebook.slug }}/ingest/latest"
        hx-trigger="load"
        hx-target="#ingest-status"
@@ -177,7 +188,13 @@
     <thead>
       <tr><th>Paper ID</th><th>Added</th><th>Preview</th><th></th></tr>
     </thead>
-    <tbody id="papers-tbody">
+    {# ui-attractive-polish-m1 (UPL-3): aria-live="polite" on the tbody so
+       a successfully uploaded paper-row (hx-swap="beforeend" from the
+       Upload card) is announced to screen readers. Note this is a
+       beforeend swap (not outerHTML), so the <tbody> element itself is
+       NEVER replaced — only the static template attribute is required;
+       no server-fragment update. #}
+    <tbody id="papers-tbody" aria-live="polite">
       {% for p in papers %}
       <tr data-slug="{{ notebook.slug }}" data-paper-id="{{ p.paper_id }}">
         <td><code>{{ p.paper_id }}</code></td>
