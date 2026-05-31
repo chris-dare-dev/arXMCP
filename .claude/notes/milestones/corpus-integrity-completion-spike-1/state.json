@@ -1,0 +1,66 @@
+{
+  "brief_source": "",
+  "created_at": "2026-05-31T22:55:25Z",
+  "critics_run": [],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "low": 0,
+    "medium": 0
+  },
+  "critique_path": null,
+  "deferred_findings": [],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_required": [],
+  "fixed_findings": [],
+  "id": "corpus-integrity-completion-spike-1",
+  "implementation_base": "297b69074d3b05077fd73066a0b42c1ae50ecdea",
+  "implementation_branch": null,
+  "implementation_commit_range": null,
+  "implementation_commits": [],
+  "implementation_path": "inline",
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "",
+  "phase": "implement-running",
+  "phase_history": [
+    {
+      "entered_at": "2026-05-31T22:55:25Z",
+      "left_at": "2026-05-31T23:03:10Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-05-31T23:03:10Z",
+      "left_at": "2026-05-31T23:03:10Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-05-31T23:03:10Z",
+      "left_at": "2026-05-31T23:03:10Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-05-31T23:03:10Z",
+      "left_at": null,
+      "phase": "implement-running"
+    }
+  ],
+  "rectification_commit": null,
+  "regression_tests_added": [],
+  "research_briefs": [
+    {
+      "agent_id": "researcher-1",
+      "brief_path": ".claude/notes/milestones/corpus-integrity-completion-spike-1/research-brief-1.md",
+      "summary": "Ship (c) but redefine (a) as marker-file readback verify, not 2nd count_rows"
+    },
+    {
+      "agent_id": "researcher-2",
+      "brief_path": ".claude/notes/milestones/corpus-integrity-completion-spike-1/research-brief-2.md",
+      "summary": "Ship (a) only \u2014 (b) false-fires on idempotent merge_insert re-runs"
+    }
+  ],
+  "research_mode": "standard",
+  "research_synthesis": ".claude/notes/milestones/corpus-integrity-completion-spike-1/research-synthesis.md",
+  "updated_at": "2026-05-31T23:03:10Z"
+}
