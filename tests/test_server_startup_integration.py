@@ -287,22 +287,29 @@ def test_pre_m1_bug_shape_is_caught_by_integration(tmp_path, monkeypatch):
     import json
 
     marker_path = lancedb_path / CORPUS_VERSION_MARKER_NAME
-    assert marker_path.is_file(), (
-        f"marker absent at {marker_path} after clean ingest — "
-        f"the e1 gate would have raised on the FIRST write_chunks "
-        f"call if so; reaching this assertion means the ingest "
-        f"path is in an unexpected state."
-    )
+    # rect F4: use `if not ... raise AssertionError(...)` to match
+    # the surrounding file's pattern (lines 180, 185, 196, ...).
+    # CLAUDE.md §4.7 bans `assert` for invariants; pytest test code
+    # is lower-risk than production code (no one runs pytest -O), but
+    # the file's style is consistent and the rect F4 drift is gratuitous.
+    if not marker_path.is_file():
+        raise AssertionError(
+            f"marker absent at {marker_path} after clean ingest — "
+            f"the e1 gate would have raised on the FIRST write_chunks "
+            f"call if so; reaching this assertion means the ingest "
+            f"path is in an unexpected state."
+        )
     marker_data = json.loads(marker_path.read_text(encoding="utf-8"))
     # Sanity: confirm the clean ingest landed the cumulative count
     # (pre-m1 bug regression would have already failed the e1 gate
     # before reaching this assertion).
-    assert marker_data["chunk_count"] == _CUMULATIVE_CHUNK_COUNT, (
-        f"clean ingest landed marker with chunk_count="
-        f"{marker_data['chunk_count']} (expected "
-        f"{_CUMULATIVE_CHUNK_COUNT}). Either the seed fixture is "
-        f"misconfigured or the m1 marker writer regressed."
-    )
+    if marker_data["chunk_count"] != _CUMULATIVE_CHUNK_COUNT:
+        raise AssertionError(
+            f"clean ingest landed marker with chunk_count="
+            f"{marker_data['chunk_count']} (expected "
+            f"{_CUMULATIVE_CHUNK_COUNT}). Either the seed fixture is "
+            f"misconfigured or the m1 marker writer regressed."
+        )
     # Mutate to the pre-m1 bug shape (last-per-batch-only).
     marker_data["chunk_count"] = _CHUNKS_PER_PAPER
     marker_path.write_text(json.dumps(marker_data), encoding="utf-8")

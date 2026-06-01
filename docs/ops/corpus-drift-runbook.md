@@ -141,6 +141,18 @@ The presence (or absence) of the swallow warning routes triage:
 | count-mismatch | **yes** | S5 (swallow + stale prior marker) — see Remediation |
 | count-mismatch | **no** | S6 (arithmetic regression) — see Remediation |
 
+**Routing-tag shortcut (e1 rect F3):** the gate's
+count-mismatch RuntimeError text now includes one of two routing
+tags directly: `Routing: S5 (swallow + stale marker)` or
+`Routing: S6 (arithmetic regression)`. The tag is computed at the
+gate site from whether the in-call swallow's `except Exception`
+block fired before the gate ran. On a 2am-page path where the
+operator has only the exception text (e.g., a Slack alert body), the
+routing decision is deterministic from the text alone — no `grep`
+against the ingest log needed. The grep workflow above remains the
+fallback for cases where the error text is truncated and for the
+absent / malformed arms which do not produce a routing tag.
+
 ---
 
 ## Likely causes

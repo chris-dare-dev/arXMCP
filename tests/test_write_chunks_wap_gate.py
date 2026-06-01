@@ -114,10 +114,28 @@ def test_positive_path_re_embed_two_call_shape(tmp_path):
 
 
 def test_mutation_A_wrong_value_marker(tmp_path, monkeypatch):
-    """Mutation A — wrong-value marker: inject ``chunk_count=1`` into
-    every marker write. Multi-call cumulative table is 30 rows; the
-    last marker says ``chunk_count=1``. Gate fires the COUNT-MISMATCH
-    arm.
+    """Mutation A — wrong-value marker: the monkeypatched
+    ``write_corpus_version_marker`` injects ``chunk_count=1`` into
+    EVERY marker write (rect F1: docstring corrected — the gate fires
+    on the FIRST ``write_chunks`` call, not the third).
+
+    Actual firing sequence:
+    1. First ``write_chunks`` call writes 10 chunks. After
+       merge_insert: ``tbl.count_rows() == 10``. The monkeypatched
+       writer lands a marker with ``chunk_count=1`` (the injection).
+       The WAP gate reads back ``chunk_count=1`` and compares against
+       ``fresh_count=10`` → COUNT-MISMATCH arm raises.
+    2. The second and third ``write_chunks`` calls never execute.
+    3. Because the marker write SUCCEEDED (the wrapper called the
+       real writer with the wrong kwargs), the in-call
+       ``marker_write_failed`` flag is False → the gate's S6 routing
+       tag fires (arithmetic regression, not S5 swallow).
+
+    Rect F1 strengthens the regression guard with two firing-point
+    pins: (a) the numerical state (marker chunk_count=1 vs
+    fresh count_rows=10, NOT 30) in the error text, and (b) the
+    ``Routing: S6`` tag from rect F3 (the writer fired cleanly; the
+    bug is arithmetic, not swallow).
 
     Pattern lifted verbatim from
     ``tests/test_server_startup_integration.py:265-278`` (rect-F4
@@ -135,10 +153,36 @@ def test_mutation_A_wrong_value_marker(tmp_path, monkeypatch):
         store_mod, "write_corpus_version_marker", bad_marker_writer
     )
 
-    with pytest.raises(RuntimeError, match="reports chunk_count="):
+    with pytest.raises(
+        RuntimeError, match="reports chunk_count="
+    ) as excinfo:
         seed_corpus_multi_paper(
             lancedb_path, n_papers=3, chunks_per_paper=10
         )
+
+    err_text = str(excinfo.value)
+    # Rect F1: pin the firing-point numerical state. The gate fires
+    # on call 1 (10 rows, marker chunk_count=1), NOT on call 3 (30
+    # rows, marker chunk_count=1). A test that asserts only "any
+    # MISMATCH" would silently pass against a regression that moved
+    # the gate to LATER calls — the regression guard would weaken.
+    assert "chunk_count=1" in err_text, (
+        f"WAP gate error must cite marker chunk_count=1 (the "
+        f"monkeypatched value); got: {err_text}"
+    )
+    assert "tbl.count_rows()=10" in err_text, (
+        f"WAP gate must fire on FIRST write_chunks call (table=10 "
+        f"after the first 10-chunk write). If this assertion fails "
+        f"with tbl.count_rows()=20 or =30, the gate has shifted to "
+        f"a later call — a real regression. Got: {err_text}"
+    )
+    # Rect F3: clean marker write + wrong content => S6 routing tag.
+    assert "Routing: S6" in err_text, (
+        f"WAP gate must tag this as S6 (arithmetic regression) "
+        f"because the monkeypatched writer SUCCEEDS — only its "
+        f"chunk_count kwarg was wrong. If S5 fires here, the rect "
+        f"F3 marker_write_failed flag has regressed. Got: {err_text}"
+    )
 
 
 def test_mutation_B_missing_marker(tmp_path, monkeypatch, caplog):
@@ -293,6 +337,18 @@ def test_mutation_D_stale_marker_swallow(tmp_path, monkeypatch, caplog):
         f"Actual error text: {excinfo.value!s}"
     )
 
+    # Rect F3: the in-call swallow fired BEFORE the gate ran, so the
+    # gate's COUNT-MISMATCH arm tags this as S5 (recoverable via
+    # `make reconcile`). Operators on the 2am-page path get the
+    # routing decision from the exception text alone, without
+    # grepping for the discriminator log line.
+    assert "Routing: S5" in str(excinfo.value), (
+        "WAP gate must tag this as S5 (swallow + stale marker) "
+        "because the in-call swallow fired before the gate ran. If "
+        "S6 fires here, the rect F3 marker_write_failed flag has "
+        "regressed. Got: " + str(excinfo.value)
+    )
+
     # And the swallow itself must have actually logged that warning.
     swallow_records = [
         rec
@@ -305,4 +361,76 @@ def test_mutation_D_stale_marker_swallow(tmp_path, monkeypatch, caplog):
         "failing marker write. Either the swallow has been removed or "
         "its log message has changed — both invalidate the gate's "
         "operator-actionability story."
+    )
+
+
+def test_mutation_E_audit_row_lands_on_gate_failure_path(
+    tmp_path, monkeypatch
+):
+    """Rect F2 regression guard: when the WAP gate raises, the
+    store-stats.jsonl audit row STILL lands (via the
+    ``try/finally`` around the gate). Pre-rect-F2 the gate raised
+    BEFORE ``_append_store_stats`` ran, so the audit log was silent
+    about the very failure path the gate exists to surface —
+    operators correlating "what got written when" against the audit
+    log saw a gap where the gate caught a divergence.
+
+    This test re-runs Mutation A (wrong-value marker injected via
+    monkeypatch) and confirms (a) the gate still raises and (b) the
+    store-stats.jsonl audit row for the failing call is present
+    with the expected ``gate_failure_reason`` field.
+    """
+    import json
+
+    from ingest.store import STORE_STATS_PATH
+
+    # Snapshot the audit log so we can identify rows from THIS test.
+    pre_existing_rows = 0
+    if STORE_STATS_PATH.is_file():
+        pre_existing_rows = sum(
+            1 for _ in STORE_STATS_PATH.read_text(encoding="utf-8").splitlines()
+        )
+
+    lancedb_path = tmp_path / "lancedb"
+    real_marker = store_mod.write_corpus_version_marker
+
+    def bad_marker_writer(target_path, **kwargs):
+        kwargs["chunk_count"] = 1
+        return real_marker(target_path, **kwargs)
+
+    monkeypatch.setattr(
+        store_mod, "write_corpus_version_marker", bad_marker_writer
+    )
+
+    with pytest.raises(RuntimeError, match="reports chunk_count="):
+        seed_corpus_multi_paper(
+            lancedb_path, n_papers=3, chunks_per_paper=10
+        )
+
+    # The audit row MUST exist for the failing call. The gate raised
+    # via try/finally — without rect F2, this assertion would fail
+    # because _append_store_stats was skipped on the raise path.
+    assert STORE_STATS_PATH.is_file(), (
+        f"store-stats.jsonl absent at {STORE_STATS_PATH} after the "
+        f"gate's RuntimeError. The audit log must persist; the gate "
+        f"raises but the try/finally around _append_store_stats "
+        f"must still execute (rect F2)."
+    )
+    all_lines = (
+        STORE_STATS_PATH.read_text(encoding="utf-8").splitlines()
+    )
+    new_lines = all_lines[pre_existing_rows:]
+    assert new_lines, (
+        f"no new audit rows appended after the gate fired (rect F2 "
+        f"regression). pre_existing={pre_existing_rows}, total="
+        f"{len(all_lines)}. The try/finally is the only path that "
+        f"lands the audit row when the gate raises."
+    )
+    # The newest row should carry the gate_failure_reason.
+    last_row = json.loads(new_lines[-1])
+    assert last_row.get("gate_failure_reason") == "count_mismatch_arithmetic", (
+        f"audit row missing gate_failure_reason or wrong value. "
+        f"Expected 'count_mismatch_arithmetic' (Mutation A is an S6 "
+        f"arithmetic-regression case — the marker write succeeds with "
+        f"wrong content). Got: {last_row!r}"
     )

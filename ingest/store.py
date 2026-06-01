@@ -206,11 +206,20 @@ class WriteStats:
     indices_created: dict[str, bool] = field(default_factory=dict)
     paper_id: str = ""
     total_rows_after_commit: int = 0
+    # corpus-integrity-completion-e1 (rect F2): records WHY the WAP gate
+    # raised, so the post-mortem audit row in store-stats.jsonl pins the
+    # failure surface. Empty string is the happy-path (and pre-e1) value.
+    # Domain (when non-empty): "missing_marker" | "malformed_marker" |
+    # "count_mismatch_arithmetic" | "count_mismatch_swallow".
+    # The arithmetic-vs-swallow split mirrors the runbook's S5/S6 routing
+    # (rect F3).
+    gate_failure_reason: str = ""
 
     def to_dict(self) -> dict:
         return {
             "chunk_count": self.chunk_count,
             "elapsed_s": round(self.elapsed_s, 3),
+            "gate_failure_reason": self.gate_failure_reason,
             "indices_created": dict(self.indices_created),
             "lancedb_version": self.lancedb_version,
             "paper_id": self.paper_id,
@@ -979,7 +988,16 @@ def write_chunks(
                 "paper_count": paper_count,
             },
         )
+        marker_write_failed = False
     except Exception as exc:
+        # corpus-integrity-completion-e1 rect F3: record that the
+        # swallow fired so the WAP gate's COUNT-MISMATCH arm below can
+        # tag the routing decision (S5 swallow+stale-marker vs. S6
+        # arithmetic regression) in its RuntimeError text. Without this
+        # flag the operator-actionability story from spike-1 §3 rect F6
+        # requires a separate `grep` against the ingest log on the
+        # 2am-page path.
+        marker_write_failed = True
         logger.error(
             "could not write corpus-version.json marker for version %d "
             "at %s: %s (LanceDB row write succeeded; marker is best-effort)",
@@ -1014,52 +1032,84 @@ def write_chunks(
     # ``server/corpus.py:101``).
     from server.corpus import read_corpus_version  # noqa: PLC0415
 
+    # rect F2: wrap the gate body in try/finally so _append_store_stats
+    # lands on the failure path too. The LanceDB rows and indices are
+    # already committed by line 876; losing the audit row on the very
+    # failure path the gate exists to surface is the observability gap
+    # the critic flagged. The gate's RuntimeError still propagates to
+    # the caller after the finally executes.
     try:
-        re_read_marker = read_corpus_version(target_path)
-    except ValueError as exc:
-        raise RuntimeError(
-            f"WAP gate: corpus-version.json marker at {target_path} is "
-            f"malformed and cannot be parsed: {exc}. Likely cause: a "
-            f"truncated atomic rename, a partial write before os.replace, "
-            f"or a JSON serialization bug in write_corpus_version_marker. "
-            f"Run `make reconcile` to repair. "
-            f"Runbook: docs/ops/corpus-drift-runbook.md."
-        ) from exc
-    fresh_count = tbl.count_rows()
-    if re_read_marker is None:
-        raise RuntimeError(
-            f"WAP gate: corpus-version.json marker at {target_path} is "
-            f"absent after write_corpus_version_marker returned. This is "
-            f"the cold-clone case: no prior marker existed AND the write "
-            f"was silently swallowed by the best-effort try/except above "
-            f"(check the immediately preceding log line for a "
-            f"'could not write corpus-version.json marker' warning). "
-            f"Table count: {fresh_count}. "
-            f"Run `make reconcile` to write a fresh marker. "
-            f"Runbook: docs/ops/corpus-drift-runbook.md."
-        )
-    if re_read_marker.chunk_count != fresh_count:
-        raise RuntimeError(
-            f"WAP gate: corpus-version.json marker at {target_path} reports "
-            f"chunk_count={re_read_marker.chunk_count} but tbl.count_rows()="
-            f"{fresh_count} for corpus_version={dataset_version}. Likely "
-            f"causes: (1) a pre-m1-style len(chunks)-instead-of-count_rows "
-            f"arithmetic regression in this call, OR (2) the marker write "
-            f"was swallowed by the best-effort try/except above and the "
-            f"PRIOR marker's chunk_count is what's being read back (check "
-            f"the immediately preceding log line for a "
-            f"'could not write corpus-version.json marker' warning). "
-            f"Run `make reconcile` to repair the marker. "
-            f"Runbook: docs/ops/corpus-drift-runbook.md."
-        )
-
-    # corpus-integrity-observability-e3 F1: append the audit row AFTER the
-    # marker block so WriteStats.total_rows_after_commit (set inside the try at
-    # count_rows() time) is serialized to store-stats.jsonl. Appending before
-    # the populate left the audit field always-0. On a count_rows() failure the
-    # field stays 0 (count unavailable) and the row is still appended —
-    # best-effort, matching the marker-write contract.
-    _append_store_stats(stats)
+        try:
+            re_read_marker = read_corpus_version(target_path)
+        except ValueError as exc:
+            stats.gate_failure_reason = "malformed_marker"
+            raise RuntimeError(
+                f"WAP gate: corpus-version.json marker at {target_path} is "
+                f"malformed and cannot be parsed: {exc}. Likely cause: a "
+                f"truncated atomic rename, a partial write before os.replace, "
+                f"or a JSON serialization bug in write_corpus_version_marker. "
+                f"Run `make reconcile` to repair. "
+                f"Runbook: docs/ops/corpus-drift-runbook.md."
+            ) from exc
+        fresh_count = tbl.count_rows()
+        if re_read_marker is None:
+            stats.gate_failure_reason = "missing_marker"
+            raise RuntimeError(
+                f"WAP gate: corpus-version.json marker at {target_path} is "
+                f"absent after write_corpus_version_marker returned. This is "
+                f"the cold-clone case: no prior marker existed AND the write "
+                f"was silently swallowed by the best-effort try/except above "
+                f"(check the immediately preceding log line for a "
+                f"'could not write corpus-version.json marker' warning). "
+                f"Table count: {fresh_count}. "
+                f"Run `make reconcile` to write a fresh marker. "
+                f"Runbook: docs/ops/corpus-drift-runbook.md."
+            )
+        if re_read_marker.chunk_count != fresh_count:
+            # rect F3: deterministic S5/S6 routing tag in the error
+            # text. ``marker_write_failed`` is set in the swallow's
+            # except block above; true == the prior swallow fired in
+            # THIS call, so the stale prior marker is what was read
+            # back (S5 recoverable via `make reconcile`). false == the
+            # marker write succeeded but reports a wrong count (S6
+            # arithmetic regression; needs a code fix). Operators on
+            # the 2am-page path get the routing decision in the
+            # exception text alone — no separate `grep` required.
+            if marker_write_failed:
+                stats.gate_failure_reason = "count_mismatch_swallow"
+                routing_tag = "Routing: S5 (swallow + stale marker)"
+                likely_cause = (
+                    "the marker write was swallowed by the best-effort "
+                    "try/except above and the PRIOR marker's chunk_count "
+                    "is what's being read back (the immediately preceding "
+                    "log line contains a 'could not write "
+                    "corpus-version.json marker' warning that the "
+                    "swallow emitted in this call)"
+                )
+            else:
+                stats.gate_failure_reason = "count_mismatch_arithmetic"
+                routing_tag = "Routing: S6 (arithmetic regression)"
+                likely_cause = (
+                    "a pre-m1-style len(chunks)-instead-of-count_rows "
+                    "arithmetic regression in this call (the marker "
+                    "write itself succeeded; its content is just wrong)"
+                )
+            raise RuntimeError(
+                f"WAP gate: corpus-version.json marker at {target_path} reports "
+                f"chunk_count={re_read_marker.chunk_count} but tbl.count_rows()="
+                f"{fresh_count} for corpus_version={dataset_version}. "
+                f"{routing_tag}. Likely cause: {likely_cause}. "
+                f"Run `make reconcile` to repair the marker (S5) or fix the "
+                f"writer code first then reconcile (S6). "
+                f"Runbook: docs/ops/corpus-drift-runbook.md."
+            )
+    finally:
+        # corpus-integrity-observability-e3 F1: append the audit row AFTER
+        # the marker block so WriteStats.total_rows_after_commit (set inside
+        # the try at count_rows() time) is serialized to store-stats.jsonl.
+        # rect F2: also lands on the gate's failure path so the audit row
+        # records the gate_failure_reason that triggered the abort.
+        _append_store_stats(stats)
 
     return dataset_version
 
