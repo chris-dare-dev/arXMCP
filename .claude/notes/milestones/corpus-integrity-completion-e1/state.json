@@ -26,7 +26,12 @@
       "why": "Land the feat+rect+chore commit triple after Phase 4 rectification"
     }
   ],
-  "fixed_findings": [],
+  "fixed_findings": [
+    "F1",
+    "F2",
+    "F3",
+    "F4"
+  ],
   "id": "corpus-integrity-completion-e1",
   "implementation_base": "688b25f6eab603b38cd1251b7200c6b103766450",
   "implementation_branch": "main",
@@ -38,7 +43,7 @@
   "implementation_specialist": null,
   "invalidated_findings": [],
   "milestone_brief": "**Epic:** corpus-integrity-completion-e1 \u2014 Chunk-count seam: WAP gate that refuses bad markers\n\n**Type:** enabler. **Estimated size:** S (~185 LOC total per spike). **Specialist suggestion:** cache-stability-reviewer (touches the corpus-version.json marker JSON whose byte-stability is load-bearing for the m2 startup reconciliation cache key).\n\n**Parent roadmap:** plans/corpus-integrity-completion-roadmap.md \u00a7Phase 2 \u00a7Epics \u00a7e1 (lines 92-100).\n\n**Binding implementation contract:** .claude/notes/milestones/corpus-integrity-completion-spike-1/decision.md (variant (a) ONLY, refined as marker-file readback verify; roadmap pre-recommendation of (c) REFUTED; variant (b) does NOT ship).\n\n**Outcome (roadmap epic e1 verbatim):** `ingest/store.py::write_chunks` raises `RuntimeError` whenever the just-written `corpus-version.json` marker's `chunk_count` does not match a fresh `tbl.count_rows()`. The pre-m1 bug shape (`chunk_count` from last per-paper batch) fails the write boundary, not the next-restart inspection.\n\n**Acceptance criteria:**\n- [ ] `ingest/store.py::write_chunks` gains a WAP-gate block placed AFTER the existing `try/except Exception` at lines 931-977 closes, before `_append_store_stats(stats)` (placement is load-bearing per spike-1 \u00a73 rect F1 \u2014 placing it inside the try/except would have the bare `except Exception` swallow the gate's own `raise RuntimeError`).\n- [ ] The gate calls `read_corpus_version(target_path)` (imported from `server.corpus`) to read the just-written marker back from disk.\n- [ ] Three error arms per spike-1 \u00a73 code shape:\n  1. `except ValueError` from `read_corpus_version` (malformed JSON) \u2192 `raise RuntimeError` citing the truncated-atomic-rename hypothesis.\n  2. `re_read_marker is None` (cold-clone case \u2014 no file written) \u2192 `raise RuntimeError` citing the missing-marker case.\n  3. `re_read_marker.chunk_count != fresh_count` \u2192 `raise RuntimeError` citing pre-m1 arithmetic regression vs swallow-stale-marker enumeration.\n- [ ] Each error message cites the target_path, the diagnostic counts, the likely-cause enumeration, the preceding swallow-warning log line (so operators can distinguish swallow cases from arithmetic regressions), the `make reconcile` remediation, and the runbook URL `docs/ops/corpus-drift-runbook.md`.\n- [ ] The gate is unconditional (no feature flag \u2014 per spike-1 \u00a73 rect F8).\n- [ ] The existing best-effort try/except swallow at lines 931-977 is PRESERVED unchanged \u2014 the gate is a strictly additive correctness check.\n\n**Test plan (per spike-1 \u00a73 \u2014 file at `tests/test_write_chunks_wap_gate.py`):**\n- [ ] Positive path test using the multi-call fixture from `tests/_corpus_helpers.py::seed_corpus_multi_paper` (shipped by m3). Gate passes silently.\n- [ ] Mutation A \u2014 `monkeypatch.setattr(store_mod, \"write_corpus_version_marker\", ...)` to write `chunk_count=1`. Assert `pytest.raises(RuntimeError)` with the count-mismatch error message.\n- [ ] Mutation B \u2014 monkeypatch the marker writer to a no-op lambda (file never written). Assert `RuntimeError` with the missing-marker error AND `caplog` captures the existing swallow's \"could not write corpus-version.json marker\" warning.\n- [ ] Mutation C \u2014 monkeypatch the marker writer to `target_path.write_text(\"not valid json\")`. Assert `RuntimeError` with the malformed-marker error (`except ValueError \u2192 raise RuntimeError` arm).\n- [ ] Mutation D \u2014 pre-seed a valid marker via `seed_corpus_multi_paper(n_papers=2)`, then make a third `write_chunks` call whose `write_corpus_version_marker` is monkeypatched to raise `IOError`. Assert (a) swallow warning logged AND (b) WAP gate raises COUNT-MISMATCH (stale prior marker chunk_count < fresh count_rows). This is the production-common stale-swallow path.\n\n**Runbook extension (per spike-1 \u00a73 rect F6 \u2014 SAME commit as gate code):**\n- [ ] `docs/ops/corpus-drift-runbook.md` gains a new section covering the WAP-gate `RuntimeError` failure path: symptom (gate RuntimeError text in ingest log), quick triage (check preceding \"could not write corpus-version.json marker\" warning to distinguish swallowed I/O from arithmetic regression), remediation (`make reconcile`), and escalation.\n\n**Effort estimate (per spike-1 \u00a75):** ~35 LOC production code + ~120 LOC tests + ~30 LOC runbook = ~185 LOC total. S complexity.\n\n**Dependencies:** Spike S-1 \u2014 COMPLETE; binding decision at .claude/notes/milestones/corpus-integrity-completion-spike-1/decision.md. No upstream blockers.\n\n**Out-of-scope (per spike-1 \u00a74 + \u00a76):** FM-4 caller arithmetic in `bulk_ingest.py` (m1 fixed; m3 catches future regressions); FM-5 TOCTOU race; FM-6 schema drift; FM-8 wrong-path; FM-9 silently-skipped paper; FM-11 sibling marker writers (`server/routes/notebooks._rewrite_corpus_version_marker`, `tools/notebook_reconcile_marker.py`); mid-session live drift (CAND-5); a variant-(b) `bulk_ingest.py` `expected_total` check.\n\n**Import-direction note (per spike-1 \u00a75 rect F5):** `ingest/bm25_indexer.py:87` already does `from server.corpus import open_chunks_table` \u2014 the new `from server.corpus import read_corpus_version` in `ingest/store.py` is consistent with this established `ingest \u2192 server.corpus` direction (note: server.corpus is the read-side library; the import is to a pure-Python pydantic-style reader, not a server-runtime symbol).\n",
-  "phase": "rectify-running",
+  "phase": "complete",
   "phase_history": [
     {
       "entered_at": "2026-05-31T23:32:00Z",
@@ -77,12 +82,21 @@
     },
     {
       "entered_at": "2026-06-01T00:07:48Z",
-      "left_at": null,
+      "left_at": "2026-06-01T00:16:26Z",
       "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-06-01T00:16:26Z",
+      "left_at": null,
+      "phase": "complete"
     }
   ],
-  "rectification_commit": null,
-  "regression_tests_added": [],
+  "rectification_commit": "1dec54bae21cf7e67b14dc832a3dabac2690e5cd",
+  "regression_tests_added": [
+    "tests/test_write_chunks_wap_gate.py::test_mutation_A_wrong_value_marker",
+    "tests/test_write_chunks_wap_gate.py::test_mutation_D_stale_marker_swallow",
+    "tests/test_write_chunks_wap_gate.py::test_mutation_E_audit_row_lands_on_gate_failure_path"
+  ],
   "research_briefs": [
     {
       "agent_id": "researcher-1",
@@ -97,5 +111,5 @@
   ],
   "research_mode": "standard",
   "research_synthesis": ".claude/notes/milestones/corpus-integrity-completion-e1/research-synthesis.md",
-  "updated_at": "2026-06-01T00:07:48Z"
+  "updated_at": "2026-06-01T00:16:26Z"
 }
