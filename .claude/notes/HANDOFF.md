@@ -1,3 +1,205 @@
+# arXMCP — Session Handoff (2026-06-01 — corpus-integrity-completion e1)
+
+> **This replaces the 2026-05-10 snapshot below.** The 2026-05-10 snapshot
+> is preserved for historical reference after the `---ARCHIVED 2026-05-10---`
+> divider at the bottom of this file.
+
+**Session closed:** 2026-06-01
+**Final HEAD:** `7d7da65` (pushed to `origin/main`)
+**Test count:** 3816 passing / 30 skipped / 1 xfailed / 3 pre-existing failures
+
+---
+
+## 1. What this session accomplished
+
+### 1.1 corpus-integrity-completion epic — fully shipped (Now + Should lanes)
+
+The entire forward-work queue for the `corpus-integrity-completion` epic is
+now complete. The bug that motivated the epic: `ingest/store.py::write_chunks`
+was writing a `corpus-version.json` marker whose `chunk_count` reflected only
+the LAST per-paper batch (10 rows) rather than the cumulative table count (e.g.
+300 rows for a 30-paper run). The server read this marker at startup and the
+gauges and `/readyz` silently served stale counts. Fix landed across 5 milestones:
+
+| Milestone | Commits | What landed |
+|---|---|---|
+| **m1** — Prometheus alert rules | 3 commits | `ArXMCPCorpusCountRowsFailed` (critical) + `ArXMCPCorpusUnindexedRows` (warning) rules in `infra/prometheus/alerts.yml`; 3 new assertion tests in `tests/test_alerts_yaml.py` |
+| **m2** — Corpus-drift runbook | 3 commits | New `docs/ops/corpus-drift-runbook.md` (Symptom / Quick triage / Likely causes / Remediation / Escalation); README "Operations runbooks" row |
+| **m3** — Multi-paper integration test | 3 commits | `tests/test_server_startup_integration.py` + `tests/_corpus_helpers.py::seed_corpus_multi_paper`; positive + mutation test cross the write→lifespan→`/readyz` seam end-to-end |
+| **spike-1** — WAP gate variant decision | 3 commits | `.claude/notes/milestones/corpus-integrity-completion-spike-1/decision.md`; binding pick: variant (a) only (marker-file readback verify); refuted roadmap pre-recommendation of (c); surfaced the tautology in the original (a) definition and the false-positive landmine in (b) |
+| **e1** — WAP gate (write-side) | 3 commits | **The primary defense:** `ingest/store.py::write_chunks` now has a WAP gate that reads `corpus-version.json` back from disk after every write and raises `RuntimeError` if `chunk_count ≠ tbl.count_rows()`. 7 tests in `tests/test_write_chunks_wap_gate.py`. m3 integration test restructured as complementary defense-in-depth. `docs/ops/corpus-drift-runbook.md` extended with S5/S6 sections + WAP-gate triage. |
+
+**Net from this session:**
+- +7 test functions in `tests/test_write_chunks_wap_gate.py` (NEW)
+- `ingest/store.py`: WAP gate + try/finally audit-row landing + `marker_write_failed` flag
+- `ingest/store.py::WriteStats`: new `gate_failure_reason: str` field
+- `tests/test_server_startup_integration.py`: mutation test restructured for defence-in-depth
+- `docs/ops/corpus-drift-runbook.md`: +S5, +S6, +WAP triage, +routing-tag subsection
+
+### 1.2 Adversary calibration across the full epic (5 milestones, 33 findings)
+
+| Milestone | C/H/M/L | Invalidated |
+|---|---|---|
+| m1 | 0/3/4/1 | 0/8 (0%) |
+| m2 | 0/2/4/1 | 0/7 (0%) |
+| m3 | 0/1/3/2 | 0/6 (0%) |
+| spike-1 | 1/2/3/2 | 0/8 (0%) — CRITICAL catch: pre-spike gate placement was inside the `except Exception` swallow; would have been structurally non-functional |
+| e1 | 0/0/3/1 | 0/4 (0%) |
+| **Totals** | **1/8/17/7** | **0/33 (0%)** |
+
+---
+
+## 2. Pre-existing test failures (do not diagnose)
+
+These 3 failures exist on `origin/main` at `688b25f` (confirmed via `git stash`). Environmental, not code regressions:
+
+1. `tests/test_drift_check.py::TestIntegrationRealLatexmlc::test_all_fixtures_match_baselines` — `latexmlc exited -6` (SIGABRT; binary version mismatch)
+2. `tests/test_drift_check.py::TestIntegrationRealLatexmlc::test_render_fixture_does_not_leave_log_artifact` — same root
+3. `tests/test_tools_all.py::TestToolsSmoke::test_cite_neighbors_wired` — `httpx.RemoteProtocolError` TestClient flake
+
+---
+
+## 3. Where the project stands against the roadmap
+
+### 3.1 E01–E14 main-line (all complete)
+
+Every Tier-0 through Tier-5 epic is shipped. See `.claude/roadmap/README.md` for the
+authoritative table. Brief recap: E01 (seed corpus), E02 (chunker), E03 (embedder),
+E04 (vector store), E05 (eval harness), E06 (MCP server, 8 tools), E07 (hybrid BM25+
+reranker), E08 (agent runtime + 3-tier cache), E09 (citation graph), E10 (specialized
+indices), E11 (scale cutover), E13 (security hardening, 10 milestones), E14 S01–S05
+(observability/ops). E14 S06+S09–S12 (Grafana, Langfuse, spend metrics) are deferred
+Tier-5/6+ items that do not gate v1.
+
+### 3.2 Non-roadmap capability epics (all complete)
+
+All capability epics planned via `/capability-scout` → `/roadmap` → `/milestone-pipeline`
+are fully shipped: `onboarding-uplift`, `notebook-ops-hardening`, `notebook-surface-expansion`,
+`notebook-paper-discovery`, `notebook-retrieval`, `textbook-ingest`, `verification-feedback`,
+`proof-verify-handler-wiring`, `ui-attractive-polish`, `parser-fidelity-eval`,
+`corpus-integrity-observability`, **`corpus-integrity-completion`** (this session).
+
+---
+
+## 4. The remaining open item: `corpus-integrity-completion-e3`
+
+The **one explicitly-scoped remaining item** from the session's epic.
+
+**What it is:** BM25-index seam version cross-check at startup.
+
+**Brief** (from `plans/corpus-integrity-completion-roadmap.md §Epics`):
+> `arxmcp_bm25_index_version_mismatch` Gauge ships alongside the existing
+> corpus-integrity gauges in `server/health.py` (NOT `server/observability/
+> metrics.py` — per challenger §3 CAND-6 the registry should not split).
+> `Resources.startup` cross-checks the loaded BM25 pickle's path-encoded
+> `v<N>` against `corpus_info.version` and emits a structured WARN with
+> `extra={"event": "bm25_version_mismatch", "bm25_index_version": ...,
+> "corpus_version": ...}` on mismatch.
+
+**Complexity:** XS. **MoSCoW:** Could (lowest of the 4 epics; purely observability
+enhancement — no crash on BM25 version drift, just stale retrieval quality).
+
+**Key implementation context:**
+- BM25 pickle path: `var/arxmcp/index/bm25/<slug>/bm25_v<N>.pkl` (path-encoded `v<N>` IS the version key; see `ingest/bm25_indexer.py:6-30`)
+- `corpus_info.version` available in `Resources.startup` (already read from `corpus-version.json`)
+- Gauge goes in `server/health.py` alongside `CORPUS_CHUNK_COUNT_ACTUAL` and `CORPUS_UNINDEXED_ROWS`
+- Test: synthetic mismatched-filename fixture (e.g., `bm25_v999.pkl` when marker says v42); assert gauge = 1
+
+**To invoke:**
+```
+/milestone-pipeline corpus-integrity-completion-e3
+```
+
+---
+
+## 5. Open follow-ups (from completed milestones, not blockers)
+
+### Highest-leverage
+- **Sibling marker writer mutation tests (m3 F2-extension):** `tests/test_write_chunks_wap_gate.py` patches `ingest.store.write_corpus_version_marker` only. The two sibling writers — `server/routes/notebooks._rewrite_corpus_version_marker` and `tools/notebook_reconcile_marker.py` — bypass the e1 gate entirely (they write markers via separate code paths). A future ops-hardening epic should add parallel mutation tests for these paths.
+
+### Docs polish
+- `failure-modes.md` lacks a `#degraded-modes` H2 anchor (the `ArXMCPDegradedMode` alert's `runbook_url` points here; the anchor is absent — m2 documented but didn't fix because AC-4 scoped out touching other runbooks)
+- `CLAUDE.md §7` lists `make ingest` as "a stub that exits 1" — stale since E11_S01 shipped the real `ingest/bulk_ingest.py` orchestrator
+- `docs/ops/corpus-drift-runbook.md §Quick triage step 3`: `cat corpus-version.json` has no short-circuit for the missing-marker case (minor polish)
+- `docs/ops/corpus-drift-runbook.md` reconcile example shows `drift_resolved=0` (idempotent no-op) — a future edit should show the `drift_resolved=N>0` diagnostic success case
+
+### Deferred FM coverage from spike-1 decision document
+- **FM-6/FM-14 (schema-version drift):** Gate checks `chunk_count` only; does NOT verify `marker.version == dataset_version`. Filed as a future secondary integrity invariant.
+- **Mid-session live drift (CAND-5):** WAP gate is write-time only. A live-drift probe (periodic `count_rows()` vs in-memory marker) is a separate future capability.
+
+---
+
+## 6. How to proceed in the next session
+
+### Pre-session checks
+```bash
+git log --oneline -3                     # confirm HEAD = 7d7da65
+make test PYTHON=/Users/chris.dare/Library/Python/3.9/bin/uv\ run\ python
+# Expected: 3816+ passed, 30 skipped, 1 xfailed, 3 failed (pre-existing only)
+git fetch origin main && git log --oneline origin/main..main  # should be empty
+```
+
+### Recommended options (priority order)
+
+**Option A — Run e3 (the only remaining roadmap item):**
+```
+/milestone-pipeline corpus-integrity-completion-e3
+```
+XS complexity; inline implementation path; < 1 hour estimated.
+
+**Option B — New capability scout:**
+The project hasn't run a `/capability-scout` since `corpus-integrity-observability`.
+Good next domains: Lean verification quality, eval-fixture curation (E05 stub fixture),
+MCP tool surface coverage gaps.
+```
+/capability-scout <slug> --brief "<one paragraph scope>"
+```
+
+**Option C — Docs cleanup (short-session warm-up):**
+Fix the stale `CLAUDE.md §7` entry, add the `#degraded-modes` H2 anchor to
+`failure-modes.md`, and update the `corpus-drift-runbook.md` reconcile example.
+All fit in a single `docs(notes): ...` commit.
+
+---
+
+## 7. Key architectural context (e1-specific landmines)
+
+### The circular import constraint in ingest/store.py
+
+`server/corpus.py:101` imports `CORPUS_VERSION_MARKER_NAME` and `DEFAULT_LANCEDB_PATH`
+from `ingest.store`. This means `ingest.store` **cannot** have a module-level
+`from server.corpus import read_corpus_version` — Python sees `ingest.store` mid-load
+and the name isn't bound yet. The e1 WAP gate uses a function-local import inside
+`write_chunks` (see `ingest/store.py:1015`). Any future code in `ingest/store.py`
+that calls `server.corpus` functions must use the same function-local pattern.
+
+### The two integrity layers (both shipped)
+
+| | Write-side (e1) | Read-side (m3) |
+|---|---|---|
+| **Where** | `ingest/store.py::write_chunks` WAP gate | `server/resources.py::Resources.startup` divergence check |
+| **Catches** | Arithmetic regressions, swallowed I/O, truncated JSON | Sibling writer corruption, externally-edited markers, stale-backup restores |
+| **Action** | `raise RuntimeError` (fail-fast at write) | `DegradedState` + `/readyz` 503 |
+| **Routing tag** | `Routing: S5` (swallow) / `Routing: S6` (arithmetic) in error text | — |
+| **Tests** | `tests/test_write_chunks_wap_gate.py` (7 tests) | `tests/test_server_startup_integration.py` |
+
+### WriteStats.gate_failure_reason (new field)
+
+`ingest/store.py::WriteStats.gate_failure_reason: str` is populated by the WAP gate
+before raising. Domain: `"" | "missing_marker" | "malformed_marker" | "count_mismatch_arithmetic" | "count_mismatch_swallow"`. Serialized to `var/arxmcp/ops/store-stats.jsonl` via `_append_store_stats`. The try/finally around the gate ensures the audit row lands even when the gate raises.
+
+---
+
+## 8. Three-line cheat-sheet
+
+1. **All corpus-integrity-completion Now + Should lanes shipped.** Pushed `688b25f..7d7da65`. Tests: 3816 passing.
+2. **Only remaining roadmap item is e3** (BM25 version cross-check, XS, Could lane). Run `/milestone-pipeline corpus-integrity-completion-e3`.
+3. **Three pre-existing failures** (latexmlc SIGABRT + httpx flake) — confirmed on `688b25f`; do not investigate.
+
+---
+
+---ARCHIVED 2026-05-10---
+
 # arXMCP — Session Handoff (post-E09 + doc consolidation)
 
 **Snapshot date:** 2026-05-10
