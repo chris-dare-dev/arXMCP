@@ -103,6 +103,18 @@ from ingest.schema import (
     EmbedRecord,
 )
 
+# NB: ``server.corpus.read_corpus_version`` is imported function-locally
+# inside ``write_chunks`` (the WAP gate, corpus-integrity-completion-e1).
+# A module-level ``from server.corpus import read_corpus_version`` here
+# would form a circular import — ``server/corpus.py:101`` already imports
+# ``CORPUS_VERSION_MARKER_NAME`` and ``DEFAULT_LANCEDB_PATH`` back from
+# this module, and Python sees ``ingest.store`` mid-load with those names
+# not yet bound. The spike-1 §5 rect F5 import-direction analysis cited
+# ``ingest/bm25_indexer.py:87`` as precedent but that module is loaded
+# lazily; ``ingest.store`` is loaded at server startup. Function-local
+# import is the surgical fix; the runtime semantics of the gate are
+# identical.
+
 logger = logging.getLogger(__name__)
 
 
@@ -974,6 +986,71 @@ def write_chunks(
             dataset_version,
             target_path,
             exc,
+        )
+
+    # corpus-integrity-completion-e1 (spike-1 §3): WAP gate.
+    # Placed OUTSIDE the try/except above (per spike-1 CRITICAL F1) so this
+    # block's `raise RuntimeError(...)` propagates to the caller. Placing the
+    # gate INSIDE the try-block would have the `except Exception as exc:
+    # logger.error(...)` above silently absorb its own raise -- a structurally
+    # non-functional gate.
+    #
+    # The gate reads `corpus-version.json` back from disk and verifies its
+    # `chunk_count` matches a fresh `tbl.count_rows()`. This catches the
+    # marker-vs-table seam at the WRITE boundary, not at the next-restart
+    # inspection. Covers FM-1 (pre-m1 `len(chunks)` regression), FM-2 (JSON
+    # truncation), FM-3 (atomic-rename truncation -> ValueError arm), FM-7
+    # (int overflow), and FM-10 (swallowed marker-write leaving a stale
+    # prior marker OR no marker at all; the stale-marker production-common
+    # path fires the count-mismatch arm). Out-of-scope: FM-4 caller
+    # arithmetic (m1 fix + m3 integration test), FM-5 TOCTOU (single-writer
+    # constraint), FM-6/FM-14 schema-version drift (deferred follow-on),
+    # FM-8 wrong path (config), FM-9 silent skip (logging), FM-11 sibling
+    # marker writers (m3 follow-up F2-extension).
+    #
+    # Function-local import: see the comment at the module's import block
+    # above for why this cannot be a top-level ``from server.corpus
+    # import read_corpus_version`` (circular import with
+    # ``server/corpus.py:101``).
+    from server.corpus import read_corpus_version  # noqa: PLC0415
+
+    try:
+        re_read_marker = read_corpus_version(target_path)
+    except ValueError as exc:
+        raise RuntimeError(
+            f"WAP gate: corpus-version.json marker at {target_path} is "
+            f"malformed and cannot be parsed: {exc}. Likely cause: a "
+            f"truncated atomic rename, a partial write before os.replace, "
+            f"or a JSON serialization bug in write_corpus_version_marker. "
+            f"Run `make reconcile` to repair. "
+            f"Runbook: docs/ops/corpus-drift-runbook.md."
+        ) from exc
+    fresh_count = tbl.count_rows()
+    if re_read_marker is None:
+        raise RuntimeError(
+            f"WAP gate: corpus-version.json marker at {target_path} is "
+            f"absent after write_corpus_version_marker returned. This is "
+            f"the cold-clone case: no prior marker existed AND the write "
+            f"was silently swallowed by the best-effort try/except above "
+            f"(check the immediately preceding log line for a "
+            f"'could not write corpus-version.json marker' warning). "
+            f"Table count: {fresh_count}. "
+            f"Run `make reconcile` to write a fresh marker. "
+            f"Runbook: docs/ops/corpus-drift-runbook.md."
+        )
+    if re_read_marker.chunk_count != fresh_count:
+        raise RuntimeError(
+            f"WAP gate: corpus-version.json marker at {target_path} reports "
+            f"chunk_count={re_read_marker.chunk_count} but tbl.count_rows()="
+            f"{fresh_count} for corpus_version={dataset_version}. Likely "
+            f"causes: (1) a pre-m1-style len(chunks)-instead-of-count_rows "
+            f"arithmetic regression in this call, OR (2) the marker write "
+            f"was swallowed by the best-effort try/except above and the "
+            f"PRIOR marker's chunk_count is what's being read back (check "
+            f"the immediately preceding log line for a "
+            f"'could not write corpus-version.json marker' warning). "
+            f"Run `make reconcile` to repair the marker. "
+            f"Runbook: docs/ops/corpus-drift-runbook.md."
         )
 
     # corpus-integrity-observability-e3 F1: append the audit row AFTER the

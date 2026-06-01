@@ -21,6 +21,14 @@ This runbook does **not** cover above-tolerance marker drift
 exists today — read the file's top-level H2 list to find the
 relevant section; corrected per m2 rect F2).
 
+The runbook also covers write-time `RuntimeError` from the WAP gate
+in `ingest/store.py::write_chunks` (corpus-integrity-completion-e1):
+the gate reads `corpus-version.json` back from disk after every
+write and raises if its `chunk_count` does not match a fresh
+`tbl.count_rows()`. Operators following the gate's RuntimeError
+`runbook_url` land here; see [§Symptom: WAP gate
+RuntimeError](#wap-gate-runtimeerror-at-ingest-time-e1).
+
 ---
 
 ## Symptom
@@ -42,6 +50,34 @@ value > 0 for ≥ 1 hour. `GET /readyz` returns
 silently **brute-force the unindexed rows** — retrieval is correct
 but latency on `search_papers` grows linearly with the unindexed
 count.
+
+### WAP gate RuntimeError at ingest time (e1)
+
+The ingest process raised `RuntimeError` with text starting
+`WAP gate: corpus-version.json marker at <path> ...`. The bulk
+ingest or notebook ingest aborted at the failing paper; downstream
+papers were not processed. No marker corruption was published to
+the server — the gate fired BEFORE the bad marker could become
+load-bearing.
+
+The three error-arm text fragments operators may see:
+
+- `... is malformed and cannot be parsed: ...` — the gate's
+  `read_corpus_version` raised `ValueError` (FM-3: truncated atomic
+  rename, partial write before `os.replace`, or a serialization
+  bug).
+- `... is absent after write_corpus_version_marker returned ...` —
+  cold-clone case: no prior marker file existed AND the just-written
+  marker write was silently swallowed by the best-effort try/except
+  at `ingest/store.py:970-977`.
+- `... reports chunk_count=N but tbl.count_rows()=M for
+  corpus_version=K. Likely causes: ...` — the COUNT-MISMATCH arm.
+  Either (1) a pre-m1-style `len(chunks)`-instead-of-`count_rows()`
+  arithmetic regression, OR (2) the marker write was swallowed and
+  the stale prior marker's `chunk_count` is what was read back. The
+  discriminator is the immediately-preceding `could not write
+  corpus-version.json marker` warning in the ingest log (see [§Quick
+  triage → WAP gate failure](#wap-gate-failure-triage)).
 
 ---
 
@@ -76,6 +112,34 @@ narrows the cause.
 |---|---|---|
 | CountRowsFailed | `-1` | [Likely causes → S1 / S7](#likely-causes) |
 | UnindexedRows | `> 0` and gauge has been steady | [Likely causes → S2](#likely-causes) |
+
+### WAP gate failure triage
+
+The gate's RuntimeError text already cites the failing path, the
+diagnostic counts, and the likely-cause enumeration. Triage in ≤ 60
+seconds before opening Remediation:
+
+```bash
+# 1. Confirm the gate's error text from the most recent ingest log
+#    (substitute your ingest log path / process manager as appropriate).
+grep -B1 'WAP gate: corpus-version.json' var/arxmcp/ops/ingest.log | tail -20
+
+# 2. CRITICAL — look for the swallow-warning discriminator in the
+#    line immediately preceding the gate's RuntimeError. Its presence
+#    distinguishes a swallowed-I/O failure (transient) from an
+#    arithmetic regression (durable).
+grep -B1 'WAP gate:' var/arxmcp/ops/ingest.log | \
+    grep 'could not write corpus-version.json marker'
+```
+
+The presence (or absence) of the swallow warning routes triage:
+
+| Gate error arm | Swallow warning present? | Likely cause |
+|---|---|---|
+| malformed | yes or no | atomic-rename truncation; disk full mid-write |
+| absent | usually yes (cold-clone after swallowed write) | first-ever write hit transient I/O; safe to retry |
+| count-mismatch | **yes** | S5 (swallow + stale prior marker) — see Remediation |
+| count-mismatch | **no** | S6 (arithmetic regression) — see Remediation |
 
 ---
 
@@ -121,6 +185,32 @@ filesystem-mount or container-volume misconfiguration: the
 exists or is unreadable. Server logs `Resources.startup FM-2` on
 every restart. Distinguishes from S1 because the dataset itself is
 fine — just unreachable from the running server.
+
+### S5 — WAP gate fired on a marker write that was swallowed (stale prior marker case)
+
+Production-common stale-marker path. A transient `IOError` /
+`PermissionError` / disk-full during `write_corpus_version_marker`
+was absorbed by the best-effort try/except at
+`ingest/store.py:970-977`. The PRIOR marker (from an earlier
+successful write) remains on disk with an older `chunk_count`. The
+WAP gate immediately afterward reads back the stale marker and
+compares against the fresh post-merge_insert `tbl.count_rows()` —
+they diverge by exactly the per-call delta. Distinguished from S6
+by the presence of `could not write corpus-version.json marker` in
+the ingest log immediately preceding the RuntimeError.
+
+### S6 — WAP gate fired on a fresh marker write (arithmetic regression)
+
+The just-written marker reports a `chunk_count` that does not match
+`tbl.count_rows()` and NO swallow warning preceded it (i.e. the
+marker write itself succeeded; its content is just wrong). Most
+likely cause: a refactor in `ingest/store.py` reintroduced the
+pre-m1 bug shape (`chunk_count = len(chunks)` per-batch instead of
+`tbl.count_rows()` cumulative) — exactly the regression class the
+gate exists to catch at the write boundary. Possible secondary
+cause: a `WriteStats` field change that made the cumulative count
+read non-monotonic. Either way, the fix is a code fix in
+`ingest/store.py`, NOT a `make reconcile`.
 
 ### Out of scope for these alerts
 
@@ -211,6 +301,62 @@ pkill -f 'python -m server.main' && make up
 # 3. Confirm the gauge cleared.
 curl -s http://127.0.0.1:7733/metrics | grep arxmcp_corpus_unindexed_rows
 # Expected: arxmcp_corpus_unindexed_rows 0
+```
+
+### Fix S5 — WAP gate RuntimeError with swallow warning (stale prior marker)
+
+The marker drift is recoverable; this is the transient-I/O path.
+
+```bash
+# 1. Confirm the swallow warning is in the log and the gate's text
+#    matches the count-mismatch shape.
+grep -B1 'WAP gate:' var/arxmcp/ops/ingest.log | tail -10
+
+# 2. Run `make reconcile` to rewrite the marker against the live
+#    table count. Reconcile reads the LanceDB row count and atomically
+#    rewrites corpus-version.json — it heals exactly this drift.
+make reconcile
+
+# 3. Re-run the failing ingest. Subsequent write_chunks calls will
+#    pass the gate because the marker now matches the table.
+#    (For the bulk path, use the resume mechanism — bulk_ingest's
+#    per-paper sidecar idempotency lets it skip already-completed
+#    papers and only retry the ones that failed.)
+make ingest                                       # or scoped re-run
+```
+
+If the swallow warning recurs on the retry, the underlying I/O
+problem (disk full, permission drop) is the root cause — fix that
+before retrying again. Escalate per the §Escalation procedure.
+
+### Fix S6 — WAP gate RuntimeError WITHOUT swallow warning (arithmetic regression)
+
+The marker drift indicates a code regression — `make reconcile`
+would heal the marker for THIS write, but the next ingest would
+reintroduce the same wrong count. Fix the code first.
+
+```bash
+# 1. Confirm NO swallow warning preceded the gate's RuntimeError.
+grep -B1 'WAP gate:' var/arxmcp/ops/ingest.log | tail -5
+
+# 2. Read the gate's error text — it cites the claimed chunk_count
+#    vs the actual tbl.count_rows(). The delta is the regression
+#    signature.
+
+# 3. Search for recent edits to ingest/store.py and the
+#    `chunk_count =` assignment specifically. The pre-m1 bug shape
+#    used `chunk_count = len(chunks)`; the m1 fix uses
+#    `chunk_count = tbl.count_rows()`.
+git -C . log -p --since='14 days ago' -- ingest/store.py | \
+    grep -B2 -A2 'chunk_count'
+
+# 4. Revert or correct the regression in code; THEN run
+#    `make reconcile` to heal the now-stale marker; THEN re-run
+#    `make test` to confirm tests/test_write_chunks_wap_gate.py
+#    passes (those tests are the regression guard for this bug
+#    class).
+make reconcile
+make test
 ```
 
 ### Reference — `make reconcile` (in case S3 was the real symptom)

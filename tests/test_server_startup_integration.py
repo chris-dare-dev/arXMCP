@@ -95,7 +95,6 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-import ingest.store as store_mod
 from server.config import Config
 from server.health import reset_metrics_for_tests
 from server.main import create_app
@@ -209,86 +208,106 @@ def test_pre_m1_bug_shape_is_caught_by_integration(tmp_path, monkeypatch):
     """KR-1 mutation: the positive-path test MUST fail when the
     pre-m1 bug shape is re-introduced.
 
-    The pre-m1 bug wrote ``chunk_count = len(chunks)`` where
-    ``chunks`` was the LAST per-paper batch (not the cumulative
-    table count) — so a multi-paper ingest of N papers ×
-    ``chunks_per_paper`` chunks each produced a marker with
-    ``chunk_count = chunks_per_paper`` against a table with
-    ``N * chunks_per_paper`` rows. The m1 fix routes through
-    ``tbl.count_rows()``.
+    **e1 disposition note.** Before
+    ``corpus-integrity-completion-e1`` shipped the WAP gate at
+    ``ingest/store.py::write_chunks``, this test could
+    ``monkeypatch.setattr(store_mod, "write_corpus_version_marker",
+    ...)`` to inject the pre-m1 bug shape DURING the ingest, run
+    ``seed_corpus_multi_paper`` cleanly, and then expect ``/readyz``
+    to catch the divergence at server-startup time. The e1 WAP gate
+    now FIRES on that exact bug shape at the write boundary — the
+    second ``write_chunks`` call's gate raises
+    ``RuntimeError`` (marker chunk_count=10 vs cumulative
+    tbl.count_rows()=20), so the original test pattern can no longer
+    reach ``/readyz``. The bug class is now caught two ways: e1 at
+    write time (the strongly-preferred fail-fast path), and m3 at
+    server-startup time (the defence-in-depth path this test still
+    validates).
 
-    This mutation test monkey-patches
-    ``ingest.store.write_corpus_version_marker`` at the module-local
-    binding (the bare-name call site at ``ingest/store.py:946``) to
-    inject ``chunk_count = _CHUNKS_PER_PAPER == 10`` regardless of
-    the real table size — the EXACT value the pre-m1 bug would have
-    written.
+    Rather than delete the test (which would orphan the m3
+    read-side detection contract), this test now exercises the m3
+    path INDEPENDENTLY of the e1 gate by:
 
-    **Coverage scope (rect F2):** this mutation intercepts ONLY the
-    ``ingest.store.write_corpus_version_marker`` binding. The
-    parallel marker writers at
-    ``server/routes/notebooks._rewrite_corpus_version_marker`` and
-    ``tools/notebook_reconcile_marker.py`` are NOT intercepted by
-    this test. A future regression in either of those paths would
-    not be caught; that gap is documented in the module docstring.
+    1. Running a clean ``seed_corpus_multi_paper(n_papers=3,
+       chunks_per_paper=10)`` — the gate passes, marker=30 lands on
+       disk correctly.
+    2. Manually overwriting ``corpus-version.json`` with
+       ``chunk_count=_CHUNKS_PER_PAPER=10`` AFTER the ingest
+       completes — simulating the production-real cases where a bad
+       marker reaches disk via paths the e1 gate does NOT cover:
+       sibling marker writers
+       (``server/routes/notebooks._rewrite_corpus_version_marker``,
+       ``tools/notebook_reconcile_marker.py``), an externally-edited
+       marker, or a backup-restore that brought a stale marker
+       back.
+    3. Booting the server; ``Resources.startup`` runs
+       ``compute_chunk_count_divergence``, sees the 20-row gap
+       (10 marker vs 30 actual; 200% divergence) is well above the
+       5% default tolerance, sets
+       ``DegradedState(reason='chunk_count_diverged')``, and
+       ``/readyz`` returns 503 with ``body["status"] == "degraded"``
+       + ``body["reason"] == "chunk_count_diverged"``.
 
-    The integration test must then detect the divergence —
-    ``Resources.startup`` runs ``compute_chunk_count_divergence``,
-    sees the 20-row gap (10 marker vs 30 actual; 200% divergence) is
-    well above the 5% default tolerance, sets
-    ``DegradedState(reason='chunk_count_diverged')``, and
-    ``/readyz`` returns 503 with ``body["status"] == "degraded"`` +
-    ``body["reason"] == "chunk_count_diverged"``.
+    **Coverage scope (carried forward from m3 rect F2):** this test
+    validates the m3 read-side detection. The e1 WAP gate's
+    write-side detection is validated in
+    ``tests/test_write_chunks_wap_gate.py``. The two layers are
+    complementary defence-in-depth: e1 catches at write boundary
+    (fail-fast for ingest regressions); m3 catches at server boot
+    (recovery path for non-ingest-write corruption).
 
-    If this test ever fails (e.g. the divergence detection regresses,
-    or the monkeypatch target binding silently no-ops), the positive
-    test is no longer a reliable guard against the regression class.
+    If this test ever fails (e.g. the m3 divergence-detection
+    regresses), the read-side defence-in-depth contract is broken
+    even though e1's write-side may still hold.
     """
+    from ingest.store import CORPUS_VERSION_MARKER_NAME
+
     patch_bge_m3_model(monkeypatch)
     lancedb_path = tmp_path / "lancedb"
 
-    # Capture the real marker writer and wrap it to inject the EXACT
-    # pre-m1 bug shape: chunk_count = len(last_per_paper_batch) =
-    # _CHUNKS_PER_PAPER. For a cumulative 30-row table that's a
-    # 20-row gap (200% divergence vs the 5% tolerance floor).
-    #
-    # FM-9 guard: positive integer, NOT a negative sentinel — the
-    # latter would route through compute_chunk_count_divergence's
-    # "count unavailable, skip check" branch (server/resources.py:240).
-    #
-    # rect F5: **kwargs passthrough makes the wrapper forward-
-    # compatible with future write_corpus_version_marker schema
-    # extensions. The wrapper crashes loudly on UNEXPECTED kwargs
-    # would have failed-noisy at a future kwarg addition (e.g.
-    # corpus_hash, parent_corpus_version) with a misleading message
-    # pointing at the test wrapper rather than the production change.
-    real_marker = store_mod.write_corpus_version_marker
-
-    def bad_marker_writer(target_path, **kwargs):
-        # PRE-M1 BUG SHAPE — last-batch-only
-        kwargs["chunk_count"] = _CHUNKS_PER_PAPER
-        return real_marker(target_path, **kwargs)
-
-    # FM-4: patch the module's own namespace, NOT a caller's import
-    # alias. ``write_chunks`` calls write_corpus_version_marker at
-    # bare name from within ingest/store.py; the module-global
-    # binding is the load-bearing site.
-    monkeypatch.setattr(
-        store_mod, "write_corpus_version_marker", bad_marker_writer
-    )
-
-    # Now ingest the corpus via the multi-call fixture. Each
-    # write_chunks call writes a marker with
-    # chunk_count=_CHUNKS_PER_PAPER thanks to the patch. After all
-    # _N_PAPERS calls complete, the cumulative table has
-    # _CUMULATIVE_CHUNK_COUNT rows but the marker says
-    # chunk_count=_CHUNKS_PER_PAPER — the EXACT pre-m1 bug shape.
+    # Step 1: clean ingest — all _N_PAPERS write_chunks calls pass
+    # the e1 WAP gate; the on-disk marker correctly reports
+    # chunk_count=_CUMULATIVE_CHUNK_COUNT=30.
     seed_corpus_multi_paper(
         lancedb_path,
         n_papers=_N_PAPERS,
         chunks_per_paper=_CHUNKS_PER_PAPER,
     )
 
+    # Step 2: post-ingest mutation of the on-disk marker —
+    # simulating one of the paths that bypass the e1 gate:
+    # - sibling marker writers (notebook reconcile, etc.)
+    # - an operator manually editing the marker
+    # - a backup-restore bringing back a stale marker
+    #
+    # Inject the EXACT pre-m1 bug shape (chunk_count=10 vs actual
+    # cumulative 30) at the marker-file byte level. This guarantees
+    # the m3 read-side divergence check is what's being exercised,
+    # NOT the e1 write-side gate.
+    import json
+
+    marker_path = lancedb_path / CORPUS_VERSION_MARKER_NAME
+    assert marker_path.is_file(), (
+        f"marker absent at {marker_path} after clean ingest — "
+        f"the e1 gate would have raised on the FIRST write_chunks "
+        f"call if so; reaching this assertion means the ingest "
+        f"path is in an unexpected state."
+    )
+    marker_data = json.loads(marker_path.read_text(encoding="utf-8"))
+    # Sanity: confirm the clean ingest landed the cumulative count
+    # (pre-m1 bug regression would have already failed the e1 gate
+    # before reaching this assertion).
+    assert marker_data["chunk_count"] == _CUMULATIVE_CHUNK_COUNT, (
+        f"clean ingest landed marker with chunk_count="
+        f"{marker_data['chunk_count']} (expected "
+        f"{_CUMULATIVE_CHUNK_COUNT}). Either the seed fixture is "
+        f"misconfigured or the m1 marker writer regressed."
+    )
+    # Mutate to the pre-m1 bug shape (last-per-batch-only).
+    marker_data["chunk_count"] = _CHUNKS_PER_PAPER
+    marker_path.write_text(json.dumps(marker_data), encoding="utf-8")
+
+    # Step 3: boot the server. /readyz must detect the divergence.
     cfg = Config(lancedb_path=lancedb_path)
     app = create_app(cfg)
     reset_metrics_for_tests()
@@ -298,9 +317,8 @@ def test_pre_m1_bug_shape_is_caught_by_integration(tmp_path, monkeypatch):
     if r.status_code != 503:
         raise AssertionError(
             f"mutation test expected /readyz 503 (degraded); got "
-            f"{r.status_code}. The pre-m1 bug shape was NOT detected — "
-            f"the integration test's regression-guard contract is "
-            f"broken. Full body: {r.json()!r}"
+            f"{r.status_code}. The m3 read-side divergence "
+            f"detection regressed. Full body: {r.json()!r}"
         )
     body = r.json()
     if body["status"] != "degraded":
