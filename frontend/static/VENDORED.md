@@ -37,6 +37,17 @@ above AND the constant in the test in lockstep.
 
 Project-authored, not vendored. No hash recorded.
 
+### `json-enc.js`
+
+Project-authored, not vendored. No hash recorded. (Added in
+ui-htmx-json-fix-m1 — a ~25-line htmx 2.x extension implementing the
+`encodeParameters` hook so JSON-bodied `/ui` forms serialise correctly.
+It replaces the broken inline `base.html` shim that set the non-existent
+`evt.detail.body` hook. Authored in-repo rather than vendored from
+`htmx-extensions` so there is no unverifiable upstream version to pin and
+no dependency on htmx internals like `getExpressionVars` — see the file
+header for the full rationale.)
+
 ### `favicon.svg`
 
 Project-authored, not vendored. No hash recorded. (Added in

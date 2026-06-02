@@ -30,6 +30,7 @@
      attribute. No data-integrity impact (the stored value is authoritative). #}
   <form class="rename-form"
     hx-patch="/ui/api/notebooks/{{ notebook.slug }}"
+    hx-ext="json-enc"
     hx-target="#display-name-block"
     hx-swap="outerHTML"
     hx-disabled-elt="find button"
@@ -117,6 +118,7 @@
      endpoint's contract untouched (mass-assignment defense). #}
   <form class="topic-form"
     hx-patch="/ui/api/notebooks/{{ notebook.slug }}/topic"
+    hx-ext="json-enc"
     hx-target="#topic-block"
     hx-swap="outerHTML"
     hx-disabled-elt="find button"
@@ -162,6 +164,7 @@
      surfaced in #discover-error. #}
   <form
     hx-post="/ui/api/notebooks/{{ notebook.slug }}/discover"
+    hx-ext="json-enc"
     hx-target="#discover-results"
     hx-swap="outerHTML"
     hx-disabled-elt="find button"
@@ -198,6 +201,7 @@
      absence). #}
   <form
     hx-post="/ui/api/notebooks/{{ notebook.slug }}/papers"
+    hx-ext="json-enc"
     hx-disabled-elt="find button"
     hx-target="#papers-tbody"
     hx-swap="beforeend"
@@ -257,6 +261,7 @@
   </p>
   <form
     hx-post="/ui/api/notebooks/{{ notebook.slug }}/ingest"
+    hx-ext="json-enc"
     hx-target="#ingest-status"
     hx-swap="outerHTML"
     hx-disabled-elt="find button"

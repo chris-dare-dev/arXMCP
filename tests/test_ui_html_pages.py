@@ -122,29 +122,37 @@ class TestIndexPage:
         for cdn in ("unpkg.com", "jsdelivr", "cdnjs.cloudflare"):
             assert cdn not in body, f"CDN reference leaked: {cdn}"
 
-    def test_json_encoding_shim_present(self, client: TestClient) -> None:
-        """m8 rect F1: the base template ships an htmx:configRequest
-        handler that converts form-encoded posts to JSON for the
-        m7 JSON routes. Without this shim the create-notebook and
-        URL-paste forms hit a 422 in the browser (the JSON routes
-        reject application/x-www-form-urlencoded).
+    def test_json_encoding_extension_present(self, client: TestClient) -> None:
+        """ui-htmx-json-fix-m1: the base template loads the json-enc htmx
+        extension and the create-notebook form opts into it via
+        ``hx-ext="json-enc"``.
 
-        Pin the shim's presence and the load-bearing pieces:
-          - listens to htmx:configRequest
-          - sets Content-Type: application/json on POST/PUT/PATCH
-          - bypasses multipart uploads (the upload card sets hx-encoding)
-          - sets evt.detail.body to JSON.stringify(...) of the params
-        A regression that removes any of these would break the
-        browser path even while the JSON-direct tests still pass."""
+        This REPLACES the former ``test_json_encoding_shim_present``, which
+        pinned the old inline ``htmx:configRequest`` shim. That shim set
+        ``evt.detail.body`` — a hook htmx 2.0.10 does NOT read — so the
+        create-notebook / add-paper forms sent an EMPTY body and the JSON
+        routes returned 422 in a real browser (the JSON-direct test suite
+        never caught it). The fix moves serialization into a proper htmx
+        extension (``frontend/static/json-enc.js``, an ``encodeParameters``
+        hook) attached per-form. Pin the load-bearing pieces:
+          - the extension script is loaded from /ui/static/ (no CDN)
+          - it is loaded AFTER htmx.min.js (so htmx.defineExtension exists)
+          - the create-notebook form carries hx-ext="json-enc"
+        A regression that drops any of these reintroduces the empty-body
+        422 in the browser even while the JSON-direct tests stay green."""
         r = client.get("/ui/")
         body = r.text
-        assert "htmx:configRequest" in body
-        assert "application/json" in body
-        assert "hx-encoding" in body  # multipart bypass
-        assert "JSON.stringify" in body
-        # F1 marker comment so a future template editor sees the
-        # rationale before deleting the shim.
-        assert "m8 rect F1" in body
+        # The extension is vendored locally, not from a CDN.
+        assert "/ui/static/json-enc.js" in body
+        # Load order: htmx must come before json-enc (defineExtension needs htmx).
+        assert body.index("/ui/static/htmx.min.js") < body.index(
+            "/ui/static/json-enc.js"
+        ), "json-enc.js must load AFTER htmx.min.js"
+        # The create-notebook form opts into the extension.
+        assert 'hx-ext="json-enc"' in body
+        # The old broken hook must be gone (it set evt.detail.body, ignored
+        # by htmx 2.x). Match the ASSIGNMENT, not prose mentions.
+        assert "evt.detail.body =" not in body
 
 
 # ---------------------------------------------------------------------------
