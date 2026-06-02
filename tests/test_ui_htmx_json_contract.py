@@ -28,6 +28,14 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+import pytest
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
+    from fastapi.testclient import TestClient
 
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
 FRONTEND: Path = REPO_ROOT / "frontend"
@@ -254,3 +262,119 @@ class TestViewTransitionsOrdering:
         body = BASE_CODE[script_open : BASE_CODE.index("</script>", idx)]
         assert "DOMContentLoaded" in body
         assert "prefers-reduced-motion" in body
+
+
+# ---------------------------------------------------------------------------
+# Bug 1 (F1 rectification) — hx-ext on the SERVED HTML, not just the template
+# ---------------------------------------------------------------------------
+#
+# The TestPerFormHxExt guards above read the raw template files. That is cheap
+# source-drift coverage, but it is a proxy: the browser consumes RENDERED HTML,
+# and a future Jinja change (a {% block %} override, an {% if %} guard,
+# template-inheritance churn) could drop/relocate hx-ext in the served output
+# while leaving it in the template source. This is the exact failure class the
+# milestone exists to close — the old JSON-direct route tests never caught the
+# 422 precisely because they bypassed the rendered client surface. So we ALSO
+# render the detail page through the real ui/notebooks routers + TestClient and
+# assert hx-ext on what is actually served (F1 from the adversary critique).
+
+
+@pytest.fixture
+def _ui_client(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[TestClient]:
+    """Minimal app: notebooks + ui routers + a real NotebooksStore.
+
+    Mirrors the fixture in tests/test_ui_html_pages.py so the served-HTML
+    assertions exercise the same render path the browser hits.
+    """
+    import asyncio
+
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from server.notebooks_store import NotebooksStore
+    from server.routes import notebooks as notebooks_module
+    from server.routes.notebooks import router as notebooks_router
+    from server.routes.ui import router as ui_router
+    from tools import _notebook_common
+
+    base = tmp_path / "notebooks"
+    base.mkdir()
+    monkeypatch.setattr(_notebook_common, "NOTEBOOKS_BASE", base)
+    monkeypatch.setattr(notebooks_module, "NOTEBOOKS_BASE", base, raising=False)
+    monkeypatch.setattr(
+        notebooks_module, "_now_iso", lambda: "2026-06-01T00:00:00+00:00"
+    )
+    db_path = tmp_path / "notebooks.db"
+    loop = asyncio.new_event_loop()
+    try:
+        store = loop.run_until_complete(NotebooksStore.open(db_path))
+        app = FastAPI()
+        app.state.notebooks_store = store
+        app.include_router(notebooks_router, prefix="/ui/api")
+        app.include_router(ui_router, prefix="/ui")
+        with TestClient(app) as c:
+            r = c.post("/ui/api/notebooks", json={"slug": "demo-nb"})
+            if r.status_code not in (200, 201):
+                raise AssertionError(f"setup create failed: {r.status_code} {r.text}")
+            yield c
+        loop.run_until_complete(store.close())
+    finally:
+        loop.close()
+
+
+class TestServedHtmlHxExt:
+    """hx-ext="json-enc" must be present in the RENDERED detail page, not just
+    the template source (F1 — closes the rendered-surface coverage gap)."""
+
+    #: The five JSON-bodied detail forms, keyed by the rendered hx attribute
+    #: (slug interpolated). All must carry hx-ext="json-enc" in served HTML.
+    _JSON_FORM_MARKERS = (
+        'hx-patch="/ui/api/notebooks/demo-nb"',  # rename
+        'hx-patch="/ui/api/notebooks/demo-nb/topic"',  # topic
+        'hx-post="/ui/api/notebooks/demo-nb/papers"',  # add-paper
+        'hx-post="/ui/api/notebooks/demo-nb/discover"',  # discover
+        'hx-post="/ui/api/notebooks/demo-nb/ingest"',  # ingest
+    )
+
+    def test_detail_json_forms_carry_hx_ext_in_served_html(
+        self, _ui_client: TestClient
+    ) -> None:
+        body = _ui_client.get("/ui/notebooks/demo-nb").text
+        for marker in self._JSON_FORM_MARKERS:
+            tag = _form_tag_containing(body, marker)
+            assert 'hx-ext="json-enc"' in tag, (
+                f"served detail form {marker!r} is missing hx-ext=\"json-enc\" "
+                f"— the browser would send an empty body and 422"
+            )
+
+    def test_served_multipart_upload_form_excluded(
+        self, _ui_client: TestClient
+    ) -> None:
+        body = _ui_client.get("/ui/notebooks/demo-nb").text
+        tag = _form_tag_containing(
+            body, 'hx-post="/ui/api/notebooks/demo-nb/papers/upload"'
+        )
+        assert 'hx-encoding="multipart/form-data"' in tag
+        assert "json-enc" not in tag, (
+            "served multipart upload form must NOT carry hx-ext — that would "
+            "convert the file upload to a JSON body and break it"
+        )
+
+    def test_served_create_form_carries_hx_ext(
+        self, _ui_client: TestClient
+    ) -> None:
+        body = _ui_client.get("/ui/").text
+        tag = _form_tag_containing(body, 'hx-post="/ui/api/notebooks"')
+        assert 'hx-ext="json-enc"' in tag
+
+    def test_served_pages_load_json_enc_after_htmx(
+        self, _ui_client: TestClient
+    ) -> None:
+        for path in ("/ui/", "/ui/notebooks/demo-nb"):
+            body = _ui_client.get(path).text
+            assert "/ui/static/json-enc.js" in body
+            assert body.index("/ui/static/htmx.min.js") < body.index(
+                "/ui/static/json-enc.js"
+            ), f"{path}: json-enc.js must load after htmx.min.js"
