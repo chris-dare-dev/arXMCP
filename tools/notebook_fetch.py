@@ -160,7 +160,16 @@ def run(slug: str, *, sleep_seconds: float = POLITENESS_SLEEP_SECONDS) -> int:
             )
             if not already_present:
                 time.sleep(sleep_seconds)
-            if fetch_raw_tex_if_missing(paper_id, CORPUS_RAW_DIR):
+            try:
+                recovered = fetch_raw_tex_if_missing(paper_id, CORPUS_RAW_DIR)
+            except ValueError:
+                # Old-style ids (e.g. ``math/0212237``) are out of scope
+                # for ``fetch_eprint``'s new-style-only ``validate_paper_id``.
+                # The ar5iv HTML hit already succeeded; raw-tex preamble
+                # recovery is best-effort, so degrade to raw_tex_missing
+                # rather than aborting the whole batch with a traceback.
+                recovered = False
+            if recovered:
                 raw_tex_recovered.append(paper_id)
             else:
                 raw_tex_missing.append(paper_id)
