@@ -9,11 +9,15 @@ suite runs offline (mirrors ``tests/test_ar5iv_fetch.py`` conventions:
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from ingest.ar5iv_fetch import Ar5ivResult
 from tools import notebook_fetch
+from tools._notebook_common import fetch_raw_tex_if_missing
 
 
 def _local_cache_hit(paper_id: str, **_kwargs) -> Ar5ivResult:
@@ -35,7 +39,7 @@ def _local_cache_hit(paper_id: str, **_kwargs) -> Ar5ivResult:
 class TestNotebookFetchRun:
     """``run()`` batch-loop resilience."""
 
-    def test_old_style_id_does_not_abort_run(self, tmp_path, capsys):
+    def test_old_style_id_does_not_abort_run(self, tmp_path, capsys, caplog):
         """Regression for oldstyle-id-ingest-fix-m1 fix (2).
 
         An old-style id (``math/0212237``) reaches the best-effort raw-`.tex`
@@ -79,6 +83,7 @@ class TestNotebookFetchRun:
                 notebook_fetch, "fetch_raw_tex_if_missing",
                 side_effect=_fake_raw_tex,
             ),
+            caplog.at_level(logging.INFO, logger="notebook_fetch"),
         ):
             exit_code = notebook_fetch.run(
                 "bridgeland-stability", sleep_seconds=0.0
@@ -86,10 +91,41 @@ class TestNotebookFetchRun:
 
         # The batch completed without aborting.
         assert exit_code == 0
-        summary = capsys.readouterr().out
+        # F4: compare exact whitespace-split tokens, not substrings — a
+        # substring like ``raw_tex_missing=1`` would also match
+        # ``raw_tex_missing=10``. Splitting pins the exact count.
+        summary_tokens = capsys.readouterr().out.split()
         # New-style id recovered; old-style id degraded to missing,
         # NOT counted as malformed (it is a valid arXiv id).
-        assert "raw_tex_recovered=1" in summary
-        assert "raw_tex_missing=1" in summary
-        assert "malformed=0" in summary
-        assert "from_cache=2" in summary
+        assert "raw_tex_recovered=1" in summary_tokens
+        assert "raw_tex_missing=1" in summary_tokens
+        assert "malformed=0" in summary_tokens
+        assert "from_cache=2" in summary_tokens
+        # F1 regression guard: the silent-swallow degrade must leave a
+        # breadcrumb. Exactly one INFO record from the except branch,
+        # naming the old-style id, so a future silent-swallow regression
+        # fails here.
+        degrade_records = [
+            r for r in caplog.records
+            if r.name == "notebook_fetch" and "math/0212237" in r.getMessage()
+        ]
+        assert len(degrade_records) == 1
+        assert "raw_tex_missing" in degrade_records[0].getMessage()
+
+    def test_real_chain_raises_value_error_for_old_style_id(self, tmp_path):
+        """Closes F2: the broad ``except ValueError`` in ``run()`` is only
+        correct if the REAL ``fetch_raw_tex_if_missing -> fetch_eprint ->
+        validate_paper_id`` chain raises ``ValueError`` (not some other
+        type) for an old-style id.
+
+        The batch test above mocks that boundary, so it cannot pin the
+        exception TYPE. This test drives the real helper (offline:
+        ``validate_paper_id`` raises at ``tools/arxiv_fetch.py:273`` BEFORE
+        the ``urlopen`` at ``:282``, so no network egress occurs) and locks
+        the contract. If a refactor ever changed the raised type, this
+        fails — catching the type-drift the over-mocked test cannot.
+        """
+        # Empty raw_dir → no cached .tex → the helper proceeds to
+        # fetch_eprint, whose validate_paper_id rejects the old-style id.
+        with pytest.raises(ValueError, match="paper_id"):
+            fetch_raw_tex_if_missing("math/0212237", tmp_path)

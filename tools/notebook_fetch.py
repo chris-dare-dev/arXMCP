@@ -52,6 +52,7 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 import time
 
@@ -70,6 +71,8 @@ from tools._notebook_common import (
     resolve_contact_email,
     validate_slug,
 )
+
+logger = logging.getLogger("notebook_fetch")
 
 POLITENESS_SLEEP_SECONDS: float = 3.0
 
@@ -162,12 +165,25 @@ def run(slug: str, *, sleep_seconds: float = POLITENESS_SLEEP_SECONDS) -> int:
                 time.sleep(sleep_seconds)
             try:
                 recovered = fetch_raw_tex_if_missing(paper_id, CORPUS_RAW_DIR)
-            except ValueError:
+            except ValueError as exc:
                 # Old-style ids (e.g. ``math/0212237``) are out of scope
                 # for ``fetch_eprint``'s new-style-only ``validate_paper_id``.
                 # The ar5iv HTML hit already succeeded; raw-tex preamble
                 # recovery is best-effort, so degrade to raw_tex_missing
                 # rather than aborting the whole batch with a traceback.
+                #
+                # oldstyle-id-ingest-fix-m1 F1: emit a breadcrumb so this
+                # degrade is NOT silent — every other miss path in
+                # ``fetch_raw_tex_if_missing`` logs a categorized reason
+                # (``_notebook_common.py``), and an operator scanning logs
+                # must be able to distinguish an out-of-scope old-style id
+                # from a genuine deeper ``ValueError`` bug masked here.
+                logger.info(
+                    "[%s] raw_tex: out of scope for fetch_eprint "
+                    "(old-style id); degrading to raw_tex_missing (%s)",
+                    paper_id,
+                    exc,
+                )
                 recovered = False
             if recovered:
                 raw_tex_recovered.append(paper_id)

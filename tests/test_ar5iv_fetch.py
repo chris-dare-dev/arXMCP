@@ -321,3 +321,38 @@ class TestOldStyleId:
             )
         assert result.hit is True
         assert result.reason == "ok_local_cache"
+
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            "../../etc/0000000",
+            "math/../../0000000",
+            "a/../../../tmp",
+            "math/0212237/../../../etc",
+            "/abs/0000000",
+        ],
+    )
+    def test_traversal_shaped_id_rejected_before_mkdir(self, tmp_path, payload):
+        """Closes F3: the slash-bearing-id fix made ``cache_path.parent.mkdir
+        (parents=True)`` create arbitrary-depth ``paper_id``-derived parents.
+
+        ``is_valid_arxiv_paper_id`` (anchored old-style regex
+        ``^[a-z][a-z\\-]*/\\d{7}(v\\d+)?\\Z``) must reject a traversal-shaped
+        id with ``ValueError`` BEFORE any path construction or mkdir, so no
+        directory is ever created outside ``cache_dir`` (Threat 1, path
+        traversal via ``paper_id`` — ``08-security-observability-ops.md``).
+        Pins the reject contract at the new mkdir site so a future regex
+        loosening fails loudly here.
+        """
+        cache_dir = tmp_path / "cache"
+        parsed_dir = tmp_path / "parsed"
+        with pytest.raises(ValueError, match="paper_id"):
+            try_cache(
+                payload,
+                cache_dir=cache_dir,
+                parsed_dir=parsed_dir,
+            )
+        # The reject happens before any mkdir — nothing was created under
+        # (or outside) cache_dir / parsed_dir.
+        assert not cache_dir.exists()
+        assert not parsed_dir.exists()
