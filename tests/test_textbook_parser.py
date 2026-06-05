@@ -226,6 +226,13 @@ class TestScrubSubprocessEnv:
         }
         assert _ENV_WHITELIST_WINDOWS.isdisjoint(forbidden)
 
+    def test_no_extra_shell_path_var_beyond_comspec(self) -> None:
+        # F3 guard: COMSPEC (cmd.exe path) is the SOLE tolerated shell-path
+        # var, safe only because every subprocess here is shell=False. Pin
+        # that no other shell-adjacent var sneaks into the whitelist.
+        shell_adjacent = {"PROMPT", "PSModulePath", "PSEXECUTIONPOLICYPREFERENCE"}
+        assert _ENV_WHITELIST_WINDOWS.isdisjoint(shell_adjacent)
+
     def test_effective_whitelist_is_platform_correct(self) -> None:
         # _ENV_WHITELIST is the POSIX base on non-win32, and the union of
         # the POSIX base + Windows-essential set on win32.
@@ -242,19 +249,42 @@ class TestScrubSubprocessEnv:
         # per-invocation scratch-isolation contract. Simulate win32 via the
         # module's own sys reference (the override reads sys.platform at
         # call time).
+        #
+        # F2 rectification: seed a REAL host TEMP/TMP in the parent env
+        # first, so the assertion proves the override CLOBBERS the inherited
+        # host value — not merely that the key was set. The clobber is the
+        # whole point of ADD-1 (cross-notebook scratch isolation); a future
+        # edit that reordered the override before the whitelist copy would
+        # let the host value survive and this test must catch it.
+        host_temp = "C:\\host\\contaminated\\temp"
+        monkeypatch.setenv("TEMP", host_temp)
+        monkeypatch.setenv("TMP", host_temp)
         monkeypatch.setattr(textbook_parser.sys, "platform", "win32")
         env = _scrub_subprocess_env(tmp_path)
         assert env["TEMP"] == str(tmp_path)
         assert env["TMP"] == str(tmp_path)
+        assert env["TEMP"] != host_temp, "override must clobber inherited TEMP"
+        assert env["TMP"] != host_temp, "override must clobber inherited TMP"
         assert env["TMPDIR"] == str(tmp_path)
 
-    def test_temp_tmp_not_added_on_posix(
+    def test_posix_whitelist_excludes_temp_tmp(self) -> None:
+        # F1 rectification: pin the POSIX byte-identical contract on the
+        # CONSTANT directly (platform-independent — holds on a win32 dev
+        # host too). _ENV_WHITELIST is frozen at import time but the
+        # TEMP/TMP override reads sys.platform at call time; asserting on
+        # _ENV_WHITELIST_POSIX here closes the blind spot where a future
+        # regression wiring TEMP/TMP into the POSIX base could slip past a
+        # call-based test on a Windows workstation.
+        assert "TEMP" not in _ENV_WHITELIST_POSIX
+        assert "TMP" not in _ENV_WHITELIST_POSIX
+
+    def test_temp_tmp_override_not_fired_off_win32(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
     ) -> None:
-        # POSIX env dict stays byte-identical: TEMP/TMP are NOT injected
-        # (only TMPDIR is overridden). Simulate a non-win32 platform and
-        # ensure neither key is present unless it was whitelisted (it is
-        # not in the POSIX whitelist).
+        # The call-time override block must NOT fire on a non-win32
+        # platform. delenv isolates the override's behavior from any
+        # import-time whitelist copy (see test_posix_whitelist_excludes_
+        # temp_tmp for the authoritative constant-level pin).
         monkeypatch.setattr(textbook_parser.sys, "platform", "linux")
         monkeypatch.delenv("TEMP", raising=False)
         monkeypatch.delenv("TMP", raising=False)

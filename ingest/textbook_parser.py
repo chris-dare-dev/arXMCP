@@ -77,6 +77,13 @@ _ENV_WHITELIST_POSIX: frozenset[str] = frozenset({
 #: ``TEMP``). NONE of these are secrets or network-egress enablers, so they
 #: do not weaken the scrub's intent (proxies + AWS/GCP/Azure/HF credentials
 #: are still stripped). Empty on POSIX so non-Windows behavior is unchanged.
+#:
+#: ``COMSPEC`` (F3) is the SOLE tolerated shell-path var (the ``cmd.exe``
+#: path). It is admitted only because every subprocess in this module is
+#: ``shell=False`` (fixed argv), so it cannot be turned into a shell-exec
+#: vector here; it stays for native libs that probe it. Do NOT add other
+#: shell-adjacent vars (e.g. ``PROMPT``, ``PSModulePath``) without the same
+#: shell=False justification.
 _ENV_WHITELIST_WINDOWS: frozenset[str] = frozenset({
     "SystemRoot", "SYSTEMROOT", "USERPROFILE", "LOCALAPPDATA", "APPDATA",
     "TEMP", "TMP", "windir", "SystemDrive", "PATHEXT",
