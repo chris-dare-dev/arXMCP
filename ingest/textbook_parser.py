@@ -64,9 +64,29 @@ _OUTPUT_TAIL_BYTES: int = 8 * 1024
 #: inherited) per research-synthesis §D4 — prevents cross-notebook
 #: TMPDIR contamination. HOME stays so MinerU can find its
 #: ~/.cache/mineru/ ONNX weights.
-_ENV_WHITELIST: frozenset[str] = frozenset({
+_ENV_WHITELIST_POSIX: frozenset[str] = frozenset({
     "PATH", "HOME", "LANG", "LC_ALL",
 })
+
+#: Windows-essential OS variables. Without ``SystemRoot`` a Windows
+#: subprocess cannot initialize the socket provider — torch/onnxruntime
+#: import fails with ``OSError: [WinError 10106]`` (verified live on this
+#: workstation). ``USERPROFILE``/``LOCALAPPDATA``/``APPDATA`` are where
+#: MinerU's ``mineru.json`` config + HF model cache live; ``TEMP``/``TMP``
+#: are Windows scratch (Python honors ``TMPDIR``, but some native libs read
+#: ``TEMP``). NONE of these are secrets or network-egress enablers, so they
+#: do not weaken the scrub's intent (proxies + AWS/GCP/Azure/HF credentials
+#: are still stripped). Empty on POSIX so non-Windows behavior is unchanged.
+_ENV_WHITELIST_WINDOWS: frozenset[str] = frozenset({
+    "SystemRoot", "SYSTEMROOT", "USERPROFILE", "LOCALAPPDATA", "APPDATA",
+    "TEMP", "TMP", "windir", "SystemDrive", "PATHEXT",
+    "NUMBER_OF_PROCESSORS", "PROCESSOR_ARCHITECTURE", "COMSPEC",
+})
+
+#: Effective whitelist = POSIX base + (Windows-essential set on win32 only).
+_ENV_WHITELIST: frozenset[str] = _ENV_WHITELIST_POSIX | (
+    _ENV_WHITELIST_WINDOWS if sys.platform == "win32" else frozenset()
+)
 
 #: Grace period when draining PIPE buffers after a process-group kill.
 #: Prevents the second-communicate deadlock trap documented in
@@ -193,9 +213,17 @@ def _scrub_subprocess_env(output_dir: Path) -> dict[str, str]:
     """Return a minimal env for the MinerU subprocess.
 
     Whitelist passes through PATH, HOME, LANG, LC_ALL from the parent
-    process. TMPDIR is OVERRIDDEN to ``str(output_dir)`` rather than
-    inherited — research-synthesis §D4 (FM-8) — preventing scratch
-    files from landing in another notebook's tree.
+    process (plus the Windows-essential OS set on win32 — see
+    ``_ENV_WHITELIST_WINDOWS``). TMPDIR is OVERRIDDEN to ``str(output_dir)``
+    rather than inherited — research-synthesis §D4 (FM-8) — preventing
+    scratch files from landing in another notebook's tree.
+
+    On Windows, ``TEMP``/``TMP`` are ALSO overridden to ``output_dir``.
+    Python's ``tempfile`` honors ``TMPDIR`` first, but native libraries
+    (torch, onnxruntime, Perl) read ``TEMP``/``TMP`` directly via the OS,
+    not ``TMPDIR`` — so without this the whitelisted real host temp dir
+    would re-open the cross-notebook scratch contamination the TMPDIR
+    override exists to prevent.
 
     Strips proxies, AWS / GCP / Azure / HuggingFace credentials,
     anything that could enable network egress or credential leak.
@@ -206,6 +234,12 @@ def _scrub_subprocess_env(output_dir: Path) -> dict[str, str]:
             env[key] = os.environ[key]
     # Always override TMPDIR to the per-invocation output_dir.
     env["TMPDIR"] = str(output_dir)
+    # On Windows, native libs read TEMP/TMP (not TMPDIR); override both so
+    # the per-invocation scratch-isolation contract holds there too. Gated
+    # on win32 so the POSIX env dict stays byte-identical (no new keys).
+    if sys.platform == "win32":
+        env["TEMP"] = str(output_dir)
+        env["TMP"] = str(output_dir)
     return env
 
 
@@ -387,7 +421,16 @@ def run_mineru_sandboxed(
         # drain output and surface in the WARN log — closes m5 F5
         # (timeout-path observability gap).
         with contextlib.suppress(ProcessLookupError, OSError):
-            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            # os.killpg/getpgid are POSIX-only and start_new_session is a
+            # no-op on Windows; AttributeError there is NOT caught by the
+            # suppress above, so guard explicitly. proc.kill() reaps only
+            # the direct child on Windows — MinerU's grandchild FastAPI
+            # service may survive, an accepted gap (security-pdf-sandbox.md
+            # §"explicitly does NOT do"; CLAUDE.md gotcha #10).
+            if hasattr(os, "getpgid"):
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            else:
+                proc.kill()
         drained_stderr: str = ""
         with contextlib.suppress(subprocess.TimeoutExpired):
             drained = proc.communicate(timeout=_DRAIN_TIMEOUT_S)

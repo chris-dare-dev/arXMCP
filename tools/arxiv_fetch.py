@@ -519,7 +519,8 @@ def parse_with_latexml(
     in Docker) is Phase 2 of the Threat-3 mitigation and ships in a
     future milestone; see ``.claude/docs/security-threat-3-audit.md``.
     """
-    if shutil.which("latexmlc") is None:
+    latexmlc_bin = shutil.which("latexmlc")
+    if latexmlc_bin is None:
         raise RuntimeError(
             "latexmlc not on PATH. Install LaTeXML 0.8.x — "
             "`brew install latexml` (macOS) or `apt install latexml` (Debian/Ubuntu)."
@@ -534,7 +535,12 @@ def parse_with_latexml(
     # flag form). Python-side ``subprocess`` timeout + ``killpg``
     # remain the load-bearing timeout discipline.
     cmd = [
-        "latexmlc",
+        # Use the resolved path from shutil.which (not the bare name): on
+        # Windows latexmlc is a Perl script exposed as latexmlc.BAT, and a
+        # bare "latexmlc" passed to CreateProcess fails with FileNotFoundError
+        # (CreateProcess appends .exe, never .bat). The resolved path runs on
+        # every platform; on POSIX it is the same binary the bare name found.
+        latexmlc_bin,
         str(main_tex.name),
         f"--dest={out_html}",
         "--format=html5",
@@ -585,7 +591,13 @@ def parse_with_latexml(
             # child exited between ``communicate`` raising and
             # ``killpg`` firing.
             with contextlib.suppress(ProcessLookupError):
-                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                # os.killpg/getpgid are POSIX-only and start_new_session is a
+                # no-op on Windows, so fall back to killing just the child
+                # there (latexmlc reaps its own Perl helper tree on exit).
+                if hasattr(os, "getpgid"):
+                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                else:
+                    proc.kill()
             # Drain the pipes so the child doesn't block on a
             # full buffer during teardown. If the group survived
             # SIGKILL (catastrophic — should not happen in

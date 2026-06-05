@@ -7,10 +7,14 @@ authorization. Everything else lives here.
 
 from __future__ import annotations
 
+import os
+import subprocess
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 
+from tools import arxiv_fetch
 from tools.arxiv_fetch import (
     DEFAULT_503_BACKOFF_SECONDS,
     MIN_PARSED_HTML_BYTES,
@@ -19,6 +23,7 @@ from tools.arxiv_fetch import (
     find_main_tex,
     is_tar_archive,
     parse_retry_after,
+    parse_with_latexml,
     validate_paper_id,
 )
 
@@ -195,3 +200,104 @@ class TestFindMainTex:
         d.mkdir()
         (d / "README").write_text("not tex")
         assert find_main_tex(d, "2307.01156") is None
+
+
+def _fake_timeout_proc():
+    """A Popen-like mock whose first communicate() times out, second drains."""
+    proc = MagicMock(spec=subprocess.Popen)
+    proc.pid = 4242
+    proc.returncode = 0
+    proc.communicate.side_effect = [
+        subprocess.TimeoutExpired(cmd="latexmlc", timeout=1),
+        ("late stdout", "late stderr"),
+    ]
+    return proc
+
+
+class TestParseWithLatexml:
+    """Regression coverage for the Windows-native parse-path fixes.
+
+    Fix 2 — ``cmd[0]`` must be the resolved ``shutil.which("latexmlc")``
+    path, not the bare name (CreateProcess won't resolve ``latexmlc.BAT``).
+    Fix 3 — the timeout kill must fall back to ``proc.kill()`` where
+    ``os.getpgid`` is absent (Windows).
+    """
+
+    def _make_tex(self, tmp_path: Path) -> tuple[Path, Path]:
+        src = tmp_path / "src"
+        src.mkdir()
+        main_tex = src / "main.tex"
+        main_tex.write_text(r"\documentclass{article}\begin{document}x\end{document}")
+        parsed = tmp_path / "parsed"
+        parsed.mkdir()
+        return main_tex, parsed
+
+    def test_cmd_uses_resolved_latexmlc_path(self, tmp_path: Path) -> None:
+        # Fix 2: cmd[0] is the which() result, never the bare "latexmlc".
+        main_tex, parsed = self._make_tex(tmp_path)
+        fake_bin = str(tmp_path / "bin" / "latexmlc")
+        proc = MagicMock(spec=subprocess.Popen)
+        proc.returncode = 0
+        proc.communicate.return_value = ("", "")
+        sentinel = object()
+        with (
+            patch.object(arxiv_fetch.shutil, "which", return_value=fake_bin),
+            # identity sandbox wrap so cmd[0] is host-independent
+            patch.object(arxiv_fetch, "_build_sandbox_cmd", side_effect=lambda cmd, **kw: cmd),
+            patch.object(arxiv_fetch.subprocess, "Popen", return_value=proc) as mock_popen,
+            patch.object(arxiv_fetch, "detect_parse_success", return_value=sentinel),
+        ):
+            result = parse_with_latexml(main_tex, parsed, "2307.01156")
+        assert result is sentinel
+        called_cmd = mock_popen.call_args.args[0]
+        assert called_cmd[0] == fake_bin
+        assert called_cmd[0] != "latexmlc"
+
+    def test_raises_when_latexmlc_not_on_path(self, tmp_path: Path) -> None:
+        main_tex, parsed = self._make_tex(tmp_path)
+        with (
+            patch.object(arxiv_fetch.shutil, "which", return_value=None),
+            pytest.raises(RuntimeError, match="latexmlc not on PATH"),
+        ):
+            parse_with_latexml(main_tex, parsed, "2307.01156")
+
+    def test_timeout_uses_killpg_when_getpgid_present(self, tmp_path: Path) -> None:
+        # Fix 3, POSIX branch: getpgid present -> os.killpg fires. create=True
+        # so the patch installs on a Windows host too.
+        main_tex, parsed = self._make_tex(tmp_path)
+        fake_bin = str(tmp_path / "latexmlc")
+        proc = _fake_timeout_proc()
+        # create=True installs killpg/getpgid + a sentinel SIGKILL on a
+        # Windows host too, so the POSIX branch is exercised everywhere.
+        with (
+            patch.object(arxiv_fetch.shutil, "which", return_value=fake_bin),
+            patch.object(arxiv_fetch, "_build_sandbox_cmd", side_effect=lambda cmd, **kw: cmd),
+            patch.object(arxiv_fetch.subprocess, "Popen", return_value=proc),
+            patch.object(arxiv_fetch.os, "killpg", create=True) as mock_killpg,
+            patch.object(arxiv_fetch.os, "getpgid", create=True, return_value=999),
+            patch.object(arxiv_fetch.signal, "SIGKILL", 9, create=True),
+            pytest.raises(subprocess.TimeoutExpired),
+        ):
+            parse_with_latexml(main_tex, parsed, "2307.01156")
+        mock_killpg.assert_called_once_with(999, 9)
+        proc.kill.assert_not_called()
+
+    def test_timeout_falls_back_to_proc_kill_without_getpgid(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # Fix 3, Windows branch: getpgid absent -> proc.kill(). The
+        # AttributeError os.getpgid would raise is NOT caught by the
+        # suppress(ProcessLookupError) around the kill, so the hasattr
+        # guard is load-bearing.
+        main_tex, parsed = self._make_tex(tmp_path)
+        fake_bin = str(tmp_path / "latexmlc")
+        proc = _fake_timeout_proc()
+        monkeypatch.delattr(os, "getpgid", raising=False)
+        with (
+            patch.object(arxiv_fetch.shutil, "which", return_value=fake_bin),
+            patch.object(arxiv_fetch, "_build_sandbox_cmd", side_effect=lambda cmd, **kw: cmd),
+            patch.object(arxiv_fetch.subprocess, "Popen", return_value=proc),
+            pytest.raises(subprocess.TimeoutExpired),
+        ):
+            parse_with_latexml(main_tex, parsed, "2307.01156")
+        proc.kill.assert_called_once_with()
