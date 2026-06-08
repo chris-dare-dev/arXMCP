@@ -97,6 +97,95 @@ class TestBuildLatexWrapper:
         assert "\\end{align}" in out
         assert "\\textbackslash{}" not in out
 
+    # -- textbook-md-heading-sectioning-m1: ATX heading → LaTeX sectioning --
+
+    def test_atx_heading_levels_mapped(self) -> None:
+        """# / ## / ### map to section / subsection / subsubsection so
+        LaTeXML emits the ltx_section divs the e3 chunker requires."""
+        body = "# Title\n\n## Section one\n\n### Sub A\n\nprose $x$ here"
+        out = _build_latex_wrapper(body)
+        assert "\\section{Title}" in out
+        assert "\\subsection{Section one}" in out
+        assert "\\subsubsection{Sub A}" in out
+        # Non-heading prose is preserved verbatim.
+        assert "prose $x$ here" in out
+        # The raw ATX markers are gone (converted, not left as literals).
+        assert "\n# Title" not in out
+        assert "## Section one" not in out
+
+    def test_deep_heading_collapses_to_subsubsection(self) -> None:
+        """#### and deeper collapse to subsubsection (article has no
+        deeper numbered level)."""
+        out = _build_latex_wrapper("#### Deep\n##### Deeper\n###### Deepest")
+        assert out.count("\\subsubsection{") == 3
+        assert "\\subsubsection{Deep}" in out
+        assert "\\subsubsection{Deepest}" in out
+
+    def test_inline_math_in_heading_not_escaped(self) -> None:
+        """FM-1: special chars INSIDE a heading's $...$ span must NOT be
+        escaped — escaping ``$x_i$`` to ``$x\\_i$`` corrupts the math."""
+        out = _build_latex_wrapper("## The space $\\mathbf{P}^2$ and $x_i$")
+        # Math spans survive byte-for-byte.
+        assert "$\\mathbf{P}^2$" in out
+        assert "$x_i$" in out
+        # The underscore inside math is NOT escaped.
+        assert "x\\_i" not in out
+        # And it is wrapped as a subsection.
+        assert "\\subsection{" in out
+
+    def test_prose_special_chars_in_heading_escaped(self) -> None:
+        """FM-1/FM-6: special chars in heading PROSE text are escaped so a
+        stray # cannot raise LaTeXML T_PARAM and {/} cannot unbalance the
+        \\section{} argument."""
+        out = _build_latex_wrapper("## Cohomology & C# of {X}_n 50% done")
+        assert "\\subsection{" in out
+        assert "\\&" in out
+        assert "\\#" in out
+        assert "\\{X\\}" in out
+        assert "\\_n" in out
+        assert "\\%" in out
+
+    def test_closed_atx_trailing_hashes_stripped(self) -> None:
+        """FM-4: closed-ATX trailing #'s are not part of the title."""
+        out = _build_latex_wrapper("### The proof ###")
+        assert "\\subsubsection{The proof}" in out
+        # The trailing hashes did not leak into the title (escaped or raw).
+        assert "The proof \\#" not in out
+        assert "The proof ###" not in out
+
+    def test_hash_without_space_is_not_a_heading(self) -> None:
+        """FM-2: ``#hashtag`` (no space after the # run) is not a heading
+        and must pass through as a literal line, not become a section."""
+        out = _build_latex_wrapper("#hashtag not a heading\n\n## real")
+        assert "\\section{hashtag" not in out
+        assert "#hashtag not a heading" in out
+        assert "\\subsection{real}" in out
+
+    def test_heading_containing_structural_command_neutralized(self) -> None:
+        """FM-5: a heading whose title literally contains \\end{document}
+        is converted to a section AND made inert — prose escaping turns the
+        leading backslash into \\textbackslash{} so it cannot terminate the
+        document early."""
+        out = _build_latex_wrapper("# Intro to \\end{document} usage")
+        # Wrapped as a section…
+        assert "\\section{" in out
+        assert "Intro to" in out and "usage" in out
+        # …the title's backslash is neutralized (rendered inert)…
+        assert "\\textbackslash{}end" in out
+        # …and the only real, command-active \end{document} is the
+        # envelope's closing one (document not truncated early).
+        assert out.rstrip().endswith("\\end{document}")
+        assert out.count("\\end{document}") == 1
+
+    def test_no_headings_yields_flat_document_unchanged(self) -> None:
+        """A body with no headings is wrapped verbatim — the conversion
+        pass is a no-op and introduces no \\section / escaping."""
+        body = "just prose with $a+b$ and a list:\n- one\n- two"
+        out = _build_latex_wrapper(body)
+        assert body in out
+        assert "\\section" not in out
+        assert "\\textbackslash{}" not in out
+
 
 class TestFlatPaperId:
     @pytest.mark.parametrize(

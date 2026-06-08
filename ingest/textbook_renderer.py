@@ -4,10 +4,19 @@ Implements **Strategy A** from research-synthesis §D1: wraps MinerU's
 markdown output as a minimal LaTeX document and passes it through
 ``tools/arxiv_fetch.py::parse_with_latexml`` for the HTML5+MathML
 conversion. The math syntax (``$...$`` / ``$$...$$``) survives the
-wrap-as-LaTeX pass; markdown prose constructs (``## headers``,
-``**emphasis**``, ``[links](urls)``, lists) render as literal
-characters in the HTML output — best-effort. The chunker (e3)
-consumes math blocks regardless of prose-render fidelity.
+wrap-as-LaTeX pass.
+
+Markdown ATX headings (``# title`` / ``## section``) ARE converted to
+LaTeX sectioning commands (``\\section`` / ``\\subsection`` / ...) before
+wrapping — this is load-bearing, not cosmetic. The e3 chunker
+(``ingest/textbook_chunker.py::_extract_section_chunks``) extracts chunks
+from ``ltx_section`` / ``ltx_chapter`` divs (``_SECTION_DIV_CLASSES`` in
+``ingest/chunker.py``); LaTeXML only emits those divs for real
+``\\section`` commands, so without the conversion the chunker produces
+ZERO chunks (textbook-md-heading-sectioning-m1). Other prose constructs
+(``**emphasis**``, ``[links](urls)``, lists) still render as literal
+characters — best-effort — because the chunker keys on section structure
+and math blocks, not inline prose markup.
 
 Why not Strategy B/C: researcher-2 verified ``latexmlmath`` has ~1s
 per-call Perl startup overhead; running it per-equation for a math-
@@ -91,12 +100,104 @@ def _neutralize_structural_commands(markdown_content: str) -> int:
     return len(_STRUCTURAL_CMD_RE.findall(markdown_content))
 
 
+#: Markdown ATX heading matcher (textbook-md-heading-sectioning-m1).
+#: Line-anchored; a space/tab after the ``#`` run is REQUIRED so a stray
+#: ``#hashtag`` mid-prose is NOT a heading (research FM-2). Trailing
+#: ``#`` (closed-ATX style, ``## Title ##``) is consumed and discarded
+#: (research FM-4). Setext headings (``===`` / ``---`` underlines) are
+#: NOT handled — MinerU emits ATX by default (research FM-3).
+_ATX_HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(.*?)[ \t]*#*[ \t]*$")
+
+#: Heading depth → LaTeX sectioning command. ``article`` class has no
+#: numbered level below ``\subsubsection``, so depth ≥ 3 collapses there.
+_HEADING_LEVEL_CMD = {1: "section", 2: "subsection", 3: "subsubsection"}
+
+#: Inline-math spans within a heading title. Escaping LaTeX-special chars
+#: INSIDE ``$...$`` would corrupt the math (e.g. ``$x_i$`` → ``$x\_i$``),
+#: so a title is split on these spans and only the PROSE segments are
+#: escaped (research FM-1 — the highest-risk subtlety). Non-greedy and
+#: newline-bounded so an unbalanced ``$`` cannot swallow the whole title.
+_MATH_SPAN_RE = re.compile(r"(\$\$[\s\S]*?\$\$|\$[^$\n]+?\$)")
+
+#: LaTeX-special chars escaped in heading PROSE text (NOT inside the
+#: title's math spans — those are split out first). ``#`` is the
+#: load-bearing one — a raw ``#`` reaching LaTeXML raises
+#: ``Error:misdefined:# The token T_PARAM[#]``; ``{`` / ``}`` must be
+#: escaped so they cannot unbalance the ``\section{...}`` argument
+#: (research FM-6). The leading ``\`` is escaped to ``\textbackslash{}``
+#: so a stray LaTeX command in heading prose — including a literal
+#: ``\end{document}`` — is rendered inert rather than executed (research
+#: FM-5); a real math backslash (``$\mathbf{P}$``) is safe because the
+#: math span is excluded from escaping.
+_HEADING_PROSE_ESCAPE = {
+    "\\": "\\textbackslash{}",
+    "#": "\\#",
+    "%": "\\%",
+    "&": "\\&",
+    "_": "\\_",
+    "{": "\\{",
+    "}": "\\}",
+}
+
+
+def _escape_heading_prose(text: str) -> str:
+    """Escape LaTeX-special chars in a non-math heading prose segment."""
+    return "".join(_HEADING_PROSE_ESCAPE.get(ch, ch) for ch in text)
+
+
+def _escape_heading_title(title: str) -> str:
+    """Escape a heading title, leaving inline math spans untouched.
+
+    Splits ``title`` on ``$...$`` / ``$$...$$`` spans and escapes only the
+    prose segments (research FM-1). ``re.split`` with a single capturing
+    group yields prose at even indices and the math spans (verbatim) at
+    odd indices.
+    """
+    parts = _MATH_SPAN_RE.split(title)
+    return "".join(
+        part if i % 2 else _escape_heading_prose(part)
+        for i, part in enumerate(parts)
+    )
+
+
+def _convert_markdown_headings_to_latex(markdown_content: str) -> str:
+    """Convert markdown ATX headings to LaTeX sectioning commands.
+
+    ``# X`` → ``\\section{X}``, ``## X`` → ``\\subsection{X}``,
+    ``### X`` (and deeper) → ``\\subsubsection{X}``. Non-heading lines pass
+    through unchanged. Heading titles are escaped math-awarely via
+    :func:`_escape_heading_title`.
+
+    Runs BEFORE the structural-command neutralization in
+    :func:`_build_latex_wrapper`. A heading title is made fully inert by
+    prose escaping (the leading ``\\`` becomes ``\\textbackslash{}``), so a
+    title containing a literal ``\\end{document}`` cannot terminate the
+    document early (research FM-5); the downstream structural pass still
+    guards NON-heading body lines, which are not escaped here.
+    """
+    out_lines: list[str] = []
+    for line in markdown_content.split("\n"):
+        match = _ATX_HEADING_RE.match(line)
+        if match is None:
+            out_lines.append(line)
+            continue
+        depth = len(match.group(1))
+        cmd = _HEADING_LEVEL_CMD.get(depth, "subsubsection")
+        title = _escape_heading_title(match.group(2).strip())
+        out_lines.append(f"\\{cmd}{{{title}}}")
+    return "\n".join(out_lines)
+
+
 def _build_latex_wrapper(markdown_content: str) -> str:
     """Wrap MinerU markdown as a minimal LaTeX document.
 
-    Math syntax (``$...$``, ``$$...$$``) passes through unchanged.
-    Prose constructs render as literal text in LaTeX — acceptable
-    for v1 (the retrieval substrate consumes math, not prose layout).
+    Markdown ATX headings (``# title`` / ``## section``) are converted to
+    LaTeX sectioning (``\\section`` / ``\\subsection`` / ``\\subsubsection``)
+    so LaTeXML emits the ``ltx_section`` divs the e3 chunker requires —
+    without this the chunker produces zero chunks
+    (textbook-md-heading-sectioning-m1). Math syntax (``$...$``,
+    ``$$...$$``) passes through unchanged, including inside heading titles
+    (escaping is math-aware).
 
     m6 F3: structural commands (``\\end{document}``,
     ``\\begin{document}``, ``\\documentclass``) in the body are
@@ -107,15 +208,21 @@ def _build_latex_wrapper(markdown_content: str) -> str:
     untouched (the regex matches only the three document-structure
     commands).
     """
-    # Escape the leading backslash of any structural command so it
-    # becomes literal text (``\textbackslash end{document}``-style is
-    # overkill; ``\\end{document}`` → ``\end {document}`` would still
-    # match \end, so insert a brace-group guard instead: replace the
-    # backslash with ``\textbackslash{}`` which LaTeXML renders as a
-    # literal backslash followed by the (now-inert) command name).
+    # 1. Convert markdown ATX headings to LaTeX sectioning FIRST. This is
+    #    the load-bearing fix: the e3 chunker keys on ltx_section divs,
+    #    which LaTeXML only emits for real \section commands.
+    sectioned = _convert_markdown_headings_to_latex(markdown_content)
+    # 2. Escape the leading backslash of any structural command so it
+    #    becomes literal text (``\textbackslash end{document}``-style is
+    #    overkill; ``\\end{document}`` → ``\end {document}`` would still
+    #    match \end, so insert a brace-group guard instead: replace the
+    #    backslash with ``\textbackslash{}`` which LaTeXML renders as a
+    #    literal backslash followed by the (now-inert) command name).
+    #    Runs AFTER heading conversion (research FM-5) so a heading whose
+    #    title contains \end{document} is still neutralized.
     safe_body = _STRUCTURAL_CMD_RE.sub(
         lambda m: "\\textbackslash{}" + m.group(0)[1:],
-        markdown_content,
+        sectioned,
     )
     return _LATEX_ENVELOPE.replace("{body}", safe_body)
 
