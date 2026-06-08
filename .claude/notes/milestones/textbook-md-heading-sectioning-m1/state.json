@@ -1,0 +1,103 @@
+{
+  "brief_source": ".claude/notes/milestones/textbook-md-heading-sectioning-m1/brief.md",
+  "created_at": "2026-06-08T17:45:31Z",
+  "critics_run": [
+    {
+      "critic": "adversary",
+      "output_path": ".claude/notes/milestones/textbook-md-heading-sectioning-m1/critique-adversary.md",
+      "summary": "SHIP-WITH-FIXES 0C/1H/2M/2L"
+    }
+  ],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 1,
+    "low": 2,
+    "medium": 2
+  },
+  "critique_path": ".claude/notes/milestones/textbook-md-heading-sectioning-m1/critique-merged.md",
+  "deferred_findings": [
+    "F5"
+  ],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_required": [],
+  "fixed_findings": [
+    "F1",
+    "F2",
+    "F3",
+    "F4"
+  ],
+  "id": "textbook-md-heading-sectioning-m1",
+  "implementation_base": "0be33f0a5b03b7a9280b7868a71c7c6382620994",
+  "implementation_branch": "main",
+  "implementation_commit_range": "0be33f0a5b03b7a9280b7868a71c7c6382620994..243019fe3860d2b1a7f4b907eeb8200308afdf06",
+  "implementation_commits": [
+    "243019fe3860d2b1a7f4b907eeb8200308afdf06"
+  ],
+  "implementation_path": "inline",
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "# textbook-md-heading-sectioning-m1 \u2014 Convert MinerU markdown headings to LaTeX sectioning\n\n## PROBLEM\n\nThe textbook-PDF ingest path (MinerU \u2192 LaTeXML \u2192 chunker) produces **ZERO chunks**\nfor every real MinerU-parsed PDF, making PDF-sourced papers unretrievable. Discovered\n2026-06-08 while running the staged 9-PDF Phase-2 ingest for the\n`bridgeland-stability-pdfs` notebook.\n\n## ROOT CAUSE\n\n`ingest/textbook_renderer.py::_build_latex_wrapper` wraps MinerU markdown verbatim\ninto a bare LaTeX `article` envelope\n(`\\documentclass{article}...\\begin{document}{body}\\end{document}`). MinerU emits\ndocument structure as **markdown ATX headings** (`# title`, `## section`,\n`### subsection`), which are NOT LaTeX sectioning commands. LaTeXML therefore renders\na FLAT document: the HTML has only `ltx_para`/`ltx_p`/`ltx_equation` classes and ZERO\n`ltx_section`/`ltx_subsection`/`ltx_chapter`/`ltx_theorem` divs.\n\nThe textbook chunker (`ingest/textbook_chunker.py`) extracts:\n- `_extract_section_chunks` \u2014 needs `ltx_section`/`ltx_chapter` (via\n  `_SECTION_DIV_CLASSES` imported from `ingest/chunker.py`)\n- `_extract_chunks_from_container` \u2014 needs theorem-like divs\n\nWith no structure, `chunk_textbook` returns `[]`. The shipped textbook-ingest e2e\n(textbook-ingest-m1..m12) was evidently only validated against synthetic `ltx_section`\nHTML fixtures, never a true MinerU-markdown\u2192LaTeXML\u2192chunk run, so this latent gap\nshipped. Secondary symptom: raw markdown `#` chars reaching LaTeXML raise\n`Error:misdefined:# The token T_PARAM[#] should never reach Stomach!`.\n\n## PROVEN FIX (validated end-to-end 2026-06-08; NOT yet in the tree)\n\nIn `_build_latex_wrapper`, BEFORE wrapping, convert markdown ATX headings to LaTeX\nsectioning:\n- `# X`   \u2192 `\\section{X}`\n- `## X`  \u2192 `\\subsection{X}`\n- `### X` \u2192 `\\subsubsection{X}`\n\nLine-anchored, levels 1\u20133; deeper levels (`####+`) \u2192 `\\subsubsection`. Escape\nLaTeX-special chars in the converted heading TITLE text (`#`, `%`, `&`, `_` at minimum)\nso stray chars do not raise `T_PARAM`. Keep math (`$...$`, `$$...$$`) passthrough and\nthe existing `_STRUCTURAL_CMD_RE` neutralization of\n`\\end{document}`/`\\begin{document}`/`\\documentclass` unchanged.\n\nEVIDENCE: on paper `1611.02087` (already MinerU-parsed; markdown at\n`var/arxmcp/notebooks/bridgeland-stability-pdfs/parsed/1611.02087/1611.02087/auto/1611.02087.md`,\n26 headings), the converted `main.tex` run through `latexmlc` yields\n`ltx_section:1 + ltx_subsection:25 + ltx_title:52`, and\n`chunk_textbook('bridgeland-stability-pdfs','1611.02087')` then returns **21\nsection-grain chunks** (was 0).\n\n## SCOPE / TASKS\n\n- **(a)** Fix `ingest/textbook_renderer.py::_build_latex_wrapper` (heading conversion +\n  title escaping). One function; keep the change minimal and the docstring accurate.\n- **(b)** Add regression tests (`tests/test_textbook_renderer.py` or the existing\n  renderer test module): heading-level mapping (`#`/`##`/`###` \u2192\n  section/subsection/subsubsection), special-char escaping in titles, math passthrough\n  preserved, structural-command neutralization still holds, and a no-headings input\n  still yields a valid (flat) document. Prefer asserting on the generated LaTeX string\n  (fast, no LaTeXML needed); a `requires_latexmlc`-marked end-to-end assertion\n  (`ltx_section` present) is optional/bonus.\n- **(c)** `ruff` + full `make test` green (NOTE: ~29\u201366 pre-existing Windows-only\n  failures per CLAUDE.md/memory; establish the baseline failure set BEFORE the change\n  and prove zero NEW real failures).\n- **(d)** Commit per repo conventions: conventional commits, co-author trailer, GPG\n  will land UNSIGNED per the workstation's known no-secret-key state (see memory\n  `gpg-signing-broken-on-workstation`) \u2014 do NOT use `--no-gpg-sign`, just let it land\n  unsigned after the hook; never `--no-verify`.\n\n## CONSTRAINTS / CONTEXT\n\n- `ingest/textbook_renderer.py` feeds the security-audited MinerU/LaTeXML subprocess\n  path; the wrapper output is later fed to `parse_with_latexml`. Keep the\n  structural-command neutralization (m6 F3) intact \u2014 do not regress it.\n- Windows-native dev. No make/console-scripts; tests run via\n  `.venv/Scripts/python.exe -m pytest`. `latexmlc` at\n  `C:/Strawberry/perl/site/bin/latexmlc.BAT` (PATH:\n  `/c/Strawberry/perl/site/bin:/c/Strawberry/perl/bin:/c/Strawberry/c/bin`). MinerU bin\n  at `C:/Users/cedar/venvs/mineru/Scripts/mineru.exe` (`ARXMCP_MINERU_BIN`) \u2014 only\n  needed for full parse, NOT for the renderer unit tests.\n- DOWNSTREAM GOAL (after this milestone completes, OUTSIDE its commit scope):\n  re-render the already-MinerU-parsed PDFs from cached markdown (cheap, no re-parse)\n  and run the remaining 8 MinerU parses + chunk/embed/write via\n  `tools/notebook_textbook_ingest.py` to populate the `bridgeland-stability-pdfs`\n  notebook (9 PDFs: 0912.0043, 1404.3143, 1611.02087, 1802.01134, 2201.03654,\n  2506.21995, 2602.24016, hep-th/0403166, textbook:dc-lecture-notes). This milestone\n  is ONLY the renderer fix + tests.\n- A throwaway operator parse driver exists at `var/parse_pdfs.py` (gitignored) for the\n  downstream ingest; it is NOT part of this milestone.\n",
+  "phase": "complete",
+  "phase_history": [
+    {
+      "entered_at": "2026-06-08T17:45:31Z",
+      "left_at": "2026-06-08T17:45:42Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-06-08T17:45:42Z",
+      "left_at": "2026-06-08T17:49:53Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-06-08T17:49:53Z",
+      "left_at": "2026-06-08T17:50:11Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-06-08T17:50:11Z",
+      "left_at": "2026-06-08T17:58:12Z",
+      "phase": "implement-running"
+    },
+    {
+      "entered_at": "2026-06-08T17:58:12Z",
+      "left_at": "2026-06-08T17:58:21Z",
+      "phase": "implement-complete"
+    },
+    {
+      "entered_at": "2026-06-08T17:58:21Z",
+      "left_at": "2026-06-08T18:03:12Z",
+      "phase": "critique-running"
+    },
+    {
+      "entered_at": "2026-06-08T18:03:12Z",
+      "left_at": "2026-06-08T18:03:12Z",
+      "phase": "critique-complete"
+    },
+    {
+      "entered_at": "2026-06-08T18:03:12Z",
+      "left_at": "2026-06-08T18:05:26Z",
+      "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-06-08T18:05:26Z",
+      "left_at": null,
+      "phase": "complete"
+    }
+  ],
+  "rectification_commit": "3f88625989436904b2fddedf0c448fa2df8518e0",
+  "regression_tests_added": [
+    "tests/test_textbook_renderer.py"
+  ],
+  "research_briefs": [
+    {
+      "agent_id": "researcher-1",
+      "brief_path": ".claude/notes/milestones/textbook-md-heading-sectioning-m1/research-brief-1.md",
+      "summary": "math-aware split+escape; ATX->section; docstring fix; 0 ext writes"
+    }
+  ],
+  "research_mode": "single",
+  "research_synthesis": ".claude/notes/milestones/textbook-md-heading-sectioning-m1/research-synthesis.md",
+  "updated_at": "2026-06-08T18:05:26Z"
+}
