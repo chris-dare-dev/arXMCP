@@ -186,6 +186,41 @@ class TestBuildLatexWrapper:
         assert "\\section" not in out
         assert "\\textbackslash{}" not in out
 
+    def test_unbalanced_dollar_in_heading_escaped(self) -> None:
+        """F1: a lone/unbalanced $ in a heading title must be escaped to
+        \\$ — a raw $ would open LaTeX math mode and corrupt the title and
+        everything downstream until the next $."""
+        out = _build_latex_wrapper("## Price is $5 today")
+        assert "\\subsection{Price is \\$5 today}" in out
+        # No raw lone $ leaked into the section argument.
+        assert "{Price is $5" not in out
+
+    def test_unbalanced_dollar_then_special_char_escaped(self) -> None:
+        """F2: trailing prose after an unbalanced $ is escaped, and the $
+        itself is escaped (no broken math context)."""
+        out = _build_latex_wrapper("## no closing $x_i here")
+        assert "\\subsection{no closing \\$x\\_i here}" in out
+        # The $ is escaped (\$), so it cannot flip into math mode: there is
+        # no bare $ (one not immediately preceded by a backslash) in the body.
+        assert "\\$x" in out
+
+    def test_math_only_heading_title(self) -> None:
+        """F3: a heading whose title is ONLY a math span exercises the
+        leading+trailing empty-string parity edge; math survives, the
+        underscore is NOT escaped."""
+        out = _build_latex_wrapper("## $x_i$")
+        assert "\\subsection{$x_i$}" in out
+        assert "x\\_i" not in out
+
+    def test_display_math_in_heading_preserved(self) -> None:
+        """F3: display $$...$$ math inside a heading title is preserved
+        byte-for-byte (not escaped)."""
+        out = _build_latex_wrapper("## sum $$\\sum_i x_i$$ done")
+        assert "$$\\sum_i x_i$$" in out
+        # The subscript inside the display math is untouched.
+        assert "\\sum_i x_i" in out
+        assert "\\subsection{" in out
+
 
 class TestFlatPaperId:
     @pytest.mark.parametrize(

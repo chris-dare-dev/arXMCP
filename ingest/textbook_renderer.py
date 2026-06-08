@@ -92,10 +92,17 @@ _STRUCTURAL_CMD_RE = re.compile(
 
 
 def _neutralize_structural_commands(markdown_content: str) -> int:
-    """Count structural-command occurrences in the body (m6 F3).
+    """Count structural-command occurrences in RAW markdown (m6 F3).
 
-    Used as a quality/observability signal — the actual neutralization
-    happens in :func:`_build_latex_wrapper` via the same regex.
+    Quality/observability signal only — has no production caller. NOTE
+    (F4): this counts occurrences in the raw markdown, whereas the actual
+    neutralization in :func:`_build_latex_wrapper` runs on the
+    HEADING-CONVERTED body. The two counts can diverge — e.g. a
+    ``\\end{document}`` inside a markdown heading is rendered inert by the
+    heading-prose escaping (leading ``\\`` → ``\\textbackslash{}``) before
+    ``_STRUCTURAL_CMD_RE`` ever sees it, so the wrapper neutralizes 0 while
+    this raw counter returns 1. Treat this as a coarse upper-bound metric,
+    not the wrapper's exact neutralization count.
     """
     return len(_STRUCTURAL_CMD_RE.findall(markdown_content))
 
@@ -116,7 +123,11 @@ _HEADING_LEVEL_CMD = {1: "section", 2: "subsection", 3: "subsubsection"}
 #: INSIDE ``$...$`` would corrupt the math (e.g. ``$x_i$`` → ``$x\_i$``),
 #: so a title is split on these spans and only the PROSE segments are
 #: escaped (research FM-1 — the highest-risk subtlety). Non-greedy and
-#: newline-bounded so an unbalanced ``$`` cannot swallow the whole title.
+#: newline-bounded so the regex cannot swallow the whole title on an
+#: unbalanced ``$``. A lone/unbalanced ``$`` matches no span and therefore
+#: lands in a PROSE segment, where ``_escape_heading_prose`` escapes it to
+#: ``\$`` (F1) — without that escape a leaked raw ``$`` would open LaTeX
+#: math mode and corrupt the rest of the title/body.
 _MATH_SPAN_RE = re.compile(r"(\$\$[\s\S]*?\$\$|\$[^$\n]+?\$)")
 
 #: LaTeX-special chars escaped in heading PROSE text (NOT inside the
@@ -137,6 +148,12 @@ _HEADING_PROSE_ESCAPE = {
     "_": "\\_",
     "{": "\\{",
     "}": "\\}",
+    # A lone/unbalanced ``$`` (no closing delimiter on the line) is not part
+    # of a balanced math span — ``_MATH_SPAN_RE`` routes only NON-math
+    # segments here — so escaping it to ``\$`` is safe and prevents it from
+    # opening LaTeX math mode (F1). Balanced ``$...$`` spans are split out
+    # before escaping and never reach this map.
+    "$": "\\$",
 }
 
 
