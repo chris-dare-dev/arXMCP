@@ -252,15 +252,36 @@ class TestBuildLatexWrapper:
         assert out.count("\\begin{array}") == 2
         assert out.count("\\end{array}") == 2
 
-    def test_unclosed_begin_array_gets_closed(self) -> None:
-        """An unclosed \\begin{array} gets a matching \\end{array} appended
-        so LaTeXML does not run to end-of-document in array mode."""
+    def test_unclosed_begin_array_dropped(self) -> None:
+        """F1: an unclosed \\begin{array} is DROPPED, not closed with an
+        appended \\end{array} — an appended closer would land in text mode
+        outside the (already-closed) $$ and re-create the 'close boxing group'
+        fatal the sanitizer exists to prevent."""
         body = "$$\\begin{array}{c} a \\\\ b $$\ntrailing prose"
         out = _build_latex_wrapper(body)
-        assert out.count("\\begin{array}") == 1
-        assert out.count("\\end{array}") == 1
-        # The appended closer lands after the original content.
-        assert out.index("trailing prose") < out.rindex("\\end{array}")
+        assert "\\begin{array}" not in out
+        assert "\\end{array}" not in out
+        assert "trailing prose" in out
+
+    def test_orphaned_closer_leaves_alignment_residue(self) -> None:
+        """F2 (pinned): dropping an orphaned \\end{array} removes only the
+        token; the array body's & / \\\\ residue is intentionally left in the
+        surrounding math (LaTeXML error-recovers a stray &). Pins the accepted
+        degraded-but-renders behavior so a future change is deliberate."""
+        body = "$$ a & b \\\\ c & d \\end{array} $$"
+        out = _build_latex_wrapper(body)
+        assert "\\end{array}" not in out
+        assert "a & b" in out  # residue retained (accepted limitation)
+
+    def test_literal_end_array_in_heading_is_dropped(self) -> None:
+        """F3 (pinned): sanitize runs on raw markdown (step 0), so a literal
+        \\end{array} token in a heading TITLE is treated as a math token and
+        dropped — a known limitation of the coarse global token scan. Pinned
+        so the behavior is asserted, not a silent surprise."""
+        out = _build_latex_wrapper("## The \\end{array} trick")
+        assert "\\subsection{" in out
+        assert "\\end{array}" not in out
+        assert "trick" in out
 
     def test_array_balance_composes_with_headings(self) -> None:
         """Sanitization (step 0) must not break heading conversion (step 1):

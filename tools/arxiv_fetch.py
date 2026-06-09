@@ -59,9 +59,14 @@ def _parse_latexml_timeout_from_env() -> float:
     an operator opts in.
 
     ``ARXMCP_LATEXML_TIMEOUT_S`` is an ingest/CLI-only variable: it is read
-    here at import and is registered in ``server/main.py``'s
-    ``_KNOWN_INGEST_ENV_VARS`` carve-out so the server's strict
-    unknown-``ARXMCP_*`` scan does not FATAL when an operator leaves it set.
+    here at import. It is registered in ``server/main.py``'s
+    ``_KNOWN_INGEST_ENV_VARS`` so the server's strict unknown-``ARXMCP_*`` scan
+    emits a TAILORED hint (names this CLI render path; tells the operator to
+    unset it for the server) — the server still REJECTS it by design, exactly
+    like ``ARXMCP_CONTACT_EMAIL``. The CLI ingest path
+    (``tools/notebook_textbook_ingest`` / ``ingest/textbook_renderer``) does
+    not load ``server/config``, so it consumes the var without tripping the
+    scan.
     """
     raw = os.environ.get("ARXMCP_LATEXML_TIMEOUT_S", "").strip()
     if not raw:

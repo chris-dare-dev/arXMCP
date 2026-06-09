@@ -113,48 +113,63 @@ _ARRAY_ENV_RE = re.compile(r"\\(begin|end)\s*\{\s*array\s*\}")
 
 
 def _sanitize_math_balance(markdown_content: str) -> str:
-    """Balance ``\\begin{array}`` / ``\\end{array}`` so a malformed MinerU
-    export cannot abort the entire LaTeXML document.
+    """Drop UNBALANCED ``\\begin{array}`` / ``\\end{array}`` so a malformed
+    MinerU export cannot abort the entire LaTeXML document.
 
     MinerU OCR sometimes drops ``\\begin{array}`` openers while keeping the
     ``\\end{array}`` closers (observed: 0 begins / 36 ends on arXiv
     ``1404.3143``). LaTeXML then raises ``\\@end@array Attempt to close
     boxing group`` and abandons the document body — the render collapses to a
     near-empty page and the chunker emits ZERO chunks. A degraded array beats
-    a dropped document, so we make the array environments balanced:
+    a dropped document, so we make the array environments balanced by removing
+    only the tokens that have no partner:
 
-    - Forward depth counter: ``\\begin{array}`` → depth+1, ``\\end{array}``
-      → depth-1. An ``\\end{array}`` that would drive depth below zero is
-      orphaned (no matching open) and is removed.
-    - After the pass, any depth still open gets that many ``\\end{array}``
-      appended so LaTeXML closes the arrays cleanly.
+    - Stack pass: each ``\\begin{array}`` pushes; each ``\\end{array}`` pops a
+      pending open (a matched pair — BOTH kept). An ``\\end{array}`` with an
+      empty stack is an orphaned CLOSER → dropped. Any ``\\begin{array}`` left
+      on the stack at the end is an unclosed OPENER → dropped.
+    - Both unbalanced directions are DROPPED, never synthesised. We never
+      append a closer (textbook-render-robustness-m1 F1: an appended
+      ``\\end{array}`` would land in text mode outside ``$$`` and re-create the
+      same "close boxing group" fatal). Dropping is symmetric and guaranteed
+      not to introduce a new boxing-group error.
 
     Balanced arrays — including nested ones, and arrays inside ``$$...$$`` —
-    net zero and are left byte-for-byte untouched, so well-formed math is
-    never corrupted. Runs on RAW markdown (before heading conversion escapes
-    backslashes). Scope is intentionally ``array`` only — the confirmed
-    failure mode; ``$$`` parity is left alone (it was already balanced in the
-    observed failure, and over-correcting display math risks real corruption).
+    are left byte-for-byte untouched, so well-formed math is never corrupted.
+
+    LIMITATIONS (accepted; this is a coarse pre-pass, not a TeX parser):
+    - Runs on the WHOLE raw markdown as STEP 0, before heading conversion. A
+      literal ``\\end{array}`` token appearing in PROSE or a HEADING title
+      (e.g. ``## The \\end{array} trick``) or inside a code fence is treated as
+      a real environment and may be dropped (F3/F7). MinerU OCR output rarely
+      contains such literal tokens, so practical exposure is low.
+    - Dropping an orphaned closer leaves the array body's alignment residue
+      (``&`` tabs, ``\\\\`` row breaks) in the surrounding ``$$`` (F2). LaTeXML
+      error-recovers a stray ``&`` per-cell, so this degrades rather than
+      aborts. Scope is intentionally ``array`` only; ``$$`` parity is not
+      touched (over-correcting display math risks real corruption).
     """
-    depth = 0
-    out_parts: list[str] = []
-    last = 0
+    spans_to_drop: list[tuple[int, int]] = []
+    open_stack: list[re.Match[str]] = []
     for match in _ARRAY_ENV_RE.finditer(markdown_content):
         if match.group(1) == "begin":
-            depth += 1
-            continue
-        # An \end{array} token.
-        if depth == 0:
-            # Orphaned closer: emit everything up to it, then skip the token.
-            out_parts.append(markdown_content[last:match.start()])
-            last = match.end()
+            open_stack.append(match)
+        elif open_stack:
+            open_stack.pop()  # matched pair — keep both tokens
         else:
-            depth -= 1
+            spans_to_drop.append((match.start(), match.end()))  # orphan closer
+    # Any opener still pending is unclosed — drop it too (F1: never append).
+    spans_to_drop.extend((m.start(), m.end()) for m in open_stack)
+    if not spans_to_drop:
+        return markdown_content
+    spans_to_drop.sort()
+    out_parts: list[str] = []
+    last = 0
+    for start, end in spans_to_drop:
+        out_parts.append(markdown_content[last:start])
+        last = end
     out_parts.append(markdown_content[last:])
-    result = "".join(out_parts)
-    if depth > 0:
-        result += "\n\\end{array}" * depth
-    return result
+    return "".join(out_parts)
 
 
 #: Markdown ATX heading matcher (textbook-md-heading-sectioning-m1).
