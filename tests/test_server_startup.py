@@ -382,6 +382,22 @@ class TestConfigValidation:
         with pytest.raises(ValueError, match="ARXMCP_CONTACT_EMAIL"):
             _scan_unknown_arxmcp_env_vars(cfg)
 
+    def test_latexml_timeout_env_var_rejected(self, monkeypatch):
+        """textbook-render-robustness-m1 F5: ``ARXMCP_LATEXML_TIMEOUT_S`` is an
+        ingest/CLI-only var (read by ``tools/arxiv_fetch.py`` /
+        ``ingest/textbook_renderer.py`` to cap the LaTeXML render). Like
+        ``ARXMCP_CONTACT_EMAIL`` it is registered in ``_KNOWN_INGEST_ENV_VARS``
+        for a TAILORED hint, but the server still REJECTS it by design. Pins
+        that the carve-out message names the LaTeXML render path."""
+        from server.main import _scan_unknown_arxmcp_env_vars
+
+        monkeypatch.setenv("ARXMCP_LATEXML_TIMEOUT_S", "900")
+        cfg = Config()
+        with pytest.raises(ValueError, match="ARXMCP_LATEXML_TIMEOUT_S") as exc:
+            _scan_unknown_arxmcp_env_vars(cfg)
+        msg = str(exc.value)
+        assert "LaTeXML" in msg or "render" in msg
+
 
 # ===========================================================================
 # notebook-retrieval-m1 (fork C) — ARXMCP_NOTEBOOK derives lancedb_path

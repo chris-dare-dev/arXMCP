@@ -97,6 +97,226 @@ class TestBuildLatexWrapper:
         assert "\\end{align}" in out
         assert "\\textbackslash{}" not in out
 
+    # -- textbook-md-heading-sectioning-m1: ATX heading → LaTeX sectioning --
+
+    def test_atx_heading_levels_mapped(self) -> None:
+        """# / ## / ### map to section / subsection / subsubsection so
+        LaTeXML emits the ltx_section divs the e3 chunker requires."""
+        body = "# Title\n\n## Section one\n\n### Sub A\n\nprose $x$ here"
+        out = _build_latex_wrapper(body)
+        assert "\\section{Title}" in out
+        assert "\\subsection{Section one}" in out
+        assert "\\subsubsection{Sub A}" in out
+        # Non-heading prose is preserved verbatim.
+        assert "prose $x$ here" in out
+        # The raw ATX markers are gone (converted, not left as literals).
+        assert "\n# Title" not in out
+        assert "## Section one" not in out
+
+    def test_deep_heading_collapses_to_subsubsection(self) -> None:
+        """#### and deeper collapse to subsubsection (article has no
+        deeper numbered level)."""
+        out = _build_latex_wrapper("#### Deep\n##### Deeper\n###### Deepest")
+        assert out.count("\\subsubsection{") == 3
+        assert "\\subsubsection{Deep}" in out
+        assert "\\subsubsection{Deepest}" in out
+
+    def test_inline_math_in_heading_not_escaped(self) -> None:
+        """FM-1: special chars INSIDE a heading's $...$ span must NOT be
+        escaped — escaping ``$x_i$`` to ``$x\\_i$`` corrupts the math."""
+        out = _build_latex_wrapper("## The space $\\mathbf{P}^2$ and $x_i$")
+        # Math spans survive byte-for-byte.
+        assert "$\\mathbf{P}^2$" in out
+        assert "$x_i$" in out
+        # The underscore inside math is NOT escaped.
+        assert "x\\_i" not in out
+        # And it is wrapped as a subsection.
+        assert "\\subsection{" in out
+
+    def test_prose_special_chars_in_heading_escaped(self) -> None:
+        """FM-1/FM-6: special chars in heading PROSE text are escaped so a
+        stray # cannot raise LaTeXML T_PARAM and {/} cannot unbalance the
+        \\section{} argument."""
+        out = _build_latex_wrapper("## Cohomology & C# of {X}_n 50% done")
+        assert "\\subsection{" in out
+        assert "\\&" in out
+        assert "\\#" in out
+        assert "\\{X\\}" in out
+        assert "\\_n" in out
+        assert "\\%" in out
+
+    def test_closed_atx_trailing_hashes_stripped(self) -> None:
+        """FM-4: closed-ATX trailing #'s are not part of the title."""
+        out = _build_latex_wrapper("### The proof ###")
+        assert "\\subsubsection{The proof}" in out
+        # The trailing hashes did not leak into the title (escaped or raw).
+        assert "The proof \\#" not in out
+        assert "The proof ###" not in out
+
+    def test_hash_without_space_is_not_a_heading(self) -> None:
+        """FM-2: ``#hashtag`` (no space after the # run) is not a heading
+        and must pass through as a literal line, not become a section."""
+        out = _build_latex_wrapper("#hashtag not a heading\n\n## real")
+        assert "\\section{hashtag" not in out
+        assert "#hashtag not a heading" in out
+        assert "\\subsection{real}" in out
+
+    def test_heading_containing_structural_command_neutralized(self) -> None:
+        """FM-5: a heading whose title literally contains \\end{document}
+        is converted to a section AND made inert — prose escaping turns the
+        leading backslash into \\textbackslash{} so it cannot terminate the
+        document early."""
+        out = _build_latex_wrapper("# Intro to \\end{document} usage")
+        # Wrapped as a section…
+        assert "\\section{" in out
+        assert "Intro to" in out and "usage" in out
+        # …the title's backslash is neutralized (rendered inert)…
+        assert "\\textbackslash{}end" in out
+        # …and the only real, command-active \end{document} is the
+        # envelope's closing one (document not truncated early).
+        assert out.rstrip().endswith("\\end{document}")
+        assert out.count("\\end{document}") == 1
+
+    def test_no_headings_yields_flat_document_unchanged(self) -> None:
+        """A body with no headings is wrapped verbatim — the conversion
+        pass is a no-op and introduces no \\section / escaping."""
+        body = "just prose with $a+b$ and a list:\n- one\n- two"
+        out = _build_latex_wrapper(body)
+        assert body in out
+        assert "\\section" not in out
+        assert "\\textbackslash{}" not in out
+
+    def test_unbalanced_dollar_in_heading_escaped(self) -> None:
+        """F1: a lone/unbalanced $ in a heading title must be escaped to
+        \\$ — a raw $ would open LaTeX math mode and corrupt the title and
+        everything downstream until the next $."""
+        out = _build_latex_wrapper("## Price is $5 today")
+        assert "\\subsection{Price is \\$5 today}" in out
+        # No raw lone $ leaked into the section argument.
+        assert "{Price is $5" not in out
+
+    def test_unbalanced_dollar_then_special_char_escaped(self) -> None:
+        """F2: trailing prose after an unbalanced $ is escaped, and the $
+        itself is escaped (no broken math context)."""
+        out = _build_latex_wrapper("## no closing $x_i here")
+        assert "\\subsection{no closing \\$x\\_i here}" in out
+        # The $ is escaped (\$), so it cannot flip into math mode: there is
+        # no bare $ (one not immediately preceded by a backslash) in the body.
+        assert "\\$x" in out
+
+    def test_math_only_heading_title(self) -> None:
+        """F3: a heading whose title is ONLY a math span exercises the
+        leading+trailing empty-string parity edge; math survives, the
+        underscore is NOT escaped."""
+        out = _build_latex_wrapper("## $x_i$")
+        assert "\\subsection{$x_i$}" in out
+        assert "x\\_i" not in out
+
+    def test_display_math_in_heading_preserved(self) -> None:
+        """F3: display $$...$$ math inside a heading title is preserved
+        byte-for-byte (not escaped)."""
+        out = _build_latex_wrapper("## sum $$\\sum_i x_i$$ done")
+        assert "$$\\sum_i x_i$$" in out
+        # The subscript inside the display math is untouched.
+        assert "\\sum_i x_i" in out
+        assert "\\subsection{" in out
+
+    # -- textbook-render-robustness-m1: \begin/\end{array} balance --
+
+    def test_orphaned_end_array_dropped(self) -> None:
+        """The 1404.3143 case: MinerU dropped all \\begin{array} but kept
+        \\end{array} closers. Orphaned closers must be removed so LaTeXML
+        does not 'close boxing group' and abort the document."""
+        body = "prose $x$\n$$ a + b \\end{array} $$\nmore prose"
+        out = _build_latex_wrapper(body)
+        assert "\\end{array}" not in out
+        assert "more prose" in out
+
+    def test_balanced_array_untouched(self) -> None:
+        """A balanced array (even inside $$) nets zero and is preserved."""
+        body = "$$\\begin{array}{cc} a & b \\\\ c & d \\end{array}$$"
+        out = _build_latex_wrapper(body)
+        assert "\\begin{array}{cc}" in out
+        assert "\\end{array}" in out
+        # Exactly one of each survives (no spurious append/drop).
+        assert out.count("\\begin{array}") == 1
+        assert out.count("\\end{array}") == 1
+
+    def test_nested_arrays_untouched(self) -> None:
+        """Depth counter handles nesting: a balanced nested pair is kept."""
+        body = (
+            "$$\\begin{array}{c}\\begin{array}{cc} x & y \\end{array}"
+            "\\end{array}$$"
+        )
+        out = _build_latex_wrapper(body)
+        assert out.count("\\begin{array}") == 2
+        assert out.count("\\end{array}") == 2
+
+    def test_unclosed_begin_array_dropped(self) -> None:
+        """F1: an unclosed \\begin{array} is DROPPED, not closed with an
+        appended \\end{array} — an appended closer would land in text mode
+        outside the (already-closed) $$ and re-create the 'close boxing group'
+        fatal the sanitizer exists to prevent."""
+        body = "$$\\begin{array}{c} a \\\\ b $$\ntrailing prose"
+        out = _build_latex_wrapper(body)
+        assert "\\begin{array}" not in out
+        assert "\\end{array}" not in out
+        assert "trailing prose" in out
+
+    def test_orphaned_closer_leaves_alignment_residue(self) -> None:
+        """F2 (pinned): dropping an orphaned \\end{array} removes only the
+        token; the array body's & / \\\\ residue is intentionally left in the
+        surrounding math (LaTeXML error-recovers a stray &). Pins the accepted
+        degraded-but-renders behavior so a future change is deliberate."""
+        body = "$$ a & b \\\\ c & d \\end{array} $$"
+        out = _build_latex_wrapper(body)
+        assert "\\end{array}" not in out
+        assert "a & b" in out  # residue retained (accepted limitation)
+
+    def test_literal_end_array_in_heading_is_dropped(self) -> None:
+        """F3 (pinned): sanitize runs on raw markdown (step 0), so a literal
+        \\end{array} token in a heading TITLE is treated as a math token and
+        dropped — a known limitation of the coarse global token scan. Pinned
+        so the behavior is asserted, not a silent surprise."""
+        out = _build_latex_wrapper("## The \\end{array} trick")
+        assert "\\subsection{" in out
+        assert "\\end{array}" not in out
+        assert "trick" in out
+
+    def test_array_balance_composes_with_headings(self) -> None:
+        """Sanitization (step 0) must not break heading conversion (step 1):
+        an orphaned \\end{array} is dropped AND headings still convert."""
+        body = "# Title\n\n$$ z \\end{array} $$\n\n## Section"
+        out = _build_latex_wrapper(body)
+        assert "\\section{Title}" in out
+        assert "\\subsection{Section}" in out
+        assert "\\end{array}" not in out
+
+
+class TestRenderTimeoutThreading:
+    """textbook-render-robustness-m1: render passes the configured timeout."""
+
+    def test_render_passes_configured_latexml_timeout(
+        self, tmp_path: Path,
+    ) -> None:
+        mineru_result = _build_minimal_mineru_result(tmp_path)
+        parsed_dir = tmp_path / "parsed"
+        parsed_dir.mkdir()
+
+        def fake_parse(main_tex, parsed_dir, paper_id, timeout=None):  # noqa: ARG001
+            out_dir = parsed_dir / paper_id
+            out_dir.mkdir(parents=True, exist_ok=True)
+            (out_dir / "index.html").write_text("<html></html>")
+            return None
+
+        with patch.object(
+            textbook_renderer, "parse_with_latexml", side_effect=fake_parse,
+        ) as mock:
+            render_mineru_to_html(mineru_result, parsed_dir, "textbook:b")
+
+        _, kwargs = mock.call_args
+        assert kwargs["timeout"] == textbook_renderer._CONFIGURED_LATEXML_TIMEOUT_S
+
 
 class TestFlatPaperId:
     @pytest.mark.parametrize(
@@ -165,7 +385,7 @@ class TestRenderMineruToHtmlSurface:
 
         # Fake parse_with_latexml writes a stub index.html into
         # parsed_dir/<flat>/.
-        def fake_parse(main_tex, parsed_dir, paper_id):  # noqa: ARG001
+        def fake_parse(main_tex, parsed_dir, paper_id, timeout=None):  # noqa: ARG001
             out_dir = parsed_dir / paper_id
             out_dir.mkdir(parents=True, exist_ok=True)
             (out_dir / "index.html").write_text(
@@ -207,7 +427,7 @@ class TestRenderMineruToHtmlSurface:
 
         captured: dict[str, str] = {}
 
-        def fake_parse(main_tex, parsed_dir, paper_id):  # noqa: ARG001
+        def fake_parse(main_tex, parsed_dir, paper_id, timeout=None):  # noqa: ARG001
             captured["tex_content"] = main_tex.read_text(encoding="utf-8")
             out_dir = parsed_dir / paper_id
             out_dir.mkdir(parents=True, exist_ok=True)
@@ -245,7 +465,7 @@ class TestRenderMineruToHtmlSurface:
         parsed_dir = tmp_path / "parsed"
         parsed_dir.mkdir()
 
-        def fake_parse(main_tex, parsed_dir, paper_id):  # noqa: ARG001
+        def fake_parse(main_tex, parsed_dir, paper_id, timeout=None):  # noqa: ARG001
             # Don't produce index.html.
             (parsed_dir / paper_id).mkdir(parents=True, exist_ok=True)
             return None
@@ -271,7 +491,7 @@ class TestRenderMineruToHtmlSurface:
         parsed_dir = tmp_path / "parsed"
         parsed_dir.mkdir()
 
-        def fake_parse(main_tex, parsed_dir, paper_id):  # noqa: ARG001
+        def fake_parse(main_tex, parsed_dir, paper_id, timeout=None):  # noqa: ARG001
             (parsed_dir / paper_id).mkdir(parents=True, exist_ok=True)
             (parsed_dir / paper_id / "index.html").write_text("<html></html>")
             return None
@@ -293,7 +513,7 @@ class TestRenderMineruToHtmlSurface:
         parsed_dir = tmp_path / "parsed"
         parsed_dir.mkdir()
 
-        def fake_parse(main_tex, parsed_dir, paper_id):  # noqa: ARG001
+        def fake_parse(main_tex, parsed_dir, paper_id, timeout=None):  # noqa: ARG001
             (parsed_dir / paper_id).mkdir(parents=True, exist_ok=True)
             (parsed_dir / paper_id / "index.html").write_text("<html></html>")
             return None
@@ -313,7 +533,7 @@ class TestRenderMineruToHtmlSurface:
         parsed_dir = tmp_path / "parsed"
         parsed_dir.mkdir()
 
-        def fake_parse(main_tex, parsed_dir, paper_id):  # noqa: ARG001
+        def fake_parse(main_tex, parsed_dir, paper_id, timeout=None):  # noqa: ARG001
             out_dir = parsed_dir / paper_id
             out_dir.mkdir(parents=True, exist_ok=True)
             (out_dir / "index.html").write_text(
@@ -352,7 +572,7 @@ class TestRenderMineruToHtmlSurface:
         parsed_dir = tmp_path / "parsed"
         parsed_dir.mkdir()
 
-        def fake_parse(main_tex, parsed_dir, paper_id):  # noqa: ARG001
+        def fake_parse(main_tex, parsed_dir, paper_id, timeout=None):  # noqa: ARG001
             (parsed_dir / paper_id).mkdir(parents=True, exist_ok=True)
             (parsed_dir / paper_id / "index.html").write_text("<html></html>")
             return None

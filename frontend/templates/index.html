@@ -19,6 +19,7 @@
      (mirrors the m4-F3 carryover pattern on the add-paper form). #}
   <form
     hx-post="/ui/api/notebooks"
+    hx-ext="json-enc"
     hx-disabled-elt="find button"
     hx-target="#notebooks-tbody"
     hx-swap="beforeend"

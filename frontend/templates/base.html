@@ -14,51 +14,34 @@
   <link rel="icon" href="/ui/static/favicon.svg" type="image/svg+xml">
   <!-- htmx 2.0.10 vendored at frontend/static/htmx.min.js (0BSD; m8 AC #5). -->
   <script src="/ui/static/htmx.min.js" defer></script>
-  <!-- m8 rect F1: the m7 JSON routes require application/json, but
-       htmx defaults to application/x-www-form-urlencoded. Without
-       this shim the create-notebook + URL-paste forms hit a 422 in
-       the browser even though the JSON-direct test suite passes.
-       The shim listens for htmx:configRequest and converts non-empty
-       form bodies on POST/PUT/PATCH to JSON, leaving DELETE (which
-       has no body) and multipart uploads (which set hx-encoding)
-       untouched. ~15 lines; no extra vendored asset required. -->
-  <script defer>
-    document.addEventListener('htmx:configRequest', function (evt) {
-      var verb = (evt.detail.verb || '').toLowerCase();
-      if (verb !== 'post' && verb !== 'put' && verb !== 'patch') return;
-      // Don't touch multipart uploads (the upload card uses hx-encoding).
-      var el = evt.detail.elt;
-      if (el && el.getAttribute && el.getAttribute('hx-encoding') === 'multipart/form-data') {
-        return;
+  <!-- ui-htmx-json-fix-m1: JSON request-body extension for htmx 2.x. The m7
+       JSON routes require application/json, but htmx defaults to
+       application/x-www-form-urlencoded. The previous inline shim tried to fix
+       this by setting evt.detail.body on htmx:configRequest — but htmx 2.0.10
+       has NO evt.detail.body hook (encodeParameters is the real body-override
+       point), so it serialised an empty parameter map and the create-notebook /
+       add-paper / discover / ingest / rename / topic forms sent an EMPTY body
+       and FastAPI 422'd. The extension (frontend/static/json-enc.js) implements
+       encodeParameters correctly. It is attached PER-FORM via hx-ext="json-enc"
+       so multipart uploads (hx-encoding) and bodyless DELETE controls are left
+       untouched. Loaded deferred AFTER htmx so htmx.defineExtension exists. -->
+  <script src="/ui/static/json-enc.js" defer></script>
+  <!-- ui-htmx-json-fix-m1: enable htmx's native View Transitions AFTER htmx is
+       loaded. The previous code set htmx.config.globalViewTransitions = true in
+       an inline <script defer> — but `defer` is IGNORED on inline scripts
+       (it applies only to external scripts), so that line ran at parse time,
+       before the deferred htmx.min.js had loaded; htmx was undefined and the
+       assignment threw and never took effect. A DOMContentLoaded handler fires
+       AFTER deferred scripts execute, so htmx is defined here. Gated on
+       prefers-reduced-motion so motion-averse operators keep instant swaps
+       (the crossfade is suppressed, not just shortened). -->
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      if (typeof htmx !== 'undefined' &&
+          !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        htmx.config.globalViewTransitions = true;
       }
-      // Already JSON (set elsewhere)? Leave alone.
-      if (evt.detail.headers && evt.detail.headers['Content-Type'] === 'application/json') {
-        return;
-      }
-      var params = evt.detail.parameters || {};
-      if (Object.keys(params).length === 0) return;
-      evt.detail.headers = evt.detail.headers || {};
-      evt.detail.headers['Content-Type'] = 'application/json';
-      // Coerce HTMX form-field collection into a plain JSON object.
-      var body = {};
-      Object.keys(params).forEach(function (k) { body[k] = params[k]; });
-      // Stash the body where htmx will pick it up; clearing parameters
-      // prevents htmx from also URL-encoding them.
-      evt.detail.parameters = {};
-      // htmx 2.x reads evt.detail.body when set; falls back to
-      // serializing evt.detail.parameters otherwise.
-      evt.detail.body = JSON.stringify(body);
     });
-    // ui-attractive-polish-m4 (UPL-13): native htmx 2.0.10 View
-    // Transitions opt-in (Spike-1 finding). htmx calls
-    // document.startViewTransition() internally with an
-    // `if (document.startViewTransition)` guard, so Chrome+Safari
-    // (macOS 15+) get smooth crossfades; Firefox gracefully no-ops.
-    // No CSP change — this line lives inside the existing
-    // 'unsafe-inline' allowance covering the shim above. NO
-    // htmx:beforeSwap-wrapper code (the htmx-1.x pattern that the
-    // m3-era synthesis described is obsolete in 2.x).
-    htmx.config.globalViewTransitions = true;
   </script>
 </head>
 <body>

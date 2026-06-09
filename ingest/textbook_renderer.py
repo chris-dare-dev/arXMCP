@@ -4,10 +4,19 @@ Implements **Strategy A** from research-synthesis §D1: wraps MinerU's
 markdown output as a minimal LaTeX document and passes it through
 ``tools/arxiv_fetch.py::parse_with_latexml`` for the HTML5+MathML
 conversion. The math syntax (``$...$`` / ``$$...$$``) survives the
-wrap-as-LaTeX pass; markdown prose constructs (``## headers``,
-``**emphasis**``, ``[links](urls)``, lists) render as literal
-characters in the HTML output — best-effort. The chunker (e3)
-consumes math blocks regardless of prose-render fidelity.
+wrap-as-LaTeX pass.
+
+Markdown ATX headings (``# title`` / ``## section``) ARE converted to
+LaTeX sectioning commands (``\\section`` / ``\\subsection`` / ...) before
+wrapping — this is load-bearing, not cosmetic. The e3 chunker
+(``ingest/textbook_chunker.py::_extract_section_chunks``) extracts chunks
+from ``ltx_section`` / ``ltx_chapter`` divs (``_SECTION_DIV_CLASSES`` in
+``ingest/chunker.py``); LaTeXML only emits those divs for real
+``\\section`` commands, so without the conversion the chunker produces
+ZERO chunks (textbook-md-heading-sectioning-m1). Other prose constructs
+(``**emphasis**``, ``[links](urls)``, lists) still render as literal
+characters — best-effort — because the chunker keys on section structure
+and math blocks, not inline prose markup.
 
 Why not Strategy B/C: researcher-2 verified ``latexmlmath`` has ~1s
 per-call Perl startup overhead; running it per-equation for a math-
@@ -35,7 +44,7 @@ import time
 from pathlib import Path
 
 from ingest.textbook_parser import MinerUResult
-from tools.arxiv_fetch import parse_with_latexml
+from tools.arxiv_fetch import _CONFIGURED_LATEXML_TIMEOUT_S, parse_with_latexml
 
 logger = logging.getLogger(__name__)
 
@@ -83,20 +92,194 @@ _STRUCTURAL_CMD_RE = re.compile(
 
 
 def _neutralize_structural_commands(markdown_content: str) -> int:
-    """Count structural-command occurrences in the body (m6 F3).
+    """Count structural-command occurrences in RAW markdown (m6 F3).
 
-    Used as a quality/observability signal — the actual neutralization
-    happens in :func:`_build_latex_wrapper` via the same regex.
+    Quality/observability signal only — has no production caller. NOTE
+    (F4): this counts occurrences in the raw markdown, whereas the actual
+    neutralization in :func:`_build_latex_wrapper` runs on the
+    HEADING-CONVERTED body. The two counts can diverge — e.g. a
+    ``\\end{document}`` inside a markdown heading is rendered inert by the
+    heading-prose escaping (leading ``\\`` → ``\\textbackslash{}``) before
+    ``_STRUCTURAL_CMD_RE`` ever sees it, so the wrapper neutralizes 0 while
+    this raw counter returns 1. Treat this as a coarse upper-bound metric,
+    not the wrapper's exact neutralization count.
     """
     return len(_STRUCTURAL_CMD_RE.findall(markdown_content))
+
+
+#: ``\begin{array}`` / ``\end{array}`` matcher (whitespace-tolerant) for the
+#: math-balance sanitizer (textbook-render-robustness-m1).
+_ARRAY_ENV_RE = re.compile(r"\\(begin|end)\s*\{\s*array\s*\}")
+
+
+def _sanitize_math_balance(markdown_content: str) -> str:
+    """Drop UNBALANCED ``\\begin{array}`` / ``\\end{array}`` so a malformed
+    MinerU export cannot abort the entire LaTeXML document.
+
+    MinerU OCR sometimes drops ``\\begin{array}`` openers while keeping the
+    ``\\end{array}`` closers (observed: 0 begins / 36 ends on arXiv
+    ``1404.3143``). LaTeXML then raises ``\\@end@array Attempt to close
+    boxing group`` and abandons the document body — the render collapses to a
+    near-empty page and the chunker emits ZERO chunks. A degraded array beats
+    a dropped document, so we make the array environments balanced by removing
+    only the tokens that have no partner:
+
+    - Stack pass: each ``\\begin{array}`` pushes; each ``\\end{array}`` pops a
+      pending open (a matched pair — BOTH kept). An ``\\end{array}`` with an
+      empty stack is an orphaned CLOSER → dropped. Any ``\\begin{array}`` left
+      on the stack at the end is an unclosed OPENER → dropped.
+    - Both unbalanced directions are DROPPED, never synthesised. We never
+      append a closer (textbook-render-robustness-m1 F1: an appended
+      ``\\end{array}`` would land in text mode outside ``$$`` and re-create the
+      same "close boxing group" fatal). Dropping is symmetric and guaranteed
+      not to introduce a new boxing-group error.
+
+    Balanced arrays — including nested ones, and arrays inside ``$$...$$`` —
+    are left byte-for-byte untouched, so well-formed math is never corrupted.
+
+    LIMITATIONS (accepted; this is a coarse pre-pass, not a TeX parser):
+    - Runs on the WHOLE raw markdown as STEP 0, before heading conversion. A
+      literal ``\\end{array}`` token appearing in PROSE or a HEADING title
+      (e.g. ``## The \\end{array} trick``) or inside a code fence is treated as
+      a real environment and may be dropped (F3/F7). MinerU OCR output rarely
+      contains such literal tokens, so practical exposure is low.
+    - Dropping an orphaned closer leaves the array body's alignment residue
+      (``&`` tabs, ``\\\\`` row breaks) in the surrounding ``$$`` (F2). LaTeXML
+      error-recovers a stray ``&`` per-cell, so this degrades rather than
+      aborts. Scope is intentionally ``array`` only; ``$$`` parity is not
+      touched (over-correcting display math risks real corruption).
+    """
+    spans_to_drop: list[tuple[int, int]] = []
+    open_stack: list[re.Match[str]] = []
+    for match in _ARRAY_ENV_RE.finditer(markdown_content):
+        if match.group(1) == "begin":
+            open_stack.append(match)
+        elif open_stack:
+            open_stack.pop()  # matched pair — keep both tokens
+        else:
+            spans_to_drop.append((match.start(), match.end()))  # orphan closer
+    # Any opener still pending is unclosed — drop it too (F1: never append).
+    spans_to_drop.extend((m.start(), m.end()) for m in open_stack)
+    if not spans_to_drop:
+        return markdown_content
+    spans_to_drop.sort()
+    out_parts: list[str] = []
+    last = 0
+    for start, end in spans_to_drop:
+        out_parts.append(markdown_content[last:start])
+        last = end
+    out_parts.append(markdown_content[last:])
+    return "".join(out_parts)
+
+
+#: Markdown ATX heading matcher (textbook-md-heading-sectioning-m1).
+#: Line-anchored; a space/tab after the ``#`` run is REQUIRED so a stray
+#: ``#hashtag`` mid-prose is NOT a heading (research FM-2). Trailing
+#: ``#`` (closed-ATX style, ``## Title ##``) is consumed and discarded
+#: (research FM-4). Setext headings (``===`` / ``---`` underlines) are
+#: NOT handled — MinerU emits ATX by default (research FM-3).
+_ATX_HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(.*?)[ \t]*#*[ \t]*$")
+
+#: Heading depth → LaTeX sectioning command. ``article`` class has no
+#: numbered level below ``\subsubsection``, so depth ≥ 3 collapses there.
+_HEADING_LEVEL_CMD = {1: "section", 2: "subsection", 3: "subsubsection"}
+
+#: Inline-math spans within a heading title. Escaping LaTeX-special chars
+#: INSIDE ``$...$`` would corrupt the math (e.g. ``$x_i$`` → ``$x\_i$``),
+#: so a title is split on these spans and only the PROSE segments are
+#: escaped (research FM-1 — the highest-risk subtlety). Non-greedy and
+#: newline-bounded so the regex cannot swallow the whole title on an
+#: unbalanced ``$``. A lone/unbalanced ``$`` matches no span and therefore
+#: lands in a PROSE segment, where ``_escape_heading_prose`` escapes it to
+#: ``\$`` (F1) — without that escape a leaked raw ``$`` would open LaTeX
+#: math mode and corrupt the rest of the title/body.
+_MATH_SPAN_RE = re.compile(r"(\$\$[\s\S]*?\$\$|\$[^$\n]+?\$)")
+
+#: LaTeX-special chars escaped in heading PROSE text (NOT inside the
+#: title's math spans — those are split out first). ``#`` is the
+#: load-bearing one — a raw ``#`` reaching LaTeXML raises
+#: ``Error:misdefined:# The token T_PARAM[#]``; ``{`` / ``}`` must be
+#: escaped so they cannot unbalance the ``\section{...}`` argument
+#: (research FM-6). The leading ``\`` is escaped to ``\textbackslash{}``
+#: so a stray LaTeX command in heading prose — including a literal
+#: ``\end{document}`` — is rendered inert rather than executed (research
+#: FM-5); a real math backslash (``$\mathbf{P}$``) is safe because the
+#: math span is excluded from escaping.
+_HEADING_PROSE_ESCAPE = {
+    "\\": "\\textbackslash{}",
+    "#": "\\#",
+    "%": "\\%",
+    "&": "\\&",
+    "_": "\\_",
+    "{": "\\{",
+    "}": "\\}",
+    # A lone/unbalanced ``$`` (no closing delimiter on the line) is not part
+    # of a balanced math span — ``_MATH_SPAN_RE`` routes only NON-math
+    # segments here — so escaping it to ``\$`` is safe and prevents it from
+    # opening LaTeX math mode (F1). Balanced ``$...$`` spans are split out
+    # before escaping and never reach this map.
+    "$": "\\$",
+}
+
+
+def _escape_heading_prose(text: str) -> str:
+    """Escape LaTeX-special chars in a non-math heading prose segment."""
+    return "".join(_HEADING_PROSE_ESCAPE.get(ch, ch) for ch in text)
+
+
+def _escape_heading_title(title: str) -> str:
+    """Escape a heading title, leaving inline math spans untouched.
+
+    Splits ``title`` on ``$...$`` / ``$$...$$`` spans and escapes only the
+    prose segments (research FM-1). ``re.split`` with a single capturing
+    group yields prose at even indices and the math spans (verbatim) at
+    odd indices.
+    """
+    parts = _MATH_SPAN_RE.split(title)
+    return "".join(
+        part if i % 2 else _escape_heading_prose(part)
+        for i, part in enumerate(parts)
+    )
+
+
+def _convert_markdown_headings_to_latex(markdown_content: str) -> str:
+    """Convert markdown ATX headings to LaTeX sectioning commands.
+
+    ``# X`` → ``\\section{X}``, ``## X`` → ``\\subsection{X}``,
+    ``### X`` (and deeper) → ``\\subsubsection{X}``. Non-heading lines pass
+    through unchanged. Heading titles are escaped math-awarely via
+    :func:`_escape_heading_title`.
+
+    Runs BEFORE the structural-command neutralization in
+    :func:`_build_latex_wrapper`. A heading title is made fully inert by
+    prose escaping (the leading ``\\`` becomes ``\\textbackslash{}``), so a
+    title containing a literal ``\\end{document}`` cannot terminate the
+    document early (research FM-5); the downstream structural pass still
+    guards NON-heading body lines, which are not escaped here.
+    """
+    out_lines: list[str] = []
+    for line in markdown_content.split("\n"):
+        match = _ATX_HEADING_RE.match(line)
+        if match is None:
+            out_lines.append(line)
+            continue
+        depth = len(match.group(1))
+        cmd = _HEADING_LEVEL_CMD.get(depth, "subsubsection")
+        title = _escape_heading_title(match.group(2).strip())
+        out_lines.append(f"\\{cmd}{{{title}}}")
+    return "\n".join(out_lines)
 
 
 def _build_latex_wrapper(markdown_content: str) -> str:
     """Wrap MinerU markdown as a minimal LaTeX document.
 
-    Math syntax (``$...$``, ``$$...$$``) passes through unchanged.
-    Prose constructs render as literal text in LaTeX — acceptable
-    for v1 (the retrieval substrate consumes math, not prose layout).
+    Markdown ATX headings (``# title`` / ``## section``) are converted to
+    LaTeX sectioning (``\\section`` / ``\\subsection`` / ``\\subsubsection``)
+    so LaTeXML emits the ``ltx_section`` divs the e3 chunker requires —
+    without this the chunker produces zero chunks
+    (textbook-md-heading-sectioning-m1). Math syntax (``$...$``,
+    ``$$...$$``) passes through unchanged, including inside heading titles
+    (escaping is math-aware).
 
     m6 F3: structural commands (``\\end{document}``,
     ``\\begin{document}``, ``\\documentclass``) in the body are
@@ -107,15 +290,25 @@ def _build_latex_wrapper(markdown_content: str) -> str:
     untouched (the regex matches only the three document-structure
     commands).
     """
-    # Escape the leading backslash of any structural command so it
-    # becomes literal text (``\textbackslash end{document}``-style is
-    # overkill; ``\\end{document}`` → ``\end {document}`` would still
-    # match \end, so insert a brace-group guard instead: replace the
-    # backslash with ``\textbackslash{}`` which LaTeXML renders as a
-    # literal backslash followed by the (now-inert) command name).
+    # 0. Balance \begin{array}/\end{array} so a malformed MinerU export does
+    #    not abort the LaTeXML document (textbook-render-robustness-m1). Runs
+    #    on RAW markdown, before heading conversion escapes backslashes.
+    balanced = _sanitize_math_balance(markdown_content)
+    # 1. Convert markdown ATX headings to LaTeX sectioning FIRST. This is
+    #    the load-bearing fix: the e3 chunker keys on ltx_section divs,
+    #    which LaTeXML only emits for real \section commands.
+    sectioned = _convert_markdown_headings_to_latex(balanced)
+    # 2. Escape the leading backslash of any structural command so it
+    #    becomes literal text (``\textbackslash end{document}``-style is
+    #    overkill; ``\\end{document}`` → ``\end {document}`` would still
+    #    match \end, so insert a brace-group guard instead: replace the
+    #    backslash with ``\textbackslash{}`` which LaTeXML renders as a
+    #    literal backslash followed by the (now-inert) command name).
+    #    Runs AFTER heading conversion (research FM-5) so a heading whose
+    #    title contains \end{document} is still neutralized.
     safe_body = _STRUCTURAL_CMD_RE.sub(
         lambda m: "\\textbackslash{}" + m.group(0)[1:],
-        markdown_content,
+        sectioned,
     )
     return _LATEX_ENVELOPE.replace("{body}", safe_body)
 
@@ -192,11 +385,16 @@ def render_mineru_to_html(
     #    parse_with_latexml writes to parsed_dir/<paper_id>/index.html
     #    — but we want parsed_dir/<flat_paper_id>/index.html. Pass
     #    flat as the paper_id arg so the function's subdirectory
-    #    convention aligns with our layout.
+    #    convention aligns with our layout. The timeout is the
+    #    env-configurable _CONFIGURED_LATEXML_TIMEOUT_S (default 300s) so
+    #    math-dense papers can render past the old hardcoded 300s cap
+    #    (textbook-render-robustness-m1); the helper's killpg/sandbox
+    #    discipline is unchanged.
     parse_with_latexml(
         main_tex=main_tex,
         parsed_dir=parsed_dir,
         paper_id=flat,
+        timeout=_CONFIGURED_LATEXML_TIMEOUT_S,
     )
 
     # 4. Copy MinerU's images/ dir alongside index.html so relative

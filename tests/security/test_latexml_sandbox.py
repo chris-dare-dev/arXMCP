@@ -691,9 +691,13 @@ class TestProcessGroupKill:
             killpg_calls.append((pgid, sig))
 
         # Fake getpgid to a known value so the assertion can check it.
+        # raising=False so the getpgid/killpg/SIGKILL patches install on a
+        # Windows host too (where the real os attributes are absent),
+        # exercising the getpgid-present POSIX branch regardless of host OS.
         monkeypatch.setattr(af.subprocess, "Popen", _FakeProc)
-        monkeypatch.setattr(af.os, "getpgid", lambda pid: pid)
-        monkeypatch.setattr(af.os, "killpg", _record_killpg)
+        monkeypatch.setattr(af.os, "getpgid", lambda pid: pid, raising=False)
+        monkeypatch.setattr(af.os, "killpg", _record_killpg, raising=False)
+        monkeypatch.setattr(af.signal, "SIGKILL", 9, raising=False)
 
         main = tmp_path / "main.tex"
         main.write_text(r"\documentclass{article}\begin{document}x\end{document}")
@@ -738,11 +742,15 @@ class TestProcessGroupKill:
 
         killpg_calls: list[tuple] = []
 
+        # raising=False so the patches install on a Windows host too,
+        # exercising the getpgid-present POSIX branch regardless of host OS.
         monkeypatch.setattr(af.subprocess, "Popen", _ZombieProc)
-        monkeypatch.setattr(af.os, "getpgid", lambda pid: pid)
+        monkeypatch.setattr(af.os, "getpgid", lambda pid: pid, raising=False)
         monkeypatch.setattr(
-            af.os, "killpg", lambda pgid, sig: killpg_calls.append((pgid, sig))
+            af.os, "killpg", lambda pgid, sig: killpg_calls.append((pgid, sig)),
+            raising=False,
         )
+        monkeypatch.setattr(af.signal, "SIGKILL", 9, raising=False)
 
         main = tmp_path / "main.tex"
         main.write_text(r"\documentclass{article}\begin{document}x\end{document}")

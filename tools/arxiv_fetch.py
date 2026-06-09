@@ -35,7 +35,64 @@ ARXIV_USER_AGENT_TEMPLATE = "arXMCP/0.1 (mailto:{email})"
 POLITENESS_SLEEP_SECONDS = 3.0
 DEFAULT_503_BACKOFF_SECONDS = 30.0
 MAX_503_BACKOFF_SECONDS = 300.0
+
+#: Default LaTeXML render wall-clock cap (seconds). 300s suits most papers,
+#: but math-dense documents (e.g. amsart papers with many display equations,
+#: or MinerU markdown re-wrapped as LaTeX) can legitimately need longer.
+#: Configurable via ARXMCP_LATEXML_TIMEOUT_S at module load.
 LATEXML_TIMEOUT_SECONDS = 300
+
+#: Bounds on the configurable LaTeXML timeout (inclusive). LaTeXML is faster
+#: than MinerU, so the floor is lower (30s) than MinerU's 60s; the 30-min cap
+#: covers the slowest real renders observed.
+_LATEXML_TIMEOUT_MIN_S: int = 30
+_LATEXML_TIMEOUT_MAX_S: int = 1800
+
+
+def _parse_latexml_timeout_from_env() -> float:
+    """Resolve the LaTeXML render timeout from ``ARXMCP_LATEXML_TIMEOUT_S``.
+
+    Mirrors ``ingest/textbook_parser.py::_parse_timeout_from_env`` exactly:
+    validates at module-load, rejecting a non-integer or out-of-range value
+    with an explicit ``RuntimeError`` (NOT a silent clamp). Empty / unset
+    returns :data:`LATEXML_TIMEOUT_SECONDS`, so behavior is unchanged unless
+    an operator opts in.
+
+    ``ARXMCP_LATEXML_TIMEOUT_S`` is an ingest/CLI-only variable: it is read
+    here at import. It is registered in ``server/main.py``'s
+    ``_KNOWN_INGEST_ENV_VARS`` so the server's strict unknown-``ARXMCP_*`` scan
+    emits a TAILORED hint (names this CLI render path; tells the operator to
+    unset it for the server) — the server still REJECTS it by design, exactly
+    like ``ARXMCP_CONTACT_EMAIL``. The CLI ingest path
+    (``tools/notebook_textbook_ingest`` / ``ingest/textbook_renderer``) does
+    not load ``server/config``, so it consumes the var without tripping the
+    scan.
+    """
+    raw = os.environ.get("ARXMCP_LATEXML_TIMEOUT_S", "").strip()
+    if not raw:
+        return float(LATEXML_TIMEOUT_SECONDS)
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise RuntimeError(
+            f"ARXMCP_LATEXML_TIMEOUT_S={raw!r} is not a valid integer; "
+            f"set to a value in [{_LATEXML_TIMEOUT_MIN_S}, "
+            f"{_LATEXML_TIMEOUT_MAX_S}] seconds or leave unset to use the "
+            f"default ({LATEXML_TIMEOUT_SECONDS}s)."
+        ) from exc
+    if value < _LATEXML_TIMEOUT_MIN_S or value > _LATEXML_TIMEOUT_MAX_S:
+        raise RuntimeError(
+            f"ARXMCP_LATEXML_TIMEOUT_S={value} is out of range "
+            f"[{_LATEXML_TIMEOUT_MIN_S}, {_LATEXML_TIMEOUT_MAX_S}]. Refusing "
+            f"to silently clamp; set a value in range or leave unset."
+        )
+    return float(value)
+
+
+#: Resolved at import time so a bad value surfaces at process start, not at
+#: first render. Equals :data:`LATEXML_TIMEOUT_SECONDS` when unset, so
+#: existing callers are unaffected by default.
+_CONFIGURED_LATEXML_TIMEOUT_S: float = _parse_latexml_timeout_from_env()
 
 #: E13_S03b — repo-root-relative path to the macOS sandbox-exec
 #: profile. Anchored to this file's location so the path resolves
@@ -519,7 +576,8 @@ def parse_with_latexml(
     in Docker) is Phase 2 of the Threat-3 mitigation and ships in a
     future milestone; see ``.claude/docs/security-threat-3-audit.md``.
     """
-    if shutil.which("latexmlc") is None:
+    latexmlc_bin = shutil.which("latexmlc")
+    if latexmlc_bin is None:
         raise RuntimeError(
             "latexmlc not on PATH. Install LaTeXML 0.8.x — "
             "`brew install latexml` (macOS) or `apt install latexml` (Debian/Ubuntu)."
@@ -534,7 +592,12 @@ def parse_with_latexml(
     # flag form). Python-side ``subprocess`` timeout + ``killpg``
     # remain the load-bearing timeout discipline.
     cmd = [
-        "latexmlc",
+        # Use the resolved path from shutil.which (not the bare name): on
+        # Windows latexmlc is a Perl script exposed as latexmlc.BAT, and a
+        # bare "latexmlc" passed to CreateProcess fails with FileNotFoundError
+        # (CreateProcess appends .exe, never .bat). The resolved path runs on
+        # every platform; on POSIX it is the same binary the bare name found.
+        latexmlc_bin,
         str(main_tex.name),
         f"--dest={out_html}",
         "--format=html5",
@@ -585,7 +648,13 @@ def parse_with_latexml(
             # child exited between ``communicate`` raising and
             # ``killpg`` firing.
             with contextlib.suppress(ProcessLookupError):
-                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                # os.killpg/getpgid are POSIX-only and start_new_session is a
+                # no-op on Windows, so fall back to killing just the child
+                # there (latexmlc reaps its own Perl helper tree on exit).
+                if hasattr(os, "getpgid"):
+                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                else:
+                    proc.kill()
             # Drain the pipes so the child doesn't block on a
             # full buffer during teardown. If the group survived
             # SIGKILL (catastrophic — should not happen in

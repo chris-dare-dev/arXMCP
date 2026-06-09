@@ -287,7 +287,11 @@ def try_cache(
 
     # Hit. Write to cache AND to the canonical parsed path so the
     # chunker's existing HTML walk reads it unchanged.
-    cache_dir.mkdir(parents=True, exist_ok=True)
+    # Old-style ids (e.g. ``math/0212237``) embed a slash, so
+    # ``cache_path`` lands in a ``<subject>/`` subdir of ``cache_dir``;
+    # create the leaf's parent, not just the base ``cache_dir``, or the
+    # write below raises FileNotFoundError on a fresh cache tree.
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
     parsed_paper_dir.mkdir(parents=True, exist_ok=True)
     cache_path.write_text(body, encoding="utf-8")
     parsed_path.write_text(body, encoding="utf-8")

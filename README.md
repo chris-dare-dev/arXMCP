@@ -72,6 +72,10 @@ ARXMCP_NOTEBOOK=demo make up        # MCP server on 127.0.0.1:7733
 [install guide](docs/install.md); end-to-end tasks are in the
 [usage guide](docs/usage.md).
 
+> **Windows:** the `Makefile` is bash-only, but the server + `/ui/` console run
+> on native Windows via make-free PowerShell commands — see
+> [Running on Windows](docs/install.md#running-on-windows-no-make).
+
 ## Documentation
 
 | Guide | For |

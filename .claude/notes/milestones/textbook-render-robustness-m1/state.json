@@ -1,0 +1,107 @@
+{
+  "brief_source": ".claude/notes/milestones/textbook-render-robustness-m1/brief.md",
+  "created_at": "2026-06-09T02:43:09Z",
+  "critics_run": [
+    {
+      "critic": "adversary",
+      "output_path": ".claude/notes/milestones/textbook-render-robustness-m1/critique-adversary.md",
+      "summary": "SHIP-WITH-FIXES 0C/0H/5M/2L"
+    }
+  ],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "low": 2,
+    "medium": 5
+  },
+  "critique_path": ".claude/notes/milestones/textbook-render-robustness-m1/critique-merged.md",
+  "deferred_findings": [
+    "F6",
+    "F7"
+  ],
+  "external_writes_authorized": false,
+  "external_writes_completed": false,
+  "external_writes_required": [],
+  "fixed_findings": [
+    "F1",
+    "F2",
+    "F3",
+    "F4",
+    "F5"
+  ],
+  "id": "textbook-render-robustness-m1",
+  "implementation_base": "ba0d6e4584fc9bb53793389663d6e1dc1f1ee2bb",
+  "implementation_branch": "main",
+  "implementation_commit_range": "ba0d6e4584fc9bb53793389663d6e1dc1f1ee2bb..75dcd1982860132a7e07b9b49c915870b9ed5087",
+  "implementation_commits": [
+    "75dcd1982860132a7e07b9b49c915870b9ed5087"
+  ],
+  "implementation_path": "inline",
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "# textbook-render-robustness-m1 \u2014 Configurable LaTeXML render timeout + MinerU math-balance sanitization\n\n## PROBLEM\n\nTwo distinct failure points in the textbook render path (`ingest/textbook_renderer.py`\n\u2192 `tools/arxiv_fetch.py::parse_with_latexml`) leave math-heavy MinerU-parsed PDFs\nunchunkable. Discovered 2026-06-08 completing the bridgeland-stability-pdfs ingest:\n\n1. **Hardcoded 300 s LaTeXML render timeout is too short for math-dense papers.**\n   `tools/arxiv_fetch.py:38` `LATEXML_TIMEOUT_SECONDS = 300`. `render_mineru_to_html`\n   calls `parse_with_latexml(...)` WITHOUT a timeout arg, so it always uses 300 s.\n   Paper `2506.21995` (amsart): MinerU **succeeded** (2611 s, markdown cached at\n   `parsed/2506.21995/2506.21995/auto/2506.21995.md`), but the LaTeXML render then\n   `[FAIL]`ed with `TimeoutExpired ... timed out after 300 seconds`. The same will hit\n   `hep-th/0403166` (article). So the gate is the render timeout, NOT MinerU.\n\n2. **Unbalanced math environments in MinerU markdown abort the whole LaTeXML document.**\n   Paper `1404.3143`: MinerU emitted markdown with **0 `\\begin{array}` but 36\n   `\\end{array}`** (extraction dropped the openers). LaTeXML hits\n   `Error:unexpected:\\@end@array Attempt to close boxing group` +\n   `Missing $ closing display math` and aborts the body \u2192 a near-empty 1872-byte\n   `index.html` \u2192 0 chunks. `$$` delimiters happen to be balanced (140, even) here, but\n   the unbalanced `array` environment is fatal.\n\n## FIX SCOPE / TASKS\n\n**(a) Configurable LaTeXML render timeout.**\n- Make the render timeout overridable via an env var (propose `ARXMCP_LATEXML_TIMEOUT_S`),\n  default = existing 300 s, range-validated (mirror the MinerU timeout pattern in\n  `ingest/textbook_parser.py::_parse_timeout_from_env`, bounds e.g. [60, 3600]).\n- Thread it through `render_mineru_to_html` \u2192 `parse_with_latexml(..., timeout=...)`.\n  Today `render_mineru_to_html` does not pass a timeout, so it pins 300 s.\n- Keep the existing process-group-kill / sandbox discipline of `parse_with_latexml`\n  intact (do NOT regress the E13_S03 Threat-3 timeout/killpg behavior).\n\n**(b) MinerU-markdown math-balance sanitization.**\n- Before wrapping (in `_build_latex_wrapper` or a dedicated pre-pass), neutralize\n  unbalanced math constructs that abort LaTeXML so the document still renders (degraded\n  regions are acceptable; a non-empty doc \u2192 chunks beats 0 chunks):\n  - Orphaned `\\end{array}` with no matching `\\begin{array}` (the 1404.3143 case), and\n    the symmetric orphaned `\\begin{array}`.\n  - Optionally unbalanced `$$` display delimiters (odd count) \u2014 neutralize the trailing\n    lone `$$`.\n  - Keep it conservative: only touch provably-unbalanced constructs; do NOT alter\n    balanced math. The goal is \"LaTeXML completes with degraded arrays\" not \"perfect\n    math\".\n- This must compose with the existing m6 F3 structural-command neutralization and the\n  textbook-md-heading-sectioning-m1 heading conversion (do not regress either).\n\n**(c) Tests.** Pure-Python unit tests: timeout env parsing (default/override/out-of-range),\ntimeout threaded to `parse_with_latexml` (assert via mock/inspection), and sanitization\n(orphaned `\\end{array}` neutralized, balanced math untouched, unbalanced `$$` handled,\nheading + structural-cmd neutralization still hold). Prefer string-level asserts (no\nLaTeXML needed); a `requires_latexmlc` end-to-end (1404.3143-like input renders\nnon-empty) is optional/bonus.\n\n**(d) ruff + full test suite green** (~29-66 pre-existing Windows-only failures expected;\nprove zero NEW real failures). Commit per repo conventions; GPG lands unsigned (known\nno-key state); never `--no-verify` / `--no-gpg-sign`.\n\n## CONSTRAINTS / CONTEXT\n\n- `parse_with_latexml` is security-audited (E13_S03 Threat-3: process-group kill,\n  sandbox profile). Changing only the timeout VALUE (caller-supplied) is low-risk, but\n  keep the kill/sandbox path intact.\n- Windows-native dev; tests via `.venv/Scripts/python.exe -m pytest`. `latexmlc` at\n  `C:/Strawberry/perl/site/bin/latexmlc.BAT`.\n- DOWNSTREAM (after this milestone, OUTSIDE its commit scope): re-render the 3 stragglers\n  from cached MinerU markdown with the longer timeout + sanitization\n  (`2506.21995`, `hep-th/0403166`, `1404.3143`), then\n  `tools/notebook_textbook_ingest.py` them into `bridgeland-stability-pdfs`. Operator\n  work via `var/parse_pdfs.py` (gitignored), NOT part of this milestone.\n- Prior related milestone: `textbook-md-heading-sectioning-m1` (same file/function area).\n",
+  "phase": "complete",
+  "phase_history": [
+    {
+      "entered_at": "2026-06-09T02:43:09Z",
+      "left_at": "2026-06-09T02:43:10Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-06-09T02:43:10Z",
+      "left_at": "2026-06-09T02:47:38Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-06-09T02:47:38Z",
+      "left_at": "2026-06-09T02:47:39Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-06-09T02:47:39Z",
+      "left_at": "2026-06-09T02:56:05Z",
+      "phase": "implement-running"
+    },
+    {
+      "entered_at": "2026-06-09T02:56:05Z",
+      "left_at": "2026-06-09T02:56:05Z",
+      "phase": "implement-complete"
+    },
+    {
+      "entered_at": "2026-06-09T02:56:05Z",
+      "left_at": "2026-06-09T03:01:45Z",
+      "phase": "critique-running"
+    },
+    {
+      "entered_at": "2026-06-09T03:01:45Z",
+      "left_at": "2026-06-09T03:01:46Z",
+      "phase": "critique-complete"
+    },
+    {
+      "entered_at": "2026-06-09T03:01:46Z",
+      "left_at": "2026-06-09T03:04:15Z",
+      "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-06-09T03:04:15Z",
+      "left_at": null,
+      "phase": "complete"
+    }
+  ],
+  "rectification_commit": "682aa6f3d6e81b82977d5b39b03341bc2dfc331f",
+  "regression_tests_added": [
+    "tests/test_textbook_renderer.py",
+    "tests/test_arxiv_fetch.py",
+    "tests/test_server_startup.py"
+  ],
+  "research_briefs": [
+    {
+      "agent_id": "researcher-1",
+      "brief_path": ".claude/notes/milestones/textbook-render-robustness-m1/research-brief-1.md",
+      "summary": "timeout env-var + array sanitization; server-scan carve-out landmine"
+    }
+  ],
+  "research_mode": "single",
+  "research_synthesis": ".claude/notes/milestones/textbook-render-robustness-m1/research-synthesis.md",
+  "updated_at": "2026-06-09T03:04:15Z"
+}

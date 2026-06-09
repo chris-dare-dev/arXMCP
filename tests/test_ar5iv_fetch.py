@@ -258,3 +258,101 @@ class TestTryCache:
         )
         with pytest.raises((AttributeError, Exception)):
             r.hit = True  # frozen
+
+
+class TestOldStyleId:
+    """Regression: old-style arXiv ids (e.g. ``math/0212237``) embed a
+    slash, so ``cache_path`` lands one dir deeper than ``cache_dir``.
+
+    Before oldstyle-id-ingest-fix-m1 the writer did
+    ``cache_dir.mkdir(...)`` only, so ``cache_path.write_text(...)``
+    raised ``FileNotFoundError`` on a fresh tree for every old-style id —
+    the ingest path was 100% broken for the two foundational Bridgeland
+    papers (``math/0212237`` + ``math/0307164``). The fix creates
+    ``cache_path.parent`` (the ``<subject>/`` subdir). New-style ids are
+    unaffected (``cache_path.parent == cache_dir``).
+    """
+
+    def test_old_style_id_creates_subject_subdir(self, tmp_path):
+        """Fix 1 regression — fails with FileNotFoundError on old code.
+
+        A fresh cache tree + an old-style id must write both the cache
+        file and the parsed file into the embedded ``math/`` subdir.
+        """
+        cache_dir = tmp_path / "cache"
+        parsed_dir = tmp_path / "parsed"
+        with patch(
+            "ingest.ar5iv_fetch.urllib.request.urlopen",
+            return_value=_ok_response(),
+        ):
+            result = try_cache(
+                "math/0212237",
+                cache_dir=cache_dir,
+                parsed_dir=parsed_dir,
+            )
+        assert result.hit is True
+        assert result.reason == "ok"
+        # The slash in the id becomes a real ``math/`` subdir on disk.
+        assert result.cache_path == cache_dir / "math" / "0212237.html"
+        assert result.parsed_path == (
+            parsed_dir / "math" / "0212237" / "index.html"
+        )
+        assert result.cache_path.is_file()
+        assert result.parsed_path.is_file()
+        assert "<math" in result.cache_path.read_text()
+
+    def test_old_style_id_local_cache_hit(self, tmp_path):
+        """The on-disk short-circuit also works through the subject subdir."""
+        cache_dir = tmp_path / "cache"
+        parsed_dir = tmp_path / "parsed"
+        # Pre-populate both files under the embedded ``math/`` subdir.
+        (cache_dir / "math").mkdir(parents=True)
+        (parsed_dir / "math" / "0212237").mkdir(parents=True)
+        (cache_dir / "math" / "0212237.html").write_text("<html/>")
+        (parsed_dir / "math" / "0212237" / "index.html").write_text("<html/>")
+        with patch(
+            "ingest.ar5iv_fetch.urllib.request.urlopen",
+            side_effect=AssertionError("network must not be hit"),
+        ):
+            result = try_cache(
+                "math/0212237",
+                cache_dir=cache_dir,
+                parsed_dir=parsed_dir,
+            )
+        assert result.hit is True
+        assert result.reason == "ok_local_cache"
+
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            "../../etc/0000000",
+            "math/../../0000000",
+            "a/../../../tmp",
+            "math/0212237/../../../etc",
+            "/abs/0000000",
+        ],
+    )
+    def test_traversal_shaped_id_rejected_before_mkdir(self, tmp_path, payload):
+        """Closes F3: the slash-bearing-id fix made ``cache_path.parent.mkdir
+        (parents=True)`` create arbitrary-depth ``paper_id``-derived parents.
+
+        ``is_valid_arxiv_paper_id`` (anchored old-style regex
+        ``^[a-z][a-z\\-]*/\\d{7}(v\\d+)?\\Z``) must reject a traversal-shaped
+        id with ``ValueError`` BEFORE any path construction or mkdir, so no
+        directory is ever created outside ``cache_dir`` (Threat 1, path
+        traversal via ``paper_id`` — ``08-security-observability-ops.md``).
+        Pins the reject contract at the new mkdir site so a future regex
+        loosening fails loudly here.
+        """
+        cache_dir = tmp_path / "cache"
+        parsed_dir = tmp_path / "parsed"
+        with pytest.raises(ValueError, match="paper_id"):
+            try_cache(
+                payload,
+                cache_dir=cache_dir,
+                parsed_dir=parsed_dir,
+            )
+        # The reject happens before any mkdir — nothing was created under
+        # (or outside) cache_dir / parsed_dir.
+        assert not cache_dir.exists()
+        assert not parsed_dir.exists()

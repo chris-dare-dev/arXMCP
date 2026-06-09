@@ -33,6 +33,8 @@ from ingest import textbook_parser
 from ingest.textbook_parser import (
     _DEFAULT_TIMEOUT_S,
     _ENV_WHITELIST,
+    _ENV_WHITELIST_POSIX,
+    _ENV_WHITELIST_WINDOWS,
     _MINERU_RLIMIT_AS_BYTES,
     _OUTPUT_TAIL_BYTES,
     _RLIMIT_AS_PLATFORM,
@@ -191,10 +193,105 @@ class TestScrubSubprocessEnv:
         ):
             assert k not in env, f"{k} leaked into scrubbed env"
 
-    def test_whitelist_set_unchanged(self) -> None:
-        # Pinned exactly so a future PR widening the whitelist must
-        # update both the constant and this test.
-        assert frozenset({"PATH", "HOME", "LANG", "LC_ALL"}) == _ENV_WHITELIST
+    def test_posix_whitelist_pinned(self) -> None:
+        # Pinned exactly so a future PR widening the POSIX base must
+        # update both the constant and this test. Holds on all platforms.
+        assert frozenset(
+            {"PATH", "HOME", "LANG", "LC_ALL"}
+        ) == _ENV_WHITELIST_POSIX
+
+    def test_windows_whitelist_pinned(self) -> None:
+        # Pinned exactly so a future PR widening the Windows-essential set
+        # must update both the constant and this test. The set is defined
+        # unconditionally (only its UNION into _ENV_WHITELIST is gated on
+        # win32), so this assertion holds on every platform. None of these
+        # is a credential, proxy/egress route, or cloud token — see the
+        # security review in research-synthesis.md.
+        assert frozenset({
+            "SystemRoot", "SYSTEMROOT", "USERPROFILE", "LOCALAPPDATA",
+            "APPDATA", "TEMP", "TMP", "windir", "SystemDrive", "PATHEXT",
+            "NUMBER_OF_PROCESSORS", "PROCESSOR_ARCHITECTURE", "COMSPEC",
+        }) == _ENV_WHITELIST_WINDOWS
+
+    def test_no_credential_or_egress_var_in_windows_whitelist(self) -> None:
+        # Security guard: the Windows expansion must never admit a
+        # credential, proxy/egress, or cloud-token var. A future widening
+        # that adds one of these fails here.
+        forbidden = {
+            "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN",
+            "HF_TOKEN", "HF_HOME", "HUGGINGFACE_TOKEN",
+            "GOOGLE_APPLICATION_CREDENTIALS", "AZURE_CLIENT_SECRET",
+            "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
+            "http_proxy", "https_proxy",
+        }
+        assert _ENV_WHITELIST_WINDOWS.isdisjoint(forbidden)
+
+    def test_no_extra_shell_path_var_beyond_comspec(self) -> None:
+        # F3 guard: COMSPEC (cmd.exe path) is the SOLE tolerated shell-path
+        # var, safe only because every subprocess here is shell=False. Pin
+        # that no other shell-adjacent var sneaks into the whitelist.
+        shell_adjacent = {"PROMPT", "PSModulePath", "PSEXECUTIONPOLICYPREFERENCE"}
+        assert _ENV_WHITELIST_WINDOWS.isdisjoint(shell_adjacent)
+
+    def test_effective_whitelist_is_platform_correct(self) -> None:
+        # _ENV_WHITELIST is the POSIX base on non-win32, and the union of
+        # the POSIX base + Windows-essential set on win32.
+        if sys.platform == "win32":
+            assert _ENV_WHITELIST == _ENV_WHITELIST_POSIX | _ENV_WHITELIST_WINDOWS
+        else:
+            assert _ENV_WHITELIST == _ENV_WHITELIST_POSIX
+
+    def test_temp_tmp_overridden_on_windows(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    ) -> None:
+        # ADD-1: on Windows, TEMP/TMP are overridden to output_dir so
+        # native libs (which read TEMP/TMP, not TMPDIR) honor the
+        # per-invocation scratch-isolation contract. Simulate win32 via the
+        # module's own sys reference (the override reads sys.platform at
+        # call time).
+        #
+        # F2 rectification: seed a REAL host TEMP/TMP in the parent env
+        # first, so the assertion proves the override CLOBBERS the inherited
+        # host value — not merely that the key was set. The clobber is the
+        # whole point of ADD-1 (cross-notebook scratch isolation); a future
+        # edit that reordered the override before the whitelist copy would
+        # let the host value survive and this test must catch it.
+        host_temp = "C:\\host\\contaminated\\temp"
+        monkeypatch.setenv("TEMP", host_temp)
+        monkeypatch.setenv("TMP", host_temp)
+        monkeypatch.setattr(textbook_parser.sys, "platform", "win32")
+        env = _scrub_subprocess_env(tmp_path)
+        assert env["TEMP"] == str(tmp_path)
+        assert env["TMP"] == str(tmp_path)
+        assert env["TEMP"] != host_temp, "override must clobber inherited TEMP"
+        assert env["TMP"] != host_temp, "override must clobber inherited TMP"
+        assert env["TMPDIR"] == str(tmp_path)
+
+    def test_posix_whitelist_excludes_temp_tmp(self) -> None:
+        # F1 rectification: pin the POSIX byte-identical contract on the
+        # CONSTANT directly (platform-independent — holds on a win32 dev
+        # host too). _ENV_WHITELIST is frozen at import time but the
+        # TEMP/TMP override reads sys.platform at call time; asserting on
+        # _ENV_WHITELIST_POSIX here closes the blind spot where a future
+        # regression wiring TEMP/TMP into the POSIX base could slip past a
+        # call-based test on a Windows workstation.
+        assert "TEMP" not in _ENV_WHITELIST_POSIX
+        assert "TMP" not in _ENV_WHITELIST_POSIX
+
+    def test_temp_tmp_override_not_fired_off_win32(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    ) -> None:
+        # The call-time override block must NOT fire on a non-win32
+        # platform. delenv isolates the override's behavior from any
+        # import-time whitelist copy (see test_posix_whitelist_excludes_
+        # temp_tmp for the authoritative constant-level pin).
+        monkeypatch.setattr(textbook_parser.sys, "platform", "linux")
+        monkeypatch.delenv("TEMP", raising=False)
+        monkeypatch.delenv("TMP", raising=False)
+        env = _scrub_subprocess_env(tmp_path)
+        assert "TEMP" not in env
+        assert "TMP" not in env
+        assert env["TMPDIR"] == str(tmp_path)
 
     def test_env_var_absent_from_parent_is_absent_from_child(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
@@ -494,15 +591,20 @@ class TestRunMineruSandboxedSurface:
             ("late stdout chunk", "[ERROR] killed mid-decode at offset 42"),
         ]
         import logging
+        # create=True so the os.killpg/getpgid + signal.SIGKILL patches
+        # install on a Windows host too (where the real attributes are
+        # absent) — this exercises the getpgid-present branch regardless of
+        # host OS. SIGKILL is patched to a sentinel int the assertion checks.
         with (
             caplog.at_level(logging.WARNING, logger="ingest.textbook_parser"),
             patch.object(subprocess, "Popen", return_value=proc),
-            patch.object(os, "killpg") as mock_killpg,
-            patch.object(os, "getpgid", return_value=12345),
+            patch.object(os, "killpg", create=True) as mock_killpg,
+            patch.object(os, "getpgid", create=True, return_value=12345),
+            patch.object(signal, "SIGKILL", 9, create=True),
             pytest.raises(subprocess.TimeoutExpired),
         ):
             run_mineru_sandboxed(pdf, out_dir, timeout_s=60)
-        mock_killpg.assert_called_once_with(12345, signal.SIGKILL)
+        mock_killpg.assert_called_once_with(12345, 9)
         # The drain call MUST follow the killpg.
         assert proc.communicate.call_count == 2
         # F5 regression: drained stderr tail captured in WARN log.
@@ -513,6 +615,32 @@ class TestRunMineruSandboxedSurface:
         assert any(
             "killed mid-decode at offset 42" in m for m in warn_msgs
         ), f"drain stderr not captured in WARN log: {warn_msgs!r}"
+
+    def test_timeout_falls_back_to_proc_kill_without_getpgid(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # ADD-2 regression: on Windows os.getpgid/os.killpg do not exist,
+        # and the AttributeError they would raise is NOT caught by the
+        # contextlib.suppress(ProcessLookupError, OSError) around the kill.
+        # The hasattr(os, "getpgid") guard must route to proc.kill() so a
+        # MinerU timeout cleanly re-raises TimeoutExpired instead of
+        # crashing with AttributeError. Simulate Windows by removing
+        # os.getpgid on any host.
+        pdf, out_dir = self._make_pdf_and_outputs(tmp_path)
+        monkeypatch.setenv("ARXMCP_MINERU_BIN", _create_fake_bin(tmp_path))
+        monkeypatch.delattr(os, "getpgid", raising=False)
+        proc = MagicMock(spec=subprocess.Popen)
+        proc.pid = 12345
+        proc.communicate.side_effect = [
+            subprocess.TimeoutExpired(cmd="mineru", timeout=1),
+            ("late stdout", "drained stderr"),
+        ]
+        with (
+            patch.object(subprocess, "Popen", return_value=proc),
+            pytest.raises(subprocess.TimeoutExpired),
+        ):
+            run_mineru_sandboxed(pdf, out_dir, timeout_s=60)
+        proc.kill.assert_called_once_with()
 
     def test_invalid_pdf_path_raises(self, tmp_path: Path) -> None:
         with pytest.raises(RuntimeError, match="pdf_path is not a file"):

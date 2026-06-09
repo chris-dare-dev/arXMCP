@@ -295,6 +295,14 @@ _KNOWN_INGEST_ENV_VARS: dict[str, str] = {
         "ingest/graph_ingest.py) for the arXiv polite-pool User-Agent. "
         "Unset it for the server."
     ),
+    "ARXMCP_LATEXML_TIMEOUT_S": (
+        "is NOT a server config var; it is read at import by the "
+        "textbook-ingest CLI path (tools/arxiv_fetch.py "
+        "parse_with_latexml + ingest/textbook_renderer.py "
+        "render_mineru_to_html) to cap the LaTeXML render wall-clock "
+        "for math-dense PDFs. The server never invokes LaTeXML. "
+        "Unset it for the server."
+    ),
 }
 
 

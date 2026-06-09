@@ -28,6 +28,65 @@ make bootstrap             # editable install (pip install -e ".[dev]") + var/ t
 (When a release is published to PyPI, `pipx install arxmcp` will become the
 preferred path — see [releasing.md](releasing.md).)
 
+### Running on Windows (no `make`)
+
+The commands above (and the rest of this guide) assume a POSIX shell with GNU
+`make`. The arXMCP **server and the `/ui/` operator console run on native
+Windows**, but the `Makefile` is bash-only and `make` is usually absent, so use
+the make-free invocations below from **PowerShell**. (For the full ingest /
+ops workflow, prefer **WSL2** or **Docker** — see the caveats.)
+
+```powershell
+# 1. Clone, create + activate the venv, editable-install.
+git clone https://github.com/chris-dare-dev/arXMCP.git
+Set-Location arXMCP
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -e ".[dev]"          # replaces `make bootstrap`'s install step
+
+# 2. Create the var/ data tree `make bootstrap` would have made.
+New-Item -ItemType Directory -Force -Path `
+  var\arxmcp\corpus\raw, var\arxmcp\corpus\parsed, var\arxmcp\corpus\chunks, `
+  var\arxmcp\index\lancedb, var\arxmcp\index\kuzu, var\arxmcp\cache\ar5iv, `
+  var\arxmcp\ops\parser-failures, var\arxmcp\observability\phoenix | Out-Null
+
+# 3a. Run the server (replaces `make up`). Fresh clone with NO corpus yet?
+#     Use bootstrap/wizard mode so it boots without one (replaces `make up-wizard`):
+$env:ARXMCP_BOOTSTRAP_MODE = "1"; python -m server.main
+
+# 3b. Or serve an ingested notebook (replaces `ARXMCP_NOTEBOOK=demo make up`).
+#     PowerShell has no inline `VAR=x cmd` prefix — set the env var, then run:
+$env:ARXMCP_NOTEBOOK = "demo"; python -m server.main
+```
+
+The server binds `127.0.0.1:7733`; the operator console is at
+<http://127.0.0.1:7733/ui/>. Then continue with **§2 Register** below — on
+Windows `~/.claude.json` is `%USERPROFILE%\.claude.json`, and the
+`arxmcp-shim` console script installs to `.venv\Scripts\arxmcp-shim.exe`
+(activate the venv, or use that absolute path, so Claude Code can spawn it).
+
+Run tests / lint without `make` (the suite is the authority — there is no CI):
+
+```powershell
+python -m ruff check .
+python -m pytest -q
+```
+
+> **Windows caveats (read before relying on it):**
+> - **No `make`.** Every `make <target>` in this repo is bash-only. Install GNU
+>   Make + run under Git Bash, or use WSL2, if you want the `make` verbs.
+> - **POSIX-only security features degrade.** The textbook-PDF sandbox's memory
+>   cap (`RLIMIT_AS`) and process-group kill (`os.killpg`) are no-ops on Windows,
+>   and the symlink-confinement checks + Lean REPL spawn carry Windows guards.
+>   Treat **untrusted textbook-PDF ingest as less hardened on Windows** — prefer
+>   Linux or the Docker image for that path.
+> - **~60 tests fail on Windows for platform reasons** (symlinks, `killpg`,
+>   colons-in-filenames, POSIX-shell + path-containment tests). They pass on
+>   macOS / Linux; the failures are not regressions. Filter with
+>   `python -m pytest -q -k "not symlink"` etc., or run the suite under WSL2.
+> - **System ingest deps** (`aria2c`, `latexmlc`, MinerU) document `brew` /
+>   `apt` install lines below; on Windows use `scoop` / `choco` or WSL2.
+
 ### Optional ingest system deps
 
 The runtime server (`arxmcp-server`) has no system dependencies

@@ -417,39 +417,56 @@ class TestUPL12TemplateChanges:
 
 
 class TestUPL13GlobalViewTransitions:
-    """``base.html`` carries the View Transitions config flag inside the
-    existing inline script block."""
+    """``base.html`` enables htmx native View Transitions.
+
+    ui-htmx-json-fix-m1 corrected the STRUCTURE of this opt-in. Previously
+    the flag lived in an inline ``<script defer>`` block — but ``defer`` is
+    ignored on inline scripts, so the line ran at parse time before the
+    deferred ``htmx.min.js`` loaded; ``htmx`` was undefined and the
+    assignment threw and never took effect. The flag now lives inside a
+    ``DOMContentLoaded`` handler (which fires after deferred scripts run, so
+    ``htmx`` is defined) and is gated on ``prefers-reduced-motion``.
+    """
 
     def test_global_view_transitions_flag_present(self) -> None:
-        # The exact 1-LOC opt-in. Strip Jinja2 comments first so the
-        # roadmap-comment "globalViewTransitions" mentions can't
-        # false-positive.
-        # The flag lives inside <script>...</script> in base.html.
-        # Verify by scanning the file (Jinja2 comments are inside the
-        # template only; the JS lives in a script tag without Jinja
-        # interpolation).
+        # The exact opt-in assignment is still present.
         assert "htmx.config.globalViewTransitions = true" in BASE_HTML
 
-    def test_global_view_transitions_flag_inside_existing_script_block(
+    def test_global_view_transitions_runs_after_load_not_in_inline_defer(
         self,
     ) -> None:
-        # Spike-1 finding: the flag MUST live inside the existing
-        # inline <script defer>...</script> block so it stays within
-        # the existing 'unsafe-inline' CSP allowance (no new CSP
-        # widening). Verify by finding the <script> opener and the
-        # next </script> closer and asserting the flag is between them.
-        script_open_re = _re.compile(r"<script\s+defer\s*>", _re.IGNORECASE)
-        m_open = script_open_re.search(BASE_HTML)
-        assert m_open is not None, (
-            "expected inline <script defer> block in base.html"
+        # ui-htmx-json-fix-m1 (Bug 2 regression guard): the assignment MUST
+        # be inside a DOMContentLoaded handler, NOT a bare inline
+        # <script defer> body (that was the bug — `defer` is a no-op on
+        # inline scripts, so the line ran before htmx existed). Strip HTML
+        # comments first — base.html's explanatory comment quotes the
+        # assignment to describe the old bug and would otherwise shift `idx`
+        # into a comment region (whose nearest preceding <script ...> is the
+        # external deferred json-enc tag).
+        base_code = _re.sub(r"<!--.*?-->", "", BASE_HTML, flags=_re.S)
+        idx = base_code.index("htmx.config.globalViewTransitions = true")
+        # Walk back to the enclosing <script ...> opener.
+        script_open = base_code.rfind("<script", 0, idx)
+        assert script_open != -1, "expected an enclosing <script> block"
+        opener = base_code[script_open : base_code.index(">", script_open) + 1]
+        # The enclosing script must NOT be an inline `defer` block, and must
+        # NOT be an external src= script (the flag is real inline JS).
+        assert "defer" not in opener, (
+            "ui-htmx-json-fix-m1 regression: globalViewTransitions is back "
+            "inside an inline <script defer> — `defer` is ignored on inline "
+            "scripts so htmx is undefined at parse time. Use DOMContentLoaded."
         )
-        script_start = m_open.end()
-        script_end = BASE_HTML.index("</script>", script_start)
-        script_body = BASE_HTML[script_start:script_end]
-        assert "htmx.config.globalViewTransitions = true" in script_body, (
-            "UPL-13 regression: the globalViewTransitions flag must live "
-            "INSIDE the existing inline <script defer> block in base.html "
-            "(uses existing 'unsafe-inline' CSP allowance; no widening)."
+        # The assignment must sit inside a DOMContentLoaded listener so it
+        # runs after the deferred htmx.min.js has executed.
+        script_body = base_code[script_open : base_code.index("</script>", idx)]
+        assert "DOMContentLoaded" in script_body, (
+            "ui-htmx-json-fix-m1: globalViewTransitions must be set inside a "
+            "DOMContentLoaded handler so htmx is defined when it runs."
+        )
+        # And it must be guarded against the reduced-motion preference.
+        assert "prefers-reduced-motion" in script_body, (
+            "ui-htmx-json-fix-m1: the View Transitions opt-in must honor "
+            "prefers-reduced-motion."
         )
 
     def test_no_obsolete_htmx_beforeswap_wrapper_added(self) -> None:
