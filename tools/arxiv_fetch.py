@@ -35,7 +35,59 @@ ARXIV_USER_AGENT_TEMPLATE = "arXMCP/0.1 (mailto:{email})"
 POLITENESS_SLEEP_SECONDS = 3.0
 DEFAULT_503_BACKOFF_SECONDS = 30.0
 MAX_503_BACKOFF_SECONDS = 300.0
+
+#: Default LaTeXML render wall-clock cap (seconds). 300s suits most papers,
+#: but math-dense documents (e.g. amsart papers with many display equations,
+#: or MinerU markdown re-wrapped as LaTeX) can legitimately need longer.
+#: Configurable via ARXMCP_LATEXML_TIMEOUT_S at module load.
 LATEXML_TIMEOUT_SECONDS = 300
+
+#: Bounds on the configurable LaTeXML timeout (inclusive). LaTeXML is faster
+#: than MinerU, so the floor is lower (30s) than MinerU's 60s; the 30-min cap
+#: covers the slowest real renders observed.
+_LATEXML_TIMEOUT_MIN_S: int = 30
+_LATEXML_TIMEOUT_MAX_S: int = 1800
+
+
+def _parse_latexml_timeout_from_env() -> float:
+    """Resolve the LaTeXML render timeout from ``ARXMCP_LATEXML_TIMEOUT_S``.
+
+    Mirrors ``ingest/textbook_parser.py::_parse_timeout_from_env`` exactly:
+    validates at module-load, rejecting a non-integer or out-of-range value
+    with an explicit ``RuntimeError`` (NOT a silent clamp). Empty / unset
+    returns :data:`LATEXML_TIMEOUT_SECONDS`, so behavior is unchanged unless
+    an operator opts in.
+
+    ``ARXMCP_LATEXML_TIMEOUT_S`` is an ingest/CLI-only variable: it is read
+    here at import and is registered in ``server/main.py``'s
+    ``_KNOWN_INGEST_ENV_VARS`` carve-out so the server's strict
+    unknown-``ARXMCP_*`` scan does not FATAL when an operator leaves it set.
+    """
+    raw = os.environ.get("ARXMCP_LATEXML_TIMEOUT_S", "").strip()
+    if not raw:
+        return float(LATEXML_TIMEOUT_SECONDS)
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise RuntimeError(
+            f"ARXMCP_LATEXML_TIMEOUT_S={raw!r} is not a valid integer; "
+            f"set to a value in [{_LATEXML_TIMEOUT_MIN_S}, "
+            f"{_LATEXML_TIMEOUT_MAX_S}] seconds or leave unset to use the "
+            f"default ({LATEXML_TIMEOUT_SECONDS}s)."
+        ) from exc
+    if value < _LATEXML_TIMEOUT_MIN_S or value > _LATEXML_TIMEOUT_MAX_S:
+        raise RuntimeError(
+            f"ARXMCP_LATEXML_TIMEOUT_S={value} is out of range "
+            f"[{_LATEXML_TIMEOUT_MIN_S}, {_LATEXML_TIMEOUT_MAX_S}]. Refusing "
+            f"to silently clamp; set a value in range or leave unset."
+        )
+    return float(value)
+
+
+#: Resolved at import time so a bad value surfaces at process start, not at
+#: first render. Equals :data:`LATEXML_TIMEOUT_SECONDS` when unset, so
+#: existing callers are unaffected by default.
+_CONFIGURED_LATEXML_TIMEOUT_S: float = _parse_latexml_timeout_from_env()
 
 #: E13_S03b — repo-root-relative path to the macOS sandbox-exec
 #: profile. Anchored to this file's location so the path resolves

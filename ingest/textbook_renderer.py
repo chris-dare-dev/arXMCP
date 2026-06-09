@@ -44,7 +44,7 @@ import time
 from pathlib import Path
 
 from ingest.textbook_parser import MinerUResult
-from tools.arxiv_fetch import parse_with_latexml
+from tools.arxiv_fetch import _CONFIGURED_LATEXML_TIMEOUT_S, parse_with_latexml
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +105,56 @@ def _neutralize_structural_commands(markdown_content: str) -> int:
     not the wrapper's exact neutralization count.
     """
     return len(_STRUCTURAL_CMD_RE.findall(markdown_content))
+
+
+#: ``\begin{array}`` / ``\end{array}`` matcher (whitespace-tolerant) for the
+#: math-balance sanitizer (textbook-render-robustness-m1).
+_ARRAY_ENV_RE = re.compile(r"\\(begin|end)\s*\{\s*array\s*\}")
+
+
+def _sanitize_math_balance(markdown_content: str) -> str:
+    """Balance ``\\begin{array}`` / ``\\end{array}`` so a malformed MinerU
+    export cannot abort the entire LaTeXML document.
+
+    MinerU OCR sometimes drops ``\\begin{array}`` openers while keeping the
+    ``\\end{array}`` closers (observed: 0 begins / 36 ends on arXiv
+    ``1404.3143``). LaTeXML then raises ``\\@end@array Attempt to close
+    boxing group`` and abandons the document body — the render collapses to a
+    near-empty page and the chunker emits ZERO chunks. A degraded array beats
+    a dropped document, so we make the array environments balanced:
+
+    - Forward depth counter: ``\\begin{array}`` → depth+1, ``\\end{array}``
+      → depth-1. An ``\\end{array}`` that would drive depth below zero is
+      orphaned (no matching open) and is removed.
+    - After the pass, any depth still open gets that many ``\\end{array}``
+      appended so LaTeXML closes the arrays cleanly.
+
+    Balanced arrays — including nested ones, and arrays inside ``$$...$$`` —
+    net zero and are left byte-for-byte untouched, so well-formed math is
+    never corrupted. Runs on RAW markdown (before heading conversion escapes
+    backslashes). Scope is intentionally ``array`` only — the confirmed
+    failure mode; ``$$`` parity is left alone (it was already balanced in the
+    observed failure, and over-correcting display math risks real corruption).
+    """
+    depth = 0
+    out_parts: list[str] = []
+    last = 0
+    for match in _ARRAY_ENV_RE.finditer(markdown_content):
+        if match.group(1) == "begin":
+            depth += 1
+            continue
+        # An \end{array} token.
+        if depth == 0:
+            # Orphaned closer: emit everything up to it, then skip the token.
+            out_parts.append(markdown_content[last:match.start()])
+            last = match.end()
+        else:
+            depth -= 1
+    out_parts.append(markdown_content[last:])
+    result = "".join(out_parts)
+    if depth > 0:
+        result += "\n\\end{array}" * depth
+    return result
 
 
 #: Markdown ATX heading matcher (textbook-md-heading-sectioning-m1).
@@ -225,10 +275,14 @@ def _build_latex_wrapper(markdown_content: str) -> str:
     untouched (the regex matches only the three document-structure
     commands).
     """
+    # 0. Balance \begin{array}/\end{array} so a malformed MinerU export does
+    #    not abort the LaTeXML document (textbook-render-robustness-m1). Runs
+    #    on RAW markdown, before heading conversion escapes backslashes.
+    balanced = _sanitize_math_balance(markdown_content)
     # 1. Convert markdown ATX headings to LaTeX sectioning FIRST. This is
     #    the load-bearing fix: the e3 chunker keys on ltx_section divs,
     #    which LaTeXML only emits for real \section commands.
-    sectioned = _convert_markdown_headings_to_latex(markdown_content)
+    sectioned = _convert_markdown_headings_to_latex(balanced)
     # 2. Escape the leading backslash of any structural command so it
     #    becomes literal text (``\textbackslash end{document}``-style is
     #    overkill; ``\\end{document}`` → ``\end {document}`` would still
@@ -316,11 +370,16 @@ def render_mineru_to_html(
     #    parse_with_latexml writes to parsed_dir/<paper_id>/index.html
     #    — but we want parsed_dir/<flat_paper_id>/index.html. Pass
     #    flat as the paper_id arg so the function's subdirectory
-    #    convention aligns with our layout.
+    #    convention aligns with our layout. The timeout is the
+    #    env-configurable _CONFIGURED_LATEXML_TIMEOUT_S (default 300s) so
+    #    math-dense papers can render past the old hardcoded 300s cap
+    #    (textbook-render-robustness-m1); the helper's killpg/sandbox
+    #    discipline is unchanged.
     parse_with_latexml(
         main_tex=main_tex,
         parsed_dir=parsed_dir,
         paper_id=flat,
+        timeout=_CONFIGURED_LATEXML_TIMEOUT_S,
     )
 
     # 4. Copy MinerU's images/ dir alongside index.html so relative

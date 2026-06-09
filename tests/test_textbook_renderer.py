@@ -221,6 +221,81 @@ class TestBuildLatexWrapper:
         assert "\\sum_i x_i" in out
         assert "\\subsection{" in out
 
+    # -- textbook-render-robustness-m1: \begin/\end{array} balance --
+
+    def test_orphaned_end_array_dropped(self) -> None:
+        """The 1404.3143 case: MinerU dropped all \\begin{array} but kept
+        \\end{array} closers. Orphaned closers must be removed so LaTeXML
+        does not 'close boxing group' and abort the document."""
+        body = "prose $x$\n$$ a + b \\end{array} $$\nmore prose"
+        out = _build_latex_wrapper(body)
+        assert "\\end{array}" not in out
+        assert "more prose" in out
+
+    def test_balanced_array_untouched(self) -> None:
+        """A balanced array (even inside $$) nets zero and is preserved."""
+        body = "$$\\begin{array}{cc} a & b \\\\ c & d \\end{array}$$"
+        out = _build_latex_wrapper(body)
+        assert "\\begin{array}{cc}" in out
+        assert "\\end{array}" in out
+        # Exactly one of each survives (no spurious append/drop).
+        assert out.count("\\begin{array}") == 1
+        assert out.count("\\end{array}") == 1
+
+    def test_nested_arrays_untouched(self) -> None:
+        """Depth counter handles nesting: a balanced nested pair is kept."""
+        body = (
+            "$$\\begin{array}{c}\\begin{array}{cc} x & y \\end{array}"
+            "\\end{array}$$"
+        )
+        out = _build_latex_wrapper(body)
+        assert out.count("\\begin{array}") == 2
+        assert out.count("\\end{array}") == 2
+
+    def test_unclosed_begin_array_gets_closed(self) -> None:
+        """An unclosed \\begin{array} gets a matching \\end{array} appended
+        so LaTeXML does not run to end-of-document in array mode."""
+        body = "$$\\begin{array}{c} a \\\\ b $$\ntrailing prose"
+        out = _build_latex_wrapper(body)
+        assert out.count("\\begin{array}") == 1
+        assert out.count("\\end{array}") == 1
+        # The appended closer lands after the original content.
+        assert out.index("trailing prose") < out.rindex("\\end{array}")
+
+    def test_array_balance_composes_with_headings(self) -> None:
+        """Sanitization (step 0) must not break heading conversion (step 1):
+        an orphaned \\end{array} is dropped AND headings still convert."""
+        body = "# Title\n\n$$ z \\end{array} $$\n\n## Section"
+        out = _build_latex_wrapper(body)
+        assert "\\section{Title}" in out
+        assert "\\subsection{Section}" in out
+        assert "\\end{array}" not in out
+
+
+class TestRenderTimeoutThreading:
+    """textbook-render-robustness-m1: render passes the configured timeout."""
+
+    def test_render_passes_configured_latexml_timeout(
+        self, tmp_path: Path,
+    ) -> None:
+        mineru_result = _build_minimal_mineru_result(tmp_path)
+        parsed_dir = tmp_path / "parsed"
+        parsed_dir.mkdir()
+
+        def fake_parse(main_tex, parsed_dir, paper_id, timeout=None):  # noqa: ARG001
+            out_dir = parsed_dir / paper_id
+            out_dir.mkdir(parents=True, exist_ok=True)
+            (out_dir / "index.html").write_text("<html></html>")
+            return None
+
+        with patch.object(
+            textbook_renderer, "parse_with_latexml", side_effect=fake_parse,
+        ) as mock:
+            render_mineru_to_html(mineru_result, parsed_dir, "textbook:b")
+
+        _, kwargs = mock.call_args
+        assert kwargs["timeout"] == textbook_renderer._CONFIGURED_LATEXML_TIMEOUT_S
+
 
 class TestFlatPaperId:
     @pytest.mark.parametrize(
@@ -289,7 +364,7 @@ class TestRenderMineruToHtmlSurface:
 
         # Fake parse_with_latexml writes a stub index.html into
         # parsed_dir/<flat>/.
-        def fake_parse(main_tex, parsed_dir, paper_id):  # noqa: ARG001
+        def fake_parse(main_tex, parsed_dir, paper_id, timeout=None):  # noqa: ARG001
             out_dir = parsed_dir / paper_id
             out_dir.mkdir(parents=True, exist_ok=True)
             (out_dir / "index.html").write_text(
@@ -331,7 +406,7 @@ class TestRenderMineruToHtmlSurface:
 
         captured: dict[str, str] = {}
 
-        def fake_parse(main_tex, parsed_dir, paper_id):  # noqa: ARG001
+        def fake_parse(main_tex, parsed_dir, paper_id, timeout=None):  # noqa: ARG001
             captured["tex_content"] = main_tex.read_text(encoding="utf-8")
             out_dir = parsed_dir / paper_id
             out_dir.mkdir(parents=True, exist_ok=True)
@@ -369,7 +444,7 @@ class TestRenderMineruToHtmlSurface:
         parsed_dir = tmp_path / "parsed"
         parsed_dir.mkdir()
 
-        def fake_parse(main_tex, parsed_dir, paper_id):  # noqa: ARG001
+        def fake_parse(main_tex, parsed_dir, paper_id, timeout=None):  # noqa: ARG001
             # Don't produce index.html.
             (parsed_dir / paper_id).mkdir(parents=True, exist_ok=True)
             return None
@@ -395,7 +470,7 @@ class TestRenderMineruToHtmlSurface:
         parsed_dir = tmp_path / "parsed"
         parsed_dir.mkdir()
 
-        def fake_parse(main_tex, parsed_dir, paper_id):  # noqa: ARG001
+        def fake_parse(main_tex, parsed_dir, paper_id, timeout=None):  # noqa: ARG001
             (parsed_dir / paper_id).mkdir(parents=True, exist_ok=True)
             (parsed_dir / paper_id / "index.html").write_text("<html></html>")
             return None
@@ -417,7 +492,7 @@ class TestRenderMineruToHtmlSurface:
         parsed_dir = tmp_path / "parsed"
         parsed_dir.mkdir()
 
-        def fake_parse(main_tex, parsed_dir, paper_id):  # noqa: ARG001
+        def fake_parse(main_tex, parsed_dir, paper_id, timeout=None):  # noqa: ARG001
             (parsed_dir / paper_id).mkdir(parents=True, exist_ok=True)
             (parsed_dir / paper_id / "index.html").write_text("<html></html>")
             return None
@@ -437,7 +512,7 @@ class TestRenderMineruToHtmlSurface:
         parsed_dir = tmp_path / "parsed"
         parsed_dir.mkdir()
 
-        def fake_parse(main_tex, parsed_dir, paper_id):  # noqa: ARG001
+        def fake_parse(main_tex, parsed_dir, paper_id, timeout=None):  # noqa: ARG001
             out_dir = parsed_dir / paper_id
             out_dir.mkdir(parents=True, exist_ok=True)
             (out_dir / "index.html").write_text(
@@ -476,7 +551,7 @@ class TestRenderMineruToHtmlSurface:
         parsed_dir = tmp_path / "parsed"
         parsed_dir.mkdir()
 
-        def fake_parse(main_tex, parsed_dir, paper_id):  # noqa: ARG001
+        def fake_parse(main_tex, parsed_dir, paper_id, timeout=None):  # noqa: ARG001
             (parsed_dir / paper_id).mkdir(parents=True, exist_ok=True)
             (parsed_dir / paper_id / "index.html").write_text("<html></html>")
             return None

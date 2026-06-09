@@ -301,3 +301,54 @@ class TestParseWithLatexml:
         ):
             parse_with_latexml(main_tex, parsed, "2307.01156")
         proc.kill.assert_called_once_with()
+
+
+class TestLatexmlTimeoutConfig:
+    """textbook-render-robustness-m1: configurable LaTeXML render timeout."""
+
+    def test_unset_returns_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("ARXMCP_LATEXML_TIMEOUT_S", raising=False)
+        assert (
+            arxiv_fetch._parse_latexml_timeout_from_env()
+            == float(arxiv_fetch.LATEXML_TIMEOUT_SECONDS)
+        )
+
+    def test_blank_returns_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("ARXMCP_LATEXML_TIMEOUT_S", "   ")
+        assert (
+            arxiv_fetch._parse_latexml_timeout_from_env()
+            == float(arxiv_fetch.LATEXML_TIMEOUT_SECONDS)
+        )
+
+    def test_valid_override_used(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("ARXMCP_LATEXML_TIMEOUT_S", "1200")
+        assert arxiv_fetch._parse_latexml_timeout_from_env() == 1200.0
+
+    def test_boundaries_accepted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        for val in (
+            arxiv_fetch._LATEXML_TIMEOUT_MIN_S,
+            arxiv_fetch._LATEXML_TIMEOUT_MAX_S,
+        ):
+            monkeypatch.setenv("ARXMCP_LATEXML_TIMEOUT_S", str(val))
+            assert arxiv_fetch._parse_latexml_timeout_from_env() == float(val)
+
+    def test_non_integer_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("ARXMCP_LATEXML_TIMEOUT_S", "5m")
+        with pytest.raises(RuntimeError, match="not a valid integer"):
+            arxiv_fetch._parse_latexml_timeout_from_env()
+
+    def test_out_of_range_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv(
+            "ARXMCP_LATEXML_TIMEOUT_S",
+            str(arxiv_fetch._LATEXML_TIMEOUT_MAX_S + 1),
+        )
+        with pytest.raises(RuntimeError, match="out of range"):
+            arxiv_fetch._parse_latexml_timeout_from_env()
+
+    def test_below_min_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv(
+            "ARXMCP_LATEXML_TIMEOUT_S",
+            str(arxiv_fetch._LATEXML_TIMEOUT_MIN_S - 1),
+        )
+        with pytest.raises(RuntimeError, match="out of range"):
+            arxiv_fetch._parse_latexml_timeout_from_env()
