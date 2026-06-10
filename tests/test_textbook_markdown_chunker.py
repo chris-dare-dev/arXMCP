@@ -49,12 +49,26 @@ class TestStampingAndIdentity:
         # Deterministic across runs.
         assert [c.chunk_id for c in a] == [c.chunk_id for c in b]
 
-    def test_identical_body_deduped(self) -> None:
-        # Two sections with byte-identical bodies -> second dropped.
-        md = "# A\n\nidentical body text.\n\n# B\n\nidentical body text."
+    def test_identical_body_same_section_deduped(self) -> None:
+        # Two byte-identical bodies in the SAME section -> second dropped.
+        md = (
+            "## S\n\nProof. Same text here.\n\n"
+            "Lemma 1. A different claim.\n\nProof. Same text here."
+        )
         chunks = _chunk(md)
         bodies = [c.body_text for c in chunks]
-        assert bodies.count("identical body text.") == 1
+        assert bodies.count("Proof. Same text here.") == 1
+
+    def test_identical_body_distinct_sections_both_kept(self) -> None:
+        # F4: identical bodies in DIFFERENT sections must BOTH survive (section
+        # breadcrumb is folded into the chunk_id hash) — no cross-section loss.
+        md = "# A\n\nProof. Omitted.\n\n# B\n\nProof. Omitted."
+        chunks = _chunk(md)
+        bodies = [c.body_text for c in chunks]
+        assert bodies.count("Proof. Omitted.") == 2
+        # and they carry their correct (distinct) section attribution.
+        paths = sorted(c.section_path for c in chunks)
+        assert paths == [["A"], ["B"]]
 
 
 class TestHeadingHierarchy:
@@ -181,3 +195,70 @@ class TestEmptyInput:
     def test_empty_markdown_yields_no_chunks(self) -> None:
         assert _chunk("") == []
         assert _chunk("# Only a heading\n\n") == []
+
+
+class TestParityHardening:
+    def test_escaped_dollar_not_treated_as_open(self) -> None:
+        # F3: a LaTeX-escaped \$ (literal dollar glyph) must not flip parity.
+        assert not _inline_math_open(r"the price is \$5 today")
+        assert not _inline_math_open(r"$x = \$5$ holds")  # one balanced span
+
+    def test_merge_cap_bounds_blast_radius(self) -> None:
+        # F3: one stray unbalanced $ must NOT swallow the whole document — the
+        # merge run is capped, so tail blocks survive as separate blocks.
+        from ingest.textbook_markdown_chunker import (
+            _MAX_MERGE_BLOCKS,
+            _paragraph_blocks,
+        )
+        body = "open $ here\n\n" + "\n\n".join(
+            f"plain block number {i}" for i in range(_MAX_MERGE_BLOCKS + 20)
+        )
+        blocks = _paragraph_blocks(body)
+        assert len(blocks) > 1  # not all merged into one
+
+
+class TestErrorEnvelopeAndRouting:
+    def test_missing_markdown_returns_empty_not_raises(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        # F1: a missing MinerU markdown must return [] (logged), NOT raise and
+        # abort a batch — matching chunk_textbook's per-paper envelope.
+        import ingest.textbook_markdown_chunker as mod
+
+        monkeypatch.setattr(mod, "_resolve_notebook_dir", lambda slug: tmp_path)
+        # tmp_path has no parsed/**/auto/*.md -> _markdown_path raises -> caught.
+        assert mod.chunk_textbook_markdown(SLUG, "textbook:nope") == []
+
+    def test_non_utf8_markdown_returns_empty_not_raises(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        # F5: non-UTF-8 markdown is a per-paper failure (strict decode), not a
+        # silent U+FFFD substitution into math body_text.
+        import ingest.textbook_markdown_chunker as mod
+
+        bad = tmp_path / "bad.md"
+        bad.write_bytes(b"# H\n\nmath \xa1 and \xca bytes\n")
+        monkeypatch.setattr(mod, "_resolve_notebook_dir", lambda slug: tmp_path)
+        monkeypatch.setattr(mod, "_markdown_path", lambda nb, pid: bad)
+        assert mod.chunk_textbook_markdown(SLUG, PID) == []
+
+    def test_chunker_flag_routes_to_correct_chunker(self, monkeypatch) -> None:
+        # F2: the --chunker selection must actually route to the chosen chunker.
+        import tools.notebook_textbook_ingest as nti
+
+        called: list[str] = []
+        monkeypatch.setattr(
+            nti, "chunk_textbook",
+            lambda s, p: (called.append("html"), [])[1],
+        )
+        monkeypatch.setattr(
+            nti, "chunk_textbook_markdown",
+            lambda s, p: (called.append("markdown"), [])[1],
+        )
+        nti.ingest_textbook_paper(
+            SLUG, "textbook:x", chunker="markdown", dry_run=True
+        )
+        assert called == ["markdown"]
+        called.clear()
+        nti.ingest_textbook_paper(SLUG, "textbook:x", dry_run=True)  # default
+        assert called == ["html"]

@@ -35,7 +35,7 @@ import logging
 import re
 from pathlib import Path
 
-from ingest.chunker import _validate_paper_id
+from ingest.chunker import PER_PAPER_FAILURE_EXCEPTIONS, _validate_paper_id
 from ingest.chunker_types import ChunkRecord
 from ingest.textbook_chunker import (
     _compute_textbook_chunk_id,
@@ -71,6 +71,14 @@ _PROOF_RE = re.compile(r"^(?:\*\*\s*)?Proof\b", re.IGNORECASE)
 #: oversized-block splitter, with a math-parity guard so it never cuts inside math.
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
 _BLANKLINE_RE = re.compile(r"\n[ \t]*\n")
+#: A LaTeX-escaped dollar (``\$``, a literal ``$`` glyph) is NOT a math
+#: delimiter and must be excluded from the parity count (F3).
+_ESCAPED_DOLLAR_RE = re.compile(r"\\\$")
+#: Cap how many blocks a single open ``$``/``$$`` may pull together. A truly
+#: unbalanced delimiter (e.g. a stray ``$PATH`` in prose) must not swallow the
+#: rest of the document into one chunk (F3); past the cap we stop merging and
+#: let normal boundaries resume.
+_MAX_MERGE_BLOCKS = 50
 
 
 def _markdown_path(nb_dir: Path, paper_id: str) -> Path:
@@ -93,11 +101,19 @@ def _token_count(text: str) -> int:
 
 def _inline_math_open(text: str) -> bool:
     """True if ``text`` has an unclosed ``$``/``$$`` (so the next block belongs
-    to the same math span and must not be split off)."""
-    dollar_pairs = text.count("$$")
+    to the same math span and must not be split off).
+
+    LaTeX-escaped ``\\$`` (a literal dollar glyph, e.g. ``\\$5``) is removed
+    before counting so it never flips parity (F3). NOTE: this is still a naive
+    parity counter — a bare ``$`` inside a fenced code block (rare in math.AG /
+    math.NT MinerU output) can mis-merge; the ``_MAX_MERGE_BLOCKS`` cap bounds
+    the blast radius so it cannot swallow the whole document.
+    """
+    cleaned = _ESCAPED_DOLLAR_RE.sub("", text)
+    dollar_pairs = cleaned.count("$$")
     if dollar_pairs % 2 == 1:
         return True
-    single = text.count("$") - 2 * dollar_pairs
+    single = cleaned.count("$") - 2 * dollar_pairs
     return single % 2 == 1
 
 
@@ -149,8 +165,14 @@ def _paragraph_blocks(body: str) -> list[str]:
     i = 0
     while i < len(raw):
         block = raw[i]
-        while _inline_math_open(block) and i + 1 < len(raw):
+        merges = 0
+        while (
+            _inline_math_open(block)
+            and i + 1 < len(raw)
+            and merges < _MAX_MERGE_BLOCKS
+        ):
             i += 1
+            merges += 1
             block = block + "\n\n" + raw[i]
         blocks.append(block)
         i += 1
@@ -167,8 +189,14 @@ def _split_oversized(block: str) -> list[str]:
     i = 0
     while i < len(sentences):
         piece = sentences[i]
-        while _inline_math_open(piece) and i + 1 < len(sentences):
+        merges = 0
+        while (
+            _inline_math_open(piece)
+            and i + 1 < len(sentences)
+            and merges < _MAX_MERGE_BLOCKS
+        ):
             i += 1
+            merges += 1
             piece = piece + " " + sentences[i]
         merged.append(piece)
         i += 1
@@ -242,7 +270,15 @@ def _chunk_markdown_impl(
     seen: dict[str, str] = {}
     out: list[ChunkRecord] = []
     for section_path, chapter, body in raw:
-        chunk_id = _compute_textbook_chunk_id(slug, "", body)
+        # F4: fold the section breadcrumb into the chunk_id hash (via the
+        # preamble_text slot — textbook preamble is permanently "") so two
+        # chunks with byte-identical bodies in DIFFERENT sections (e.g. a
+        # "Proof. Omitted." under two theorems) get DISTINCT ids and are both
+        # kept. Identical body in the SAME section still dedups (same
+        # discriminator). The chunk's own ``preamble_ref`` stays None — only
+        # the hash input carries the discriminator.
+        discriminator = "\x00".join(section_path)
+        chunk_id = _compute_textbook_chunk_id(slug, discriminator, body)
         if chunk_id in seen:
             if seen[chunk_id] == body:
                 logger.debug(
@@ -280,8 +316,15 @@ def chunk_textbook_markdown(slug: str, paper_id: str) -> list[ChunkRecord]:
 
     Reads ``notebooks/<slug>/parsed/<flat_paper_id>/**/auto/<stem>.md`` (the
     MinerU output the renderer also consumes) and chunks it directly — no
-    LaTeXML render. Returns ``[]`` only when the markdown has no body content;
-    a bad/unsafe slug or paper_id raises (mirrors :func:`chunk_textbook`).
+    LaTeXML render. Returns ``[]`` on an unrecoverable PER-PAPER failure
+    (missing markdown, non-UTF-8 bytes) — logging a breadcrumb and NOT raising
+    — exactly like :func:`chunk_textbook`, so a multi-paper batch is not
+    aborted by one bad paper (F1). A bad/unsafe slug or paper_id raises (those
+    are programmer/operator errors, validated OUTSIDE the envelope).
+
+    The markdown is read with ``errors="strict"`` (F5): non-UTF-8 bytes raise
+    ``UnicodeDecodeError`` (a ``ValueError``, caught below as a per-paper
+    failure) rather than silently substituting U+FFFD into math ``body_text``.
     """
     try:
         nb_dir = _resolve_notebook_dir(slug)
@@ -290,7 +333,12 @@ def chunk_textbook_markdown(slug: str, paper_id: str) -> list[ChunkRecord]:
             f"invalid or unsafe notebook slug {slug!r}: {exc}"
         ) from exc
     _validate_paper_id(paper_id)
-    markdown = _markdown_path(nb_dir, paper_id).read_text(
-        encoding="utf-8", errors="replace"
-    )
-    return _chunk_markdown_impl(slug, paper_id, markdown)
+    try:
+        markdown = _markdown_path(nb_dir, paper_id).read_text(encoding="utf-8")
+        return _chunk_markdown_impl(slug, paper_id, markdown)
+    except PER_PAPER_FAILURE_EXCEPTIONS as exc:
+        logger.error(
+            "[%s/%s] chunk_textbook_markdown failed: %s",
+            slug, paper_id, exc, exc_info=True,
+        )
+        return []

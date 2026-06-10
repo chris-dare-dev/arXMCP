@@ -194,9 +194,12 @@ def ingest_textbook_paper(
     chunks = chunk_fn(slug, paper_id)
     if not chunks:
         logger.warning(
-            "no chunks produced for %s / %s (missing parsed HTML? run the "
-            "PDF upload + parse first)",
-            slug, paper_id,
+            "no chunks produced for %s / %s via the %s chunker — confirm the "
+            "PDF was parsed (%s present for this paper)",
+            slug, paper_id, chunker,
+            "MinerU markdown under parsed/<id>/**/auto/*.md"
+            if chunker == "markdown"
+            else "LaTeXML index.html under parsed/<id>/",
         )
         return {"paper_id": paper_id, "chunks": 0, "lancedb_version": None}
 
