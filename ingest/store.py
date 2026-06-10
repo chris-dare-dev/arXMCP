@@ -179,7 +179,9 @@ _ALLOWED_SOURCE_KINDS = frozenset({"arxiv", "textbook"})
 # and is accepted by ``_build_arrow_table`` — only non-None values
 # must be in this set. Domain mirrors the synthesis D2 documentation
 # + the chunker_types.py / 05-storage-and-indexing.md descriptions.
-_ALLOWED_PARSER_USED = frozenset({"ar5iv", "latexml", "mineru+latexml"})
+_ALLOWED_PARSER_USED = frozenset(
+    {"ar5iv", "latexml", "mineru+latexml", "mineru+markdown"}
+)
 
 
 @dataclass

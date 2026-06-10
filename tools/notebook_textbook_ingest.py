@@ -70,6 +70,7 @@ from ingest.identifiers import is_valid_paper_id
 from ingest.schema import EmbedRecord
 from ingest.store import write_chunks
 from ingest.textbook_chunker import chunk_textbook
+from ingest.textbook_markdown_chunker import chunk_textbook_markdown
 from tools._notebook_common import (
     NotebookError,
     notebook_lancedb_path,
@@ -173,14 +174,24 @@ def ingest_textbook_paper(
     batch_size: int = EMBED_BATCH_DEFAULT,
     encoder: EncoderFn = _encode_batch,
     dry_run: bool = False,
+    chunker: str = "html",
 ) -> dict[str, Any]:
     """Chunk -> embed -> write ONE textbook paper into the notebook LanceDB.
 
     Returns ``{"paper_id", "chunks", "lancedb_version"}``. Writes ONLY to the
     per-notebook LanceDB (``notebook_lancedb_path(slug)``) — never the global
     ``DEFAULT_LANCEDB_PATH`` (m12 FM-3).
+
+    ``chunker`` selects the chunking strategy: ``"html"`` (default) reads the
+    LaTeXML-rendered ``index.html`` via :func:`chunk_textbook`; ``"markdown"``
+    reads the MinerU markdown directly via :func:`chunk_textbook_markdown`
+    (finer, captures all content, no LaTeXML render —
+    textbook-markdown-chunker-m1).
     """
-    chunks = chunk_textbook(slug, paper_id)
+    chunk_fn = (
+        chunk_textbook_markdown if chunker == "markdown" else chunk_textbook
+    )
+    chunks = chunk_fn(slug, paper_id)
     if not chunks:
         logger.warning(
             "no chunks produced for %s / %s (missing parsed HTML? run the "
@@ -213,6 +224,7 @@ def run(
     *,
     batch_size: int = EMBED_BATCH_DEFAULT,
     dry_run: bool = False,
+    chunker: str = "html",
 ) -> int:
     """Ingest each textbook ``paper_id`` into the notebook LanceDB.
 
@@ -240,7 +252,7 @@ def run(
     any_empty = False
     for pid in paper_ids:
         result = ingest_textbook_paper(
-            slug, pid, batch_size=batch_size, dry_run=dry_run
+            slug, pid, batch_size=batch_size, dry_run=dry_run, chunker=chunker
         )
         if result["chunks"] == 0:
             any_empty = True
@@ -267,6 +279,14 @@ def main(argv: list[str] | None = None) -> int:
         "--dry-run", action="store_true",
         help="chunk only; skip embed + LanceDB write",
     )
+    parser.add_argument(
+        "--chunker", choices=("html", "markdown"), default="html",
+        help=(
+            "chunking strategy: 'html' (default) reads the LaTeXML-rendered "
+            "index.html; 'markdown' reads the MinerU markdown directly "
+            "(finer, captures all content, no LaTeXML render)."
+        ),
+    )
     args = parser.parse_args(argv)
     logging.basicConfig(
         level=logging.INFO,
@@ -279,6 +299,7 @@ def main(argv: list[str] | None = None) -> int:
         return run(
             args.slug, args.paper_ids,
             batch_size=args.batch_size, dry_run=args.dry_run,
+            chunker=args.chunker,
         )
     except NotebookError as exc:
         print(f"error: {exc}", file=sys.stderr)
