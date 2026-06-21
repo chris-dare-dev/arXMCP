@@ -8,12 +8,16 @@
 requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools]
-# Restrict the install graph to the actual Python packages. This is
-# the canonical fix for the "multiple top-level packages discovered
-# in a flat-layout" setuptools error. ``shim`` is added in E06_S02
-# so the ``arxmcp-shim`` console-script entry point below resolves.
-packages = ["server", "ingest", "tools", "shim"]
+[tool.setuptools.packages.find]
+# Scoped discovery over the four package trees. The ``*`` globs are
+# load-bearing: a bare list of top-level names (server, ingest, tools, shim)
+# OMITS subpackages — server.handlers, server.routes, tools.security, etc. —
+# so a built wheel raises ModuleNotFoundError at runtime (e.g. the container
+# crash on ``from tools.security.pdfid import ...``). Scoping the include to
+# these four patterns still avoids the "multiple top-level packages discovered
+# in a flat-layout" error that an unscoped find would raise on var/, infra/,
+# docker/. ``shim`` (E06_S02) carries the arxmcp-shim console-script below.
+include = ["server*", "ingest*", "tools*", "shim*"]
 
 [project.scripts]
 # E06_S02 stdio shim. Installed on $PATH by ``pip install -e .`` /

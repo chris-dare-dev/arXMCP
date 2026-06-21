@@ -27,7 +27,9 @@ var/
 tests/
 docs/
 infra/
-shim/
+# NOTE: shim/ is intentionally NOT excluded — it is a declared setuptools
+# package (arxmcp-shim console-script) that the wheel build in
+# docker/Dockerfile.server requires in the build context.
 
 # Python build / cache artifacts.
 **/__pycache__/

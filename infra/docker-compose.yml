@@ -13,6 +13,13 @@
 #
 # Mirrors the already-rectified infra/observability/phoenix-compose.yml
 # (E14_S03) — every hardening below traces to that critique.
+#
+# Explicit project name. WITHOUT this, Compose derives it from this file's
+# parent dir ("infra") — which COLLIDES with claude-otel's infra/docker-compose.yml
+# (also "infra"), so `docker compose ... --remove-orphans` on one would delete
+# the other's containers. Distinct names keep the two stacks isolated.
+name: arxmcp
+
 services:
   server:
     # Built locally from the project Dockerfile (whose FROM base images are
@@ -64,6 +71,15 @@ services:
       # fires at startup (expected; see .claude/docs/security-binding.md).
       ARXMCP_BIND_HOST: "0.0.0.0"
       ARXMCP_UNSAFE_NETWORK_BIND: "1"
+      # BOOTSTRAP_MODE: the shared/default corpus at index/lancedb/ is empty on
+      # this host — the ingested data lives in index/lancedb-staging/ (an
+      # incomplete atomic cutover) and in per-notebook corpora under
+      # notebooks/<slug>/lancedb/. Without this flag the server refuses to start
+      # (CorpusNotIngestedError). With it the server boots and serves the
+      # per-notebook corpora; the default-corpus tools stay empty until either
+      # the staging cutover is completed or `make ingest` repopulates lancedb/.
+      # This mirrors `make up-wizard`. Remove once a default corpus exists.
+      ARXMCP_BOOTSTRAP_MODE: "1"
       # NOTE: ARXMCP_CONTACT_EMAIL is intentionally NOT set here — it is an
       # ingest-tool concern (arXiv politeness), not a server config field, and
       # the server Config forbids unknown ARXMCP_* vars. The v1 ingest service

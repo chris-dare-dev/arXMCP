@@ -62,6 +62,10 @@ COPY pyproject.toml README.md ./
 COPY server/ ./server/
 COPY ingest/ ./ingest/
 COPY tools/ ./tools/
+# shim/ is a declared setuptools package (the arxmcp-shim console-script,
+# E06_S02). Without it in the build context the wheel build fails with
+# "package directory 'shim' does not exist".
+COPY shim/ ./shim/
 
 # IS1 close: build a wheel rather than ``pip install -e .``. The
 # editable install bakes ``/build`` into the venv's .pth file; when
@@ -118,6 +122,14 @@ RUN /opt/venv/bin/pip install --no-cache-dir --no-deps /wheels/*.whl \
 COPY server/ ./server/
 COPY ingest/ ./ingest/
 COPY pyproject.toml README.md ./
+
+# Operator-console assets (Jinja2 templates + vendored htmx/CSS). These are
+# DATA files, not a Python package, so the wheel does not carry them. The
+# server mounts StaticFiles(directory="/app/frontend/static") and renders
+# Jinja2 templates from /app/frontend/templates at create_app() time — without
+# this COPY the app crashes at startup with "Directory '/app/frontend/static'
+# does not exist".
+COPY frontend/ ./frontend/
 
 # Create the var/arxmcp tree. IS6: scope chown to /app/var only —
 # source tree stays root-owned (still readable to ``arxmcp``).
