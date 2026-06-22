@@ -1,0 +1,24 @@
+# arXMCP data volume (k3s-rancher-deploy-m1).
+#
+# Replaces the Compose bind-mount `../var/arxmcp:/app/var/arxmcp`. Uses k3s'
+# default `local-path` StorageClass, which provisions a hostPath PV INSIDE the
+# WSL2 VM (NOT on the Windows NTFS filesystem). Consequence: this data is
+# separate from the Compose `var/arxmcp` tree and must be backed up separately.
+#
+# `local-path` is ReadWriteOnce only — fine for the single-replica Deployment.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: arxmcp-var
+  namespace: arxmcp
+  labels:
+    app.kubernetes.io/name: arxmcp
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      # Holds the BGE-M3 weights (~2.3 GB via HF_HOME), per-notebook corpora,
+      # uploaded PDFs, caches, and the ops tree. 20Gi is a conservative start.
+      storage: 20Gi

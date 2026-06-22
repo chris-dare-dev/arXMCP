@@ -55,6 +55,9 @@ discoverability:
   version drift remediation (E10_S04).
 - [`notebook-modes.md`](notebook-modes.md) — multi-notebook
   deployment topology (per-daemon vs per-call filter).
+- [`k3s-rancher-desktop.md`](k3s-rancher-desktop.md) — deploy on
+  local k3s via Rancher Desktop on Windows (parallel to Docker
+  Compose; k3s-rancher-deploy-m1).
 - [`failure-modes.md`](failure-modes.md) — catalogue of all 9
   documented failure modes (E14_S05; this index's #2 and #3 link
   into specific anchors in this file).

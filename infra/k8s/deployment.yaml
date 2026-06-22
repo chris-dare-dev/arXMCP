@@ -1,0 +1,113 @@
+# arXMCP server Deployment (k3s-rancher-deploy-m1).
+#
+# Single-replica Deployment (NOT a StatefulSet — no stable network identity is
+# needed; the corpus lives in the PVC, not in pod identity). Reuses the SAME
+# image built by docker/Dockerfile.server (non-root UID 1000, tini PID 1,
+# EXPOSE 7733, CMD `python -m server.main`). Every securityContext / resource
+# field below mirrors the hardening already shipped in infra/docker-compose.yml.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: arxmcp-server
+  namespace: arxmcp
+  labels:
+    app.kubernetes.io/name: arxmcp
+    app.kubernetes.io/component: server
+spec:
+  replicas: 1
+  # Recreate, NOT RollingUpdate: the PVC is ReadWriteOnce, so a second (new)
+  # pod could not attach the volume while the old pod still holds it — a rolling
+  # update would deadlock. Recreate tears the old pod down first.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: arxmcp
+      app.kubernetes.io/component: server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: arxmcp
+        app.kubernetes.io/component: server
+    spec:
+      # Pod-level securityContext. fsGroup makes the kubelet chown the
+      # local-path PVC to GID 1000 on attach, so the non-root UID-1000 process
+      # can write /app/var/arxmcp (without it: PermissionError → CrashLoop).
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: server
+          # Side-loaded into k3s' containerd (see scripts/load-image.sh). Pinned
+          # local tag — NEVER :latest (CLAUDE.md §4.7). imagePullPolicy:Never
+          # stops k8s from trying to pull a non-existent registry image.
+          image: arxmcp-server:dev
+          imagePullPolicy: Never
+          ports:
+            - name: http
+              containerPort: 7733
+          envFrom:
+            - configMapRef:
+                name: arxmcp-server-env
+          # Container-level securityContext — maps Compose's cap_drop:[ALL] +
+          # no-new-privileges + a read-only root filesystem. The only writable
+          # paths are the PVC (/app/var/arxmcp) and an emptyDir (/tmp) below.
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          # Maps Compose's `mem_limit: 8g` / `cpus: 4.0`. The Rancher Desktop
+          # WSL2 VM must be given >= ~12 GB (%USERPROFILE%\.wslconfig) or BGE-M3
+          # + the reranker OOMKill — see docs/ops/k3s-rancher-desktop.md.
+          resources:
+            requests:
+              memory: "2Gi"
+              cpu: "1"
+            limits:
+              memory: "8Gi"
+              cpu: "4"
+          # Probe mapping (server/health.py): /healthz = liveness (200 once the
+          # process responds), /readyz = readiness (200 ONLY once embedder +
+          # LanceDB + reranker are warm, else 503). The startupProbe gates BOTH
+          # liveness and readiness until /readyz is green, giving the first-run
+          # BGE-M3 download (~2.3 GB) a 10-minute window (60 * 10s) before
+          # liveness can restart the pod. startupProbe uses /readyz (NOT
+          # /healthz) on purpose: /healthz returns 200 in seconds and would not
+          # protect the long warm window.
+          startupProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            failureThreshold: 60
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 15
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: var
+              mountPath: /app/var/arxmcp
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: var
+          persistentVolumeClaim:
+            claimName: arxmcp-var
+        # /tmp must be writable under readOnlyRootFilesystem:true (tini + Python
+        # temp files). emptyDir is ephemeral — correct for scratch space.
+        - name: tmp
+          emptyDir: {}

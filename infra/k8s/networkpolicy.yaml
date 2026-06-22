@@ -1,0 +1,35 @@
+# arXMCP ingress restriction (k3s-rancher-deploy-m1).
+#
+# Default-deny ingress to the arxmcp server pod EXCEPT TCP/7733. Because the
+# server is reached via a NodePort, incoming traffic is masqueraded by
+# kube-proxy and its source is not a labelled pod — so this policy intentionally
+# allows TCP/7733 from any source and denies everything else to the pod. Egress
+# is intentionally UNRESTRICTED: the server must reach huggingface.co on first
+# run to download the BGE-M3 weights (~2.3 GB), and arXiv/OpenAlex/INSPIRE for
+# ingest — an egress lockdown would break the first-boot model download.
+#
+# ENFORCEMENT NOTE: k3s enforces NetworkPolicy out of the box via its EMBEDDED
+# kube-router network-policy controller (this is k3s-specific — plain upstream
+# Flannel does NOT enforce NetworkPolicy). VERIFY enforcement on the specific
+# Rancher Desktop k3s build at deploy time (`kubectl get pods -n kube-system`
+# should show kube-router, or netpol is a no-op). Regardless of CNI, the PRIMARY
+# defense for this single-node single-user cluster is the host-boundary 127.0.0.1
+# NodePort forward — the NetworkPolicy is defense-in-depth / intent.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: arxmcp-server-ingress
+  namespace: arxmcp
+  labels:
+    app.kubernetes.io/name: arxmcp
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: arxmcp
+      app.kubernetes.io/component: server
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 7733

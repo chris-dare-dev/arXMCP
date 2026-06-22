@@ -1,0 +1,40 @@
+# arXMCP server environment (k3s-rancher-deploy-m1).
+#
+# Mirrors the `environment:` block of infra/docker-compose.yml. Every ARXMCP_*
+# key here MUST be a declared field in server/config.py — the server's
+# pydantic-settings model uses env_prefix="ARXMCP_" + extra="forbid", so an
+# UNKNOWN ARXMCP_* var crashes the pod at startup (ValidationError). The static
+# test tests/test_k8s_manifests.py asserts this cross-check.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: arxmcp-server-env
+  namespace: arxmcp
+  labels:
+    app.kubernetes.io/name: arxmcp
+data:
+  # --- Server bind (verbatim rationale from infra/docker-compose.yml) ---
+  # 0.0.0.0 is correct INSIDE the cluster — kube-proxy / the Service forwards to
+  # the pod's 0.0.0.0 listener. The "localhost-only" defense lives at the HOST
+  # boundary: Rancher Desktop forwards the NodePort to 127.0.0.1 (non-admin
+  # install). The server's config validator (server/config.py::
+  # reject_non_loopback_bind) REJECTS a non-loopback bind at parse time UNLESS
+  # ARXMCP_UNSAFE_NETWORK_BIND=1 — so BOTH vars are required, or the pod
+  # CrashLoopBackOffs at startup. A WARN log about the non-loopback bind is
+  # expected (see .claude/notes/08-security-observability-ops.md).
+  ARXMCP_BIND_HOST: "0.0.0.0"
+  ARXMCP_UNSAFE_NETWORK_BIND: "1"
+  # BOOTSTRAP_MODE: boot with an EMPTY default corpus and serve per-notebook
+  # corpora (mirrors `make up-wizard` and the compose default). Without it the
+  # server refuses to start (CorpusNotIngestedError) on an empty PVC. Remove
+  # once a default corpus is ingested into the PVC at index/lancedb/.
+  ARXMCP_BOOTSTRAP_MODE: "1"
+  # --- HuggingFace cache redirect (NOT ARXMCP_-prefixed → server config ignores
+  # these; they are plain process env consumed by transformers/sentence-
+  # transformers). REQUIRED because the pod runs readOnlyRootFilesystem:true:
+  # the default cache at /home/arxmcp/.cache/huggingface is unwritable, so the
+  # first-run BGE-M3 download (~2.3 GB) would crash with
+  # "OSError: [Errno 30] Read-only file system". Pinning it onto the PVC also
+  # means the weights survive pod restarts (an emptyDir re-downloads each time).
+  HF_HOME: "/app/var/arxmcp/hf-cache"
+  TRANSFORMERS_CACHE: "/app/var/arxmcp/hf-cache"

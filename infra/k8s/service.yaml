@@ -1,0 +1,31 @@
+# arXMCP server Service (k3s-rancher-deploy-m1).
+#
+# NodePort — NOT a Traefik Ingress. Rationale (research-synthesis.md §3): the
+# k3s Traefik LoadBalancer binds the WSL2 node's LAN IP and listens on port 80,
+# which (a) is LAN-reachable — a loopback-only threat-model regression — and
+# (b) mismatches the shim's :7733 target. A NodePort is forwarded by Rancher
+# Desktop to 127.0.0.1:<nodePort> on the Windows host (non-admin install),
+# keeping the host endpoint on loopback.
+#
+# nodePort 30733 is fixed (in the 30000-32767 NodePort range) so the operator
+# can point the stdio shim at a stable URL. The shim's --server in
+# ~/.claude.json MUST be updated to http://127.0.0.1:30733 (it defaults to
+# :7733) — see docs/ops/k3s-rancher-desktop.md.
+apiVersion: v1
+kind: Service
+metadata:
+  name: arxmcp-server
+  namespace: arxmcp
+  labels:
+    app.kubernetes.io/name: arxmcp
+spec:
+  type: NodePort
+  selector:
+    app.kubernetes.io/name: arxmcp
+    app.kubernetes.io/component: server
+  ports:
+    - name: http
+      port: 7733
+      targetPort: http
+      nodePort: 30733
+      protocol: TCP

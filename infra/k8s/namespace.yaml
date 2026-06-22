@@ -1,0 +1,11 @@
+# arXMCP — Kubernetes namespace (k3s-rancher-deploy-m1).
+#
+# Single namespace for the whole local k3s deployment. All other manifests in
+# this directory are namespaced to `arxmcp`.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: arxmcp
+  labels:
+    app.kubernetes.io/name: arxmcp
+    app.kubernetes.io/part-of: arxmcp
