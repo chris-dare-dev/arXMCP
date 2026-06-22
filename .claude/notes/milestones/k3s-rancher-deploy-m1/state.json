@@ -1,0 +1,132 @@
+{
+  "brief_source": ".claude/notes/milestones/k3s-rancher-deploy-m1/brief.md",
+  "created_at": "2026-06-22T02:59:50Z",
+  "critics_run": [
+    {
+      "critic": "adversary",
+      "output_path": ".claude/notes/milestones/k3s-rancher-deploy-m1/critique-adversary.md",
+      "summary": "SHIP-WITH-FIXES; 4 MED 3 LOW"
+    },
+    {
+      "critic": "infra-safety",
+      "output_path": ".claude/notes/milestones/k3s-rancher-deploy-m1/critique-infra-safety.md",
+      "summary": "SHIP-WITH-FIXES; 1 MED 1 LOW"
+    }
+  ],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "low": 4,
+    "medium": 5
+  },
+  "critique_path": ".claude/notes/milestones/k3s-rancher-deploy-m1/critique-merged.md",
+  "deferred_findings": [],
+  "external_writes_authorized": true,
+  "external_writes_completed": false,
+  "external_writes_required": [
+    {
+      "target": "local k3s containerd (k8s.io ns)",
+      "type": "container_image_build_load",
+      "why": "make arxmcp-server image visible to k3s without a registry; post Rancher Desktop install; out of implement scope"
+    },
+    {
+      "target": "local k3s cluster (Rancher Desktop)",
+      "type": "kubectl_apply",
+      "why": "deploy infra/k8s manifests; GATED; out of implement scope (post-install)"
+    },
+    {
+      "target": "origin/main",
+      "type": "git_push",
+      "why": "land milestone commits; GATED per-event"
+    }
+  ],
+  "fixed_findings": [
+    "F1",
+    "F2",
+    "F3",
+    "F4",
+    "F5",
+    "F6",
+    "F7",
+    "IS1",
+    "IS2"
+  ],
+  "id": "k3s-rancher-deploy-m1",
+  "implementation_base": "df36de82e8bb558b824938fcc9bca9ffad75f0f8",
+  "implementation_branch": "main",
+  "implementation_commit_range": "df36de82e8bb558b824938fcc9bca9ffad75f0f8..e8601c9a88f181d2db5187b08f500c6cde22147c",
+  "implementation_commits": [
+    "e8601c9a88f181d2db5187b08f500c6cde22147c"
+  ],
+  "implementation_path": "inline",
+  "implementation_specialist": null,
+  "invalidated_findings": [],
+  "milestone_brief": "### k3s-rancher-deploy-m1 \u2014 Kubernetes (k3s via Rancher Desktop) deployment path for arXMCP on Windows\n\n#### Goal\n\nAdd a **parallel, additive** Kubernetes deployment path that runs the existing\n`arxmcp-server` container on a local single-node **k3s** cluster provided by\n**Rancher Desktop on Windows (WSL2 backend)**. Today the only containerized path\nis the server-only Docker Compose stack (`infra/docker-compose.yml` +\n`docker/Dockerfile.server`, landed in commit `df36de8`). No Kubernetes manifests\nexist. This milestone translates that Compose service to k8s manifests under\n`infra/k8s/`, adds a build/load script to get the locally-built image into k3s'\ncontainerd (no external registry), and writes operator docs. The existing Compose\npath MUST stay working and untouched \u2014 this is purely additive.\n\n#### Operator environment (verified this session)\n\n- Windows 11; Docker Desktop 29.1.3 + Compose v2.40.3 already installed; WSL2 with\n  a Debian distro. Rancher Desktop is **not yet installed** \u2014 operator will install\n  it (with k3s enabled) as a prerequisite. Live `kubectl apply` is therefore OUT OF\n  SCOPE for the implement phase and is gated as an external write (runs after\n  Rancher Desktop is up).\n- No `make` on Windows. The project check command for this milestone is\n  `ruff check . && uv run python -m pytest` (uv 0.11.15 present). Do NOT use the\n  macOS-hardcoded `/Users/chris.dare/...uv` path from the command body.\n- ~60 tests fail on Windows for platform reasons (symlinks, killpg, colons-in-\n  filenames) \u2014 these are pre-existing, NOT regressions. The milestone's OWN new\n  tests must pass.\n- GPG signing is broken on this workstation (no secret key in keyring). Pipeline\n  commits land **unsigned after explicit user OK** \u2014 surface this at commit time.\n  Never `--no-verify`.\n\n#### Exposure decision (operator-chosen \u2014 load-bearing)\n\nThe operator explicitly chose **Traefik Ingress / NodePort** over\n`kubectl port-forward`, accepting a broader-than-Compose exposure for an always-on\nservice. The implementation MUST therefore minimize the residual exposure:\n\n- Rancher Desktop forwards published/Traefik ports to the Windows host \u2014 **verify\n  and document** that this binds to `127.0.0.1` by default (and how to keep it\n  loopback, not LAN). The stdio shim connects to `http://127.0.0.1:7733`, so the\n  host-boundary endpoint must land on loopback.\n- Add a `NetworkPolicy` constraining ingress to the pod to the Traefik / ingress\n  path only (default-deny otherwise).\n- Document the **residual exposure delta vs Compose's strict `127.0.0.1:` host\n  bind**, in the threat-model terms of `08-security-observability-ops.md`.\n\n#### Acceptance criteria\n\n1. `infra/k8s/` holds manifests: Namespace, ConfigMap (the `ARXMCP_*` env), a\n   workload (Deployment + dedicated PVC \u2014 single replica; justify if StatefulSet is\n   chosen instead), Service (ClusterIP), Traefik Ingress (or NodePort per the\n   exposure decision), and a default-deny + Traefik-allow NetworkPolicy.\n2. Pod `securityContext` mirrors the Compose hardening: `runAsNonRoot: true`,\n   `runAsUser/runAsGroup: 1000`, `allowPrivilegeEscalation: false`,\n   `capabilities.drop: [ALL]`, `seccompProfile: RuntimeDefault`,\n   `readOnlyRootFilesystem: true` with the writable PVC mounted at\n   `/app/var/arxmcp` and `fsGroup: 1000` so the non-root user can write it.\n3. Probes map the Dockerfile/compose healthcheck semantics: a `startupProbe` that\n   covers the first-run BGE-M3 download (~2.3 GB / up to ~5 min) gating liveness,\n   `readinessProbe` on `/readyz`, `livenessProbe` on `/healthz`.\n4. `resources.requests/limits` map `mem_limit: 8g` / `cpus: 4.0`. Document the\n   Rancher Desktop WSL2 VM RAM requirement (allocate \u2265 ~10 GB or the pod OOMKills\n   under BGE-M3 + reranker + LanceDB).\n5. PVC uses the k3s default `local-path` StorageClass for `var/arxmcp`. ConfigMap\n   sets `ARXMCP_BOOTSTRAP_MODE=1` + `ARXMCP_BIND_HOST=0.0.0.0` +\n   `ARXMCP_UNSAFE_NETWORK_BIND=1` (the in-cluster 0.0.0.0 bind requires the unsafe\n   flag \u2014 `server/config.py::reject_non_loopback_bind` \u2014 exactly as Compose does),\n   so the server boots with an empty default corpus and serves per-notebook corpora.\n6. Image strategy: a documented build/load script that makes the locally-built image\n   visible to k3s' containerd WITHOUT an external registry (e.g.\n   `nerdctl --namespace k8s.io build`, or `docker build` + `docker save | ...\n   import`/`ctr image import`). Use `imagePullPolicy: Never` + a pinned local tag\n   (no `:latest`). Provide both containerd- and dockerd-runtime paths or detect the\n   Rancher Desktop runtime mode. Respect the no-fork policy.\n7. Host reaches the service at `127.0.0.1:<port>`; NetworkPolicy restricts cluster-\n   internal reach; residual-exposure delta vs Compose documented.\n8. Static validation in `tests/`: a pytest that parses every `infra/k8s/*.yaml` and\n   asserts the load-bearing invariants \u2014 securityContext fields present, no `:latest`\n   image tags, image pin present, resource limits set, the `ARXMCP_UNSAFE_NETWORK_BIND`\n   + bootstrap env present, NetworkPolicy present. `kubeconform`/`kubeval` may be an\n   optional skipped check if the binary is absent. New tests pass under the Windows\n   check command.\n9. Operator docs: a runbook (operator-facing) covering Rancher Desktop install, the\n   Docker Desktop \u2194 Rancher Desktop coexistence caveat (Rancher wants to own the\n   docker/kubectl context), the build/load step, `kubectl apply`, verify (`/readyz`),\n   the WSL2 RAM requirement, and the security delta. Respect doc placement\n   (CLAUDE.md \u00a71): operator-facing runbooks live under `docs/ops/` (linked from\n   `docs/README.md` / `docs/ops/README.md`); agent-internal design notes go under\n   `.claude/`. No stray Markdown in `infra/` beyond README/CLAUDE.\n10. Compose path untouched and still green. Additive only.\n\n#### Constraints to quote and respect\n\n- **Doc placement** (CLAUDE.md \u00a71 + \u00a74.6): `infra/k8s/*.yaml` is fine (non-Markdown);\n  operator docs go in `docs/ops/`, internal notes in `.claude/`.\n- **Loopback-only threat model** \u2014 `.claude/notes/08-security-observability-ops.md`.\n  The pod binds `0.0.0.0` inside the cluster (cluster-internal only) and needs\n  `ARXMCP_UNSAFE_NETWORK_BIND=1`, identical to the Compose rationale in\n  `infra/docker-compose.yml`. The host-side loopback defense is provided by Rancher\n  Desktop's port-forward binding to `127.0.0.1` (verify) rather than Compose's\n  `127.0.0.1:` ports prefix.\n- **No-fork policy** (CLAUDE.md \u00a74.7) \u2014 ideas only, no lifted manifests.\n- **Local-first / single-workstation** \u2014 no cloud, no external registry, no\n  multi-host dependency.\n- **MCP server design** \u2014 `.claude/notes/06-mcp-server-design.md`; the stdio shim\n  stays on the host (not in k8s) and targets `http://127.0.0.1:7733`.\n- **Container hygiene already established** in `docker/Dockerfile.server`: base image\n  pinned by `@sha256`, non-root UID 1000, tini PID 1, `EXPOSE 7733`, HEALTHCHECK on\n  `/readyz`. Reuse the SAME image; do not rebuild a different one.\n\n#### Open questions for the implementer\n\n- Deployment + RWO PVC (single replica) vs StatefulSet \u2014 recommend Deployment+PVC\n  unless stable network identity is needed; justify the pick.\n- Rancher Desktop runtime mode (containerd `nerdctl` vs dockerd `moby`) changes the\n  image-load command \u2014 handle both or detect.\n- Whether to also template `ARXMCP_NOTEBOOK=<slug>` (serve an ingested notebook) as\n  a documented alternative to bootstrap-empty mode.\n- Ingress host/path: Traefik default ingress on `127.0.0.1` with a path prefix, vs a\n  NodePort \u2014 pick the one that most cleanly lands on `127.0.0.1:7733`-equivalent for\n  the shim, and document the shim `--server` URL change if the port differs.\n\n#### External writes the implementation will require\n\n- `{type: container image build/load, target: local k3s containerd, why: make the\n  arxmcp-server image visible to k3s without a registry}` \u2014 local, but note it.\n- `{type: kubectl apply, target: local k3s cluster (Rancher Desktop), why: deploy the\n  manifests}` \u2014 GATED; runs after Rancher Desktop is installed. Out of scope for the\n  implement phase (manifests are authored + statically validated only).\n- `{type: git push, target: origin/main, why: land the milestone commits}` \u2014 GATED.",
+  "phase": "complete",
+  "phase_history": [
+    {
+      "entered_at": "2026-06-22T02:59:50Z",
+      "left_at": "2026-06-22T03:01:17Z",
+      "phase": "init"
+    },
+    {
+      "entered_at": "2026-06-22T03:01:17Z",
+      "left_at": "2026-06-22T03:11:24Z",
+      "phase": "research-running"
+    },
+    {
+      "entered_at": "2026-06-22T03:11:24Z",
+      "left_at": "2026-06-22T03:11:55Z",
+      "phase": "research-complete"
+    },
+    {
+      "entered_at": "2026-06-22T03:11:55Z",
+      "left_at": "2026-06-22T03:30:50Z",
+      "phase": "implement-running"
+    },
+    {
+      "entered_at": "2026-06-22T03:30:50Z",
+      "left_at": "2026-06-22T03:31:22Z",
+      "phase": "implement-complete"
+    },
+    {
+      "entered_at": "2026-06-22T03:31:22Z",
+      "left_at": "2026-06-22T03:38:13Z",
+      "phase": "critique-running"
+    },
+    {
+      "entered_at": "2026-06-22T03:38:13Z",
+      "left_at": "2026-06-22T03:39:22Z",
+      "phase": "critique-complete"
+    },
+    {
+      "entered_at": "2026-06-22T03:39:22Z",
+      "left_at": "2026-06-22T04:18:16Z",
+      "phase": "rectify-running"
+    },
+    {
+      "entered_at": "2026-06-22T04:18:16Z",
+      "left_at": null,
+      "phase": "complete"
+    }
+  ],
+  "rectification_commit": "61426e093d1e48423c9a7f79b1b9e8031f90171b",
+  "regression_tests_added": [
+    "tests/test_k8s_manifests.py"
+  ],
+  "research_briefs": [
+    {
+      "agent_id": "researcher-1",
+      "brief_path": ".claude/notes/milestones/k3s-rancher-deploy-m1/research-brief-1.md",
+      "summary": "in-codebase first; NodePort over Traefik; full manifest plan"
+    },
+    {
+      "agent_id": "researcher-2",
+      "brief_path": ".claude/notes/milestones/k3s-rancher-deploy-m1/research-brief-2.md",
+      "summary": "external+10 failure modes; HF_HOME critical; Flannel/netpol flag"
+    }
+  ],
+  "research_mode": "standard",
+  "research_synthesis": ".claude/notes/milestones/k3s-rancher-deploy-m1/research-synthesis.md",
+  "updated_at": "2026-06-22T04:18:16Z"
+}
