@@ -8,6 +8,13 @@ on that binary being on PATH.
 The live ``kubectl apply`` → ``/readyz`` 200 is operator-acceptance (it builds
 the image + downloads BGE-M3 ~2.3 GB) and is documented in
 ``docs/ops/k3s-rancher-desktop.md``, NOT run here.
+
+RUNTIME-UNVERIFIED (F3): these assertions prove the manifests are AUTHORED
+correctly (fields present, well-typed) — NOT that the pod BOOTS. In particular
+``readOnlyRootFilesystem: true`` is exercised for the first time here (Compose
+never set ``--read-only``); whether every writable path is covered is
+operator-acceptance via the gated ``kubectl apply`` → ``/readyz`` step
+(runbook §5/§8), not provable statically.
 """
 
 from __future__ import annotations
@@ -86,6 +93,11 @@ def test_configmap_required_env_present() -> None:
     assert data.get("ARXMCP_BOOTSTRAP_MODE") == "1"
     assert data.get("HF_HOME"), "HF_HOME must redirect the HF cache onto the PVC"
     assert data["HF_HOME"].startswith("/app/var/arxmcp/")
+    # F1: non-HF cache writers must also be redirected off the read-only rootfs.
+    assert data.get("XDG_CACHE_HOME", "").startswith("/app/var/arxmcp/"), (
+        "XDG_CACHE_HOME must redirect ~/.cache off the read-only rootfs (F1)"
+    )
+    assert data.get("MPLCONFIGDIR"), "MPLCONFIGDIR must redirect matplotlib config (F1)"
 
 
 def test_configmap_arxmcp_keys_are_real_config_fields() -> None:
@@ -125,6 +137,11 @@ def test_deployment_security_context() -> None:
     assert pod_sc["runAsGroup"] == 1000
     assert pod_sc["fsGroup"] == 1000, "fsGroup chowns the local-path PVC (FM-B)"
     assert pod_sc["seccompProfile"]["type"] == "RuntimeDefault"
+    # F2 / IS1 (cross-critic): the unused default ServiceAccount token must not
+    # be auto-mounted — standing blast radius on a process compromise.
+    assert (
+        dep["spec"]["template"]["spec"].get("automountServiceAccountToken") is False
+    ), "automountServiceAccountToken must be False (F2/IS1)"
 
     for c in _containers(dep):
         csc = c["securityContext"]

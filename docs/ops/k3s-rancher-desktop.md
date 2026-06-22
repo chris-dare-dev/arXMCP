@@ -1,9 +1,9 @@
 ---
 project: arxmcp
-type: runbook
+type: doc
 tags:
 - project/arxmcp
-- type/runbook
+- type/doc
 ---
 
 # Deploy arXMCP on k3s via Rancher Desktop (Windows)
@@ -94,6 +94,14 @@ tarball into k3s' containerd. Verify:
 nerdctl --namespace k8s.io images | grep arxmcp-server   # expect arxmcp-server:dev
 ```
 
+> **Airgap-dir caveat (rebuilds).** If the loader falls back to the k3s airgap
+> dir (`/var/lib/rancher/k3s/agent/images/`), k3s auto-imports **every** tarball
+> there on each (re)start. The loader removes prior `arxmcp-server*.tar` before
+> copying, but because the tag `arxmcp-server:dev` is reused across builds, after
+> a rebuild always force the pod onto the new image with
+> `kubectl -n arxmcp rollout restart deploy/arxmcp-server` — otherwise a cached
+> image can shadow your rebuild ("I rebuilt but it runs old code").
+
 ## 5. Apply the manifests
 
 ```sh
@@ -140,6 +148,9 @@ instead — know them:
    not). Verify enforcement on your build: `kubectl get pods -n kube-system`
    should list a kube-router pod. On a single-node single-user cluster this is
    defense-in-depth; the host-boundary forward above is the primary control.
+   **Egress is intentionally unrestricted** — the policy constrains *ingress*
+   only, because the server must reach huggingface.co (BGE-M3 download) and
+   arXiv/OpenAlex/INSPIRE (ingest). "Default-deny" refers to ingress.
 
 The pod binds `0.0.0.0` **inside** the cluster (required; `ARXMCP_UNSAFE_NETWORK_BIND=1`
 acknowledges it) exactly as the Compose container does — a WARN log at startup is
@@ -156,6 +167,8 @@ expected.
 | Pod restarts in a loop on first deploy | warm window too short | the `startupProbe` allows 10 min; check `kubectl -n arxmcp describe pod` events |
 | Container exits, `ValidationError ... Extra inputs are not permitted` | unknown `ARXMCP_*` var in ConfigMap | every `ARXMCP_*` key must be a `server/config.py` field; remove the stray var |
 | `curl 127.0.0.1:30733` refused | shim/URL or forward | confirm NodePort 30733; check Rancher Desktop port-forward; verify `kubectl get svc -n arxmcp` |
+| Pod `CrashLoopBackOff`, `Read-only file system` on a **non-HF** path (e.g. `~/.cache/fontconfig`) | a library writes under `$HOME` outside the HF cache | `XDG_CACHE_HOME`/`MPLCONFIGDIR` cover the common cases (set by default); add the new path to `configmap.yaml`. The static tests prove authoring only — this read-only boot is verified at `kubectl apply` (§5), not by `pytest`. |
+| Rebuilt the image but the pod runs old code | stale tarball in the k3s airgap dir, or a cached image under the reused `:dev` tag | the loader pre-cleans `arxmcp-server*.tar`; force the new image with `kubectl -n arxmcp rollout restart deploy/arxmcp-server` |
 
 ### Teardown
 

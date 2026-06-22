@@ -40,8 +40,11 @@ if command -v nerdctl >/dev/null 2>&1; then
   echo ">> nerdctl found → building into containerd namespace k8s.io"
   nerdctl --namespace k8s.io build -t "$IMAGE" -f "$DOCKERFILE" "$REPO_ROOT"
   echo ">> verifying image is present in k8s.io:"
-  nerdctl --namespace k8s.io images | grep -E "(^|/)${IMAGE%%:*}\b" || {
-    echo "ERROR: build reported success but image not listed in k8s.io ns." >&2; exit 1; }
+  # `image inspect` is an exact existence check — robust across nerdctl output
+  # formats (a `grep` over the table can false-negative if the repo column is
+  # registry-prefixed or padded differently).
+  nerdctl --namespace k8s.io image inspect "$IMAGE" >/dev/null 2>&1 || {
+    echo "ERROR: build reported success but $IMAGE not in k8s.io ns." >&2; exit 1; }
 elif command -v docker >/dev/null 2>&1; then
   # dockerd (moby) mode. Build with docker, then import the tarball into k3s'
   # containerd k8s.io namespace via `ctr` (needs the k3s socket; usually root).
@@ -57,8 +60,15 @@ elif command -v docker >/dev/null 2>&1; then
     # Airgap fallback: drop the tarball where k3s auto-imports it on (re)start.
     AIRGAP_DIR="/var/lib/rancher/k3s/agent/images"
     echo ">> ctr/k3s socket unavailable → airgap-dir fallback: $AIRGAP_DIR"
-    echo "   (writing there needs root; k3s auto-imports on its next start)"
+    # IS2: this LAST-RESORT branch (no nerdctl, no ctr/socket) needs root to
+    # write the root-owned k3s airgap dir — there is no non-sudo alternative.
+    # You are authorizing a write under /var/lib/rancher; review before approving.
+    # F4: remove any PRIOR arxmcp-server*.tar first — k3s auto-imports EVERY tar
+    # in this dir on each (re)start, so a stale tarball would silently shadow this
+    # build under the reused arxmcp-server:dev tag ("I rebuilt but it runs old code").
+    echo "   (needs root; k3s auto-imports ALL tarballs here on its next start)"
     sudo mkdir -p "$AIRGAP_DIR"
+    sudo rm -f "$AIRGAP_DIR"/arxmcp-server*.tar
     sudo cp "$TARBALL" "$AIRGAP_DIR/arxmcp-server.tar"
     echo "   placed tarball; restart k3s (or Rancher Desktop) to import it."
   fi

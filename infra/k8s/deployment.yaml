@@ -30,6 +30,11 @@ spec:
         app.kubernetes.io/name: arxmcp
         app.kubernetes.io/component: server
     spec:
+      # The server makes NO Kubernetes API calls — do not mount the default
+      # ServiceAccount token. An unused, mounted API credential is standing
+      # blast radius on a process compromise (e.g. a hostile uploaded PDF in the
+      # parse path). This is the k8s-native analogue of Compose's cap_drop:[ALL].
+      automountServiceAccountToken: false
       # Pod-level securityContext. fsGroup makes the kubelet chown the
       # local-path PVC to GID 1000 on attach, so the non-root UID-1000 process
       # can write /app/var/arxmcp (without it: PermissionError → CrashLoop).

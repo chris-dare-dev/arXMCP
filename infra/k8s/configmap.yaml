@@ -38,3 +38,10 @@ data:
   # means the weights survive pod restarts (an emptyDir re-downloads each time).
   HF_HOME: "/app/var/arxmcp/hf-cache"
   TRANSFORMERS_CACHE: "/app/var/arxmcp/hf-cache"
+  # readOnlyRootFilesystem hardening BEYOND HuggingFace: HOME=/home/arxmcp is on
+  # the read-only root FS, so ANY non-HF library that writes under ~/.cache or
+  # ~/.config (fontconfig, matplotlib, torch hub) would crash with EROFS. Point
+  # the XDG cache at the PVC and matplotlib's config at the writable /tmp
+  # emptyDir. Both are non-ARXMCP_-prefixed → ignored by server/config.py.
+  XDG_CACHE_HOME: "/app/var/arxmcp/.cache"
+  MPLCONFIGDIR: "/tmp/mpl"
