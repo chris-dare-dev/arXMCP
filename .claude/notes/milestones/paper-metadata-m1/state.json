@@ -1,0 +1,81 @@
+{
+  "id": "paper-metadata-m1",
+  "created_at": "2026-07-06T02:37:30Z",
+  "updated_at": "2026-07-06T03:50:51Z",
+  "phase": "rectify-running",
+  "phase_history": [
+    {
+      "phase": "init",
+      "at": "2026-07-06T02:37:30Z"
+    },
+    {
+      "phase": "research-running",
+      "at": "2026-07-06T02:38:12Z"
+    },
+    {
+      "phase": "research-complete",
+      "at": "2026-07-06T03:10:40Z"
+    },
+    {
+      "phase": "implement-running",
+      "at": "2026-07-06T03:10:40Z"
+    },
+    {
+      "phase": "implement-complete",
+      "at": "2026-07-06T03:32:12Z"
+    },
+    {
+      "phase": "critique-running",
+      "at": "2026-07-06T03:32:12Z"
+    },
+    {
+      "phase": "critique-complete",
+      "at": "2026-07-06T03:50:51Z"
+    },
+    {
+      "phase": "rectify-running",
+      "at": "2026-07-06T03:50:51Z"
+    }
+  ],
+  "milestone_brief": "# Milestone brief \u2014 paper-metadata-m1\r\n\r\n**Title:** Existing notebook hydrated with arXiv metadata\r\n**Kind:** milestone\r\n**Roadmap:** paper-metadata (plans/paper-metadata/roadmap.yaml)\r\n**Status:** planned\r\n**Lane:** now\r\n**Target:** 2026-07-06 -> 2026-07-17\r\n\r\n## Parent epic\r\n\r\n- paper-metadata-e1 \u2014 Metadata store + arXiv hydration\r\n  Per-notebook papers metadata store (SQLite, notebooks_store.py pattern) hydrated from the arXiv Atom API via tools/_arxiv_api.py at ingest, plus a backfill driver for already-populated notebooks \u2014 one vertical slice from external source to on-disk store, observable via a hydrated bridgeland-stability notebook.\r\n\r\n## Summary\r\n\r\n(none in roadmap \u2014 derive scope from the acceptance criteria)\r\n\r\n## Acceptance criteria\r\n\r\n1. Given the bridgeland-stability notebook, when the backfill driver runs, then >=95% of its arxiv-kind paper_ids have a metadata row with non-NULL title and authors\r\n2. Given a hydrated store, when the process restarts and the store is reopened cold, then metadata is served without touching the chunks table\r\n\r\n## Depends on\r\n\r\n- paper-metadata-spike-1 \u2014 Atom API field coverage across corpus ID shapes [status: planned]",
+  "brief_source": "roadmap plans/paper-metadata/roadmap.yaml",
+  "research_mode": "standard",
+  "oss_scout_requested": false,
+  "allow_large_diff": false,
+  "research_briefs": [
+    ".claude/notes/milestones/paper-metadata-m1/research/brief-1.md",
+    ".claude/notes/milestones/paper-metadata-m1/research/brief-2.md"
+  ],
+  "research_synthesis": ".claude/notes/milestones/paper-metadata-m1/research/synthesis.md",
+  "implementation_path": null,
+  "implementation_plan": null,
+  "implementation_base": "b97e1a227fbd0d6d411eeb181fa002eb8f7e783f",
+  "implementation_commit_range": "b97e1a2..9caaab8",
+  "implementation_commits": [
+    "7e4a179",
+    "9ed5f59",
+    "f1a2995",
+    "9caaab8"
+  ],
+  "implementation_branch": null,
+  "external_writes_required": [
+    "git push origin main"
+  ],
+  "critique_path": ".claude/notes/milestones/paper-metadata-m1/critique/adversary.md",
+  "critics_run": [
+    "milestone-adversary-critic"
+  ],
+  "critique_finding_counts": {
+    "critical": 1,
+    "high": 2,
+    "medium": 3,
+    "low": 3
+  },
+  "rectification_commit": null,
+  "fixed_findings": [],
+  "deferred_findings": [],
+  "invalidated_findings": [],
+  "regression_tests_added": [],
+  "external_writes_authorized": [],
+  "external_writes_completed": []
+}

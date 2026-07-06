@@ -282,10 +282,11 @@ def run(
     ``notebook_fetch.run`` convention); production callers pass only
     ``slug``. Returns the process exit code.
     """
-    # Run-entry politeness enforcement: raises NotebookError with the
+    # Slug validation is the FIRST check (per _notebook_common convention),
+    # then run-entry politeness enforcement: raises NotebookError with the
     # canonical `make init EMAIL=…` remediation if no source has one.
-    contact_email = resolve_contact_email(None)
     validate_slug(slug)
+    contact_email = resolve_contact_email(None)
     nb_dir = notebook_dir(slug, base=base)
     raw_lines = read_paper_ids_from_papers_txt(nb_dir / "papers.txt")
 
@@ -313,12 +314,16 @@ def run(
         )
     )
 
-    # Summary line — hydrated/total keeps a zero-row run loud.
+    # Summary line — hydrated/total keeps a zero-row run loud. `unique` is
+    # the deduped, version-stripped denominator the AC1 coverage gate is
+    # measured against (hydrated + skipped + missing == unique); `total`
+    # stays the raw uncommented papers.txt line count.
     print(
         f"hydrated={len(hydrated)} "
         f"skipped={len(skipped)} "
         f"missing={len(missing)} "
         f"malformed={len(malformed)} "
+        f"unique={len(valid_ids)} "
         f"total={len(raw_lines)}"
     )
     if malformed:

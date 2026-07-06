@@ -106,7 +106,7 @@ this Windows checkout (no signing key present here); flagged for Phase 3/4.
 
 ## Test deltas
 
-- +43 tests across 3 new files (18 store / 21 mapper+builder / 24 driver — 43 total
+- +43 tests across 3 new files (9 store / 20 mapper+builder / 14 driver — 43 total
   as collected); 0 existing tests modified.
 
 ## Check gate results

@@ -403,8 +403,11 @@ Things that LOOK shipped but aren't fully wired — don't be surprised:
   TED-based equation index lands in E10_S03.
 - **`find_lemma_by_name`** is an in-memory substring scan; FTS5 swap is
   E10_S02.
-- **`get_paper`** returns NULL for `authors`/`title`/`abstract`/`year`/
-  `categories` — no `papers` metadata table at v1.
+- **`get_paper`** still returns NULL for `authors`/`title`/`abstract`/`year`/
+  `categories` — the per-notebook metadata store now exists
+  (`server/paper_metadata_store.py` → `var/arxmcp/notebooks/<slug>/paper_metadata.db`,
+  hydrated via `tools/notebook_metadata_backfill.py`; shipped in
+  paper-metadata-m1) but the handler is only wired to it in paper-metadata-m2.
 - **`embedding_eq` column** on `chunks` is reserved and always NULL (E10).
 - **`make ingest`** is a stub that exits 1 with a redirect to
   `tools/curate_seed.py` + `tools/fetch_seed.py`. The production ingest

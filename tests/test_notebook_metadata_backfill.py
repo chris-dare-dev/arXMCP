@@ -162,6 +162,11 @@ class TestHappyPath:
         assert exit_code == 0
         tokens = capsys.readouterr().out.split()
         assert "hydrated=1" in tokens
+        # `unique` is the deduped denominator the AC1 gate reads; `total`
+        # stays the raw line count. hydrated + skipped + missing == unique.
+        assert "unique=1" in tokens
+        assert "skipped=0" in tokens
+        assert "missing=0" in tokens
         assert "total=2" in tokens
         assert _store_get(base, "2307.01156") is not None
 
@@ -241,6 +246,31 @@ class TestPoliteness:
         # The 0-second Retry-After is clamped up to the default.
         assert DEFAULT_503_BACKOFF_SECONDS in sleeps
         assert 0.0 not in sleeps
+
+    def test_non_retryable_http_gives_up_after_one_attempt(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys,
+    ) -> None:
+        """Non-retryable statuses (e.g. 400) must degrade to a per-id miss
+        after exactly one attempt — never burn the retry budget on them."""
+        base = _make_notebook(tmp_path, "2307.00001\n")
+        attempts: list[int] = []
+
+        def _stub(url: str, contact_email: str | None = None) -> bytes:
+            attempts.append(1)
+            raise urllib.error.HTTPError(
+                url, 400, "Bad Request", email.message.Message(), None,
+            )
+
+        monkeypatch.setattr(_arxiv_api, "_fetch_url", _stub)
+        _patch_email(monkeypatch)
+
+        exit_code = notebook_metadata_backfill.run(
+            SLUG, base=base, sleep=lambda _s: None,
+        )
+
+        assert exit_code == 1
+        assert len(attempts) == 1
+        assert "http_400" in capsys.readouterr().err
 
     def test_429_gets_long_cooldown(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
