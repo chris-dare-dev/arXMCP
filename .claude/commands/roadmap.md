@@ -44,8 +44,11 @@ meaning "tell me your thinking" (one-paragraph answer instead).
 ## Step 0 — Initialize
 
 ```bash
-python3 .claude/scripts/roadmap-init.py <slug> [--brief "..."]
+python .claude/scripts/roadmap-init.py <slug> [--brief "..."]
 ```
+
+> Python invocation note: use `python3` on macOS if `python` is not on PATH
+> (applies to every script invocation in this pipeline).
 
 Parse stdout:
 - `INITIALIZED path=<path>` → fresh run; proceed to Step 1.
@@ -58,7 +61,7 @@ roadmap.yaml.
 ### State model
 
 The `phase:` field in roadmap.yaml IS the state — no separate state file.
-Read it with `python3 .claude/scripts/roadmap-init.py <slug> --status`.
+Read it with `python .claude/scripts/roadmap-init.py <slug> --status`.
 Agents advance it one step only, via `--advance <phase>`, and only after the
 validator passes.
 
@@ -76,7 +79,7 @@ validator passes.
 
 1. **Validation loop.** After EVERY write to `plans/<slug>/roadmap.yaml` run:
    ```bash
-   python3 .claude/scripts/roadmap-validate.py plans/<slug>/roadmap.yaml --json
+   python .claude/scripts/roadmap-validate.py plans/<slug>/roadmap.yaml --json
    ```
    Read the error list, self-correct, re-run — until exit 0. Never advance
    phase, dispatch the next agent, or report success with a failing validator.

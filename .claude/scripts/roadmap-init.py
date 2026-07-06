@@ -6,10 +6,11 @@ Usage:
   python3 roadmap-init.py <slug> --status [--repo-root <path>]
   python3 roadmap-init.py <slug> --advance <phase> [--repo-root <path>]
 
-Creates plans/<slug>/roadmap.yaml (phase: init) + plans/<slug>/progress/ and
-prints INITIALIZED, or prints RESUMING phase=<phase> when the file already
-exists. --status prints the current phase; --advance moves phase forward one
-step only (init->refined->decomposed->sequenced->complete), mirroring the
+Creates plans/<slug>/roadmap.yaml (phase: init) + plans/<slug>/progress/
+(with a .gitkeep so the dir survives clones) and prints INITIALIZED, or
+prints RESUMING phase=<phase> when the file already exists. --status prints
+the current phase; --advance moves phase forward one step only
+(init->refined->decomposed->sequenced->complete), mirroring the
 milestone-pipeline checkpoint discipline.
 
 Idempotent; never overwrites an existing roadmap.yaml.
@@ -44,6 +45,11 @@ def derive_project(root: Path) -> str:
 def scaffold(slug: str, project: str, brief: str) -> str:
     # Plain string template (not yaml.dump) so field order and comments are
     # stable for prompt-cache byte-stability and human reading.
+    raw = brief or "(brief pending — pass --brief or let the refiner capture the ask)"
+    # Indent EVERY brief line so a multi-line --brief stays inside the
+    # `brief: |` literal block instead of breaking the YAML document.
+    # Blank lines are emitted empty (no trailing spaces) for byte-stability.
+    indented = "\n".join(f"  {line}" if line.strip() else "" for line in raw.splitlines())
     return f"""schema: roadmap/1
 slug: {slug}
 project: {project}
@@ -51,7 +57,7 @@ title: ""            # <- refine phase sets this
 status: draft
 phase: init          # init -> refined -> decomposed -> sequenced -> complete
 brief: |
-  {brief or "(brief pending — pass --brief or let the refiner capture the ask)"}
+{indented}
 retired: []          # tombstoned item ids; ids are write-once, never deleted
 items: []
 """
@@ -96,7 +102,10 @@ def main() -> int:
         print(f"RESUMING phase={doc.get('phase', 'init')} path={path}")
         return 0
 
-    (rd / "progress").mkdir(parents=True, exist_ok=True)
+    progress = rd / "progress"
+    progress.mkdir(parents=True, exist_ok=True)
+    # .gitkeep so the (initially empty) journal dir survives clones.
+    (progress / ".gitkeep").touch()
     project = args.project or derive_project(root)
     path.write_text(scaffold(args.slug, project, args.brief), encoding="utf-8")
     print(f"INITIALIZED path={path}")

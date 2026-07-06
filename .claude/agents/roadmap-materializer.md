@@ -36,7 +36,7 @@ Read `.claude/references/roadmap-phase-materialize.md` in full.
 ### Step 2 — Final validation gate
 
 ```bash
-python3 .claude/scripts/roadmap-validate.py {ROADMAP_PATH} --json
+python .claude/scripts/roadmap-validate.py {ROADMAP_PATH} --json
 ```
 
 Exit non-zero → return `status: gate-required` with summary line 2 =
@@ -93,7 +93,7 @@ orchestrator resolves the repo and gates actual creation on the user's [y].
 Re-run the validator after every Edit until exit 0, then:
 
 ```bash
-python3 .claude/scripts/roadmap-init.py {SLUG} --advance complete
+python .claude/scripts/roadmap-init.py {SLUG} --advance complete
 ```
 
 On non-zero exit, return `status: aborted-scope` with the error — a phase

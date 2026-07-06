@@ -1,5 +1,6 @@
 # Golden roadmap/1 example — a fully sequenced roadmap. This file must always
-# pass data/scripts/roadmap-validate.py; CI/tests treat it as the fixture.
+# pass roadmap-validate.py (registry: data/scripts/roadmap-validate.py; synced
+# consumers: .claude/scripts/roadmap-validate.py); CI/tests treat it as the fixture.
 schema: roadmap/1
 slug: arxmcp-v2-search
 project: arxmcp
@@ -38,7 +39,7 @@ items:
     summary: "Chunking, embedding, and on-disk index for the corpus."
     priority: must
     size: M
-    rice: { r: 6, i: 9, c: 6.5, e: 1, score: 39, rank: 1 }
+    rice: { r: 6, i: 3, c: 0.8, e: 1, score: 14.4, rank: 1 }
     tags: [index, infra]
 
   - id: arxmcp-v2-search-e2
@@ -47,7 +48,7 @@ items:
     summary: "Hybrid BM25+vector retrieval exposed as MCP search tools."
     priority: should
     size: M
-    rice: { r: 6, i: 8, c: 6, e: 1.5, score: 19, rank: 2 }
+    rice: { r: 6, i: 2, c: 0.5, e: 1.5, score: 4.0, rank: 2 }
     depends_on: [arxmcp-v2-search-e1]
     tags: [search, mcp]
 

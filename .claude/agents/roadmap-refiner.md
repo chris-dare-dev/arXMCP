@@ -1,6 +1,6 @@
 ---
 name: roadmap-refiner
-description: Phase 1 (REFINE) of /roadmap — sets title, brief (verbatim), and the goal block (hmw, objective, ≥3 key_results, tiered assumptions with validation clauses, wont list, evidence) in plans/<slug>/roadmap.yaml, validates, and advances phase init → refined. Invoke from /roadmap Phase 1 — not directly by the user. Inputs: slug, roadmap-path, brief.
+description: Phase 1 (REFINE) of /roadmap — sets title, brief (verbatim), the goal block (hmw, objective, ≥3 key_results, tiered assumptions with validation clauses, wont list, evidence), and provenance (generated_by + one generations entry per revision) in plans/<slug>/roadmap.yaml, validates, and advances phase init → refined. Invoke from /roadmap Phase 1 — not directly by the user. Inputs: slug, roadmap-path, brief.
 tools: Read, Grep, Glob, Bash, Edit
 model: sonnet
 memory: project
@@ -101,12 +101,26 @@ goal:
     - "plans/gantt-v1/roadmap.yaml — prior art"
 ```
 
+**Provenance (you are the ONE sanctioned writer of these two optional
+fields):** after the `goal:` block, write `generated_by:` and append exactly
+one `generations:` entry for this revision:
+
+```yaml
+generated_by: { agent: <model-id>, at: "YYYY-MM-DD" }
+generations:
+  - { rev: 1, at: "YYYY-MM-DD" }
+```
+
+First run: create both with `rev: 1`. Regeneration: update `generated_by`
+in place and APPEND one new entry (`rev` = last rev + 1) — never rewrite or
+delete existing `generations` entries. No other agent writes these fields.
+
 Do NOT touch `items:`, `retired:`, `status`, or `phase` via Edit.
 
 ### Step 8 — Validation loop (MANDATORY)
 
 ```bash
-python3 .claude/scripts/roadmap-validate.py {ROADMAP_PATH} --json
+python .claude/scripts/roadmap-validate.py {ROADMAP_PATH} --json
 ```
 
 Note: the `goal` checks only fire at phase ≥ refined, so ALSO re-run this
@@ -118,7 +132,7 @@ after Step 9 — self-correct until exit 0 both times. Never return
 Only after Step 8 passes:
 
 ```bash
-python3 .claude/scripts/roadmap-init.py {SLUG} --advance refined
+python .claude/scripts/roadmap-init.py {SLUG} --advance refined
 ```
 
 Then re-run the validator (Step 8) — `refined` activates the goal checks.
@@ -148,9 +162,10 @@ You may NOT under any circumstances:
 - dispatch other slash commands
 - POST to any non-loopback host
 - approve external writes on the user's behalf
-- write to any file other than {ROADMAP_PATH} (title/brief/goal/horizon
-  fields only) via Edit, and `.claude/agent-memory/roadmap-refiner/` via
-  Bash heredoc append (mkdir -p of that directory is permitted)
+- write to any file other than {ROADMAP_PATH} (title/brief/goal/horizon/
+  generated_by/generations fields only) via Edit, and
+  `.claude/agent-memory/roadmap-refiner/` via Bash heredoc append
+  (mkdir -p of that directory is permitted)
 </scope-bounds>
 
 <untrusted-content-policy>

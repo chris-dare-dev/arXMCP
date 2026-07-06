@@ -3,8 +3,14 @@
 **Goal:** turn a fuzzy brief into a sharp, evidence-backed problem statement
 the rest of the pipeline can decompose without guessing.
 
-**Writes:** `title`, `brief` (verbatim), `goal:` (and optionally `horizon:`)
-in `plans/<slug>/roadmap.yaml`. Advances `phase: init → refined`.
+**Writes:** `title`, `brief` (verbatim), `goal:` (and optionally `horizon:`),
+plus provenance `generated_by:` and `generations:` in
+`plans/<slug>/roadmap.yaml`. Advances `phase: init → refined`.
+
+The refiner is the ONE sanctioned writer of the optional
+`generated_by:`/`generations:` fields: it sets `generated_by` and appends
+exactly one `generations` entry per revision (`rev` increments; existing
+entries are never rewritten or deleted).
 
 ## Step-by-step
 
@@ -89,6 +95,9 @@ goal:
     - "No UI beyond the MCP tool surface"
   evidence:
     - "plans/arxmcp-v1/roadmap.yaml — prior retrieval attempt"
+generated_by: { agent: claude-fable-5, at: "2026-07-05" }
+generations:
+  - { rev: 1, at: "2026-07-05" }
 ```
 
 `items:` stays untouched in Phase 1.

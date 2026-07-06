@@ -14,7 +14,7 @@ fields, epic `rice:` blocks and final `priority:` values in
 Finalize every epic's `priority:`, then run:
 
 ```bash
-python3 .claude/scripts/roadmap-score-moscow.py plans/<slug>/roadmap.yaml --json
+python .claude/scripts/roadmap-score-moscow.py plans/<slug>/roadmap.yaml --json
 ```
 
 Hard rule (DSDM): **must ≤ 60% of non-wont epics.** Exit 1 = violation —
@@ -35,7 +35,7 @@ Fill raw factors into each non-wont epic's `rice:` block:
 - **e** (effort) — person-weeks, > 0.
 
 ```bash
-python3 .claude/scripts/roadmap-score-rice.py plans/<slug>/roadmap.yaml --json
+python .claude/scripts/roadmap-score-rice.py plans/<slug>/roadmap.yaml --json
 ```
 
 The script computes `score = r*i*c/e` and a descending `rank` but NEVER
@@ -63,7 +63,10 @@ it locks horizons.
 - **Milestone** `<slug>-mN` — an outcome checkpoint, not a deadline on an
   epic. `parent:` epic; `lane`; `target_start`/`target_end` (ISO,
   start ≤ end); `depends_on` spikes/milestones it needs. These ids are
-  consumed verbatim by `/milestone-pipeline`.
+  consumed verbatim by `/milestone-pipeline`. Milestones SHOULD carry a
+  1–2 sentence `summary:` — `milestone-pipeline-resolve-brief.py` folds it
+  into the pipeline brief; a milestone without one leaves the pipeline to
+  derive scope from acceptance strings alone.
 - **Task** `<slug>-t-<semantic-slug>` — `parent:` milestone (or epic);
   `estimate_days` ≤ 3 (bigger → split via SPIDR, `roadmap-frameworks.md`);
   lane matches its milestone; `priority` optional.
@@ -94,6 +97,7 @@ string (validator-enforced), Given/When/Then shaped:
   - id: arxmcp-v2-search-m1
     kind: milestone
     title: "Corpus indexed end-to-end"
+    summary: "Full corpus chunked, embedded, and queryable from a persistent on-disk index."
     parent: arxmcp-v2-search-e1
     lane: now
     target_start: 2026-07-06

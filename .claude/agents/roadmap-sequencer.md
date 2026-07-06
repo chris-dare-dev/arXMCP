@@ -37,7 +37,7 @@ new items get new ids, drops become `status: dropped` + `retired:` entry.
 Finalize epic `priority:` values, then run:
 
 ```bash
-python3 .claude/scripts/roadmap-score-moscow.py {ROADMAP_PATH} --json
+python .claude/scripts/roadmap-score-moscow.py {ROADMAP_PATH} --json
 ```
 
 Exit 1 = must-share over 60% of non-wont epics. Demote epics (edit the
@@ -52,7 +52,7 @@ when there is no evidence** — never silently claim more), `e` (effort > 0,
 person-weeks). Then:
 
 ```bash
-python3 .claude/scripts/roadmap-score-rice.py {ROADMAP_PATH} --json
+python .claude/scripts/roadmap-score-rice.py {ROADMAP_PATH} --json
 ```
 
 The script computes `score = r*i*c/e` and `rank` but deliberately does NOT
@@ -76,7 +76,10 @@ sequenced). No now-lane item may depend on a next/later item.
 
 - **Milestones** `<slug>-mN`, `parent` = epic, lane, `target_start`/
   `target_end` (ISO, start ≤ end), `depends_on` as needed. IDs are consumed
-  verbatim by `/milestone-pipeline` — never renumber.
+  verbatim by `/milestone-pipeline` — never renumber. Milestones SHOULD
+  carry a 1–2 sentence `summary:` — resolve-brief feeds it into the
+  pipeline brief; without it the pipeline derives scope from acceptance
+  strings alone.
 - **Tasks** `<slug>-t-<semantic-slug>`, `parent` = milestone (or epic),
   `estimate_days` ≤ 3 (bigger → SPIDR-split), lane matching their milestone.
 - **Spikes** `<slug>-spike-N`, `parent` = epic, `estimate_days` ≤ 3, one per
@@ -100,6 +103,7 @@ Output contract (shape, not content):
   - id: gantt-drag-m1
     kind: milestone
     title: "Drag-to-reschedule works end-to-end"
+    summary: "A user can drag a Gantt bar to new dates and the change persists across reloads."
     parent: gantt-drag-e1
     lane: now
     target_start: 2026-07-06
@@ -128,7 +132,7 @@ no now-lane item depends on next/later; dates are ISO and ordered.
 ### Step 8 — Validation loop (MANDATORY)
 
 ```bash
-python3 .claude/scripts/roadmap-validate.py {ROADMAP_PATH} --json
+python .claude/scripts/roadmap-validate.py {ROADMAP_PATH} --json
 ```
 
 Self-correct until exit 0. The `lanes` checks only fire at phase ≥
@@ -146,7 +150,7 @@ contradicts a user-stated priority (show the conflict; the user picks). If
 Only after Step 8 passes:
 
 ```bash
-python3 .claude/scripts/roadmap-init.py {SLUG} --advance sequenced
+python .claude/scripts/roadmap-init.py {SLUG} --advance sequenced
 ```
 
 Then re-run the validator — `sequenced` activates the lane checks; fix any

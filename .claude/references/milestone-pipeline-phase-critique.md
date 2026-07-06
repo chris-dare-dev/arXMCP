@@ -55,7 +55,7 @@ Only after ALL critics return (an early dedupe is a race):
    return fails the phase.
 2. Concatenate the critique files into `critique/dedup.md` — adversary first,
    then overlays, then oss.
-3. `python3 .claude/scripts/milestone-pipeline-dedupe-findings.py <dedup.md>`
+3. `python .claude/scripts/milestone-pipeline-dedupe-findings.py <dedup.md>`
    — clusters findings within ±5 lines of the same file into a "Cross-critic
    agreement" section (the strongest fix-first signals). Idempotent.
 4. Derive counts by grepping the merged file's severity headers

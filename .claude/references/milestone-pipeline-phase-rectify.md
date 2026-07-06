@@ -89,7 +89,7 @@ one id at a time).
 ## Completion write-back (one-writer rule)
 
 ```bash
-python3 .claude/scripts/milestone-pipeline-record-progress.py <id> done \
+python .claude/scripts/milestone-pipeline-record-progress.py <id> done \
   --actor milestone-pipeline --note "rect <short-sha>"
 ```
 

@@ -13,7 +13,7 @@ under `plans/<slug>/github/` when `--github`. Advances
 ### 1. Final validation gate
 
 ```bash
-python3 .claude/scripts/roadmap-validate.py plans/<slug>/roadmap.yaml --json
+python .claude/scripts/roadmap-validate.py plans/<slug>/roadmap.yaml --json
 ```
 
 Non-zero exit = STOP. Surface the error list; the upstream phase content
@@ -70,7 +70,7 @@ titles are fine but not required; labels are the orchestrator's call.
 ### 5. Advance + handoff
 
 ```bash
-python3 .claude/scripts/roadmap-init.py <slug> --advance complete
+python .claude/scripts/roadmap-init.py <slug> --advance complete
 ```
 
 Re-validate after advancing. Then compose the offer (the orchestrator

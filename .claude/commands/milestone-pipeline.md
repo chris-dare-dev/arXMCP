@@ -20,6 +20,9 @@ REFS="$REPO_ROOT/.claude/references"
 NOTES="$REPO_ROOT/.claude/notes/milestones"
 ```
 
+> Python invocation note: use `python3` on macOS if `python` is not on PATH
+> (applies to every script invocation in this pipeline).
+
 ## Argument parsing
 
 Parse `$ARGUMENTS` before any action. Accepted forms:
@@ -50,7 +53,7 @@ Set from parsed args: `MILESTONE_ID`, `RESEARCH_MODE` (`standard|single|deep`),
 The milestone brief comes from the canonical roadmap, not from prose search:
 
 ```bash
-python3 "$SCRIPTS/milestone-pipeline-resolve-brief.py" "$MILESTONE_ID"
+python "$SCRIPTS/milestone-pipeline-resolve-brief.py" "$MILESTONE_ID"
 ```
 
 It scans `plans/*/roadmap.yaml` for the item id and emits a markdown brief
@@ -100,7 +103,7 @@ lock is cleared via `init-state.sh <held-id> --release-lock` — never `rm` it.
 On a FRESH init (not resume), record pipeline start in the progress journal:
 
 ```bash
-python3 "$SCRIPTS/milestone-pipeline-record-progress.py" "$MILESTONE_ID" in_progress
+python "$SCRIPTS/milestone-pipeline-record-progress.py" "$MILESTONE_ID" in_progress
 ```
 
 (For legacy-prose or ad-hoc ids this warns and no-ops — that is fine.)
@@ -121,7 +124,7 @@ $NOTES/$MILESTONE_ID/research/synthesis.md # written by orchestrator at fan-in
 ```
 
 ```bash
-python3 "$SCRIPTS/milestone-pipeline-checkpoint.py" "$MILESTONE_ID" research-running
+python "$SCRIPTS/milestone-pipeline-checkpoint.py" "$MILESTONE_ID" research-running
 ```
 
 **Dispatch in ONE message, multiple Agent calls simultaneously.** The
@@ -150,10 +153,10 @@ echo contents into chat), then write `research/synthesis.md`: affected files
 questions (max 5).
 
 ```bash
-python3 "$SCRIPTS/milestone-pipeline-checkpoint.py" "$MILESTONE_ID" --append research_briefs='"<path>"'   # per brief
-python3 "$SCRIPTS/milestone-pipeline-checkpoint.py" "$MILESTONE_ID" --set research_synthesis='"<synthesis-path>"'
-python3 "$SCRIPTS/milestone-pipeline-checkpoint.py" "$MILESTONE_ID" --set external_writes_required='[...]'
-python3 "$SCRIPTS/milestone-pipeline-checkpoint.py" "$MILESTONE_ID" research-complete
+python "$SCRIPTS/milestone-pipeline-checkpoint.py" "$MILESTONE_ID" --append research_briefs='"<path>"'   # per brief
+python "$SCRIPTS/milestone-pipeline-checkpoint.py" "$MILESTONE_ID" --set research_synthesis='"<synthesis-path>"'
+python "$SCRIPTS/milestone-pipeline-checkpoint.py" "$MILESTONE_ID" --set external_writes_required='[...]'
+python "$SCRIPTS/milestone-pipeline-checkpoint.py" "$MILESTONE_ID" research-complete
 ```
 
 ---
@@ -164,8 +167,8 @@ Read `$REFS/milestone-pipeline-phase-implement.md` fully before proceeding.
 
 ```bash
 BASE_SHA=$(git rev-parse HEAD)
-python3 "$SCRIPTS/milestone-pipeline-checkpoint.py" "$MILESTONE_ID" implement-running
-python3 "$SCRIPTS/milestone-pipeline-checkpoint.py" "$MILESTONE_ID" --set implementation_base="\"$BASE_SHA\""
+python "$SCRIPTS/milestone-pipeline-checkpoint.py" "$MILESTONE_ID" implement-running
+python "$SCRIPTS/milestone-pipeline-checkpoint.py" "$MILESTONE_ID" --set implementation_base="\"$BASE_SHA\""
 ```
 
 **Path decision** (from `research/synthesis.md`, read from disk):
@@ -199,11 +202,11 @@ A failing gate is a blocker, not a warning.
 Write `implement/synthesis.md` (format in the phase reference), then:
 
 ```bash
-python3 "$SCRIPTS/milestone-pipeline-checkpoint.py" "$MILESTONE_ID" --set implementation_commit_range="\"$BASE_SHA..$(git rev-parse HEAD)\""
+python "$SCRIPTS/milestone-pipeline-checkpoint.py" "$MILESTONE_ID" --set implementation_commit_range="\"$BASE_SHA..$(git rev-parse HEAD)\""
 for SHA in $(git log --format=%H "$BASE_SHA"..HEAD); do
-  python3 "$SCRIPTS/milestone-pipeline-checkpoint.py" "$MILESTONE_ID" --append implementation_commits="\"$SHA\""
+  python "$SCRIPTS/milestone-pipeline-checkpoint.py" "$MILESTONE_ID" --append implementation_commits="\"$SHA\""
 done
-python3 "$SCRIPTS/milestone-pipeline-checkpoint.py" "$MILESTONE_ID" implement-complete
+python "$SCRIPTS/milestone-pipeline-checkpoint.py" "$MILESTONE_ID" implement-complete
 ```
 
 ---
@@ -214,7 +217,7 @@ Read `$REFS/milestone-pipeline-phase-critique.md` and
 `$REFS/milestone-pipeline-critique-format.md` fully.
 
 ```bash
-python3 "$SCRIPTS/milestone-pipeline-checkpoint.py" "$MILESTONE_ID" critique-running
+python "$SCRIPTS/milestone-pipeline-checkpoint.py" "$MILESTONE_ID" critique-running
 ```
 
 **Compute the critic set** (single decision point):
@@ -249,16 +252,16 @@ concatenate every `critique/*.md` (adversary first, then overlays, then oss)
 into `critique/dedup.md`, then:
 
 ```bash
-python3 "$SCRIPTS/milestone-pipeline-dedupe-findings.py" "$NOTES/$MILESTONE_ID/critique/dedup.md"
+python "$SCRIPTS/milestone-pipeline-dedupe-findings.py" "$NOTES/$MILESTONE_ID/critique/dedup.md"
 
 CRIT="$NOTES/$MILESTONE_ID/critique/dedup.md"
 C=$(grep -c '^### CRITICAL' "$CRIT" || true); H=$(grep -c '^### HIGH' "$CRIT" || true)
 M=$(grep -c '^### MEDIUM' "$CRIT" || true);  L=$(grep -c '^### LOW' "$CRIT" || true)
-python3 "$SCRIPTS/milestone-pipeline-checkpoint.py" "$MILESTONE_ID" --set critique_finding_counts="{\"critical\": $C, \"high\": $H, \"medium\": $M, \"low\": $L}"
-python3 "$SCRIPTS/milestone-pipeline-checkpoint.py" "$MILESTONE_ID" --set critique_path="\"$CRIT\""
-python3 "$SCRIPTS/milestone-pipeline-checkpoint.py" "$MILESTONE_ID" --set critics_run='["milestone-adversary-critic", ...]'
+python "$SCRIPTS/milestone-pipeline-checkpoint.py" "$MILESTONE_ID" --set critique_finding_counts="{\"critical\": $C, \"high\": $H, \"medium\": $M, \"low\": $L}"
+python "$SCRIPTS/milestone-pipeline-checkpoint.py" "$MILESTONE_ID" --set critique_path="\"$CRIT\""
+python "$SCRIPTS/milestone-pipeline-checkpoint.py" "$MILESTONE_ID" --set critics_run='["milestone-adversary-critic", ...]'
 echo "Phase 3 found: C=$C H=$H M=$M L=$L"   # surface counts before Phase 4
-python3 "$SCRIPTS/milestone-pipeline-checkpoint.py" "$MILESTONE_ID" critique-complete
+python "$SCRIPTS/milestone-pipeline-checkpoint.py" "$MILESTONE_ID" critique-complete
 ```
 
 Findings deduped within ±5 lines get a "Cross-critic agreement" callout —
@@ -273,7 +276,7 @@ the re-verification protocol, severity decisions, loop caps, and escalation.
 This section keeps only the executable steps.
 
 ```bash
-python3 "$SCRIPTS/milestone-pipeline-checkpoint.py" "$MILESTONE_ID" rectify-running
+python "$SCRIPTS/milestone-pipeline-checkpoint.py" "$MILESTONE_ID" rectify-running
 ```
 
 ### 4a — Re-verify, then fix
@@ -308,13 +311,13 @@ test file — verify from `git show --stat` before finalizing; if not, fix
 before proceeding.
 
 ```bash
-python3 "$SCRIPTS/milestone-pipeline-checkpoint.py" "$MILESTONE_ID" --set rectification_commit="\"$(git rev-parse HEAD)\""
+python "$SCRIPTS/milestone-pipeline-checkpoint.py" "$MILESTONE_ID" --set rectification_commit="\"$(git rev-parse HEAD)\""
 ```
 
 ### 4c — Completion write-back (journal append — NEVER edit roadmap.yaml)
 
 ```bash
-python3 "$SCRIPTS/milestone-pipeline-record-progress.py" "$MILESTONE_ID" done \
+python "$SCRIPTS/milestone-pipeline-record-progress.py" "$MILESTONE_ID" done \
   --actor milestone-pipeline --note "rect $(git rev-parse --short HEAD)"
 ```
 
@@ -327,7 +330,7 @@ legacy-prose/ad-hoc ids the script warns and no-ops (expected).
 ### 4d — External-write boundary (STOP HERE)
 
 ```bash
-python3 "$SCRIPTS/milestone-pipeline-checkpoint.py" "$MILESTONE_ID" --get external_writes_required
+python "$SCRIPTS/milestone-pipeline-checkpoint.py" "$MILESTONE_ID" --get external_writes_required
 ```
 
 If non-empty, print the pending writes (e.g. `git push origin main`, package
@@ -338,7 +341,7 @@ the user authorizes/skips each item, `--append external_writes_authorized` /
 or explicitly skipped:
 
 ```bash
-python3 "$SCRIPTS/milestone-pipeline-checkpoint.py" "$MILESTONE_ID" complete
+python "$SCRIPTS/milestone-pipeline-checkpoint.py" "$MILESTONE_ID" complete
 bash "$SCRIPTS/milestone-pipeline-init-state.sh" "$MILESTONE_ID" --release-lock
 ```
 

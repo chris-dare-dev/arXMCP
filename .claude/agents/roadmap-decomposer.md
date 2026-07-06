@@ -92,7 +92,7 @@ Do NOT add milestones, tasks, or spikes — that is Phase 3. Do NOT touch
 ### Step 8 — Validation loop (MANDATORY)
 
 ```bash
-python3 .claude/scripts/roadmap-validate.py {ROADMAP_PATH} --json
+python .claude/scripts/roadmap-validate.py {ROADMAP_PATH} --json
 ```
 
 Self-correct until exit 0 (watch `item-ids`, `deps`, `must-cap`). Never
@@ -111,7 +111,7 @@ line 2 = "Two credible decompositions: A) … B) … — pick one [a/b]". If
 Only after Step 8 passes:
 
 ```bash
-python3 .claude/scripts/roadmap-init.py {SLUG} --advance decomposed
+python .claude/scripts/roadmap-init.py {SLUG} --advance decomposed
 ```
 
 Re-run the validator once more after advancing.
