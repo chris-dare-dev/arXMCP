@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "roadmap-1.schema.json",
+  "title": "roadmap/1 canonical roadmap file",
+  "type": "object",
+  "required": ["schema", "slug", "project", "title", "status", "phase", "items"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": "roadmap/1" },
+    "slug": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
+    "project": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
+    "title": { "type": "string", "minLength": 1 },
+    "status": { "enum": ["draft", "active", "done", "superseded"] },
+    "phase": { "enum": ["init", "refined", "decomposed", "sequenced", "complete"] },
+    "brief": { "type": "string" },
+    "horizon": { "$ref": "#/$defs/dateRange" },
+    "goal": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "hmw": { "type": "string" },
+        "objective": { "type": "string" },
+        "key_results": { "type": "array", "items": { "type": "string" } },
+        "assumptions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["tier", "text"],
+            "additionalProperties": false,
+            "properties": {
+              "tier": { "enum": ["must", "should", "might"] },
+              "text": { "type": "string" },
+              "validation": { "type": "string" }
+            }
+          }
+        },
+        "wont": { "type": "array", "items": { "type": "string" } },
+        "evidence": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "generated_by": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "agent": { "type": "string" },
+        "session": { "type": "string" },
+        "at": { "type": "string" },
+        "brief": { "type": "string" }
+      }
+    },
+    "generations": { "type": "array", "items": { "type": "object" } },
+    "retired": { "type": "array", "items": { "$ref": "#/$defs/itemId" } },
+    "items": { "type": "array", "items": { "$ref": "#/$defs/item" } }
+  },
+  "$defs": {
+    "itemId": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]+-(e[0-9]+|m[0-9]+|spike-[0-9]+|t-[a-z0-9][a-z0-9-]*)$"
+    },
+    "isoDate": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+    "dateRange": {
+      "type": "object",
+      "required": ["start", "end"],
+      "additionalProperties": false,
+      "properties": {
+        "start": { "$ref": "#/$defs/isoDate" },
+        "end": { "$ref": "#/$defs/isoDate" }
+      }
+    },
+    "item": {
+      "type": "object",
+      "required": ["id", "kind", "title"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/itemId" },
+        "kind": { "enum": ["epic", "milestone", "task", "spike"] },
+        "title": { "type": "string", "minLength": 1 },
+        "parent": { "$ref": "#/$defs/itemId" },
+        "summary": { "type": "string" },
+        "status": {
+          "enum": ["planned", "ready", "in_progress", "blocked", "done", "dropped"]
+        },
+        "lane": { "enum": ["now", "next", "later"] },
+        "priority": { "enum": ["must", "should", "could", "wont"] },
+        "size": { "enum": ["S", "M", "L", "XL"] },
+        "rice": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "r": { "type": "number" },
+            "i": { "type": "number" },
+            "c": { "type": "number" },
+            "e": { "type": "number", "exclusiveMinimum": 0 },
+            "score": { "type": "number" },
+            "rank": { "type": "integer" }
+          }
+        },
+        "estimate_days": { "type": "number", "exclusiveMinimum": 0 },
+        "target_start": { "$ref": "#/$defs/isoDate" },
+        "target_end": { "$ref": "#/$defs/isoDate" },
+        "owner": { "type": "string" },
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "acceptance": { "type": "array", "items": { "type": "string" } },
+        "depends_on": { "type": "array", "items": { "$ref": "#/$defs/itemId" } },
+        "links": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "note": { "type": "array", "items": { "type": "string" } },
+            "code": { "type": "array", "items": { "type": "string" } },
+            "url": { "type": "array", "items": { "type": "string" } },
+            "issue": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "proclivity": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "scope": { "enum": ["today", "sprint", "long"] },
+            "surface": { "type": "boolean" }
+          }
+        },
+        "origin": { "type": "object" }
+      }
+    }
+  }
+}

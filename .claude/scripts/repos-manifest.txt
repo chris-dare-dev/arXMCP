@@ -1,0 +1,9 @@
+# Consuming repos, one path per line, relative to Source Code/.
+# Pilot repos first; uncomment the rest at fleet-sync (Phase E).
+arXMCP
+Proclivity
+# personal-website
+# options-signal-engine
+# algebraic-variety-cross-section
+# claude-otel
+# chaotic-systems-dynamics

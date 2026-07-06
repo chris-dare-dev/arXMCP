@@ -1,0 +1,116 @@
+# Golden roadmap/1 example — a fully sequenced roadmap. This file must always
+# pass data/scripts/roadmap-validate.py; CI/tests treat it as the fixture.
+schema: roadmap/1
+slug: arxmcp-v2-search
+project: arxmcp
+title: "arXMCP v2 — search index"
+status: active
+phase: sequenced
+brief: |
+  Build a hybrid search index over the ingested paper corpus and expose it
+  as MCP tools, so agent sessions can retrieve papers by topic.
+horizon: { start: 2026-07-06, end: 2026-08-14 }
+goal:
+  hmw: "How might we make the full corpus retrievable by meaning, not just filename?"
+  objective: "Ship hybrid BM25+vector search over the full corpus as MCP tools."
+  key_results:
+    - "search_papers returns ranked results < 500 ms warm"
+    - "Hybrid ranking beats BM25-only on the 20-query eval set"
+    - "Full re-index embeds 0 unchanged chunks"
+  assumptions:
+    - tier: must
+      text: "A local embedding model reaches acceptable recall on math text"
+      validation: "spike-1 bake-off measures recall@10 on 20 canned queries"
+    - tier: should
+      text: "sqlite + mmap is fast enough; no external vector DB needed"
+      validation: "m1 acceptance includes cold-start timing"
+  wont:
+    - "No cloud embedding APIs in v1"
+    - "No cross-corpus federation"
+generated_by: { agent: claude-fable-5, at: "2026-07-05" }
+generations:
+  - { rev: 1, at: "2026-07-05" }
+retired: []
+items:
+  - id: arxmcp-v2-search-e1
+    kind: epic
+    title: "Index core"
+    summary: "Chunking, embedding, and on-disk index for the corpus."
+    priority: must
+    size: M
+    rice: { r: 6, i: 9, c: 6.5, e: 1, score: 39, rank: 1 }
+    tags: [index, infra]
+
+  - id: arxmcp-v2-search-e2
+    kind: epic
+    title: "Query layer"
+    summary: "Hybrid BM25+vector retrieval exposed as MCP search tools."
+    priority: should
+    size: M
+    rice: { r: 6, i: 8, c: 6, e: 1.5, score: 19, rank: 2 }
+    depends_on: [arxmcp-v2-search-e1]
+    tags: [search, mcp]
+
+  - id: arxmcp-v2-search-spike-1
+    kind: spike
+    title: "Embedding model bake-off (local vs API) on 50-paper sample"
+    parent: arxmcp-v2-search-e1
+    lane: now
+    estimate_days: 1
+    target_end: 2026-07-08
+    acceptance:
+      - "Given 20 canned queries, when 2 local + 1 API model are compared, then recall@10 is recorded per model"
+      - "Decision recorded in links.note"
+    links:
+      note: ["[[arXMCP v2 embedding bake-off]]"]
+    proclivity: { scope: today }
+
+  - id: arxmcp-v2-search-m1
+    kind: milestone
+    title: "Corpus indexed end-to-end"
+    parent: arxmcp-v2-search-e1
+    lane: now
+    target_start: 2026-07-06
+    target_end: 2026-07-24
+    depends_on: [arxmcp-v2-search-spike-1]
+    acceptance:
+      - "Given the full corpus, when `arxmcp index build` runs, then it completes in < 30 min"
+      - "Given a process restart, when the index reopens, then no rebuild is required"
+
+  - id: arxmcp-v2-search-t-chunk-schema
+    kind: task
+    title: "Define chunk + document schema (sqlite tables, metadata fields)"
+    parent: arxmcp-v2-search-m1
+    lane: now
+    estimate_days: 1
+    target_end: 2026-07-10
+    priority: must
+    acceptance:
+      - "Given a fresh clone, when the migration script runs twice, then the second run is a no-op"
+    links:
+      code: ["src/index/schema.py"]
+    proclivity: { scope: sprint }
+
+  - id: arxmcp-v2-search-t-embed-cache
+    kind: task
+    title: "Content-hash embedding cache so re-index never re-embeds unchanged chunks"
+    parent: arxmcp-v2-search-m1
+    lane: now
+    depends_on: [arxmcp-v2-search-t-chunk-schema]
+    estimate_days: 2
+    target_end: 2026-07-17
+    priority: must
+    acceptance:
+      - "Given an unchanged corpus, when a second full index runs, then 0 chunks are re-embedded"
+    proclivity: { scope: sprint }
+
+  - id: arxmcp-v2-search-m2
+    kind: milestone
+    title: "Hybrid search live as MCP tool"
+    parent: arxmcp-v2-search-e2
+    lane: next
+    target_start: 2026-07-27
+    target_end: 2026-08-14
+    depends_on: [arxmcp-v2-search-m1]
+    acceptance:
+      - "Given a topic query, when search_papers is called, then ranked results return < 500 ms warm"
