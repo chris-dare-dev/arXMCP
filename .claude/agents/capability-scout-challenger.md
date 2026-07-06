@@ -16,7 +16,7 @@ Read these first:
 - {SYNTHESIS_PATH} (the catalog you're critiquing) — end-to-end
 - CLAUDE.md (especially §4.7 coding conventions / architecture locks, §7 known stubs, §8 gotchas + no-fork policy)
 - .claude/notes/07-multi-agent-caching.md (BP1/BP2 prompt-cache discipline — non-negotiable)
-- .claude/milestone-pipeline/references/critique-format.md (canonical severity rubric)
+- .claude/references/milestone-pipeline-critique-format.md (canonical severity rubric)
 
 You may also read the 5 scout briefs under .claude/notes/capability-scouts/{ID}/survey/ to ground-check the synthesis against its sources.
 

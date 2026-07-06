@@ -17,8 +17,8 @@ release manager. All design decisions, milestone schedules, and merges to
   branches.
 - **Claude agents do most of the implementation work.** Each milestone
   runs through the four-phase
-  [`milestone-pipeline`](.claude/skills/milestone-pipeline/SKILL.md)
-  skill (Research → Implement → Critique → Rectify), with the owner
+  [`/milestone-pipeline`](.claude/commands/milestone-pipeline.md)
+  slash command (Research → Implement → Critique → Rectify), with the owner
   authorizing scope at milestone entry and approving the external-write
   boundary at milestone exit.
 - **Push authorization is per-event.** The owner explicitly authorizes

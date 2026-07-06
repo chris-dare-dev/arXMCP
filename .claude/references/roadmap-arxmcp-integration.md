@@ -1,8 +1,8 @@
 # arXMCP integration — project-specific conventions
 
-The `roadmap` skill writes outputs that other parts of arXMCP consume.
-This file documents the contract on each side so the skill produces
-artifacts that pair cleanly with the rest of the project.
+The `/roadmap` slash command writes outputs that other parts of arXMCP
+consume. This file documents the contract on each side so the command
+produces artifacts that pair cleanly with the rest of the project.
 
 ## Pairing with `milestone-pipeline`
 
@@ -11,30 +11,24 @@ artifacts that pair cleanly with the rest of the project.
 It runs ONE milestone end-to-end through Research → Implement → Critique
 → Rectify.
 
-**Milestone-ID format consumed by milestone-pipeline:** any string. The
-init-state.sh script greps for `### <ID> — ` headings. arXMCP convention:
+**Milestone-ID format consumed by milestone-pipeline:** arXMCP convention:
 
-- `EXX_SYY` — the manually-authored master roadmap in `.claude/roadmap/`.
-- `<slug>-mN` — milestones produced by THIS skill, written to `plans/`.
+- `EXX_SYY` — the manually-authored master roadmap in `.claude/roadmap/`
+  (legacy prose fallback).
+- `<slug>-mN` — milestones produced by `/roadmap`, written to
+  `plans/<slug>/roadmap.yaml` (roadmap/1 format).
 
-**The roadmap skill must:**
-- Use `<slug>-mN` IDs (e.g. `citation-graph-m1`, `citation-graph-m2`).
-- Write the milestone block in the format milestone-pipeline parses:
-  ```
-  ### <slug>-mN — Title
+**The /roadmap command must:**
+- Use `<slug>-mN` IDs (e.g. `citation-graph-m1`, `citation-graph-m2`) —
+  the ID grammar is enforced by `.claude/scripts/roadmap-validate.py`.
+- Reject slug shapes that collide with EXX (regex `^e\d+$` is forbidden).
 
-  **Description.** ...
-
-  **Acceptance criteria.**
-  - [ ] ...
-  ```
-- Reject slug shapes that collide with EXX (regex `^e\d+$` is forbidden;
-  validated by `init-roadmap.sh`).
-
-**Bridge in milestone-pipeline:** [.claude/milestone-pipeline/scripts/init-state.sh](.claude/milestone-pipeline/scripts/init-state.sh)
-searches BOTH `.claude/roadmap/*.md` AND `plans/*.md` for milestone briefs.
-On collision (same ID in both directories) it exits 1 with both paths
-printed. Optional override: `--brief-from <path>`.
+**Bridge in milestone-pipeline:**
+[.claude/scripts/milestone-pipeline-init-state.sh](.claude/scripts/milestone-pipeline-init-state.sh)
+resolves briefs via `milestone-pipeline-resolve-brief.py` — canonical source
+is `plans/*/roadmap.yaml`; legacy prose fallback greps `### <ID> — ` headings
+in `plans/*.md` AND `.claude/roadmap/*.md`. Ambiguous IDs exit 1 with the
+candidate paths printed.
 
 **Phase 4 handoff offer (do NOT auto-invoke):**
 > "First Now-lane milestone: `<slug>-m1`. Run `milestone-pipeline <slug>-m1` to execute."
@@ -49,21 +43,15 @@ The project's [ROADMAP.md](ROADMAP.md) is explicit:
 > "To create issues from these files, the maintainer runs (per sub-issue):
 > `gh issue create --title "<title>" --body-file <(awk ...)`"
 
-**The roadmap skill never invokes `gh`.** Per project external-write
+**Sub-agents never invoke `gh` (write verbs).** Per project external-write
 policy.
 
 When `--github` is passed:
-- Per-issue body files written to `plans/<slug>-tickets/<ID>.md` from
-  `references/templates/epic-issue.md` and `story-issue.md`.
-- A copy-paste `plans/<slug>-tickets/create-tickets.sh` is written, with
-  one `gh issue create` invocation per body file. The script's first
-  line is a confirmation prompt.
-
-The user runs the script manually after reviewing. The skill prints:
-
-> "Tickets bundle written to `plans/<slug>-tickets/`. Review the bodies,
-> then run `bash plans/<slug>-tickets/create-tickets.sh` to create them
-> on GitHub. The skill never invokes `gh` itself."
+- The materializer emits per-issue body files to
+  `plans/<slug>/github/<item-id>.md` — bodies only, no issue creation.
+- The orchestrator (main session) resolves the repo, asks for an explicit
+  `[y]`, and only then runs `gh issue create` itself, one at a time, from
+  the body files. On anything else the body files remain for manual use.
 
 ## Repo conventions to mirror
 
@@ -96,21 +84,22 @@ rule violations, surface it explicitly in the Won't section.
 
 | produces | path |
 |---|---|
-| Roadmap doc | `plans/<slug>-roadmap.md` |
-| GitHub epic body files | `plans/<slug>-tickets/<EPIC-ID>.md` |
-| GitHub story body files | `plans/<slug>-tickets/<STORY-ID>.md` |
-| Copy-paste ticket script | `plans/<slug>-tickets/create-tickets.sh` |
+| Canonical roadmap | `plans/<slug>/roadmap.yaml` (roadmap/1) |
+| Execution journal | `plans/<slug>/progress/agent.jsonl` (milestone pipeline appends) |
+| GitHub issue body files | `plans/<slug>/github/<item-id>.md` (`--github` only) |
 
 `plans/` should be added to `.gitignore` ONLY IF the team decides shaped
 roadmaps are local artifacts. Default: commit them. They're cheap and
 make pairing legible.
 
-## What the skill must NOT touch
+## What the /roadmap command must NOT touch
 
 - `.claude/notes/` — design constitution, manually authored. Read-only.
 - `.claude/roadmap/` — master roadmap, manually authored. Read-only.
 - `ROADMAP.md` — executive summary. Read-only.
-- `.claude/milestone-pipeline/` — pipeline supporting infrastructure (scripts + references).
-  The roadmap skill triggers a one-time bridge edit (init-state.sh + state-schema.md)
-  during initial install; ongoing runs do not modify it.
+- `.claude/scripts/milestone-pipeline-*` and
+  `.claude/references/milestone-pipeline-*` — registry-synced pipeline
+  infrastructure. Never edited in-repo (edit the registry and re-sync).
 - `.claude/commands/milestone-pipeline.md` — the orchestrating slash command itself.
+- `plans/<slug>/progress/*.jsonl` — journals are milestone-pipeline-owned
+  (one writer per file).

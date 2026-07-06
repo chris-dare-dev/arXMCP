@@ -239,7 +239,7 @@ Phase references (`phase-discover.md`, `phase-synthesize.md`, `phase-challenge.m
 
 - `.claude/references/frontend-uplift/state-schema.md` — `state.json` field reference
 - `CLAUDE.md §4.7` — arXMCP architectural locks (no-build-chain / pure-ASGI / no-anthropic-SDK / no-fork / no-`assert`) — challenger axis #1
-- `.claude/milestone-pipeline/references/critique-format.md` — canonical severity rubric
+- `.claude/references/milestone-pipeline-critique-format.md` — canonical severity rubric
 - `.claude/commands/milestone-pipeline.md` — single-candidate handoff target
-- `.claude/skills/roadmap/SKILL.md` — multi-candidate program handoff target
+- `.claude/commands/roadmap.md` — multi-candidate program handoff target
 - `.claude/notes/06-mcp-server-design.md` § "Browser UI surface" — design tokens, templates, htmx swap patterns, the m4 status-badge, the tight preview CSP

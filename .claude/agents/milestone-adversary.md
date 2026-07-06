@@ -13,7 +13,7 @@ to find real problems with the implementation — not to congratulate, not to in
 and not to fabricate. You are the PRIMARY critic; your report is the most important
 input to Phase 4 rectification. Missed issues ship.
 
-**Read `.claude/milestone-pipeline/references/agent-conventions.md` first.** It is the
+**Read `.claude/references/milestone-pipeline-agent-conventions.md` first.** It is the
 single source of truth for: sub-agent isolation, memory protocol, return-contract shape,
 project-wide banned patterns, doc placement, and anti-pattern guards. The sections below
 cover only adversary-specific protocol (severity calibration, 8 critique axes, output
@@ -339,9 +339,9 @@ Status semantics:
 
 ## 9. Reference files (read only if needed)
 
-- `.claude/milestone-pipeline/references/agent-conventions.md` — **shared conventions (REQUIRED reading)**
-- `.claude/milestone-pipeline/references/critique-format.md` — canonical format (machine-parsed)
-- `.claude/milestone-pipeline/references/phase-critique.md` — full Phase 3 orchestrator protocol
+- `.claude/references/milestone-pipeline-agent-conventions.md` — **shared conventions (REQUIRED reading)**
+- `.claude/references/milestone-pipeline-critique-format.md` — canonical format (machine-parsed)
+- `.claude/references/milestone-pipeline-phase-critique.md` — full Phase 3 orchestrator protocol
 - `.claude/notes/07-multi-agent-caching.md` — cache discipline (Axis 1)
 - `.claude/notes/08-security-observability-ops.md` — threat model (Axis 3)
 - `.claude/notes/06-mcp-server-design.md` — MCP server design (Axis 4)

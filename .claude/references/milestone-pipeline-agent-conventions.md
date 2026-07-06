@@ -336,12 +336,12 @@ need detail beyond what is in your agent file or this conventions file:
 
 | File | When to read |
 |---|---|
-| `.claude/milestone-pipeline/references/phase-research.md` | Researcher — full Phase 1 detail |
-| `.claude/milestone-pipeline/references/phase-implement.md` | Implementer — full Phase 2 detail |
-| `.claude/milestone-pipeline/references/phase-critique.md` | Critics — full Phase 3 detail |
-| `.claude/milestone-pipeline/references/phase-rectify.md` | (Main thread only — sub-agents do not run Phase 4) |
-| `.claude/milestone-pipeline/references/critique-format.md` | Critics — machine-parsed format spec (`dedupe-findings.py` reads it) |
-| `.claude/milestone-pipeline/references/state-schema.md` | Any agent reading/writing `state.json` |
+| `.claude/references/milestone-pipeline-phase-research.md` | Researcher — full Phase 1 detail |
+| `.claude/references/milestone-pipeline-phase-implement.md` | Implementer — full Phase 2 detail |
+| `.claude/references/milestone-pipeline-phase-critique.md` | Critics — full Phase 3 detail |
+| `.claude/references/milestone-pipeline-phase-rectify.md` | (Main thread only — sub-agents do not run Phase 4) |
+| `.claude/references/milestone-pipeline-critique-format.md` | Critics — machine-parsed format spec (`dedupe-findings.py` reads it) |
+| `.claude/references/milestone-pipeline-state-schema.md` | Any agent reading/writing `state.json` |
 | `.claude/notes/07-multi-agent-caching.md` | Cache discipline — read for any cache/prompt/tool-schema change |
 | `.claude/notes/08-security-observability-ops.md` | Threat model — read for any security-adjacent work |
 | `.claude/roadmap/README.md` | Authoritative epic index — read for tier-sequencing checks |

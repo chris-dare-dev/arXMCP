@@ -106,10 +106,14 @@ slash command. The four phases are non-negotiable: **Research → Implement →
 Critique → Rectify**. Skipping a phase is the named anti-pattern documented in
 the command body.
 
-The command uses five bespoke sub-agents defined in `.claude/agents/`:
-`milestone-researcher`, `milestone-implementer`, `milestone-adversary`,
-`milestone-infra-safety`, and `milestone-oss-scout`. The slash command is the
-orchestrator (main thread); sub-agents cannot spawn sub-agents.
+The command uses the bespoke sub-agents defined in `.claude/agents/`. The
+registry-synced base set (see `.claude/.registry-manifest.json`) is
+`milestone-researcher`, `milestone-implementer`, `milestone-adversary-critic`,
+and `milestone-oss-scout`; the repo-local agents `milestone-adversary` and
+`milestone-infra-safety` remain as arXMCP-specific critics (note: the synced
+orchestrator discovers overlay critics via the `milestone-*-critic.md` naming
+convention). The slash command is the orchestrator (main thread); sub-agents
+cannot spawn sub-agents.
 
 The state machine lives at
 `.claude/notes/milestones/<ID>/state.json` and is strict-forward-only
@@ -325,21 +329,26 @@ arXMCP/
     ├── roadmap/             14 per-epic plans (E01–E14) + authoritative index
     │   ├── README.md         authoritative epic index (NOT the root)
     │   └── E<NN>-*.md        per-epic specs
-    ├── agents/              bespoke sub-agent definitions for the pipeline
-    │   ├── milestone-researcher.md
-    │   ├── milestone-implementer.md
-    │   ├── milestone-adversary.md
-    │   ├── milestone-infra-safety.md
-    │   └── milestone-oss-scout.md
+    ├── agents/              bespoke sub-agent definitions
+    │   ├── milestone-{researcher,implementer,adversary-critic,oss-scout}.md   (synced)
+    │   ├── roadmap-{refiner,decomposer,sequencer,materializer}.md             (synced)
+    │   ├── milestone-adversary.md + milestone-infra-safety.md   (repo-local critics)
+    │   └── capability-scout-*.md + frontend-uplift-*.md          (repo-local pipelines)
     ├── commands/
-    │   └── milestone-pipeline.md  the 4-phase slash command (orchestrator)
-    ├── milestone-pipeline/  pipeline supporting infrastructure
-    │   ├── references/       phase reference files + agent-conventions.md (shared)
-    │   └── scripts/          init-state.sh, checkpoint.py, status.sh, dedupe-findings.py
+    │   ├── milestone-pipeline.md  the 4-phase execution slash command (synced)
+    │   ├── roadmap.md             the 4-phase planning slash command (synced)
+    │   └── capability-scout.md + frontend-uplift.md              (repo-local)
+    ├── references/          flat reference files
+    │   ├── milestone-pipeline-*.md + roadmap-*.md|yaml           (synced)
+    │   ├── milestone-pipeline-agent-conventions.md               (repo-local, shared)
+    │   ├── roadmap-arxmcp-integration.md                         (repo-local)
+    │   └── capability-scout/ + frontend-uplift/                  (repo-local pipelines)
+    ├── scripts/             flat scripts
+    │   ├── milestone-pipeline-*.{py,sh} + roadmap-*.py + sync-repos.py  (synced)
+    │   └── capability-scout/ + frontend-uplift/                  (repo-local pipelines)
     ├── agent-memory/        per-agent project-scope memory (auto-injected by harness)
     │   └── milestone-*/      MEMORY.md per bespoke sub-agent
-    └── skills/
-        └── roadmap/          roadmap planning skill (separate from pipeline)
+    └── .registry-manifest.json  hashes of claude-registry-synced files (never edit synced copies)
 ```
 
 ---
@@ -489,17 +498,20 @@ Things that LOOK shipped but aren't fully wired — don't be surprised:
 /milestone-pipeline E10_S01
 ```
 
-The slash command (`.claude/commands/milestone-pipeline.md`) reads the brief
-from `.claude/roadmap/E<NN>-<slug>.md`, dispatches Phase-1 bespoke researcher
-agents in parallel, drives Phase-2 implementation via the `milestone-implementer`
-agent, Phase-3 critique via three parallel critic agents (`milestone-adversary`,
-`milestone-infra-safety`, `milestone-oss-scout`), and Phase-4 rectification in
-the main session. Emits a `feat(...)` + `rect(...)` + `chore(...)` commit triple.
+The slash command (`.claude/commands/milestone-pipeline.md`) resolves the
+brief via `.claude/scripts/milestone-pipeline-resolve-brief.py` (canonical:
+`plans/<slug>/roadmap.yaml`; legacy prose fallback: `plans/*.md` and
+`.claude/roadmap/*.md`), dispatches Phase-1 researcher agents in parallel,
+drives Phase-2 implementation inline or via the `milestone-implementer`
+agent, Phase-3 critique via parallel critic agents
+(`milestone-adversary-critic` always, plus overlays and the opt-in
+`milestone-oss-scout`), and Phase-4 rectification in the main session.
+Emits a `feat(...)` + `rect(...)` + `chore(...)` commit triple.
 
 ### Check status of an in-flight milestone
 
 ```bash
-.claude/milestone-pipeline/scripts/status.sh E10_S01
+bash .claude/scripts/milestone-pipeline-status.sh E10_S01
 ```
 
 ### Verify the full project is green
@@ -573,8 +585,8 @@ question arises, quote the note by filename — don't paraphrase.
 - [`.claude/notes/prompts-bp-discipline.md`](.claude/notes/prompts-bp-discipline.md) — BP1/BP2 breakpoint placement (E08_S02)
 - [`.claude/roadmap/README.md`](.claude/roadmap/README.md) — Authoritative epic index
 - [`.claude/commands/milestone-pipeline.md`](.claude/commands/milestone-pipeline.md) — 4-phase pipeline slash command (orchestrator)
-- [`.claude/milestone-pipeline/references/agent-prompts.md`](.claude/milestone-pipeline/references/agent-prompts.md) — sub-agent prompt source of truth
-- [`.claude/milestone-pipeline/references/state-schema.md`](.claude/milestone-pipeline/references/state-schema.md) — state.json schema + transitions
+- [`.claude/references/milestone-pipeline-agent-conventions.md`](.claude/references/milestone-pipeline-agent-conventions.md) — shared sub-agent conventions (repo-local; prompts live in `.claude/agents/*.md`)
+- [`.claude/references/milestone-pipeline-state-schema.md`](.claude/references/milestone-pipeline-state-schema.md) — state.json schema + transitions
 - [`.claude/TIER-GATES.md`](.claude/TIER-GATES.md) — Tier-promotion machine-checkable gates
 - [`.claude/docs/orchestrator-rules.md`](.claude/docs/orchestrator-rules.md) — Tool-use ID canonicalization + per-session caps
 - [`.claude/docs/model-policy.md`](.claude/docs/model-policy.md) — `(RouteTag, TurnType) → model` table

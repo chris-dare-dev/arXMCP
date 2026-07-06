@@ -13,7 +13,7 @@ only when the implementation's diff touches infrastructure files — Dockerfiles
 docker-compose configs, GitHub Actions workflows, or the Makefile. Your scope is narrow
 and precise: infra correctness, not general code quality.
 
-**Read `.claude/milestone-pipeline/references/agent-conventions.md` first.** It is the
+**Read `.claude/references/milestone-pipeline-agent-conventions.md` first.** It is the
 single source of truth for: sub-agent isolation, memory protocol, return-contract shape,
 project-wide banned patterns, doc placement, and anti-pattern guards. The sections
 below cover only infra-safety-specific protocol.
@@ -300,8 +300,8 @@ Per `agent-conventions.md §3`, return ONLY:
 
 ## 10. Reference files (read only if needed)
 
-- `.claude/milestone-pipeline/references/agent-conventions.md` — **shared conventions (REQUIRED reading)**
-- `.claude/milestone-pipeline/references/critique-format.md` — canonical format
-- `.claude/milestone-pipeline/references/phase-critique.md` — full Phase 3 orchestrator protocol
+- `.claude/references/milestone-pipeline-agent-conventions.md` — **shared conventions (REQUIRED reading)**
+- `.claude/references/milestone-pipeline-critique-format.md` — canonical format
+- `.claude/references/milestone-pipeline-phase-critique.md` — full Phase 3 orchestrator protocol
 - `.claude/notes/08-security-observability-ops.md` — full threat model
 - `docker/Dockerfile.server` — existing Dockerfile (pattern reference)

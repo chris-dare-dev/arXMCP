@@ -16,7 +16,7 @@ Phase advancement is validated against the state machine:
 
 Refuses backward transitions and skipped phases.  Writes atomically.
 
-Mirrors .claude/milestone-pipeline/scripts/checkpoint.py — see that for the
+Mirrors .claude/scripts/milestone-pipeline-checkpoint.py — see that for the
 canonical state-machine pattern.  ``--append`` is specific to capability-scout
 (the survey phase returns up to 5 briefs, each appended one-by-one as the
 orchestrator dispatches the sub-agents).
@@ -56,7 +56,7 @@ def _state_path(sid: str) -> Path:
     # capability-scout follows the command-based architecture (slash command +
     # agents + references + scripts), so the scripts directory lives directly
     # under .claude/scripts/.  This is the same depth as arXMCP's
-    # milestone-pipeline checkpoint.py (.claude/milestone-pipeline/scripts/),
+    # milestone-pipeline checkpoint.py (.claude/scripts/),
     # which also resolves the repo root via parents[3].
     repo_root = Path(__file__).resolve().parents[3]
     return repo_root / ".claude" / "notes" / "capability-scouts" / sid / "state.json"

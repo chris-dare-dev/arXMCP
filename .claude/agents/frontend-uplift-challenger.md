@@ -17,7 +17,7 @@ Read these first:
 - /Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/06-mcp-server-design.md § "Browser UI surface"
 - /Users/chris.dare/Personal/SourceCode/arXMCP/.claude/references/frontend-uplift/arxmcp-design-system.md (especially §9 architectural locks — the hard constraints)
 - /Users/chris.dare/Personal/SourceCode/arXMCP/.claude/references/frontend-uplift/motion-vocabulary.md (§8 anti-patterns especially)
-- /Users/chris.dare/Personal/SourceCode/arXMCP/.claude/milestone-pipeline/references/critique-format.md
+- .claude/references/milestone-pipeline-critique-format.md
 - /Users/chris.dare/Personal/SourceCode/arXMCP/CLAUDE.md §4.7 (the project's no-build-chain / no-anthropic-SDK / pure-ASGI / no-fork / no-assert locks — these are arXMCP's "Q-locks equivalent")
 
 You may also read the 4 scout briefs under `.claude/notes/frontend-uplifts/{ID}/discover/` to ground-check the synthesis against its sources.

@@ -26,7 +26,7 @@ Read these first (much of your 15-minute budget — context is the deliverable):
 
 Then look at this critique through the lens of "what would a 2026 reviewer of research-math retrieval infrastructure — someone who understands the sketcher → autoformalizer → tactician → fixer consumer — expect arXMCP to have that it doesn't?"
 
-Severity rubric (mirrors .claude/milestone-pipeline/references/critique-format.md):
+Severity rubric (mirrors .claude/references/milestone-pipeline-critique-format.md):
 
 - **CRITICAL** — capability gap that erodes the core value proposition for the named consumer (e.g., "the tactician/fixer get no execution-feedback surface despite arXMCP's whole reason for being is to ground a verification pipeline").  Rare.
 - **HIGH** — capability gap that comparable retrieval/MCP systems all have and arXMCP lacks.

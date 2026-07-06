@@ -248,7 +248,7 @@ Read these first (much of your 15-minute budget — context is the deliverable):
 
 Then look at this critique through the lens of "what would a 2026 reviewer of research-math retrieval infrastructure — someone who understands the sketcher → autoformalizer → tactician → fixer consumer — expect arXMCP to have that it doesn't?"
 
-Severity rubric (mirrors .claude/milestone-pipeline/references/critique-format.md):
+Severity rubric (mirrors .claude/references/milestone-pipeline-critique-format.md):
 
 - **CRITICAL** — capability gap that erodes the core value proposition for the named consumer (e.g., "the tactician/fixer get no execution-feedback surface despite arXMCP's whole reason for being is to ground a verification pipeline").  Rare.
 - **HIGH** — capability gap that comparable retrieval/MCP systems all have and arXMCP lacks.
@@ -299,7 +299,7 @@ Read these first:
 - {SYNTHESIS_PATH} (the catalog you're critiquing) — end-to-end
 - CLAUDE.md (especially §4.7 coding conventions / architecture locks, §7 known stubs, §8 gotchas + no-fork policy)
 - .claude/notes/07-multi-agent-caching.md (BP1/BP2 prompt-cache discipline — non-negotiable)
-- .claude/milestone-pipeline/references/critique-format.md (canonical severity rubric)
+- .claude/references/milestone-pipeline-critique-format.md (canonical severity rubric)
 
 You may also read the 5 scout briefs under .claude/notes/capability-scouts/{ID}/survey/ to ground-check the synthesis against its sources.
 

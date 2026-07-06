@@ -30,7 +30,7 @@ Read these first (most of your 15-minute budget — context is the deliverable):
 
 Then look at arXMCP's `/ui/` surface through the lens: "What would a 2026 visual designer expect a research-tool operator console to do that arXMCP's UI doesn't — within the no-build-chain constraint?"
 
-Severity rubric (mirrors `.claude/milestone-pipeline/references/critique-format.md`):
+Severity rubric (mirrors `.claude/references/milestone-pipeline-critique-format.md`):
 - **CRITICAL** — visual gap that breaks the operator on first use. Rare on a 3-page surface.
 - **HIGH** — visual gap that scholarly / dev-tool comparators all have and arXMCP lacks.
 - **MEDIUM** — quality-of-life visual gap that compounds across the 3 routes.

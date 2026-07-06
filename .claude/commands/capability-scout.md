@@ -220,6 +220,6 @@ Phase references (`phase-survey.md`, `phase-synthesize.md`, `phase-challenge.md`
 - `.claude/references/capability-scout/source-registry.md` — curated comparable systems / research venues / OSS projects / multi-agent papers (loaded by sub-agents at Phase 1 start, NOT by the main session)
 - `CLAUDE.md` §4.7 + §7 + §8 — arXMCP architecture locks, known stubs, and the no-fork policy (the Challenger's checklist axes)
 - `.claude/notes/07-multi-agent-caching.md` — BP1/BP2 prompt-cache discipline (Challenger checklist axis #3)
-- `.claude/milestone-pipeline/references/critique-format.md` — canonical severity rubric
+- `.claude/references/milestone-pipeline-critique-format.md` — canonical severity rubric
 - `.claude/commands/milestone-pipeline.md` — the build-pipeline this scout feeds via `/roadmap`
-- `.claude/skills/roadmap/SKILL.md` — the roadmap pipeline this scout offers handoff to
+- `.claude/commands/roadmap.md` — the roadmap pipeline this scout offers handoff to
