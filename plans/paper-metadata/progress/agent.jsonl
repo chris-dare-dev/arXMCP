@@ -1,0 +1,3 @@
+{"id": "paper-metadata-spike-1", "field": "status", "value": "done", "at": "2026-07-05T23:10:40-04:00", "actor": "agent", "note": "GO: 5 fields cover all corpus ID shapes (112 new + 14 old-style); live numeric check outage-blocked, re-run URL in brief-2; real m1 risks are prefix-drop bug + throttle handling"}
+{"id": "paper-metadata-m1", "field": "status", "value": "in_progress", "at": "2026-07-05T23:10:40-04:00", "actor": "agent"}
+{"id": "paper-metadata-m1", "field": "status", "value": "done", "at": "2026-07-05T23:54:46-04:00", "actor": "agent", "note": "AC1 live: 127/127 hydrated (100%); AC2 cold-reopen regression green; rect closed 5 findings"}
