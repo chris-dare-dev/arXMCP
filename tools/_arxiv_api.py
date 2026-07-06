@@ -32,15 +32,17 @@ natively, nothing lifted from ``arxiv.py`` or other arxiv-mcp code.
 
 from __future__ import annotations
 
+import re
 import time
 import urllib.parse
 import urllib.request
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 
 import defusedxml.ElementTree as DET
 
+from ingest.identifiers import ARXIV_PAPER_ID_RE
 from tools.arxiv_fetch import (
     POLITENESS_SLEEP_SECONDS,
     build_user_agent,
@@ -227,6 +229,212 @@ def parse_atom_feed(xml_bytes: bytes) -> list[Candidate]:
     return out
 
 
+# ---------------------------------------------------------------------------
+# paper-metadata-m1 — id_list URL builder + prefix-preserving metadata mapper
+#
+# ADDITIVE surface. ``build_query_url`` / ``parse_atom_feed`` /
+# ``Candidate`` are byte-locked by ``TestBuildQueryURL`` /
+# ``TestCurateQueryURL`` and shared with ``curate_seed`` + the
+# discovery driver — they are NOT modified. In particular,
+# ``parse_atom_feed``'s ``rsplit("/", 1)`` id extraction DROPS the
+# archive prefix on old-style ids (``math/0212237v1`` → ``0212237``);
+# that legacy behaviour is preserved for existing callers, and the
+# metadata path below owns a correct, prefix-preserving extraction.
+# ---------------------------------------------------------------------------
+
+#: Trailing arXiv version suffix (``v1``, ``v12``). Anchored with
+#: ``\Z`` so it only ever strips a literal version marker at the very
+#: end of an id — no arXiv id contains ``v<digits>`` anywhere else.
+_VERSION_SUFFIX_RE = re.compile(r"v\d+\Z")
+
+#: Path marker separating the arXiv abs-URL prefix from the paper id.
+_ABS_URL_MARKER = "/abs/"
+
+
+@dataclass(frozen=True)
+class PaperMetadata:
+    """Full metadata for one paper parsed from an Atom feed entry.
+
+    Richer sibling of :class:`Candidate` for the paper-metadata store:
+    author NAMES (not just a count), ALL ``<category>`` terms, the
+    full whitespace-normalized abstract, and a ``paper_id`` that is
+    UNVERSIONED with the old-style archive prefix INTACT
+    (``math/0212237``). ``year == 0`` means unparseable
+    ``<published>`` (the ``Candidate.submitted_year`` convention).
+    """
+
+    paper_id: str
+    title: str
+    authors: tuple[str, ...]
+    abstract: str
+    year: int
+    categories: tuple[str, ...]
+    primary_category: str
+    published: str
+
+
+def strip_id_version(paper_id: str) -> str:
+    """Strip a trailing ``v<int>`` version marker from an arXiv id.
+
+    ``math/0212237v1`` → ``math/0212237``; ``2307.01156v2`` →
+    ``2307.01156``; unversioned ids pass through unchanged.
+    """
+    return _VERSION_SUFFIX_RE.sub("", paper_id.strip())
+
+
+def extract_paper_id_from_abs_url(abs_url: str) -> str:
+    """Prefix-preserving, version-stripping id extraction from an
+    Atom ``<id>`` abs URL.
+
+    ``http://arxiv.org/abs/math/0212237v1`` → ``math/0212237``. The
+    legacy ``rsplit("/", 1)`` in :func:`parse_atom_feed` loses the
+    archive prefix on old-style ids; splitting on ``/abs/`` keeps it.
+    A URL without the marker degrades to the legacy last-segment
+    behaviour (the caller correlates against requested ids, so an
+    unrecognized value surfaces as a per-id miss, never a crash).
+    """
+    url = abs_url.strip()
+    idx = url.find(_ABS_URL_MARKER)
+    raw = url[idx + len(_ABS_URL_MARKER):] if idx >= 0 else url.rsplit("/", 1)[-1]
+    return strip_id_version(raw)
+
+
+def build_id_list_url(
+    paper_ids: Sequence[str],
+    *,
+    start: int = 0,
+    max_results: int | None = None,
+) -> str:
+    """Build an arXiv API ``id_list`` query URL for specific papers.
+
+    New builder (paper-metadata-m1): ``build_query_url`` is
+    search_query-only and byte-locked, so it cannot express an
+    id_list query.
+
+    Guards:
+
+    - Every id must match ``ingest.identifiers.ARXIV_PAPER_ID_RE``
+      (versioned ids allowed — the API demonstrates them). One
+      malformed id turns the WHOLE response into an HTTP-200 error
+      feed, so pre-validation here protects the batch.
+    - ``max_results`` defaults to ``len(paper_ids)`` and must be
+      ≥ it: the arXiv default of 10 silently truncates larger
+      batches (live-verified footgun from the m1 research brief).
+    - At most :data:`MAX_RESULTS_PER_PAGE` ids per request (the
+      2000/slice API cap).
+    """
+    if not paper_ids:
+        raise ValueError("paper_ids must be a non-empty sequence of arXiv ids")
+    if len(paper_ids) > MAX_RESULTS_PER_PAGE:
+        raise ValueError(
+            f"id_list of {len(paper_ids)} exceeds the arXiv per-request "
+            f"cap of {MAX_RESULTS_PER_PAGE}; batch the request"
+        )
+    for pid in paper_ids:
+        if not ARXIV_PAPER_ID_RE.match(pid):
+            raise ValueError(
+                f"paper_id {pid!r} is not a well-formed arXiv id; one "
+                f"malformed id poisons the whole id_list response "
+                f"(HTTP-200 error feed), so it is rejected up front"
+            )
+    if max_results is None:
+        max_results = len(paper_ids)
+    if max_results < len(paper_ids):
+        raise ValueError(
+            f"max_results={max_results} < len(paper_ids)="
+            f"{len(paper_ids)}: the arXiv default (10) silently "
+            f"truncates id_list batches; always request at least "
+            f"one result per id"
+        )
+    params = {
+        "id_list": ",".join(paper_ids),
+        "start": str(start),
+        "max_results": str(max_results),
+    }
+    # ``safe=",/"`` keeps commas + old-style slashes literal, matching
+    # the documented id_list examples (cs/9901002v1,cond-mat/0702661v2).
+    return f"{ARXIV_API_URL}?{urllib.parse.urlencode(params, safe=',/')}"
+
+
+def parse_atom_metadata(xml_bytes: bytes) -> list[PaperMetadata]:
+    """Parse an arXiv Atom feed into :class:`PaperMetadata` rows.
+
+    The metadata sibling of :func:`parse_atom_feed` (which stays
+    byte-stable for ``curate_seed`` / discovery). Differences:
+
+    - id extraction preserves the old-style archive prefix and
+      strips the version (:func:`extract_paper_id_from_abs_url`).
+    - author NAMES, ALL ``<category>`` terms, and the full
+      whitespace-normalized abstract are captured.
+
+    Raises ``RuntimeError`` on the arXiv HTTP-200 error-entry
+    pattern and on non-XML bytes, mirroring :func:`parse_atom_feed`
+    so driver-level per-id fallback can catch one exception type.
+    """
+    try:
+        root = DET.fromstring(xml_bytes)
+    except DET.ParseError as exc:
+        raise RuntimeError(
+            f"arXiv returned a non-XML / malformed response: {exc}"
+        ) from exc
+    out: list[PaperMetadata] = []
+    for entry in root.findall("atom:entry", ATOM_NS):
+        id_url = (
+            entry.findtext("atom:id", default="", namespaces=ATOM_NS) or ""
+        ).strip()
+        if _ERROR_ID_MARKER in id_url:
+            summary = (
+                entry.findtext("atom:summary", default="", namespaces=ATOM_NS)
+                or "unknown arXiv API error"
+            ).strip()
+            raise RuntimeError(f"arXiv API returned an error entry: {summary}")
+
+        paper_id = extract_paper_id_from_abs_url(id_url)
+
+        title = " ".join(
+            (entry.findtext("atom:title", default="", namespaces=ATOM_NS) or "").split()
+        )
+        abstract = " ".join(
+            (entry.findtext("atom:summary", default="", namespaces=ATOM_NS) or "").split()
+        )
+
+        published = (
+            entry.findtext("atom:published", default="", namespaces=ATOM_NS) or ""
+        ).strip()
+        try:
+            year = datetime.fromisoformat(published.replace("Z", "+00:00")).year
+        except ValueError:
+            year = 0
+
+        authors = tuple(
+            " ".join(name.split())
+            for author in entry.findall("atom:author", ATOM_NS)
+            if (name := author.findtext("atom:name", default="", namespaces=ATOM_NS))
+            and name.strip()
+        )
+        categories = tuple(
+            term
+            for cat in entry.findall("atom:category", ATOM_NS)
+            if (term := cat.attrib.get("term", "").strip())
+        )
+        primary = entry.find("arxiv:primary_category", ATOM_NS)
+        primary_cat = primary.attrib.get("term", "") if primary is not None else ""
+
+        out.append(
+            PaperMetadata(
+                paper_id=paper_id,
+                title=title,
+                authors=authors,
+                abstract=abstract,
+                year=year,
+                categories=categories,
+                primary_category=primary_cat,
+                published=published,
+            )
+        )
+    return out
+
+
 def _fetch_url(url: str, contact_email: str | None = None) -> bytes:
     """GET ``url`` from the arXiv API with the polite User-Agent.
 
@@ -295,7 +503,12 @@ __all__ = [
     "ARXIV_API_URL",
     "ATOM_NS",
     "Candidate",
+    "PaperMetadata",
+    "build_id_list_url",
     "build_query_url",
+    "extract_paper_id_from_abs_url",
     "fetch_candidates",
     "parse_atom_feed",
+    "parse_atom_metadata",
+    "strip_id_version",
 ]
