@@ -23,6 +23,7 @@ the consumer. Rules:
   - files removed from the registry are deleted from the consumer on sync
 --check reports drift without writing. --dry-run prints planned actions.
 """
+
 from __future__ import annotations
 
 import argparse

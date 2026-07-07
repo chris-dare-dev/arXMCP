@@ -26,6 +26,7 @@ under "skipped" and excluded from ranking.
 Exit codes: 0 computed (even with skips); 2 input/usage error.
 Read-only. stdlib + PyYAML only.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -71,10 +72,16 @@ def main() -> int:
         if e <= 0:
             skipped.append({"id": iid, "reason": "e must be > 0"})
             continue
-        scored.append({
-            "id": iid, "r": r, "i": i, "c": c, "e": e,
-            "score": round(r * i * c / e, 2),
-        })
+        scored.append(
+            {
+                "id": iid,
+                "r": r,
+                "i": i,
+                "c": c,
+                "e": e,
+                "score": round(r * i * c / e, 2),
+            }
+        )
 
     scored.sort(key=lambda x: (-x["score"], x["id"]))
     rank, prev = 0, None
@@ -89,14 +96,17 @@ def main() -> int:
         if scored:
             print(f"{'rank':>4}  {'id':<32} {'r':>7} {'i':>5} {'c':>5} {'e':>6} {'score':>8}")
             for row in scored:
-                print(f"{row['rank']:>4}  {row['id']:<32} {row['r']:>7g} {row['i']:>5g}"
-                      f" {row['c']:>5g} {row['e']:>6g} {row['score']:>8g}")
+                print(
+                    f"{row['rank']:>4}  {row['id']:<32} {row['r']:>7g} {row['i']:>5g}"
+                    f" {row['c']:>5g} {row['e']:>6g} {row['score']:>8g}"
+                )
         else:
             print("no epics with complete rice factors")
         for s in skipped:
             print(f"skipped: {s['id']} — {s['reason']}")
-        print("compute-only: write score/rank back into each epic's rice block via Edit, "
-              "then re-run roadmap-validate.py")
+        print(
+            "compute-only: write score/rank back into each epic's rice block via Edit, then re-run roadmap-validate.py"
+        )
     return 0
 
 

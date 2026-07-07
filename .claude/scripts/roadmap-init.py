@@ -15,6 +15,7 @@ milestone-pipeline checkpoint discipline.
 
 Idempotent; never overwrites an existing roadmap.yaml.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -30,9 +31,7 @@ PHASES = ["init", "refined", "decomposed", "sequenced", "complete"]
 def repo_root(override: str | None) -> Path:
     if override:
         return Path(override).resolve()
-    out = subprocess.run(
-        ["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True
-    )
+    out = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True)
     if out.returncode != 0:
         sys.exit("ERROR: not inside a git repo and no --repo-root given")
     return Path(out.stdout.strip())

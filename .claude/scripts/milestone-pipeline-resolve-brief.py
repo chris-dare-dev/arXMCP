@@ -28,6 +28,7 @@ Exit codes:
 
 Stdlib + PyYAML only. Never writes anything.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -71,7 +72,9 @@ def find_repo_root(override: str | None) -> Path:
     try:
         out = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, check=True,
+            capture_output=True,
+            text=True,
+            check=True,
         )
         return Path(out.stdout.strip())
     except Exception:
@@ -102,9 +105,7 @@ HEADING_RE = re.compile(r"^(#{1,6})\s")
 
 def legacy_search(root: Path, item_id: str) -> list[tuple[Path, str]]:
     """Return [(path, block)] for '### <ID> —' headings in legacy prose files."""
-    pat = re.compile(
-        r"^(#{3,6})\s+" + re.escape(item_id) + r"\s+(?:—|–|--|-)(?:\s|$)"
-    )
+    pat = re.compile(r"^(#{3,6})\s+" + re.escape(item_id) + r"\s+(?:—|–|--|-)(?:\s|$)")
     hits = []
     for rel_glob in ("plans/*.md", ".claude/roadmap/*.md"):
         for path in sorted(root.glob(rel_glob)):
@@ -119,7 +120,7 @@ def legacy_search(root: Path, item_id: str) -> list[tuple[Path, str]]:
                     continue
                 level = len(m.group(1))
                 block = [line]
-                for nxt in lines[i + 1:]:
+                for nxt in lines[i + 1 :]:
                     h = HEADING_RE.match(nxt)
                     if h and len(h.group(1)) <= level:
                         break
@@ -141,11 +142,13 @@ def dep_context(doc: dict, item: dict) -> list[dict]:
     out = []
     for dep in item.get("depends_on") or []:
         d = by_id.get(dep) or {}
-        out.append({
-            "id": dep,
-            "title": d.get("title"),
-            "status": d.get("status", "planned"),
-        })
+        out.append(
+            {
+                "id": dep,
+                "title": d.get("title"),
+                "status": d.get("status", "planned"),
+            }
+        )
     return out
 
 
@@ -175,8 +178,7 @@ def build_brief(item_id: str, path_rel: str, doc: dict, item: dict) -> str:
         lines.append("- (top-level item; no parent epic)")
 
     lines += ["", "## Summary", ""]
-    lines.append(str(item.get("summary") or
-                     "(none in roadmap — derive scope from the acceptance criteria)").strip())
+    lines.append(str(item.get("summary") or "(none in roadmap — derive scope from the acceptance criteria)").strip())
 
     lines += ["", "## Acceptance criteria", ""]
     acceptance = item.get("acceptance") or []
@@ -208,8 +210,10 @@ def main() -> int:
     hits = scan_roadmaps(root, args.item_id)
 
     if len(hits) > 1:
-        print(f"error: id {args.item_id!r} found in {len(hits)} roadmap files "
-              "(ids must be fleet-unique):", file=sys.stderr)
+        print(
+            f"error: id {args.item_id!r} found in {len(hits)} roadmap files (ids must be fleet-unique):",
+            file=sys.stderr,
+        )
         for path, _, _ in hits:
             print(f"  - {rel(path, root)}", file=sys.stderr)
         print("       retire/rename one of them, then retry.", file=sys.stderr)
@@ -219,14 +223,11 @@ def main() -> int:
         path, doc, item = hits[0]
         path_rel = rel(path, root)
         if args.as_json:
-            by_id = {it.get("id"): it for it in doc.get("items") or []
-                     if isinstance(it, dict)}
+            by_id = {it.get("id"): it for it in doc.get("items") or [] if isinstance(it, dict)}
             payload = {
                 "id": args.item_id,
-                "source": {"kind": "roadmap", "path": path_rel,
-                           "slug": doc.get("slug")},
-                "roadmap": {k: doc.get(k) for k in
-                            ("slug", "project", "title", "status", "phase")},
+                "source": {"kind": "roadmap", "path": path_rel, "slug": doc.get("slug")},
+                "roadmap": {k: doc.get(k) for k in ("slug", "project", "title", "status", "phase")},
                 "item": item,
                 "parent": by_id.get(item.get("parent")),
                 "depends_on": dep_context(doc, item),
@@ -241,8 +242,7 @@ def main() -> int:
     # Legacy prose fallback.
     legacy = legacy_search(root, args.item_id)
     if len(legacy) > 1:
-        print(f"error: heading for {args.item_id!r} found in {len(legacy)} prose files:",
-              file=sys.stderr)
+        print(f"error: heading for {args.item_id!r} found in {len(legacy)} prose files:", file=sys.stderr)
         for path, _ in legacy:
             print(f"  - {rel(path, root)}", file=sys.stderr)
         print("       consolidate to one file, then retry.", file=sys.stderr)
@@ -264,8 +264,10 @@ def main() -> int:
             print(block, end="")
         return 0
 
-    print(f"error: {args.item_id!r} not found in plans/*/roadmap.yaml, plans/*.md, "
-          "or .claude/roadmap/*.md", file=sys.stderr)
+    print(
+        f"error: {args.item_id!r} not found in plans/*/roadmap.yaml, plans/*.md, or .claude/roadmap/*.md",
+        file=sys.stderr,
+    )
     return 2
 
 

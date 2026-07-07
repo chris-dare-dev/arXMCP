@@ -27,6 +27,7 @@ Design notes: stdlib + PyYAML only (mirrors the vault pipeline's footprint).
 PyYAML coerces bare dates to datetime.date — normalized back to ISO strings
 before checking so the canonical file may use either quoted or bare dates.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -70,9 +71,7 @@ def _no_dup_mapping(loader, node, deep=False):
     return yaml.SafeLoader.construct_mapping(loader, node, deep)
 
 
-DupKeyLoader.add_constructor(
-    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _no_dup_mapping
-)
+DupKeyLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _no_dup_mapping)
 
 
 def normalize_dates(obj):
@@ -82,7 +81,11 @@ def normalize_dates(obj):
     if isinstance(obj, list):
         return [normalize_dates(v) for v in obj]
     if isinstance(obj, (datetime.date, datetime.datetime)):
-        return obj.isoformat()[:10] if isinstance(obj, datetime.date) and not isinstance(obj, datetime.datetime) else obj.isoformat()
+        return (
+            obj.isoformat()[:10]
+            if isinstance(obj, datetime.date) and not isinstance(obj, datetime.datetime)
+            else obj.isoformat()
+        )
     return obj
 
 
@@ -199,11 +202,13 @@ def validate(doc: dict, errors: list) -> None:
         return val is not None
 
     hz = doc.get("horizon")
-    if hz and check_date("horizon", "start", hz.get("start")) and check_date(
-        "horizon", "end", hz.get("end")
+    if (
+        hz
+        and check_date("horizon", "start", hz.get("start"))
+        and check_date("horizon", "end", hz.get("end"))
+        and str(hz["start"]) > str(hz["end"])
     ):
-        if str(hz["start"]) > str(hz["end"]):
-            err("dates", "horizon.start is after horizon.end")
+        err("dates", "horizon.start is after horizon.end")
     for iid, it in ids.items():
         s_ok = check_date(iid, "target_start", it.get("target_start"))
         e_ok = check_date(iid, "target_end", it.get("target_end"))
@@ -215,11 +220,7 @@ def validate(doc: dict, errors: list) -> None:
         for iid, it in ids.items():
             if it["kind"] == "milestone" and "lane" not in it:
                 err("lanes", f"{iid}: phase>=sequenced requires a lane on milestones")
-            if (
-                it["kind"] in ("milestone", "task")
-                and it.get("lane") == "now"
-                and not it.get("acceptance")
-            ):
+            if it["kind"] in ("milestone", "task") and it.get("lane") == "now" and not it.get("acceptance"):
                 err("lanes", f"{iid}: now-lane {it['kind']} needs >=1 acceptance criterion")
 
     # ── must-cap ──────────────────────────────────────────────

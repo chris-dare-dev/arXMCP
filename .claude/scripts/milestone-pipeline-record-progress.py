@@ -25,6 +25,7 @@ Exit codes:
 
 Stdlib + PyYAML only. Append is atomic-enough: single write() on an 'a' handle.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -54,7 +55,9 @@ def find_repo_root(override: str | None) -> Path:
     try:
         out = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, check=True,
+            capture_output=True,
+            text=True,
+            check=True,
         )
         return Path(out.stdout.strip())
     except Exception:
@@ -96,15 +99,20 @@ def main() -> int:
     hits = scan_roadmaps(root, args.item_id)
 
     if len(hits) > 1:
-        print(f"error: id {args.item_id!r} found in {len(hits)} roadmap files "
-              "(ids must be fleet-unique):", file=sys.stderr)
+        print(
+            f"error: id {args.item_id!r} found in {len(hits)} roadmap files (ids must be fleet-unique):",
+            file=sys.stderr,
+        )
         for path in hits:
             print(f"  - {path}", file=sys.stderr)
         return 1
 
     if not hits:
-        print(f"warning: {args.item_id!r} is not tracked in any plans/*/roadmap.yaml "
-              "(legacy-prose or ad-hoc milestone) — no journal write.", file=sys.stderr)
+        print(
+            f"warning: {args.item_id!r} is not tracked in any plans/*/roadmap.yaml "
+            "(legacy-prose or ad-hoc milestone) — no journal write.",
+            file=sys.stderr,
+        )
         return 0
 
     journal = hits[0].parent / "progress" / "agent.jsonl"

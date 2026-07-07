@@ -18,6 +18,7 @@ Exit codes:
 
 Read-only: never writes the YAML. stdlib + PyYAML only.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -35,8 +36,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="MoSCoW Must-cap check (roadmap/1)")
     ap.add_argument("path", type=Path, help="path/to/roadmap.yaml")
     ap.add_argument("--json", action="store_true")
-    ap.add_argument("--cap", type=float, default=DEFAULT_CAP,
-                    help=f"must-cap percentage (default {DEFAULT_CAP:.0f})")
+    ap.add_argument("--cap", type=float, default=DEFAULT_CAP, help=f"must-cap percentage (default {DEFAULT_CAP:.0f})")
     args = ap.parse_args()
 
     if not (0 < args.cap <= 100):
@@ -51,8 +51,7 @@ def main() -> int:
         sys.stderr.write("error: document is not a roadmap/1 mapping with an items list\n")
         return 2
 
-    epics = [it for it in doc["items"]
-             if isinstance(it, dict) and it.get("kind") == "epic"]
+    epics = [it for it in doc["items"] if isinstance(it, dict) and it.get("kind") == "epic"]
     by_bucket: dict[str, list[str]] = {b: [] for b in BUCKETS}
     unset: list[str] = []
     for e in epics:
@@ -79,16 +78,21 @@ def main() -> int:
         )
 
     if args.json:
-        print(json.dumps({
-            "ok": ok,
-            "cap_pct": args.cap,
-            "must_pct": round(must_pct, 1),
-            "epics_total": len(epics),
-            "epics_non_wont": scoped,
-            "buckets": {b: by_bucket[b] for b in BUCKETS},
-            "priority_unset": unset,
-            "message": message,
-        }, indent=2))
+        print(
+            json.dumps(
+                {
+                    "ok": ok,
+                    "cap_pct": args.cap,
+                    "must_pct": round(must_pct, 1),
+                    "epics_total": len(epics),
+                    "epics_non_wont": scoped,
+                    "buckets": {b: by_bucket[b] for b in BUCKETS},
+                    "priority_unset": unset,
+                    "message": message,
+                },
+                indent=2,
+            )
+        )
     else:
         print("MoSCoW summary (epics):")
         for b in BUCKETS:

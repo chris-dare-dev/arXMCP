@@ -38,6 +38,7 @@ except with --dry-run (nothing written, always exit 0).
 
 Stdlib + PyYAML only.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -96,16 +97,36 @@ STATUS_BRACKET_RE = re.compile(
 )
 # Bold sub-labels that terminate a goal list (so Won't bullets do not bleed into
 # key_results when both live under one "Objective and Key Results" heading).
-GOAL_SUBLABEL_RE = re.compile(r"^\s*\*\*\s*(won'?t|assumptions?|key\s+results?|"
-                              r"objective|non-goals?|out\s+of\s+scope)\b", re.I)
+GOAL_SUBLABEL_RE = re.compile(
+    r"^\s*\*\*\s*(won'?t|assumptions?|key\s+results?|"
+    r"objective|non-goals?|out\s+of\s+scope)\b",
+    re.I,
+)
 # Bold sub-labels (colon may fall inside or outside the closing `**`).
 KR_LABEL_RE = re.compile(r"^\*\*\s*key\s+results?\s*:?\s*\*\*:?\s*$", re.I)
 WONT_LABEL_RE = re.compile(r"^\*\*\s*won'?t\b[^*]*\*\*:?\s*$", re.I)
 
 ITEM_FIELD_ORDER = [
-    "id", "kind", "title", "parent", "summary", "status", "lane", "priority",
-    "size", "rice", "estimate_days", "target_start", "target_end", "owner",
-    "tags", "acceptance", "depends_on", "links", "proclivity", "origin",
+    "id",
+    "kind",
+    "title",
+    "parent",
+    "summary",
+    "status",
+    "lane",
+    "priority",
+    "size",
+    "rice",
+    "estimate_days",
+    "target_start",
+    "target_end",
+    "owner",
+    "tags",
+    "acceptance",
+    "depends_on",
+    "links",
+    "proclivity",
+    "origin",
 ]
 
 
@@ -157,8 +178,8 @@ def clean_title_after_id(text: str) -> str:
 # Trailing clauses that must never bleed into a spike/milestone title — they are
 # timeboxes, deliverables, gates, or assumption references, not the deliverable.
 _TRAILING_CLAUSE_RES = [
-    re.compile(r"\s+[—–-]\s*timebox", re.I),                       # — timeboxed / — timebox
-    re.compile(r"\s*\(\s*[≤<]=?\s*\d"),                            # (≤ 2 days, ...
+    re.compile(r"\s+[—–-]\s*timebox", re.I),  # — timeboxed / — timebox
+    re.compile(r"\s*\(\s*[≤<]=?\s*\d"),  # (≤ 2 days, ...
     re.compile(r"\s+Output\s*:", re.I),
     re.compile(r"\s+Gate\s*:", re.I),
     re.compile(r"\s+[—–-]?\s*deliverable\s*:", re.I),
@@ -213,8 +234,7 @@ class Migrator:
         # story ids) — kept OUT of id_res so full_ids_in/kind_of_id stay clean.
         self.sub_milestone_re = re.compile(rf"\b{s}-m(\d+)([a-z])\b")
         self.story_re = re.compile(rf"\b{s}-e(\d+)-s(\d+)\b")
-        self.story_header_re = re.compile(
-            rf"^\s*\*\*\s*`?{s}-e(\d+)-s(\d+)`?\s*[—–\-]\s*(.*)$")
+        self.story_header_re = re.compile(rf"^\s*\*\*\s*`?{s}-e(\d+)-s(\d+)`?\s*[—–\-]\s*(.*)$")
         self.variant_epic_re = re.compile(rf"\b(?:{s}-)?e(\d+)([a-z])\b")
 
     # ── preprocessing ─────────────────────────────────────────
@@ -247,8 +267,7 @@ class Migrator:
     def expand_bare_ids(self, text: str) -> list[str]:
         """`e1` / `m2` / `spike-3` -> full slug-prefixed ids (fallback only)."""
         out = []
-        for pat, fmt in ((r"\bspike-(\d+)\b", "spike-{}"), (r"\be(\d+)\b", "e{}"),
-                         (r"\bm(\d+)\b", "m{}")):
+        for pat, fmt in ((r"\bspike-(\d+)\b", "spike-{}"), (r"\be(\d+)\b", "e{}"), (r"\bm(\d+)\b", "m{}")):
             for m in re.finditer(pat, text):
                 fid = f"{self.slug}-{fmt.format(m.group(1))}"
                 if fid not in out:
@@ -273,8 +292,10 @@ class Migrator:
             self.created = m.group(1)
         m = SLUG_LINE_RE.search(self.text)
         if m and m.group(1) != self.slug:
-            print(f"warning: doc declares slug {m.group(1)!r} but --slug is "
-                  f"{self.slug!r} — ids will use --slug", file=sys.stderr)
+            print(
+                f"warning: doc declares slug {m.group(1)!r} but --slug is {self.slug!r} — ids will use --slug",
+                file=sys.stderr,
+            )
 
     def section_end(self, h_idx: int, *, strict: bool = False) -> int:
         """Line where heading h_idx's section ends (exclusive).
@@ -295,15 +316,23 @@ class Migrator:
                 self.consumed.add(j)
 
     # ── items ─────────────────────────────────────────────────
-    def ensure_item(self, iid: str, kind: str, line: int, title: str = "",
-                    stub: bool = False) -> dict:
+    def ensure_item(self, iid: str, kind: str, line: int, title: str = "", stub: bool = False) -> dict:
         it = self.items.get(iid)
         if it is None:
             it = {
-                "id": iid, "kind": kind, "title": title, "_line": line,
-                "_stub": stub, "acceptance": [], "depends_on": [], "tags": [],
-                "_state": None, "_state_date": None, "_state_src": None,
-                "_occ": [], "_title_spike_sec": False,
+                "id": iid,
+                "kind": kind,
+                "title": title,
+                "_line": line,
+                "_stub": stub,
+                "acceptance": [],
+                "depends_on": [],
+                "tags": [],
+                "_state": None,
+                "_state_date": None,
+                "_state_src": None,
+                "_occ": [],
+                "_title_spike_sec": False,
             }
             self.items[iid] = it
         else:
@@ -338,12 +367,12 @@ class Migrator:
             if sm and not self.id_res["milestone"].search(text):
                 n, suf = sm.group(1), sm.group(2)
                 parent_mid = f"{self.slug}-m{n}"
-                iid, kind, rest = f"{self.slug}-t-m{n}{suf}", "task", text[sm.end():]
+                iid, kind, rest = f"{self.slug}-t-m{n}{suf}", "task", text[sm.end() :]
             if iid is None:
                 for k in ("milestone", "epic", "spike"):
                     m = self.id_res[k].search(text)
                     if m:
-                        iid, kind, rest = m.group(1), k, text[m.end():]
+                        iid, kind, rest = m.group(1), k, text[m.end() :]
                         break
             if iid is None:
                 m = re.match(r"^E(\d+)\b[\s:—–.\-]*(.*)$", text)
@@ -386,7 +415,7 @@ class Migrator:
             body = ""
             if m:
                 iid = m.group(1)
-                body = line[m.end():]
+                body = line[m.end() :]
             else:
                 sp = SP_BULLET_RE.match(line)
                 if sp:
@@ -400,8 +429,7 @@ class Migrator:
             # lane sections describe the spike; other mentions report outcomes.
             in_spike_sec = self.in_spike_section(i)
             t = clean_spike_title(body)
-            if t and "_h_idx" not in it and (
-                    not it["title"] or (in_spike_sec and not it["_title_spike_sec"])):
+            if t and "_h_idx" not in it and (not it["title"] or (in_spike_sec and not it["_title_spike_sec"])):
                 it["title"] = first_sentence(t)
                 it["summary"] = re.sub(r"^[\s—–·:.*\-]+", "", strip_md(body))
                 it["_title_spike_sec"] = in_spike_sec
@@ -432,8 +460,12 @@ class Migrator:
             for oid, _oh, ostart, oend in sections:
                 if oid != iid and ostart <= h_line < oend:
                     okind = self.items[oid]["kind"]
-                    if (it["kind"], okind) in (("milestone", "epic"), ("spike", "epic"),
-                                               ("task", "milestone"), ("task", "epic")):
+                    if (it["kind"], okind) in (
+                        ("milestone", "epic"),
+                        ("spike", "epic"),
+                        ("task", "milestone"),
+                        ("task", "epic"),
+                    ):
                         it.setdefault("parent", oid)
             ac_mode = False
             summary_pending = False
@@ -506,8 +538,7 @@ class Migrator:
                     summary_pending = False
                     self.consume(ln)
                     continue
-                if not bm and not line.startswith(("|", ">")) \
-                        and not THEMATIC_BREAK_RE.match(line):
+                if not bm and not line.startswith(("|", ">")) and not THEMATIC_BREAK_RE.match(line):
                     prose.append(line.strip())
                 if not bm:
                     ac_mode = False
@@ -543,8 +574,7 @@ class Migrator:
         elif state == "/":
             it.update(_state="in_progress", _state_src="checkbox")
         elif state == "-":
-            self.notes.append(f"[retire] {it['id']} was a '[-]' checkbox "
-                              f"(line {line + 1}) — decide retire vs keep")
+            self.notes.append(f"[retire] {it['id']} was a '[-]' checkbox (line {line + 1}) — decide retire vs keep")
         m = MARK_DATE_RE.search(self.lines[line])
         if m:
             it["_state_date"] = m.group(1)
@@ -615,29 +645,25 @@ class Migrator:
             if lane is None:
                 continue
             for fid in self.full_ids_in(line):
-                it = self.items.get(fid) or self.ensure_item(
-                    fid, self.kind_of_id(fid), i, stub=True)
+                it = self.items.get(fid) or self.ensure_item(fid, self.kind_of_id(fid), i, stub=True)
                 if "lane" not in it:
                     it["lane"] = lane
                     self.consume(marker_line if marker_line is not None else i)
                     self.consume(i)
 
     def pass_moscow(self) -> None:
-        pri_map = {"must": "must", "should": "should", "could": "could",
-                   "won't": "wont", "wont": "wont"}
+        pri_map = {"must": "must", "should": "should", "could": "could", "won't": "wont", "wont": "wont"}
         for i, line in enumerate(self.lines):
             m = MOSCOW_RE.match(line)
             if not m:
                 continue
             pri = pri_map[m.group(1).lower()]
-            rest = line[m.end():]
+            rest = line[m.end() :]
             ids = self.full_ids_in(rest)
             if not ids and ":" in rest:
-                ids = [f for f in self.expand_bare_ids(rest.split(":", 1)[1])
-                       if f in self.items]
+                ids = [f for f in self.expand_bare_ids(rest.split(":", 1)[1]) if f in self.items]
             for fid in ids:
-                it = self.items.get(fid) or self.ensure_item(
-                    fid, self.kind_of_id(fid), i, stub=True)
+                it = self.items.get(fid) or self.ensure_item(fid, self.kind_of_id(fid), i, stub=True)
                 if "priority" not in it:
                     it["priority"] = pri
                     self.consume(i)
@@ -648,13 +674,11 @@ class Migrator:
         i, n = 0, len(self.lines)
         while i < n:
             if self.lines[i].strip().startswith("|"):
-                header = [c.strip().lower()
-                          for c in self.lines[i].strip().strip("|").split("|")]
+                header = [c.strip().lower() for c in self.lines[i].strip().strip("|").split("|")]
                 rows = []
                 j = i + 1
                 while j < n and self.lines[j].strip().startswith("|"):
-                    cells = [c.strip()
-                             for c in self.lines[j].strip().strip("|").split("|")]
+                    cells = [c.strip() for c in self.lines[j].strip().strip("|").split("|")]
                     if not (set("".join(cells)) <= set("-: ")):
                         rows.append((j, cells))
                     j += 1
@@ -672,8 +696,7 @@ class Migrator:
 
     def _id_column(self, header):
         for ci, c in enumerate(header):
-            if ("epic" in c or "milestone" in c or c == "id" or c.endswith(" id")
-                    or c == "item"):
+            if "epic" in c or "milestone" in c or c == "id" or c.endswith(" id") or c == "item":
                 return ci
         return None
 
@@ -690,11 +713,9 @@ class Migrator:
         return None
 
     def pass_moscow_tables(self) -> None:
-        pri_map = {"must": "must", "should": "should", "could": "could",
-                   "wont": "wont"}
+        pri_map = {"must": "must", "should": "should", "could": "could", "wont": "wont"}
         for header, rows in self._iter_tables():
-            pri_col = self._find_col(header, "tag", "class", "moscow",
-                                     "priority", "bucket")
+            pri_col = self._find_col(header, "tag", "class", "moscow", "priority", "bucket")
             id_col = self._id_column(header)
             if pri_col is None or id_col is None:
                 continue
@@ -705,8 +726,7 @@ class Migrator:
                 fid = self._row_id(cells[id_col])
                 if not pm or not fid:
                     continue
-                it = self.items.get(fid) or self.ensure_item(
-                    fid, self.kind_of_id(fid), ln, stub=True)
+                it = self.items.get(fid) or self.ensure_item(fid, self.kind_of_id(fid), ln, stub=True)
                 if "priority" not in it:
                     it["priority"] = pri_map[pm.group(1).lower().replace("'", "")]
                     self.consume(ln)
@@ -714,9 +734,9 @@ class Migrator:
     def pass_dep_tables(self) -> None:
         for header, rows in self._iter_tables():
             id_col = self._id_column(header)
-            dep_col = self._find_col(header, "depends", "dependency",
-                                     "predecessor", "prereq", "blocked by",
-                                     "blocked-by")
+            dep_col = self._find_col(
+                header, "depends", "dependency", "predecessor", "prereq", "blocked by", "blocked-by"
+            )
             if id_col is None or dep_col is None or dep_col == id_col:
                 continue
             for ln, cells in rows:
@@ -726,8 +746,7 @@ class Migrator:
                 if not fid:
                     continue
                 deps = self.parse_deps(cells[dep_col])
-                it = self.items.get(fid) or self.ensure_item(
-                    fid, self.kind_of_id(fid), ln, stub=True)
+                it = self.items.get(fid) or self.ensure_item(fid, self.kind_of_id(fid), ln, stub=True)
                 added = False
                 for d in deps:
                     if d != fid and d not in it["depends_on"]:
@@ -739,9 +758,13 @@ class Migrator:
     def pass_rice_tables(self) -> None:
         for header, rows in self._iter_tables():
             col: dict[str, int] = {}
-            for key, exact, sub in (("r", "r", "reach"), ("i", "i", "impact"),
-                                    ("c", "c", "confidence"), ("e", "e", "effort"),
-                                    ("score", None, "score")):
+            for key, exact, sub in (
+                ("r", "r", "reach"),
+                ("i", "i", "impact"),
+                ("c", "c", "confidence"),
+                ("e", "e", "effort"),
+                ("score", None, "score"),
+            ):
                 for ci, c in enumerate(header):
                     if c == exact or sub in c:
                         col[key] = ci
@@ -802,8 +825,7 @@ class Migrator:
             self.story_lines.add(i)
             for j in range(i + 1, len(self.lines)):
                 l2 = self.lines[j]
-                if (HEADING_RE.match(l2) or THEMATIC_BREAK_RE.match(l2)
-                        or self.story_header_re.match(l2)):
+                if HEADING_RE.match(l2) or THEMATIC_BREAK_RE.match(l2) or self.story_header_re.match(l2):
                     break
                 self.story_lines.add(j)
                 if re.match(r"^\s*(Given|When|Then)\b", l2, re.I):
@@ -823,16 +845,15 @@ class Migrator:
                     continue
                 seen.add(token)
                 self.notes.append(
-                    f"[variant] {token} referenced in {base} body "
-                    f"(line {i + 1}) — split target, not lost")
+                    f"[variant] {token} referenced in {base} body (line {i + 1}) — split target, not lost"
+                )
 
     def _harvest_lane_title(self, tail: str) -> str:
         t = strip_md(tail)
         t = re.sub(r"^[\s·•—–:.*\-]+", "", t)
         t = re.sub(r"^E\d+(?:\s+part\s+\w+)?\s*[·•—–:\-]+\s*", "", t, flags=re.I)
         t = STATUS_BRACKET_RE.sub("", t)
-        t = re.sub(r"\s*\[[^\]]*\b(?:DONE|COMPLETED|SHIPPED|verdict)\b[^\]]*\]",
-                   "", t, flags=re.I)
+        t = re.sub(r"\s*\[[^\]]*\b(?:DONE|COMPLETED|SHIPPED|verdict)\b[^\]]*\]", "", t, flags=re.I)
         t = re.sub(r"\s*\((?:outcome|verdict|depends)[^)]*\)\s*$", "", t, flags=re.I)
         return t.strip(" .,;:—–-·")
 
@@ -846,13 +867,12 @@ class Migrator:
             pos = 0
             for seg in line.split(";"):
                 m = self.id_res["milestone"].search(seg)
-                if m and (it := self.items.get(m.group(1))) is not None \
-                        and it.get("_h_idx") is None:
+                if m and (it := self.items.get(m.group(1))) is not None and it.get("_h_idx") is None:
                     if it.get("_origin_col") is None:
                         it["_origin_col"] = pos + m.start(1)
                         it["_line"] = i
                     if not it["title"]:
-                        title = self._harvest_lane_title(seg[m.end(1):])
+                        title = self._harvest_lane_title(seg[m.end(1) :])
                         if title:
                             it["title"] = title
                             it["_stub"] = False
@@ -879,9 +899,11 @@ class Migrator:
         if it.get("_state_note"):
             return
         t = strip_md(text)
-        for rex in (r"\[([^\]]*\b(?:DONE|COMPLETED|SHIPPED|verdict)\b[^\]]*)\]",
-                    r"(Verdict:?\s*(?:YES|NO)[^.;\n]*)",
-                    r"((?:COMPLETED|SHIPPED|DONE)\b[^.;\n]*)"):
+        for rex in (
+            r"\[([^\]]*\b(?:DONE|COMPLETED|SHIPPED|verdict)\b[^\]]*)\]",
+            r"(Verdict:?\s*(?:YES|NO)[^.;\n]*)",
+            r"((?:COMPLETED|SHIPPED|DONE)\b[^.;\n]*)",
+        ):
             m = re.search(rex, t, re.I)
             if m:
                 it["_state_note"] = m.group(1).strip()
@@ -893,8 +915,7 @@ class Migrator:
                 self.apply_marker_text(it, text, line_no)
             if it["kind"] == "spike" and it["_state"] is None:
                 n = it["id"].rsplit("-", 1)[-1]
-                for pat in (rf"\bspike-{n}'s\s+(?:YES|NO)\b",
-                            rf"\bspike-{n}\s+ACCEPT'?d\b"):
+                for pat in (rf"\bspike-{n}'s\s+(?:YES|NO)\b", rf"\bspike-{n}\s+ACCEPT'?d\b"):
                     m = re.search(pat, self.text)
                     if m:
                         it.update(_state="done", _state_src="marker")
@@ -928,9 +949,13 @@ class Migrator:
             # fully-bold line is emphasized prose (e.g. a bolded objective).
             if re.match(r"^\*\*[^*]+\*\*:?\s*$", line) and len(line) <= 60:
                 break
-            if HEADING_RE.match(line) or BULLET_RE.match(line) or \
-                    line.startswith(("|", ">")) or re.match(r"^\d+\.\s", line) or \
-                    THEMATIC_BREAK_RE.match(line):
+            if (
+                HEADING_RE.match(line)
+                or BULLET_RE.match(line)
+                or line.startswith(("|", ">"))
+                or re.match(r"^\d+\.\s", line)
+                or THEMATIC_BREAK_RE.match(line)
+            ):
                 if out:
                     break
                 continue
@@ -940,8 +965,7 @@ class Migrator:
                 break
         return strip_md(" ".join(out))
 
-    def list_items_in(self, start: int, end: int, stop_re=None,
-                      contiguous: bool = False) -> list[str]:
+    def list_items_in(self, start: int, end: int, stop_re=None, contiguous: bool = False) -> list[str]:
         out = []
         started = False
         for ln in range(start, end):
@@ -953,8 +977,7 @@ class Migrator:
                 out.append(strip_md(m.group(1)))
                 self.consume(ln)
                 started = True
-            elif (contiguous and started and line.strip()
-                  and not THEMATIC_BREAK_RE.match(line)):
+            elif contiguous and started and line.strip() and not THEMATIC_BREAK_RE.match(line):
                 break  # a contiguous list block ends at the first non-list prose
         return out
 
@@ -963,8 +986,7 @@ class Migrator:
         s, e = span
         for ln in range(s, e):
             if label_re.match(self.lines[ln]):
-                items = self.list_items_in(ln + 1, e, stop_re=stop_re,
-                                           contiguous=True)
+                items = self.list_items_in(ln + 1, e, stop_re=stop_re, contiguous=True)
                 if items:
                     self.consume(ln)
                     return items
@@ -1018,13 +1040,11 @@ class Migrator:
         m = ASSUMPTION_TIER_RE.match(raw)
         if not m:
             return None
-        tier = {"MUST": "must", "SHOULD": "should",
-                "COULD": "might", "MIGHT": "might"}[m.group(1).upper()]
+        tier = {"MUST": "must", "SHOULD": "should", "COULD": "might", "MIGHT": "might"}[m.group(1).upper()]
         resolution = m.group(2)
         body = m.group(3).strip()
         # A leaked "RESOLVED: YES]" / stray closing bracket must never survive.
-        body = re.sub(r"^\s*(?:RESOLVED\b[:=\s]*(?:YES|NO|PARTIAL|UNCERTAIN)?)?\s*\]\s*",
-                      "", body, flags=re.I)
+        body = re.sub(r"^\s*(?:RESOLVED\b[:=\s]*(?:YES|NO|PARTIAL|UNCERTAIN)?)?\s*\]\s*", "", body, flags=re.I)
         parts = re.split(r"\bvalidation:\s*", body, maxsplit=1, flags=re.I)
         a: dict = {"tier": tier, "text": parts[0].strip(" .;—–-")}
         if len(parts) > 1 and parts[1].strip():
@@ -1059,8 +1079,7 @@ class Migrator:
         for it in items:
             if not it["title"]:
                 it["title"] = "TODO — fill title (migrated stub)"
-                add(f"[title] {it['id']} has no parseable title "
-                    f"(source line {it['_line'] + 1})")
+                add(f"[title] {it['id']} has no parseable title (source line {it['_line'] + 1})")
         for it in items:
             if it["kind"] == "milestone" and not it["acceptance"]:
                 add(f"[acceptance] {it['id']} has no acceptance criteria")
@@ -1071,8 +1090,9 @@ class Migrator:
             if it["_stub"] and it["title"].startswith("TODO"):
                 pass  # already covered by the [title] entry
             if it.get("_checked_ac"):
-                self.notes.append(f"[verify] {it['id']} had {it['_checked_ac']} "
-                                  "checked acceptance box(es) — completion not itemized")
+                self.notes.append(
+                    f"[verify] {it['id']} had {it['_checked_ac']} checked acceptance box(es) — completion not itemized"
+                )
         if not self.goal.get("objective"):
             add("[goal] goal.objective not found (required at phase >= refined)")
         n_kr = len(self.goal.get("key_results") or [])
@@ -1090,24 +1110,21 @@ class Migrator:
             add("[structure] no items parsed at all — check --slug against the doc")
         else:
             if not epics:
-                add("[structure] no epics found — group milestones/tasks under "
-                    f"{self.slug}-eN epics if desired")
+                add(f"[structure] no epics found — group milestones/tasks under {self.slug}-eN epics if desired")
             if not any(it["kind"] == "milestone" for it in items):
-                add("[structure] no milestones found — decompose lanes/prose into "
-                    f"{self.slug}-mN items")
+                add(f"[structure] no milestones found — decompose lanes/prose into {self.slug}-mN items")
         if self.inferred_parents:
-            self.notes.append("[verify] parent inferred from Dependencies lines: "
-                              + ", ".join(self.inferred_parents))
+            self.notes.append("[verify] parent inferred from Dependencies lines: " + ", ".join(self.inferred_parents))
         seeded = [it["id"] for it in items if it["_state"] and it["_state_src"] == "marker"]
         if seeded:
-            self.notes.append("[verify] progress events seeded from prose status "
-                              "markers (not checkboxes): " + ", ".join(seeded))
+            self.notes.append(
+                "[verify] progress events seeded from prose status markers (not checkboxes): " + ", ".join(seeded)
+            )
         claimed = {it.get("_h_idx") for it in self.items.values()}
         for j, (i, lvl, text) in enumerate(self.headings):
             if lvl < 2 or j in self.consumed or j in claimed:
                 continue
-            self.notes.append(f"[unmapped] section {strip_md(text)!r} (line {i + 1}) "
-                              "not mapped — mine manually")
+            self.notes.append(f"[unmapped] section {strip_md(text)!r} (line {i + 1}) not mapped — mine manually")
 
     def ordered_items(self) -> list[dict]:
         return sorted(self.items.values(), key=lambda it: it["_line"])
@@ -1136,7 +1153,7 @@ class Migrator:
             "status": "active",
             "phase": "sequenced",
             "brief": f"Skeleton migrated from {self.src.name} by roadmap-migrate.py; "
-                     "resolve the MIGRATE-TODO block, then delete it.",
+            "resolve the MIGRATE-TODO block, then delete it.",
         }
         if self.goal:
             g = {}
@@ -1157,18 +1174,23 @@ class Migrator:
         for it in self.ordered_items():
             if it["_state"] not in ("done", "in_progress"):
                 continue
-            note = ("migrated from legacy checkbox" if it["_state_src"] == "checkbox"
-                    else "migrated from legacy status marker")
+            note = (
+                "migrated from legacy checkbox"
+                if it["_state_src"] == "checkbox"
+                else "migrated from legacy status marker"
+            )
             if it.get("_state_note"):
                 note += f": {it['_state_note']}"
-            events.append({
-                "id": it["id"],
-                "field": "status",
-                "value": it["_state"],
-                "at": it["_state_date"] or as_of,
-                "actor": "agent",
-                "note": note,
-            })
+            events.append(
+                {
+                    "id": it["id"],
+                    "field": "status",
+                    "value": it["_state"],
+                    "at": it["_state_date"] or as_of,
+                    "actor": "agent",
+                    "note": note,
+                }
+            )
         return events
 
     def run(self) -> None:
@@ -1193,8 +1215,7 @@ class Migrator:
 
 
 def emit_yaml(doc: dict, todos: list[str], notes: list[str], src_rel: str) -> str:
-    body = yaml.dump(doc, sort_keys=False, allow_unicode=True,
-                     default_flow_style=False, width=100000)
+    body = yaml.dump(doc, sort_keys=False, allow_unicode=True, default_flow_style=False, width=100000)
     lines = [f"# roadmap/1 skeleton migrated from {src_rel} by roadmap-migrate.py."]
     entries = todos + notes
     if entries:
@@ -1203,8 +1224,7 @@ def emit_yaml(doc: dict, todos: list[str], notes: list[str], src_rel: str) -> st
         for e in entries:
             lines.append(f"#   - {e}")
     else:
-        lines.append("# MIGRATE-TODO: none — parsed cleanly; verify content, then delete "
-                     "this line.")
+        lines.append("# MIGRATE-TODO: none — parsed cleanly; verify content, then delete this line.")
     return "\n".join(lines) + "\n" + body
 
 
@@ -1215,7 +1235,11 @@ def run_validator(path: Path) -> tuple[int, str]:
     env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1")
     proc = subprocess.run(
         [sys.executable, str(validator), str(path)],
-        capture_output=True, text=True, encoding="utf-8", errors="replace", env=env,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=env,
     )
     out = (proc.stdout or "") + (proc.stderr or "")
     return proc.returncode, out.rstrip()
@@ -1226,16 +1250,17 @@ def main() -> int:
     ap.add_argument("legacy_md", type=Path)
     ap.add_argument("--slug", required=True)
     ap.add_argument("--project", default=None)
-    ap.add_argument("--out-dir", type=Path, default=None,
-                    help="plans dir to write <slug>/roadmap.yaml under "
-                         "(default: the legacy file's directory)")
-    ap.add_argument("--as-of", default=None,
-                    help="ISO timestamp for seeded journal events "
-                         "(default: legacy file mtime)")
-    ap.add_argument("--force", action="store_true",
-                    help="overwrite an existing roadmap.yaml/agent.jsonl")
-    ap.add_argument("--dry-run", action="store_true",
-                    help="print the skeleton, write nothing, exit 0")
+    ap.add_argument(
+        "--out-dir",
+        type=Path,
+        default=None,
+        help="plans dir to write <slug>/roadmap.yaml under (default: the legacy file's directory)",
+    )
+    ap.add_argument(
+        "--as-of", default=None, help="ISO timestamp for seeded journal events (default: legacy file mtime)"
+    )
+    ap.add_argument("--force", action="store_true", help="overwrite an existing roadmap.yaml/agent.jsonl")
+    ap.add_argument("--dry-run", action="store_true", help="print the skeleton, write nothing, exit 0")
     args = ap.parse_args()
 
     if not SLUG_RE.match(args.slug):
@@ -1255,18 +1280,20 @@ def main() -> int:
     project = args.project or mig.fm_project or src.resolve().parent.parent.name.lower()
     project = re.sub(r"[^a-z0-9-]+", "-", project.lower()).strip("-") or args.slug
     doc = mig.build_doc(project)
-    as_of = args.as_of or datetime.datetime.fromtimestamp(
-        src.stat().st_mtime).astimezone().isoformat(timespec="seconds")
+    as_of = args.as_of or datetime.datetime.fromtimestamp(src.stat().st_mtime).astimezone().isoformat(
+        timespec="seconds"
+    )
     events = mig.build_events(as_of)
     yaml_text = emit_yaml(doc, mig.todos, mig.notes, src.name)
 
     # ── report ────────────────────────────────────────────────
     items = mig.ordered_items()
-    by_kind = {k: [it for it in items if it["kind"] == k]
-               for k in ("epic", "milestone", "spike", "task")}
+    by_kind = {k: [it for it in items if it["kind"] == k] for k in ("epic", "milestone", "spike", "task")}
     print(f"== roadmap-migrate: {src.name} -> {args.slug} ==")
-    print(f"items: {len(by_kind['epic'])} epics, {len(by_kind['milestone'])} milestones, "
-          f"{len(by_kind['spike'])} spikes, {len(by_kind['task'])} tasks")
+    print(
+        f"items: {len(by_kind['epic'])} epics, {len(by_kind['milestone'])} milestones, "
+        f"{len(by_kind['spike'])} spikes, {len(by_kind['task'])} tasks"
+    )
     for it in items:
         bits = [it["kind"]]
         for f in ("parent", "lane", "priority", "size"):
@@ -1282,14 +1309,18 @@ def main() -> int:
             bits.append(f"state={it['_state']}")
         print(f"  {it['id']}  ({', '.join(bits)})")
     g = doc.get("goal", {})
-    print(f"goal: objective={'yes' if g.get('objective') else 'NO'} "
-          f"hmw={'yes' if g.get('hmw') else 'no'} "
-          f"key_results={len(g.get('key_results') or [])} "
-          f"assumptions={len(g.get('assumptions') or [])} "
-          f"wont={len(g.get('wont') or [])}")
-    print(f"journal events: {len(events)} "
-          f"({sum(1 for e in events if e['value'] == 'done')} done, "
-          f"{sum(1 for e in events if e['value'] == 'in_progress')} in_progress)")
+    print(
+        f"goal: objective={'yes' if g.get('objective') else 'NO'} "
+        f"hmw={'yes' if g.get('hmw') else 'no'} "
+        f"key_results={len(g.get('key_results') or [])} "
+        f"assumptions={len(g.get('assumptions') or [])} "
+        f"wont={len(g.get('wont') or [])}"
+    )
+    print(
+        f"journal events: {len(events)} "
+        f"({sum(1 for e in events if e['value'] == 'done')} done, "
+        f"{sum(1 for e in events if e['value'] == 'in_progress')} in_progress)"
+    )
     entries = mig.todos + mig.notes
     print(f"MIGRATE-TODO entries: {len(entries)}")
     for e in entries:
@@ -1305,9 +1336,7 @@ def main() -> int:
         print("== agent.jsonl (dry-run) ==")
         for e in events:
             print(json.dumps(e, ensure_ascii=False))
-        with tempfile.NamedTemporaryFile(
-            "w", suffix=".yaml", delete=False, encoding="utf-8"
-        ) as tmp:
+        with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False, encoding="utf-8") as tmp:
             tmp.write(yaml_text)
             tmp_name = tmp.name
         try:
@@ -1321,8 +1350,7 @@ def main() -> int:
 
     for p in (roadmap_path, journal_path):
         if p.exists() and not args.force:
-            print(f"error: {p} already exists — pass --force to overwrite",
-                  file=sys.stderr)
+            print(f"error: {p} already exists — pass --force to overwrite", file=sys.stderr)
             return 2
     journal_path.parent.mkdir(parents=True, exist_ok=True)
     (journal_path.parent / ".gitkeep").touch()
@@ -1337,8 +1365,7 @@ def main() -> int:
     print("== validator ==")
     print(out)
     if code != 0:
-        print("validator FAILED — expected for a skeleton; the MIGRATE-TODO block "
-              "lists what the LLM pass must fill.")
+        print("validator FAILED — expected for a skeleton; the MIGRATE-TODO block lists what the LLM pass must fill.")
     return code
 
 

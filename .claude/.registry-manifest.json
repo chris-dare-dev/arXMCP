@@ -25,15 +25,15 @@
   ".claude/scripts/milestone-pipeline-checkpoint.py": "857e3e07170a70b57cb03d69b27280e9f456acde99bd4570edf998e023c50450",
   ".claude/scripts/milestone-pipeline-dedupe-findings.py": "9520ddb94612f6aa45c3461b537809d644e4405252532ef80f5ac564caf4a61a",
   ".claude/scripts/milestone-pipeline-init-state.sh": "46432f76660cf12dce94ac4e23f86146a2e36dd5f5ac9e0abbbf5fcc3b811c2d",
-  ".claude/scripts/milestone-pipeline-record-progress.py": "c6c694dec30a2f7f12567b89a4feb85af771c001568b7e4459a13850ede7f1b1",
-  ".claude/scripts/milestone-pipeline-resolve-brief.py": "f70f8345a6cd9cfd268e0d39563934bd3b015a260944892202f8a44956c4f140",
+  ".claude/scripts/milestone-pipeline-record-progress.py": "8a55fdc0af6dbc9e9845ff7a90f4394527f8566772e14bbd2ad42c6ec7962961",
+  ".claude/scripts/milestone-pipeline-resolve-brief.py": "1d87f6fed787c8361ce2dfd048374f8379374fea0a90802cc1d76edfae22520b",
   ".claude/scripts/milestone-pipeline-status.sh": "7da0a9879de7307438b085730afa05497f1e5b2d124b2f55e7612b9e0f7ed143",
   ".claude/scripts/repos-manifest.txt": "add822bd9c8ceb045efb473293e3f95f927cf3464593fd42a4c7cc69700cc0d3",
-  ".claude/scripts/roadmap-init.py": "d7a793c544fd53ceb7ac27771d71d04470fdb527b1f7ec502b8d77dc0109661e",
-  ".claude/scripts/roadmap-migrate.py": "fa97fa29cbd2ed5eb6e2d0ad7e37849e4aa62d820f5f04226543e91d3ff518aa",
+  ".claude/scripts/roadmap-init.py": "d3fb14ae2d422552ed8670406bcc882dde46445733c5b7cd74ec17c9ace50763",
+  ".claude/scripts/roadmap-migrate.py": "917e732700716926ca1b048fdbb03efa787ab7fa6e7851c8f3278ddc60021b64",
   ".claude/scripts/roadmap-schema.json": "d0f8d757b6737caf75633fad26a2dbcd75b87a505dc02605c6f26c31cd2a2a4f",
-  ".claude/scripts/roadmap-score-moscow.py": "c8cecbcd5c0c275544ace52e705c726edc4527e276a0e075dadb72bc93fd7bdc",
-  ".claude/scripts/roadmap-score-rice.py": "aca30bef238517fe8b3bd9db2bd42ea8cadb450d7b8a6518b3a6e54273e52186",
-  ".claude/scripts/roadmap-validate.py": "961cef42d6299398c13ffefb1819d63d1e7d6e5f7118fe86b8d91e84584de189",
-  ".claude/scripts/sync-repos.py": "04dc844d079057ff8142172b928acb800b1871d956c0f0027d1a98b903c732a5"
+  ".claude/scripts/roadmap-score-moscow.py": "86176b924712c2fa9ecfba05734581e5a2d5425b906ea4eb5784d20e12c2d2e4",
+  ".claude/scripts/roadmap-score-rice.py": "634c62ff45c2c891502e9539772a0bcc8f42128a8af2ddc032be8b9e66678b1c",
+  ".claude/scripts/roadmap-validate.py": "e8f7421d48ed9ff0cb5afa3982ed04a12b49f46463280bb15aa32f4af4d3bd44",
+  ".claude/scripts/sync-repos.py": "7b1f366d773bf1e6f621814382162213c63dd810645c47172c4af43c8d456d8f"
 }
