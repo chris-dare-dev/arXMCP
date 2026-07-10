@@ -106,9 +106,26 @@ documented budget, or conflicts with the stack.
 ## Step 4 — Write the critique to {CRITIQUE_PATH}
 
 Follow `{REPO_ROOT}/.claude/references/milestone-pipeline-critique-format.md`
-exactly (same `### <SEVERITY> — <title>` + `**Where:**` finding shape;
-`**Source critic:** milestone-oss-scout`, `**Source axis:** OSS prior art`).
-Add the scout-specific section after the executive summary:
+EXACTLY — the extract/dedupe step parses the finding shape. Author your own
+finding ids in severity-descending order within this file (C1, H1, M1, …);
+`**Source critic:** milestone-oss-scout`, `**Source axis:** OSS prior art`:
+
+```
+**M1 — <short title under 70 chars>** (MEDIUM)
+
+**Where:** `path/to/file.ext:123`   (or `no specific file`)
+**Anchor:** `<first 40 chars of the cited line, verbatim>`
+**What:** <one sentence: what is wrong / what already exists.>
+**Why it matters:** <one sentence: the consequence.>
+**Proposed fix:** <one short paragraph; name the library + how to adopt.>
+**Regression-guard:** <optional for MEDIUM/LOW.>
+**Source critic:** milestone-oss-scout
+**Source axis:** OSS prior art
+```
+
+The header carries `**Critique format version:** 1.0` and a
+`Severity counts: C_ H_ M_ L_` line. Add the scout-specific section after the
+executive summary:
 
 ```
 ## OSS prior art

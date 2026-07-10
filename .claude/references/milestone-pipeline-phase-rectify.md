@@ -34,10 +34,17 @@ another fix already resolved it         → invalidate: superseded
 otherwise                               → proceed to fix
 ```
 
-Record each invalidation via `--append invalidated_findings='"<id>"'`.
-**Invalidation rate > 40% = the critics worked from stale code.** Surface to
-the user and re-run the Phase 3 dispatch against the current diff before
-rectifying anything. Don't push through stale findings.
+Record each invalidation through the register — it is the SOLE status writer:
+
+```bash
+python3 "$REPO_ROOT/.claude/scripts/milestone-pipeline-findings.py" \
+  set <ID> <id> invalidated --resolution "anchor-not-found | code-no-longer-matches | superseded"
+```
+
+`--resolution` is required and the transition is forward-only (an invalidated
+finding is terminal). **Invalidation rate > 40% = the critics worked from stale
+code.** Surface to the user and re-run the Phase 3 dispatch against the current
+diff before rectifying anything. Don't push through stale findings.
 
 ## Fix loop and caps
 
@@ -82,9 +89,27 @@ the rect commit changed production code, it must also change ≥ 1 test file
 (inspect `git show --stat`); doc-only rect commits are exempt. If it fails:
 `git reset --soft HEAD~1`, fix, re-commit.
 
-Record: `--set rectification_commit`, `--append regression_tests_added` per
-test file, `fixed_findings` / `deferred_findings` as you go (use `--append`,
-one id at a time).
+Record dispositions through the register as the SOLE status writer — comma-list
+ids are fine, and `--resolution` is required:
+
+```bash
+python3 "$REPO_ROOT/.claude/scripts/milestone-pipeline-findings.py" \
+  set <ID> C1,H1,H2 fixed --resolution "<what the fix did>"
+python3 "$REPO_ROOT/.claude/scripts/milestone-pipeline-findings.py" \
+  set <ID> M3 deferred --resolution "<why deferred>"
+```
+
+Then record the commit + tests directly on state: `--set rectification_commit`,
+`--append regression_tests_added` per test file. Derive the state arrays from
+the register instead of hand-appending them:
+
+```bash
+CP=".claude/scripts/milestone-pipeline-checkpoint.py"
+FP=".claude/scripts/milestone-pipeline-findings.py"
+python3 "$CP" <ID> --set fixed_findings="$(python3 "$FP" summary <ID> --field fixed_findings)"
+python3 "$CP" <ID> --set deferred_findings="$(python3 "$FP" summary <ID> --field deferred_findings)"
+python3 "$CP" <ID> --set invalidated_findings="$(python3 "$FP" summary <ID> --field invalidated_findings)"
+```
 
 ## Completion write-back (one-writer rule)
 
@@ -98,6 +123,22 @@ to `plans/<slug>/progress/agent.jsonl`. The pipeline NEVER edits
 `roadmap.yaml` item status and never ticks checkboxes in prose roadmaps —
 the plan file belongs to the roadmap agents. For legacy-prose or ad-hoc ids
 the script warns and no-ops; that is expected, not an error.
+
+## Findings gate (before the external-write prompt)
+
+Run the register gate as the friendly early check, BEFORE surfacing the
+external-write boundary:
+
+```bash
+python3 "$REPO_ROOT/.claude/scripts/milestone-pipeline-findings.py" gate <ID>
+```
+
+Exit 3 means a CRITICAL or HIGH finding is still open — the gate lists them.
+Fix or invalidate each (via `set`) and re-run; do NOT proceed to the boundary
+with an open blocker. Exit 0 (including the warn-only MEDIUM/LOW case, and the
+no-register legacy/ad-hoc no-op) clears this step. `checkpoint.py`'s `complete`
+transition re-runs the same gate as the backstop — this early check just spares
+you a refused transition.
 
 ## External-write boundary (THIS IS THE STOP)
 
@@ -126,11 +167,15 @@ the script warns and no-ops; that is expected, not an error.
 Reads: `phase`, `critique_path`, `critique_finding_counts`, `critics_run`,
 `external_writes_required`.
 
+Dispositions are written to the register via `findings.py set` (the sole status
+writer); `fixed_findings` / `deferred_findings` / `invalidated_findings` on
+state are DERIVED from `findings.py summary --field`, never hand-appended.
+
 Writes (via `checkpoint.py`): transition `critique-complete →
 rectify-running`; `fixed_findings` / `deferred_findings` /
-`invalidated_findings`; `regression_tests_added`; `rectification_commit`;
-`external_writes_authorized` / `external_writes_completed`; transition
-`rectify-running → complete`.
+`invalidated_findings` (derived); `regression_tests_added`;
+`rectification_commit`; `external_writes_authorized` /
+`external_writes_completed`; transition `rectify-running → complete`.
 
 ## Don't
 

@@ -109,11 +109,14 @@ the command body.
 The command uses the bespoke sub-agents defined in `.claude/agents/`. The
 registry-synced base set (see `.claude/.registry-manifest.json`) is
 `milestone-researcher`, `milestone-implementer`, `milestone-adversary-critic`,
-and `milestone-oss-scout`; the repo-local agents `milestone-adversary` and
-`milestone-infra-safety` remain as arXMCP-specific critics (note: the synced
-orchestrator discovers overlay critics via the `milestone-*-critic.md` naming
-convention). The slash command is the orchestrator (main thread); sub-agents
-cannot spawn sub-agents.
+`milestone-oss-scout`, `milestone-rectifier`, and `milestone-frontend-ux`. The
+repo-local overlay critics are `milestone-arxmcp-critic` (the 8 arXMCP axes —
+renamed from `milestone-adversary`, which the orchestrator could no longer see)
+and `milestone-infra-safety-critic`. Both are discovered via the
+`milestone-*-critic.md` naming convention, so their filenames MUST keep that
+suffix. Overlay critics run **alongside** the always-on
+`milestone-adversary-critic`, never instead of it. The slash command is the
+orchestrator (main thread); sub-agents cannot spawn sub-agents.
 
 The state machine lives at
 `.claude/notes/milestones/<ID>/state.json` and is strict-forward-only
@@ -331,8 +334,9 @@ arXMCP/
     │   └── E<NN>-*.md        per-epic specs
     ├── agents/              bespoke sub-agent definitions
     │   ├── milestone-{researcher,implementer,adversary-critic,oss-scout}.md   (synced)
+    │   ├── milestone-{rectifier,frontend-ux}.md                               (synced)
     │   ├── roadmap-{refiner,decomposer,sequencer,materializer}.md             (synced)
-    │   ├── milestone-adversary.md + milestone-infra-safety.md   (repo-local critics)
+    │   ├── milestone-{arxmcp,infra-safety}-critic.md      (repo-local overlay critics)
     │   └── capability-scout-*.md + frontend-uplift-*.md          (repo-local pipelines)
     ├── commands/
     │   ├── milestone-pipeline.md  the 4-phase execution slash command (synced)

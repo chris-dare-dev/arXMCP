@@ -4,6 +4,7 @@
 # Usage:
 #   milestone-pipeline-init-state.sh <ID> [--brief "..."] [--single|--deep]
 #       [--oss-scout] [--allow-large-diff] [--resume] [--repo-root PATH]
+#       [--override "reason"]
 #   milestone-pipeline-init-state.sh <ID> --release-lock
 #
 # Behavior:
@@ -16,9 +17,23 @@
 #   - Lock: .claude/notes/milestones/.lock holds '<pid>:<id>:<created-at>'.
 #     One milestone runs at a time; a live lock for a DIFFERENT id refuses,
 #     a dead lock instructs '--release-lock'. Never rm the lock by hand.
+#   - DEPENDENCY GATE: on a FRESH init the two-phase gate
+#     (milestone-pipeline-check-deps.py) refuses (exit 3) while any depends_on
+#     item in plans/<slug>/roadmap.yaml is not 'done' — effective status is the
+#     roadmap.yaml plan-time seed overlaid by the progress journal. Pass
+#     --override "reason" to proceed anyway; the bypass is audited into the
+#     journal (progress/agent.jsonl), never silent. Ad-hoc ids
+#     (adhoc-YYYYMMDD-<sha7>) and legacy-prose ids that appear in no
+#     roadmap.yaml skip the gate (gate exit 2 = not-found = non-fatal).
+#
+#   Two-phase to stay consistent under failure: (1) --check-only dry-run of the
+#   gate BEFORE any state is created — a refused fresh init leaves nothing
+#   behind and the resume path above never re-gates; (2) create state.json;
+#   (3) if an override was consumed, the audit write happens LAST, so failure
+#   ordering never records a bypass for a milestone whose state was never made.
 #
 # Exit codes: 0 success / resume; 1 actionable failure (lock, ambiguous id,
-# resolver error); 2 usage error.
+# resolver error); 2 usage error; 3 dependency-gate refusal.
 
 set -euo pipefail
 
@@ -26,6 +41,7 @@ usage() {
   cat <<EOF >&2
 usage: milestone-pipeline-init-state.sh <ID> [--brief "..."] [--single|--deep]
            [--oss-scout] [--allow-large-diff] [--resume] [--repo-root PATH]
+           [--override "reason"]
        milestone-pipeline-init-state.sh <ID> --release-lock
 
   <ID>   milestone (<slug>-mN), spike (<slug>-spike-N), or ad-hoc
@@ -44,6 +60,7 @@ OSS_SCOUT_REQUESTED="false"
 ALLOW_LARGE_DIFF="false"
 RELEASE_LOCK="false"
 REPO_ROOT_OVERRIDE=""
+DEP_OVERRIDE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -54,6 +71,7 @@ while [[ $# -gt 0 ]]; do
     --allow-large-diff) ALLOW_LARGE_DIFF="true"; shift ;;
     --release-lock) RELEASE_LOCK="true"; shift ;;
     --repo-root) REPO_ROOT_OVERRIDE="${2:-}"; shift 2 ;;
+    --override) DEP_OVERRIDE="${2:-}"; shift 2 ;;
     --resume)
       # --resume is a no-op at init time; resume routing is driven by the
       # RESUMING line this script prints when state already exists. Accepted
@@ -156,6 +174,38 @@ with open(sys.argv[1], encoding='utf-8') as f:
   exit 0
 fi
 
+# ── Dependency gate, phase 1: dry-run BEFORE creating anything ──────────────
+# Fresh init only (the resume path above never re-gates). The audit write, if
+# any, happens LAST so a refused init leaves nothing behind. check-deps.py is a
+# sibling co-located post-sync; locate it via $SCRIPT_DIR, never an abs path.
+CHECK_DEPS="$SCRIPT_DIR/milestone-pipeline-check-deps.py"
+GATE_APPLICABLE="false"
+if [[ -f "$CHECK_DEPS" ]]; then
+  GATE_ARGS=("$MILESTONE_ID" --repo-root "$REPO_ROOT_RESOLVED" --check-only)
+  [[ -n "$DEP_OVERRIDE" ]] && GATE_ARGS+=(--override "$DEP_OVERRIDE")
+  set +e
+  "$PY" "$CHECK_DEPS" "${GATE_ARGS[@]}"
+  GATE_RC=$?
+  set -e
+  case "$GATE_RC" in
+    0) GATE_APPLICABLE="true" ;;                # id is in a roadmap; gate passed
+    2) : ;;                                     # not found -> ad-hoc/legacy, skip
+    3)
+      echo "error: init refused by dependency gate — see unmet deps above." >&2
+      echo "       Re-run with --override \"<reason>\" to proceed anyway (audited)." >&2
+      exit 3
+      ;;
+    1)
+      echo "error: dependency gate — ambiguous id (found in >1 roadmap.yaml)." >&2
+      exit 1
+      ;;
+    *)
+      echo "error: dependency gate failed unexpectedly (exit $GATE_RC)" >&2
+      exit 1
+      ;;
+  esac
+fi
+
 # ── Brief resolution ───────────────────────────────────────────────────────
 BRIEF_SOURCE=""
 if [[ -n "$BRIEF" ]]; then
@@ -223,7 +273,12 @@ state = {
     "external_writes_required": [],
     "critique_path": None,
     "critics_run": [],
-    "critique_finding_counts": {"critical": 0, "high": 0, "medium": 0, "low": 0},
+    "critique_files": [],
+    # null (not all-zero) preserves the 'never recorded' distinction so the
+    # findings gate's empty-refusal can fire; the counts are DERIVED later via
+    # milestone-pipeline-findings.py summary, not hand-maintained here.
+    "critique_finding_counts": None,
+    "findings_register": None,
     "rectification_commit": None,
     "fixed_findings": [],
     "deferred_findings": [],
@@ -239,6 +294,21 @@ with open(tmp, "w", encoding="utf-8") as f:
     f.write("\n")
 os.replace(tmp, path)
 PY
+
+# ── Dependency gate, phase 2: audit the override LAST ──────────────────────
+# Only when an override was actually passed AND the id is a gated roadmap item.
+# check-deps.py in write mode is a no-op when no dep is unmet, so a needless
+# --override records nothing; a real bypass appends one gate_override event.
+if [[ "$GATE_APPLICABLE" == "true" && -n "$DEP_OVERRIDE" && -f "$CHECK_DEPS" ]]; then
+  set +e
+  "$PY" "$CHECK_DEPS" "$MILESTONE_ID" --repo-root "$REPO_ROOT_RESOLVED" \
+    --override "$DEP_OVERRIDE"
+  WRC=$?
+  set -e
+  if [[ $WRC -ne 0 ]]; then
+    echo "WARN: dependency-gate override audit write returned $WRC" >&2
+  fi
+fi
 
 if [[ -n "$BRIEF" ]]; then
   BRIEF_NOTE="set ($(printf '%s' "$BRIEF" | wc -c | tr -d ' ') chars, source: ${BRIEF_SOURCE:-unknown})"

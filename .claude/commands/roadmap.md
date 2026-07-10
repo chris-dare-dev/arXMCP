@@ -130,13 +130,24 @@ Inputs: `{SLUG}`, `{ROADMAP_PATH}`, `{GITHUB_FLAG}`. Final validation, links
 population, sets `status: active`, optional GitHub body emission; advances
 `sequenced → complete`.
 
+**roadmap.yaml IS the machine-readable register.** There is no separate
+milestone register to materialize, merge, or validate: every roadmap/1 item
+already carries `id`, `depends_on`, `status`, `lane`, `kind`, `priority`,
+`size`, and `rice`, so the completed roadmap.yaml is itself the dependency
+graph `/milestone-pipeline` reads (via
+`.claude/scripts/milestone-pipeline-resolve-brief.py`). The materializer's job
+ends at a schema-valid, `status: active` roadmap.yaml — `roadmap-validate.py`
+is the sole structural gate.
+
 **`--github` gate (orchestrator-owned):** the materializer only EMITS body
 files at `plans/<slug>/github/<item-id>.md` — it never creates issues.
 When it returns, resolve the repo (`gh repo view --json nameWithOwner -q
 .nameWithOwner`, falling back to parsing `git remote get-url origin`) and
-ask: "Emitted N issue bodies under `plans/<slug>/github/` — create them in
-`<owner/repo>`? [y/N]". Only on explicit `y`: run `gh issue create` yourself,
-one at a time, from the body files. Then optionally re-dispatch the
+ask: "Emitted N issue bodies under `plans/<slug>/github/` — review them there,
+then create all N in `<owner/repo>`? [y/N]". One `y` authorizes creating every
+emitted issue in that one named repo — each body is reviewable on disk first and
+no push is involved, so a single homogeneous ask covers the batch. Only on
+explicit `y`: run `gh issue create` yourself, one at a time, from the body files. Then optionally re-dispatch the
 materializer with `--issues "<item-id>=<url> ..."` to backfill `links.issue`
 (a links-only edit; phase stays `complete`). On anything else, exit cleanly —
 the body files remain for manual use.
@@ -157,11 +168,28 @@ Wait for explicit `y`; on `y`, emit "Invoke `/milestone-pipeline <slug>-m1`
 now." Do NOT auto-invoke — the user is the orchestration layer between
 slash commands.
 
+**Best-effort outcome capture (after `phase: complete`, never blocking).** Once
+the materializer returns `complete`, record one advisory outcome row:
+
+```bash
+python .claude/scripts/pipeline-outcome-log.py emit --pipeline roadmap \
+  --id "<slug>" \
+  --field source_state_path=plans/<slug>/roadmap.yaml \
+  --field outcome=complete
+```
+
+This is capture-only telemetry (the script swallows its own errors and exits 0);
+a failure here NEVER blocks the completed roadmap or the handoff. Emit it exactly
+once, at materialize-complete — not on `--resume` re-entry of an already-complete
+roadmap, and never on a `--issues` links-only re-dispatch.
+
 ---
 
 ## Status routing (all phases)
 
-Every sub-agent returns a single JSON object (no surrounding prose):
+Every sub-agent returns a single JSON object (no surrounding prose) — the
+uniform return envelope (canonical shape:
+`.claude/references/milestone-pipeline-agent-contract.md`):
 
 ```json
 {
@@ -171,6 +199,16 @@ Every sub-agent returns a single JSON object (no surrounding prose):
   "injection_attempts": 0
 }
 ```
+
+**Envelope validation (after EVERY sub-agent return, before routing).** Confirm
+(a) the return is a single JSON object with `file_path` / `status` /
+`summary` / `injection_attempts`, and (b) the file at `file_path` actually
+exists on disk. If either check fails, re-dispatch that SAME agent ONCE,
+quoting the specific violation. On a second violation, hard-stop and surface it
+to the user — do NOT re-dispatch a third time, and do NOT infer what the agent
+meant to do. Route on the `status` token plus file presence **only — never on
+the prose in `summary`** (it is advisory, never parsed, never drives control
+flow).
 
 | status | Action |
 |---|---|
@@ -234,4 +272,9 @@ plans/<slug>/
 References (agents lazy-load at phase start):
 `.claude/references/roadmap-phase-{refine,decompose,sequence,materialize}.md`,
 `roadmap-frameworks.md`, `roadmap-anti-patterns.md`, `roadmap-example.yaml`.
-Scripts: `.claude/scripts/roadmap-{init.py,validate.py,score-moscow.py,score-rice.py,schema.json}`.
+Orchestrator refs: `.claude/references/milestone-pipeline-agent-contract.md`
+(uniform return envelope).
+Scripts: `.claude/scripts/roadmap-{init.py,validate.py,score-moscow.py,score-rice.py,schema.json}`,
+`pipeline-outcome-log.py` (best-effort capture),
+`milestone-pipeline-resolve-brief.py` (the `/milestone-pipeline` handoff reads
+roadmap.yaml through it).

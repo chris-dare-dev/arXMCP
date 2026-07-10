@@ -14,9 +14,11 @@ directory as the target. Direct edits are forbidden — they break the
 atomicity assumption and get clobbered by the next script run. Read fields
 via `checkpoint.py <id> --get <field>`; write via `--set` / `--append`.
 
-`state.json` is ephemeral (gitignore it). The `*.md` artifacts under
-`research/`, `implement/`, `critique/`, `rectify/` are committed — durable
-evidence that outlasts state.
+`state.json` is ephemeral (gitignore it). So is the findings register
+`.claude/notes/milestones/<id>/findings.json` — derived, disposable state
+rebuilt from the critiques by `milestone-pipeline-findings.py extract`. The
+`*.md` artifacts under `research/`, `implement/`, `critique/`, `rectify/` are
+committed — durable evidence that outlasts state.
 
 ## Phases (forward-only, single-step, no skips)
 
@@ -59,12 +61,14 @@ sub-agent RETURN STATUS, not a phase — the pipeline stays in
 | `external_writes_required` | array of strings | Set from Phase 1 brief-2; read by the Phase 4 boundary. E.g. `git push origin main`. |
 | `critique_path` | string \| null | `critique/dedup.md` once merged. |
 | `critics_run` | array of agent names | For the audit trail + rect-commit `Reviewed-by:` trailers. |
-| `critique_finding_counts` | `{critical, high, medium, low}` | Grepped from dedup.md severity headers. |
+| `critique_files` | array of paths | One path per critic that fired (e.g. `critique/adversary.md`). Required at `critique-complete`. |
+| `critique_finding_counts` | `{critical, high, medium, low}` \| null | DERIVED — not hand-maintained (see below). Seeded `null` ("never recorded"). |
+| `findings_register` | string \| null | Repo-relative path to the findings register written by Phase 3's `extract` (canonical: `.claude/notes/milestones/<id>/findings.json`). The "new-format run" marker; `null` = legacy/ad-hoc run that never had a register. |
 | `rectification_commit` | string \| null | SHA of the `rect(<id>): ...` commit. |
-| `fixed_findings` / `deferred_findings` | arrays of finding ids | E.g. `["C1", "H2"]`. |
-| `invalidated_findings` | array of finding ids | Anchor-not-found / code-no-longer-matches / superseded. |
+| `fixed_findings` / `deferred_findings` | arrays of finding ids | DERIVED from the register (see below). E.g. `["C1", "H2"]`. |
+| `invalidated_findings` | array of finding ids | DERIVED — anchor-not-found / code-no-longer-matches / superseded. |
 | `regression_tests_added` | array of paths | Test files touched by the rect commit. |
-| `external_writes_authorized` | array of strings | Items the user explicitly approved. |
+| `external_writes_authorized` | array of strings | Items the user explicitly approved (array, not a bool). |
 | `external_writes_completed` | array of strings | Items performed or explicitly skipped — the canonical "no longer pending" set. |
 
 ## Transitions and side effects
@@ -72,13 +76,67 @@ sub-agent RETURN STATUS, not a phase — the pipeline stays in
 | From → To | Side effects required first |
 |---|---|
 | `init → research-running` | Preflight passed; lock held; brief resolved into state (source in `brief_source`); `in_progress` journal event recorded (roadmap-tracked ids). |
-| `research-running → research-complete` | All researchers returned `complete`; `research/synthesis.md` written; `external_writes_required` set. |
+| `research-running → research-complete` | All researchers returned `complete`; `research/synthesis.md` written; `external_writes_required` set. **Gate:** `research_briefs` (non-empty) + `research_mode` (enum) recorded first. |
 | `research-complete → implement-running` | `implementation_base` + `implementation_path` recorded. |
-| `implement-running → implement-complete` | Repo check gates green; commits recorded; `implement/synthesis.md` written. Scope-exceeded stays HERE and surfaces. |
+| `implement-running → implement-complete` | Repo check gates green; commits recorded; `implement/synthesis.md` written. Scope-exceeded stays HERE and surfaces. **Gate:** `implementation_base` + `implementation_commit_range` recorded first. |
 | `implement-complete → critique-running` | Critic set computed (adversary + matching overlays + optional oss-scout); output paths pre-allocated. |
-| `critique-running → critique-complete` | All critics returned; `critique/dedup.md` merged + deduped; counts + `critics_run` set. |
+| `critique-running → critique-complete` | All critics returned; `critique/dedup.md` merged + deduped. **Gate:** `critique_path`, `critics_run`, `critique_files`, `critique_finding_counts`, `findings_register` all recorded first. |
 | `critique-complete → rectify-running` | Nothing else — re-verification happens inside Phase 4. |
-| `rectify-running → complete` | Rect commit landed + recorded; `rectify/summary.md` written; `done` journal event appended via `record-progress.py` (NEVER a roadmap.yaml edit); `external_writes_required ⊆ external_writes_completed`; lock released. |
+| `rectify-running → complete` | Rect commit landed + recorded; `rectify/summary.md` written; `done` journal event appended via `record-progress.py` (NEVER a roadmap.yaml edit); lock released. **Gate:** `rectification_commit` set; the external-write ledger balances (see below); the findings gate passes (no open CRITICAL/HIGH). |
+
+## Evidence gates (why a transition refuses)
+
+`checkpoint.py` enforces phase ORDER *and* evidence. A gated transition refuses
+until its required fields are `--set` first, correctly typed, and (for enums)
+in-vocabulary — the drift-guard for the class of runs that reached `complete`
+with research / implementation / critique evidence never recorded. A placeholder
+string smuggled into a list/dict field via `--set`'s plain-string fallback does
+NOT pass the type check. See the **Gate** column above for the per-transition
+requirements.
+
+`critique_finding_counts` seeds `null`, not `{critical:0,…}`. `null` means
+"never recorded"; an all-zero dict is a *non-empty* value that would defeat the
+empty-refusal, letting a run with unrecorded counts slip through. A genuine
+zero-findings run sets the real all-zero dict.
+
+## Derived fields (do not hand-maintain)
+
+`critique_finding_counts`, `fixed_findings`, `deferred_findings`, and
+`invalidated_findings` are DERIVED from the findings register, not authored by
+hand. Read them from `milestone-pipeline-findings.py` (`summary --counts-for`
+for the counts, `summary --field <status>` for the id lists) rather than
+`--set`ting them independently — hand edits drift from the register the gate
+actually reads.
+
+## External-write ledger (array model) and the complete gate
+
+`external_writes_required`, `external_writes_completed`, and
+`external_writes_authorized` are ALL arrays of the same string tokens (e.g.
+`git push origin main`) — authorization is recorded per item, not as a single
+bool. At `complete`, the ledger must balance:
+
+- every `external_writes_required` entry appears in `external_writes_completed`
+  (performed or explicitly skipped), AND
+- every `external_writes_required` entry appears in `external_writes_authorized`
+  (the user approved it — authorization must be recorded, not merely performed).
+
+An empty `external_writes_required` means there is nothing to authorize and the
+ledger balances trivially. A plain string (not an array) in any of the three
+refuses: it would iterate per-character and false-pass the balance check.
+
+## Findings gate at `complete` (one authority)
+
+The `complete` transition subprocess-invokes
+`milestone-pipeline-findings.py gate <id>` — the gate logic lives in ONE
+authority and is never re-implemented in `checkpoint.py`. The findings script
+locates the register itself (`.claude/notes/milestones/<id>/findings.json`) and
+exits 3 on any open CRITICAL/HIGH (refuse); MEDIUM/LOW are deferrable (a
+non-blocking note). Because that gate no-ops on a missing register,
+`checkpoint.py` enforces the "new-format run" rule itself: if `findings_register`
+is set but the register file is absent, `complete` refuses (extract was skipped
+or the register was lost). A `null` marker is a legacy/ad-hoc run — the gate
+runs only if the register happens to exist (defense in depth), else it is
+skipped. See `milestone-pipeline-findings-schema.md` for the register format.
 
 ## Progress write-back (one-writer rule)
 

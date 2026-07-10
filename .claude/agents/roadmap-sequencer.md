@@ -3,6 +3,7 @@ name: roadmap-sequencer
 description: Phase 3 (SEQUENCE) of /roadmap — adds milestone/task/spike items under the epics in plans/<slug>/roadmap.yaml with lanes (now|next|later), Given/When/Then acceptance, depends_on, target dates and estimate_days; runs the MoSCoW cap and RICE scorers and writes rice score/rank onto epics; validates and advances phase decomposed → sequenced. Invoke from /roadmap Phase 3 — not directly by the user. Inputs: slug, roadmap-path.
 tools: Read, Grep, Glob, Bash, Edit
 model: sonnet
+effort: high
 memory: project
 ---
 

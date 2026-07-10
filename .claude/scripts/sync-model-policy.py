@@ -49,6 +49,12 @@ except ImportError:  # pragma: no cover
     )
     sys.exit(2)
 
+# Windows consoles default to cp1252, but agent bodies carry UTF-8 (arrows, em
+# dashes). Without this, printing a unified diff raises UnicodeEncodeError partway
+# through and silently truncates the drift list while still exiting non-zero.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 # Script lives at <repo>/.claude/scripts/sync-model-policy.py
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 AGENTS_DIR = REPO_ROOT / ".claude" / "agents"
