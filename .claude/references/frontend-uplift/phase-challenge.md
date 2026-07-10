@@ -26,12 +26,12 @@ The challenger uses the 4-tier rubric mapped to the standard format for state-fi
 
 | Challenger tier | Maps to standard severity | Meaning |
 |---|---|---|
-| **BLOCKER** | CRITICAL | Must be dropped or fundamentally redesigned.  Examples: any npm-installable library (React / Tailwind / shadcn / Framer Motion / Recharts / Zustand / TanStack — automatic BLOCKER per CLAUDE.md §4.7), motion-vocabulary §8 anti-pattern (parallax on operator console, magnetic-cursor on destructive button, etc.), license-incompatible vendored asset, CSP-widening change without justification. |
+| **BLOCKER** | CRITICAL | Must be dropped or fundamentally redesigned.  Examples: any npm-installable library (React / Tailwind / shadcn / Framer Motion / anime.js / GSAP / Recharts / Zustand / TanStack — automatic BLOCKER per CLAUDE.md §4.7), motion-vocabulary §8 **AP-1/2/3/5** on the S-2 console (parallax, auto-video, >8-item stagger, magnetic-cursor on destructive button, etc.), license-incompatible vendored asset, CSP-widening change without justification, **frameless synthesis or a projected §10 score ≥ 6 (Axis 11 — run-level)**. |
 | **MAJOR** | HIGH | Shippable but with significant cost the synthesis didn't surface.  Examples: vendored single-file >20 KB gz without justification (the htmx baseline is ~14 KB); a11y regression with no remediation plan; `prefers-reduced-motion` gate missing across a key path; CSP impact not declared; expansion of the un-audited UI surface (`chris-dare-dev/arXMCP#9`) without flagging. |
 | **MINOR** | MEDIUM | Light scope adjustment.  Examples: token name drift, missing `aria-hidden` on a decorative icon, `prefers-reduced-motion` gate missing on a single class, `:focus-visible` styling missing on a single new interactive element. |
 | **NONE** | LOW (clean) | Candidate survives.  Aim for 30–60% of candidates rating NONE — that's calibrated. |
 
-## The 10-axis FRONTEND-CHALLENGER checklist
+## The 11-axis FRONTEND-CHALLENGER checklist
 
 Every candidate gets evaluated against (calibrated to arXMCP's stack — see the agent file `.claude/agents/frontend-uplift-challenger.md` for the canonical list and binding):
 
@@ -43,8 +43,9 @@ Every candidate gets evaluated against (calibrated to arXMCP's stack — see the
 6. **Mobile responsiveness consideration** — single-operator loopback-only may de-prioritize mobile; refusing mobile entirely without acknowledgement is MAJOR
 7. **Token discipline (arXMCP's 8 CSS variables)** — `--fg`, `--bg`, `--card-bg`, `--border`, `--accent`, `--danger`, `--error-bg`, `--mono`; new tokens must be added explicitly (not parallel-defined)
 8. **Effort honesty** — t-shirt size matches arXMCP historical frontend milestone sizes (notebook-surface-expansion m1–m7 is the realistic effort grain)
-9. **Motion-vocabulary anti-pattern** — explicitly check candidate against motion-vocabulary.md §8
-10. **Sequencing dependencies** — DAG between candidates (e.g. `prefers-reduced-motion` block must land before any new animation candidate)
+9. **Motion-vocabulary anti-pattern** — check the candidate's surface tag against `.claude/references/frontend-uplift-motion-vocabulary.md` §8 **AP-1..7** (all four arXMCP surfaces are S-2, so AP-1/2/3/5 are BLOCKERs; AP-4/6/7 unconditional). Apply the §0 motion-jobs test; any JS animation engine is a §4.7 BLOCKER regardless.
+10. **Sequencing dependencies** — DAG between candidates (e.g. a new animation depends on the `prefers-reduced-motion` gate — already shipped in `app.css`; verify rather than assume)
+11. **Distinctiveness / anti-template** — score against **BAN-1..15** + the **§10 cookie-cutter rubric** in `.claude/references/frontend-design-language.md` (Read directly). A FRAMELESS synthesis (no adopted thesis/direction) is a **run-level BLOCKER**; a candidate that introduces/preserves-as-identity a BAN token without a product-specific reason is flagged (S-2 projected §10 score 3–5 = MAJOR, 6+ = BLOCKER, per §14). Cite overlay §9 anti-references (BAN-1/2/13, BAN-7/11, BAN-12, BAN-15) as the never-again baseline.
 
 ## After receiving the challenge
 

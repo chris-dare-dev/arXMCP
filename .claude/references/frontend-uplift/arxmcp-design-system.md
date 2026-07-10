@@ -21,6 +21,87 @@ flag in your brief if you find divergence.
 
 ---
 
+## §9 — House thesis (this overlay's fulfilment of the canon's §9 contract)
+
+`frontend-design-language.md` §9 is product-neutral and declares no thesis — each repo
+declares its own here. This is arXMCP's. The `frontend-uplift-art-direction-scout` MUST read
+this section BEFORE proposing a thesis or directions (a run without it re-creates the generic
+AI dashboard the pipeline exists to prevent). The challenger's Axis 11 enforces it.
+
+> **Drift note (2026-07):** §4's "126 lines" and §7's "underdeveloped" gap list PRE-DATE the
+> `ui-attractive-polish-m1..m5` milestones. `frontend/static/app.css` is now ~370 lines and
+> already ships: the `prefers-reduced-motion` universal gate, `:focus-visible` rings, the
+> skip-link, `@media (prefers-color-scheme: dark)` token re-declaration, htmx `.htmx-request`
+> loading states + spinner, `tabular-nums`, the badge-flash + row-fade + View-Transitions
+> polish. **Do not re-propose those as net-new gaps** — verify against the live file at Phase 1.
+> A human should refresh §4/§7 of this overlay; the fold that added this §9 deliberately did not
+> rewrite the inventory.
+
+### Visual thesis (one sentence — invariants, not a silhouette)
+
+**arXMCP's `/ui/` is a quiet local instrument panel for a research-corpus daemon: every
+notebook's parse state, its freshness, and the server's own operability read as metered,
+sourced facts an operator can trust and act on without a second glance.**
+
+Invariants this protects (a run may satisfy them through ANY §8 seed — this is deliberately
+NOT a page recipe, per BAN-15):
+
+- **Operational honesty** — the m1 parse-status badge and the m4 operability badge
+  (`READY / WARN / DEGRADED / DOWN / ops-warn`) are the trust surface. Semantic color is
+  *live state*, never decoration (BAN-11). A reading the operator can't trust is worse than none.
+- **Provenance & freshness** — corpus version, the freshness `<time>`, per-paper ids are
+  metered facts (`tabular-nums`); the console must reflect the LIVE daemon (the 10s
+  `/ui/status-badge` poll), not a stale render.
+- **Calm at repeat use** — one operator, loopback, a dense workflow page
+  (`notebook_detail.html`). Stillness and scannability beat spectacle. Motion earns its place
+  only by naming an orientation / causality / feedback / continuity job (motion-vocabulary §0) —
+  there is no quota, and here that job is served by CSS transitions + htmx swap semantics, never
+  a JS animation engine.
+- **Sovereign minimalism** — 3 pages + 1 fragment, zero build chain, zero runtime egress
+  (CLAUDE.md §4.7 / overlay §9 locks). The identity is a deliberately small, self-hosted
+  instrument — recognizable by typographic discipline and honest state, not by chrome.
+
+Swap-test: substitute a generic notebook manager or admin dashboard and the sentence collapses —
+it is anchored to *parse-state / freshness / daemon-operability as metered readings over a
+loopback corpus daemon*, which a generic dashboard does not have. It passes.
+
+### Named anti-references (each mapped to its §5 BAN token)
+
+| arXMCP's `/ui/` must never become… | BAN-N | Why it would betray the thesis |
+|---|---|---|
+| The "generic AI dashboard" — navy shell + neon accents + a "Welcome back" KPI-stat-card grid | BAN-1, BAN-2, BAN-13 | arXMCP is a single-operator instrument, not a persona-greeting SaaS home; a KPI-card opener manufactures metrics the daemon does not have |
+| Badge soup — colored status pills scattered decoratively across every row and card | BAN-7, BAN-11 | the parse-status + operability badges are LOAD-BEARING state; multiplying pills dilutes the one signal the operator relies on |
+| Marketing spectacle on the dense detail page — parallax / scroll-zoom / WebGL on `notebook_detail.html` | BAN-12 (= AP-1/2/3) | operators want stillness on a dense workflow surface; already an explicit pipeline anti-pattern |
+| Same-silhouette borrow — another repo's cockpit shell (a trading dashboard, a platform admin console, or a prior uplift's look) reused as arXMCP's identity | BAN-15 | arXMCP's identity is its own minimal instrument; a borrowed shell is not a thesis |
+| Untouched default stack look — one face everywhere, stock radius/border/shadow, no scale contrast | BAN-4 | with only 8 tokens and one CSS file, the discipline IS the design; a default assembly reads as no design |
+
+Concrete "never again" baseline: the §1 canon anti-reference (a fully-templated "command center"
+comp scoring 11–12 on §10) is arXMCP's standing negative reference. arXMCP has no SOC-cosplay comp
+of its own — its risk is *drift toward* the template as candidates accrete, not an existing bad screen.
+
+### Surface map (every route → class → house direction)
+
+arXMCP has **no S-1 or S-1m surface**: it is loopback-only with no public / login / marketing /
+onboarding surface (the Origin + Host + SecFetchSite triple defense replaces browser auth —
+overlay §8). **Every surface is S-2 tool.** This is *why* experiential motion (`EXP-*`,
+AP-1/2/3/5) is blocked wholesale here and the `frontend-uplift-experiential-scout` is not
+dispatched by default — there is no threshold for it to live on.
+
+| Surface | Route / file | Class | House direction |
+|---|---|---|---|
+| Landing — notebook list + create form | `GET /ui/` · `index.html` | **S-2** | D-A precision instrument: the notebooks table is the work surface; the empty state carries cause + one action (never a hero) |
+| Notebook detail — the dense workflow page | `GET /ui/notebooks/{slug}` · `notebook_detail.html` | **S-2** | D-A workbench with a D-B posture lede: parse-status + freshness answer "is this notebook usable?" first; ingest / upload / rename / delete are subordinate; stillness |
+| ar5iv paper preview (tight CSP) | `GET /ui/notebooks/{slug}/papers/{paper_id}/preview` | **S-2** | document-view: chrome recedes, the ar5iv HTML is the surface; the tight preview CSP is a constraint to honor, not a bug |
+| Operability badge fragment (10s poll) | `GET /ui/status-badge` · `ui_status_badge` | **S-2** | the operability instrument — semantic color = live state ONLY; stable width across state changes (m4 UPL-22) |
+
+House default direction: **D-A (Precision Instrument)** across all four surfaces, with a
+**D-B (Editorial Cockpit)** posture-lede permissible on the detail page's top block.
+**D-C (Cinematic Threshold) is N/A** — no threshold surface exists. A run may propose a
+genuinely new S-2 direction, but it must satisfy the invariants above and clear the
+challenger's Axis 11 (BAN-1..15 + §10 rubric).
+
+---
+
 ## 1. Stack snapshot (verify against the source files at Phase 1 read)
 
 | Layer | What | Why it constrains proposals |

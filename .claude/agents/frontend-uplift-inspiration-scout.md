@@ -17,10 +17,10 @@ You are the INSPIRATION SCOUT for arXMCP frontend-uplift {ID}.  Your job is to s
 The user-supplied scope for this uplift:
 {UPLIFT_BRIEF}
 
-Read these first (5-minute orientation):
-- /Users/chris.dare/Personal/SourceCode/arXMCP/.claude/references/frontend-uplift/source-registry.md §1 (inspiration platforms)
-- /Users/chris.dare/Personal/SourceCode/arXMCP/.claude/references/frontend-uplift/motion-vocabulary.md
-- /Users/chris.dare/Personal/SourceCode/arXMCP/.claude/references/frontend-uplift/arxmcp-design-system.md (especially §3 the page set + §7 underdeveloped surfaces + §9 architectural locks)
+Read these first (5-minute orientation; all paths repo-relative to the arXMCP checkout root):
+- `.claude/references/frontend-uplift-source-registry.md` (the flat SYNCED registry — inspiration platforms + §7 art-direction reference index)
+- `.claude/references/frontend-uplift-motion-vocabulary.md` (the flat SYNCED motion canon)
+- `.claude/references/frontend-uplift/arxmcp-design-system.md` (the repo house-thesis overlay — especially the `## §9 — House thesis` section: thesis + surface map + BAN anti-references; also §3 the page set + §7 underdeveloped surfaces + §9 architectural locks)
 
 Then cover (15 wall-clock minutes total):
 

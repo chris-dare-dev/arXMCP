@@ -35,10 +35,10 @@ Note in the brief whether you seeded; the operator may want screenshots of both 
 
 Screenshot directory: {SCREENSHOT_DIR}
 
-Read these first (5-minute orientation):
-- /Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/06-mcp-server-design.md (§ "Browser UI surface")
-- /Users/chris.dare/Personal/SourceCode/arXMCP/.claude/references/frontend-uplift/arxmcp-design-system.md
-- /Users/chris.dare/Personal/SourceCode/arXMCP/.claude/references/frontend-uplift/motion-vocabulary.md (you cite primitives by ID — e.g. [MOT-3 stagger-reveal])
+Read these first (5-minute orientation; all paths repo-relative to the arXMCP checkout root):
+- `.claude/notes/06-mcp-server-design.md` (§ "Browser UI surface")
+- `.claude/references/frontend-uplift/arxmcp-design-system.md` (the repo house-thesis overlay — §9 surface map: all four `/ui/` surfaces are S-2)
+- `.claude/references/frontend-uplift-motion-vocabulary.md` (the flat SYNCED motion canon — you cite primitives by ID, e.g. [MOT-3 stagger-reveal])
 
 Then walk every route (15–20 wall-clock minutes total):
 

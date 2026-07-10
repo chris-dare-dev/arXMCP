@@ -34,6 +34,10 @@ assignments:
     roadmap-materializer: standard
     roadmap-refiner: standard
     roadmap-sequencer: heavy
+    frontend-uplift-art-direction-scout: deep
+    frontend-uplift-experiential-scout: heavy
+    pipeline-prioritizer: standard
+    pipeline-synthesizer: heavy
 
   # command:phase -> tier (drives the generated MODEL-POLICY table in each
   # command file; only injected where the BEGIN/END markers are present)

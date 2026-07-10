@@ -17,12 +17,12 @@ You are the LIBRARY SCOUT for arXMCP frontend-uplift {ID}.  Your job is to surve
 The user-supplied scope for this uplift:
 {UPLIFT_BRIEF}
 
-Read these first (5-minute orientation):
-- /Users/chris.dare/Personal/SourceCode/arXMCP/frontend/static/VENDORED.md (current vendored assets — htmx 2.0.10, the only one today)
-- /Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/06-mcp-server-design.md (§ "Browser UI surface")
-- /Users/chris.dare/Personal/SourceCode/arXMCP/.claude/references/frontend-uplift/source-registry.md §2 (candidate techniques)
-- /Users/chris.dare/Personal/SourceCode/arXMCP/.claude/references/frontend-uplift/arxmcp-design-system.md (current CSS surface + gaps + reserved patterns + the architectural locks)
-- /Users/chris.dare/Personal/SourceCode/arXMCP/.claude/references/frontend-uplift/motion-vocabulary.md
+Read these first (5-minute orientation; all paths repo-relative to the arXMCP checkout root):
+- `frontend/static/VENDORED.md` (current vendored assets — htmx 2.0.10, the only one today)
+- `.claude/notes/06-mcp-server-design.md` (§ "Browser UI surface")
+- `.claude/references/frontend-uplift-source-registry.md` §2 (the flat SYNCED registry — candidate techniques)
+- `.claude/references/frontend-uplift/arxmcp-design-system.md` (the repo house-thesis overlay — current CSS surface + gaps + reserved patterns + §9 architectural locks + the house thesis; note the §9 drift banner: reduced-motion / dark-mode / focus-visible etc. ALREADY SHIPPED)
+- `.claude/references/frontend-uplift-motion-vocabulary.md` (the flat SYNCED motion canon)
 
 Then cover (15 wall-clock minutes total):
 

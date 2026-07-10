@@ -13,6 +13,13 @@ Mapping (registry -> consumer):
   data/agents/*.md      -> .claude/agents/
   data/references/*.md  -> .claude/references/
   data/scripts/*        -> .claude/scripts/
+  data/skills/<name>/** -> .claude/skills/<name>/**
+
+The first four tiers are FLAT: top-level files only, subdirectories are ignored
+(prefix-namespace instead, e.g. `frontend-uplift-phase-1.md`). `skills/` is the
+one exception -- Claude Code discovers a skill as `.claude/skills/<name>/SKILL.md`,
+so a skill is a DIRECTORY and its whole tree (SKILL.md plus any assets/) is synced.
+Manifest keys are destination-relative paths, so nested entries work unchanged.
 
 Every synced file is recorded (sha256) in .claude/.registry-manifest.json in
 the consumer. Rules:
@@ -40,6 +47,8 @@ TIERS = {
     "references": ".claude/references",
     "scripts": ".claude/scripts",
 }
+SKILLS_TIER = "skills"
+SKILLS_DEST = ".claude/skills"
 MANIFEST_NAME = ".registry-manifest.json"
 
 
@@ -57,6 +66,19 @@ def registry_files() -> dict[str, Path]:
         for f in sorted(src_dir.iterdir()):
             if f.is_file():
                 out[f"{dest}/{f.name}"] = f
+
+    # skills/ is dir-per-skill, not flat: Claude Code discovers
+    # `.claude/skills/<name>/SKILL.md`, and a skill may carry assets/ alongside.
+    # Sync the whole subtree; a skill dir without SKILL.md is not a skill, skip it.
+    skills_dir = REGISTRY / "data" / SKILLS_TIER
+    if skills_dir.is_dir():
+        for skill in sorted(skills_dir.iterdir()):
+            if not skill.is_dir() or not (skill / "SKILL.md").is_file():
+                continue
+            for f in sorted(skill.rglob("*")):
+                if f.is_file():
+                    rel = f.relative_to(skills_dir).as_posix()
+                    out[f"{SKILLS_DEST}/{rel}"] = f
     return out
 
 
@@ -103,12 +125,21 @@ def sync_repo(repo: Path, files: dict[str, Path], check: bool, dry: bool) -> int
             shutil.copy2(src, dest)
 
     # removals: previously synced, no longer in registry
+    pruned: set[Path] = set()
     for rel in sorted(set(old) - set(files)):
         dest = repo / rel
         if dest.exists():
             actions.append(f"  REMOVE  {rel}")
             if not check and not dry:
                 dest.unlink()
+                pruned.add(dest.parent)
+
+    # a removed skill leaves an empty <skill>/ dir that Claude Code would still
+    # scan; prune empty dirs under .claude/skills (deepest first), never the tier root.
+    skills_root = repo / SKILLS_DEST
+    for d in sorted(pruned, key=lambda p: len(p.parts), reverse=True):
+        if skills_root in d.parents and d.is_dir() and not any(d.iterdir()):
+            d.rmdir()
 
     if actions:
         print(f"{repo.name}:")

@@ -4,9 +4,10 @@
 
 ## Inputs
 
+- `.claude/notes/frontend-uplifts/{ID}/discover/art-direction-scout-brief.md` (**the design FRAME — read FIRST**)
 - `.claude/notes/frontend-uplifts/{ID}/discover/visual-scout-brief.md`
-- `.claude/notes/frontend-uplifts/{ID}/discover/library-scout-brief.md`
-- `.claude/notes/frontend-uplifts/{ID}/discover/inspiration-scout-brief.md`
+- `.claude/notes/frontend-uplifts/{ID}/discover/library-scout-brief.md` (standard mode)
+- `.claude/notes/frontend-uplifts/{ID}/discover/inspiration-scout-brief.md` (standard mode)
 - `.claude/notes/frontend-uplifts/{ID}/discover/current-state-critic-brief.md`
 - `.claude/notes/frontend-uplifts/{ID}/screenshots/*.png` (visual evidence)
 
@@ -16,11 +17,19 @@
 
 ## Synthesis protocol
 
-1. **Read every brief end-to-end first.**  Hold all 4 in working memory.
+0. **ADOPT THE FRAME FIRST (Step 2a.5 — the anti-cookie-cutter open).**  Read the
+   `art-direction-scout-brief.md` before anything else and OPEN the synthesis with its design frame
+   (visual thesis + chosen/recommended direction + active BAN-1..15 list + surface map) as Section 0.
+   Then, as you build the catalog, tag every candidate against the frame: `[DIRECTION-DEFINING]`
+   (it realizes the chosen direction), direction-compatible, or `[polish]` (cosmetic, frame-neutral).
+   A synthesis that skips the frame and lists only polish is a Phase-3 Axis-11 BLOCKER.  If the
+   art-direction-scout failed, build a PROVISIONAL frame from the overlay `arxmcp-design-system.md` §9
+   + `frontend-design-language.md` §8, and say so explicitly.
+1. **Read every brief end-to-end.**  Hold them all in working memory (the frame brief, the two evidence briefs, and — in standard/deep — the library + inspiration briefs).
 2. **Look at the screenshots.**  The visual scout's screenshots are evidence; the synthesizer references them in candidate entries by path.
-3. **Build a candidate inventory.**  Every distinct modernization opportunity proposed across the 4 briefs becomes a candidate row (`UPL-1`, `UPL-2`, …).
+3. **Build a candidate inventory.**  Every distinct modernization opportunity proposed across the briefs becomes a candidate row (`UPL-1`, `UPL-2`, …) — including the art-direction-scout's direction-defining candidates.  **Do NOT re-catalog SHIPPED work as net-new** (reduced-motion, `:focus-visible`, dark-mode, skip-link, htmx loading states, tabular-nums, View Transitions all landed in `ui-attractive-polish-m1..m5`; verify against the live `app.css`).
 4. **Deduplicate.**  Triangulation is the strongest signal.  When two briefs surface the same upgrade (e.g., library-scout cites the View Transitions API + visual-scout cites "fade-on-swap needed on notebook tiles"), merge into ONE candidate with both evidence sources.
-5. **Cross-link motion vocabulary.**  Every candidate that involves animation cites a `[MOT-N]` primitive from `references/frontend-uplift/motion-vocabulary.md`.  This is what makes the catalog comparable.
+5. **Cross-link motion vocabulary.**  Every candidate that involves animation cites a `[MOT-N]` primitive from `.claude/references/frontend-uplift-motion-vocabulary.md` (the flat SYNCED canon) AND names the motion JOB it serves (§0 motion-jobs test: orientation / causality / feedback / continuity — no job, no motion).  On arXMCP the primitive is realized in CSS transitions + htmx swap hooks, never a JS engine.  This is what makes the catalog comparable.
 6. **Categorize** with this fixed taxonomy:
    - **Motion** — animation primitives (pure-CSS transitions, View Transitions, scroll-driven timelines, stagger-reveal via inline `--i` index)
    - **Scroll/parallax** — `animation-timeline: scroll()` / `view()` based reveals
@@ -66,7 +75,9 @@
 
 ## Synthesis sections
 
-1. **Executive summary** — 4–6 sentences: how many candidates, dominant categories, top theme, top tension across briefs.
+**Section 0 — Design frame (adopted).** OPEN the document with the art-direction-scout's frame: visual thesis + chosen/recommended direction + active BAN-1..15 list + surface map (all four arXMCP surfaces are S-2 — overlay §9). Note "PROVISIONAL frame (art-direction-scout unavailable)" if you had to build it from overlay §9 + canon §8. Everything below is placed against this frame.
+
+1. **Executive summary** — 4–6 sentences: how many candidates, dominant categories, top theme, top tension across briefs, AND whether the top candidates are `[DIRECTION-DEFINING]` or `[polish]` (a top-5 that is all `[polish]` must say so plainly).
 2. **Triangulation strength** — count candidates by evidence-source count: "N candidates have 3+ brief sources (strong); N have 2; N have 1 (weak — flag for challenger scrutiny)".
 3. **Foundational candidates** — surface FIRST: candidates other candidates depend on (e.g., "add a `@media (prefers-reduced-motion: no-preference)` block to `frontend/static/app.css`" foundation enables every animation candidate; "add `:focus-visible` styling" foundation enables every interactive-affordance candidate). Synthesis MUST flag these as foundational so Phase 4 sequences them correctly.
 4. **Candidate catalog** — every candidate, ordered by:  foundational candidates first; then high-triangulation within each category; then by t-shirt size ascending.
