@@ -13,7 +13,7 @@ This file is curated by hand from:
   description of the shipped UI, kept current per the notebook-surface-expansion-m3
   constitution refresh).
 - `frontend/templates/{base,index,notebook_detail}.html` (Jinja2 source).
-- `frontend/static/app.css` (the SINGLE CSS file; 126 lines).
+- `frontend/static/app.css` (the SINGLE CSS file; **370 lines** after `ui-attractive-polish-m1..m5`).
 - `frontend/static/VENDORED.md` (htmx provenance).
 
 When those change, update here. Drift is expected after milestone deliveries —
@@ -28,14 +28,11 @@ declares its own here. This is arXMCP's. The `frontend-uplift-art-direction-scou
 this section BEFORE proposing a thesis or directions (a run without it re-creates the generic
 AI dashboard the pipeline exists to prevent). The challenger's Axis 11 enforces it.
 
-> **Drift note (2026-07):** §4's "126 lines" and §7's "underdeveloped" gap list PRE-DATE the
-> `ui-attractive-polish-m1..m5` milestones. `frontend/static/app.css` is now ~370 lines and
-> already ships: the `prefers-reduced-motion` universal gate, `:focus-visible` rings, the
-> skip-link, `@media (prefers-color-scheme: dark)` token re-declaration, htmx `.htmx-request`
-> loading states + spinner, `tabular-nums`, the badge-flash + row-fade + View-Transitions
-> polish. **Do not re-propose those as net-new gaps** — verify against the live file at Phase 1.
-> A human should refresh §4/§7 of this overlay; the fold that added this §9 deliberately did not
-> rewrite the inventory.
+> **Ground-truthed 2026-07-10.** §4, §6 and §7 were re-verified against `frontend/static/app.css`
+> (370 lines after `ui-attractive-polish-m1..m5`) and the three Jinja2 templates. The reduced-motion
+> gate, `:focus-visible` rings, skip-link, dark-mode token block, htmx loading spinner,
+> `tabular-nums`, badge-flash / row-fade and View Transitions all **ship today** — §7 lists only
+> what is actually still open. Verify against the live file at Phase 1 and flag divergence.
 
 ### Visual thesis (one sentence — invariants, not a silhouette)
 
@@ -109,7 +106,7 @@ challenger's Axis 11 (BAN-1..15 + §10 rubric).
 | Server | FastAPI + uvicorn on `127.0.0.1:7733` (loopback-only; non-loopback rejected at config parse) | The same uvicorn process serves `/mcp` AND `/ui/`. No separate frontend process exists. |
 | Templates | Jinja2 (autoescape ON, explicitly constructed in `server/routes/ui.py:85-92`) | Server-rendered HTML. NO SPA. NO client-side routing. NO React. |
 | Interactivity | htmx 2.0.10 (vendored at `frontend/static/htmx.min.js`, 0BSD) | Loaded once in `base.html`. Mutations target HTML fragments returned by `/ui/api/*`. A small JSON-shim in `base.html:18-44` converts htmx form bodies to JSON for POST/PUT/PATCH. |
-| Style | A SINGLE 126-line `frontend/static/app.css` | NO Tailwind, NO PostCSS, NO `@theme` block. CSS custom properties + plain class selectors only. |
+| Style | A SINGLE ~370-line `frontend/static/app.css` | NO Tailwind, NO PostCSS, NO `@theme` block. CSS custom properties + plain class selectors only. |
 | Static delivery | FastAPI `StaticFiles` mounted at `/ui/static/` | Vendored htmx + the CSS file. NO npm, NO node_modules. |
 | Build chain | **NONE** | **Hard constraint, CLAUDE.md §1, §4.7, re-pinned in notebook-surface-expansion-m3 + m5.** "no SPA, no Node/npm build chain." Recommending any npm-installable React/Vite/Next/Tailwind/Storybook library is an automatic BLOCKER in Phase 3. |
 | Tests for the UI | `tests/test_ui_html_pages.py` + the m1/m2/m3 detail-page suites + `test_constitution_ui_claims.py` (the doc-grep guard) | Asserts the rendered HTML contains expected substrings; no Playwright in CI. |
@@ -144,23 +141,48 @@ the visual scout's preflight should seed via `POST /ui/api/notebooks` +
 
 ## 4. CSS variables (the actual "design tokens")
 
-Defined at `:root` in `frontend/static/app.css:4-13`. **Eight variables. That is
-the entire token system.** Proposals that introduce a new token must add it
-here, not invent a parallel system.
+**Verified against `frontend/static/app.css` on 2026-07-10.** Line numbers drift — re-read at the
+Phase 1 read.
 
-| Variable | Default | Purpose |
+Declared at `:root` (`app.css:4–16`), with a dark override at `app.css:242`. **Eight custom
+properties. That is the entire token system** — the file carries 15 `--x:` declarations in total
+(the 8 light ones plus the 7 the dark block re-declares) and no tokens live anywhere else. A
+proposal that introduces a new token adds it here; it does not invent a parallel system.
+
+| Variable | Light | Dark (`:242`) | Purpose |
+|---|---|---|---|
+| `--fg` | `#1a1a1a` | `#e8e8e8` | Foreground text |
+| `--bg` | `#f8f8f8` | `#0d1117` | Page background |
+| `--card-bg` | `#fff` | `#161b22` | Card / panel background |
+| `--border` | `#d8d8d8` | `#6e7681` | Subtle borders |
+| `--accent` | `#1e5b8a` | `#58a6ff` | Links, primary accent (the brand colour) |
+| `--danger` | `#a3271a` | `#f85149` | Destructive buttons + the m4 `status-badge--down` |
+| `--error-bg` | `#fff4f2` | `#2a1a18` | Error-message background |
+| `--mono` | system mono stack | *(not re-declared — theme-independent)* | Numbers, code spans, slugs |
+
+**Dark mode SHIPPED** (`ui-attractive-polish-m3`). `@media (prefers-color-scheme: dark)` at
+`app.css:242` re-declares seven of the eight. There is no toggle and no persisted preference — the
+page follows the OS, which is the right posture for a loopback operator console.
+
+**`color-scheme: light dark` (`app.css:10`) is load-bearing and is NOT a token.** Without it the
+browser's UA-styled internals — form-control internals, scrollbars, the default focus ring, the
+caret, native `<select>` dropdowns — stay light-mode even after the page tokens flip
+(`ui-attractive-polish-m3-rect` F3). Don't delete it while "tidying" `:root`.
+
+**Contrast, computed rather than asserted** (WCAG 2.1 relative luminance). Every pair clears AA in
+both themes; the tightest is dark `--danger` on `--card-bg`:
+
+| Pair | on `--bg` | on `--card-bg` |
 |---|---|---|
-| `--fg` | `#1a1a1a` | Foreground text |
-| `--bg` | `#f8f8f8` | Page background |
-| `--card-bg` | `#fff` | Card / panel background |
-| `--border` | `#d8d8d8` | Subtle borders |
-| `--accent` | `#1e5b8a` (blue) | Links, primary accent (the brand color) |
-| `--danger` | `#a3271a` (red) | Destructive buttons + the m4 `status-badge--down` |
-| `--error-bg` | `#fff4f2` (pale red) | Error message background |
-| `--mono` | system mono stack | Numbers, code spans, slugs |
+| light `--fg` | 16.39:1 | 17.40:1 |
+| light `--accent` | 6.77:1 | 7.20:1 |
+| light `--danger` | 6.91:1 | 7.34:1 |
+| dark `--fg` | 15.45:1 | 14.12:1 |
+| dark `--accent` | 7.49:1 | 6.85:1 |
+| dark `--danger` | 5.65:1 | **5.16:1** |
 
-There is currently **no dark-mode theme** and **no `prefers-color-scheme`
-handling**. Theming is an open candidate surface (see §7 below).
+Re-run these before any colour change — a token tweak that drops a pair below 4.5:1 is a Phase-3
+BLOCKER.
 
 ## 5. CSS classes (the actual "component primitives")
 
@@ -204,14 +226,21 @@ when proposing changes.
   `CONTENT_SECURITY_POLICY_PREVIEW` on the ar5iv preview. Both with
   `frame-ancestors 'none'`. The UI CSP allows `script-src 'self' 'unsafe-inline'`
   (htmx + the inline JSON-shim).
-- **`prefers-reduced-motion`** — **NOT currently honored.** The CSS has zero
-  `@media (prefers-reduced-motion: reduce)` blocks today. Adding it is a
-  legitimate candidate (low cost, high accessibility win).
-- **Focus rings** — browser defaults only; no explicit `:focus-visible` styling
-  in `app.css`. Another candidate.
-- **Skip-link** — none. Probably less critical for a 3-page surface, but flag.
-- **Color contrast** — `--accent` on `--bg` and `--danger` on `--bg` both clear
-  WCAG AA; spot-check before any color change.
+- **`prefers-reduced-motion`** — **honored.** A universal reduce gate at `app.css:223`, and every
+  animation lives inside `@media (prefers-reduced-motion: no-preference)` (`:317`, `:344`).
+  Caveat: the *JS* opt-in for view transitions (`base.html:38–44`) is evaluated once at
+  `DOMContentLoaded` and does not listen for a `change` event — see §7.
+- **Focus rings** — **explicit.** A `:focus-visible` baseline ring (`ui-attractive-polish-m1`,
+  UPL-2), `.skip-link:focus-visible` at `app.css:184`, and a widened 3px ring on a busy destructive
+  button (`button.danger.htmx-request:focus-visible`).
+- **Skip-link** — **present.** `base.html:52` targets `<main id="main" tabindex="-1">`
+  (`base.html:61`); `tabindex="-1"` makes `<main>` programmatically focusable without adding it to
+  the Tab order.
+- **Live regions** — 24 `aria-live="polite"` regions across the three templates, so htmx fragment
+  swaps announce.
+- **Colour contrast** — every `--fg` / `--accent` / `--danger` pair clears WCAG AA on both `--bg`
+  and `--card-bg`, in **both** themes. Measured table in §4. The tightest pair is dark `--danger`
+  on `--card-bg` at 5.16:1 — re-run the numbers before any colour change.
 
 The `/ui/api/*` surface has NOT been security-audited end-to-end (E13 scope-out;
 tracked at `chris-dare-dev/arXMCP#9`). Any uplift candidate that adds JS or
@@ -219,40 +248,54 @@ changes CSP must be flagged for that audit.
 
 ## 7. What's UNDERDEVELOPED (candidate surface)
 
-The discovery scouts will likely converge on a subset of these — surface them
-prominently if your scan finds confirming evidence. **Every proposal here must
-land in pure CSS / vanilla JS / vendored htmx-extension form** (no Node, no npm,
-no React).
+Re-derived 2026-07-10 against `app.css` + the three templates. **Every proposal here must land in
+pure CSS / vanilla JS / vendored htmx-extension form** (no Node, no npm, no React).
 
-- **`prefers-reduced-motion` is not honored** — add the universal reduced-motion
-  block + `@media` guards on any transitions.
-- **No focus-visible styling** — browser default outlines only; consistent
-  `:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }`
-  would be a high-leverage a11y win.
-- **No skip-link** — landing + detail page lack a skip-to-main affordance.
-- **No dark-mode** — `prefers-color-scheme: dark` is unaddressed. Adding a
-  second token block at `:root` (under `@media (prefers-color-scheme: dark)`)
-  is the in-stack way.
-- **No empty-state illustration / micro-interaction** — `.empty` is a one-line
-  paragraph; could be richer.
-- **No skeleton / loading affordance** — htmx requests just sit there; adding
-  `htmx-request` class-based styling for a spinner or skeleton would help.
-- **No live-region announcements** — htmx fragment swaps (e.g. the rename
-  success swap) don't announce to screen readers. `aria-live` regions could
-  bridge.
-- **View Transitions API** — supported in modern browsers (`document.startViewTransition`)
-  and works WITHOUT any framework. Could land smooth swaps on the rename and
-  ingest-status transitions.
-- **htmx CSS-only transitions** — `htmx-swapping` / `htmx-settling` hooks exist
-  and arXMCP doesn't use them. Low-cost polish.
-- **No `tabular-nums` on metric/timestamp values** — the freshness `<time>`
-  and paper-count would benefit.
-- **No keyboard-shortcut affordances** — Cmd-K / `/` to focus the URL-paste
-  input would mirror operator-console patterns from Linear / Raycast.
-- **No theme respect for the host OS** — the page is light-mode-fixed; an
-  operator on a dark-mode system gets a flash.
-- **No visual differentiation between `arxiv`-kind and `textbook`-kind notebooks
-  in the list** — the index just shows slug + display name.
+### Already SHIPPED — do NOT re-propose as net-new gaps
+
+The `ui-attractive-polish-m1..m5` milestones closed most of the original list. Verify against the
+live file before contradicting this table.
+
+| Was listed as missing | Where it now lives |
+|---|---|
+| `prefers-reduced-motion` not honored | Universal reduce gate at `app.css:223`; every animation additionally sits inside `@media (prefers-reduced-motion: no-preference)` (`:317`, `:344`). (`m1`, UPL-1) |
+| No `:focus-visible` styling | Baseline outline ring (`m1`, UPL-2); `.skip-link:focus-visible` at `:184`; `button.danger.htmx-request:focus-visible` widens to 3px |
+| No skip-link | `base.html:52` → `<main id="main" tabindex="-1">` at `base.html:61` (`m1`, UPL-4) |
+| No dark mode / no OS theme respect | `@media (prefers-color-scheme: dark)` at `app.css:242`, plus `color-scheme: light dark` at `:10` so UA-styled controls follow (`m3`, + `m3-rect` F3) |
+| No skeleton / loading affordance | htmx's auto-applied `.htmx-request` drives a `::after` spinner (`@keyframes spin`, `app.css:332`) on submit buttons |
+| No live-region announcements | 24 `aria-live="polite"` regions across the three templates |
+| View Transitions API unused | `base.html:38–44` sets `htmx.config.globalViewTransitions = true`; `::view-transition-old(root)` / `-new(root)` are duration-capped to 200 ms at `app.css:352` |
+| htmx CSS-only transitions unused | `.status-badge.htmx-settling` → `badge-flash`; `.htmx-swapping` → `row-fade-out` for in-place row removal (`m5`, UPL-12) |
+| No `tabular-nums` | `font-variant-numeric: tabular-nums` at `app.css:134` (`m2`, UPL-10) |
+
+### Genuinely open
+
+**a11y / correctness**
+- **`.empty` has no CSS rule at all.** The class is used twice
+  (`index.html:86`, `notebook_detail.html:303`) and `app.css` styles it **zero** times. The empty
+  state is unstyled default text — the cheapest visible win on the surface, and the first thing an
+  operator sees on a fresh install.
+- **The View-Transitions gate is evaluated once.** `base.html:38–44` reads
+  `matchMedia('(prefers-reduced-motion: reduce)')` inside `DOMContentLoaded` and never listens for
+  `change`. An operator who enables reduced-motion mid-session keeps view transitions until reload.
+  The CSS gates react correctly; only the JS opt-in is sticky.
+
+**workflow**
+- **No keyboard-shortcut affordances** — zero `keydown` / `accesskey` handlers anywhere. `/` or
+  Cmd-K to focus the URL-paste input would mirror the Linear / Raycast operator-console pattern.
+  Must be vanilla JS under the existing CSP (`script-src 'self' 'unsafe-inline'`).
+- **The index does not differentiate notebook `kind`.** `server/routes/notebooks.py` carries a
+  `kind` field (`arxiv` vs `textbook`) and `notebook_detail.html` references it 3×, but
+  `index.html` references it **0×** — the list shows only slug + display name. A `.status-badge`-style
+  chip would reuse the existing three-state visual language rather than inventing one.
+
+**polish**
+- **No cross-document view transition.** `globalViewTransitions` covers htmx swaps; a full
+  navigation (clicking *Open* on a notebook row) has none. `@view-transition { navigation: auto; }`
+  is the one-line, framework-free way — and it must be reduced-motion gated like everything else.
+- **The ar5iv preview route has no shared chrome.** It direct-serves ar5iv HTML under a tight CSP
+  and extends no template, so it inherits no header, no skip-link, and no badge. Treat its CSP as a
+  constraint, not a bug (§3), but the *absence of a way back* is a real UX gap.
 
 ## 8. Patterns ALREADY CONSIDERED AND REJECTED (don't re-propose)
 
