@@ -3,6 +3,7 @@ name: pipeline-prioritizer
 description: Generic Phase-PRIORITIZE transform for the Workflow-ported discovery pipelines (currently /frontend-uplift). Reads synthesis.md + challenge.md, applies the pipeline's phase-4 RICE-light protocol (running the pipeline's score-rice.py via Bash when one exists, else scoring by hand), and writes the ranked final-report.md. Hard-tool-capped — Bash is ONLY for the named scorer command. Dispatched by a pipeline's <name>-workflow.mjs; writes the report but NEVER invokes downstream commands. Never dispatches other agents.
 tools: Read, Write, Bash
 model: sonnet
+memory: none
 ---
 
 # Pipeline Prioritizer (generic)

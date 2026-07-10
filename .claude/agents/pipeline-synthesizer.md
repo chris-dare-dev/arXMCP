@@ -4,6 +4,7 @@ description: Generic Phase-SYNTHESIZE transform for the Workflow-ported discover
 tools: Read, Write
 model: sonnet
 effort: high
+memory: none
 ---
 
 # Pipeline Synthesizer (generic)
