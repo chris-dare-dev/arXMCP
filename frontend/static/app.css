@@ -61,7 +61,7 @@ footer a { color: #666; }
 .card h2 { margin-top: 0; font-size: 1.1rem; }
 .card .hint { color: #555; font-size: 0.875rem; margin: 0 0 0.75rem 0; }
 .card .note { color: #777; font-size: 0.8rem; margin: 0.5rem 0 0 0; font-style: italic; }
-.card .empty { color: #888; font-style: italic; }
+.card .empty { color: #666; font-style: italic; text-align: center; padding: 1.25rem 0.5rem; }
 .card .display-name { font-size: 1rem; color: #444; margin-top: 0; }
 
 label {

@@ -211,7 +211,9 @@ when proposing changes.
   used for both the notebook parse-status badge (m1) AND the footer operability
   badge (m4). Three modal states; consistent visual language.
 - `.hint` — secondary explanatory text
-- `.empty` — empty-state message
+- `.empty` — centered, italic, muted empty-state message (`#666`, AA-clean in light;
+  `#9ba1a8` dark override). Styles BOTH the notebooks `<td colspan="4">` row and the papers `<p>`
+  (`.card .empty`, `app.css:64`)
 - `.display-name` — the notebook-detail name `<p>` (m2; also the htmx swap target `#display-name-block`)
 - `.rename-form` (m2)
 - `.notebook-actions` (m2 — the Delete-button row)
@@ -271,10 +273,6 @@ live file before contradicting this table.
 ### Genuinely open
 
 **a11y / correctness**
-- **`.empty` has no CSS rule at all.** The class is used twice
-  (`index.html:86`, `notebook_detail.html:303`) and `app.css` styles it **zero** times. The empty
-  state is unstyled default text — the cheapest visible win on the surface, and the first thing an
-  operator sees on a fresh install.
 - **The View-Transitions gate is evaluated once.** `base.html:38–44` reads
   `matchMedia('(prefers-reduced-motion: reduce)')` inside `DOMContentLoaded` and never listens for
   `change`. An operator who enables reduced-motion mid-session keeps view transitions until reload.
