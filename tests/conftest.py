@@ -291,3 +291,45 @@ def _patched_cache_db_path(tmp_path, monkeypatch):
         str(tmp_path / "cache" / "retrieval.db"),
     )
     yield
+
+
+@pytest.fixture(autouse=True)
+def _patched_operator_settings_db(tmp_path, monkeypatch):
+    """Redirect ``server.operator_settings``'s default DB path into ``tmp_path``.
+
+    Direct sibling of ``_patched_cache_db_path`` — same ``var/arxmcp/cache/``
+    dir, same checkout-relative-path bug class. ``DEFAULT_DB_PATH`` is the
+    real ``var/arxmcp/cache/notebooks.db``, where the operator's persisted
+    ``contact_email`` lives. Without this fixture, any test that calls
+    ``build_user_agent()`` / ``get_contact_email()`` without an explicit
+    email reads that real value off disk. Because onboarding-uplift-m2
+    inserted the SQLite source ABOVE the ``ARXMCP_CONTACT_EMAIL`` env var in
+    ``build_user_agent``'s priority chain, the persisted email SHADOWS the
+    env var those politeness-contract tests set via ``monkeypatch.setenv`` —
+    so on any machine where ``make init`` has ever run, they fail (and,
+    worse, quietly read operator PII). This fixture was simply missed when
+    m2 landed; the env-var-only tests predate the SQLite source.
+
+    ``DEFAULT_DB_PATH`` is consumed as a *default argument value*, which
+    Python binds at function-definition time — rebinding the module global
+    alone does NOT reach ``get_setting`` / ``get_contact_email`` et al. So
+    we also re-point each reader/writer's ``__defaults__`` (mutating the
+    shared function object, so every importer — including module-level
+    ``from ... import get_contact_email`` in ``ingest/*`` — sees the
+    redirect). An explicit ``db_path=`` arg still wins; monkeypatch restores
+    everything after the test.
+    """
+    try:
+        import server.operator_settings as ops
+    except ImportError:
+        # server.operator_settings may not be importable from every test
+        # environment; the redirect is a no-op when it can't be imported.
+        yield
+        return
+    fake = tmp_path / "cache" / "notebooks.db"
+    monkeypatch.setattr(ops, "DEFAULT_DB_PATH", fake)
+    # Each of these four takes db_path as its sole default arg
+    # (__defaults__ == (DEFAULT_DB_PATH,)); re-point it at the tmp file.
+    for _name in ("get_setting", "set_setting", "delete_setting", "get_contact_email"):
+        monkeypatch.setattr(getattr(ops, _name), "__defaults__", (fake,))
+    yield
