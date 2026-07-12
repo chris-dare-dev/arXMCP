@@ -50,6 +50,52 @@ Studied by the **inspiration-scout** (and skimmed by the **visual-scout**).
 **Mining heuristic:** WebFetch each platform's **public marketing / docs / changelog**
 pages. Avoid auth-walled UI screenshots (hard to verify). Cite public assets.
 
+### 1c — Premium / agency / marketing-craft sites (reverse-engineered)
+
+These are award-tier agency / studio sites whose value is **high-craft interaction
+technique** (cursor-driven hover-drag galleries, scroll-driven parallax, line-mask
+text reveals, progressive-disclosure scrollytelling) — NOT a reading or operator-console
+experience. They sit OUTSIDE arXMCP's actual domain (§1a/§1b) on purpose: arXMCP's
+operator console is a still, data-dense surface where this kind of bold motion is an
+**anti-pattern** (motion-vocabulary §8 `MOT-NO-2`/`MOT-NO-4`). Study them only as a
+reservoir for a **future landing / hero / "about" surface** — which arXMCP does NOT
+have today (motion-vocabulary repeatedly flags this: MOT-20, MOT-31, MOT-60..65 all
+note "no eligible surface today"). NEVER port these techniques onto `/ui/` or
+`/ui/notebooks/<slug>`.
+
+| Site | URL | Signature technique(s) | Closest local motion vocabulary |
+|---|---|---|---|
+| MetaLab | https://www.metalab.com/ | Cursor-driven **hover-drag gallery** (numbered case-study sequence dragged under the pointer) + smooth-scroll case-study reveals | `[MOT-12 cursor-tracking-spotlight]` (pointer-follow) + `[MOT-40 drag-to-reorder]`-adjacent drag mechanics; reveals → `[MOT-2 fade-up]` |
+| Waabi | https://waabi.ai/ | Scroll-driven **parallax gallery** (stacked full-bleed images shifting at differing rates) + progressive viewport-enter fade/slide reveals; Next.js/React | `[MOT-20 parallax-bg]` (differential-rate scroll) + `[MOT-2 fade-up]` / `[MOT-22 pinned-section-reveal]` |
+| new.studio | https://www.new.studio/ | Hero **line-mask text reveals** + progressive-disclosure scrollytelling; Next.js + Sanity CMS | line-mask reveal has NO local MOT id (describe in words: per-line clip-path/`translateY` unmask); scrollytelling → `[MOT-22 pinned-section-reveal]` |
+
+**Evidence-confidence note (MetaLab / Waabi / new.studio).** Added 2026-06-20 from
+a user reference set and WebFetch-fingerprinted. All three are SPA shells that return
+script-less HTML, so **bundle-level library evidence was NOT captured** — no named
+animation library is claimed for any of them. Confidence: **Waabi** parallax +
+viewport-enter reveals + Next.js are DIRECTLY observed (technique HIGH, framework HIGH);
+**MetaLab** hover-drag gallery observed from the live `HoverDrag` component label
+(MEDIUM, stack unknown); **new.studio** text-reveal + Sanity/Next.js observed, motion
+lib INFERRED only (MEDIUM). A scout picking these up MUST re-fingerprint the JS bundles
+before claiming any named lib, and mark confidence accordingly.
+
+**anime.js v4 reproduction cluster (MetaLab / Waabi / new.studio).** For THIS three-site
+cluster specifically, the proposed reproduction stack is **[anime.js v4](https://animejs.com/)
+(MIT, ~9KB gz)** — its timeline + per-target `stagger()` + scroll-observer map cleanly
+onto the cluster's signature effects (Waabi differential-rate parallax gallery + viewport-enter
+stagger, MetaLab pointer-driven hover-drag sequence, new.studio line-mask text reveal).
+anime.js v4 ships as a **single vanilla-JS file consumable from `<script src="…">`** —
+so it does NOT violate the no-build-chain lock (CLAUDE.md §4.7); it belongs in §2c, not
+the npm-BLOCKER bucket. This is a **deliberate, SCOPED carve-out** from arXMCP's default
+preference (reach for pure-CSS / native scroll-driven / View Transitions / vendored htmx
+first; don't add a new motion dep). It applies ONLY to a candidate that traces to this
+premium cluster on a future landing/hero surface, and it carries the SAME non-negotiable
+gates as every other motion proposal here: **SURFACE-AWARENESS** (marketing/landing/hero
+only — NEVER a dense reading/data surface like the operator console or the ar5iv preview),
+`prefers-reduced-motion` honoring (arXMCP's CSS has ZERO such block today — establishing
+one is a prerequisite, motion-vocabulary `MOT-NO-5`), and LCP/INP discipline. See the
+Anime.js v4 row in §2c for the library-scout's bundle / license framing.
+
 ---
 
 ## 2. Vendor-able frontend techniques (animation, motion, interaction)
@@ -106,6 +152,7 @@ weight; arXMCP only uses the static file).
 | picocss | https://picocss.com/ | MIT | Minimal CSS framework, single file — alternative styling base |
 | sortable.js | https://github.com/SortableJS/Sortable | MIT | Drag-reorder for lists/tables without a framework |
 | Alpine.js | https://alpinejs.dev/ | MIT | Tiny declarative-attribute reactivity — overlaps with htmx but covers client-state |
+| Anime.js v4 | https://animejs.com/ | MIT (~9KB gz) | Lightweight imperative animation — timeline + per-target `stagger()` + scroll-observer — shipped as a single vanilla-JS file (`<script src>`, no bundler) so it's vendor-able under the no-build-chain lock. **Recommended reproduction stack for the §1c MetaLab / Waabi / new.studio premium cluster** (parallax gallery, hover-drag, line-mask text reveal) — a SCOPED carve-out from arXMCP's pure-CSS / native-API / vendored-htmx-first default, applicable ONLY to a future landing/hero surface (arXMCP has none today). Cite bundle (~9KB gz) + MIT when proposing; gate every effect on `prefers-reduced-motion` (motion-vocabulary `MOT-NO-5`) + marketing-surface-only — NEVER the operator console or ar5iv preview. |
 
 (All of the above must be evaluated against arXMCP's existing htmx-2.0.10
 baseline; redundancy with htmx is the most common rejection reason.)

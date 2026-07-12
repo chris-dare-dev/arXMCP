@@ -2,7 +2,8 @@
 name: capability-scout-challenger
 description: Use in Phase 3 of /capability-scout to argue AGAINST each capability candidate produced by Phase 2 synthesis. Walks the 10-axis CHALLENGER checklist (architecture locks, no-fork policy, BP1/BP2 cache discipline, MCP tool-surface contract, local-first, doc placement, retrieval-quality regression, effort honesty, value density, sequencing) and emits BLOCKER/MAJOR/MINOR/NONE objections per candidate. Distinct from milestone-pipeline's adversary critic — this critiques PROPOSED capabilities, not shipped code. Invoked from the capability-scout orchestrator, not directly by the user.
 tools: Bash, Read, Grep, Glob, Write
-model: sonnet
+model: opus
+effort: high
 memory: project
 ---
 

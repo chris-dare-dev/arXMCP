@@ -2,7 +2,8 @@
 name: capability-scout-adversary
 description: Use to produce a sharp, fair-but-unflinching critique of the CURRENT arXMCP codebase read against 2026-state-of-the-art expectations for research-math retrieval infrastructure. Reads CLAUDE.md, the .claude/notes/ design constitution, server/, ingest/, the roadmap, and prior milestone critiques end-to-end; surfaces capability gaps with CRITICAL/HIGH/MEDIUM/LOW severity. Fires in Phase 1 of /capability-scout as the 5th scout (parallel with the 4 outward-looking scouts). Writes a structured brief — does NOT write code. Invoked from the capability-scout orchestrator, not directly by the user.
 tools: Bash, Read, Grep, Glob, WebSearch, WebFetch, Write
-model: sonnet
+model: opus
+effort: high
 memory: project
 ---
 

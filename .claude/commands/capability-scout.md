@@ -83,7 +83,7 @@ When all dispatched scouts have returned:
 
 ---
 
-## Step 2 — Synthesize (main session)
+## Step 2 — Synthesize (deep-reasoning sub-agent → main-session review)
 
 Read `.claude/references/capability-scout/phase-synthesize.md` once at phase start.
 
@@ -91,10 +91,11 @@ Read `.claude/references/capability-scout/phase-synthesize.md` once at phase sta
 .claude/scripts/capability-scout/checkpoint.py <ID> synthesize-running
 ```
 
-Read EVERY brief end-to-end.  Build the unified opportunity catalog at:
+Synthesis is the **highest-reasoning stage** of the pipeline, so it runs as a dedicated sub-agent pinned to the deep-reasoning tier — NOT inline in the main session, and NOT as `general-purpose`.  Dispatch ONE `Agent` call with `subagent_type: capability-scout-synthesizer` and `isolation: worktree`.  **Dispatching it by name is load-bearing**: that agent's frontmatter `model`/`effort` — stamped from the `deep_max` tier in `.claude/model-policy.yaml` (Opus 4.8 / Fable 5 + `max` effort) — is what gives this stage its reasoning budget.  Substitute `{ID}` and `{BRIEF_PATHS}` (every returned survey brief).  The synthesizer reads every brief end-to-end and builds the unified opportunity catalog at:
 ```
 .claude/notes/capability-scouts/<ID>/artifacts/synthesis.md
 ```
+When it returns, **read `synthesis.md` end-to-end in the main session and review it** before advancing state — the heavy reconciliation runs at the deep tier; you keep the review surface (sanity-check the dedup, confirm every candidate traces to ≥1 brief).
 
 Use the fixed candidate-entry shape and 7-category taxonomy from phase-synthesize.md.  Deduplicate across briefs.  Surface cross-cutting tensions explicitly.
 
