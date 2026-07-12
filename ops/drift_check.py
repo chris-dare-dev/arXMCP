@@ -137,8 +137,14 @@ def render_fixture(tex_path: Path) -> str:
             tex_path.read_text(encoding="utf-8"), encoding="utf-8"
         )
         out_html = tmp / "index.html"
+        # _latexmlc_argv_prefix handles the Windows latexmlc.BAT shim (whose
+        # `perl -x -S` body fails on a backslash path, exit 29) by invoking
+        # the extensionless Perl script under perl.exe. No-op on POSIX.
+        # Shared with tools/arxiv_fetch.py::parse_with_latexml.
+        from tools.arxiv_fetch import _latexmlc_argv_prefix
+
         cmd = [
-            latexmlc,
+            *_latexmlc_argv_prefix(latexmlc),
             str(staged_tex.name),
             f"--dest={out_html}",
             "--format=html5",

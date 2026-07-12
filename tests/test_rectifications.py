@@ -302,14 +302,22 @@ class TestF6ParseWithLatexml:
         with pytest.raises(RuntimeError, match="latexmlc not on PATH"):
             parse_with_latexml(main, tmp_path / "parsed", "2307.01156")
 
-    def test_nonzero_exit_returns_failure_parseresult(self, tmp_path: Path, monkeypatch):
+    def test_nonzero_exit_raises_with_returncode(self, tmp_path: Path, monkeypatch):
+        # Contract change (supersedes the original F6 return-a-ParseResult
+        # behavior): a nonzero latexmlc exit is a HARD failure and must
+        # raise, carrying the child's returncode, rather than return a soft
+        # ParseResult a caller can silently drop — which previously surfaced
+        # misleadingly as a downstream "no index.html" error in
+        # ingest/textbook_renderer.py. RuntimeError stays in fetch_seed's
+        # PER_PAPER_FAILURE_EXCEPTIONS, so batch fetches still skip-and-
+        # continue; "surface configuration failures cleanly" is preserved.
         main = tmp_path / "main.tex"
         main.write_text("\\documentclass{amsart}")
         monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/latexmlc")
 
-        # E13_S03 — parse_with_latexml now uses subprocess.Popen +
-        # start_new_session=True for process-group kill discipline,
-        # not subprocess.run. Mock Popen instead.
+        # E13_S03 — parse_with_latexml uses subprocess.Popen +
+        # start_new_session=True for process-group kill discipline, not
+        # subprocess.run. Mock Popen instead.
         class FakeProc:
             def __init__(self, *args, **kwargs):
                 self.pid = 12345
@@ -319,9 +327,8 @@ class TestF6ParseWithLatexml:
                 return ("", "")
 
         monkeypatch.setattr(subprocess, "Popen", FakeProc)
-        result = parse_with_latexml(main, tmp_path / "parsed", "2307.01156")
-        assert result.success is False
-        assert result.exit_code == 1
+        with pytest.raises(RuntimeError, match="rc=1"):
+            parse_with_latexml(main, tmp_path / "parsed", "2307.01156")
 
 
 class TestF8ResponseSizeCap:

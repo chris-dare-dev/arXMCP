@@ -302,6 +302,67 @@ class TestParseWithLatexml:
             parse_with_latexml(main_tex, parsed, "2307.01156")
         proc.kill.assert_called_once_with()
 
+    def test_win32_bat_invoked_via_perl(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # BUG 1: on Windows shutil.which("latexmlc") resolves latexmlc.BAT,
+        # whose `perl -x -S %0` body fails on a backslash path (rc=29). The
+        # argv must invoke the extensionless Perl script under the
+        # install-tree perl.exe, never the .BAT.
+        main_tex, parsed = self._make_tex(tmp_path)
+        # Fake a Strawberry layout: perl/site/bin/{latexmlc,latexmlc.BAT}
+        # with perl/bin/perl.exe alongside.
+        site_bin = tmp_path / "perl" / "site" / "bin"
+        site_bin.mkdir(parents=True)
+        (site_bin / "latexmlc").write_text("#!/usr/bin/env perl\n")
+        bat = site_bin / "latexmlc.BAT"
+        bat.write_text("@perl -x -S %0 %*\n")
+        perl_bin = tmp_path / "perl" / "bin"
+        perl_bin.mkdir(parents=True)
+        fake_perl = perl_bin / "perl.exe"
+        fake_perl.write_text("")
+
+        proc = MagicMock(spec=subprocess.Popen)
+        proc.returncode = 0
+        proc.communicate.return_value = ("", "")
+        sentinel = object()
+        # Force the win32 code path regardless of the host OS.
+        monkeypatch.setattr(arxiv_fetch.os, "name", "nt")
+        with (
+            patch.object(arxiv_fetch.shutil, "which", return_value=str(bat)),
+            patch.object(arxiv_fetch, "_build_sandbox_cmd", side_effect=lambda cmd, **kw: cmd),
+            patch.object(arxiv_fetch.subprocess, "Popen", return_value=proc) as mock_popen,
+            patch.object(arxiv_fetch, "detect_parse_success", return_value=sentinel),
+        ):
+            result = parse_with_latexml(main_tex, parsed, "2307.01156")
+        assert result is sentinel
+        argv = mock_popen.call_args.args[0]
+        assert argv[0] == str(fake_perl)              # perl.exe, not the .BAT
+        assert not argv[0].lower().endswith(".bat")
+        assert argv[1] == str(site_bin / "latexmlc")  # extensionless script
+
+    def test_nonzero_returncode_raises_with_stderr_tail(
+        self, tmp_path: Path,
+    ) -> None:
+        # BUG 2: a nonzero latexmlc exit must raise with the returncode AND
+        # a stderr tail, not return a droppable ParseResult. fake_bin has no
+        # .bat suffix, so the argv prefix is unchanged on every host.
+        main_tex, parsed = self._make_tex(tmp_path)
+        fake_bin = str(tmp_path / "latexmlc")
+        proc = MagicMock(spec=subprocess.Popen)
+        proc.returncode = 29
+        proc.communicate.return_value = ("some stdout", "Can't find latexmlc.BAT on PATH")
+        with (
+            patch.object(arxiv_fetch.shutil, "which", return_value=fake_bin),
+            patch.object(arxiv_fetch, "_build_sandbox_cmd", side_effect=lambda cmd, **kw: cmd),
+            patch.object(arxiv_fetch.subprocess, "Popen", return_value=proc),
+            pytest.raises(RuntimeError) as excinfo,
+        ):
+            parse_with_latexml(main_tex, parsed, "2307.01156")
+        msg = str(excinfo.value)
+        assert "rc=29" in msg       # returncode surfaced
+        assert "on PATH" in msg     # stderr tail surfaced
+
 
 class TestLatexmlTimeoutConfig:
     """textbook-render-robustness-m1: configurable LaTeXML render timeout."""

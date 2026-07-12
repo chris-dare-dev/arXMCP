@@ -551,6 +551,60 @@ def _build_sandbox_cmd(
     return cmd
 
 
+def _find_perl_for_latexmlc(script: Path) -> str | None:
+    r"""Locate the ``perl.exe`` that owns a Windows ``latexmlc`` Perl script.
+
+    ``shutil.which("perl")`` is deliberately the LAST resort: on a host that
+    also has Git-for-Windows installed it resolves to the bundled msys2 perl
+    (``…\Git\usr\bin\perl.exe``), whose ``@INC`` lacks LaTeXML's compiled XS
+    dependencies (``File::Which``, ``XML::LibXML``) — it cannot run
+    ``latexmlc`` and dies with ``Can't locate File/Which.pm``. The perl that
+    ships with the LaTeXML install is tried first: Strawberry Perl lays
+    ``latexmlc`` under ``perl/site/bin`` and ``perl.exe`` under ``perl/bin``.
+    """
+    script_dir = script.parent
+    for candidate in (
+        # Strawberry layout: perl/site/bin/latexmlc -> perl/bin/perl.exe
+        script_dir.parent.parent / "bin" / "perl.exe",
+        # Flat layout: latexmlc sitting directly beside perl.exe
+        script_dir / "perl.exe",
+    ):
+        if candidate.is_file():
+            return str(candidate)
+    return shutil.which("perl")
+
+
+def _latexmlc_argv_prefix(latexmlc_bin: str) -> list[str]:
+    r"""Return the argv prefix that actually invokes ``latexmlc``.
+
+    On POSIX this is just ``[latexmlc_bin]`` — the resolved binary runs
+    directly. On Windows ``shutil.which("latexmlc")`` resolves (via PATHEXT)
+    to ``latexmlc.BAT``, a cmd/Perl polyglot whose body is ``perl -x -S %0``.
+    Perl's ``-S`` only treats the script name as a filesystem path when it
+    contains a forward slash; given the backslash path cmd passes in, it
+    instead searches ``PATH`` for the literal string ``C:\…\latexmlc.BAT``,
+    does not find it, and exits 29 ("Can't find …latexmlc.BAT on PATH").
+    Bypass the broken shim by invoking the extensionless Perl script beside
+    it under an explicit ``perl.exe``.
+    """
+    if os.name != "nt":
+        return [latexmlc_bin]
+    resolved = Path(latexmlc_bin)
+    if resolved.suffix.lower() != ".bat":
+        # A real latexmlc.exe (or an already-extensionless path) runs
+        # directly under CreateProcess; nothing to rewrite.
+        return [latexmlc_bin]
+    script = resolved.with_suffix("")
+    if not script.is_file():
+        # No raw Perl script beside the shim — let the shim run and fail
+        # loudly rather than fabricate a path.
+        return [latexmlc_bin]
+    perl = _find_perl_for_latexmlc(script)
+    if perl is None:
+        return [latexmlc_bin]
+    return [perl, str(script)]
+
+
 def parse_with_latexml(
     main_tex: Path,
     parsed_dir: Path,
@@ -585,19 +639,22 @@ def parse_with_latexml(
 
     out_dir = parsed_dir / paper_id
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_html = out_dir / "index.html"
+    # --dest MUST be absolute: latexmlc runs with cwd=main_tex.parent, so a
+    # relative destination would resolve against the source dir, not here.
+    out_html = Path(os.path.abspath(out_dir / "index.html"))
 
     # E13_S03b F3 rectification — the ``--timeout=300`` latexmlc
     # CLI flag was dropped (no live-integration test proves the
     # flag form). Python-side ``subprocess`` timeout + ``killpg``
     # remain the load-bearing timeout discipline.
     cmd = [
-        # Use the resolved path from shutil.which (not the bare name): on
-        # Windows latexmlc is a Perl script exposed as latexmlc.BAT, and a
-        # bare "latexmlc" passed to CreateProcess fails with FileNotFoundError
-        # (CreateProcess appends .exe, never .bat). The resolved path runs on
-        # every platform; on POSIX it is the same binary the bare name found.
-        latexmlc_bin,
+        # POSIX: cmd[0] is the resolved latexmlc binary. Windows: the
+        # resolved path is latexmlc.BAT, a Perl-script shim that cannot
+        # re-invoke itself under `perl -x -S` given a backslash path, so the
+        # prefix becomes [perl.exe, <extensionless script>]. A bare
+        # "latexmlc" would also fail — CreateProcess appends .exe, never
+        # .bat. See _latexmlc_argv_prefix.
+        *_latexmlc_argv_prefix(latexmlc_bin),
         str(main_tex.name),
         f"--dest={out_html}",
         "--format=html5",
@@ -640,7 +697,7 @@ def parse_with_latexml(
             start_new_session=True,
         )
         try:
-            proc.communicate(timeout=timeout)
+            _stdout, stderr = proc.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
             # Kill the entire process group so any Perl helpers
             # latexmlc forked die with it. ProcessLookupError is
@@ -664,6 +721,23 @@ def parse_with_latexml(
             with contextlib.suppress(subprocess.TimeoutExpired):
                 proc.communicate(timeout=5)
             raise
+
+    # A nonzero exit is a hard latexmlc failure — the Windows .BAT shim
+    # mis-resolving (rc=29), a fatal LaTeX conversion, or a binary missing
+    # under the sandbox — as opposed to a clean run that merely produced
+    # low-quality output (exit 0, no <math>), which detect_parse_success
+    # reports as a soft ParseResult(success=False). Raise here so the
+    # failure surfaces at its source with the child's returncode and a
+    # stderr tail, instead of later and misleadingly as a downstream
+    # "no index.html" error (ingest/textbook_renderer.py). RuntimeError is
+    # in fetch_seed's PER_PAPER_FAILURE_EXCEPTIONS, so batch fetches still
+    # skip-and-continue on a bad paper.
+    if proc.returncode != 0:
+        stderr_tail = (stderr or "").strip()[-800:]
+        raise RuntimeError(
+            f"latexmlc exited nonzero (rc={proc.returncode}) for {paper_id}: "
+            f"{stderr_tail}"
+        )
 
     return detect_parse_success(out_html, proc.returncode)
 
