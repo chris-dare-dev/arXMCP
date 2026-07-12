@@ -1569,3 +1569,125 @@ class TestFixtureSuite:
             _patch("ingest.chunker._resolve_preamble_doc", return_value=None),
         ):
             return _chunk_paper(paper_id)
+
+
+class TestSectionLessFallback:
+    """AC1 (ingest-robustness-m1): section-less / theorem-less renders.
+
+    LaTeXML occasionally emits a COMPLETE body (``ltx_para`` prose + inline
+    ``<math>``) with ZERO ``ltx_section``/``ltx_theorem`` containers on old
+    submission formats (observed on hep-th/0002037: 93 ``ltx_para`` blocks,
+    321 ``<math>``, title "Untitled Document"). Both structural passes then
+    yield nothing; the fallback must recover the prose so the paper is not
+    dropped as ``chunker_returned_empty``.
+    """
+
+    # A faithful reproduction of the hep-th/0002037 failure shape: an
+    # <article class="ltx_document"> whose direct children are prose
+    # <div class="ltx_para"> blocks with inline <math alttext>, and NO
+    # <section class="ltx_section"> / ltx_theorem / ltx_proof anywhere.
+    _SECTION_LESS_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"/><title>[hep-th/0002037] Untitled Document</title></head>
+<body>
+<article class="ltx_document">
+  <div class="ltx_para"><p class="ltx_p">We study the stability of BPS branes on a
+  Calabi-Yau threefold and the associated central charge
+  <math class="ltx_Math" alttext="Z(E)" display="inline"><mrow><mi>Z</mi><mi>E</mi></mrow></math>
+  which governs the mass of a brane wrapping a holomorphic cycle.</p></div>
+  <div class="ltx_para"><p class="ltx_p">The grade of an object is defined via
+  <math class="ltx_Math" alttext="\\phi(E)" display="inline"><mi>phi</mi></math>
+  and Pi-stability requires that every proper subobject has strictly smaller grade
+  than the object it sits inside.</p></div>
+  <div class="ltx_para"><p class="ltx_p">This condition is the physical precursor of
+  Bridgeland's later notion of a stability condition on a triangulated category, with
+  the heart of a bounded t-structure playing the role of the abelian category of
+  D-branes.</p></div>
+  <div class="ltx_para"><p class="ltx_p">Short.</p></div>
+</article>
+</body>
+</html>"""
+
+    @staticmethod
+    def _run(tmp_path: Path, paper_id: str, html: str):
+        from unittest.mock import patch as _patch
+
+        from ingest.chunker import chunk_paper as _chunk_paper
+
+        parsed_dir = tmp_path / "parsed"
+        chunks_dir = tmp_path / "chunks"
+        paper_parsed = parsed_dir / paper_id
+        paper_parsed.mkdir(parents=True)
+        (paper_parsed / "index.html").write_text(html, encoding="utf-8")
+        with (
+            _patch("ingest.chunker.PARSED_DIR", parsed_dir),
+            _patch("ingest.chunker.CHUNKS_DIR", chunks_dir),
+            _patch("ingest.chunker._resolve_preamble_doc", return_value=None),
+        ):
+            return _chunk_paper(paper_id)
+
+    def test_section_less_render_recovers_prose(self, tmp_path):
+        chunks = self._run(tmp_path, "hep-th/0002037", self._SECTION_LESS_HTML)
+        assert len(chunks) >= 1, (
+            "section-less render with real prose must recover >=1 chunk "
+            "(regression: chunker_returned_empty on hep-th/0002037)"
+        )
+        for c in chunks:
+            # Fallback chunks are kind="section" with content-addressable ids.
+            assert c.kind == "section"
+            assert c.chunk_id.startswith("arxiv:hep-th/0002037:")
+            assert len(c.chunk_id.rsplit(":", 1)[-1]) == 16
+        # Math fidelity: the LaTeX alttext payload survives into the body.
+        joined = " ".join(c.body_text for c in chunks)
+        assert "Z(E)" in joined
+
+    def test_truly_empty_render_stays_empty(self, tmp_path):
+        # Math present but NO harvestable prose (no ltx_para/ltx_p with >=80
+        # chars) -> fallback returns [], preserving the empty outcome that
+        # bulk_ingest categorizes as render_unchunkable_no_sections (AC4).
+        html = (
+            '<!DOCTYPE html><html><head><title>x</title></head><body>'
+            '<article class="ltx_document">'
+            '<math class="ltx_Math" alttext="x"><mi>x</mi></math>'
+            "</article></body></html>"
+        )
+        chunks = self._run(tmp_path, "hep-th/0002037", html)
+        assert chunks == []
+
+    def test_sectioned_fixture_does_not_trigger_fallback(self, tmp_path):
+        # Regression guard: a normally-sectioned fixture is unaffected — the
+        # fallback fires ONLY when both passes returned empty, so a paper with
+        # theorems/proofs/sections must still produce non-"section" kinds.
+        import shutil as _shutil
+        from unittest.mock import patch as _patch
+
+        from ingest.chunker import chunk_paper as _chunk_paper
+
+        fixture = (
+            Path(__file__).parent / "fixtures" / "chunker" / "2307.00001" / "index.html"
+        )
+        parsed_dir = tmp_path / "parsed"
+        chunks_dir = tmp_path / "chunks"
+        pp = parsed_dir / "2307.00001"
+        pp.mkdir(parents=True)
+        _shutil.copy(fixture, pp / "index.html")
+        with (
+            _patch("ingest.chunker.PARSED_DIR", parsed_dir),
+            _patch("ingest.chunker.CHUNKS_DIR", chunks_dir),
+            _patch("ingest.chunker._resolve_preamble_doc", return_value=None),
+        ):
+            chunks = _chunk_paper("2307.00001")
+        kinds = {c.kind for c in chunks}
+        assert kinds - {"section"}, f"expected structural kinds, got {kinds}"
+
+    def test_fallback_chunk_ids_are_deterministic(self, tmp_path):
+        # M4 (arxmcp critique): the 10-fixture expected_chunk_ids golden suite
+        # only covers sectioned papers, which never reach the fallback — nothing
+        # else pins the fallback's content-addressable chunk_ids. Two runs on
+        # the same input MUST produce identical ids; a future token-packing /
+        # MIN_BLOCK_CHARS change would otherwise silently invalidate cached
+        # embeddings (BP1) for every rescued paper with no failing test.
+        a = self._run(tmp_path / "a", "hep-th/0002037", self._SECTION_LESS_HTML)
+        b = self._run(tmp_path / "b", "hep-th/0002037", self._SECTION_LESS_HTML)
+        assert len(a) >= 1
+        assert [c.chunk_id for c in a] == [c.chunk_id for c in b]

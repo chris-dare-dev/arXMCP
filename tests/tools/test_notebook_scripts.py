@@ -224,6 +224,51 @@ def test_init_main_returns_1_on_bad_slug(
     assert "error:" in capsys.readouterr().err
 
 
+def test_init_persists_mineru_bin(notebooks_base: Path, tmp_path: Path) -> None:
+    # ingest-robustness-m1 AC3: --mineru-bin persists to operator_settings so
+    # the MinerU resolver finds it without an ARXMCP_MINERU_BIN export.
+    from server.operator_settings import get_mineru_bin
+
+    fake_bin = tmp_path / "mineru"
+    fake_bin.write_text("#!/bin/sh\n")
+    rc = notebook_init.run("my-notebook", mineru_bin=str(fake_bin), register=False)
+    assert rc == 0
+    assert get_mineru_bin() == str(fake_bin)
+
+
+def test_init_rejects_missing_mineru_bin(notebooks_base: Path) -> None:
+    with pytest.raises(NotebookError, match="does not point to an existing file"):
+        notebook_init.run("my-notebook", mineru_bin="/gone/mineru", register=False)
+
+
+def test_make_init_recipe_expands() -> None:
+    # C1 / M5 (infra critique): the `make init` recipe must expand cleanly. A
+    # broken $(...) in a recipe COMMENT (make expands $() on recipe lines,
+    # comments included) fatally aborts `make init` yet ships green through the
+    # pure-Python run() tests above. Dry-run the target; assert it expands
+    # (exit 0) and that MINERU_BIN threads through to --mineru-bin. Gated on a
+    # make binary so it skips cleanly where none is installed.
+    import shutil
+    import subprocess
+
+    make = (
+        shutil.which("make")
+        or shutil.which("gmake")
+        or shutil.which("mingw32-make")
+    )
+    if not make:
+        pytest.skip("no make binary available")
+    repo_root = Path(__file__).resolve().parents[2]
+    out = subprocess.run(
+        [make, "-n", "init", "NOTEBOOK=demo", "MINERU_BIN=/x/m", "PYTHON=python3"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+    )
+    assert out.returncode == 0, f"`make init` failed to expand: {out.stderr}"
+    assert "--mineru-bin" in out.stdout
+
+
 # ---------------------------------------------------------------------------
 # notebook_fetch.py (AC #2, FM-4 rate-limit, FM-5 malformed)
 # ---------------------------------------------------------------------------

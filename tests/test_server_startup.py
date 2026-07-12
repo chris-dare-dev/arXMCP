@@ -399,6 +399,26 @@ class TestConfigValidation:
         msg = str(exc.value)
         assert "LaTeXML" in msg or "render" in msg
 
+    def test_mineru_env_vars_rejected(self, monkeypatch):
+        """ingest-robustness-m1 M1: ARXMCP_MINERU_BIN / ARXMCP_MINERU_TIMEOUT_S
+        are ingest-only (read by ingest/textbook_parser.py for the MinerU
+        Stage-1 parse). Like the other ingest vars they are registered in
+        _KNOWN_INGEST_ENV_VARS for a TAILORED hint, but the server still REJECTS
+        them by design. Pins that each carve-out message names the var + the
+        MinerU/textbook ingest path — a typo or removed key would silently
+        regress the friendly hint to a generic close-match suggestion, the exact
+        operator footgun AC3 exists to prevent."""
+        from server.main import _scan_unknown_arxmcp_env_vars
+
+        for var in ("ARXMCP_MINERU_BIN", "ARXMCP_MINERU_TIMEOUT_S"):
+            monkeypatch.setenv(var, "x")
+            cfg = Config()
+            with pytest.raises(ValueError, match=var) as exc:
+                _scan_unknown_arxmcp_env_vars(cfg)
+            msg = str(exc.value)
+            assert "MinerU" in msg or "mineru" in msg or "textbook" in msg
+            monkeypatch.delenv(var, raising=False)
+
 
 # ===========================================================================
 # notebook-retrieval-m1 (fork C) — ARXMCP_NOTEBOOK derives lancedb_path

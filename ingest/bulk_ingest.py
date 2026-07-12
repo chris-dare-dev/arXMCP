@@ -62,7 +62,7 @@ from ingest.ar5iv_fetch import (
     Ar5ivResult,
     try_cache,
 )
-from ingest.chunker import chunk_paper
+from ingest.chunker import STRUCTURE_SIGNAL_CLASSES, chunk_paper
 from ingest.embedder import embed_paper
 from ingest.identifiers import is_valid_arxiv_paper_id
 from ingest.store import DEFAULT_LANCEDB_PATH, load_embed_record, write_chunks
@@ -246,6 +246,33 @@ def _has_local_parsed_html(paper_id: str, parsed_dir: Path) -> bool:
     return (parsed_dir / paper_id / "index.html").is_file()
 
 
+def _diagnose_empty_render(paper_id: str, parsed_dir: Path) -> str:
+    """Categorize a zero-chunk render for the parser-failures report.
+
+    ``chunk_paper`` returning ``[]`` after the AC1 section-less fallback means
+    the render had no harvestable prose at all. Distinguish the "math present
+    but no ltx_section/theorem/proof structure" case
+    (``render_unchunkable_no_sections`` — a strong signal the PDF/MinerU path
+    is needed) from a generic ``chunker_returned_empty``. Cheap substring scan
+    of the on-disk HTML (no full DOM parse), same spirit as ar5iv's ``<math``
+    gate; a missing/unreadable file degrades to the generic reason.
+    """
+    parsed_path = parsed_dir / paper_id / "index.html"
+    try:
+        body = parsed_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return "chunker_returned_empty"
+    has_math = "<math" in body
+    # ingest-robustness-m1 M2/L1: the SAME signal set the ar5iv no-sections WARN
+    # uses (ingest.chunker.STRUCTURE_SIGNAL_CLASSES) — a single source derived
+    # from the chunker's real structural gates, so the two AC4 sites cannot
+    # drift apart.
+    has_structure = any(sig in body for sig in STRUCTURE_SIGNAL_CLASSES)
+    if has_math and not has_structure:
+        return "render_unchunkable_no_sections"
+    return "chunker_returned_empty"
+
+
 def ingest_one_paper(
     paper_id: str,
     *,
@@ -302,7 +329,11 @@ def ingest_one_paper(
         # Step 3: chunk + embed + store.
         chunks = chunk_paper(paper_id)
         if not chunks:
-            outcome.failure_reason = "chunker_returned_empty"
+            # ingest-robustness-m1 (AC4): distinguish a structurally
+            # unchunkable render (math, but no sections/theorems, and no
+            # salvageable body even after the fallback) from a generic empty,
+            # so operators can route these to the PDF/MinerU path.
+            outcome.failure_reason = _diagnose_empty_render(paper_id, parsed_dir)
             return outcome
         # Closes F1: embed_paper catches PER_PAPER_FAILURE_EXCEPTIONS
         # and returns EmbedStats(status="fail", ...) instead of

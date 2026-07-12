@@ -113,6 +113,16 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--mineru-bin",
+        default=None,
+        help=(
+            "Absolute path to the mineru CLI binary (textbook/PDF ingest). "
+            "Persisted to operator_settings so the MinerU Stage-1 parser "
+            "resolves it without an ARXMCP_MINERU_BIN export "
+            "(e.g. ~/venvs/mineru/bin/mineru)."
+        ),
+    )
+    parser.add_argument(
         "--no-register",
         dest="register",
         action="store_false",
@@ -213,10 +223,30 @@ def _persist_email(email: str, *, db_path: Path) -> None:
     print(f"persisted contact_email to operator_settings ({db_path})")
 
 
+def _persist_mineru_bin(mineru_bin: str, *, db_path: Path) -> None:
+    """Write ``mineru_bin`` (absolute path to the mineru CLI) to
+    ``operator_settings`` so
+    :func:`ingest.textbook_parser._resolve_mineru_binary` resolves it without
+    a per-shell ``ARXMCP_MINERU_BIN`` export (ingest-robustness-m1 AC3).
+    Validated to be an existing file before persisting — a stale path helps
+    no one and would raise later at parse time."""
+    from server.operator_settings import set_setting  # local import
+
+    if not Path(mineru_bin).is_file():
+        raise NotebookError(
+            f"--mineru-bin {mineru_bin!r} does not point to an existing file; "
+            f"pass the absolute path to the mineru binary "
+            f"(e.g. ~/venvs/mineru/bin/mineru)."
+        )
+    set_setting("mineru_bin", mineru_bin, db_path=db_path)
+    print(f"persisted mineru_bin to operator_settings ({db_path})")
+
+
 def run(
     slug: str,
     *,
     email: str | None = None,
+    mineru_bin: str | None = None,
     register: bool = True,
     db_path: Path | None = None,
     notebooks_base: Path | None = None,
@@ -271,7 +301,9 @@ def run(
     # m2 SQLite registration + email persistence — both idempotent.
     # Resolve the default db_path lazily so test callers can inject a
     # tmp_path-scoped DB.
-    if (register or email is not None) and db_path is None:
+    if (
+        register or email is not None or mineru_bin is not None
+    ) and db_path is None:
         from server.operator_settings import DEFAULT_DB_PATH  # local
 
         db_path = DEFAULT_DB_PATH
@@ -286,13 +318,21 @@ def run(
     if email is not None:
         _persist_email(email, db_path=db_path)  # type: ignore[arg-type]
 
+    if mineru_bin is not None:
+        _persist_mineru_bin(mineru_bin, db_path=db_path)  # type: ignore[arg-type]
+
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _build_arg_parser().parse_args(argv)
     try:
-        return run(args.slug, email=args.email, register=args.register)
+        return run(
+            args.slug,
+            email=args.email,
+            mineru_bin=args.mineru_bin,
+            register=args.register,
+        )
     except NotebookError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

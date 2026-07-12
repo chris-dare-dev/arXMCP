@@ -128,10 +128,22 @@ Two environment variables control the sandbox driver
 (`ingest/textbook_parser.py`):
 
 - **`ARXMCP_MINERU_BIN`** — absolute path to the `mineru` CLI binary.
-  Required for textbook-ingest. Example:
-  `export ARXMCP_MINERU_BIN=~/venvs/mineru/bin/mineru`. Without it
-  the driver falls back to `shutil.which("mineru")` and raises
-  `RuntimeError` if not found.
+  Resolution order (`ingest/textbook_parser._resolve_mineru_binary`) is
+  **explicit arg → `ARXMCP_MINERU_BIN` env → persisted operator setting →
+  `shutil.which("mineru")` → `RuntimeError`**. **Prefer persisting the path
+  once** over exporting the env var every shell — and note the server
+  **rejects** `ARXMCP_*` ingest vars, so an exported `ARXMCP_MINERU_BIN`
+  makes `make up` fail with an unknown-var error. Persist it via:
+
+  ```sh
+  make init NOTEBOOK=<slug> MINERU_BIN=~/venvs/mineru/bin/mineru
+  # or directly:
+  python tools/notebook_init.py <slug> --mineru-bin ~/venvs/mineru/bin/mineru
+  ```
+
+  The path is stored in `operator_settings` (the same store as the arXiv
+  `contact_email`) and read at parse time — no per-shell `export` needed. The
+  env var and the explicit-arg tiers still work for one-off overrides.
 - **`ARXMCP_MINERU_TIMEOUT_S`** — wall-clock cap on a single MinerU
   invocation in seconds. Default 1800 (30 min). Valid range
   [60, 3600]. Parsed at module load — out-of-range values raise
