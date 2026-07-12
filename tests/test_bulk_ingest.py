@@ -547,3 +547,58 @@ class TestProgressIntervalValidation:
                 log_path=tmp_path / "ingestion.log",
                 progress_interval=-5,
             )
+
+
+class TestDiagnoseEmptyRender:
+    """ingest-robustness-m1 (AC4): categorize a zero-chunk render.
+
+    ``_diagnose_empty_render`` distinguishes a structurally-unchunkable
+    render (math present, no ltx_section/theorem/proof) from a generic empty,
+    so operators can route the former to the PDF/MinerU path.
+    """
+
+    @staticmethod
+    def _write(parsed_dir, paper_id: str, html: str):
+        from pathlib import Path
+
+        paper_dir = Path(parsed_dir) / paper_id
+        paper_dir.mkdir(parents=True)
+        (paper_dir / "index.html").write_text(html, encoding="utf-8")
+
+    def test_math_but_no_sections_is_unchunkable(self, tmp_path):
+        from ingest.bulk_ingest import _diagnose_empty_render
+
+        parsed_dir = tmp_path / "parsed"
+        self._write(
+            parsed_dir,
+            "hep-th/0002037",
+            '<article class="ltx_document"><div class="ltx_para"><p class="ltx_p">'
+            'prose <math alttext="x"><mi>x</mi></math></p></div></article>',
+        )
+        assert (
+            _diagnose_empty_render("hep-th/0002037", parsed_dir)
+            == "render_unchunkable_no_sections"
+        )
+
+    def test_structured_render_is_generic_empty(self, tmp_path):
+        from ingest.bulk_ingest import _diagnose_empty_render
+
+        parsed_dir = tmp_path / "parsed"
+        self._write(
+            parsed_dir,
+            "2307.00001",
+            '<article class="ltx_document"><section class="ltx_section">'
+            '<math alttext="x"><mi>x</mi></math></section></article>',
+        )
+        assert (
+            _diagnose_empty_render("2307.00001", parsed_dir)
+            == "chunker_returned_empty"
+        )
+
+    def test_missing_file_degrades_to_generic(self, tmp_path):
+        from ingest.bulk_ingest import _diagnose_empty_render
+
+        assert (
+            _diagnose_empty_render("2307.00002", tmp_path / "parsed")
+            == "chunker_returned_empty"
+        )

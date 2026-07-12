@@ -93,6 +93,52 @@ class TestTryCache:
         # Body is exactly what urllib returned.
         assert "<math" in result.cache_path.read_text()
 
+    def test_hit_with_no_section_structure_warns(self, tmp_path, caplog):
+        # ingest-robustness-m1 (AC4): a render that passes the <math> gate but
+        # carries no ltx_section/theorem/proof structure is still a HIT, but
+        # emits a no-sections WARN so an operator can route it to the PDF path.
+        import logging
+
+        body = (
+            '<html><body><article class="ltx_document">'
+            '<div class="ltx_para"><p class="ltx_p">substantial prose here '
+            '<math display="inline" alttext="x"><mi>x</mi></math></p></div>'
+            "</article></body></html>"
+        )
+        with caplog.at_level(logging.WARNING, logger="ingest.ar5iv_fetch"), patch(
+            "ingest.ar5iv_fetch.urllib.request.urlopen",
+            return_value=_ok_response(body),
+        ):
+            result = try_cache(
+                "2401.00099",
+                cache_dir=tmp_path / "cache",
+                parsed_dir=tmp_path / "parsed",
+            )
+        assert result.hit is True
+        assert result.reason == "ok"
+        assert "no ltx_section" in caplog.text
+
+    def test_hit_with_section_structure_does_not_warn(self, tmp_path, caplog):
+        import logging
+
+        body = (
+            '<html><body><article class="ltx_document">'
+            '<section class="ltx_section"><p class="ltx_p">prose '
+            '<math alttext="x"><mi>x</mi></math></p></section>'
+            "</article></body></html>"
+        )
+        with caplog.at_level(logging.WARNING, logger="ingest.ar5iv_fetch"), patch(
+            "ingest.ar5iv_fetch.urllib.request.urlopen",
+            return_value=_ok_response(body),
+        ):
+            result = try_cache(
+                "2401.00098",
+                cache_dir=tmp_path / "cache",
+                parsed_dir=tmp_path / "parsed",
+            )
+        assert result.hit is True
+        assert "no ltx_section" not in caplog.text
+
     def test_local_cache_short_circuits_network(self, tmp_path):
         cache_dir = tmp_path / "cache"
         parsed_dir = tmp_path / "parsed"

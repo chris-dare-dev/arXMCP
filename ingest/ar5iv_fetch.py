@@ -296,6 +296,21 @@ def try_cache(
     cache_path.write_text(body, encoding="utf-8")
     parsed_path.write_text(body, encoding="utf-8")
 
+    # ingest-robustness-m1 (AC4): a render can pass the <math> gate yet carry
+    # NO ltx_section/theorem/proof structure (LaTeXML sectioning failure on old
+    # formats, e.g. hep-th/0002037). The chunker's section-less fallback now
+    # recovers most of these, but flag it so an operator can route a residual
+    # math-only render to the PDF/MinerU path. Fresh-fetch path only (the
+    # local-cache early-return above never reads the body), so this is a
+    # secondary observability signal, not a per-run guarantee.
+    if not any(sig in body for sig in ("ltx_section", "ltx_theorem", "ltx_proof")):
+        logger.warning(
+            "ar5iv: %s rendered with math but no ltx_section/theorem/proof "
+            "structure — may be unchunkable; the PDF/MinerU path "
+            "(tools/notebook_pdf_parse.py) may be needed",
+            paper_id,
+        )
+
     logger.info("ar5iv: cache hit for %s (%d bytes)", paper_id, len(body))
     return Ar5ivResult(
         paper_id=paper_id,
