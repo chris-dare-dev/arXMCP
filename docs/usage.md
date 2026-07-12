@@ -132,6 +132,27 @@ arXiv notebooks). MinerU installs into a **separate venv** — see the
 [install guide](install.md#optional-textbook-ingest-dep--mineru). Parses are
 serialized (`asyncio.Semaphore(1)`) to avoid GPU/MLX memory pressure.
 
+### Headless (CLI) PDF ingest
+
+The browser upload is not required — a PDF already staged under
+`var/arxmcp/notebooks/<slug>/pdfs/<flat>.pdf` can be parsed and ingested from
+the shell (this is also the path for an arXiv paper that has no usable ar5iv
+HTML, e.g. a PDF-only overview). First persist the mineru binary once
+(`make init NOTEBOOK=<slug> MINERU_BIN=<abs path>`, see the
+[install guide](install.md#optional-textbook-ingest-dep--mineru)), then:
+
+```sh
+# Stage 1 — MinerU + LaTeXML render → parsed/<flat>/index.html (idempotent;
+# skips when index.html exists unless --force).
+uv run python tools/notebook_pdf_parse.py <slug> --paper-id <id>
+
+# Stage 2 — chunk + embed + write the per-notebook LanceDB.
+uv run python tools/notebook_textbook_ingest.py <slug> --paper-id <id>
+```
+
+The chunks land in the notebook's own LanceDB with `source_kind="textbook"`;
+query them with `ARXMCP_NOTEBOOK=<slug>` (or `filters.notebook=<slug>`).
+
 ## Querying from an agent
 
 Once registered in `~/.claude.json`, Claude Code sub-agents call the tools
