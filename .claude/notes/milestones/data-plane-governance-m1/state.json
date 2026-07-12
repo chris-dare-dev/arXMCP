@@ -1,0 +1,108 @@
+{
+  "id": "data-plane-governance-m1",
+  "created_at": "2026-07-12T02:14:12Z",
+  "updated_at": "2026-07-12T15:16:37Z",
+  "phase": "complete",
+  "phase_history": [
+    {
+      "phase": "init",
+      "at": "2026-07-12T02:14:12Z"
+    },
+    {
+      "phase": "research-running",
+      "at": "2026-07-12T02:15:02Z"
+    },
+    {
+      "phase": "research-complete",
+      "at": "2026-07-12T02:33:39Z"
+    },
+    {
+      "phase": "implement-running",
+      "at": "2026-07-12T05:15:42Z"
+    },
+    {
+      "phase": "implement-complete",
+      "at": "2026-07-12T05:30:44Z"
+    },
+    {
+      "phase": "critique-running",
+      "at": "2026-07-12T05:31:25Z"
+    },
+    {
+      "phase": "critique-complete",
+      "at": "2026-07-12T05:55:43Z"
+    },
+    {
+      "phase": "rectify-running",
+      "at": "2026-07-12T05:56:20Z"
+    },
+    {
+      "phase": "complete",
+      "at": "2026-07-12T15:16:37Z"
+    }
+  ],
+  "milestone_brief": "# Milestone brief \u2014 data-plane-governance-m1\r\n\r\n**Title:** Boundary ADR owner-approved, committed, and binding in CLAUDE.md\r\n**Kind:** milestone\r\n**Roadmap:** data-plane-governance (plans/data-plane-governance/roadmap.yaml)\r\n**Status:** planned\r\n**Lane:** now\r\n**Target:** 2026-07-11 -> 2026-07-15\r\n\r\n## Parent epic\r\n\r\n- data-plane-governance-e1 \u2014 Boundary ADR and binding CLAUDE.md constraints\r\n  Draft, owner-approve, and commit the data-plane boundary ADR at .claude/docs/adr-data-plane-boundary.md \u2014 recording the three boundary rules (no agent dispatch or per-run agent memory in the server; writes only via offline ingest or operator-gated console actions; orchestrator loop moved to a separate repo or re-scoped as a client-side tool under tools/ with zero server-side state), the disposition of server/orchestrator/model_selector.py, and the candidate-layer principle for non-commercially-licensed external data \u2014 then land the boundary rules in CLAUDE.md as binding agent constraints. Vertical slice ends in committed, citable state that closes the orchestrator-loop placement question.\r\n\r\n## Summary\r\n\r\nThe data-plane boundary ADR at .claude/docs/adr-data-plane-boundary.md is owner-approved and committed \u2014 closing the orchestrator-loop placement question \u2014 and CLAUDE.md carries the boundary rules as binding agent constraints.\r\n\r\n## Acceptance criteria\r\n\r\n1. Given the drafted ADR at .claude/docs/adr-data-plane-boundary.md, when the owner reviews it, then owner approval is recorded and the ADR is committed stating all three boundary rules (no agent dispatch or per-run agent memory in the server; writes only via offline ingest or operator-gated console actions; orchestrator loop moved to a separate repo or re-scoped as a client-side tool under tools/ with zero server-side state)\r\n2. Given the committed ADR, when it is read, then it records a single choice for the orchestrator-loop placement, the disposition of server/orchestrator/model_selector.py, and the candidate-layer principle for non-commercially-licensed external data\r\n3. Given the owner-approved ADR, when the CLAUDE.md amendment lands, then CLAUDE.md states the three boundary rules as binding agent constraints and the ADR records the chosen CLAUDE.md anchor (new hard-constraints section or extended section 4)\r\n\r\n## Depends on\r\n\r\n- (none)",
+  "brief_source": "roadmap plans/data-plane-governance/roadmap.yaml",
+  "research_mode": "standard",
+  "oss_scout_requested": false,
+  "allow_large_diff": false,
+  "research_briefs": [
+    ".claude/notes/milestones/data-plane-governance-m1/research/brief-1.md",
+    ".claude/notes/milestones/data-plane-governance-m1/research/brief-2.md"
+  ],
+  "research_synthesis": ".claude/notes/milestones/data-plane-governance-m1/research/synthesis.md",
+  "implementation_path": "inline",
+  "implementation_plan": "ADR (Accepted, owner decisions via interactive checkpoint) + CLAUDE.md \u00a74.8 additive amendment; hunk-scoped staging around pre-existing \u00a77 hunk; docs-only diff",
+  "implementation_base": "cfb7c270ff7d3fabccdcde65bd6a0f5af2dcf2cb",
+  "implementation_commit_range": "cfb7c270ff7d3fabccdcde65bd6a0f5af2dcf2cb..90a10492558d65cdbb3f2d58cd4c9747c9718329",
+  "implementation_commits": [
+    "90a10492558d65cdbb3f2d58cd4c9747c9718329"
+  ],
+  "implementation_branch": null,
+  "external_writes_required": [
+    "git push origin main"
+  ],
+  "critique_path": ".claude/notes/milestones/data-plane-governance-m1/critique/dedup.md",
+  "critics_run": [
+    "milestone-adversary-critic",
+    "milestone-arxmcp-critic"
+  ],
+  "critique_files": [
+    "critique/adversary.md",
+    "critique/arxmcp.md"
+  ],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "medium": 5,
+    "low": 9
+  },
+  "findings_register": ".claude/notes/milestones/data-plane-governance-m1/findings.json",
+  "rectification_commit": "910e93906b49876b2df150206e0af31c68d960ee",
+  "fixed_findings": [
+    "L1",
+    "L2",
+    "L3",
+    "M1",
+    "M2",
+    "M3",
+    "M4",
+    "M5"
+  ],
+  "deferred_findings": [
+    "L4",
+    "L5",
+    "L6",
+    "L7",
+    "L8",
+    "L9"
+  ],
+  "invalidated_findings": [],
+  "regression_tests_added": [],
+  "external_writes_authorized": [
+    "git push origin main"
+  ],
+  "external_writes_completed": [
+    "git push origin main"
+  ]
+}

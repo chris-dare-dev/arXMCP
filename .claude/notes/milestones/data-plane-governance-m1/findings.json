@@ -1,0 +1,290 @@
+{
+  "milestone_id": "data-plane-governance-m1",
+  "critique_format_version": "1.0",
+  "critique_files": [
+    "dedup.md"
+  ],
+  "generated_at": "2026-07-12T06:10:06Z",
+  "findings": {
+    "M1": {
+      "id": "M1",
+      "severity": "MEDIUM",
+      "title": "CLAUDE.md \u00a74.8 scope drops the ADR's shipped-distribution clause",
+      "file": "CLAUDE.md",
+      "line": 255,
+      "anchor": "(data-plane-governance-m1, Accepted 2026",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Doc drift",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "CLAUDE.md 4.8 scope sentence now reads 'the served process, the server/ package, and the shipped distribution', matching ADR Decision 1; rect 910e939",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-07-12T06:10:04Z",
+          "resolution": "CLAUDE.md 4.8 scope sentence now reads 'the served process, the server/ package, and the shipped distribution', matching ADR Decision 1; rect 910e939"
+        }
+      ]
+    },
+    "M2": {
+      "id": "M2",
+      "severity": "MEDIUM",
+      "title": "ADR misattributes a verbatim quote to the briefs README",
+      "file": ".claude/docs/adr-data-plane-boundary.md",
+      "line": 91,
+      "anchor": "briefs-README standing policy (\"agents",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Correctness (factual claims)",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "ADR Decision 2 quote reattributed to R0-data-plane-governance.md:16 (grep of the cited source now resolves) with 'restated as briefs-README standing policy 1'; rect 910e939",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-07-12T06:10:04Z",
+          "resolution": "ADR Decision 2 quote reattributed to R0-data-plane-governance.md:16 (grep of the cited source now resolves) with 'restated as briefs-README standing policy 1'; rect 910e939"
+        }
+      ]
+    },
+    "M3": {
+      "id": "M3",
+      "severity": "MEDIUM",
+      "title": "Commit trailer diverges from \u00a74.3's mandated literal string",
+      "file": "CLAUDE.md",
+      "line": 157,
+      "anchor": "Co-Authored-By: Claude Opus 4.7 (1M co",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Commit hygiene",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "CLAUDE.md 4.3 co-author-trailer mandate made model-agnostic in bullet and heredoc example (Co-Authored-By: authoring Claude model); no signed commit rewritten; rect 910e939",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-07-12T06:10:04Z",
+          "resolution": "CLAUDE.md 4.3 co-author-trailer mandate made model-agnostic in bullet and heredoc example (Co-Authored-By: authoring Claude model); no signed commit rewritten; rect 910e939"
+        }
+      ]
+    },
+    "L1": {
+      "id": "L1",
+      "severity": "LOW",
+      "title": "ADR says R0 \"explicitly defers enforcement tooling\"; R0 never does",
+      "file": ".claude/docs/adr-data-plane-boundary.md",
+      "line": 88,
+      "anchor": "(R0 explicitly defers enforcement tool",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Correctness (factual claims)",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "ADR:88 false adverb removed: now 'R0 scopes this track to documents + git state, deferring enforcement tooling', matching R0's actual wont; fixed with M2 (cross-critic cluster L1+M2+M4); rect 910e939",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-07-12T06:10:04Z",
+          "resolution": "ADR:88 false adverb removed: now 'R0 scopes this track to documents + git state, deferring enforcement tooling', matching R0's actual wont; fixed with M2 (cross-critic cluster L1+M2+M4); rect 910e939"
+        }
+      ]
+    },
+    "L2": {
+      "id": "L2",
+      "severity": "LOW",
+      "title": "Guard-test cite implies pyproject coverage that no test provides",
+      "file": "CLAUDE.md",
+      "line": 262,
+      "anchor": "rule; guard test: `tests/test_langfu",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Doc drift",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "CLAUDE.md 4.8 rule 1 guard-test cite scoped to the import half; pyproject half marked convention-only, enforcement deferred per the ADR; fixed with M1; rect 910e939",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-07-12T06:10:05Z",
+          "resolution": "CLAUDE.md 4.8 rule 1 guard-test cite scoped to the import half; pyproject half marked convention-only, enforcement deferred per the ADR; fixed with M1; rect 910e939"
+        }
+      ]
+    },
+    "L3": {
+      "id": "L3",
+      "severity": "LOW",
+      "title": "Binding \u00a74.8 hardcodes a rot-prone spend_constants.py line pin",
+      "file": "CLAUDE.md",
+      "line": 276,
+      "anchor": "the `spend_constants.py:51` runtime",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Doc drift",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "CLAUDE.md 4.8 rot-prone spend_constants.py:51 line pin dropped (module name kept; the dated ADR record retains :51); fixed with M1; rect 910e939",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-07-12T06:10:05Z",
+          "resolution": "CLAUDE.md 4.8 rot-prone spend_constants.py:51 line pin dropped (module name kept; the dated ADR record retains :51); fixed with M1; rect 910e939"
+        }
+      ]
+    },
+    "L4": {
+      "id": "L4",
+      "severity": "LOW",
+      "title": "Stale \"7-tool surface\" now contradicts the ADR's 8-tool census",
+      "file": "CLAUDE.md",
+      "line": 82,
+      "anchor": "| E06 \u2014 MCP server | \u2705 SHIPPED | FastAPI",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Doc drift",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "LOW deferred by policy; M5 fixed the present-tense claim; remaining historical 7-tool mentions go to the pending paper-metadata-m2 docs-sync",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-07-12T06:10:05Z",
+          "resolution": "LOW deferred by policy; M5 fixed the present-tense claim; remaining historical 7-tool mentions go to the pending paper-metadata-m2 docs-sync"
+        }
+      ]
+    },
+    "L5": {
+      "id": "L5",
+      "severity": "LOW",
+      "title": "feat subject omits the milestone id the \u00a74.3 template carries",
+      "file": null,
+      "line": null,
+      "anchor": "feat(repo): data-plane boundary ADR + CLAUDE.md 4.8",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Commit hygiene",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "LOW deferred; record-only (no retroactive amend of the signed feat commit); optional 4.3 overflow note left to owner docs-sync",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-07-12T06:10:05Z",
+          "resolution": "LOW deferred; record-only (no retroactive amend of the signed feat commit); optional 4.3 overflow note left to owner docs-sync"
+        }
+      ]
+    },
+    "M4": {
+      "id": "M4",
+      "severity": "MEDIUM",
+      "title": "ADR misattributes its standing-policy quotation to the briefs README",
+      "file": ".claude/docs/adr-data-plane-boundary.md",
+      "line": 91,
+      "anchor": "briefs-README standing policy (\"agents",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "tier sequencing",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "same edit as M2 (dedup cluster) plus the Decision-3 qualification: the 'model policy' living outside is dispatch-time policy while the inert model_selector lookup table stays in-repo; rect 910e939",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-07-12T06:10:04Z",
+          "resolution": "same edit as M2 (dedup cluster) plus the Decision-3 qualification: the 'model policy' living outside is dispatch-time policy while the inert model_selector lookup table stays in-repo; rect 910e939"
+        }
+      ]
+    },
+    "M5": {
+      "id": "M5",
+      "severity": "MEDIUM",
+      "title": "CLAUDE.md claims a 7-tool surface; the linked ADR records 8",
+      "file": "CLAUDE.md",
+      "line": 415,
+      "anchor": "- **`tools/list`** returns 7 frozen tool",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "MCP spec compliance",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "CLAUDE.md 6 tools/list count corrected 7 to 8 (re-verified live: ALL_TOOLS registers exactly 8 tools incl. lean_verify); rect 910e939",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-07-12T06:10:04Z",
+          "resolution": "CLAUDE.md 6 tools/list count corrected 7 to 8 (re-verified live: ALL_TOOLS registers exactly 8 tools incl. lean_verify); rect 910e939"
+        }
+      ]
+    },
+    "L6": {
+      "id": "L6",
+      "severity": "LOW",
+      "title": "CLAUDE.md 'make ingest is a stub' contradicts ADR write inventory",
+      "file": "CLAUDE.md",
+      "line": 462,
+      "anchor": "- **`make ingest`** is a stub that exits",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "tier sequencing",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "LOW deferred; the make-ingest bullet sits directly beside the uncommitted paper-metadata-m2 hunk owned by another session - editing there would entangle staging with work not this milestone's to commit",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-07-12T06:10:05Z",
+          "resolution": "LOW deferred; the make-ingest bullet sits directly beside the uncommitted paper-metadata-m2 hunk owned by another session - editing there would entangle staging with work not this milestone's to commit"
+        }
+      ]
+    },
+    "L7": {
+      "id": "L7",
+      "severity": "LOW",
+      "title": "Rule 2 blesses /ui/ writes without noting the open security audit",
+      "file": ".claude/docs/adr-data-plane-boundary.md",
+      "line": 68,
+      "anchor": "2. **Writes only via offline ingest or o",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "security",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "LOW deferred; /ui/ security-audit caveat in ADR rule 2 is a normative threat-model addition better owned by m3 or the #9 audit follow-up",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-07-12T06:10:05Z",
+          "resolution": "LOW deferred; /ui/ security-audit caveat in ADR rule 2 is a normative threat-model addition better owned by m3 or the #9 audit follow-up"
+        }
+      ]
+    },
+    "L8": {
+      "id": "L8",
+      "severity": "LOW",
+      "title": "'Runs the ingest task in the server process' overstates locality",
+      "file": ".claude/docs/adr-data-plane-boundary.md",
+      "line": 50,
+      "anchor": "`/ui/api` (`server/routes/notebooks.",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "security",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "LOW deferred; context-bullet precision only - rule 2's normative wording is accurate per the critic; reword ADR:50-52 in a docs-sync",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-07-12T06:10:06Z",
+          "resolution": "LOW deferred; context-bullet precision only - rule 2's normative wording is accurate per the critic; reword ADR:50-52 in a docs-sync"
+        }
+      ]
+    },
+    "L9": {
+      "id": "L9",
+      "severity": "LOW",
+      "title": "Mission quotation cited to a note that does not contain it",
+      "file": ".claude/docs/adr-data-plane-boundary.md",
+      "line": 17,
+      "anchor": "- arXMCP's mission is to be the **substr",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "MCP spec compliance",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "LOW deferred; mission-quote see-also refinement at ADR:17 goes to the docs-sync",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-07-12T06:10:06Z",
+          "resolution": "LOW deferred; mission-quote see-also refinement at ADR:17 goes to the docs-sync"
+        }
+      ]
+    }
+  }
+}
