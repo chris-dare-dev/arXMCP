@@ -1,0 +1,120 @@
+{
+  "id": "ingest-robustness-m1",
+  "created_at": "2026-07-12T18:37:32Z",
+  "updated_at": "2026-07-12T23:04:58Z",
+  "phase": "complete",
+  "phase_history": [
+    {
+      "phase": "init",
+      "at": "2026-07-12T18:37:32Z"
+    },
+    {
+      "phase": "research-running",
+      "at": "2026-07-12T18:39:45Z"
+    },
+    {
+      "phase": "research-complete",
+      "at": "2026-07-12T18:53:26Z"
+    },
+    {
+      "phase": "implement-running",
+      "at": "2026-07-12T18:54:24Z"
+    },
+    {
+      "phase": "implement-complete",
+      "at": "2026-07-12T19:23:29Z"
+    },
+    {
+      "phase": "critique-running",
+      "at": "2026-07-12T19:24:50Z"
+    },
+    {
+      "phase": "critique-complete",
+      "at": "2026-07-12T19:36:28Z"
+    },
+    {
+      "phase": "rectify-running",
+      "at": "2026-07-12T19:36:58Z"
+    },
+    {
+      "phase": "complete",
+      "at": "2026-07-12T23:04:58Z"
+    }
+  ],
+  "milestone_brief": "# ingest-robustness-m1 \u2014 section-less chunker fallback + shipped MinerU PDF Stage-1 CLI + standing MinerU wiring + ar5iv structure gate\n\n## Context\nTwo 2026-Q2 Bridgeland-stability target papers exposed gaps in the ingest lane.\n\n- **hep-th/0002037** (Douglas\u2013Fiol\u2013R\u00f6melsberger, \"Stability and BPS branes\", 2000) fails ingest with `chunker_returned_empty` on 6 consecutive runs. Its ar5iv/LaTeXML render at `var/arxmcp/corpus/parsed/hep-th/0002037/index.html` (also cached at `var/arxmcp/cache/ar5iv/hep-th/0002037.html`) is COMPLETE \u2014 50 KB text, 93 `ltx_para`, 115 `ltx_p`, 321 `<math>` \u2014 but has ZERO `ltx_section`/`ltx_theorem` containers (title renders \"Untitled Document\"): LaTeXML failed the sectioning/title pass on the 2000-era format. Both chunker passes in `ingest/chunker.py` find nothing \u2014 `_extract_chunks_from_container` (~:554, keyed on `ltx_theorem_*`/`ltx_proof`) and `_extract_section_chunks` (:740/:768, keyed on `_SECTION_DIV_CLASSES` at :154, where `ltx_para` is NOT `ltx_paragraph`). So `all_chunks=[]` at chunker.py:901 and `ingest/bulk_ingest.py:305` classifies `chunker_returned_empty`, discarding 50 KB of real content. This silently drops ANY section-less render that passes the ar5iv `<math>` gate.\n\n- **2602.24016** (Pertusi overview) is PDF-only (no usable ar5iv/arxiv.org HTML: ar5iv render is math-less, arxiv.org/html 404). It was ingested via MinerU into the `bridgeland-stability-pdfs` notebook using GITIGNORED ad-hoc drivers (`var/phase2_textbook_driver.py`, `var/parse_pdfs.py`). There is NO shipped CLI for the MinerU Stage-1 (MinerU parse + LaTeXML render); operators rely on throwaway `var/` scripts. MinerU v3.2.3 IS installed at `C:/Users/cedar/venvs/mineru/Scripts/mineru.exe` but is unwired: `ARXMCP_MINERU_BIN` is unset and mineru is not on PATH, so `ingest/textbook_parser.py:_resolve_mineru_binary` (:181) cannot find it.\n\n## Acceptance criteria\n1. **Chunker section-less fallback.** When a parsed render has body content under `ltx_document` (`ltx_para`/`ltx_p`) but yields zero chunks from BOTH existing passes (no `ltx_section`-family, no `ltx_theorem_*`/`ltx_proof`), emit prose chunks from the top-level content blocks. Same content-addressable, deterministic `chunk_id` scheme (preamble+body sha), token-capped to `STMT_MAX_TOKENS`, deduped by the existing rule. `chunk_paper('hep-th/0002037')` on the on-disk HTML MUST yield >=1 chunk. MUST NOT change chunk output for any already-working sectioned paper (regression-guard against a fixtured sectioned paper).\n2. **Shipped MinerU Stage-1 CLI.** A supported `tools/` CLI (e.g. `tools/notebook_pdf_parse.py <slug> --paper-id <id>`) that runs `run_mineru_sandboxed` + `render_mineru_to_html` to produce `parsed/<flat>/index.html` for a textbook-kind notebook, replacing the gitignored `var/` drivers. Unit-tested with a MOCKED mineru binary (no real 30-min GPU run in tests). Idempotent (skip if index.html exists).\n3. **Standing ARXMCP_MINERU_BIN wiring.** Make MinerU discoverable without a per-shell export: persist the binary path via the `operator_settings` store (mirror the contact-email pattern in `tools/_notebook_common.py:resolve_contact_email` + `server/operator_settings.py`) and/or a documented `make init MINERU_BIN=...`; `_resolve_mineru_binary` consults it (precedence: explicit arg > ARXMCP_MINERU_BIN env > operator_settings > shutil.which > raise). Document in `docs/install.md`.\n4. **ar5iv structure gate.** After an ar5iv render passes the `<math>` presence check but is structurally unchunkable, emit a DISTINCT, categorized signal (not a silent generic `chunker_returned_empty`) so operators can route to the PDF path. At minimum bulk_ingest distinguishes \"render structurally unchunkable / no_sections\" from a generic empty, and the ar5iv fetch logs a `no_sections` warning. (Once the fallback in AC1 lands, hep-th/0002037 is no longer unchunkable \u2014 the gate is for the residual truly-empty case.)\n5. **Tests + gate.** Tests cover each AC; `ruff check .` clean; the repo's pytest gate green ACCOUNTING FOR the ~29 pre-existing Windows-platform failures documented in CLAUDE.md \u00a73/\u00a78 \u2014 the milestone must ADD no new failures (establish the baseline first).\n\n## Out of scope (operational; done AFTER code lands, against the live `var/` corpus in the main tree)\n- Re-ingesting hep-th/0002037 (chunker fallback recovers it from on-disk HTML; plus a MinerU PDF backup copy).\n- The 2602.24016 SQLite bookkeeping backfill (notebook_papers junction row + `tools/notebook_metadata_backfill.py`).\n\n## Affected files (starting points)\n`ingest/chunker.py`, `ingest/bulk_ingest.py`, `ingest/ar5iv_fetch.py`, `ingest/textbook_parser.py`, new `tools/*.py` CLI, `server/operator_settings.py`, `tools/_notebook_common.py`, `docs/install.md`, `docs/usage.md`, `tests/`.",
+  "brief_source": "inline",
+  "research_mode": "standard",
+  "oss_scout_requested": false,
+  "allow_large_diff": false,
+  "research_briefs": [
+    ".claude/notes/milestones/ingest-robustness-m1/research/brief-1.md",
+    ".claude/notes/milestones/ingest-robustness-m1/research/brief-2.md"
+  ],
+  "research_synthesis": ".claude/notes/milestones/ingest-robustness-m1/research/synthesis.md",
+  "implementation_path": "inline",
+  "implementation_plan": "AC1 chunker fallback + fixture; AC4 gate signal; AC3 MinerU wiring; AC2 CLI; docs. Per-AC commits. Inline (delegation non-viable: no registered milestone-implementer + delegated worktree lacks venv). Gate under main venv python + PYTHONPATH.",
+  "implementation_base": "23b862835e3f7589521f5ceb49cac61a1c557f10",
+  "implementation_commit_range": "23b862835e3f7589521f5ceb49cac61a1c557f10..b2352c05555b87af6dbcc451d04f4450a2d3dca8",
+  "implementation_commits": [
+    "b2352c05555b87af6dbcc451d04f4450a2d3dca8",
+    "bbfb955a0fdb3f91887f78c431806767831b749c",
+    "a7f697220feacfbaba0f9d1a435ac3a31dee8602",
+    "f31916e373087c24a43d6439b3c7e718a3795e98",
+    "386490ebbefe380f28ed6fa0b7ce267cd59b5f42",
+    "f49bd05fd19a1dea493175bdc0dc9b53d3a3ecf7"
+  ],
+  "implementation_branch": null,
+  "external_writes_required": [
+    "git merge ingest-robustness-m1 -> main (LOCAL only; end-of-milestone, after explicit user authorization)"
+  ],
+  "critique_path": ".claude/notes/milestones/ingest-robustness-m1/critique/dedup.md",
+  "critics_run": [
+    "milestone-adversary-critic",
+    "milestone-arxmcp-critic",
+    "milestone-infra-safety-critic"
+  ],
+  "critique_files": [
+    "critique/adversary.md",
+    "critique/arxmcp.md",
+    "critique/infra.md"
+  ],
+  "critique_finding_counts": {
+    "critical": 1,
+    "high": 2,
+    "medium": 5,
+    "low": 4
+  },
+  "findings_register": ".claude/notes/milestones/ingest-robustness-m1/findings.json",
+  "rectification_commit": "92ab09529cb3578a48ec99d99bb7efdb37f91691",
+  "fixed_findings": [
+    "C1",
+    "H1",
+    "H2",
+    "L1",
+    "M1",
+    "M2",
+    "M4",
+    "M5"
+  ],
+  "deferred_findings": [
+    "L2",
+    "L3",
+    "L4",
+    "M3"
+  ],
+  "invalidated_findings": [],
+  "regression_tests_added": [
+    "tests/test_server_startup.py::test_mineru_env_vars_rejected",
+    "tests/test_notebook_pdf_parse.py::test_timeout_is_clean_per_paper_failure",
+    "tests/test_chunker.py::TestSectionLessFallback::test_fallback_chunk_ids_are_deterministic",
+    "tests/test_bulk_ingest.py::TestDiagnoseEmptyRender::test_chapter_render_is_structured",
+    "tests/test_bulk_ingest.py::TestDiagnoseEmptyRender::test_ac4_signal_set_is_single_source",
+    "tests/tools/test_notebook_scripts.py::test_make_init_recipe_expands"
+  ],
+  "external_writes_authorized": [
+    "git merge ingest-robustness-m1 -> main (LOCAL only; end-of-milestone, after explicit user authorization)"
+  ],
+  "external_writes_completed": [
+    "git merge ingest-robustness-m1 -> main (LOCAL only; end-of-milestone, after explicit user authorization)"
+  ]
+}

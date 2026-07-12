@@ -1,0 +1,250 @@
+{
+  "milestone_id": "ingest-robustness-m1",
+  "critique_format_version": "1.0",
+  "critique_files": [
+    "dedup.md"
+  ],
+  "generated_at": "2026-07-12T19:47:52Z",
+  "findings": {
+    "H1": {
+      "id": "H1",
+      "severity": "HIGH",
+      "title": "Milestone diff exceeds the 400-LOC review-quality threshold",
+      "file": null,
+      "line": null,
+      "anchor": "git diff 23b8628..b2352c0",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Diff size",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "acknowledged; diff partitioned into 6 per-AC commits (~477 LOC prod, rest tests/docs); no code change for a committed diff",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-07-12T19:47:52Z",
+          "resolution": "acknowledged; diff partitioned into 6 per-AC commits (~477 LOC prod, rest tests/docs); no code change for a committed diff"
+        }
+      ]
+    },
+    "M1": {
+      "id": "M1",
+      "severity": "MEDIUM",
+      "title": "New ingest-env registrations in server/main.py have no covering test",
+      "file": "server/main.py",
+      "line": 310,
+      "anchor": "\"ARXMCP_MINERU_BIN\": (",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Test discipline",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "fixed in rect 92ab095 with regression guard",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-07-12T19:47:52Z",
+          "resolution": "fixed in rect 92ab095 with regression guard"
+        }
+      ]
+    },
+    "L1": {
+      "id": "L1",
+      "severity": "LOW",
+      "title": "AC4 ar5iv WARN and bulk_ingest diagnostic use divergent signal sets",
+      "file": "ingest/ar5iv_fetch.py",
+      "line": 306,
+      "anchor": "if not any(sig in body for sig in (\"l",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Correctness (consistency)",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "fixed in rect 92ab095 with regression guard",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-07-12T19:47:52Z",
+          "resolution": "fixed in rect 92ab095 with regression guard"
+        }
+      ]
+    },
+    "L2": {
+      "id": "L2",
+      "severity": "LOW",
+      "title": "Broad except Exception in the operator-settings tier can mask a store bug",
+      "file": "ingest/textbook_parser.py",
+      "line": 194,
+      "anchor": "except Exception:  # noqa: BLE001 \u2014 deg",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Correctness (error handling)",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "M3 documented limitation (target math is inline, captured); L2 deliberate decoupling+tested; L3 no history rewrite; L4 private-import, low",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-07-12T19:47:52Z",
+          "resolution": "M3 documented limitation (target math is inline, captured); L2 deliberate decoupling+tested; L3 no history rewrite; L4 private-import, low"
+        }
+      ]
+    },
+    "L3": {
+      "id": "L3",
+      "severity": "LOW",
+      "title": "Non-imperative commit subject \"shipped \u2026\"",
+      "file": null,
+      "line": null,
+      "anchor": "a7f6972 feat(tools): shipped MinerU Stage-1",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Commit hygiene",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "M3 documented limitation (target math is inline, captured); L2 deliberate decoupling+tested; L3 no history rewrite; L4 private-import, low",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-07-12T19:47:52Z",
+          "resolution": "M3 documented limitation (target math is inline, captured); L2 deliberate decoupling+tested; L3 no history rewrite; L4 private-import, low"
+        }
+      ]
+    },
+    "H2": {
+      "id": "H2",
+      "severity": "HIGH",
+      "title": "MinerU timeout aborts the whole PDF-parse batch",
+      "file": "tools/notebook_pdf_parse.py",
+      "line": 92,
+      "anchor": "except (RuntimeError, OSError) as exc:",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "security threat-model coverage (resource-cap / MinerU-sandbox timeout handling)",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "fixed in rect 92ab095 with regression guard",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-07-12T19:47:52Z",
+          "resolution": "fixed in rect 92ab095 with regression guard"
+        }
+      ]
+    },
+    "M2": {
+      "id": "M2",
+      "severity": "MEDIUM",
+      "title": "AC4 structure-signal lists drift across three call sites",
+      "file": "ingest/ar5iv_fetch.py",
+      "line": 306,
+      "anchor": "if not any(sig in body for sig in (\"ltx",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "open scan (AC4 signal fidelity / tier drift)",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "fixed in rect 92ab095 with regression guard",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-07-12T19:47:52Z",
+          "resolution": "fixed in rect 92ab095 with regression guard"
+        }
+      ]
+    },
+    "M3": {
+      "id": "M3",
+      "severity": "MEDIUM",
+      "title": "Fallback drops top-level display math and sub-80-char equation blocks",
+      "file": "ingest/chunker.py",
+      "line": 873,
+      "anchor": "for b in doc.find_all(\"div\", class_=\"lt",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "math fidelity",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "M3 documented limitation (target math is inline, captured); L2 deliberate decoupling+tested; L3 no history rewrite; L4 private-import, low",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-07-12T19:47:52Z",
+          "resolution": "M3 documented limitation (target math is inline, captured); L2 deliberate decoupling+tested; L3 no history rewrite; L4 private-import, low"
+        }
+      ]
+    },
+    "M4": {
+      "id": "M4",
+      "severity": "MEDIUM",
+      "title": "No byte-stability/determinism guard pins the fallback's chunk_ids",
+      "file": "tests/test_chunker.py",
+      "line": 1629,
+      "anchor": "def test_section_less_render_recovers_prose",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "cache byte-stability / test surface",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "fixed in rect 92ab095 with regression guard",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-07-12T19:47:52Z",
+          "resolution": "fixed in rect 92ab095 with regression guard"
+        }
+      ]
+    },
+    "L4": {
+      "id": "L4",
+      "severity": "LOW",
+      "title": "Cross-module import of a private helper",
+      "file": "tools/notebook_pdf_parse.py",
+      "line": 47,
+      "anchor": "from ingest.textbook_renderer import _flat",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "open scan",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "M3 documented limitation (target math is inline, captured); L2 deliberate decoupling+tested; L3 no history rewrite; L4 private-import, low",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-07-12T19:47:52Z",
+          "resolution": "M3 documented limitation (target math is inline, captured); L2 deliberate decoupling+tested; L3 no history rewrite; L4 private-import, low"
+        }
+      ]
+    },
+    "C1": {
+      "id": "C1",
+      "severity": "CRITICAL",
+      "title": "`make init` fatally broken: `$(if ...)` expanded inside a recipe comment",
+      "file": "Makefile",
+      "line": 479,
+      "anchor": "@# $(if $(strip ...)) emits each flag onl",
+      "source_critic": "milestone-infra-safety-critic",
+      "source_axis": "Makefile / build script discipline",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "fixed in rect 92ab095 with regression guard",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-07-12T19:47:52Z",
+          "resolution": "fixed in rect 92ab095 with regression guard"
+        }
+      ]
+    },
+    "M5": {
+      "id": "M5",
+      "severity": "MEDIUM",
+      "title": "New tests never dry-run the `make init` recipe (Make wrapper unguarded)",
+      "file": "tests/tools/test_notebook_scripts.py",
+      "line": 226,
+      "anchor": "def test_init_persists_mineru_bin(notebooks",
+      "source_critic": "milestone-infra-safety-critic",
+      "source_axis": "Makefile / build script discipline",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "fixed in rect 92ab095 with regression guard",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-07-12T19:47:52Z",
+          "resolution": "fixed in rect 92ab095 with regression guard"
+        }
+      ]
+    }
+  }
+}
