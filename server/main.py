@@ -303,6 +303,23 @@ _KNOWN_INGEST_ENV_VARS: dict[str, str] = {
         "for math-dense PDFs. The server never invokes LaTeXML. "
         "Unset it for the server."
     ),
+    # ingest-robustness-m1 AC3: MinerU is a textbook/PDF ingest-side concern
+    # (ingest/textbook_parser.py). The server never invokes MinerU. Prefer
+    # persisting the binary path via `make init MINERU_BIN=…` (operator_settings)
+    # over exporting the env var, so `make up` never trips the unknown-var scan.
+    "ARXMCP_MINERU_BIN": (
+        "is NOT a server config var; it is read at parse time by the "
+        "textbook/PDF ingest path (ingest/textbook_parser.py "
+        "_resolve_mineru_binary) to locate the mineru CLI. Prefer persisting "
+        "it via `make init MINERU_BIN=<abs path>` (operator_settings) so no "
+        "export is needed. Unset it for the server."
+    ),
+    "ARXMCP_MINERU_TIMEOUT_S": (
+        "is NOT a server config var; it is read at import by the "
+        "textbook/PDF ingest path (ingest/textbook_parser.py) to cap the "
+        "MinerU parse wall-clock. The server never invokes MinerU. "
+        "Unset it for the server."
+    ),
 }
 
 

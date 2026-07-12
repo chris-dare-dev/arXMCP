@@ -364,6 +364,21 @@ def get_contact_email(
     return get_setting("contact_email", db_path)
 
 
+def get_mineru_bin(
+    db_path: Path = DEFAULT_DB_PATH,
+) -> str | None:
+    """Convenience reader for the persisted ``mineru_bin`` path.
+
+    Importable directly by ``ingest/textbook_parser.py`` (mirrors
+    :func:`get_contact_email`) so the MinerU Stage-1 parser can resolve its
+    binary without an ``ARXMCP_MINERU_BIN`` export on every shell — and
+    without the ``ingest/ → tools/`` cross-package import direction. Persisted
+    via ``make init MINERU_BIN=…`` / ``tools/notebook_init.py --mineru-bin``
+    (ingest-robustness-m1 AC3). Returns ``None`` when unset (or the store
+    does not exist yet)."""
+    return get_setting("mineru_bin", db_path)
+
+
 # ---------------------------------------------------------------------------
 # Asynchronous class API (for server-context callers)
 # ---------------------------------------------------------------------------

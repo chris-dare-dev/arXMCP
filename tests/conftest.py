@@ -328,8 +328,17 @@ def _patched_operator_settings_db(tmp_path, monkeypatch):
         return
     fake = tmp_path / "cache" / "notebooks.db"
     monkeypatch.setattr(ops, "DEFAULT_DB_PATH", fake)
-    # Each of these four takes db_path as its sole default arg
+    # Each of these takes db_path as its sole default arg
     # (__defaults__ == (DEFAULT_DB_PATH,)); re-point it at the tmp file.
-    for _name in ("get_setting", "set_setting", "delete_setting", "get_contact_email"):
+    # ingest-robustness-m1 AC3 added get_mineru_bin (read by
+    # ingest/textbook_parser._resolve_mineru_binary) — it must be isolated too,
+    # or a machine with a persisted mineru_bin leaks it into the resolver tests.
+    for _name in (
+        "get_setting",
+        "set_setting",
+        "delete_setting",
+        "get_contact_email",
+        "get_mineru_bin",
+    ):
         monkeypatch.setattr(getattr(ops, _name), "__defaults__", (fake,))
     yield

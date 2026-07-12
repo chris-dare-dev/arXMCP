@@ -223,6 +223,23 @@ def test_init_main_returns_1_on_bad_slug(
     assert "error:" in capsys.readouterr().err
 
 
+def test_init_persists_mineru_bin(notebooks_base: Path, tmp_path: Path) -> None:
+    # ingest-robustness-m1 AC3: --mineru-bin persists to operator_settings so
+    # the MinerU resolver finds it without an ARXMCP_MINERU_BIN export.
+    from server.operator_settings import get_mineru_bin
+
+    fake_bin = tmp_path / "mineru"
+    fake_bin.write_text("#!/bin/sh\n")
+    rc = notebook_init.run("my-notebook", mineru_bin=str(fake_bin), register=False)
+    assert rc == 0
+    assert get_mineru_bin() == str(fake_bin)
+
+
+def test_init_rejects_missing_mineru_bin(notebooks_base: Path) -> None:
+    with pytest.raises(NotebookError, match="does not point to an existing file"):
+        notebook_init.run("my-notebook", mineru_bin="/gone/mineru", register=False)
+
+
 # ---------------------------------------------------------------------------
 # notebook_fetch.py (AC #2, FM-4 rate-limit, FM-5 malformed)
 # ---------------------------------------------------------------------------

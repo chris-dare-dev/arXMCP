@@ -178,18 +178,49 @@ else:
 # ---------------------------------------------------------------------------
 
 
-def _resolve_mineru_binary() -> str:
+def _mineru_bin_from_operator_settings() -> str | None:
+    """Read the persisted ``mineru_bin`` path, or ``None`` if unavailable.
+
+    Local import + broad degrade (ingest-robustness-m1 AC3): ``ingest`` must
+    not hard-depend on the ``server`` package at import time, and a missing
+    ``notebooks.db`` (or ANY read error) must fall through to the next
+    resolution tier rather than raise — a parse on a box that never ran
+    ``make init`` still resolves via ``shutil.which`` below.
+    """
+    try:
+        from server.operator_settings import get_mineru_bin  # noqa: PLC0415
+
+        value = get_mineru_bin()
+    except Exception:  # noqa: BLE001 — degrade to the next tier on any failure
+        return None
+    return (value or "").strip() or None
+
+
+def _resolve_mineru_binary(explicit: str | None = None) -> str:
     """Return absolute path to the ``mineru`` CLI binary.
 
-    Resolution order (per research-synthesis §Decision 1):
-    1. ``ARXMCP_MINERU_BIN`` env var (absolute path; verified to exist).
-    2. ``shutil.which("mineru")`` — typically empty unless mineru was
+    Resolution order (ingest-robustness-m1 AC3 — extends the original
+    env→which→raise chain with a persisted operator-settings tier so an
+    operator no longer needs an ``ARXMCP_MINERU_BIN`` export on every shell):
+
+    1. ``explicit`` argument (absolute path; verified to exist).
+    2. ``ARXMCP_MINERU_BIN`` env var (absolute path; verified to exist).
+    3. persisted ``mineru_bin`` operator setting (``make init MINERU_BIN=…``;
+       verified to exist).
+    4. ``shutil.which("mineru")`` — typically empty unless mineru was
        pip-installed into the project venv (B1 used a separate venv).
-    3. RuntimeError with a clear install message.
+    5. RuntimeError with a clear install message.
 
     Raised at call time, not module load — module imports must work
     without MinerU installed (unit tests mock the subprocess).
     """
+    if explicit:
+        if not Path(explicit).is_file():
+            raise RuntimeError(
+                f"mineru binary path {explicit!r} (explicit override) does "
+                f"not point to a file."
+            )
+        return explicit
     env_path = os.environ.get("ARXMCP_MINERU_BIN", "").strip()
     if env_path:
         if not Path(env_path).is_file():
@@ -199,14 +230,24 @@ def _resolve_mineru_binary() -> str:
                 f"of the mineru binary (e.g. ~/venvs/mineru/bin/mineru)."
             )
         return env_path
+    settings_path = _mineru_bin_from_operator_settings()
+    if settings_path:
+        if not Path(settings_path).is_file():
+            raise RuntimeError(
+                f"persisted mineru_bin={settings_path!r} (operator_settings) "
+                f"does not point to a file. Re-run `make init "
+                f"MINERU_BIN=<abs path>` to update it."
+            )
+        return settings_path
     which_path = shutil.which("mineru")
     if which_path:
         return which_path
     raise RuntimeError(
         "mineru binary not found. Install MinerU (typically into a "
         "dedicated venv: `uv venv ~/venvs/mineru && uv pip install "
-        "--python ~/venvs/mineru/bin/python 'mineru[pipeline,mlx]'`) "
-        "and set ARXMCP_MINERU_BIN to its absolute path, e.g. "
+        "--python ~/venvs/mineru/bin/python 'mineru[pipeline,mlx]'`) and "
+        "either persist it via `make init MINERU_BIN=<abs path>` or set "
+        "ARXMCP_MINERU_BIN to its absolute path, e.g. "
         "`export ARXMCP_MINERU_BIN=~/venvs/mineru/bin/mineru`."
     )
 

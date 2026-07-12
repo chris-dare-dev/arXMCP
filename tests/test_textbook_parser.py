@@ -145,6 +145,58 @@ class TestResolveMineruBinary:
         with patch.object(shutil, "which", return_value="/usr/bin/mineru"):
             assert _resolve_mineru_binary() == "/usr/bin/mineru"
 
+    # --- ingest-robustness-m1 AC3: explicit-arg + operator_settings tiers ---
+
+    def test_explicit_arg_wins(self, tmp_path: Path) -> None:
+        fake_bin = tmp_path / "mineru"
+        fake_bin.write_text("#!/bin/sh\n")
+        assert _resolve_mineru_binary(str(fake_bin)) == str(fake_bin)
+
+    def test_explicit_missing_path_raises(self) -> None:
+        with pytest.raises(RuntimeError, match="does not point to a file"):
+            _resolve_mineru_binary("/nonexistent/mineru")
+
+    def test_operator_settings_tier(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    ) -> None:
+        # env unset, which() empty, but a persisted mineru_bin exists (the
+        # conftest fixture isolates operator_settings into tmp) -> resolve it.
+        from server.operator_settings import set_setting
+
+        fake_bin = tmp_path / "mineru"
+        fake_bin.write_text("#!/bin/sh\n")
+        set_setting("mineru_bin", str(fake_bin))
+        monkeypatch.delenv("ARXMCP_MINERU_BIN", raising=False)
+        with patch.object(shutil, "which", return_value=None):
+            assert _resolve_mineru_binary() == str(fake_bin)
+
+    def test_operator_settings_stale_path_raises(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from server.operator_settings import set_setting
+
+        set_setting("mineru_bin", "/gone/mineru")
+        monkeypatch.delenv("ARXMCP_MINERU_BIN", raising=False)
+        with (
+            patch.object(shutil, "which", return_value=None),
+            pytest.raises(RuntimeError, match="operator_settings"),
+        ):
+            _resolve_mineru_binary()
+
+    def test_operator_settings_read_error_degrades(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # A raising settings reader must degrade to which(), never propagate.
+        monkeypatch.delenv("ARXMCP_MINERU_BIN", raising=False)
+        with (
+            patch(
+                "server.operator_settings.get_mineru_bin",
+                side_effect=RuntimeError("boom"),
+            ),
+            patch.object(shutil, "which", return_value="/usr/bin/mineru"),
+        ):
+            assert _resolve_mineru_binary() == "/usr/bin/mineru"
+
 
 class TestScrubSubprocessEnv:
     """Env scrubbing: whitelist + TMPDIR override."""
