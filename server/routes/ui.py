@@ -553,10 +553,14 @@ async def ui_paper_preview(
             detail=str(e),
         ) from e
     corpus_root = CORPUS_PARSED_DIR.resolve()
+    # Path.is_relative_to (== prefix OR strictly-under prefix) is the
+    # os-agnostic containment check — matching the idiom already used in
+    # server/routes/notebooks.py and ingest/preamble.py. The previous
+    # str(...).startswith(prefix + "/") form silently rejected every
+    # legitimate path on Windows, where os.sep is "\\", not "/".
     if not (
-        str(resolved).startswith(str(nb_ar5iv) + "/")
-        or str(resolved).startswith(str(corpus_root) + "/")
-        or resolved in (nb_ar5iv, corpus_root)
+        resolved.is_relative_to(nb_ar5iv)
+        or resolved.is_relative_to(corpus_root)
     ):
         # Generic 404 — never leak the resolved path or which prefix
         # check failed. F5 closure (m10 adversary critique): also
