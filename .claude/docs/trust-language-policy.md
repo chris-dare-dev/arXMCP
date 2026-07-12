@@ -25,7 +25,13 @@ another** — least of all fidelity from elaboration.
 ```python
 has_error = any(m["severity"] == "error" for m in messages)
 has_sorry = bool(sorry_goals)
-status = "error" if has_error else "sorry" if has_sorry else "ok"
+
+if has_error:
+    status = "error"
+elif has_sorry:
+    status = "sorry"
+else:
+    status = "ok"
 ```
 
 So **`status: "ok"` ⇔ (no error-severity messages) ∧ (no `sorry` goals)** — nothing else is
@@ -77,7 +83,7 @@ axes** to collapse eleven dimensions into one number (that would re-create the b
 | 3 | **assumption closure** | Is the ambient theory/category each symbol lives in represented? | The S_X-vs-S_Ku trap: a silently *retyped* symbol (no hypothesis dropped) is an open assumption-closure failure — the article's shipped error. |
 | 4 | **formal alignment (+ its review)** | Does a Lean target faithfully match the informal statement, and was that match human-reviewed? | R5's mandatory faithfulness review (reviewer + date). TheoremGraph's 22/24-typecheck vs 5/24-faithful proves this axis is **not** inferable from elaboration. |
 | 5 | **elaboration** | Does the Lean input elaborate without errors? | R3's `elaborate_signature`; the honest `elaborated_no_errors` that `lean_verify.status="ok"` should have always been. |
-| 6 | **proof closure** | Are there no `sorry` goals / open holes? | R3's `check_declaration`; BridgelandStability's one comparator-stub `sorry` (`Spec.lean:52`) is a proof-closure gap on exactly that declaration. |
+| 6 | **proof closure** | Are there no `sorry` goals / open holes? | R3's `check_declaration`; BridgelandStability's one comparator-stub `sorry` (in the sibling BridgelandStability repo, on `Spec.lean`'s `NumericalStabilityCondition.existsComplexManifoldOnConnectedComponent`; audited `sorry_count: 1` in its `formalization.yaml`) is a proof-closure gap on exactly that declaration. |
 | 7 | **axiom audit** | What is the transitive axiom set, and is it within the allowlist? | R3's `audit_axioms` vs `{propext, Quot.sound, Classical.choice}`; a bare `axiom h : False` is an axiom-audit failure today's surface cannot see. |
 | 8 | **checker identity** | *Which* checker, in *which* named immutable environment, at what policy version? | R3's `arxmcp://lean-env` digest + checker/policy version on every response. **No rigor.py analogue.** |
 | 9 | **assumption realization** | Is a conditional-over-interface result instantiated on a real object, or is realization still debt? | R5: a theorem about any `EnriquesKuContext` instance ≠ a theorem about an Enriques surface; lifecycle `proved-conditional` vs `realized`. |

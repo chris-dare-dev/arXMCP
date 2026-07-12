@@ -136,7 +136,9 @@ LeanBlueprint/LeanArchitect-style informal↔formal linking is the workflow mode
 - **Entry:** R3 trust gate green (no registry entry without attestations); R2 m1 landed
   (claims to link to).
 - **Exit:** every entry has zero non-allowlisted axioms, a strict replay attestation, a
-  recorded human faithfulness review, and an explicit assumption frontier; the article's
+  recorded human faithfulness review, and an explicit assumption frontier conforming to the
+  trust-language policy
+  ([`.claude/docs/trust-language-policy.md`](../docs/trust-language-policy.md)); the article's
   main theorem entry correctly shows its §8-action debt (this is a named acceptance test).
 
 ## Evidence-ledger census (2026-07-12)
@@ -151,7 +153,8 @@ Per [`.claude/docs/evidence-ledger-standard.md`](../docs/evidence-ledger-standar
 > (TheoremGraph's 68.1 / 98.8 / 76.6 / 42.7 precision table and its 22/24-typecheck-vs-5/24-
 > faithful result byte-verified). **Verdict:** confirmed — each of the seven serves a different
 > shape (conjecture banks, sorry-tracking, autoformalization, dependency graphs, statement
-> mining); none is the pinned registry this track scopes.
+> mining); none is the pinned registry this track scopes. **Scope:** scoped over the seven
+> named systems; closed commercial / non-English registries not checked.
 
 **Correction (evidence-ledger `updated` discipline).** The "§8 excluded" phrasing at `:26-27`
 and `:113` is a correct *inference* from BridgelandStability's stated "covers Sections 2–7"
