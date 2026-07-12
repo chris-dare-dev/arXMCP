@@ -131,6 +131,53 @@ def warm_app(tmp_path, mocked_bge_m3):
         yield client
 
 
+def _seed_paper_metadata(db_path: Path) -> None:
+    """Hydrate a paper_metadata.db with one row for paper 2401.00001
+    (paper-metadata-m2). 2401.00002 deliberately has NO row so the
+    per-paper fallback path is testable with the store present."""
+    from server.paper_metadata_store import (
+        PaperMetadataRecord,
+        PaperMetadataStore,
+    )
+
+    async def _write() -> None:
+        store = await PaperMetadataStore.open(db_path)
+        try:
+            await store.upsert_records([
+                PaperMetadataRecord(
+                    paper_id="2401.00001",
+                    title="Stability conditions on synthetic curves",
+                    authors=("Ada Lovelace", "Emmy Noether"),
+                    abstract="We study stability conditions on curves.",
+                    year=2024,
+                    categories=("math.AG", "math.CT"),
+                    primary_category="math.AG",
+                    published="2024-01-01T00:00:00Z",
+                    fetched_at="2026-07-11T00:00:00+00:00",
+                ),
+            ])
+        finally:
+            await store.close()
+
+    asyncio.run(_write())
+
+
+@pytest.fixture
+def warm_app_with_paper_metadata(tmp_path, mocked_bge_m3):
+    """warm_app plus a hydrated paper_metadata.db at the lancedb
+    parent (the ``lancedb_path.parent / paper_metadata.db`` sibling
+    derivation Resources.startup uses — paper-metadata-m2)."""
+    lancedb_path = tmp_path / "lancedb"
+    _seed_corpus(lancedb_path)
+    _seed_paper_metadata(tmp_path / "paper_metadata.db")
+    cfg = Config(lancedb_path=lancedb_path)
+    reset_resources_for_tests()
+    reset_metrics_for_tests()
+    app = create_app(cfg)
+    with TestClient(app) as client:
+        yield client
+
+
 # ===========================================================================
 # Schema-shape tests (always-on)
 # ===========================================================================
@@ -413,6 +460,81 @@ class TestToolsSmoke:
         assert sc["neighbors"] == []
         assert sc["chunk_id"] == cid
         assert sc["direction"] == "cites"
+
+
+# ===========================================================================
+# get_paper hydrated-metadata tests (paper-metadata-m2)
+# ===========================================================================
+
+
+class TestGetPaperHydrated:
+    """paper-metadata-m2: with a hydrated ``paper_metadata.db`` sibling
+    of the lancedb dir, ``get_paper`` serves real identity fields with
+    ``metadata_status='hydrated'``; papers without a store row keep the
+    v1 synthesized nulls. (The store-absent path is pinned by
+    ``TestToolSmoke::test_get_paper_synthesized`` against ``warm_app``,
+    which seeds no metadata DB.)"""
+
+    def test_hydrated_row_returns_real_metadata(
+        self, warm_app_with_paper_metadata
+    ):
+        r = _call_tool(
+            warm_app_with_paper_metadata, "get_paper", {"paper_id": "2401.00001"}
+        )
+        assert r.status_code == 200
+        sc = r.json()["result"]["structuredContent"]
+        assert sc["found"] is True
+        assert sc["metadata_status"] == "hydrated"
+        paper = sc["paper"]
+        # Threat 2: arXiv-authored free text is delimiter-wrapped.
+        assert paper["title"] == (
+            "<retrieved_chunk>Stability conditions on synthetic curves"
+            "</retrieved_chunk>"
+        )
+        assert paper["authors"] == [
+            "<retrieved_chunk>Ada Lovelace</retrieved_chunk>",
+            "<retrieved_chunk>Emmy Noether</retrieved_chunk>",
+        ]
+        assert paper["abstract"] == (
+            "<retrieved_chunk>We study stability conditions on curves."
+            "</retrieved_chunk>"
+        )
+        assert paper["year"] == 2024
+        assert paper["categories"] == ["math.AG", "math.CT"]
+        # Chunk-synthesized fields are unaffected by hydration.
+        assert paper["paper_id"] == "2401.00001"
+        assert paper["chunk_count"] >= 1
+        assert paper["section_count"] >= 1
+        assert paper["chunker_version"] is not None
+
+    def test_paper_without_store_row_stays_synthesized(
+        self, warm_app_with_paper_metadata
+    ):
+        """2401.00002 has chunks but no metadata row: the store being
+        open must not change its v1 null-identity response."""
+        r = _call_tool(
+            warm_app_with_paper_metadata, "get_paper", {"paper_id": "2401.00002"}
+        )
+        assert r.status_code == 200
+        sc = r.json()["result"]["structuredContent"]
+        assert sc["found"] is True
+        assert sc["metadata_status"] == "synthesized_from_chunks"
+        assert sc["paper"]["title"] is None
+        assert sc["paper"]["authors"] is None
+        assert sc["paper"]["abstract"] is None
+        assert sc["paper"]["year"] is None
+        assert sc["paper"]["categories"] is None
+        assert sc["paper"]["chunk_count"] >= 1
+
+    def test_unknown_paper_still_not_found(self, warm_app_with_paper_metadata):
+        """A paper_id with neither chunks nor a metadata row keeps the
+        found=false shape (chunk membership stays the found gate)."""
+        r = _call_tool(
+            warm_app_with_paper_metadata, "get_paper", {"paper_id": "9999.99999"}
+        )
+        sc = r.json()["result"]["structuredContent"]
+        assert sc["found"] is False
+        assert sc["paper"] is None
 
 
 # ===========================================================================

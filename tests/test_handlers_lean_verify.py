@@ -172,8 +172,11 @@ class TestToolRegistration:
         drifted the global version; lean_verify result shape again
         unchanged), 15->16 (textbook-ingest-m11 / e5 — get_chunk
         truncated_for_license response flag drifted the global version;
-        lean_verify result shape once more unchanged)."""
-        assert TOOL_SCHEMA_VERSION == 16
+        lean_verify result shape once more unchanged), 16->17
+        (paper-metadata-m2 — GET_PAPER ToolMeta description rewritten
+        for the hydrated per-notebook metadata store; lean_verify
+        result shape yet again unchanged)."""
+        assert TOOL_SCHEMA_VERSION == 17
 
         schema_path = (
             Path(__file__).parent.parent

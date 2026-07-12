@@ -363,6 +363,15 @@ class Resources:
     # degrades gracefully to the legacy in-memory scan over the
     # chunks table with ``retrieval_mode="in_memory_scan_fallback"``.
     theorem_names_db: Any | None = None
+    # Per-notebook paper-metadata SQLite store (paper-metadata-m2).
+    # A ``server.paper_metadata_store.PaperMetadataStore`` when the
+    # sibling ``paper_metadata.db`` file exists next to the lancedb
+    # dir (hydrated by ``tools/notebook_metadata_backfill.py``);
+    # ``None`` otherwise — ``get_paper`` degrades gracefully to the
+    # v1 null identity fields with
+    # ``metadata_status="synthesized_from_chunks"``. Duck-typed to
+    # keep the import off the module-load path.
+    paper_metadata_store: Any | None = None
     # Managed Lean 4 REPL subprocess (verification-feedback-m2). A
     # ``server.lean_repl.LeanRepl`` when ``ARXMCP_ENABLE_LEAN=true``;
     # ``None`` (the default) when disabled — no subprocess is spawned
@@ -952,6 +961,15 @@ class Resources:
                 exc,
             )
 
+        # 6e. Per-notebook paper-metadata SQLite store (paper-metadata-m2).
+        # Same lazy-open contract as the theorem-names store — the file
+        # is created by the backfill CLI, never by the server, so a
+        # missing file is normal (un-hydrated notebook, or the shared
+        # corpus whose lancedb parent has no metadata sibling). The
+        # get_paper handler degrades to synthesized-from-chunks nulls
+        # when this is None.
+        paper_metadata_store = await _open_paper_metadata_store(config)
+
         instance = cls(
             config=config,
             corpus_info=corpus_info,
@@ -967,6 +985,7 @@ class Resources:
             definitions_table=definitions_table,
             equations_table=equations_table,
             theorem_names_db=theorem_names_db,
+            paper_metadata_store=paper_metadata_store,
             lean_repl=None,
             warm=True,
             degraded=degraded,
@@ -1115,6 +1134,12 @@ class Resources:
             # so get_cache() stays None (no leaked global state).
             set_cache(retrieval_cache)
 
+            # paper-metadata-m2: the backfill CLI may have hydrated the
+            # notebook's metadata store before/while the server sat in
+            # bootstrap mode. Best-effort — the helper returns None
+            # (never raises) when the file is absent or the open fails.
+            paper_metadata_store = await _open_paper_metadata_store(config)
+
             # In-place mutate fields.  Flip bootstrap_mode_active = False
             # LAST so all other fields are settled before handlers see False.
             self.corpus_info = corpus_info
@@ -1123,6 +1148,7 @@ class Resources:
             self.ann_phase = ann_phase
             self.rerank_phase = rerank_phase
             self.cache = retrieval_cache
+            self.paper_metadata_store = paper_metadata_store
             self.degraded = degraded
             self.warm = True
             self.bootstrap_mode_active = False
@@ -1277,6 +1303,16 @@ class Resources:
                 logger.exception(
                     "Resources.shutdown: theorem_names_db close failed"
                 )
+        # paper-metadata-m2: close the paper-metadata SQLite store.
+        # Same best-effort discipline (regenerable NORMAL-tier state;
+        # SQLite's WAL recovers on the next open).
+        if self.paper_metadata_store is not None:
+            try:
+                await self.paper_metadata_store.close()
+            except Exception:  # noqa: BLE001
+                logger.exception(
+                    "Resources.shutdown: paper_metadata_store close failed"
+                )
         # verification-feedback-m2: tear down the Lean REPL subprocess
         # before the executor drain. terminate() + reap is mandatory —
         # an unreaped subprocess is a zombie (POSIX) / leaked handle
@@ -1321,6 +1357,67 @@ class Resources:
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+
+async def _open_paper_metadata_store(config: Config) -> Any | None:
+    """Open the per-notebook ``paper_metadata.db`` sibling of the
+    lancedb dir, or return ``None`` (paper-metadata-m2).
+
+    The store file lives at
+    ``var/arxmcp/notebooks/<slug>/paper_metadata.db`` — the sibling of
+    the notebook's ``lancedb/`` dir, which is exactly what
+    ``config.lancedb_path`` points at after the ``ARXMCP_NOTEBOOK``
+    rewrite in :meth:`server.config.Config.derive_notebook_lancedb_path`.
+    Derived as ``lancedb_path.parent / PAPER_METADATA_DB_FILENAME`` per
+    the m1 placement decision (option B).
+
+    Open-only-if-exists is load-bearing: ``PaperMetadataStore.open``
+    CREATES the file, but hydration is the backfill CLI's job — the
+    server must not scatter empty DBs next to un-hydrated notebooks
+    (or next to the shared corpus at ``var/arxmcp/index/``).
+
+    Never raises: the store is a non-critical enrichment, so any
+    failure logs a WARN and returns ``None`` (the get_paper handler
+    then serves the v1 synthesized-from-chunks nulls).
+    """
+    try:
+        from server.paper_metadata_store import (  # noqa: PLC0415
+            PAPER_METADATA_DB_FILENAME,
+            PaperMetadataStore,
+        )
+
+        pmd_path = Path(config.lancedb_path).parent / PAPER_METADATA_DB_FILENAME
+        if not pmd_path.exists():
+            logger.info(
+                "Resources: paper metadata DB not present at %s; get_paper "
+                "will synthesize from chunks (run "
+                "tools/notebook_metadata_backfill.py to hydrate)",
+                pmd_path,
+            )
+            return None
+        store = await PaperMetadataStore.open(pmd_path)
+        row_count = await store.row_count()
+        logger.info(
+            "Resources: opened paper_metadata SQLite store at %s (rows=%d)",
+            pmd_path,
+            row_count,
+        )
+        if row_count == 0:
+            # Distinguish an empty store (schema created, hydration
+            # never ran / all rows failed) from a populated one — the
+            # F5-from-E10_S02 lesson for the theorem-names store.
+            logger.warning(
+                "Resources: paper_metadata store is EMPTY. Re-run "
+                "`python tools/notebook_metadata_backfill.py <slug>` to "
+                "hydrate it; until then get_paper returns "
+                "metadata_status=synthesized_from_chunks.",
+            )
+        return store
+    except Exception as exc:  # noqa: BLE001 — non-critical enrichment
+        logger.warning(
+            "Resources: could not open paper_metadata store: %s", exc,
+        )
+        return None
 
 
 def _warmup_rerank_pass(

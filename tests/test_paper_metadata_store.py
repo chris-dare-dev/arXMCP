@@ -180,6 +180,53 @@ class TestUpsertAndRead:
         assert asyncio.run(_scenario()) == {"2303.07061"}
 
 
+class TestHandlerFieldMapping:
+    """paper-metadata-m2: ``server.handlers.paper.hydrated_paper_fields``
+    maps a store record to the ``get_paper`` identity fields. Lives
+    here (not in the handler smoke tests) because it pins the
+    record-semantics contract: the empty-value conventions this store
+    writes (``''`` / ``()`` / ``year == 0``) must translate back to
+    the handler's null / not-hydrated shapes."""
+
+    def test_usable_record_maps_all_fields(self) -> None:
+        from server.handlers.paper import hydrated_paper_fields
+
+        fields = hydrated_paper_fields(_record())
+        assert fields == {
+            "abstract": (
+                "This paper introduces the notion of a stability condition."
+            ),
+            "authors": ["Tom Bridgeland"],
+            "categories": ["math.AG", "math.CT"],
+            "title": "Stability conditions on triangulated categories",
+            "year": 2002,
+        }
+
+    def test_none_and_leftover_rows_are_not_hydrated(self) -> None:
+        """Mirrors ``hydrated_paper_ids``: a row with empty title OR
+        empty authors is a defensive-write leftover, not identity."""
+        from server.handlers.paper import hydrated_paper_fields
+
+        assert hydrated_paper_fields(None) is None
+        assert hydrated_paper_fields(_record(title="")) is None
+        assert hydrated_paper_fields(_record(authors=())) is None
+
+    def test_empty_value_conventions_map_to_nulls(self) -> None:
+        """``year == 0`` ("unparseable <published>") and empty
+        abstract / categories degrade to None field-by-field while the
+        row as a whole still hydrates."""
+        from server.handlers.paper import hydrated_paper_fields
+
+        fields = hydrated_paper_fields(
+            _record(abstract="", year=0, categories=())
+        )
+        assert fields is not None
+        assert fields["abstract"] is None
+        assert fields["year"] is None
+        assert fields["categories"] is None
+        assert fields["title"].startswith("Stability conditions")
+
+
 class TestColdReopen:
     """m1 AC2: after a process restart + cold reopen, metadata is
     served without touching the chunks table."""

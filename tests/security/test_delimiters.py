@@ -489,10 +489,13 @@ class TestSearchSnippetWrapping:
 
 class TestV1Gaps:
     """The brief named 7 tools but at v1 only 4 actually emit
-    retrieved content. The remaining 3 are documented gaps that
-    activate when later tier work lands. These tests pin the v1
+    retrieved content. The remaining 3 were documented gaps that
+    activate when later tier work lands. These tests pin that
     reality so a future implementer doesn't accidentally remove the
-    deferred-wrapping note from the audit doc.
+    deferred-wrapping note from the audit doc. paper-metadata-m2
+    graduated ``get_paper`` out of the gap set — its tripwire is now
+    the positive wrap guard ``test_get_paper_now_wraps`` below; only
+    ``find_equation`` and ``cite_neighbors`` remain deferred.
 
     F3 rectification (E13_S02 adversary critique): grep-based
     checks were replaced with AST-based name resolution. The
@@ -544,17 +547,25 @@ class TestV1Gaps:
             "integration tests under TestFindEquationWrapping."
         )
 
-    def test_get_paper_does_not_yet_wrap(self):
-        # get_paper returns abstract=None at v1 (no papers metadata
-        # table). When E11 backfills metadata, the abstract field
-        # will become non-NULL and MUST be wrapped at that point.
+    def test_get_paper_now_wraps(self):
+        # Flipped from test_get_paper_does_not_yet_wrap by
+        # paper-metadata-m2: the handler serves hydrated title /
+        # abstract / authors from the per-notebook metadata store and
+        # wraps each in <retrieved_chunk> delimiters (sanitize
+        # pre-cap, wrap post-cap — get_chunk's ordering discipline).
+        # This guard pins the wrap-helper reference so a refactor
+        # can't silently drop the Threat-2 wrapping; the end-to-end
+        # payload assertions live in
+        # tests/test_tools_all.py::TestGetPaperHydrated.
         from server.handlers import paper
 
-        assert not self._module_references_wrap_helper(paper), (
-            "get_paper now references wrap_retrieved_text. Update "
-            ".claude/docs/security-threat-2-audit.md per-tool table "
-            "from 'deferred — E11' to '✅ wrapped' and add "
-            "integration tests under TestGetPaperWrapping."
+        assert self._module_references_wrap_helper(paper), (
+            "get_paper no longer references wrap_retrieved_text / "
+            "sanitize_retrieved_text — the Threat-2 delimiter "
+            "wrapping of hydrated title/abstract/authors "
+            "(paper-metadata-m2) has been removed. Restore the wrap "
+            "(see .claude/docs/security-threat-2-audit.md per-tool "
+            "table) or re-classify get_paper as a deferred gap."
         )
 
     def test_cite_neighbors_does_not_yet_wrap(self):

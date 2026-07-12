@@ -34,11 +34,13 @@
 | `get_definitions` | `definitions[].expansion` (LaTeX macro body) | ✅ wrapped | wrapped at `_load_paper_rows` ingress |
 | `find_lemma_by_name` | `matches[].display_name`, `matches[].theorem_name` | ✅ wrapped | both FTS5 path and in-memory fallback |
 | `find_equation` | (none at v1 — returns `chunk_id` / `score` / `paper_id` only) | ⏳ deferred — E10_S03 | when E10_S03 wires equation atom body text, add `wrap_retrieved_text(..., kind="equation")` |
-| `get_paper` | `paper.abstract` (NULL at v1; no papers metadata table) | ⏳ deferred — E11 | when metadata backfills, wrap the abstract and title |
+| `get_paper` | `paper.title` / `paper.abstract` / `paper.authors[]` (hydrated from the per-notebook metadata store) | ✅ wrapped | paper-metadata-m2 — sanitize pre-cap, wrap post-cap in `server/handlers/paper.py` (get_chunk ordering discipline); un-hydrated fallback returns NULLs (nothing to wrap); integration tests: `tests/test_tools_all.py::TestGetPaperHydrated` |
 | `cite_neighbors` | `neighbors[].abstract` (v1 stub returns `neighbors: []`) | ⏳ deferred — E09 wiring | when the Kùzu wiring lands and neighbors carry abstracts, wrap them |
 
-**Wrapping at v1 covers 4 of 7 tools.** The 3 deferred tools do NOT emit any
-paper-derived text at v1, so there is nothing to wrap today. Each deferred
+**Wrapping covers 5 of the 7 retrieval tools** (v1 shipped 4; paper-metadata-m2
+graduated `get_paper` — its tripwire flipped to the positive guard
+`test_get_paper_now_wraps`). The 2 still-deferred tools do NOT emit any
+paper-derived text today, so there is nothing to wrap. Each deferred
 tool has a regression test in `tests/security/test_delimiters.py::TestV1Gaps`
 that flips from "wrap absent" to "wrap present" required when the tool starts
 emitting content.
@@ -64,8 +66,9 @@ safe = wrap_retrieved_text(
 - `sanitize_retrieved_text(text: str | None) -> str`
 
 **Empty / None handling:** both helpers return `""` on empty / None input.
-The wrapper is a no-op on missing content — matches the v1 reality for
-`get_paper.abstract` (NULL) and `cite_neighbors` (empty stub).
+The wrapper is a no-op on missing content — matches `get_paper`'s
+un-hydrated fallback (NULL identity fields when the metadata store has no
+usable row) and `cite_neighbors` (empty stub).
 
 ---
 
@@ -204,12 +207,13 @@ prompt-cache discipline is not affected.
 |---|---|---|
 | E09 wiring lands | Wrap `neighbors[].abstract` in `cite_neighbors` | v1 stub returns empty list — no content to wrap today |
 | E10_S03 | Wrap equation atom body text in `find_equation` (kind=`equation`) | v1 returns only chunk_id + score |
-| E11 (metadata backfill) | Wrap `paper.abstract` (and `title` if treated as untrusted) in `get_paper` | abstract is NULL at v1 |
+| ~~E11 (metadata backfill)~~ ✅ DONE — paper-metadata-m2 | Wrap `paper.abstract` (and `title` if treated as untrusted) in `get_paper` | shipped: title, abstract and each `authors[]` entry wrapped when a hydrated store row exists |
 
 The audit test suite (`tests/security/test_delimiters.py::TestV1Gaps`)
-fails-loudly when any of the three deferred handlers starts emitting
-`wrap_retrieved_text` — that's the signal to flip the audit doc status
-column and add per-handler integration tests at the appropriate milestone.
+fails-loudly when either of the two remaining deferred handlers starts
+emitting `wrap_retrieved_text` — that's the signal to flip the audit doc
+status column and add per-handler integration tests at the appropriate
+milestone (the pattern `get_paper` followed at paper-metadata-m2).
 
 ---
 

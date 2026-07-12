@@ -646,8 +646,16 @@ class TestBP1ByteIdentityAcrossFanout:
         # system + ALL_TOOLS, so a tool-description edit drifts BP1 in
         # lockstep with EXPECTED_TOOL_SCHEMA_SHA256 (both re-pinned
         # together — the paired-re-pin discipline).
+        #
+        # v17: paper-metadata-m2 — the GET_PAPER ToolMeta description
+        # was rewritten (the handler now serves hydrated
+        # title/authors/abstract/year/categories from the per-notebook
+        # paper-metadata store; the "null until E11/E12" wording was
+        # stale). ALL_TOOLS changed (single ToolMeta description
+        # edit), so BP1 (system + tools) drifts; re-pinned in lockstep
+        # with EXPECTED_TOOL_SCHEMA_SHA256.
         EXPECTED_BP1_SHA256 = (
-            "483344e3fcdea1d64de893cc669c9f142fd6f1198d4c8d383cd9c232558959bc"
+            "720c744375d29a30d0d94d1c17d5a6db70384ba06e19505d49dbd601313b42b2"
         )
         req = _build_fanout_request(
             RouteTag.SYNTHESIS, "any problem; BP1 is independent of problem",
