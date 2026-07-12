@@ -142,3 +142,17 @@ of the notebook's Mukai vectors and pairings) follow only after the pilot operat
 - **Exit:** zero unsupported inputs answered with numbers; every receipt replays; oracle
   differential suite green on the frozen corpus; Certificate rigor never upgraded by the
   adapter (passthrough-only, asserted by test).
+
+## Evidence-ledger census (2026-07-12)
+
+Per [`.claude/docs/evidence-ledger-standard.md`](../docs/evidence-ledger-standard.md), the
+brief's external absence claim carries a dated, scoped census:
+
+> **Claim (`:9`):** "no one serves Bridgeland-domain computations — Euler pairings, certified
+> wall enumeration, Bogomolov–Gieseker checks, Mukai-lattice classification — as an API."
+> **Census set:** Schmidt `stability_conditions` (Sage, 2023); Naylor `tilt.rs`; QuiverTools.
+> **Queries run:** searches for a hosted / queryable stability-condition, wall-crossing, or
+> Bogomolov–Gieseker computation *service* vs. offline libraries (gap-analysis §2.5 sweep).
+> **Date:** 2026-07-11, re-affirmed 2026-07-12. **Verdict:** confirmed — all three are offline
+> libraries/crates, none a hosted API; the sibling `stability-mflds` is a local package, not a
+> service. **Scope:** exhaustive over the named set; no new hosted entrant found.

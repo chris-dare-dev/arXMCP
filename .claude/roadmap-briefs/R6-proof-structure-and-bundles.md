@@ -138,3 +138,24 @@ diff exists".
 - **Kill rule (from R7):** if the 5-arm ablation shows no held-out lift from DAGs or
   facets at fixed budget, stop extending semantic metadata and reinvest in R2 precision
   and R4/R5 coverage — the gap analysis's own §6 commitment.
+
+## Evidence-ledger census (2026-07-12)
+
+Per [`.claude/docs/evidence-ledger-standard.md`](../docs/evidence-ledger-standard.md), the
+brief's external absence claim — previously categorical — now carries a census:
+
+> **Claim (`:15`):** "no system tags informal papers by technique at scale."
+> **Census set:** Mathematics Subject Classification / AutoMSC; math-aware content
+> classification (arXiv:2110.04040); formula-concept / POS tagging for math; human-curated
+> technique wikis (Tricki, nLab, ProofWiki).
+> **Queries run:** `tag mathematics papers by proof technique at scale automatic classification
+> 2026`; `Tricki mathematics proof techniques wiki status active or frozen`.
+> **Date:** 2026-07-12. **Verdict:** confirmed, **scoped and non-exhaustive** — surfaced work is
+> *subject* classification (MSC/AutoMSC), *content-similarity* (arXiv:2110.04040), or
+> *formula-concept* tagging, none by proof technique; technique wikis are small/static (Tricki
+> live since Tao's 2009 launch, no scaled ongoing contribution). **Not checked:** closed
+> commercial indexers, non-English systems.
+
+(The companion "Tricki froze within ~2 years" is a single-system historical fact, not an
+absence census; it needs only a freshness re-check — done above: the site remains reachable
+but static.)

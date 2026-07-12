@@ -35,8 +35,8 @@ ordered imports, environment digest, checker + trust-policy version, compiler op
 resource policy), with positive strict results durable and timeouts/memory failures cached
 briefly or not at all. Warm pooled workers with REPL incremental state reuse come last,
 inside the same boundary. Until the contract lands, trust-bearing labels are disabled:
-`status: "ok"` is renamed to what it is (`elaborated_no_errors`), and R0's trust-language
-policy governs the response schema. Existing prior art is adopted, not rebuilt: SafeVerify
+`status: "ok"` is renamed to what it is (`elaborated_no_errors`), and the trust-language
+policy ([`.claude/docs/trust-language-policy.md`](../docs/trust-language-policy.md)) governs the response schema. Existing prior art is adopted, not rebuilt: SafeVerify
 for kernel-bypass patterns, AXLE's per-request environment selection as the shape of named
 envs, Kimina/Poiroux pooling + state reuse (~8 s → ~0.02 s Mathlib-import round-trips) for
 the performance tail.
@@ -140,6 +140,8 @@ the performance tail.
 ## Gates
 
 - **Trust gate (blocks R4/R5 shipping):** m2–m5 complete; attack suite zero false
-  accepts; every response carries environment digest + checker/policy version.
+  accepts; every response carries environment digest + checker/policy version, and the
+  response schema conforms to the trust-language policy
+  ([`.claude/docs/trust-language-policy.md`](../docs/trust-language-policy.md)).
 - **Performance work (m6–m7) is forbidden before the trust gate** — pooling an unsound
   verifier scales the blast radius.

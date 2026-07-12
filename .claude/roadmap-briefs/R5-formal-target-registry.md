@@ -63,7 +63,9 @@ LeanBlueprint/LeanArchitect-style informal↔formal linking is the workflow mode
    domain-mathematician review step and its own comparator entries. Targets that do not
    need §8 (the numerical/lattice lemmas) proceed without it.
 3. **Registry schema + storage:** immutable entries with the fields above; multi-axis
-   trust record per R0 policy; every entry references R1 manifest hash + R3 environment
+   trust record per the trust-language policy
+   ([`.claude/docs/trust-language-policy.md`](../docs/trust-language-policy.md)); every entry
+   references R1 manifest hash + R3 environment
    digest; supersession edges when a target is re-cut.
 4. **First entries (5–10):** at minimum — (a) K_num lattice bookkeeping lemmas from the
    article's §8.4–8.6 as *closed* Lean proofs (torsion-free rank-2 arithmetic); (b) the
@@ -136,3 +138,25 @@ LeanBlueprint/LeanArchitect-style informal↔formal linking is the workflow mode
 - **Exit:** every entry has zero non-allowlisted axioms, a strict replay attestation, a
   recorded human faithfulness review, and an explicit assumption frontier; the article's
   main theorem entry correctly shows its §8-action debt (this is a named acceptance test).
+
+## Evidence-ledger census (2026-07-12)
+
+Per [`.claude/docs/evidence-ledger-standard.md`](../docs/evidence-ledger-standard.md):
+
+> **Claim (`:9-11`):** "no system serving new, typechecked formalizations of paper statements
+> pinned to both a corpus revision and a formal environment as a queryable API."
+> **Census set:** AXLE, formal-conjectures, SorryDB, Herald, TheoremGraph, LeanArchitect,
+> Matlas. **Queries run:** per system — does it serve *pinned-and-served* paper-statement
+> formalizations as a queryable API? **Date:** 2026-07-11, re-affirmed 2026-07-12
+> (TheoremGraph's 68.1 / 98.8 / 76.6 / 42.7 precision table and its 22/24-typecheck-vs-5/24-
+> faithful result byte-verified). **Verdict:** confirmed — each of the seven serves a different
+> shape (conjecture banks, sorry-tracking, autoformalization, dependency graphs, statement
+> mining); none is the pinned registry this track scopes.
+
+**Correction (evidence-ledger `updated` discipline).** The "§8 excluded" phrasing at `:26-27`
+and `:113` is a correct *inference* from BridgelandStability's stated "covers Sections 2–7"
+scope — **not** a sentence any of its sources (`formalization.yaml`, `README.md`, coverage
+site) asserts (byte-verified 2026-07-12; §8's identity as the group-action section comes from
+Bridgeland 2007's own table of contents, not the repo). R5-m1's coverage matrix should phrase
+it "scope statement is §2–7; §8-absence is inferred, not asserted." The engineering plan
+(track §8 as debt) is unaffected.
