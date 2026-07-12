@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OAI-PMH xmlns="http://www.openarchives.org/OAI/2.0/" 
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://www.openarchives.org/OAI/2.0/ http://www.openarchives.org/OAI/2.0/OAI-PMH.xsd">
+    <responseDate>2026-07-12T23:30:46Z</responseDate>
+                <request verb="GetRecord" identifier="oai:arXiv.org:2006.10956" metadataPrefix="arXiv">http://oaipmh.arxiv.org/oai</request>
+
+
+    <GetRecord>
+                <record>
+                <header>
+        <identifier>oai:arXiv.org:2006.10956</identifier>
+        <datestamp>2020-06-22</datestamp>
+            <setSpec>math:math:GR</setSpec>
+    </header>
+
+            <metadata>
+                        <arXiv xmlns="http://arxiv.org/OAI/arXiv/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://arxiv.org/OAI/arXiv/ https://oaipmh.arxiv.org/OAI/arXiv.xsd">
+        <id>2006.10956</id>
+        <created>2020-06-19</created>
+            <updated>2020-06-22</updated>
+        <authors>
+                <author>
+                    <keyname>Tornier</keyname>
+                        <forenames>Stephan</forenames>
+                </author>
+        </authors>
+        <title>Haar Measures</title>
+            <categories>math.GR</categories>
+            <comments>Expository notes, 13 pages</comments>
+            <license>http://arxiv.org/licenses/nonexclusive-distrib/1.0/</license>
+            <abstract>This article provides a concise introduction to the theory of Haar measures on locally compact Hausdorff groups. We cover the necessary preliminaries on topological groups and measure theory, the Haar correspondence, unimodularity and Haar measures on coset spaces.</abstract>
+    </arXiv>
+
+            </metadata>
+        </record>
+
+    </GetRecord>
+</OAI-PMH>

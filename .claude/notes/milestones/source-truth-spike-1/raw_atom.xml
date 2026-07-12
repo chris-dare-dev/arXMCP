@@ -1,0 +1,580 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<feed xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/" xmlns:arxiv="http://arxiv.org/schemas/atom" xmlns="http://www.w3.org/2005/Atom">
+  <id>https://arxiv.org/api/CHJINrTBrJPAom8MzrqxLNRJ9/A</id>
+  <title>arXiv Query: search_query=&amp;id_list=0708.2247,1203.4613,1301.6968,2303.07061,1905.00748,2411.18554,2505.03433,2305.17213,2412.08531,2407.18229,2203.17148,2402.07154,1709.03377,1803.01964,1409.6128,math/0212237,math/0307164,alg-geom/9410026,alg-geom/9606006,hep-th/0002037,math/0001043,math/9809114,hep-th/0212218,math-ph/0005032,math/0311369,2006.10956v1,2309.07644v1,0911.1734v1,1911.11718v1,0903.3845v1&amp;start=0&amp;max_results=30</title>
+  <updated>2026-07-12T23:29:42Z</updated>
+  <link href="https://arxiv.org/api/query?search_query=&amp;start=0&amp;max_results=30&amp;id_list=0708.2247,1203.4613,1301.6968,2303.07061,1905.00748,2411.18554,2505.03433,2305.17213,2412.08531,2407.18229,2203.17148,2402.07154,1709.03377,1803.01964,1409.6128,math/0212237,math/0307164,alg-geom/9410026,alg-geom/9606006,hep-th/0002037,math/0001043,math/9809114,hep-th/0212218,math-ph/0005032,math/0311369,2006.10956v1,2309.07644v1,0911.1734v1,1911.11718v1,0903.3845v1" type="application/atom+xml"/>
+  <opensearch:itemsPerPage>30</opensearch:itemsPerPage>
+  <opensearch:totalResults>30</opensearch:totalResults>
+  <opensearch:startIndex>0</opensearch:startIndex>
+  <entry>
+    <id>http://arxiv.org/abs/2006.10956v1</id>
+    <title>Haar Measures</title>
+    <updated>2020-06-19T04:58:56Z</updated>
+    <link href="https://arxiv.org/abs/2006.10956v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2006.10956v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>This article provides a concise introduction to the theory of Haar measures on locally compact Hausdorff groups. We cover the necessary preliminaries on topological groups and measure theory, the Haar correspondence, unimodularity and Haar measures on coset spaces.</summary>
+    <category term="math.GR" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2020-06-19T04:58:56Z</published>
+    <arxiv:comment>Expository notes, 13 pages</arxiv:comment>
+    <arxiv:primary_category term="math.GR"/>
+    <author>
+      <name>Stephan Tornier</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/1301.6968v4</id>
+    <title>MMP for moduli of sheaves on K3s via wall-crossing: nef and movable cones, Lagrangian fibrations</title>
+    <updated>2021-04-08T20:24:19Z</updated>
+    <link href="https://arxiv.org/abs/1301.6968v4" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/1301.6968v4" rel="related" type="application/pdf" title="pdf"/>
+    <summary>We use wall-crossing with respect to Bridgeland stability conditions to systematically study the birational geometry of a moduli space M of stable sheaves on a K3 surface X:
+  1. We describe the nef cone, the movable cone, and the effective cone of M in terms of the Mukai lattice of X.
+  2. We establish a long-standing conjecture that predicts the existence of a birational Lagrangian fibration on M whenever M admits an integral divisor class D of square zero (with respect to the Beauville-Bogomolov form).
+  These results are proved using a natural map from the space of Bridgeland stability conditions Stab(X) to the cone Mov(X) of movable divisors on M; this map relates wall-crossing in Stab(X) to birational transformations of M. In particular, every minimal model of M appears as a moduli space of Bridgeland-stable objects on X.</summary>
+    <category term="math.AG" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2013-01-29T16:17:22Z</published>
+    <arxiv:comment>62 pages, 5 figures. Comments welcome. v2: fixed sign issue in statement of Theorem 12.2. v3: strengthened Corollary 1.3. Many improvements and corrections to the exposition, based on the referee's comments. Published version. v4: Section 13: fixed two typos in published version (see footnotes 5 and 6); clarified (33)</arxiv:comment>
+    <arxiv:primary_category term="math.AG"/>
+    <arxiv:journal_ref>Invent. math. 198, 505-590 (2014)</arxiv:journal_ref>
+    <author>
+      <name>Arend Bayer</name>
+    </author>
+    <author>
+      <name>Emanuele Macrì</name>
+    </author>
+    <arxiv:doi>10.1007/s00222-014-0501-8</arxiv:doi>
+    <link rel="related" href="https://doi.org/10.1007/s00222-014-0501-8" title="doi"/>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/hep-th/0002037v4</id>
+    <title>Stability and BPS branes</title>
+    <updated>2000-02-16T22:56:48Z</updated>
+    <link href="https://arxiv.org/abs/hep-th/0002037v4" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/hep-th/0002037v4" rel="related" type="application/pdf" title="pdf"/>
+    <summary>  We define the concept of Pi-stability, a generalization of mu-stability of vector bundles, and argue that it characterizes N=1 supersymmetric brane configurations and BPS states in very general string theory compactifications with N=2 supersymmetry in four dimensions.</summary>
+    <category term="hep-th" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="math.AG" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2000-02-04T21:22:36Z</published>
+    <arxiv:comment>harvmac, 18 pp</arxiv:comment>
+    <arxiv:primary_category term="hep-th"/>
+    <arxiv:journal_ref>JHEP 0509:006,2005</arxiv:journal_ref>
+    <author>
+      <name>Michael R. Douglas</name>
+    </author>
+    <author>
+      <name>Bartomeu Fiol</name>
+    </author>
+    <author>
+      <name>Christian Römelsberger</name>
+    </author>
+    <arxiv:doi>10.1088/1126-6708/2005/09/006</arxiv:doi>
+    <link rel="related" href="https://doi.org/10.1088/1126-6708/2005/09/006" title="doi"/>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/math/9809114v2</id>
+    <title>Equivalences of triangulated categories and Fourier-Mukai transforms</title>
+    <updated>2019-03-12T18:11:38Z</updated>
+    <link href="https://arxiv.org/abs/math/9809114v2" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/math/9809114v2" rel="related" type="application/pdf" title="pdf"/>
+    <summary>We give a condition for an exact functor between triangulated categories to be an equivalence. Applications to Fourier-Mukai transforms are discussed. In particular, we obtain a large number of such transforms for K3 surfaces.</summary>
+    <category term="math.AG" scheme="http://arxiv.org/schemas/atom"/>
+    <published>1998-09-21T13:01:19Z</published>
+    <arxiv:comment>11 pages, to appear in Bull. Lond. Math. Soc</arxiv:comment>
+    <arxiv:primary_category term="math.AG"/>
+    <author>
+      <name>Tom Bridgeland</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/math/0307164v2</id>
+    <title>Stability conditions on K3 surfaces</title>
+    <updated>2006-11-16T18:20:11Z</updated>
+    <link href="https://arxiv.org/abs/math/0307164v2" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/math/0307164v2" rel="related" type="application/pdf" title="pdf"/>
+    <summary>  This paper contains a description of one connected component of the space of stability conditions on the bounded derived category of coherent sheaves on a complex algebraic K3 surface.</summary>
+    <category term="math.AG" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2003-07-11T14:27:12Z</published>
+    <arxiv:comment>Quite a lot of changes. References to physics removed and some proofs expanded</arxiv:comment>
+    <arxiv:primary_category term="math.AG"/>
+    <author>
+      <name>Tom Bridgeland</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/0911.1734v1</id>
+    <title>Continuous and Pontryagin duality of topological groups</title>
+    <updated>2009-11-09T17:20:20Z</updated>
+    <link href="https://arxiv.org/abs/0911.1734v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/0911.1734v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>  For Pontryagin's group duality in the setting of locally compact topological Abelian groups, the topology on the character group is the compact open topology. There exist at present two extensions of this theory to topological groups which are not necessarily locally compact. The first, called the Pontryagin dual, retains the compact-open topology. The second, the continuous dual, uses the continuous convergence structure. Both coincide on locally compact topological groups but differ dramatically otherwise. The Pontryagin dual is a topological group while the continuous dual is usually not. On the other hand, the continuous dual is a left adjoint and enjoys many categorical properties which fail for the Pontryagin dual. An examination and comparison of these dualities was initiated in \cite{CMP1}. In this paper we extend this comparison considerably.</summary>
+    <category term="math.GR" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="math.FA" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2009-11-09T17:20:20Z</published>
+    <arxiv:comment>Report for the 24th Summer Conference on Topology and its Applications, Brno, Czech Republic, July 2009</arxiv:comment>
+    <arxiv:primary_category term="math.GR"/>
+    <author>
+      <name>R. Beattie</name>
+    </author>
+    <author>
+      <name>H. -P. Butzmann</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/1905.00748v3</id>
+    <title>A quantized Riemann-Hilbert problem in Donaldson-Thomas theory</title>
+    <updated>2025-07-16T12:53:47Z</updated>
+    <link href="https://arxiv.org/abs/1905.00748v3" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/1905.00748v3" rel="related" type="application/pdf" title="pdf"/>
+    <summary>We introduce Riemann-Hilbert problems determined by refined Donaldson-Thomas theory. They involve piecewise holomorphic maps from the complex plane to the group of automorphisms of a quantum torus algebra. We study the simplest case in detail and use the Barnes double gamma function to construct a solution.</summary>
+    <category term="math.AG" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="hep-th" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="math.QA" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2019-05-02T13:57:34Z</published>
+    <arxiv:comment>Version 3 corrects an error pointed out by Sergey Alexandrov. The changes are to formula (3) in the Introduction, and to several formulae in Sections 5.2 and 5.3</arxiv:comment>
+    <arxiv:primary_category term="math.AG"/>
+    <arxiv:journal_ref>International Mathematics Research Notices, Volume 2022, Issue 5, March 2022, Pages 3417-3456</arxiv:journal_ref>
+    <author>
+      <name>Anna Barbieri</name>
+    </author>
+    <author>
+      <name>Tom Bridgeland</name>
+    </author>
+    <author>
+      <name>Jacopo Stoppa</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2203.17148v3</id>
+    <title>Joyce structures on spaces of quadratic differentials</title>
+    <updated>2024-12-13T17:10:55Z</updated>
+    <link href="https://arxiv.org/abs/2203.17148v3" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2203.17148v3" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Consider the space parameterising curves of genus g&gt;1 equipped with a quadratic differential with simple zeroes. We use the geometry of isomonodromic deformations to construct a complex hyperkahler structure on the total space of its tangent bundle. This provides non-trivial examples of the Joyce structures recently introduced in relation to Donaldson-Thomas theory.</summary>
+    <category term="math.AG" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="hep-th" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2022-03-31T16:20:36Z</published>
+    <arxiv:comment>Published version. To appear in Geometry and Topology</arxiv:comment>
+    <arxiv:primary_category term="math.AG"/>
+    <arxiv:journal_ref>Geom. Topol. 29 (2025) 2695-2731</arxiv:journal_ref>
+    <author>
+      <name>Tom Bridgeland</name>
+    </author>
+    <arxiv:doi>10.2140/gt.2025.29.2695</arxiv:doi>
+    <link rel="related" href="https://doi.org/10.2140/gt.2025.29.2695" title="doi"/>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/1203.4613v2</id>
+    <title>Projectivity and Birational Geometry of Bridgeland moduli spaces</title>
+    <updated>2013-10-10T21:05:03Z</updated>
+    <link href="https://arxiv.org/abs/1203.4613v2" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/1203.4613v2" rel="related" type="application/pdf" title="pdf"/>
+    <summary>We construct a family of nef divisor classes on every moduli space of stable complexes in the sense of Bridgeland. This divisor class varies naturally with the Bridgeland stability condition.
+  For a generic stability condition on a K3 surface, we prove that this class is ample, thereby generalizing a result of Minamide, Yanagida, and Yoshioka. Our result also gives a systematic explanation of the relation between wall-crossing for Bridgeland-stability and the minimal model program for the moduli space.
+  We give three applications of our method for classical moduli spaces of sheaves on a K3 surface:
+  1. We obtain a region in the ample cone in the moduli space of Gieseker-stable sheaves only depending on the lattice of the K3.
+  2. We determine the nef cone of the Hilbert scheme of n points on a K3 surface of Picard rank one when n is large compared to the genus.
+  3. We verify the "Hassett-Tschinkel/Huybrechts/Sawon" conjecture on the existence of a birational Lagrangian fibration for the Hilbert scheme in a new family of cases.</summary>
+    <category term="math.AG" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2012-03-20T22:28:30Z</published>
+    <arxiv:comment>v2: 50 pages, exposition substantially improved based on referee's comments. Accepted for publication in Journal of the AMS</arxiv:comment>
+    <arxiv:primary_category term="math.AG"/>
+    <author>
+      <name>Arend Bayer</name>
+    </author>
+    <author>
+      <name>Emanuele Macri</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/1803.01964v2</id>
+    <title>Harmonic Analysis on the Adèle Ring of $\Q$</title>
+    <updated>2018-03-18T16:27:10Z</updated>
+    <link href="https://arxiv.org/abs/1803.01964v2" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/1803.01964v2" rel="related" type="application/pdf" title="pdf"/>
+    <summary>The ring of finite adèles $\Af$ of the rational numbers $\Q$ is obtained in this article as a completion of $\Q$ with respect to a certain non--Archimedean metric. This ultrametric allows to represent any finite adèle as a series generalizing $m$--adic analysis. The description made provides a new perspective for the adelic Fourier analysis on $\Af$, which also permits to introduce new oscillatory integrals. By incorporating the infinite prime, the mentioned results are extended to the complete ring of adèles $\A$} of $\Q$.</summary>
+    <category term="math.CA" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2018-03-06T00:32:22Z</published>
+    <arxiv:comment>27 pages, 1 figure</arxiv:comment>
+    <arxiv:primary_category term="math.CA"/>
+    <author>
+      <name>Victor A. Aguilar-Arteaga</name>
+    </author>
+    <author>
+      <name>Manuel Cruz-López</name>
+    </author>
+    <author>
+      <name>Samuel Estala-Arias</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/0708.2247v1</id>
+    <title>Bridgeland-Stable Moduli Spaces for K-Trivial Surfaces</title>
+    <updated>2007-08-16T17:20:23Z</updated>
+    <link href="https://arxiv.org/abs/0708.2247v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/0708.2247v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>  We give a natural family of Bridgeland stability conditions on the derived category of a smooth projective complex surface S and describe ``wall-crossing behavior'' for objects with the same invariants as $\cO_C(H)$ when H generates Pic(S) and $C \in |H|$. If, in addition, S is a K3 or Abelian surface, we use this description to construct a sequence of fine moduli spaces of Bridgeland-stable objects via Mukai flops and generalized elementary modifications of the universal coherent sheaf. We also discover a natural generalization of Thaddeus' stable pairs for curves embedded in the moduli spaces.</summary>
+    <category term="math.AG" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2007-08-16T17:20:23Z</published>
+    <arxiv:comment>33 pages, with appendix by Max Lieblich</arxiv:comment>
+    <arxiv:primary_category term="math.AG"/>
+    <author>
+      <name>Daniele Arcara</name>
+    </author>
+    <author>
+      <name>Aaron Bertram</name>
+    </author>
+    <author>
+      <name>Max Lieblich</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2309.07644v1</id>
+    <title>Haar measure for non-Hausdorff locally compact groups</title>
+    <updated>2023-09-14T12:10:03Z</updated>
+    <link href="https://arxiv.org/abs/2309.07644v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2309.07644v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>The paper describes two possible ways of extending the definition of Haar measure to non-Hausdorff locally compact groups. The first one forces compact sets to be measurable: with this construction, a counterexample to the existence of the Haar measure is provided. The second one makes use of closed compact sets instead of compact sets in the definition of Radon measure: this way, the classical theorems of existence and uniqueness of the Haar measure can be generalised to locally compact groups, not necessarily Hausdorff.</summary>
+    <category term="math.GR" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2023-09-14T12:10:03Z</published>
+    <arxiv:comment>17 pages</arxiv:comment>
+    <arxiv:primary_category term="math.GR"/>
+    <author>
+      <name>Lisa Valentini</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/1911.11718v1</id>
+    <title>Abstract harmonic analysis on locally compact right topological groups</title>
+    <updated>2019-11-26T17:50:05Z</updated>
+    <link href="https://arxiv.org/abs/1911.11718v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/1911.11718v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Analytic properties of right topological groups have been extensively studied in the compact admissible case (i.e when the group has a dense topological center). This was inspired by the existence of a Haar measure on such groups. In this paper, we broaden the scope of this work. We give (similar) sufficient conditions for the existence of a Haar measure on locally compact right topological groups and generalize analytic theory to this setting. We then define new measure algebra analogues in the compact setting and use these to completely characterize the existence of a Haar measure, producing sufficient conditions that do not rely on admissibility.</summary>
+    <category term="math.FA" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2019-11-26T17:50:05Z</published>
+    <arxiv:primary_category term="math.FA"/>
+    <author>
+      <name>Prachi Loliencar</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/0903.3845v1</id>
+    <title>Harmonic Analysis Lecture Notes</title>
+    <updated>2009-03-23T19:37:00Z</updated>
+    <link href="https://arxiv.org/abs/0903.3845v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/0903.3845v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>  These notes present a first graduate course in harmonic analysis.
+  The first part emphasizes Fourier series, since so many aspects of harmonic analysis arise already in that classical context. The Hilbert transform is treated on the circle, for example, where it is used to prove L^p convergence of Fourier series. Maximal functions and Calderon--Zygmund decompositions are treated in R^d, so that they can be applied again in the second part of the course, where the Fourier transform is studied. The final part of the course treats band limited functions, Poisson summation and uncertainty principles.
+  Distribution functions and interpolation are covered in the Appendices.
+  The references at the beginning of each chapter provide guidance to students who wish to delve more deeply, or roam more widely, in the subject.</summary>
+    <category term="math.CA" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2009-03-23T19:37:00Z</published>
+    <arxiv:comment>176 pages</arxiv:comment>
+    <arxiv:primary_category term="math.CA"/>
+    <author>
+      <name>Richard S. Laugesen</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/1709.03377v1</id>
+    <title>Notes on Harmonic Analysis Part I: The Fourier Transform</title>
+    <updated>2017-08-28T21:24:28Z</updated>
+    <link href="https://arxiv.org/abs/1709.03377v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/1709.03377v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Fourier Transforms is a first in a series of monographs we present on harmonic analysis. Harmonic analysis is one of the most fascinating areas of research in mathematics. Its centrality in the development of many areas of mathematics such as partial differential equations and integration theory and its many and diverse applications in sciences and engineering fields makes it an attractive field of study and research.
+  The purpose of these notes is to introduce the basic ideas and theorems of the subject to students of mathematics, physics or engineering sciences. Our goal is to illustrate the topics with utmost clarity and accuracy, readily understandable by the students or interested readers. Rather than providing just the outlines or sketches of the proofs, we have actually provided the complete proofs of all theorems. This will illuminate the necessary steps taken and the machinery used to complete each proof.
+  The prerequisite for understanding the topics presented is the knowledge of Lebesgue measure and integral. This will provide ample mathematical background for an advanced undergraduate or a graduate student in mathematics.</summary>
+    <category term="math.CA" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2017-08-28T21:24:28Z</published>
+    <arxiv:primary_category term="math.CA"/>
+    <author>
+      <name>Kecheng Zhou</name>
+    </author>
+    <author>
+      <name>Vali Siadat</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2407.18229v2</id>
+    <title>Joyce structures and their twistor spaces</title>
+    <updated>2024-12-13T18:21:21Z</updated>
+    <link href="https://arxiv.org/abs/2407.18229v2" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2407.18229v2" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Joyce structures are a class of geometric structures which first arose in relation to holomorphic generating functions for Donaldson-Thomas invariants. They can be thought of as non-linear analogues of Frobenius structures, or as special classes of complex hyperkahler manifolds. We give a detailed introduction to Joyce structures, with particular focus on the geometry of the associated twistor space. We also prove several new results.</summary>
+    <category term="math.AG" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2024-07-25T17:48:43Z</published>
+    <arxiv:comment>Published version. To appear in Advances in Mathematics. arXiv admin note: text overlap with arXiv:2303.07061</arxiv:comment>
+    <arxiv:primary_category term="math.AG"/>
+    <author>
+      <name>Tom Bridgeland</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/math-ph/0005032v1</id>
+    <title>An Elementary Introduction to Groups and Representations</title>
+    <updated>2000-05-31T16:44:12Z</updated>
+    <link href="https://arxiv.org/abs/math-ph/0005032v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/math-ph/0005032v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>  These notes give an elementary introduction to Lie groups, Lie algebras, and their representations. Designed to be accessible to graduate students in mathematics or physics, they have a minimum of prerequisites. Topics include definitions and examples of Lie groups and Lie algebras, the relationship between Lie groups and Lie algebras via the exponential mapping, the basics of representations theory, the Baker-Campbell-Hausdorff formula, a detailed study of the representations of SU(3), and a brief survey of the representation theory of general semisimple groups.</summary>
+    <category term="math-ph" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2000-05-31T16:44:12Z</published>
+    <arxiv:primary_category term="math-ph"/>
+    <arxiv:journal_ref>Expanded version published by Springer-Verlag, Graduate Texts in Mathematics #222, 2003</arxiv:journal_ref>
+    <author>
+      <name>Brian C. Hall</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/hep-th/0212218v3</id>
+    <title>D-branes, orbifolds, and Ext groups</title>
+    <updated>2003-12-18T02:25:40Z</updated>
+    <link href="https://arxiv.org/abs/hep-th/0212218v3" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/hep-th/0212218v3" rel="related" type="application/pdf" title="pdf"/>
+    <summary>  In this note we extend previous work on massless Ramond spectra of open strings connecting D-branes wrapped on complex manifolds, to consider D-branes wrapped on smooth complex orbifolds. Using standard methods, we calculate the massless boundary Ramond sector spectra directly in BCFT, and find that the states in the spectrum are counted by Ext groups on quotient stacks (which provide a notion of homological algebra relevant for orbifolds). Subtleties that cropped up in our previous work also appear here. We also use the McKay correspondence to relate Ext groups on quotient stacks to Ext groups on (large radius) resolutions of the quotients. As stacks are not commonly used in the physics community, we include pedagogical discussions of some basic relevant properties of stacks.</summary>
+    <category term="hep-th" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2002-12-18T17:10:41Z</published>
+    <arxiv:comment>51 pages, 3 figures; v2: material on Freed-Witten added; v3: more typos fixed</arxiv:comment>
+    <arxiv:primary_category term="hep-th"/>
+    <arxiv:journal_ref>Nucl.Phys. B673 (2003) 263-300</arxiv:journal_ref>
+    <author>
+      <name>S. Katz</name>
+    </author>
+    <author>
+      <name>T. Pantev</name>
+    </author>
+    <author>
+      <name>E. Sharpe</name>
+    </author>
+    <arxiv:doi>10.1016/j.nuclphysb.2003.09.022</arxiv:doi>
+    <link rel="related" href="https://doi.org/10.1016/j.nuclphysb.2003.09.022" title="doi"/>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/math/0311369v1</id>
+    <title>An introduction to harmonic analysis on the infinite symmetric group</title>
+    <updated>2003-11-21T01:34:30Z</updated>
+    <link href="https://arxiv.org/abs/math/0311369v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/math/0311369v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>  The aim of the present survey paper is to provide an accessible introduction to a new chapter of representation theory - harmonic analysis for noncommutative groups with infinite-dimensional dual space.
+  I omitted detailed proofs but tried to explain the main ideas of the theory and its connections with other fields. The fact that irreducible representations of the groups in question depend on infinitely many parameters leads to a number of new effects which never occurred in conventional noncommutative harmonic analysis. A link with stochastic point processes is especially emphasized.
+  The exposition focuses on a single group, the infinite symmetric group. The reason is that presently this particular example is worked out the most. Furthermore, the infinite symmetric group can serve as a very good model for more complicated groups like the infinite-dimensional unitary group.</summary>
+    <category term="math.RT" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="math.CO" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2003-11-21T01:34:30Z</published>
+    <arxiv:comment>Latex, 35 pages, no figures</arxiv:comment>
+    <arxiv:primary_category term="math.RT"/>
+    <arxiv:journal_ref>In: Asymptotic Combinatorics with Applications to Mathematical Physics (A.M.Vershik, ed.), Springer LNM 1815 (2003), 127-160</arxiv:journal_ref>
+    <author>
+      <name>Grigori Olshanski</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2412.08531v1</id>
+    <title>Invariant Stability Conditions on Certain Calabi-Yau Threefolds</title>
+    <updated>2024-12-11T16:39:54Z</updated>
+    <link href="https://arxiv.org/abs/2412.08531v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2412.08531v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>We apply results on inducing stability conditions to local Calabi-Yau threefolds and obtain applications to Donaldson-Thomas (DT) theory. A basic example is the total space of the canonical bundle of $Z=\mathbb{P}^1\times \mathbb{P}^1$. We use a result of Dell to construct stability conditions on the derived category of $X$ for which all stable objects can be explicitly described. We relate them to stability conditions on the resolved conifold $Y=\mathscr{O}_{\mathbb{P}^1}(-1)^{\oplus 2}$ in two ways: geometrically via the McKay correspondence, and algebraically via a quotienting operation on quivers with potential. These stability conditions were first discussed in the physics literature by Closset and del Zotto, and were constructed mathematically by Xiong by a different method. We obtain a complete description of the corresponding DT invariants, from which we can conclude that they define analytic wall-crossing structures in the sense of Kontsevich and Soibelman. In the last section we discuss several other examples of a similar flavour.</summary>
+    <category term="math.AG" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="hep-th" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="math-ph" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2024-12-11T16:39:54Z</published>
+    <arxiv:comment>25 pages, 11 figures. Comments are welcome!</arxiv:comment>
+    <arxiv:primary_category term="math.AG"/>
+    <author>
+      <name>Tom Bridgeland</name>
+    </author>
+    <author>
+      <name>Fabrizio Del Monte</name>
+    </author>
+    <author>
+      <name>Luca Giovenzana</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2303.07061v4</id>
+    <title>Tau Functions from Joyce Structures</title>
+    <updated>2024-12-18T14:06:34Z</updated>
+    <link href="https://arxiv.org/abs/2303.07061v4" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2303.07061v4" rel="related" type="application/pdf" title="pdf"/>
+    <summary>We argued in [Proc. Sympos. Pure Math., Vol. 103, American Mathematical Society, Providence, RI, 2021, 1-66, arXiv:1912.06504] that, when a certain sub-exponential growth property holds, the Donaldson-Thomas invariants of a 3-Calabi-Yau triangulated category should give rise to a geometric structure on its space of stability conditions called a Joyce structure. In this paper, we show how to use a Joyce structure to define a generating function which we call the $τ$-function. When applied to the derived category of the resolved conifold, this reproduces the non-perturbative topological string partition function of [J. Differential Geom. 115 (2020), 395-435, arXiv:1703.02776]. In the case of the derived category of the Ginzburg algebra of the A$_2$ quiver, we obtain the Painlevé I $τ$-function.</summary>
+    <category term="math.AG" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="hep-th" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="math-ph" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2023-03-13T12:29:32Z</published>
+    <arxiv:comment>Some material from v1 has been moved to the new preprint "Joyce structures and their twistor spaces"</arxiv:comment>
+    <arxiv:primary_category term="math.AG"/>
+    <arxiv:journal_ref>SIGMA 20 (2024), 112, 26 pages</arxiv:journal_ref>
+    <author>
+      <name>Tom Bridgeland</name>
+    </author>
+    <arxiv:doi>10.3842/SIGMA.2024.112</arxiv:doi>
+    <link rel="related" href="https://doi.org/10.3842/SIGMA.2024.112" title="doi"/>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2305.17213v4</id>
+    <title>Derived categories of Fano threefolds and degenerations</title>
+    <updated>2024-11-27T05:09:58Z</updated>
+    <link href="https://arxiv.org/abs/2305.17213v4" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2305.17213v4" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Using the technique of categorical absorption of singularities we prove that the nontrivial components of the derived categories of del Pezzo threefolds of degree $d \in \{2,3,4,5\}$ and crepant categorical resolutions of the nontrivial components of the derived categories of nodal del Pezzo threefolds of degree $d = 1$ can be smoothly deformed to the nontrivial components of the derived categories of prime Fano threefolds of genus $g = 2d + 2 \in \{4,6,8,10,12\}$. This corrects and proves the Fano threefolds conjecture of the first author from [Kuz09], and opens a way to interesting geometric applications, including a relation between the intermediate Jacobians and Hilbert schemes of curves of the above threefolds. We also describe a compactification of the moduli stack of prime Fano threefolds endowed with an appropriate exceptional bundle and its boundary component that corresponds to degenerations associated with del Pezzo threefolds.</summary>
+    <category term="math.AG" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2023-05-26T19:14:23Z</published>
+    <arxiv:comment>39 pages; v4: final version</arxiv:comment>
+    <arxiv:primary_category term="math.AG"/>
+    <author>
+      <name>Alexander Kuznetsov</name>
+    </author>
+    <author>
+      <name>Evgeny Shinder</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/alg-geom/9606006v5</id>
+    <title>Equivalences of derived categories and K3 surfaces</title>
+    <updated>2009-11-28T02:16:12Z</updated>
+    <link href="https://arxiv.org/abs/alg-geom/9606006v5" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/alg-geom/9606006v5" rel="related" type="application/pdf" title="pdf"/>
+    <summary>  We consider derived categories of coherent sheaves on smooth projective varieties. We prove that any equivalence between them can be represented by an object on the product. Using this, we give a necessary and sufficient condition for equivalence of derived categories of two K3 surfaces.</summary>
+    <category term="math.AG" scheme="http://arxiv.org/schemas/atom"/>
+    <published>1996-06-07T12:29:42Z</published>
+    <arxiv:comment>28 pages, LaTeX file</arxiv:comment>
+    <arxiv:primary_category term="math.AG"/>
+    <arxiv:journal_ref>J. Math. Sci. (New York) 84 (1997), no. 5, 1361--1381</arxiv:journal_ref>
+    <author>
+      <name>Dmitri Orlov</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2411.18554v2</id>
+    <title>Bridgeland/Weak Stability Conditions under Spherical Twist Associated to A Torsion Sheaf</title>
+    <updated>2025-10-24T16:32:53Z</updated>
+    <link href="https://arxiv.org/abs/2411.18554v2" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2411.18554v2" rel="related" type="application/pdf" title="pdf"/>
+    <summary>In this paper, we study the action of an autoequivalence, the spherical twist associated to a torsion sheaf, on the standard Bridgeland stability conditions and a generalized weak stability condition on the derived category of a K3 surface. As a special case, we construct a Bridgeland stability condition associated to a non-nef divisor, which conjecturally lies in the geometric component but outside the geometric chamber. We also discuss the destabilizing objects and stability of certain line bundles at the weak stability condition associated to a nef divisor.</summary>
+    <category term="math.AG" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2024-11-27T17:52:45Z</published>
+    <arxiv:primary_category term="math.AG"/>
+    <author>
+      <name>Tristan C. Collins</name>
+    </author>
+    <author>
+      <name>Jason Lo</name>
+    </author>
+    <author>
+      <name>Yun Shi</name>
+    </author>
+    <author>
+      <name>Shing-Tung Yau</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2402.07154v3</id>
+    <title>Mukai bundles on Fano threefolds</title>
+    <updated>2025-09-24T21:32:09Z</updated>
+    <link href="https://arxiv.org/abs/2402.07154v3" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2402.07154v3" rel="related" type="application/pdf" title="pdf"/>
+    <summary>We give a proof of Mukai's Theorem on the existence of certain exceptional vector bundles on prime Fano threefolds. To our knowledge this is the first complete proof in the literature. The result is essential for Mukai's biregular classification of prime Fano threefolds, and for the existence of semiorthogonal decompositions in their derived categories.
+  Our approach is based on Lazarsfeld's construction that produces vector bundles on a variety from globally generated line bundles on a divisor, on Mukai's theory of stable vector bundles on K3 surfaces, and on Brill--Noether properties of curves and (in the sense of Mukai) of K3 surfaces.</summary>
+    <category term="math.AG" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2024-02-11T10:53:24Z</published>
+    <arxiv:comment>40 pages; v3: final version, to appear in Compos. Math</arxiv:comment>
+    <arxiv:primary_category term="math.AG"/>
+    <author>
+      <name>Arend Bayer</name>
+    </author>
+    <author>
+      <name>Alexander Kuznetsov</name>
+    </author>
+    <author>
+      <name>Emanuele Macrì</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/1409.6128v3</id>
+    <title>Gordon's Conjectures: Pontryagin-van Kampen duality and the Fourier transform in hyperfinite setting</title>
+    <updated>2019-03-31T16:03:16Z</updated>
+    <link href="https://arxiv.org/abs/1409.6128v3" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/1409.6128v3" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Using the ideas of E.I. Gordon we present and farther advance an approach, based on nonstandard analysis, to simultaneous approximations of locally compact abelian groups and their duals by (hyper)finite abelian groups, as well as to approximations of various types of Fourier transforms on them by the discrete Fourier transform. Combining some methods of nonstandard analysis and additive combinatorics we prove the three Gordon's Conjectures which were open since 1991 and are crucial both in the formulations and proofs of the LCA groups and Fourier transform approximation theorems.</summary>
+    <category term="math.CA" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="math.FA" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="math.LO" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2014-09-22T09:41:05Z</published>
+    <arxiv:primary_category term="math.CA"/>
+    <author>
+      <name>Pavol Zlatos</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/alg-geom/9410026v1</id>
+    <title>Exceptional vector bundle on Enriques surfaces</title>
+    <updated>1994-10-26T10:51:35Z</updated>
+    <link href="https://arxiv.org/abs/alg-geom/9410026v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/alg-geom/9410026v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>  The main purpose in this paper is to study exceptional vector bundles on Enriques surfaces.</summary>
+    <category term="math.AG" scheme="http://arxiv.org/schemas/atom"/>
+    <published>1994-10-26T10:51:35Z</published>
+    <arxiv:comment>12 pages, LATEX</arxiv:comment>
+    <arxiv:primary_category term="math.AG"/>
+    <author>
+      <name>Severinas Zube</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/math/0212237v3</id>
+    <title>Stability conditions on triangulated categories</title>
+    <updated>2006-02-08T15:21:35Z</updated>
+    <link href="https://arxiv.org/abs/math/0212237v3" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/math/0212237v3" rel="related" type="application/pdf" title="pdf"/>
+    <summary>  This paper introduces the notion of a stability condition on a triangulated category. The motivation comes from the study of Dirichlet branes in string theory, and especially from M.R. Douglas's notion of $Π$-stability. From a mathematical point of view, the most interesting feature of the definition is that the set of stability conditions $\Stab(\T)$ on a fixed category $\T$ has a natural topology, thus defining a new invariant of triangulated categories. After setting up the necessary definitions I prove a deformation result which shows that the space $\Stab(\T)$ with its natural topology is a manifold, possibly infinite-dimensional.</summary>
+    <category term="math.AG" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="math.CT" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2002-12-17T17:26:16Z</published>
+    <arxiv:comment>A minor change in terminology (centered slope function becomes stability function). The result on stability conditions on curves of positive genus is removed since E. Macri found a much better proof in math/0411613. A false statement pointed out by S. Okada has also been removed. To appear in Annals of Maths</arxiv:comment>
+    <arxiv:primary_category term="math.AG"/>
+    <author>
+      <name>Tom Bridgeland</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2505.03433v1</id>
+    <title>Clusters, twistors and stability conditions I</title>
+    <updated>2025-05-06T11:17:45Z</updated>
+    <link href="https://arxiv.org/abs/2505.03433v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2505.03433v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>We consider a quiver $Q$ of ADE type and use cluster combinatorics to define two complex manifolds $\mathcal S$ and $\mathcal L$. The space $\mathcal S$ can be identified with a quotient of the space of stability conditions on the CY$_3$ category associated to $Q$. The space $\mathcal L$ has a canonical map to the complex cluster Poisson space $\mathcal X_{\mathbb C}$ which we prove to be a local homeomorphism. When $Q$ is of type $A$, we give a geometric description of the spaces $\mathcal S$ and $\mathcal L$ as moduli spaces of meromorphic quadratic differentials and projective structures respectively. In the sequel paper we will introduce a space $Z\to \mathbb C$ whose fibre over over a point $ε\in \mathbb C$ is isomorphic to $\mathcal S$ when $ε=0$ and to $\mathcal L$ otherwise. The problem of constructing sections of this map gives a geometric approach to the Riemann-Hilbert problems defined by the Donaldson-Thomas invariants.</summary>
+    <category term="math.AG" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="math.RT" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2025-05-06T11:17:45Z</published>
+    <arxiv:comment>51 pages</arxiv:comment>
+    <arxiv:primary_category term="math.AG"/>
+    <author>
+      <name>Tom Bridgeland</name>
+    </author>
+    <author>
+      <name>Helge Ruddat</name>
+    </author>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/math/0001043v2</id>
+    <title>Braid group actions on derived categories of coherent sheaves</title>
+    <updated>2000-08-30T17:28:42Z</updated>
+    <link href="https://arxiv.org/abs/math/0001043v2" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/math/0001043v2" rel="related" type="application/pdf" title="pdf"/>
+    <summary>  This paper gives a construction of braid group actions on the derived category of coherent sheaves on a variety $X$. The motivation for this is Kontsevich's homological mirror conjecture, together with the occurrence of certain braid group actions in symplectic geometry. One of the main results is that when $\dim X \geq 2$, our braid group actions are always faithful.
+  We describe conjectural mirror symmetries between smoothings and resolutions of singularities that lead us to find examples of braid group actions arising from crepant resolutions of various singularities. Relations with the McKay correspondence and with exceptional sheaves on Fano manifolds are given. Moreover, the case of an elliptic curve is worked out in some detail.</summary>
+    <category term="math.AG" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="hep-th" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="math.SG" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2000-01-07T21:36:50Z</published>
+    <arxiv:comment>63 pages, 6 figures. Minor referees' changes for publication in Duke Math. Jour</arxiv:comment>
+    <arxiv:primary_category term="math.AG"/>
+    <arxiv:journal_ref>Duke Math. Jour. 108 (2001), 37--108.</arxiv:journal_ref>
+    <author>
+      <name>Paul Seidel</name>
+    </author>
+    <author>
+      <name>R. P. Thomas</name>
+    </author>
+  </entry>
+</feed>

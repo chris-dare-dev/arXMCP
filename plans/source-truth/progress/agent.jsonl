@@ -1,0 +1,4 @@
+{"id": "source-truth-spike-1", "field": "status", "value": "in_progress", "at": "2026-07-12T19:27:00-04:00", "actor": "agent"}
+{"id": "source-truth-spike-2", "field": "status", "value": "in_progress", "at": "2026-07-12T19:27:01-04:00", "actor": "agent"}
+{"id": "source-truth-spike-1", "field": "status", "value": "done", "at": "2026-07-12T19:56:57-04:00", "actor": "milestone-pipeline", "note": "0/30 Atom license (fails-as-scoped); OAI-PMH carries it; 100% fail-closed FLAGGED >20%"}
+{"id": "source-truth-spike-2", "field": "status", "value": "done", "at": "2026-07-12T19:56:58-04:00", "actor": "milestone-pipeline", "note": "99%/96.6%/92.8% coverage; holds >=80%; 1 old-style total-loss flagged for per-paper fallback"}
