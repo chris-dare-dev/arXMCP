@@ -819,6 +819,115 @@ def _extract_section_chunks(
     return chunks
 
 
+def _extract_body_fallback_chunks(
+    root: Tag,
+    paper_id: str,
+    counter: list[int],
+) -> list[ChunkRecord]:
+    """Fallback prose extraction for section-less, theorem-less renders.
+
+    LaTeXML occasionally fails its sectioning/title pass on old submission
+    formats (notably pre-2010 hep-th papers): it emits a COMPLETE body —
+    real prose in ``ltx_para``/``ltx_p`` blocks directly under
+    ``ltx_document`` with inline ``<math>`` — but ZERO
+    ``ltx_section``/``ltx_theorem`` containers. Both structural passes
+    (:func:`_extract_chunks_from_container` and
+    :func:`_extract_section_chunks`) then return nothing and the paper is
+    dropped as ``chunker_returned_empty`` despite carrying full content
+    (observed on hep-th/0002037: 93 ``ltx_para`` blocks, 321 ``<math>``,
+    title "Untitled Document").
+
+    This fallback runs ONLY when both structural passes yielded zero chunks
+    (guarded at the call site by ``if not all_chunks:``), so it can never
+    perturb a sectioned paper's output. It harvests the top-level prose
+    blocks under the document container in document order, token-packs them
+    into ``STMT_MAX_TOKENS``-bounded chunks, and emits ``kind="section"``
+    records with an empty ``section_path``. Placeholder ids are assigned
+    here; :func:`_chunk_paper_impl`'s post-pass replaces them with the
+    content-addressable :func:`_compute_chunk_id` hash and applies the same
+    dedup rule, so fallback chunks inherit determinism and collision-safety
+    unchanged.
+
+    Returns ``[]`` when there is no non-trivial harvestable prose (a
+    math-only or genuinely empty render) — preserving the empty outcome
+    that :mod:`ingest.bulk_ingest` categorizes for the residual unchunkable
+    case (the ``render_unchunkable_no_sections`` signal).
+    """
+    MIN_BLOCK_CHARS = 80  # skip trivial blocks (mirrors _extract_section_chunks)
+
+    # Locate the document container. ``root`` is <body> (or the soup);
+    # ar5iv wraps the article body in <article class="ltx_document">, with
+    # the prose sometimes one level down in <div class="ltx_page_content">.
+    doc = (
+        root.find(class_="ltx_document")
+        or root.find(class_="ltx_page_content")
+        or root
+    )
+
+    # Prefer LaTeXML's prose-block class ``ltx_para`` (a <div>), taking only
+    # TOP-LEVEL blocks (not those nested inside another ltx_para) so text is
+    # never double-counted. Fall back to raw ``ltx_p`` paragraphs, then bare
+    # <p>. Each tier is a document-order list of prose blocks.
+    blocks = [
+        b
+        for b in doc.find_all("div", class_="ltx_para")
+        if b.find_parent("div", class_="ltx_para") is None
+    ]
+    if not blocks:
+        blocks = doc.find_all("p", class_="ltx_p")
+    if not blocks:
+        blocks = doc.find_all("p")
+
+    # Math-fidelity-preserving text per non-trivial block, document order.
+    texts: list[str] = []
+    for block in blocks:
+        text = _element_text(block)
+        if len(text) >= MIN_BLOCK_CHARS:
+            texts.append(text)
+    if not texts:
+        return []
+
+    chunks: list[ChunkRecord] = []
+    buffer: list[str] = []
+    buffer_tokens = 0
+
+    def _flush() -> None:
+        nonlocal buffer, buffer_tokens
+        if not buffer:
+            return
+        prose, truncated = _truncate_to_token_budget(
+            " ".join(buffer).strip(), STMT_MAX_TOKENS
+        )
+        idx = counter[0]
+        counter[0] += 1
+        chunks.append(
+            ChunkRecord(
+                chunk_id=f"arxiv:{paper_id}:idx{idx}",
+                paper_id=paper_id,
+                kind="section",
+                section_path=[],
+                theorem_name=None,
+                theorem_label=None,
+                body_text=prose,
+                truncated=truncated,
+            )
+        )
+        buffer = []
+        buffer_tokens = 0
+
+    # Token-pack blocks into STMT_MAX_TOKENS-bounded chunks. A single block
+    # exceeding the budget is flushed alone and truncated (truncated=True).
+    for text in texts:
+        n = _count_tokens(text)
+        if buffer and buffer_tokens + n > STMT_MAX_TOKENS:
+            _flush()
+        buffer.append(text)
+        buffer_tokens += n
+    _flush()
+
+    return chunks
+
+
 # ---------------------------------------------------------------------------
 # Main public API
 # ---------------------------------------------------------------------------
@@ -899,6 +1008,16 @@ def _chunk_paper_impl(paper_id: str) -> list[ChunkRecord]:
     section_chunks = _extract_section_chunks(soup, paper_id, counter)
 
     all_chunks = theorem_chunks + section_chunks
+
+    # ingest-robustness-m1 (AC1): section-less fallback. LaTeXML sometimes
+    # renders a complete body (ltx_para/ltx_p prose + inline <math>) with
+    # ZERO ltx_section/ltx_theorem containers on old submission formats, so
+    # both passes above yield nothing and the paper is dropped despite
+    # carrying full content. Recover the prose ONLY when both passes were
+    # empty — this guard guarantees byte-identical output for every
+    # sectioned paper (they always yield >=1 chunk from pass 1 or 2).
+    if not all_chunks:
+        all_chunks = _extract_body_fallback_chunks(root, paper_id, counter)
 
     # E02_S02 wire-in: resolve the per-paper preamble (full PreambleDoc, not
     # just the hash) so we can both stamp ``preamble_ref`` (the hash) and
