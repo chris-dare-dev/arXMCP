@@ -107,7 +107,8 @@ class TestNotebookCrud:
         assert body["slug"] == "demo-nb"
         assert body["display_name"] == "Demo notebook"
         assert "lancedb_path" in body
-        assert body["lancedb_path"].endswith("demo-nb/lancedb")
+        # normalize separators: the path is backslash-joined on Windows
+        assert body["lancedb_path"].replace("\\", "/").endswith("demo-nb/lancedb")
 
     def test_create_then_list_returns_row(self, client: TestClient) -> None:
         client.post("/ui/api/notebooks", json={"slug": "demo-nb"})

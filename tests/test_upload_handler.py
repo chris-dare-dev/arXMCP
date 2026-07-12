@@ -226,8 +226,10 @@ class TestFilenameSanitization:
         # And there is NO file at the malicious path.
         assert not Path("/etc/passwd-fake-test-marker").exists()
         # Nor anywhere outside the notebook ar5iv/ dir.
+        # .as_posix() so the "demo-nb/ar5iv" containment check below holds
+        # on Windows, where str(Path) uses backslash separators.
         all_files = [
-            str(p) for p in notebooks_base.rglob("*") if p.is_file()
+            p.as_posix() for p in notebooks_base.rglob("*") if p.is_file()
         ]
         for f in all_files:
             assert "demo-nb/ar5iv" in f, (

@@ -29,6 +29,7 @@ from ingest.textbook_chunker import (
     _textbook_html_path,
     chunk_textbook,
 )
+from tests._symlink_support import requires_symlink
 
 FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures" / "textbook_chunker"
 
@@ -382,6 +383,7 @@ class TestResilience:
         with pytest.raises(ValueError):
             chunk_textbook("good-slug", "not a valid paper id")
 
+    @requires_symlink
     def test_symlink_notebook_dir_refused(self, tmp_path: Path) -> None:
         """m7 F3 regression: if var/arxmcp/notebooks/<slug> is a symlink,
         chunk_textbook refuses (routes through notebook_dir's symlink

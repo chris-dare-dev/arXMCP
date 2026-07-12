@@ -29,11 +29,13 @@ stayed flat).
 from __future__ import annotations
 
 import json
+import sys
 import threading
 from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
+import pytest
 
 import ingest.embedder as embedder_mod
 from ingest.chunker_types import CHUNKER_VERSION
@@ -1031,6 +1033,19 @@ class TestDuplicateChunkIdRejected:
 # ===========================================================================
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "This stress test relies on os.replace() being an atomic "
+        "overwrite while a CONCURRENT process holds the destination (a "
+        "POSIX rename guarantee). On Windows os.replace() raises "
+        "PermissionError (WinError 5) when the target is held, so one of "
+        "two racing writers to the SAME embeddings.npz fails loud. The "
+        "no-corruption invariant still holds (the loser errors instead of "
+        "writing garbage), but the test asserts BOTH writers exit 0, which "
+        "cannot hold under Windows rename semantics."
+    ),
+)
 class TestMultiProcessConcurrency:
     def test_concurrent_processes_do_not_corrupt(self, tmp_path):
         # F2: AC #5 says "two embedder PROCESSES run concurrently". The

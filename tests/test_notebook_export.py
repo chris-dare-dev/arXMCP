@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import sys
 import tarfile
 from collections.abc import Iterator
 from pathlib import Path
@@ -33,6 +34,7 @@ from server.main import _is_exempt_path
 from server.notebooks_store import NotebooksStore
 from server.routes import notebooks as notebooks_module
 from server.routes.notebooks import router as notebooks_router
+from tests._symlink_support import requires_symlink
 from tools import _notebook_common
 
 
@@ -215,6 +217,7 @@ class TestErrorCases:
 
 
 class TestPreflightSafety:
+    @requires_symlink
     def test_symlink_under_slug_dir_is_skipped_and_warned(
         self, exp_client, caplog
     ) -> None:
@@ -312,6 +315,14 @@ class TestPreflightAdditional:
             for rec in caplog.records
         )
 
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason=(
+            "Windows forbids control chars (0x01) in filenames, so the "
+            "malicious fixture cannot even be created (OSError 22). POSIX "
+            "allows it, exercising the export control-char skip there."
+        ),
+    )
     def test_filename_with_control_char_is_skipped(
         self, exp_client, caplog
     ) -> None:
@@ -340,6 +351,7 @@ class TestPreflightAdditional:
             for rec in caplog.records
         )
 
+    @requires_symlink
     def test_slug_level_symlink_returns_422(self, exp_client) -> None:
         """m6-rect F4: if ``<base>/<slug>`` is ITSELF a symlink,
         ``notebook_dir(slug)`` raises ``NotebookError`` → 422 (the existing

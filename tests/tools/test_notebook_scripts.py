@@ -24,6 +24,7 @@ from pathlib import Path
 import pytest
 
 from ingest.ar5iv_fetch import Ar5ivResult
+from tests._symlink_support import requires_symlink
 from tools import _notebook_common, notebook_fetch, notebook_ingest, notebook_init, notebook_purge
 from tools._notebook_common import NotebookError, validate_slug
 
@@ -516,6 +517,7 @@ def test_purge_corpus_too_rejects_malformed_paper_ids(
     assert sentinel_root.exists()
 
 
+@requires_symlink
 def test_notebook_dir_rejects_symlink(tmp_path: Path) -> None:
     """F3 regression (HIGH): if nb_base/<slug> is a symlink, refuse."""
     base = tmp_path / "nb_base"

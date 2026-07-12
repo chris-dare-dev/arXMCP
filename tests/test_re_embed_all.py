@@ -13,6 +13,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
+from tests._symlink_support import requires_symlink
 from tools.re_embed_all import (
     discover_targets,
     run,
@@ -105,6 +106,7 @@ class TestDiscovery:
         )
         assert targets == []
 
+    @requires_symlink
     def test_skips_symlinked_notebook_dir(self, tmp_path, caplog):
         """F3 (rect): align with the m6 F3 symlink-rejection contract
         codified at tools/_notebook_common.py::notebook_dir. A symlink

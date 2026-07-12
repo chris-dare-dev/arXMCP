@@ -47,6 +47,7 @@ from server.resources import (
     Resources,
     Singleflight,
 )
+from tests._symlink_support import requires_symlink
 
 # ===========================================================================
 # Fixtures
@@ -733,6 +734,7 @@ class TestNotebookLancedbPathHelper:
             with pytest.raises(NotebookError):
                 notebook_lancedb_path(bad, base=base)
 
+    @requires_symlink
     def test_helper_rejects_symlinked_notebook(self, tmp_path):
         """notebook_dir's m6 F3 symlink rejection flows through the
         shared helper."""

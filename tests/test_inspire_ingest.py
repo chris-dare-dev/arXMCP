@@ -34,6 +34,7 @@ import kuzu
 import pytest
 
 from ingest import graph_ingest, inspire_ingest, kuzudb_schema
+from tests._graph_helpers import kuzu_reopen_unsupported_on_windows
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -219,6 +220,7 @@ class TestSchemaV2:
             del db
         assert {"doi", "journal_ref", "inspire_id"}.issubset(cols)
 
+    @kuzu_reopen_unsupported_on_windows
     def test_simulated_v1_db_migrates_to_v2(self, tmp_path: Path):
         """Stand up a V1-shaped DB by hand (without the v2 ALTERs) and
         verify ``apply_schema`` brings it up to v2 without error."""
@@ -566,6 +568,7 @@ class TestCrossSourceEdges:
     INSPIRE writes its own edges. The MERGE-key composition (source is part
     of the edge identity) is the structural guarantee."""
 
+    @kuzu_reopen_unsupported_on_windows
     def test_both_sources_edges_coexist(
         self,
         stub_fetcher: list[str],
@@ -626,6 +629,7 @@ class TestE09S02RectificationGuards:
     silently re-open a closed finding.
     """
 
+    @kuzu_reopen_unsupported_on_windows
     def test_f1_inspire_remerge_preserves_doi_when_response_drops_field(
         self, populated_db: Path
     ):
@@ -713,6 +717,7 @@ class TestE09S02RectificationGuards:
         assert row[0] == "10.1234/UPDATED"
         assert row[1] == "JHEP (2024)"
 
+    @kuzu_reopen_unsupported_on_windows
     def test_f2_enrich_accepts_old_style_hep_th_id(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -838,6 +843,7 @@ class TestE09S02RectificationGuards:
                 "../../etc/passwd", "test@example.com"
             )
 
+    @kuzu_reopen_unsupported_on_windows
     def test_f6_failure_run_flushes_checkpoint_at_batch_size(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -882,6 +888,7 @@ class TestE09S02RectificationGuards:
         failed_ids = {entry["arxiv_id"] for entry in payload["fetch_failures"]}
         assert failed_ids == set(ids)
 
+    @kuzu_reopen_unsupported_on_windows
     def test_f8_arxiv_categories_filter_anchor_for_post_f9(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -970,6 +977,7 @@ class TestFFindingInheritance:
         assert inspire_ingest.INSPIRE_MAX_RESPONSE_BYTES <= 16 * 1024 * 1024
         assert inspire_ingest.INSPIRE_MAX_RESPONSE_BYTES < ARXIV_CAP
 
+    @kuzu_reopen_unsupported_on_windows
     def test_f3_fetch_failure_tracked_and_retried(
         self,
         monkeypatch: pytest.MonkeyPatch,

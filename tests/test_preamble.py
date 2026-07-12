@@ -37,6 +37,7 @@ from ingest.preamble import (
     load_preamble,
 )
 from ingest.preamble_types import PreambleDoc
+from tests._symlink_support import requires_symlink
 
 FIXTURE_TEX = Path(__file__).parent / "fixtures" / "preamble" / "sample.tex"
 
@@ -54,7 +55,13 @@ def _stage_paper(tmp_path: Path, paper_id: str, tex_source: str) -> Path:
     raw_dir = tmp_path / "raw"
     paper_dir = raw_dir / paper_id
     paper_dir.mkdir(parents=True)
-    (paper_dir / f"{paper_id}.tex").write_text(tex_source, encoding="utf-8")
+    # newline="" disables the platform newline translation that write_text
+    # applies by default (LF->CRLF on Windows). The extractor hashes the
+    # raw bytes of this file (ingest/preamble.py source_hash), so a CRLF
+    # rewrite here would break the byte-stable source_hash contract.
+    (paper_dir / f"{paper_id}.tex").write_text(
+        tex_source, encoding="utf-8", newline="",
+    )
     return paper_dir
 
 
@@ -254,7 +261,7 @@ class TestExtractFixturePaper:
         # produces a macros list of length 4". Our richer fixture goes further
         # — 5 \\newcommand + 1 \\renewcommand + 1 \\providecommand + 2 DMO +
         # 4 \\def-family + 2 \\let = 15 macros — but the floor is satisfied.
-        tex = FIXTURE_TEX.read_text()
+        tex = FIXTURE_TEX.read_text(encoding="utf-8")
         macros = _extract_macros(tex)
         # Count by directive family
         n_newcommand = sum(1 for m in macros if m.startswith(r"\newcommand"))
@@ -263,17 +270,17 @@ class TestExtractFixturePaper:
         assert n_decl_math >= 1, f"need >=1 DeclareMathOperator, got {n_decl_math}"
 
     def test_extracted_macros_are_sorted(self, tmp_path):
-        tex = FIXTURE_TEX.read_text()
+        tex = FIXTURE_TEX.read_text(encoding="utf-8")
         macros = _extract_macros(tex)
         assert macros == sorted(macros)
 
     def test_extracted_macros_are_unique(self, tmp_path):
-        tex = FIXTURE_TEX.read_text()
+        tex = FIXTURE_TEX.read_text(encoding="utf-8")
         macros = _extract_macros(tex)
         assert len(macros) == len(set(macros))
 
     def test_commented_out_macro_not_extracted(self, tmp_path):
-        tex = FIXTURE_TEX.read_text()
+        tex = FIXTURE_TEX.read_text(encoding="utf-8")
         macros = _extract_macros(tex)
         # The fixture has "% \\newcommand{\\fake}{x}" inside a comment.
         for m in macros:
@@ -282,7 +289,7 @@ class TestExtractFixturePaper:
     def test_escaped_percent_macro_extracted(self):
         # \halfoff body contains "50\\%" — the literal percent must NOT be
         # treated as a comment-starter by the extractor.
-        tex = FIXTURE_TEX.read_text()
+        tex = FIXTURE_TEX.read_text(encoding="utf-8")
         macros = _extract_macros(tex)
         assert any(r"\halfoff" in m for m in macros), (
             "escaped percent in body must not break extraction"
@@ -290,7 +297,7 @@ class TestExtractFixturePaper:
 
     def test_full_pipeline_produces_preamble_doc(self, tmp_path):
         paper_id = "2307.00001"
-        tex = FIXTURE_TEX.read_text()
+        tex = FIXTURE_TEX.read_text(encoding="utf-8")
         _stage_paper(tmp_path, paper_id, tex)
         doc = _patched_extract(tmp_path, paper_id)
         assert isinstance(doc, PreambleDoc)
@@ -300,12 +307,12 @@ class TestExtractFixturePaper:
 
     def test_writes_preamble_json(self, tmp_path):
         paper_id = "2307.00001"
-        tex = FIXTURE_TEX.read_text()
+        tex = FIXTURE_TEX.read_text(encoding="utf-8")
         _stage_paper(tmp_path, paper_id, tex)
         _patched_extract(tmp_path, paper_id)
         out = tmp_path / "preamble" / paper_id / "preamble.json"
         assert out.exists()
-        data = json.loads(out.read_text())
+        data = json.loads(out.read_text(encoding="utf-8"))
         # Sorted keys per BP1
         assert list(data.keys()) == sorted(data.keys())
 
@@ -320,14 +327,14 @@ class TestPreambleHashContract:
 
     def test_hash_matches_sha256_prefix(self, tmp_path):
         paper_id = "2307.00001"
-        _stage_paper(tmp_path, paper_id, FIXTURE_TEX.read_text())
+        _stage_paper(tmp_path, paper_id, FIXTURE_TEX.read_text(encoding="utf-8"))
         doc = _patched_extract(tmp_path, paper_id)
         expected = hashlib.sha256(doc.preamble_text.encode("utf-8")).hexdigest()[:16]
         assert doc.preamble_hash == expected
 
     def test_source_hash_matches_full_sha256(self, tmp_path):
         paper_id = "2307.00001"
-        tex = FIXTURE_TEX.read_text()
+        tex = FIXTURE_TEX.read_text(encoding="utf-8")
         _stage_paper(tmp_path, paper_id, tex)
         doc = _patched_extract(tmp_path, paper_id)
         expected = hashlib.sha256(tex.encode("utf-8")).hexdigest()
@@ -345,7 +352,7 @@ class TestDeterminism:
 
     def test_two_runs_same_source_identical(self, tmp_path):
         paper_id = "2307.00001"
-        _stage_paper(tmp_path, paper_id, FIXTURE_TEX.read_text())
+        _stage_paper(tmp_path, paper_id, FIXTURE_TEX.read_text(encoding="utf-8"))
         doc1 = _patched_extract(tmp_path, paper_id)
         # Touch the preamble.json (simulate concurrent reader); doesn't affect output
         doc2 = _patched_extract(tmp_path, paper_id)
@@ -380,7 +387,7 @@ class TestIdempotency:
 
     def test_unchanged_source_no_rewrite(self, tmp_path):
         paper_id = "2307.00001"
-        _stage_paper(tmp_path, paper_id, FIXTURE_TEX.read_text())
+        _stage_paper(tmp_path, paper_id, FIXTURE_TEX.read_text(encoding="utf-8"))
         _patched_extract(tmp_path, paper_id)
         out = tmp_path / "preamble" / paper_id / "preamble.json"
         first_mtime = out.stat().st_mtime_ns
@@ -395,13 +402,13 @@ class TestIdempotency:
 
     def test_changed_source_triggers_rewrite(self, tmp_path):
         paper_id = "2307.00001"
-        _stage_paper(tmp_path, paper_id, FIXTURE_TEX.read_text())
+        _stage_paper(tmp_path, paper_id, FIXTURE_TEX.read_text(encoding="utf-8"))
         doc1 = _patched_extract(tmp_path, paper_id)
 
         # Mutate the .tex source — add a new macro
         tex_path = tmp_path / "raw" / paper_id / f"{paper_id}.tex"
         tex_path.write_text(
-            tex_path.read_text() + "\n\\newcommand{\\NewlyAdded}{x}\n",
+            tex_path.read_text(encoding="utf-8") + "\n\\newcommand{\\NewlyAdded}{x}\n",
             encoding="utf-8",
         )
         doc2 = _patched_extract(tmp_path, paper_id)
@@ -469,7 +476,7 @@ class TestLoadPreamble:
 
     def test_round_trips_through_disk(self, tmp_path):
         paper_id = "2307.00001"
-        _stage_paper(tmp_path, paper_id, FIXTURE_TEX.read_text())
+        _stage_paper(tmp_path, paper_id, FIXTURE_TEX.read_text(encoding="utf-8"))
         doc1 = _patched_extract(tmp_path, paper_id)
         with patch("ingest.preamble.PREAMBLE_DIR", tmp_path / "preamble"):
             doc2 = load_preamble(paper_id)
@@ -571,6 +578,7 @@ class TestChunkerIntegration:
 class TestF1SymlinkConfinement:
     """F1 (HIGH): refuse to read .tex outside the paper's raw dir."""
 
+    @requires_symlink
     def test_symlink_to_outside_raises(self, tmp_path):
         paper_id = "2307.00001"
         # Stage a paper directory containing a symlink that escapes
@@ -591,7 +599,7 @@ class TestF1SymlinkConfinement:
 
     def test_real_file_still_works(self, tmp_path):
         paper_id = "2307.00001"
-        _stage_paper(tmp_path, paper_id, FIXTURE_TEX.read_text())
+        _stage_paper(tmp_path, paper_id, FIXTURE_TEX.read_text(encoding="utf-8"))
         doc = _patched_extract(tmp_path, paper_id)
         assert doc.paper_id == paper_id
 
@@ -636,7 +644,7 @@ class TestF2CacheCorruption:
         # Stage paper, extract once (cache valid), then corrupt cache,
         # extract again — extractor should detect corruption and re-extract.
         paper_id = "2307.00001"
-        _stage_paper(tmp_path, paper_id, FIXTURE_TEX.read_text())
+        _stage_paper(tmp_path, paper_id, FIXTURE_TEX.read_text(encoding="utf-8"))
         doc1 = _patched_extract(tmp_path, paper_id)
         # Corrupt the cache
         cache = tmp_path / "preamble" / paper_id / "preamble.json"
@@ -668,7 +676,7 @@ class TestF3ChunkerImportFailureSurfaces:
         from pathlib import Path
         chunker_src = (
             Path(__file__).parent.parent / "ingest" / "chunker.py"
-        ).read_text()
+        ).read_text(encoding="utf-8")
         # Find the function body
         marker = "def _resolve_preamble_doc"
         idx = chunker_src.index(marker)

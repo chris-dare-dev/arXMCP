@@ -365,4 +365,6 @@ class TestDefaults:
         """The CLI helpers default to the same path Config uses for
         the notebooks DB. Drift between the two would silently store
         operator prefs in a different file than the server's reader."""
-        assert str(DEFAULT_DB_PATH) == "var/arxmcp/cache/notebooks.db"
+        # .as_posix() normalizes the separator so the logical-path check
+        # holds on Windows (str(Path) yields backslashes there).
+        assert DEFAULT_DB_PATH.as_posix() == "var/arxmcp/cache/notebooks.db"

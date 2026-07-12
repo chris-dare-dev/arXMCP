@@ -17,6 +17,7 @@ required). The suite covers all six AC items in the brief:
 from __future__ import annotations
 
 import io
+import itertools
 import json
 import textwrap
 import urllib.error
@@ -551,9 +552,18 @@ class TestRunDelta:
     def test_budget_breach_emits_sentinel(self, tmp_path):
         fetcher = _MockFetcher([_final_page(["2401.00001"])])
         flag = tmp_path / "timeout.flag"
+        # A 0.0s synthetic budget must breach on ANY elapsed time. But
+        # time.monotonic() is coarse on Windows (~15 ms), so a near-instant
+        # mock run can measure elapsed == 0.0 and (0.0 > 0.0) is False.
+        # Inject a strictly-increasing fake clock so the start->end delta is
+        # deterministically positive on every platform.
+        _clock = itertools.count(1.0)
         with patch(
             "ingest.oai_delta.ingest_one_paper",
             side_effect=lambda pid, **kw: _ok_paper_outcome(pid),
+        ), patch(
+            "ingest.oai_delta.time.monotonic",
+            side_effect=lambda: next(_clock),
         ):
             summary = run_delta(
                 sets=("math:math:AG",),

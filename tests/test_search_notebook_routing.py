@@ -206,7 +206,10 @@ class TestNotebookTableRegistry:
             return SimpleNamespace(version=42)
 
         def fake_open(*, lancedb_path, version):
-            opened.append(str(lancedb_path))
+            # Normalize to forward slashes so the ".../slug/lancedb"
+            # endswith() assertions in the memoization tests hold on
+            # Windows, where the path uses backslash separators.
+            opened.append(str(lancedb_path).replace("\\", "/"))
             return (SimpleNamespace(path=str(lancedb_path)), None)
 
         monkeypatch.setattr(res_mod, "read_corpus_version", fake_read_cv)

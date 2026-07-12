@@ -370,7 +370,9 @@ class TestSingleVersionDefinition:
         watched = {CHUNKER_VERSION, TOKENIZER_VERSION}
         violations: list[str] = []
         for py_file in sorted(ingest_dir.glob("*.py")):
-            src = py_file.read_text()
+            # encoding="utf-8": the ingest sources contain non-ASCII bytes
+            # (e.g. em-dashes) that Windows' default cp1252 decoder rejects.
+            src = py_file.read_text(encoding="utf-8")
             canonical_lit = canonical_literals.get(py_file.name)
             for lit in watched:
                 total = src.count(f'"{lit}"') + src.count(f"'{lit}'")
@@ -579,7 +581,10 @@ class TestF5FreshProcessDeterminism:
         # This isolates the determinism question to the hash path.
         script = (
             "import sys, json; "
-            "sys.path.insert(0, '" + str(repo_root) + "'); "
+            # repr() emits a valid Python string literal with proper
+            # escaping — a bare Windows path would inject invalid \U / \P
+            # escape sequences into the -c source and SyntaxError the child.
+            "sys.path.insert(0, " + repr(str(repo_root)) + "); "
             "from ingest.chunker import _compute_chunk_id; "
             "preamble = '\\\\newcommand{\\\\R}{\\\\mathbb{R}}'; "
             "body = 'Theorem 3.4. Let X be a smooth projective variety.'; "

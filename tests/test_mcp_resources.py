@@ -29,6 +29,7 @@ from server.mcp_resources import (
 )
 from server.notebooks_store import NotebooksStore
 from server.tools import register_all
+from tests._symlink_support import requires_symlink
 
 # Reuse the canonical tool-schema hash machinery (the pinned baseline).
 from tests.test_server_tool_schema import (  # noqa: E402
@@ -197,6 +198,7 @@ class TestDetailRead:
         inner = text[len("<retrieved_notebook>") : -len("</retrieved_notebook>")]
         assert json.loads(inner)["is_ingested"] is True
 
+    @requires_symlink
     def test_is_ingested_false_and_warns_on_symlink_dir(
         self, res_env, caplog
     ) -> None:

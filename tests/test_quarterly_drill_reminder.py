@@ -12,11 +12,24 @@ from __future__ import annotations
 import pathlib
 import shutil
 import subprocess
+import sys
 
 import pytest
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 SCRIPT = REPO_ROOT / "tools" / "quarterly_drill_reminder.sh"
+
+#: Marker for the tests that EXEC the shipped bash script via subprocess.
+#: On Windows the `bash` on PATH (WSL / MSYS) cannot exec a `C:\...`-path
+#: .sh — the cron this script backs runs on the POSIX ops host — so skip
+#: there. POSIX hosts with bash run them (the CLAUDE.md test authority).
+#: NOTE: test_script_resolves_repo_root_via_bash_source only READS the
+#: script text, so it deliberately keeps its own bash-presence guard and
+#: still runs on Windows.
+_requires_posix_bash = pytest.mark.skipif(
+    sys.platform == "win32" or shutil.which("bash") is None,
+    reason="POSIX bash script exec'd via subprocess; not run on Windows",
+)
 
 
 def test_script_present_and_executable():
@@ -29,9 +42,7 @@ def test_script_present_and_executable():
     )
 
 
-@pytest.mark.skipif(
-    shutil.which("bash") is None, reason="bash not on PATH"
-)
+@_requires_posix_bash
 def test_dry_run_exits_zero():
     """The brief AC explicitly names ``--dry-run`` as the
     test-able invocation path."""
@@ -48,9 +59,7 @@ def test_dry_run_exits_zero():
     )
 
 
-@pytest.mark.skipif(
-    shutil.which("bash") is None, reason="bash not on PATH"
-)
+@_requires_posix_bash
 def test_dry_run_does_not_write_reminder_file(tmp_path, monkeypatch):
     """--dry-run must NEVER write to disk. We can't easily redirect
     the script's REPO_ROOT, but we CAN run it from a clean tmp_path
@@ -79,9 +88,7 @@ def test_dry_run_does_not_write_reminder_file(tmp_path, monkeypatch):
     )
 
 
-@pytest.mark.skipif(
-    shutil.which("bash") is None, reason="bash not on PATH"
-)
+@_requires_posix_bash
 def test_real_invocation_exits_zero(tmp_path):
     """Real invocation (no --dry-run, real calendar) must exit 0
     whether the operator is in-window or out-of-window.
@@ -142,9 +149,7 @@ def test_script_resolves_repo_root_via_bash_source():
     )
 
 
-@pytest.mark.skipif(
-    shutil.which("bash") is None, reason="bash not on PATH"
-)
+@_requires_posix_bash
 def test_aborts_when_python_heredoc_fails(tmp_path):
     """F1 rectification (E14_S04 adversary critique): if the
     embedded python3 heredoc fails (DAYS_UNTIL becomes empty),
@@ -202,9 +207,7 @@ def test_aborts_when_python_heredoc_fails(tmp_path):
             )
 
 
-@pytest.mark.skipif(
-    shutil.which("bash") is None, reason="bash not on PATH"
-)
+@_requires_posix_bash
 def test_short_circuit_logic_short_circuits_for_out_of_window():
     """When out-of-window, the script writes nothing to disk.
     Real-calendar dependency: if pytest runs in the 7 days

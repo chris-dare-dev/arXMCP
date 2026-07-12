@@ -562,7 +562,11 @@ class TestManifestErrors:
         kind_index = _make_full_corpus(chunks_dir)
         # Plant a malformed-name directory with a manifest that
         # claims a chunk_id (which would otherwise resolve).
-        rogue_dir = chunks_dir / "evil; rm -rf /"
+        # "evil; rm -rf" (no trailing space/slash) — a non-``_PAPER_ID_RE``
+        # name with shell metachars that is ALSO a valid dir name on Windows.
+        # The original trailing " /" left a trailing space, which Windows
+        # strips at mkdir, so the later write to the un-stripped path failed.
+        rogue_dir = chunks_dir / "evil; rm -rf"
         rogue_dir.mkdir()
         rogue_cid = _make_chunk_id("2307.99999", "f")
         rogue_dir.joinpath("chunk_manifest.json").write_text(

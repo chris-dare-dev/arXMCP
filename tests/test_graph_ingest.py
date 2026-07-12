@@ -17,6 +17,7 @@ import kuzu
 import pytest
 
 from ingest import graph_ingest, kuzudb_schema
+from tests._graph_helpers import kuzu_reopen_unsupported_on_windows
 
 # ---------------------------------------------------------------------------
 # Fixtures: 5-paper corpus per the brief deliverable list
@@ -761,6 +762,7 @@ class TestRectificationGuards:
 
         assert graph_ingest.OPENALEX_MAX_RESPONSE_BYTES < ARXIV_CAP
 
+    @kuzu_reopen_unsupported_on_windows
     def test_f3_fetch_failure_tracked_and_retried_on_resume(
         self,
         monkeypatch: pytest.MonkeyPatch,

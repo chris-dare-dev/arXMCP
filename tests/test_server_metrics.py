@@ -369,8 +369,12 @@ class TestSentinelScrapeHook:
     ):
         reports_dir = tmp_path / "eval-reports"
         reports_dir.mkdir()
-        old = reports_dir / "corpus_v3-2026-05-01T00:00:00.json"
-        new = reports_dir / "corpus_v3-2026-05-14T00:00:00.json"
+        # Colon-free timestamps: ":" is illegal in Windows filenames. The
+        # production reader (server.health._refresh_eval_ndcg5) globs
+        # corpus_v<N>-*.json and selects by mtime, so the exact timestamp
+        # text is irrelevant — only the corpus_v<N> prefix + mtime matter.
+        old = reports_dir / "corpus_v3-2026-05-01T00-00-00.json"
+        new = reports_dir / "corpus_v3-2026-05-14T00-00-00.json"
         old.write_text(json.dumps({"ndcg5_mean": 0.10}))
         new.write_text(json.dumps({"ndcg5_mean": 0.42}))
         # Force ``new``'s mtime to be later than ``old``'s.

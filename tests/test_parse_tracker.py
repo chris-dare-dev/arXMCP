@@ -142,7 +142,10 @@ class TestRedactHtmlPath:
         # unchanged (nothing to redact).
         p = Path("/tmp/something/index.html")
         out = redact_html_path(p)
-        assert out == "/tmp/something/index.html"
+        # Compare to str(p) — not a hard-coded POSIX literal — so the
+        # "returned unchanged" contract holds on Windows too, where the
+        # fallback preserves the native separator.
+        assert out == str(p)
 
 
 class TestParseTaskTrackerSurface:
