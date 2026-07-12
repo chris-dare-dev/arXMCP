@@ -1,3 +1,13 @@
+---
+project: arxmcp
+type: doc
+tags:
+- project/arxmcp
+- type/doc
+- authorship/agent-generated
+authorship: agent-generated
+---
+
 # Corpus-version rollback
 
 A `corpus_version` bump produced a regression (nDCG@5 dropped, a

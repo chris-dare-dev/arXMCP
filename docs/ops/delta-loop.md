@@ -1,3 +1,13 @@
+---
+project: arxmcp
+type: doc
+tags:
+- project/arxmcp
+- type/doc
+- authorship/agent-generated
+authorship: agent-generated
+---
+
 # OAI-PMH delta-loop runbook (E11_S02)
 
 **Use when:** the bulk-ingest cutover (E11_S05) has landed and the

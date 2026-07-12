@@ -1,3 +1,13 @@
+---
+project: arxmcp
+type: doc
+tags:
+- project/arxmcp
+- type/doc
+- authorship/agent-generated
+authorship: agent-generated
+---
+
 # Parser-failure review workflow
 
 The weekly parser-failures cron

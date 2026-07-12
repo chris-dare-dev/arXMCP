@@ -1,3 +1,13 @@
+---
+project: arxmcp
+type: doc
+tags:
+- project/arxmcp
+- type/doc
+- authorship/agent-generated
+authorship: agent-generated
+---
+
 # Backup/restore runbook (E11_S05)
 
 **Use when:** configuring the nightly restic backup, running

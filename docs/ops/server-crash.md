@@ -1,3 +1,13 @@
+---
+project: arxmcp
+type: doc
+tags:
+- project/arxmcp
+- type/doc
+- authorship/agent-generated
+authorship: agent-generated
+---
+
 # Server crash recovery
 
 The arXMCP daemon exited unexpectedly. Bring it back.

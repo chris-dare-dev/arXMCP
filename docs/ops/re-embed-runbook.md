@@ -1,3 +1,13 @@
+---
+project: arxmcp
+type: doc
+tags:
+- project/arxmcp
+- type/doc
+- authorship/agent-generated
+authorship: agent-generated
+---
+
 # Partial re-embed runbook (E11_S03)
 
 **Use when:** the chunker (`CHUNKER_VERSION`) or the embedder

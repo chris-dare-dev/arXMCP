@@ -4,6 +4,8 @@ type: doc
 tags:
 - project/arxmcp
 - type/doc
+- authorship/agent-generated
+authorship: agent-generated
 ---
 
 # Deploy arXMCP on k3s via Rancher Desktop (Windows)

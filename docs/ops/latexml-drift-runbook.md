@@ -1,3 +1,13 @@
+---
+project: arxmcp
+type: doc
+tags:
+- project/arxmcp
+- type/doc
+- authorship/agent-generated
+authorship: agent-generated
+---
+
 # LaTeXML drift runbook
 
 **Use when:** the daily `latexml-drift-check.sh` cron job exits

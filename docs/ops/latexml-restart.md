@@ -1,3 +1,13 @@
+---
+project: arxmcp
+type: doc
+tags:
+- project/arxmcp
+- type/doc
+- authorship/agent-generated
+authorship: agent-generated
+---
+
 # LaTeXML worker restart
 
 A LaTeXML subprocess hung (subprocess timeout fired) or LaTeXML
