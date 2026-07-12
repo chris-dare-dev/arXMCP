@@ -1,0 +1,485 @@
+schema: roadmap/1
+slug: retrieval-unlocks
+project: arxmcp
+title: "arXMCP retrieval unlocks — proofs, equations, definitions"
+status: active
+phase: complete          # init -> refined -> decomposed -> sequenced -> complete
+brief: |
+  The highest-ROI retrieval work in arXMCP is unlocking capability that ingest already paid for but serving hides. Proof chunks are embedded and indexed yet hard-excluded from search; the tree-edit-distance equation lane, the flagship math-native differentiator, is bypassed for the LaTeX input agents actually emit; definition-kind filtering, richer citation context, and canonical reference corpora such as the Stacks Project are within reach. This initiative serves what is already built: statement-proof linkage, an opt-in proof-column retrieval path, LaTeX-to-MathML equation input routed onto the existing TED fusion, a definition filter, withdrawal-aware corpus hygiene, and Stacks Project grounding, then makes evidence-gated quality upgrades (contextual chunk prefixes, reranker re-qualification, embedder bake-off) ONLY where the eval numbers show headroom. Schema-touching changes must batch into a single tool-schema re-pin window owned by the agent-platform track; the proof default-flip and all reranker/embedder decisions are gated on the evidence-engine track's first numbers. Do not ingest Mathlib (compose with LeanExplore); no SPLADE, semantic chunking, Matryoshka truncation, or GraphRAG/RAPTOR.
+goal:
+  hmw: "How might we unlock retrieval capability arXMCP's ingest pipeline already paid for — proof chunks, LaTeX-routed equation search, definition filtering, richer citation context, and Stacks Project grounding — so that the sketcher/autoformalizer/tactician/fixer proving pipeline can retrieve the proof techniques, formulas, definitions, and canonical references it needs today, while quality-sensitive upgrades wait on the evidence-engine's measured numbers?"
+  objective: "Ship the retrieval unlocks — proof-chunk retrievability, LaTeX-routed TED equation search, definition filtering, S2-hydrated citation context, and Stacks Project grounding — batched into one agent-platform schema re-pin window, with every quality-sensitive upgrade (prefixes, reranker, embedder) held behind the evidence-engine track's fixture evidence."
+  key_results:
+    - "get_chunk(include_referenced=True) on a stmt-kind chunk returns its paired proof window(s) via (paper_id, theorem_label, kind='proof') linkage, with a documented section_path/adjacency fallback when theorem_label is null"
+    - "find_equation resolves LaTeX-form queries onto the TED+dense fusion path (retrieval_mode reports something other than dense_only_stmt_fallback) instead of always bypassing to dense-only"
+    - "search_papers accepts filters={'include_kinds':['proof']} and returns proof-kind rows with honest excluded_kinds/retrieval_mode fields; the dual-column-RRF default stays OFF until the evidence-engine fixture verdict lands"
+    - "search_papers's kind=definition filter returns 0 non-definition rows when set, reusing the shipped SUPPORTED_FILTER_KEYS predicate builder with no re-ingest or re-embed"
+    - "cite_neighbors edges hydrated from Semantic Scholar carry a non-null citation-context snippet on the workstation's backfilled citation graph"
+    - "The Stacks Project is ingested as a textbook:stacks-project notebook with theorem_label populated from the published tags file for at least one chapter, license stamped GFDL"
+    - "get_paper/search_papers default-exclude withdrawn papers with include_withdrawn=true as the documented escape hatch, built on the live dense filter path rather than the unwired BM25 module"
+    - "0 default-path reranker, embedder, or contextual-prefix changes merge before the evidence-engine track publishes its first fixture nDCG@5 number"
+  assumptions:
+    - tier: must
+      text: "The agent-platform track's single batched TOOL_SCHEMA_VERSION re-pin window (W1) lands in time to carry this track's five schema-touching changes (D2-R01a include_referenced, D1-R04 retrieval_mode/description, D1-R05 opt-in proof filter, D4-R12 kind=definition filter, D8-R07 include_withdrawn filter) as one bundled changeset rather than five separate re-pins"
+      validation: "at decomposition, confirm plans/agent-platform/roadmap.yaml carries a W1-equivalent milestone that accepts a bundled changeset from this track before any item here schedules its own TOOL_SCHEMA_VERSION bump; fallback = each item re-pins individually if W1 never materializes"
+    - tier: must
+      text: "The evidence-engine track's fixture (FIX) exists and produces a first nDCG@5/Recall@10 number in time to gate this track's default-flip and re-qualification items (D1-R05 step 2, D1-R06, D1-R10 step 2, D1-R11)"
+      validation: "at decomposition, confirm plans/evidence-engine/roadmap.yaml carries a fixture-population milestone this track's gated items can cite as a blocking goal.assumptions entry; if FIX stalls past this roadmap's now/next lanes, the gated items ship as documented-defer milestones with no target date rather than this track re-opening ADR-0008 on its own say-so"
+    - tier: should
+      text: "Stacks Project's per-chapter LaTeX (shared preamble, ingested per-chapter to avoid cross-chapter file-inclusion chasing) compiles through the existing LaTeXML to theorem-aware-chunker lane without requiring a rewrite of ingest/preamble.py's extractor"
+      validation: "a 2-3 chapter LaTeXML compile spike (including at least one heavily cross-referenced chapter) runs before committing the full L-sized D2-R06 epic; Gerby/plasTeX is the documented fallback at a math-fidelity cost if LaTeXML misbehaves"
+    - tier: should
+      text: "latex2mathml's converted trees are close enough to arXMCP's stored LaTeXML-derived trees that cross-converter tree-dialect noise doesn't sink TED scores on the equations fixture"
+      validation: "the D1-R04 equations-fixture parity check runs before shipping the LaTeX route as default; escape hatch = a pooled latexmlmath subprocess worker (same engine as the corpus) if the parity check fails"
+    - tier: should
+      text: "Kuzu 0.11.3's rel-table ALTER (adding a context column to the cites edge table) works under the pinned, archived release the way the v2 node-table migration precedent did"
+      validation: "dry-run the ALTER against a snapshot copy of var/arxmcp/index/kuzu/ before running it against the live graph; a rel-table rebuild is the documented fallback if ALTER fails"
+    - tier: should
+      text: "source-truth/R1's document/revision registry (a sibling untracked track in this same disposition wave) lands and persists per-revision version / status (active / withdrawn / superseded-by) / fetch-timestamp fields, so retrieval-unlocks-m6's withdrawal hygiene consumes R1's registry as its source of truth rather than independently re-deriving those fields from arXivRaw -- the duplicate-persistence dedupe R1's own evidence (R1-source-truth.md:107-109) already flagged for resolution at decomposition"
+      validation: "at m6 decomposition, confirm plans/source-truth/roadmap.yaml carries a document/revision-registry milestone m6 can consume as a blocking cross-track dependency; if R1 is vetoed or slips past m6's next lane, m6 ships owning minimal fallback persistence of versions[]/arxiv_version_latest/withdrawn/fetched_at/source_route itself rather than blocking"
+    - tier: might
+      text: "Semantic Scholar's citation-context snippets stay legible on inline math from citing sentences rather than mangled by S2's PDF-parse pipeline"
+      validation: "spot-check S2 contexts against 10-20 real arXiv math citing sentences before defaulting all cite_neighbors edges to S2 hydration; local ar5iv ltx_cite extraction is the documented fidelity-upgrade fallback"
+  wont:
+    - "No Mathlib ingestion — compose with LeanExplore's local MCP server instead (D2-R08 killed; verification-feedback-spike-3 owns the compose-vs-ingest decision)"
+    - "No SPLADE/learned-sparse lane, semantic/LLM chunking, or Matryoshka dimension truncation (BGE-M3 is not MRL-trained) — each evidence-killed in the gap analysis"
+    - "No GraphRAG / community summaries / RAPTOR — index-time LLM cost conflicts with the deterministic LLM-free ingest rule"
+    - "No default flip of dual-column proof search to production ranking, and no rerank/embedder swap execution, ahead of the evidence-engine track's fixture numbers — this track ships the gated screens only, not the verdicts"
+    - "No cross-notebook / federated search this roadmap (D2-R03/D4-R10) — explicitly excluded from this track's ordered rec list; revisit only once a workload demonstrates the need"
+    - "No nLab adapter — dropped until the Stacks Project adapter demonstrates retrieval value on its own"
+    - "No FTS/lexical-engine redesign (bm25s vs Lance-native FTS) — one note on the closed-NO hybrid decision, no pre-commitment, per ruling C9"
+    - "No wire-format, session-cap, or write-path/index-mechanics changes — owned by the agent-platform and scale-ops tracks respectively"
+  evidence:
+    - "_pipeline/gap-analysis-2026-07/chapters/D1.md — primary chapter: dense-only serving, LaTeX equation bypass, rerank/embedder recs D1-R03/R04/R05/R06/R10/R11/R13"
+    - "_pipeline/gap-analysis-2026-07/chapters/D2.md — proof linkage D2-R01, Stacks Project adapter D2-R06, citation contexts D2-R07"
+    - "_pipeline/gap-analysis-2026-07/chapters/D4.md — kind=definition filter D4-R12"
+    - "_pipeline/gap-analysis-2026-07/chapters/D8.md — withdrawal/version provenance D8-R07"
+    - "_pipeline/gap-analysis-2026-07/synthesis/cross-synthesis.md — §4 S2 is this track's seed; §2.2-2.3 rulings C3/C6/C13/C14; §3 canonical-id merges; §5 do-not-do"
+    - "plans/proof-verify-handler-wiring-roadmap.md:108-113 — e3 CLOSED 2026-05-21 verdict NO (the ADR-0008 governance precedent this track must not re-litigate at current scale)"
+    - ".claude/notes/deferred-work-tracker.md:40-55 — the ColBERT-v2 entry D1-R13 re-anchors to a falsifiable trigger"
+    - "server/handlers/search.py:711,715 and server/handlers/equation.py:137-140 — the exact code sites this track unlocks"
+    - "plans/evidence-engine/roadmap.yaml, plans/agent-platform/roadmap.yaml — sibling concurrent tracks owning FIX and W1 respectively (both phase:init as of this refine pass)"
+    - "CLAUDE.md §4.9 / .claude/docs/trust-language-policy.md / .claude/docs/evidence-ledger-standard.md — trust-language + abstention policy (data-plane-governance-m3, Accepted 2026-07-12; postdates this roadmap's 2026-07-07 authoring); policy §5d names the get_definitions not-in-corpus-vs-empty collapse this track's proof/equation/definition surfaces must not reproduce"
+generated_by: { agent: claude-sonnet-5, at: "2026-07-07" }
+generations:
+  - { rev: 1, at: "2026-07-07" }
+retired: []          # tombstoned item ids; ids are write-once, never deleted
+items:
+  - id: retrieval-unlocks-e1
+    kind: epic
+    title: "Proof retrievability: linkage + opt-in search"
+    summary: "Make proof chunks reachable. get_chunk(include_referenced=True) resolves a stmt-kind chunk's paired proof window(s) via the (paper_id, theorem_label, kind='proof') linkage already present on every proof record, with a section_path/adjacency fallback when theorem_label is null. search_papers gains an opt-in filters={'include_kinds':['proof']} path over the already-warmed embedding_proof ANN column, with honest retrieval_mode/excluded_kinds fields. Both ship ungated in the W1 schema-repin window; the dual-column-RRF default-flip for statement queries stays OFF until the evidence-engine fixture clears non-regression."
+    priority: must
+    size: M
+    tags: [value, proof, retrieval, D2-R01, D1-R05]
+    rice: { r: 15, i: 3, c: 0.5, e: 2.5, score: 9.0, rank: 1 }
+    links:
+      code: ["server/handlers/search.py:711", "server/handlers/chunk.py:35", "ingest/chunker.py:711-726", "server/resources.py:722-725"]
+
+  - id: retrieval-unlocks-e2
+    kind: epic
+    title: "Route LaTeX equation queries onto the TED lane"
+    summary: "find_equation converts LaTeX to presentation MathML at query time via pinned latex2mathml, normalizes through the existing parse_mathml_to_tree path, and runs the established TED+dense fusion instead of always falling back to dense_only_stmt_fallback; the dense fallback stays as the failure path and retrieval_mode reports the real route honestly. Gated on an equations-fixture parity check before shipping as default; escalates to a pooled latexmlmath worker (same engine as the corpus) only if cross-converter tree-dialect noise sinks TED scores."
+    priority: must
+    size: S
+    tags: [value, equations, retrieval, D1-R04]
+    rice: { r: 10, i: 2, c: 0.5, e: 1.5, score: 6.67, rank: 2 }
+    links:
+      code: ["server/handlers/equation.py:137-140", "server/tools.py:241-244", "server/retrieval/equations.py:138-168"]
+
+  - id: retrieval-unlocks-e3
+    kind: epic
+    title: "Definition + withdrawal trust filters"
+    summary: "Extend the shared SUPPORTED_FILTER_KEYS predicate builder in search_papers with two precision/trust filters. kind=definition reuses the chunker's already-canonicalized kind=='definition' column with no re-ingest or re-embed. include_withdrawn default-excludes withdrawn papers on the live dense filter path (not the unwired BM25 module), persists versions[]/arxiv_version_latest/withdrawn/fetched_at/source_route from already-harvested arXivRaw data, stamps parser_used, emits a newer-version-exists staleness signal, and invalidates the bare-id-keyed ar5iv cache on revision so re-ingest becomes possible. Flag-only — chunks are never deleted."
+    priority: should
+    size: M
+    tags: [value, filters, hygiene, D4-R12, D8-R07]
+    rice: { r: 12, i: 2, c: 0.5, e: 3, score: 4.0, rank: 3 }
+    links:
+      code: ["server/handlers/search.py:214-249", "server/retrieval/bm25.py:125-127", "ingest/oai_delta.py:617-622", "ingest/chunker.py:180"]
+
+  - id: retrieval-unlocks-e4
+    kind: epic
+    title: "Citation contexts on graph edges via S2 hydration"
+    summary: "Backfill the citation graph on the workstation (currently graph_status='absent'), then hydrate Kuzu cites edges with Semantic Scholar citation-context snippets (contexts/intents/isInfluential on already-resolved edges) via an additive schema-v3 ALTER on the existing introspect-and-ALTER precedent; expose a context field on cite_neighbors rows, wrapped per Threat-2. Local ar5iv ltx_cite extraction remains the documented fidelity-upgrade fallback if S2 context quality on inline math proves inadequate."
+    priority: should
+    size: M
+    tags: [value, citations, graph, D2-R07]
+    rice: { r: 6, i: 1, c: 0.5, e: 3, score: 1.0, rank: 5 }
+    links:
+      code: ["server/graph_types.py:44-49", "ingest/kuzudb_schema.py:120-129", "server/handlers/citations.py"]
+
+  - id: retrieval-unlocks-e5
+    kind: epic
+    title: "Stacks Project source adapter"
+    summary: "New per-chapter ingest driver for the Stacks Project LaTeX source through the existing LaTeXML-to-theorem-aware-chunker lane, with a shared preamble ingested per-chapter to avoid cross-chapter file-inclusion chasing. Maps Stacks' stable 4-character tags to theorem_label via the published tags file; id scheme textbook:stacks-project; license GFDL (already allowlisted). Gerby/plasTeX is the documented fallback, at a math-fidelity cost, if LaTeXML misbehaves on a chapter. A 2-3 chapter compile spike precedes full commitment per goal.assumptions."
+    priority: should
+    size: L
+    tags: [value, ingest, corpus, D2-R06]
+    rice: { r: 8, i: 2, c: 0.5, e: 5, score: 1.6, rank: 4 }
+    links:
+      code: ["ingest/preamble.py:32-36", "server/license_policy.py:41", "ingest/chunker_types.py:127", "ingest/schema.py:187"]
+
+  - id: retrieval-unlocks-e6
+    kind: epic
+    title: "Evidence-gated quality screens: prefixes, rerank, embedder, fusion"
+    summary: "Build the decision machinery for every quality-sensitive upgrade without shipping default-path changes ahead of the evidence-engine fixture. A one-notebook contextual-prefix pilot (title/section/theorem-name header, frozen+versioned template, EMBEDDER_VERSION bump) A/B'd on the fixture. A zero-integration MIRB embedder screen (BGE-M3 vs Qwen3-Embedding-0.6B/4B) with a pre-registered >=+0.05 nDCG@10 adoption threshold gating any on-workstation bake-off. A latency-depth tuning pass plus a coarse sensitivity sweep documenting which fusion constants matter, without pinning winners at fixture N=20. The ColBERT-v2 deferred-work-tracker trigger rewritten to a falsifiable one anchored on the fixture. The rerank re-qualification screen (long-context small rerankers + ONNX-int8 incumbent) runs only once its trigger fires (200K scheduled or logged hard-query failures) and may extend past this epic's initial delivery. Fleet-wide prefix rollout, rerank/embedder swap execution, and any default-path change are explicitly out of scope — they wait on the evidence-engine track's fixture verdict."
+    priority: could
+    size: M
+    tags: [enabler, evaluation, D1-R03, D1-R13, D1-R06, D1-R10, D1-R11]
+    depends_on: [retrieval-unlocks-e1, retrieval-unlocks-e2]
+    rice: { r: 3, i: 1, c: 0.5, e: 3, score: 0.5, rank: 6 }
+    links:
+      code: ["ingest/embedder.py:371-388", "server/retrieval/rerank.py:128-133", "server/retrieval/rrf.py:53", ".claude/notes/deferred-work-tracker.md:53-55"]
+
+  - id: retrieval-unlocks-m1
+    kind: milestone
+    title: "get_chunk resolves stmt<->proof linkage"
+    summary: "get_chunk(include_referenced=True) on a stmt-kind chunk resolves its paired proof window(s) via the (paper_id, theorem_label, kind='proof') linkage already present on every proof record, with a section_path/adjacency fallback when theorem_label is null, and the reverse (proof-to-statement) direction wired too."
+    parent: retrieval-unlocks-e1
+    lane: now
+    priority: must
+    target_start: 2026-07-17
+    target_end: 2026-07-27
+    tags: [D2-R01]
+    acceptance:
+      - "Given a stmt-kind chunk with a non-null theorem_label, when get_chunk runs with include_referenced=True, then the response includes the proof chunk(s) sharing that (paper_id, theorem_label)"
+      - "Given a stmt-kind chunk with theorem_label=null on a paper with multiple unlabeled theorems, when get_chunk runs with include_referenced=True, then the section_path/adjacency fallback returns the nearest proof window and marks the match as a fallback rather than an exact theorem_label match"
+      - "Given a proof-kind chunk_id, when get_chunk runs with include_referenced=True, then the response includes the originating statement chunk"
+      - "Given a stmt-kind chunk whose theorem_label and section_path/adjacency fallback resolve to no proof window anywhere in the paper, when get_chunk runs with include_referenced=True, then the response returns an explicit not-found/abstention outcome (a namespaced no-proof-found signal) kept distinct from a lookup/operational error and from a silently empty list -- pre-empting the get_definitions not-in-corpus-vs-empty collapse trust-language-policy.md §5d names"
+    links:
+      code: ["server/handlers/chunk.py:35", "ingest/chunker.py:711-726"]
+
+  - id: retrieval-unlocks-t-scalar-proof-lookup
+    kind: task
+    title: "Implement (paper_id, theorem_label, kind=proof) scalar lookup"
+    parent: retrieval-unlocks-m1
+    lane: now
+    priority: must
+    estimate_days: 2
+    tags: [D2-R01]
+    acceptance:
+      - "Given a stmt chunk_id with theorem_label set, when the scalar LanceDB query runs, then it returns exactly the proof rows sharing paper_id and theorem_label"
+
+  - id: retrieval-unlocks-t-adjacency-fallback
+    kind: task
+    title: "Add section_path/adjacency fallback for theorem_label=null"
+    parent: retrieval-unlocks-m1
+    lane: now
+    priority: must
+    estimate_days: 2
+    tags: [D2-R01]
+    acceptance:
+      - "Given two unlabeled theorems in one paper, when get_chunk resolves references for the first, then the fallback returns its adjacent proof window without cross-matching the second theorem's proof"
+
+  - id: retrieval-unlocks-t-reverse-proof-linkage
+    kind: task
+    title: "Wire reverse proof-to-statement resolution"
+    parent: retrieval-unlocks-m1
+    lane: now
+    priority: must
+    estimate_days: 1
+    tags: [D2-R01]
+    acceptance:
+      - "Given a proof-kind chunk_id, when get_chunk runs with include_referenced=True, then the response includes the originating stmt-kind chunk"
+
+  - id: retrieval-unlocks-t-w1-schema-delta-chunk
+    kind: task
+    title: "Stage get_chunk response-shape + description delta for the W1 batch"
+    parent: retrieval-unlocks-m1
+    lane: now
+    priority: must
+    estimate_days: 1
+    tags: [D2-R01]
+    acceptance:
+      - "Given the implemented linkage behind include_referenced, when the schema delta is written up for agent-platform's W1 window, then it lists the new response fields and updated tool description text ready for one bundled TOOL_SCHEMA_VERSION re-pin"
+    links:
+      code: ["server/tools.py:218-227", "server/handlers/chunk.py:35-38"]
+
+  - id: retrieval-unlocks-m2
+    kind: milestone
+    title: "Opt-in proof-kind search over search_papers"
+    summary: "search_papers accepts filters={'include_kinds': ['proof']} and routes to the warmed embedding_proof ANN column via a per-notebook ANNPhase instance, returning honest retrieval_mode/excluded_kinds fields. The dual-column-RRF default for plain statement queries stays OFF; this ships as a versioned, ungated opt-in contract event in the W1 batch."
+    parent: retrieval-unlocks-e1
+    lane: now
+    priority: must
+    target_start: 2026-07-27
+    target_end: 2026-08-07
+    depends_on: [retrieval-unlocks-m1]
+    tags: [D1-R05, D2-R01]
+    acceptance:
+      - "Given filters={'include_kinds': ['proof']}, when search_papers runs, then results are drawn from embedding_proof and retrieval_mode reports the proof-column route while excluded_kinds omits 'proof'"
+      - "Given no include_kinds filter, when search_papers runs, then retrieval_mode and excluded_kinds are unchanged from today's stmt-only dense default"
+    links:
+      code: ["server/handlers/search.py:711,715", "server/resources.py:722-725"]
+
+  - id: retrieval-unlocks-t-include-kinds-filter
+    kind: task
+    title: "Extend filters dict to accept include_kinds=['proof']"
+    parent: retrieval-unlocks-m2
+    lane: now
+    priority: must
+    estimate_days: 2
+    tags: [D1-R05]
+    acceptance:
+      - "Given filters={'include_kinds': ['proof']} on a call to search_papers, when the filter is parsed, then the proof-column route is selected instead of the stmt-only default"
+    links:
+      code: ["server/handlers/search.py:249"]
+
+  - id: retrieval-unlocks-t-per-notebook-ann-phase
+    kind: task
+    title: "Give proof-column queries a per-notebook ANNPhase instance"
+    parent: retrieval-unlocks-m2
+    lane: now
+    priority: must
+    estimate_days: 2
+    tags: [D1-R05]
+    acceptance:
+      - "Given two different notebooks queried in sequence, when each runs an include_kinds=['proof'] search, then each notebook's proof-column results are drawn from its own corpus, not a shared cross-notebook table binding"
+    links:
+      code: ["server/resources.py:722-725"]
+
+  - id: retrieval-unlocks-t-honest-retrieval-mode-proof
+    kind: task
+    title: "Report honest retrieval_mode/excluded_kinds for the opt-in proof route"
+    parent: retrieval-unlocks-m2
+    lane: now
+    priority: must
+    estimate_days: 1
+    tags: [D1-R05]
+    acceptance:
+      - "Given an include_kinds=['proof'] search, when the envelope is built, then retrieval_mode names the proof-column route and excluded_kinds reflects what was actually excluded, not the stale dense-only default"
+
+  - id: retrieval-unlocks-t-w1-schema-delta-search
+    kind: task
+    title: "Stage search_papers filters-description delta for the W1 batch"
+    parent: retrieval-unlocks-m2
+    lane: now
+    priority: must
+    estimate_days: 1
+    tags: [D1-R05]
+    acceptance:
+      - "Given the implemented opt-in proof filter, when the schema delta is written up for agent-platform's W1 window, then it lists the filters-description text update ready for one bundled TOOL_SCHEMA_VERSION re-pin alongside get_chunk's delta"
+    links:
+      code: ["server/tools.py:196-216"]
+
+  - id: retrieval-unlocks-m3
+    kind: milestone
+    title: "Proof-column search default flip (evidence-gated, no date)"
+    summary: "Promote dual-column stmt+proof RRF to the default search_papers ranking path once the evidence-engine track's fixture shows non-regression on statement queries plus a measured win on proof-seeking queries; ships as a documented-defer milestone with no target date until that verdict lands, per this roadmap's must-tier FIX assumption."
+    parent: retrieval-unlocks-e1
+    lane: later
+    priority: must
+    depends_on: [retrieval-unlocks-m2]
+    tags: [D1-R05]
+
+  - id: retrieval-unlocks-m4
+    kind: milestone
+    title: "find_equation routes LaTeX input onto the TED+dense fusion lane"
+    summary: "find_equation converts LaTeX to presentation MathML at query time via pinned latex2mathml, normalizes through the existing parse_mathml_to_tree path, and runs the established TED+dense fusion instead of always falling back to dense_only_stmt_fallback. The dense fallback stays as the failure path; retrieval_mode reports the real route honestly. Ships gated on the equations-fixture parity check."
+    parent: retrieval-unlocks-e2
+    lane: now
+    priority: must
+    target_start: 2026-07-08
+    target_end: 2026-07-17
+    tags: [D1-R04]
+    acceptance:
+      - "Given a LaTeX-form equation query, when find_equation runs and the equations-fixture parity check has passed, then retrieval_mode reports the TED-fused route (not dense_only_stmt_fallback) and results are ranked by the TED+dense fusion"
+      - "Given a LaTeX string latex2mathml cannot parse, when find_equation runs, then it falls back to dense_only_stmt_fallback and reports that mode honestly rather than silently returning TED-fused results"
+    links:
+      code: ["server/handlers/equation.py:137-140", "server/retrieval/equations.py:138-168"]
+
+  - id: retrieval-unlocks-t-pin-latex2mathml
+    kind: task
+    title: "Pin latex2mathml as a new dependency"
+    parent: retrieval-unlocks-m4
+    lane: now
+    priority: must
+    estimate_days: 1
+    tags: [D1-R04]
+    acceptance:
+      - "Given pyproject.toml, when latex2mathml is added, then it is pinned to a specific stable release with a per-line comment explaining its purpose"
+
+  - id: retrieval-unlocks-t-query-time-latex-conversion
+    kind: task
+    title: "Convert LaTeX to presentation MathML at query time and normalize"
+    parent: retrieval-unlocks-m4
+    lane: now
+    priority: must
+    estimate_days: 2
+    tags: [D1-R04]
+    acceptance:
+      - "Given a LaTeX equation query, when it is converted via latex2mathml, then the resulting tree is normalized (namespace-stripped, lowercased tags, text+tail leaves) to match parse_mathml_to_tree's stored-tree conventions"
+
+  - id: retrieval-unlocks-t-equations-fixture-parity
+    kind: task
+    title: "Run the equations-fixture parity check (latex2mathml vs stored LaTeXML trees)"
+    parent: retrieval-unlocks-m4
+    lane: now
+    priority: must
+    estimate_days: 2
+    tags: [D1-R04]
+    acceptance:
+      - "Given the equations fixture pairing LaTeX and stored-tree forms, when TED scores are compared converter-vs-corpus, then the parity check either clears the documented threshold or triggers the pooled latexmlmath escape hatch instead of shipping a regressed default"
+
+  - id: retrieval-unlocks-t-honest-retrieval-mode-eq
+    kind: task
+    title: "Report honest retrieval_mode for the TED-fused LaTeX route"
+    parent: retrieval-unlocks-m4
+    lane: now
+    priority: must
+    estimate_days: 1
+    tags: [D1-R04]
+    acceptance:
+      - "Given a successfully TED-fused LaTeX query, when the envelope is built, then retrieval_mode names the real route instead of the historical dense_only_stmt_fallback label"
+
+  - id: retrieval-unlocks-t-w1-schema-delta-eq
+    kind: task
+    title: "Stage find_equation description delta for the W1 batch"
+    parent: retrieval-unlocks-m4
+    lane: now
+    priority: must
+    estimate_days: 1
+    tags: [D1-R04]
+    acceptance:
+      - "Given the implemented LaTeX route, when the schema delta is written up for agent-platform's W1 window, then it corrects the frozen tool description that currently documents the LaTeX bypass as permanent"
+    links:
+      code: ["server/tools.py:241-244"]
+
+  - id: retrieval-unlocks-m5
+    kind: milestone
+    title: "kind=definition filter on search_papers"
+    summary: "search_papers gains a kind=definition filter reusing the shipped SUPPORTED_FILTER_KEYS predicate builder; the chunker already canonicalizes definition environments to kind='definition', so no re-ingest or re-embed is required. The corpus-wide FTS5 term->definition index stays gated on observed filter usage rather than building blind."
+    parent: retrieval-unlocks-e3
+    lane: next
+    priority: should
+    target_start: 2026-08-07
+    target_end: 2026-08-17
+    tags: [D4-R12]
+    links:
+      code: ["server/handlers/search.py:214-249", "ingest/schema.py:126", "ingest/chunker.py:180"]
+
+  - id: retrieval-unlocks-m6
+    kind: milestone
+    title: "Withdrawal-aware corpus hygiene"
+    summary: "Consume source-truth/R1's document/revision registry (this milestone depends on R1's registry milestone landing) for per-revision version/withdrawal fields -- default-exclude withdrawn papers on the live dense filter path with include_withdrawn=true as the documented escape hatch, emit a newer-version-exists staleness signal, stamp parser_used for arXiv chunks, and invalidate the bare-id-keyed ar5iv cache when the delta loop harvests a revision -- rather than independently re-deriving versions[]/arxiv_version_latest/withdrawn/fetched_at/source_route from arXivRaw (the duplicate-persistence dedupe R1's own evidence already named). If R1 is vetoed in this disposition wave, m6 then owns minimal fallback persistence of those fields itself. Flag-only -- chunks are never deleted. Supersession columns, chunk retirement, and auto-re-ingest stay deferred."
+    parent: retrieval-unlocks-e3
+    lane: next
+    priority: should
+    target_start: 2026-08-17
+    target_end: 2026-08-31
+    tags: [D8-R07]
+    links:
+      code: ["ingest/oai_delta.py:40,617-622", "server/retrieval/bm25.py:125-127", "ingest/ar5iv_fetch.py:152-164"]
+
+  - id: retrieval-unlocks-spike-1
+    kind: spike
+    title: "Kuzu 0.11.3 rel-table ALTER dry run on a snapshot"
+    parent: retrieval-unlocks-e4
+    lane: now
+    estimate_days: 1
+    target_start: 2026-08-07
+    target_end: 2026-08-08
+    tags: [D2-R07]
+    acceptance:
+      - "Given a snapshot copy of var/arxmcp/index/kuzu/, when the additive schema-v3 ALTER adding a context column to the cites rel table is dry-run against it, then the outcome (ALTER succeeds, or a rel-table rebuild is required) is recorded before touching the live graph"
+    links:
+      code: ["ingest/kuzudb_schema.py:120-129"]
+
+  - id: retrieval-unlocks-m7
+    kind: milestone
+    title: "Citation contexts hydrated on graph edges via S2"
+    summary: "Backfill the citation graph on the workstation (currently graph_status='absent'), then hydrate Kuzu cites edges with Semantic Scholar citation-context snippets (contexts/intents/isInfluential) via the additive schema-v3 ALTER validated by spike-1; expose a context field on cite_neighbors rows, wrapped per Threat-2. Local ar5iv ltx_cite extraction remains the documented fidelity-upgrade fallback if S2 context quality on inline math proves inadequate."
+    parent: retrieval-unlocks-e4
+    lane: next
+    priority: should
+    target_start: 2026-08-08
+    target_end: 2026-09-04
+    depends_on: [retrieval-unlocks-spike-1]
+    tags: [D2-R07]
+    links:
+      code: ["server/graph_types.py:44-49", "server/handlers/citations.py"]
+
+  - id: retrieval-unlocks-spike-2
+    kind: spike
+    title: "Stacks Project LaTeXML compile spike (2-3 chapters)"
+    parent: retrieval-unlocks-e5
+    lane: now
+    estimate_days: 3
+    target_start: 2026-08-10
+    target_end: 2026-08-13
+    tags: [D2-R06]
+    acceptance:
+      - "Given 2-3 Stacks Project chapters (including at least one heavily cross-referenced chapter) with the shared preamble ingested per-chapter, when they are run through the existing LaTeXML-to-theorem-aware-chunker lane, then the compile either succeeds end-to-end or the Gerby/plasTeX fallback is exercised and its math-fidelity cost is recorded before committing the full epic"
+    links:
+      code: ["ingest/preamble.py:32-36"]
+
+  - id: retrieval-unlocks-m8
+    kind: milestone
+    title: "Stacks Project ingested as textbook:stacks-project"
+    summary: "Per-chapter ingest driver for the Stacks Project LaTeX source through the existing LaTeXML-to-theorem-aware-chunker lane validated by spike-2, with a shared preamble ingested per-chapter to avoid cross-chapter file-inclusion chasing. Maps Stacks' stable 4-character tags to theorem_label via the published tags file; id scheme textbook:stacks-project; license GFDL (already allowlisted)."
+    parent: retrieval-unlocks-e5
+    lane: next
+    priority: should
+    target_start: 2026-08-13
+    target_end: 2026-09-25
+    depends_on: [retrieval-unlocks-spike-2]
+    tags: [D2-R06]
+    links:
+      code: ["server/license_policy.py:41", "ingest/chunker_types.py:127", "ingest/schema.py:187"]
+
+  - id: retrieval-unlocks-m9
+    kind: milestone
+    title: "Contextual chunk prefix pilot (one notebook, FIX-gated A/B)"
+    summary: "One-notebook contextual-prefix pilot (title/section/theorem-name header, frozen+versioned template, EMBEDDER_VERSION bump) A/B'd on the evidence-engine fixture once it exists; fleet-wide rollout waits for the 200K build."
+    parent: retrieval-unlocks-e6
+    lane: later
+    priority: could
+    tags: [D1-R03]
+    links:
+      code: ["ingest/embedder.py:122-136", "ingest/embedder.py:371-388"]
+
+  - id: retrieval-unlocks-m10
+    kind: milestone
+    title: "Re-anchor the ColBERT-v2 deferred-work-tracker trigger"
+    summary: "Replace the unreachable BM25-oracle-re-ranked trigger with a falsifiable one anchored on the evidence-engine fixture/MIRB plateau, naming PyLate + GTE-ModernColBERT-class as the modern execution path."
+    parent: retrieval-unlocks-e6
+    lane: later
+    priority: could
+    tags: [D1-R13]
+    links:
+      code: [".claude/notes/deferred-work-tracker.md:40-56"]
+
+  - id: retrieval-unlocks-m11
+    kind: milestone
+    title: "Rerank re-qualification screen (trigger-gated)"
+    summary: "Re-test long-context small rerankers (gte-reranker-modernbert-base, BGE-reranker-v2-m3-ONNX-int8) at top-20 post-RRF once the 200K tier is scheduled or hard-query failures are logged; re-decide ARXMCP_ENABLE_RERANK."
+    parent: retrieval-unlocks-e6
+    lane: later
+    priority: could
+    tags: [D1-R06]
+    links:
+      code: ["server/retrieval/rerank.py:122-133"]
+
+  - id: retrieval-unlocks-m12
+    kind: milestone
+    title: "Embedder bake-off screen (MIRB step, then conditional on-workstation step)"
+    summary: "Step 1: zero-integration MIRB harness run of BGE-M3 vs Qwen3-Embedding-0.6B/4B. Step 2 (full re-embed bake-off) only if step 1 clears the pre-registered >=+0.05 nDCG@10 adoption threshold."
+    parent: retrieval-unlocks-e6
+    lane: later
+    priority: could
+    tags: [D1-R10]
+    links:
+      code: ["ingest/embedder.py:122-136"]
+
+  - id: retrieval-unlocks-m13
+    kind: milestone
+    title: "Fusion/depth parameter tuning + sensitivity documentation"
+    summary: "Tune latency-relevant depth parameters (BM25 top-N, ANN per-column limit, rerank k) against measured latency once the LaTeX and proof lanes are on the serving path; run a coarse sensitivity sweep documenting which fusion constants matter without pinning winners at fixture N=20."
+    parent: retrieval-unlocks-e6
+    lane: later
+    priority: could
+    depends_on: [retrieval-unlocks-m1, retrieval-unlocks-m2, retrieval-unlocks-m4]
+    tags: [D1-R11]
+    links:
+      code: ["server/retrieval/bm25.py:100-103", "server/retrieval/ann.py:75-84", "server/retrieval/rerank.py:135-138", "server/retrieval/rrf.py:53"]

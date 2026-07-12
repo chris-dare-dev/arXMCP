@@ -1,0 +1,862 @@
+schema: roadmap/1
+slug: scale-ops-hardening
+project: arxmcp
+title: "arXMCP scale, ops & content-security hardening"
+status: active
+phase: complete          # init -> refined -> decomposed -> sequenced -> complete
+brief: |
+  arXMCP targets a 200K-paper corpus, but a triple-quadratic LanceDB write path, zero scheduled index optimize/cleanup, and a BM25 lane that blocks startup readiness for zero served traffic stand between today's roughly 125 papers and that goal, all invisible at notebook scale and lethal by 1K to 10K papers. This initiative makes growth a decision instead of a discovery: linearize the bulk write path, schedule pin-aware version maintenance, decouple BM25 from readiness, land a scale-guard telemetry pack whose gauges trigger every other guard with documented inflection thresholds, add GPU-capable ingest, and validate at an instrumented 10K-paper dump-sourced capacity checkpoint that gates Tier-5 entry, with staying at notebook scale documented as a legitimate outcome. It also hardens the untrusted-content pipeline: contain the MinerU/PDF parser (a live critical CVE class) and the Windows LaTeXML path, and screen ingested papers for hidden-instruction injection at the one point poison can be removed rather than fenced. Corpus sizing must be recomputed on measured chunks-per-paper before thresholds are set (the analysis's raw sizing was inflated). Capacity and recall benchmarks depend on the evidence-engine track and the write-path fix landing first. Verify the cron/systemd nightly ops actually run on the Windows tier-1 host, and add a wheel-build/test CI check. Do not build a bespoke synthetic 10K load harness or add ONNX int8 CPU inference.
+horizon: { start: 2026-07-07, end: 2026-09-25 }
+goal:
+  hmw: "How might we linearize arXMCP's bulk write path, land scale-guard telemetry with documented inflection thresholds, and contain/screen the untrusted-content ingest pipeline so that arXMCP's solo operator can decide - with measured evidence instead of a mid-backfill surprise - whether and when to grow the corpus from today's ~125 papers toward the 200K target, or to deliberately hold at notebook scale?"
+  objective: "Ship a linearized bulk write path, scale-guard telemetry with documented inflection thresholds, GPU-capable ingest, and a contained, poison-screened ingest pipeline - validated by an instrumented 10K-paper capacity checkpoint that gates Tier-5 entry."
+  key_results:
+    - "A bulk/batch ingest run (bulk_ingest, oai_delta, re_embed, notebook drivers) produces exactly one end-of-run index build instead of one per-paper rebuild, verified by an MVCC version-count assertion in a batch-ingest test"
+    - "The daily ops report and /status surface all ~8 scale-guard gauges (lancedb version_count, dir_bytes, BM25 bytes, startup seconds, notebook count, backup duration/bytes, per-stage ingest throughput) with D5-R07's inflection table encoded as documented thresholds"
+    - "/readyz returns 200 with ARXMCP_BM25_PHASE=off as the default even when the BM25 pickle load path is forced to fail, verified by a startup test"
+    - "An ingest-time hidden-instruction screening pass records a persisted verdict for 100% of ingested papers (warn-only, 0 silent drops), and MinerU/uploaded-PDF parsing runs inside a no-egress container on the Windows host with a documented Docker-unavailable fallback"
+    - "An instrumented, abortable 10K-paper capacity checkpoint publishes .claude/docs/capacity-model.md with measured sec/paper, startup-seconds, and version-growth curves, and 'capacity model green at 10K' becomes a required Tier-5 entry criterion in .claude/TIER-GATES.md alongside the existing drift gate"
+    - "All 6 documented nightly cron/systemd ops jobs are confirmed executing on the Windows tier-1 host (or ported where found inert), and a wheel-build + test CI check runs on every push (today: 0 CI workflows exist in the repo)"
+  assumptions:
+    - tier: must
+      text: "The gap analysis's raw 200K sizing (~12M chunks, ~98 GB) is inflated; the corrected basis is ~25 chunks/paper (~5M chunks, ~20 GB fp32, one populated embedding column per chunk) per cross-synthesis ruling C2 - but even that is unmeasured against this corpus's actual chunk/paper ratio"
+      validation: "Before any D5-R07 gauge threshold or D5-R15 checkpoint criterion is pinned to a number, measure actual chunks-per-paper on the live 125-paper Bridgeland notebook and recompute the ~500/1K/2-5K/10K/15-30K/50-100K inflection points in D5.md's table against the measured value, not the analysis's inflated figure"
+    - tier: must
+      text: "The pinned lancedb==0.30 exposes count_rows(predicate) (unmaterialized count) and an incremental optimize() (add-unindexed-rows without full retrain) sufficient to implement D5-R01's defer_indices mode without a version bump"
+      validation: "First task inside the D5-R01 milestone: probe the installed lancedb==0.30 API directly for count_rows(predicate) and optimize() incremental semantics before writing any ingest/store.py changes; if either is absent, raise an ADR on bumping the lancedb pin (D5.md Open Question #3 flags this would widen R01's blast radius) before proceeding with the rest of the milestone"
+    - tier: must
+      text: "The documented nightly cron (macOS fallback) / systemd (Linux primary) ops cadence in docs/ops/daily-ops-cadence.md actually executes on this project's real tier-1 host, which is Windows (per this session's environment and D8.md's 'Windows (tier-1 workstation)' framing) - a platform the documented cadence does not mention at all"
+      validation: "A verification task (new S/M work item, cross-synthesis CG2) inspects whether Windows Task Scheduler, a WSL2 cron/systemd shim, or another mechanism is actually configured and firing for the 6 documented jobs; if any is silently inert, port it to a Windows-native equivalent before D5-R02's maintenance job is added to the cadence - do not add new nightly jobs to a cadence that isn't verified to run"
+    - tier: should
+      text: "The workstation has a CUDA-capable GPU with sufficient VRAM to run BGE-M3 at ingest batch 32-128, matching E11-scale-cutover.md's ~1-2 GPU-day / A6000-or-4090 budget"
+      validation: "D1-R09's own spec is the check: produce a measured papers/hour figure via a small-batch BGE-M3 GPU throughput probe (device query + VRAM check) as the first task of the GPU/backfill-plan milestone, before committing to a GPU-days schedule; if no usable GPU is found, fall back to the corrected CPU-only estimate (weeks-to-months, per D5.md G5) and document it in the re-costed E11 plan"
+    - tier: should
+      text: "The evidence-engine track's FIX milestone (tests/eval/fixtures/queries.json populated with graded queries) lands before this track reaches D5-R09's recall-bench and D5-R12's eval-delta sub-tasks"
+      validation: "Block only the recall-bench sub-task of D5-R09 and the dense-vs-hybrid eval-delta sub-task of D5-R12 behind the evidence-engine roadmap's FIX milestone landing; do not start them speculatively. The non-recall halves of D5-R09 (vector-index/fp16 policy gate structure, bench harness plumbing) and D5-R12 (corpus-growth-count trigger + report plumbing) may proceed independent of FIX"
+    - tier: should
+      text: "The agent-platform track's W1 window (first batched TOOL_SCHEMA_VERSION re-pin) lands in time to carry D5-R13's capped retrieval_mode value (fts5_trigram_capped) without a standalone schema-hash re-pin"
+      validation: "Coordinate D5-R13's rollout timing with the agent-platform roadmap's W1 window when scheduling; if W1 has not landed by the time D5-R13 is implemented, fall back to D5-R13's own documented alternative (ship the value without editing the tool description, or accept a standalone EXPECTED_TOOL_SCHEMA_SHA256 re-pin) rather than blocking the milestone"
+    - tier: might
+      text: "The Stage-2 integration worktree merge (M0, _worktrees/arx-onmain) is not a precondition for any item in this track"
+      validation: "D5.md's current-state section states this directly: the unmerged worktree touches none of the files at issue, so no D5 recommendation is preempted by it. Re-confirm by diffing the worktree's changed-file list against each epic's planned touch-points immediately before that epic starts, in case the worktree has moved on by then"
+    - tier: might
+      text: "Docker or Rancher Desktop is installed/installable on the Windows tier-1 host, enabling D8-R08's no-egress MinerU container"
+      validation: "D8-R08's own dependency clause already covers this: never gate ingest on Docker - if unavailable, MinerU containment is deferred without blocking ingest. Confirm Docker/Rancher Desktop presence as the first task of the D8-R08 milestone"
+  wont:
+    - "No bespoke synthetic 10K-paper load harness - D5-R15's checkpoint runs on real dump-sourced (or ar5iv-dump-slice) ingest instead, per the brief and cross-synthesis do-not-do #19"
+    - "No ONNX int8 CPU inference - D1-R07 was REJECTED (merit kill); resurrect only as one time-boxed benchmark line inside D1-R09's plan if and only if the workstation turns out to have no usable GPU"
+    - "No notebook capacity accounting or LRU-slot tuning - D5-R14 was REJECTED (verbatim-duplicates D5-R07's gauge pack; YAGNI at a handful of notebooks); reopen only if the R07 eviction counter fires or notebook count exceeds ~8"
+    - "No full LaTeXML Docker exec-route plumbing this pass - the arxmcp/latexml image does not exist (no Dockerfile in infra/latexml/); D8-R08 ships only the MinerU no-egress container plus a Windows WSL2/bwrap half-step, and defers full containment"
+    - "No retrieval-quality verdicts (hybrid re-open, rerank re-qualification, embedder swap adoption) - this track only supplies the FIX-gated recall-bench trigger and corpus-growth checkpoint reports (D5-R09, D5-R12); the retrieval-unlocks track owns the decision"
+    - "No Kuzu migration execution beyond the spike + GO/NO-GO ADR - D5-R04 re-scopes the already-tracked verification-feedback-spike-1 with current LadybugDB intel; it does not open a new migration-execution lane even on a GO verdict"
+    - "No per-chunk trust-label schema or quarantine machinery unless the D8-R01 warn-first pass or the D8-R10 FP scan yields a non-zero flag rate - D8-R03 stays out of scope for this roadmap unless that evidence gate fires"
+  evidence:
+    - "C:/Users/cedar/Documents/Personal Projects/Source Code/_pipeline/gap-analysis-2026-07/chapters/D5.md — primary source chapter (scalability + guards, 15 recs, referee-merged)"
+    - "C:/Users/cedar/Documents/Personal Projects/Source Code/_pipeline/gap-analysis-2026-07/chapters/D8.md — parser containment (D8-R08) + ingest-time injection screening (D8-R01, D8-R10)"
+    - "C:/Users/cedar/Documents/Personal Projects/Source Code/_pipeline/gap-analysis-2026-07/chapters/D1.md — D1-R09 closes the E11 plan-vs-code GPU contradiction"
+    - "C:/Users/cedar/Documents/Personal Projects/Source Code/_pipeline/gap-analysis-2026-07/synthesis/cross-synthesis.md — §4 track S4 seed (this track's canonical ordering), §2.2 dependency spine (M0/W1/FIX), §3 canonical-id merges, §5 do-not-do list"
+    - "C:/Users/cedar/Documents/Personal Projects/Source Code/arXMCP/.claude/TIER-GATES.md:188-206 — Tier-5 cutover gate has no capacity/mechanical-scaling criterion today"
+    - "C:/Users/cedar/Documents/Personal Projects/Source Code/arXMCP/plans/verification-feedback-roadmap.md:160-163 — tracked-but-unexecuted verification-feedback-spike-1 (Kuzu successor), D5-R04's target"
+    - "C:/Users/cedar/Documents/Personal Projects/Source Code/arXMCP/docs/ops/daily-ops-cadence.md — documents systemd(Linux)/cron(macOS) cadence only; no Windows path named"
+    - "C:/Users/cedar/Documents/Personal Projects/Source Code/arXMCP/.claude/roadmap/E11-scale-cutover.md — the GPU-days backfill budget D5-R05/D1-R09 must reconcile against the CPU-only shipped embedder"
+    - "C:/Users/cedar/Documents/Personal Projects/Source Code/arXMCP/plans/corpus-integrity-observability-roadmap.md — prior telemetry work (INGEST_LAST_RUN gauges) this track's D5-R06a/R07 extend"
+generated_by: { agent: claude-sonnet-5, at: "2026-07-07" }
+generations:
+  - { rev: 1, at: "2026-07-07" }
+retired: []          # tombstoned item ids; ids are write-once, never deleted
+items:
+  - id: scale-ops-hardening-e1
+    kind: epic
+    title: "Linearize the bulk write path"
+    summary: >
+      Add a defer_indices mode to ingest/store.write_chunks used by bulk_ingest,
+      oai_delta, re_embed, and the notebook drivers: skip per-paper
+      _create_indices, build/merge indices once at end-of-run (or every K~500
+      papers) via LanceDB's incremental optimize() instead of a full
+      create_index(replace=True) retrain on both embedding columns; extend
+      cutover criteria to verify index presence on staging before promote.
+      Replace _count_non_null's and the marker paper-count's full-table
+      to_arrow() materializations with a projected count_rows(predicate) plus
+      a caller-maintained running set rebuilt from the committed table on
+      crash-resume. Per-write behavior for single-paper UI ingests is
+      unchanged; the post-index version-pinning contract is preserved. This is
+      the single blocker D5-R01 names as capping the corpus at ~10^3-10^4
+      papers regardless of anything else in this roadmap.
+    priority: must
+    size: M
+    rice: { r: 30, i: 3, c: 0.8, e: 2.5, score: 28.8, rank: 1 }
+    tags: [value, storage, ingest, write-path, D5-R01, D1-R02]
+    links:
+      code:
+        - "ingest/store.py"
+        - "ingest/bulk_ingest.py"
+        - "ingest/oai_delta.py"
+        - "ingest/re_embed.py"
+
+  - id: scale-ops-hardening-e2
+    kind: epic
+    title: "Scale-guard telemetry, proportional guards, BM25 readiness decoupling & concurrency/lookup bounds"
+    summary: >
+      Extend the scrape-time gauge refresh with the ~8-gauge scale pack
+      (lancedb version_count/dir_bytes per table, BM25 index bytes + load
+      seconds, startup seconds by phase, notebook count, per-stage ingest
+      throughput/sec-per-paper trend) plus D5-R07's documented inflection-point
+      alert rules and daily-report/status rows. Replace the fixed 10/15 GB
+      disk guard with a proportional threshold computed from the dir-size
+      gauge, and add free-space preflights to cutover and the restore drill.
+      Gate BM25Phase construction - including per-notebook loads - behind
+      ARXMCP_BM25_PHASE=auto|on|off (default auto=off) so /readyz and startup
+      RAM stop depending on a lane serving zero production traffic; a hybrid
+      request while off fails loudly; the bm25s mmap engine swap stays
+      deferred to the hybrid-reopen trigger (owned by the retrieval-unlocks
+      track), not built here. Add an encoder-executor queue-wait histogram and
+      a Lean-REPL-lock waiters gauge plus a gated 4-concurrent-session load
+      test (SERVER_BUSY shed cap itself stays deferred until this data shows
+      queue stacking). Cap the unbounded theorem-name Jaccard fallback at a
+      config row-count ceiling, returning retrieval_mode=fts5_trigram_capped
+      above it, without editing the frozen tool description (or accepting the
+      documented schema-hash re-pin).
+    priority: must
+    size: L
+    rice: { r: 20, i: 2, c: 0.5, e: 5.5, score: 3.64, rank: 4 }
+    tags: [value, observability, guards, readiness, D5-R07, D5-R08, D5-R06, D5-R03, D1-R08, D5-R10, D5-R13]
+    links:
+      code:
+        - "server/metrics.py"
+        - "server/health.py"
+        - "server/resources.py"
+        - "server/retrieval/bm25.py"
+        - "server/query_encoder.py"
+        - "server/lean_repl.py"
+        - "server/theorem_names_store.py"
+        - "ingest/ingest_summary.py"
+
+  - id: scale-ops-hardening-e3
+    kind: epic
+    title: "Corpus lifecycle & ops discipline: maintenance, backup hardening, Windows cron parity & CI"
+    summary: >
+      Ship tools/lancedb_maintenance.py plus a ~03:00 nightly cron/scheduled
+      pair (before the 03:30 backup) that compacts fragments, merges index
+      deltas, and deletes LanceDB versions older than a retention window minus
+      a pin-aware allowlist (active marker version, N-1, every notebook
+      corpus-version.json pin, lancedb-prev* rollback targets, in-flight
+      re-embed sources) - implemented as LanceDB version tags where possible,
+      skipped when a writer is active. Parse restic's already-captured
+      duration_seconds/data_added into gauges and the daily report (warn near
+      the 4h TimeoutStartSec or on added-bytes jumps), and extend
+      restore_drill_check.py to open + count_rows() a sample of per-notebook
+      LanceDBs and one paper_metadata.db per drill. Before this new nightly
+      job is added to the cadence, verify whether the documented
+      cron(macOS)/systemd(Linux) cadence actually executes on the real
+      tier-1 host, which is Windows and which the documented cadence does not
+      mention at all - port any silently-inert job to a Windows-native
+      equivalent (Task Scheduler or a WSL2 shim) first. Add a wheel-build +
+      test CI check that runs on every push (0 CI workflows exist today).
+    priority: should
+    size: M
+    rice: { r: 30, i: 2, c: 0.5, e: 3, score: 10.0, rank: 3 }
+    tags: [enabler, ops, maintenance, backup, ci, D5-R02, D5-R11, CG2, CG3]
+    depends_on: [scale-ops-hardening-e1]
+    links:
+      code:
+        - "tools/lancedb_maintenance.py"
+        - "ops/cron/arxmcp-backup.sh"
+        - "ops/restore_drill_check.py"
+        - "docs/ops/daily-ops-cadence.md"
+
+  - id: scale-ops-hardening-e4
+    kind: epic
+    title: "Infrastructure future-proofing: GPU-capable ingest, corrected 200K plan & Kuzu-successor decision"
+    summary: >
+      Add ARXMCP_EMBED_DEVICE (auto|cpu|cuda) device selection to
+      ingest/embedder.py (currently hard-forbids .cuda()) with device-tuned
+      batch size (CPU stays 8; GPU 32-128), device recorded in the embed
+      sidecar, and one device enforced per embedder_version run; the
+      server-side query encoder stays CPU-only and unchanged. Reconcile
+      E11-scale-cutover.md's GPU-batch-32 assumption against the shipped
+      CPU-only-by-design embedder with a measured papers/hour benchmark on
+      this workstation, fold in D5-R01's deferred-indexing discipline and the
+      num_partitions retune, absorb the corrected ~5M-chunk/~20GB-fp32 (one
+      populated embedding column per chunk) storage arithmetic as the plan's
+      storage section, and state "stay at notebook scale" as a legitimate
+      documented outcome; execution of the 200K backfill itself remains a
+      separate, owner-gated decision. If and only if this workstation turns
+      out to have no usable GPU, the corrected plan may include one
+      time-boxed ONNX int8 CPU benchmark line as its own documented
+      exception - no broader ONNX adoption. Re-scope and execute the
+      already-tracked verification-feedback-spike-1 with LadybugDB as the
+      primary Kuzu-successor candidate (upstream kuzu archived
+      2025-10-10): check the recursive-rel binder limitation, verify
+      storage-format compatibility, resolve the `pip install ladybug`
+      PyPI-namespace collision, refresh the stale pyproject.toml/
+      architecture.md fork guidance, and land a GO/NO-GO ADR with un-park
+      triggers plus a one-line accept-and-monitor SECURITY.md note - spike and
+      ADR only, no migration execution.
+    priority: should
+    size: L
+    rice: { r: 2, i: 2, c: 0.5, e: 3.5, score: 0.57, rank: 5 }
+    tags: [value, ingest, gpu, capacity-plan, graph-db, D5-R05, D1-R09, D1-R12, D5-R04, D8-R09c]
+    depends_on: [scale-ops-hardening-e1]
+    links:
+      code:
+        - "ingest/embedder.py"
+        - "ingest/re_embed.py"
+        - ".claude/roadmap/E11-scale-cutover.md"
+        - "pyproject.toml"
+
+  - id: scale-ops-hardening-e5
+    kind: epic
+    title: "Content-security hardening: parser containment & ingest-time instruction screening"
+    summary: >
+      Contain MinerU/uploaded-PDF parsing in a no-egress container first (the
+      live CVE-2026-24770 Zip-Slip RCE class landing on exactly the
+      user-sourced textbook PDFs this project ingests) - a container PID
+      namespace also finally reaps the documented killpg-surviving grandchild
+      FastAPI server. Add a WSL2/bwrap half-step for the currently-unsandboxed
+      Windows LaTeXML path; full LaTeXML Docker exec-route plumbing stays
+      deferred (no Dockerfile exists in infra/latexml/ - never gate ingest on
+      Docker; fall back without blocking if Docker/Rancher Desktop is
+      unavailable). Add a pre-chunking screening pass in
+      ingest/bulk_ingest.ingest_one_paper (and the textbook path): a
+      structural scan of ar5iv/LaTeXML HTML for invisible-text markup plus a
+      literal/NL injection-pattern scan of extracted text; persist a verdict
+      per paper (ops JSONL); warn-only on the first corpus pass with a
+      CLI-only operator override - never a silent drop, no console UI for the
+      override. Batch-scan existing ingested chunk bodies/preambles for the 4
+      sanitizer patterns; if the false-positive rate is ~0 (expected),
+      flip ARXMCP_SANITIZE_RETRIEVED_CONTENT default-on and upgrade
+      warn-once logging to per-hit chunk_id WARNs that supply the base-rate
+      evidence gating any future per-chunk quarantine work.
+    priority: must
+    size: L
+    rice: { r: 30, i: 2, c: 0.8, e: 3, score: 16.0, rank: 2 }
+    tags: [value, security, ingest, sandboxing, D8-R08, D8-R01, D8-R10]
+    links:
+      code:
+        - "tools/arxiv_fetch.py"
+        - "infra/latexml/docker-compose.latexml.yml"
+        - "ingest/bulk_ingest.py"
+        - "server/observability/sanitize.py"
+
+  - id: scale-ops-hardening-e6
+    kind: epic
+    title: "Growth-gated capacity validation: index/storage policy, eval checkpoints & the 10K rehearsal"
+    summary: >
+      Wire the ~1M-vectors/column bench-and-decide gate (1-partition
+      IVF_HNSW_SQ vs partitioned vs IVF_PQ on recall/latency/RAM, plus an
+      fp16-embedding-column policy timed with the next EMBEDDER_VERSION bump)
+      and the 1K/10K/100K corpus-growth checkpoint trigger/report plumbing,
+      both consuming e2's gauge pack. This track supplies only the trigger
+      mechanism, the bench-harness plumbing, and the warn-only
+      daily-report/status delta reports - the recall-bench sub-task of the
+      index gate and the dense-vs-hybrid eval-delta sub-task of the growth
+      checkpoint stay hard-gated behind the evidence-engine roadmap's FIX
+      milestone (the 20-query fixture) landing, and are not started
+      speculatively; no retrieval-quality verdict (hybrid re-open, rerank
+      re-qualification, embedder-swap adoption) is made in this track. Run an
+      instrumented, abortable first-10K-paper checkpoint of the real
+      dump-sourced (or ar5iv-dump-slice) ingest - no bespoke synthetic load
+      harness - recording sec/paper trend, startup seconds, BM25 RSS, index
+      build minutes, version-dir growth, simulated nightly-backup delta, and
+      query p95 under e2's 4-session load test. Publish
+      .claude/docs/capacity-model.md with measured curves, extrapolation to
+      200K, and explicit go/no-go abort criteria, and add "capacity model
+      green at 10K" as a required Tier-5 entry criterion in
+      .claude/TIER-GATES.md alongside the existing drift gate.
+    priority: should
+    size: L
+    rice: { r: 1, i: 2, c: 0.5, e: 3.5, score: 0.29, rank: 6 }
+    tags: [value, capacity, tier-5-gate, eval, D5-R09, D5-R12, D5-R15]
+    depends_on: [scale-ops-hardening-e1, scale-ops-hardening-e2]
+    links:
+      code:
+        - "ingest/store.py"
+        - "ingest/schema.py"
+        - "ops/watchdog_eval.py"
+        - ".claude/TIER-GATES.md"
+
+  # ── e1: Linearize the bulk write path ──────────────────────────
+
+  - id: scale-ops-hardening-spike-1
+    kind: spike
+    title: "Probe lancedb==0.30 for count_rows(predicate) + incremental optimize() semantics"
+    parent: scale-ops-hardening-e1
+    lane: now
+    estimate_days: 1
+    target_start: 2026-07-07
+    target_end: 2026-07-08
+    acceptance:
+      - "Given the pinned lancedb==0.30 install, when count_rows(predicate) and optimize()'s incremental (add-unindexed-rows, no full retrain) semantics are probed directly, then both are confirmed present/absent before any ingest/store.py change is written"
+      - "Given either API is confirmed absent, when the probe concludes, then an ADR on bumping the lancedb pin is raised (D5.md Open Question #3) before the rest of the D5-R01 milestone proceeds"
+    tags: [D5-R01, spike, must-assumption]
+    links:
+      code: ["ingest/store.py"]
+      note: ["Resolves goal.assumptions must-tier #2 (lancedb API sufficiency)"]
+
+  - id: scale-ops-hardening-m1
+    kind: milestone
+    title: "Bulk write path is linear end-to-end"
+    summary: >
+      A defer_indices mode in ingest/store.write_chunks used by bulk_ingest,
+      oai_delta, re_embed, and the notebook drivers: per-paper full HNSW
+      rebuilds and full-table Arrow scans are gone from every multi-paper
+      write path, replaced by an end-of-run (or every-K~500) incremental
+      optimize() and a projected count_rows(predicate)/caller-maintained
+      running set. Single-paper UI ingest behavior and the post-index
+      version-pinning contract are unchanged. This is the single blocker
+      D5-R01 names as capping the corpus at ~10^3-10^4 papers.
+    parent: scale-ops-hardening-e1
+    lane: now
+    target_start: 2026-07-09
+    target_end: 2026-07-24
+    depends_on: [scale-ops-hardening-spike-1]
+    acceptance:
+      - "Given a multi-paper bulk_ingest run with defer_indices enabled, when the run completes, then exactly one index build occurs at end-of-run (or once per K~500 papers) instead of one per paper, verified by an MVCC version-count assertion in a batch-ingest test"
+      - "Given a single-paper UI ingest, when it completes, then per-write behavior and the post-index version-pinning contract (store.py:62-72) are unchanged from today"
+    tags: [D5-R01, D1-R02]
+    links:
+      code: ["ingest/store.py", "ingest/bulk_ingest.py", "ingest/oai_delta.py", "ingest/re_embed.py"]
+
+  - id: scale-ops-hardening-t-defer-indices-mode
+    kind: task
+    title: "Add defer_indices mode to ingest/store.write_chunks"
+    parent: scale-ops-hardening-m1
+    lane: now
+    priority: must
+    estimate_days: 3
+    target_start: 2026-07-09
+    target_end: 2026-07-13
+    acceptance:
+      - "Given ingest/store.write_chunks called with defer_indices=True, when N papers are written in one run, then _create_indices (store.py:885) is skipped per paper and a single incremental optimize() call runs at end-of-run or every K~500 papers"
+      - "Given defer_indices=False (the default), when a single paper is written, then today's per-write index-rebuild behavior is unchanged"
+    links:
+      code: ["ingest/store.py"]
+
+  - id: scale-ops-hardening-t-kill-full-table-scans
+    kind: task
+    title: "Replace _count_non_null + marker paper-count with projected/streamed counts"
+    parent: scale-ops-hardening-m1
+    lane: now
+    priority: must
+    estimate_days: 2
+    target_start: 2026-07-09
+    target_end: 2026-07-10
+    acceptance:
+      - "Given a populated table, when _count_non_null or the marker paper-count (store.py:580,630,967) is evaluated, then no tbl.to_arrow() full-table materialization occurs; count_rows(predicate) or the caller-maintained running set is used instead"
+      - "Given a crash mid-run, when the process resumes, then the caller-maintained running set is rebuilt from the committed table rather than trusted from in-memory state"
+    links:
+      code: ["ingest/store.py"]
+
+  - id: scale-ops-hardening-t-wire-defer-indices-callers
+    kind: task
+    title: "Wire defer_indices through bulk_ingest, oai_delta, re_embed, notebook drivers"
+    parent: scale-ops-hardening-m1
+    lane: now
+    priority: must
+    estimate_days: 3
+    target_start: 2026-07-14
+    target_end: 2026-07-16
+    depends_on: [scale-ops-hardening-t-defer-indices-mode]
+    acceptance:
+      - "Given bulk_ingest, oai_delta, re_embed, and the notebook drivers, when each runs a multi-paper batch, then all four pass defer_indices=True while single-paper UI ingest calls remain defer_indices=False"
+    links:
+      code: ["ingest/bulk_ingest.py", "ingest/oai_delta.py", "ingest/re_embed.py"]
+
+  - id: scale-ops-hardening-t-cutover-index-check
+    kind: task
+    title: "Extend cutover criteria to verify index presence on staging before promote"
+    parent: scale-ops-hardening-m1
+    lane: now
+    priority: should
+    estimate_days: 2
+    target_start: 2026-07-17
+    target_end: 2026-07-20
+    depends_on: [scale-ops-hardening-t-wire-defer-indices-callers, scale-ops-hardening-t-kill-full-table-scans]
+    acceptance:
+      - "Given a staging table produced under defer_indices, when cutover criteria evaluate it, then promotion is refused unless the expected indices are present on staging"
+    links:
+      code: ["ops/cutover.py"]
+
+  # ── e2: Scale-guard telemetry, guards, BM25 decoupling, concurrency/lookup bounds ──
+
+  - id: scale-ops-hardening-m2
+    kind: milestone
+    title: "BM25 decoupled from startup/readiness"
+    summary: >
+      ARXMCP_BM25_PHASE=auto|on|off (default auto=off) gates shared AND
+      per-notebook BM25Phase construction so /readyz, startup RAM, and the
+      chunk_id-set materialization stop depending on a lane serving zero
+      production traffic; a hybrid request while off fails loudly; the
+      corpus-integrity cross-check does not silently skip when BM25 IS
+      enabled. The bm25s mmap engine swap stays deferred to the hybrid-reopen
+      trigger owned by the retrieval-unlocks track - not built here.
+    parent: scale-ops-hardening-e2
+    lane: now
+    target_start: 2026-07-09
+    target_end: 2026-07-15
+    acceptance:
+      - "Given ARXMCP_BM25_PHASE unset (default auto=off), when the BM25 pickle load path is forced to fail, then /readyz still returns 200, verified by a startup test"
+      - "Given ARXMCP_BM25_PHASE=off, when a hybrid retrieval request arrives, then it fails loudly instead of silently degrading to dense-only"
+    tags: [D5-R03, D1-R08]
+    links:
+      code: ["server/resources.py", "server/retrieval/bm25.py", "server/config.py"]
+
+  - id: scale-ops-hardening-t-bm25-phase-gate
+    kind: task
+    title: "Gate shared + per-notebook BM25Phase construction behind ARXMCP_BM25_PHASE"
+    parent: scale-ops-hardening-m2
+    lane: now
+    priority: must
+    estimate_days: 2
+    target_start: 2026-07-09
+    target_end: 2026-07-10
+    acceptance:
+      - "Given ARXMCP_BM25_PHASE=auto|on|off with default auto=off, when the server starts, then BM25Phase construction - including per-notebook loads (resources.py:1069) - is skipped unless a hybrid mode is actually served"
+    links:
+      code: ["server/resources.py", "server/config.py"]
+
+  - id: scale-ops-hardening-t-bm25-integrity-check-live
+    kind: task
+    title: "Keep the corpus-integrity BM25 cross-check live when the phase is on"
+    parent: scale-ops-hardening-m2
+    lane: now
+    priority: should
+    estimate_days: 2
+    target_start: 2026-07-13
+    target_end: 2026-07-14
+    depends_on: [scale-ops-hardening-t-bm25-phase-gate]
+    acceptance:
+      - "Given ARXMCP_BM25_PHASE=on, when the corpus-integrity cross-check runs, then it executes the BM25 comparison instead of silently skipping"
+      - "Given an eval/watchdog --hybrid run, when it starts, then it sets ARXMCP_BM25_PHASE=on for the duration of the run"
+    links:
+      code: ["ops/watchdog_eval.py"]
+
+  - id: scale-ops-hardening-spike-2
+    kind: spike
+    title: "Measure actual chunks-per-paper on the live 125-paper Bridgeland notebook"
+    parent: scale-ops-hardening-e2
+    lane: now
+    estimate_days: 1
+    target_start: 2026-07-07
+    target_end: 2026-07-08
+    acceptance:
+      - "Given the live Bridgeland notebook's LanceDB chunks table, when chunks-per-paper is measured directly, then the ~500/1K/2-5K/10K/15-30K/50-100K inflection points in D5.md's table are recomputed against the measured value, not the gap analysis's inflated ~12M-chunk/~98GB figure"
+    tags: [D5-R07, D5-R15, spike, must-assumption]
+    links:
+      code: ["ingest/schema.py"]
+      note: ["Resolves goal.assumptions must-tier #1 (corpus sizing basis); feeds scale-ops-hardening-m3 and scale-ops-hardening-m15"]
+
+  - id: scale-ops-hardening-m3
+    kind: milestone
+    title: "Scale-guard gauge pack, proportional disk guard, per-stage telemetry, capped lookup fallback live"
+    summary: >
+      Extend the scrape-time refresh with the ~8-gauge scale pack
+      (lancedb version_count/dir_bytes per table, BM25 index bytes + load
+      seconds, startup seconds by phase, notebook count, per-stage ingest
+      throughput) and land D5-R07's inflection table as alert rules plus
+      daily-report/status rows, recomputed against spike-2's measured
+      chunks-per-paper. Replace the fixed 10/15 GB disk guard with a
+      proportional threshold and add free-space preflights. Cap the
+      unbounded theorem-name Jaccard fallback at a row-count ceiling
+      (batched in per D5-R13, not standalone).
+    parent: scale-ops-hardening-e2
+    lane: now
+    target_start: 2026-07-13
+    target_end: 2026-08-03
+    depends_on: [scale-ops-hardening-spike-2]
+    acceptance:
+      - "Given a running server, when the daily ops report and /status are generated, then all ~8 scale-guard gauges (lancedb version_count/dir_bytes per table, BM25 index bytes + load seconds, startup seconds by phase, notebook count, per-stage ingest throughput) are present"
+      - "Given spike-2's measured chunks-per-paper, when D5-R07's inflection thresholds are encoded as alert rules, then they are computed against the corrected corpus-sizing basis"
+    tags: [D5-R07, D5-R08, D5-R06, D5-R13]
+    links:
+      code: ["server/metrics.py", "server/health.py", "server/main.py", "ingest/ingest_summary.py", "server/theorem_names_store.py"]
+
+  - id: scale-ops-hardening-t-scale-guard-gauge-pack
+    kind: task
+    title: "Emit the ~8-gauge scale pack from the scrape-time refresh"
+    parent: scale-ops-hardening-m3
+    lane: now
+    priority: must
+    estimate_days: 3
+    target_start: 2026-07-13
+    target_end: 2026-07-16
+    acceptance:
+      - "Given the scrape-time refresh (server/main.py:786-797), when it runs, then arxmcp_lancedb_version_count{table}, arxmcp_lancedb_dir_bytes{table} (TTL-cached scandir), BM25 index bytes + load seconds, startup seconds by phase, and notebook count are all emitted"
+    links:
+      code: ["server/main.py", "server/metrics.py"]
+
+  - id: scale-ops-hardening-t-inflection-alert-rules
+    kind: task
+    title: "Land the inflection table as alert rules + daily-report/status rows"
+    parent: scale-ops-hardening-m3
+    lane: now
+    priority: must
+    estimate_days: 2
+    target_start: 2026-07-17
+    target_end: 2026-07-20
+    depends_on: [scale-ops-hardening-t-scale-guard-gauge-pack]
+    acceptance:
+      - "Given spike-2's measured chunks-per-paper, when the 5 inflection rules (chunk_count/index review, startup seconds/BM25 gating, version_count/maintenance, disk free/cutover risk, sec/paper trend/quadratic alarm) are encoded, then each fires against the corrected thresholds in both the daily markdown report and /status"
+    links:
+      code: ["server/health.py"]
+
+  - id: scale-ops-hardening-t-proportional-disk-guard
+    kind: task
+    title: "Proportional disk guard + free-space preflights"
+    parent: scale-ops-hardening-m3
+    lane: now
+    priority: should
+    estimate_days: 2
+    target_start: 2026-07-17
+    target_end: 2026-07-20
+    depends_on: [scale-ops-hardening-t-scale-guard-gauge-pack]
+    acceptance:
+      - "Given the dir-size gauge, when active-corpus bytes grow, then the pause/clear disk thresholds scale proportionally (max(10 GiB, k x active-corpus bytes)) instead of firing at the fixed 10/15 GB constants (health.py:921-928)"
+      - "Given ops/cutover.py or the restore drill, when either starts, then a free-space preflight refuses early if the filesystem lacks room for the operation"
+    links:
+      code: ["server/health.py", "ops/cutover.py", "ops/restore_drill_check.py"]
+
+  - id: scale-ops-hardening-t-per-stage-ingest-telemetry
+    kind: task
+    title: "Per-stage ingest timings + sec/paper trend"
+    parent: scale-ops-hardening-m3
+    lane: now
+    priority: should
+    estimate_days: 1
+    target_start: 2026-07-21
+    target_end: 2026-07-21
+    acceptance:
+      - "Given a paper ingested through bulk_ingest, when it completes, then per-stage timings (fetch/parse/chunk/embed/write) and a sec/paper trend are recorded in ingest_summary.py and bridged to gauges, and the stale docs/ops/daily-ops-cadence.md:84-86 line is fixed"
+    links:
+      code: ["ingest/ingest_summary.py", "docs/ops/daily-ops-cadence.md"]
+
+  - id: scale-ops-hardening-t-jaccard-fallback-cap
+    kind: task
+    title: "Cap the theorem-name Jaccard fallback at a row-count ceiling"
+    parent: scale-ops-hardening-m3
+    lane: now
+    priority: should
+    estimate_days: 1
+    target_start: 2026-07-22
+    target_end: 2026-07-22
+    acceptance:
+      - "Given fuzzy_jaccard's row count exceeds a config-overridable ceiling (e.g. 200-500K rows), when find_lemma_by_name falls back to it, then results return with retrieval_mode=fts5_trigram_capped instead of scoring every row, and the frozen tool description text (tools.py:276-280) is unchanged unless the agent-platform W1 re-pin window has already landed"
+    tags: [D5-R13]
+    links:
+      code: ["server/theorem_names_store.py", "server/handlers/lemma.py"]
+
+  - id: scale-ops-hardening-m4
+    kind: milestone
+    title: "Concurrency saturation telemetry + gated load test"
+    summary: >
+      Land the regret-free measurement half now: a queue-wait histogram
+      around the single-worker encoder executor, a waiters gauge on the
+      Lean REPL IO lock, and a gated 4-concurrent-session load test that
+      pins p95 - the first empirical statement of the single-worker
+      envelope. The typed SERVER_BUSY/retry_after_ms shed cap stays
+      deferred until this data demonstrates queue stacking.
+    parent: scale-ops-hardening-e2
+    lane: next
+    target_start: 2026-08-03
+    target_end: 2026-08-14
+    acceptance:
+      - "Given 4 concurrent synthetic sessions driven against the server, when the gated load test runs, then arxmcp_encode_queue_wait_seconds and a Lean-REPL-lock waiters gauge report measured p95 queue-wait for the single-worker envelope"
+    tags: [D5-R10]
+    links:
+      code: ["server/query_encoder.py", "server/lean_repl.py"]
+
+  # ── e3: Corpus lifecycle & ops discipline ──────────────────────
+
+  - id: scale-ops-hardening-spike-3
+    kind: spike
+    title: "Verify Windows tier-1 cron/systemd ops parity"
+    parent: scale-ops-hardening-e3
+    lane: now
+    estimate_days: 2
+    target_start: 2026-07-07
+    target_end: 2026-07-09
+    acceptance:
+      - "Given the 6 documented nightly ops jobs in docs/ops/daily-ops-cadence.md (written for cron-macOS/systemd-Linux only), when Windows Task Scheduler and any WSL2 cron/systemd shim are inspected, then each job's actual firing status (live vs silently inert) is recorded per job"
+    tags: [CG2, spike, must-assumption]
+    links:
+      code: ["docs/ops/daily-ops-cadence.md"]
+      note: ["Resolves goal.assumptions must-tier #3 (Windows ops-cadence execution); feeds scale-ops-hardening-m5"]
+
+  - id: scale-ops-hardening-m5
+    kind: milestone
+    title: "Nightly LanceDB maintenance job live, with Windows ops parity restored first"
+    summary: >
+      tools/lancedb_maintenance.py plus a ~03:00 nightly job (before the
+      03:30 backup) that compacts fragments, merges index deltas, and
+      deletes LanceDB versions older than a retention window minus a
+      pin-aware allowlist (active marker version, N-1, every notebook
+      corpus-version.json pin, lancedb-prev* rollback targets, in-flight
+      re-embed sources) - implemented as LanceDB version tags where
+      possible, skipped when a writer is active. Any job spike-3 finds
+      silently inert on the Windows host is ported to a Task
+      Scheduler/WSL2-shim equivalent before this new job joins the cadence.
+    parent: scale-ops-hardening-e3
+    lane: next
+    target_start: 2026-07-27
+    target_end: 2026-08-14
+    depends_on: [scale-ops-hardening-spike-3, scale-ops-hardening-m1]
+    acceptance:
+      - "Given spike-3's per-job verdict, when any of the 6 documented jobs is found inert on the Windows host, then it is ported to a Windows-native equivalent and re-verified firing before the new maintenance job is added to the cadence"
+      - "Given a restore-drill-verified allowlist (active marker version, N-1, notebook pins, lancedb-prev* targets, in-flight re-embed sources), when the nightly maintenance job deletes old versions, then none of the allowlisted versions are removed"
+    tags: [D5-R02, CG2]
+    links:
+      code: ["tools/lancedb_maintenance.py", "docs/ops/daily-ops-cadence.md"]
+
+  - id: scale-ops-hardening-m6
+    kind: milestone
+    title: "Backup/restore trend telemetry + per-notebook drill coverage"
+    summary: >
+      Parse restic's already-captured duration_seconds/data_added into
+      gauges and the daily report (warn near the 4h TimeoutStartSec or on
+      added-bytes jumps); order the maintenance job before the 03:30 backup
+      so snapshots capture compacted state; extend restore_drill_check.py
+      to open + count_rows() a sample of per-notebook LanceDBs and one
+      paper_metadata.db per drill.
+    parent: scale-ops-hardening-e3
+    lane: next
+    target_start: 2026-08-17
+    target_end: 2026-08-28
+    depends_on: [scale-ops-hardening-m5]
+    acceptance:
+      - "Given a completed nightly backup, when backup-status.json is written, then duration_seconds and data_added are present and bridged to gauges + the daily report"
+      - "Given a quarterly restore drill, when it runs, then it opens and count_rows()s a sample of per-notebook LanceDBs and one paper_metadata.db, not just the shared corpus + Kuzu + notebooks.db"
+    tags: [D5-R11]
+    links:
+      code: ["ops/cron/arxmcp-backup.sh", "ops/restore_drill_check.py", "docs/ops/backup-restore.md"]
+
+  - id: scale-ops-hardening-m7
+    kind: milestone
+    title: "Wheel-build + test CI check on every push"
+    summary: >
+      A CI workflow that builds the wheel and runs the test suite on every
+      push (0 CI workflows exist today). Informational only, per CLAUDE.md's
+      no-CI-blocking-merges convention: it reports status and would have
+      caught the wheel packaging bug (frontend assets omitted), but does not
+      gate the existing direct-to-main, no-PR workflow.
+    parent: scale-ops-hardening-e3
+    lane: next
+    target_start: 2026-07-20
+    target_end: 2026-07-27
+    acceptance:
+      - "Given a push to the repository, when the CI workflow runs, then it builds the wheel and runs the test suite and reports pass/fail without blocking the push or requiring a PR"
+    tags: [CG3]
+    links:
+      code: [".github/workflows/"]
+
+  # ── e4: Infrastructure future-proofing ──────────────────────────
+
+  - id: scale-ops-hardening-m8
+    kind: milestone
+    title: "Kuzu successor decision: spike executed + GO/NO-GO ADR"
+    summary: >
+      Execute and re-scope the already-tracked verification-feedback-spike-1
+      with current LadybugDB intel: check whether the fork fixed the 0.11.3
+      recursive-rel binder limitation, verify storage-format compatibility,
+      resolve the `pip install ladybug` PyPI-namespace collision, refresh
+      stale fork guidance (pyproject.toml:137-142, docs/architecture.md:77-78),
+      and land a GO/NO-GO ADR with un-park triggers plus a one-line
+      accept-and-monitor SECURITY.md note (D8-R09c: 0.11.3 + grype watch).
+      Spike and ADR only - no migration execution. Time-sensitive: spike
+      value decays as LadybugDB diverges further from the pinned 0.11.3
+      (17+ releases in already).
+    parent: scale-ops-hardening-e4
+    lane: next
+    target_start: 2026-07-13
+    target_end: 2026-07-24
+    acceptance:
+      - "Given the re-scoped verification-feedback-spike-1, when it completes, then a GO/NO-GO ADR is landed with un-park triggers, the real pinnable LadybugDB package name is resolved, and pyproject.toml/docs/architecture.md's stale bighorn/Vela guidance is refreshed"
+      - "Given the ADR's verdict either way, when it lands, then SECURITY.md carries a one-line dated accept-and-monitor note for kuzu==0.11.3 with a grype watch"
+    tags: [D5-R04, D8-R09c]
+    links:
+      code: ["pyproject.toml", "docs/architecture.md", "SECURITY.md"]
+      note: ["plans/verification-feedback-roadmap.md:160-163 — tracked-but-unexecuted verification-feedback-spike-1, executed by this milestone"]
+
+  - id: scale-ops-hardening-m9
+    kind: milestone
+    title: "GPU-capable ingest + corrected 200K compute/storage plan"
+    summary: "ARXMCP_EMBED_DEVICE (auto|cpu|cuda) device selection in ingest/embedder.py, starting with a measured papers/hour throughput probe on this workstation; reconciles E11-scale-cutover.md's GPU-batch-32 budget against the shipped CPU-only embedder, folds in m1's deferred-indexing discipline and the corrected ~5M-chunk/~20GB-fp32 storage arithmetic, and states 'stay at notebook scale' as a legitimate documented outcome. 200K backfill execution itself stays a separate, owner-gated decision."
+    parent: scale-ops-hardening-e4
+    lane: later
+    depends_on: [scale-ops-hardening-m1]
+    tags: [D5-R05, D1-R09, D1-R12]
+    links:
+      code: ["ingest/embedder.py", "ingest/re_embed.py", ".claude/roadmap/E11-scale-cutover.md"]
+
+  # ── e5: Content-security hardening ──────────────────────────────
+
+  - id: scale-ops-hardening-m10
+    kind: milestone
+    title: "MinerU/uploaded-PDF parsing contained in a no-egress sandbox"
+    summary: >
+      Contain MinerU/uploaded-PDF parsing in a no-egress container first -
+      the live CVE-2026-24770 Zip-Slip RCE class (CVSS 9.1-9.8 critical)
+      lands on exactly the user-sourced textbook PDFs this project ingests.
+      A container PID namespace also reaps the documented killpg-surviving
+      grandchild FastAPI server. Never gate ingest on Docker: fall back
+      without blocking if Docker/Rancher Desktop is unavailable.
+    parent: scale-ops-hardening-e5
+    lane: now
+    target_start: 2026-07-09
+    target_end: 2026-07-17
+    acceptance:
+      - "Given a PDF parsed through MinerU, when parsing runs, then the parser subprocess (and its grandchild FastAPI server) executes inside a no-egress container with no network access"
+      - "Given Docker/Rancher Desktop is unavailable on the Windows host, when ingest runs, then it falls back to the unsandboxed path without blocking, and the fallback is documented"
+    tags: [D8-R08]
+    links:
+      code: ["tools/arxiv_fetch.py", "infra/latexml/docker-compose.latexml.yml"]
+
+  - id: scale-ops-hardening-t-docker-desktop-check
+    kind: task
+    title: "Confirm Docker/Rancher Desktop presence on the Windows host"
+    parent: scale-ops-hardening-m10
+    lane: now
+    priority: must
+    estimate_days: 1
+    target_start: 2026-07-09
+    target_end: 2026-07-09
+    acceptance:
+      - "Given the Windows tier-1 host, when Docker or Rancher Desktop presence is probed, then the result (installed/installable or absent) is recorded before the container is built"
+    tags: [might-assumption]
+
+  - id: scale-ops-hardening-t-mineru-noegress-container
+    kind: task
+    title: "Build the no-egress MinerU container wrapping the parser subprocess"
+    parent: scale-ops-hardening-m10
+    lane: now
+    priority: must
+    estimate_days: 3
+    target_start: 2026-07-10
+    target_end: 2026-07-14
+    depends_on: [scale-ops-hardening-t-docker-desktop-check]
+    acceptance:
+      - "Given a no-egress container wrapping the MinerU/PDF parser subprocess, when a zip-slip-style malicious PDF is parsed, then the exploit is contained inside the container's PID/network namespace and the grandchild FastAPI server is reaped on container exit"
+    links:
+      code: ["tools/arxiv_fetch.py"]
+
+  - id: scale-ops-hardening-m11
+    kind: milestone
+    title: "Ingest-time hidden-instruction screening with persisted verdicts"
+    summary: >
+      A screening pass in ingest/bulk_ingest.ingest_one_paper and the
+      textbook path, before chunking: structural scan of ar5iv/LaTeXML HTML
+      for invisible-text markup, plus a literal/NL injection-pattern scan of
+      extracted text. Persist a verdict per paper (ops JSONL). Warn-only on
+      the first corpus pass with a CLI-only operator override - never a
+      silent drop, no console UI for the override.
+    parent: scale-ops-hardening-e5
+    lane: now
+    target_start: 2026-07-15
+    target_end: 2026-07-24
+    acceptance:
+      - "Given every paper ingested through bulk_ingest or the textbook path, when ingestion completes, then a screening verdict is persisted to the ops JSONL for 100% of papers with 0 silent drops"
+      - "Given a paper flagged by the screen, when the first corpus pass runs, then it is warn-only by default and only an explicit CLI/env operator override changes that - never a silent drop, never a console UI toggle"
+    tags: [D8-R01]
+    links:
+      code: ["ingest/bulk_ingest.py"]
+
+  - id: scale-ops-hardening-t-structural-injection-scan
+    kind: task
+    title: "Structural scan of ar5iv/LaTeXML HTML for invisible-text markup"
+    parent: scale-ops-hardening-m11
+    lane: now
+    priority: must
+    estimate_days: 2
+    target_start: 2026-07-15
+    target_end: 2026-07-16
+    acceptance:
+      - "Given the ar5iv/LaTeXML HTML the chunker already parses, when the structural scan runs, then invisible-text markup (white/near-white colors, sub-legible font sizes, off-page positioning, hidden-span ltx_* classes) is detected via a BeautifulSoup pass with no re-parse of the document"
+    links:
+      code: ["ingest/bulk_ingest.py"]
+
+  - id: scale-ops-hardening-t-pattern-injection-scan
+    kind: task
+    title: "Literal/NL injection-pattern scan of extracted text"
+    parent: scale-ops-hardening-m11
+    lane: now
+    priority: must
+    estimate_days: 1
+    target_start: 2026-07-15
+    target_end: 2026-07-15
+    acceptance:
+      - "Given extracted paper text, when the literal/NL injection-pattern scan runs, then it reuses _INJECTION_PATTERNS plus a small phrase list and flags matches"
+    links:
+      code: ["server/observability/sanitize.py"]
+
+  - id: scale-ops-hardening-t-persist-screening-verdict
+    kind: task
+    title: "Persist a per-paper screening verdict to ops JSONL, warn-only with CLI override"
+    parent: scale-ops-hardening-m11
+    lane: now
+    priority: must
+    estimate_days: 2
+    target_start: 2026-07-17
+    target_end: 2026-07-20
+    depends_on: [scale-ops-hardening-t-structural-injection-scan, scale-ops-hardening-t-pattern-injection-scan]
+    acceptance:
+      - "Given a structural-scan result and a pattern-scan result for one paper, when ingestion completes, then a single persisted verdict (clean/flagged + reasons) is written to the ops JSONL, warn-only by default, with the CLI-only override documented and no console UI exposing it"
+    links:
+      code: ["ingest/bulk_ingest.py"]
+
+  - id: scale-ops-hardening-m12
+    kind: milestone
+    title: "LaTeXML Windows containment half-step + sanitizer FP scan/default-on flip"
+    summary: >
+      A WSL2/bwrap half-step for the currently-unsandboxed Windows LaTeXML
+      path (full LaTeXML Docker exec-route plumbing stays deferred - no
+      infra/latexml/ Dockerfile exists). Batch-scan existing ingested chunk
+      bodies/preambles for the 4 sanitizer patterns; if the false-positive
+      rate is ~0 as expected, flip ARXMCP_SANITIZE_RETRIEVED_CONTENT
+      default-on and upgrade warn-once logging to per-hit chunk_id WARNs
+      that supply the base-rate evidence gating any future per-chunk
+      quarantine work (D8-R03 stays out of scope unless that evidence gate
+      fires).
+    parent: scale-ops-hardening-e5
+    lane: next
+    target_start: 2026-07-27
+    target_end: 2026-08-14
+    acceptance:
+      - "Given the Windows LaTeXML path, when it parses a paper, then it runs inside a WSL2/bwrap half-step instead of fully unsandboxed"
+      - "Given a batch scan of existing ingested chunks for the 4 sanitizer patterns, when the false-positive rate is ~0, then ARXMCP_SANITIZE_RETRIEVED_CONTENT flips default-on and warn-once logging upgrades to per-hit chunk_id WARNs"
+    tags: [D8-R08, D8-R10]
+    links:
+      code: ["infra/latexml/docker-compose.latexml.yml", "server/observability/sanitize.py"]
+
+  # ── e6: Growth-gated capacity validation ────────────────────────
+
+  - id: scale-ops-hardening-m13
+    kind: milestone
+    title: "Vector-index + storage policy gate at ~1M vectors/column"
+    summary: "When any table crosses ~1M vectors in a column (m3's gauge trigger), benchmark 1-partition IVF_HNSW_SQ vs partitioned vs IVF_PQ on recall/latency/RAM and re-pin store.py's index config via ADR; evaluate fp16 embedding columns in the same gate, timed with the next EMBEDDER_VERSION bump. The recall half of the bench is hard-gated behind the evidence-engine roadmap's FIX milestone (20-query fixture) landing; bench-harness plumbing and policy structure may proceed independently."
+    parent: scale-ops-hardening-e6
+    lane: later
+    depends_on: [scale-ops-hardening-m3]
+    tags: [D5-R09]
+    links:
+      code: ["ingest/store.py", "ingest/schema.py"]
+
+  - id: scale-ops-hardening-m14
+    kind: milestone
+    title: "Corpus-growth-triggered dense-vs-hybrid eval checkpoints"
+    summary: "When paper_count crosses 1K/10K/100K (m3's gauge trigger), the nightly watchdog additionally runs the fixture eval in --hybrid mode and reports dense-vs-hybrid deltas as a loud daily-report/status warning, not a cutover-quarantine. Hard-gated behind the evidence-engine roadmap's FIX milestone landing; not started speculatively."
+    parent: scale-ops-hardening-e6
+    lane: later
+    depends_on: [scale-ops-hardening-m3]
+    tags: [D5-R12]
+    links:
+      code: ["ops/watchdog_eval.py", "tests/eval/test_retrieval_quality.py"]
+
+  - id: scale-ops-hardening-m15
+    kind: milestone
+    title: "Instrumented 10K-paper capacity checkpoint gating Tier-5"
+    summary: "An instrumented, abortable first-10K-paper checkpoint of the real dump-sourced (or ar5iv-dump-slice) ingest - no bespoke synthetic harness - recording sec/paper trend, startup seconds, BM25 RSS, index build minutes, version-dir growth, simulated nightly-backup delta, and query p95 under m4's 4-session load test. Publishes .claude/docs/capacity-model.md with measured curves, extrapolation to 200K, and explicit go/no-go abort criteria; adds 'capacity model green at 10K' as a required Tier-5 entry criterion in .claude/TIER-GATES.md."
+    parent: scale-ops-hardening-e6
+    lane: later
+    depends_on: [scale-ops-hardening-m1, scale-ops-hardening-m2, scale-ops-hardening-m3, scale-ops-hardening-m4]
+    tags: [D5-R15]
+    links:
+      code: ["ops/watchdog_eval.py", ".claude/TIER-GATES.md", ".claude/docs/capacity-model.md"]

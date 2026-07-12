@@ -1,0 +1,537 @@
+schema: roadmap/1
+slug: trustworthy-release
+project: arxmcp
+title: "arXMCP — trustworthy release & adoption"
+status: active
+phase: complete          # init -> refined -> decomposed -> sequenced -> complete
+horizon: { start: 2026-07-07, end: 2026-10-07 }
+brief: |
+  arXMCP is unusually well-tested but not safe to install or cite. The Python wheel omits frontend assets so a standalone install crashes, there is no PyPI or MCP-registry presence, a fresh install hits the retrieval cap within minutes, and two code-confirmed trust defects sit in the tree: the integration branch emits unfenced author-controlled paper metadata with a guard test whose polarity is inverted so the bug ships green, and textbook license stamping is dead so copyrighted PDFs serve full-body under an open-access default. This initiative makes the project installable, honest, and safe to cite. Fence the two defects; complete the half-executed v0.1.0 release (fix the wheel, publish to PyPI with a one-command quickstart, cut the GitHub Release, since the tag already exists); correct the one false public security claim; ship a citation contract with client-side quote verification; publish a reproducible benchmark page anchored to REAL numbers once the evidence-engine track produces them; then run the adoption experiment (registries, a demo, a license-clean reference pack, CITATION.cff) under a one-quarter falsifiability clock, re-scoping distribution to personal utility if a pip-installable, registry-listed arXMCP draws no adopters in a quarter. Never publish before the session-cap fix (a broken first-run is fatal) or a benchmark before real numbers exist. Compose with LeanExplore rather than ingesting Mathlib. Do not pursue trusted-group deployment or re-tag v0.1.0 (it exists).
+goal:
+  hmw: "How might we fence arXMCP's known trust defects and finish its half-executed release so that a prospective researcher-adopter can `pip install` it in one command, trust what it serves and cites, and get an honest one-quarter verdict on whether it's worth adopting?"
+  objective: "Ship a PyPI-installable v0.1.0 that is safe to install and safe to cite, then let a one-quarter adoption verdict decide whether to keep investing in distribution."
+  key_results:
+    - "A clean-environment `pipx install arxmcp` / `uvx arxmcp` boots the server (frontend assets present in the wheel) with 0 standalone-install crashes"
+    - "The get_paper wrap-helper tripwire test asserts wrapping IS applied to title/abstract and fails the moment wrapping is removed — the inverted-polarity guard (D8-R02) is corrected"
+    - "100% of source_kind=textbook chunks carry a non-OA-allowlisted license token by default, and get_chunk visibly truncates a re-ingested copyrighted textbook body under the existing 300-char policy"
+    - "SECURITY.md's model-loading invariant row states the true pickle/safetensors split, with 0 false claims"
+    - "The citation contract in .claude/docs/ defines (chunk_id, corpus_version, char_start, char_end, quote_sha256), and a worked example demonstrates a client-side re-slice of a real get_chunk body reproducing the pinned hash"
+    - "docs/evaluation.md publishes 0 numbers that don't trace to a completed evidence-engine fixture run"
+    - "At the one-quarter mark after PyPI + registry listing, an owner decision record exists: a measured adopter count, or an explicit re-scope-to-personal-utility call"
+  assumptions:
+    - tier: must
+      text: "Including frontend/ templates+static in the wheel (pyproject.toml:20's include list) is the ONLY missing piece for a standalone `pipx install arxmcp` boot — no other runtime-required file or dir is wheel-omitted"
+      validation: "a clean-venv/clean-container pipx install + ARXMCP_BOOTSTRAP_MODE=1 boot smoke test (CG3's wheel-build check) runs before any PyPI publish; any further omission found there is fixed in the same milestone, not deferred"
+    - tier: must
+      text: "The interactive session-cap fix (D4-R07 env-configurable caps, owned by the agent-platform roadmap, not this one) lands before this roadmap's PyPI-publish step executes — the brief is explicit that a broken first run is fatal"
+      validation: "the release milestone gates on a green D4-R07/D7-R04 acceptance signal (an interactive session survives more than 3 search_papers calls) from the agent-platform roadmap before D4-R01's PyPI-publish sub-step runs; if it slips, this roadmap ships only the wheel fix + doc corrections and holds publish"
+    - tier: must
+      text: "The evidence-engine roadmap's fixture-curation event (FIX, D9-R01) produces a real `make eval` nDCG@5/Recall@10 number before D9-R12's benchmark page is written"
+      validation: "D9-R12 is blocked in this roadmap's sequencing on a FIX completion signal (a non-empty tests/eval/fixtures/queries.json plus a committed retrieval-quality-report.md update) from the evidence-engine roadmap; no benchmark page ships on the 2026-05-21 spike-grade (51-paper) numbers"
+    - tier: must
+      text: "D8-R02's fence and D8-R11's evidence-bundle fields target code that exists today only on the unmerged _worktrees/arx-onmain integration branch (main's get_paper still returns title/abstract=None); the owner will merge it, or explicitly authorize working directly against the worktree, before those two items execute"
+      validation: "owner dates the M0 merge decision (cross-synthesis §1 T2) at or before this roadmap's decomposition; D8-R02 may proceed pre-merge directly against the worktree per its own ruling ('do first, pre-merge or immediately post-merge') — the assumption fails only if the owner neither merges nor authorizes worktree-direct work"
+    - tier: must
+      text: "source-truth/R1's Release gate -- 'unknown license fails closed' corpus-wide, i.e. zero full-body serving of unknown-license content on a fresh install (R1-source-truth.md:128-129) -- reports a green exit signal before this roadmap's PyPI-publish step executes; R1 names trustworthy-release-m5 as gated by that exit, and README:53 prescribes 'no PyPI publish before R1 gates pass'"
+      validation: "the release milestone gates the PyPI-publish sub-step on R1's Release-gate exit signal in addition to the D4-R07/D7-R04 session-cap signal; if R1 slips or is vetoed in this disposition wave, this roadmap ships only the wheel fix + doc corrections and holds publish, exactly as it already does for a slipped session-cap fix"
+    - tier: should
+      text: "The owner will pick the 'copyrighted, owned copy, licensed-for-local-use' token/flag semantics (D8 open question) before any default-NEW-textbook-chunks-to-unknown step ships, so the live Huybrechts notebook doesn't silently truncate to 300-char excerpts"
+      validation: "the milestone ships the required-license-input plus stamping/backfill CLI (the data half) regardless of the answer; the default-flip and notebook-level override step holds until the owner decides, per D8-R04's ruling"
+    - tier: should
+      text: "A natural next re-embed event (issue #4's BGE-M3 safetensors SHA bump, or an e5-mistral swap) falls inside this roadmap's execution window, so the embedder safetensors code change rides it at no extra GPU-day cost"
+      validation: "if no re-embed is scheduled by decomposition time, D8-R09 ships only the SECURITY.md doc correction plus the Kuzu one-liner; the embedder code change waits for the next scheduled rotation"
+    - tier: should
+      text: "LeanExplore's local self-hosted MCP index can feed lean_verify's kernel-decides linkage without in-corpus Mathlib declarations or a namespace change to arXMCP's frozen result schema"
+      validation: "verification-feedback-spike-3 (already scoped, <=3 days, unrun) runs LeanExplore alongside arXMCP and records the answer; if composition proves insufficient, native Mathlib ingestion becomes its own future roadmap rather than a silent scope-add here"
+    - tier: should
+      text: "Listing arXMCP on the MCP registry at or shortly before the 2026-07-28 stateless-spec cutover does not produce a listing that breaks on day one"
+      validation: "the registry step checks the agent-platform roadmap's D6-R11 migration-plan status immediately before executing; if the SDK v2 GA transition is imminent or in-flight, the registry listing waits for it"
+    - tier: might
+      text: "A short SUPPORT.md expectations note is sufficient to bound post-listing issue volume for a solo maintainer"
+      validation: "revisit if issue volume exceeds a stated per-week threshold in the first month after listing"
+  wont:
+    - "Re-tag or re-cut v0.1.0 — the GPG-signed tag already exists at 52b4397 (2026-05-31); only the release-checklist residue (CHANGES.md section, GitHub Release, PyPI publish) is in scope"
+    - "Trusted-group or multi-host deployment — D4-R14 was REJECTED (zero self-host group-pull evidence); the loopback-only, single-workstation hard constraints stay unamended"
+    - "Native Mathlib corpus ingestion — compose with LeanExplore's local MCP server first (spike-3); build only if the spike proves composition insufficient"
+    - "Publishing any benchmark number ahead of the evidence-engine track's real fixture run — no spike-grade (2026-05-21, 51-paper) number ships as if it were the production measurement"
+    - "Publishing to PyPI before the session-cap fix lands — a broken first run is worse than no release; that fix belongs to the agent-platform roadmap"
+    - "Ingest-time injection screening, per-chunk trust labels, or parser containment — that work belongs to the scale-ops-hardening roadmap"
+    - "Eval-harness machinery, MIRB anchoring, or fixture curation — that work belongs to the evidence-engine roadmap; this roadmap only consumes its FIX signal"
+    - "New export formats beyond a minimal per-paper BibTeX recipe — full BibTeX/CSL-JSON/Obsidian export belongs to the researcher-workbench roadmap"
+  evidence:
+    - "_pipeline/gap-analysis-2026-07/chapters/D8.md — trust, provenance, citation-integrity + content-security dimension (referee-merged 2026-07-07)"
+    - "_pipeline/gap-analysis-2026-07/chapters/D4.md — academic/research market gaps dimension (referee-merged 2026-07-07)"
+    - "_pipeline/gap-analysis-2026-07/chapters/D9.md — evaluation, benchmarking + observability maturity dimension (referee-merged 2026-07-07)"
+    - "_pipeline/gap-analysis-2026-07/chapters/D6.md — interoperability dimension (referee-merged 2026-07-07)"
+    - "_pipeline/gap-analysis-2026-07/synthesis/cross-synthesis.md §4 S6 — this track's seed, dependency spine, and do-not-do list"
+    - "pyproject.toml:20 — wheel include list omits frontend*, verified this session"
+    - "SECURITY.md:79 — false safetensors-only model-loading claim, verified this session"
+    - "CHANGES.md:21-23,514-519 and docs/releasing.md:65-70 — release docs still say v0.1.0 is untagged; `git tag -l v0.1.0` confirms 52b4397 (2026-05-31), verified this session"
+    - "_worktrees/arx-onmain/server/handlers/paper.py:254-261 and tests/security/test_delimiters.py:547-558 — unfenced metadata plus the inverted tripwire, verified this session"
+    - "ingest/chunker_types.py:176 and server/license_policy.py:44-53 — dead textbook license stamping, verified this session"
+    - "server/session.py:47-60 — the 3 search_papers / 4 get_chunk lifetime caps this roadmap must not publish ahead of, verified this session"
+generated_by: { agent: claude-sonnet-5, at: "2026-07-07" }
+generations:
+  - { rev: 1, at: "2026-07-07" }
+retired: []          # tombstoned item ids; ids are write-once, never deleted
+items:
+  - id: trustworthy-release-e1
+    kind: epic
+    title: "Fence the trust defects, correct the security claims"
+    summary: "Fence the two code-confirmed trust defects: the integration branch's unfenced author-controlled get_paper title/abstract with its inverted-polarity guard test (D8-R02), and dead textbook license stamping that lets copyrighted PDFs serve full-body under the OA default (D8-R04, data half — the serve-default flip stays an owner decision). Correct SECURITY.md's false safetensors-only claim, with the embedder's real safetensors switch riding the next scheduled re-embed rather than a standalone spike (D8-R09). Add Rule-of-Two client-side-containment guidance to the threat-model note (D8-R14, reduced to its only near-term-doable slice — SYSTEM_PROMPT authoring and capability-profile design are orchestrator-era work owned by the agent-platform roadmap)."
+    priority: must
+    size: S
+    rice: { r: 4, i: 3, c: 0.5, e: 1.5, score: 4.0, rank: 1 }
+    tags: [value, trust, security, D8-R02, D8-R04, D8-R09, D8-R14]
+    links:
+      code: ["_worktrees/arx-onmain/server/handlers/paper.py:254-261", "tests/security/test_delimiters.py:547-558", "ingest/chunker_types.py:176", "ingest/textbook_chunker.py:367-380", "server/license_policy.py:44-53", "SECURITY.md:79", "ingest/embedder.py:340-354", "server/prompts.py:107-117", ".claude/notes/08-security-observability-ops.md"]
+
+  - id: trustworthy-release-e2
+    kind: epic
+    title: "Ship v0.1.0: fix the wheel, publish to PyPI, quickstart"
+    summary: "Complete the half-executed v0.1.0 release against the tag that already exists at 52b4397: include frontend/ templates+static in the wheel so a standalone pipx/uvx boot no longer crashes, verify with a clean-environment ARXMCP_BOOTSTRAP_MODE=1 smoke test, publish sdist+wheel to PyPI, ship a copy-paste Claude Desktop/Code config plus a README 5-minute quickstart, write the CHANGES.md release section, and cut the GitHub Release (D4-R01, absorbing the D6-R12 checklist residue). Hard-gated on the cross-track interactive session-cap fix landing first (goal.assumptions, tier must) — a broken first run is worse than no release."
+    priority: must
+    size: M
+    rice: { r: 5, i: 3, c: 0.5, e: 2.5, score: 3.0, rank: 2 }
+    tags: [value, release, distribution, D4-R01]
+    links:
+      code: ["pyproject.toml:20", "docker/Dockerfile.server:126-132", "CHANGES.md:21-23", "docs/releasing.md:65-70", "docs/install.md:29"]
+
+  - id: trustworthy-release-e3
+    kind: epic
+    title: "Citation integrity: contract, recipe, honest benchmark"
+    summary: "Author the citation contract in .claude/docs/ — every claim citing corpus text carries (chunk_id, corpus_version, char_start, char_end, quote_sha256), mechanically verifiable by re-slicing a get_chunk body client-side — with a worked example reproducing a pinned hash (D8-R06 phase 1; phase 2 server args stay deferred). Publish the citation-verification recipe (get_paper existence check, cite_neighbors edge check, get_chunk content check) plus minimal per-paper BibTeX from held metadata, with the wider interop suite dropped (D4-R11). Once the evidence-engine track's fixture-curation event lands real numbers, expand docs/evaluation.md into the reproducible benchmark story including the honest rerank-rejection numbers — strictly FIX-gated, 0 numbers published before then (D9-R12). Once the worktree merges and the contract sees real pipeline traffic, extend evidence bundles with optional retrieval-provenance grounding fields (D8-R11)."
+    priority: should
+    size: L
+    rice: { r: 3, i: 2, c: 0.5, e: 4, score: 0.75, rank: 4 }
+    tags: [value, trust, citation, D8-R06, D4-R11, D9-R12, D8-R11]
+    links:
+      code: ["server/handlers/chunk.py:99-113", "server/paper_metadata_store.py", "_worktrees/arx-onmain/server/handlers/paper.py:106-156", "docs/evaluation.md", ".claude/docs/retrieval-quality-report.md", "_worktrees/arx-onmain/contracts/evidence-bundle.v0.schema.json:327,342-345"]
+
+  - id: trustworthy-release-e4
+    kind: epic
+    title: "Adoption kit: reference pack, registries, demo, CITATION.cff"
+    summary: "Build the missing notebook-import counterpart to the deterministic export tar, integrity-verified via content-addressed chunk_ids, and ship one license-clean reference pack — the live Bridgeland notebook — with the multi-pack program and Academic Torrents distribution deferred until this shows any pull (D4-R03). List arXMCP on MCP registries, add CITATION.cff, produce a 3-5 minute demo (fuzzy lemma lookup, TED equation search, cite_neighbors walk, lean_verify), and stage community announcements, with the systems preprint deferred until the eval fixture reaches 50+ queries and an adoption signal exists (D4-R06). Registry-listing timing coordinates with the agent-platform roadmap's D6-R11 stateless-spec migration plan per goal.assumptions."
+    priority: should
+    size: L
+    rice: { r: 3, i: 2, c: 0.5, e: 4, score: 0.75, rank: 4 }
+    depends_on: [trustworthy-release-e2]
+    tags: [value, adoption, distribution, D4-R03, D4-R06]
+    links:
+      code: ["server/routes/notebooks.py:2541", "docs/install.md"]
+
+  - id: trustworthy-release-e5
+    kind: epic
+    title: "Adoption scope discipline: docs, config, LeanExplore spike"
+    summary: "Ship a slim, honest multi-client docs section — standard Streamable HTTP endpoint, generic stdio shim, an explicit note that cloud-mediated connectors cannot reach a loopback-only server — with the per-client smoke matrix deferred (D6-R09). De-hardcode the arXiv category configuration (DEFAULT_SETS, the discovery-category frozenset) while deferring curated category expansion until an external adopter exists (D4-R08). Run the already-scoped, never-run verification-feedback-spike-3 composing LeanExplore's local self-hosted MCP server alongside arXMCP, so this initiative's own compose-don't-ingest-Mathlib constraint is validated rather than assumed (D4-R05). Each item independently keeps the adoption experiment from silently expanding scope."
+    priority: could
+    size: S
+    rice: { r: 2, i: 1, c: 0.5, e: 1, score: 1.0, rank: 3 }
+    tags: [enabler, adoption, scope, D6-R09, D4-R08, D4-R05]
+    links:
+      code: ["docs/install.md", "ingest/oai_delta.py:109-114", "server/routes/notebooks.py:196-198", "plans/verification-feedback-roadmap.md:164"]
+
+  # ── e1 milestones/tasks (now) ──────────────────────────────
+
+  - id: trustworthy-release-m1
+    kind: milestone
+    title: "get_paper metadata fenced; inverted tripwire fixed"
+    summary: "Wrap author-controlled title/abstract on the integration branch's get_paper handler through the existing sanitize/wrap helpers, and replace the inverted-polarity tripwire test with one that fails when wrapping is missing (D8-R02) — the single most code-confirmed defect in the trust dimension, done first per its own ruling."
+    parent: trustworthy-release-e1
+    lane: now
+    target_start: 2026-07-07
+    target_end: 2026-07-09
+    tags: [D8-R02]
+    acceptance:
+      - "Given the integration branch's get_paper handler, when author-controlled title/abstract are read from the Atom-hydrated metadata store, then they pass through sanitize_retrieved_text -> wrap_retrieved_text before the response is returned"
+      - "Given TestV1Gaps.test_get_paper_does_not_yet_wrap, when the test suite runs, then the test asserts wrapping IS present and fails the moment wrapping is removed"
+    links:
+      code: ["_worktrees/arx-onmain/server/handlers/paper.py:254-261", "tests/security/test_delimiters.py:547-558", "server/tools.py:527-530"]
+      note: ["_worktrees/arx-onmain/.claude/docs/security-threat-2-audit.md:207"]
+
+  - id: trustworthy-release-t-wrap-get-paper-metadata
+    kind: task
+    title: "Wrap get_paper title/abstract through sanitize/wrap helpers"
+    parent: trustworthy-release-m1
+    lane: now
+    priority: must
+    estimate_days: 1
+    target_end: 2026-07-08
+    tags: [D8-R02]
+    acceptance:
+      - "Given author-controlled arXiv Atom title/abstract, when get_paper serves them on the integration branch, then the response body carries wrap-delimiter markers around both fields"
+    links:
+      code: ["_worktrees/arx-onmain/server/handlers/paper.py:254-261"]
+
+  - id: trustworthy-release-t-fix-inverted-tripwire
+    kind: task
+    title: "Fix inverted tripwire; re-express remaining V1Gaps guards"
+    parent: trustworthy-release-m1
+    lane: now
+    priority: must
+    estimate_days: 1
+    target_end: 2026-07-09
+    depends_on: [trustworthy-release-t-wrap-get-paper-metadata]
+    tags: [D8-R02]
+    acceptance:
+      - "Given the TestV1Gaps class, when a handler (get_paper, find_equation, cite_neighbors) emits content without wrapping, then its guard test fails rather than passes"
+    links:
+      code: ["tests/security/test_delimiters.py:547-558"]
+
+  - id: trustworthy-release-m2
+    kind: milestone
+    title: "Textbook license stamping: data half shipped"
+    summary: "Ship the data half of textbook license stamping — a required license input at upload/ingest time, stamping on every ChunkRecord in both textbook chunkers, and a one-shot backfill CLI for existing chunks — while the serve-default flip and notebook-level override for the live Huybrechts notebook stay an explicit owner decision (D8-R04, goal.assumptions). This stamping/backfill on today's license field (ingest/chunker_types.py:174-176) is an explicit interim stopgap: source-truth/R1's later license_ref/documents-registry migration (R1's schema-v2 migration plus fail-closed cutover/notebook-backfill milestones) will re-derive these values under a different mechanism, so the two license paths must not silently diverge and a future session must not treat this backfill as the permanent source of truth."
+    parent: trustworthy-release-e1
+    lane: now
+    target_start: 2026-07-09
+    target_end: 2026-07-15
+    tags: [D8-R04]
+    acceptance:
+      - "Given the textbook upload flow or tools/notebook_textbook_ingest.py, when a textbook is submitted without a license value, then the submission is rejected until a license token is supplied"
+      - "Given an existing source_kind='textbook' chunk with no license, when the backfill CLI runs once, then it is stamped with an explicit license token and a second run is a no-op"
+    links:
+      code: ["ingest/chunker_types.py:174-176", "ingest/textbook_chunker.py:367-380", "server/license_policy.py:44-53", "server/routes/notebooks.py"]
+
+  - id: trustworthy-release-t-textbook-license-input
+    kind: task
+    title: "Required license input on textbook upload + ingest CLI"
+    parent: trustworthy-release-m2
+    lane: now
+    priority: must
+    estimate_days: 1
+    target_end: 2026-07-10
+    tags: [D8-R04]
+    acceptance:
+      - "Given the textbook upload template, when no license is selected, then submission is blocked client- and server-side; the same rule applies to a missing --license flag on tools/notebook_textbook_ingest.py"
+    links:
+      code: ["server/routes/notebooks.py", "tools/notebook_textbook_ingest.py"]
+
+  - id: trustworthy-release-t-stamp-license-both-chunkers
+    kind: task
+    title: "Stamp license onto ChunkRecord in both textbook chunkers"
+    parent: trustworthy-release-m2
+    lane: now
+    priority: must
+    estimate_days: 2
+    target_end: 2026-07-13
+    depends_on: [trustworthy-release-t-textbook-license-input]
+    tags: [D8-R04]
+    acceptance:
+      - "Given a freshly ingested textbook PDF or markdown source, when chunking completes, then every emitted ChunkRecord carries the supplied license token instead of the arxiv-license default"
+    links:
+      code: ["ingest/chunker_types.py:174-176", "ingest/textbook_chunker.py:367-380", "ingest/textbook_markdown_chunker.py"]
+
+  - id: trustworthy-release-t-textbook-license-backfill-cli
+    kind: task
+    title: "One-shot backfill CLI for existing textbook chunks"
+    parent: trustworthy-release-m2
+    lane: now
+    priority: must
+    estimate_days: 2
+    target_end: 2026-07-15
+    depends_on: [trustworthy-release-t-stamp-license-both-chunkers]
+    tags: [D8-R04]
+    acceptance:
+      - "Given the live Huybrechts notebook's existing textbook chunks, when the backfill CLI runs once, then every chunk carries a non-default license token and a re-run is idempotent"
+    links:
+      code: ["server/license_policy.py:44-53"]
+
+  - id: trustworthy-release-m3
+    kind: milestone
+    title: "SECURITY.md corrected; Kuzu decision recorded; Rule-of-Two guidance added"
+    summary: "Correct SECURITY.md's false safetensors-only model-loading claim to the true pickle/reranker split, record a dated accept-and-monitor decision for the archived Kuzu upstream, and add Rule-of-Two client-side-containment guidance to the threat-model note — the only near-term-doable slice of D8-R14 (SYSTEM_PROMPT authoring and capability profiles are orchestrator-era work owned by the agent-platform roadmap). The embedder's safetensors code change itself is NOT in this milestone — it rides the next scheduled re-embed per goal.assumptions."
+    parent: trustworthy-release-e1
+    lane: now
+    target_start: 2026-07-09
+    target_end: 2026-07-11
+    tags: [D8-R09, D8-R14]
+    acceptance:
+      - "Given SECURITY.md's model-loading invariant row, when it is read, then it states the reranker is safetensors-only and the embedder is pickle .bin at a pinned SHA pending issue #4 — 0 false claims"
+      - "Given the threat-model note, when Threat 2 is read, then it includes Rule-of-Two orchestrator/client-side containment guidance with the untrusted-chunk -> tactician/fixer -> lean_verify chain caveat documented"
+    links:
+      code: ["SECURITY.md:79", "ingest/embedder.py:340-354", ".claude/notes/08-security-observability-ops.md", "server/prompts.py:107-117"]
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/4"]
+
+  - id: trustworthy-release-t-fix-security-md-claim
+    kind: task
+    title: "Correct SECURITY.md safetensors-only claim"
+    parent: trustworthy-release-m3
+    lane: now
+    priority: must
+    estimate_days: 1
+    target_end: 2026-07-09
+    tags: [D8-R09]
+    acceptance:
+      - "Given SECURITY.md:79, when compared against ingest/embedder.py:340-354, then the documented claim matches the real pickle/safetensors split"
+    links:
+      code: ["SECURITY.md:79", "ingest/embedder.py:340-354"]
+
+  - id: trustworthy-release-t-kuzu-dated-decision
+    kind: task
+    title: "Record dated accept-and-monitor decision for Kuzu"
+    parent: trustworthy-release-m3
+    lane: now
+    priority: should
+    estimate_days: 1
+    target_end: 2026-07-10
+    tags: [D8-R09]
+    acceptance:
+      - "Given the Kuzu upstream-archived fact (archived 2025-10-10), when the decision is recorded, then it is dated, names kuzu==0.11.3 as the pin, and names a grype-watch follow-up trigger"
+    links:
+      note: [".claude/notes/08-security-observability-ops.md"]
+
+  - id: trustworthy-release-t-rule-of-two-guidance
+    kind: task
+    title: "Add Rule-of-Two guidance to the threat-model note"
+    parent: trustworthy-release-m3
+    lane: now
+    priority: should
+    estimate_days: 1
+    target_end: 2026-07-11
+    tags: [D8-R14]
+    acceptance:
+      - "Given the threat-model note, when Threat 2 is read, then Rule-of-Two orchestrator/client-side guidance is present and explicitly states that profiles do not break the untrusted-chunk -> tactician/fixer -> lean_verify chain"
+    links:
+      code: ["server/prompts.py:107-117"]
+      note: [".claude/notes/08-security-observability-ops.md"]
+
+  # ── e2 milestones/tasks (now) ──────────────────────────────
+
+  - id: trustworthy-release-m4
+    kind: milestone
+    title: "Wheel includes frontend assets; clean-env boot verified"
+    summary: "Fix pyproject.toml's wheel include list to bundle frontend/ templates+static, and verify with a repeatable clean-venv/clean-container ARXMCP_BOOTSTRAP_MODE=1 boot smoke test — the CG3 wheel-build check that goal.assumptions requires before any PyPI publish (D4-R01 part 1)."
+    parent: trustworthy-release-e2
+    lane: now
+    target_start: 2026-07-14
+    target_end: 2026-07-21
+    tags: [D4-R01]
+    acceptance:
+      - "Given a clean virtual environment, when arxmcp is installed from the built wheel and booted with ARXMCP_BOOTSTRAP_MODE=1, then the server starts with 0 standalone-install crashes and serves /healthz"
+      - "Given the built wheel, when its file list is inspected, then frontend/templates/*.html and frontend/static/* are present"
+    links:
+      code: ["pyproject.toml:20", "docker/Dockerfile.server:126-132", "server/config.py:230"]
+
+  - id: trustworthy-release-t-wheel-include-frontend
+    kind: task
+    title: "Add frontend/ templates+static to the wheel include list"
+    parent: trustworthy-release-m4
+    lane: now
+    priority: must
+    estimate_days: 1
+    target_end: 2026-07-16
+    tags: [D4-R01]
+    acceptance:
+      - "Given `python -m build`, when the wheel is built, then its file listing includes frontend/templates and frontend/static"
+    links:
+      code: ["pyproject.toml:20"]
+
+  - id: trustworthy-release-t-clean-env-boot-smoke-test
+    kind: task
+    title: "Clean-env pipx/ARXMCP_BOOTSTRAP_MODE boot smoke test"
+    parent: trustworthy-release-m4
+    lane: now
+    priority: must
+    estimate_days: 2
+    target_end: 2026-07-21
+    depends_on: [trustworthy-release-t-wheel-include-frontend]
+    tags: [D4-R01]
+    acceptance:
+      - "Given a fresh clean-container, when `pipx install` from the fixed wheel plus an ARXMCP_BOOTSTRAP_MODE=1 boot runs, then it exits 0 with the server reachable at /healthz, and the check is repeatable as a script for reuse before every future publish"
+    links:
+      code: ["server/config.py:230", "docker/Dockerfile.server:126-132"]
+
+  - id: trustworthy-release-m5
+    kind: milestone
+    title: "v0.1.0 published to PyPI with a one-command quickstart"
+    summary: "Complete the v0.1.0 release checklist against the tag that already exists at 52b4397: CHANGES.md release section, sdist+wheel to PyPI, copy-paste Claude Desktop/Code config, README 5-minute quickstart, GitHub Release (D4-R01 part 2, absorbing the D6-R12 checklist residue). Hard-gated on both a green cross-track session-cap acceptance signal AND source-truth/R1's Release gate (unknown-license-fails-closed corpus-wide) per goal.assumptions — the publish step does not run until both signals are green."
+    parent: trustworthy-release-e2
+    lane: now
+    target_start: 2026-07-21
+    target_end: 2026-08-04
+    depends_on: [trustworthy-release-m4]
+    tags: [D4-R01]
+    acceptance:
+      - "Given a green D4-R07/D7-R04 session-cap acceptance signal from the agent-platform roadmap, when the PyPI publish step runs, then sdist+wheel are live on PyPI and `pipx install arxmcp` boots in one command"
+      - "Given source-truth/R1's Release gate (corpus-wide unknown-license-fails-closed: zero full-body serving of unknown-license content on a fresh install, R1-source-truth.md:128-129) has not reported a green exit signal, when the PyPI-publish sub-step is reached, then publish is held -- matching README:53's 'no PyPI publish before R1 gates pass' and the session-cap gate above"
+      - "Given the published package, when a new user follows the README 5-minute quickstart, then Claude Desktop/Code is configured via the arxmcp-shim console script and a first search_papers call succeeds without editing code"
+      - "Given the v0.1.0 tag at 52b4397, when the release checklist completes, then CHANGES.md has a release section and a GitHub Release references that tag"
+    links:
+      code: ["CHANGES.md:21-23", "docs/releasing.md:65-70", "pyproject.toml:27", "docs/install.md:29"]
+
+  - id: trustworthy-release-t-changes-md-release-section
+    kind: task
+    title: "Write CHANGES.md v0.1.0 release section"
+    parent: trustworthy-release-m5
+    lane: now
+    priority: must
+    estimate_days: 1
+    target_end: 2026-07-23
+    tags: [D4-R01]
+    acceptance:
+      - "Given CHANGES.md, when the v0.1.0 section is added, then it lists the epic-grain changes shipped at tag 52b4397 and matches docs/releasing.md's checklist wording"
+    links:
+      code: ["CHANGES.md:21-23"]
+
+  - id: trustworthy-release-t-pypi-publish
+    kind: task
+    title: "Publish sdist+wheel to PyPI"
+    parent: trustworthy-release-m5
+    lane: now
+    priority: must
+    estimate_days: 1
+    target_end: 2026-07-30
+    tags: [D4-R01]
+    acceptance:
+      - "Given the `arxmcp` package name (availability verified first), when sdist+wheel are published, then `pip install arxmcp` resolves the published version from PyPI"
+    links:
+      code: ["pyproject.toml:27"]
+
+  - id: trustworthy-release-t-claude-config-quickstart
+    kind: task
+    title: "Claude Desktop/Code config + README quickstart"
+    parent: trustworthy-release-m5
+    lane: now
+    priority: should
+    estimate_days: 2
+    target_end: 2026-08-01
+    tags: [D4-R01]
+    acceptance:
+      - "Given a fresh clone of the README, when a new user follows the 5-minute quickstart including the ~2.3 GB BGE-M3 first-run download note, then Claude Desktop/Code is configured via a copy-paste block using the arxmcp-shim console script"
+    links:
+      code: ["docs/install.md:29", "pyproject.toml:27"]
+
+  - id: trustworthy-release-t-cut-github-release
+    kind: task
+    title: "Cut the GitHub Release against the existing v0.1.0 tag"
+    parent: trustworthy-release-m5
+    lane: now
+    priority: must
+    estimate_days: 1
+    target_end: 2026-08-04
+    depends_on: [trustworthy-release-t-changes-md-release-section, trustworthy-release-t-pypi-publish]
+    tags: [D4-R01]
+    acceptance:
+      - "Given the v0.1.0 tag at 52b4397, when the GitHub Release is cut, then it references that exact tag and links the published PyPI package"
+    links:
+      code: ["docs/releasing.md:65-70"]
+
+  # ── e3 milestones (next — shaped, no task decomposition) ────
+
+  - id: trustworthy-release-m6
+    kind: milestone
+    title: "Citation contract + verification recipe published"
+    summary: "Author the citation contract in .claude/docs/ — every claim citing corpus text carries (chunk_id, corpus_version, char_start, char_end, quote_sha256), with sanitizer state pinned from day one — plus a worked example reproducing a pinned hash (D8-R06 phase 1, zero server change). Publish the citation-verification recipe (get_paper existence + cite_neighbors edge + get_chunk content checks) and minimal per-paper BibTeX serialization from held metadata (D4-R11 b/c); the get_paper metadata wiring itself (D4-R11a) rides the already-complete paper-metadata-m2 milestone from the sibling paper-metadata roadmap, not new work here."
+    parent: trustworthy-release-e3
+    lane: next
+    target_start: 2026-07-28
+    target_end: 2026-08-15
+    tags: [D8-R06, D4-R11]
+    acceptance:
+      - "Given the citation contract in .claude/docs/, when the worked example re-slices a real get_chunk body client-side, then the computed quote_sha256 matches the pinned hash"
+      - "Given a citing agent claim, when the citation-verification recipe (get_paper existence + cite_neighbors edge + get_chunk content checks) is followed, then a fabricated citation is detectably rejected"
+      - "Given a paper's held metadata, when minimal BibTeX serialization is requested, then a valid .bib entry is produced with no LLM call"
+      - "Given the citation contract's quote_sha256 hash-matching and the 'fabricated citation is detectably rejected' claim, when the contract is documented, then it carries an explicit one-line disclaimer that hash-matching is a single-axis byte-integrity check -- NOT the multi-axis trust record CLAUDE.md §4.9 / trust-language-policy defines -- so a downstream reader does not over-read 'citation verified' the way lean_verify's bare 'ok' status was over-read"
+    links:
+      code: ["server/handlers/chunk.py:99-113", "server/paper_metadata_store.py", "_worktrees/arx-onmain/server/handlers/paper.py:106-156"]
+      note: ["paper-metadata-m2 (sibling roadmap plans/paper-metadata/roadmap.yaml) — NOT complete as of 2026-07-07: plans/paper-metadata/progress/agent.jsonl shows only spike-1 and m1 done, m2 has no entry; m2-equivalent wiring exists only on the unmerged _worktrees/arx-onmain branch (root CLAUDE.md §7 corroborates: get_paper still NULL on main). Gated on the same M0 merge this roadmap's goal.assumptions already tracks -- verify the merge/backfill before treating D4-R11a as free"]
+
+  - id: trustworthy-release-m7
+    kind: milestone
+    title: "Reproducible benchmark page published at the next release event"
+    summary: "Once the evidence-engine roadmap's FIX signal lands (a real make eval nDCG@5/Recall@10 run), expand docs/evaluation.md into the reproducible benchmark story: corpus snapshot, one-command reproduction, honest numbers including the 0-lift-at-122x-latency rerank rejection, an explicit measured-configuration statement, and a TheoremSearch differentiation table (D9-R12). Strictly FIX-gated per goal.assumptions — 0 numbers ship on the 2026-05-21 spike-grade (51-paper) numbers."
+    parent: trustworthy-release-e3
+    lane: next
+    target_start: 2026-08-04
+    target_end: 2026-08-25
+    depends_on: [trustworthy-release-m5]
+    tags: [D9-R12]
+    acceptance:
+      - "Given a real make eval run from the evidence-engine roadmap's FIX completion signal, when docs/evaluation.md is expanded, then it publishes 0 numbers that don't trace to that completed fixture run"
+      - "Given the published benchmark page, when the rerank experiment is cited, then the 0-precision-lift-at-122x-latency verdict and MIRB's independent rerankers-degrade-math-retrieval result are both stated"
+      - "Given the TheoremSearch differentiation table and the MIRB citation, when the benchmark page is published, then every comparative/differentiation claim carries a dated, scoped source per CLAUDE.md §4.9 rule 3 / trust-language-policy §3 -- R7's actual measured numbers (68.1% combined edge precision; 98.8% / 76.6% / 42.7% split by category, R7-adapters-benchmark-ablation.md:11) for the TheoremGraph/TheoremSearch comparison and a freshness date on the MIRB positive-prior-art citation -- never an undated superiority framing"
+    links:
+      code: ["docs/evaluation.md", ".claude/docs/retrieval-quality-report.md"]
+
+  - id: trustworthy-release-m8
+    kind: milestone
+    title: "Evidence-bundle retrieval-provenance fields added"
+    summary: "Once the integration branch merges and the D8-R06 contract sees real pipeline traffic, extend the evidence-bundle schema's open provenance/literature hooks with optional (chunk_id, corpus_version, body_hash, char_span) grounding fields — additive only, skipping the replay/signing-chain ceremony the branch's kernel-linked verdicts already make unnecessary (D8-R11)."
+    parent: trustworthy-release-e3
+    lane: next
+    target_start: 2026-08-11
+    target_end: 2026-08-29
+    depends_on: [trustworthy-release-m6]
+    tags: [D8-R11]
+    acceptance:
+      - "Given a formalization session grounded in retrieved corpus text, when its evidence bundle is inspected, then optional chunk_id/corpus_version/body_hash/char_span fields trace the claim to the exact served text"
+      - "Given the v0 evidence-bundle schema, when the grounding fields are added, then the change is additive (v0.1->v0.2 precedent) with no MAJOR bump to the top-level website triangulation payload"
+    links:
+      code: ["_worktrees/arx-onmain/contracts/evidence-bundle.v0.schema.json:327,342-345", "_worktrees/arx-onmain/server/proving/verdict_linkage.py:104-114"]
+
+  # ── e4 milestones (next — shaped, no task decomposition) ────
+
+  - id: trustworthy-release-m9
+    kind: milestone
+    title: "Notebook import + one license-clean reference pack"
+    summary: "Build the missing arxmcp notebook import counterpart to the deterministic export tar, integrity-verified via content-addressed chunk_ids for byte-verifiable rehydration, and ship one license-clean reference pack — the live Bridgeland notebook (D4-R03). Defer the multi-pack program and Academic Torrents distribution until this shows any pull."
+    parent: trustworthy-release-e4
+    lane: next
+    target_start: 2026-08-04
+    target_end: 2026-08-22
+    depends_on: [trustworthy-release-m5]
+    tags: [D4-R03]
+    acceptance:
+      - "Given an exported notebook tar, when `arxmcp notebook import <file>` rehydrates it, then every chunk_id's content-addressed hash re-verifies without re-embedding a single chunk"
+      - "Given the Bridgeland reference pack, when a new user imports it, then the notebook is immediately queryable with correct license provenance on every chunk"
+    links:
+      code: ["server/routes/notebooks.py:2541", "ingest/chunker.py:1026-1050"]
+
+  - id: trustworthy-release-m10
+    kind: milestone
+    title: "Registries, demo, CITATION.cff shipped"
+    summary: "Once the release ships: list arXMCP on MCP registries (coordinating timing with the agent-platform roadmap's D6-R11 stateless-spec migration plan per goal.assumptions), add CITATION.cff, produce a 3-5 minute demo (fuzzy lemma lookup, TED equation search, cite_neighbors walk, lean_verify), and stage community announcements (D4-R06). Defer the systems preprint until the eval fixture reaches 50+ queries and an adoption signal exists."
+    parent: trustworthy-release-e4
+    lane: next
+    target_start: 2026-08-11
+    target_end: 2026-08-29
+    depends_on: [trustworthy-release-m5]
+    tags: [D4-R06]
+    acceptance:
+      - "Given the PyPI package, when the MCP registry listing step runs, then it first checks the agent-platform roadmap's D6-R11 migration-plan status and only proceeds if the stateless-spec transition is not imminent or in-flight"
+      - "Given the shipped demo, when a prospective adopter watches it, then all four differentiators (lemma lookup, equation search, citation graph walk, lean_verify) are shown against arXMCP's own corpus"
+    links:
+      code: ["docs/install.md"]
+
+  # ── e5 milestones (later — title + one-line summary only) ───
+
+  - id: trustworthy-release-m11
+    kind: milestone
+    title: "Slim multi-client docs section"
+    summary: "A ~1-hour honest docs/clients.md section: the standard Streamable HTTP endpoint, the generic stdio shim, and an explicit note that cloud-mediated connectors cannot reach a loopback-only server; the per-client smoke matrix stays deferred behind the MCP stateless-spec migration (D6-R09)."
+    parent: trustworthy-release-e5
+    lane: later
+    tags: [D6-R09]
+    links:
+      code: ["shim/arxmcp_shim.py:32-69", "docs/install.md"]
+
+  - id: trustworthy-release-m12
+    kind: milestone
+    title: "De-hardcode arXiv category configuration"
+    summary: "Generalize DEFAULT_SETS and the discovery-category frozenset into configuration, with curated category expansion (cs.LO/cs.CC/math.CO/quant-ph) deferred until an external adopter exists (D4-R08)."
+    parent: trustworthy-release-e5
+    lane: later
+    tags: [D4-R08]
+    links:
+      code: ["ingest/oai_delta.py:109-114", "server/routes/notebooks.py:196-198"]
+
+  - id: trustworthy-release-m13
+    kind: milestone
+    title: "LeanExplore composition spike run"
+    summary: "Run the already-scoped, never-executed verification-feedback-spike-3 (owned by the verification-feedback roadmap) to validate composing LeanExplore's local MCP server instead of native Mathlib ingestion, and record the answer against this roadmap's LeanExplore-composition assumption (D4-R05)."
+    parent: trustworthy-release-e5
+    lane: later
+    tags: [D4-R05]
+    links:
+      note: ["plans/verification-feedback-roadmap.md:164"]

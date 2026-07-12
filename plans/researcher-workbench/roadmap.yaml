@@ -1,0 +1,593 @@
+schema: roadmap/1
+slug: researcher-workbench
+project: arxmcp
+title: "Researcher workbench — search, curate, label, export"
+status: active
+phase: complete          # init -> refined -> decomposed -> sequenced -> complete
+brief: |
+  There is no way for the human operator to search their own arXMCP corpus on either code tree: the MCP path is human-hostile (lifetime search caps) and no UI or CLI search exists, both surfaces show naked arXiv IDs, and chunk views render raw TeX. Yet the operator's attention is the binding resource, and the eval fixture the whole programme depends on needs irreducibly-human labeling. This initiative gives the single researcher a first-class instrument: a search-and-inspect workbench with real math rendering (vendored KaTeX plus native MathML, no SPA or Node build chain), metadata-rich curation from the shipped paper-metadata store, a completed console ops loop, and an eval-labeling mode that converts scarce owner hours into the labels the evidence-engine track needs, with the long-open browser-surface security audit executed as the gate on expanding that surface. It also flows corpus knowledge outward to the researcher's own tools via BibTeX/CSL-JSON and Obsidian-flavored Markdown export with stable content-addressed citation anchors, over the metadata/identity spine. Land the Windows preview fix immediately, because main 404s every document preview on the tier-1 workstation today. Keep researcher-critical surfaces on the loopback htmx console per the doc-placement rule; the search workbench absorbs the theorem-name jump, so no separate command palette. Do not add watch-folder ingest, zbMATH enrichment, Logseq export, or audio/video overviews.
+horizon: { start: 2026-07-07, end: 2026-09-04 }
+goal:
+  hmw: "How might we build a security-gated search-and-inspect workbench with real math rendering on the loopback console so that the single research operator can read and curate their own arXMCP corpus directly, turning scarce reading time into the eval-fixture labels the evidence-engine track needs?"
+  objective: "Ship a security-gated /ui/ workbench so the operator can search, read typeset math, curate, and grade their own corpus directly, and export it to their own citation and notes tools."
+  key_results:
+    - "A document-preview request on the tier-1 Windows workstation returns 200, not a 404, for a notebook with an ingested paper"
+    - "The operator runs a corpus search and opens a full chunk body from a browser, making 0 hand-built JSON-RPC calls and touching none of the 3-search / 4-get_chunk lifetime session caps"
+    - "Every /ui/ surface that shows chunk or document text renders $TeX$ / MathML as typeset math, not raw markup, verified against real corpus chunks rather than fixture pages"
+    - "The papers table and search-result rows show a linked title instead of a naked arXiv ID for every paper with a hydrated metadata row"
+    - "The 5 currently curl-only console endpoints (export, health, reconcile, repair-registry, parse-status) are each reachable from a template button or badge"
+    - "A labeling session through the workbench produces at least 1 exported, validator-passing graded query in tests/eval/fixtures/queries.json, up from 0 today"
+    - "A notebook exports a citeproc-parseable .bib / CSL-JSON pair and an Obsidian note whose content-addressed block anchor is unchanged after a re-ingest of the same paper"
+    - "0 new GET or POST console routes from this roadmap ship without passing the issue #9 checklist, including the added Origin/DNS-rebinding axis, for that specific endpoint"
+  assumptions:
+    - tier: must
+      text: "Vendored KaTeX (or Temml) renders the corpus's real $TeX$ chunk bodies — including per-paper preamble.json-seeded macros — with acceptable visual fidelity and coverage, not just fixture-page TeX"
+      validation: "A 1-day spike renders both KaTeX and Temml against a real sample of corpus chunk body_text with seeded macros and records visual-fidelity/coverage results before either is vendored (D3 chapter open question 2)"
+    - tier: must
+      text: "The Stage-2 worktree's Windows path-containment fix (Path.is_relative_to) can be cherry-picked onto main independently of the full Stage-2 merge, with no other branch-only dependency blocking it"
+      validation: "The Windows-fix milestone's acceptance criteria include a preview request on the Windows tier-1 host returning 200 using only main-portable cherry-picks, verified before any wider Stage-2 content is pulled in"
+    - tier: must
+      text: "A minimal keyboard-grading plus validator-export loop is enough friction-removal to produce an actual owner labeling session — the fixture has sat at 0 queries for two months with owner buy-in already on record, so the blocker may not be purely instrumental"
+      validation: "The eval-labeling milestone's acceptance includes a scheduled 1-hour-plus owner labeling session against the shipped instrument within a set window after ship, with resulting query count — not just instrument delivery — as the pass/fail signal (D3 chapter open question 3)"
+    - tier: should
+      text: "The Stage-2 worktree merge (M0, owner-gated, currently 0 of 7 owner action items complete) either lands or is formally vetoed within this roadmap's window, since it affects the doctrine-ADR item's content and the graph / external-id items that key off it"
+      validation: "Decomposition schedules the doctrine-ADR item to cover both merge-lands and merge-vetoed branches explicitly; the graph and external-id items keyed on M0 stay in the later lane and are re-checked at sequencing time rather than blocking the now-lane"
+    - tier: should
+      text: "The get_paper external_ids exposure (the schema-facing half of the DOI/external-id work) can ride the agent-platform roadmap's first batched TOOL_SCHEMA_VERSION re-pin window (W1) rather than needing a standalone re-pin event owned by this roadmap"
+      validation: "Before that item is scheduled, confirm the W1 window's timing against plans/agent-platform/roadmap.yaml; if no W1 window falls in range, the metadata-store columns and DOI-based add still ship, and only the tool-facing exposure waits"
+    - tier: should
+      text: "The citation graph (python -m ingest.graph_ingest) is ingested and populated on the tier-1 Windows host by the time the graph-link-wiring item is scheduled — it is verified absent there today"
+      validation: "Decomposition checks the live graph_status on the tier-1 host before scheduling that item; if still absent, it drops to the later lane or out of this roadmap's window entirely, per its own already-reduced scope"
+    - tier: should
+      text: "A checklist-per-endpoint security-audit cadence, extending the console's existing pre-flight-checklist pattern, is an acceptable substitute for one serial issue #9 audit gating the entire search-and-inspect wave"
+      validation: "Confirmed with the owner before the search-and-inspect milestone is scheduled; if the owner instead wants one serial audit first, a dedicated audit milestone is inserted ahead of it in the now-lane"
+    - tier: should
+      text: "The owner can name a concrete Obsidian vault path with safe path-containment — the export's first sanctioned write target outside var/ — or explicitly declines the feature"
+      validation: "The Obsidian-export milestone's acceptance requires either a named, containment-checked vault path or an explicit owner decline recorded before implementation starts"
+    - tier: should
+      text: "The eval-labeling workbench mode is the mechanism the evidence-engine roadmap's fixture-population milestone actually intends to consume long-term, not merely an optional UI layered on top of a static reporting script"
+      validation: "Confirmed against plans/evidence-engine/roadmap.yaml once it reaches its own refined phase; if evidence-engine scopes fixture-filling entirely through the static script instead, the eval-labeling item's priority is re-rated at this roadmap's decomposition step"
+    - tier: should
+      text: "researcher-workbench-e4's eval-fixture labeling instrument (a 0-3 relevance grade) is not the only declared downstream consumer of this workbench's labeling surface: R2's assumption-review (accept/reject a machine-extracted effective_hypotheses candidate) and R5's faithfulness-review (human sign-off + reviewer/date on a Lean-target-to-statement match) both route through this labeling UI per roadmap-briefs/README.md's interlock table and R5's own brief -- structurally different labeling primitives than a 0-3 grade, which this roadmap (authored 2026-07-07, before the 2026-07-11 R-briefs) does not yet accommodate"
+      validation: "At researcher-workbench-e4 decomposition, either build minimal labeling-primitive extensibility into the v1 data model for R2's assumption-review and R5's faithfulness-review, or explicitly scope e4 as eval-fixture-only v1 with a named v2 follow-up owning those two review types; confirmed against the R2 and R5 briefs before e4 ships"
+  wont:
+    - "No Cmd-K command palette — the search workbench's /-focus theorem/lemma jump absorbs the one differentiating use case; already double Won't-listed (plans/ui-attractive-polish-roadmap.md:198-201,391) and separately REJECTED as D3-R09"
+    - "No watch-folder ingest, no zbMATH enrichment, no Logseq export, and no audio/video overviews — explicitly out per the brief, and each independently REJECTED or assessed-as-non-gap in the source chapters"
+    - "No SPA and no Node/npm build chain for any researcher-critical surface (search, inspect, curate, label, ops) regardless of the Stage-2 merge outcome — /app stays reserved for rich islands genuinely beyond htmx; hard constraint recorded at .claude/notes/06-mcp-server-design.md:466-473"
+    - "No live Zotero local-API client — ships a .bib/CSL-JSON file importer only; the interactive client stays behind an explicit owner-demand gate with zero repo signal today"
+    - "No from-scratch server-rendered SVG citation ego-graph — the branch's accessible neighbor list is the primary surface; the SVG build is dropped for now"
+    - "No LaTeX/MathML equation paste-box — equation-similarity search launches only from a stored-MathML link on an existing chunk view, never from free-text input, so the UI never oversells the LaTeX-input degrade path"
+    - "No full web viewer for proving-lane bundle review, and no web-checkbox sign-off — v0 ships a markdown report only; sign-off stays a deliberate CLI tripwire a browser-driving agent cannot click"
+    - "No chat UI anywhere in this workbench — the supported human-conversation path stays Claude-as-MCP-client; the runtime-LLM-in-server ban is a standing non-goal, not something this roadmap re-opens"
+  evidence:
+    - "_pipeline/gap-analysis-2026-07/chapters/D3.md — primary chapter: G1-G9 gap analysis and R01-R13 (referee-merged, 2026-07-07)"
+    - "_pipeline/gap-analysis-2026-07/chapters/D6.md — R01-R05 and R09-R12, interoperability/export/import recommendations"
+    - "_pipeline/gap-analysis-2026-07/chapters/D8.md#D8-R13 — console/API security audit as the surface-expansion gate"
+    - "_pipeline/gap-analysis-2026-07/chapters/D4.md#D4-R09 — CLI search first, browser search card deferred to merge time"
+    - "_pipeline/gap-analysis-2026-07/chapters/D2.md#D2-R05 — discovery digest persistence, rides notebook-paper-discovery-e3"
+    - "_pipeline/gap-analysis-2026-07/synthesis/cross-synthesis.md — T1/T7 themes, section 2.2 M0/W1/FIX dependency edges, section 3 canonical-id merges (D8-R13 = D3-R12), section 4 S5 track seed, section 5 do-not-do list"
+    - "plans/paper-metadata/roadmap.yaml:34 — phase complete; won't-list excludes only metadata editing, not display, which this roadmap's metadata-display item fills"
+    - ".claude/notes/06-mcp-server-design.md:462-473 — Browser UI surface hard constraint: no SPA, no Node/npm build chain"
+    - "plans/ui-attractive-polish-roadmap.md:198-201,391 — Cmd-K parked until notebook count grows or a search surface lands; already double Won't-listed"
+    - "SECURITY.md:59-63 — issue #9, tracked at chris-dare-dev/arXMCP#9, console not yet security-audited"
+    - "server/routes/ui.py:556-559 — verified live: the POSIX-only startswith(... + '/') path-containment check breaks on Windows path separators"
+    - "tests/eval/fixtures/queries.json — verified live: 0 queries today (schema_version/chunker_version/created_at/queries keys only)"
+    - "CLAUDE.md sections 2, 7, and 12 — console description, get_paper's shipped-but-unwired-to-display metadata store, and the single named user (chris.dare@nalej.com)"
+generated_by: { agent: claude-sonnet-5, at: "2026-07-07" }
+generations:
+  - { rev: 1, at: "2026-07-07" }
+retired: []          # tombstoned item ids; ids are write-once, never deleted
+items:
+  - id: researcher-workbench-e1
+    kind: epic
+    title: "Windows preview fix, UI-surface doctrine, and the console security gate"
+    summary: "Cherry-pick the branch's exact hunks for four console-critical fixes (D3-R01): the Windows Path.is_relative_to containment fix replacing main's POSIX-only startswith() check at ui.py:556-559 so document preview returns 200 not 404 on the tier-1 host; preview.css plus the corrected stylesheet link; papers-table ?page=N pagination; and the false 'raw LaTeX' MathML comment at ui.py:507-510 -- plus a discretionary OpenType MATH font vendored with a font-src CSP addition. Record the /ui/-vs-/app placement-doctrine ADR (D3-R02) covering both a Stage-2-merge-lands and a merge-vetoed branch, so researcher-critical surfaces (search/inspect, curation, metadata, ops) stay on /ui/ htmx regardless of the ADR-0001 verdict, sequenced before e2 to avoid a new-file conflict surface with the branch's api_v1.py. Execute the issue #9 checklist-per-endpoint security audit (D8-R13, canonically = D3-R12) over the existing 4 GET page routes plus 5 REST endpoints: a new Origin/Host-header and DNS-rebinding-posture axis alongside the five already-drafted axes, the missing upload decompression-bomb guard, the lancedb_path host-path leak inconsistency (shown at notebook_detail.html:49, suppressed at notebooks.py:336-338), and an extension of the E13 threat-numbered tests/security/ regression pattern to the console -- the per-endpoint checklist every new route in this roadmap must pass (KR8), per this roadmap's own should-tier assumption that checklist-per-endpoint is an acceptable substitute for one serial gating audit."
+    priority: must
+    size: M
+    rice: { r: 15, i: 3, c: 0.8, e: 2.5, score: 14.4, rank: 1 }
+    tags: [value, enabler, console, security, windows, D3-R01, D3-R02, D8-R13]
+    links:
+      code: ["server/routes/ui.py:556-559", "server/routes/ui.py:507-510", "server/middleware.py:218-226", "server/routes/notebooks.py:336-338", "frontend/templates/notebook_detail.html:49", "SECURITY.md:59-63", ".claude/notes/06-mcp-server-design.md:466-473"]
+
+  - id: researcher-workbench-e2
+    kind: epic
+    title: "Search & inspect workbench with two-track math rendering"
+    summary: "GET /api/v1/search and GET /api/v1/chunks/{chunk_id} (D3-R03) as JSON read-twins over the same search_papers/get_chunk handler internals, outside the session-cap middleware by construction and therefore scoped explicitly as human-workbench-internal, non-agent-facing routes (not a documented programmatic/agent-consumption contract) -- guarded with a same-origin/Sec-Fetch-mode check tied to /ui/ where practical so a co-located orchestrator loop cannot read the corpus at volume around the budget governance the MCP surface enforces for agent callers; a /ui/search page with query plus level/k/notebook/paper_id/source_kind filters, results showing snippet/kind/section_path/score/retrieval_mode/degraded/filter_warnings verbatim, rows linking to a full chunk-detail view; a debug-only dense-vs-hybrid toggle instrumenting the warmed-but-unwired bm25/ann/rerank phases as a measurement, never a serving-path change; and find_lemma_by_name's exact-to-FTS5-trigram-to-Jaccard cascade exposed as a theorem-name result class plus an XS '/'-focus-search hotkey -- the folded former D3-R09, absorbing the search workbench's one differentiating use case so no separate Cmd-K palette gets built. Two-track math rendering (D3-R04): vendored KaTeX (SHA-pinned, auto-render on '$...$' via htmx afterSwap, throwOnError:false with a styled raw-TeX fallback, macros seeded from preamble.json) for chunk and snippet text; native MathML, with e1's font, for stored-document surfaces; a 1-day KaTeX-vs-Temml spike on real corpus chunks precedes vendoring, per this roadmap's must-tier assumption. An arxmcp search CLI (D4-R09) ships alongside as a cheap maintainer/eval/demo complement with zero widening of the audited surface. Together: 0 hand-built JSON-RPC calls to read a full chunk body from a browser (KR2), and every chunk or document surface renders typeset math, not raw markup (KR3)."
+    priority: must
+    size: L
+    rice: { r: 15, i: 3, c: 0.5, e: 3.5, score: 6.43, rank: 2 }
+    depends_on: [researcher-workbench-e1]
+    tags: [value, search, math, console, D3-R03, D3-R04, D4-R09]
+    links:
+      code: ["server/handlers/search.py:135-241", "server/resources.py:963-965", "server/handlers/lemma.py:124-152", "ingest/chunker.py:326-337", "ingest/preamble.py:435-452", "server/middleware.py:1054,1115-1122"]
+
+  - id: researcher-workbench-e3
+    kind: epic
+    title: "Metadata-rich tables and a completed console ops loop"
+    summary: "Read paper_metadata.db in the /ui/ papers table and e2's search-result rows (D3-R05): linked title, truncated authors, year, expando abstract, a graceful paper_id fallback when unhydrated, and a per-notebook 'Backfill metadata' button wrapping tools/notebook_metadata_backfill.py via the existing Semaphore(1) plus 2s-poll plus HTTP-286 ingest-tracker pattern -- replacing naked arXiv IDs everywhere a paper is listed (KR4). Wire the five curl-only, zero-template-reference endpoints (D3-R06): an export streaming-tar button, a per-notebook health card plus Reconcile button, a repair-registry action, and live parse-status badge polling while state is pending or running; upgrade badge remediation from make-command text to one-click buttons wherever a matching endpoint exists (KR5). A discovery-digest UI card (D2-R05) reuses the existing discover-fragment pattern to surface persisted discovery results with add/dismiss state; persistence and the arxmcp://notebooks/{slug}/digest MCP resource are owned by the notebook-paper-discovery roadmap's e3 lane per that rec's own do-not-open-a-separate-lane ruling -- this epic ships the display card only, and it degrades to absent if that lane has not landed a digest yet."
+    priority: should
+    size: M
+    rice: { r: 12, i: 1, c: 0.5, e: 1.5, score: 4.0, rank: 3 }
+    depends_on: [researcher-workbench-e1]
+    tags: [value, console, metadata, ops, D3-R05, D3-R06, D2-R05]
+    links:
+      code: ["server/paper_metadata_store.py", "tools/notebook_metadata_backfill.py", "server/routes/notebooks.py:1168,1274,1365,2267,2540", "server/routes/ui.py:343-372", "server/routes/notebooks.py:2112-2251", "server/routes/notebooks.py:746-748"]
+
+  - id: researcher-workbench-e4
+    kind: epic
+    title: "Eval-fixture labeling workbench"
+    summary: "Layer a labeling mode on e2's search workbench (D3-R07): run a query, see top-k chunks with rendered math -- a hard dependency on e2, since labelers must be able to read the math -- assign 0-3 grades by keyboard, track live quota against tools/validate_eval_fixtures.py's MIN_QUERIES_BY_KIND (stmt 5, proof 5, at least one grade-3 per query, 20 total), and export a queries.json passed through the validator server-side before download, since the operator commits deliberately and the tool never writes tests/ directly. Candidate pools widen via e2's hybrid toggle plus manual chunk_id pinning. Scope discipline per the source ruling: ship the minimal keyboard-grading plus validator-export loop first; a shuffle toggle and session resume are polish, not part of this epic. This is the instrument that converts scarce owner-hours into the labels the evidence-engine roadmap's fixture-population milestone needs (KR6) -- it hands off once queries exist; grading policy and fixture content stay evidence-engine's job, not this epic's."
+    priority: must
+    size: M
+    rice: { r: 4, i: 3, c: 0.5, e: 2, score: 3.0, rank: 4 }
+    depends_on: [researcher-workbench-e2]
+    tags: [value, eval, labeling, D3-R07]
+    links:
+      code: ["tools/validate_eval_fixtures.py:99", "tests/eval/fixtures/queries.json", ".claude/docs/eval-curation.md:9-11"]
+
+  - id: researcher-workbench-e5
+    kind: epic
+    title: "Condition-gated surfaces: graph link-wiring, equation links, proving-lane report"
+    summary: "Three source-weakened recommendations bundled here because each is S-effort and independently optional, and none is named in this roadmap's key results. D3-R08: once the Stage-2 merge lands (M0, an external owner-gated precondition per goal.assumptions) and python -m ingest.graph_ingest is confirmed populated on the tier-1 host, keep GraphPage's accessible Tier-0 neighbor list as the primary graph surface, constrain Force3D to ego-mode with hop and edge-type filters, and wire 'view in graph' links from e2's chunk and search rows; the from-scratch SVG ego-graph build stays dropped per the wont-list, revisited only if the merge is vetoed and the graph is ingested and e2 usage shows a neighborhood-inspection need the list does not cover. D3-R10: once e2 ships and shows use, add a 'similar equations' link on each equation in chunk views that joins the equations table by parent_chunk_id and submits the stored MathML to a find_equation REST twin, with per-hit TED-vs-cosine score decomposition; the LaTeX/MathML paste-box stays dropped per the wont-list -- links-launched only, never free-text input. D3-R11: ship a v0 markdown bundle-review report generator (verdict chain, discharges, kernel_statements beside informal claims, KAT results, sorry/axiom audit flags) for the proving lane, consumed in terminal or editor; sign-off stays in tools/sign_bundle.py's --i-am-a-human-operator CLI tripwire -- no web viewer and no sign-off checkbox, per the wont-list -- with the full L-effort viewer waiting on the merge landing plus demonstrated review volume, neither of which this roadmap can produce."
+    priority: could
+    size: M
+    rice: { r: 3, i: 0.5, c: 0.5, e: 1.5, score: 0.5, rank: 6 }
+    depends_on: [researcher-workbench-e2, researcher-workbench-e3]
+    tags: [value, graph, equations, proving-lane, D3-R08, D3-R10, D3-R11]
+    links:
+      code: ["server/graph_queries.py:381-405", "ingest/schema.py:277-281", "server/handlers/equation.py:137-140", "tools/sign_bundle.py"]
+
+  - id: researcher-workbench-e6
+    kind: epic
+    title: "Citation and knowledge export/import"
+    summary: "GET /ui/api/notebooks/{slug}/bibliography.bib and .json (D6-R01), also written into the export tar: generated from the per-notebook metadata store joined with Kuzu papers.doi/journal_ref when the graph exists, deterministic sorted-entry serialization with stable keys, @misc entries without a doi field where enrichment never ran, LaTeX-safe title escaping. Same code path (D6-R03): bump _EXPORT_MANIFEST_FORMAT_VERSION to 2 and add corpus_version/chunker_version/embedder_version to the manifest, with the m7 restore path accepting v2. An Obsidian Markdown exporter (D6-R02, tools/notebook_obsidian_export.py): one note per paper with the owner's project/tags frontmatter convention, abstract, theorem inventory from the chunks table, stable content-addressed chunk_id block anchors that survive re-ingest, and wikilinks from Kuzu cites edges when the graph exists -- the vault path is a named, containment-checked owner decision or an explicit decline, recorded before implementation starts. A .bib/CSL-JSON file importer (D6-R04, tools/bib_import.py): extracts arXiv ids from the eprint/url/extra/DOI fields where they actually live, bulk-adds via the existing papers endpoint, and emits a skipped-items report; ships arXiv-id-only, with no live Zotero client. External-ID columns (D6-R05): nullable doi/oa_work_id/inspire_id fields in the metadata store, backfilled from Kuzu/OpenAlex once the Stage-2 merge (M0, external precondition) wires paper-metadata-m2, plus add-paper-by-DOI resolving through Semantic Scholar externalIds.ArXiv or OpenAlex locations parsing rather than the nonexistent ids.arxiv shortcut; exposing external_ids on the get_paper MCP tool itself is out of this epic's scope, since it rides the agent-platform roadmap's W1 batched schema re-pin window per this roadmap's own should-tier assumption. Together: a notebook exports a citeproc-parseable .bib/CSL-JSON pair and an Obsidian note whose content-addressed block anchor is unchanged after a re-ingest of the same paper (KR7)."
+    priority: should
+    size: L
+    rice: { r: 3, i: 2, c: 0.5, e: 4, score: 0.75, rank: 5 }
+    depends_on: [researcher-workbench-e1]
+    tags: [value, export, interop, citations, D6-R01, D6-R03, D6-R02, D6-R04, D6-R05]
+    links:
+      code: ["server/routes/notebooks.py:2406-2408", "server/routes/notebooks.py:2423-2454", "server/routes/notebooks.py:2540", "ingest/chunker.py:1026-1050", "ingest/identifiers.py:76-85", "ingest/kuzudb_schema.py:52,57-61,80"]
+
+  # ── e1 milestones/tasks — Windows fix, UI doctrine, security gate (now) ──
+
+  - id: researcher-workbench-m1
+    kind: milestone
+    title: "Windows preview fix + console quick-wins land on main"
+    summary: "Cherry-pick the Stage-2 worktree's exact hunks: the Path.is_relative_to Windows containment fix, preview.css plus corrected stylesheet link, papers-table ?page=N pagination, and the corrected MathML code comment, so document preview returns 200 not 404 on the tier-1 host today."
+    parent: researcher-workbench-e1
+    lane: now
+    target_start: 2026-07-07
+    target_end: 2026-07-10
+    acceptance:
+      - "Given a preview request for an ingested paper on the Windows tier-1 workstation, when the cherry-picked Path.is_relative_to containment check (main-portable only, no wider Stage-2 content pulled in) replaces main's POSIX-only startswith check, then the response is 200 not 404 (KR1; validates this roadmap's must-tier assumption that the Windows fix cherry-picks independently of the full Stage-2 merge)"
+      - "Given a rendered preview page, when preview.css and the corrected stylesheet link are applied, then the ar5iv HTML renders styled instead of unstyled"
+      - "Given the papers table with more papers than fit one page, when ?page=N is used, then pagination navigates correctly between pages"
+      - "Given the ui.py:507-510 code comment claiming math 'displays as raw LaTeX', when it is corrected, then it accurately states LaTeXML output is MathML rendered natively"
+    tags: [D3-R01]
+    links:
+      code: ["server/routes/ui.py:556-559", "server/routes/ui.py:507-510", "server/middleware.py:218-226"]
+
+  - id: researcher-workbench-t-windows-path-fix
+    kind: task
+    title: "Cherry-pick Path.is_relative_to Windows containment fix"
+    parent: researcher-workbench-m1
+    lane: now
+    priority: must
+    estimate_days: 1
+    target_end: 2026-07-08
+    acceptance:
+      - "Given a Windows path with backslash separators, when the containment check runs, then it correctly resolves containment instead of the POSIX-only startswith(...+'/') failure"
+    tags: [D3-R01]
+    links:
+      code: ["server/routes/ui.py:556-559"]
+
+  - id: researcher-workbench-t-preview-css-pagination
+    kind: task
+    title: "Land preview.css fix and papers-table ?page=N pagination"
+    parent: researcher-workbench-m1
+    lane: now
+    priority: must
+    estimate_days: 1
+    target_end: 2026-07-09
+    acceptance:
+      - "Given the papers table exceeds one page of results, when ?page=N is passed, then the correct page of rows renders"
+    links:
+      code: ["frontend/static/preview.css", "server/routes/ui.py"]
+
+  - id: researcher-workbench-t-mathml-comment-and-font
+    kind: task
+    title: "Correct MathML code comment; vendor discretionary OpenType MATH font"
+    parent: researcher-workbench-m1
+    lane: now
+    priority: must
+    estimate_days: 1
+    target_end: 2026-07-10
+    acceptance:
+      - "Given the preview CSP is default-src 'none', when the OpenType MATH font is vendored with a font-src 'self' addition, then stretchy operators render correctly cross-platform"
+    links:
+      code: ["server/middleware.py:218-226", "frontend/static/VENDORED.md"]
+
+  - id: researcher-workbench-m2
+    kind: milestone
+    title: "UI-surface placement doctrine ADR recorded"
+    summary: "Record the /ui/-vs-/app placement-doctrine ADR covering both a Stage-2-merge-lands and a merge-vetoed branch, so researcher-critical surfaces stay on /ui/ htmx regardless of the ADR-0001 verdict; sequenced before researcher-workbench-m4 to avoid a new-file conflict surface with the branch's api_v1.py."
+    parent: researcher-workbench-e1
+    lane: now
+    target_start: 2026-07-10
+    target_end: 2026-07-12
+    depends_on: [researcher-workbench-m1]
+    acceptance:
+      - "Given the Stage-2 merge's undated status, when the ADR is recorded, then it explicitly covers both a merge-lands branch (researcher-critical surfaces on /ui/ htmx, /app reserved for rich islands beyond htmx) and a merge-vetoed branch (no-SPA re-affirmed)"
+    tags: [D3-R02]
+    links:
+      code: [".claude/notes/06-mcp-server-design.md:466-473"]
+
+  - id: researcher-workbench-t-adr-ui-placement-doctrine
+    kind: task
+    title: "Draft and record the /ui/-vs-/app placement-doctrine ADR"
+    parent: researcher-workbench-m2
+    lane: now
+    priority: must
+    estimate_days: 2
+    target_end: 2026-07-12
+    acceptance:
+      - "Given the drafted ADR, when it is reviewed against both merge-lands and merge-vetoed branches, then each branch's placement rule for search/inspect, curation, metadata, and ops surfaces is stated explicitly"
+    tags: [D3-R02]
+
+  - id: researcher-workbench-m3
+    kind: milestone
+    title: "Console security audit (issue #9) executed as the endpoint gate"
+    summary: "Run the E13-style threat-numbered audit over the 4 existing GET page routes plus 5 REST endpoints, adding the Origin/Host-header + DNS-rebinding-posture axis to the five already-drafted axes, closing the upload decompression-bomb gap and the lancedb_path leak inconsistency, and extending the tests/security/ regression pattern to the console. Establishes the checklist-per-endpoint gate every new route in this roadmap must pass (KR8)."
+    parent: researcher-workbench-e1
+    lane: now
+    target_start: 2026-07-10
+    target_end: 2026-07-24
+    acceptance:
+      - "Given the existing 4 GET page routes and 5 REST endpoints, when the six-axis checklist (five already-drafted plus the new Origin/DNS-rebinding axis) is applied to each, then a per-endpoint audit doc records pass/fail per axis"
+      - "Given this milestone's checklist-per-endpoint pattern, when any new console route ships later in this roadmap, then it is checked against the same checklist before shipping (KR8), per this roadmap's should-tier assumption that checklist-per-endpoint is an acceptable substitute for one serial gating audit"
+    tags: [D8-R13]
+    links:
+      code: ["SECURITY.md:59-63", "server/routes/notebooks.py:336-338", "frontend/templates/notebook_detail.html:49"]
+
+  - id: researcher-workbench-t-audit-existing-endpoints
+    kind: task
+    title: "Run the six-axis checklist over the 4 GET routes + 5 REST endpoints"
+    parent: researcher-workbench-m3
+    lane: now
+    priority: must
+    estimate_days: 3
+    target_end: 2026-07-15
+    acceptance:
+      - "Given the drafted issue-9 scope-amendment plus the new Origin/DNS-rebinding axis, when each of the 9 existing routes is checked, then a per-endpoint audit doc records the result"
+    tags: [D8-R13]
+
+  - id: researcher-workbench-t-decompression-bomb-guard
+    kind: task
+    title: "Add missing upload decompression-bomb guard"
+    parent: researcher-workbench-m3
+    lane: now
+    priority: must
+    estimate_days: 1
+    target_end: 2026-07-17
+    acceptance:
+      - "Given an HTML/PDF upload containing a decompression-bomb payload, when it is submitted, then the upload is rejected before full decompression"
+    tags: [D8-R13]
+    links:
+      code: ["server/routes/notebooks.py:1672"]
+
+  - id: researcher-workbench-t-lancedb-path-leak-fix
+    kind: task
+    title: "Fix lancedb_path host-path leak inconsistency"
+    parent: researcher-workbench-m3
+    lane: now
+    priority: must
+    estimate_days: 1
+    target_end: 2026-07-20
+    acceptance:
+      - "Given a notebook detail page and the notebook-create fragment, when both render, then lancedb_path is suppressed consistently in both, not shown at notebook_detail.html:49 while suppressed at notebooks.py:336-338"
+    tags: [D8-R13]
+    links:
+      code: ["frontend/templates/notebook_detail.html:49", "server/routes/notebooks.py:336-338"]
+
+  - id: researcher-workbench-t-security-regression-tests
+    kind: task
+    title: "Extend E13 threat-numbered tests/security/ pattern to the console"
+    parent: researcher-workbench-m3
+    lane: now
+    priority: must
+    estimate_days: 2
+    target_end: 2026-07-24
+    acceptance:
+      - "Given the E13 threat-numbered regression pattern, when it is extended to the console, then each console-specific threat found by this milestone has a numbered regression test in tests/security/"
+    tags: [D8-R13]
+    links:
+      code: ["tests/security/"]
+
+  # ── e2 milestones/tasks — search & inspect workbench, math rendering (now) ──
+
+  - id: researcher-workbench-spike-1
+    kind: spike
+    title: "KaTeX-vs-Temml fidelity spike on real corpus chunks"
+    parent: researcher-workbench-e2
+    lane: now
+    estimate_days: 1
+    target_start: 2026-07-13
+    target_end: 2026-07-14
+    acceptance:
+      - "Given a real sample of corpus chunk body_text with seeded preamble.json macros, when both KaTeX and Temml render it, then visual-fidelity and coverage results are recorded for each before either is vendored (D3 chapter open question 2; validates this roadmap's must-tier math-rendering assumption)"
+    tags: [D3-R04]
+    links:
+      code: ["ingest/chunker.py:326-337", "ingest/preamble.py:435-452"]
+
+  - id: researcher-workbench-m4
+    kind: milestone
+    title: "Search & inspect workbench live on /ui/"
+    summary: "GET /api/v1/search and GET /api/v1/chunks/{chunk_id} JSON read-twins outside the session-cap middleware, a /ui/search page with filters and a chunk-detail view, the theorem-name result class absorbing the former Cmd-K palette use case, a debug-only dense-vs-hybrid toggle, and an arxmcp search CLI. Delivers KR2: 0 hand-built JSON-RPC calls to read a full chunk body from a browser."
+    parent: researcher-workbench-e2
+    lane: now
+    target_start: 2026-07-24
+    target_end: 2026-08-06
+    depends_on: [researcher-workbench-m2, researcher-workbench-m3]
+    acceptance:
+      - "Given a corpus query, when GET /api/v1/search is called, then it returns the same ranked results as search_papers without touching the 3-search session cap"
+      - "Given a chunk_id, when GET /api/v1/chunks/{chunk_id} is called, then it returns the full chunk body without touching the 4-get_chunk session cap"
+      - "Given the /ui/search page, when a query is submitted with level/k/notebook/paper_id/source_kind filters, then results show snippet, kind, section_path, score, retrieval_mode, degraded, and filter_warnings verbatim"
+      - "Given a search result row, when it is opened, then a chunk-detail view renders the full body_text with links to preview and ego-graph"
+      - "Given the theorem-name search mode, when a typo-tolerant query like 'riemann roch' is typed, then the exact-to-FTS5-trigram-to-Jaccard cascade returns the matching theorem as a result class, reachable via the XS '/'-focus-search hotkey"
+    tags: [D3-R03, D4-R09]
+    links:
+      code: ["server/handlers/search.py:135-241", "server/resources.py:963-965", "server/handlers/lemma.py:124-152", "server/middleware.py:1054,1115-1122"]
+
+  - id: researcher-workbench-t-rest-read-twins
+    kind: task
+    title: "Build GET /api/v1/search + GET /api/v1/chunks/{chunk_id} read-twins"
+    parent: researcher-workbench-m4
+    lane: now
+    priority: must
+    estimate_days: 2
+    target_end: 2026-07-28
+    acceptance:
+      - "Given POST /mcp's session-cap middleware, when the two GET read-twins are added over the same handler internals, then neither route is inspected by SessionCapMiddleware"
+      - "Given the read-twins bypass the per-session budget caps by construction, when they are documented and served, then they are scoped as human-workbench-internal / non-agent-facing (not a programmatic/agent-consumption contract) and carry a same-origin/Sec-Fetch-mode guard tied to /ui/ where practical, so a co-located orchestrator loop cannot use them to read the corpus at volume around the caps the MCP surface enforces for agent callers"
+    tags: [D3-R03]
+    links:
+      code: ["server/middleware.py:1054,1115-1122"]
+
+  - id: researcher-workbench-t-ui-search-page
+    kind: task
+    title: "Build /ui/search page with query + filters + result rows"
+    parent: researcher-workbench-m4
+    lane: now
+    priority: must
+    estimate_days: 2
+    target_end: 2026-07-31
+    acceptance:
+      - "Given the /ui/search page, when a query plus level/k/notebook/paper_id/source_kind filters is submitted, then result rows render snippet/kind/section_path/score/retrieval_mode/degraded/filter_warnings verbatim"
+    tags: [D3-R03]
+
+  - id: researcher-workbench-t-chunk-detail-view
+    kind: task
+    title: "Build chunk-detail view + debug-only dense-vs-hybrid toggle"
+    parent: researcher-workbench-m4
+    lane: now
+    priority: must
+    estimate_days: 2
+    target_end: 2026-08-04
+    acceptance:
+      - "Given a search result row, when it is opened, then the chunk-detail view renders full body_text plus a debug-only toggle instrumenting the warmed-but-unwired bm25/ann/rerank phases as measurement only, never a serving-path change"
+    tags: [D3-R03]
+    links:
+      code: ["server/resources.py:963-965"]
+
+  - id: researcher-workbench-t-theorem-name-search-mode
+    kind: task
+    title: "Expose theorem-name result class + '/'-focus-search hotkey"
+    parent: researcher-workbench-m4
+    lane: now
+    priority: must
+    estimate_days: 1
+    target_end: 2026-08-05
+    acceptance:
+      - "Given the '/' hotkey pressed anywhere on /ui/search, when it fires, then the search input receives focus, and a theorem-name query returns find_lemma_by_name's cascade as a result class"
+    tags: [D3-R03]
+    links:
+      code: ["server/handlers/lemma.py:124-152"]
+
+  - id: researcher-workbench-t-search-cli
+    kind: task
+    title: "Ship arxmcp search CLI"
+    parent: researcher-workbench-m4
+    lane: now
+    priority: must
+    estimate_days: 1
+    target_end: 2026-08-06
+    acceptance:
+      - "Given a terminal, when `arxmcp search \"...\"` runs (plus a lemma-name mode), then results return through the internal search path with zero MCP session-cap usage and zero widening of the audited UI surface"
+    tags: [D4-R09]
+    links:
+      code: ["pyproject.toml:22-27"]
+
+  - id: researcher-workbench-m5
+    kind: milestone
+    title: "Two-track math rendering shipped on /ui/"
+    summary: "Vendored SHA-pinned KaTeX for chunk/snippet $TeX$ surfaces (auto-render on htmx afterSwap, throwOnError:false with styled fallback, macros seeded from preamble.json), and native MathML with researcher-workbench-m1's font for stored-document surfaces. Delivers KR3: every chunk or document surface renders typeset math, not raw markup."
+    parent: researcher-workbench-e2
+    lane: now
+    target_start: 2026-08-06
+    target_end: 2026-08-13
+    depends_on: [researcher-workbench-m4, researcher-workbench-spike-1]
+    acceptance:
+      - "Given a chunk or snippet surface showing $TeX$, when vendored KaTeX auto-renders on htmx afterSwap, then the math displays typeset, with throwOnError:false falling back to styled raw-TeX on parse failure"
+      - "Given a paper with a seeded preamble.json, when its chunks render, then KaTeX macros from that preamble are honored"
+      - "Given a stored-document preview surface, when it renders, then math displays as native MathML using researcher-workbench-m1's vendored font, verified against real corpus chunks rather than fixture pages"
+    tags: [D3-R04]
+    links:
+      code: ["ingest/chunker.py:326-337", "ingest/preamble.py:435-452", "frontend/static/VENDORED.md"]
+
+  - id: researcher-workbench-t-vendor-katex
+    kind: task
+    title: "Vendor SHA-pinned KaTeX with htmx afterSwap auto-render"
+    parent: researcher-workbench-m5
+    lane: now
+    priority: must
+    estimate_days: 2
+    target_end: 2026-08-09
+    acceptance:
+      - "Given the htmx VENDORED.md SHA-pinning pattern, when KaTeX (min.js+CSS+WOFF2) is vendored, then $...$ auto-renders on htmx afterSwap with throwOnError:false and a styled raw-TeX fallback on error"
+    tags: [D3-R04]
+    links:
+      code: ["frontend/static/VENDORED.md"]
+
+  - id: researcher-workbench-t-macro-seeding
+    kind: task
+    title: "Seed KaTeX macros from per-paper preamble.json"
+    parent: researcher-workbench-m5
+    lane: now
+    priority: must
+    estimate_days: 1
+    target_end: 2026-08-11
+    acceptance:
+      - "Given a chunk from a paper with preamble.json macros, when it renders, then those macros are passed into KaTeX's macro table"
+    tags: [D3-R04]
+    links:
+      code: ["ingest/preamble.py:435-452"]
+
+  - id: researcher-workbench-t-mathml-stored-docs
+    kind: task
+    title: "Wire native MathML on stored-document surfaces"
+    parent: researcher-workbench-m5
+    lane: now
+    priority: must
+    estimate_days: 1
+    target_end: 2026-08-13
+    acceptance:
+      - "Given a stored-document preview page, when it renders on the Windows tier-1 host, then native MathML displays using researcher-workbench-m1's vendored OpenType MATH font"
+    tags: [D3-R04]
+    links:
+      code: ["server/routes/ui.py:470"]
+
+  # ── e3 milestones — metadata display + ops loop (next; shaped only) ──
+
+  - id: researcher-workbench-m6
+    kind: milestone
+    title: "Paper metadata display wired into tables + search rows"
+    summary: "Read paper_metadata.db in the /ui/ papers table and researcher-workbench-m4's search-result rows: linked title, truncated authors, year, expando abstract, graceful paper_id fallback when unhydrated, and a per-notebook Backfill-metadata button wrapping tools/notebook_metadata_backfill.py."
+    parent: researcher-workbench-e3
+    lane: next
+    target_start: 2026-08-13
+    target_end: 2026-08-20
+    acceptance:
+      - "Given a paper with a hydrated metadata row, when it appears in the papers table or a search result row, then a linked title displays instead of a naked arXiv ID (KR4)"
+    tags: [D3-R05]
+    links:
+      code: ["server/paper_metadata_store.py", "tools/notebook_metadata_backfill.py", "server/routes/notebooks.py:2112-2251"]
+
+  - id: researcher-workbench-m7
+    kind: milestone
+    title: "Console ops loop completed + discovery digest card"
+    summary: "Wire the five curl-only endpoints (export, health, reconcile, repair-registry, parse-status) to template buttons/badges with live parse-status polling, upgrade badge remediation to one-click buttons where an endpoint exists, and add a discovery-digest UI card reusing the discover-fragment pattern (degrades to absent if the notebook-paper-discovery roadmap's persistence lane hasn't landed yet)."
+    parent: researcher-workbench-e3
+    lane: next
+    target_start: 2026-08-20
+    target_end: 2026-08-28
+    acceptance:
+      - "Given the five curl-only endpoints, when the console renders, then each is reachable from a template button or badge (KR5)"
+    tags: [D3-R06, D2-R05]
+    links:
+      code: ["server/routes/notebooks.py:1168,1274,1365,2267,2540", "server/routes/ui.py:343-372"]
+
+  # ── e4 milestone — eval-fixture labeling workbench (next; shaped only) ──
+
+  - id: researcher-workbench-m8
+    kind: milestone
+    title: "Eval-fixture labeling workbench mode ships"
+    summary: "A labeling mode layered on researcher-workbench-m4's search workbench: run a query, see top-k chunks with researcher-workbench-m5's rendered math, assign 0-3 grades by keyboard, track live quota against tools/validate_eval_fixtures.py's MIN_QUERIES_BY_KIND, and export a validator-passed queries.json. Hands off to the evidence-engine roadmap once queries exist."
+    parent: researcher-workbench-e4
+    lane: next
+    target_start: 2026-08-13
+    target_end: 2026-09-01
+    depends_on: [researcher-workbench-m4, researcher-workbench-m5]
+    acceptance:
+      - "Given a labeler running a query through the workbench with rendered math, when they assign 0-3 grades by keyboard against the validator's MIN_QUERIES_BY_KIND quotas, then a queries.json passed through the validator server-side is available for download"
+      - "Given the shipped instrument, when a scheduled 1-hour-plus owner labeling session runs within a set window after ship, then the resulting query count — not just instrument delivery — is the pass/fail signal (KR6; validates this roadmap's must-tier assumption on labeling-session sufficiency)"
+    tags: [D3-R07]
+    links:
+      code: ["tools/validate_eval_fixtures.py:99", "tests/eval/fixtures/queries.json", ".claude/docs/eval-curation.md:9-11"]
+
+  # ── e5 milestones — condition-gated surfaces (later; directional only) ──
+
+  - id: researcher-workbench-m9
+    kind: milestone
+    title: "Graph link-wiring post-merge"
+    summary: "Once the Stage-2 merge lands and the citation graph is ingested on the tier-1 host, keep GraphPage's accessible neighbor list as the primary surface, constrain Force3D to ego-mode, and wire 'view in graph' links from search/chunk rows."
+    parent: researcher-workbench-e5
+    lane: later
+    tags: [D3-R08]
+    links:
+      code: ["server/graph_queries.py:381-405"]
+
+  - id: researcher-workbench-m10
+    kind: milestone
+    title: "Equation-similarity links from stored MathML"
+    summary: "Once researcher-workbench-m4 ships and shows use, add a 'similar equations' link on chunk-view equations that submits stored MathML to a find_equation REST twin, links-launched only, never free-text input."
+    parent: researcher-workbench-e5
+    lane: later
+    tags: [D3-R10]
+    links:
+      code: ["ingest/schema.py:277-281", "server/handlers/equation.py:137-140"]
+
+  - id: researcher-workbench-m11
+    kind: milestone
+    title: "Proving-lane bundle review v0 report"
+    summary: "Ship an S-effort markdown bundle-review report generator (verdict chain, discharges, kernel_statements, KAT results, sorry/axiom flags) for the proving lane; the full web viewer waits on the Stage-2 merge plus demonstrated sign-off volume; sign-off stays in tools/sign_bundle.py's CLI tripwire."
+    parent: researcher-workbench-e5
+    lane: later
+    tags: [D3-R11]
+    links:
+      code: ["tools/sign_bundle.py"]
+
+  # ── e6 milestones — citation and knowledge export/import (next; shaped only) ──
+
+  - id: researcher-workbench-m12
+    kind: milestone
+    title: "Bibliography export (.bib/CSL-JSON) + manifest provenance rider"
+    summary: "GET /ui/api/notebooks/{slug}/bibliography.bib and .json, also written into the export tar, generated from the metadata store joined with Kuzu doi/journal_ref when available; bump _EXPORT_MANIFEST_FORMAT_VERSION to 2 with corpus_version/chunker_version/embedder_version added, with the restore path accepting v2."
+    parent: researcher-workbench-e6
+    lane: next
+    target_start: 2026-08-20
+    target_end: 2026-08-28
+    depends_on: [researcher-workbench-m3]
+    acceptance:
+      - "Given a notebook with hydrated metadata, when bibliography.bib and .json are requested, then both are citeproc-parseable and deterministically serialized with stable keys (KR7)"
+    tags: [D6-R01, D6-R03]
+    links:
+      code: ["server/routes/notebooks.py:2406-2408", "server/routes/notebooks.py:2423-2454", "server/routes/notebooks.py:2540"]
+
+  - id: researcher-workbench-m13
+    kind: milestone
+    title: "Obsidian Markdown exporter"
+    summary: "tools/notebook_obsidian_export.py: one note per paper with the owner's project/tags frontmatter convention, abstract, theorem inventory, stable content-addressed chunk_id block anchors, and wikilinks from Kuzu cites edges when the graph exists. Vault path is a named, containment-checked owner decision or an explicit decline recorded before implementation starts."
+    parent: researcher-workbench-e6
+    lane: next
+    target_start: 2026-08-28
+    target_end: 2026-09-04
+    acceptance:
+      - "Given a notebook, when it is exported and then the same paper is re-ingested, then the exported note's content-addressed block anchor is unchanged (KR7)"
+    tags: [D6-R02]
+    links:
+      code: ["ingest/chunker.py:1026-1050"]
+
+  - id: researcher-workbench-m14
+    kind: milestone
+    title: "Bibliography file importer + external-ID map"
+    summary: "tools/bib_import.py bulk-adds papers from a .bib/CSL-JSON file, extracting arXiv ids from eprint/url/extra/DOI fields and emitting a skipped-items report (arXiv-id-only; no live Zotero client). Nullable doi/oa_work_id/inspire_id columns in the metadata store, backfilled once the Stage-2 merge wires paper-metadata-m2, plus add-paper-by-DOI resolving through Semantic Scholar externalIds.ArXiv or OpenAlex locations parsing."
+    parent: researcher-workbench-e6
+    lane: next
+    target_start: 2026-08-25
+    target_end: 2026-09-04
+    acceptance:
+      - "Given a .bib file with arXiv ids living in eprint/url/extra/DOI fields, when it is imported, then matching papers are bulk-added via the existing papers endpoint and a skipped-items report is emitted"
+    tags: [D6-R04, D6-R05]
+    links:
+      code: ["ingest/identifiers.py:76-85", "ingest/kuzudb_schema.py:52,57-61,80"]

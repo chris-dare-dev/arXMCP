@@ -1,0 +1,316 @@
+schema: roadmap/1
+slug: evidence-engine
+project: arxmcp
+title: "Evidence Engine — end the never-measured era"
+status: active
+phase: complete          # init -> refined -> decomposed -> sequenced -> complete
+brief: |
+  arXMCP's retrieval-evaluation machinery is fully built but has never produced a single number: the 20-query fixture at tests/eval/fixtures/queries.json is an empty stub, so make eval has only ever skipped and no nDCG has ever existed, and nothing measures agent behaviour either. This initiative ends the never-measured era. Curate the eval fixture and emit the first harness numbers; land a pinned append-only regression ledger so those numbers are born reproducible; stand up a small agent-task ergonomics eval; and add a zero-labeling auto-benchmark mined from intra-paper reference chains, so that every currently-frozen decision (hybrid re-open, reranker rejection, proof-serving default, embedder swap, session caps, cache ceremony) can finally be settled on the evidence its own gate demands. Fixture curation is irreducibly owner-labeled because LLM grading is barred as circular; grow labels opportunistically rather than via a large campaign. This roadmap OWNS the FIX milestone (eval fixture populated) that several other tracks depend on.
+goal:
+  hmw: "How might we turn arXMCP's fully-built-but-never-fired eval machinery into real, reproducible numbers so that the maintainer and the sibling roadmap tracks gated on this evidence (retrieval-unlocks, agent-platform, scale-ops-hardening, trustworthy-release) can finally resolve arXMCP's six frozen architecture decisions instead of leaving them paused indefinitely?"
+  objective: "Ship arXMCP's first reproducible harness numbers — retrieval nDCG@5/Recall@10, agent-task ergonomics, and a zero-labeling auto-benchmark — behind a pinned regression ledger, ending the project's never-measured era."
+  key_results:
+    - "`make eval` (dense) records a real nDCG@5/Recall@10 number in `.claude/docs/retrieval-quality-report.md` for the first time, instead of SKIPping."
+    - "Every eval run appends a manifest-pinned entry (embedder/chunker/tokenizer/reranker versions + fixture content-hash) to `var/arxmcp/ops/eval/ledger.jsonl`, and watchdog AC1 goes live."
+    - "An 8-10 task agent-ergonomics eval reports pass^k, tool-call count, and wrong-tool-selection rate for at least one pre/post milestone comparison, published in the README."
+    - "`tools/build_dependency_eval.py` scores Recall@k/MRR under a new eval_auto marker on zero hand-labeled auto-qrels mined from intra-paper `\\ref{}` chains, sliced same- vs cross-section."
+    - "At least 3 of the 6 named frozen decisions (hybrid re-open, reranker rejection, proof-serving default, embedder swap, session caps, cache ceremony) carry a recorded verdict — resolved or explicitly still-frozen-with-reason — that cites this roadmap's numbers."
+    - "`tools/daily_metrics_report.py --check` reports the Tier-2→3 cache-hit-rate gate's first-ever pass/fail number against a real 24h window."
+  assumptions:
+    - tier: must
+      text: "The owner can complete 20-query graded-relevance labeling within a 1-2 owner-day budget without the FIX milestone slipping again the way verification-feedback-e3 already has since 2026-05-08."
+      validation: "A time-boxed dry run labels the first 5 queries and measures actual owner-minutes per query before committing the full budget; if the extrapolated total exceeds ~2 owner-days, cut fixture size to the smallest n that still supports D9-R02's paired-comparison math rather than let the milestone slip again."
+    - tier: must
+      text: "Re-scanning parsed HTML recovers enough intra-paper `\\ref{}` citing-anchor-to-chunk mappings (persisted nowhere today) to make D9-R15's zero-labeling auto-benchmark viable at meaningful volume."
+      validation: "A spike scans an existing HTML-parsed labeled notebook (bridgeland-stability), maps a sample of `\\ref{}` anchors into chunk boundaries, and records the recovered pair count plus a ~50-pair hand-audited label-noise rate before `tools/build_dependency_eval.py` is built out."
+    - tier: should
+      text: "The 20-query fixture can be curated entirely from notebooks already ingested on this Windows workstation (e.g. bridgeland-stability) without requiring cross-machine var/ sync of the macOS-only shimura-varieties fixture."
+      validation: "Milestone kickoff enumerates locally-ingested notebooks before the query set is finalized; if shimura-varieties coverage turns out to be required, fold a var/ sync task into the curation epic instead of redesigning the roadmap."
+    - tier: should
+      text: "MCP-Universe (SalesforceAIResearch, Apache-2.0) runs as-is against arXMCP's stdio shim for D7-R13's agent-task harness, avoiding a bespoke large-effort build."
+      validation: "The agent-task-eval epic's acceptance includes a 1-task smoke test against MCP-Universe before committing the full 8-10 task suite; fallback is a plain Claude agentic loop via the shim, per the rec's own reduced scope."
+    - tier: should
+      text: "Bounded API spend for the agent-task eval's 3-runs-per-task loop and the cache-economics script stays inside an acceptable solo-maintainer budget."
+      validation: "Each harness enforces a hard spend ceiling and stop condition as an acceptance criterion; task and run counts are cut before the ceiling is hit, not after."
+    - tier: should
+      text: "D9-R03's MIRB internal-anchor slices still run on the ~3-commit, no-release MTEB-fork harness without needing a rewrite."
+      validation: "Verify the harness executes end-to-end on one MIRB slice before scheduling the full 2-3 slice run; fallback is raw MIRB dataset downloads scored with arXMCP's own metrics module."
+    - tier: might
+      text: "D7-R13 and D7-R15 can share one runner and task-curation pass without materially compromising either eval's design."
+    - tier: might
+      text: "CG8's 2-3 French-source (EGA/SGA-class) queries can ride the opportunistic fixture-growth pass at near-zero marginal labeling cost."
+  wont:
+    - "No acting on the numbers once produced — flipping the proof-serving default, re-opening hybrid/rerank, or executing an embedder swap belongs to retrieval-unlocks, not this roadmap. This roadmap supplies evidence; it does not spend it."
+    - "No scheduled ~80-query (or larger) labeling campaign — fixture growth toward n≈30-50 is opportunistic (real queries once agent traffic exists, auto-pairs from D9-R15), never a dedicated owner-hours campaign."
+    - "No LLM-assisted or LLM-judge grading of the eval fixture — .claude/docs/eval-curation.md bars it as circular; every graded label is owner-authored."
+    - "No labeling-workbench UI or operator search surface — the offline static-HTML report script is this track's entire UI footprint; the htmx search card belongs to researcher-workbench."
+    - "No Phoenix experiments or span-attribute wiring — rejected by both adversarial reviewers in D9-R11; it reverses the deliberate Threat-8 query-text-stripping posture."
+    - "No agentic proving eval until the worktree merge, Lean toolchain, and orchestrator dispatch loop all land externally — tracked as a blocked, deferred bet (D9-R09), not built here."
+    - "No capacity or scale measurement (10K checkpoint, GPU throughput) — that is scale-ops-hardening's job; this roadmap's dense-path latency work is record-only, with no asserting p95 acceptance criterion until the fixture reaches at least 50 queries."
+  evidence:
+    - "C:/Users/cedar/Documents/Personal Projects/Source Code/_pipeline/gap-analysis-2026-07/chapters/D9.md — primary chapter: G1-G10 gap analysis and D9-R01..R15 recommendations, referee-verified"
+    - "C:/Users/cedar/Documents/Personal Projects/Source Code/_pipeline/gap-analysis-2026-07/synthesis/cross-synthesis.md §1 T1, §4 S1, §6 quick win #1 — cross-dimension convergence and track seed"
+    - "tests/eval/fixtures/queries.json — verified empty (queries: []), confirming G1's flagship-metric-never-computed finding"
+    - ".claude/docs/eval-curation.md — the owner-labeling curation runbook; bars LLM-assisted grading as circular"
+    - "plans/verification-feedback-roadmap.md:108-158 — prior-tracked home of this work (epic verification-feedback-e3, Next lane), shaped but slipped since 2026-05-08"
+    - "plans/proof-verify-handler-wiring-roadmap.md:185-203 — spike-3/m5 PoC numbers (0 lift at 122x latency) and the ≥0.10 absolute-lift bar this roadmap's numbers must clear to re-open hybrid"
+    - ".claude/docs/retrieval-quality-report.md — the PENDING-tables target for D9-R01's first harness numbers"
+    - ".claude/TIER-GATES.md:24,160-185,220-224 — Tier-5 drift gate, Tier-2->3 cache-hit gate placeholder, CDM parser-bake-off deferral"
+generated_by: { agent: claude-sonnet-5, at: "2026-07-07" }
+generations:
+  - { rev: 1, at: "2026-07-07" }
+retired: []          # tombstoned item ids; ids are write-once, never deleted
+items:
+  - id: evidence-engine-e1
+    kind: epic
+    title: "Fixture curation, first harness numbers, and the pinned ledger"
+    summary: "Build the offline static-HTML labeling report (D2-R12, wrapping server/handlers/search.py's search internals -- no new route, no server change) and use it to hand-label the 20-query graded-relevance fixture at tests/eval/fixtures/queries.json (D9-R01), producing arXMCP's first-ever make eval (dense) nDCG@5/Recall@10 numbers plus a pytest --hybrid run, committed into the PENDING tables of .claude/docs/retrieval-quality-report.md. Land the same day: a full run-manifest (embedder/chunker/tokenizer/reranker versions, fixture content-hash) appended to var/arxmcp/ops/eval/ledger.jsonl (D9-R10) so the numbers are born pinned and watchdog AC1 goes live, plus the mechanical D9-R14 rider relocating ndcg_at_k/recall_at_k/assert_threshold/_run_hybrid_against_corpus/score_and_write out of tests/eval/metrics.py into an importable package on this same harness-touching commit."
+    priority: must
+    size: M
+    rice: { r: 15, i: 3, c: 0.8, e: 1.5, score: 24.0, rank: 1 }
+    tags: [value, eval, fixture, D9-R01, D2-R12, D9-R10, D9-R14]
+    links:
+      code: ["tests/eval/fixtures/queries.json", "tools/validate_eval_fixtures.py", ".claude/docs/retrieval-quality-report.md", "tests/eval/metrics.py", "ops/watchdog_eval.py"]
+
+  - id: evidence-engine-e2
+    kind: epic
+    title: "Paired-significance comparison machinery"
+    summary: "Add additive slice tags (a topic / phrasing / stmt-or-proof / notebook axis) to the fixture schema and a --compare BASELINE.jsonl mode to tests/eval/test_retrieval_quality.py that computes paired bootstrap CIs and t-tests on per-query nDCG deltas with per-slice reporting (D9-R02) -- the statistical instrument every future frozen-decision verdict (hybrid re-open at >=0.10 absolute lift, embedder swap) will need to cite. Built now against the reduced ~20-query fixture; labels grow opportunistically later via D9-R15's auto-pairs and real agent traffic, never via a scheduled labeling campaign."
+    priority: should
+    size: S
+    rice: { r: 3, i: 2, c: 0.5, e: 0.5, score: 6.0, rank: 2 }
+    depends_on: [evidence-engine-e1]
+    tags: [value, eval, statistics, D9-R02]
+    links:
+      code: ["tests/eval/test_retrieval_quality.py"]
+
+  - id: evidence-engine-e3
+    kind: epic
+    title: "Agent-task ergonomics eval"
+    summary: "Stand up an orchestrator-side harness outside server/ running about 8 to 10 curated tasks (exact-statement lookup, a 2-hop dependency question, macro-definition-to-theorem, formalize-and-verify a trivial claim) via a plain Claude agentic loop through the stdio shim, 3 runs per task, reporting pass^k, tool-call count, wrong-tool-selection rate, tokens in/out, latency, and cap collisions (D7-R13). Reuse MCP-Universe (Apache-2.0) if its 1-task smoke test passes; fall back to a bespoke loop otherwise. Run at milestone cadence (pre/post the batched tool-schema re-pin wave and any retrieval-unlocks wave), not per-change; publish results in the README. Assumes the agent-platform roadmap's caps relief and truthful tool descriptions land first so the harness measures the real interactive surface rather than a caps-starved one -- an external precondition, not a same-roadmap blocker."
+    priority: must
+    size: M
+    rice: { r: 4, i: 2, c: 0.8, e: 2, score: 3.2, rank: 3 }
+    tags: [value, agent-eval, D7-R13]
+    links:
+      code: ["shim/arxmcp_shim.py"]
+
+  - id: evidence-engine-e4
+    kind: epic
+    title: "Zero-labeling proof-dependency auto-benchmark"
+    summary: "Ship tools/build_dependency_eval.py (D9-R15): a read-only generator mining citing-chunk-to-referenced-theorem-chunk pairs from ingest/intra_paper_refs.py's validated intra-paper reference anchors and chunks' theorem_label/theorem_name fields, emitting auto-qrels (query = citing-chunk text with the reference sentence and verbatim name mentions masked) scored for Recall@k/MRR under a new eval_auto marker, sliced same-section vs cross-section. Start with a feasibility scan of the bridgeland-stability notebook's parsed HTML to size the anchor-to-chunk mapping and hand-audit about 50 pairs for label noise before building the generator out to volume. Trend-only proxy, never a promotion gate; consumes D9-R14's relocated metrics module and uniquely prices the production proof-chunk exclusion at server/handlers/search.py line 711."
+    priority: must
+    size: M
+    rice: { r: 2, i: 2, c: 0.5, e: 2, score: 1.0, rank: 4 }
+    depends_on: [evidence-engine-e1]
+    tags: [value, eval, auto-benchmark, D9-R15]
+    links:
+      code: ["tools/build_dependency_eval.py", "ingest/intra_paper_refs.py", "server/handlers/search.py"]
+
+  - id: evidence-engine-e5
+    kind: epic
+    title: "Specialized-index evaluation anchors"
+    summary: "First-ever eval numbers for three live, currently-unmeasured specialized indices: a roughly 30-entry theorem-name gold set (name to expected dedup_key/chunk, including hand-added typos and aliases) scoring hit@1/hit@5 per cascade tier and validating the 0.3 Jaccard threshold in server/theorem_names_store.py (D9-R08); a dev-time script adapting 2 to 3 MIRB slices (Stacks Project, LeanDojo premise, NTCIR-WFB) to arXMCP's BGE-M3 encoder plus BM25 tokenizer plus RRF as an internal embedder anchor, timed to the embedder-swap decision (D9-R03); and a phase-1 sanity anchor of the TED-plus-cosine equation fusion against downloadable ARQMath-3 Task-2 or MIRB NTCIR-WFB qrels sweeping the ARXMCP_EQ_TED_WEIGHT env var only, no production change, folded into the same MIRB run (D9-R04 phase 1). All three record into D9-R10's ledger; verify the lightly-maintained MIRB harness still runs before scheduling."
+    priority: should
+    size: M
+    rice: { r: 3, i: 1, c: 0.5, e: 2, score: 0.75, rank: 5 }
+    depends_on: [evidence-engine-e1]
+    tags: [value, eval, specialized-index, D9-R08, D9-R03, D9-R04]
+    links:
+      code: ["server/theorem_names_store.py", "server/query_encoder.py", "ingest/tokenizer.py", "server/config.py", "server/retrieval/equations.py"]
+
+  - id: evidence-engine-e6
+    kind: epic
+    title: "Production telemetry: latency, cache-hit gate, and cache economics"
+    summary: "Three thin, ledger-riding measurement deltas that complete arXMCP's observability-to-eval loop: record per-query dense-path wall latency plus result-byte sizes into the dense aggregate/ledger, record-only with no asserting p95 acceptance criterion until the fixture reaches at least 50 queries (D9-R06); add a --check pass/fail line to tools/daily_metrics_report.py computing the Tier-2-to-3 cache-hit-rate gate (30 percent or higher over a 24-hour window, via server/metrics.py Prometheus counters rather than the never-existent cache-stats.jsonl) for its first-ever real number (D9-R13); and a 2-role (sketcher to autoformalizer) script sharing D7-R13's runner that reports prompt-cache hit rate, cache-read-vs-fresh tokens, and cost multiple vs single agent -- the first test of design-note 07's 1.3x-1.5x prediction and the other half of the Tier-2-to-3 gate (D7-R15). D9-R13's number is measured-idle until real multi-agent traffic exists; D7-R15 additionally needs the worktree merge to measure the real surface -- both external preconditions, not same-roadmap blockers."
+    priority: should
+    size: M
+    rice: { r: 2, i: 1, c: 0.5, e: 2, score: 0.5, rank: 6 }
+    depends_on: [evidence-engine-e1, evidence-engine-e3]
+    tags: [value, eval, telemetry, D9-R06, D9-R13, D7-R15]
+    links:
+      code: ["tools/daily_metrics_report.py", "server/metrics.py", "server/orchestrator/model_selector.py", ".claude/TIER-GATES.md"]
+
+  # ── spikes: one per unvalidated must-tier goal.assumption ──────────────
+  - id: evidence-engine-spike-1
+    kind: spike
+    title: "Labeling-pace dry run — first 5 queries"
+    parent: evidence-engine-e1
+    lane: now
+    estimate_days: 1
+    target_end: 2026-07-08
+    acceptance:
+      - "Given the first 5 of the ~20 planned queries, when the owner hand-labels graded relevance for them, then actual owner-minutes-per-query is recorded and extrapolated to a full-fixture time estimate"
+      - "Given the extrapolated total, when it exceeds ~2 owner-days, then the fixture size is cut to the smallest n that still supports D9-R02's paired-comparison math instead of letting the milestone slip again"
+    links:
+      note: ["[[evidence-engine labeling-pace dry run]]"]
+    tags: [D9-R01]
+
+  - id: evidence-engine-spike-2
+    kind: spike
+    title: "Intra-paper \\ref{} anchor-to-chunk recovery scan (bridgeland-stability)"
+    parent: evidence-engine-e4
+    lane: now
+    estimate_days: 2
+    target_end: 2026-07-09
+    acceptance:
+      - "Given the bridgeland-stability notebook's parsed HTML, when \\ref{} citing-anchors are mapped into chunk boundaries, then the recovered citing-chunk-to-referenced-chunk pair count is recorded"
+      - "Given a ~50-pair sample of the recovered mappings, when they are hand-audited, then a label-noise rate is recorded before tools/build_dependency_eval.py is built out to volume"
+    links:
+      note: ["[[evidence-engine ref-chunk recovery scan]]"]
+      code: ["ingest/intra_paper_refs.py"]
+    tags: [D9-R15]
+
+  # ── now lane: evidence-engine-e1 fully spec'd ───────────────────────────
+  - id: evidence-engine-m1
+    kind: milestone
+    title: "First harness numbers exist, born pinned"
+    summary: "The 20-query fixture is hand-labeled, make eval (dense) and pytest --hybrid produce real nDCG@5/Recall@10 numbers committed to the PENDING tables of the retrieval-quality report, and every run is captured in a manifest-pinned append-only ledger from the first commit."
+    parent: evidence-engine-e1
+    lane: now
+    target_start: 2026-07-07
+    target_end: 2026-07-21
+    depends_on: [evidence-engine-spike-1]
+    acceptance:
+      - "Given the labeling-pace dry run has confirmed a fixture size, when all queries are hand-labeled into tests/eval/fixtures/queries.json, then tools/validate_eval_fixtures.py reports status=complete"
+      - "Given the completed fixture, when `make eval` (dense) runs, then a real nDCG@5/Recall@10 number is written into the PENDING tables of .claude/docs/retrieval-quality-report.md for the first time"
+      - "Given the same eval run, when it completes, then a manifest-pinned entry (embedder/chunker/tokenizer/reranker versions + fixture content-hash) is appended to var/arxmcp/ops/eval/ledger.jsonl and watchdog AC1 goes live"
+    tags: [D9-R01, D2-R12, D9-R10, D9-R14]
+    links:
+      code: ["tests/eval/fixtures/queries.json", "var/arxmcp/ops/eval/ledger.jsonl", ".claude/docs/retrieval-quality-report.md"]
+
+  - id: evidence-engine-t-relocate-metrics
+    kind: task
+    title: "Relocate eval metrics out of tests/ as the harness-touching rider commit"
+    parent: evidence-engine-m1
+    lane: now
+    priority: must
+    estimate_days: 1
+    target_end: 2026-07-09
+    acceptance:
+      - "Given tests/eval/metrics.py's ndcg_at_k, recall_at_k, assert_threshold, _run_hybrid_against_corpus, and score_and_write, when they are moved into an importable non-test package with re-export shims left behind, then the existing test suite and ops/watchdog_eval.py's import both pass unchanged"
+    links:
+      code: ["tests/eval/metrics.py", "ops/watchdog_eval.py"]
+    tags: [D9-R14]
+
+  - id: evidence-engine-t-labeling-report-script
+    kind: task
+    title: "Offline eval-labeling static-HTML report script"
+    parent: evidence-engine-m1
+    lane: now
+    priority: must
+    estimate_days: 2
+    target_end: 2026-07-10
+    acceptance:
+      - "Given a list of candidate queries, when the offline report script runs over search.py's search-handler internals, then it emits a static HTML page rendering results with native MathML for side-by-side relevance labeling, with no new server route added"
+    links:
+      code: ["server/handlers/search.py"]
+    tags: [D2-R12]
+
+  - id: evidence-engine-t-fixture-labeling
+    kind: task
+    title: "Hand-label the graded-relevance query fixture"
+    parent: evidence-engine-m1
+    lane: now
+    priority: must
+    estimate_days: 3
+    target_end: 2026-07-16
+    depends_on: [evidence-engine-spike-1, evidence-engine-t-labeling-report-script]
+    acceptance:
+      - "Given the labeling report script and the dry-run-confirmed fixture size, when the owner hand-labels graded-relevance queries into tests/eval/fixtures/queries.json, then tools/validate_eval_fixtures.py reports status=complete"
+    links:
+      code: ["tests/eval/fixtures/queries.json", ".claude/docs/eval-curation.md"]
+    tags: [D9-R01]
+
+  - id: evidence-engine-t-ledger-manifest
+    kind: task
+    title: "Run-manifest pinning + append-only regression ledger"
+    parent: evidence-engine-m1
+    lane: now
+    priority: must
+    estimate_days: 2
+    target_end: 2026-07-13
+    depends_on: [evidence-engine-t-relocate-metrics]
+    acceptance:
+      - "Given a completed eval run, when the aggregate is written, then a full run manifest (embedder/chunker/tokenizer/reranker versions and flags, fixture schema_version/query-count/content-hash, pipeline mode, hardware tag) is appended to var/arxmcp/ops/eval/ledger.jsonl"
+      - "Given two runs with incompatible manifests, when the watchdog compares them, then it refuses the cross-manifest comparison instead of reporting a false drift number"
+    links:
+      code: ["ops/watchdog_eval.py", "var/arxmcp/ops/eval/ledger.jsonl"]
+    tags: [D9-R10]
+
+  - id: evidence-engine-t-run-first-eval
+    kind: task
+    title: "Run and commit the first harness numbers"
+    parent: evidence-engine-m1
+    lane: now
+    priority: must
+    estimate_days: 1
+    target_end: 2026-07-17
+    depends_on: [evidence-engine-t-fixture-labeling, evidence-engine-t-ledger-manifest]
+    acceptance:
+      - "Given the completed fixture and ledger code, when `make eval` (dense) and `pytest --hybrid` are each run once, then their aggregates are committed into the PENDING tables of .claude/docs/retrieval-quality-report.md"
+    links:
+      code: [".claude/docs/retrieval-quality-report.md"]
+    tags: [D9-R01, D9-R10]
+
+  # ── next lane: shaped milestones, no task decomposition ────────────────
+  - id: evidence-engine-m2
+    kind: milestone
+    title: "Paired-significance testing lands in the harness"
+    summary: "Additive slice tags (topic / phrasing / stmt-or-proof / notebook) land in the fixture schema and tests/eval/test_retrieval_quality.py gains a --compare BASELINE.jsonl mode computing paired bootstrap CIs and t-tests on per-query nDCG deltas, per-slice, so every future frozen-decision verdict has a statistical instrument to cite."
+    parent: evidence-engine-e2
+    lane: next
+    target_start: 2026-07-21
+    target_end: 2026-07-30
+    depends_on: [evidence-engine-m1]
+    tags: [D9-R02]
+    links:
+      code: ["tests/eval/test_retrieval_quality.py"]
+
+  - id: evidence-engine-m3
+    kind: milestone
+    title: "Agent-task ergonomics harness produces its first pre/post comparison"
+    summary: "An orchestrator-side harness outside server/ runs ~8-10 curated tasks (exact-statement lookup, 2-hop dependency question, macro-to-theorem, formalize-and-verify a trivial claim) through the stdio shim via a plain Claude agentic loop, 3 runs per task, reporting pass^k, tool-call count, wrong-tool-selection rate, tokens, latency, and cap collisions; reuses MCP-Universe if its 1-task smoke test passes, else falls back to a bespoke loop. Runs at milestone cadence, published in the README."
+    parent: evidence-engine-e3
+    lane: next
+    target_start: 2026-08-04
+    target_end: 2026-08-25
+    tags: [D7-R13]
+    links:
+      code: ["shim/arxmcp_shim.py"]
+
+  - id: evidence-engine-m4
+    kind: milestone
+    title: "Zero-labeling proof-dependency benchmark produces first auto-qrels numbers"
+    summary: "tools/build_dependency_eval.py mines citing-chunk-to-referenced-theorem-chunk pairs from ingest/intra_paper_refs.py's validated anchors, emits auto-qrels with reference-sentence and verbatim-name masking, and scores Recall@k/MRR under a new eval_auto marker, sliced same- vs cross-section — a trend-only proxy that prices the production proof-chunk exclusion at server/handlers/search.py:711."
+    parent: evidence-engine-e4
+    lane: next
+    target_start: 2026-07-21
+    target_end: 2026-08-11
+    depends_on: [evidence-engine-spike-2, evidence-engine-m1]
+    tags: [D9-R15]
+    links:
+      code: ["tools/build_dependency_eval.py", "ingest/intra_paper_refs.py", "server/handlers/search.py"]
+
+  # ── later lane: title + one-line summary only, no decomposition ────────
+  - id: evidence-engine-m5
+    kind: milestone
+    title: "First evaluation numbers for the three unmeasured specialized indices"
+    summary: "A ~30-entry theorem-name gold set, a 2-3 slice MIRB internal embedder anchor, and a phase-1 TED-fusion sanity sweep each land their first-ever numbers in the D9-R10 ledger."
+    parent: evidence-engine-e5
+    lane: later
+    depends_on: [evidence-engine-m1]
+    tags: [D9-R08, D9-R03, D9-R04]
+    links:
+      code: ["server/theorem_names_store.py", "server/query_encoder.py", "ingest/tokenizer.py", "server/config.py", "server/retrieval/equations.py"]
+
+  - id: evidence-engine-m6
+    kind: milestone
+    title: "Dense-path latency, cache-hit gate, and cache economics get their first real numbers"
+    summary: "Per-query dense-path latency lands record-only in the ledger, tools/daily_metrics_report.py gains a --check pass/fail line for the Tier-2->3 cache-hit gate, and a 2-role sketcher-to-autoformalizer script measures prompt-cache economics against note-07's 1.3-1.5x prediction."
+    parent: evidence-engine-e6
+    lane: later
+    depends_on: [evidence-engine-m1, evidence-engine-m3]
+    tags: [D9-R06, D9-R13, D7-R15]
+    links:
+      code: ["tools/daily_metrics_report.py", "server/metrics.py", "server/orchestrator/model_selector.py", ".claude/TIER-GATES.md"]
