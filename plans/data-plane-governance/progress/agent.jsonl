@@ -2,3 +2,7 @@
 {"id": "data-plane-governance-m1", "field": "status", "value": "done", "at": "2026-07-12T02:10:08-04:00", "actor": "milestone-pipeline", "note": "rect 910e939"}
 {"id": "data-plane-governance-m3", "field": "status", "value": "in_progress", "at": "2026-07-12T14:15:26-04:00", "actor": "agent"}
 {"id": "data-plane-governance-m3", "field": "status", "value": "done", "at": "2026-07-12T15:39:55-04:00", "actor": "milestone-pipeline", "note": "rect c08dd0c"}
+{"id": "data-plane-governance-spike-1", "field": "status", "value": "in_progress", "at": "2026-07-12T15:58:17-04:00", "actor": "agent"}
+{"id": "data-plane-governance-spike-1", "field": "status", "value": "done", "at": "2026-07-12T16:27:06-04:00", "actor": "milestone-pipeline", "note": "owner sitting: 6 dispositions (2 commit-as-is, 4 revise-then-commit, 0 veto)"}
+{"id": "data-plane-governance-m2", "field": "status", "value": "in_progress", "at": "2026-07-12T16:51:37-04:00", "actor": "agent"}
+{"id": "data-plane-governance-m2", "field": "status", "value": "done", "at": "2026-07-12T16:51:37-04:00", "actor": "milestone-pipeline", "note": "6 tracks committed (d7bfe2b amend, 616e3a8 track-5); zero untracked"}
