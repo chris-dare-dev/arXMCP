@@ -32,6 +32,7 @@ ARXMCP_BIND_PORT ?= 7733
 # Override on the command line: `make init NOTEBOOK=demo EMAIL=me@x`.
 NOTEBOOK ?=
 EMAIL ?=
+MINERU_BIN ?=
 PAPER ?=
 
 help:
@@ -473,12 +474,11 @@ init:
 	@# error from Python instead of word-splitting into extra positional
 	@# arguments. The slug regex enforces no-whitespace at the Python
 	@# layer; this is belt-and-braces.
-	@[ -n "$(NOTEBOOK)" ] || { echo "ERROR: NOTEBOOK= required. Usage: make init NOTEBOOK=<slug> [EMAIL=<addr>]" >&2; exit 1; }
-	@if [ -n "$(EMAIL)" ]; then \
-		$(PYTHON) -m tools.notebook_init "$(NOTEBOOK)" --email "$(EMAIL)"; \
-	else \
-		$(PYTHON) -m tools.notebook_init "$(NOTEBOOK)"; \
-	fi
+	@[ -n "$(NOTEBOOK)" ] || { echo "ERROR: NOTEBOOK= required. Usage: make init NOTEBOOK=<slug> [EMAIL=<addr>] [MINERU_BIN=<path>]" >&2; exit 1; }
+	@# ingest-robustness-m1 AC3: also persist MINERU_BIN when given. make's
+	@# $(if $(strip ...)) emits each flag only when its var is non-empty, so
+	@# EMAIL and MINERU_BIN stay independent and correctly quoted.
+	@$(PYTHON) -m tools.notebook_init "$(NOTEBOOK)" $(if $(strip $(EMAIL)),--email "$(EMAIL)") $(if $(strip $(MINERU_BIN)),--mineru-bin "$(MINERU_BIN)")
 
 add:
 	@# AC3 — tag a paper into a notebook. If server is up
