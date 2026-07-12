@@ -34,7 +34,6 @@ import kuzu
 import pytest
 
 from ingest import graph_ingest, inspire_ingest, kuzudb_schema
-from tests._graph_helpers import kuzu_reopen_unsupported_on_windows
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -165,6 +164,7 @@ def populated_db(db_path: Path) -> Path:
     """
     kuzudb_schema.apply_schema(db_path)
     db = kuzu.Database(str(db_path))
+    conn = None
     try:
         conn = kuzu.Connection(db)
         for arxiv_id in CORPUS_IDS:
@@ -177,7 +177,12 @@ def populated_db(db_path: Path) -> Path:
                 {"id": arxiv_id, "title": f"openalex-{arxiv_id}"},
             )
     finally:
-        del db
+        # nested: db.close() must run even if conn.close() raises
+        try:
+            if conn is not None:
+                conn.close()
+        finally:
+            db.close()
     return db_path
 
 
@@ -192,11 +197,17 @@ class TestSchemaV2:
         ``inspire_id`` columns; ``KUZU_SCHEMA_VERSION = 2``."""
         kuzudb_schema.apply_schema(db_path)
         db = kuzu.Database(str(db_path))
+        conn = None
         try:
             conn = kuzu.Connection(db)
             cols = kuzudb_schema._introspect_columns(conn, "papers")
         finally:
-            del db
+            # nested: db.close() must run even if conn.close() raises
+            try:
+                if conn is not None:
+                    conn.close()
+            finally:
+                db.close()
         assert "doi" in cols
         assert "journal_ref" in cols
         assert "inspire_id" in cols
@@ -213,19 +224,25 @@ class TestSchemaV2:
         kuzudb_schema.apply_schema(db_path)
         kuzudb_schema.apply_schema(db_path)
         db = kuzu.Database(str(db_path))
+        conn = None
         try:
             conn = kuzu.Connection(db)
             cols = kuzudb_schema._introspect_columns(conn, "papers")
         finally:
-            del db
+            # nested: db.close() must run even if conn.close() raises
+            try:
+                if conn is not None:
+                    conn.close()
+            finally:
+                db.close()
         assert {"doi", "journal_ref", "inspire_id"}.issubset(cols)
 
-    @kuzu_reopen_unsupported_on_windows
     def test_simulated_v1_db_migrates_to_v2(self, tmp_path: Path):
         """Stand up a V1-shaped DB by hand (without the v2 ALTERs) and
         verify ``apply_schema`` brings it up to v2 without error."""
         db_path = tmp_path / "kuzu_v1"
         db = kuzu.Database(str(db_path))
+        conn = None
         try:
             conn = kuzu.Connection(db)
             # Apply only the v1 statements (no v2 ALTERs).
@@ -239,25 +256,42 @@ class TestSchemaV2:
                 {"k": "version"},
             )
         finally:
-            del db
+            # nested: db.close() must run even if conn.close() raises
+            try:
+                if conn is not None:
+                    conn.close()
+            finally:
+                db.close()
         # Sanity: v1 papers does not have v2 columns yet.
         db = kuzu.Database(str(db_path))
+        conn = None
         try:
             conn = kuzu.Connection(db)
             cols_before = kuzudb_schema._introspect_columns(conn, "papers")
             assert "doi" not in cols_before
         finally:
-            del db
+            # nested: db.close() must run even if conn.close() raises
+            try:
+                if conn is not None:
+                    conn.close()
+            finally:
+                db.close()
         # Apply v2 migration.
         kuzudb_schema.apply_schema(db_path)
         # Verify v2 state.
         assert kuzudb_schema.read_schema_version(db_path) == 2
         db = kuzu.Database(str(db_path))
+        conn = None
         try:
             conn = kuzu.Connection(db)
             cols_after = kuzudb_schema._introspect_columns(conn, "papers")
         finally:
-            del db
+            # nested: db.close() must run even if conn.close() raises
+            try:
+                if conn is not None:
+                    conn.close()
+            finally:
+                db.close()
         assert {"doi", "journal_ref", "inspire_id"}.issubset(cols_after)
 
 
@@ -394,6 +428,7 @@ class TestEnrichHappyPath:
         )
 
         db = kuzu.Database(str(populated_db))
+        conn = None
         try:
             conn = kuzu.Connection(db)
             r = conn.execute(
@@ -404,7 +439,12 @@ class TestEnrichHappyPath:
             while r.has_next():
                 rows.append(tuple(r.get_next()))
         finally:
-            del db
+            # nested: db.close() must run even if conn.close() raises
+            try:
+                if conn is not None:
+                    conn.close()
+            finally:
+                db.close()
         by_id = {row[0]: row for row in rows}
 
         # hep-th paper enriched.
@@ -440,6 +480,7 @@ class TestEnrichHappyPath:
         )
 
         db = kuzu.Database(str(populated_db))
+        conn = None
         try:
             conn = kuzu.Connection(db)
             r = conn.execute(
@@ -451,7 +492,12 @@ class TestEnrichHappyPath:
             while r.has_next():
                 edges.append(tuple(r.get_next()))
         finally:
-            del db
+            # nested: db.close() must run even if conn.close() raises
+            try:
+                if conn is not None:
+                    conn.close()
+            finally:
+                db.close()
         # Expected:
         #   P_HEP_TH -> P_MATH_PH (in-corpus reference)
         #   P_HEP_TH_2 -> P_HEP_TH (the other ref, EXTERNAL_REF, is not in
@@ -487,6 +533,7 @@ class TestF4SplitWriter:
             sleep_seconds=0,
         )
         db = kuzu.Database(str(populated_db))
+        conn = None
         try:
             conn = kuzu.Connection(db)
             r = conn.execute(
@@ -498,7 +545,12 @@ class TestF4SplitWriter:
                 row = r.get_next()
                 titles[row[0]] = row[1]
         finally:
-            del db
+            # nested: db.close() must run even if conn.close() raises
+            try:
+                if conn is not None:
+                    conn.close()
+            finally:
+                db.close()
         # Every paper's title is still the OpenAlex-stub value the
         # populated_db fixture wrote.
         for arxiv_id in CORPUS_IDS:
@@ -527,6 +579,7 @@ class TestF4SplitWriter:
         from ingest.graph_ingest import _merge_paper, _ResolvedWork
 
         db = kuzu.Database(str(populated_db))
+        conn = None
         try:
             conn = kuzu.Connection(db)
             for arxiv_id in CORPUS_IDS:
@@ -551,7 +604,12 @@ class TestF4SplitWriter:
             )
             row = r.get_next()
         finally:
-            del db
+            # nested: db.close() must run even if conn.close() raises
+            try:
+                if conn is not None:
+                    conn.close()
+            finally:
+                db.close()
         assert row[0] == "10.1234/hep.001", (
             "OpenAlex re-MERGE clobbered INSPIRE doi — F4 regression"
         )
@@ -568,7 +626,6 @@ class TestCrossSourceEdges:
     INSPIRE writes its own edges. The MERGE-key composition (source is part
     of the edge identity) is the structural guarantee."""
 
-    @kuzu_reopen_unsupported_on_windows
     def test_both_sources_edges_coexist(
         self,
         stub_fetcher: list[str],
@@ -577,6 +634,7 @@ class TestCrossSourceEdges:
     ):
         # Pre-populate an OpenAlex edge between P_HEP_TH and P_MATH_PH.
         db = kuzu.Database(str(populated_db))
+        conn = None
         try:
             conn = kuzu.Connection(db)
             graph_ingest._merge_cite(
@@ -587,7 +645,12 @@ class TestCrossSourceEdges:
                 confidence=1.0,
             )
         finally:
-            del db
+            # nested: db.close() must run even if conn.close() raises
+            try:
+                if conn is not None:
+                    conn.close()
+            finally:
+                db.close()
 
         # Now run the INSPIRE enrichment; INSPIRE will also emit an edge
         # P_HEP_TH -> P_MATH_PH with source="inspire".
@@ -600,6 +663,7 @@ class TestCrossSourceEdges:
         )
 
         db = kuzu.Database(str(populated_db))
+        conn = None
         try:
             conn = kuzu.Connection(db)
             r = conn.execute(
@@ -611,7 +675,12 @@ class TestCrossSourceEdges:
             while r.has_next():
                 sources.append(r.get_next()[0])
         finally:
-            del db
+            # nested: db.close() must run even if conn.close() raises
+            try:
+                if conn is not None:
+                    conn.close()
+            finally:
+                db.close()
         # Both edges co-exist; AC#3 is satisfied.
         assert sources == ["inspire", "openAlex"]
 
@@ -629,7 +698,6 @@ class TestE09S02RectificationGuards:
     silently re-open a closed finding.
     """
 
-    @kuzu_reopen_unsupported_on_windows
     def test_f1_inspire_remerge_preserves_doi_when_response_drops_field(
         self, populated_db: Path
     ):
@@ -646,11 +714,17 @@ class TestE09S02RectificationGuards:
             arxiv_categories=("hep-th",),
         )
         db = kuzu.Database(str(populated_db))
+        conn = None
         try:
             conn = kuzu.Connection(db)
             inspire_ingest._merge_paper_inspire(conn, P_HEP_TH, first)
         finally:
-            del db
+            # nested: db.close() must run even if conn.close() raises
+            try:
+                if conn is not None:
+                    conn.close()
+            finally:
+                db.close()
 
         # Now re-MERGE with NULL values — simulates a transient API
         # regression returning an incomplete record.
@@ -662,6 +736,7 @@ class TestE09S02RectificationGuards:
             arxiv_categories=("hep-th",),
         )
         db = kuzu.Database(str(populated_db))
+        conn = None
         try:
             conn = kuzu.Connection(db)
             inspire_ingest._merge_paper_inspire(conn, P_HEP_TH, second)
@@ -672,7 +747,12 @@ class TestE09S02RectificationGuards:
             )
             row = r.get_next()
         finally:
-            del db
+            # nested: db.close() must run even if conn.close() raises
+            try:
+                if conn is not None:
+                    conn.close()
+            finally:
+                db.close()
         assert row[0] == "10.1234/CANONICAL", (
             "F1 regression: doi clobbered to NULL by a re-MERGE"
         )
@@ -695,6 +775,7 @@ class TestE09S02RectificationGuards:
             arxiv_categories=("hep-th",),
         )
         db = kuzu.Database(str(populated_db))
+        conn = None
         try:
             conn = kuzu.Connection(db)
             inspire_ingest._merge_paper_inspire(conn, P_HEP_TH, first)
@@ -713,11 +794,15 @@ class TestE09S02RectificationGuards:
             )
             row = r.get_next()
         finally:
-            del db
+            # nested: db.close() must run even if conn.close() raises
+            try:
+                if conn is not None:
+                    conn.close()
+            finally:
+                db.close()
         assert row[0] == "10.1234/UPDATED"
         assert row[1] == "JHEP (2024)"
 
-    @kuzu_reopen_unsupported_on_windows
     def test_f2_enrich_accepts_old_style_hep_th_id(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -731,6 +816,7 @@ class TestE09S02RectificationGuards:
         old_style_id = "hep-th/9711200"
         # Pre-create the node so the citation pass has a target.
         db = kuzu.Database(str(populated_db))
+        conn = None
         try:
             conn = kuzu.Connection(db)
             conn.execute(
@@ -738,7 +824,12 @@ class TestE09S02RectificationGuards:
                 {"id": old_style_id},
             )
         finally:
-            del db
+            # nested: db.close() must run even if conn.close() raises
+            try:
+                if conn is not None:
+                    conn.close()
+            finally:
+                db.close()
 
         def _stub(arxiv_id: str, contact_email: str) -> dict[str, Any] | None:
             return _record(
@@ -760,6 +851,7 @@ class TestE09S02RectificationGuards:
         )
         # Verify the paper was actually enriched.
         db = kuzu.Database(str(populated_db))
+        conn = None
         try:
             conn = kuzu.Connection(db)
             r = conn.execute(
@@ -768,7 +860,12 @@ class TestE09S02RectificationGuards:
             )
             row = r.get_next()
         finally:
-            del db
+            # nested: db.close() must run even if conn.close() raises
+            try:
+                if conn is not None:
+                    conn.close()
+            finally:
+                db.close()
         assert row[0] == "99999"
 
     def test_f2_validator_rejects_truly_invalid_ids(self):
@@ -821,6 +918,7 @@ class TestE09S02RectificationGuards:
         # The edge a -> b must be present even though both nodes were
         # newly created during this run.
         db = kuzu.Database(str(db_path))
+        conn = None
         try:
             conn = kuzu.Connection(db)
             r = conn.execute(
@@ -832,7 +930,12 @@ class TestE09S02RectificationGuards:
                 "F4 regression: edge to a Pass-1-created node was dropped"
             )
         finally:
-            del db
+            # nested: db.close() must run even if conn.close() raises
+            try:
+                if conn is not None:
+                    conn.close()
+            finally:
+                db.close()
 
     def test_f5_fetch_inspire_record_validates_paper_id(self):
         """F5: ``_fetch_inspire_record`` validates ``arxiv_id`` before
@@ -843,7 +946,6 @@ class TestE09S02RectificationGuards:
                 "../../etc/passwd", "test@example.com"
             )
 
-    @kuzu_reopen_unsupported_on_windows
     def test_f6_failure_run_flushes_checkpoint_at_batch_size(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -865,6 +967,7 @@ class TestE09S02RectificationGuards:
         ids = ["2401.30001", "2401.30002", "2401.30003", "2401.30004"]
         # Pre-create nodes to satisfy in_corpus.
         db = kuzu.Database(str(db_path))
+        conn = None
         try:
             conn = kuzu.Connection(db)
             for i in ids:
@@ -872,7 +975,12 @@ class TestE09S02RectificationGuards:
                     "MERGE (p:papers {paper_id: $id})", {"id": i}
                 )
         finally:
-            del db
+            # nested: db.close() must run even if conn.close() raises
+            try:
+                if conn is not None:
+                    conn.close()
+            finally:
+                db.close()
 
         inspire_ingest.enrich(
             paper_ids=ids,
@@ -888,7 +996,6 @@ class TestE09S02RectificationGuards:
         failed_ids = {entry["arxiv_id"] for entry in payload["fetch_failures"]}
         assert failed_ids == set(ids)
 
-    @kuzu_reopen_unsupported_on_windows
     def test_f8_arxiv_categories_filter_anchor_for_post_f9(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -909,6 +1016,7 @@ class TestE09S02RectificationGuards:
         hep_id = "2401.40001"
         ag_id = "2401.40002"
         db = kuzu.Database(str(db_path))
+        conn = None
         try:
             conn = kuzu.Connection(db)
             conn.execute(
@@ -920,7 +1028,12 @@ class TestE09S02RectificationGuards:
                 {"id": ag_id},
             )
         finally:
-            del db
+            # nested: db.close() must run even if conn.close() raises
+            try:
+                if conn is not None:
+                    conn.close()
+            finally:
+                db.close()
 
         def _stub(arxiv_id: str, contact_email: str) -> dict[str, Any] | None:
             corpus = {
@@ -950,6 +1063,7 @@ class TestE09S02RectificationGuards:
         # The hep-th paper IS enriched; the math.AG paper IS NOT
         # (post-fetch physics gate filters it out).
         db = kuzu.Database(str(db_path))
+        conn = None
         try:
             conn = kuzu.Connection(db)
             r = conn.execute(
@@ -963,7 +1077,12 @@ class TestE09S02RectificationGuards:
             )
             assert r.get_next()[0] is None
         finally:
-            del db
+            # nested: db.close() must run even if conn.close() raises
+            try:
+                if conn is not None:
+                    conn.close()
+            finally:
+                db.close()
 
 
 class TestFFindingInheritance:
@@ -977,7 +1096,6 @@ class TestFFindingInheritance:
         assert inspire_ingest.INSPIRE_MAX_RESPONSE_BYTES <= 16 * 1024 * 1024
         assert inspire_ingest.INSPIRE_MAX_RESPONSE_BYTES < ARXIV_CAP
 
-    @kuzu_reopen_unsupported_on_windows
     def test_f3_fetch_failure_tracked_and_retried(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -1154,13 +1272,19 @@ class TestResume:
         assert len(stub_fetcher) == before
 
         db = kuzu.Database(str(populated_db))
+        conn = None
         try:
             conn = kuzu.Connection(db)
             edges = conn.execute(
                 "MATCH ()-[r:cites {source: 'inspire'}]->() RETURN COUNT(*)"
             ).get_next()[0]
         finally:
-            del db
+            # nested: db.close() must run even if conn.close() raises
+            try:
+                if conn is not None:
+                    conn.close()
+            finally:
+                db.close()
         assert edges == 2
 
     def test_checkpoint_atomic_write_no_tmp_left_behind(

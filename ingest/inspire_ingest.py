@@ -577,6 +577,7 @@ def enrich(
 
     apply_schema(db_path)
     db = kuzu.Database(str(db_path))
+    conn = None
     try:
         conn = kuzu.Connection(db)
         state = load_checkpoint(checkpoint_path)
@@ -716,7 +717,13 @@ def enrich(
         save_checkpoint(checkpoint_path, state)
         return state
     finally:
-        del db
+        # Explicit close releases kuzu's file lock deterministically (conn
+        # before db, nested so db.close() runs even if conn.close() raises).
+        try:
+            if conn is not None:
+                conn.close()
+        finally:
+            db.close()
 
 
 # ---------------------------------------------------------------------------
@@ -814,11 +821,18 @@ def main(argv: list[str] | None = None) -> int:
             return 2
     else:
         db = kuzu.Database(str(args.kuzudb))
+        conn = None
         try:
             conn = kuzu.Connection(db)
             paper_ids = sorted(_existing_paper_ids(conn))
         finally:
-            del db
+            # Explicit close releases kuzu's file lock deterministically (conn
+            # before db, nested so db.close() runs even if conn.close() raises).
+            try:
+                if conn is not None:
+                    conn.close()
+            finally:
+                db.close()
         if not paper_ids:
             sys.stderr.write(
                 "ERROR: no `papers` nodes found in the graph. Run the "

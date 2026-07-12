@@ -554,6 +554,7 @@ def ingest(
 
     apply_schema(db_path)
     db = kuzu.Database(str(db_path))
+    conn = None
     try:
         conn = kuzu.Connection(db)
         state = load_checkpoint(checkpoint_path)
@@ -665,7 +666,13 @@ def ingest(
         save_checkpoint(checkpoint_path, state)
         return state
     finally:
-        del db
+        # Explicit close releases kuzu's file lock deterministically (conn
+        # before db, nested so db.close() runs even if conn.close() raises).
+        try:
+            if conn is not None:
+                conn.close()
+        finally:
+            db.close()
 
 
 def _serialize_failures(failures: dict[str, str]) -> list[dict[str, str]]:

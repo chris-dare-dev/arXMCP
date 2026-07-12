@@ -15,34 +15,12 @@ tests are working as-is).
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 from typing import Any
 
 import kuzu
-import pytest
 
 from ingest import graph_ingest, kuzudb_schema
-
-#: Skip marker for tests that CLOSE and RE-OPEN a Kùzu database on the
-#: same path within one process. kuzu 0.11.3 takes a mandatory file
-#: lock on Windows that the codebase's ``del db`` teardown does not
-#: release while a live ``kuzu.Connection`` still references the
-#: ``Database`` — the re-open then raises "Could not set lock on file"
-#: (verified live: only ``conn.close(); db.close()`` or ``del conn, db``
-#: releases it). POSIX advisory locks tolerate the overlap, so the tests
-#: run there and stay the authority. Fixing this for real means moving
-#: the production ingest lifecycle (ingest/kuzudb_schema.py,
-#: graph_ingest.py, inspire_ingest.py) off ``del db`` to explicit closes
-#: — deferred to its own milestone so the POSIX path can be re-verified.
-kuzu_reopen_unsupported_on_windows = pytest.mark.skipif(
-    sys.platform == "win32",
-    reason=(
-        "kuzu 0.11.3 mandatory file lock on Windows blocks re-opening a "
-        "DB path while the prior handle is held; the `del db` lifecycle "
-        "does not release it (production close-discipline follow-up)."
-    ),
-)
 
 
 def build_synthetic_kuzu_graph(
@@ -97,6 +75,7 @@ def build_synthetic_kuzu_graph(
 
     kuzudb_schema.apply_schema(db_path)
     db = kuzu.Database(str(db_path))
+    conn = None
     try:
         conn = kuzu.Connection(db)
         for paper_id in paper_ids:
@@ -119,7 +98,13 @@ def build_synthetic_kuzu_graph(
                     confidence=1.0,
                 )
     finally:
-        del db
+        # Explicit close releases kuzu's file lock deterministically (conn
+        # before db, nested so db.close() runs even if conn.close() raises).
+        try:
+            if conn is not None:
+                conn.close()
+        finally:
+            db.close()
     return paper_ids
 
 

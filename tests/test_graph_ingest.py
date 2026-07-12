@@ -17,7 +17,6 @@ import kuzu
 import pytest
 
 from ingest import graph_ingest, kuzudb_schema
-from tests._graph_helpers import kuzu_reopen_unsupported_on_windows
 
 # ---------------------------------------------------------------------------
 # Fixtures: 5-paper corpus per the brief deliverable list
@@ -145,6 +144,7 @@ class TestSchemaMigration:
     def test_creates_papers_and_cites_tables(self, db_path: Path):
         kuzudb_schema.apply_schema(db_path)
         db = kuzu.Database(str(db_path))
+        conn = None
         try:
             conn = kuzu.Connection(db)
             r = conn.execute("CALL show_tables() RETURN name, type")
@@ -153,7 +153,12 @@ class TestSchemaMigration:
                 row = r.get_next()
                 tables[row[0]] = row[1]
         finally:
-            del db
+            # nested: db.close() must run even if conn.close() raises
+            try:
+                if conn is not None:
+                    conn.close()
+            finally:
+                db.close()
         assert tables.get("papers") == "NODE"
         assert tables.get("cites") == "REL"
 
@@ -170,6 +175,7 @@ class TestSchemaMigration:
         kuzudb_schema.apply_schema(db_path)
         kuzudb_schema.apply_schema(db_path)
         db = kuzu.Database(str(db_path))
+        conn = None
         try:
             conn = kuzu.Connection(db)
             r = conn.execute("CALL show_tables() RETURN name")
@@ -181,7 +187,12 @@ class TestSchemaMigration:
             r2 = conn.execute("MATCH (m:_schema_meta) RETURN COUNT(*)")
             assert r2.get_next()[0] == 1
         finally:
-            del db
+            # nested: db.close() must run even if conn.close() raises
+            try:
+                if conn is not None:
+                    conn.close()
+            finally:
+                db.close()
 
     def test_creates_parent_directory(self, tmp_path: Path):
         """F10 fix from the E09_S01 critique: the assertion was previously
@@ -234,6 +245,7 @@ class TestIngestHappyPath:
         )
 
         db = kuzu.Database(str(db_path))
+        conn = None
         try:
             conn = kuzu.Connection(db)
             r = conn.execute("MATCH (p:papers) RETURN p.paper_id ORDER BY p.paper_id")
@@ -241,7 +253,12 @@ class TestIngestHappyPath:
             while r.has_next():
                 paper_ids.append(r.get_next()[0])
         finally:
-            del db
+            # nested: db.close() must run even if conn.close() raises
+            try:
+                if conn is not None:
+                    conn.close()
+            finally:
+                db.close()
         assert paper_ids == sorted(CORPUS_IDS)
 
     def test_in_corpus_edges_only(
@@ -260,6 +277,7 @@ class TestIngestHappyPath:
         )
 
         db = kuzu.Database(str(db_path))
+        conn = None
         try:
             conn = kuzu.Connection(db)
             r = conn.execute(
@@ -271,7 +289,12 @@ class TestIngestHappyPath:
             while r.has_next():
                 edges.append(tuple(r.get_next()))
         finally:
-            del db
+            # nested: db.close() must run even if conn.close() raises
+            try:
+                if conn is not None:
+                    conn.close()
+            finally:
+                db.close()
 
         # Expected: P1→P2, P1→P3, P3→P5, P5→P1 (cycle via P5).
         # External work cited by P1 must NOT appear (not in corpus).
@@ -301,6 +324,7 @@ class TestIngestHappyPath:
         )
 
         db = kuzu.Database(str(db_path))
+        conn = None
         try:
             conn = kuzu.Connection(db)
             r = conn.execute(
@@ -319,7 +343,12 @@ class TestIngestHappyPath:
             )
             assert r2.get_next()[0] == 0
         finally:
-            del db
+            # nested: db.close() must run even if conn.close() raises
+            try:
+                if conn is not None:
+                    conn.close()
+            finally:
+                db.close()
 
     def test_metadata_populated_from_openalex(
         self,
@@ -335,6 +364,7 @@ class TestIngestHappyPath:
             sleep_seconds=0,
         )
         db = kuzu.Database(str(db_path))
+        conn = None
         try:
             conn = kuzu.Connection(db)
             r = conn.execute(
@@ -344,7 +374,12 @@ class TestIngestHappyPath:
             )
             row = r.get_next()
         finally:
-            del db
+            # nested: db.close() must run even if conn.close() raises
+            try:
+                if conn is not None:
+                    conn.close()
+            finally:
+                db.close()
         title, authors, year, abstract, oa_work_id = row
         assert title == "Paper One"
         assert authors == "Alice Adams, Bob Brown"
@@ -386,6 +421,7 @@ class TestResume:
         assert len(stub_fetcher) == before_calls
 
         db = kuzu.Database(str(db_path))
+        conn = None
         try:
             conn = kuzu.Connection(db)
             paper_count = conn.execute(
@@ -395,7 +431,12 @@ class TestResume:
                 "MATCH ()-[r:cites]->() RETURN COUNT(*)"
             ).get_next()[0]
         finally:
-            del db
+            # nested: db.close() must run even if conn.close() raises
+            try:
+                if conn is not None:
+                    conn.close()
+            finally:
+                db.close()
         assert paper_count == len(CORPUS_IDS)
         assert edge_count == 4
 
@@ -762,7 +803,6 @@ class TestRectificationGuards:
 
         assert graph_ingest.OPENALEX_MAX_RESPONSE_BYTES < ARXIV_CAP
 
-    @kuzu_reopen_unsupported_on_windows
     def test_f3_fetch_failure_tracked_and_retried_on_resume(
         self,
         monkeypatch: pytest.MonkeyPatch,

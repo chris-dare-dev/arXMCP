@@ -113,6 +113,7 @@ def apply_schema(db_path: Path) -> None:
     """
     db_path.parent.mkdir(parents=True, exist_ok=True)
     db = kuzu.Database(str(db_path))
+    conn = None
     try:
         conn = kuzu.Connection(db)
         for statement in SCHEMA_STATEMENTS:
@@ -138,11 +139,19 @@ def apply_schema(db_path: Path) -> None:
             {"key": "version", "value": KUZU_SCHEMA_VERSION},
         )
     finally:
-        # kuzu.Database closes implicitly when the Python object is GC'd;
-        # explicitly drop the local reference so the close runs deterministically
-        # (matters on Windows where the open file handle blocks parent rmtree
-        # in pytest tmp_path teardown).
-        del db
+        # kuzu 0.11.3 takes a mandatory file lock that merely dropping the
+        # Python reference does NOT release: a live `kuzu.Connection` holds a
+        # strong reference to its `Database`, so the native handle survives
+        # until GC — and on Windows GC is not prompt enough, which blocks a
+        # same-process reopen of the DB path (and the pytest tmp_path rmtree).
+        # Close explicitly, connection before database (kuzu's documented
+        # order), nested so `db.close()` still runs even if `conn.close()`
+        # raises.
+        try:
+            if conn is not None:
+                conn.close()
+        finally:
+            db.close()
 
 
 def _introspect_columns(conn: kuzu.Connection, table_name: str) -> set[str]:
@@ -170,6 +179,7 @@ def read_schema_version(db_path: Path) -> int | None:
     if not db_path.exists():
         return None
     db = kuzu.Database(str(db_path))
+    conn = None
     try:
         conn = kuzu.Connection(db)
         result = conn.execute(
@@ -180,7 +190,13 @@ def read_schema_version(db_path: Path) -> int | None:
             return None
         return int(result.get_next()[0])
     finally:
-        del db
+        # Explicit close releases kuzu's file lock deterministically (conn
+        # before db, nested so db.close() runs even if conn.close() raises).
+        try:
+            if conn is not None:
+                conn.close()
+        finally:
+            db.close()
 
 
 def main() -> int:
