@@ -272,6 +272,35 @@ redistributed, never promoted to served evidence without a recorded
 per-source license check (ADR Decision 4; adapter mechanics are the
 R7 track's).
 
+### 4.9 Trust language and evidence ledger (binding)
+
+Trust is multi-axis; abstention is a success; novelty claims are dated censuses.
+Constitution: [`trust-language-policy.md`](.claude/docs/trust-language-policy.md) and
+[`evidence-ledger-standard.md`](.claude/docs/evidence-ledger-standard.md)
+(data-plane-governance-m3, Accepted 2026-07-12). Scope: rule 1 binds the MCP tool surface;
+rule 3 binds every arXMCP planning/analysis document. These bind every agent session:
+
+1. **No bare "verified".** No tool response carries a single "verified"-style status that
+   collapses distinct trust questions into one token (the live case: `lean_verify`
+   `status:"ok"` ⇔ no-errors ∧ no-sorry, which a bare `axiom h : False` passes —
+   `server/handlers/lean_verify.py:290-298`). Trust is a multi-axis record (an ordinal level
+   + attached evidence per axis); **no axis is inferred from another** — fidelity is never
+   inferred from elaboration. New trust-bearing fields are namespaced and axis-specific, never
+   a new bare `status`.
+2. **Abstention is a first-class, tested success state.** Every tool must be able to return the
+   epistemic outcomes `unknown` / `ambiguous` / `not-in-corpus` / `unsupported-by-provider`,
+   kept **distinct** from operational status (`timeout` / `unavailable` / `disabled` /
+   `invalid-input`) and from a partial result (answered, one axis low — e.g. `get_paper`'s
+   `metadata_status="synthesized_from_chunks"`). A degraded-but-answered result is not
+   abstention; "no answer" and "weaker answer" never share a token.
+3. **Novelty claims are dated, scoped censuses.** No categorical "no system does X" in any
+   arXMCP document; every external absence claim carries a census (named set + queries run +
+   date + verdict) per the evidence-ledger standard. Internal codebase facts are cited at
+   `file:line` instead; positive prior-art gets only a freshness date.
+
+Enforcement is by-reference discipline (no CI linter or schema validator this track); the
+consuming tracks (R3 Lean surface, R5 registry) implement and gate on the policy.
+
 ---
 
 ## 5. Directory layout — what lives where
