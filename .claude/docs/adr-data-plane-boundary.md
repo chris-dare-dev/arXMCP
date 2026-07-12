@@ -85,10 +85,13 @@ would be self-contradictory.
 consuming arXMCP as a local path/git dependency.
 
 - Why: the repo boundary is the only enforcement mechanism that requires no new tooling
-  (R0 explicitly defers enforcement tooling); the `anthropic` SDK never enters arXMCP's
-  dependency tree, wheel, or container; the existing server-scoped SDK-ban test stays
-  sufficient as-is. This matches the adjudicated gap-analysis recommendation and the
-  briefs-README standing policy ("agents, run memory, and model policy live outside").
+  (R0 scopes this track to documents + git state, deferring enforcement tooling); the
+  `anthropic` SDK never enters arXMCP's dependency tree, wheel, or container; the
+  existing server-scoped SDK-ban test stays sufficient as-is. This matches the
+  adjudicated gap-analysis recommendation and R0's framing — "agents, run memory, and
+  model policy live outside" (`R0-data-plane-governance.md:16`), restated as
+  briefs-README standing policy 1. Per Decision 3, the "model policy" that lives outside
+  is dispatch-time policy; the inert `model_selector` lookup table stays in-repo.
 - **Option B — a carve-out under `tools/orchestrator_loop/` — was considered and
   rejected** because the research falsified its central premise: `tools/` is imported by
   the server at runtime and ships in the wheel, so "client-side under tools/" reduces to

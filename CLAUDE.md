@@ -141,9 +141,10 @@ change touches more than ~3 files or adds new tests, run the pipeline.
      bookkeeping
 - **GPG signing is enabled** (`commit.gpgsign=true`). **Never**
   `--no-gpg-sign`.
-- **Co-author trailer is mandatory** on every commit:
+- **Co-author trailer naming the actual authoring model is mandatory** on
+  every commit:
   ```
-  Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+  Co-Authored-By: <authoring Claude model> <noreply@anthropic.com>
   ```
 - **Pre-commit hooks are honored.** **Never** `--no-verify`. If a hook
   fails, fix the underlying issue and create a NEW commit (don't `--amend`
@@ -155,7 +156,7 @@ change touches more than ~3 files or adds new tests, run the pipeline.
 
   Body text with 'apostrophes', "quotes", and $vars all survive.
 
-  Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+  Co-Authored-By: <authoring Claude model> <noreply@anthropic.com>
   COMMIT_EOF
   ```
 
@@ -241,16 +242,18 @@ change touches more than ~3 files or adds new tests, run the pipeline.
 
 arXMCP is a read-only proof-discovery data plane. Constitution:
 [`adr-data-plane-boundary.md`](.claude/docs/adr-data-plane-boundary.md)
-(data-plane-governance-m1, Accepted 2026-07-12). Scope: the served process and
-the `server/` package. These bind every agent session in this repo:
+(data-plane-governance-m1, Accepted 2026-07-12). Scope: the served process,
+the `server/` package, and the shipped distribution. These bind every agent
+session in this repo:
 
 1. **The server never runs agents.** No agent dispatch, no agent loop, no
    per-run agent memory (run state, transcripts, model conversation state)
    server-side. The `anthropic` SDK stays out of `server/` imports and out of
    `pyproject.toml` runtime deps (§4.7's SDK ban is one mechanism of this
-   rule; guard test: `tests/test_langfuse_doc.py`). Observability labeling of
-   a *calling* agent's role and per-session budget counters are not agent
-   memory.
+   rule; guard test for the import half: `tests/test_langfuse_doc.py` — the
+   pyproject half is convention-only, enforcement tooling deferred per the
+   ADR). Observability labeling of a *calling* agent's role and per-session
+   budget counters are not agent memory.
 2. **Writes enter only via offline ingest CLIs or operator-gated `/ui/`
    console actions.** The MCP tool surface stays read-only over corpus state
    (`lean_verify` computes; it never persists corpus-visible state).
@@ -262,7 +265,7 @@ the `server/` package. These bind every agent session in this repo:
    under this repo. No `server/` module imports the loop; the loop holds no
    state the server reads. `server/orchestrator/` stays in place as an
    SDK-free policy/canonicalization library (its real consumer set — including
-   the `spend_constants.py:51` runtime import — is recorded in the ADR).
+   the `spend_constants.py` runtime import — is recorded in the ADR).
 
 Non-commercially-licensed external data enters only a candidate layer — never
 redistributed, never promoted to served evidence without a recorded
@@ -401,7 +404,7 @@ These all work TODAY (no stubs):
   NO SPA / Node build chain. NOT yet security-audited (E13 scoped it out;
   tracked at `chris-dare-dev/arXMCP#9`). See `06-mcp-server-design.md`
   § "Browser UI surface".
-- **`tools/list`** returns 7 frozen tool meta records (byte-stable for BP1
+- **`tools/list`** returns 8 frozen tool meta records (byte-stable for BP1
   cache discipline).
 - **`search_papers`, `get_chunk`, `find_equation`, `get_definitions`,
   `find_lemma_by_name`, `get_paper`** — all fully wired handlers.
