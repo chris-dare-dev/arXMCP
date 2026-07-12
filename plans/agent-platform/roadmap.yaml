@@ -1,0 +1,477 @@
+schema: roadmap/1
+slug: agent-platform
+project: arxmcp
+title: "Agent Platform & Protocol — truthful MCP surface, sane budgets, real traffic"
+status: active
+phase: complete          # init -> refined -> decomposed -> sequenced -> complete
+brief: |
+  arXMCP is agent-first infrastructure, but its MCP contract currently lies and its budgets punish the wrong users: frozen tool descriptions promise a cancelled hybrid path and dead resource links, advertised arguments are inert, and 3-search / 4-get_chunk lifetime session caps break every interactive session while providing zero security (the rotate-id bypass is admitted in code). This initiative makes the surface honest, efficient, budget-sane, and spec-current. Re-base session caps as cost-control capability profiles on the built capabilities layer; correct tool descriptions and add input examples in batched tool-schema re-pin windows; add batch chunk fetch and semantic identifiers; register the resource URIs the server already emits; publish a corpus-manifest resource for plan-time discovery; plan and execute the MCP 2026-07-28 stateless-spec migration that deletes the session identity caps and tracing key on; and scope the minimal orchestrator dispatch loop that makes real agent traffic exist at all. This roadmap OWNS the batched tool-schema re-pin window (W1) that other tracks' schema changes ride, and must redesign the caps jointly with the stateless migration so caps are re-keyed once. Do not add OAuth on loopback, dynamic/deferred toolsets, elicitation/sampling, per-index tool splits, a corpus_stats tool, or session-cap id-binding.
+horizon: { start: 2026-07-07, end: 2026-09-18 }
+goal:
+  hmw: "How might we make arXMCP's MCP surface (tool descriptions, budgets, resources, protocol) truthful and spec-current so that Claude agent sessions -- the owner's interactive sessions today, and the sketcher-to-fixer pipeline this roadmap seeds with its first real traffic -- can complete multi-step retrieval tasks without hitting artificial caps or acting on false tool promises?"
+  objective: "Ship a truthful, budget-sane, spec-current MCP tool and resource surface for arXMCP, plus the minimal orchestrator loop that puts real agent traffic through it for the first time."
+  key_results:
+    - "A single interactive session completes at least 30 search_papers calls and 100 get_chunk calls with zero RETRIEVAL_CAP_REACHED rejections (today's lifetime ceiling is 3 and 4, with a documented rotate-id bypass that provides no real security)"
+    - "Zero tool descriptions in tools/list assert functionality that is unshipped, cancelled, or reserved-but-inert, confirmed by a description-vs-handler truth audit run at every batched schema re-pin"
+    - "get_chunk resolves a batch of at least 20 chunk ids in one call, collapsing the search-then-fetch loop from N+1 round-trips to 2"
+    - "Every arxmcp://chunks/<id> URI the server emits resolves via resources/read, and an agent can read one arxmcp://corpus resource to learn per-index presence (graph, equations, FTS5, metadata, lean) instead of discovering it by spending capped tool calls"
+    - "search_papers and cite_neighbors rows carry a human-readable paper title, not a bare arXiv id, whenever the metadata store has one hydrated"
+    - "At least one full sketcher-to-fixer pipeline session is recorded end to end by a new minimal orchestrator loop -- arXMCP's first real agent traffic, consumable by the evidence-engine track's agent-behavior eval"
+    - "The MCP 2026-07-28 coupling inventory names a working, non-session-keyed replacement for all five identified couplings (session caps, tracing, instructions delivery, the SDK pin, byte-stability pins), reviewed and ready to execute the moment Python SDK v2 reaches stable"
+  assumptions:
+    - tier: must
+      text: "A minimal orchestrator dispatch loop that drives one real sketcher-to-fixer pipeline session -- client-side, outside server/, no anthropic SDK at runtime per CLAUDE.md 4.7/4.8 -- is buildable in the external orchestrator repository the boundary ADR mandates (adr-data-plane-boundary.md Decision 2, Option A; repo name/path deferred to data-plane-governance-m2), coordinated by but not contained in this roadmap, without first requiring the Stage-2 worktree merge or a working Lean toolchain"
+      validation: "An early milestone spikes a thin client-side loop (router -> role-prefixed turns -> the already-shipped server/orchestrator/model_selector.py policy -> tool calls over the existing shim) against one canned task end-to-end; if it cannot be produced in-scope, this roadmap formally re-dates every trace-gated trigger it would otherwise unblock (D7-R13's agent-task eval, D9-R09, empirical cap-sizing) rather than silently dropping the deliverable"
+    - tier: should
+      text: "The Stage-2 worktree's capabilities.py per-tool per-session cap-override layer (unmerged, on _worktrees/arx-onmain) merges within this roadmap's horizon and behaves as the gap-analysis chapters describe -- per-session per-tool overrides superseding the hardcoded 3/4 constants, with a legacy-constant fallback -- so D7-R04 is an adopt-and-tune job, not a from-scratch build"
+      validation: "D7-R04's milestone opens with a read-only spike against capabilities.py (worktree, or main if merged by then) confirming the override shape before the milestone is sized; if the merge is still undated at sequencing time, D4-R07's env-configurable interim caps ship alone and D7-R04 moves to a later horizon"
+    - tier: should
+      text: "The seven changes this roadmap batches into the W1 re-pin window (truthful descriptions, input examples, inert-arg cleanup, batch chunk fetch, semantic identifiers, compact wire format, ToolAnnotations) land as one TOOL_SCHEMA_VERSION bump without breaking a live MCP client -- including that adding ToolAnnotations alongside an input-schema change does not trip the wire-shape rejection a real client showed for outputSchema+annotations together"
+      validation: "Before declaring W1 done, run the batch against a live Claude Code session, not just the EXPECTED_TOOL_SCHEMA_SHA256/EXPECTED_BP1_SHA256 hash tests, and confirm all 8 tools still register; a rejection splits the bump into two re-pins instead of shipping a broken client experience"
+    - tier: should
+      text: "The MCP 2026-07-28 spec finalizes close enough to the 2026-05-21 RC (session removal, server/discover, mandatory Mcp-Method/Mcp-Name) and Python SDK v2 reaches stable near its announced target that a migration plan authored now still applies at execution time"
+      validation: "The migration milestone re-checks the published spec and SDK release notes immediately before execution starts, not at planning time; if the final spec or SDK slips or reshapes, only the execution milestone re-plans -- the coupling inventory and cap re-key design this roadmap actually delivers stay valid regardless"
+    - tier: should
+      text: "Provisional per-session cap defaults in the region of 30 search_papers and 100 get_chunk calls, keeping the existing 1000/hr anti-runaway ceiling, are close enough to what the pipeline and the owner's interactive sessions actually need that shipping them now beats waiting on a sibling track's telemetry"
+      validation: "This roadmap's own orchestrator loop, once it exists, generates synthetic multi-step task traces that the caps milestone's acceptance test reads to confirm the defaults hold headroom before being declared done; numbers move on evidence, matching the repo's own measure-first culture"
+    - tier: might
+      text: "Emitting a resolvable arxmcp://chunks/<id> ResourceLink on every search row is safe for the MCP clients this project targets -- none of them auto-download every result link into model context the way some clients are documented to"
+      validation: "The resource-registration milestone makes the emit-vs-truncate-only decision deliberately rather than defaulting to always-on; revisit if a client in active use exhibits auto-fetch behavior"
+    - tier: might
+      text: "ToolAnnotations (readOnlyHint, idempotentHint, openWorldHint) produce observable client-side value for the clients this project actually uses, rather than being silently ignored"
+      validation: "None required -- the change is a single-arg registration add already inside the scoped W1 re-pin; harmless if ignored"
+  wont:
+    - "No OAuth or auth hardening on loopback (D7-X01) -- loopback + Origin-403 is the spec-compliant posture for a non-internet server; the existing --token-env bearer channel already covers multi-profile needs"
+    - "No dynamic/deferred tool loading or Tool Search (D7-X02) -- 8 tools at roughly 3K tokens sits far below the ~10-tool/10K-token threshold where deferred loading pays off"
+    - "No elicitation or sampling primitives (D7-X03) -- client support is weak and sampling is deprecated in the 2026-07-28 RC"
+    - "No splitting search_papers into per-index tools and no exposing BM25/rerank knobs directly (D7-X04) -- the server owns fusion, the agent owns search-space knobs"
+    - "No 9th corpus_stats tool (D7-X06) -- that surface is the arxmcp://corpus resource, not a tool"
+    - "No session-cap id-binding (D8-R12) -- it protects no confidentiality boundary and does not close its own rotate-id bypass; caps in this roadmap are budget discipline, not security"
+    - "No outputSchema advertisement (D7-R02, weakened) -- a live client has dropped all tools from a server sending outputSchema+annotations in a disliked wire shape; revisit post-RC when the SDK lifts outputSchema to full JSON Schema 2020-12"
+    - "No retrieval-algorithm, ranking, or corpus-content changes -- hybrid reopen, reranker re-qualification, embedder swap, the proof-column default flip, Stacks Project ingest, citation-context hydration -- that is the retrieval-unlocks track's territory; this roadmap only touches the tool/resource/protocol surface"
+    - "No eval-fixture curation or agent-behavior grading, no browser/UI search surface, and no PyPI/registry timing decisions -- those belong to the evidence-engine, researcher-workbench, and trustworthy-release tracks respectively; this roadmap supplies the traffic (the orchestrator loop) and the spec-currency precondition (the MCP migration plan) those tracks consume"
+  evidence:
+    - "C:/Users/cedar/Documents/Personal Projects/Source Code/_pipeline/gap-analysis-2026-07/chapters/D7.md -- primary chapter for this track; 15/15 recommendations kept or weakened by adversarial review, 0 killed"
+    - "C:/Users/cedar/Documents/Personal Projects/Source Code/_pipeline/gap-analysis-2026-07/chapters/D4.md -- D4-R07 interactive-use session budget profile"
+    - "C:/Users/cedar/Documents/Personal Projects/Source Code/_pipeline/gap-analysis-2026-07/chapters/D2.md -- D2-R04 resource registration, D2-R02 pipeline memory, D2-R14 agent-initiated growth CLI"
+    - "C:/Users/cedar/Documents/Personal Projects/Source Code/_pipeline/gap-analysis-2026-07/chapters/D6.md -- D6-R11 the MCP 2026-07-28 stateless-spec migration"
+    - "C:/Users/cedar/Documents/Personal Projects/Source Code/_pipeline/gap-analysis-2026-07/chapters/D1.md -- D1-R14 compact wire format"
+    - "C:/Users/cedar/Documents/Personal Projects/Source Code/_pipeline/gap-analysis-2026-07/synthesis/cross-synthesis.md section 4 S3 (Agent Platform & Protocol) -- this track's own seed, ordering, and sequencing constraints; section 2.4 CG1 -- the unowned orchestrator-loop gap; section 3 -- canonical-id merge table"
+    - "server/session.py:54,60 -- MAX_SEARCH_PAPERS_CALLS=3, MAX_GET_CHUNK_CALLS=4 lifetime caps, verified live in this repo"
+    - "server/tools.py:209-216 -- search_papers description promising the cancelled E07 hybrid path, verified live"
+    - "server/observability/tracing.py:118,368 -- Mcp-Session-Id plumbed into the mcp.session_id span attribute, the tracing key the 2026-07-28 RC migration deletes"
+    - "server/orchestrator/model_selector.py -- model-selection policy shipped in E08_S05, imported at server startup via server/observability/spend_constants.py:51 for the MODEL_HAIKU_4_5 metric label (adr-data-plane-boundary.md Decision 3); no runtime dispatch loop exists on either tree"
+    - "plans/paper-metadata/roadmap.yaml -- phase: complete; the metadata-store pattern this roadmap's semantic-identifiers work reads from"
+    - "CLAUDE.md sections 2, 4.7, 12 -- the sketcher-to-fixer mission, the no-anthropic-SDK-at-runtime / server-is-a-tool-provider constraint, and the owner's own interactive Claude Code usage pattern"
+    - ".claude/roadmap/README.md:20,173-178 -- E08 Agent Runtime + Caching marked SHIPPED, including E08_S04 (the caps this roadmap re-bases) and E08_S05 (the model-selection policy the orchestrator loop must finally dispatch)"
+generated_by: { agent: claude-sonnet-5, at: "2026-07-07" }
+generations:
+  - { rev: 1, at: "2026-07-07" }
+retired: []          # tombstoned item ids; ids are write-once, never deleted
+items:
+  - id: agent-platform-e1
+    kind: epic
+    title: "Budget relief: caps that don't punish interactive use"
+    summary: "Make the 3-search/4-get_chunk lifetime session caps env-configurable with a task-realistic interactive default now, on main, independent of any merge (D4-R07). Post worktree-merge, adopt the already-built capability-profile layer's per-session defaults and delete the legacy constants plus their fallback (D7-R04). Caps become documented cost-control, never security -- the rotate-id bypass stays admitted, not patched."
+    priority: must
+    size: S
+    rice: { r: 5, i: 3, c: 0.8, e: 0.5, score: 24.0, rank: 1 }
+    tags: [value, budgets, caps, d4-r07, d7-r04]
+    links:
+      code: ["server/session.py", "server/middleware.py", "_worktrees/arx-onmain/server/capabilities.py"]
+
+  - id: agent-platform-e2
+    kind: epic
+    title: "W1: the truthful, batched, budget-friendly tool schema"
+    summary: "One batched TOOL_SCHEMA_VERSION bump -- the re-pin window this roadmap owns -- landing seven fixes together: truthful search_papers/get_paper descriptions replacing the cancelled-hybrid promise (D7-R01); input examples on the riskiest params (D7-R09); wire-or-delete the inert arguments (D7-R05); get_chunk batch fetch up to ~20 ids collapsing search-then-fetch from N+1 round-trips to 2 (D7-R03); paper titles joined into search_papers/cite_neighbors rows from the already-complete metadata store (D7-R07); a compact non-duplicated content[0] wire format (D1-R14); and ToolAnnotations on the 7 retrieval tools with outputSchema deferred behind client compat (D7-R02). Confirmed against a live Claude Code session before being declared done, not just the hash tests."
+    priority: must
+    size: L
+    rice: { r: 5, i: 3, c: 0.5, e: 4, score: 1.88, rank: 4 }
+    tags: [value, mcp-tools, truthfulness, d7-r01, d7-r09, d7-r05, d7-r03, d7-r07, d1-r14, d7-r02]
+    links:
+      code: ["server/tools.py", "server/handlers/chunk.py", "server/handlers/paper.py", "server/paper_metadata_store.py", "server/schemas/search_papers_result.json", "server/handlers/search.py"]
+
+  - id: agent-platform-e3
+    kind: epic
+    title: "Discovery without spend: instructions, resources, and the corpus manifest"
+    summary: "Let an agent learn what to call and what exists without burning capped tool calls. Grow initialize.instructions from ~105 to ~350 words into a tool-selection playbook with a decision table and call-budget etiquette (D7-R10). Register the arxmcp://chunks/{chunk_id}, arxmcp://papers/{paper_id}, and arxmcp://notebooks/{slug}/papers resource templates the server already advertises but cannot resolve, with a deliberate per-row link-emission decision rather than always-on (D2-R04, folding in D7-R06's emission policy). Publish the arxmcp://corpus manifest resource -- corpus_version, chunk counts, per-index presence across graph/equations/FTS5/metadata/lean -- for plan-time capability discovery (D7-R11)."
+    priority: should
+    size: M
+    rice: { r: 5, i: 2, c: 0.5, e: 2.5, score: 2.0, rank: 3 }
+    tags: [value, discovery, resources, instructions, d7-r10, d2-r04, d7-r11]
+    links:
+      code: ["server/mcp_instructions.py", "server/mcp_resources.py", "server/resources.py"]
+
+  - id: agent-platform-e4
+    kind: epic
+    title: "MCP 2026-07-28 stateless migration: coupling inventory and plan"
+    summary: "Produce the untracked migration lane, review-only this horizon: a coupling inventory covering all five identified couplings (SessionCap on Mcp-Session-Id, tracing context, initialize.instructions delivery, the mcp>=1.27,<2 SDK pin, and the BP1/tools-list byte-stability pins); a session-cap replacement design co-owned with agent-platform-e1 so caps are re-keyed exactly once; an instructions-delivery plan for the post-initialize world (server/discover); and an empirical check of whether lean_verify progress heartbeats survive json_response=True. Absorbs D4-R15, D7-R12, and D6-R10 (D6-R11 canonical). Reviewed and ready; execution waits for Python SDK v2 stable, outside this horizon."
+    priority: should
+    size: M
+    rice: { r: 1, i: 1, c: 0.5, e: 2, score: 0.25, rank: 6 }
+    depends_on: [agent-platform-e1]
+    tags: [enabler, protocol, mcp-migration, d6-r11]
+    links:
+      code: ["shim/arxmcp_shim.py", "server/session.py", "server/middleware.py", "server/main.py", "server/mcp_instructions.py", "pyproject.toml"]
+
+  - id: agent-platform-e5
+    kind: epic
+    title: "First real agent traffic: the minimal orchestrator dispatch loop"
+    summary: "Build the client-side dispatch loop in the external orchestrator repository the boundary ADR mandates (adr-data-plane-boundary.md Decision 2, Option A; repo name/path deferred to data-plane-governance-m2), never in this repo -- no anthropic SDK at runtime, outside server/, per CLAUDE.md 4.7/4.8: router -> role-prefixed turns -> the already-shipped model_selector.py policy -> tool calls over the existing shim, consuming server/orchestrator/model_selector.py, server/orchestrator/id_canon.py, server/router.py, server/prompts.py, and shim/arxmcp_shim.py from arXMCP as an imported library. Drive one full sketcher-to-fixer pipeline session end to end against a canned task and record it. This is arXMCP's first real agent traffic; the recording is the evidence-engine track's agent-behavior eval input."
+    priority: must
+    size: M
+    rice: { r: 3, i: 3, c: 0.5, e: 2, score: 2.25, rank: 2 }
+    depends_on: [agent-platform-e1]
+    tags: [value, orchestrator, cg1]
+    links:
+      code: ["server/orchestrator/model_selector.py", "server/orchestrator/id_canon.py"]
+      note: ["consumed-as-dependency: the arXMCP code paths listed here are imported as a library by the external orchestrator loop repo (adr-data-plane-boundary.md Decision 2/3), not files this roadmap's tasks edit to build the loop in-repo"]
+
+  - id: agent-platform-e6
+    kind: epic
+    title: "Agent-writable memory and corpus growth"
+    summary: "Mount a commodity local-first memory MCP server (basic-memory: Markdown + knowledge graph, stdio, hybrid semantic+FTS search) into the sketcher-to-fixer pipeline so roles share notes across turns, deferring any in-server notes build unless corpus-integrated retrieval proves necessary (D2-R02). Ship a small orchestrator-side CLI that writes propose-candidates {paper_id, notebook, rationale} into a persistent per-notebook pending queue behind operator confirm in /ui/, so an agent that retrieves outside the corpus has somewhere to route the gap instead of dead-ending; promote to an MCP tool only if traces show the dead-end recurring (D2-R14)."
+    priority: could
+    size: S
+    rice: { r: 2, i: 1, c: 0.5, e: 1, score: 1.0, rank: 5 }
+    depends_on: [agent-platform-m8]
+    tags: [value, orchestrator, memory, d2-r02, d2-r14]
+    links:
+      code: ["ingest/identifiers.py"]
+
+  - id: agent-platform-m1
+    kind: milestone
+    title: "Interactive-use session budget profile ships on main"
+    summary: "search_papers/get_chunk lifetime caps become ARXMCP_*-env-configurable with a task-realistic interactive default (30/100), independent of the Stage-2 worktree merge; the 1000/hr anti-runaway ceiling is untouched."
+    parent: agent-platform-e1
+    lane: now
+    target_start: 2026-07-08
+    target_end: 2026-07-16
+    tags: [d4-r07]
+    acceptance:
+      - "Given ARXMCP_MAX_SEARCH_PAPERS_CALLS and ARXMCP_MAX_GET_CHUNK_CALLS left at their new defaults, when a fresh session makes 30 search_papers calls and 100 get_chunk calls, then no RETRIEVAL_CAP_REACHED rejection occurs"
+      - "Given the cap change ships, when EXPECTED_TOOL_SCHEMA_SHA256 is re-checked, then it is unchanged because caps are middleware-enforced, not schema-advertised"
+      - "Given the 1000/hr anti-runaway ceiling, when the interactive defaults land, then MAX_CALLS_PER_HOUR is untouched"
+    links:
+      code: ["server/session.py", "server/middleware.py"]
+
+  - id: agent-platform-t-env-cap-config
+    kind: task
+    title: "Make session cap constants env-configurable"
+    parent: agent-platform-m1
+    lane: now
+    priority: must
+    estimate_days: 1
+    target_end: 2026-07-09
+    acceptance:
+      - "Given server/session.py's module-level MAX_SEARCH_PAPERS_CALLS and MAX_GET_CHUNK_CALLS constants, when ARXMCP_MAX_SEARCH_PAPERS_CALLS/ARXMCP_MAX_GET_CHUNK_CALLS env vars are set, then the effective per-session cap reflects the env value with zero tools/list byte change"
+    tags: [d4-r07]
+    links:
+      code: ["server/session.py"]
+
+  - id: agent-platform-t-interactive-cap-defaults
+    kind: task
+    title: "Set task-realistic interactive cap defaults and re-argue the posture"
+    parent: agent-platform-m1
+    lane: now
+    priority: must
+    estimate_days: 2
+    target_end: 2026-07-13
+    depends_on: [agent-platform-t-env-cap-config]
+    acceptance:
+      - "Given no env override is set, when a session starts, then the default caps are 30 search_papers and 100 get_chunk calls per session, not the legacy 3/4"
+      - "Given the new defaults ship, when the Threat-4 tests and security posture doc are updated, then caps are documented as cost-control only, with the rotate-session-id bypass still admitted and unpatched"
+    tags: [d4-r07]
+    links:
+      code: ["server/session.py", "server/middleware.py"]
+
+  - id: agent-platform-m2
+    kind: milestone
+    title: "Post-merge capability-profile caps adopted"
+    summary: "Once the Stage-2 worktree merge lands, adopt capabilities.py's per-tool per-session cap overrides and delete the legacy 3/4 constants plus their fallback (D7-R04) -- undated as of this sequencing pass, so no further decomposition yet."
+    parent: agent-platform-e1
+    lane: later
+    depends_on: [agent-platform-m1]
+    tags: [d7-r04]
+    links:
+      code: ["_worktrees/arx-onmain/server/capabilities.py"]
+
+  - id: agent-platform-m3
+    kind: milestone
+    title: "W1 batched tool-schema re-pin ships and survives a live session"
+    summary: "One TOOL_SCHEMA_VERSION bump landing truthful descriptions, input examples, inert-arg cleanup, batch chunk fetch, semantic identifiers, compact wire format, and ToolAnnotations together; confirmed against a live Claude Code session before being declared done."
+    parent: agent-platform-e2
+    lane: now
+    target_start: 2026-07-17
+    target_end: 2026-08-14
+    depends_on: [agent-platform-m1]
+    tags: [d7-r01, d7-r09, d7-r05, d7-r03, d7-r07, d1-r14, d7-r02]
+    acceptance:
+      - "Given the batched TOOL_SCHEMA_VERSION bump, when tools/list is inspected, then no tool description asserts unshipped, cancelled, or reserved-but-inert functionality"
+      - "Given a live Claude Code session, when the full batch is exercised end to end, then all 8 tools still register without client rejection"
+      - "Given a get_chunk call with 20 chunk_ids, when it completes, then one response returns a chunks[] array of 20 results instead of 20 round-trips"
+    links:
+      code: ["server/tools.py", "server/handlers/chunk.py", "server/handlers/paper.py"]
+
+  - id: agent-platform-t-truthful-descriptions
+    kind: task
+    title: "Fix false search_papers/get_paper descriptions and stale comments"
+    parent: agent-platform-m3
+    lane: now
+    priority: must
+    estimate_days: 1
+    target_end: 2026-07-20
+    acceptance:
+      - "Given search_papers' description in server/tools.py, when it is rewritten, then it states dense-only retrieval over statement embeddings and no longer promises the cancelled E07 hybrid path or claims proof chunks are reachable"
+      - "Given server/session.py's stale get_citations comment, when it is fixed, then it no longer references a tool name absent from ALL_TOOLS"
+    tags: [d7-r01]
+    links:
+      code: ["server/tools.py", "server/session.py"]
+
+  - id: agent-platform-t-input-examples
+    kind: task
+    title: "Add canonical call examples to the riskiest tool descriptions"
+    parent: agent-platform-m3
+    lane: now
+    priority: should
+    estimate_days: 1
+    target_end: 2026-07-21
+    depends_on: [agent-platform-t-truthful-descriptions]
+    acceptance:
+      - "Given find_equation, search_papers, lean_verify, and cite_neighbors descriptions, when 1-2 canonical call examples are added to each, then the same batched schema bump as t-truthful-descriptions carries the change (no separate re-pin)"
+    tags: [d7-r09]
+    links:
+      code: ["server/tools.py"]
+
+  - id: agent-platform-t-inert-args-cleanup
+    kind: task
+    title: "Wire-or-delete inert tool arguments"
+    parent: agent-platform-m3
+    lane: now
+    priority: must
+    estimate_days: 2
+    target_end: 2026-07-23
+    acceptance:
+      - "Given get_chunk.include_referenced and include_equations, when the batch lands, then each is either wired to a real result or removed from the input schema -- never left accepted-and-ignored"
+      - "Given get_paper.version, when the batch lands, then it is either deleted or bound to the arXiv version suffix"
+      - "Given search_papers.cursor, when the batch lands, then it stays accepted-and-warned (or is removed), not silently implemented ahead of D7-R13 evidence"
+    tags: [d7-r05]
+    links:
+      code: ["server/handlers/chunk.py", "server/handlers/paper.py", "server/search.py"]
+
+  - id: agent-platform-t-batch-chunk-fetch
+    kind: task
+    title: "Widen get_chunk to accept a batch of chunk ids"
+    parent: agent-platform-m3
+    lane: now
+    priority: must
+    estimate_days: 3
+    target_end: 2026-07-28
+    depends_on: [agent-platform-t-inert-args-cleanup]
+    acceptance:
+      - "Given chunk_id as a list of up to 20 ids, when get_chunk is called, then chunks[] returns all valid chunks in one round-trip with per-chunk license truncation and the existing byte-cap trim still applied"
+      - "Given a batch call, when the session cap is accounted, then it increments by the number of ids requested, not by 1"
+    tags: [d7-r03]
+    links:
+      code: ["server/handlers/chunk.py", "server/tools.py"]
+
+  - id: agent-platform-t-semantic-identifiers
+    kind: task
+    title: "Join paper titles into search_papers and cite_neighbors rows"
+    parent: agent-platform-m3
+    lane: now
+    priority: must
+    estimate_days: 3
+    target_end: 2026-07-30
+    acceptance:
+      - "Given a paper_id present in the notebook's PaperMetadataStore, when a search_papers or cite_neighbors row is built, then it carries a non-null title (and year when available), one store read per distinct paper_id, LRU-cached"
+      - "Given a paper_id absent from the store or an un-backfilled notebook, when the row is built, then title is null and the response stays byte-stable rather than erroring"
+    tags: [d7-r07]
+    links:
+      code: ["server/paper_metadata_store.py", "server/handlers/search.py", "server/graph_queries.py", "server/schemas/search_papers_result.json"]
+
+  - id: agent-platform-t-compact-wire-format
+    kind: task
+    title: "Drop the pretty-printed duplicate payload from content[0]"
+    parent: agent-platform-m3
+    lane: now
+    priority: should
+    estimate_days: 1
+    target_end: 2026-07-24
+    acceptance:
+      - "Given search_papers' content[0], when the batch lands, then it is compact-separated JSON (separators=(\",\",\":\")) rather than indent=2, with sort_keys=True preserved for byte stability"
+      - "Given the compaction ships, when _WIRE_OVERHEAD_FACTOR is reviewed, then it is re-derived to match the smaller duplicate payload"
+    tags: [d1-r14]
+    links:
+      code: ["server/handlers/search.py", "server/tools.py"]
+
+  - id: agent-platform-t-tool-annotations
+    kind: task
+    title: "Register ToolAnnotations on the 7 retrieval tools"
+    parent: agent-platform-m3
+    lane: now
+    priority: should
+    estimate_days: 1
+    target_end: 2026-07-24
+    acceptance:
+      - "Given the 7 retrieval tools excluding lean_verify, when they are registered, then each carries readOnlyHint=true, idempotentHint=true, openWorldHint=false"
+      - "Given lean_verify's annotation decision, when it is made, then readOnlyHint is omitted rather than asserted true"
+    tags: [d7-r02]
+    links:
+      code: ["server/tools.py"]
+
+  - id: agent-platform-t-schema-repin-live-validation
+    kind: task
+    title: "Bump TOOL_SCHEMA_VERSION once and validate against a live session"
+    parent: agent-platform-m3
+    lane: now
+    priority: must
+    estimate_days: 2
+    target_end: 2026-08-06
+    depends_on: [agent-platform-t-truthful-descriptions, agent-platform-t-input-examples, agent-platform-t-inert-args-cleanup, agent-platform-t-batch-chunk-fetch, agent-platform-t-semantic-identifiers, agent-platform-t-compact-wire-format, agent-platform-t-tool-annotations]
+    acceptance:
+      - "Given every other task in this milestone complete, when TOOL_SCHEMA_VERSION is bumped once, then EXPECTED_TOOL_SCHEMA_SHA256 and EXPECTED_BP1_SHA256 are re-pinned in the same commit"
+      - "Given the re-pinned schema, when it is exercised against a live Claude Code session, then all 8 tools still register; a rejection splits the bump into two re-pins instead of shipping a broken client experience"
+    tags: [d7-r01, d7-r09, d7-r05, d7-r03, d7-r07, d1-r14, d7-r02]
+    links:
+      code: ["tests/test_server_tool_schema.py", "tests/test_prompts.py"]
+
+  - id: agent-platform-m4
+    kind: milestone
+    title: "Instructions expand into a tool-selection playbook"
+    summary: "Grow ARXMCP_INSTRUCTIONS from ~105 to ~350 words: a decision table across the four search-ish tools, call-budget etiquette, the notebooks-resource discovery flow, and the degradation taxonomy -- zero BP1/BP2 cache cost by construction."
+    parent: agent-platform-e3
+    lane: next
+    target_start: 2026-08-17
+    target_end: 2026-08-28
+    tags: [d7-r10]
+    acceptance:
+      - "Given the expanded instructions, when initialize.instructions is read, then it includes a tool-selection decision table, call-budget etiquette, and the degradation taxonomy, with EXPECTED_INSTRUCTIONS_SHA256 re-pinned and EXPECTED_TOOL_SCHEMA_SHA256/EXPECTED_BP1_SHA256 unchanged"
+    links:
+      code: ["server/mcp_instructions.py"]
+
+  - id: agent-platform-m5
+    kind: milestone
+    title: "Resolvable chunk, paper, and notebook-papers resources registered"
+    summary: "Register arxmcp://chunks/{chunk_id}, arxmcp://papers/{paper_id}, and arxmcp://notebooks/{slug}/papers as read-only resource templates backed by the existing get_chunk validation/license/byte-cap pipeline, with a deliberate per-row link-emission decision (D7-R06) instead of always-on."
+    parent: agent-platform-e3
+    lane: next
+    target_start: 2026-08-17
+    target_end: 2026-08-31
+    tags: [d2-r04, d7-r06]
+    acceptance:
+      - "Given a search row's arxmcp://chunks/<id> URI, when resources/read is called on it, then it resolves instead of erroring"
+      - "Given the per-row link-emission decision, when it is made, then it is deliberate (e.g. only on over-cap truncation) rather than defaulting to always-on for every search row"
+    links:
+      code: ["server/mcp_resources.py"]
+
+  - id: agent-platform-m6
+    kind: milestone
+    title: "Corpus manifest resource published"
+    summary: "Register arxmcp://corpus: corpus_version, chunk counts, paper count, category coverage, and per-index presence (graph, equations, FTS5, metadata, lean) for plan-time capability discovery without spending capped tool calls."
+    parent: agent-platform-e3
+    lane: next
+    target_start: 2026-08-31
+    target_end: 2026-09-11
+    depends_on: [agent-platform-m5]
+    tags: [d7-r11]
+    acceptance:
+      - "Given the arxmcp://corpus resource, when it is read, then it reports corpus_version, chunk counts, and per-index presence without spending a capped tool call"
+    links:
+      code: ["server/mcp_resources.py", "server/resources.py"]
+
+  - id: agent-platform-m7
+    kind: milestone
+    title: "MCP 2026-07-28 coupling inventory and cap-redesign plan ready"
+    summary: "Coupling inventory across all five identified couplings (session caps, tracing, instructions delivery, the mcp SDK pin, byte-stability pins); a session-cap replacement design co-owned with agent-platform-e1; an instructions-delivery plan for server/discover; and an empirical check of whether lean_verify heartbeats survive json_response=True. Review-only -- execution waits for Python SDK v2 stable, outside this horizon."
+    parent: agent-platform-e4
+    lane: next
+    target_start: 2026-08-17
+    target_end: 2026-09-14
+    depends_on: [agent-platform-m1]
+    tags: [d6-r11]
+    acceptance:
+      - "Given the five identified couplings, when the coupling inventory is reviewed, then each has a named non-session-keyed replacement design ready to execute at Python SDK v2 GA"
+      - "Given json_response=True, when lean_verify progress heartbeats are checked empirically, then the finding (deliverable or shim-invisible) is recorded"
+    links:
+      code: ["shim/arxmcp_shim.py", "server/session.py", "server/middleware.py", "server/main.py", "server/mcp_instructions.py", "pyproject.toml"]
+
+  - id: agent-platform-spike-1
+    kind: spike
+    title: "Thin client-side orchestrator loop prototype on one canned task"
+    parent: agent-platform-e5
+    lane: now
+    estimate_days: 3
+    target_end: 2026-07-10
+    acceptance:
+      - "Given one canned sketcher-to-fixer task, when a thin client-side loop built in the external orchestrator repo (router -> role-prefixed turns -> model_selector policy -> tool calls over the shim, consuming arXMCP as an imported library) drives it end to end with no anthropic SDK import inside server/, then a complete transcript is produced"
+      - "Given the spike's outcome, when it is recorded, then either the loop is confirmed buildable in-scope, or every trace-gated trigger it would have unblocked (D7-R13's agent-task eval, D9-R09, empirical cap-sizing) is named and re-dated in the spike note"
+    tags: [cg1]
+    links:
+      code: ["server/router.py", "server/prompts.py", "server/orchestrator/model_selector.py", "server/orchestrator/id_canon.py", "shim/arxmcp_shim.py"]
+      note: ["[[agent-platform orchestrator loop spike]]", "consumed-as-dependency: the arXMCP code paths listed here are imported as a library by the external orchestrator loop repo (adr-data-plane-boundary.md Decision 2/3), not files this roadmap's tasks edit to build the loop in-repo"]
+
+  - id: agent-platform-m8
+    kind: milestone
+    title: "First real sketcher-to-fixer pipeline session recorded end to end"
+    summary: "The external orchestrator repo's client-side dispatch loop (router -> role-prefixed turns -> model_selector policy -> tool calls over the shim, consuming arXMCP as an imported library per adr-data-plane-boundary.md Decision 2) drives one full sketcher-to-fixer session against a canned task and records it -- arXMCP's first real agent traffic, consumable as the evidence-engine track's agent-behavior eval input."
+    parent: agent-platform-e5
+    lane: now
+    target_start: 2026-07-17
+    target_end: 2026-07-29
+    depends_on: [agent-platform-spike-1, agent-platform-m1]
+    tags: [cg1]
+    acceptance:
+      - "Given the dispatch loop from the spike, when one full sketcher-to-fixer session runs against a canned task, then it completes end to end and is recorded as a transcript"
+      - "Given tool_use ids across the accumulated multi-turn history, when the transcript is assembled, then id_canon.py canonicalizes them over the FULL history each turn, not just the new-turn slice"
+      - "Given the recorded transcript, when handed to the evidence-engine track, then it is consumable as agent-behavior eval input without a bespoke adapter"
+    links:
+      code: ["server/orchestrator/model_selector.py", "server/orchestrator/id_canon.py", "server/router.py", "shim/arxmcp_shim.py"]
+      note: ["consumed-as-dependency: the arXMCP code paths listed here are imported as a library by the external orchestrator loop repo (adr-data-plane-boundary.md Decision 2/3), not files this roadmap's tasks edit to build the loop in-repo"]
+
+  - id: agent-platform-t-dispatch-loop
+    kind: task
+    title: "Build the router -> role-prefix -> model_selector -> shim dispatch loop in the external orchestrator repo"
+    parent: agent-platform-m8
+    lane: now
+    priority: must
+    estimate_days: 3
+    target_end: 2026-07-21
+    acceptance:
+      - "Given a user query, when the external repo's client-side loop runs it, then arXMCP's server/router.py classifies a RouteTag, server/prompts.py supplies the role prefix, and server/orchestrator/model_selector.py picks the model -- all driven from the external orchestrator repo consuming arXMCP as an imported library, zero anthropic SDK import inside server/"
+    tags: [cg1]
+    links:
+      code: ["server/router.py", "server/prompts.py", "server/orchestrator/model_selector.py"]
+      note: ["consumed-as-dependency: the arXMCP code paths listed here are imported as a library by the external orchestrator loop repo (adr-data-plane-boundary.md Decision 2/3), not files this roadmap's tasks edit to build the loop in-repo"]
+
+  - id: agent-platform-t-transcript-recording
+    kind: task
+    title: "Record the full multi-turn session transcript"
+    parent: agent-platform-m8
+    lane: now
+    priority: must
+    estimate_days: 2
+    target_end: 2026-07-24
+    depends_on: [agent-platform-t-dispatch-loop]
+    acceptance:
+      - "Given a multi-turn pipeline run, when the transcript is written, then it captures every tool call, model turn, and canonicalized tool_use id in a single consumable record"
+    tags: [cg1]
+    links:
+      code: ["server/orchestrator/id_canon.py"]
+      note: ["consumed-as-dependency: the arXMCP code paths listed here are imported as a library by the external orchestrator loop repo (adr-data-plane-boundary.md Decision 2/3), not files this roadmap's tasks edit to build the loop in-repo"]
+
+  - id: agent-platform-t-canned-task-run
+    kind: task
+    title: "Drive one canned sketcher-to-fixer task end to end and save the run"
+    parent: agent-platform-m8
+    lane: now
+    priority: must
+    estimate_days: 1
+    target_end: 2026-07-27
+    depends_on: [agent-platform-t-transcript-recording]
+    acceptance:
+      - "Given the canned sketcher-to-fixer task, when the external repo's full loop executes against the live shim, then the run completes without a cap collision (relying on m1's relaxed defaults) and the transcript is saved"
+    tags: [cg1]
+    links:
+      code: ["shim/arxmcp_shim.py"]
+      note: ["consumed-as-dependency: the arXMCP code paths listed here are imported as a library by the external orchestrator loop repo (adr-data-plane-boundary.md Decision 2/3), not files this roadmap's tasks edit to build the loop in-repo"]
