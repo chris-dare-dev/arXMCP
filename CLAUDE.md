@@ -237,6 +237,38 @@ change touches more than ~3 files or adds new tests, run the pipeline.
 - **`server/` source NEVER references `claude-opus`.** Model selection in
   the orchestrator is Haiku/Sonnet only.
 
+### 4.8 Data-plane boundary — hard constraints (binding)
+
+arXMCP is a read-only proof-discovery data plane. Constitution:
+[`adr-data-plane-boundary.md`](.claude/docs/adr-data-plane-boundary.md)
+(data-plane-governance-m1, Accepted 2026-07-12). Scope: the served process and
+the `server/` package. These bind every agent session in this repo:
+
+1. **The server never runs agents.** No agent dispatch, no agent loop, no
+   per-run agent memory (run state, transcripts, model conversation state)
+   server-side. The `anthropic` SDK stays out of `server/` imports and out of
+   `pyproject.toml` runtime deps (§4.7's SDK ban is one mechanism of this
+   rule; guard test: `tests/test_langfuse_doc.py`). Observability labeling of
+   a *calling* agent's role and per-session budget counters are not agent
+   memory.
+2. **Writes enter only via offline ingest CLIs or operator-gated `/ui/`
+   console actions.** The MCP tool surface stays read-only over corpus state
+   (`lean_verify` computes; it never persists corpus-visible state).
+   Server-internal operational writes (retrieval-cache SQLite, logs, metrics,
+   ingest-status transitions) are implementation detail, not corpus writes.
+   Any future agent-suggested write path terminates in an operator-confirm
+   step.
+3. **The orchestrator dispatch loop lives in a separate repository** — never
+   under this repo. No `server/` module imports the loop; the loop holds no
+   state the server reads. `server/orchestrator/` stays in place as an
+   SDK-free policy/canonicalization library (its real consumer set — including
+   the `spend_constants.py:51` runtime import — is recorded in the ADR).
+
+Non-commercially-licensed external data enters only a candidate layer — never
+redistributed, never promoted to served evidence without a recorded
+per-source license check (ADR Decision 4; adapter mechanics are the
+R7 track's).
+
 ---
 
 ## 5. Directory layout — what lives where
