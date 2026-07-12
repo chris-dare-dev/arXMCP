@@ -1,0 +1,308 @@
+schema: roadmap/1
+slug: source-truth
+project: arxmcp
+title: "Source truth — revision registry, spans, license provenance, corpus manifest"
+status: active
+phase: complete          # init -> refined -> decomposed -> sequenced -> complete
+brief: |
+  arXMCP cannot currently promise that a served statement is complete, tied to an exact paper
+  revision, or legally servable — and every claim-grain, formal, or computational artifact
+  planned downstream inherits those promises. Concretely (all verified at source, 2026-07-11):
+  the chunker truncates statements at a 1,920-token budget and sets `truncated` on the
+  ChunkRecord (`ingest/chunker.py:679-704`), but `CHUNKS_SCHEMA_V1` has no such column, so the
+  flag is silently dropped at write time; chunks carry no source span or document checksum,
+  and `corpus_version` is a local MVCC epoch, not a content-addressed snapshot;
+  `theorem_label` stores the author's TeX `\label` key with auto-generated IDs nulled
+  (`chunker.py:406-418`) — the printed "Lemma 3.2" that citations actually use is never
+  extracted, and papers renumber between arXiv versions and journal publication; and the
+  license policy allowlists the blanket token `arxiv-license` for full-body serving
+  (`server/license_policy.py:44-53`) even though arXiv papers carry heterogeneous real
+  licenses (arXiv-perpetual vs CC variants), while the trustworthy-release plan has already
+  diagnosed dead textbook license stamping. This initiative makes the corpus reproducible and
+  fail-closed at the source layer: an immutable document/revision registry with raw checksums
+  and parser/chunker version stamps; exact source spans (DOM anchor + char offsets) on every
+  block; truncation persisted and surfaced; printed theorem numbers extracted alongside TeX
+  labels; per-revision license provenance fetched from the arXiv API with unknown-fails-closed
+  semantics; withdrawal/corrigendum/supersession edges; and a content-addressed corpus
+  manifest resource that downstream artifacts pin. Schema changes ride the established
+  migration pattern (`ingest/store.py::_migrate_chunks_schema_if_needed`) and batch into
+  agent-platform's W1 tool-schema window where tool-visible.
+horizon: { start: 2026-07-13, end: 2026-09-11 }
+goal:
+  hmw: "How might we make every served chunk carry exact revision identity, completeness status, source span, and a real license decision, so that the downstream claim-grain and formal-artifact tracks (R2 identity, R5 provenance) can pin to sources that are reproducible and fail-closed?"
+  objective: "Ship the source-truth layer: document/revision registry, span + truncation + printed-number persistence, per-revision license provenance, and a content-addressed corpus manifest."
+  key_results:
+    - "Every get_chunk response carries a source revision id, a source span or an explicit null (abstention, not silence), truncation status, and a per-revision license decision"
+    - "A documents registry row exists for every revision in both live notebooks: work identity, version, raw-source sha256, parse-artifact checksum, parser/chunker versions, fetch timestamp, license URI, and active/withdrawn/superseded status"
+    - "Unknown or missing license fails closed to the existing 300-char truncation on a fresh install — zero full-body serving of unknown-license content, including every textbook chunk"
+    - "The arxmcp://corpus-manifest resource resolves to a content-addressed snapshot whose checksums re-verify on a clean re-fetch of 3 sample papers"
+    - "Backfill hydrates both live notebooks with 0 chunks re-embedded (paper-metadata-m1 precedent)"
+    - "Zero regressions: make test stays green including the tools/list schema-hash pin, with new migration, license-decision, and manifest tests added"
+  assumptions:
+    - tier: must
+      text: "The arXiv metadata API returns usable license URIs for the corpus's ID shapes (new-style, old-style, versioned)"
+      validation: "spike on a mixed 30-paper sample records per-field coverage; papers with no license URI get license_status=unknown -> truncate, count reported; >20% of the Bridgeland notebook failing closed surfaces to the owner before backfill, with a per-notebook operator override flag (recorded in the manifest) as the documented escape hatch"
+    - tier: must
+      text: "Printed theorem numbers (e.g. Lemma 3.2) are recoverable from LaTeXML ltx_tag ltx_tag_theorem spans for the dominant paper styles"
+      validation: "spike over 20 Bridgeland-notebook papers measures printed-number extraction coverage against a hand count; <80% coverage demotes printed-number matching to one signal among several in R2 rather than the primary key"
+    - tier: should
+      text: "Span anchoring via (element id, char offsets, normalized-text hash) is stable across LaTeXML re-parses of the same source"
+      validation: "re-parse 5 papers and diff anchors; instability moves the anchor to (revision checksum + normalized-text hash) only"
+    - tier: should
+      text: "The shipped 21-column chunks-schema migration pattern extends cleanly by 5 columns"
+      validation: "migration dry-run on a snapshot copy of the live LanceDB dir, riding ingest/store.py::_migrate_chunks_schema_if_needed"
+    - tier: should
+      text: "trustworthy-release's D8-R04 license-token semantics ruling stays compatible with per-revision license records replacing the blanket arxiv-license token"
+      validation: "the fail-closed cutover milestone is owner-gated; the per-notebook override flag recorded in the manifest is the fallback if the ruling diverges"
+    - tier: should
+      text: "Tool-visible changes (get_chunk response fields, corpus-manifest resource) can batch into agent-platform's W1 tool-schema window"
+      validation: "if W1 slips, the manifest ships resources-surface-only (not part of the tools/list hash) and get_chunk field surfacing is sequenced behind W1 at decomposition"
+    - tier: might
+      text: "The per-notebook SQLite store pattern (paper-metadata-m1, server/paper_metadata_store.py) extends to the documents registry without a new storage engine"
+      validation: "registry schema drafted against the existing store at decomposition"
+  wont:
+    - "No new retrieval features, no ranking changes, no claim IR (that is R2)"
+    - "No takedown workflow automation — deletion propagation is designed here as edges + manifest invalidation only; the operational runbook extends docs/ops separately"
+    - "No full re-parse of the corpus: spans are computed from the existing parsed HTML; blocks that cannot be re-anchored keep source_span null and are reported as such (abstention, not silence)"
+    - "No withdrawal-aware search filtering — retrieval-unlocks owns the search-filter behavior; this track owns the registry and supersession edges"
+  evidence:
+    - ".claude/roadmap-briefs/R1-source-truth.md — adjudicated planning brief (2026-07-11); all file claims re-verified at source this session"
+    - "ingest/chunker.py:679-706 — truncation computed and set on ChunkRecord; STMT_MAX_TOKENS = 1920 at chunker.py:92"
+    - "ingest/schema.py — CHUNKS_SCHEMA_V1 has no truncation/span/revision/printed-number/license-ref columns, so the flag is dropped at write time"
+    - "ingest/chunker.py:406-418 — _extract_theorem_label returns the TeX label key (auto-IDs -> None); _extract_theorem_name reads only the parenthetical name, so the printed number is never persisted"
+    - "server/license_policy.py:44-53 — OA_ALLOWLIST includes the blanket arxiv-license token; mechanism otherwise fail-closed"
+    - "ingest/store.py:330 — _migrate_chunks_schema_if_needed, the shipped add-columns migration precedent (textbook-ingest-m2)"
+    - "plans/paper-metadata/roadmap.yaml — phase complete; the per-notebook metadata store spine this track extends"
+    - "plans/trustworthy-release/roadmap.yaml — D8-R04 owns the license-token semantics decision; dead textbook license stamping diagnosed there"
+    - "plans/retrieval-unlocks/roadmap.yaml — withdrawal search-filter behavior lives there; also carries the agent-platform W1 tool-schema-window interlock"
+generated_by: { agent: claude-fable-5, at: "2026-07-11" }
+generations:
+  - { rev: 1, at: "2026-07-11" }
+retired: []          # tombstoned item ids; ids are write-once, never deleted
+items:
+  - id: source-truth-e1
+    kind: epic
+    title: "Revision registry and license provenance"
+    summary: "Per-revision documents registry — work identity, arXiv version, raw-tarball and parse-artifact sha256, parser/chunker version stamps, active/withdrawn/superseded status — with license URIs hydrated via the existing tools/_arxiv_api.py Atom client and a per-revision license decision function running advisory until the e4 cutover. Extends the paper-metadata per-notebook SQLite store pattern (server/paper_metadata_store.py); observable as both live notebooks fully registered plus a per-license coverage report."
+    priority: must
+    size: M
+    rice: { r: 6, i: 2, c: 0.8, e: 2, score: 4.8, rank: 1 }   # c=0.8: paper-metadata-spike-1 recorded Atom per-field coverage across the corpus's ID shapes with the same client
+    tags: [value, registry, license]
+    links:
+      code: ["server/paper_metadata_store.py", "tools/_arxiv_api.py"]
+      note: [".claude/roadmap-briefs/R1-source-truth.md"]
+
+  - id: source-truth-e2
+    kind: epic
+    title: "Chunk-level source truth: spans, truncation, printed numbers"
+    summary: "Chunks-schema v2 rides ingest/store.py::_migrate_chunks_schema_if_needed with five columns (source_revision_id, source_span, truncated, printed_number, license_ref), the printed-number extractor, span anchoring computed from the existing parsed HTML (null-plus-reported fallback, no re-parse), and zero-re-embed backfill per the tools/notebook_metadata_backfill.py precedent. Vertical to the serving surface: get_chunk responses carry revision id, span-or-null, truncation status, and printed number, with field surfacing batched into agent-platform's W1 tool-schema window."
+    priority: must
+    size: L
+    rice: { r: 12, i: 3, c: 0.5, e: 4, score: 4.5, rank: 2 }
+    depends_on: [source-truth-e1]
+    tags: [value, schema, spans]
+    links:
+      code: ["ingest/schema.py", "ingest/store.py:330"]
+
+  - id: source-truth-e3
+    kind: epic
+    title: "Content-addressed corpus manifest"
+    summary: "arxmcp://corpus-manifest resource returning a content-addressed snapshot: registry revisions with checksums, index build versions, license summary, per-notebook operator override flags, and the corpus_version epoch it maps to; checksums re-verify on a clean re-fetch of 3 sample papers, and manifest-invalidation semantics for withdrawn/superseded revisions are defined here (edges only, no takedown workflow). Resources-surface-only, outside the tools/list hash, so it lands even if the W1 window slips."
+    priority: should
+    size: S
+    rice: { r: 3, i: 2, c: 0.5, e: 1, score: 3.0, rank: 3 }
+    depends_on: [source-truth-e1]
+    tags: [value, manifest, resources]
+    links:
+      code: ["server/resources.py"]
+
+  - id: source-truth-e4
+    kind: epic
+    title: "Fail-closed license cutover and notebook backfill"
+    summary: "Owner-gated flip to unknown-fails-closed serving: missing or unknown license truncates to the existing 300-char path on a fresh install (textbook chunks included), the blanket arxiv-license token is retired from new writes and backfilled, both live notebooks are hydrated end-to-end with 0 chunks re-embedded, and the per-notebook operator override flag is recorded in the manifest alongside a published coverage report."
+    priority: should
+    size: M
+    rice: { r: 6, i: 2, c: 0.5, e: 2, score: 3.0, rank: 3 }
+    depends_on: [source-truth-e2, source-truth-e3]
+    tags: [value, license, cutover]
+    links:
+      code: ["server/license_policy.py:44-53"]
+
+  - id: source-truth-spike-1
+    kind: spike
+    title: "License-URI coverage on a mixed 30-paper sample"
+    parent: source-truth-e1
+    lane: now
+    estimate_days: 2
+    target_end: 2026-07-14
+    acceptance:
+      - "Given a mixed 30-paper sample (new-style, old-style, versioned ids) drawn from both live notebooks, when license URIs are fetched via the tools/_arxiv_api.py Atom client, then per-ID-shape license-URI coverage and the license_status=unknown count are recorded in the spike note, and a projected >20% fail-closed rate on bridgeland-stability is flagged to the owner before any backfill"
+    links:
+      note: ["[[source-truth spike-1 license-URI coverage]]"]
+
+  - id: source-truth-spike-2
+    kind: spike
+    title: "Printed-number extraction coverage on 20 Bridgeland papers"
+    parent: source-truth-e2
+    lane: now
+    estimate_days: 2
+    target_end: 2026-07-17
+    acceptance:
+      - "Given 20 bridgeland-stability papers, when printed theorem numbers are extracted from LaTeXML ltx_tag ltx_tag_theorem markup and measured against a hand count, then coverage is recorded in the spike note, and <80% coverage demotes printed-number matching to one signal among several in R2 rather than the primary key"
+    links:
+      note: ["[[source-truth spike-2 printed-number coverage]]"]
+
+  - id: source-truth-m1
+    kind: milestone
+    title: "Revision registry live with license provenance (advisory)"
+    summary: "Per-revision documents registry — work identity, arXiv version, raw-source and parse-artifact sha256, parser/chunker version stamps, active/withdrawn/superseded status — extending the paper-metadata per-notebook SQLite store pattern, with license URIs hydrated via tools/_arxiv_api.py and a per-revision license decision function running advisory-only until the e4 cutover. Observable as both live notebooks registered end-to-end plus a per-license coverage report."
+    parent: source-truth-e1
+    lane: now
+    target_start: 2026-07-13
+    target_end: 2026-07-29
+    depends_on: [source-truth-spike-1]
+    acceptance:
+      - "Given both live notebooks, when the registry backfill completes, then every ingested revision has a documents row carrying work identity, arXiv version, raw-source sha256, parse-artifact checksum, parser/chunker versions, fetch timestamp, license URI, and active/withdrawn/superseded status"
+      - "Given a revision whose license URI is missing or unrecognized, when the per-revision decision function evaluates it, then it returns license_status=unknown mapping to truncate, logged advisory-only with serving behavior unchanged"
+      - "Given the hydrated registry, when the coverage report runs, then per-license counts for both notebooks are emitted, and a >20% unknown rate on bridgeland-stability surfaces to the owner before any serving cutover"
+    links:
+      code: ["server/paper_metadata_store.py", "tools/_arxiv_api.py", "server/license_policy.py"]
+
+  - id: source-truth-t-registry-schema
+    kind: task
+    title: "Documents registry table + idempotent writer (paper-metadata store pattern)"
+    parent: source-truth-m1
+    lane: now
+    priority: must
+    estimate_days: 2
+    target_end: 2026-07-16
+    acceptance:
+      - "Given a fresh notebook, when the registry store initializes twice, then the second run is a no-op and the schema-version row is unchanged"
+
+  - id: source-truth-t-revision-checksums
+    kind: task
+    title: "Raw-source + parse-artifact checksums and version stamps at registration"
+    parent: source-truth-m1
+    lane: now
+    priority: must
+    estimate_days: 2
+    target_end: 2026-07-20
+    depends_on: [source-truth-t-registry-schema]
+    acceptance:
+      - "Given an already-fetched paper, when registration runs, then raw-tarball sha256, parse-artifact checksum, and parser/chunker version stamps are persisted, and a re-run is a no-op"
+
+  - id: source-truth-t-license-hydration
+    kind: task
+    title: "Hydrate per-revision license URIs via the Atom client"
+    parent: source-truth-m1
+    lane: now
+    priority: must
+    estimate_days: 2
+    target_end: 2026-07-22
+    depends_on: [source-truth-t-registry-schema]
+    acceptance:
+      - "Given a batch of registered revisions across ID shapes, when license hydration runs, then each row stores the fetched license URI or license_status=unknown, and every lookup honors the arXiv politeness contract"
+
+  - id: source-truth-t-license-decision-fn
+    kind: task
+    title: "Per-revision license decision function (advisory until e4 cutover)"
+    parent: source-truth-m1
+    lane: now
+    priority: must
+    estimate_days: 2
+    target_end: 2026-07-24
+    depends_on: [source-truth-t-license-hydration]
+    acceptance:
+      - "Given a revision with an allowlisted CC license URI, when the decision function runs, then it returns full-body-eligible; given a missing or unknown URI, then it returns truncate — in both cases logged advisory-only without changing current serving"
+
+  - id: source-truth-t-registry-backfill
+    kind: task
+    title: "Registry backfill CLI for both live notebooks + coverage report"
+    parent: source-truth-m1
+    lane: now
+    priority: must
+    estimate_days: 2
+    target_end: 2026-07-28
+    depends_on: [source-truth-t-revision-checksums, source-truth-t-license-hydration]
+    acceptance:
+      - "Given the bridgeland-stability (~200 papers) and fourier-duality (~65 papers) notebooks, when the registry backfill runs, then every ingested revision is registered, a per-license coverage report is emitted, 0 chunks are re-embedded, and a re-run is a no-op"
+
+  - id: source-truth-spike-3
+    kind: spike
+    title: "Span-anchor stability across LaTeXML re-parses"
+    parent: source-truth-e2
+    lane: next
+    estimate_days: 2
+    target_end: 2026-07-31
+    acceptance:
+      - "Given 5 papers re-parsed through LaTeXML, when (element id, char offsets, normalized-text hash) anchors are diffed across parses, then stability is recorded in the spike note, and instability moves the anchor design to (revision checksum + normalized-text hash) only"
+    links:
+      note: ["[[source-truth spike-3 span-anchor stability]]"]
+
+  - id: source-truth-spike-4
+    kind: spike
+    title: "Chunks-schema v2 migration dry-run on a LanceDB snapshot"
+    parent: source-truth-e2
+    lane: next
+    estimate_days: 1
+    target_end: 2026-08-03
+    acceptance:
+      - "Given a snapshot copy of the live LanceDB dir, when the five-column v2 migration dry-runs via the ingest/store.py::_migrate_chunks_schema_if_needed pattern, then the outcome (clean in-place extension or a required fallback) is recorded before touching the live table"
+    links:
+      note: ["[[source-truth spike-4 schema-v2 dry-run]]"]
+
+  - id: source-truth-m2
+    kind: milestone
+    title: "Chunks schema v2: spans, truncation, printed numbers persisted"
+    summary: "Five new columns (source_revision_id, source_span, truncated, printed_number, license_ref) ride the shipped add-columns migration; the printed-number extractor and the span-anchoring pass run over the existing parsed HTML (no re-parse; un-anchorable blocks keep source_span null and are reported); backfill hydrates both live notebooks with 0 chunks re-embedded per the tools/notebook_metadata_backfill.py precedent."
+    parent: source-truth-e2
+    lane: next
+    target_start: 2026-08-04
+    target_end: 2026-08-21
+    depends_on: [source-truth-m1, source-truth-spike-2, source-truth-spike-3, source-truth-spike-4]
+    acceptance:
+      - "Given the live LanceDB chunks table, when the v2 migration runs, then the five source-truth columns exist, existing rows are preserved, and a second run is a no-op"
+      - "Given both live notebooks, when the source-truth backfill completes, then truncation status, printed numbers, span anchors, source_revision_id, and license_ref are hydrated with 0 chunks re-embedded"
+      - "Given a block that cannot be re-anchored from the existing parsed HTML, when the backfill completes, then its source_span is null and it is counted in an abstention report (abstention, not silence)"
+    links:
+      code: ["ingest/store.py:330", "ingest/schema.py", "ingest/chunker.py:406-418", "tools/notebook_metadata_backfill.py"]
+
+  - id: source-truth-m3
+    kind: milestone
+    title: "Content-addressed corpus-manifest resource"
+    summary: "arxmcp://corpus-manifest returns a content-addressed snapshot — registry revisions with checksums, index build versions, license summary, per-notebook operator override flags, and the corpus_version epoch it maps to — with manifest-invalidation semantics for withdrawn/superseded revisions defined as edges only (no takedown workflow). Resources-surface-only, outside the tools/list hash, so it lands even if the W1 window slips."
+    parent: source-truth-e3
+    lane: next
+    target_start: 2026-08-24
+    target_end: 2026-08-28
+    depends_on: [source-truth-m1]
+    acceptance:
+      - "Given a hydrated registry, when arxmcp://corpus-manifest is read, then it resolves to a content-addressed snapshot whose checksums re-verify on a clean re-fetch of 3 sample papers"
+      - "Given a revision marked withdrawn or superseded in the registry, when the manifest regenerates, then the affected snapshot is invalidated per the documented semantics while EXPECTED_TOOL_SCHEMA_SHA256 stays unchanged"
+    links:
+      code: ["server/resources.py", "server/paper_metadata_store.py"]
+
+  - id: source-truth-m5
+    kind: milestone
+    title: "get_chunk surfaces source-truth fields (rides W1)"
+    summary: "get_chunk responses carry source revision id, span-or-null (explicit null, not omission), truncation status, printed number, and the per-revision license decision (advisory until the e4 cutover). The response-shape delta batches into agent-platform's W1 tool-schema re-pin window; if W1 never materializes, the documented fallback is a standalone TOOL_SCHEMA_VERSION re-pin."
+    parent: source-truth-e2
+    lane: next
+    target_start: 2026-08-31
+    target_end: 2026-09-11
+    depends_on: [source-truth-m2]
+    acceptance:
+      - "Given any chunk in a hydrated notebook, when get_chunk is called, then the response carries source revision id, source span or an explicit null, truncation status, printed number, and a per-revision license decision"
+      - "Given the implemented response fields, when the schema delta is staged, then it ships inside agent-platform's W1 bundled TOOL_SCHEMA_VERSION re-pin, or as a documented standalone re-pin only if W1 never materializes"
+    links:
+      code: ["server/handlers/chunk.py", "server/tools.py", "tests/test_server_tool_schema.py"]
+
+  - id: source-truth-m4
+    kind: milestone
+    title: "Owner-gated fail-closed license cutover + notebook backfill"
+    summary: "Flip serving to unknown-fails-closed (300-char truncation on a fresh install, textbook chunks included), retire the blanket arxiv-license token from new writes and backfill it, hydrate both live notebooks end-to-end with 0 chunks re-embedded, record per-notebook operator override flags in the manifest, and publish the coverage report. Owner-gated: promotion out of later requires owner sign-off plus spike-1's coverage numbers (>20% bridgeland-stability fail-closed surfaces to the owner before backfill)."
+    parent: source-truth-e4
+    lane: later
+    depends_on: [source-truth-m2, source-truth-m3]
+    links:
+      code: ["server/license_policy.py:44-53"]
