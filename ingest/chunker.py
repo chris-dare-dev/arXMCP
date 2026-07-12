@@ -160,6 +160,18 @@ _SECTION_DIV_CLASSES = [
     "ltx_subparagraph",
 ]
 
+# Structural container classes that make a render chunkable by the two
+# structural passes: the section family (``_SECTION_DIV_CLASSES``, pass 2) plus
+# the theorem/proof environments (pass 1). The AC4 observability signals
+# (``ingest.ar5iv_fetch`` no-sections WARN, ``ingest.bulk_ingest.
+# _diagnose_empty_render``) import this so their "is this render structurally
+# chunkable?" substring heuristic tracks the chunker's ACTUAL gates from a
+# single source and cannot silently drift apart (ingest-robustness-m1 M2/L1).
+STRUCTURE_SIGNAL_CLASSES: tuple[str, ...] = tuple(_SECTION_DIV_CLASSES) + (
+    "ltx_theorem",
+    "ltx_proof",
+)
+
 # Section element tag names used by LaTeXML (HTML5 sectioning elements)
 _SECTION_TAG_NAMES = {"section", "article", "div"}
 
@@ -868,6 +880,15 @@ def _extract_body_fallback_chunks(
     # TOP-LEVEL blocks (not those nested inside another ltx_para) so text is
     # never double-counted. Fall back to raw ``ltx_p`` paragraphs, then bare
     # <p>. Each tier is a document-order list of prose blocks.
+    #
+    # KNOWN LIMITATION (ingest-robustness-m1 M3, deferred): a section-less
+    # render's *standalone* top-level display-math containers
+    # (``ltx_equation``/``ltx_equationgroup`` not wrapped in an ``ltx_para``)
+    # are not harvested here. On the old-format renders this fallback targets
+    # (e.g. hep-th/0002037) the math is inline within ``ltx_para`` prose and IS
+    # preserved by ``_element_text`` (which emits ``<math alttext>`` as
+    # ``$...$``); free-standing display equations are a rarer shape left to a
+    # follow-up rather than dropped silently.
     blocks = [
         b
         for b in doc.find_all("div", class_="ltx_para")

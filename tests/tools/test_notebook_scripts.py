@@ -240,6 +240,34 @@ def test_init_rejects_missing_mineru_bin(notebooks_base: Path) -> None:
         notebook_init.run("my-notebook", mineru_bin="/gone/mineru", register=False)
 
 
+def test_make_init_recipe_expands() -> None:
+    # C1 / M5 (infra critique): the `make init` recipe must expand cleanly. A
+    # broken $(...) in a recipe COMMENT (make expands $() on recipe lines,
+    # comments included) fatally aborts `make init` yet ships green through the
+    # pure-Python run() tests above. Dry-run the target; assert it expands
+    # (exit 0) and that MINERU_BIN threads through to --mineru-bin. Gated on a
+    # make binary so it skips cleanly where none is installed.
+    import shutil
+    import subprocess
+
+    make = (
+        shutil.which("make")
+        or shutil.which("gmake")
+        or shutil.which("mingw32-make")
+    )
+    if not make:
+        pytest.skip("no make binary available")
+    repo_root = Path(__file__).resolve().parents[2]
+    out = subprocess.run(
+        [make, "-n", "init", "NOTEBOOK=demo", "MINERU_BIN=/x/m", "PYTHON=python3"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+    )
+    assert out.returncode == 0, f"`make init` failed to expand: {out.stderr}"
+    assert "--mineru-bin" in out.stdout
+
+
 # ---------------------------------------------------------------------------
 # notebook_fetch.py (AC #2, FM-4 rate-limit, FM-5 malformed)
 # ---------------------------------------------------------------------------

@@ -117,6 +117,37 @@ def test_invalid_paper_id_raises(tmp_path):
         notebook_pdf_parse.run("my-notebook", ["not a valid id!!"])
 
 
+def test_timeout_is_clean_per_paper_failure(tmp_path):
+    # H2 (arxmcp critique): run_mineru_sandboxed RE-RAISES
+    # subprocess.TimeoutExpired on the wall-clock cap; the CLI must aggregate it
+    # as a per-paper failure, not abort the batch. Two papers: the first times
+    # out, the second must still parse.
+    import subprocess
+
+    nb = _setup_nb(tmp_path)  # stages the 2602.24016 PDF
+    (nb / "pdfs" / "2401.00001.pdf").write_bytes(b"%PDF-1.4 fake")
+    calls = {"n": 0}
+
+    def _mineru(pdf_path, output_dir, timeout_s=None):
+        calls["n"] += 1
+        if "2602.24016" in str(pdf_path):
+            raise subprocess.TimeoutExpired(cmd="mineru", timeout=1)
+        return MagicMock()
+
+    with (
+        patch("tools.notebook_pdf_parse.notebook_dir", return_value=nb),
+        patch("tools.notebook_pdf_parse.run_mineru_sandboxed", side_effect=_mineru),
+        patch(
+            "tools.notebook_pdf_parse.render_mineru_to_html",
+            side_effect=_render_writes_index(),
+        ),
+    ):
+        rc = notebook_pdf_parse.run("my-notebook", ["2602.24016", "2401.00001"])
+    assert rc == 1  # the timed-out paper is recorded as a failure
+    assert calls["n"] == 2  # the batch CONTINUED to the second paper (no abort)
+    assert (nb / "parsed" / "2401.00001" / "index.html").is_file()  # 2nd parsed
+
+
 def test_main_no_paper_id_returns_2(capsys):
     rc = notebook_pdf_parse.main(["my-notebook"])
     assert rc == 2

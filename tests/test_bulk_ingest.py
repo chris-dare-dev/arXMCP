@@ -602,3 +602,31 @@ class TestDiagnoseEmptyRender:
             _diagnose_empty_render("2307.00002", tmp_path / "parsed")
             == "chunker_returned_empty"
         )
+
+    def test_chapter_render_is_structured(self, tmp_path):
+        # M2/L1: ltx_chapter is a structural signal (in the shared
+        # STRUCTURE_SIGNAL_CLASSES), so a chapter-only render is NOT mislabeled
+        # render_unchunkable_no_sections.
+        from ingest.bulk_ingest import _diagnose_empty_render
+
+        parsed_dir = tmp_path / "parsed"
+        self._write(
+            parsed_dir,
+            "2307.00003",
+            '<article class="ltx_document"><div class="ltx_chapter">'
+            '<math alttext="x"><mi>x</mi></math></div></article>',
+        )
+        assert (
+            _diagnose_empty_render("2307.00003", parsed_dir)
+            == "chunker_returned_empty"
+        )
+
+    def test_ac4_signal_set_is_single_source(self):
+        # M2/L1: both AC4 sites use ingest.chunker.STRUCTURE_SIGNAL_CLASSES so
+        # the ar5iv no-sections WARN and the bulk diagnostic cannot drift apart.
+        import ingest.ar5iv_fetch as a
+        import ingest.bulk_ingest as b
+        import ingest.chunker as c
+
+        assert a.STRUCTURE_SIGNAL_CLASSES is c.STRUCTURE_SIGNAL_CLASSES
+        assert b.STRUCTURE_SIGNAL_CLASSES is c.STRUCTURE_SIGNAL_CLASSES

@@ -1679,3 +1679,15 @@ class TestSectionLessFallback:
             chunks = _chunk_paper("2307.00001")
         kinds = {c.kind for c in chunks}
         assert kinds - {"section"}, f"expected structural kinds, got {kinds}"
+
+    def test_fallback_chunk_ids_are_deterministic(self, tmp_path):
+        # M4 (arxmcp critique): the 10-fixture expected_chunk_ids golden suite
+        # only covers sectioned papers, which never reach the fallback — nothing
+        # else pins the fallback's content-addressable chunk_ids. Two runs on
+        # the same input MUST produce identical ids; a future token-packing /
+        # MIN_BLOCK_CHARS change would otherwise silently invalidate cached
+        # embeddings (BP1) for every rescued paper with no failing test.
+        a = self._run(tmp_path / "a", "hep-th/0002037", self._SECTION_LESS_HTML)
+        b = self._run(tmp_path / "b", "hep-th/0002037", self._SECTION_LESS_HTML)
+        assert len(a) >= 1
+        assert [c.chunk_id for c in a] == [c.chunk_id for c in b]

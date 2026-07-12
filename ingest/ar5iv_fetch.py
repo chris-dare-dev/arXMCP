@@ -45,6 +45,7 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
+from ingest.chunker import STRUCTURE_SIGNAL_CLASSES
 from ingest.identifiers import is_valid_arxiv_paper_id
 
 logger = logging.getLogger(__name__)
@@ -297,13 +298,15 @@ def try_cache(
     parsed_path.write_text(body, encoding="utf-8")
 
     # ingest-robustness-m1 (AC4): a render can pass the <math> gate yet carry
-    # NO ltx_section/theorem/proof structure (LaTeXML sectioning failure on old
-    # formats, e.g. hep-th/0002037). The chunker's section-less fallback now
-    # recovers most of these, but flag it so an operator can route a residual
-    # math-only render to the PDF/MinerU path. Fresh-fetch path only (the
-    # local-cache early-return above never reads the body), so this is a
-    # secondary observability signal, not a per-run guarantee.
-    if not any(sig in body for sig in ("ltx_section", "ltx_theorem", "ltx_proof")):
+    # NO structural containers (LaTeXML sectioning failure on old formats, e.g.
+    # hep-th/0002037). The chunker's section-less fallback now recovers most of
+    # these, but flag it so an operator can route a residual math-only render to
+    # the PDF/MinerU path. The signal set is the chunker's own
+    # STRUCTURE_SIGNAL_CLASSES (M2/L1 — single source, cannot drift from the
+    # bulk_ingest diagnostic). Fresh-fetch path only (the local-cache
+    # early-return above never reads the body), so this is a secondary
+    # observability signal, not a per-run guarantee.
+    if not any(sig in body for sig in STRUCTURE_SIGNAL_CLASSES):
         logger.warning(
             "ar5iv: %s rendered with math but no ltx_section/theorem/proof "
             "structure — may be unchunkable; the PDF/MinerU path "

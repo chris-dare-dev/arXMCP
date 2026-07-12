@@ -476,7 +476,7 @@ init:
 	@# layer; this is belt-and-braces.
 	@[ -n "$(NOTEBOOK)" ] || { echo "ERROR: NOTEBOOK= required. Usage: make init NOTEBOOK=<slug> [EMAIL=<addr>] [MINERU_BIN=<path>]" >&2; exit 1; }
 	@# ingest-robustness-m1 AC3: also persist MINERU_BIN when given. make's
-	@# $(if $(strip ...)) emits each flag only when its var is non-empty, so
+	@# its conditional-flag idiom emits each flag only when its var is set, so
 	@# EMAIL and MINERU_BIN stay independent and correctly quoted.
 	@$(PYTHON) -m tools.notebook_init "$(NOTEBOOK)" $(if $(strip $(EMAIL)),--email "$(EMAIL)") $(if $(strip $(MINERU_BIN)),--mineru-bin "$(MINERU_BIN)")
 

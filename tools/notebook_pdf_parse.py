@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import subprocess
 import sys
 
 from ingest.identifiers import is_valid_paper_id
@@ -89,7 +90,12 @@ def _parse_one(
     try:
         result = run_mineru_sandboxed(pdf_path, output_dir, timeout_s=timeout_s)
         render_mineru_to_html(result, parsed_dir, paper_id)
-    except (RuntimeError, OSError) as exc:
+    except (RuntimeError, OSError, subprocess.TimeoutExpired) as exc:
+        # run_mineru_sandboxed RE-RAISES subprocess.TimeoutExpired on the
+        # wall-clock cap (ingest/textbook_parser.py) — the single most-likely
+        # per-paper failure. It subclasses SubprocessError (NOT RuntimeError /
+        # OSError), so it must be caught explicitly or one slow PDF aborts the
+        # whole batch instead of being aggregated as a per-paper failure.
         logger.error("[%s] parse failed: %s", paper_id, exc)
         return False
 

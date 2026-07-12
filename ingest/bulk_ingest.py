@@ -62,7 +62,7 @@ from ingest.ar5iv_fetch import (
     Ar5ivResult,
     try_cache,
 )
-from ingest.chunker import chunk_paper
+from ingest.chunker import STRUCTURE_SIGNAL_CLASSES, chunk_paper
 from ingest.embedder import embed_paper
 from ingest.identifiers import is_valid_arxiv_paper_id
 from ingest.store import DEFAULT_LANCEDB_PATH, load_embed_record, write_chunks
@@ -263,10 +263,11 @@ def _diagnose_empty_render(paper_id: str, parsed_dir: Path) -> str:
     except OSError:
         return "chunker_returned_empty"
     has_math = "<math" in body
-    has_structure = any(
-        sig in body
-        for sig in ("ltx_section", "ltx_theorem", "ltx_proof", "ltx_chapter")
-    )
+    # ingest-robustness-m1 M2/L1: the SAME signal set the ar5iv no-sections WARN
+    # uses (ingest.chunker.STRUCTURE_SIGNAL_CLASSES) — a single source derived
+    # from the chunker's real structural gates, so the two AC4 sites cannot
+    # drift apart.
+    has_structure = any(sig in body for sig in STRUCTURE_SIGNAL_CLASSES)
     if has_math and not has_structure:
         return "render_unchunkable_no_sections"
     return "chunker_returned_empty"
