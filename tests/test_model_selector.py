@@ -421,7 +421,9 @@ class TestRectificationGuards:
                 continue
             rel = py_file.relative_to(SERVER_DIR)
             # Allow the model ID strings ONLY in the SSoT module.
-            if str(rel) == _MODEL_SELECTOR_REL_PATH:
+            # as_posix(): str(rel) yields backslashes on Windows and
+            # would never match the forward-slash pin.
+            if rel.as_posix() == _MODEL_SELECTOR_REL_PATH:
                 continue
             text = py_file.read_text(encoding="utf-8")
             for line_no, line in enumerate(text.splitlines(), start=1):
