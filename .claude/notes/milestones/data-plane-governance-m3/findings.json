@@ -1,0 +1,110 @@
+{
+  "milestone_id": "data-plane-governance-m3",
+  "critique_format_version": "1.0",
+  "critique_files": [
+    "dedup.md"
+  ],
+  "generated_at": "2026-07-12T19:39:32Z",
+  "findings": {
+    "H1": {
+      "id": "H1",
+      "severity": "HIGH",
+      "title": "Diff exceeds 400 LOC (mandatory review-quality flag)",
+      "file": null,
+      "line": null,
+      "anchor": "",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Diff size (auto-finding)",
+      "source_file": "dedup.md",
+      "status": "invalidated",
+      "resolution": "concern already handled: diff-size auto-flag on a docs-only, planned + owner-approved change; review quality affirmatively discharged by both opus critics full factual re-verification; no code defect",
+      "history": [
+        {
+          "status": "invalidated",
+          "at": "2026-07-12T19:39:32Z",
+          "resolution": "concern already handled: diff-size auto-flag on a docs-only, planned + owner-approved change; review quality affirmatively discharged by both opus critics full factual re-verification; no code defect"
+        }
+      ]
+    },
+    "M1": {
+      "id": "M1",
+      "severity": "MEDIUM",
+      "title": "R5's Gates section does not reference the trust-language policy by path",
+      "file": ".claude/roadmap-briefs/R5-formal-target-registry.md",
+      "line": 138,
+      "anchor": "- **Exit:** every entry has zero non-all",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Acceptance coverage (AC3)",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "added trust-language-policy.md path-ref to R5 Exit gate, mirroring R3 (rect c08dd0c)",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-07-12T19:39:30Z",
+          "resolution": "added trust-language-policy.md path-ref to R5 Exit gate, mirroring R3 (rect c08dd0c)"
+        }
+      ]
+    },
+    "M2": {
+      "id": "M2",
+      "severity": "MEDIUM",
+      "title": "Comparator-stub `sorry` cited at wrong line (`Spec.lean:52` vs `:57`)",
+      "file": ".claude/docs/trust-language-policy.md",
+      "line": 80,
+      "anchor": "| 6 | **proof closure** | Are there no",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "Axis 2 \u2014 math/domain fidelity",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "replaced drift-prone cross-repo Spec.lean:52 with a drift-proof by-name/sibling-repo citation anchored on formalization.yaml sorry_count:1 (rect c08dd0c)",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-07-12T19:39:30Z",
+          "resolution": "replaced drift-prone cross-repo Spec.lean:52 with a drift-proof by-name/sibling-repo citation anchored on formalization.yaml sorry_count:1 (rect c08dd0c)"
+        }
+      ]
+    },
+    "L1": {
+      "id": "L1",
+      "severity": "LOW",
+      "title": "lean_verify code block reformats source if/elif/else as a ternary",
+      "file": ".claude/docs/trust-language-policy.md",
+      "line": 28,
+      "anchor": "status = \"error\" if has_error else \"sorr",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Correctness (factual fidelity)",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "replaced condensed ternary with the verbatim source if/elif/else (rect c08dd0c)",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-07-12T19:39:31Z",
+          "resolution": "replaced condensed ternary with the verbatim source if/elif/else (rect c08dd0c)"
+        }
+      ]
+    },
+    "L2": {
+      "id": "L2",
+      "severity": "LOW",
+      "title": "R5 evidence-ledger census omits the template's explicit Scope field",
+      "file": ".claude/roadmap-briefs/R5-formal-target-registry.md",
+      "line": 150,
+      "anchor": "> formalizations as a queryable API? **D",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Doc drift (template consistency)",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "added explicit Scope line to the R5 evidence-ledger census, matching the template + R4/R6 (rect c08dd0c)",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-07-12T19:39:31Z",
+          "resolution": "added explicit Scope line to the R5 evidence-ledger census, matching the template + R4/R6 (rect c08dd0c)"
+        }
+      ]
+    }
+  }
+}
