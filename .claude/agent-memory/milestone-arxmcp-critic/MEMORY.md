@@ -344,3 +344,56 @@ Synthesis FM-d "add_paper produces un-versioned IDs" was falsified by
 `tests/test_notebook_api.py:264`. Tests that seed the store with unversioned
 IDs directly via `store.add_paper()` do NOT exercise the route-path versioning.
 MEDIUM (silent dedup failure; fix is ≤5 LOC strip on the existing_ids side).
+
+## 2026-06-10 — textbook-markdown-chunker-m1 — second-chunker-shares-flag-divergent-error-envelope
+When a milestone adds a SECOND impl behind a single selector flag (here
+`--chunker {html,markdown}` routing to chunk_textbook vs
+chunk_textbook_markdown), diff the two impls' ERROR ENVELOPES, not just
+their happy paths. The HTML peer caught PER_PAPER_FAILURE_EXCEPTIONS and
+returned [] (batch-resilient); the new markdown one raised FileNotFoundError
+uncaught -> raw traceback aborts the whole multi-paper batch via run()->main()
+(main only catches NotebookError). Same flag, two contracts = MEDIUM. Always
+trace the new branch's exceptions up through run()/main() and compare to the
+sibling. Also: the selector WIRING (the `X if flag else Y` ternary + kwarg
+threading + argparse choice) is usually UNTESTED even when the new impl is
+unit-tested in isolation — grep `<flag_kwarg>=` in the route's test file;
+absence = the milestone's core deliverable (routing) ships uncovered. A
+dry_run=True monkeypatch-callee test is the lancedb-free guard.
+
+## 2026-06-10 — textbook-markdown-chunker-m1 — naive-dollar-parity-preserves-bytes-but-misgroups
+A hand-rolled `text.count("$")`/`count("$$")` parity (here _inline_math_open)
+for "is a math span open" is correct for clean MinerU math but WRONG for
+LaTeX-escaped `\$`, `$` inside ``` code fences, and inline-code spans. Verify
+the consequence class before assigning severity: probe live and check whether
+the bytes are PRESERVED (then it's chunk-boundary MIS-GROUPING / runaway-merge
+= MEDIUM granularity bug) vs DROPPED/CORRUPTED (= HIGH math fidelity). Here a
+lone `$PATH` in a fence merges following blocks and an unbalanced `$` swallows
+the doc tail into one oversized chunk, but body_text stays verbatim -> MEDIUM,
+not HIGH. Cheap mitigation to recommend: cap the merge-run length so one
+stray `$` can't swallow the whole remaining document.
+
+## 2026-06-10 — windows-workstation-test-failure-triage
+On this Windows workstation, ingest/store/server test "failures" are almost
+always pre-existing ENV artifacts, NOT milestone defects. Confirmed classes:
+ModuleNotFoundError 'lancedb' / 'prometheus_client' (optional deps absent),
+cp1252 UnicodeDecodeError from tests doing `path.read_text()` without
+encoding= over an ingest .py, and subprocess `\U` path-escape SyntaxError in
+test_chunker_ids F5-determinism. Triage by grepping the failure for these
+strings before attributing anything to the milestone. The new milestone's own
+narrow tests (run them in isolation) are the real signal.
+
+## 2026-06-21 — k3s-rancher-deploy-m1 — readonly-rootfs-first-exercise-vs-compose
+When a k8s/container milestone FIRST applies `readOnlyRootFilesystem:true`
+to an image, the prior Compose path almost never set `--read-only`, so the
+read-only posture is UNEXERCISED. Implementers + synthesis typically
+redirect ONLY the HuggingFace cache (HF_HOME) and miss other HOME-cache
+writers: MinerU (`~/.cache/mineru`, ingest/textbook_parser.py UI-parse path),
+fontconfig (`~/.cache/fontconfig`), matplotlib (`~/.config/matplotlib`),
+torch hub. Image runs as USER arxmcp HOME=/home/arxmcp on the RO rootfs →
+hard `OSError [Errno 30]` crash, not a degrade. Grep `~/.cache|HOME|XDG_`
+in server+ingest; flag MEDIUM. Fix = writable emptyDir at ~/.cache OR
+XDG_CACHE_HOME/MPLCONFIGDIR env (non-ARXMCP_ prefixed → safe vs
+extra="forbid"). Also: FastMCP("name",...) uses FastMCP's DEFAULT host
+(127.0.0.1), NOT ARXMCP_BIND_HOST — so 0.0.0.0 bind does NOT disable the
+/mcp TransportSecurity Host/Origin defense (verify at server/main.py FastMCP
+construction before flagging a "bind 0.0.0.0 kills inner defense" finding).

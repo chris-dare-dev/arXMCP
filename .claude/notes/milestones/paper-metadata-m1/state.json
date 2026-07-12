@@ -1,8 +1,8 @@
 {
   "id": "paper-metadata-m1",
   "created_at": "2026-07-06T02:37:30Z",
-  "updated_at": "2026-07-06T03:50:51Z",
-  "phase": "rectify-running",
+  "updated_at": "2026-07-06T03:54:46Z",
+  "phase": "complete",
   "phase_history": [
     {
       "phase": "init",
@@ -35,6 +35,10 @@
     {
       "phase": "rectify-running",
       "at": "2026-07-06T03:50:51Z"
+    },
+    {
+      "phase": "complete",
+      "at": "2026-07-06T03:54:46Z"
     }
   ],
   "milestone_brief": "# Milestone brief \u2014 paper-metadata-m1\r\n\r\n**Title:** Existing notebook hydrated with arXiv metadata\r\n**Kind:** milestone\r\n**Roadmap:** paper-metadata (plans/paper-metadata/roadmap.yaml)\r\n**Status:** planned\r\n**Lane:** now\r\n**Target:** 2026-07-06 -> 2026-07-17\r\n\r\n## Parent epic\r\n\r\n- paper-metadata-e1 \u2014 Metadata store + arXiv hydration\r\n  Per-notebook papers metadata store (SQLite, notebooks_store.py pattern) hydrated from the arXiv Atom API via tools/_arxiv_api.py at ingest, plus a backfill driver for already-populated notebooks \u2014 one vertical slice from external source to on-disk store, observable via a hydrated bridgeland-stability notebook.\r\n\r\n## Summary\r\n\r\n(none in roadmap \u2014 derive scope from the acceptance criteria)\r\n\r\n## Acceptance criteria\r\n\r\n1. Given the bridgeland-stability notebook, when the backfill driver runs, then >=95% of its arxiv-kind paper_ids have a metadata row with non-NULL title and authors\r\n2. Given a hydrated store, when the process restarts and the store is reopened cold, then metadata is served without touching the chunks table\r\n\r\n## Depends on\r\n\r\n- paper-metadata-spike-1 \u2014 Atom API field coverage across corpus ID shapes [status: planned]",
@@ -71,7 +75,7 @@
     "medium": 3,
     "low": 3
   },
-  "rectification_commit": null,
+  "rectification_commit": "eb10d16b5185f569d33d864cb01ec52089e1587a",
   "fixed_findings": [],
   "deferred_findings": [],
   "invalidated_findings": [],

@@ -1,3 +1,27 @@
+## 2026-06-21 — k3s-rancher-deploy-m1 — k8s-automount-service-account-token
+
+When reviewing a new Kubernetes Deployment in this repo, always check for
+`automountServiceAccountToken: false` at the pod spec level. The arXMCP server
+makes zero Kubernetes API calls; the default-mounted token is an unused credential
+that expands blast radius if the pod is compromised (Threat 3 vector). Flag absence
+as MEDIUM. Proposed fix: 1-line addition to `spec.template.spec` + 1-line assertion
+in `tests/test_k8s_manifests.py`. This is the canonical MEDIUM finding for k8s
+Deployments in this codebase.
+
+## 2026-06-21 — k3s-rancher-deploy-m1 — k8s-axis-mapping-for-compose-projects
+
+For k8s manifest critiques in this repo, the four Compose-oriented axes map as:
+1. Container hygiene → pod/container securityContext (non-root, readOnlyRootFilesystem,
+   allowPrivilegeEscalation, capabilities.drop, seccompProfile, resource limits, probes,
+   imagePullPolicy, automountServiceAccountToken).
+2. Compose correctness → manifest correctness (apiVersions, NodePort range, targetPort
+   name resolution, accessMode vs StorageClass, strategy vs PVC accessMode, label/selector
+   consistency across Deployment+Service+NetworkPolicy).
+3. Bind/exposure → NodePort exposure path; check both ARXMCP_UNSAFE_NETWORK_BIND presence
+   AND that admin/Privileged-Service LAN exposure is documented as a residual delta.
+4. Build/load scripts → set -euo pipefail (sh) / $ErrorActionPreference=Stop (ps1),
+   :latest guard, exit-code propagation, sudo scope.
+
 ## 2026-05-17 — E13_S03 — deploy-resources-swarm-only
 
 `deploy.resources.limits` in docker-compose files is a Swarm-only construct — it is

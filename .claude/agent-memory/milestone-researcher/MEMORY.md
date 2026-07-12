@@ -1,5 +1,28 @@
 # Milestone Researcher — Project Memory
 
+## 2026-06-22 — k3s-rancher-deploy-m1 — traefik-ingress-binds-lan-not-loopback
+Rancher Desktop's Traefik ingress exposes services on the WSL2 node IP (172.x/192.168.x), NOT
+127.0.0.1. Use NodePort + Rancher Desktop port-forward UI to land on 127.0.0.1:7733. Traefik
+Ingress requires explicit host-side binding doc or violates the loopback-only threat model.
+
+## 2026-06-22 — k3s-rancher-deploy-m1 — k3s-image-load-two-paths
+containerd mode: `nerdctl --address=/run/k3s/containerd/containerd.sock --namespace=k8s.io load`
+dockerd mode: tarball drop into `/var/lib/rancher/k3s/agent/images/` (auto-imported by k3s).
+`imagePullPolicy: Never` requires the image in `k8s.io` namespace specifically.
+
+## 2026-06-10 — textbook-markdown-chunker-m1 — parser-used-enum-must-be-extended-for-new-chunker
+`ingest/store.py::_ALLOWED_PARSER_USED = frozenset({"ar5iv", "latexml", "mineru+latexml"})` is
+validated at write time. Any new chunker introducing a new `parser_used` value MUST extend this
+frozenset or `write_chunks` raises `ValueError`. For the markdown chunker, add `"mineru+markdown"`.
+
+## 2026-06-08 — textbook-render-robustness-m1 — arxmcp-latexml-timeout-is-ingest-tool-var-not-server-config
+`ARXMCP_LATEXML_TIMEOUT_S` (and similarly `ARXMCP_MINERU_TIMEOUT_S`, `ARXMCP_MINERU_BIN`) are
+CLI/ingest-only vars. They must NOT be added as `server/config.py::Config` fields (server never
+calls LaTeXML/MinerU directly). They MUST be added to `_KNOWN_INGEST_ENV_VARS` in `server/main.py`
+or the server FATALs if the operator has them set in their shell. The carve-out dict is the correct
+mechanism; `ARXMCP_CONTACT_EMAIL` is the reference example.
+
+
 ## 2026-05-31 — notebook-paper-discovery-m4 — discover-async-core-not-sync-wrapper
 `tools/discover_for_notebook.py` exposes BOTH `discover_for_notebook_async(store, slug, ...)` (async,
 takes open store) AND `discover_for_notebook(slug, ...)` (sync wrapper that calls `asyncio.run`).
@@ -1448,3 +1471,11 @@ For dedup of discovery candidates: use `existing_ids = {row["paper_id"] for row 
 then `[c for c in candidates if c.paper_id not in existing_ids]`. Both `parse_atom_feed` and the
 `add_paper` route strip version suffix, so IDs align. Set-comprehension lookup is O(1); list
 comprehension preserves arXiv sort order. Do NOT use set difference — it does not preserve order.
+
+## 2026-06-08 — textbook-md-heading-sectioning-m1 — latexml-section-div-required-for-chunker
+`ingest/textbook_chunker.py` REQUIRES `ltx_section`/`ltx_chapter` divs in LaTeXML HTML to
+emit ANY chunks. The m6 docstring claim "prose-render fidelity is irrelevant to the chunker"
+was wrong. ATX headings MUST be converted to `\section{}`/`\subsection{}` in
+`_build_latex_wrapper` BEFORE passing to latexmlc. Math-in-heading escape must split on
+`$...$` spans and escape non-math segments only (FM-1: escaping `_` inside `$x_i$` corrupts
+the math).
