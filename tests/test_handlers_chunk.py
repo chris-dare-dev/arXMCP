@@ -65,9 +65,11 @@ def _chunk_arrow_v2(
     printed_number: str | None = "3.1",
     license_ref: str | None = "not-allowlisted-open",
 ) -> pa.Table:
-    """A HYDRATED (26-col) chunks-table Arrow result — the pre-v2 columns
-    plus the 5 source-truth-m2 columns. (``_chunk_arrow`` itself is the
-    UNMIGRATED 21-col case — the live ``-pdfs`` notebooks.)"""
+    """A HYDRATED (v2 / 26-col schema) chunks-table Arrow result — a minimal
+    stand-in carrying the base columns PLUS the 5 source-truth-m2 columns.
+    (``_chunk_arrow`` itself is the UNMIGRATED (pre-v2 schema) case — the 5
+    source-truth columns ABSENT, as on the live ``-pdfs`` notebooks. The
+    26/21 numbers name the real schema versions, not these fixtures' counts.)"""
     base = _chunk_arrow(
         chunk_id=chunk_id, body_text="body", license_token=license_token,
         paper_id="arxiv:2401.00001",

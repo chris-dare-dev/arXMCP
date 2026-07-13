@@ -353,6 +353,27 @@ class TestToolsSmoke:
         assert sc["found"] is True
         assert sc["chunk"]["chunk_id"] == cid
 
+    def test_get_chunk_source_truth_fields_survive_wire(self, warm_app):
+        """source-truth-m5 M1: the 5 source-truth fields must survive the
+        FastMCP wire serialization as EXPLICIT keys (null-preserving). A
+        future ``mcp`` bump adding ``exclude_none`` to ``convert_result``
+        would silently drop every nullable field, violating AC1 with the
+        handler-dict tests still green. The warm test corpus surfaces these
+        as null, so this asserts key-PRESENCE on the actual JSON-RPC wire,
+        not just in the handler return dict."""
+        cid = "arxiv:2401.00001:0000000000000000"
+        r = _call_tool(warm_app, "get_chunk", {"chunk_id": cid})
+        self._assert_envelope_ok(r, "get_chunk")
+        chunk = r.json()["result"]["structuredContent"]["chunk"]
+        for field in (
+            "source_revision_id", "source_span", "truncated",
+            "printed_number", "license_ref",
+        ):
+            assert field in chunk, (
+                f"{field} dropped from the get_chunk wire payload "
+                f"(exclude_none regression?)"
+            )
+
     def test_get_chunk_body_text_is_wrapped(self, warm_app):
         """F4 regression guard (E13_S02 adversary critique): the
         ``get_chunk`` handler wraps the returned ``body_text`` field

@@ -286,6 +286,27 @@ backfills `get_paper.abstract` (NULL at v1, byte-capped at 1024 chars),
 re-evaluate whether the license-truncation policy must extend to that
 surface for non-OA textbook chunks (m11 rect F4).
 
+## (h) get_chunk source-truth fields (source-truth-m5)
+
+`get_chunk`'s response `chunk` object carries 5 fields projected from the m2
+chunks schema v2 — `source_revision_id`, `source_span`, `truncated`,
+`printed_number`, `license_ref` — each an EXPLICIT `null` (never omitted) when
+the underlying column is NULL or absent (the 2 unmigrated `-pdfs` notebooks).
+`TOOL_SCHEMA_VERSION` bumped 17→18 (response-shape only; the GET_CHUNK
+description + inputSchema are unchanged, so `EXPECTED_TOOL_SCHEMA_SHA256`
+re-pins but `EXPECTED_BP1_SHA256` does NOT — same shape as §g's m11 change).
+
+**`chunk.truncated` is INGEST-time provenance** (was the stored body
+token-capped to `STMT_MAX_TOKENS` at chunk time) — NOT a served-body
+completeness signal. Whether the RETURNED text is complete is governed solely
+by the top-level, absent-when-false `truncated_for_license` (§g) and
+`body_truncated` (byte-cap) flags; `chunk.truncated` can disagree with them in
+both directions. **`license_ref`** carries the 3-way `license_status`
+(`eligible`/`not-allowlisted-open`/`unknown`) ADVISORY only — it does NOT drive
+serving/truncation until the owner-gated source-truth-m4 cutover.
+**`source_span`** is an opaque JSON string — surfaced verbatim, never re-parsed
+at serving time.
+
 ## Out of scope
 
 - LLM-generated summaries (permanently dropped — see section b).

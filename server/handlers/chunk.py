@@ -129,6 +129,13 @@ async def handle_get_chunk(
         "source_span": row.get("source_span"),
         "theorem_label": row["theorem_label"],
         "theorem_name": row["theorem_name"],
+        # source-truth-m5: INGEST-time provenance — was the STORED body
+        # token-capped to STMT_MAX_TOKENS at chunk time (ingest/schema.py).
+        # DISTINCT from the SERVING-time completeness flags: whether the
+        # RETURNED text is complete is governed solely by the top-level
+        # (absent-when-false) ``truncated_for_license`` + ``body_truncated``.
+        # An agent must NOT read ``chunk.truncated`` to judge whether the
+        # body it received is complete (they can disagree in both directions).
         "truncated": row.get("truncated"),
     }
 
