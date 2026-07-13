@@ -1,0 +1,89 @@
+{
+  "id": "source-truth-m5",
+  "created_at": "2026-07-13T21:34:36Z",
+  "updated_at": "2026-07-13T22:19:37Z",
+  "phase": "rectify-running",
+  "phase_history": [
+    {
+      "phase": "init",
+      "at": "2026-07-13T21:34:36Z"
+    },
+    {
+      "phase": "research-running",
+      "at": "2026-07-13T21:35:10Z"
+    },
+    {
+      "phase": "research-complete",
+      "at": "2026-07-13T21:47:40Z"
+    },
+    {
+      "phase": "implement-running",
+      "at": "2026-07-13T21:47:40Z"
+    },
+    {
+      "phase": "implement-complete",
+      "at": "2026-07-13T21:53:42Z"
+    },
+    {
+      "phase": "critique-running",
+      "at": "2026-07-13T21:54:12Z"
+    },
+    {
+      "phase": "critique-complete",
+      "at": "2026-07-13T22:16:04Z"
+    },
+    {
+      "phase": "rectify-running",
+      "at": "2026-07-13T22:16:27Z"
+    }
+  ],
+  "milestone_brief": "# Milestone brief \u2014 source-truth-m5\r\n\r\n**Title:** get_chunk surfaces source-truth fields (rides W1)\r\n**Kind:** milestone\r\n**Roadmap:** source-truth (plans/source-truth/roadmap.yaml)\r\n**Status:** planned\r\n**Lane:** next\r\n**Target:** 2026-08-31 -> 2026-09-11\r\n\r\n## Parent epic\r\n\r\n- source-truth-e2 \u2014 Chunk-level source truth: spans, truncation, printed numbers\r\n  Chunks-schema v2 rides ingest/store.py::_migrate_chunks_schema_if_needed with five columns (source_revision_id, source_span, truncated, printed_number, license_ref), the printed-number extractor, span anchoring computed from the existing parsed HTML (null-plus-reported fallback, no re-parse), and zero-re-embed backfill per the tools/notebook_metadata_backfill.py precedent. Vertical to the serving surface: get_chunk responses carry revision id, span-or-null, truncation status, and printed number, with field surfacing batched into agent-platform's W1 tool-schema window.\r\n\r\n## Summary\r\n\r\nget_chunk responses carry source revision id, span-or-null (explicit null, not omission), truncation status, printed number, and the per-revision license decision (advisory until the e4 cutover). The response-shape delta batches into agent-platform's W1 tool-schema re-pin window; if W1 never materializes, the documented fallback is a standalone TOOL_SCHEMA_VERSION re-pin.\r\n\r\n## Acceptance criteria\r\n\r\n1. Given any chunk in a hydrated notebook, when get_chunk is called, then the response carries source revision id, source span or an explicit null, truncation status, printed number, and a per-revision license decision\r\n2. Given the implemented response fields, when the schema delta is staged, then it ships inside agent-platform's W1 bundled TOOL_SCHEMA_VERSION re-pin, or as a documented standalone re-pin only if W1 never materializes\r\n\r\n## Depends on\r\n\r\n- source-truth-m2 \u2014 Chunks schema v2: spans, truncation, printed numbers persisted [status: planned]",
+  "brief_source": "roadmap plans/source-truth/roadmap.yaml",
+  "research_mode": "standard",
+  "oss_scout_requested": false,
+  "allow_large_diff": false,
+  "research_briefs": [
+    ".claude/notes/milestones/source-truth-m5/research/brief-1.md"
+  ],
+  "research_synthesis": ".claude/notes/milestones/source-truth-m5/research/synthesis.md",
+  "implementation_path": "inline",
+  "implementation_plan": null,
+  "implementation_base": "60de766d76f249bd53a81dd89f8dae821e5e6db9",
+  "implementation_commit_range": "60de766d76f249bd53a81dd89f8dae821e5e6db9..b92fcc7c56b631c1adc92f0b91ce9997bd608884",
+  "implementation_commits": [
+    "b92fcc7c56b631c1adc92f0b91ce9997bd608884"
+  ],
+  "implementation_branch": null,
+  "external_writes_required": [
+    "git push origin main"
+  ],
+  "critique_path": ".claude/notes/milestones/source-truth-m5/critique/dedup.md",
+  "critics_run": [
+    "milestone-adversary-critic",
+    "milestone-arxmcp-critic"
+  ],
+  "critique_files": [
+    "critique/adversary.md",
+    "critique/arxmcp.md"
+  ],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "medium": 2,
+    "low": 1
+  },
+  "findings_register": ".claude/notes/milestones/source-truth-m5/findings.json",
+  "rectification_commit": "55238ed549a3020939d518eabb07794cc7da3755",
+  "fixed_findings": [
+    "L1",
+    "M1",
+    "M2"
+  ],
+  "deferred_findings": [],
+  "invalidated_findings": [],
+  "regression_tests_added": [
+    "tests/test_tools_all.py"
+  ],
+  "external_writes_authorized": [],
+  "external_writes_completed": []
+}

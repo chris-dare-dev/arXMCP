@@ -1,0 +1,70 @@
+{
+  "milestone_id": "source-truth-m5",
+  "critique_format_version": "1.0",
+  "critique_files": [
+    "dedup.md"
+  ],
+  "generated_at": "2026-07-13T22:19:37Z",
+  "findings": {
+    "M1": {
+      "id": "M1",
+      "severity": "MEDIUM",
+      "title": "AC1 \"explicit null\" is unguarded at the wire-serialization boundary",
+      "file": "tests/test_handlers_chunk.py",
+      "line": 273,
+      "anchor": "def test_unmigrated_notebook_surfaces_ex",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Acceptance coverage",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "wire-level test_get_chunk_source_truth_fields_survive_wire pins null-survival past FastMCP convert_result (rect)",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-07-13T22:19:36Z",
+          "resolution": "wire-level test_get_chunk_source_truth_fields_survive_wire pins null-survival past FastMCP convert_result (rect)"
+        }
+      ]
+    },
+    "M2": {
+      "id": "M2",
+      "severity": "MEDIUM",
+      "title": "`chunk.truncated` overloads \"truncated\" against the serving-time flags",
+      "file": "server/handlers/chunk.py",
+      "line": 132,
+      "anchor": "\"truncated\": row.get(\"truncated\"),",
+      "source_critic": "milestone-adversary-critic + milestone-arxmcp-critic",
+      "source_axis": "Trust language (\u00a74.9)",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "disambiguating comment at chunk.truncated + snippet-contract section h; ingest-provenance vs serving-flags (rect)",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-07-13T22:19:36Z",
+          "resolution": "disambiguating comment at chunk.truncated + snippet-contract section h; ingest-provenance vs serving-flags (rect)"
+        }
+      ]
+    },
+    "L1": {
+      "id": "L1",
+      "severity": "LOW",
+      "title": "Fixture docstrings state column counts the fixtures do not have",
+      "file": "tests/test_handlers_chunk.py",
+      "line": 68,
+      "anchor": "\"\"\"A HYDRATED (26-col) chunks-table Arrow",
+      "source_critic": "milestone-adversary-critic + milestone-arxmcp-critic",
+      "source_axis": "Test hygiene",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "fixture docstrings reference schema version not literal fixture col count (rect)",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-07-13T22:19:37Z",
+          "resolution": "fixture docstrings reference schema version not literal fixture col count (rect)"
+        }
+      ]
+    }
+  }
+}
