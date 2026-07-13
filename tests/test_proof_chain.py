@@ -91,6 +91,7 @@ def graph_corpus(tmp_path: Path) -> dict:
 
     # F3 fixture-time assertion: edge wiring is what AC#7 depends on.
     db = kuzu.Database(str(kuzu_path))
+    conn = None
     try:
         conn = kuzu.Connection(db)
         edge_count_result = conn.execute(
@@ -113,7 +114,13 @@ def graph_corpus(tmp_path: Path) -> dict:
         while entry_cites_result.has_next():
             entry_direct_neighbors.add(entry_cites_result.get_next()[0])
     finally:
-        del db
+        # Explicit close releases kuzu's file lock deterministically (conn
+        # before db, nested so db.close() runs even if conn.close() raises).
+        try:
+            if conn is not None:
+                conn.close()
+        finally:
+            db.close()
 
     chunks_missing_paper = paper_ids[-1]
     # F3 guard: AC#7 relies on entry → missing-paper being a direct

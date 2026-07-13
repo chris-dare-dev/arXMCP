@@ -679,6 +679,62 @@ class TestCiteNeighborsReopenReleasesLock:
         assert {n.paper_id for n in first} == {P_B, P_C}
         assert {n.paper_id for n in second} == {P_B, P_C}
 
+    def test_cite_neighbors_closes_conn_then_db(
+        self, kuzu_db: Path, monkeypatch
+    ):
+        """Deterministic guard: cite_neighbors closes conn THEN db.
+
+        Unlike the reopen test above (which is timing-dependent and passes
+        even on pre-fix ``del db`` code under CPython refcounting), this spies
+        on ``kuzu.Database.close`` / ``kuzu.Connection.close`` and asserts both
+        were invoked, conn before db. Reverting to ``finally: del db`` (no
+        close), dropping either close, or reversing the order makes this RED
+        deterministically on every runtime, independent of GC semantics.
+        """
+        import server.graph_queries as gq
+
+        real_database = gq.kuzu.Database
+        real_connection = gq.kuzu.Connection
+        closed: list[str] = []
+
+        class _DBSpy:
+            def __init__(self, path):
+                self._real = real_database(path)
+
+            def close(self):
+                closed.append("db")
+                self._real.close()
+
+            def __getattr__(self, name):
+                return getattr(self._real, name)
+
+        class _ConnSpy:
+            def __init__(self, db):
+                self._real = real_connection(db._real)
+
+            def close(self):
+                closed.append("conn")
+                self._real.close()
+
+            def __getattr__(self, name):
+                return getattr(self._real, name)
+
+        monkeypatch.setattr(gq.kuzu, "Database", _DBSpy)
+        monkeypatch.setattr(gq.kuzu, "Connection", _ConnSpy)
+
+        _run(
+            cite_neighbors(
+                CHUNK_A,
+                depth=1,
+                direction="cites",
+                kuzudb_path=kuzu_db,
+                lancedb_path=None,
+            )
+        )
+
+        # Both handles closed (not leaked via del db), conn before db.
+        assert closed == ["conn", "db"], closed
+
 
 class TestPaperIdFromChunkId:
     def test_extracts_paper_id(self):
