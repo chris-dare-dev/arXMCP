@@ -65,6 +65,7 @@ def kuzu_db(tmp_path: Path) -> Path:
     db_path = tmp_path / "kuzu_test"
     kuzudb_schema.apply_schema(db_path)
     db = kuzu.Database(str(db_path))
+    conn = None
     try:
         conn = kuzu.Connection(db)
         for pid in ALL_PAPERS:
@@ -90,7 +91,13 @@ def kuzu_db(tmp_path: Path) -> Path:
                 confidence=1.0,
             )
     finally:
-        del db
+        # Explicit close releases kuzu's file lock deterministically (conn
+        # before db, nested so db.close() runs even if conn.close() raises).
+        try:
+            if conn is not None:
+                conn.close()
+        finally:
+            db.close()
     return db_path
 
 
@@ -616,6 +623,61 @@ class TestE09S03RectificationGuards:
                 )
             )
         assert "direction" in str(excinfo.value)
+
+
+class TestCiteNeighborsReopenReleasesLock:
+    """Behavioral guard for the kuzu 0.11.3 close-discipline fix.
+
+    Two ``cite_neighbors`` calls against the SAME ``kuzudb_path`` in ONE
+    process must not raise kuzu's ``RuntimeError: ... Could not set lock on
+    file`` — the first call must release the DB lock (explicit conn-then-db
+    close) before the second reopens it.
+
+    Honesty note (verified this session on CPython 3.11, Windows): because
+    ``cite_neighbors`` binds ``db``/``conn`` as locals with no reference cycle,
+    CPython refcounting frees them at function return, so this happy-path
+    double-call does NOT by itself reproduce the pre-fix lock leak here — it
+    passed on reverted ``del db`` code too. The deterministic failure needs a
+    live ``kuzu.Connection`` to outlive the reopen (a retained traceback
+    pinning the frame, or a non-refcounting runtime such as PyPy); the explicit
+    close makes that impossible regardless. This test therefore guards the
+    reopen contract and the close discipline; the fix's correctness rests on
+    matching the proven deterministic-close idiom from
+    ``adhoc-20260712-955c958`` and kuzu's documented close-before-db ordering.
+    POSIX advisory locks tolerate same-process overlap, so the assertion is a
+    no-op there. See milestone ``adhoc-20260712-698fead``.
+    """
+
+    def test_second_call_same_path_does_not_lock(self, kuzu_db: Path):
+        first = _run(
+            cite_neighbors(
+                CHUNK_A,
+                depth=1,
+                direction="cites",
+                kuzudb_path=kuzu_db,
+                lancedb_path=None,
+            )
+        )
+        # Back-to-back reopen with minimal intervening work — the tightest
+        # window for a leaked lock to still be held on Windows pre-fix.
+        try:
+            second = _run(
+                cite_neighbors(
+                    CHUNK_A,
+                    depth=1,
+                    direction="cites",
+                    kuzudb_path=kuzu_db,
+                    lancedb_path=None,
+                )
+            )
+        except RuntimeError as exc:
+            pytest.fail(
+                "cite_neighbors did not release the kuzu file lock across "
+                f"two same-process calls: {exc}"
+            )
+        # Both reopens resolve the same 5-paper graph identically.
+        assert {n.paper_id for n in first} == {P_B, P_C}
+        assert {n.paper_id for n in second} == {P_B, P_C}
 
 
 class TestPaperIdFromChunkId:

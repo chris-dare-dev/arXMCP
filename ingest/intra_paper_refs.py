@@ -346,6 +346,7 @@ def ingest(
     # 50 papers, 10×–100× wall-clock overhead at production scale.
     chunks_table = _open_chunks_table_or_none(lancedb_path)
     db = kuzu.Database(str(db_path))
+    conn = None
     try:
         conn = kuzu.Connection(db)
         state = _load_checkpoint(checkpoint_path)
@@ -385,7 +386,13 @@ def ingest(
         _flush_state(state, processed, edges_added, parse_failures, checkpoint_path)
         return state
     finally:
-        del db
+        # Explicit close releases kuzu's file lock deterministically (conn
+        # before db, nested so db.close() runs even if conn.close() raises).
+        try:
+            if conn is not None:
+                conn.close()
+        finally:
+            db.close()
 
 
 def _flush_state(

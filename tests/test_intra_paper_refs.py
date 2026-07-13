@@ -130,6 +130,7 @@ def kuzu_db(tmp_path: Path) -> Path:
     db_path = tmp_path / "kuzu_test"
     kuzudb_schema.apply_schema(db_path)
     db = kuzu.Database(str(db_path))
+    conn = None
     try:
         conn = kuzu.Connection(db)
         for pid in (P_HAS_REFS, P_NO_REFS, P_MISSING_HTML):
@@ -138,7 +139,13 @@ def kuzu_db(tmp_path: Path) -> Path:
                 {"id": pid, "t": f"Title-{pid}"},
             )
     finally:
-        del db
+        # Explicit close releases kuzu's file lock deterministically (conn
+        # before db, nested so db.close() runs even if conn.close() raises).
+        try:
+            if conn is not None:
+                conn.close()
+        finally:
+            db.close()
     return db_path
 
 
@@ -250,6 +257,7 @@ class TestIngest:
             checkpoint_path=checkpoint_path,
         )
         db = kuzu.Database(str(kuzu_db))
+        conn = None
         try:
             conn = kuzu.Connection(db)
             r = conn.execute(
@@ -261,7 +269,13 @@ class TestIngest:
             while r.has_next():
                 edges.append(tuple(r.get_next()))
         finally:
-            del db
+            # Explicit close releases kuzu's file lock deterministically (conn
+            # before db, nested so db.close() runs even if conn.close() raises).
+            try:
+                if conn is not None:
+                    conn.close()
+            finally:
+                db.close()
         # Exactly one self-edge: P_HAS_REFS -> P_HAS_REFS.
         assert edges == [(P_HAS_REFS, P_HAS_REFS, pytest.approx(1.0))]
 
@@ -280,6 +294,7 @@ class TestIngest:
             checkpoint_path=checkpoint_path,
         )
         db = kuzu.Database(str(kuzu_db))
+        conn = None
         try:
             conn = kuzu.Connection(db)
             count = conn.execute(
@@ -287,7 +302,13 @@ class TestIngest:
                 "RETURN COUNT(*)"
             ).get_next()[0]
         finally:
-            del db
+            # Explicit close releases kuzu's file lock deterministically (conn
+            # before db, nested so db.close() runs even if conn.close() raises).
+            try:
+                if conn is not None:
+                    conn.close()
+            finally:
+                db.close()
         assert count == 0
 
     def test_missing_html_recorded_as_parse_failure(
@@ -329,6 +350,7 @@ class TestIngest:
             checkpoint_path=checkpoint_path,
         )
         db = kuzu.Database(str(kuzu_db))
+        conn = None
         try:
             conn = kuzu.Connection(db)
             count = conn.execute(
@@ -336,7 +358,13 @@ class TestIngest:
                 "RETURN COUNT(*)"
             ).get_next()[0]
         finally:
-            del db
+            # Explicit close releases kuzu's file lock deterministically (conn
+            # before db, nested so db.close() runs even if conn.close() raises).
+            try:
+                if conn is not None:
+                    conn.close()
+            finally:
+                db.close()
         # Exactly one edge survives — MERGE upsert is idempotent.
         assert count == 1
 

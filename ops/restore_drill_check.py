@@ -137,6 +137,8 @@ def smoke_check_kuzu(restore_path: Path) -> int | None:
     except ImportError:
         logger.warning("restore_drill: kuzu module not importable")
         return None
+    db = None
+    conn = None
     try:
         db = kuzu.Database(str(kuzu_path))
         conn = kuzu.Connection(db)
@@ -150,6 +152,18 @@ def smoke_check_kuzu(restore_path: Path) -> int | None:
         raise RuntimeError(
             f"restored Kùzu DB at {kuzu_path} is unreadable: {exc}"
         ) from exc
+    finally:
+        # Explicit close releases kuzu's file lock deterministically (conn
+        # before db, nested so db.close() runs even if conn.close() raises).
+        # BOTH guarded with ``is not None``: ``kuzu.Database()`` is inside the
+        # try, so an open failure must still surface as the RuntimeError above,
+        # not an UnboundLocalError from an unconditional db.close().
+        try:
+            if conn is not None:
+                conn.close()
+        finally:
+            if db is not None:
+                db.close()
     logger.info(
         "restore_drill: Kùzu ok (%d papers)", paper_count
     )

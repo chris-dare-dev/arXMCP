@@ -370,13 +370,20 @@ async def cite_neighbors(
     paper_id = paper_id_from_chunk_id(chunk_id)
 
     db = kuzu.Database(str(Path(kuzudb_path)))
+    conn = None
     try:
         conn = kuzu.Connection(db)
         rows = await asyncio.to_thread(
             _execute_traversal, conn, paper_id, direction, depth
         )
     finally:
-        del db
+        # Explicit close releases kuzu's file lock deterministically (conn
+        # before db, nested so db.close() runs even if conn.close() raises).
+        try:
+            if conn is not None:
+                conn.close()
+        finally:
+            db.close()
 
     # Dedupe by paper_id, keeping the smallest hop_distance.
     # Each entry is (hop_distance, source, confidence, edge_kind).
