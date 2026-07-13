@@ -55,6 +55,32 @@ def _chunk_arrow(
     })
 
 
+def _chunk_arrow_v2(
+    *,
+    chunk_id: str = _OA_ID,
+    license_token: str | None = "arxiv-license",
+    source_revision_id: str | None = "2401.00001",
+    source_span: str | None = '{"id":"","rev":"9e729a","txt":"95e9c2"}',
+    truncated: bool | None = False,
+    printed_number: str | None = "3.1",
+    license_ref: str | None = "not-allowlisted-open",
+) -> pa.Table:
+    """A HYDRATED (26-col) chunks-table Arrow result — the pre-v2 columns
+    plus the 5 source-truth-m2 columns. (``_chunk_arrow`` itself is the
+    UNMIGRATED 21-col case — the live ``-pdfs`` notebooks.)"""
+    base = _chunk_arrow(
+        chunk_id=chunk_id, body_text="body", license_token=license_token,
+        paper_id="arxiv:2401.00001",
+    )
+    cols = {name: base.column(name) for name in base.column_names}
+    cols["source_revision_id"] = pa.array([source_revision_id], type=pa.utf8())
+    cols["source_span"] = pa.array([source_span], type=pa.utf8())
+    cols["truncated"] = pa.array([truncated], type=pa.bool_())
+    cols["printed_number"] = pa.array([printed_number], type=pa.utf8())
+    cols["license_ref"] = pa.array([license_ref], type=pa.utf8())
+    return pa.table(cols)
+
+
 @pytest.fixture
 def res(monkeypatch: pytest.MonkeyPatch):
     """Install a fake Resources whose chunks_table returns a settable
@@ -220,3 +246,66 @@ class TestGetChunkLicenseTruncation:
         r300 = _get(res, chunk_id=_NONOA_ID, body_text=body_300, license_token="author-distributed")
         assert _inner(r300["chunk"]["body_text"]) == body_300
         assert "truncated_for_license" not in r300
+
+
+class TestGetChunkSourceTruthFields:
+    """source-truth-m5: get_chunk surfaces the 5 m2 chunks-schema-v2 fields,
+    explicit-null when the column is NULL (abstained) or absent (an
+    unmigrated notebook) — never omitted, never a 500."""
+
+    _FIVE = (
+        "source_revision_id", "source_span", "truncated",
+        "printed_number", "license_ref",
+    )
+
+    def test_hydrated_notebook_surfaces_all_five(self, res) -> None:
+        res["holder"]["arrow"] = _chunk_arrow_v2()
+        r = _run(handle_get_chunk(chunk_id=_OA_ID))
+        chunk = r["chunk"]
+        for f in self._FIVE:
+            assert f in chunk, f"{f} must be present"
+        assert chunk["source_revision_id"] == "2401.00001"
+        assert chunk["source_span"] == '{"id":"","rev":"9e729a","txt":"95e9c2"}'
+        assert chunk["truncated"] is False
+        assert chunk["printed_number"] == "3.1"
+        assert chunk["license_ref"] == "not-allowlisted-open"
+
+    def test_unmigrated_notebook_surfaces_explicit_null(self, res) -> None:
+        """The pre-m2 (21-col) fixture: the 5 columns are ABSENT from the
+        Arrow row (the live ``-pdfs`` notebooks). ``row.get()`` must degrade
+        to explicit null, never a KeyError/500 (the m5 landmine)."""
+        res["holder"]["arrow"] = _chunk_arrow(
+            chunk_id=_OA_ID, body_text="body", license_token="arxiv-license",
+        )
+        r = _run(handle_get_chunk(chunk_id=_OA_ID))
+        assert r["found"] is True
+        chunk = r["chunk"]
+        for f in self._FIVE:
+            assert f in chunk, f"{f} must be present even when the column is absent"
+            assert chunk[f] is None, f"{f} must be explicit null on an unmigrated notebook"
+
+    def test_hydrated_but_null_source_span_is_explicit_null(self, res) -> None:
+        """An abstained span (backfill couldn't re-anchor) on a hydrated
+        notebook: column present, value NULL -> explicit null, key present."""
+        res["holder"]["arrow"] = _chunk_arrow_v2(source_span=None, printed_number=None)
+        chunk = _run(handle_get_chunk(chunk_id=_OA_ID))["chunk"]
+        assert "source_span" in chunk and chunk["source_span"] is None
+        assert "printed_number" in chunk and chunk["printed_number"] is None
+        assert chunk["source_revision_id"] == "2401.00001"  # still populated
+
+    def test_license_ref_is_advisory_not_wired_to_truncation(self, res) -> None:
+        """AC3: ``license_ref`` is ADVISORY. An OA chunk (``license`` token
+        allowlisted) whose ``license_ref`` is ``not-allowlisted-open`` still
+        returns its FULL body — the m4 cutover is NOT wired here; serving is
+        driven only by the ``license`` token."""
+        big = "z" * 500
+        arrow = _chunk_arrow_v2(
+            license_token="arxiv-license", license_ref="not-allowlisted-open",
+        )
+        cols = {name: arrow.column(name) for name in arrow.column_names}
+        cols["body_text"] = pa.array([big], type=pa.utf8())
+        res["holder"]["arrow"] = pa.table(cols)
+        r = _run(handle_get_chunk(chunk_id=_OA_ID))
+        assert _inner(r["chunk"]["body_text"]) == big  # full body, not truncated
+        assert "truncated_for_license" not in r
+        assert r["chunk"]["license_ref"] == "not-allowlisted-open"

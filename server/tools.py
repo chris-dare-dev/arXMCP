@@ -165,7 +165,17 @@ logger = logging.getLogger(__name__)
 #: and EXPECTED_BP1_SHA256 re-pin (BP1 hashes {name, description}).
 #: The get_paper INPUT schema is unchanged (roadmap paper-metadata
 #: wont-clause: "no change to the get_paper input schema").
-TOOL_SCHEMA_VERSION: int = 17
+#: v18: source-truth-m5 — get_chunk's RESPONSE envelope grows 5
+#: source-truth fields (source_revision_id, source_span, truncated,
+#: printed_number, license_ref) projected from the m2 chunks schema v2,
+#: each explicit-null when the column is NULL or absent (an unmigrated
+#: notebook). ``license_ref`` is ADVISORY (the 3-way license_status),
+#: NOT wired into serving until source-truth-m4. Response-shape change
+#: only — the GET_CHUNK ToolMeta description and inputSchema are
+#: UNCHANGED, so EXPECTED_TOOL_SCHEMA_SHA256 re-pins (via the
+#: ``_meta.tool_schema_version`` echo) but EXPECTED_BP1_SHA256 does NOT
+#: (same shape as v16).
+TOOL_SCHEMA_VERSION: int = 18
 
 #: URI scheme for chunk resource_links per the design note. Used by
 #: handlers that switch to resource_link mode when payloads exceed

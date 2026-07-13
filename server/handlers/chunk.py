@@ -105,11 +105,31 @@ async def handle_get_chunk(
         # m11: surface the license token so an agent can see WHY a body
         # was (or was not) license-truncated.
         "license": license_token,
+        # source-truth-m5: the m2 per-revision license DECISION
+        # (eligible / not-allowlisted-open / unknown) — ADVISORY ONLY.
+        # It is NOT wired into the license-truncation gate above; that
+        # cutover is source-truth-m4 (owner-gated). Distinct from the
+        # ``license`` token, which drives today's serving behavior.
+        "license_ref": row.get("license_ref"),
         "paper_id": row["paper_id"],
         "preamble_ref": row["preamble_ref"],
+        "printed_number": row.get("printed_number"),
         "section_path": list(row["section_path"]) if row["section_path"] else [],
+        # source-truth-m5: revision-grained provenance from the m2 chunks
+        # schema v2. Read via ``row.get`` (NOT ``row[...]``): the 2 live
+        # ``-pdfs`` notebooks are still on the pre-m2 21-column schema, so
+        # these columns are ABSENT from their Arrow rows and bracket-indexing
+        # would 500. An explicit ``null`` is the correct AC1 surface for
+        # BOTH an unmigrated notebook AND a hydrated-but-abstained
+        # ``source_span`` (the backfill couldn't re-anchor). Per §4.9 those
+        # two epistemic states collapse to one ``null`` here — the
+        # reason-code distinction lives only in m2's offline backfill
+        # report, out of m5's serving scope.
+        "source_revision_id": row.get("source_revision_id"),
+        "source_span": row.get("source_span"),
         "theorem_label": row["theorem_label"],
         "theorem_name": row["theorem_name"],
+        "truncated": row.get("truncated"),
     }
 
     payload = {
