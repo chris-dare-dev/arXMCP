@@ -16,6 +16,7 @@ Coverage checklist (from milestone brief):
   [x] theorem with display name
   [x] theorem with custom label
   [x] auto-id-only theorem (theorem_label=None)
+  [x] section-less auto-id theorem (theorem_label=None)
   [x] proof window splitting at 448-token budget
   [x] orphan proof (no preceding theorem sibling)
   [x] unmatched theorem (no proof)
@@ -507,6 +508,91 @@ class TestTheoremLabelExtraction:
     def test_multi_section_auto_id_returns_none(self):
         tag = self._make_div("S3.SS2.Thmproposition1")
         assert _extract_theorem_label(tag) is None
+
+    def test_sectionless_auto_id_returns_none(self):
+        # Real LaTeXML section-less auto-id (theorem numbered independently of
+        # the section counter). Observed on a ltx_theorem_defi div at
+        # var/arxmcp/corpus/parsed/0708.2247/index.html:468.
+        tag = self._make_div("Thmdefix1")
+        assert _extract_theorem_label(tag) is None
+
+    def test_sectionless_auto_id_multichar_env_returns_none(self):
+        # Observed on a ltx_theorem_thm2 div at 0708.2247/index.html:625.
+        tag = self._make_div("Thmthm2x1")
+        assert _extract_theorem_label(tag) is None
+
+    def test_sectionless_auto_id_empty_env_returns_none(self):
+        # env-less counter form ``Thmx<N>`` (observed in corpus 1409.6128).
+        tag = self._make_div("Thmx1")
+        assert _extract_theorem_label(tag) is None
+
+    def test_custom_label_ending_in_digit_still_returned(self):
+        # Guard against over-capture from making the section prefix optional:
+        # a genuine \label{} key that ends in a digit but does NOT start with
+        # ``Thm`` must still be returned (this is fixture 2307.00001's label).
+        tag = self._make_div("myresult1")
+        assert _extract_theorem_label(tag) == "myresult1"
+
+
+# ===========================================================================
+# TestSectionlessAutoIdLabel — regression for section-prefix-optional _AUTO_ID_RE
+# ===========================================================================
+
+
+class TestSectionlessAutoIdLabel:
+    """Section-less LaTeXML theorem auto-ids must not become fake labels.
+
+    Real LaTeXML output contains ``ltx_theorem`` divs whose auto-generated
+    ``id`` lacks the ``S<N>.`` section prefix — e.g. ``id="Thmdefix1"`` /
+    ``id="Thmthm2x1"`` — for theorem environments numbered independently of the
+    section counter (~728 such divs across 57 of 172 parsed papers; the two ids
+    below are lifted verbatim from
+    ``var/arxmcp/corpus/parsed/0708.2247/index.html`` lines 468 and 625). These
+    are NOT user ``\\label{}`` keys, so the emitted chunk's ``theorem_label``
+    must be ``None``. Follows the chunker-fixture discipline in
+    ``.claude/docs/chunker-fixtures.md`` (direct-assertion pattern, since the
+    golden fixture suite pins only chunk_ids/kinds, and ``_compute_chunk_id``
+    is independent of ``theorem_label``).
+    """
+
+    # env names ``defi`` / ``thm2`` are not in _THEOREM_ENV_KINDS, so both fall
+    # back to kind="stmt" (matching the real paper's custom \newtheorem envs).
+    HTML = """<!DOCTYPE html><html><body>
+    <article class="ltx_document">
+      <section class="ltx_section" id="S2">
+        <h2 class="ltx_title ltx_title_section">2. Tilting</h2>
+        <div id="Thmdefix1" class="ltx_theorem ltx_theorem_defi">
+          <h6 class="ltx_title ltx_runin ltx_title_theorem">
+            <span class="ltx_tag ltx_tag_theorem">Definition</span> ([HRS96]).
+          </h6>
+          <div class="ltx_para"><p class="ltx_p">A torsion pair is defined as follows.</p></div>
+        </div>
+        <div id="Thmthm2x1" class="ltx_theorem ltx_theorem_thm2">
+          <h6 class="ltx_title ltx_runin ltx_title_theorem">Theorem.</h6>
+          <div class="ltx_para"><p class="ltx_p">The tilted category is again abelian.</p></div>
+        </div>
+      </section>
+    </article>
+    </body></html>"""
+
+    def test_sectionless_auto_id_labels_are_none(self):
+        chunks = _chunks_from_html(self.HTML)
+        stmt_chunks = [c for c in chunks if c.kind == "stmt"]
+        assert len(stmt_chunks) == 2, (
+            "expected 2 stmt chunks from the two section-less theorem divs, "
+            f"got {[(c.kind, c.theorem_label) for c in chunks]}"
+        )
+        for chunk in stmt_chunks:
+            assert chunk.theorem_label is None, (
+                f"section-less auto-id leaked as a label: {chunk.theorem_label!r}"
+            )
+
+    def test_sectionless_auto_id_never_leaks_as_label(self):
+        # No emitted chunk of any kind may carry a ``Thm...`` LaTeXML auto-id
+        # as its theorem_label — the pre-fix bug set theorem_label="Thmdefix1".
+        chunks = _chunks_from_html(self.HTML)
+        leaked = [c.theorem_label for c in chunks if (c.theorem_label or "").startswith("Thm")]
+        assert leaked == [], f"auto-ids leaked as labels: {leaked}"
 
 
 # ===========================================================================

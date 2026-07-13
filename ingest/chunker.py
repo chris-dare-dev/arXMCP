@@ -97,8 +97,18 @@ STMT_MAX_TOKENS = 1920
 
 # Matches ltx_theorem_<envname> on a div — captures the environment name.
 _THEOREM_CLASS_RE = re.compile(r"\bltx_theorem_(\w+)\b")
-# Auto-generated LaTeXML id pattern: S<N>.Thm<word><N>
-_AUTO_ID_RE = re.compile(r"^S\d+(?:\.SS\d+)*(?:\.SSS\d+)*\.Thm\w+\d+$")
+# Auto-generated LaTeXML id pattern: ``[S<N>[.SS<N>[.SSS<N>]].]Thm<word><N>``.
+# The section-number prefix is OPTIONAL. LaTeXML also emits *section-less*
+# auto-ids like ``Thmdefix1`` / ``Thmthm2x1`` / ``Thmx1`` when a theorem
+# environment is numbered independently of the section counter (a global
+# amsthm counter, or an env appearing where the section counter has not
+# incremented). Verified against real corpus output —
+# ``var/arxmcp/corpus/parsed/0708.2247/index.html`` (``Thmdefix1``,
+# ``Thmthm2x1``) and ``1409.6128`` (``Thmx1``); ~728 such divs across 57 of
+# 172 parsed papers. Before the prefix was made optional these section-less
+# auto-ids failed to match and ``_extract_theorem_label`` mis-read them as
+# genuine ``\label{}`` keys.
+_AUTO_ID_RE = re.compile(r"^(?:S\d+(?:\.SS\d+)*(?:\.SSS\d+)*\.)?Thm\w+\d+$")
 # Parenthetical display name inside theorem heading: Theorem 3.1 (Name)
 _PAREN_NAME_RE = re.compile(r"\(([^)]+)\)")
 
@@ -419,8 +429,12 @@ def _extract_theorem_label(tag: Tag) -> str | None:
     """Extract a user-supplied ``\\label{}`` key from the LaTeXML ``id``.
 
     LaTeXML incorporates the user's label key into the element ``id`` when one
-    is present, and generates an auto-id of the form ``S<N>.Thm<envname><N>``
-    when no ``\\label{}`` is given.  Return ``None`` for auto-generated ids.
+    is present, and otherwise generates an auto-id.  The auto-id normally
+    carries a section-number prefix (``S<N>.Thm<envname><N>``) but LaTeXML also
+    emits *section-less* auto-ids (``Thm<envname><N>`` — e.g. ``Thmdefix1``,
+    ``Thmx1``) for theorem environments numbered independently of the section
+    counter.  Both forms match ``_AUTO_ID_RE``; return ``None`` for either so a
+    section-less auto-id is never mistaken for a genuine ``\\label{}`` key.
     """
     elem_id = tag.get("id")
     if not elem_id:
