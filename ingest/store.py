@@ -316,6 +316,17 @@ def load_embed_record(paper_id: str) -> EmbedRecord | None:
 #: ambiguity in downstream filters) is resolved here by backfilling
 #: ``source_kind`` + ``license`` with explicit tokens rather than
 #: leaving NULL.
+#: source-truth-m2 (chunks schema v2) extends this same dict with the
+#: five new columns — all NULL-defaulted (no arXiv token to backfill; the
+#: registry-derived values are hydrated later by the separately-invoked
+#: ``tools/notebook_chunks_backfill.py``, and ``truncated`` /
+#: ``printed_number`` are only known per-chunk, not as a table-wide SQL
+#: default). ``truncated`` is the one boolean; ``cast(NULL as boolean)``
+#: was spike-4-proven to ride the identical single-loop ``add_columns``
+#: mechanism, so no struct branch or schema-based ``add_columns`` form is
+#: needed for any of the five. The dict name keeps its ``_TEXTBOOK_``
+#: prefix for continuity with the shipped migration; it is now the
+#: canonical "all post-v1 chunks columns" default map.
 _TEXTBOOK_MIGRATION_DEFAULTS: dict[str, str] = {
     "source_kind": "cast('arxiv' as string)",
     "license": "cast('arxiv-license' as string)",
@@ -324,6 +335,12 @@ _TEXTBOOK_MIGRATION_DEFAULTS: dict[str, str] = {
     "page_end": "cast(NULL as int)",
     "textbook_slug": "cast(NULL as string)",
     "parser_used": "cast(NULL as string)",
+    # source-truth-m2 chunks schema v2:
+    "source_revision_id": "cast(NULL as string)",
+    "source_span": "cast(NULL as string)",
+    "truncated": "cast(NULL as boolean)",
+    "printed_number": "cast(NULL as string)",
+    "license_ref": "cast(NULL as string)",
 }
 
 
@@ -337,10 +354,10 @@ def _migrate_chunks_schema_if_needed(tbl) -> list[str]:
     existing rows: ``source_kind="arxiv"``, ``license="arxiv-license"``,
     everything else ``NULL``.
 
-    Idempotent — when all 7 textbook columns are already present
-    (i.e. the table has been migrated previously or was created fresh
-    against the new schema), returns an empty list and skips the
-    LanceDB call.
+    Idempotent — when all 12 post-v1 columns (7 textbook-ingest-m2 +
+    5 source-truth-m2) are already present (i.e. the table has been
+    migrated previously or was created fresh against the new schema),
+    returns an empty list and skips the LanceDB call.
 
     Returns the list of column names that were added (empty when no
     migration was needed).
@@ -559,6 +576,20 @@ def _build_arrow_table(
                 "page_end": chunk.page_end,
                 "textbook_slug": chunk.textbook_slug,
                 "parser_used": chunk.parser_used,
+                # source-truth-m2 (chunks schema v2). ``truncated`` and
+                # ``printed_number`` are chunker-native: persist the values
+                # already on the ChunkRecord (``truncated`` was previously
+                # dropped here — the exact silent-drop the milestone closes).
+                # The three registry-derived columns stay NULL on a new
+                # write — no new-ingest driver consults the per-notebook
+                # documents registry yet (forward-wiring is a tracked
+                # fast-follow); they are hydrated on existing rows by the
+                # separately-invoked ``tools/notebook_chunks_backfill.py``.
+                "truncated": chunk.truncated,
+                "printed_number": chunk.printed_number,
+                "source_revision_id": None,
+                "source_span": None,
+                "license_ref": None,
             }
         )
     return pa.Table.from_pylist(rows, schema=CHUNKS_SCHEMA_V1)

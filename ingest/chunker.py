@@ -111,6 +111,16 @@ _THEOREM_CLASS_RE = re.compile(r"\bltx_theorem_(\w+)\b")
 _AUTO_ID_RE = re.compile(r"^(?:S\d+(?:\.SS\d+)*(?:\.SSS\d+)*\.)?Thm\w+\d+$")
 # Parenthetical display name inside theorem heading: Theorem 3.1 (Name)
 _PAREN_NAME_RE = re.compile(r"\(([^)]+)\)")
+# source-truth-m2: the rendered "printed number" trailing a theorem tag.
+# spike-2's hand-validated pattern ``[A-Za-z]?\.?\d+(\.\d+)*`` (an optional
+# single appendix letter, an optional dot, then a dotted numeric run),
+# anchored at the END of the ltx_tag_theorem heading text. The trailing
+# ``[\s.]*`` swallows the period/space LaTeXML renders after the tag
+# ("Theorem 3.1.") without letting a citation bracket ("[Ku]", "([HRS96])")
+# — which ends in ]/) not a digit — match. Extracted from the RENDERED text,
+# never the LaTeXML id/class (spike-2 §3e: id "A2.ThmThm1" can disagree with
+# the rendered prefix "B.1"; the rendered text is the only reliable source).
+_PRINTED_NUMBER_RE = re.compile(r"([A-Za-z]?\.?\d+(?:\.\d+)*)[\s.]*$")
 
 # Closes F2: paper_id must match new-style YYMM.NNNNN[N][vN] or old-style
 # subject/NNNNNNN[vN] or textbook:<slug> (textbook-ingest-m1); everything
@@ -485,6 +495,80 @@ def _extract_theorem_name(tag: Tag) -> str | None:
     return None
 
 
+def _extract_printed_number(tag: Tag) -> str | None:
+    """Extract the rendered "printed number" from a theorem heading (m2).
+
+    Companion to :func:`_extract_theorem_name`: reuses the SAME
+    ``heading_candidates`` gathering (direct-child ``<h1-6 class="ltx_title">``
+    and ``<span class="ltx_tag_theorem">`` elements, in that order) and reads
+    each with the math-fidelity-preserving :func:`_element_text`, but applies
+    the trailing-number pattern :data:`_PRINTED_NUMBER_RE` instead of the
+    parenthetical-name pattern.
+
+    Returns the rendered number ("3.1", "A.2", "1.5.1", "B.1") or ``None``
+    when the heading carries no trailing number — the F1 case: a genuinely
+    unnumbered statement ("Theorem"), a named/attributed statement whose tag
+    ends in a citation bracket ("Definition ([HRS96]).") or reference
+    ("Theorem [Ku]"), or an environment with no theorem-tag heading at all.
+    ``None`` is a CORRECT extraction here, not a failure — the number does
+    not exist to extract, mirroring how ``_extract_theorem_name`` returns
+    ``None`` for an unnamed theorem.
+
+    The ``ltx_tag_theorem`` span holds the clean "Theorem 3.1" tag with the
+    parenthetical name and trailing punctuation OUTSIDE it, so it yields the
+    number directly. Modern LaTeXML NESTS that span inside the ``ltx_title``
+    heading; the direct-child ``ltx_title`` heading text ("Theorem 3.1
+    (Riemann-Roch).") ends in the name/period and would decline to match, so
+    the tag span (whether a direct child of the environment OR nested in a
+    direct-child heading) is tried FIRST, with the full heading text as a
+    fallback for LaTeXML output that renders the number inline with no tag
+    span. Nested-span search is confined to the direct-child headings so a
+    theorem nested inside this environment cannot leak its tag (the F9
+    direct-children discipline ``_extract_theorem_name`` documents).
+
+    Extraction reads only the rendered heading text — never the element ``id``
+    or CSS class — so an author's independent numbering that disagrees with
+    the auto-generated id is reported as rendered (spike-2 §3e).
+    """
+    # Direct-child ltx_title headings (h1–h6), same scan as
+    # _extract_theorem_name.
+    title_headings: list[Tag] = []
+    for child in tag.children:
+        if not isinstance(child, Tag):
+            continue
+        if child.name and re.match(r"^h[1-6]$", child.name):
+            classes = _get_classes(child)
+            if any(isinstance(c, str) and "ltx_title" in c.split() for c in classes):
+                title_headings.append(child)
+
+    # The clean tag span: a direct-child ltx_tag_theorem span (run-in style)
+    # AND any ltx_tag_theorem span nested inside a direct-child heading. These
+    # carry the number without the trailing parenthetical name, so try them
+    # before the full heading text.
+    tag_spans: list[Tag] = []
+    for child in tag.children:
+        if isinstance(child, Tag) and child.name == "span" and _has_class(
+            child, "ltx_tag_theorem"
+        ):
+            tag_spans.append(child)
+    for heading in title_headings:
+        tag_spans.extend(
+            s
+            for s in heading.find_all("span", class_="ltx_tag_theorem")
+            if isinstance(s, Tag)
+        )
+
+    for candidate in tag_spans + title_headings:
+        text = _element_text(candidate)
+        m = _PRINTED_NUMBER_RE.search(text)
+        if m:
+            number = m.group(1).strip()
+            if number:
+                return number
+
+    return None
+
+
 def _env_kind(env_name: str) -> str:
     """Map a LaTeXML environment subclass name to a ``kind`` string.
 
@@ -678,6 +762,10 @@ def _extract_chunks_from_container(
         section_path = _extract_section_path(child)
         theorem_label = _extract_theorem_label(child)
         theorem_name = _extract_theorem_name(child)
+        # source-truth-m2: rendered theorem number ("3.1"/"A.2"/...) from the
+        # same heading tag. None when unnumbered (F1). The paired proof chunk
+        # inherits it below, matching theorem_name/theorem_label inheritance.
+        printed_number = _extract_printed_number(child)
         stmt_text = _element_text(child)
 
         # ----------------------------------------------------------------
@@ -728,6 +816,7 @@ def _extract_chunks_from_container(
                 theorem_label=theorem_label,
                 body_text=stmt_text,
                 truncated=stmt_truncated,
+                printed_number=printed_number,
             )
         )
 
@@ -748,6 +837,7 @@ def _extract_chunks_from_container(
                         theorem_name=theorem_name,
                         theorem_label=theorem_label,
                         body_text=window,
+                        printed_number=printed_number,
                     )
                 )
             # Advance past the proof element we consumed

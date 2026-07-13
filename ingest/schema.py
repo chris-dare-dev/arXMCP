@@ -25,9 +25,21 @@ the four textbook-only columns and ``parser_used`` get NULL.
 Each ``add_columns`` is its own LanceDB MVCC version so a partial
 failure is recoverable: a retry recomputes ``missing = target
 - existing`` and finishes the remaining columns. Idempotent — once
-the chunks table is at the canonical 21-column shape, subsequent
+the chunks table is at the canonical 26-column shape, subsequent
 ``write_chunks`` calls find no missing columns and the migration
 is a no-op (one ``tbl.schema.names`` read).
+
+**Chunks schema v2 shipped in source-truth-m2** appended five more
+``nullable=True`` columns after ``parser_used`` — ``source_revision_id``,
+``source_span`` (a JSON string, NOT a struct), ``truncated``,
+``printed_number`` and ``license_ref``. All five ride the SAME
+:func:`ingest.store._migrate_chunks_schema_if_needed` single-loop
+``add_columns`` mechanism (one ``cast(NULL as ...)`` default each) — no
+struct branch. ``truncated`` and ``printed_number`` are chunker-native
+(populated on every new write); the three registry-derived columns are
+hydrated on existing rows by the separately-invoked backfill
+``tools/notebook_chunks_backfill.py`` and stay NULL on a plain new write
+until that forward-wiring fast-follow lands.
 
 Column order follows the brief's table verbatim. PyArrow doesn't
 require a particular order for correctness, but a fixed source-literal
@@ -206,6 +218,55 @@ CHUNKS_SCHEMA_V1 = pa.schema(
         # write time (no runtime guard); upstream drivers populate
         # with one of the documented values.
         pa.field("parser_used", pa.utf8(), nullable=True),
+        # ---- source-truth-m2 columns (chunks schema v2) ----
+        # All five declared nullable=True: a freshly-created table
+        # accepts writes that leave the registry-derived columns NULL,
+        # and the in-place migration of pre-v2 rows
+        # (``_migrate_chunks_schema_if_needed``) rides the same SQL-dict
+        # ``add_columns`` loop as the textbook columns above — one
+        # ``cast(NULL as ...)`` default each, NO struct branch (spike-4).
+        #
+        # ``source_revision_id`` — the authoritative pointer to the
+        # per-revision documents-registry row (source-truth-m1), stored
+        # as ``f"{work_id}@{arxiv_version}"`` or the bare ``work_id`` when
+        # unversioned (the ``notebook_documents_backfill._label`` form).
+        # NULL when the chunk's paper is unregistered or the registry has
+        # >1 row for the work (defensive abstention). Hydrated by the
+        # backfill; a plain new write leaves it NULL (forward-wiring is a
+        # tracked fast-follow — no new-ingest driver consults the
+        # per-notebook registry yet).
+        pa.field("source_revision_id", pa.utf8(), nullable=True),
+        # ``source_span`` — a JSON *string* (NOT a struct, so it rides the
+        # SQL-dict migration path unmodified), byte-stable via
+        # ``json.dumps(sort_keys=True, separators=(",", ":"))``. Shape:
+        # ``{"rev":<16-hex parse_artifact_sha256 prefix>,
+        #    "txt":<64-hex sha256(NFC(ws-collapsed body_text))>,
+        #    "id":<source element id or "">}``. ``txt`` is the
+        # authoritative resolving key (spike-3); ``rev`` is a redundant
+        # cross-check; ``id`` is a non-authoritative debug hint. NULL when
+        # ``source_revision_id`` is unresolved OR the backfill's chunk-id
+        # re-derivation did not reproduce this row (abstention, counted).
+        pa.field("source_span", pa.utf8(), nullable=True),
+        # ``truncated`` — persists ``ChunkRecord.truncated`` (previously
+        # computed at ingest but dropped at ``_build_arrow_table``). The
+        # ONLY v2 column with no legitimate NULL path once hydrated: the
+        # backfill fills it for 100% of rows (exact on a chunk-id hit,
+        # else a safe-direction token recount vs ``STMT_MAX_TOKENS`` /
+        # unconditional False for ``kind="proof"``).
+        pa.field("truncated", pa.bool_(), nullable=True),
+        # ``printed_number`` — the rendered theorem number ("3.1", "A.2",
+        # "1.5.1") extracted by ``ingest.chunker._extract_printed_number``
+        # from the ``ltx_tag_theorem`` heading text. Chunker-native (every
+        # new theorem-like/proof chunk gets it). NULL when genuinely
+        # unnumbered (F1), for ``kind`` in {proof-orphan, section}, or when
+        # the backfill's chunk-id match missed.
+        pa.field("printed_number", pa.utf8(), nullable=True),
+        # ``license_ref`` — the matched registry row's ``license_status``
+        # value denormalized onto the chunk row (``eligible`` /
+        # ``not-allowlisted-open`` / ``unknown``), NOT a second pointer.
+        # ADVISORY: changes no serving behavior until the owner-gated m4
+        # cutover. NULL exactly when ``source_revision_id`` is NULL.
+        pa.field("license_ref", pa.utf8(), nullable=True),
     ]
 )
 

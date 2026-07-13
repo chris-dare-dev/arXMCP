@@ -182,6 +182,17 @@ class ChunkRecord:
     # Per-chunk parser provenance. None until the chunker / driver
     # populates it; m2 ships the column, m3+ wires the population path.
     parser_used: str | None = field(default=None)
+    # ---- source-truth-m2 field (chunks schema v2) ----
+    # Rendered theorem number ("3.1", "A.2", "1.5.1") extracted from the
+    # ``ltx_tag_theorem`` heading text by
+    # ``ingest.chunker._extract_printed_number``. ``None`` for genuinely
+    # unnumbered / named-only statements (F1), orphan proofs, and section
+    # chunks. Persisted to the LanceDB ``printed_number`` column (v2 also
+    # persists ``truncated``, which was historically dropped at write
+    # time). Independent of ``theorem_label`` (the ``\label{}`` key) and
+    # of ``_compute_chunk_id`` (which hashes only preamble + body_text),
+    # so populating it never rotates a chunk_id.
+    printed_number: str | None = field(default=None)
 
     def to_dict(self) -> dict:
         """Serialise to a JSON-safe dict with keys in sorted order."""
@@ -198,6 +209,7 @@ class ChunkRecord:
             "paper_id": self.paper_id,
             "parser_used": self.parser_used,
             "preamble_ref": self.preamble_ref,
+            "printed_number": self.printed_number,
             "section_path": self.section_path,
             "source_kind": self.source_kind,
             "textbook_slug": self.textbook_slug,

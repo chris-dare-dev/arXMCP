@@ -58,6 +58,7 @@ from ingest.chunker import (  # noqa: E402
     _element_text,
     _encode_tokens,
     _extract_chunks_from_container,
+    _extract_printed_number,
     _extract_section_path,
     _extract_theorem_label,
     _extract_theorem_name,
@@ -633,6 +634,164 @@ class TestTheoremNameExtraction:
             '<h6 class="ltx_title">Proposition 5.7 (Serre Duality).</h6>'
         )
         assert _extract_theorem_name(tag) == "Serre Duality"
+
+
+# ===========================================================================
+# TestPrintedNumberExtraction — source-truth-m2
+# ===========================================================================
+
+
+class TestPrintedNumberExtraction:
+    """Unit tests for ``_extract_printed_number`` — the rendered theorem
+    number ("3.1"/"A.2"/...) trailing the ltx_tag_theorem heading. Mirrors
+    ``TestTheoremNameExtraction``; F1 (genuinely unnumbered) is a correct
+    ``None`` result, not a failure."""
+
+    def _make_div(self, heading_html: str, *, elem_id: str | None = None):
+        from bs4 import BeautifulSoup, Tag
+
+        attrs = f' id="{elem_id}"' if elem_id is not None else ""
+        html = (
+            f'<div class="ltx_theorem ltx_theorem_theorem"{attrs}>'
+            f"{heading_html}</div>"
+        )
+        soup = BeautifulSoup(html, "html.parser")
+        tag = soup.find("div")
+        assert isinstance(tag, Tag)
+        return tag
+
+    def test_tag_span_number_extracted(self):
+        tag = self._make_div(
+            '<span class="ltx_tag ltx_tag_theorem">Theorem 3.1</span>'
+        )
+        assert _extract_printed_number(tag) == "3.1"
+
+    def test_h6_number_with_trailing_period(self):
+        tag = self._make_div('<h6 class="ltx_title">Theorem 3.1.</h6>')
+        assert _extract_printed_number(tag) == "3.1"
+
+    def test_number_extracted_despite_parenthetical_name(self):
+        # The h6 (with the name) declines; the tag span yields the number —
+        # the real LaTeXML shape for a named + numbered statement.
+        tag = self._make_div(
+            '<h6 class="ltx_title ltx_runin ltx_title_theorem">'
+            '<span class="ltx_tag ltx_tag_theorem">Theorem 3.1</span>'
+            " (Riemann-Roch).</h6>"
+        )
+        assert _extract_printed_number(tag) == "3.1"
+
+    def test_appendix_letter_prefix(self):
+        tag = self._make_div(
+            '<span class="ltx_tag ltx_tag_theorem">Definition A.2</span>'
+        )
+        assert _extract_printed_number(tag) == "A.2"
+
+    def test_multilevel_number(self):
+        tag = self._make_div(
+            '<span class="ltx_tag ltx_tag_theorem">Lemma 1.5.1</span>'
+        )
+        assert _extract_printed_number(tag) == "1.5.1"
+
+    def test_unnumbered_returns_none(self):
+        # Genuinely unnumbered statement (F1) — a correct None.
+        assert (
+            _extract_printed_number(
+                self._make_div('<h6 class="ltx_title">Theorem.</h6>')
+            )
+            is None
+        )
+        assert (
+            _extract_printed_number(
+                self._make_div(
+                    '<span class="ltx_tag ltx_tag_theorem">Theorem</span>'
+                )
+            )
+            is None
+        )
+
+    def test_citation_bracket_returns_none(self):
+        # "[Ku]" / "([HRS96])" end in ]/) not a digit -> no trailing number.
+        assert (
+            _extract_printed_number(
+                self._make_div(
+                    '<span class="ltx_tag ltx_tag_theorem">Theorem [Ku]</span>'
+                )
+            )
+            is None
+        )
+        assert (
+            _extract_printed_number(
+                self._make_div(
+                    '<h6 class="ltx_title ltx_runin ltx_title_theorem">'
+                    '<span class="ltx_tag ltx_tag_theorem">Definition</span>'
+                    " ([HRS96]).</h6>"
+                )
+            )
+            is None
+        )
+
+    def test_rendered_number_beats_disagreeing_id(self):
+        # spike-2 §3e: LaTeXML id ("A2.ThmThm1") can disagree with the
+        # rendered prefix ("B.1"); the RENDERED text is authoritative.
+        tag = self._make_div(
+            '<span class="ltx_tag ltx_tag_theorem">Theorem B.1</span>',
+            elem_id="A2.ThmThm1",
+        )
+        assert _extract_printed_number(tag) == "B.1"
+
+    def test_no_heading_returns_none(self):
+        # A theorem div with no ltx_title / ltx_tag_theorem heading.
+        tag = self._make_div('<div class="ltx_para"><p>Body only.</p></div>')
+        assert _extract_printed_number(tag) is None
+
+
+class TestPrintedNumberWiredIntoChunks:
+    """``printed_number`` reaches the ChunkRecord at the theorem-scan site,
+    and the paired proof inherits it (like theorem_name/theorem_label)."""
+
+    HTML = """<!DOCTYPE html><html><body>
+    <article class="ltx_document">
+      <section class="ltx_section" id="S3">
+        <h2 class="ltx_title ltx_title_section">3. Main results</h2>
+        <div id="S3.Thmtheorem1" class="ltx_theorem ltx_theorem_theorem">
+          <h6 class="ltx_title ltx_runin ltx_title_theorem">
+            <span class="ltx_tag ltx_tag_theorem">Theorem 3.1</span>
+            (Main).</h6>
+          <div class="ltx_para"><p class="ltx_p">The main statement
+          holds under the stated hypotheses.</p></div>
+        </div>
+        <div class="ltx_proof">
+          <div class="ltx_para"><p class="ltx_p">The proof proceeds
+          by a careful induction on the dimension.</p></div>
+        </div>
+        <div id="S3.Thmdefinition2" class="ltx_theorem ltx_theorem_definition">
+          <h6 class="ltx_title ltx_runin ltx_title_theorem">
+            <span class="ltx_tag ltx_tag_theorem">Definition</span>.</h6>
+          <div class="ltx_para"><p class="ltx_p">An unnumbered
+          definition environment appears here for contrast.</p></div>
+        </div>
+      </section>
+    </article>
+    </body></html>"""
+
+    def test_stmt_and_paired_proof_carry_number_definition_none(self):
+        chunks = _chunks_from_html(self.HTML)
+        by_kind: dict[str, list] = {}
+        for c in chunks:
+            by_kind.setdefault(c.kind, []).append(c)
+        # The numbered theorem + its paired proof both carry "3.1".
+        stmts = by_kind.get("stmt", [])
+        assert len(stmts) == 1
+        assert stmts[0].printed_number == "3.1"
+        proofs = by_kind.get("proof", [])
+        assert len(proofs) == 1
+        assert proofs[0].printed_number == "3.1", (
+            "paired proof must inherit the statement's printed_number"
+        )
+        # The unnumbered definition carries None (F1).
+        defs = by_kind.get("definition", [])
+        assert len(defs) == 1
+        assert defs[0].printed_number is None
 
 
 # ===========================================================================
