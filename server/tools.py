@@ -524,6 +524,15 @@ _WRAP_TAG_EQUATION = "retrieved_equation"
 #: so it does not affect the ``tools/list`` byte-stability hash.
 _WRAP_TAG_NOTEBOOK = "retrieved_notebook"
 
+#: source-truth-m3: the ``arxmcp://corpus-manifest`` resource payload (a
+#: provenance / content-hash artifact carrying one operator-authored freeform
+#: field, ``override.note``) is wrapped in ``<retrieved_manifest>`` so a
+#: consuming agent treats it as DATA, not instructions (Threat 2). Distinct
+#: from ``<retrieved_chunk>`` so agent system-prompt guidance can label a
+#: manifest differently from paper-body content. Like the notebook tag it is
+#: NOT a tool / not in ALL_TOOLS, so the ``tools/list`` hash is untouched.
+_WRAP_TAG_MANIFEST = "retrieved_manifest"
+
 
 def wrap_retrieved_text(
     text: str | None,
@@ -558,7 +567,11 @@ def wrap_retrieved_text(
     Args:
         text: Retrieved paper-derived text. May be None or empty.
         kind: ``"chunk"`` (default) → ``<retrieved_chunk>...``;
-            ``"equation"`` → ``<retrieved_equation>...``. Equation
+            ``"equation"`` → ``<retrieved_equation>...``; ``"notebook"``
+            → ``<retrieved_notebook>...`` (MCP resource metadata);
+            ``"manifest"`` → ``<retrieved_manifest>...`` (the
+            ``arxmcp://corpus-manifest`` resource, source-truth-m3). An
+            unknown ``kind`` falls back to ``<retrieved_chunk>``. Equation
             wrapping is reserved for ``find_equation`` when E10_S03
             wires equation atom body text into the response.
 
@@ -574,6 +587,7 @@ def wrap_retrieved_text(
     tag = {
         "equation": _WRAP_TAG_EQUATION,
         "notebook": _WRAP_TAG_NOTEBOOK,
+        "manifest": _WRAP_TAG_MANIFEST,
     }.get(kind, _WRAP_TAG_CHUNK)
     open_tag = f"<{tag}>"
     close_tag = f"</{tag}>"

@@ -41,6 +41,7 @@ import json
 import logging
 from typing import TYPE_CHECKING, Any
 
+from server import corpus_manifest
 from server.tools import wrap_retrieved_text
 from tools._notebook_common import NotebookError, notebook_dir, validate_slug
 
@@ -54,6 +55,9 @@ logger = logging.getLogger(__name__)
 #: Resource URIs (RFC3986 custom scheme ``arxmcp://``).
 NOTEBOOKS_INDEX_URI = "arxmcp://notebooks"
 NOTEBOOK_TEMPLATE_URI = "arxmcp://notebooks/{slug}"
+#: source-truth-m3: a THIRD concrete resource (not a template) — the
+#: content-addressed corpus provenance manifest, generated on-read.
+CORPUS_MANIFEST_URI = "arxmcp://corpus-manifest"
 
 #: Module-level live store (set by the lifespan via :func:`set_notebooks_store`,
 #: mirroring ``server.tools.set_resources``). ``None`` until startup wires it.
@@ -84,10 +88,18 @@ def _require_store() -> NotebooksStore:
     return _notebooks_store
 
 
-def _wrap_json(payload: dict[str, Any]) -> str:
-    """Canonical-JSON the payload and wrap it as untrusted notebook data."""
+def _wrap_json(payload: dict[str, Any], *, kind: str = "notebook") -> str:
+    """Canonical-JSON the payload and wrap it as untrusted retrieved data.
+
+    ``kind`` selects the delimiter tag (``"notebook"`` -> the two
+    notebook resources; ``"manifest"`` -> ``arxmcp://corpus-manifest``,
+    source-truth-m3). This outer wire serialization (``ensure_ascii=False``)
+    is a SEPARATE pass from the ``content_hash`` canonicalization the
+    manifest computes over ``snapshot`` alone — the two are unrelated and
+    need not match (the hash is fixed the moment ``snapshot`` is fixed).
+    """
     text = json.dumps(payload, sort_keys=True, ensure_ascii=False)
-    return wrap_retrieved_text(text, kind="notebook")
+    return wrap_retrieved_text(text, kind=kind)
 
 
 async def _notebook_metadata(slug: str) -> dict[str, Any]:
@@ -184,8 +196,33 @@ def register_resources(mcp_server: FastMCP) -> None:
     async def _notebook_detail(slug: str) -> str:
         return _wrap_json(await _notebook_metadata(slug))
 
+    @mcp_server.resource(
+        CORPUS_MANIFEST_URI,
+        name="corpus-manifest",
+        description=(
+            "Content-addressed provenance manifest of every notebook's "
+            "corpus state: per-revision raw-source + parse-artifact "
+            "checksums, license status, active/withdrawn/superseded status, a "
+            "3-way license census, the corpus-version epoch + chunker/embedder "
+            "stamps, a revisions rollup digest, and the operator "
+            "license-unknown override flag. resources/read returns "
+            "{manifest_version, generated_at, content_hash, "
+            "snapshot:{notebooks:{<slug>}}}; content_hash is sha256 over the "
+            "snapshot alone. Read-only; generated on-read (no persisted file)."
+        ),
+        mime_type="text/plain",
+    )
+    async def _corpus_manifest() -> str:
+        # build_manifest reaches the SAME module store the two notebook
+        # resources use; base + settings-db paths default to production
+        # (var/arxmcp/…). The payload is wrapped as <retrieved_manifest>
+        # (Threat 2) — override.note is the only operator-freeform field.
+        payload = await corpus_manifest.build_manifest(_require_store())
+        return _wrap_json(payload, kind="manifest")
+
 
 __all__ = [
+    "CORPUS_MANIFEST_URI",
     "NOTEBOOKS_INDEX_URI",
     "NOTEBOOK_TEMPLATE_URI",
     "register_resources",
