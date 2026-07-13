@@ -1,0 +1,150 @@
+{
+  "milestone_id": "source-truth-m1",
+  "critique_format_version": "1.0",
+  "critique_files": [
+    "dedup.md"
+  ],
+  "generated_at": "2026-07-13T02:37:16Z",
+  "findings": {
+    "H1": {
+      "id": "H1",
+      "severity": "HIGH",
+      "title": "Diff is 2986 LOC (>400): review-quality-at-risk",
+      "file": null,
+      "line": null,
+      "anchor": "",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Test discipline / diff size",
+      "source_file": "dedup.md",
+      "status": "invalidated",
+      "resolution": "concern already handled: diff-size auto-flag; allow_large_diff owner-approved (one coherent registry system); 60 behavior-asserting tests; residual edges fixed as H2/M1",
+      "history": [
+        {
+          "status": "invalidated",
+          "at": "2026-07-13T02:37:16Z",
+          "resolution": "concern already handled: diff-size auto-flag; allow_large_diff owner-approved (one coherent registry system); 60 behavior-asserting tests; residual edges fixed as H2/M1"
+        }
+      ]
+    },
+    "H2": {
+      "id": "H2",
+      "severity": "HIGH",
+      "title": "`Retry-After: 0` defeats the 503 backoff \u2192 no-delay busy-loop against arXiv",
+      "file": "tools/oai_license.py",
+      "line": 311,
+      "anchor": "wait = retry_after if retry_after is not None else backoff",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "OAI-PMH client correctness (503/Retry-After/politeness)",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "clamped the 503 Retry-After wait to POLITENESS_SLEEP_SECONDS so Retry-After:0 cannot busy-loop (rect 823c43c) + test_retry_after_zero_is_floored",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-07-13T02:37:15Z",
+          "resolution": "clamped the 503 Retry-After wait to POLITENESS_SLEEP_SECONDS so Retry-After:0 cannot busy-loop (rect 823c43c) + test_retry_after_zero_is_floored"
+        }
+      ]
+    },
+    "M1": {
+      "id": "M1",
+      "severity": "MEDIUM",
+      "title": "Missing parse-artifact is a silent NULL with no status marker (untested)",
+      "file": "tools/notebook_documents_backfill.py",
+      "line": 204,
+      "anchor": "parse_artifact_sha256=_parse_artifact_sha256(",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Acceptance coverage (AC1 provenance completeness)",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "missing parsed/<id>/index.html now routed to a per-id miss (row withheld), no silent NULL (rect 823c43c) + test_missing_index_html_is_a_per_id_miss",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-07-13T02:37:15Z",
+          "resolution": "missing parsed/<id>/index.html now routed to a per-id miss (row withheld), no silent NULL (rect 823c43c) + test_missing_index_html_is_a_per_id_miss"
+        }
+      ]
+    },
+    "M2": {
+      "id": "M2",
+      "severity": "MEDIUM",
+      "title": "Coverage report over-claims \"truncate at m4\" for arxiv-default papers",
+      "file": "tools/documents_coverage_report.py",
+      "line": 23,
+      "anchor": "value there is the real \"most papers tru",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "Axis 6 \u2014 tier sequencing",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "reworded coverage-report docstring; no longer asserts not-allowlisted-open truncates at m4 (rect 823c43c)",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-07-13T02:37:15Z",
+          "resolution": "reworded coverage-report docstring; no longer asserts not-allowlisted-open truncates at m4 (rect 823c43c)"
+        }
+      ]
+    },
+    "L1": {
+      "id": "L1",
+      "severity": "LOW",
+      "title": "Redirect-pin is a prefix match, not exact-origin",
+      "file": "tools/oai_license.py",
+      "line": 299,
+      "anchor": "if not response_url.startswith(OAI_PMH_ENDPOINT):",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "OAI-PMH client security (redirect pinning)",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "LOW; redirect-pin prefix-match still binds egress to the trusted arXiv host; exact-origin tightening deferred",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-07-13T02:37:16Z",
+          "resolution": "LOW; redirect-pin prefix-match still binds egress to the trusted arXiv host; exact-origin tightening deferred"
+        }
+      ]
+    },
+    "L2": {
+      "id": "L2",
+      "severity": "LOW",
+      "title": "Configurable `endpoint` is ignored by the redirect-pin (dead/misleading knob)",
+      "file": "tools/oai_license.py",
+      "line": 299,
+      "anchor": "if not response_url.startswith(OAI_PMH_E",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "Axis 7 \u2014 no-fork (mirror fidelity)",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "LOW; dead endpoint knob harmless (production uses the default; tests bypass _fetch_record); non-trivial ripple, deferred",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-07-13T02:37:16Z",
+          "resolution": "LOW; dead endpoint knob harmless (production uses the default; tests bypass _fetch_record); non-trivial ripple, deferred"
+        }
+      ]
+    },
+    "L3": {
+      "id": "L3",
+      "severity": "LOW",
+      "title": "Threat-7 actual-read byte-cap branch is untested",
+      "file": "tools/oai_license.py",
+      "line": 292,
+      "anchor": "if len(body) > OAI_PMH_MAX_RESPONSE_BYTES",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "Axis 8 \u2014 test surface",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "added actual-read byte-cap test test_oversized_read_body_refused (rect 823c43c)",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-07-13T02:37:16Z",
+          "resolution": "added actual-read byte-cap test test_oversized_read_body_refused (rect 823c43c)"
+        }
+      ]
+    }
+  }
+}
