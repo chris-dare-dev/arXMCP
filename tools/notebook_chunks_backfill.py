@@ -43,9 +43,18 @@ one column with no null path: exact on a chunk-id hit, else a safe-direction
 token recount (``kind="proof"`` is always False; every other kind is
 ``token_count >= STMT_MAX_TOKENS``).
 
-**Idempotency.** A paper whose rows already carry a non-null
-``source_revision_id`` is skipped without re-invoking the chunker; a re-run over
-a fully-hydrated notebook re-chunks nothing and writes nothing.
+**Idempotency.** A re-run skips a paper only when it is FULLY hydrated: every
+row already carries BOTH a non-null ``source_revision_id`` AND a non-null
+``source_span`` (the registry resolved AND the chunk-id re-derivation reproduced
+the row). A registry HIT whose ``source_span`` is still null on some row — a
+chunk-id MISS a later chunker upgrade may reproduce — is RE-attempted, never
+frozen at null (keying the skip on ``source_revision_id`` alone is the bug m2
+rect M4 closes). A paper whose registry abstains (unregistered / multi-row)
+keeps a null ``source_revision_id`` and is re-chunked every run, but the WRITE is
+a value-level no-op: its ``truncated`` / ``printed_number`` were already written
+at ingest and are reproduced identically, and the three registry-derived columns
+stay null. Skipped rows are excluded from the ``merge_insert`` batch, so a
+skipped paper's bytes (embeddings included) are never rewritten.
 
 **The ``source_span`` ``id`` field.** The JSON ``id`` (a non-authoritative
 debug hint, never a resolution key — spike-3) is emitted as ``""`` because a
@@ -229,12 +238,15 @@ def _truncated_fallback(
 
     ``kind == "proof"`` -> ``False`` unconditionally (proof windows are never
     truncated, by construction of ``_window_proof_text``). Every other kind ->
-    ``token_count(body_text) >= STMT_MAX_TOKENS``. One-directional: it can only
-    mis-flag a coincidentally-max-length COMPLETE statement as
-    possibly-truncated (a conservative false positive), never report truncated
-    content as complete — truncation always leaves ``>= max_tokens`` tokens, so
-    the ``< budget`` "definitely complete" branch is airtight. ``count_tokens``
-    is a test seam (loads the BGE-M3 tokenizer only).
+    ``token_count(body_text) >= STMT_MAX_TOKENS``. Safe-direction in the common
+    case: it can only mis-flag a coincidentally-max-length COMPLETE statement as
+    possibly-truncated (a conservative false positive). This is NOT an airtight
+    invariant, though — re-tokenizing the boundary substring can rarely
+    undercount by one token (a BPE merge at the cut yielding ``max_tokens - 1``),
+    so a genuinely-truncated statement could in that rare case fall on the
+    "definitely complete" side. The mislabel is one token, MISS-path-only, and
+    only on the advisory ``truncated`` column. ``count_tokens`` is a test seam
+    (loads the BGE-M3 tokenizer only).
     """
     if kind == "proof":
         return False
@@ -542,11 +554,27 @@ def _patch_notebook(
 
     patched_rows: list[dict] = []
     for paper_id, paper_rows in by_paper.items():
-        # Idempotency skip-gate: a paper whose rows already all carry a non-null
-        # source_revision_id was hydrated by a prior run — skip the expensive
-        # re-chunk AND exclude the rows from the batch (merge_insert only
-        # touches rows in the batch, so untouched rows stay byte-identical).
-        if all(row.get("source_revision_id") is not None for row in paper_rows):
+        # Idempotency skip-gate. Skip a paper only when it is FULLY hydrated:
+        # every row already carries BOTH a non-null ``source_revision_id`` (the
+        # registry resolved) AND a non-null ``source_span`` (the chunk-id
+        # re-derivation reproduced that row). Keying on ``source_revision_id``
+        # ALONE (the pre-m2-rect gate) froze a registry-HIT + chunk-id-MISS row
+        # at ``source_span=null`` on every future run, because the revision
+        # resolves independently of the span; the ``source_span`` conjunct lets
+        # such a row be RE-attempted, so a later chunker upgrade that reproduces
+        # the id can resolve the span (m2 rect M4). A paper whose registry
+        # abstains (unregistered / multi-row) keeps a null ``source_revision_id``
+        # and is re-processed every run — its ``truncated`` / ``printed_number``
+        # (chunker-native, already written at ingest) are rewritten identically
+        # on a re-chunk hit and the three registry-derived columns stay null, so
+        # the WRITE is a value-level no-op even though the re-chunk repeats.
+        # Skipping excludes the rows from the ``merge_insert`` batch, so a
+        # skipped paper's bytes (embeddings included) stay byte-identical.
+        if all(
+            row.get("source_revision_id") is not None
+            and row.get("source_span") is not None
+            for row in paper_rows
+        ):
             report.skipped_papers += 1
             report.skipped_rows += len(paper_rows)
             continue

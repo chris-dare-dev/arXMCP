@@ -744,6 +744,31 @@ class TestPrintedNumberExtraction:
         tag = self._make_div('<div class="ltx_para"><p>Body only.</p></div>')
         assert _extract_printed_number(tag) is None
 
+    def test_no_space_before_number_declines(self):
+        # m2 rect L1: a word-letter fused to a digit with no separator
+        # ("Corollary3") must NOT capture the trailing "y3" as the number. Real
+        # LaTeXML always renders a space ("Corollary 3"); the fused form is
+        # malformed input the extractor correctly declines (returns None).
+        assert (
+            _extract_printed_number(
+                self._make_div(
+                    '<span class="ltx_tag ltx_tag_theorem">Corollary3</span>'
+                )
+            )
+            is None
+        )
+        # Guard the fix does NOT regress the real spaced / bracketed cases:
+        # the separator (space or "[") before the number is always present.
+        for heading, expected in (
+            ("Theorem A.2", "A.2"),
+            ("Lemma 1.5.1", "1.5.1"),
+            ("Theorem [Ku] 3.4", "3.4"),
+        ):
+            tag = self._make_div(
+                f'<span class="ltx_tag ltx_tag_theorem">{heading}</span>'
+            )
+            assert _extract_printed_number(tag) == expected, heading
+
 
 class TestPrintedNumberWiredIntoChunks:
     """``printed_number`` reaches the ChunkRecord at the theorem-scan site,

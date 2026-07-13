@@ -32,12 +32,14 @@ from unittest.mock import patch
 
 import lancedb
 import numpy as np
+import pyarrow as pa
 import pytest
 
 from ingest.chunker import chunk_paper
 from ingest.chunker_types import ChunkRecord
 from ingest.embedder import EMBEDDER_VERSION, EMBEDDING_DIM
-from ingest.schema import EmbedRecord
+from ingest.preamble_types import PreambleDoc
+from ingest.schema import CHUNKS_SCHEMA_V1, EmbedRecord
 from ingest.store import write_chunks
 from server.documents_store import (
     DOCUMENTS_DB_FILENAME,
@@ -144,18 +146,57 @@ def _build_table_from_html(
     paper_id: str,
     *,
     seed: int = 1,
+    resolve_preamble=None,
 ) -> list[ChunkRecord]:
-    """Chunk a parsed fixture (hermetic empty preamble) + synthetic embeddings
-    + write_chunks into the notebook's lancedb, returning the real records."""
+    """Chunk a parsed fixture + synthetic embeddings + write_chunks into the
+    notebook's lancedb, returning the real records.
+
+    ``resolve_preamble`` defaults to the hermetic empty-preamble seam
+    (``lambda _pid: None``); pass a resolver returning a non-empty
+    ``PreambleDoc`` to build the table THROUGH a real preamble so the stored
+    chunk_ids are ``hash(preamble_text + body_text)`` (M1 / M4)."""
+    if resolve_preamble is None:
+        resolve_preamble = lambda _pid: None  # noqa: E731
     with (
         patch("ingest.chunker.PARSED_DIR", parsed_root),
         patch("ingest.chunker.CHUNKS_DIR", tmp_path / "chunks_out"),
-        patch("ingest.chunker._resolve_preamble_doc", lambda _pid: None),
+        patch("ingest.chunker._resolve_preamble_doc", resolve_preamble),
     ):
         records = chunk_paper(paper_id)
     assert records, "fixture must produce at least one chunk"
     write_chunks(records, _synth_embeddings(records, seed=seed), lancedb_path=_lancedb_dir(base))
     return records
+
+
+def _nonempty_preamble(paper_id: str) -> PreambleDoc:
+    """A ``PreambleDoc`` with a stable NON-empty ``preamble_text`` — drives the
+    ``preamble_doc is not None`` branch of ``_rechunk_paper`` that the
+    ``lambda _pid: None`` seam never exercises, and (M4) a chunk_id namespace
+    distinct from the empty-preamble build."""
+    text = "\\newcommand{\\R}{\\mathbb{R}}\n\\newcommand{\\Z}{\\mathbb{Z}}"
+    return PreambleDoc(
+        paper_id=paper_id,
+        source_hash="0" * 64,
+        macros=["\\newcommand{\\R}{\\mathbb{R}}", "\\newcommand{\\Z}{\\mathbb{Z}}"],
+        preamble_text=text,
+        preamble_hash=hashlib.sha256(text.encode("utf-8")).hexdigest()[:16],
+    )
+
+
+def _patch(base: Path, parsed_root: Path, *, resolve_preamble=None):
+    """Call ``backfill._patch_notebook`` directly (returns the ``_NotebookReport``
+    object) using the same path derivation ``run`` uses, so a test can assert on
+    report internals (``columns_added``, reason-code counts) rather than only the
+    printed report."""
+    if resolve_preamble is None:
+        resolve_preamble = lambda _pid: None  # noqa: E731
+    return backfill._patch_notebook(
+        _lancedb_dir(base),
+        base / SLUG / DOCUMENTS_DB_FILENAME,
+        parsed_root,
+        slug=SLUG,
+        resolve_preamble=resolve_preamble,
+    )
 
 
 def _make_fixed_chunk(paper_id: str, kind: str, body: str, suffix: str) -> ChunkRecord:
@@ -529,3 +570,340 @@ class TestHardErrors:
         monkeypatch.setattr(backfill, "run", _raise)
         assert backfill.main([SLUG]) == 1
         assert "error:" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# M1 — the HIT path's REAL (non-empty) preamble round-trip
+# ---------------------------------------------------------------------------
+
+
+class TestRealPreambleRoundTrip:
+    """M1 — every other backfill test builds the table AND runs the backfill
+    with ``resolve_preamble=lambda _pid: None``, so chunk_ids match by
+    construction and the ``preamble_doc is not None`` branch of
+    ``_rechunk_paper`` (the SOLE HIT-path dependency for source_span /
+    printed_number under a real preamble) is exercised by no test. Build the
+    table AND run the backfill through the SAME non-empty preamble resolver:
+    the backfill must reproduce the chunk_ids (a HIT) and resolve source_span
+    non-null for the theorem rows."""
+
+    def test_hit_path_with_real_preamble_roundtrip(self, tmp_path):
+        base = tmp_path / "notebooks"
+        parsed = _parsed_root(tmp_path, {PAPER: HTML})
+        doc = _nonempty_preamble(PAPER)
+        resolver = lambda _pid: doc  # noqa: E731
+
+        # Build the table THROUGH the non-empty preamble (NOT the None seam),
+        # so the stored chunk_ids are hash(preamble_text + body_text).
+        _build_table_from_html(
+            tmp_path, base, parsed, PAPER, seed=21, resolve_preamble=resolver
+        )
+        _register(base, [_doc(PAPER)])
+
+        # Sanity: the chunks carry the non-empty preamble_ref from the build.
+        pre = _read_rows(base)
+        assert pre and all(
+            r["preamble_ref"] == doc.preamble_hash for r in pre.values()
+        )
+
+        # Run WITHOUT stubbing preamble to None — the SAME resolver as the build.
+        assert (
+            backfill.run(
+                SLUG,
+                base=base,
+                corpus_parsed_dir=parsed,
+                resolve_preamble=resolver,
+            )
+            == 0
+        )
+
+        rows = _read_rows(base)
+        assert len(rows) == 3
+        by_kind: dict[str, list] = {}
+        for r in rows.values():
+            by_kind.setdefault(r["kind"], []).append(r)
+
+        # HIT: every row resolves source_span non-null (chunk_ids reproduced
+        # under the non-empty preamble), carrying the authoritative txt hash.
+        for r in rows.values():
+            assert r["source_revision_id"] == PAPER
+            assert r["source_span"] is not None, (
+                f"{r['kind']} span must resolve on a real-preamble HIT"
+            )
+            span = json.loads(r["source_span"])
+            assert span["rev"] == PARSE_SHA[:16]
+            assert span["txt"] == backfill._normalized_text_hash(r["body_text"])
+        # printed_number is set ONLY on a HIT — its presence proves the re-chunk
+        # reproduced the ids under the preamble, not a fallback with null span.
+        assert by_kind["stmt"][0]["printed_number"] == "1.1"
+        assert by_kind["proof"][0]["printed_number"] == "1.1"
+
+
+# ---------------------------------------------------------------------------
+# M2 — the driver's own add_columns -> hydrate composition (21 -> 26 cols)
+# ---------------------------------------------------------------------------
+
+
+class TestMigrateThenHydrate:
+    """M2 — every other backfill test builds via ``write_chunks`` (already at
+    the 26-col schema), so ``_ensure_v2_columns`` returns ``[]`` and the
+    migrate-then-hydrate path — add 5 columns to a genuine pre-v2 table, then
+    hydrate them in the SAME run (the live go-live scenario) — is exercised by
+    no test. Build a real 21-col pre-v2 table, run the backfill, and assert the
+    5 columns are added AND hydrated non-null (read back from disk) with
+    embeddings byte-identical."""
+
+    def _build_pre_v2_table(
+        self, tmp_path: Path, base: Path, parsed_root: Path, paper_id: str, *, seed: int
+    ) -> None:
+        """Materialize the notebook's chunks table at the 21-col pre-source-
+        truth-m2 schema (``CHUNKS_SCHEMA_V1[:-5]``) holding real, HIT-
+        reproducible rows + embeddings — the live on-disk shape BEFORE the
+        backfill adds the five v2 columns.
+
+        ``write_chunks`` always builds the full 26-col table, so harvest the
+        real rows + embeddings from a throwaway build and re-materialize the
+        21-col subset at the real notebook path (no ``drop_table`` needed)."""
+        harvest = tmp_path / "harvest"
+        _build_table_from_html(tmp_path, harvest, parsed_root, paper_id, seed=seed)
+        full_rows = (
+            lancedb.connect(str(_lancedb_dir(harvest)))
+            .open_table("chunks")
+            .to_arrow()
+            .to_pylist()
+        )
+        pre_v2_schema = pa.schema(list(CHUNKS_SCHEMA_V1)[:-5])
+        v2_cols = set(CHUNKS_SCHEMA_V1.names) - set(pre_v2_schema.names)
+        assert len(pre_v2_schema.names) == 21 and len(v2_cols) == 5
+        pre_rows = [
+            {k: v for k, v in r.items() if k not in v2_cols} for r in full_rows
+        ]
+        ldir = _lancedb_dir(base)
+        ldir.mkdir(parents=True, exist_ok=True)
+        lancedb.connect(str(ldir)).create_table(
+            "chunks", data=pa.Table.from_pylist(pre_rows, schema=pre_v2_schema)
+        )
+
+    def test_pre_v2_table_migrated_and_hydrated_in_one_run(self, tmp_path):
+        base = tmp_path / "notebooks"
+        parsed = _parsed_root(tmp_path, {PAPER: HTML})
+        self._build_pre_v2_table(tmp_path, base, parsed, PAPER, seed=31)
+        _register(base, [_doc(PAPER, license_status="eligible")])
+
+        # The table is genuinely pre-v2: 21 columns, none of the five.
+        assert len(
+            lancedb.connect(str(_lancedb_dir(base)))
+            .open_table("chunks")
+            .schema.names
+        ) == 21
+
+        before = _read_rows(base)
+
+        # Run via _patch_notebook so we can read report.columns_added directly.
+        report = _patch(base, parsed)
+
+        # (a) all five columns were added by the driver's own migration step.
+        assert len(report.columns_added) == 5
+        assert set(report.columns_added) == {
+            "source_revision_id",
+            "source_span",
+            "truncated",
+            "printed_number",
+            "license_ref",
+        }
+
+        after = _read_rows(base)
+        assert len(
+            lancedb.connect(str(_lancedb_dir(base)))
+            .open_table("chunks")
+            .schema.names
+        ) == 26
+
+        # (b) the five columns are hydrated non-null on the HIT paper, read BACK
+        # from the table (NOT the in-memory report). The theorem stmt row
+        # carries all five; the section row's printed_number is legitimately
+        # None (F1), so it is asserted separately from the always-set four.
+        by_kind: dict[str, dict] = {r["kind"]: r for r in after.values()}
+        stmt = by_kind["stmt"]
+        for col in (
+            "source_revision_id",
+            "source_span",
+            "truncated",
+            "printed_number",
+            "license_ref",
+        ):
+            assert stmt[col] is not None, f"{col} not hydrated on the HIT stmt row"
+        assert stmt["printed_number"] == "1.1"
+        assert stmt["source_revision_id"] == PAPER
+        assert stmt["license_ref"] == "eligible"
+        for r in after.values():
+            for col in (
+                "source_revision_id",
+                "source_span",
+                "truncated",
+                "license_ref",
+            ):
+                assert r[col] is not None, f"{col} null on {r['kind']} row"
+
+        # (c) embeddings byte-identical pre/post the migrate-then-hydrate path.
+        assert set(before) == set(after)
+        for cid, arow in after.items():
+            for col in ("embedding_stmt", "embedding_proof"):
+                b = before[cid][col]
+                a = arow[col]
+                if b is None:
+                    assert a is None
+                else:
+                    assert np.array_equal(
+                        np.asarray(b, dtype=np.float32),
+                        np.asarray(a, dtype=np.float32),
+                    ), f"{col} for {cid} mutated by migrate-then-hydrate"
+
+
+# ---------------------------------------------------------------------------
+# M3 — the chunker_rerun_failed abstention reason-code branch
+# ---------------------------------------------------------------------------
+
+
+class TestRerunFailedAbstention:
+    """M3 — of the four source_span abstention reason codes,
+    ``chunker_rerun_failed`` is the only one no test triggers. Force
+    ``_rechunk_paper`` through its ``PER_PAPER_FAILURE_EXCEPTIONS`` envelope by
+    making a structural-extraction pass raise, so the re-chunk returns
+    ``status="rerun_failed"`` for a registered paper: source_span abstains with
+    reason chunker_rerun_failed while truncated is still populated via the
+    safe-direction fallback."""
+
+    def test_rerun_failed_abstains(self, tmp_path):
+        base = tmp_path / "notebooks"
+        parsed = _parsed_root(tmp_path, {PAPER: HTML})
+        _build_table_from_html(tmp_path, base, parsed, PAPER, seed=41)
+        _register(base, [_doc(PAPER)])
+
+        # Make the first structural pass raise a member of
+        # PER_PAPER_FAILURE_EXCEPTIONS (ValueError) -> _rechunk_paper's try/except
+        # converts it to a per-paper rerun_failed (not a crash), exercising the
+        # real resilience envelope AND the uncovered _patch_notebook branch.
+        def _boom(*_a, **_k):
+            raise ValueError("synthetic malformed-HTML failure")
+
+        with patch.object(backfill, "_extract_chunks_from_container", _boom):
+            report = _patch(base, parsed)
+
+        # The registry resolved (source_revision_id set), so the source_span
+        # abstention is reason-coded chunker_rerun_failed, NOT no_source_revision.
+        assert report.source_span_null_reasons["chunker_rerun_failed"] >= 1
+        assert (
+            report.source_span_null_reasons["chunker_rerun_failed"]
+            == report.total_rows
+        )
+        assert report.rev_resolved == report.total_rows  # registry still joined
+
+        rows = _read_rows(base)
+        assert rows
+        for r in rows.values():
+            assert r["source_revision_id"] == PAPER
+            assert r["source_span"] is None  # abstained
+            assert r["printed_number"] is None  # not attempted on a miss
+            assert r["truncated"] is not None  # fallback still populates it
+
+
+# ---------------------------------------------------------------------------
+# M4 — a registry-HIT + chunk-id-MISS span abstention is RE-attempted
+# ---------------------------------------------------------------------------
+
+
+class TestSpanReattempt:
+    """M4 — the old skip-gate keyed on ``source_revision_id`` alone, so a
+    registry-HIT + chunk-id-MISS paper (source_span null though the revision
+    resolved) was frozen at null on every future run. The tightened gate
+    RE-attempts such a paper. Run 1 re-chunks under a preamble that does NOT
+    match the stored (empty-preamble) chunk_ids -> a MISS -> source_span null;
+    run 2 re-chunks under the matching (empty) preamble -> a HIT -> source_span
+    resolves. Embeddings stay byte-identical across both runs."""
+
+    def test_span_null_rerun_reattempts_when_ids_reproduce(self, tmp_path):
+        base = tmp_path / "notebooks"
+        parsed = _parsed_root(tmp_path, {PAPER: HTML})
+        # Table built with the EMPTY preamble -> stored chunk_ids = hash(body).
+        _build_table_from_html(tmp_path, base, parsed, PAPER, seed=51)
+        _register(base, [_doc(PAPER)])
+        before = _read_rows(base)
+
+        # Run 1: re-chunk under a NON-empty preamble -> chunk_ids differ -> MISS.
+        # Registry resolves, so source_revision_id is set but source_span
+        # abstains (reason chunk_id_not_reproduced).
+        doc = _nonempty_preamble(PAPER)
+        assert (
+            backfill.run(
+                SLUG,
+                base=base,
+                corpus_parsed_dir=parsed,
+                resolve_preamble=lambda _pid: doc,
+            )
+            == 0
+        )
+        mid = _read_rows(base)
+        assert all(r["source_revision_id"] == PAPER for r in mid.values())
+        assert all(r["source_span"] is None for r in mid.values()), (
+            "run 1 must MISS (chunk-id not reproduced under the wrong preamble)"
+        )
+        assert all(r["truncated"] is not None for r in mid.values())
+
+        # Run 2: re-chunk under the MATCHING (empty) preamble -> chunk_ids
+        # reproduce -> HIT. The OLD gate would SKIP (source_revision_id already
+        # non-null) and freeze the null span; the tightened gate RE-attempts and
+        # the span resolves.
+        assert _run(base, parsed) == 0
+        after = _read_rows(base)
+        assert all(r["source_span"] is not None for r in after.values()), (
+            "run 2 must resolve source_span (the M4 fix: span not frozen)"
+        )
+        for r in after.values():
+            span = json.loads(r["source_span"])
+            assert span["txt"] == backfill._normalized_text_hash(r["body_text"])
+
+        # Embeddings byte-identical across both runs (0-re-embed on a reattempt).
+        assert set(before) == set(after)
+        for cid, arow in after.items():
+            for col in ("embedding_stmt", "embedding_proof"):
+                b = before[cid][col]
+                a = arow[col]
+                if b is None:
+                    assert a is None
+                else:
+                    assert np.array_equal(
+                        np.asarray(b, dtype=np.float32),
+                        np.asarray(a, dtype=np.float32),
+                    ), f"{col} for {cid} mutated across reattempt runs"
+
+
+# ---------------------------------------------------------------------------
+# L3 — the duplicated v2 default map must not drift from the store's
+# ---------------------------------------------------------------------------
+
+
+def test_v2_defaults_match_store():
+    """L3 — ``backfill._V2_COLUMN_DEFAULTS`` deliberately re-mirrors the five
+    source-truth-m2 entries of ``ingest.store._TEXTBOOK_MIGRATION_DEFAULTS`` (to
+    keep the embedder out of the driver's import graph). Nothing else asserts
+    they stay equal, so a later single-map edit could silently diverge the
+    driver's self-contained migration from the store's. Importing
+    ``ingest.store`` in a TEST is fine (the 0-re-embed guarantee binds the
+    DRIVER's import graph, not the test's)."""
+    from ingest.store import _TEXTBOOK_MIGRATION_DEFAULTS
+
+    v2 = backfill._V2_COLUMN_DEFAULTS
+    assert set(v2) == {
+        "source_revision_id",
+        "source_span",
+        "truncated",
+        "printed_number",
+        "license_ref",
+    }
+    for key in v2:
+        assert key in _TEXTBOOK_MIGRATION_DEFAULTS, f"{key} missing from store map"
+        assert v2[key] == _TEXTBOOK_MIGRATION_DEFAULTS[key], (
+            f"cast SQL drift for {key!r}: backfill={v2[key]!r} "
+            f"store={_TEXTBOOK_MIGRATION_DEFAULTS[key]!r}"
+        )

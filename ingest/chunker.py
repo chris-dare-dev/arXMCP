@@ -117,10 +117,17 @@ _PAREN_NAME_RE = re.compile(r"\(([^)]+)\)")
 # anchored at the END of the ltx_tag_theorem heading text. The trailing
 # ``[\s.]*`` swallows the period/space LaTeXML renders after the tag
 # ("Theorem 3.1.") without letting a citation bracket ("[Ku]", "([HRS96])")
-# — which ends in ]/) not a digit — match. Extracted from the RENDERED text,
-# never the LaTeXML id/class (spike-2 §3e: id "A2.ThmThm1" can disagree with
-# the rendered prefix "B.1"; the rendered text is the only reliable source).
-_PRINTED_NUMBER_RE = re.compile(r"([A-Za-z]?\.?\d+(?:\.\d+)*)[\s.]*$")
+# — which ends in ]/) not a digit — match. The leading ``(?:^|[\s(\[])``
+# requires a start-of-string or a whitespace/bracket boundary BEFORE the
+# optional appendix letter, so a word-letter fused to a digit with no
+# separator ("Corollary3") cannot have its trailing "y3" captured as the
+# number (m2 rect L1). Real LaTeXML always renders a space between the tag
+# word and its number ("Theorem 3.1"), so the boundary is present in every
+# genuine case; a fused form is malformed input we correctly decline.
+# Extracted from the RENDERED text, never the LaTeXML id/class (spike-2 §3e:
+# id "A2.ThmThm1" can disagree with the rendered prefix "B.1"; the rendered
+# text is the only reliable source).
+_PRINTED_NUMBER_RE = re.compile(r"(?:^|[\s(\[])([A-Za-z]?\.?\d+(?:\.\d+)*)[\s.]*$")
 
 # Closes F2: paper_id must match new-style YYMM.NNNNN[N][vN] or old-style
 # subject/NNNNNNN[vN] or textbook:<slug> (textbook-ingest-m1); everything
