@@ -4,3 +4,7 @@
 {"id": "source-truth-spike-2", "field": "status", "value": "done", "at": "2026-07-12T19:56:58-04:00", "actor": "milestone-pipeline", "note": "99%/96.6%/92.8% coverage; holds >=80%; 1 old-style total-loss flagged for per-paper fallback"}
 {"id": "source-truth-m1", "field": "status", "value": "in_progress", "at": "2026-07-12T21:07:49-04:00", "actor": "agent"}
 {"id": "source-truth-m1", "field": "status", "value": "done", "at": "2026-07-12T22:37:37-04:00", "actor": "milestone-pipeline", "note": "rect 823c43c"}
+{"id": "source-truth-spike-3", "field": "status", "value": "in_progress", "at": "2026-07-13T12:59:20-04:00", "actor": "agent"}
+{"id": "source-truth-spike-4", "field": "status", "value": "in_progress", "at": "2026-07-13T12:59:20-04:00", "actor": "agent"}
+{"id": "source-truth-spike-3", "field": "status", "value": "done", "at": "2026-07-13T13:21:32-04:00", "actor": "milestone-pipeline", "note": "anchor UNSTABLE -> use (revision_checksum + normalized_text_hash) string anchor"}
+{"id": "source-truth-spike-4", "field": "status", "value": "done", "at": "2026-07-13T13:21:33-04:00", "actor": "milestone-pipeline", "note": "5-col migration clean in-place if source_span is a string"}
