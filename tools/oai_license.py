@@ -309,6 +309,11 @@ def _fetch_record(
                 exc.headers.get("Retry-After") if exc.headers else None
             )
             wait = retry_after if retry_after is not None else backoff
+            # Never drop below the arXiv politeness floor: arXiv has served
+            # Retry-After: 0, which would otherwise spin the 503 path with
+            # zero inter-request delay until the cap (adversary H2). The
+            # clamp still honors a server-requested LONGER delay.
+            wait = max(wait, POLITENESS_SLEEP_SECONDS)
             remaining = deadline - monotonic()
             if remaining <= 0:
                 raise RuntimeError(

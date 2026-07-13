@@ -562,3 +562,44 @@ class TestMembershipSource:
         assert "NotebooksStore" not in source
         assert "server.notebooks_store" not in source
         assert "read_paper_ids_from_papers_txt" in source
+
+
+# ---------------------------------------------------------------------------
+# Missing parse artifact (adversary M1)
+# ---------------------------------------------------------------------------
+
+
+class TestParseArtifactAbsent:
+    def test_missing_index_html_is_a_per_id_miss_not_a_silent_null(
+        self, tmp_path, monkeypatch, capsys,
+    ):
+        """A papers.txt member with a raw tree + OAI license but NO parsed
+        index.html is routed to a per-id MISS (row withheld, re-run retries),
+        never a row with a silent NULL parse checksum (adversary M1)."""
+        base = _make_notebook(tmp_path, "0708.2247\n2006.10956v1\n")
+        # 0708.2247: full corpus. 2006.10956: a raw tree present but NO
+        # parsed index.html (a parse-failure / not-yet-parsed member).
+        raw_root, parsed_root = _make_corpus(tmp_path, new_ids=["0708.2247"])
+        (raw_root / "2006.10956").mkdir(parents=True)
+        (raw_root / "2006.10956" / "2006.10956.tex").write_text(
+            "\\documentclass{article}", encoding="utf-8",
+        )
+        fetch = _fetch_for({
+            "0708.2247": ("license", NONEXCLUSIVE),
+            "2006.10956": ("license", CC_BY),
+        })
+        _patch_email(monkeypatch)
+
+        notebook_documents_backfill.run(
+            SLUG, base=base, corpus_raw_dir=raw_root,
+            corpus_parsed_dir=parsed_root, sleep=lambda _s: None, fetch=fetch,
+        )
+
+        captured = capsys.readouterr()
+        tokens = (captured.out + " " + captured.err).split()
+        assert "registered=1" in tokens   # only the fully-provenanced sibling
+        assert "missing=1" in tokens       # the no-parse member is withheld
+        # No row for the member missing its parse artifact (not a NULL row) ...
+        assert _store_get(base, "2006.10956", "v1") is None
+        # ... and its provenance-complete sibling IS registered.
+        assert _store_get(base, "0708.2247") is not None

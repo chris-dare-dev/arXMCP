@@ -397,6 +397,47 @@ class TestFetchRecordHTTP:
         ):
             oai_license._fetch_record(url, user_agent="ua")
 
+    def test_retry_after_zero_is_floored(self):
+        """A 503 with Retry-After: 0 must NOT busy-loop: the honored wait is
+        clamped to the politeness floor, never 0.0 (adversary H2)."""
+        attempts = {"n": 0}
+        url = f"{OAI_PMH_ENDPOINT}?verb=GetRecord"
+
+        def _fake_urlopen(request, timeout):
+            attempts["n"] += 1
+            if attempts["n"] == 1:
+                headers = email.message.Message()
+                headers["Retry-After"] = "0"
+                raise urllib.error.HTTPError(
+                    url, 503, "Service Unavailable", headers, None,
+                )
+            return _FakeResponse(_getrecord("2006.10956"), url)
+
+        sleeps: list[float] = []
+        with patch("tools.oai_license.urllib.request.urlopen", _fake_urlopen):
+            oai_license._fetch_record(
+                url, user_agent="ua", sleep=sleeps.append,
+            )
+        assert attempts["n"] == 2
+        # Retry-After: 0 -> floored to the 3s politeness contract, not 0.0.
+        assert sleeps == [oai_license.POLITENESS_SLEEP_SECONDS]
+
+    def test_oversized_read_body_refused(self, monkeypatch):
+        """A lying/absent Content-Length with an oversized body is caught at
+        the ACTUAL read, not just the header (Threat 7)."""
+        url = f"{OAI_PMH_ENDPOINT}?verb=GetRecord"
+        monkeypatch.setattr(oai_license, "OAI_PMH_MAX_RESPONSE_BYTES", 8)
+
+        def _fake_urlopen(request, timeout):
+            # No Content-Length header -> only the read-cap can catch it.
+            return _FakeResponse(b"x" * 20, url)
+
+        with (
+            patch("tools.oai_license.urllib.request.urlopen", _fake_urlopen),
+            pytest.raises(RuntimeError, match="exceeded cap"),
+        ):
+            oai_license._fetch_record(url, user_agent="ua")
+
 
 def test_oai_license_record_shape():
     """Guard the result dataclass fields the backfill depends on."""

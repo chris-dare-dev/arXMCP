@@ -20,9 +20,11 @@ question — genuine gaps), NOT on ``unknown + not-allowlisted-open``. When
 :data:`UNKNOWN_ESCALATION_THRESHOLD`, the report emits a LOUD stderr
 block and exits non-zero BEFORE any serving cutover. The
 ``not-allowlisted-open`` count is reported EQUALLY prominently (a large
-value there is the real "most papers truncate at m4" headline), but it
-does NOT feed the escalation exit code — folding it into ``unknown``
-would corrupt the signal.
+value there flags how many papers carry a real, non-CC license whose m4
+serving treatment is the OWNER's call — today these still serve full-body
+under the blanket ``arxiv-license`` allowlist token, so no truncation is
+implied yet), but it does NOT feed the escalation exit code — folding it
+into ``unknown`` would corrupt the signal.
 
 This report is ADVISORY: it reads the registry and prints. It changes no
 serving behavior and touches no ``chunks`` table or embedder.

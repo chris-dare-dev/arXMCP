@@ -190,20 +190,20 @@ def _build_record(
     oai_record: oai_license.OaiLicenseRecord,
     *,
     raw_root: Path,
-    parsed_root: Path,
+    parse_artifact_sha256: str,
     fetched_at: str,
 ) -> DocumentRecord:
     """Assemble a :class:`DocumentRecord` from the OAI-PMH result + the
-    on-disk checksums."""
+    on-disk checksums. ``parse_artifact_sha256`` is REQUIRED and non-null:
+    the caller routes a missing parse artifact to a per-id miss, never a
+    silent NULL parse checksum (adversary M1)."""
     raw_sha, raw_status = _raw_source_provenance(membership.work_id, raw_root)
     return DocumentRecord(
         work_id=membership.work_id,
         arxiv_version=membership.arxiv_version,
         raw_source_sha256=raw_sha,
         raw_source_status=raw_status,
-        parse_artifact_sha256=_parse_artifact_sha256(
-            membership.work_id, parsed_root
-        ),
+        parse_artifact_sha256=parse_artifact_sha256,
         chunker_version=CHUNKER_VERSION,
         parser_used=None,      # not a queryable per-paper column until m2
         latexml_version=None,  # local latexmlc version not captured in-repo
@@ -293,11 +293,21 @@ async def _register(
                 label = _label(membership)
                 missing.append((label, exc.reason))
                 continue
+            parse_sha = _parse_artifact_sha256(membership.work_id, parsed_root)
+            if parse_sha is None:
+                # No parsed/<id>/index.html => the paper is not fully
+                # ingested (a parse failure or a not-yet-parsed member),
+                # NOT a permanent abstention like the old-style raw-source
+                # gap. Treat as a per-id miss so a re-run retries after
+                # ingest, rather than registering a row with a silent NULL
+                # parse checksum (adversary M1).
+                missing.append((_label(membership), "parse_artifact_absent"))
+                continue
             record = _build_record(
                 membership,
                 oai_record,
                 raw_root=raw_root,
-                parsed_root=parsed_root,
+                parse_artifact_sha256=parse_sha,
                 fetched_at=datetime.now(UTC).isoformat(),
             )
             await store.upsert_records([record])
