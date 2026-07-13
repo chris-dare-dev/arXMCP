@@ -1,0 +1,190 @@
+{
+  "milestone_id": "source-truth-m2",
+  "critique_format_version": "1.0",
+  "critique_files": [
+    "dedup.md"
+  ],
+  "generated_at": "2026-07-13T19:51:55Z",
+  "findings": {
+    "H1": {
+      "id": "H1",
+      "severity": "HIGH",
+      "title": "Diff exceeds the 400-LOC review-quality threshold",
+      "file": null,
+      "line": null,
+      "anchor": "",
+      "source_critic": "milestone-adversary-critic \u00b7 **Source axis:** Review quality / diff size",
+      "source_axis": "",
+      "source_file": "dedup.md",
+      "status": "invalidated",
+      "resolution": "diff-size auto-flag; allow_large_diff owner-approved; 246 tests + 15,106-row smoke (0 embedding mismatches) mitigate",
+      "history": [
+        {
+          "status": "invalidated",
+          "at": "2026-07-13T19:51:55Z",
+          "resolution": "diff-size auto-flag; allow_large_diff owner-approved; 246 tests + 15,106-row smoke (0 embedding mismatches) mitigate"
+        }
+      ]
+    },
+    "M1": {
+      "id": "M1",
+      "severity": "MEDIUM",
+      "title": "HIT path's real preamble round-trip is never tested (all tests stub preamble to None)",
+      "file": "tools/notebook_chunks_backfill.py",
+      "line": 691,
+      "anchor": "",
+      "source_critic": "milestone-arxmcp-critic \u00b7 **Source axis:** Axis 8 \u2014 test surface",
+      "source_axis": "",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "test_hit_path_with_real_preamble_roundtrip exercises the real preamble->chunk_id round-trip (rect 2345b08)",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-07-13T19:51:54Z",
+          "resolution": "test_hit_path_with_real_preamble_roundtrip exercises the real preamble->chunk_id round-trip (rect 2345b08)"
+        }
+      ]
+    },
+    "M2": {
+      "id": "M2",
+      "severity": "MEDIUM",
+      "title": "Driver's add_columns\u2192hydrate composition has no regression guard",
+      "file": "tools/notebook_chunks_backfill.py",
+      "line": 532,
+      "anchor": "",
+      "source_critic": "milestone-adversary-critic \u00b7 **Source axis:** Acceptance coverage (AC1\u2229AC2 composition)",
+      "source_axis": "",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "TestMigrateThenHydrate: pre-v2 table migrated+hydrated in one run, read-back + np.array_equal embeddings (rect 2345b08)",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-07-13T19:51:54Z",
+          "resolution": "TestMigrateThenHydrate: pre-v2 table migrated+hydrated in one run, read-back + np.array_equal embeddings (rect 2345b08)"
+        }
+      ]
+    },
+    "M3": {
+      "id": "M3",
+      "severity": "MEDIUM",
+      "title": "`chunker_rerun_failed` abstention branch is uncovered",
+      "file": "tools/notebook_chunks_backfill.py",
+      "line": 615,
+      "anchor": "",
+      "source_critic": "milestone-arxmcp-critic \u00b7 **Source axis:** Axis 8 \u2014 test surface",
+      "source_axis": "",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "test_rerun_failed_abstains covers the chunker_rerun_failed reason code (rect 2345b08)",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-07-13T19:51:54Z",
+          "resolution": "test_rerun_failed_abstains covers the chunker_rerun_failed reason code (rect 2345b08)"
+        }
+      ]
+    },
+    "M4": {
+      "id": "M4",
+      "severity": "MEDIUM",
+      "title": "Idempotency skip-gate freezes source_span abstentions after revision resolves",
+      "file": "tools/notebook_chunks_backfill.py",
+      "line": 549,
+      "anchor": "",
+      "source_critic": "milestone-arxmcp-critic + milestone-adversary-critic \u00b7 **Source axis:** Axis 8 / Idempotency",
+      "source_axis": "",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "skip-gate now requires source_span resolved (not just source_revision_id); chunk-id-MISS rows re-attempt; docstring corrected (rect 2345b08)",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-07-13T19:51:54Z",
+          "resolution": "skip-gate now requires source_span resolved (not just source_revision_id); chunk-id-MISS rows re-attempt; docstring corrected (rect 2345b08)"
+        }
+      ]
+    },
+    "L1": {
+      "id": "L1",
+      "severity": "LOW",
+      "title": "printed-number regex fuses a trailing word-letter to a digit",
+      "file": "ingest/chunker.py",
+      "line": 123,
+      "anchor": "",
+      "source_critic": "milestone-adversary-critic \u00b7 **Source axis:** printed_number extraction",
+      "source_axis": "",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "_PRINTED_NUMBER_RE no longer fuses trailing word-letter to a digit + test (rect 2345b08)",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-07-13T19:51:54Z",
+          "resolution": "_PRINTED_NUMBER_RE no longer fuses trailing word-letter to a digit + test (rect 2345b08)"
+        }
+      ]
+    },
+    "L2": {
+      "id": "L2",
+      "severity": "LOW",
+      "title": "`_truncated_fallback` \"airtight\" claim overstates boundary monotonicity",
+      "file": "tools/notebook_chunks_backfill.py",
+      "line": 241,
+      "anchor": "",
+      "source_critic": "milestone-arxmcp-critic \u00b7 **Source axis:** Axis 8",
+      "source_axis": "",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "softened the _truncated_fallback 'airtight' docstring (rect 2345b08)",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-07-13T19:51:55Z",
+          "resolution": "softened the _truncated_fallback 'airtight' docstring (rect 2345b08)"
+        }
+      ]
+    },
+    "L3": {
+      "id": "L3",
+      "severity": "LOW",
+      "title": "Duplicated v2 default map has no drift guard",
+      "file": "tools/notebook_chunks_backfill.py",
+      "line": 143,
+      "anchor": "",
+      "source_critic": "milestone-arxmcp-critic \u00b7 **Source axis:** Axis 7 \u2014 no-fork",
+      "source_axis": "",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "test_v2_defaults_match_store pins _V2_COLUMN_DEFAULTS == the store map (rect 2345b08)",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-07-13T19:51:55Z",
+          "resolution": "test_v2_defaults_match_store pins _V2_COLUMN_DEFAULTS == the store map (rect 2345b08)"
+        }
+      ]
+    },
+    "L4": {
+      "id": "L4",
+      "severity": "LOW",
+      "title": "Commit 2572f2f subject is 1 char over the \u226450 convention",
+      "file": null,
+      "line": null,
+      "anchor": "",
+      "source_critic": "milestone-adversary-critic \u00b7 **Source axis:** Commit hygiene",
+      "source_axis": "",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "commit subject 51 chars on a landed+signed commit; a rebase for 1 char would break history; noted for future subjects",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-07-13T19:51:55Z",
+          "resolution": "commit subject 51 chars on a landed+signed commit; a rebase for 1 char would break history; noted for future subjects"
+        }
+      ]
+    }
+  }
+}
