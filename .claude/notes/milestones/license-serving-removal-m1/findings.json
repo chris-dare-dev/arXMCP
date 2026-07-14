@@ -1,0 +1,50 @@
+{
+  "milestone_id": "license-serving-removal-m1",
+  "critique_format_version": "1.0",
+  "critique_files": [
+    "dedup.md"
+  ],
+  "generated_at": "2026-07-14T04:22:15Z",
+  "findings": {
+    "L1": {
+      "id": "L1",
+      "severity": "LOW",
+      "title": "trust-language census lists the removed truncated_for_license field",
+      "file": ".claude/docs/trust-language-policy.md",
+      "line": 212,
+      "anchor": "",
+      "source_critic": "general-purpose adversary",
+      "source_axis": "",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "doc-staleness corrected in rect 25a56ba79b338aaf2e24270c0bd4402d43ee7375 (trust-language census row + 05-storage + security-pdf-sandbox notes)",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-07-14T04:22:15Z",
+          "resolution": "doc-staleness corrected in rect 25a56ba79b338aaf2e24270c0bd4402d43ee7375 (trust-language census row + 05-storage + security-pdf-sandbox notes)"
+        }
+      ]
+    },
+    "L2": {
+      "id": "L2",
+      "severity": "LOW",
+      "title": "design/security notes describe the removed e5 gate as live/forthcoming",
+      "file": ".claude/notes/05-storage-and-indexing.md",
+      "line": 70,
+      "anchor": "",
+      "source_critic": "general-purpose adversary",
+      "source_axis": "",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "doc-staleness corrected in rect 25a56ba79b338aaf2e24270c0bd4402d43ee7375 (trust-language census row + 05-storage + security-pdf-sandbox notes)",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-07-14T04:22:15Z",
+          "resolution": "doc-staleness corrected in rect 25a56ba79b338aaf2e24270c0bd4402d43ee7375 (trust-language census row + 05-storage + security-pdf-sandbox notes)"
+        }
+      ]
+    }
+  }
+}

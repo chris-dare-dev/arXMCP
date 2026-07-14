@@ -1,0 +1,87 @@
+{
+  "id": "license-serving-removal-m1",
+  "created_at": "2026-07-14T03:27:01Z",
+  "updated_at": "2026-07-14T04:22:39Z",
+  "phase": "complete",
+  "phase_history": [
+    {
+      "phase": "init",
+      "at": "2026-07-14T03:27:01Z"
+    },
+    {
+      "phase": "research-running",
+      "at": "2026-07-14T03:42:19Z"
+    },
+    {
+      "phase": "research-complete",
+      "at": "2026-07-14T03:42:21Z"
+    },
+    {
+      "phase": "implement-running",
+      "at": "2026-07-14T03:44:20Z"
+    },
+    {
+      "phase": "implement-complete",
+      "at": "2026-07-14T04:09:52Z"
+    },
+    {
+      "phase": "critique-running",
+      "at": "2026-07-14T04:09:52Z"
+    },
+    {
+      "phase": "critique-complete",
+      "at": "2026-07-14T04:22:15Z"
+    },
+    {
+      "phase": "rectify-running",
+      "at": "2026-07-14T04:22:15Z"
+    },
+    {
+      "phase": "complete",
+      "at": "2026-07-14T04:22:39Z"
+    }
+  ],
+  "milestone_brief": "### license-serving-removal-m1 \u2014 Remove license-based response truncation\r\n\r\n**Kind:** milestone (standalone / corrective)\r\n**Created:** 2026-07-13\r\n**Supersedes:** `source-truth-e4` / `source-truth-m4` (both retired in\r\n`plans/source-truth/roadmap.yaml` on 2026-07-13).\r\n\r\n#### Owner ruling that motivates this\r\n\r\nThe owner ruled that licensing drives **no** serving decision in arXMCP: the\r\npaper corpus is never redistributed (it lives in the gitignored `var/` data\r\ntree and never leaves the machine, even if the software is open-sourced), so\r\nthere is no redistribution-license constraint on what the server surfaces to\r\nits own local agents. Directive, verbatim in intent: *ignore licensing\r\ncompletely, never truncate, never limit, treat all materials as owned.*\r\n\r\nThe retired `source-truth-m4` would have done the **opposite** \u2014 it would have\r\nretired the blanket `arxiv-license` allowlist entry and repointed serving at\r\nthe three-way `license_ref`, activating 300-char truncation on ~76\u201386% of long\r\nresponses. This milestone instead **removes** the existing license-truncation\r\nmachinery so the \"never truncate on license\" invariant holds in code, not by\r\nthe accident that every current row happens to carry an allowlisted token.\r\n\r\n#### Current behavior to remove (verified 2026-07-13)\r\n\r\n- `server/license_policy.py` \u2014 the entire module is the license-truncation\r\n  policy: `OA_ALLOWLIST` (exact-string allowlist), `LICENSE_TRUNCATION_CHARS =\r\n  300`, and `is_open_access()` (fail-closed: `None`/`\"\"`/any non-allowlisted\r\n  token \u21d2 truncate).\r\n- `server/handlers/chunk.py` (~lines 94\u201397 + the flag emit ~150\u2013154) \u2014\r\n  `handle_get_chunk` truncates a chunk's sanitized body to 300 chars when\r\n  `not is_open_access(row[\"license\"])`, and emits `truncated_for_license=True`.\r\n  It imports `LICENSE_TRUNCATION_CHARS, is_open_access` from `license_policy`.\r\n- Tests pinning the behavior: `tests/test_license_policy.py`,\r\n  `tests/test_handlers_chunk.py`.\r\n- Docs: `.claude/docs/snippet-contract.md` describes the license-truncation\r\n  path.\r\n\r\nThis truncation is the **only** license-gated limit on the served surface\r\n(`search_papers` snippet is a fixed 150-char preview independent of license;\r\n`find_equation` / `get_definitions` / `find_lemma_by_name` return no body).\r\n\r\n#### Scope\r\n\r\n1. `get_chunk` returns the **full sanitized body for every chunk regardless of\r\n   its `license` token** \u2014 including `null`, `\"\"`, `copyrighted`,\r\n   `author-distributed`, and any unknown token. No license value ever shortens\r\n   or gates a response.\r\n2. Remove the license-truncation gate from `server/handlers/chunk.py`, remove\r\n   the `truncated_for_license` response field, and drop the now-unused\r\n   `license_policy` import.\r\n3. Retire `server/license_policy.py`'s truncation policy. **First grep every\r\n   importer** of `server.license_policy` (initial scan: `chunk.py` + verify\r\n   `server/tools.py`) and confirm none rely on its truncation before deleting\r\n   the module + its test; if any legitimate non-truncation use exists, reduce\r\n   the module to that instead of deleting.\r\n4. **Keep** the `license` and `license_ref` fields as purely informational\r\n   provenance metadata in the `get_chunk` payload \u2014 they drive nothing now, and\r\n   `license_ref` is `source-truth-m5`'s advisory field. Do not remove them;\r\n   that would touch the m5 surface and is out of scope.\r\n5. The size-based safeguards are **unrelated to license and must stay**: the\r\n   256 KB byte-cap and its `resource_link` full-body path, and body\r\n   sanitization/`<retrieved_chunk>` wrapping, are untouched.\r\n\r\n#### Acceptance criteria\r\n\r\n1. Given a chunk whose `license` token is `null`, `\"\"`, `copyrighted`,\r\n   `author-distributed`, or any token not in the former allowlist, when\r\n   `get_chunk` returns it, then the full sanitized body is returned and the\r\n   response carries no `truncated_for_license` field.\r\n2. Given the served `server/` package after the change, when it is grepped,\r\n   then no license value gates body length or content anywhere (the\r\n   `is_open_access` / 300-char path is gone), while the size-based byte-cap +\r\n   `resource_link` path remains.\r\n3. Given `server.license_policy`, when the change lands, then it is removed (or\r\n   reduced to a non-truncation use with every importer verified), with no code\r\n   path consuming its truncation behavior.\r\n4. Given the `tools/list` surface, when the schema hash is checked, then\r\n   `EXPECTED_TOOL_SCHEMA_SHA256` is **unchanged** \u2014 removing a *response* field\r\n   is not a change to tool *meta* (input schema/description). If the critics\r\n   show otherwise, re-pin per the CLAUDE.md \u00a79 tool-add runbook and record why.\r\n5. Given the full suite, when `make test` runs, then it is green (ruff clean +\r\n   pytest), with a **new regression test** asserting full-body serving for a\r\n   non-OA/unknown/`null` license token, and the obsolete license-truncation\r\n   assertions removed.\r\n6. Given `.claude/docs/snippet-contract.md`, when the change lands, then its\r\n   license-truncation description is removed/corrected to reflect that\r\n   `get_chunk` never truncates on license.\r\n\r\n#### Out of scope\r\n\r\n- The retired `source-truth-e4` / `source-truth-m4` cutover work (do not\r\n  resurrect the `license_ref` three-way *serving* gate).\r\n- The `license` / `license_ref` metadata fields (kept; informational only).\r\n- Any ingest-side change to how license tokens are recorded.\r\n- The 256 KB byte-cap / `resource_link` size path (size-based, not license).\r\n\r\n#### Notes for the implementer\r\n\r\n- Single-user, single-workstation repo: lands on `main` via the 4-phase\r\n  pipeline (CLAUDE.md \u00a74.2); expect the `feat` + `rect` + `chore` commit\r\n  triple. Run the always-on `milestone-adversary-critic` plus the repo overlay\r\n  critics (`milestone-arxmcp-critic`, `milestone-infra-safety-critic`).\r\n- Blast radius is ~5 files; well under the delegated-path threshold, but the\r\n  served trust boundary means the critics should confirm no other full-body\r\n  leakage surface was relying on the license gate.",
+  "brief_source": "legacy-prose plans/license-serving-removal.md",
+  "research_mode": "single",
+  "oss_scout_requested": false,
+  "allow_large_diff": false,
+  "research_briefs": [
+    ".claude/notes/milestones/license-serving-removal-m1/research/brief-1.md"
+  ],
+  "research_synthesis": ".claude/notes/milestones/license-serving-removal-m1/research/synthesis.md",
+  "implementation_path": "inline",
+  "implementation_plan": null,
+  "implementation_base": "2698ac8d162e8144969ebfdc45ef8fc6f3ddd50c",
+  "implementation_commit_range": "2698ac8d162e8144969ebfdc45ef8fc6f3ddd50c..b6b77be28195b1d604cd05a76628550fa39918af",
+  "implementation_commits": [
+    "b6b77be28195b1d604cd05a76628550fa39918af"
+  ],
+  "implementation_branch": null,
+  "external_writes_required": [],
+  "critique_path": ".claude/notes/milestones/license-serving-removal-m1/critique/dedup.md",
+  "critics_run": [
+    "general-purpose-adversary",
+    "orchestrator-opus"
+  ],
+  "critique_files": [
+    "critique/dedup.md"
+  ],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "medium": 0,
+    "low": 2
+  },
+  "findings_register": ".claude/notes/milestones/license-serving-removal-m1/findings.json",
+  "rectification_commit": "25a56ba79b338aaf2e24270c0bd4402d43ee7375",
+  "fixed_findings": [
+    "L1",
+    "L2"
+  ],
+  "deferred_findings": [],
+  "invalidated_findings": [],
+  "regression_tests_added": [],
+  "external_writes_authorized": [],
+  "external_writes_completed": []
+}
