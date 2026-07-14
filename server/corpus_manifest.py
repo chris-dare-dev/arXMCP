@@ -14,10 +14,11 @@ snapshot on-read from the already-live sources — there is NO persisted
 - The per-notebook ``corpus-version.json`` marker
   (:func:`server.corpus.read_corpus_version`) — the corpus epoch +
   chunker / embedder version stamps + counts.
-- The ``operator_settings`` key-value store
-  (:class:`server.operator_settings.OperatorSettingsStore`) — the
-  per-notebook ``license_unknown_override_<slug>`` flag (READ ONLY;
-  m3 records it, m4 gates serving on it).
+- The ``operator_settings`` key-value table in ``notebooks.db``
+  (written by :class:`server.operator_settings.OperatorSettingsStore`;
+  read HERE over a **read-only** ``sqlite3`` connection, never that
+  class) — the per-notebook ``license_unknown_override_<slug>`` flag
+  (READ ONLY; m3 records it, m4 gates serving on it).
 
 **Content addressing (brief-2 §1.2 / §1.7).** ``content_hash`` is a
 self-referential sha256 over the canonical JSON of ``snapshot`` ALONE —
@@ -34,9 +35,17 @@ ensure_ascii=True``) is the SAME convention
 reads: ``list_notebooks``, ``DocumentsStore.open``/``all_records``/
 ``close`` (guarded by a file-existence check so a read NEVER creates an
 empty ``documents.db``), ``read_corpus_version`` (a pure file read), and
-``OperatorSettingsStore.open``/``get``/``close`` (guarded likewise). No
-``upsert_records``, no ``set_setting``/``.set``, no LanceDB / Kùzu write
-anywhere in this path.
+the ``operator_settings`` override lookup — which opens a **read-only**
+``sqlite3`` connection (``file:…?mode=ro``, :func:`_read_override_value`)
+that is structurally incapable of writing. Unlike
+``OperatorSettingsStore.open`` (whose migration runs ``CREATE TABLE IF
+NOT EXISTS operator_settings`` + a sentinel ``INSERT`` when the table is
+absent — so opening the store to read is itself a write), a ``mode=ro``
+connection can create neither the file, the table, nor the sentinel row:
+a missing table simply raises ``sqlite3.OperationalError`` and degrades
+the override to OFF. So a ``resources/read`` GENUINELY never writes — no
+``upsert_records``, no ``set_setting``/``.set``, no ``CREATE TABLE``, no
+LanceDB / Kùzu write anywhere in this path.
 
 **Per-notebook failure isolation (brief-2 §1.3 / §5).** A corrupt
 ``documents.db`` (exists but ``sqlite3.DatabaseError`` on first query),
@@ -47,6 +56,7 @@ never raises and fails the whole ``resources/read``.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -64,7 +74,6 @@ from server.documents_store import (
     DOCUMENTS_DB_FILENAME,
     DocumentsStore,
 )
-from server.operator_settings import OperatorSettingsStore
 from tools._notebook_common import NotebookError, notebook_dir, notebook_lancedb_path
 from tools.oai_license import (
     LICENSE_STATUS_ELIGIBLE,
@@ -249,8 +258,11 @@ def _revision_entry(record: DocumentRecord) -> dict[str, Any]:
     need cross the boundary. ``license_uri`` (an externally-sourced arXiv
     OAI-PMH string) and per-row ``chunker_version`` are deliberately NOT
     repeated here — ``chunker_version`` is reported once per notebook, and
-    keeping ``license_uri`` out shrinks the injection surface to exactly
-    one field (``override.note``)."""
+    keeping ``license_uri`` out leaves the only operator-authored text in
+    the whole payload as the override block's three fields
+    (``set_by`` / ``set_at`` / ``note``), all neutralized by the
+    payload-wide escape-on-emit (:func:`server.tools.wrap_retrieved_text`)
+    — and additionally ``str``-coerced in :func:`_read_override`."""
     invalidated = record.status != DOCUMENT_STATUS_ACTIVE
     return {
         "work_id": record.work_id,
@@ -337,25 +349,84 @@ async def _load_records(db_path: Path) -> list[DocumentRecord]:
         await store.close()
 
 
+def _read_override_value(settings_db_path: Path, key: str) -> str | None:
+    """Read ONE ``operator_settings`` value over a **read-only** connection.
+
+    Opens ``file:<path>?mode=ro`` (``uri=True``) so the connection is
+    structurally incapable of writing: it can create neither the file, nor
+    the ``operator_settings`` table, nor the schema-version sentinel row.
+    This is the crux of the M1 read-purity fix — unlike
+    :meth:`OperatorSettingsStore.open`, whose migration runs ``CREATE TABLE
+    IF NOT EXISTS operator_settings`` + a sentinel ``INSERT`` when the table
+    is absent (so merely opening the store to read TURNS A READ INTO A
+    WRITE). A missing table (or a vanished file — the caller owns the
+    file-existence guard, but a TOCTOU delete is still covered) raises
+    :class:`sqlite3.OperationalError`, a :class:`sqlite3.DatabaseError`
+    subclass the caller maps to override-disabled — the correct reading of
+    "no override was ever set."
+
+    ``.as_posix()`` normalizes Windows back-slashes to the forward slashes
+    SQLite's URI parser expects; ``mode=ro`` additionally refuses to write
+    even if the query somehow tried.
+    """
+    uri = f"file:{settings_db_path.as_posix()}?mode=ro"
+    conn = sqlite3.connect(uri, uri=True)
+    try:
+        row = conn.execute(
+            "SELECT value FROM operator_settings WHERE key = ?",
+            (key,),
+        ).fetchone()
+        return row[0] if row else None
+    finally:
+        conn.close()
+
+
+def _coerce_operator_str(value: Any) -> str | None:
+    """Coerce an operator-authored override field to ``str`` (or ``None``).
+
+    Guards against a nested / non-string operator value (a JSON object or
+    array in the stored blob) shipping as raw JSON *structure* inside the
+    hashed, delimiter-wrapped payload — it becomes a string instead. The
+    payload-wide escape-on-emit (``wrap_retrieved_text``) already
+    neutralizes delimiter breakouts in any of these fields; this is
+    belt-and-braces so ``set_by`` / ``set_at`` / ``note`` are always plain
+    scalars regardless of what the operator persisted.
+    """
+    return str(value) if value is not None else None
+
+
 async def _read_override(slug: str, settings_db_path: Path) -> dict[str, Any]:
     """Read the per-notebook override flag (brief-2 §4). READ ONLY.
 
     Fail-safe-disabled: an absent key, a missing store file, a
     ``json.loads`` failure, a missing / non-boolean ``enabled``, or an
     unreadable store ALL return :data:`_OVERRIDE_DISABLED` (WARNING-logged,
-    never raised, never a silent permissive grant). The settings-store
-    file-existence check mirrors ``operator_settings.get_setting`` so a
-    read never creates a brand-new ``notebooks.db``.
+    never raised, never a silent permissive grant).
+
+    **Genuinely pure (M1 rect).** The value is read via
+    :func:`_read_override_value` over a **read-only** ``sqlite3`` connection
+    (``mode=ro``), so a read against a ``notebooks.db`` whose
+    ``operator_settings`` table is absent NEVER creates that table. The
+    prior ``OperatorSettingsStore.open`` path ran ``CREATE TABLE IF NOT
+    EXISTS`` + a sentinel ``INSERT`` on a file-present / table-absent DB —
+    turning a ``resources/read`` into a write and contradicting this
+    module's own read-only claim. The file-existence check short-circuits
+    before any connect; a missing-table / missing-file ``OperationalError``
+    (a ``DatabaseError``) degrades to OFF.
+
+    The three operator-authored fields (``set_by`` / ``set_at`` / ``note``)
+    are ``str``-coerced (:func:`_coerce_operator_str`) so a nested /
+    non-string operator value cannot ship as raw JSON structure inside the
+    payload (they are additionally neutralized by the payload-wide
+    escape-on-emit).
     """
     if not settings_db_path.is_file():
         return dict(_OVERRIDE_DISABLED)
     key = f"{OVERRIDE_KEY_PREFIX}{slug}"
     try:
-        store = await OperatorSettingsStore.open(settings_db_path)
-        try:
-            raw = await store.get(key)
-        finally:
-            await store.close()
+        raw = await asyncio.to_thread(
+            _read_override_value, settings_db_path, key
+        )
     except (sqlite3.DatabaseError, OSError) as exc:
         logger.warning(
             "corpus_manifest: notebook %r override read failed (%s); "
@@ -388,9 +459,9 @@ async def _read_override(slug: str, settings_db_path: Path) -> dict[str, Any]:
         return dict(_OVERRIDE_DISABLED)
     return {
         "license_unknown_escalation_override": enabled,
-        "set_by": parsed.get("set_by"),
-        "set_at": parsed.get("set_at"),
-        "note": parsed.get("note"),
+        "set_by": _coerce_operator_str(parsed.get("set_by")),
+        "set_at": _coerce_operator_str(parsed.get("set_at")),
+        "note": _coerce_operator_str(parsed.get("note")),
     }
 
 
@@ -483,9 +554,32 @@ async def build_manifest(
     notebooks: dict[str, Any] = {}
     for row in rows:
         slug = row["slug"]
-        notebooks[slug] = await _build_notebook_block(
-            slug, base=base, settings_db_path=settings_db_path
-        )
+        try:
+            notebooks[slug] = await _build_notebook_block(
+                slug, base=base, settings_db_path=settings_db_path
+            )
+        except Exception as exc:  # noqa: BLE001
+            # Blanket per-notebook isolation (brief-2 §1.3/§5/risk-4). The
+            # headline invariant is that ONE unhealthy notebook degrades to
+            # registry_present=false and NEVER fails the whole
+            # resources/read. `_build_notebook_block`'s inner guards already
+            # catch every reachable (DatabaseError|OSError|ValueError|
+            # NotebookError); this blanket catch makes the invariant hold
+            # UNCONDITIONALLY against a future non-those exception (e.g.
+            # `sqlite3.InterfaceError`, a `DatabaseError` sibling that is
+            # NOT a `DatabaseError`). Degrade to the existing shape; only
+            # the exception CLASS NAME crosses to the agent (no path leak,
+            # matching the block's `registry_error` discipline).
+            logger.warning(
+                "corpus_manifest: notebook %r block assembly failed (%s); "
+                "registry_present=false",
+                slug,
+                type(exc).__name__,
+            )
+            notebooks[slug] = {
+                "registry_present": False,
+                "registry_error": type(exc).__name__,
+            }
 
     snapshot = {"notebooks": notebooks}
     content_hash = compute_manifest_hash(snapshot)

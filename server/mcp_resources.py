@@ -216,7 +216,9 @@ def register_resources(mcp_server: FastMCP) -> None:
         # build_manifest reaches the SAME module store the two notebook
         # resources use; base + settings-db paths default to production
         # (var/arxmcp/…). The payload is wrapped as <retrieved_manifest>
-        # (Threat 2) — override.note is the only operator-freeform field.
+        # (Threat 2); the three operator-authored fields (override.set_by /
+        # set_at / note) are all neutralized by the payload-wide
+        # escape-on-emit (and str-coerced in _read_override).
         payload = await corpus_manifest.build_manifest(_require_store())
         return _wrap_json(payload, kind="manifest")
 
