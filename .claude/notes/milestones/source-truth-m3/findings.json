@@ -1,0 +1,90 @@
+{
+  "milestone_id": "source-truth-m3",
+  "critique_format_version": "1.0",
+  "critique_files": [
+    "dedup.md"
+  ],
+  "generated_at": "2026-07-14T00:10:53Z",
+  "findings": {
+    "M1": {
+      "id": "M1",
+      "severity": "MEDIUM",
+      "title": "Manifest `resources/read` creates the `operator_settings` table (a write) despite the read-only claim",
+      "file": "server/corpus_manifest.py",
+      "line": 354,
+      "anchor": "store = await OperatorSettingsStore.open",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Data-plane boundary (read-only, \u00a74.8)",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "override read now uses a read-only mode=ro sqlite connection (_read_override_value); no operator_settings table creation; sqlite_master-unchanged test (rect)",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-07-14T00:10:52Z",
+          "resolution": "override read now uses a read-only mode=ro sqlite connection (_read_override_value); no operator_settings table creation; sqlite_master-unchanged test (rect)"
+        }
+      ]
+    },
+    "M2": {
+      "id": "M2",
+      "severity": "MEDIUM",
+      "title": "Code diff exceeds the 400-LOC review-burden threshold",
+      "file": "server/corpus_manifest.py",
+      "line": 1,
+      "anchor": "\"\"\"Content-addressed corpus manifest buil",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Diff size / review burden",
+      "source_file": "dedup.md",
+      "status": "invalidated",
+      "resolution": "diff-size auto-flag; single cohesive well-tested module (24 tests); splitting adds churn w/o reducing risk - conscious acceptance",
+      "history": [
+        {
+          "status": "invalidated",
+          "at": "2026-07-14T00:10:53Z",
+          "resolution": "diff-size auto-flag; single cohesive well-tested module (24 tests); splitting adds churn w/o reducing risk - conscious acceptance"
+        }
+      ]
+    },
+    "L1": {
+      "id": "L1",
+      "severity": "LOW",
+      "title": "Per-notebook failure isolation is piece-wise, not a blanket guard",
+      "file": "server/corpus_manifest.py",
+      "line": 455,
+      "anchor": "block[\"override\"] = await _read_override(",
+      "source_critic": "milestone-adversary-critic + milestone-arxmcp-critic",
+      "source_axis": "Per-notebook failure isolation / Axis 3",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "blanket per-notebook except Exception in build_manifest loop degrades one notebook; RuntimeError-sibling test (rect)",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-07-14T00:10:53Z",
+          "resolution": "blanket per-notebook except Exception in build_manifest loop degrades one notebook; RuntimeError-sibling test (rect)"
+        }
+      ]
+    },
+    "L2": {
+      "id": "L2",
+      "severity": "LOW",
+      "title": "Injection-surface described as one field when three are operator-freeform",
+      "file": "server/corpus_manifest.py",
+      "line": 391,
+      "anchor": "\"set_by\": parsed.get(\"set_by\"),",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Injection surface / \u00a74.9 trust language",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "set_by/set_at/note coerced to str; 'three fields' reword; injection test extended to set_by (rect)",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-07-14T00:10:53Z",
+          "resolution": "set_by/set_at/note coerced to str; 'three fields' reword; injection test extended to set_by (rect)"
+        }
+      ]
+    }
+  }
+}

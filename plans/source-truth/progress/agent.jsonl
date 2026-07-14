@@ -12,3 +12,5 @@
 {"id": "source-truth-m2", "field": "status", "value": "done", "at": "2026-07-13T15:51:56-04:00", "actor": "milestone-pipeline", "note": "rect 2345b08"}
 {"id": "source-truth-m5", "field": "status", "value": "in_progress", "at": "2026-07-13T17:34:36-04:00", "actor": "agent"}
 {"id": "source-truth-m5", "field": "status", "value": "done", "at": "2026-07-13T18:19:38-04:00", "actor": "milestone-pipeline", "note": "rect 55238ed"}
+{"id": "source-truth-m3", "field": "status", "value": "in_progress", "at": "2026-07-13T18:56:47-04:00", "actor": "agent"}
+{"id": "source-truth-m3", "field": "status", "value": "done", "at": "2026-07-13T20:10:54-04:00", "actor": "milestone-pipeline", "note": "rect e183413"}

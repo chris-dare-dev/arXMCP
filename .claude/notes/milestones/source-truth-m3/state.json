@@ -1,0 +1,92 @@
+{
+  "id": "source-truth-m3",
+  "created_at": "2026-07-13T22:56:47Z",
+  "updated_at": "2026-07-14T00:10:54Z",
+  "phase": "rectify-running",
+  "phase_history": [
+    {
+      "phase": "init",
+      "at": "2026-07-13T22:56:47Z"
+    },
+    {
+      "phase": "research-running",
+      "at": "2026-07-13T22:57:32Z"
+    },
+    {
+      "phase": "research-complete",
+      "at": "2026-07-13T23:18:54Z"
+    },
+    {
+      "phase": "implement-running",
+      "at": "2026-07-13T23:18:54Z"
+    },
+    {
+      "phase": "implement-complete",
+      "at": "2026-07-13T23:39:23Z"
+    },
+    {
+      "phase": "critique-running",
+      "at": "2026-07-13T23:39:23Z"
+    },
+    {
+      "phase": "critique-complete",
+      "at": "2026-07-13T23:54:13Z"
+    },
+    {
+      "phase": "rectify-running",
+      "at": "2026-07-13T23:54:53Z"
+    }
+  ],
+  "milestone_brief": "# Milestone brief \u2014 source-truth-m3\r\n\r\n**Title:** Content-addressed corpus-manifest resource\r\n**Kind:** milestone\r\n**Roadmap:** source-truth (plans/source-truth/roadmap.yaml)\r\n**Status:** planned\r\n**Lane:** next\r\n**Target:** 2026-08-24 -> 2026-08-28\r\n\r\n## Parent epic\r\n\r\n- source-truth-e3 \u2014 Content-addressed corpus manifest\r\n  arxmcp://corpus-manifest resource returning a content-addressed snapshot: registry revisions with checksums, index build versions, license summary, per-notebook operator override flags, and the corpus_version epoch it maps to; checksums re-verify on a clean re-fetch of 3 sample papers, and manifest-invalidation semantics for withdrawn/superseded revisions are defined here (edges only, no takedown workflow). Resources-surface-only, outside the tools/list hash, so it lands even if the W1 window slips.\r\n\r\n## Summary\r\n\r\narxmcp://corpus-manifest returns a content-addressed snapshot \u2014 registry revisions with checksums, index build versions, license summary, per-notebook operator override flags, and the corpus_version epoch it maps to \u2014 with manifest-invalidation semantics for withdrawn/superseded revisions defined as edges only (no takedown workflow). Resources-surface-only, outside the tools/list hash, so it lands even if the W1 window slips.\r\n\r\n## Acceptance criteria\r\n\r\n1. Given a hydrated registry, when arxmcp://corpus-manifest is read, then it resolves to a content-addressed snapshot whose checksums re-verify on a clean re-fetch of 3 sample papers\r\n2. Given a revision marked withdrawn or superseded in the registry, when the manifest regenerates, then the affected snapshot is invalidated per the documented semantics while EXPECTED_TOOL_SCHEMA_SHA256 stays unchanged\r\n\r\n## Depends on\r\n\r\n- source-truth-m1 \u2014 Revision registry live with license provenance (advisory) [status: planned]",
+  "brief_source": "roadmap plans/source-truth/roadmap.yaml",
+  "research_mode": "standard",
+  "oss_scout_requested": false,
+  "allow_large_diff": false,
+  "research_briefs": [
+    ".claude/notes/milestones/source-truth-m3/research/brief-1.md",
+    ".claude/notes/milestones/source-truth-m3/research/brief-2.md"
+  ],
+  "research_synthesis": ".claude/notes/milestones/source-truth-m3/research/synthesis.md",
+  "implementation_path": "delegated",
+  "implementation_plan": null,
+  "implementation_base": "624fd9422a4ab48c2fdb3162fc324951c1dc51c5",
+  "implementation_commit_range": "624fd9422a4ab48c2fdb3162fc324951c1dc51c5..d2d9fe6d575483f6997b1b3a541277931cbe93c2",
+  "implementation_commits": [
+    "d2d9fe6d575483f6997b1b3a541277931cbe93c2"
+  ],
+  "implementation_branch": null,
+  "external_writes_required": [
+    "git push origin main"
+  ],
+  "critique_path": ".claude/notes/milestones/source-truth-m3/critique/dedup.md",
+  "critics_run": [
+    "milestone-adversary-critic",
+    "milestone-arxmcp-critic"
+  ],
+  "critique_files": [
+    "critique/adversary.md",
+    "critique/arxmcp.md"
+  ],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "medium": 2,
+    "low": 2
+  },
+  "findings_register": ".claude/notes/milestones/source-truth-m3/findings.json",
+  "rectification_commit": "e183413a228f63065c163238269ad1ca684fa5c5",
+  "fixed_findings": [
+    "L1",
+    "L2",
+    "M1"
+  ],
+  "deferred_findings": [],
+  "invalidated_findings": [
+    "M2"
+  ],
+  "regression_tests_added": [
+    "tests/test_corpus_manifest.py"
+  ],
+  "external_writes_authorized": [],
+  "external_writes_completed": []
+}
