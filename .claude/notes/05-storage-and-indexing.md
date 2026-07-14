@@ -67,7 +67,7 @@ created_at            int64
 >
 > ```
 > source_kind          enum {arxiv, textbook}  default "arxiv"      ; chunks-table discriminator for cross-corpus filters (m4)
-> license              string                  default "arxiv-license" ; per-chunk license token; e5 wires `truncated_for_license` enforcement
+> license              string                  default "arxiv-license" ; per-chunk license token; e5 wired `truncated_for_license` enforcement (REMOVED in license-serving-removal-m1: get_chunk no longer truncates on license)
 > chapter              string nullable                                 ; textbook chapter ("Chapter 3: Schemes"); NULL for arXiv
 > page_start           int32  nullable                                 ; inclusive textbook page range; NULL for arXiv
 > page_end             int32  nullable                                 ; inclusive textbook page range; NULL for arXiv

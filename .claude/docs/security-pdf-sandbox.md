@@ -347,8 +347,8 @@ threat surface.)
 - **Does NOT defend against malicious LANGUAGE in the PDF content
   (i.e., adversarial Bourbaki).** Threat 2 (indirect prompt
   injection) covers the chunk-level wrapping (`<retrieved_chunk>`
-  delimiters); the e5 milestone extends `truncated_for_license`
-  enforcement for non-OA chunks. Neither is in scope for the
+  delimiters); the e5 milestone's `truncated_for_license`
+  enforcement for non-OA chunks was later removed in license-serving-removal-m1. Neither is in scope for the
   subprocess sandbox.
 
 - **Does NOT reap MinerU 3.x's grandchild FastAPI server on
@@ -464,7 +464,7 @@ This is documented behavior, not a security flaw.
 - textbook-ingest e5 (PDF threat hardening) — the follow-up
   milestone that closes Threat 3.5 (polyglot) + Threat 8 (embedded
   JS) at the design-constitution level and lands the
-  `truncated_for_license` snippet enforcement
+  `truncated_for_license` snippet enforcement (later removed in license-serving-removal-m1)
 
 ---
 

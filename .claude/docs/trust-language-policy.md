@@ -209,7 +209,7 @@ below (one row per tool); the exhaustive 25-field table is in the Phase-1 resear
 | Tool | Trust/status-ish fields today |
 |---|---|
 | `search_papers` | `retrieval_mode`, `filter_warnings`, `filters_applied`, `degraded`/`degraded_reasons`, `excluded_kinds` |
-| `get_chunk` | `found`, `truncated_for_license`, `include_*_applied` (always False), `unused_args` |
+| `get_chunk` | `found`, `include_*_applied` (always False), `unused_args` (`truncated_for_license` removed in license-serving-removal-m1) |
 | `find_equation` | `retrieval_mode` (5 values incl. `*_fallback`), `cosine_score`/`ted_norm`/`score` |
 | `get_definitions` | `index_status` (`absent`/`ok`) — **cannot signal not-in-corpus vs empty (§5d)** |
 | `find_lemma_by_name` | `retrieval_mode` (5 values), per-match `confidence` (hardcoded `1.0` in fallback) |
