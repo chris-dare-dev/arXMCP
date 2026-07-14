@@ -78,7 +78,20 @@ goal:
 generated_by: { agent: claude-fable-5, at: "2026-07-11" }
 generations:
   - { rev: 1, at: "2026-07-11" }
-retired: []          # tombstoned item ids; ids are write-once, never deleted
+retired:               # tombstoned item ids; ids are write-once, never deleted
+  # --- 2026-07-13 owner ruling: licensing drives NO serving decision in arXMCP. ---
+  # The corpus is never redistributed (it lives in the gitignored var/ data tree),
+  # so there is no redistribution-license constraint on serving. The fail-closed
+  # license cutover is WITHDRAWN: epic e4 and its sole child m4 are retired.
+  # Consequently goal.key_results item 3 ("Unknown or missing license fails closed
+  # ... zero full-body serving of unknown-license content") and the two license
+  # assumptions below are SUPERSEDED and no longer authoritative; reconcile via
+  # /roadmap if a fully consistent planning doc is wanted. The replacement work --
+  # REMOVING the existing 300-char license-truncation gate so nothing is ever
+  # truncated on license -- is milestone `license-serving-removal-m1`
+  # (brief: plans/license-serving-removal.md).
+  - source-truth-e4
+  - source-truth-m4
 items:
   - id: source-truth-e1
     kind: epic
@@ -116,6 +129,9 @@ items:
     links:
       code: ["server/resources.py"]
 
+  # RETIRED 2026-07-13 (tombstoned in `retired:` above) -- owner ruled licensing
+  # drives no serving decision; the fail-closed cutover is withdrawn. Superseded
+  # by milestone license-serving-removal-m1 (plans/license-serving-removal.md).
   - id: source-truth-e4
     kind: epic
     title: "Fail-closed license cutover and notebook backfill"
@@ -297,6 +313,9 @@ items:
     links:
       code: ["server/handlers/chunk.py", "server/tools.py", "tests/test_server_tool_schema.py"]
 
+  # RETIRED 2026-07-13 (tombstoned in `retired:` above) -- see e4. This milestone
+  # (owner-gated fail-closed cutover) is cancelled; replaced by the removal
+  # milestone license-serving-removal-m1 (plans/license-serving-removal.md).
   - id: source-truth-m4
     kind: milestone
     title: "Owner-gated fail-closed license cutover + notebook backfill"
