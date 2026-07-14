@@ -1,14 +1,14 @@
-"""get_chunk license-truncation handler tests (textbook-ingest-m11 / e5).
+"""get_chunk full-body serving tests (license-serving-removal-m1).
 
-The non-OA license-truncation policy: ``get_chunk`` surfaces at most
-``LICENSE_TRUNCATION_CHARS`` (300) chars of a NON-open-access chunk's body
-and flags the response ``truncated_for_license=True``; open-access chunks
-return their full body with no flag.
+get_chunk returns the FULL sanitized chunk body for EVERY license token —
+the former textbook-ingest-m11 / e5 300-char non-OA license-truncation gate
+is removed (the served corpus is never redistributed, so licensing gates no
+serving decision). No response carries a ``truncated_for_license`` flag.
 
-The ORDERING invariant (license-truncate BEFORE the byte-cap + before the
-<retrieved_chunk> wrap) is the load-bearing correctness property
-(textbook-ingest-m11 FM-1/FM-2): a non-OA chunk can never surface >300
-chars via ANY path — not the delimiter wrap, not the resource_link.
+The only remaining length safeguard is the size-based 256 KB byte-cap +
+resource_link path (E13_S04), which is unrelated to license and applies to
+every chunk. The <retrieved_chunk> delimiter wrap (E13_S02) is well-formed
+around the full body.
 """
 
 from __future__ import annotations
@@ -20,7 +20,6 @@ import pyarrow as pa
 import pytest
 
 from server.handlers.chunk import handle_get_chunk
-from server.license_policy import LICENSE_TRUNCATION_CHARS
 
 # E13_S02 delimiter tags (stable contract).
 _OPEN = "<retrieved_chunk>"
@@ -133,121 +132,70 @@ def _get(res, *, chunk_id: str, body_text: str, license_token: str | None):
 
 def _inner(wrapped: str) -> str:
     """Strip the <retrieved_chunk> wrapper, asserting it is INTACT
-    (FM-1: license truncation must not slice the delimiter tags)."""
+    (the delimiter tags must never be sliced)."""
     assert wrapped.startswith(_OPEN), f"open tag missing/sliced: {wrapped[:40]!r}"
     assert wrapped.endswith(_CLOSE), f"close tag missing/sliced: {wrapped[-40:]!r}"
     return wrapped[len(_OPEN):-len(_CLOSE)]
 
 
-class TestGetChunkLicenseTruncation:
-    def test_open_access_returns_full_body_no_flag(self, res) -> None:
+class TestGetChunkNoLicenseTruncation:
+    """license-serving-removal-m1: get_chunk returns the FULL body for EVERY
+    license token — the 300-char non-OA truncation gate (formerly
+    textbook-ingest-m11 / e5) is removed. No response carries a
+    ``truncated_for_license`` flag. The only remaining length safeguard is
+    the size-based 256 KB byte-cap, which is unrelated to license."""
+
+    @pytest.mark.parametrize(
+        "license_token",
+        [
+            "arxiv-license", "GFDL", "CC-BY",      # formerly open-access
+            "author-distributed", "copyrighted",    # formerly non-OA -> truncated
+            "weird-unknown-license",                # unknown token
+            "",                                     # empty
+            None,                                   # null (legacy / missing column)
+        ],
+    )
+    def test_full_body_returned_for_any_license(self, res, license_token) -> None:
+        """Regression (owner directive: never truncate on license): a
+        500-char body is returned IN FULL for any license token — including
+        the formerly-truncated non-OA / unknown / null cases — with no
+        ``truncated_for_license`` flag."""
         body = "x" * 500
-        r = _get(res, chunk_id=_OA_ID, body_text=body, license_token="arxiv-license")
+        r = _get(res, chunk_id=_NONOA_ID, body_text=body, license_token=license_token)
         assert _inner(r["chunk"]["body_text"]) == body
         assert "truncated_for_license" not in r
 
-    def test_gfdl_is_open_access_full_body(self, res) -> None:
-        body = "g" * 500
-        r = _get(res, chunk_id=_NONOA_ID, body_text=body, license_token="GFDL")
-        assert _inner(r["chunk"]["body_text"]) == body
-        assert "truncated_for_license" not in r
-
-    def test_non_oa_body_truncated_to_300_with_flag(self, res) -> None:
-        body = "y" * 500
-        r = _get(res, chunk_id=_NONOA_ID, body_text=body, license_token="author-distributed")
-        assert len(_inner(r["chunk"]["body_text"])) == LICENSE_TRUNCATION_CHARS
-        assert r["truncated_for_license"] is True
-
-    def test_unknown_license_fail_closed(self, res) -> None:
-        body = "z" * 500
-        r = _get(res, chunk_id=_NONOA_ID, body_text=body, license_token="weird-unknown-license")
-        assert len(_inner(r["chunk"]["body_text"])) == LICENSE_TRUNCATION_CHARS
-        assert r["truncated_for_license"] is True
-
-    def test_empty_license_fail_closed(self, res) -> None:
-        body = "z" * 500
-        r = _get(res, chunk_id=_NONOA_ID, body_text=body, license_token="")
-        assert len(_inner(r["chunk"]["body_text"])) == LICENSE_TRUNCATION_CHARS
-        assert r["truncated_for_license"] is True
-
-    def test_null_license_fail_closed(self, res) -> None:
-        body = "z" * 500
-        r = _get(res, chunk_id=_NONOA_ID, body_text=body, license_token=None)
-        assert len(_inner(r["chunk"]["body_text"])) == LICENSE_TRUNCATION_CHARS
-        assert r["truncated_for_license"] is True
-
-    def test_non_oa_short_body_not_truncated_no_flag(self, res) -> None:
-        """A non-OA chunk whose body is already < 300 chars is returned
-        whole — truncation only fires when it would actually shorten."""
-        body = "a short non-OA body well under three hundred chars"
-        r = _get(res, chunk_id=_NONOA_ID, body_text=body, license_token="author-distributed")
-        assert _inner(r["chunk"]["body_text"]) == body
-        assert "truncated_for_license" not in r
-
-    def test_license_token_surfaced_in_chunk(self, res) -> None:
-        """m11 D4: the license token is surfaced so an agent sees WHY a
-        body was (or was not) truncated."""
+    def test_license_token_still_surfaced_as_metadata(self, res) -> None:
+        """The license token is still surfaced as informational provenance
+        — it just no longer gates serving."""
         r = _get(res, chunk_id=_NONOA_ID, body_text="hi", license_token="author-distributed")
         assert r["chunk"]["license"] == "author-distributed"
 
-    def test_delimiter_wrap_intact_after_truncation(self, res) -> None:
-        """FM-1: license truncation operates on the INNER body before the
-        wrap, so the </retrieved_chunk> close tag is never sliced."""
+    def test_delimiter_wrap_intact_around_full_body(self, res) -> None:
+        """The <retrieved_chunk> wrap is well-formed around the full body
+        (no license slice can touch the delimiter tags anymore)."""
         body = "m" * 1000
         r = _get(res, chunk_id=_NONOA_ID, body_text=body, license_token="author-distributed")
         wrapped = r["chunk"]["body_text"]
         assert wrapped.startswith(_OPEN)
-        assert wrapped.endswith(_CLOSE)  # tag intact, not sliced
-        assert len(_inner(wrapped)) == LICENSE_TRUNCATION_CHARS
+        assert wrapped.endswith(_CLOSE)
+        assert _inner(wrapped) == body
 
-    def test_non_oa_huge_body_never_emits_resource_link(self, res) -> None:
-        """FM-2 (headline risk): a >256 KB non-OA body is license-truncated
-        to 300 chars FIRST, so the byte-cap never fires and no
-        resource_link to the full unrestricted body is emitted."""
+    def test_huge_body_byte_capped_regardless_of_license(self, res) -> None:
+        """A >256 KB body hits the size-based byte-cap (body_truncated +
+        resource_link) for ANY license. The old non-OA carve-out that
+        truncated to 300 chars FIRST (so the cap never fired and no link was
+        emitted) is gone: a formerly-OA and a formerly-non-OA huge body now
+        behave identically."""
         body = "h" * (300 * 1024)  # 300 KB, over the 256 KB byte-cap
-        r = _get(res, chunk_id=_NONOA_ID, body_text=body, license_token="author-distributed")
-        assert "resource_link_uri" not in r, "non-OA chunk must NOT emit a full-body resource_link"
-        assert not r.get("body_truncated"), "byte-cap must not fire on a 300-char body"
-        assert len(_inner(r["chunk"]["body_text"])) == LICENSE_TRUNCATION_CHARS
-        assert r["truncated_for_license"] is True
-
-    def test_oa_huge_body_still_byte_capped(self, res) -> None:
-        """An OPEN-access chunk is NOT license-truncated, so a >256 KB
-        body still hits the byte-cap path (body_truncated + resource_link)
-        — the existing E13_S04 behavior is unchanged for OA chunks."""
-        body = "h" * (300 * 1024)
-        r = _get(res, chunk_id=_OA_ID, body_text=body, license_token="arxiv-license")
-        assert "truncated_for_license" not in r
-        assert r.get("body_truncated") is True
-        assert "resource_link_uri" in r
-
-    # ----- m11 rect F2: content-identity + the exact 300/301 boundary -----
-
-    def test_truncation_surfaces_the_first_300_chars_verbatim(self, res) -> None:
-        """e5/m11 rect F2: a uniform body can't distinguish first-300 from
-        last-300 or a wrong-source slice. Seed a DISTINCT-prefix body and
-        assert the surfaced excerpt is ``sanitized_body[:300]`` byte-for-byte
-        — guards the slice SOURCE and OFFSET, not just the length."""
-        body = "ABCDEFGHIJ" * 40  # 400 distinct chars
-        r = _get(res, chunk_id=_NONOA_ID, body_text=body, license_token="author-distributed")
-        inner = _inner(r["chunk"]["body_text"])
-        assert inner == body[:300], "must surface the FIRST 300 chars of the body"
-        assert r["truncated_for_license"] is True
-
-    def test_boundary_301_truncates_300_exactly_keeps_full(self, res) -> None:
-        """e5/m11 rect F2: the guard is ``> 300`` (NOT ``>=``). A 301-char
-        non-OA body truncates to exactly 300 + flag; a 300-char non-OA body
-        returns all 300 chars with NO flag. Pins the off-by-one."""
-        # 301 chars -> truncated to 300 + flag.
-        body_301 = "p" * 301
-        r301 = _get(res, chunk_id=_NONOA_ID, body_text=body_301, license_token="author-distributed")
-        assert len(_inner(r301["chunk"]["body_text"])) == LICENSE_TRUNCATION_CHARS
-        assert r301["truncated_for_license"] is True
-        # Exactly 300 chars -> NOT truncated (guard is strict >), no flag.
-        body_300 = "q" * 300
-        r300 = _get(res, chunk_id=_NONOA_ID, body_text=body_300, license_token="author-distributed")
-        assert _inner(r300["chunk"]["body_text"]) == body_300
-        assert "truncated_for_license" not in r300
+        for license_token, cid in (
+            ("arxiv-license", _OA_ID),
+            ("author-distributed", _NONOA_ID),
+        ):
+            r = _get(res, chunk_id=cid, body_text=body, license_token=license_token)
+            assert "truncated_for_license" not in r
+            assert r.get("body_truncated") is True, f"{license_token}: byte-cap must fire"
+            assert "resource_link_uri" in r, f"{license_token}: resource_link expected"
 
 
 class TestGetChunkSourceTruthFields:
@@ -295,11 +243,12 @@ class TestGetChunkSourceTruthFields:
         assert "printed_number" in chunk and chunk["printed_number"] is None
         assert chunk["source_revision_id"] == "2401.00001"  # still populated
 
-    def test_license_ref_is_advisory_not_wired_to_truncation(self, res) -> None:
-        """AC3: ``license_ref`` is ADVISORY. An OA chunk (``license`` token
-        allowlisted) whose ``license_ref`` is ``not-allowlisted-open`` still
-        returns its FULL body — the m4 cutover is NOT wired here; serving is
-        driven only by the ``license`` token."""
+    def test_license_ref_is_advisory_not_wired_to_serving(self, res) -> None:
+        """``license_ref`` (and the ``license`` token) are advisory /
+        informational ONLY: no license value gates serving. An OA-token
+        chunk whose ``license_ref`` is ``not-allowlisted-open`` returns its
+        FULL body — as does every other license (license-serving-removal-m1;
+        the owner-gated source-truth-m4 cutover was retired)."""
         big = "z" * 500
         arrow = _chunk_arrow_v2(
             license_token="arxiv-license", license_ref="not-allowlisted-open",

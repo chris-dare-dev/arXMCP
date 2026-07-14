@@ -175,8 +175,13 @@ class TestToolRegistration:
         lean_verify result shape once more unchanged), 16->17
         (paper-metadata-m2 — GET_PAPER ToolMeta description rewritten
         for the hydrated per-notebook metadata store; lean_verify
-        result shape yet again unchanged)."""
-        assert TOOL_SCHEMA_VERSION == 17
+        result shape yet again unchanged), 17->18 (source-truth-m5 --
+        get_chunk grew 5 source-truth response fields; lean_verify result
+        shape unchanged), 18->19 (license-serving-removal-m1 -- get_chunk
+        DROPPED the truncated_for_license response flag as the 300-char
+        license-truncation gate was removed; lean_verify result shape once
+        more unchanged)."""
+        assert TOOL_SCHEMA_VERSION == 19
 
         schema_path = (
             Path(__file__).parent.parent

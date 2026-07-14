@@ -175,7 +175,15 @@ logger = logging.getLogger(__name__)
 #: UNCHANGED, so EXPECTED_TOOL_SCHEMA_SHA256 re-pins (via the
 #: ``_meta.tool_schema_version`` echo) but EXPECTED_BP1_SHA256 does NOT
 #: (same shape as v16).
-TOOL_SCHEMA_VERSION: int = 18
+#: v19: license-serving-removal-m1 — get_chunk's RESPONSE envelope DROPS
+#: the ``truncated_for_license`` flag: the 300-char non-OA license
+#: truncation gate (v16 / textbook-ingest-m11) is removed, so get_chunk
+#: returns the full body for every license (the served corpus is never
+#: redistributed → licensing gates no serving decision). Symmetric
+#: response-shape change to v16 → EXPECTED_TOOL_SCHEMA_SHA256 re-pins (via
+#: the ``_meta.tool_schema_version`` echo); EXPECTED_BP1_SHA256 does NOT
+#: (GET_CHUNK description + inputSchema unchanged).
+TOOL_SCHEMA_VERSION: int = 19
 
 #: URI scheme for chunk resource_links per the design note. Used by
 #: handlers that switch to resource_link mode when payloads exceed

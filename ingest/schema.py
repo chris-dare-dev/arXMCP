@@ -197,8 +197,9 @@ CHUNKS_SCHEMA_V1 = pa.schema(
         # validated. Default ``"arxiv-license"`` for arXiv chunks;
         # textbook chunks carry the textbook's specific license token
         # (``"GFDL"`` for Stacks Project, ``"author-distributed"`` for
-        # lecture notes, etc.). ``truncated_for_license`` snippet
-        # truncation enforcement lands with textbook-ingest-e5.
+        # lecture notes, etc.). licensing gates no serving
+        # decision — the ``truncated_for_license`` / e5 truncation gate was
+        # removed in license-serving-removal-m1.
         pa.field("license", pa.utf8(), nullable=True),
         # Textbook chapter name (``"Chapter 3: Schemes"``). NULL for
         # arXiv chunks; populated by the textbook chunker (e3).

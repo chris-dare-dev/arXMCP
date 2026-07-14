@@ -125,8 +125,9 @@ class ChunkRecord:
         Free-text license token. Default ``"arxiv-license"`` for
         arXiv chunks; textbook chunks carry the textbook's license
         (e.g. ``"GFDL"`` for Stacks Project, ``"author-distributed"``
-        for lecture notes, etc.). Documentary at m2; enforcement of
-        ``truncated_for_license`` flag lands with e5.
+        for lecture notes, etc.). Documentary only; no license value gates serving (the
+        ``truncated_for_license`` / e5 truncation gate was removed in
+        license-serving-removal-m1).
     chapter:
         Textbook chapter name (``"Chapter 3: Schemes"``) or ``None``
         for arXiv. Surfaced in the result envelope for textbook

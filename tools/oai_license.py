@@ -25,8 +25,9 @@ safe — the response is untrusted external data, Threat 7), matching
 
 **License-decision function** (:func:`decide_license_status`) is ADVISORY
 ONLY. It maps a fetched URI to a 3-way ``license_status`` and does NOT
-touch :mod:`server.license_policy` (that token-allowlist + its actual
-serving behavior is the owner-gated m4 cutover). The 3-way split is the
+gate serving: no license value truncates or limits a served body (the
+``server/license_policy.py`` allowlist gate was removed in
+license-serving-removal-m1). The 3-way split is the
 source-truth-m1 OWNER DECISION: ``eligible`` (a CC-allowlisted open URI)
 / ``not-allowlisted-open`` (a real dereferenceable URI recovered but not
 CC-allowlisted, e.g. arXiv's default ``nonexclusive-distrib`` — its OA
@@ -116,14 +117,15 @@ LICENSE_STATUS_NOT_ALLOWLISTED_OPEN: str = "not-allowlisted-open"
 LICENSE_STATUS_UNKNOWN: str = "unknown"
 
 #: Substring markers for the CC families that correspond to
-#: :data:`server.license_policy.OA_ALLOWLIST`'s open tokens (``CC-BY`` /
+#: the former serving OA allowlist's open tokens (``CC-BY`` /
 #: ``CC-BY-SA`` / ``CC0`` / ``public-domain`` / ``GFDL``). Matched as a
 #: case-insensitive substring of the URI. DELIBERATELY narrow: arXiv
 #: also serves ``by-nc-sa`` / ``by-nc-nd`` (non-commercial /
 #: no-derivatives), which are NOT in the OA allowlist and must fall
 #: through to ``not-allowlisted-open`` — a blanket ``creativecommons.org``
 #: match would wrongly promote them. This mirrors the allowlist's intent
-#: WITHOUT importing or modifying ``server/license_policy.py`` (m4-owned).
+#: WITHOUT depending on a serving-side gate (the former
+#: ``server/license_policy.py`` allowlist was removed in license-serving-removal-m1).
 _CC_ELIGIBLE_URI_MARKERS: tuple[str, ...] = (
     "creativecommons.org/licenses/by/",       # CC-BY
     "creativecommons.org/licenses/by-sa/",    # CC-BY-SA

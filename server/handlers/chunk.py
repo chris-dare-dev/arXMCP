@@ -20,7 +20,6 @@ from typing import Annotated, Any
 from pydantic import Field
 
 from ingest.identifiers import is_valid_chunk_id
-from server.license_policy import LICENSE_TRUNCATION_CHARS, is_open_access
 from server.observability.sanitize import sanitize_retrieved_text
 from server.tools import (
     enforce_byte_cap,
@@ -67,49 +66,37 @@ async def handle_get_chunk(
         )
 
     row = _arrow_first_row(arrow)
-    # E13_S02 (Threat 2) — sanitize body_text BEFORE byte-cap truncation
-    # so the 256 KB cap measures post-sanitize bytes. Wrapping is
-    # deferred until AFTER truncation so the delimiter tags are not
-    # sliced off by the cap path (which truncates ``body_text``
-    # in-place when the structured payload exceeds the cap).
+    # E13_S02 (Threat 2) — sanitize body_text BEFORE the byte-cap so the
+    # 256 KB cap measures post-sanitize bytes. Wrapping is deferred until
+    # AFTER the cap so the delimiter tags are not sliced off by the cap
+    # path (which truncates ``body_text`` in-place when the structured
+    # payload exceeds the cap).
     raw_body = row["body_text"] or ""
     sanitized_body = sanitize_retrieved_text(raw_body)
-    # textbook-ingest-m11 (e5): license-based content truncation. A
-    # NON-open-access chunk (license not in the OA allowlist; fail-closed
-    # on None/"") may legally surface only a short excerpt — slice the
-    # INNER sanitized body to LICENSE_TRUNCATION_CHARS (=300) chars HERE,
-    # BEFORE enforce_byte_cap and BEFORE wrap_retrieved_text. This
-    # ordering is load-bearing (m11 FM-1/FM-2):
-    #  - a <=300-char body never trips the 256 KB byte-cap, so a non-OA
-    #    chunk can NEVER emit a resource_link to its full body (FM-2);
-    #  - the <retrieved_chunk> delimiters wrap the already-truncated body,
-    #    so truncation can't slice a delimiter tag (FM-1).
-    # ``str`` slicing is Unicode-codepoint-safe (never splits a char). The
-    # 300-char excerpt MAY end mid-LaTeX/MathML ($..., \begin{equation}...,
-    # <math>...) — that is intentional for a non-OA chunk (a partial
-    # fair-use excerpt, not a renderable unit) and is harmless:
-    # wrap_retrieved_text escapes any sliced delimiter tag. Do NOT "fix"
-    # this by truncating on a token boundary — that risks surfacing >300
-    # chars (m11 rect F3).
+    # license-serving-removal-m1: the served corpus is never redistributed,
+    # so licensing gates NO serving decision — get_chunk returns the FULL
+    # sanitized body for every chunk regardless of its ``license`` token.
+    # (The former textbook-ingest-m11 / e5 300-char non-OA truncation gate
+    # was removed here.) The only remaining length safeguard is the
+    # size-based 256 KB byte-cap + resource_link path below, which is
+    # unrelated to license. The ``license`` token is still surfaced as
+    # informational provenance, never as a serving control.
     license_token = row["license"] or ""
-    license_truncated = False
-    if not is_open_access(license_token) and len(sanitized_body) > LICENSE_TRUNCATION_CHARS:
-        sanitized_body = sanitized_body[:LICENSE_TRUNCATION_CHARS]
-        license_truncated = True
     chunk = {
         "body_text": sanitized_body,
         "chunk_id": row["chunk_id"],
         "chunker_version": row["chunker_version"],
         "embedder_version": row["embedder_version"],
         "kind": row["kind"],
-        # m11: surface the license token so an agent can see WHY a body
-        # was (or was not) license-truncated.
+        # Informational provenance only: the license token is surfaced so an
+        # agent can see a chunk's license, but it never gates serving
+        # (license-serving-removal-m1).
         "license": license_token,
         # source-truth-m5: the m2 per-revision license DECISION
-        # (eligible / not-allowlisted-open / unknown) — ADVISORY ONLY.
-        # It is NOT wired into the license-truncation gate above; that
-        # cutover is source-truth-m4 (owner-gated). Distinct from the
-        # ``license`` token, which drives today's serving behavior.
+        # (eligible / not-allowlisted-open / unknown) — ADVISORY /
+        # informational only. No license value gates serving: the
+        # owner-gated fail-closed cutover (source-truth-m4) was retired and
+        # the truncation gate removed (license-serving-removal-m1).
         "license_ref": row.get("license_ref"),
         "paper_id": row["paper_id"],
         "preamble_ref": row["preamble_ref"],
@@ -131,9 +118,9 @@ async def handle_get_chunk(
         "theorem_name": row["theorem_name"],
         # source-truth-m5: INGEST-time provenance — was the STORED body
         # token-capped to STMT_MAX_TOKENS at chunk time (ingest/schema.py).
-        # DISTINCT from the SERVING-time completeness flags: whether the
+        # DISTINCT from the SERVING-time completeness flag: whether the
         # RETURNED text is complete is governed solely by the top-level
-        # (absent-when-false) ``truncated_for_license`` + ``body_truncated``.
+        # (absent-when-false) ``body_truncated`` (the size-based byte-cap).
         # An agent must NOT read ``chunk.truncated`` to judge whether the
         # body it received is complete (they can disagree in both directions).
         "truncated": row.get("truncated"),
@@ -146,12 +133,6 @@ async def handle_get_chunk(
         "include_referenced_applied": False,  # v1: deferred to E07_S03
         "unused_args": _record_unused_args(include_referenced, include_equations),
     }
-    # m11: surface the flag ONLY when license truncation fired, mirroring
-    # the absent-when-false convention of ``body_truncated`` (set by
-    # enforce_byte_cap) + ``filters_applied`` (m2). Absence + the surfaced
-    # ``chunk.license`` token together tell the agent the body is full.
-    if license_truncated:
-        payload["truncated_for_license"] = True
     # F1 fix from E06_S03 critique: tell enforce_byte_cap that
     # body_text is nested under ``chunk``, not at the top level.
     # Without the explicit path, the cap would silently fail to
@@ -161,7 +142,7 @@ async def handle_get_chunk(
         chunk_id=chunk_id,
         body_text_path=("chunk", "body_text"),
     )
-    # E13_S02 — wrap AFTER truncation so the delimiter pair is
+    # E13_S02 — wrap AFTER the byte-cap so the delimiter pair is
     # well-formed regardless of whether the cap fired. The
     # escape-on-emit step inside ``wrap_retrieved_text`` defends
     # against adversarial close tags in body content (FM-1).
