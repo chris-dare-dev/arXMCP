@@ -12,6 +12,7 @@
     "paper_id": "textbook:two-chapter-book",
     "parser_used": "mineru+latexml",
     "preamble_ref": null,
+    "printed_number": null,
     "section_path": [
       "Chapter 1. Affine Schemes",
       "1.1. The Spectrum of a Ring"
@@ -35,6 +36,7 @@
     "paper_id": "textbook:two-chapter-book",
     "parser_used": "mineru+latexml",
     "preamble_ref": null,
+    "printed_number": null,
     "section_path": [
       "Chapter 1. Affine Schemes",
       "1.1. The Spectrum of a Ring"
@@ -58,6 +60,7 @@
     "paper_id": "textbook:two-chapter-book",
     "parser_used": "mineru+latexml",
     "preamble_ref": null,
+    "printed_number": null,
     "section_path": [
       "Chapter 2. Sheaves of Modules",
       "2.1. Quasi-coherent Sheaves"
@@ -81,6 +84,7 @@
     "paper_id": "textbook:two-chapter-book",
     "parser_used": "mineru+latexml",
     "preamble_ref": null,
+    "printed_number": null,
     "section_path": [
       "Chapter 2. Sheaves of Modules",
       "2.1. Quasi-coherent Sheaves"
@@ -104,6 +108,7 @@
     "paper_id": "textbook:two-chapter-book",
     "parser_used": "mineru+latexml",
     "preamble_ref": null,
+    "printed_number": null,
     "section_path": [
       "Chapter 1. Affine Schemes"
     ],
@@ -126,6 +131,7 @@
     "paper_id": "textbook:two-chapter-book",
     "parser_used": "mineru+latexml",
     "preamble_ref": null,
+    "printed_number": null,
     "section_path": [
       "Chapter 2. Sheaves of Modules"
     ],

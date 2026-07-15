@@ -12,6 +12,7 @@
     "paper_id": "textbook:theorem-remark-proof",
     "parser_used": "mineru+latexml",
     "preamble_ref": null,
+    "printed_number": null,
     "section_path": [
       "Chapter 1. Compactness",
       "1.1. Open Covers"
@@ -35,6 +36,7 @@
     "paper_id": "textbook:theorem-remark-proof",
     "parser_used": "mineru+latexml",
     "preamble_ref": null,
+    "printed_number": "1.2",
     "section_path": [
       "Chapter 1. Compactness",
       "1.1. Open Covers"
@@ -58,6 +60,7 @@
     "paper_id": "textbook:theorem-remark-proof",
     "parser_used": "mineru+latexml",
     "preamble_ref": null,
+    "printed_number": null,
     "section_path": [
       "Chapter 1. Compactness",
       "1.1. Open Covers"
@@ -81,6 +84,7 @@
     "paper_id": "textbook:theorem-remark-proof",
     "parser_used": "mineru+latexml",
     "preamble_ref": null,
+    "printed_number": null,
     "section_path": [
       "Chapter 1. Compactness"
     ],
