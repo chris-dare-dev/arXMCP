@@ -57,9 +57,22 @@ git -C {REPO_ROOT} log --oneline {COMMIT_RANGE}
 git -C {REPO_ROOT} show --stat {COMMIT_RANGE}
 ```
 
-Also read `{REPO_ROOT}/CLAUDE.md` — it defines the repo's gates, conventions,
-and footguns your axes check against. Reference findings by file:line; do not
-echo the diff into your critique.
+Consult `{REPO_ROOT}/CLAUDE.md` for the repo's gates, conventions, and footguns
+your axes check against — but do NOT read it in full. In large repos it exceeds
+60K tokens of mostly-irrelevant surface area, which crowds out the diff and is a
+leading cause of slow, truncated, or malformed critiques. Pull only what a
+finding turns on, targeted:
+
+```bash
+# gates / commit + signing / one-writer + external-write boundary
+grep -niE "make check|pre-commit|signing|co-author|--no-verify|roadmap\.yaml|one-writer|never push|external write|generated" {REPO_ROOT}/CLAUDE.md
+# then, for the files this diff actually touches, grep CLAUDE.md for their
+# module/path names and read only the surrounding lines of each hit
+git -C {REPO_ROOT} diff --name-only {COMMIT_RANGE}
+```
+
+Read the neighbouring lines of any hit that bears on a finding; never echo the
+whole file (or the diff) into your critique. Reference findings by file:line.
 
 ## Step 2 — Walk every axis
 

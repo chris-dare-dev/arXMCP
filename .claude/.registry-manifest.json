@@ -1,7 +1,7 @@
 {
   ".claude/agents/frontend-uplift-art-direction-scout.md": "979c065b8b9f741a8cc3112379f4cf008bbf487dafd6a0cc3e886d1095a5c3ab",
   ".claude/agents/frontend-uplift-experiential-scout.md": "bc98a8f5f31474feec559b470b0b5a00c3c024dc91a9d5ff4977cb1ce659fa67",
-  ".claude/agents/milestone-adversary-critic.md": "28c193a0471f4818f758aee5b0f560b34cb28d0e99959ab387520448c6b2faba",
+  ".claude/agents/milestone-adversary-critic.md": "f3e8856131f37ece55a5ec3bf7232668b179aa6c4635884a8288a3cf5e0c47fd",
   ".claude/agents/milestone-frontend-ux.md": "42732ed4bf4eb40a641ab7fc136c3fcbb4b75f99ee7bccb76817b9596ca0c07b",
   ".claude/agents/milestone-implementer.md": "d5819300332ce35b14fdc5c6e567df404a20c84bce36db283b1ee53bb9bcab64",
   ".claude/agents/milestone-oss-scout.md": "69701e13dba5ee379dd03149f069db26b5525986893ad7c9847f63adc71b8cf2",
@@ -19,6 +19,7 @@
   ".claude/references/frontend-uplift-experiential-motion.md": "335d3b074dc8ba64db76306f6eafbe68425bfc983a1945f46957145e323d73c1",
   ".claude/references/frontend-uplift-motion-vocabulary.md": "b40c0e2fe7949825bb65703c79a9570df8ad43d5fc318807a796c3c651b28086",
   ".claude/references/frontend-uplift-source-registry.md": "b4a7cc39169ccbc65097758d98caf1832bd2b681371b3c76a8dae23e1b38ad07",
+  ".claude/references/handoff-contract.md": "fcc74448dc8d639f5a7a64bb02bf638d9c4e19b836118c03eef70a32b7ba6cfc",
   ".claude/references/milestone-pipeline-agent-contract.md": "61a4c63f98b22e8ebe8decc1fe46adc500a755b12cb093d6a0f3e12afbd4ec40",
   ".claude/references/milestone-pipeline-commit-format.md": "498c72d9274082c61641492d23183ff4dff65175b1ce14c26d82af50788572bc",
   ".claude/references/milestone-pipeline-critique-format.md": "9c21dc12d2a45cf799763123cc3ddad1204232c391151cf7f0221549d95a0682",
@@ -44,9 +45,9 @@
   ".claude/scripts/frontend-uplift-workflow.mjs": "9d6324f1bf3173ece8c215aa138d2ad2510ccf5ef1298824463a81216d8b655b",
   ".claude/scripts/milestone-pipeline-check-deps.py": "ee03f08957fa0bc471cd1b81f9d5effa0a86df4b241d772641d3e8641b378045",
   ".claude/scripts/milestone-pipeline-checkpoint.py": "2db5c5acf391d6780c2638e26f5ae65d86daa0c9fffcb39cccb0deebe7771d2c",
-  ".claude/scripts/milestone-pipeline-consolidate-memory-test.sh": "1ad6d496d45b10ef1c29350ad05e5af90f5ba318edebef7ab9be51bb2ae720e6",
-  ".claude/scripts/milestone-pipeline-consolidate-memory.sh": "164ad7899a167b77fd6c05a8abb5b5a2b48350df5f5c0e50fd90d12729b869b7",
-  ".claude/scripts/milestone-pipeline-findings.py": "05de1eec0049fd7daeee1dc10735e4de21b3bc313057f3cf994656e4aef6f133",
+  ".claude/scripts/milestone-pipeline-consolidate-memory-test.sh": "1edbfae64c33112841ab645c238b208c76c8d3049a13140c1a9cf4df455b436a",
+  ".claude/scripts/milestone-pipeline-consolidate-memory.sh": "a6fb3c0f6add5b2083ac3cb1d02a836488f299df5825b0ba17c1683b63bf747c",
+  ".claude/scripts/milestone-pipeline-findings.py": "c39f3de07caf3dffd8fc934008277a76be6bc2899558127216299a4738b00c5f",
   ".claude/scripts/milestone-pipeline-init-state.sh": "7c50961753e21c048dd429e399325aebfc4231bd5db7acc6596df48eb5e94005",
   ".claude/scripts/milestone-pipeline-record-progress.py": "8a55fdc0af6dbc9e9845ff7a90f4394527f8566772e14bbd2ad42c6ec7962961",
   ".claude/scripts/milestone-pipeline-resolve-brief.py": "1d87f6fed787c8361ce2dfd048374f8379374fea0a90802cc1d76edfae22520b",
@@ -62,5 +63,6 @@
   ".claude/scripts/roadmap-score-rice.py": "634c62ff45c2c891502e9539772a0bcc8f42128a8af2ddc032be8b9e66678b1c",
   ".claude/scripts/roadmap-validate.py": "e8f7421d48ed9ff0cb5afa3982ed04a12b49f46463280bb15aa32f4af4d3bd44",
   ".claude/scripts/sync-repos.py": "a98057196d107a9ec7c43792818540baeb1b9c62f8f123f5b33dc71aca17e3b9",
-  ".claude/skills/frontend-design/SKILL.md": "d06dfc236ca2c253ab74e2efbb7306106dc3136a31a84ebc88ca8279536804b2"
+  ".claude/skills/frontend-design/SKILL.md": "d06dfc236ca2c253ab74e2efbb7306106dc3136a31a84ebc88ca8279536804b2",
+  ".claude/skills/handoff/SKILL.md": "afe2d91b9ff7e711844958d32a80779bbf0eb327ccfe7e0a0b66f035f64328ee"
 }

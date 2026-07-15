@@ -107,6 +107,73 @@ check "unknown agent exits 0 (advisory)" "$?"
 bash "$UNDER_TEST" --extract-trajectories >/dev/null 2>&1
 check "--extract-trajectories refused (exit 2)" "$([[ "$?" -eq 2 ]]; echo $?)"
 
+# ── Test 9: MAX_BYTES caps by byte budget + archives overflow (not deletes) ──
+mkdir -p "$AGENT_MEMORY_ROOT/bytecap"
+pad="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"   # 40 chars
+: > "$AGENT_MEMORY_ROOT/bytecap/lessons.md"
+for i in 1 2 3 4 5 6; do echo "entry-$i $pad" >> "$AGENT_MEMORY_ROOT/bytecap/lessons.md"; done
+MAX_BYTES=120 MAX_LINES=100 bash "$UNDER_TEST" bytecap >/dev/null 2>&1
+hot_b="$(wc -c < "$AGENT_MEMORY_ROOT/bytecap/lessons.md" | tr -d '[:space:]')"
+check "bytecap HOT within byte budget (got ${hot_b}B <= 120)" "$([[ "$hot_b" -le 120 ]]; echo $?)"
+check "bytecap newest entry-6 retained in HOT" \
+  "$(grep -q 'entry-6' "$AGENT_MEMORY_ROOT/bytecap/lessons.md"; echo $?)"
+check "bytecap oldest entry-1 ARCHIVED (not deleted)" \
+  "$(grep -q 'entry-1' "$AGENT_MEMORY_ROOT/bytecap/archive/lessons.cold.md"; echo $?)"
+check "bytecap entry-1 removed from HOT" \
+  "$(! grep -q 'entry-1' "$AGENT_MEMORY_ROOT/bytecap/lessons.md"; echo $?)"
+
+# ── Test 10: every memory *.md is covered (anti-patterns.md, not just lessons) ─
+mkdir -p "$AGENT_MEMORY_ROOT/multi"
+printf -- '- a1\n- a2\n- a3\n' > "$AGENT_MEMORY_ROOT/multi/lessons.md"
+printf -- '- p1\n- p2\n- p3\n' > "$AGENT_MEMORY_ROOT/multi/anti-patterns.md"
+MAX_LINES=1 bash "$UNDER_TEST" multi >/dev/null 2>&1
+check "multi: lessons.md capped to 1 (got $(count_lines "$AGENT_MEMORY_ROOT/multi/lessons.md"))" \
+  "$([[ "$(count_lines "$AGENT_MEMORY_ROOT/multi/lessons.md")" -eq 1 ]]; echo $?)"
+check "multi: anti-patterns.md ALSO capped to 1 (got $(count_lines "$AGENT_MEMORY_ROOT/multi/anti-patterns.md"))" \
+  "$([[ "$(count_lines "$AGENT_MEMORY_ROOT/multi/anti-patterns.md")" -eq 1 ]]; echo $?)"
+check "multi: anti-patterns cold archive created" \
+  "$(test -f "$AGENT_MEMORY_ROOT/multi/archive/anti-patterns.cold.md"; echo $?)"
+
+# ── Test 11: MEMORY.md (curated index) is never consolidated ─────────────────
+mkdir -p "$AGENT_MEMORY_ROOT/idx"
+seq 1 20 | sed 's/^/- x /' > "$AGENT_MEMORY_ROOT/idx/MEMORY.md"
+before_i="$(count_lines "$AGENT_MEMORY_ROOT/idx/MEMORY.md")"
+MAX_LINES=5 bash "$UNDER_TEST" idx >/dev/null 2>&1
+after_i="$(count_lines "$AGENT_MEMORY_ROOT/idx/MEMORY.md")"
+check "MEMORY.md index left untouched ($before_i==$after_i)" \
+  "$([[ "$before_i" -eq "$after_i" ]]; echo $?)"
+
+# ── Test 12: leading header (#/Format/blank) is preserved in HOT ─────────────
+mkdir -p "$AGENT_MEMORY_ROOT/hdr"
+{ echo "# Title"; echo ""; echo "Format: x"; echo ""; for i in 1 2 3 4 5; do echo "- e$i"; done; } \
+  > "$AGENT_MEMORY_ROOT/hdr/lessons.md"
+MAX_LINES=2 bash "$UNDER_TEST" hdr >/dev/null 2>&1
+check "hdr: '# Title' header retained" \
+  "$(grep -qxF '# Title' "$AGENT_MEMORY_ROOT/hdr/lessons.md"; echo $?)"
+check "hdr: 'Format: x' header retained" \
+  "$(grep -qxF 'Format: x' "$AGENT_MEMORY_ROOT/hdr/lessons.md"; echo $?)"
+check "hdr: newest '- e5' retained, oldest '- e1' archived" \
+  "$(grep -qxF -- '- e5' "$AGENT_MEMORY_ROOT/hdr/lessons.md" \
+     && grep -qxF -- '- e1' "$AGENT_MEMORY_ROOT/hdr/archive/lessons.cold.md"; echo $?)"
+
+# ── Test 13: leading YAML frontmatter (---...---) is preserved, not archived ──
+mkdir -p "$AGENT_MEMORY_ROOT/fm"
+{ echo "---"; echo "type: memory"; echo "---"; echo "# Title"; echo ""; \
+  for i in 1 2 3 4 5; do echo "- e$i"; done; } > "$AGENT_MEMORY_ROOT/fm/lessons.md"
+MAX_LINES=2 bash "$UNDER_TEST" fm >/dev/null 2>&1
+check "fm: frontmatter 'type: memory' retained in HOT" \
+  "$(grep -qxF 'type: memory' "$AGENT_MEMORY_ROOT/fm/lessons.md"; echo $?)"
+check "fm: frontmatter not spilled to cold archive" \
+  "$(! grep -qxF 'type: memory' "$AGENT_MEMORY_ROOT/fm/archive/lessons.cold.md" 2>/dev/null; echo $?)"
+check "fm: newest '- e5' retained, oldest '- e1' archived" \
+  "$(grep -qxF -- '- e5' "$AGENT_MEMORY_ROOT/fm/lessons.md" \
+     && grep -qxF -- '- e1' "$AGENT_MEMORY_ROOT/fm/archive/lessons.cold.md"; echo $?)"
+
+# ── Test 14: the cold archive is self-ignoring (archive/.gitignore = '*') ────
+check "archive is self-ignoring (archive/.gitignore == '*')" \
+  "$([[ -f "$AGENT_MEMORY_ROOT/bytecap/archive/.gitignore" ]] \
+     && [[ "$(cat "$AGENT_MEMORY_ROOT/bytecap/archive/.gitignore")" == '*' ]]; echo $?)"
+
 echo
 echo "consolidate-memory tests: $PASS passed, $FAIL failed"
 [[ "$FAIL" -eq 0 ]]

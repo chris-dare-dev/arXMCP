@@ -277,9 +277,21 @@ def parse_critique(text: str, source: str) -> tuple[list[dict], list[str]]:
         seen_ids[fid] = f"{source}:{ln}"
 
         for label, rx in BODY_FIELD_RES.items():
-            if not rx.search(block):
-                errors.append(f"{source}:{ln}: finding {fid} missing required "
-                              f"`**{label}:**` field")
+            if rx.search(block):
+                continue
+            # Regression-guard is mandated only for CRITICAL/HIGH (the critique
+            # format says "MEDIUM + LOW: optional"). On MEDIUM/LOW its absence is a
+            # warning, not a whole-file refusal — this aligns the parser with its
+            # own spec and removes a common false rejection + re-dispatch.
+            if label == "Regression-guard" and severity in ("MEDIUM", "LOW"):
+                print(
+                    f"warning: {source}:{ln}: {severity} finding {fid} omits "
+                    f"`**{label}:**` (optional at this severity)",
+                    file=sys.stderr,
+                )
+                continue
+            errors.append(f"{source}:{ln}: finding {fid} missing required "
+                          f"`**{label}:**` field")
 
         fl = FILE_LINE_RE.search(block)
         cite_path: str | None = None
@@ -319,9 +331,15 @@ def parse_critique(text: str, source: str) -> tuple[list[dict], list[str]]:
             "low": int(sc.group(4)),
         }
         if declared != counts:
-            errors.append(
-                f"{source}: 'Severity counts:' line {declared} disagrees with the "
-                f"parsed tally {counts}"
+            # Non-blocking: the register is built from the PARSED counts, not this
+            # self-declared line, so a drifted tally is cosmetic. Warn instead of
+            # refusing — the exact-match hard-fail forced the critic to hand-count
+            # its own findings and was the top cause of a whole-critique rejection
+            # plus an expensive re-dispatch of the opus adversary critic.
+            print(
+                f"warning: {source}: 'Severity counts:' line {declared} disagrees "
+                f"with the parsed tally {counts} (using the parsed tally)",
+                file=sys.stderr,
             )
     return findings, errors
 
@@ -763,13 +781,29 @@ def _self_test() -> int:  # noqa: C901 -- linear fixture walk, readability over 
             "missing-where": VALID_CRITIQUE.replace(
                 "**Where:** `src/deploy.py:42`\n", ""
             ),
-            "bad-counts": VALID_CRITIQUE.replace(
-                "Severity counts: C1 H1 M1 L0", "Severity counts: C0 H1 M1 L0"
+            "missing-regguard-critical": VALID_CRITIQUE.replace(
+                "**Regression-guard:** tests/test_deploy.py::test_no_autopush\n", ""
             ),
         }
         for name, txt in malformed.items():
             _f, errs = parse_critique(txt, "x.md")
             check(bool(errs), f"malformed fixture {name!r} parsed clean (should error)")
+
+        # 3b. Recoverable nits are NON-BLOCKING warnings, not refusals: a drifted
+        #     'Severity counts:' line (register uses the parsed tally) and a
+        #     MEDIUM/LOW finding omitting the CRITICAL/HIGH-only Regression-guard.
+        #     Each must parse WITHOUT errors.
+        recoverable = {
+            "drifted-counts": VALID_CRITIQUE.replace(
+                "Severity counts: C1 H1 M1 L0", "Severity counts: C0 H1 M1 L0"
+            ),
+            "medium-omits-regguard": VALID_CRITIQUE.replace(
+                "**Regression-guard:** optional\n", ""
+            ),
+        }
+        for name, txt in recoverable.items():
+            _f, errs = parse_critique(txt, "x.md")
+            check(not errs, f"recoverable nit {name!r} should warn, not error: {errs}")
 
         # 4. Fenced example headers must NOT parse as findings.
         fenced = "# doc\n\n```markdown\n**C1 - sample** (CRITICAL)\n```\n"
