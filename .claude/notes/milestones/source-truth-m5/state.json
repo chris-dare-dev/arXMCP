@@ -1,8 +1,8 @@
 {
   "id": "source-truth-m5",
   "created_at": "2026-07-13T21:34:36Z",
-  "updated_at": "2026-07-13T22:19:37Z",
-  "phase": "rectify-running",
+  "updated_at": "2026-07-13T22:53:45Z",
+  "phase": "complete",
   "phase_history": [
     {
       "phase": "init",
@@ -35,6 +35,10 @@
     {
       "phase": "rectify-running",
       "at": "2026-07-13T22:16:27Z"
+    },
+    {
+      "phase": "complete",
+      "at": "2026-07-13T22:53:45Z"
     }
   ],
   "milestone_brief": "# Milestone brief \u2014 source-truth-m5\r\n\r\n**Title:** get_chunk surfaces source-truth fields (rides W1)\r\n**Kind:** milestone\r\n**Roadmap:** source-truth (plans/source-truth/roadmap.yaml)\r\n**Status:** planned\r\n**Lane:** next\r\n**Target:** 2026-08-31 -> 2026-09-11\r\n\r\n## Parent epic\r\n\r\n- source-truth-e2 \u2014 Chunk-level source truth: spans, truncation, printed numbers\r\n  Chunks-schema v2 rides ingest/store.py::_migrate_chunks_schema_if_needed with five columns (source_revision_id, source_span, truncated, printed_number, license_ref), the printed-number extractor, span anchoring computed from the existing parsed HTML (null-plus-reported fallback, no re-parse), and zero-re-embed backfill per the tools/notebook_metadata_backfill.py precedent. Vertical to the serving surface: get_chunk responses carry revision id, span-or-null, truncation status, and printed number, with field surfacing batched into agent-platform's W1 tool-schema window.\r\n\r\n## Summary\r\n\r\nget_chunk responses carry source revision id, span-or-null (explicit null, not omission), truncation status, printed number, and the per-revision license decision (advisory until the e4 cutover). The response-shape delta batches into agent-platform's W1 tool-schema re-pin window; if W1 never materializes, the documented fallback is a standalone TOOL_SCHEMA_VERSION re-pin.\r\n\r\n## Acceptance criteria\r\n\r\n1. Given any chunk in a hydrated notebook, when get_chunk is called, then the response carries source revision id, source span or an explicit null, truncation status, printed number, and a per-revision license decision\r\n2. Given the implemented response fields, when the schema delta is staged, then it ships inside agent-platform's W1 bundled TOOL_SCHEMA_VERSION re-pin, or as a documented standalone re-pin only if W1 never materializes\r\n\r\n## Depends on\r\n\r\n- source-truth-m2 \u2014 Chunks schema v2: spans, truncation, printed numbers persisted [status: planned]",
@@ -84,6 +88,10 @@
   "regression_tests_added": [
     "tests/test_tools_all.py"
   ],
-  "external_writes_authorized": [],
-  "external_writes_completed": []
+  "external_writes_authorized": [
+    "git push origin main"
+  ],
+  "external_writes_completed": [
+    "git push origin main"
+  ]
 }

@@ -1,8 +1,8 @@
 {
   "id": "source-truth-m1",
   "created_at": "2026-07-13T01:07:23Z",
-  "updated_at": "2026-07-13T02:37:36Z",
-  "phase": "rectify-running",
+  "updated_at": "2026-07-13T15:55:52Z",
+  "phase": "complete",
   "phase_history": [
     {
       "phase": "init",
@@ -35,6 +35,10 @@
     {
       "phase": "rectify-running",
       "at": "2026-07-13T02:30:28Z"
+    },
+    {
+      "phase": "complete",
+      "at": "2026-07-13T15:55:52Z"
     }
   ],
   "milestone_brief": "# Milestone brief \u2014 source-truth-m1\r\n\r\n**Title:** Revision registry live with license provenance (advisory)\r\n**Kind:** milestone\r\n**Roadmap:** source-truth (plans/source-truth/roadmap.yaml)\r\n**Status:** planned\r\n**Lane:** now\r\n**Target:** 2026-07-13 -> 2026-07-29\r\n\r\n## Parent epic\r\n\r\n- source-truth-e1 \u2014 Revision registry and license provenance\r\n  Per-revision documents registry \u2014 work identity, arXiv version, raw-tarball and parse-artifact sha256, parser/chunker version stamps, active/withdrawn/superseded status \u2014 with license URIs hydrated via the existing tools/_arxiv_api.py Atom client and a per-revision license decision function running advisory until the e4 cutover. Extends the paper-metadata per-notebook SQLite store pattern (server/paper_metadata_store.py); observable as both live notebooks fully registered plus a per-license coverage report.\r\n\r\n## Summary\r\n\r\nPer-revision documents registry \u2014 work identity, arXiv version, raw-source and parse-artifact sha256, parser/chunker version stamps, active/withdrawn/superseded status \u2014 extending the paper-metadata per-notebook SQLite store pattern, with license URIs hydrated via tools/_arxiv_api.py and a per-revision license decision function running advisory-only until the e4 cutover. Observable as both live notebooks registered end-to-end plus a per-license coverage report.\r\n\r\n## Acceptance criteria\r\n\r\n1. Given both live notebooks, when the registry backfill completes, then every ingested revision has a documents row carrying work identity, arXiv version, raw-source sha256, parse-artifact checksum, parser/chunker versions, fetch timestamp, license URI, and active/withdrawn/superseded status\r\n2. Given a revision whose license URI is missing or unrecognized, when the per-revision decision function evaluates it, then it returns license_status=unknown mapping to truncate, logged advisory-only with serving behavior unchanged\r\n3. Given the hydrated registry, when the coverage report runs, then per-license counts for both notebooks are emitted, and a >20% unknown rate on bridgeland-stability surfaces to the owner before any serving cutover\r\n\r\n## Depends on\r\n\r\n- source-truth-spike-1 \u2014 License-URI coverage on a mixed 30-paper sample [status: planned]",
@@ -93,6 +97,10 @@
     "tests/test_oai_license.py",
     "tests/test_notebook_documents_backfill.py"
   ],
-  "external_writes_authorized": [],
-  "external_writes_completed": []
+  "external_writes_authorized": [
+    "git push origin main"
+  ],
+  "external_writes_completed": [
+    "git push origin main"
+  ]
 }

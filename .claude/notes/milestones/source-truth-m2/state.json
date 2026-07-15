@@ -1,8 +1,8 @@
 {
   "id": "source-truth-m2",
   "created_at": "2026-07-13T17:44:38Z",
-  "updated_at": "2026-07-13T19:51:56Z",
-  "phase": "critique-complete",
+  "updated_at": "2026-07-13T20:42:57Z",
+  "phase": "complete",
   "phase_history": [
     {
       "phase": "init",
@@ -31,6 +31,14 @@
     {
       "phase": "critique-complete",
       "at": "2026-07-13T19:24:29Z"
+    },
+    {
+      "phase": "rectify-running",
+      "at": "2026-07-13T20:42:56Z"
+    },
+    {
+      "phase": "complete",
+      "at": "2026-07-13T20:42:57Z"
     }
   ],
   "milestone_brief": "# Milestone brief \u2014 source-truth-m2\r\n\r\n**Title:** Chunks schema v2: spans, truncation, printed numbers persisted\r\n**Kind:** milestone\r\n**Roadmap:** source-truth (plans/source-truth/roadmap.yaml)\r\n**Status:** planned\r\n**Lane:** next\r\n**Target:** 2026-08-04 -> 2026-08-21\r\n\r\n## Parent epic\r\n\r\n- source-truth-e2 \u2014 Chunk-level source truth: spans, truncation, printed numbers\r\n  Chunks-schema v2 rides ingest/store.py::_migrate_chunks_schema_if_needed with five columns (source_revision_id, source_span, truncated, printed_number, license_ref), the printed-number extractor, span anchoring computed from the existing parsed HTML (null-plus-reported fallback, no re-parse), and zero-re-embed backfill per the tools/notebook_metadata_backfill.py precedent. Vertical to the serving surface: get_chunk responses carry revision id, span-or-null, truncation status, and printed number, with field surfacing batched into agent-platform's W1 tool-schema window.\r\n\r\n## Summary\r\n\r\nFive new columns (source_revision_id, source_span, truncated, printed_number, license_ref) ride the shipped add-columns migration; the printed-number extractor and the span-anchoring pass run over the existing parsed HTML (no re-parse; un-anchorable blocks keep source_span null and are reported); backfill hydrates both live notebooks with 0 chunks re-embedded per the tools/notebook_metadata_backfill.py precedent.\r\n\r\n## Acceptance criteria\r\n\r\n1. Given the live LanceDB chunks table, when the v2 migration runs, then the five source-truth columns exist, existing rows are preserved, and a second run is a no-op\r\n2. Given both live notebooks, when the source-truth backfill completes, then truncation status, printed numbers, span anchors, source_revision_id, and license_ref are hydrated with 0 chunks re-embedded\r\n3. Given a block that cannot be re-anchored from the existing parsed HTML, when the backfill completes, then its source_span is null and it is counted in an abstention report (abstention, not silence)\r\n\r\n## Depends on\r\n\r\n- source-truth-m1 \u2014 Revision registry live with license provenance (advisory) [status: planned]\r\n- source-truth-spike-2 \u2014 Printed-number extraction coverage on 20 Bridgeland papers [status: planned]\r\n- source-truth-spike-3 \u2014 Span-anchor stability across LaTeXML re-parses [status: planned]\r\n- source-truth-spike-4 \u2014 Chunks-schema v2 migration dry-run on a LanceDB snapshot [status: planned]",
@@ -91,6 +99,10 @@
     "tests/test_notebook_chunks_backfill.py",
     "tests/test_chunker.py"
   ],
-  "external_writes_authorized": [],
-  "external_writes_completed": []
+  "external_writes_authorized": [
+    "git push origin main"
+  ],
+  "external_writes_completed": [
+    "git push origin main"
+  ]
 }
