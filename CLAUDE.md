@@ -78,7 +78,29 @@ Target arXiv categories: `math.AG`, `math.NT`, `math-ph`, `hep-th`.
 | E13 — Security audit | ✅ SHIPPED | 10 milestones (Threats 1–7 + logging redaction + bind regression + cumulative coverage doc); 6 follow-up issues filed at `chris-dare-dev/arXMCP#1`–`#6` |
 | E14 — Observability/ops | ✅ SHIPPED (S01–S05) | `/metrics` endpoint, OTel tracing, Phoenix integration, daily ops cadence + parser-failures roll-up, restic backup + restore drill. S06 + S09–S12 (Tier-5/6+ follow-ups) remain unstarted |
 
-**Test count (Windows 11, 2026-07-12):** 3923 passing, 91 skipped, 1 xfailed, **0 failing**; `pytest` exit 0, `ruff check .` clean. The Windows-platform failures this box used to show (≈56, up from the stale 29-failure snapshot as the suite grew) were driven to zero on 2026-07-12: **30 FIXED**, **18 GUARDED**, and **8 RESOLVED** (the kuzu re-open tests — see below). FIXED = test-only portability bugs (path-separator assertions normalized via `.as_posix()` / `replace("\\","/")`, missing `encoding="utf-8"` on `.tex`/`.py`/JSON reads, a `newline=""` staging write so the byte-`source_hash` is stable, a `repr()` fix for a Windows path embedded in a `python -c` string, a deterministic fake clock for a coarse-`time.monotonic()` budget test, colon-free eval-report fixture filenames) **plus one real bug in `server/routes/ui.py`** (the preview path-containment check used a hard-coded `/` separator and 404'd every valid path on Windows — replaced with `Path.is_relative_to`). GUARDED = `sys.platform == "win32"`-scoped `skipif` where the OS capability is genuinely absent: symlink creation (9), POSIX bash-script subprocess (5), `os.replace`-under-concurrency (1), control-char filename (1); plus 2 data-precondition skips (local curated notebooks mid-curation — a data state, NOT a portability issue). Every win32 skip still RUNS on macOS/Linux, preserving the §4.1 POSIX authority. RESOLVED = the 8 kuzu 0.11.3 mandatory-lock DB re-open tests, unguarded on 2026-07-12 by moving the production ingest lifecycle off `del db` to explicit `conn.close(); db.close()` (connection before database, nested so `db.close()` always runs) in milestone `adhoc-20260712-955c958`; they now run and pass on Windows. Residual `del db` sites remain at `server/graph_queries.py::cite_neighbors`, `ingest/intra_paper_refs.py::ingest`, and `ops/restore_drill_check.py` (tracked fast-follow — the identical Windows lock bug on those paths).
+**Test count (Windows 11, 2026-07-14):** 4068 passing, 91 skipped, 1 xfailed,
+**0 failing**; `pytest` exit 0, `ruff check .` clean (server/ingest/tools/shim/
+tests). Verified on this box at commit `cd90ce6`.
+
+> **Staleness correction (2026-07-14):** the line here previously asserted
+> **0 failing as of 2026-07-12**, but `main` was in fact RED from 2026-07-12
+> until 2026-07-14. Two overlapping regressions the hand-maintained snapshot
+> missed: **(a)** three `source-truth-m5` tool-schema-version echo failures,
+> since fixed by `license-serving-removal-m1`; and **(b)** two
+> `test_textbook_chunker.py` golden-fixture tests
+> (`TestGoldenFixture` + `TestTheoremRemarkProofPairingAudit`) that drifted
+> when `source-truth-m2` (`2572f2f`) added the `printed_number`
+> chunks-schema-v2 column to `ChunkRecord.to_dict()` but left the committed
+> textbook fixtures un-regenerated — fixed in `cd90ce6` by regenerating them
+> per [`.claude/docs/textbook-chunker-fixtures.md`](.claude/docs/textbook-chunker-fixtures.md).
+> Treat this block as a **hand-maintained snapshot, not a live gate**: it
+> goes stale whenever a milestone changes output without updating it here, so
+> re-run `make test` before trusting it.
+
+The Windows-platform failures this box used to show (≈56, up from the stale
+29-failure snapshot as the suite grew) were driven to zero during the
+**2026-07-12 win32-portability push**: **30 FIXED**, **18 GUARDED**, and
+**8 RESOLVED** (the kuzu re-open tests — see below). FIXED = test-only portability bugs (path-separator assertions normalized via `.as_posix()` / `replace("\\","/")`, missing `encoding="utf-8"` on `.tex`/`.py`/JSON reads, a `newline=""` staging write so the byte-`source_hash` is stable, a `repr()` fix for a Windows path embedded in a `python -c` string, a deterministic fake clock for a coarse-`time.monotonic()` budget test, colon-free eval-report fixture filenames) **plus one real bug in `server/routes/ui.py`** (the preview path-containment check used a hard-coded `/` separator and 404'd every valid path on Windows — replaced with `Path.is_relative_to`). GUARDED = `sys.platform == "win32"`-scoped `skipif` where the OS capability is genuinely absent: symlink creation (9), POSIX bash-script subprocess (5), `os.replace`-under-concurrency (1), control-char filename (1); plus 2 data-precondition skips (local curated notebooks mid-curation — a data state, NOT a portability issue). Every win32 skip still RUNS on macOS/Linux, preserving the §4.1 POSIX authority. RESOLVED = the 8 kuzu 0.11.3 mandatory-lock DB re-open tests, unguarded on 2026-07-12 by moving the production ingest lifecycle off `del db` to explicit `conn.close(); db.close()` (connection before database, nested so `db.close()` always runs) in milestone `adhoc-20260712-955c958`; they now run and pass on Windows. Residual `del db` sites remain at `server/graph_queries.py::cite_neighbors`, `ingest/intra_paper_refs.py::ingest`, and `ops/restore_drill_check.py` (tracked fast-follow — the identical Windows lock bug on those paths).
 
 For per-milestone ground truth, see
 [`.claude/notes/milestones/<EXX_SYY>/state.json`](.claude/notes/milestones/).
