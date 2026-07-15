@@ -78,9 +78,14 @@ Target arXiv categories: `math.AG`, `math.NT`, `math-ph`, `hep-th`.
 | E13 — Security audit | ✅ SHIPPED | 10 milestones (Threats 1–7 + logging redaction + bind regression + cumulative coverage doc); 6 follow-up issues filed at `chris-dare-dev/arXMCP#1`–`#6` |
 | E14 — Observability/ops | ✅ SHIPPED (S01–S05) | `/metrics` endpoint, OTel tracing, Phoenix integration, daily ops cadence + parser-failures roll-up, restic backup + restore drill. S06 + S09–S12 (Tier-5/6+ follow-ups) remain unstarted |
 
-**Test count (Windows 11, 2026-07-14):** 4068 passing, 91 skipped, 1 xfailed,
-**0 failing**; `pytest` exit 0, `ruff check .` clean (server/ingest/tools/shim/
-tests). Verified on this box at commit `cd90ce6`.
+**Test count (Windows 11, 2026-07-14):** 4066 passing, 92 skipped, 1 xfailed,
+**0 failing**; `pytest` exit 0, `ruff check .` clean. Verified against a
+**pristine `git worktree` checkout of the pushed commit** (`6535810`),
+isolated from this box's dirty tree — the `.claude/`-only commits pushed since
+(origin tip `f8a2eaf`) don't touch the test/lint path. A **data-populated**
+box reports 4068 passing / 91 skipped instead: two data-precondition tests
+skip without the gitignored `var/` corpus tree and pass once it's hydrated —
+both configurations are **0 failing**.
 
 > **Staleness correction (2026-07-14):** the line here previously asserted
 > **0 failing as of 2026-07-12**, but `main` was in fact RED from 2026-07-12
