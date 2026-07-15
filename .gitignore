@@ -36,3 +36,12 @@ ops/restic-env.sh
 # tag's signed SBOM.
 .claude/docs/security/sbom/*.json
 .claude/docs/security/sbom/*.cdx.json
+
+# Codex (OpenAI agent tool) working artifacts — ephemeral, per-session scratch.
+# arXMCP's agent instructions live in CLAUDE.md; these are local codex state and
+# must not enter git. `.agents/` showed up as a stray, divergent skill mirror
+# (NOT written by sync-repos.py, which targets .claude/skills/); `.codex/` is the
+# codex session dir. (AGENTS.md is left tracked-eligible — decide per-repo whether
+# to author it as codex instructions or ignore it.)
+.agents/
+.codex/
