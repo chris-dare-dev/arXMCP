@@ -46,7 +46,11 @@ CREATE_ORDER = {"epic": 0, "milestone": 1, "task": 2, "spike": 2}
 
 
 def gh(args: list[str], check: bool = True) -> subprocess.CompletedProcess:
-    return subprocess.run(["gh", *args], capture_output=True, text=True, check=check)
+    # Pin utf-8: gh emits utf-8, but Windows text mode would otherwise decode
+    # with cp1252 and crash on an issue body carrying a non-cp1252 byte (e.g. a
+    # dash/quote in acceptance text). errors=replace keeps ASCII markers/ids intact.
+    return subprocess.run(["gh", *args], capture_output=True, text=True,
+                          encoding="utf-8", errors="replace", check=check)
 
 
 def marker_for(slug: str, item_id: str) -> str:

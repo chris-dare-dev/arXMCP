@@ -62,7 +62,7 @@
   ".claude/scripts/roadmap-schema.json": "d0f8d757b6737caf75633fad26a2dbcd75b87a505dc02605c6f26c31cd2a2a4f",
   ".claude/scripts/roadmap-score-moscow.py": "86176b924712c2fa9ecfba05734581e5a2d5425b906ea4eb5784d20e12c2d2e4",
   ".claude/scripts/roadmap-score-rice.py": "634c62ff45c2c891502e9539772a0bcc8f42128a8af2ddc032be8b9e66678b1c",
-  ".claude/scripts/roadmap-to-github.py": "05302a17f1c038c8bc2ab07f95121350a3ea6d547bd34d647071f570437005a7",
+  ".claude/scripts/roadmap-to-github.py": "ecd21b98c3a45c3353a0047af5f4c5e49a7cd7286c457547db2745589ebaae09",
   ".claude/scripts/roadmap-validate.py": "e8f7421d48ed9ff0cb5afa3982ed04a12b49f46463280bb15aa32f4af4d3bd44",
   ".claude/scripts/sync-repos.py": "96150b849a6840da87873d19077deb5c9974b86f76f1d610ccde9ac59a0b85a2",
   ".claude/skills/frontend-design/SKILL.md": "d06dfc236ca2c253ab74e2efbb7306106dc3136a31a84ebc88ca8279536804b2",
