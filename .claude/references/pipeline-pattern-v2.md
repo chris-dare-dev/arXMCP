@@ -116,12 +116,18 @@ generations:
 
 ## External-write boundary
 
-The single most load-bearing property of every pipeline: no agent and no
-orchestrator runs `git push`, `git commit`, `git add`, `gh issue create`, a
-publish, or a deploy on its own. The `--github` path emits issue-body files
-under `plans/<slug>/github/<item-id>.md` for the user to review; the actual
+The single most load-bearing property of every pipeline. STRUCTURAL writes --
+`git push`, `git commit`, `git add`, `gh issue create`, issue close, milestone
+create, a publish, or a deploy -- are user-gated: no agent and no orchestrator
+performs one on its own. The `--github` path emits issue-body files under
+`plans/<slug>/github/<item-id>.md` for the user to review; the actual
 `gh issue create` and any `git push` STOP and ask for authorization first.
-This boundary is shared with, and defined in full in, `runtime-contract.md`.
+
+The one narrow exception is an ANNOTATE write -- a comment, label, self-assign,
+or Mission Control field update on the issue the ORCHESTRATOR is actively
+working -- which the orchestrator (never a leaf agent) may make without a
+prompt. This boundary and the annotate/structural split are defined in full in
+`runtime-contract.md` and `github-conventions.md`.
 
 ## Names used by these pipelines
 

@@ -1,0 +1,24 @@
+name: Task
+description: A concrete unit of work, usually under an epic.
+title: "<id>: <short task>"
+labels: ["type:task"]
+body:
+  - type: input
+    id: parent
+    attributes:
+      label: Parent epic
+      description: The epic issue this rolls up to (e.g. #123), if any.
+  - type: textarea
+    id: what
+    attributes:
+      label: What
+      description: What to do.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance
+      description: How we know it is done -- the evidence to post when closing.
+    validations:
+      required: true

@@ -1,0 +1,24 @@
+name: Spike
+description: A time-boxed investigation; the output is throwaway, the verdict is durable.
+title: "<id>: <question to answer>"
+labels: ["type:spike"]
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: The single assumption this spike validates.
+    validations:
+      required: true
+  - type: input
+    id: timebox
+    attributes:
+      label: Timebox
+      description: e.g. 1 day.
+  - type: textarea
+    id: exit
+    attributes:
+      label: Exit criteria
+      description: The measured result that ends the spike (verdict YES / NO / UNCERTAIN).
+    validations:
+      required: true

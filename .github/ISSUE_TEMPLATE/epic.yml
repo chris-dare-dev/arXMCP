@@ -1,0 +1,27 @@
+name: Epic
+description: A multi-issue container tracking a body of work via sub-issues.
+title: "<id>: <short outcome>"
+labels: ["epic"]
+body:
+  - type: markdown
+    attributes:
+      value: "Keep the native roadmap/critique ID as the title prefix (write-once). Attach children as GitHub sub-issues."
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Outcome
+      description: What is true when this epic is done.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance
+      description: Given / When / Then, or the checklist this epic must satisfy.
+  - type: textarea
+    id: children
+    attributes:
+      label: Sub-issues
+      description: Child milestones/tasks (attach as GitHub sub-issues; list here for context).
+      value: |
+        - [ ]

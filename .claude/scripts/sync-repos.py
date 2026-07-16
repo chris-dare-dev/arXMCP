@@ -14,6 +14,7 @@ Mapping (registry -> consumer):
   data/references/*.md  -> .claude/references/
   data/scripts/*        -> .claude/scripts/
   data/skills/<name>/** -> .claude/skills/<name>/**
+  data/github/**        -> .github/**  (issue/PR templates; subtree)
 
 The first four tiers are FLAT: top-level files only, subdirectories are ignored
 (prefix-namespace instead, e.g. `frontend-uplift-phase-1.md`). `skills/` is the
@@ -49,6 +50,8 @@ TIERS = {
 }
 SKILLS_TIER = "skills"
 SKILLS_DEST = ".claude/skills"
+GITHUB_TIER = "github"
+GITHUB_DEST = ".github"
 MANIFEST_NAME = ".registry-manifest.json"
 
 
@@ -79,6 +82,16 @@ def registry_files() -> dict[str, Path]:
                 if f.is_file():
                     rel = f.relative_to(skills_dir).as_posix()
                     out[f"{SKILLS_DEST}/{rel}"] = f
+
+    # .github subtree (issue/PR templates): mirror data/github/** -> .github/**.
+    # A consumer's own .github/workflows and dependabot.yml are not under
+    # data/github, so they are overlays and are never touched.
+    github_dir = REGISTRY / "data" / GITHUB_TIER
+    if github_dir.is_dir():
+        for f in sorted(github_dir.rglob("*")):
+            if f.is_file():
+                rel = f.relative_to(github_dir).as_posix()
+                out[f"{GITHUB_DEST}/{rel}"] = f
     return out
 
 

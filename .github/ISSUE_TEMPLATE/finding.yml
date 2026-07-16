@@ -1,0 +1,31 @@
+name: Finding
+description: An adversary/critique finding to remediate.
+title: "<id>: <one-line defect>"
+labels: ["type:finding"]
+body:
+  - type: markdown
+    attributes:
+      value: "Add the matching `sev:*` label after opening (critical/high/medium/low)."
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - critical
+        - high
+        - medium
+        - low
+    validations:
+      required: true
+  - type: input
+    id: where
+    attributes:
+      label: Where
+      description: file:line or component.
+  - type: textarea
+    id: scenario
+    attributes:
+      label: Failure scenario
+      description: Concrete inputs/state -> wrong output/crash.
+    validations:
+      required: true

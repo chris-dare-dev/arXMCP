@@ -1,0 +1,24 @@
+name: Bug
+description: A defect in shipped behavior.
+title: "<short bug>"
+labels: ["type:bug"]
+body:
+  - type: textarea
+    id: repro
+    attributes:
+      label: Repro
+      description: Minimal steps to reproduce.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual
+    validations:
+      required: true

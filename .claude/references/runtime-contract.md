@@ -170,13 +170,27 @@ next sync and shows up as drift in the meantime.
 
 ## External-write boundary
 
-No script, command, or agent runs `git push`, `git commit`, `git add`,
-`gh issue create`, a publish, a deploy, or any mutating external API on its
-own. The user authorizes each external write. The `--github` path emits
-issue-body files under `plans/<slug>/github/<item-id>.md` for review; the
-actual `gh issue create` and `git push origin "$DEFAULT_BRANCH"` STOP and ask
-first. After any errored external mutation, re-read the resource state before
-concluding it failed. This boundary is shared with, and restated in,
+External writes fall into two classes; the split is defined in full in
+`github-conventions.md`.
+
+STRUCTURAL writes -- `git push`, `git commit`, `git add`, `gh issue create`,
+issue close/reopen, milestone create, `gh pr create`, a release, a publish, a
+deploy, or any other mutating external API -- are USER-GATED. No script,
+command, or agent performs one on its own; the user authorizes each. The
+`--github` path emits issue-body files under `plans/<slug>/github/<item-id>.md`
+for review; the actual `gh issue create` and `git push origin "$DEFAULT_BRANCH"`
+STOP and ask first.
+
+ANNOTATE writes -- a `gh issue comment`, a label add/remove, a self-assign, or a
+Mission Control (Projects v2) field/Status update, all ON THE ISSUE THE
+ORCHESTRATOR IS ACTIVELY WORKING -- are the one narrow exception: the
+ORCHESTRATOR (never a leaf sub-agent) may perform them without a per-write
+prompt, because they annotate work-in-hand rather than commit or publish it.
+Never in bulk, never on another thread's issue. See `github-conventions.md` for
+the exact allowed / forbidden lists.
+
+After any errored external mutation, re-read the resource state before
+concluding it failed. This boundary is restated tersely in
 `pipeline-pattern-v2.md`.
 
 ## Errata guard
