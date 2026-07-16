@@ -59,6 +59,7 @@
   ".claude/scripts/repos-manifest.txt": "add822bd9c8ceb045efb473293e3f95f927cf3464593fd42a4c7cc69700cc0d3",
   ".claude/scripts/roadmap-init.py": "d3fb14ae2d422552ed8670406bcc882dde46445733c5b7cd74ec17c9ace50763",
   ".claude/scripts/roadmap-migrate.py": "917e732700716926ca1b048fdbb03efa787ab7fa6e7851c8f3278ddc60021b64",
+  ".claude/scripts/roadmap-project-fields.py": "498bb6a85e80ac183354df4c090b9773eeea498a37599bebd4b59d382f90f3fb",
   ".claude/scripts/roadmap-schema.json": "d0f8d757b6737caf75633fad26a2dbcd75b87a505dc02605c6f26c31cd2a2a4f",
   ".claude/scripts/roadmap-score-moscow.py": "86176b924712c2fa9ecfba05734581e5a2d5425b906ea4eb5784d20e12c2d2e4",
   ".claude/scripts/roadmap-score-rice.py": "634c62ff45c2c891502e9539772a0bcc8f42128a8af2ddc032be8b9e66678b1c",
