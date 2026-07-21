@@ -182,6 +182,20 @@ after the merge:
 **Source axis:** <axis name>
 ```
 
+`**Where:**` has EXACTLY two legal forms. Copy one verbatim:
+
+```
+**Where:** `path/to/file.ext:123`
+**Where:** no specific file
+```
+
+Form A is backtick-wrapped, repo-relative (NO colon in the path — so never a
+`C:/…` absolute path), and the line is a single integer. Form B is the BARE
+literal, **never** backticked, and is the correct choice for any
+cross-cutting/whole-diff finding — including the mandatory diff-size
+auto-finding. A bare unbackticked path, a backticked `no specific file`, or a
+commit range each make `extract` refuse the WHOLE file and block the phase.
+
 Required sections: header (critic, commit range, diff stats,
 `**Critique format version:** 1.0`, and a `Severity counts: C_ H_ M_ L_`
 line) → Verdict (SHIP / SHIP-WITH-FIXES / DO-NOT-SHIP, ≤ 4 sentences) →

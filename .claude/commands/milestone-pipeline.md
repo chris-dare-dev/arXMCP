@@ -187,9 +187,16 @@ On a FRESH init (not resume), record pipeline start in the progress journal:
 
 ```bash
 python3 "$SCRIPTS/milestone-pipeline-record-progress.py" "$MILESTONE_ID" in_progress
+python3 "$SCRIPTS/milestone-pipeline-issue-note.py" "$MILESTONE_ID" \
+  --status in-progress --did "pipeline started" --next "research fan-out" --post
 ```
 
-(For legacy-prose or ad-hoc ids this warns and no-ops — that is fine.)
+(For legacy-prose or ad-hoc ids record-progress warns and no-ops — that is
+fine. The issue-note start comment is automatic when the item carries
+`links.issue` and degrades to a warning + exit 0 otherwise (no gh, no links,
+untracked id). It is an ANNOTATE write — orchestrator only, no gate, never
+appended to `external_writes_required`, and never wrapped in `|| true` (its
+exit-0 degradation is built in; 1/2 are real local faults).)
 
 ---
 
@@ -291,8 +298,9 @@ repos (their working trees and check gates are independent and would collide).
 STOP — commit partial-but-coherent work with subject
 `feat(<scope>): partial — milestone $MILESTONE_ID scope exceeded`, write
 `implement/scope-exceeded.md`, leave phase at `implement-running`, surface to
-user (continue with --allow-large-diff, split, or abort). Never silently
-lane-switch inline↔delegated.
+user (continue with --allow-large-diff, split, or abort); optionally post a
+blocked comment first (`issue-note.py <id> --status blocked --post`). Never
+silently lane-switch inline↔delegated.
 
 **Check gate — detect the repo's canonical command, do not assume.** All
 applicable gates must be green and `git status --porcelain` empty after the
@@ -473,7 +481,8 @@ python3 "$SCRIPTS/milestone-pipeline-findings.py" set "$MILESTONE_ID" M3 deferre
 
 Loop caps: 3 per finding, 3 full gate-matrix rounds; on cap exhaustion,
 same-error-twice, or thrashing, write `rectify/escalation.md`, stay in
-`rectify-running`, surface to user.
+`rectify-running`, surface to user (optionally post a blocked comment first:
+`issue-note.py <id> --status blocked --post`).
 
 ### 4b — Rect commit
 
@@ -512,7 +521,15 @@ python3 "$CP" "$MILESTONE_ID" --set invalidated_findings="$(python3 "$FP" summar
 ```bash
 python3 "$SCRIPTS/milestone-pipeline-record-progress.py" "$MILESTONE_ID" done \
   --actor milestone-pipeline --note "rect $(git rev-parse --short HEAD)"
+python3 "$SCRIPTS/milestone-pipeline-issue-note.py" "$MILESTONE_ID" \
+  --status done --did "<gates run + results — verification evidence, REQUIRED>" \
+  --next "<follow-on or none>" --post
 ```
+
+The done comment MUST carry verification evidence in `--did` (the gate
+commands and their results, not an assertion) — it is the de-facto closing
+narrative; the actual close rides `Fixes #n` on the user-gated push.
+`--commits` defaults from state.json (implementation + rect shas).
 
 This appends one status event to `plans/<slug>/progress/agent.jsonl`. The
 ONE-WRITER RULE is absolute: the pipeline never edits `roadmap.yaml` item status
@@ -574,8 +591,31 @@ own errors and always exits 0:
 
 ```bash
 python3 "$SCRIPTS/pipeline-outcome-log.py" emit --pipeline milestone \
-  --id "$MILESTONE_ID" --state "$REPO_ROOT/.claude/notes/milestones/$MILESTONE_ID/state.json" || true
+  --id "$MILESTONE_ID" --state "$REPO_ROOT/.claude/notes/milestones/$MILESTONE_ID/state.json" \
+  --outcome complete || true
 ```
+
+`--outcome complete` is load-bearing, not decoration: without it the row's
+outcome is a snapshot of `state.phase` at call time, and an emit that runs
+before the checkpoint's phase flip lands records `rectify-running` forever
+with no second emit to correct it (the OSE g7-3-a-m1 / g5-1-a-m1 ledger
+race, review 2026-07-16). With it, the row is correct regardless of
+ordering — the `phase` column still records the state snapshot, so a lag is
+visible rather than laundered.
+
+**Advisory reconcile (after the push has landed or been skipped):**
+
+```bash
+python3 "$SCRIPTS/pipeline-reconcile.py"
+```
+
+(Scans all plans; to narrow, pass `--slug <slug>` — the slug is named in the
+milestone brief's `Roadmap:` line.)
+
+A report, never a gate — it always exits 0 and never edits. Check D compares
+linked issue state against the journal and skips silently without
+gh/auth/links.issue. Run it POST-push: between the §4c journal `done` and the
+push, done-but-open is the normal state and would report as drift.
 
 Write `rectify/summary.md` (fixed/deferred/invalidated + regression tests), then
 print the 5-line final summary:

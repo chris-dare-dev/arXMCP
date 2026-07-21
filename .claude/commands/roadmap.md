@@ -17,7 +17,7 @@ advancing one step at a time: `init → refined → decomposed → sequenced →
 
 - `<slug>` — required; kebab-case (`^[a-z0-9]+(-[a-z0-9]+)*$`), ≤30 chars. Every item ID derives from it. If omitted, STOP and ask: "What slug should I use for this roadmap? (e.g. `gantt-drag`)"
 - `--brief "..."` — use verbatim as the brief. No conversation summarization.
-- `--github` — Phase 4 additionally emits per-issue body files under `plans/<slug>/github/` (bodies only — see Step 4 gate).
+- `--github` — Phase 4 offers GitHub materialization via `roadmap-to-github.py` (orchestrator-gated — see Step 4 gate).
 - `--resume` — re-enter at the phase recorded in the file (see State model).
 
 Reject malformed invocations: slug failing the regex → error; `--brief`
@@ -126,9 +126,10 @@ evidence"), surface that count to the user even when status is `complete`.
 
 ## Step 4 — Dispatch roadmap-materializer (Phase 4: MATERIALIZE)
 
-Inputs: `{SLUG}`, `{ROADMAP_PATH}`, `{GITHUB_FLAG}`. Final validation, links
-population, sets `status: active`, optional GitHub body emission; advances
-`sequenced → complete`.
+Inputs: `{SLUG}`, `{ROADMAP_PATH}`. Final validation, links population,
+sets `status: active`; advances `sequenced → complete`. (`--github` is
+consumed by the orchestrator at the Step 4 gate — it is never passed to the
+materializer.)
 
 **roadmap.yaml IS the machine-readable register.** There is no separate
 milestone register to materialize, merge, or validate: every roadmap/1 item
@@ -139,18 +140,30 @@ graph `/milestone-pipeline` reads (via
 ends at a schema-valid, `status: active` roadmap.yaml — `roadmap-validate.py`
 is the sole structural gate.
 
-**`--github` gate (orchestrator-owned):** the materializer only EMITS body
-files at `plans/<slug>/github/<item-id>.md` — it never creates issues.
-When it returns, resolve the repo (`gh repo view --json nameWithOwner -q
-.nameWithOwner`, falling back to parsing `git remote get-url origin`) and
-ask: "Emitted N issue bodies under `plans/<slug>/github/` — review them there,
-then create all N in `<owner/repo>`? [y/N]". One `y` authorizes creating every
-emitted issue in that one named repo — each body is reviewable on disk first and
-no push is involved, so a single homogeneous ask covers the batch. Only on
-explicit `y`: run `gh issue create` yourself, one at a time, from the body files. Then optionally re-dispatch the
-materializer with `--issues "<item-id>=<url> ..."` to backfill `links.issue`
-(a links-only edit; phase stays `complete`). On anything else, exit cleanly —
-the body files remain for manual use.
+**`--github` gate (orchestrator-owned):** `roadmap-to-github.py` is the
+single roadmap-to-GitHub path — phase agents never run `gh`. When the
+materializer returns, resolve the repo (`gh repo view --json nameWithOwner -q
+.nameWithOwner`, falling back to parsing `git remote get-url origin`), then
+run the converter dry-run:
+
+```bash
+python .claude/scripts/roadmap-to-github.py --repo <owner/repo> \
+  --roadmap plans/<slug>/roadmap.yaml
+```
+
+Surface the printed plan — the dry-run IS the review surface — and ask:
+"Create these in `<owner/repo>`? [y/N]". Only on explicit `y`: re-run with
+`--apply` (plus `--project N` to add items to Mission Control), then run
+`python .claude/scripts/roadmap-project-fields.py --owner <owner> --project <N>
+--roadmap plans/<slug>/roadmap.yaml --apply` (annotate-class field updates on
+the issues just created). A successful apply also writes
+`plans/<slug>/github/issue-map.json` (the canonical id -> issue record) and
+prints the exact `--issues "<item-id>=<url> ..."` re-dispatch string. Then
+re-dispatch the materializer with that string to backfill `links.issue` —
+the normal path after every successful apply, not optional (a links-only
+roadmap.yaml edit; phase stays `complete`). For large roadmaps read the
+pairs from issue-map.json directly instead of pasting the long string. On
+anything else, exit cleanly — the dry-run mutated nothing.
 
 **Handoff (always):** surface the materializer's now-lane milestone list and
 offer:
@@ -243,7 +256,7 @@ the validator and fix the reported errors first.
 | "Acceptance criteria can come later." | Now-lane items without Given/When/Then fail validation. "Done" must be gradeable before work starts. |
 | "These old ids are messy — renumber them." | IDs are write-once. Renumbering severs journals, issues, and pipeline state pointing at them. Tombstone via `retired:`; never reuse. |
 | "Score MoSCoW/RICE in-context — skip the scripts." | The scripts are deterministic gates. In-context scoring inflates and silently skips the caps and defaults. |
-| "Create the GitHub issues while I'm at it." | Agents emit bodies only. Issue creation happens in the orchestrator after an explicit per-run `[y]`. |
+| "Create the GitHub issues while I'm at it." | Phase agents never run `gh`. Materialization is the orchestrator running `roadmap-to-github.py` — dry-run review, `--apply` only on an explicit per-run `[y]`. |
 | "Auto-invoke /milestone-pipeline — the user obviously wants it." | Offer and wait. Implicit auto-handoff hides the cost of execution. |
 | "Mark m1 in_progress in roadmap.yaml as we execute." | Execution progress is journal appends (`plans/<slug>/progress/agent.jsonl`), never roadmap.yaml writes. One writer per file. |
 
@@ -251,10 +264,9 @@ the validator and fix the reported errors first.
 
 - No `git commit` / `git push` — the user commits.
 - No `gh issue create` / `gh pr create` / `gh api` (write verbs) by ANY
-  sub-agent, ever. Only the orchestrator, only from emitted body files, only
-  after an explicit `[y]`.
-- Sub-agents write ONLY to `plans/<slug>/roadmap.yaml` (their phase),
-  `plans/<slug>/github/` (materializer bodies), and
+  sub-agent, ever. Only the orchestrator, only via
+  `roadmap-to-github.py --apply`, only after an explicit `[y]`.
+- Sub-agents write ONLY to `plans/<slug>/roadmap.yaml` (their phase) and
   `.claude/agent-memory/roadmap-<agent>/`.
 - No auto-invocation of other slash commands.
 
@@ -263,8 +275,8 @@ the validator and fix the reported errors first.
 ```
 plans/<slug>/
 ├── roadmap.yaml            # the canonical roadmap/1 artifact (phase agents write)
-├── progress/agent.jsonl    # execution journal (milestone pipeline appends; /roadmap never writes)
-└── github/<item-id>.md     # issue bodies (--github; materializer writes)
+├── github/issue-map.json   # id -> issue record (converter-emitted, --apply only)
+└── progress/agent.jsonl    # execution journal (milestone pipeline appends; /roadmap never writes)
 
 .claude/agent-memory/roadmap-{refiner,decomposer,sequencer,materializer}/lessons.md
 ```

@@ -31,8 +31,8 @@ populate them without a format migration.
 | `source_state_path` | str \| null | Where the columns were read from (see below). |
 | `created_at` | str \| null | Run start (from `state.json`). |
 | `updated_at` | str \| null | Last state write (from `state.json`). |
-| `phase` | str \| null | Terminal phase reached. |
-| `outcome` | str \| null | The run's outcome; defaults to `phase`, override via `--field`. |
+| `phase` | str \| null | The `state.json` phase AS READ at emit time — a verbatim snapshot, never overwritten by the declared outcome. |
+| `outcome` | str \| null | The run's outcome. Terminal emits DECLARE it via `--outcome` (ordering-proof); defaults to `phase` when undeclared; `--field outcome=` overrides last. `outcome != phase` marks a state write that lagged the emit — auditable, not corruption. |
 | `critique_finding_counts` | obj \| null | `{critical, high, medium, low}` at critique time. |
 | `fixed_findings` | array | Finding ids the rectify phase closed. |
 | `rectification_count` | int | `len(fixed_findings)` — the LOCKED definition. |
@@ -51,7 +51,8 @@ is applied last and overrides any state-derived value.
 |---|---|---|
 | `source_state_path` | the `--state` path (state.json) | `plans/<slug>/roadmap.yaml` (`--field`) |
 | `created_at` / `updated_at` | `state.json` | `null` (or `--field`) |
-| `phase` / `outcome` | `state.phase` | `--field outcome=complete` |
+| `phase` | `state.phase` (snapshot) | `null` |
+| `outcome` | `--outcome complete` (declared; `state.phase` when undeclared) | `--field outcome=complete` |
 | `critique_finding_counts` | `state.critique_finding_counts` | `null` |
 | `fixed_findings` / `rectification_count` | `state.fixed_findings` | `null` / `0` |
 | `rectification_commit` | `state.rectification_commit` | `null` |
@@ -78,6 +79,27 @@ backfilled by joining on `run_id`. Build no integration here.
 A spike is a milestone sub-mode, not a separate family — it emits through the
 milestone site. Each emit is best-effort and runs after the terminal
 transition has already been recorded, so it can never gate that transition.
+
+### The emit race, and why terminal emits declare their outcome
+
+The emit-after-transition ordering is LLM-followed, not enforced. Before the
+`--outcome` flag, an emit that ran between the rectification-data write and
+the phase flip snapshot a stale `phase` into BOTH columns and no second emit
+followed — the run was recorded `rectify-running` forever (OSE `g7-3-a-m1` /
+`g5-1-a-m1`, 2026-07-16 review). Terminal emit sites now pass
+`--outcome complete`, which makes the `outcome` column ordering-proof while
+`phase` keeps the honest snapshot; the script prints a non-fatal stderr note
+when they diverge. Duplicate rows per id are legal and expected (append-only);
+readers take the LAST row per id as authoritative.
+
+### Backfilled rows
+
+A retroactively-emitted row (a missed terminal emit repaired later) is a LATE
+emit, not a special record: `emitted_at` is the repair time, `updated_at` /
+`phase` come from the state file as it stands. Mark such rows with
+`--field backfilled=true` — the one sanctioned extra column beyond the stable
+set — so a reader can separate capture-time telemetry (e.g. emit latency) from
+repaired history.
 
 ## Concurrency guarantees
 

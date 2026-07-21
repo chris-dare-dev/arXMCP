@@ -89,10 +89,34 @@ Parser contract (enforced by `milestone-pipeline-findings.py extract`):
   MEDIUM | LOW, and the letter matches the severity. Em-dash or hyphen
   separator both parse. The whole header is one bold span on its own line
   with the severity in a trailing paren.
-- **`**Where:**`** at line start, with a backticked `` `file:line` `` citation.
-  The line number is a SINGLE integer (for a range, cite the first line).
-  Cross-cutting findings may say `**Where:** no specific file` — they are
-  kept but excluded from dedup clustering.
+- **`**Where:**`** at line start. There are **EXACTLY TWO accepted forms**, and
+  the parser (`FILE_LINE_RE` / `NO_FILE_RE` in `milestone-pipeline-findings.py`)
+  rejects everything else — a malformed `**Where:**` makes `extract` refuse the
+  WHOLE file and blocks the phase. Copy one of these two lines verbatim:
+
+  ```
+  **Where:** `path/to/file.ext:123`
+  **Where:** no specific file
+  ```
+
+  Form A — a real citation — **MUST** be backtick-wrapped, the path **MUST NOT**
+  contain a colon (so no `C:/…` absolute Windows paths — use a repo-relative
+  path), and the line **MUST** be a single plain integer (for a range, cite the
+  first line). Form B — cross-cutting / whole-diff / procedural findings — is the
+  **bare literal**, **NOT** backticked; such findings are kept but excluded from
+  dedup clustering.
+
+  **Use Form B for any finding that is not anchored to one line of one file** —
+  in particular the mandatory diff-size auto-finding. Do not invent a third
+  shape for it.
+
+  These three real rejections have each cost a pipeline run; do not repeat them:
+
+  | Written | Why it was rejected |
+  |---|---|
+  | ``**Where:** `no specific file` `` | Form B backtick-wrapped. `NO_FILE_RE` matches the BARE literal only. |
+  | `**Where:** src/foo.py:42` | Form A missing its backticks. |
+  | ``**Where:** `abc1234..def5678` — 971 insertions`` | A commit range is neither form. A whole-diff finding is Form B. |
 - **Required body fields**: `**What:**`, `**Why it matters:**`,
   `**Proposed fix:**`, `**Regression-guard:**`, `**Source critic:**`. A
   finding missing any of these is a malformed block; `extract` refuses the

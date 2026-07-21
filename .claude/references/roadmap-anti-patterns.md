@@ -31,7 +31,7 @@ The orchestrator may catch itself rehearsing one of these. When it does, stop.
 | "Most items are genuinely must — the cap is wrong here." | Almost never true. A brief implying > 60% must is undersliced or overcommitted. Force-rank or split. |
 | "I'll write a prose roadmap doc — YAML is unfriendly." | The YAML IS the artifact; the vault compiler renders the prose views. A hand doc bypasses the schema, the validator, and the pipeline handoff. |
 | "These ids are ugly — renumber for cleanliness." | IDs are write-once. Journals, issues, and pipeline state point at them. Tombstone drops to `retired:`; never renumber, never reuse. |
-| "I'll write the GitHub bodies and just run `gh` myself — saves a step." | Phase agents never invoke `gh`. Bodies go to `plans/<slug>/github/`; the orchestrator gates creation on an explicit per-run `[y]`. |
+| "I'll just run `gh` myself and create the issues — saves a step." | Phase agents never invoke `gh`. Materialization is the orchestrator running `roadmap-to-github.py` — dry-run review, `--apply` only on an explicit per-run `[y]`. |
 | "Skip the spike — I'm confident in the assumption." | Confidence without evidence defaults to 0.5 (RICE low tier). A spike ≤ 3 days converts confidence to evidence. Cheap insurance against rework. |
 | "Auto-invoke the milestone pipeline at MATERIALIZE end — saves the user a step." | Auto-invoke removes the user gate and costs a fresh prompt prefix. Offer; do not invoke. |
 | "Track execution status in roadmap.yaml while implementing." | One writer per file: plan structure is agent-owned; progress is append-only journals under `plans/<slug>/progress/`. Mixing them corrupts both. |

@@ -176,10 +176,11 @@ External writes fall into two classes; the split is defined in full in
 STRUCTURAL writes -- `git push`, `git commit`, `git add`, `gh issue create`,
 issue close/reopen, milestone create, `gh pr create`, a release, a publish, a
 deploy, or any other mutating external API -- are USER-GATED. No script,
-command, or agent performs one on its own; the user authorizes each. The
-`--github` path emits issue-body files under `plans/<slug>/github/<item-id>.md`
-for review; the actual `gh issue create` and `git push origin "$DEFAULT_BRANCH"`
-STOP and ask first.
+command, or agent performs one on its own; the user authorizes each. No
+`gh` write verbs from the materializer *agent* (or any leaf agent).
+Structure materialization is the orchestrator invoking
+`roadmap-to-github.py`; dry-run default; `--apply` only on explicit
+per-run user authorization.
 
 ANNOTATE writes -- a `gh issue comment`, a label add/remove, a self-assign, or a
 Mission Control (Projects v2) field/Status update, all ON THE ISSUE THE

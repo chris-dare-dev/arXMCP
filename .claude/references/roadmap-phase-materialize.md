@@ -1,11 +1,11 @@
 # Phase 4 — MATERIALIZE
 
 **Goal:** final-validate `plans/<slug>/roadmap.yaml`, populate links, flip
-the roadmap live, optionally emit GitHub issue bodies, and hand off to
-`/milestone-pipeline` — by offer, never by invocation.
+the roadmap live, and hand off to `/milestone-pipeline` — by offer, never by
+invocation. GitHub materialization under `--github` is orchestrator-owned
+(§4).
 
-**Writes:** `links:` blocks and `status: active` in roadmap.yaml; body files
-under `plans/<slug>/github/` when `--github`. Advances
+**Writes:** `links:` blocks and `status: active` in roadmap.yaml. Advances
 `phase: sequenced → complete`.
 
 ## Step-by-step
@@ -40,32 +40,42 @@ stays `active`** while the work runs. `done` / `superseded` are set by hand
 much later. Future plan changes go through the Regeneration protocol
 (carry ids, tombstone drops) — not a fresh file.
 
-### 4. GitHub issue bodies (`--github` only)
+### 4. GitHub materialization (`--github` only — orchestrator-owned)
 
-Emit one file per now-lane milestone, plus each parent epic once, to
-`plans/<slug>/github/<item-id>.md`:
+`roadmap-to-github.py` is the single roadmap-to-GitHub path. The
+ORCHESTRATOR runs it after the materializer returns — the phase agent has no
+`--github` behavior and never runs `gh`. Sequence:
 
-```markdown
-# {title}
+1. Resolve the repo: `gh repo view --json nameWithOwner -q .nameWithOwner`,
+   falling back to parsing `git remote get-url origin`.
+2. Run the converter dry-run (the default mode — it mutates nothing):
 
-**Roadmap:** plans/<slug>/roadmap.yaml · **Item:** `<item-id>` · **Epic:** `<parent-epic-id>`
-**Lane:** now · **Target:** {target_start} → {target_end}
+   ```bash
+   python .claude/scripts/roadmap-to-github.py --repo <owner/repo> \
+     --roadmap plans/<slug>/roadmap.yaml
+   ```
 
-## Summary
-{summary / epic context}
+3. Surface the printed plan — the dry-run IS the review surface — and ask:
+   "Create these in `<owner/repo>`? [y/N]".
+4. Only on explicit `y`: re-run with `--apply` (plus `--project N` to add
+   items to Mission Control). Each `--apply` is a user-gated write,
+   authorized per run.
+5. Then `python .claude/scripts/roadmap-project-fields.py --owner <owner>
+   --project <N> --roadmap plans/<slug>/roadmap.yaml --apply` — annotate-class
+   field updates on the issues just created.
+6. A successful apply also writes `plans/<slug>/github/issue-map.json` (the
+   canonical id -> issue record) and prints the exact
+   `--issues "<item-id>=<url> ..."` re-dispatch string. Re-dispatch the
+   materializer with it to backfill `links.issue` — the normal path after
+   every successful apply (links-only edit). For large roadmaps read the
+   pairs from issue-map.json directly.
 
-## Acceptance
-- [ ] {each acceptance string, verbatim}
-
-## Depends on
-- `{dep-id}` — {dep title}
-```
-
-**Bodies only.** The pipeline never runs `gh issue create` — the
-orchestrator resolves the repo (`gh repo view --json nameWithOwner`), asks
-the user "create N issues in <owner/repo>? [y/N]", and only on explicit `y`
-creates them one at a time from these files. Conventional-commit style
-titles are fine but not required; labels are the orchestrator's call.
+On anything but `y`, exit cleanly — nothing was mutated. The converter is
+idempotent (hidden `<!-- roadmap-gh: <slug>/<id> -->` marker per issue), so
+a re-run skips items that already exist. Legacy `plans/<slug>/github/<item-id>.md`
+body files in consumer repos are inert historical artifacts — deleted
+opportunistically, never synced. The directory's one live artifact is
+`issue-map.json`, converter-owned, regenerated on every successful `--apply`.
 
 ### 5. Advance + handoff
 
@@ -104,15 +114,18 @@ views. One writer per file.
 |---|---|
 | Validator exit 0 | proceed |
 | Validator exit non-zero | **STOP** — `gate-required` with the violations |
-| `--github` passed | emit bodies; creation is orchestrator-gated per run |
+| `--github` passed | orchestrator runs `roadmap-to-github.py` (§4) — dry-run review; `--apply` per-run gated |
 | End of phase | **Offer** the pipeline handoff; anything but `y` exits cleanly |
 
 ## Hard rules
 
 - **Validator must pass before anything else in this phase.**
-- **No `gh` write verbs, ever, from the materializer.**
+- **No `gh` write verbs from the materializer *agent* (or any leaf
+  agent).** Structure materialization is the orchestrator invoking
+  `roadmap-to-github.py`; dry-run default; `--apply` only on explicit
+  per-run user authorization.
 - **No fabricated links.** Every `links.code` path verified to exist.
 - **`status: active` at complete** — `complete` describes the authoring
   pipeline, not the roadmap's life.
 - **Source code is off-limits** — this phase writes only roadmap.yaml
-  fields and `plans/<slug>/github/` bodies.
+  fields.

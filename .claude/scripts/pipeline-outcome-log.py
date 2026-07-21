@@ -9,15 +9,25 @@ terminal transition, so `emit` swallows its own errors and still exits 0.
 
 Usage:
   pipeline-outcome-log.py emit --pipeline <fam> --id <ID>
-      [--state <path>] [--field k=v]... [--log <path>]
+      [--state <path>] [--outcome <phase>] [--field k=v]... [--log <path>]
   pipeline-outcome-log.py summary [--pipeline <fam>] [--last N] [--json]
       [--log <path>]
 
 `emit` reads the milestone `state.json` (when `--state` is given) to fill the
-outcome columns, then applies any `--field k=v` overrides last. For the roadmap
-family there is no `state.json`; the caller passes the columns it knows via
-`--field` (e.g. `--field source_state_path=plans/<slug>/roadmap.yaml
---field outcome=complete`).
+outcome columns, then applies `--outcome` (if given), then any `--field k=v`
+overrides last. For the roadmap family there is no `state.json`; the caller
+passes the columns it knows via `--field` (e.g. `--field
+source_state_path=plans/<slug>/roadmap.yaml --field outcome=complete`).
+
+`--outcome` is the DECLARED terminal outcome and should be passed by every
+terminal emit site. Without it the outcome column is a snapshot of
+`state.phase` at call time — which races the caller's own state write: an
+emit that lands between the rectification-data write and the phase flip
+records `outcome=rectify-running` forever, and no second emit follows
+(observed on options-signal-engine g7-3-a-m1 / g5-1-a-m1, review
+2026-07-16). The `phase` column still records the state-read phase verbatim,
+so a declared-outcome row whose phase lags is visible, not laundered; the
+emit prints a non-fatal stderr note when they diverge.
 
 token_cost is intentionally left null. The fleet's OTel home (claude-otel) is
 the future place to backfill per-run token cost; this script builds no metric
@@ -141,8 +151,10 @@ def build_record(
     item_id: str,
     state_path: str | None,
     fields: list[str] | None,
+    outcome: str | None = None,
 ) -> dict:
-    """Assemble one outcome record. state.json fills columns; --field overrides."""
+    """Assemble one outcome record. state.json fills columns; the declared
+    ``outcome`` (if any) overrides the state-read phase; --field overrides last."""
     state = _load_state(state_path)
     fixed = state.get("fixed_findings") or []
     record: dict = {
@@ -154,9 +166,13 @@ def build_record(
         "source_state_path": state_path,
         "created_at": state.get("created_at"),
         "updated_at": state.get("updated_at"),
+        # `phase` is ALWAYS the state-read snapshot — never overwritten by the
+        # declared outcome, so a lagging state write stays visible in the row.
         "phase": state.get("phase"),
-        # The terminal phase IS the outcome; roadmap callers pass it via --field.
-        "outcome": state.get("phase"),
+        # Default: the state phase IS the outcome. Terminal emit sites pass
+        # --outcome to declare it explicitly (ordering-proof — see docstring);
+        # roadmap callers historically pass it via --field, which still wins.
+        "outcome": outcome if outcome is not None else state.get("phase"),
         "critique_finding_counts": state.get("critique_finding_counts"),
         "fixed_findings": list(fixed),
         # rectification_count == len(fixed_findings) is the LOCKED definition.
@@ -212,9 +228,18 @@ def do_emit(args: argparse.Namespace) -> int:
     try:
         root = find_repo_root()
         log_path = resolve_log_path(root, args.log)
-        record = build_record(args.pipeline, args.id, args.state, args.field)
+        record = build_record(args.pipeline, args.id, args.state, args.field, outcome=args.outcome)
         append_record(log_path, record)
         print(f"outcome logged: {args.pipeline} {args.id} run={record['run_id']} -> {log_path}")
+        if record.get("phase") is not None and record.get("outcome") != record.get("phase"):
+            # Visibility, not a failure: the declared outcome outran the
+            # caller's state write (or the emit ran early). The row records
+            # both columns, so the lag is auditable.
+            print(
+                f"note: state phase={record.get('phase')!r} != recorded outcome="
+                f"{record.get('outcome')!r} (state write lagging or emit ran early)",
+                file=sys.stderr,
+            )
     except Exception as e:  # noqa: BLE001 -- best-effort by contract
         print(f"warning: outcome capture failed (non-fatal): {e}", file=sys.stderr)
     return 0
@@ -254,6 +279,12 @@ def main(argv: list[str]) -> int:
     e.add_argument("--pipeline", required=True, help="pipeline family, e.g. milestone / roadmap")
     e.add_argument("--id", required=True, help="milestone or roadmap id")
     e.add_argument("--state", default=None, help="path to state.json (milestone family)")
+    e.add_argument(
+        "--outcome",
+        default=None,
+        help="declared terminal outcome (e.g. complete) — wins over the state-read "
+        "phase so the row cannot race the caller's own state write",
+    )
     e.add_argument("--field", action="append", default=[], help="k=v column override (repeatable)")
     e.add_argument("--log", default=None, help="override log path")
     e.set_defaults(func=do_emit)

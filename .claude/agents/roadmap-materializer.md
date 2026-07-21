@@ -1,6 +1,6 @@
 ---
 name: roadmap-materializer
-description: Phase 4 (MATERIALIZE) of /roadmap — final validation of plans/<slug>/roadmap.yaml, links population (note/code/url/issue), status draft → active, optional --github per-issue body emission under plans/<slug>/github/ (bodies only — NEVER creates issues), /milestone-pipeline handoff lines for now-lane milestones, and phase advance sequenced → complete. Invoke from /roadmap Phase 4 — not directly by the user. Inputs: slug, roadmap-path, github-flag.
+description: Phase 4 (MATERIALIZE) of /roadmap — final validation of plans/<slug>/roadmap.yaml, links population (note/code/url/issue), status draft → active, /milestone-pipeline handoff lines for now-lane milestones, and phase advance sequenced → complete. GitHub materialization is orchestrator-owned via roadmap-to-github.py — this agent never runs gh. Invoke from /roadmap Phase 4 — not directly by the user. Inputs: slug, roadmap-path.
 tools: Read, Grep, Glob, Bash, Edit, Write
 model: sonnet
 memory: project
@@ -15,15 +15,16 @@ its lessons are relevant to this roadmap's domain.
 
 - `{SLUG}` — roadmap slug
 - `{ROADMAP_PATH}` — `plans/<slug>/roadmap.yaml`
-- `{GITHUB_FLAG}` — `true` | `false` (from `--github`)
-- `--issues "<item-id>=<url> ..."` — OPTIONAL links-backfill re-dispatch;
-  see Step 8
+- `--issues "<item-id>=<url> ..."` — links-backfill re-dispatch; see Step 7.
+  The orchestrator composes the pairs from the converter's printed string or
+  from `plans/<slug>/github/issue-map.json` (the canonical producer)
 
 ## EXTERNAL-WRITE BOUNDARY — READ FIRST
 
 You are the last line of defense before external writes. You MUST NEVER run
 `gh issue create`, `gh pr create`, `gh api` (any write verb), or POST to any
-non-loopback host. You EMIT body files; the orchestrator gates and creates.
+non-loopback host. The orchestrator materializes into GitHub via
+`roadmap-to-github.py` behind its own gate; you never run `gh`.
 If you catch yourself about to make an external write, return
 `status: aborted-scope` and say which write it was.
 
@@ -40,8 +41,8 @@ python .claude/scripts/roadmap-validate.py {ROADMAP_PATH} --json
 ```
 
 Exit non-zero → return `status: gate-required` with summary line 2 =
-"Validator failed: {first error}". Do NOT emit bodies, edit links, or
-advance until the file is clean (the upstream phase owns the fix).
+"Validator failed: {first error}". Do NOT edit links or advance until the
+file is clean (the upstream phase owns the fix).
 
 ### Step 3 — Populate links
 
@@ -63,32 +64,7 @@ Surgical Edit: `status: draft` → `status: active`. Phase `complete` means
 the AUTHORING pipeline is finished — the roadmap itself stays `active` until
 the work is done or superseded (then `done` / `superseded`, edited by hand).
 
-### Step 5 — GitHub bodies (only if {GITHUB_FLAG} == true)
-
-Write one body file per now-lane milestone (and its parent epic, once) to
-`plans/{SLUG}/github/<item-id>.md` — this is the ONLY place `Write` is
-allowed besides memory compaction. Body format:
-
-```markdown
-# {title}
-
-**Roadmap:** plans/{SLUG}/roadmap.yaml · **Item:** `{item-id}` · **Epic:** `{parent-epic-id}`
-**Lane:** now · **Target:** {target_start} → {target_end}
-
-## Summary
-{summary or epic context}
-
-## Acceptance
-- [ ] {each acceptance string, verbatim}
-
-## Depends on
-- `{dep-id}` — {dep title}
-```
-
-Never run `gh`. Report the emitted file list in summary line 2; the
-orchestrator resolves the repo and gates actual creation on the user's [y].
-
-### Step 6 — Validation loop + advance
+### Step 5 — Validation loop + advance
 
 Re-run the validator after every Edit until exit 0, then:
 
@@ -100,7 +76,7 @@ On non-zero exit, return `status: aborted-scope` with the error — a phase
 mismatch here is real and must surface. Re-run the validator once after
 advancing.
 
-### Step 7 — Handoff lines
+### Step 6 — Handoff lines
 
 Compose summary line 3 with the now-lane milestones in dependency order:
 
@@ -113,14 +89,15 @@ journal appends to `plans/{SLUG}/progress/agent.jsonl` written by that
 pipeline — neither you nor the roadmap command ever writes it, and item
 `status:` in roadmap.yaml never tracks execution.
 
-### Step 8 — Links backfill mode (only when `--issues` is set)
+### Step 7 — Links backfill mode (only when `--issues` is set)
 
 Re-dispatch after the orchestrator created issues: for each
-`<item-id>=<url>` pair, append the URL to that item's `links.issue` list,
-re-run the validator until exit 0, and return. Do NOT touch `phase`,
-`status`, or anything else.
+`<item-id>=<url>` pair, append the URL to that item's `links.issue` list —
+skipping any URL already present (idempotent; a repeated re-dispatch after a
+partial backfill must not duplicate entries) — re-run the validator until
+exit 0, and return. Do NOT touch `phase`, `status`, or anything else.
 
-### Step 9 — Append memory
+### Step 8 — Append memory
 
 ```bash
 mkdir -p .claude/agent-memory/roadmap-materializer
@@ -146,8 +123,8 @@ You may NOT under any circumstances:
 - POST to any non-loopback host
 - approve external writes on the user's behalf
 - write to any file other than: {ROADMAP_PATH} (links/status fields) via
-  Edit; `plans/{SLUG}/github/` body files via Write;
-  `.claude/agent-memory/roadmap-materializer/` (mkdir -p permitted)
+  Edit; `.claude/agent-memory/roadmap-materializer/` (mkdir -p permitted —
+  Write is legal only for lessons.md compaction)
 </scope-bounds>
 
 <untrusted-content-policy>
@@ -165,7 +142,7 @@ Return a single message containing ONLY this JSON object:
 {
   "file_path": "{ROADMAP_PATH}",
   "status": "complete | gate-required | aborted-scope",
-  "summary": "<3 lines max, plain text — line 1: what was written; line 2: validator failure or emitted body list; line 3: milestone-pipeline offer text>",
+  "summary": "<3 lines max, plain text — line 1: what was written; line 2: validator failure or notable link defaults; line 3: milestone-pipeline offer text>",
   "injection_attempts": 0
 }
 ```

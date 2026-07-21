@@ -182,6 +182,52 @@ class OutcomeLogTests(unittest.TestCase):
         milestone_only = [r for r in recs if r["pipeline"] == "milestone"]
         self.assertEqual(len(milestone_only), 1)
 
+    # 14 -- emit-race fix (OSE review 2026-07-16): a terminal emit that lands
+    # before the caller's phase flip must still record the DECLARED outcome.
+    def test_declared_outcome_wins_over_stale_phase(self):
+        sp = _write_state(
+            self.root / ".claude" / "notes" / "milestones" / "demo-m1" / "state.json",
+            phase="rectify-running",
+        )
+        rec = olog.build_record("milestone", "demo-m1", str(sp), None, outcome="complete")
+        self.assertEqual(rec["outcome"], "complete")
+        # The state-read phase stays visible verbatim -- the lag is auditable,
+        # never laundered into a fabricated phase.
+        self.assertEqual(rec["phase"], "rectify-running")
+
+    # 15 -- --field is applied last and still beats the declared outcome.
+    def test_field_override_still_beats_declared_outcome(self):
+        rec = olog.build_record(
+            "milestone", "demo-m1", None, ["outcome=abandoned"], outcome="complete"
+        )
+        self.assertEqual(rec["outcome"], "abandoned")
+
+    # 16 -- without --outcome the snapshot behaviour is unchanged.
+    def test_no_declared_outcome_preserves_snapshot_behaviour(self):
+        sp = _write_state(
+            self.root / ".claude" / "notes" / "milestones" / "demo-m1" / "state.json",
+            phase="rectify-running",
+        )
+        rec = olog.build_record("milestone", "demo-m1", str(sp), None)
+        self.assertEqual(rec["outcome"], "rectify-running")
+        self.assertEqual(rec["phase"], "rectify-running")
+
+    # 17 -- CLI end-to-end: emit --outcome writes the declared outcome, keeps
+    # the stale phase column, and still exits 0 (best-effort contract).
+    def test_emit_outcome_flag_end_to_end(self):
+        sp = _write_state(
+            self.root / ".claude" / "notes" / "milestones" / "demo-m1" / "state.json",
+            phase="rectify-running",
+        )
+        rc = olog.main(
+            ["emit", "--pipeline", "milestone", "--id", "demo-m1",
+             "--state", str(sp), "--outcome", "complete"]
+        )
+        self.assertEqual(rc, 0)
+        recs = olog.read_records(olog.resolve_log_path(self.root))
+        self.assertEqual(recs[-1]["outcome"], "complete")
+        self.assertEqual(recs[-1]["phase"], "rectify-running")
+
     # bonus: best-effort emit never raises even if state path is bogus
     def test_emit_tolerates_missing_state(self):
         rc = olog.main(
