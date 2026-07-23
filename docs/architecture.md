@@ -79,8 +79,10 @@ Streamable HTTP at `/mcp/`, plus:
 - **Query router** — a regex classifier tags each query into one of four
   agent roles (`LOOKUP`, `SYNTHESIS`, `VERIFICATION`, `AUTOFORMALIZATION`);
   no LLM planner.
-- **Per-session caps** — 3 `search_papers` + 4 `get_chunk` per
-  `Mcp-Session-Id`.
+- **Per-session caps** — 30 `search_papers` + 100 `get_chunk` per
+  `Mcp-Session-Id`, tunable via `ARXMCP_MAX_SEARCH_PAPERS_CALLS` /
+  `ARXMCP_MAX_GET_CHUNK_CALLS`. Cost control, not a security boundary — a
+  client can reset its budget by starting a new session.
 - **Prompt-cache discipline** — `tools/list` is byte-stable (BP1) and role
   prefixes are pinned (BP2) so warm caches survive across sub-agents. This is
   load-bearing; see [`07-multi-agent-caching.md`](../.claude/notes/07-multi-agent-caching.md).

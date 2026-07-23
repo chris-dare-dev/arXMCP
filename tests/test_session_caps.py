@@ -165,10 +165,12 @@ def _extract_status(sent: list[dict]) -> int:
 
 
 class TestSearchPapersCap:
-    """AC: a session that calls ``search_papers`` four times receives
-    ``RETRIEVAL_CAP_REACHED`` on the fourth call."""
+    """AC: a session that exhausts the ``search_papers`` cap receives
+    ``RETRIEVAL_CAP_REACHED`` on the next call. Expressed relative to
+    :data:`MAX_SEARCH_PAPERS_CALLS` — the cap is configurable
+    (agent-platform-m1), so the boundary is N/N+1, not 3/4."""
 
-    def test_search_papers_first_three_calls_pass_through(self):
+    def test_search_papers_calls_up_to_cap_pass_through(self):
         async def _run():
             mw = SessionCapMiddleware(app=None)  # type: ignore[arg-type]
             scope = _make_scope(session_id=_hex_session_id("s-search-3-pass"))
@@ -214,10 +216,11 @@ class TestSearchPapersCap:
 
 
 class TestGetChunkCap:
-    """AC: a session that calls ``get_chunk`` five times receives
-    ``RETRIEVAL_CAP_REACHED`` on the fifth call."""
+    """AC: a session that exhausts the ``get_chunk`` cap receives
+    ``RETRIEVAL_CAP_REACHED`` on the next call. Expressed relative to
+    :data:`MAX_GET_CHUNK_CALLS` — see :class:`TestSearchPapersCap`."""
 
-    def test_get_chunk_first_four_calls_pass_through(self):
+    def test_get_chunk_calls_up_to_cap_pass_through(self):
         async def _run():
             mw = SessionCapMiddleware(app=None)  # type: ignore[arg-type]
             scope = _make_scope(session_id=_hex_session_id("s-chunk-4-pass"))
@@ -420,8 +423,14 @@ class TestSessionStateAPI:
     def test_concurrent_increments_under_per_session_lock_serialize(self):
         """Per-session ``asyncio.Lock`` MUST serialize concurrent
         increments so two parallel callers can't both pass the cap
-        check + both increment past it. Drive 5 concurrent
-        ``search_papers`` increments — exactly 3 should succeed."""
+        check + both increment past it. Over-subscribe the cap with
+        concurrent ``search_papers`` increments — exactly
+        :data:`MAX_SEARCH_PAPERS_CALLS` should succeed.
+
+        The over-subscription is expressed relative to the cap
+        (agent-platform-m1): the old literal 5-against-a-cap-of-3 stopped
+        over-subscribing the moment the default rose to 30, which would
+        have made the race guard silently vacuous rather than failing."""
 
         async def _run():
             state = await get_or_create_session("session-race")
@@ -430,7 +439,8 @@ class TestSessionStateAPI:
                 ok, _, _ = await check_and_increment(state, "search_papers")
                 return ok
 
-            results = await asyncio.gather(*(attempt() for _ in range(5)))
+            attempts = MAX_SEARCH_PAPERS_CALLS + 2
+            results = await asyncio.gather(*(attempt() for _ in range(attempts)))
             successes = sum(1 for r in results if r)
             assert successes == MAX_SEARCH_PAPERS_CALLS
             assert state.search_count == MAX_SEARCH_PAPERS_CALLS
@@ -497,14 +507,112 @@ class TestRetrievalCapEnvelope:
 
 
 class TestCapConstants:
-    """The brief pins the caps at 3 search_papers and 4 get_chunk.
-    Pin the constants here so a future edit catches the eye."""
+    """agent-platform-m1 pins the interactive defaults at 30
+    search_papers and 100 get_chunk (raised from the E08_S04 values of
+    3 and 4, which fired on legitimate single-question research).
 
-    def test_max_search_papers_is_3(self):
-        assert MAX_SEARCH_PAPERS_CALLS == 3
+    Pin the constants here so a future edit catches the eye. These are
+    the DEFAULTS; operators override via ARXMCP_MAX_SEARCH_PAPERS_CALLS
+    / ARXMCP_MAX_GET_CHUNK_CALLS (see TestCapConfiguration)."""
 
-    def test_max_get_chunk_is_4(self):
-        assert MAX_GET_CHUNK_CALLS == 4
+    def test_max_search_papers_default_is_30(self):
+        assert MAX_SEARCH_PAPERS_CALLS == 30
+
+    def test_max_get_chunk_default_is_100(self):
+        assert MAX_GET_CHUNK_CALLS == 100
+
+
+class TestCapConfiguration:
+    """agent-platform-m1 — the caps are operator-configurable, and the
+    env vars are declared on Config so they do not trip the
+    ``extra="forbid"`` startup scan."""
+
+    def test_config_fields_read_the_env_vars(self, monkeypatch):
+        from server.config import Config
+
+        monkeypatch.setenv("ARXMCP_MAX_SEARCH_PAPERS_CALLS", "7")
+        monkeypatch.setenv("ARXMCP_MAX_GET_CHUNK_CALLS", "11")
+        cfg = Config()
+        assert cfg.max_search_papers_calls == 7
+        assert cfg.max_get_chunk_calls == 11
+
+    def test_configure_caps_rebinds_the_module_globals(self, monkeypatch):
+        """The effective cap — the value check_both_caps reads —
+        reflects the configured value."""
+        import server.session as session_mod
+        from server.config import Config
+
+        monkeypatch.setattr(session_mod, "MAX_SEARCH_PAPERS_CALLS", 3)
+        monkeypatch.setattr(session_mod, "MAX_GET_CHUNK_CALLS", 4)
+        monkeypatch.setenv("ARXMCP_MAX_SEARCH_PAPERS_CALLS", "7")
+        monkeypatch.setenv("ARXMCP_MAX_GET_CHUNK_CALLS", "11")
+
+        session_mod.configure_caps(Config())
+
+        assert session_mod.MAX_SEARCH_PAPERS_CALLS == 7
+        assert session_mod.MAX_GET_CHUNK_CALLS == 11
+
+    def test_configured_cap_is_the_enforced_cap(self, monkeypatch):
+        """End to end: configure a cap of 2, and the 3rd call is the
+        one that gets RETRIEVAL_CAP_REACHED."""
+        import server.session as session_mod
+        from server.config import Config
+
+        # Register the restore BEFORE configure_caps rebinds the global:
+        # monkeypatch remembers the pre-call value and puts it back at
+        # teardown, so this test cannot leak a cap of 2 into the rest of
+        # the module (configure_caps has no unset path of its own).
+        monkeypatch.setattr(
+            session_mod,
+            "MAX_SEARCH_PAPERS_CALLS",
+            session_mod.MAX_SEARCH_PAPERS_CALLS,
+        )
+        monkeypatch.setenv("ARXMCP_MAX_SEARCH_PAPERS_CALLS", "2")
+        session_mod.configure_caps(Config())
+
+        async def _run():
+            mw = SessionCapMiddleware(app=None)  # type: ignore[arg-type]
+            scope = _make_scope(session_id=_hex_session_id("s-configured"))
+            body = _make_jsonrpc_body("tools/call", "search_papers")
+            for i in range(2):
+                received, _ = await _drive_middleware(mw, scope, body)
+                assert received, f"call #{i+1} should pass under cap=2"
+            received, sent = await _drive_middleware(mw, scope, body)
+            assert not received
+            structured = _extract_response_body(sent)["result"][
+                "structuredContent"
+            ]
+            assert structured["code"] == "RETRIEVAL_CAP_REACHED"
+            assert structured["limit"] == 2
+
+        asyncio.run(_run())
+
+    def test_env_vars_are_declared_so_startup_scan_accepts_them(
+        self, monkeypatch
+    ):
+        """Regression guard for the failure mode a raw os.getenv
+        implementation would have shipped: an undeclared ARXMCP_* var
+        makes the server refuse to boot, so setting the documented
+        knob would have been worse than not having it."""
+        from server.config import Config
+        from server.main import _scan_unknown_arxmcp_env_vars
+
+        monkeypatch.setenv("ARXMCP_MAX_SEARCH_PAPERS_CALLS", "30")
+        monkeypatch.setenv("ARXMCP_MAX_GET_CHUNK_CALLS", "100")
+        _scan_unknown_arxmcp_env_vars(Config())  # must not raise
+
+    def test_cap_below_one_is_rejected(self, monkeypatch):
+        """A cap of 0 would reject every retrieval call, which reads as
+        a broken server rather than a tight budget. ge=1 catches it at
+        startup instead."""
+        import pytest
+        from pydantic import ValidationError
+
+        from server.config import Config
+
+        monkeypatch.setenv("ARXMCP_MAX_SEARCH_PAPERS_CALLS", "0")
+        with pytest.raises(ValidationError):
+            Config()
 
 
 # ===========================================================================

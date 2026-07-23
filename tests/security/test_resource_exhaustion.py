@@ -642,11 +642,13 @@ class TestAtomicTwoCapCheck:
         """When the per-tool cap rejects, the hourly timestamp deque
         is NOT mutated.
         """
-        from server.session import check_both_caps
+        from server.session import MAX_SEARCH_PAPERS_CALLS, check_both_caps
 
         state = SessionState(session_id="f1-test-a")
-        # Saturate per-tool search cap.
-        state.search_count = 3  # at MAX_SEARCH_PAPERS_CALLS
+        # Saturate per-tool search cap. Read the constant rather than
+        # hardcoding it: agent-platform-m1 made the cap configurable,
+        # so a literal would silently stop meaning "at cap".
+        state.search_count = MAX_SEARCH_PAPERS_CALLS
 
         before = len(state.call_timestamps)
         verdict, count, limit = _run(check_both_caps(state, "search_papers"))

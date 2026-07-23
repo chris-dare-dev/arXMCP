@@ -183,8 +183,14 @@ it once.
 
 The MCP server enforces per-session hard caps on retrieval tools:
 
-- **`search_papers`**: maximum 3 calls per `Mcp-Session-Id`
-- **`get_chunk`**: maximum 4 calls per `Mcp-Session-Id`
+- **`search_papers`**: maximum 30 calls per `Mcp-Session-Id`
+- **`get_chunk`**: maximum 100 calls per `Mcp-Session-Id`
+
+Both are defaults as of agent-platform-m1 (raised from 3 and 4, which were
+sized for a scripted 2-round fan-out and fired on interactive research).
+Operators tune them with `ARXMCP_MAX_SEARCH_PAPERS_CALLS` /
+`ARXMCP_MAX_GET_CHUNK_CALLS`, so an orchestrator must read the `limit`
+field off the error rather than assume a number.
 
 When a cap is reached, the server short-circuits the tool call
 and returns a structured `RETRIEVAL_CAP_REACHED` error. The agent

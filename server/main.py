@@ -75,6 +75,7 @@ if TYPE_CHECKING:
 from fastapi import FastAPI
 from prometheus_client import make_asgi_app
 
+from server import session
 from server.config import Config
 from server.health import (
     refresh_metrics_from_singleton_state,
@@ -644,6 +645,12 @@ def create_app(config: Config | None = None) -> FastAPI:
         openapi_url=None,
     )
     app.state.config = cfg
+
+    # agent-platform-m1: push the operator-configured per-tool session
+    # caps into server.session's module globals BEFORE the middleware
+    # stack is built — SessionCapMiddleware reads them per request, so
+    # this must land before the first request, not before construction.
+    session.configure_caps(cfg)
 
     # E06_S05 + E13_S05: security-hardening middleware stack.
     #

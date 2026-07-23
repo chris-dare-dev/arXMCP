@@ -287,6 +287,27 @@ class Config(BaseSettings):
     #: negligible).
     result_byte_cap: int = DEFAULT_RESULT_BYTE_CAP
 
+    #: agent-platform-m1 (D4-R07) — lifetime cap on ``search_papers``
+    #: calls per MCP session, enforced by ``SessionCapMiddleware`` via
+    #: :data:`server.session.MAX_SEARCH_PAPERS_CALLS`.
+    #:
+    #: Declared as a Config field rather than read from the environment
+    #: directly so the ``extra="forbid"`` contract stays intact — an
+    #: undeclared ``ARXMCP_*`` var is a startup error via
+    #: ``_scan_unknown_arxmcp_env_vars`` (which derives its allow-list
+    #: from ``Config.model_fields``, so declaring here is sufficient).
+    #:
+    #: Default raised 3 -> 30 for interactive use. See
+    #: :mod:`server.session` for why the legacy E08_S04 value was
+    #: unusable and why these caps are cost control, not a security
+    #: boundary.
+    max_search_papers_calls: int = Field(default=30, ge=1)
+
+    #: agent-platform-m1 (D4-R07) — lifetime cap on ``get_chunk`` calls
+    #: per MCP session. Default raised 4 -> 100; see
+    #: :attr:`max_search_papers_calls` for the declaration rationale.
+    max_get_chunk_calls: int = Field(default=100, ge=1)
+
     # --- Retrieval tuning ------------------------------------------------
 
     #: Linear-combination weight α for the equation-similarity fusion

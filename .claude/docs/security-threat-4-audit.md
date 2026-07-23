@@ -32,10 +32,31 @@ exhaust server memory, CPU, or downstream LanceDB query budget.
    a `resource_link` content block is emitted so the agent can fetch the
    full body via the URI scheme.
 
-4. **Per-tool retrieval caps** (E08_S04, pre-E13_S04). `MAX_SEARCH_PAPERS_CALLS=3`
-   and `MAX_GET_CHUNK_CALLS=4` per session lifetime. Returns
+4. **Per-tool retrieval caps** (E08_S04, pre-E13_S04). `MAX_SEARCH_PAPERS_CALLS`
+   and `MAX_GET_CHUNK_CALLS` per session lifetime. Returns
    `isError=True` with `code="RETRIEVAL_CAP_REACHED"`. Covers retrieval-loop
    semantics for the 2 retrieval tools.
+
+   > **agent-platform-m1 (2026-07-22) — cost control, not a security
+   > boundary.** Defaults raised **3 → 30** and **4 → 100**, and both are
+   > now operator-configurable via `ARXMCP_MAX_SEARCH_PAPERS_CALLS` /
+   > `ARXMCP_MAX_GET_CHUNK_CALLS` (declared as `Config` fields, so they
+   > pass the `extra="forbid"` startup scan).
+   >
+   > This does **not** weaken the Threat-4 posture, because these caps were
+   > never a Threat-4 control. **A client that wants a fresh budget does not
+   > have to work for it:** omitting `Mcp-Session-Id` skips cap enforcement
+   > outright (`SessionCapMiddleware`), and rotating to a fresh
+   > server-issued id resets both counters to zero. Both bypasses are known,
+   > admitted, and **unpatched** — per-session accounting without client
+   > identity cannot close them, and adding an authentication
+   > axis is out of scope for a loopback-only server. The caps bound the
+   > *token spend of a cooperating agent*; the hourly limit (§5) is the
+   > layer that carries the anti-abuse weight, and it shares the same
+   > bypass.
+   >
+   > The old 3/4 values were sized for a scripted 2-round proof-chain
+   > fan-out and fired on legitimate single-question interactive research.
 
 5. **Hourly rate limit** (E13_S04 NEW). 1000 tool calls per `Mcp-Session-Id`
    in a rolling 1-hour window — applies to ALL 7 tools, not just the 2
@@ -134,7 +155,10 @@ and references `enforce_byte_cap`.
 The 1000/hour cap is the Threat-4-headlined defense. **Why this is the
 load-bearing layer:**
 
-The per-tool retrieval caps (3 search, 4 chunk) cover only 2 of 7 tools. An
+The per-tool retrieval caps cover only 2 of 7 tools — and since
+agent-platform-m1 they are explicitly cost control, not a Threat-4 control
+(see §4 above: the rotate-the-session-id bypass is admitted and unpatched).
+An
 adversary calling `find_lemma_by_name`, `find_equation`, `get_definitions`,
 `get_paper`, or `cite_neighbors` 10,000 times in an hour faces **zero**
 Threat-4 defense without the hourly cap. The brief AC ("1,500 calls in 1 hour
