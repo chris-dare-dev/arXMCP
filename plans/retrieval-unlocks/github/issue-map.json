@@ -1,0 +1,138 @@
+{
+  "retrieval-unlocks-e1": {
+    "number": 30,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/30"
+  },
+  "retrieval-unlocks-e2": {
+    "number": 31,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/31"
+  },
+  "retrieval-unlocks-e3": {
+    "number": 32,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/32"
+  },
+  "retrieval-unlocks-e4": {
+    "number": 33,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/33"
+  },
+  "retrieval-unlocks-e5": {
+    "number": 34,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/34"
+  },
+  "retrieval-unlocks-e6": {
+    "number": 35,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/35"
+  },
+  "retrieval-unlocks-m1": {
+    "number": 36,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/36"
+  },
+  "retrieval-unlocks-m10": {
+    "number": 45,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/45"
+  },
+  "retrieval-unlocks-m11": {
+    "number": 46,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/46"
+  },
+  "retrieval-unlocks-m12": {
+    "number": 47,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/47"
+  },
+  "retrieval-unlocks-m13": {
+    "number": 48,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/48"
+  },
+  "retrieval-unlocks-m2": {
+    "number": 37,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/37"
+  },
+  "retrieval-unlocks-m3": {
+    "number": 38,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/38"
+  },
+  "retrieval-unlocks-m4": {
+    "number": 39,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/39"
+  },
+  "retrieval-unlocks-m5": {
+    "number": 40,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/40"
+  },
+  "retrieval-unlocks-m6": {
+    "number": 41,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/41"
+  },
+  "retrieval-unlocks-m7": {
+    "number": 42,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/42"
+  },
+  "retrieval-unlocks-m8": {
+    "number": 43,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/43"
+  },
+  "retrieval-unlocks-m9": {
+    "number": 44,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/44"
+  },
+  "retrieval-unlocks-spike-1": {
+    "number": 62,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/62"
+  },
+  "retrieval-unlocks-spike-2": {
+    "number": 63,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/63"
+  },
+  "retrieval-unlocks-t-adjacency-fallback": {
+    "number": 50,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/50"
+  },
+  "retrieval-unlocks-t-equations-fixture-parity": {
+    "number": 59,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/59"
+  },
+  "retrieval-unlocks-t-honest-retrieval-mode-eq": {
+    "number": 60,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/60"
+  },
+  "retrieval-unlocks-t-honest-retrieval-mode-proof": {
+    "number": 55,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/55"
+  },
+  "retrieval-unlocks-t-include-kinds-filter": {
+    "number": 53,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/53"
+  },
+  "retrieval-unlocks-t-per-notebook-ann-phase": {
+    "number": 54,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/54"
+  },
+  "retrieval-unlocks-t-pin-latex2mathml": {
+    "number": 57,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/57"
+  },
+  "retrieval-unlocks-t-query-time-latex-conversion": {
+    "number": 58,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/58"
+  },
+  "retrieval-unlocks-t-reverse-proof-linkage": {
+    "number": 51,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/51"
+  },
+  "retrieval-unlocks-t-scalar-proof-lookup": {
+    "number": 49,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/49"
+  },
+  "retrieval-unlocks-t-w1-schema-delta-chunk": {
+    "number": 52,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/52"
+  },
+  "retrieval-unlocks-t-w1-schema-delta-eq": {
+    "number": 61,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/61"
+  },
+  "retrieval-unlocks-t-w1-schema-delta-search": {
+    "number": 56,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/56"
+  }
+}

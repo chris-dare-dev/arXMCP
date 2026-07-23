@@ -1,0 +1,114 @@
+{
+  "agent-platform-e1": {
+    "number": 64,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/64"
+  },
+  "agent-platform-e2": {
+    "number": 65,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/65"
+  },
+  "agent-platform-e3": {
+    "number": 66,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/66"
+  },
+  "agent-platform-e4": {
+    "number": 67,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/67"
+  },
+  "agent-platform-e5": {
+    "number": 68,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/68"
+  },
+  "agent-platform-e6": {
+    "number": 69,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/69"
+  },
+  "agent-platform-m1": {
+    "number": 70,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/70"
+  },
+  "agent-platform-m2": {
+    "number": 71,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/71"
+  },
+  "agent-platform-m3": {
+    "number": 72,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/72"
+  },
+  "agent-platform-m4": {
+    "number": 73,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/73"
+  },
+  "agent-platform-m5": {
+    "number": 74,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/74"
+  },
+  "agent-platform-m6": {
+    "number": 75,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/75"
+  },
+  "agent-platform-m7": {
+    "number": 76,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/76"
+  },
+  "agent-platform-m8": {
+    "number": 77,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/77"
+  },
+  "agent-platform-spike-1": {
+    "number": 88,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/88"
+  },
+  "agent-platform-t-batch-chunk-fetch": {
+    "number": 83,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/83"
+  },
+  "agent-platform-t-canned-task-run": {
+    "number": 91,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/91"
+  },
+  "agent-platform-t-compact-wire-format": {
+    "number": 85,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/85"
+  },
+  "agent-platform-t-dispatch-loop": {
+    "number": 89,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/89"
+  },
+  "agent-platform-t-env-cap-config": {
+    "number": 78,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/78"
+  },
+  "agent-platform-t-inert-args-cleanup": {
+    "number": 82,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/82"
+  },
+  "agent-platform-t-input-examples": {
+    "number": 81,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/81"
+  },
+  "agent-platform-t-interactive-cap-defaults": {
+    "number": 79,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/79"
+  },
+  "agent-platform-t-schema-repin-live-validation": {
+    "number": 87,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/87"
+  },
+  "agent-platform-t-semantic-identifiers": {
+    "number": 84,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/84"
+  },
+  "agent-platform-t-tool-annotations": {
+    "number": 86,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/86"
+  },
+  "agent-platform-t-transcript-recording": {
+    "number": 90,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/90"
+  },
+  "agent-platform-t-truthful-descriptions": {
+    "number": 80,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/80"
+  }
+}

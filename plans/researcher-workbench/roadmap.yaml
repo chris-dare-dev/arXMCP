@@ -87,6 +87,7 @@ items:
     rice: { r: 15, i: 3, c: 0.8, e: 2.5, score: 14.4, rank: 1 }
     tags: [value, enabler, console, security, windows, D3-R01, D3-R02, D8-R13]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/132"]
       code: ["server/routes/ui.py:556-559", "server/routes/ui.py:507-510", "server/middleware.py:218-226", "server/routes/notebooks.py:336-338", "frontend/templates/notebook_detail.html:49", "SECURITY.md:59-63", ".claude/notes/06-mcp-server-design.md:466-473"]
 
   - id: researcher-workbench-e2
@@ -99,6 +100,7 @@ items:
     depends_on: [researcher-workbench-e1]
     tags: [value, search, math, console, D3-R03, D3-R04, D4-R09]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/133"]
       code: ["server/handlers/search.py:135-241", "server/resources.py:963-965", "server/handlers/lemma.py:124-152", "ingest/chunker.py:326-337", "ingest/preamble.py:435-452", "server/middleware.py:1054,1115-1122"]
 
   - id: researcher-workbench-e3
@@ -111,6 +113,7 @@ items:
     depends_on: [researcher-workbench-e1]
     tags: [value, console, metadata, ops, D3-R05, D3-R06, D2-R05]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/134"]
       code: ["server/paper_metadata_store.py", "tools/notebook_metadata_backfill.py", "server/routes/notebooks.py:1168,1274,1365,2267,2540", "server/routes/ui.py:343-372", "server/routes/notebooks.py:2112-2251", "server/routes/notebooks.py:746-748"]
 
   - id: researcher-workbench-e4
@@ -123,6 +126,7 @@ items:
     depends_on: [researcher-workbench-e2]
     tags: [value, eval, labeling, D3-R07]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/135"]
       code: ["tools/validate_eval_fixtures.py:99", "tests/eval/fixtures/queries.json", ".claude/docs/eval-curation.md:9-11"]
 
   - id: researcher-workbench-e5
@@ -135,6 +139,7 @@ items:
     depends_on: [researcher-workbench-e2, researcher-workbench-e3]
     tags: [value, graph, equations, proving-lane, D3-R08, D3-R10, D3-R11]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/136"]
       code: ["server/graph_queries.py:381-405", "ingest/schema.py:277-281", "server/handlers/equation.py:137-140", "tools/sign_bundle.py"]
 
   - id: researcher-workbench-e6
@@ -147,6 +152,7 @@ items:
     depends_on: [researcher-workbench-e1]
     tags: [value, export, interop, citations, D6-R01, D6-R03, D6-R02, D6-R04, D6-R05]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/137"]
       code: ["server/routes/notebooks.py:2406-2408", "server/routes/notebooks.py:2423-2454", "server/routes/notebooks.py:2540", "ingest/chunker.py:1026-1050", "ingest/identifiers.py:76-85", "ingest/kuzudb_schema.py:52,57-61,80"]
 
   # ── e1 milestones/tasks — Windows fix, UI doctrine, security gate (now) ──
@@ -166,6 +172,7 @@ items:
       - "Given the ui.py:507-510 code comment claiming math 'displays as raw LaTeX', when it is corrected, then it accurately states LaTeXML output is MathML rendered natively"
     tags: [D3-R01]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/138"]
       code: ["server/routes/ui.py:556-559", "server/routes/ui.py:507-510", "server/middleware.py:218-226"]
 
   - id: researcher-workbench-t-windows-path-fix
@@ -180,6 +187,7 @@ items:
       - "Given a Windows path with backslash separators, when the containment check runs, then it correctly resolves containment instead of the POSIX-only startswith(...+'/') failure"
     tags: [D3-R01]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/152"]
       code: ["server/routes/ui.py:556-559"]
 
   - id: researcher-workbench-t-preview-css-pagination
@@ -193,6 +201,7 @@ items:
     acceptance:
       - "Given the papers table exceeds one page of results, when ?page=N is passed, then the correct page of rows renders"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/153"]
       code: ["frontend/static/preview.css", "server/routes/ui.py"]
 
   - id: researcher-workbench-t-mathml-comment-and-font
@@ -206,6 +215,7 @@ items:
     acceptance:
       - "Given the preview CSP is default-src 'none', when the OpenType MATH font is vendored with a font-src 'self' addition, then stretchy operators render correctly cross-platform"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/154"]
       code: ["server/middleware.py:218-226", "frontend/static/VENDORED.md"]
 
   - id: researcher-workbench-m2
@@ -221,6 +231,7 @@ items:
       - "Given the Stage-2 merge's undated status, when the ADR is recorded, then it explicitly covers both a merge-lands branch (researcher-critical surfaces on /ui/ htmx, /app reserved for rich islands beyond htmx) and a merge-vetoed branch (no-SPA re-affirmed)"
     tags: [D3-R02]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/139"]
       code: [".claude/notes/06-mcp-server-design.md:466-473"]
 
   - id: researcher-workbench-t-adr-ui-placement-doctrine
@@ -234,6 +245,8 @@ items:
     acceptance:
       - "Given the drafted ADR, when it is reviewed against both merge-lands and merge-vetoed branches, then each branch's placement rule for search/inspect, curation, metadata, and ops surfaces is stated explicitly"
     tags: [D3-R02]
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/155"]
 
   - id: researcher-workbench-m3
     kind: milestone
@@ -248,6 +261,7 @@ items:
       - "Given this milestone's checklist-per-endpoint pattern, when any new console route ships later in this roadmap, then it is checked against the same checklist before shipping (KR8), per this roadmap's should-tier assumption that checklist-per-endpoint is an acceptable substitute for one serial gating audit"
     tags: [D8-R13]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/140"]
       code: ["SECURITY.md:59-63", "server/routes/notebooks.py:336-338", "frontend/templates/notebook_detail.html:49"]
 
   - id: researcher-workbench-t-audit-existing-endpoints
@@ -261,6 +275,8 @@ items:
     acceptance:
       - "Given the drafted issue-9 scope-amendment plus the new Origin/DNS-rebinding axis, when each of the 9 existing routes is checked, then a per-endpoint audit doc records the result"
     tags: [D8-R13]
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/156"]
 
   - id: researcher-workbench-t-decompression-bomb-guard
     kind: task
@@ -274,6 +290,7 @@ items:
       - "Given an HTML/PDF upload containing a decompression-bomb payload, when it is submitted, then the upload is rejected before full decompression"
     tags: [D8-R13]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/157"]
       code: ["server/routes/notebooks.py:1672"]
 
   - id: researcher-workbench-t-lancedb-path-leak-fix
@@ -288,6 +305,7 @@ items:
       - "Given a notebook detail page and the notebook-create fragment, when both render, then lancedb_path is suppressed consistently in both, not shown at notebook_detail.html:49 while suppressed at notebooks.py:336-338"
     tags: [D8-R13]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/158"]
       code: ["frontend/templates/notebook_detail.html:49", "server/routes/notebooks.py:336-338"]
 
   - id: researcher-workbench-t-security-regression-tests
@@ -302,6 +320,7 @@ items:
       - "Given the E13 threat-numbered regression pattern, when it is extended to the console, then each console-specific threat found by this milestone has a numbered regression test in tests/security/"
     tags: [D8-R13]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/159"]
       code: ["tests/security/"]
 
   # ── e2 milestones/tasks — search & inspect workbench, math rendering (now) ──
@@ -318,6 +337,7 @@ items:
       - "Given a real sample of corpus chunk body_text with seeded preamble.json macros, when both KaTeX and Temml render it, then visual-fidelity and coverage results are recorded for each before either is vendored (D3 chapter open question 2; validates this roadmap's must-tier math-rendering assumption)"
     tags: [D3-R04]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/160"]
       code: ["ingest/chunker.py:326-337", "ingest/preamble.py:435-452"]
 
   - id: researcher-workbench-m4
@@ -337,6 +357,7 @@ items:
       - "Given the theorem-name search mode, when a typo-tolerant query like 'riemann roch' is typed, then the exact-to-FTS5-trigram-to-Jaccard cascade returns the matching theorem as a result class, reachable via the XS '/'-focus-search hotkey"
     tags: [D3-R03, D4-R09]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/141"]
       code: ["server/handlers/search.py:135-241", "server/resources.py:963-965", "server/handlers/lemma.py:124-152", "server/middleware.py:1054,1115-1122"]
 
   - id: researcher-workbench-t-rest-read-twins
@@ -352,6 +373,7 @@ items:
       - "Given the read-twins bypass the per-session budget caps by construction, when they are documented and served, then they are scoped as human-workbench-internal / non-agent-facing (not a programmatic/agent-consumption contract) and carry a same-origin/Sec-Fetch-mode guard tied to /ui/ where practical, so a co-located orchestrator loop cannot use them to read the corpus at volume around the caps the MCP surface enforces for agent callers"
     tags: [D3-R03]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/161"]
       code: ["server/middleware.py:1054,1115-1122"]
 
   - id: researcher-workbench-t-ui-search-page
@@ -365,6 +387,8 @@ items:
     acceptance:
       - "Given the /ui/search page, when a query plus level/k/notebook/paper_id/source_kind filters is submitted, then result rows render snippet/kind/section_path/score/retrieval_mode/degraded/filter_warnings verbatim"
     tags: [D3-R03]
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/162"]
 
   - id: researcher-workbench-t-chunk-detail-view
     kind: task
@@ -378,6 +402,7 @@ items:
       - "Given a search result row, when it is opened, then the chunk-detail view renders full body_text plus a debug-only toggle instrumenting the warmed-but-unwired bm25/ann/rerank phases as measurement only, never a serving-path change"
     tags: [D3-R03]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/163"]
       code: ["server/resources.py:963-965"]
 
   - id: researcher-workbench-t-theorem-name-search-mode
@@ -392,6 +417,7 @@ items:
       - "Given the '/' hotkey pressed anywhere on /ui/search, when it fires, then the search input receives focus, and a theorem-name query returns find_lemma_by_name's cascade as a result class"
     tags: [D3-R03]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/164"]
       code: ["server/handlers/lemma.py:124-152"]
 
   - id: researcher-workbench-t-search-cli
@@ -406,6 +432,7 @@ items:
       - "Given a terminal, when `arxmcp search \"...\"` runs (plus a lemma-name mode), then results return through the internal search path with zero MCP session-cap usage and zero widening of the audited UI surface"
     tags: [D4-R09]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/165"]
       code: ["pyproject.toml:22-27"]
 
   - id: researcher-workbench-m5
@@ -423,6 +450,7 @@ items:
       - "Given a stored-document preview surface, when it renders, then math displays as native MathML using researcher-workbench-m1's vendored font, verified against real corpus chunks rather than fixture pages"
     tags: [D3-R04]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/142"]
       code: ["ingest/chunker.py:326-337", "ingest/preamble.py:435-452", "frontend/static/VENDORED.md"]
 
   - id: researcher-workbench-t-vendor-katex
@@ -437,6 +465,7 @@ items:
       - "Given the htmx VENDORED.md SHA-pinning pattern, when KaTeX (min.js+CSS+WOFF2) is vendored, then $...$ auto-renders on htmx afterSwap with throwOnError:false and a styled raw-TeX fallback on error"
     tags: [D3-R04]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/166"]
       code: ["frontend/static/VENDORED.md"]
 
   - id: researcher-workbench-t-macro-seeding
@@ -451,6 +480,7 @@ items:
       - "Given a chunk from a paper with preamble.json macros, when it renders, then those macros are passed into KaTeX's macro table"
     tags: [D3-R04]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/167"]
       code: ["ingest/preamble.py:435-452"]
 
   - id: researcher-workbench-t-mathml-stored-docs
@@ -465,6 +495,7 @@ items:
       - "Given a stored-document preview page, when it renders on the Windows tier-1 host, then native MathML displays using researcher-workbench-m1's vendored OpenType MATH font"
     tags: [D3-R04]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/168"]
       code: ["server/routes/ui.py:470"]
 
   # ── e3 milestones — metadata display + ops loop (next; shaped only) ──
@@ -481,6 +512,7 @@ items:
       - "Given a paper with a hydrated metadata row, when it appears in the papers table or a search result row, then a linked title displays instead of a naked arXiv ID (KR4)"
     tags: [D3-R05]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/143"]
       code: ["server/paper_metadata_store.py", "tools/notebook_metadata_backfill.py", "server/routes/notebooks.py:2112-2251"]
 
   - id: researcher-workbench-m7
@@ -495,6 +527,7 @@ items:
       - "Given the five curl-only endpoints, when the console renders, then each is reachable from a template button or badge (KR5)"
     tags: [D3-R06, D2-R05]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/144"]
       code: ["server/routes/notebooks.py:1168,1274,1365,2267,2540", "server/routes/ui.py:343-372"]
 
   # ── e4 milestone — eval-fixture labeling workbench (next; shaped only) ──
@@ -513,6 +546,7 @@ items:
       - "Given the shipped instrument, when a scheduled 1-hour-plus owner labeling session runs within a set window after ship, then the resulting query count — not just instrument delivery — is the pass/fail signal (KR6; validates this roadmap's must-tier assumption on labeling-session sufficiency)"
     tags: [D3-R07]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/145"]
       code: ["tools/validate_eval_fixtures.py:99", "tests/eval/fixtures/queries.json", ".claude/docs/eval-curation.md:9-11"]
 
   # ── e5 milestones — condition-gated surfaces (later; directional only) ──
@@ -525,6 +559,7 @@ items:
     lane: later
     tags: [D3-R08]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/146"]
       code: ["server/graph_queries.py:381-405"]
 
   - id: researcher-workbench-m10
@@ -535,6 +570,7 @@ items:
     lane: later
     tags: [D3-R10]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/147"]
       code: ["ingest/schema.py:277-281", "server/handlers/equation.py:137-140"]
 
   - id: researcher-workbench-m11
@@ -545,6 +581,7 @@ items:
     lane: later
     tags: [D3-R11]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/148"]
       code: ["tools/sign_bundle.py"]
 
   # ── e6 milestones — citation and knowledge export/import (next; shaped only) ──
@@ -562,6 +599,7 @@ items:
       - "Given a notebook with hydrated metadata, when bibliography.bib and .json are requested, then both are citeproc-parseable and deterministically serialized with stable keys (KR7)"
     tags: [D6-R01, D6-R03]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/149"]
       code: ["server/routes/notebooks.py:2406-2408", "server/routes/notebooks.py:2423-2454", "server/routes/notebooks.py:2540"]
 
   - id: researcher-workbench-m13
@@ -576,6 +614,7 @@ items:
       - "Given a notebook, when it is exported and then the same paper is re-ingested, then the exported note's content-addressed block anchor is unchanged (KR7)"
     tags: [D6-R02]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/150"]
       code: ["ingest/chunker.py:1026-1050"]
 
   - id: researcher-workbench-m14
@@ -590,4 +629,5 @@ items:
       - "Given a .bib file with arXiv ids living in eprint/url/extra/DOI fields, when it is imported, then matching papers are bulk-added via the existing papers endpoint and a skipped-items report is emitted"
     tags: [D6-R04, D6-R05]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/151"]
       code: ["ingest/identifiers.py:76-85", "ingest/kuzudb_schema.py:52,57-61,80"]

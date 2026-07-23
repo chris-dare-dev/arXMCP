@@ -1,0 +1,78 @@
+{
+  "evidence-engine-e1": {
+    "number": 11,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/11"
+  },
+  "evidence-engine-e2": {
+    "number": 12,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/12"
+  },
+  "evidence-engine-e3": {
+    "number": 13,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/13"
+  },
+  "evidence-engine-e4": {
+    "number": 14,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/14"
+  },
+  "evidence-engine-e5": {
+    "number": 15,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/15"
+  },
+  "evidence-engine-e6": {
+    "number": 16,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/16"
+  },
+  "evidence-engine-m1": {
+    "number": 17,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/17"
+  },
+  "evidence-engine-m2": {
+    "number": 18,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/18"
+  },
+  "evidence-engine-m3": {
+    "number": 19,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/19"
+  },
+  "evidence-engine-m4": {
+    "number": 20,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/20"
+  },
+  "evidence-engine-m5": {
+    "number": 21,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/21"
+  },
+  "evidence-engine-m6": {
+    "number": 22,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/22"
+  },
+  "evidence-engine-spike-1": {
+    "number": 23,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/23"
+  },
+  "evidence-engine-spike-2": {
+    "number": 24,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/24"
+  },
+  "evidence-engine-t-fixture-labeling": {
+    "number": 27,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/27"
+  },
+  "evidence-engine-t-labeling-report-script": {
+    "number": 26,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/26"
+  },
+  "evidence-engine-t-ledger-manifest": {
+    "number": 28,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/28"
+  },
+  "evidence-engine-t-relocate-metrics": {
+    "number": 25,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/25"
+  },
+  "evidence-engine-t-run-first-eval": {
+    "number": 29,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/29"
+  }
+}

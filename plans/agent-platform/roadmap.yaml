@@ -78,6 +78,7 @@ items:
     rice: { r: 5, i: 3, c: 0.8, e: 0.5, score: 24.0, rank: 1 }
     tags: [value, budgets, caps, d4-r07, d7-r04]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/64"]
       code: ["server/session.py", "server/middleware.py", "_worktrees/arx-onmain/server/capabilities.py"]
 
   - id: agent-platform-e2
@@ -89,6 +90,7 @@ items:
     rice: { r: 5, i: 3, c: 0.5, e: 4, score: 1.88, rank: 4 }
     tags: [value, mcp-tools, truthfulness, d7-r01, d7-r09, d7-r05, d7-r03, d7-r07, d1-r14, d7-r02]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/65"]
       code: ["server/tools.py", "server/handlers/chunk.py", "server/handlers/paper.py", "server/paper_metadata_store.py", "server/schemas/search_papers_result.json", "server/handlers/search.py"]
 
   - id: agent-platform-e3
@@ -100,6 +102,7 @@ items:
     rice: { r: 5, i: 2, c: 0.5, e: 2.5, score: 2.0, rank: 3 }
     tags: [value, discovery, resources, instructions, d7-r10, d2-r04, d7-r11]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/66"]
       code: ["server/mcp_instructions.py", "server/mcp_resources.py", "server/resources.py"]
 
   - id: agent-platform-e4
@@ -112,6 +115,7 @@ items:
     depends_on: [agent-platform-e1]
     tags: [enabler, protocol, mcp-migration, d6-r11]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/67"]
       code: ["shim/arxmcp_shim.py", "server/session.py", "server/middleware.py", "server/main.py", "server/mcp_instructions.py", "pyproject.toml"]
 
   - id: agent-platform-e5
@@ -124,6 +128,7 @@ items:
     depends_on: [agent-platform-e1]
     tags: [value, orchestrator, cg1]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/68"]
       code: ["server/orchestrator/model_selector.py", "server/orchestrator/id_canon.py"]
       note: ["consumed-as-dependency: the arXMCP code paths listed here are imported as a library by the external orchestrator loop repo (adr-data-plane-boundary.md Decision 2/3), not files this roadmap's tasks edit to build the loop in-repo"]
 
@@ -137,6 +142,7 @@ items:
     depends_on: [agent-platform-m8]
     tags: [value, orchestrator, memory, d2-r02, d2-r14]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/69"]
       code: ["ingest/identifiers.py"]
 
   - id: agent-platform-m1
@@ -153,6 +159,7 @@ items:
       - "Given the cap change ships, when EXPECTED_TOOL_SCHEMA_SHA256 is re-checked, then it is unchanged because caps are middleware-enforced, not schema-advertised"
       - "Given the 1000/hr anti-runaway ceiling, when the interactive defaults land, then MAX_CALLS_PER_HOUR is untouched"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/70"]
       code: ["server/session.py", "server/middleware.py"]
 
   - id: agent-platform-t-env-cap-config
@@ -167,6 +174,7 @@ items:
       - "Given server/session.py's module-level MAX_SEARCH_PAPERS_CALLS and MAX_GET_CHUNK_CALLS constants, when ARXMCP_MAX_SEARCH_PAPERS_CALLS/ARXMCP_MAX_GET_CHUNK_CALLS env vars are set, then the effective per-session cap reflects the env value with zero tools/list byte change"
     tags: [d4-r07]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/78"]
       code: ["server/session.py"]
 
   - id: agent-platform-t-interactive-cap-defaults
@@ -183,6 +191,7 @@ items:
       - "Given the new defaults ship, when the Threat-4 tests and security posture doc are updated, then caps are documented as cost-control only, with the rotate-session-id bypass still admitted and unpatched"
     tags: [d4-r07]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/79"]
       code: ["server/session.py", "server/middleware.py"]
 
   - id: agent-platform-m2
@@ -194,6 +203,7 @@ items:
     depends_on: [agent-platform-m1]
     tags: [d7-r04]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/71"]
       code: ["_worktrees/arx-onmain/server/capabilities.py"]
 
   - id: agent-platform-m3
@@ -211,6 +221,7 @@ items:
       - "Given a live Claude Code session, when the full batch is exercised end to end, then all 8 tools still register without client rejection"
       - "Given a get_chunk call with 20 chunk_ids, when it completes, then one response returns a chunks[] array of 20 results instead of 20 round-trips"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/72"]
       code: ["server/tools.py", "server/handlers/chunk.py", "server/handlers/paper.py"]
 
   - id: agent-platform-t-truthful-descriptions
@@ -226,6 +237,7 @@ items:
       - "Given server/session.py's stale get_citations comment, when it is fixed, then it no longer references a tool name absent from ALL_TOOLS"
     tags: [d7-r01]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/80"]
       code: ["server/tools.py", "server/session.py"]
 
   - id: agent-platform-t-input-examples
@@ -241,6 +253,7 @@ items:
       - "Given find_equation, search_papers, lean_verify, and cite_neighbors descriptions, when 1-2 canonical call examples are added to each, then the same batched schema bump as t-truthful-descriptions carries the change (no separate re-pin)"
     tags: [d7-r09]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/81"]
       code: ["server/tools.py"]
 
   - id: agent-platform-t-inert-args-cleanup
@@ -257,6 +270,7 @@ items:
       - "Given search_papers.cursor, when the batch lands, then it stays accepted-and-warned (or is removed), not silently implemented ahead of D7-R13 evidence"
     tags: [d7-r05]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/82"]
       code: ["server/handlers/chunk.py", "server/handlers/paper.py", "server/search.py"]
 
   - id: agent-platform-t-batch-chunk-fetch
@@ -273,6 +287,7 @@ items:
       - "Given a batch call, when the session cap is accounted, then it increments by the number of ids requested, not by 1"
     tags: [d7-r03]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/83"]
       code: ["server/handlers/chunk.py", "server/tools.py"]
 
   - id: agent-platform-t-semantic-identifiers
@@ -288,6 +303,7 @@ items:
       - "Given a paper_id absent from the store or an un-backfilled notebook, when the row is built, then title is null and the response stays byte-stable rather than erroring"
     tags: [d7-r07]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/84"]
       code: ["server/paper_metadata_store.py", "server/handlers/search.py", "server/graph_queries.py", "server/schemas/search_papers_result.json"]
 
   - id: agent-platform-t-compact-wire-format
@@ -303,6 +319,7 @@ items:
       - "Given the compaction ships, when _WIRE_OVERHEAD_FACTOR is reviewed, then it is re-derived to match the smaller duplicate payload"
     tags: [d1-r14]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/85"]
       code: ["server/handlers/search.py", "server/tools.py"]
 
   - id: agent-platform-t-tool-annotations
@@ -318,6 +335,7 @@ items:
       - "Given lean_verify's annotation decision, when it is made, then readOnlyHint is omitted rather than asserted true"
     tags: [d7-r02]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/86"]
       code: ["server/tools.py"]
 
   - id: agent-platform-t-schema-repin-live-validation
@@ -334,6 +352,7 @@ items:
       - "Given the re-pinned schema, when it is exercised against a live Claude Code session, then all 8 tools still register; a rejection splits the bump into two re-pins instead of shipping a broken client experience"
     tags: [d7-r01, d7-r09, d7-r05, d7-r03, d7-r07, d1-r14, d7-r02]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/87"]
       code: ["tests/test_server_tool_schema.py", "tests/test_prompts.py"]
 
   - id: agent-platform-m4
@@ -348,6 +367,7 @@ items:
     acceptance:
       - "Given the expanded instructions, when initialize.instructions is read, then it includes a tool-selection decision table, call-budget etiquette, and the degradation taxonomy, with EXPECTED_INSTRUCTIONS_SHA256 re-pinned and EXPECTED_TOOL_SCHEMA_SHA256/EXPECTED_BP1_SHA256 unchanged"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/73"]
       code: ["server/mcp_instructions.py"]
 
   - id: agent-platform-m5
@@ -363,6 +383,7 @@ items:
       - "Given a search row's arxmcp://chunks/<id> URI, when resources/read is called on it, then it resolves instead of erroring"
       - "Given the per-row link-emission decision, when it is made, then it is deliberate (e.g. only on over-cap truncation) rather than defaulting to always-on for every search row"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/74"]
       code: ["server/mcp_resources.py"]
 
   - id: agent-platform-m6
@@ -378,6 +399,7 @@ items:
     acceptance:
       - "Given the arxmcp://corpus resource, when it is read, then it reports corpus_version, chunk counts, and per-index presence without spending a capped tool call"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/75"]
       code: ["server/mcp_resources.py", "server/resources.py"]
 
   - id: agent-platform-m7
@@ -394,6 +416,7 @@ items:
       - "Given the five identified couplings, when the coupling inventory is reviewed, then each has a named non-session-keyed replacement design ready to execute at Python SDK v2 GA"
       - "Given json_response=True, when lean_verify progress heartbeats are checked empirically, then the finding (deliverable or shim-invisible) is recorded"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/76"]
       code: ["shim/arxmcp_shim.py", "server/session.py", "server/middleware.py", "server/main.py", "server/mcp_instructions.py", "pyproject.toml"]
 
   - id: agent-platform-spike-1
@@ -408,6 +431,7 @@ items:
       - "Given the spike's outcome, when it is recorded, then either the loop is confirmed buildable in-scope, or every trace-gated trigger it would have unblocked (D7-R13's agent-task eval, D9-R09, empirical cap-sizing) is named and re-dated in the spike note"
     tags: [cg1]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/88"]
       code: ["server/router.py", "server/prompts.py", "server/orchestrator/model_selector.py", "server/orchestrator/id_canon.py", "shim/arxmcp_shim.py"]
       note: ["[[agent-platform orchestrator loop spike]]", "consumed-as-dependency: the arXMCP code paths listed here are imported as a library by the external orchestrator loop repo (adr-data-plane-boundary.md Decision 2/3), not files this roadmap's tasks edit to build the loop in-repo"]
 
@@ -426,6 +450,7 @@ items:
       - "Given tool_use ids across the accumulated multi-turn history, when the transcript is assembled, then id_canon.py canonicalizes them over the FULL history each turn, not just the new-turn slice"
       - "Given the recorded transcript, when handed to the evidence-engine track, then it is consumable as agent-behavior eval input without a bespoke adapter"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/77"]
       code: ["server/orchestrator/model_selector.py", "server/orchestrator/id_canon.py", "server/router.py", "shim/arxmcp_shim.py"]
       note: ["consumed-as-dependency: the arXMCP code paths listed here are imported as a library by the external orchestrator loop repo (adr-data-plane-boundary.md Decision 2/3), not files this roadmap's tasks edit to build the loop in-repo"]
 
@@ -441,6 +466,7 @@ items:
       - "Given a user query, when the external repo's client-side loop runs it, then arXMCP's server/router.py classifies a RouteTag, server/prompts.py supplies the role prefix, and server/orchestrator/model_selector.py picks the model -- all driven from the external orchestrator repo consuming arXMCP as an imported library, zero anthropic SDK import inside server/"
     tags: [cg1]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/89"]
       code: ["server/router.py", "server/prompts.py", "server/orchestrator/model_selector.py"]
       note: ["consumed-as-dependency: the arXMCP code paths listed here are imported as a library by the external orchestrator loop repo (adr-data-plane-boundary.md Decision 2/3), not files this roadmap's tasks edit to build the loop in-repo"]
 
@@ -457,6 +483,7 @@ items:
       - "Given a multi-turn pipeline run, when the transcript is written, then it captures every tool call, model turn, and canonicalized tool_use id in a single consumable record"
     tags: [cg1]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/90"]
       code: ["server/orchestrator/id_canon.py"]
       note: ["consumed-as-dependency: the arXMCP code paths listed here are imported as a library by the external orchestrator loop repo (adr-data-plane-boundary.md Decision 2/3), not files this roadmap's tasks edit to build the loop in-repo"]
 
@@ -473,5 +500,6 @@ items:
       - "Given the canned sketcher-to-fixer task, when the external repo's full loop executes against the live shim, then the run completes without a cap collision (relying on m1's relaxed defaults) and the transcript is saved"
     tags: [cg1]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/91"]
       code: ["shim/arxmcp_shim.py"]
       note: ["consumed-as-dependency: the arXMCP code paths listed here are imported as a library by the external orchestrator loop repo (adr-data-plane-boundary.md Decision 2/3), not files this roadmap's tasks edit to build the loop in-repo"]

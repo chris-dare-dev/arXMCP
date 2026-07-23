@@ -70,6 +70,7 @@ items:
     rice: { r: 15, i: 3, c: 0.8, e: 1.5, score: 24.0, rank: 1 }
     tags: [value, eval, fixture, D9-R01, D2-R12, D9-R10, D9-R14]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/11"]
       code: ["tests/eval/fixtures/queries.json", "tools/validate_eval_fixtures.py", ".claude/docs/retrieval-quality-report.md", "tests/eval/metrics.py", "ops/watchdog_eval.py"]
 
   - id: evidence-engine-e2
@@ -82,6 +83,7 @@ items:
     depends_on: [evidence-engine-e1]
     tags: [value, eval, statistics, D9-R02]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/12"]
       code: ["tests/eval/test_retrieval_quality.py"]
 
   - id: evidence-engine-e3
@@ -93,6 +95,7 @@ items:
     rice: { r: 4, i: 2, c: 0.8, e: 2, score: 3.2, rank: 3 }
     tags: [value, agent-eval, D7-R13]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/13"]
       code: ["shim/arxmcp_shim.py"]
 
   - id: evidence-engine-e4
@@ -105,6 +108,7 @@ items:
     depends_on: [evidence-engine-e1]
     tags: [value, eval, auto-benchmark, D9-R15]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/14"]
       code: ["tools/build_dependency_eval.py", "ingest/intra_paper_refs.py", "server/handlers/search.py"]
 
   - id: evidence-engine-e5
@@ -117,6 +121,7 @@ items:
     depends_on: [evidence-engine-e1]
     tags: [value, eval, specialized-index, D9-R08, D9-R03, D9-R04]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/15"]
       code: ["server/theorem_names_store.py", "server/query_encoder.py", "ingest/tokenizer.py", "server/config.py", "server/retrieval/equations.py"]
 
   - id: evidence-engine-e6
@@ -129,6 +134,7 @@ items:
     depends_on: [evidence-engine-e1, evidence-engine-e3]
     tags: [value, eval, telemetry, D9-R06, D9-R13, D7-R15]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/16"]
       code: ["tools/daily_metrics_report.py", "server/metrics.py", "server/orchestrator/model_selector.py", ".claude/TIER-GATES.md"]
 
   # ── spikes: one per unvalidated must-tier goal.assumption ──────────────
@@ -143,6 +149,7 @@ items:
       - "Given the first 5 of the ~20 planned queries, when the owner hand-labels graded relevance for them, then actual owner-minutes-per-query is recorded and extrapolated to a full-fixture time estimate"
       - "Given the extrapolated total, when it exceeds ~2 owner-days, then the fixture size is cut to the smallest n that still supports D9-R02's paired-comparison math instead of letting the milestone slip again"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/23"]
       note: ["[[evidence-engine labeling-pace dry run]]"]
     tags: [D9-R01]
 
@@ -157,6 +164,7 @@ items:
       - "Given the bridgeland-stability notebook's parsed HTML, when \\ref{} citing-anchors are mapped into chunk boundaries, then the recovered citing-chunk-to-referenced-chunk pair count is recorded"
       - "Given a ~50-pair sample of the recovered mappings, when they are hand-audited, then a label-noise rate is recorded before tools/build_dependency_eval.py is built out to volume"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/24"]
       note: ["[[evidence-engine ref-chunk recovery scan]]"]
       code: ["ingest/intra_paper_refs.py"]
     tags: [D9-R15]
@@ -177,6 +185,7 @@ items:
       - "Given the same eval run, when it completes, then a manifest-pinned entry (embedder/chunker/tokenizer/reranker versions + fixture content-hash) is appended to var/arxmcp/ops/eval/ledger.jsonl and watchdog AC1 goes live"
     tags: [D9-R01, D2-R12, D9-R10, D9-R14]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/17"]
       code: ["tests/eval/fixtures/queries.json", "var/arxmcp/ops/eval/ledger.jsonl", ".claude/docs/retrieval-quality-report.md"]
 
   - id: evidence-engine-t-relocate-metrics
@@ -190,6 +199,7 @@ items:
     acceptance:
       - "Given tests/eval/metrics.py's ndcg_at_k, recall_at_k, assert_threshold, _run_hybrid_against_corpus, and score_and_write, when they are moved into an importable non-test package with re-export shims left behind, then the existing test suite and ops/watchdog_eval.py's import both pass unchanged"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/25"]
       code: ["tests/eval/metrics.py", "ops/watchdog_eval.py"]
     tags: [D9-R14]
 
@@ -204,6 +214,7 @@ items:
     acceptance:
       - "Given a list of candidate queries, when the offline report script runs over search.py's search-handler internals, then it emits a static HTML page rendering results with native MathML for side-by-side relevance labeling, with no new server route added"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/26"]
       code: ["server/handlers/search.py"]
     tags: [D2-R12]
 
@@ -219,6 +230,7 @@ items:
     acceptance:
       - "Given the labeling report script and the dry-run-confirmed fixture size, when the owner hand-labels graded-relevance queries into tests/eval/fixtures/queries.json, then tools/validate_eval_fixtures.py reports status=complete"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/27"]
       code: ["tests/eval/fixtures/queries.json", ".claude/docs/eval-curation.md"]
     tags: [D9-R01]
 
@@ -235,6 +247,7 @@ items:
       - "Given a completed eval run, when the aggregate is written, then a full run manifest (embedder/chunker/tokenizer/reranker versions and flags, fixture schema_version/query-count/content-hash, pipeline mode, hardware tag) is appended to var/arxmcp/ops/eval/ledger.jsonl"
       - "Given two runs with incompatible manifests, when the watchdog compares them, then it refuses the cross-manifest comparison instead of reporting a false drift number"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/28"]
       code: ["ops/watchdog_eval.py", "var/arxmcp/ops/eval/ledger.jsonl"]
     tags: [D9-R10]
 
@@ -250,6 +263,7 @@ items:
     acceptance:
       - "Given the completed fixture and ledger code, when `make eval` (dense) and `pytest --hybrid` are each run once, then their aggregates are committed into the PENDING tables of .claude/docs/retrieval-quality-report.md"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/29"]
       code: [".claude/docs/retrieval-quality-report.md"]
     tags: [D9-R01, D9-R10]
 
@@ -265,6 +279,7 @@ items:
     depends_on: [evidence-engine-m1]
     tags: [D9-R02]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/18"]
       code: ["tests/eval/test_retrieval_quality.py"]
 
   - id: evidence-engine-m3
@@ -277,6 +292,7 @@ items:
     target_end: 2026-08-25
     tags: [D7-R13]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/19"]
       code: ["shim/arxmcp_shim.py"]
 
   - id: evidence-engine-m4
@@ -290,6 +306,7 @@ items:
     depends_on: [evidence-engine-spike-2, evidence-engine-m1]
     tags: [D9-R15]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/20"]
       code: ["tools/build_dependency_eval.py", "ingest/intra_paper_refs.py", "server/handlers/search.py"]
 
   # ── later lane: title + one-line summary only, no decomposition ────────
@@ -302,6 +319,7 @@ items:
     depends_on: [evidence-engine-m1]
     tags: [D9-R08, D9-R03, D9-R04]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/21"]
       code: ["server/theorem_names_store.py", "server/query_encoder.py", "ingest/tokenizer.py", "server/config.py", "server/retrieval/equations.py"]
 
   - id: evidence-engine-m6
@@ -313,4 +331,5 @@ items:
     depends_on: [evidence-engine-m1, evidence-engine-m3]
     tags: [D9-R06, D9-R13, D7-R15]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/22"]
       code: ["tools/daily_metrics_report.py", "server/metrics.py", "server/orchestrator/model_selector.py", ".claude/TIER-GATES.md"]

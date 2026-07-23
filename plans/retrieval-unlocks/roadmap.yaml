@@ -74,6 +74,7 @@ items:
     tags: [value, proof, retrieval, D2-R01, D1-R05]
     rice: { r: 15, i: 3, c: 0.5, e: 2.5, score: 9.0, rank: 1 }
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/30"]
       code: ["server/handlers/search.py:711", "server/handlers/chunk.py:35", "ingest/chunker.py:711-726", "server/resources.py:722-725"]
 
   - id: retrieval-unlocks-e2
@@ -85,6 +86,7 @@ items:
     tags: [value, equations, retrieval, D1-R04]
     rice: { r: 10, i: 2, c: 0.5, e: 1.5, score: 6.67, rank: 2 }
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/31"]
       code: ["server/handlers/equation.py:137-140", "server/tools.py:241-244", "server/retrieval/equations.py:138-168"]
 
   - id: retrieval-unlocks-e3
@@ -96,6 +98,7 @@ items:
     tags: [value, filters, hygiene, D4-R12, D8-R07]
     rice: { r: 12, i: 2, c: 0.5, e: 3, score: 4.0, rank: 3 }
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/32"]
       code: ["server/handlers/search.py:214-249", "server/retrieval/bm25.py:125-127", "ingest/oai_delta.py:617-622", "ingest/chunker.py:180"]
 
   - id: retrieval-unlocks-e4
@@ -107,6 +110,7 @@ items:
     tags: [value, citations, graph, D2-R07]
     rice: { r: 6, i: 1, c: 0.5, e: 3, score: 1.0, rank: 5 }
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/33"]
       code: ["server/graph_types.py:44-49", "ingest/kuzudb_schema.py:120-129", "server/handlers/citations.py"]
 
   - id: retrieval-unlocks-e5
@@ -118,6 +122,7 @@ items:
     tags: [value, ingest, corpus, D2-R06]
     rice: { r: 8, i: 2, c: 0.5, e: 5, score: 1.6, rank: 4 }
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/34"]
       code: ["ingest/preamble.py:32-36", "server/license_policy.py:41", "ingest/chunker_types.py:127", "ingest/schema.py:187"]
 
   - id: retrieval-unlocks-e6
@@ -130,6 +135,7 @@ items:
     depends_on: [retrieval-unlocks-e1, retrieval-unlocks-e2]
     rice: { r: 3, i: 1, c: 0.5, e: 3, score: 0.5, rank: 6 }
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/35"]
       code: ["ingest/embedder.py:371-388", "server/retrieval/rerank.py:128-133", "server/retrieval/rrf.py:53", ".claude/notes/deferred-work-tracker.md:53-55"]
 
   - id: retrieval-unlocks-m1
@@ -148,6 +154,7 @@ items:
       - "Given a proof-kind chunk_id, when get_chunk runs with include_referenced=True, then the response includes the originating statement chunk"
       - "Given a stmt-kind chunk whose theorem_label and section_path/adjacency fallback resolve to no proof window anywhere in the paper, when get_chunk runs with include_referenced=True, then the response returns an explicit not-found/abstention outcome (a namespaced no-proof-found signal) kept distinct from a lookup/operational error and from a silently empty list -- pre-empting the get_definitions not-in-corpus-vs-empty collapse trust-language-policy.md §5d names"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/36"]
       code: ["server/handlers/chunk.py:35", "ingest/chunker.py:711-726"]
 
   - id: retrieval-unlocks-t-scalar-proof-lookup
@@ -160,6 +167,8 @@ items:
     tags: [D2-R01]
     acceptance:
       - "Given a stmt chunk_id with theorem_label set, when the scalar LanceDB query runs, then it returns exactly the proof rows sharing paper_id and theorem_label"
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/49"]
 
   - id: retrieval-unlocks-t-adjacency-fallback
     kind: task
@@ -171,6 +180,8 @@ items:
     tags: [D2-R01]
     acceptance:
       - "Given two unlabeled theorems in one paper, when get_chunk resolves references for the first, then the fallback returns its adjacent proof window without cross-matching the second theorem's proof"
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/50"]
 
   - id: retrieval-unlocks-t-reverse-proof-linkage
     kind: task
@@ -182,6 +193,8 @@ items:
     tags: [D2-R01]
     acceptance:
       - "Given a proof-kind chunk_id, when get_chunk runs with include_referenced=True, then the response includes the originating stmt-kind chunk"
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/51"]
 
   - id: retrieval-unlocks-t-w1-schema-delta-chunk
     kind: task
@@ -194,6 +207,7 @@ items:
     acceptance:
       - "Given the implemented linkage behind include_referenced, when the schema delta is written up for agent-platform's W1 window, then it lists the new response fields and updated tool description text ready for one bundled TOOL_SCHEMA_VERSION re-pin"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/52"]
       code: ["server/tools.py:218-227", "server/handlers/chunk.py:35-38"]
 
   - id: retrieval-unlocks-m2
@@ -211,6 +225,7 @@ items:
       - "Given filters={'include_kinds': ['proof']}, when search_papers runs, then results are drawn from embedding_proof and retrieval_mode reports the proof-column route while excluded_kinds omits 'proof'"
       - "Given no include_kinds filter, when search_papers runs, then retrieval_mode and excluded_kinds are unchanged from today's stmt-only dense default"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/37"]
       code: ["server/handlers/search.py:711,715", "server/resources.py:722-725"]
 
   - id: retrieval-unlocks-t-include-kinds-filter
@@ -224,6 +239,7 @@ items:
     acceptance:
       - "Given filters={'include_kinds': ['proof']} on a call to search_papers, when the filter is parsed, then the proof-column route is selected instead of the stmt-only default"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/53"]
       code: ["server/handlers/search.py:249"]
 
   - id: retrieval-unlocks-t-per-notebook-ann-phase
@@ -237,6 +253,7 @@ items:
     acceptance:
       - "Given two different notebooks queried in sequence, when each runs an include_kinds=['proof'] search, then each notebook's proof-column results are drawn from its own corpus, not a shared cross-notebook table binding"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/54"]
       code: ["server/resources.py:722-725"]
 
   - id: retrieval-unlocks-t-honest-retrieval-mode-proof
@@ -249,6 +266,8 @@ items:
     tags: [D1-R05]
     acceptance:
       - "Given an include_kinds=['proof'] search, when the envelope is built, then retrieval_mode names the proof-column route and excluded_kinds reflects what was actually excluded, not the stale dense-only default"
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/55"]
 
   - id: retrieval-unlocks-t-w1-schema-delta-search
     kind: task
@@ -261,6 +280,7 @@ items:
     acceptance:
       - "Given the implemented opt-in proof filter, when the schema delta is written up for agent-platform's W1 window, then it lists the filters-description text update ready for one bundled TOOL_SCHEMA_VERSION re-pin alongside get_chunk's delta"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/56"]
       code: ["server/tools.py:196-216"]
 
   - id: retrieval-unlocks-m3
@@ -272,6 +292,8 @@ items:
     priority: must
     depends_on: [retrieval-unlocks-m2]
     tags: [D1-R05]
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/38"]
 
   - id: retrieval-unlocks-m4
     kind: milestone
@@ -287,6 +309,7 @@ items:
       - "Given a LaTeX-form equation query, when find_equation runs and the equations-fixture parity check has passed, then retrieval_mode reports the TED-fused route (not dense_only_stmt_fallback) and results are ranked by the TED+dense fusion"
       - "Given a LaTeX string latex2mathml cannot parse, when find_equation runs, then it falls back to dense_only_stmt_fallback and reports that mode honestly rather than silently returning TED-fused results"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/39"]
       code: ["server/handlers/equation.py:137-140", "server/retrieval/equations.py:138-168"]
 
   - id: retrieval-unlocks-t-pin-latex2mathml
@@ -299,6 +322,8 @@ items:
     tags: [D1-R04]
     acceptance:
       - "Given pyproject.toml, when latex2mathml is added, then it is pinned to a specific stable release with a per-line comment explaining its purpose"
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/57"]
 
   - id: retrieval-unlocks-t-query-time-latex-conversion
     kind: task
@@ -310,6 +335,8 @@ items:
     tags: [D1-R04]
     acceptance:
       - "Given a LaTeX equation query, when it is converted via latex2mathml, then the resulting tree is normalized (namespace-stripped, lowercased tags, text+tail leaves) to match parse_mathml_to_tree's stored-tree conventions"
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/58"]
 
   - id: retrieval-unlocks-t-equations-fixture-parity
     kind: task
@@ -321,6 +348,8 @@ items:
     tags: [D1-R04]
     acceptance:
       - "Given the equations fixture pairing LaTeX and stored-tree forms, when TED scores are compared converter-vs-corpus, then the parity check either clears the documented threshold or triggers the pooled latexmlmath escape hatch instead of shipping a regressed default"
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/59"]
 
   - id: retrieval-unlocks-t-honest-retrieval-mode-eq
     kind: task
@@ -332,6 +361,8 @@ items:
     tags: [D1-R04]
     acceptance:
       - "Given a successfully TED-fused LaTeX query, when the envelope is built, then retrieval_mode names the real route instead of the historical dense_only_stmt_fallback label"
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/60"]
 
   - id: retrieval-unlocks-t-w1-schema-delta-eq
     kind: task
@@ -344,6 +375,7 @@ items:
     acceptance:
       - "Given the implemented LaTeX route, when the schema delta is written up for agent-platform's W1 window, then it corrects the frozen tool description that currently documents the LaTeX bypass as permanent"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/61"]
       code: ["server/tools.py:241-244"]
 
   - id: retrieval-unlocks-m5
@@ -357,6 +389,7 @@ items:
     target_end: 2026-08-17
     tags: [D4-R12]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/40"]
       code: ["server/handlers/search.py:214-249", "ingest/schema.py:126", "ingest/chunker.py:180"]
 
   - id: retrieval-unlocks-m6
@@ -370,6 +403,7 @@ items:
     target_end: 2026-08-31
     tags: [D8-R07]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/41"]
       code: ["ingest/oai_delta.py:40,617-622", "server/retrieval/bm25.py:125-127", "ingest/ar5iv_fetch.py:152-164"]
 
   - id: retrieval-unlocks-spike-1
@@ -384,6 +418,7 @@ items:
     acceptance:
       - "Given a snapshot copy of var/arxmcp/index/kuzu/, when the additive schema-v3 ALTER adding a context column to the cites rel table is dry-run against it, then the outcome (ALTER succeeds, or a rel-table rebuild is required) is recorded before touching the live graph"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/62"]
       code: ["ingest/kuzudb_schema.py:120-129"]
 
   - id: retrieval-unlocks-m7
@@ -398,6 +433,7 @@ items:
     depends_on: [retrieval-unlocks-spike-1]
     tags: [D2-R07]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/42"]
       code: ["server/graph_types.py:44-49", "server/handlers/citations.py"]
 
   - id: retrieval-unlocks-spike-2
@@ -412,6 +448,7 @@ items:
     acceptance:
       - "Given 2-3 Stacks Project chapters (including at least one heavily cross-referenced chapter) with the shared preamble ingested per-chapter, when they are run through the existing LaTeXML-to-theorem-aware-chunker lane, then the compile either succeeds end-to-end or the Gerby/plasTeX fallback is exercised and its math-fidelity cost is recorded before committing the full epic"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/63"]
       code: ["ingest/preamble.py:32-36"]
 
   - id: retrieval-unlocks-m8
@@ -426,6 +463,7 @@ items:
     depends_on: [retrieval-unlocks-spike-2]
     tags: [D2-R06]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/43"]
       code: ["server/license_policy.py:41", "ingest/chunker_types.py:127", "ingest/schema.py:187"]
 
   - id: retrieval-unlocks-m9
@@ -437,6 +475,7 @@ items:
     priority: could
     tags: [D1-R03]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/44"]
       code: ["ingest/embedder.py:122-136", "ingest/embedder.py:371-388"]
 
   - id: retrieval-unlocks-m10
@@ -448,6 +487,7 @@ items:
     priority: could
     tags: [D1-R13]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/45"]
       code: [".claude/notes/deferred-work-tracker.md:40-56"]
 
   - id: retrieval-unlocks-m11
@@ -459,6 +499,7 @@ items:
     priority: could
     tags: [D1-R06]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/46"]
       code: ["server/retrieval/rerank.py:122-133"]
 
   - id: retrieval-unlocks-m12
@@ -470,6 +511,7 @@ items:
     priority: could
     tags: [D1-R10]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/47"]
       code: ["ingest/embedder.py:122-136"]
 
   - id: retrieval-unlocks-m13
@@ -482,4 +524,5 @@ items:
     depends_on: [retrieval-unlocks-m1, retrieval-unlocks-m2, retrieval-unlocks-m4]
     tags: [D1-R11]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/48"]
       code: ["server/retrieval/bm25.py:100-103", "server/retrieval/ann.py:75-84", "server/retrieval/rerank.py:135-138", "server/retrieval/rrf.py:53"]

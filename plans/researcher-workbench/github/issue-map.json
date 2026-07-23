@@ -1,0 +1,150 @@
+{
+  "researcher-workbench-e1": {
+    "number": 132,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/132"
+  },
+  "researcher-workbench-e2": {
+    "number": 133,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/133"
+  },
+  "researcher-workbench-e3": {
+    "number": 134,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/134"
+  },
+  "researcher-workbench-e4": {
+    "number": 135,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/135"
+  },
+  "researcher-workbench-e5": {
+    "number": 136,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/136"
+  },
+  "researcher-workbench-e6": {
+    "number": 137,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/137"
+  },
+  "researcher-workbench-m1": {
+    "number": 138,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/138"
+  },
+  "researcher-workbench-m10": {
+    "number": 147,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/147"
+  },
+  "researcher-workbench-m11": {
+    "number": 148,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/148"
+  },
+  "researcher-workbench-m12": {
+    "number": 149,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/149"
+  },
+  "researcher-workbench-m13": {
+    "number": 150,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/150"
+  },
+  "researcher-workbench-m14": {
+    "number": 151,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/151"
+  },
+  "researcher-workbench-m2": {
+    "number": 139,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/139"
+  },
+  "researcher-workbench-m3": {
+    "number": 140,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/140"
+  },
+  "researcher-workbench-m4": {
+    "number": 141,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/141"
+  },
+  "researcher-workbench-m5": {
+    "number": 142,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/142"
+  },
+  "researcher-workbench-m6": {
+    "number": 143,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/143"
+  },
+  "researcher-workbench-m7": {
+    "number": 144,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/144"
+  },
+  "researcher-workbench-m8": {
+    "number": 145,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/145"
+  },
+  "researcher-workbench-m9": {
+    "number": 146,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/146"
+  },
+  "researcher-workbench-spike-1": {
+    "number": 160,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/160"
+  },
+  "researcher-workbench-t-adr-ui-placement-doctrine": {
+    "number": 155,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/155"
+  },
+  "researcher-workbench-t-audit-existing-endpoints": {
+    "number": 156,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/156"
+  },
+  "researcher-workbench-t-chunk-detail-view": {
+    "number": 163,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/163"
+  },
+  "researcher-workbench-t-decompression-bomb-guard": {
+    "number": 157,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/157"
+  },
+  "researcher-workbench-t-lancedb-path-leak-fix": {
+    "number": 158,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/158"
+  },
+  "researcher-workbench-t-macro-seeding": {
+    "number": 167,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/167"
+  },
+  "researcher-workbench-t-mathml-comment-and-font": {
+    "number": 154,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/154"
+  },
+  "researcher-workbench-t-mathml-stored-docs": {
+    "number": 168,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/168"
+  },
+  "researcher-workbench-t-preview-css-pagination": {
+    "number": 153,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/153"
+  },
+  "researcher-workbench-t-rest-read-twins": {
+    "number": 161,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/161"
+  },
+  "researcher-workbench-t-search-cli": {
+    "number": 165,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/165"
+  },
+  "researcher-workbench-t-security-regression-tests": {
+    "number": 159,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/159"
+  },
+  "researcher-workbench-t-theorem-name-search-mode": {
+    "number": 164,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/164"
+  },
+  "researcher-workbench-t-ui-search-page": {
+    "number": 162,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/162"
+  },
+  "researcher-workbench-t-vendor-katex": {
+    "number": 166,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/166"
+  },
+  "researcher-workbench-t-windows-path-fix": {
+    "number": 152,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/152"
+  }
+}

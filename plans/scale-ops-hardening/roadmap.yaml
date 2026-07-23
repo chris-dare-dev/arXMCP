@@ -87,6 +87,7 @@ items:
     rice: { r: 30, i: 3, c: 0.8, e: 2.5, score: 28.8, rank: 1 }
     tags: [value, storage, ingest, write-path, D5-R01, D1-R02]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/92"]
       code:
         - "ingest/store.py"
         - "ingest/bulk_ingest.py"
@@ -121,6 +122,7 @@ items:
     rice: { r: 20, i: 2, c: 0.5, e: 5.5, score: 3.64, rank: 4 }
     tags: [value, observability, guards, readiness, D5-R07, D5-R08, D5-R06, D5-R03, D1-R08, D5-R10, D5-R13]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/93"]
       code:
         - "server/metrics.py"
         - "server/health.py"
@@ -158,6 +160,7 @@ items:
     tags: [enabler, ops, maintenance, backup, ci, D5-R02, D5-R11, CG2, CG3]
     depends_on: [scale-ops-hardening-e1]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/94"]
       code:
         - "tools/lancedb_maintenance.py"
         - "ops/cron/arxmcp-backup.sh"
@@ -198,6 +201,7 @@ items:
     tags: [value, ingest, gpu, capacity-plan, graph-db, D5-R05, D1-R09, D1-R12, D5-R04, D8-R09c]
     depends_on: [scale-ops-hardening-e1]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/95"]
       code:
         - "ingest/embedder.py"
         - "ingest/re_embed.py"
@@ -232,6 +236,7 @@ items:
     rice: { r: 30, i: 2, c: 0.8, e: 3, score: 16.0, rank: 2 }
     tags: [value, security, ingest, sandboxing, D8-R08, D8-R01, D8-R10]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/96"]
       code:
         - "tools/arxiv_fetch.py"
         - "infra/latexml/docker-compose.latexml.yml"
@@ -269,6 +274,7 @@ items:
     tags: [value, capacity, tier-5-gate, eval, D5-R09, D5-R12, D5-R15]
     depends_on: [scale-ops-hardening-e1, scale-ops-hardening-e2]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/97"]
       code:
         - "ingest/store.py"
         - "ingest/schema.py"
@@ -290,6 +296,7 @@ items:
       - "Given either API is confirmed absent, when the probe concludes, then an ADR on bumping the lancedb pin is raised (D5.md Open Question #3) before the rest of the D5-R01 milestone proceeds"
     tags: [D5-R01, spike, must-assumption]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/113"]
       code: ["ingest/store.py"]
       note: ["Resolves goal.assumptions must-tier #2 (lancedb API sufficiency)"]
 
@@ -315,6 +322,7 @@ items:
       - "Given a single-paper UI ingest, when it completes, then per-write behavior and the post-index version-pinning contract (store.py:62-72) are unchanged from today"
     tags: [D5-R01, D1-R02]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/98"]
       code: ["ingest/store.py", "ingest/bulk_ingest.py", "ingest/oai_delta.py", "ingest/re_embed.py"]
 
   - id: scale-ops-hardening-t-defer-indices-mode
@@ -330,6 +338,7 @@ items:
       - "Given ingest/store.write_chunks called with defer_indices=True, when N papers are written in one run, then _create_indices (store.py:885) is skipped per paper and a single incremental optimize() call runs at end-of-run or every K~500 papers"
       - "Given defer_indices=False (the default), when a single paper is written, then today's per-write index-rebuild behavior is unchanged"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/114"]
       code: ["ingest/store.py"]
 
   - id: scale-ops-hardening-t-kill-full-table-scans
@@ -345,6 +354,7 @@ items:
       - "Given a populated table, when _count_non_null or the marker paper-count (store.py:580,630,967) is evaluated, then no tbl.to_arrow() full-table materialization occurs; count_rows(predicate) or the caller-maintained running set is used instead"
       - "Given a crash mid-run, when the process resumes, then the caller-maintained running set is rebuilt from the committed table rather than trusted from in-memory state"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/115"]
       code: ["ingest/store.py"]
 
   - id: scale-ops-hardening-t-wire-defer-indices-callers
@@ -360,6 +370,7 @@ items:
     acceptance:
       - "Given bulk_ingest, oai_delta, re_embed, and the notebook drivers, when each runs a multi-paper batch, then all four pass defer_indices=True while single-paper UI ingest calls remain defer_indices=False"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/116"]
       code: ["ingest/bulk_ingest.py", "ingest/oai_delta.py", "ingest/re_embed.py"]
 
   - id: scale-ops-hardening-t-cutover-index-check
@@ -375,6 +386,7 @@ items:
     acceptance:
       - "Given a staging table produced under defer_indices, when cutover criteria evaluate it, then promotion is refused unless the expected indices are present on staging"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/117"]
       code: ["ops/cutover.py"]
 
   # ── e2: Scale-guard telemetry, guards, BM25 decoupling, concurrency/lookup bounds ──
@@ -399,6 +411,7 @@ items:
       - "Given ARXMCP_BM25_PHASE=off, when a hybrid retrieval request arrives, then it fails loudly instead of silently degrading to dense-only"
     tags: [D5-R03, D1-R08]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/99"]
       code: ["server/resources.py", "server/retrieval/bm25.py", "server/config.py"]
 
   - id: scale-ops-hardening-t-bm25-phase-gate
@@ -413,6 +426,7 @@ items:
     acceptance:
       - "Given ARXMCP_BM25_PHASE=auto|on|off with default auto=off, when the server starts, then BM25Phase construction - including per-notebook loads (resources.py:1069) - is skipped unless a hybrid mode is actually served"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/118"]
       code: ["server/resources.py", "server/config.py"]
 
   - id: scale-ops-hardening-t-bm25-integrity-check-live
@@ -429,6 +443,7 @@ items:
       - "Given ARXMCP_BM25_PHASE=on, when the corpus-integrity cross-check runs, then it executes the BM25 comparison instead of silently skipping"
       - "Given an eval/watchdog --hybrid run, when it starts, then it sets ARXMCP_BM25_PHASE=on for the duration of the run"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/119"]
       code: ["ops/watchdog_eval.py"]
 
   - id: scale-ops-hardening-spike-2
@@ -443,6 +458,7 @@ items:
       - "Given the live Bridgeland notebook's LanceDB chunks table, when chunks-per-paper is measured directly, then the ~500/1K/2-5K/10K/15-30K/50-100K inflection points in D5.md's table are recomputed against the measured value, not the gap analysis's inflated ~12M-chunk/~98GB figure"
     tags: [D5-R07, D5-R15, spike, must-assumption]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/120"]
       code: ["ingest/schema.py"]
       note: ["Resolves goal.assumptions must-tier #1 (corpus sizing basis); feeds scale-ops-hardening-m3 and scale-ops-hardening-m15"]
 
@@ -469,6 +485,7 @@ items:
       - "Given spike-2's measured chunks-per-paper, when D5-R07's inflection thresholds are encoded as alert rules, then they are computed against the corrected corpus-sizing basis"
     tags: [D5-R07, D5-R08, D5-R06, D5-R13]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/100"]
       code: ["server/metrics.py", "server/health.py", "server/main.py", "ingest/ingest_summary.py", "server/theorem_names_store.py"]
 
   - id: scale-ops-hardening-t-scale-guard-gauge-pack
@@ -483,6 +500,7 @@ items:
     acceptance:
       - "Given the scrape-time refresh (server/main.py:786-797), when it runs, then arxmcp_lancedb_version_count{table}, arxmcp_lancedb_dir_bytes{table} (TTL-cached scandir), BM25 index bytes + load seconds, startup seconds by phase, and notebook count are all emitted"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/121"]
       code: ["server/main.py", "server/metrics.py"]
 
   - id: scale-ops-hardening-t-inflection-alert-rules
@@ -498,6 +516,7 @@ items:
     acceptance:
       - "Given spike-2's measured chunks-per-paper, when the 5 inflection rules (chunk_count/index review, startup seconds/BM25 gating, version_count/maintenance, disk free/cutover risk, sec/paper trend/quadratic alarm) are encoded, then each fires against the corrected thresholds in both the daily markdown report and /status"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/122"]
       code: ["server/health.py"]
 
   - id: scale-ops-hardening-t-proportional-disk-guard
@@ -514,6 +533,7 @@ items:
       - "Given the dir-size gauge, when active-corpus bytes grow, then the pause/clear disk thresholds scale proportionally (max(10 GiB, k x active-corpus bytes)) instead of firing at the fixed 10/15 GB constants (health.py:921-928)"
       - "Given ops/cutover.py or the restore drill, when either starts, then a free-space preflight refuses early if the filesystem lacks room for the operation"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/123"]
       code: ["server/health.py", "ops/cutover.py", "ops/restore_drill_check.py"]
 
   - id: scale-ops-hardening-t-per-stage-ingest-telemetry
@@ -528,6 +548,7 @@ items:
     acceptance:
       - "Given a paper ingested through bulk_ingest, when it completes, then per-stage timings (fetch/parse/chunk/embed/write) and a sec/paper trend are recorded in ingest_summary.py and bridged to gauges, and the stale docs/ops/daily-ops-cadence.md:84-86 line is fixed"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/124"]
       code: ["ingest/ingest_summary.py", "docs/ops/daily-ops-cadence.md"]
 
   - id: scale-ops-hardening-t-jaccard-fallback-cap
@@ -543,6 +564,7 @@ items:
       - "Given fuzzy_jaccard's row count exceeds a config-overridable ceiling (e.g. 200-500K rows), when find_lemma_by_name falls back to it, then results return with retrieval_mode=fts5_trigram_capped instead of scoring every row, and the frozen tool description text (tools.py:276-280) is unchanged unless the agent-platform W1 re-pin window has already landed"
     tags: [D5-R13]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/125"]
       code: ["server/theorem_names_store.py", "server/handlers/lemma.py"]
 
   - id: scale-ops-hardening-m4
@@ -563,6 +585,7 @@ items:
       - "Given 4 concurrent synthetic sessions driven against the server, when the gated load test runs, then arxmcp_encode_queue_wait_seconds and a Lean-REPL-lock waiters gauge report measured p95 queue-wait for the single-worker envelope"
     tags: [D5-R10]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/101"]
       code: ["server/query_encoder.py", "server/lean_repl.py"]
 
   # ── e3: Corpus lifecycle & ops discipline ──────────────────────
@@ -579,6 +602,7 @@ items:
       - "Given the 6 documented nightly ops jobs in docs/ops/daily-ops-cadence.md (written for cron-macOS/systemd-Linux only), when Windows Task Scheduler and any WSL2 cron/systemd shim are inspected, then each job's actual firing status (live vs silently inert) is recorded per job"
     tags: [CG2, spike, must-assumption]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/126"]
       code: ["docs/ops/daily-ops-cadence.md"]
       note: ["Resolves goal.assumptions must-tier #3 (Windows ops-cadence execution); feeds scale-ops-hardening-m5"]
 
@@ -605,6 +629,7 @@ items:
       - "Given a restore-drill-verified allowlist (active marker version, N-1, notebook pins, lancedb-prev* targets, in-flight re-embed sources), when the nightly maintenance job deletes old versions, then none of the allowlisted versions are removed"
     tags: [D5-R02, CG2]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/102"]
       code: ["tools/lancedb_maintenance.py", "docs/ops/daily-ops-cadence.md"]
 
   - id: scale-ops-hardening-m6
@@ -627,6 +652,7 @@ items:
       - "Given a quarterly restore drill, when it runs, then it opens and count_rows()s a sample of per-notebook LanceDBs and one paper_metadata.db, not just the shared corpus + Kuzu + notebooks.db"
     tags: [D5-R11]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/103"]
       code: ["ops/cron/arxmcp-backup.sh", "ops/restore_drill_check.py", "docs/ops/backup-restore.md"]
 
   - id: scale-ops-hardening-m7
@@ -646,6 +672,7 @@ items:
       - "Given a push to the repository, when the CI workflow runs, then it builds the wheel and runs the test suite and reports pass/fail without blocking the push or requiring a PR"
     tags: [CG3]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/104"]
       code: [".github/workflows/"]
 
   # ── e4: Infrastructure future-proofing ──────────────────────────
@@ -673,6 +700,7 @@ items:
       - "Given the ADR's verdict either way, when it lands, then SECURITY.md carries a one-line dated accept-and-monitor note for kuzu==0.11.3 with a grype watch"
     tags: [D5-R04, D8-R09c]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/105"]
       code: ["pyproject.toml", "docs/architecture.md", "SECURITY.md"]
       note: ["plans/verification-feedback-roadmap.md:160-163 — tracked-but-unexecuted verification-feedback-spike-1, executed by this milestone"]
 
@@ -685,6 +713,7 @@ items:
     depends_on: [scale-ops-hardening-m1]
     tags: [D5-R05, D1-R09, D1-R12]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/106"]
       code: ["ingest/embedder.py", "ingest/re_embed.py", ".claude/roadmap/E11-scale-cutover.md"]
 
   # ── e5: Content-security hardening ──────────────────────────────
@@ -708,6 +737,7 @@ items:
       - "Given Docker/Rancher Desktop is unavailable on the Windows host, when ingest runs, then it falls back to the unsandboxed path without blocking, and the fallback is documented"
     tags: [D8-R08]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/107"]
       code: ["tools/arxiv_fetch.py", "infra/latexml/docker-compose.latexml.yml"]
 
   - id: scale-ops-hardening-t-docker-desktop-check
@@ -722,6 +752,8 @@ items:
     acceptance:
       - "Given the Windows tier-1 host, when Docker or Rancher Desktop presence is probed, then the result (installed/installable or absent) is recorded before the container is built"
     tags: [might-assumption]
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/127"]
 
   - id: scale-ops-hardening-t-mineru-noegress-container
     kind: task
@@ -736,6 +768,7 @@ items:
     acceptance:
       - "Given a no-egress container wrapping the MinerU/PDF parser subprocess, when a zip-slip-style malicious PDF is parsed, then the exploit is contained inside the container's PID/network namespace and the grandchild FastAPI server is reaped on container exit"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/128"]
       code: ["tools/arxiv_fetch.py"]
 
   - id: scale-ops-hardening-m11
@@ -757,6 +790,7 @@ items:
       - "Given a paper flagged by the screen, when the first corpus pass runs, then it is warn-only by default and only an explicit CLI/env operator override changes that - never a silent drop, never a console UI toggle"
     tags: [D8-R01]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/108"]
       code: ["ingest/bulk_ingest.py"]
 
   - id: scale-ops-hardening-t-structural-injection-scan
@@ -771,6 +805,7 @@ items:
     acceptance:
       - "Given the ar5iv/LaTeXML HTML the chunker already parses, when the structural scan runs, then invisible-text markup (white/near-white colors, sub-legible font sizes, off-page positioning, hidden-span ltx_* classes) is detected via a BeautifulSoup pass with no re-parse of the document"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/129"]
       code: ["ingest/bulk_ingest.py"]
 
   - id: scale-ops-hardening-t-pattern-injection-scan
@@ -785,6 +820,7 @@ items:
     acceptance:
       - "Given extracted paper text, when the literal/NL injection-pattern scan runs, then it reuses _INJECTION_PATTERNS plus a small phrase list and flags matches"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/130"]
       code: ["server/observability/sanitize.py"]
 
   - id: scale-ops-hardening-t-persist-screening-verdict
@@ -800,6 +836,7 @@ items:
     acceptance:
       - "Given a structural-scan result and a pattern-scan result for one paper, when ingestion completes, then a single persisted verdict (clean/flagged + reasons) is written to the ops JSONL, warn-only by default, with the CLI-only override documented and no console UI exposing it"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/131"]
       code: ["ingest/bulk_ingest.py"]
 
   - id: scale-ops-hardening-m12
@@ -824,6 +861,7 @@ items:
       - "Given a batch scan of existing ingested chunks for the 4 sanitizer patterns, when the false-positive rate is ~0, then ARXMCP_SANITIZE_RETRIEVED_CONTENT flips default-on and warn-once logging upgrades to per-hit chunk_id WARNs"
     tags: [D8-R08, D8-R10]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/109"]
       code: ["infra/latexml/docker-compose.latexml.yml", "server/observability/sanitize.py"]
 
   # ── e6: Growth-gated capacity validation ────────────────────────
@@ -837,6 +875,7 @@ items:
     depends_on: [scale-ops-hardening-m3]
     tags: [D5-R09]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/110"]
       code: ["ingest/store.py", "ingest/schema.py"]
 
   - id: scale-ops-hardening-m14
@@ -848,6 +887,7 @@ items:
     depends_on: [scale-ops-hardening-m3]
     tags: [D5-R12]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/111"]
       code: ["ops/watchdog_eval.py", "tests/eval/test_retrieval_quality.py"]
 
   - id: scale-ops-hardening-m15
@@ -859,4 +899,5 @@ items:
     depends_on: [scale-ops-hardening-m1, scale-ops-hardening-m2, scale-ops-hardening-m3, scale-ops-hardening-m4]
     tags: [D5-R15]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/112"]
       code: ["ops/watchdog_eval.py", ".claude/TIER-GATES.md", ".claude/docs/capacity-model.md"]

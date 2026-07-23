@@ -1,0 +1,130 @@
+{
+  "trustworthy-release-e1": {
+    "number": 169,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/169"
+  },
+  "trustworthy-release-e2": {
+    "number": 170,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/170"
+  },
+  "trustworthy-release-e3": {
+    "number": 171,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/171"
+  },
+  "trustworthy-release-e4": {
+    "number": 172,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/172"
+  },
+  "trustworthy-release-e5": {
+    "number": 173,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/173"
+  },
+  "trustworthy-release-m1": {
+    "number": 174,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/174"
+  },
+  "trustworthy-release-m10": {
+    "number": 183,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/183"
+  },
+  "trustworthy-release-m11": {
+    "number": 184,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/184"
+  },
+  "trustworthy-release-m12": {
+    "number": 185,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/185"
+  },
+  "trustworthy-release-m13": {
+    "number": 186,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/186"
+  },
+  "trustworthy-release-m2": {
+    "number": 175,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/175"
+  },
+  "trustworthy-release-m3": {
+    "number": 176,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/176"
+  },
+  "trustworthy-release-m4": {
+    "number": 177,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/177"
+  },
+  "trustworthy-release-m5": {
+    "number": 178,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/178"
+  },
+  "trustworthy-release-m6": {
+    "number": 179,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/179"
+  },
+  "trustworthy-release-m7": {
+    "number": 180,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/180"
+  },
+  "trustworthy-release-m8": {
+    "number": 181,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/181"
+  },
+  "trustworthy-release-m9": {
+    "number": 182,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/182"
+  },
+  "trustworthy-release-t-changes-md-release-section": {
+    "number": 197,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/197"
+  },
+  "trustworthy-release-t-claude-config-quickstart": {
+    "number": 199,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/199"
+  },
+  "trustworthy-release-t-clean-env-boot-smoke-test": {
+    "number": 196,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/196"
+  },
+  "trustworthy-release-t-cut-github-release": {
+    "number": 200,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/200"
+  },
+  "trustworthy-release-t-fix-inverted-tripwire": {
+    "number": 188,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/188"
+  },
+  "trustworthy-release-t-fix-security-md-claim": {
+    "number": 192,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/192"
+  },
+  "trustworthy-release-t-kuzu-dated-decision": {
+    "number": 193,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/193"
+  },
+  "trustworthy-release-t-pypi-publish": {
+    "number": 198,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/198"
+  },
+  "trustworthy-release-t-rule-of-two-guidance": {
+    "number": 194,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/194"
+  },
+  "trustworthy-release-t-stamp-license-both-chunkers": {
+    "number": 190,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/190"
+  },
+  "trustworthy-release-t-textbook-license-backfill-cli": {
+    "number": 191,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/191"
+  },
+  "trustworthy-release-t-textbook-license-input": {
+    "number": 189,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/189"
+  },
+  "trustworthy-release-t-wheel-include-frontend": {
+    "number": 195,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/195"
+  },
+  "trustworthy-release-t-wrap-get-paper-metadata": {
+    "number": 187,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/187"
+  }
+}

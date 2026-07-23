@@ -84,6 +84,7 @@ items:
     rice: { r: 4, i: 3, c: 0.5, e: 1.5, score: 4.0, rank: 1 }
     tags: [value, trust, security, D8-R02, D8-R04, D8-R09, D8-R14]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/169"]
       code: ["_worktrees/arx-onmain/server/handlers/paper.py:254-261", "tests/security/test_delimiters.py:547-558", "ingest/chunker_types.py:176", "ingest/textbook_chunker.py:367-380", "server/license_policy.py:44-53", "SECURITY.md:79", "ingest/embedder.py:340-354", "server/prompts.py:107-117", ".claude/notes/08-security-observability-ops.md"]
 
   - id: trustworthy-release-e2
@@ -95,6 +96,7 @@ items:
     rice: { r: 5, i: 3, c: 0.5, e: 2.5, score: 3.0, rank: 2 }
     tags: [value, release, distribution, D4-R01]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/170"]
       code: ["pyproject.toml:20", "docker/Dockerfile.server:126-132", "CHANGES.md:21-23", "docs/releasing.md:65-70", "docs/install.md:29"]
 
   - id: trustworthy-release-e3
@@ -106,6 +108,7 @@ items:
     rice: { r: 3, i: 2, c: 0.5, e: 4, score: 0.75, rank: 4 }
     tags: [value, trust, citation, D8-R06, D4-R11, D9-R12, D8-R11]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/171"]
       code: ["server/handlers/chunk.py:99-113", "server/paper_metadata_store.py", "_worktrees/arx-onmain/server/handlers/paper.py:106-156", "docs/evaluation.md", ".claude/docs/retrieval-quality-report.md", "_worktrees/arx-onmain/contracts/evidence-bundle.v0.schema.json:327,342-345"]
 
   - id: trustworthy-release-e4
@@ -118,6 +121,7 @@ items:
     depends_on: [trustworthy-release-e2]
     tags: [value, adoption, distribution, D4-R03, D4-R06]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/172"]
       code: ["server/routes/notebooks.py:2541", "docs/install.md"]
 
   - id: trustworthy-release-e5
@@ -129,6 +133,7 @@ items:
     rice: { r: 2, i: 1, c: 0.5, e: 1, score: 1.0, rank: 3 }
     tags: [enabler, adoption, scope, D6-R09, D4-R08, D4-R05]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/173"]
       code: ["docs/install.md", "ingest/oai_delta.py:109-114", "server/routes/notebooks.py:196-198", "plans/verification-feedback-roadmap.md:164"]
 
   # ── e1 milestones/tasks (now) ──────────────────────────────
@@ -146,6 +151,7 @@ items:
       - "Given the integration branch's get_paper handler, when author-controlled title/abstract are read from the Atom-hydrated metadata store, then they pass through sanitize_retrieved_text -> wrap_retrieved_text before the response is returned"
       - "Given TestV1Gaps.test_get_paper_does_not_yet_wrap, when the test suite runs, then the test asserts wrapping IS present and fails the moment wrapping is removed"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/174"]
       code: ["_worktrees/arx-onmain/server/handlers/paper.py:254-261", "tests/security/test_delimiters.py:547-558", "server/tools.py:527-530"]
       note: ["_worktrees/arx-onmain/.claude/docs/security-threat-2-audit.md:207"]
 
@@ -161,6 +167,7 @@ items:
     acceptance:
       - "Given author-controlled arXiv Atom title/abstract, when get_paper serves them on the integration branch, then the response body carries wrap-delimiter markers around both fields"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/187"]
       code: ["_worktrees/arx-onmain/server/handlers/paper.py:254-261"]
 
   - id: trustworthy-release-t-fix-inverted-tripwire
@@ -176,6 +183,7 @@ items:
     acceptance:
       - "Given the TestV1Gaps class, when a handler (get_paper, find_equation, cite_neighbors) emits content without wrapping, then its guard test fails rather than passes"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/188"]
       code: ["tests/security/test_delimiters.py:547-558"]
 
   - id: trustworthy-release-m2
@@ -191,6 +199,7 @@ items:
       - "Given the textbook upload flow or tools/notebook_textbook_ingest.py, when a textbook is submitted without a license value, then the submission is rejected until a license token is supplied"
       - "Given an existing source_kind='textbook' chunk with no license, when the backfill CLI runs once, then it is stamped with an explicit license token and a second run is a no-op"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/175"]
       code: ["ingest/chunker_types.py:174-176", "ingest/textbook_chunker.py:367-380", "server/license_policy.py:44-53", "server/routes/notebooks.py"]
 
   - id: trustworthy-release-t-textbook-license-input
@@ -205,6 +214,7 @@ items:
     acceptance:
       - "Given the textbook upload template, when no license is selected, then submission is blocked client- and server-side; the same rule applies to a missing --license flag on tools/notebook_textbook_ingest.py"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/189"]
       code: ["server/routes/notebooks.py", "tools/notebook_textbook_ingest.py"]
 
   - id: trustworthy-release-t-stamp-license-both-chunkers
@@ -220,6 +230,7 @@ items:
     acceptance:
       - "Given a freshly ingested textbook PDF or markdown source, when chunking completes, then every emitted ChunkRecord carries the supplied license token instead of the arxiv-license default"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/190"]
       code: ["ingest/chunker_types.py:174-176", "ingest/textbook_chunker.py:367-380", "ingest/textbook_markdown_chunker.py"]
 
   - id: trustworthy-release-t-textbook-license-backfill-cli
@@ -235,6 +246,7 @@ items:
     acceptance:
       - "Given the live Huybrechts notebook's existing textbook chunks, when the backfill CLI runs once, then every chunk carries a non-default license token and a re-run is idempotent"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/191"]
       code: ["server/license_policy.py:44-53"]
 
   - id: trustworthy-release-m3
@@ -251,7 +263,7 @@ items:
       - "Given the threat-model note, when Threat 2 is read, then it includes Rule-of-Two orchestrator/client-side containment guidance with the untrusted-chunk -> tactician/fixer -> lean_verify chain caveat documented"
     links:
       code: ["SECURITY.md:79", "ingest/embedder.py:340-354", ".claude/notes/08-security-observability-ops.md", "server/prompts.py:107-117"]
-      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/4"]
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/4", "https://github.com/chris-dare-dev/arXMCP/issues/176"]
 
   - id: trustworthy-release-t-fix-security-md-claim
     kind: task
@@ -265,6 +277,7 @@ items:
     acceptance:
       - "Given SECURITY.md:79, when compared against ingest/embedder.py:340-354, then the documented claim matches the real pickle/safetensors split"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/192"]
       code: ["SECURITY.md:79", "ingest/embedder.py:340-354"]
 
   - id: trustworthy-release-t-kuzu-dated-decision
@@ -279,6 +292,7 @@ items:
     acceptance:
       - "Given the Kuzu upstream-archived fact (archived 2025-10-10), when the decision is recorded, then it is dated, names kuzu==0.11.3 as the pin, and names a grype-watch follow-up trigger"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/193"]
       note: [".claude/notes/08-security-observability-ops.md"]
 
   - id: trustworthy-release-t-rule-of-two-guidance
@@ -293,6 +307,7 @@ items:
     acceptance:
       - "Given the threat-model note, when Threat 2 is read, then Rule-of-Two orchestrator/client-side guidance is present and explicitly states that profiles do not break the untrusted-chunk -> tactician/fixer -> lean_verify chain"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/194"]
       code: ["server/prompts.py:107-117"]
       note: [".claude/notes/08-security-observability-ops.md"]
 
@@ -311,6 +326,7 @@ items:
       - "Given a clean virtual environment, when arxmcp is installed from the built wheel and booted with ARXMCP_BOOTSTRAP_MODE=1, then the server starts with 0 standalone-install crashes and serves /healthz"
       - "Given the built wheel, when its file list is inspected, then frontend/templates/*.html and frontend/static/* are present"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/177"]
       code: ["pyproject.toml:20", "docker/Dockerfile.server:126-132", "server/config.py:230"]
 
   - id: trustworthy-release-t-wheel-include-frontend
@@ -325,6 +341,7 @@ items:
     acceptance:
       - "Given `python -m build`, when the wheel is built, then its file listing includes frontend/templates and frontend/static"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/195"]
       code: ["pyproject.toml:20"]
 
   - id: trustworthy-release-t-clean-env-boot-smoke-test
@@ -340,6 +357,7 @@ items:
     acceptance:
       - "Given a fresh clean-container, when `pipx install` from the fixed wheel plus an ARXMCP_BOOTSTRAP_MODE=1 boot runs, then it exits 0 with the server reachable at /healthz, and the check is repeatable as a script for reuse before every future publish"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/196"]
       code: ["server/config.py:230", "docker/Dockerfile.server:126-132"]
 
   - id: trustworthy-release-m5
@@ -358,6 +376,7 @@ items:
       - "Given the published package, when a new user follows the README 5-minute quickstart, then Claude Desktop/Code is configured via the arxmcp-shim console script and a first search_papers call succeeds without editing code"
       - "Given the v0.1.0 tag at 52b4397, when the release checklist completes, then CHANGES.md has a release section and a GitHub Release references that tag"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/178"]
       code: ["CHANGES.md:21-23", "docs/releasing.md:65-70", "pyproject.toml:27", "docs/install.md:29"]
 
   - id: trustworthy-release-t-changes-md-release-section
@@ -372,6 +391,7 @@ items:
     acceptance:
       - "Given CHANGES.md, when the v0.1.0 section is added, then it lists the epic-grain changes shipped at tag 52b4397 and matches docs/releasing.md's checklist wording"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/197"]
       code: ["CHANGES.md:21-23"]
 
   - id: trustworthy-release-t-pypi-publish
@@ -386,6 +406,7 @@ items:
     acceptance:
       - "Given the `arxmcp` package name (availability verified first), when sdist+wheel are published, then `pip install arxmcp` resolves the published version from PyPI"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/198"]
       code: ["pyproject.toml:27"]
 
   - id: trustworthy-release-t-claude-config-quickstart
@@ -400,6 +421,7 @@ items:
     acceptance:
       - "Given a fresh clone of the README, when a new user follows the 5-minute quickstart including the ~2.3 GB BGE-M3 first-run download note, then Claude Desktop/Code is configured via a copy-paste block using the arxmcp-shim console script"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/199"]
       code: ["docs/install.md:29", "pyproject.toml:27"]
 
   - id: trustworthy-release-t-cut-github-release
@@ -415,6 +437,7 @@ items:
     acceptance:
       - "Given the v0.1.0 tag at 52b4397, when the GitHub Release is cut, then it references that exact tag and links the published PyPI package"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/200"]
       code: ["docs/releasing.md:65-70"]
 
   # ── e3 milestones (next — shaped, no task decomposition) ────
@@ -434,6 +457,7 @@ items:
       - "Given a paper's held metadata, when minimal BibTeX serialization is requested, then a valid .bib entry is produced with no LLM call"
       - "Given the citation contract's quote_sha256 hash-matching and the 'fabricated citation is detectably rejected' claim, when the contract is documented, then it carries an explicit one-line disclaimer that hash-matching is a single-axis byte-integrity check -- NOT the multi-axis trust record CLAUDE.md §4.9 / trust-language-policy defines -- so a downstream reader does not over-read 'citation verified' the way lean_verify's bare 'ok' status was over-read"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/179"]
       code: ["server/handlers/chunk.py:99-113", "server/paper_metadata_store.py", "_worktrees/arx-onmain/server/handlers/paper.py:106-156"]
       note: ["paper-metadata-m2 (sibling roadmap plans/paper-metadata/roadmap.yaml) — NOT complete as of 2026-07-07: plans/paper-metadata/progress/agent.jsonl shows only spike-1 and m1 done, m2 has no entry; m2-equivalent wiring exists only on the unmerged _worktrees/arx-onmain branch (root CLAUDE.md §7 corroborates: get_paper still NULL on main). Gated on the same M0 merge this roadmap's goal.assumptions already tracks -- verify the merge/backfill before treating D4-R11a as free"]
 
@@ -452,6 +476,7 @@ items:
       - "Given the published benchmark page, when the rerank experiment is cited, then the 0-precision-lift-at-122x-latency verdict and MIRB's independent rerankers-degrade-math-retrieval result are both stated"
       - "Given the TheoremSearch differentiation table and the MIRB citation, when the benchmark page is published, then every comparative/differentiation claim carries a dated, scoped source per CLAUDE.md §4.9 rule 3 / trust-language-policy §3 -- R7's actual measured numbers (68.1% combined edge precision; 98.8% / 76.6% / 42.7% split by category, R7-adapters-benchmark-ablation.md:11) for the TheoremGraph/TheoremSearch comparison and a freshness date on the MIRB positive-prior-art citation -- never an undated superiority framing"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/180"]
       code: ["docs/evaluation.md", ".claude/docs/retrieval-quality-report.md"]
 
   - id: trustworthy-release-m8
@@ -468,6 +493,7 @@ items:
       - "Given a formalization session grounded in retrieved corpus text, when its evidence bundle is inspected, then optional chunk_id/corpus_version/body_hash/char_span fields trace the claim to the exact served text"
       - "Given the v0 evidence-bundle schema, when the grounding fields are added, then the change is additive (v0.1->v0.2 precedent) with no MAJOR bump to the top-level website triangulation payload"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/181"]
       code: ["_worktrees/arx-onmain/contracts/evidence-bundle.v0.schema.json:327,342-345", "_worktrees/arx-onmain/server/proving/verdict_linkage.py:104-114"]
 
   # ── e4 milestones (next — shaped, no task decomposition) ────
@@ -486,6 +512,7 @@ items:
       - "Given an exported notebook tar, when `arxmcp notebook import <file>` rehydrates it, then every chunk_id's content-addressed hash re-verifies without re-embedding a single chunk"
       - "Given the Bridgeland reference pack, when a new user imports it, then the notebook is immediately queryable with correct license provenance on every chunk"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/182"]
       code: ["server/routes/notebooks.py:2541", "ingest/chunker.py:1026-1050"]
 
   - id: trustworthy-release-m10
@@ -502,6 +529,7 @@ items:
       - "Given the PyPI package, when the MCP registry listing step runs, then it first checks the agent-platform roadmap's D6-R11 migration-plan status and only proceeds if the stateless-spec transition is not imminent or in-flight"
       - "Given the shipped demo, when a prospective adopter watches it, then all four differentiators (lemma lookup, equation search, citation graph walk, lean_verify) are shown against arXMCP's own corpus"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/183"]
       code: ["docs/install.md"]
 
   # ── e5 milestones (later — title + one-line summary only) ───
@@ -514,6 +542,7 @@ items:
     lane: later
     tags: [D6-R09]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/184"]
       code: ["shim/arxmcp_shim.py:32-69", "docs/install.md"]
 
   - id: trustworthy-release-m12
@@ -524,6 +553,7 @@ items:
     lane: later
     tags: [D4-R08]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/185"]
       code: ["ingest/oai_delta.py:109-114", "server/routes/notebooks.py:196-198"]
 
   - id: trustworthy-release-m13
@@ -534,4 +564,5 @@ items:
     lane: later
     tags: [D4-R05]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/186"]
       note: ["plans/verification-feedback-roadmap.md:164"]

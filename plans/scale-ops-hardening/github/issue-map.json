@@ -1,0 +1,162 @@
+{
+  "scale-ops-hardening-e1": {
+    "number": 92,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/92"
+  },
+  "scale-ops-hardening-e2": {
+    "number": 93,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/93"
+  },
+  "scale-ops-hardening-e3": {
+    "number": 94,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/94"
+  },
+  "scale-ops-hardening-e4": {
+    "number": 95,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/95"
+  },
+  "scale-ops-hardening-e5": {
+    "number": 96,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/96"
+  },
+  "scale-ops-hardening-e6": {
+    "number": 97,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/97"
+  },
+  "scale-ops-hardening-m1": {
+    "number": 98,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/98"
+  },
+  "scale-ops-hardening-m10": {
+    "number": 107,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/107"
+  },
+  "scale-ops-hardening-m11": {
+    "number": 108,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/108"
+  },
+  "scale-ops-hardening-m12": {
+    "number": 109,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/109"
+  },
+  "scale-ops-hardening-m13": {
+    "number": 110,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/110"
+  },
+  "scale-ops-hardening-m14": {
+    "number": 111,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/111"
+  },
+  "scale-ops-hardening-m15": {
+    "number": 112,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/112"
+  },
+  "scale-ops-hardening-m2": {
+    "number": 99,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/99"
+  },
+  "scale-ops-hardening-m3": {
+    "number": 100,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/100"
+  },
+  "scale-ops-hardening-m4": {
+    "number": 101,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/101"
+  },
+  "scale-ops-hardening-m5": {
+    "number": 102,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/102"
+  },
+  "scale-ops-hardening-m6": {
+    "number": 103,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/103"
+  },
+  "scale-ops-hardening-m7": {
+    "number": 104,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/104"
+  },
+  "scale-ops-hardening-m8": {
+    "number": 105,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/105"
+  },
+  "scale-ops-hardening-m9": {
+    "number": 106,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/106"
+  },
+  "scale-ops-hardening-spike-1": {
+    "number": 113,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/113"
+  },
+  "scale-ops-hardening-spike-2": {
+    "number": 120,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/120"
+  },
+  "scale-ops-hardening-spike-3": {
+    "number": 126,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/126"
+  },
+  "scale-ops-hardening-t-bm25-integrity-check-live": {
+    "number": 119,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/119"
+  },
+  "scale-ops-hardening-t-bm25-phase-gate": {
+    "number": 118,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/118"
+  },
+  "scale-ops-hardening-t-cutover-index-check": {
+    "number": 117,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/117"
+  },
+  "scale-ops-hardening-t-defer-indices-mode": {
+    "number": 114,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/114"
+  },
+  "scale-ops-hardening-t-docker-desktop-check": {
+    "number": 127,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/127"
+  },
+  "scale-ops-hardening-t-inflection-alert-rules": {
+    "number": 122,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/122"
+  },
+  "scale-ops-hardening-t-jaccard-fallback-cap": {
+    "number": 125,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/125"
+  },
+  "scale-ops-hardening-t-kill-full-table-scans": {
+    "number": 115,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/115"
+  },
+  "scale-ops-hardening-t-mineru-noegress-container": {
+    "number": 128,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/128"
+  },
+  "scale-ops-hardening-t-pattern-injection-scan": {
+    "number": 130,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/130"
+  },
+  "scale-ops-hardening-t-per-stage-ingest-telemetry": {
+    "number": 124,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/124"
+  },
+  "scale-ops-hardening-t-persist-screening-verdict": {
+    "number": 131,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/131"
+  },
+  "scale-ops-hardening-t-proportional-disk-guard": {
+    "number": 123,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/123"
+  },
+  "scale-ops-hardening-t-scale-guard-gauge-pack": {
+    "number": 121,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/121"
+  },
+  "scale-ops-hardening-t-structural-injection-scan": {
+    "number": 129,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/129"
+  },
+  "scale-ops-hardening-t-wire-defer-indices-callers": {
+    "number": 116,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/116"
+  }
+}
