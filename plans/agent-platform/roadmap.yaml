@@ -147,6 +147,7 @@ items:
 
   - id: agent-platform-m1
     kind: milestone
+    status: done
     title: "Interactive-use session budget profile ships on main"
     summary: "search_papers/get_chunk lifetime caps become ARXMCP_*-env-configurable with a task-realistic interactive default (30/100), independent of the Stage-2 worktree merge; the 1000/hr anti-runaway ceiling is untouched."
     parent: agent-platform-e1
@@ -164,6 +165,7 @@ items:
 
   - id: agent-platform-t-env-cap-config
     kind: task
+    status: done
     title: "Make session cap constants env-configurable"
     parent: agent-platform-m1
     lane: now
@@ -179,6 +181,7 @@ items:
 
   - id: agent-platform-t-interactive-cap-defaults
     kind: task
+    status: done
     title: "Set task-realistic interactive cap defaults and re-argue the posture"
     parent: agent-platform-m1
     lane: now
