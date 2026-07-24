@@ -140,6 +140,7 @@ items:
 
   - id: retrieval-unlocks-m1
     kind: milestone
+    status: done
     title: "get_chunk resolves stmt<->proof linkage"
     summary: "get_chunk(include_referenced=True) on a stmt-kind chunk resolves its paired proof window(s) via the (paper_id, theorem_label, kind='proof') linkage already present on every proof record, with a section_path/adjacency fallback when theorem_label is null, and the reverse (proof-to-statement) direction wired too."
     parent: retrieval-unlocks-e1
@@ -159,6 +160,7 @@ items:
 
   - id: retrieval-unlocks-t-scalar-proof-lookup
     kind: task
+    status: done
     title: "Implement (paper_id, theorem_label, kind=proof) scalar lookup"
     parent: retrieval-unlocks-m1
     lane: now
@@ -172,6 +174,7 @@ items:
 
   - id: retrieval-unlocks-t-adjacency-fallback
     kind: task
+    status: done
     title: "Add section_path/adjacency fallback for theorem_label=null"
     parent: retrieval-unlocks-m1
     lane: now
@@ -185,6 +188,7 @@ items:
 
   - id: retrieval-unlocks-t-reverse-proof-linkage
     kind: task
+    status: done
     title: "Wire reverse proof-to-statement resolution"
     parent: retrieval-unlocks-m1
     lane: now
@@ -198,6 +202,7 @@ items:
 
   - id: retrieval-unlocks-t-w1-schema-delta-chunk
     kind: task
+    status: done
     title: "Stage get_chunk response-shape + description delta for the W1 batch"
     parent: retrieval-unlocks-m1
     lane: now
