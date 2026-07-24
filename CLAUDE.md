@@ -68,7 +68,7 @@ Target arXiv categories: `math.AG`, `math.NT`, `math-ph`, `hep-th`.
 | E03 — Embedder | ✅ SHIPPED | BGE-M3 dual-column encoder (`embedding_stmt` + `embedding_proof`), singleflight |
 | E04 — Vector store | ✅ SHIPPED | LanceDB `chunks` table with MVCC, BM25 index, corpus_version marker |
 | E05 — Eval harness | ✅ SHIPPED | nDCG@5 / Recall@10 test, 20-query fixture (curation pending) |
-| E06 — MCP server | ✅ SHIPPED | FastAPI + Streamable HTTP, 7-tool surface, stdio shim, snippet contract |
+| E06 — MCP server | ✅ SHIPPED | FastAPI + Streamable HTTP, 7-tool surface (**8 today** — `lean_verify` landed later; §6 is current state, this column is what the epic itself landed), stdio shim, snippet contract |
 | E07 — Hybrid retrieval | ✅ SHIPPED | BM25 → ANN+RRF → BGE-reranker pipeline modules |
 | E08 — Agent runtime | ✅ SHIPPED | Regex router, role prefixes, 3-tier retrieval cache, tool-use ID canonicalization, model policy |
 | E09 — Citation graph | ✅ SHIPPED | Kùzu schema, OpenAlex ingest, INSPIRE-HEP enrichment, `cite_neighbors`, proof-chain workflow (closes H7) |
@@ -462,13 +462,35 @@ These all work TODAY (no stubs):
   § "Browser UI surface".
 - **`tools/list`** returns 8 frozen tool meta records (byte-stable for BP1
   cache discipline).
-- **`search_papers`, `get_chunk`, `find_equation`, `get_definitions`,
-  `find_lemma_by_name`, `get_paper`** — all fully wired handlers.
-- **`cite_neighbors` library** — `await
-  server.graph_queries.cite_neighbors(...)` works against the Kùzu graph.
-  The matching MCP tool handler is a v1 STUB; call the library directly
-  for proof-chain workflows (see
+- **All 8 MCP tools are wired handlers** (re-verified at `9227be0`,
+  2026-07-24) — `search_papers`, `get_chunk`, `find_equation`,
+  `get_definitions`, `find_lemma_by_name`, `get_paper`, `cite_neighbors`,
+  `lean_verify`. **No handler is a stub.** Individual *arguments* are
+  still deferred — see §7.
+- **`cite_neighbors`** is live at the MCP boundary
+  (verification-feedback-m1, `server/handlers/citations.py`) over the
+  `server/graph_queries.py` library. Kùzu + LanceDB paths come from
+  `Config`, never from agent-supplied JSON — this closes the E09_S03 F2
+  path-validation contract. `graph_status` reports `present` / `absent` /
+  `unavailable` and returns an empty `neighbors` list rather than a 5xx
+  when the graph is missing or unqueryable. Results are deliberately NOT
+  cached, so a graph re-ingest can never serve a stale neighbor list. The
+  library stays directly callable for proof-chain workflows (see
   [`.claude/docs/proof-chain-workflow.md`](.claude/docs/proof-chain-workflow.md)).
+- **`get_chunk(include_referenced=True)`** returns the statement ↔ proof
+  counterpart via `server/proof_linkage.py` (retrieval-unlocks-m1), joined
+  on `(paper_id, theorem_label, kind)` with a uniqueness-gated
+  section-scope fallback. `linkage.outcome` carries one of four epistemic
+  results — `resolved` / `not-in-corpus` / `ambiguous` /
+  `unsupported-by-provider` — never a silently empty list (§4.9).
+- **`search_papers(filters=…)`** honors `paper_id` (str or list, ≤100
+  items, each format-validated) and `source_kind` (`arxiv` / `textbook`)
+  as ANDed LanceDB `.where(…, prefilter=True)` predicates, plus two
+  *routing* keys: `notebook` (selects the per-notebook corpus) and
+  `include_kinds: ["proof"]` (retrieval-unlocks-m2 — routes the ANN onto
+  the `embedding_proof` column, reported as
+  `retrieval_mode="dense_only_proof_column"`). Routing keys ride the cache
+  key but never appear in `filters_applied` or `filter_warnings`.
 - **3-tier retrieval cache** with Prometheus metrics at `/metrics`.
 - **Per-session retrieval caps** via `Mcp-Session-Id` header.
 - **Citation graph ingest** — `python -m ingest.graph_ingest` (OpenAlex),
@@ -481,23 +503,38 @@ These all work TODAY (no stubs):
 
 ## 7. Known stubs / deferrals
 
-Things that LOOK shipped but aren't fully wired — don't be surprised:
+Things that LOOK shipped but aren't fully wired — don't be surprised.
 
-- **`cite_neighbors` MCP tool** is registered but the handler in
-  `server/handlers/citations.py` is a v1 stub. The library
-  (`server/graph_queries.py`) is real; the boundary-contract wiring is
-  deferred to a future milestone (the F2 path-validation contract from the
-  E09_S03 critique needs to formalize at the tool-input boundary first).
-- **`search_papers` filters argument** is accepted but ignored at v1
-  (deferred to E07_S04). A `filters={"paper_id": "<id>"}` argument is
-  acknowledged in `filter_warnings` but does not actually filter results.
-- **`get_chunk`'s `include_referenced` + `include_equations`** are accepted
-  but ignored (reserved for E07_S03 reranker output + E10_S03 equation
-  atoms).
-- **`find_equation`** is a dense-only fallback over `embedding_stmt`; the
-  TED-based equation index lands in E10_S03.
-- **`find_lemma_by_name`** is an in-memory substring scan; FTS5 swap is
-  E10_S02.
+> **Re-verified against source at `9227be0` on 2026-07-24.** This section
+> had drifted badly. Three claims were dropped as simply false —
+> `cite_neighbors` (wired in verification-feedback-m1),
+> `find_lemma_by_name` (FTS5 shipped in E10_S02), and `make ingest`
+> (runs the real `ingest.bulk_ingest` since E11_S01). Three more were
+> narrowed to the part that is still true. The tool *handlers* are all
+> wired; what remains deferred is a handful of *arguments* and *input
+> modes*. Current capability claims live in §6.
+
+- **`get_chunk`'s `include_equations`** is accepted and ignored — equation
+  atoms are not wired into the chunk surface. It is the sole remaining
+  member of the `_record_unused_args` name tuple
+  (`server/handlers/chunk.py:221`), so passing it echoes it back in
+  `unused_args`. Its sibling `include_referenced` is **live** (§6).
+- **`search_papers`'s `cursor`** is accepted and ignored; `next_cursor` is
+  always `null` (pagination deferred to E07_S04). Unrecognized `filters`
+  keys (`categories`, `year_min`, …) are likewise ignored and surface in
+  `filter_warnings` — but four keys ARE honored end-to-end (§6).
+- **`find_equation` on LaTeX input** is a dense-only fallback over
+  `embedding_stmt` (`retrieval_mode="dense_only_stmt_fallback"`). The
+  E10_S03 TED-fusion path (`ted_fused`) requires **MathML** input: there is
+  no query-time LaTeXML subprocess pool in the request path.
+- **Index-absent degradation is by design, not breakage.** With no
+  theorem-names SQLite DB, `find_lemma_by_name` falls back to the legacy
+  in-memory scan (`retrieval_mode="in_memory_scan_fallback"`); with no
+  `equations` table (or all-NULL `mathml_tree_json`), `find_equation`
+  degrades to `dense_only_fallback`; with no Kùzu DB, `cite_neighbors`
+  returns `graph_status="absent"`. Read `retrieval_mode` / `graph_status`
+  before concluding a query "returned nothing" — a degraded answer and an
+  empty corpus are different facts (§4.9).
 - **`get_paper`** serves real `authors`/`title`/`abstract`/`year`/`categories`
   (`metadata_status="hydrated"`; title/abstract/authors wrapped in
   `<retrieved_chunk>` delimiters) when the per-notebook metadata store
@@ -506,13 +543,25 @@ Things that LOOK shipped but aren't fully wired — don't be surprised:
   wired in paper-metadata-m2. Papers without a row, and the shared corpus
   (no metadata sibling next to its lancedb dir), still return NULLs with
   `metadata_status="synthesized_from_chunks"`.
-- **`embedding_eq` column** on `chunks` is reserved and always NULL (E10).
-- **`make ingest`** is a stub that exits 1 with a redirect to
-  `tools/curate_seed.py` + `tools/fetch_seed.py`. The production ingest
-  driver lands in E11.
+- **`embedding_eq` column** on `chunks` is reserved and always NULL — the
+  embedder never populates it (`ingest/schema.py:165`). The separate
+  `equations` table has its own `embedding_eq`, also NULL at v1, but
+  `server/retrieval/equations.py` already carries the populated-path
+  branch for whenever a future milestone fills it.
 - **Retrieval-quality eval gate** has the harness shipped (`make eval`)
   but the curated 20-query fixture is still being hand-labeled per
-  [`.claude/docs/eval-curation.md`](.claude/docs/eval-curation.md).
+  [`.claude/docs/eval-curation.md`](.claude/docs/eval-curation.md) —
+  `tests/eval/fixtures/queries.json` still carries an empty `queries` list.
+- **The wire schema deliberately lags behavior on two arguments.**
+  `get_chunk.include_referenced` still advertises "Reserved for E07_S03;
+  ignored at v1", and the `search_papers.filters` description does not
+  mention `include_kinds` — both false, both intentional: `tools/list`
+  must stay byte-stable for BP1 prompt-cache discipline, so the corrected
+  strings are staged for one bundled `TOOL_SCHEMA_VERSION` re-pin in
+  agent-platform's W1 window
+  ([`.claude/docs/w1-schema-deltas.md`](.claude/docs/w1-schema-deltas.md)).
+  **Do not trust a tool DESCRIPTION string over §6 and this section** —
+  that mismatch is what made this section stale in the first place.
 
 ---
 
@@ -661,7 +710,7 @@ Health: `curl http://127.0.0.1:7733/healthz` (always 200),
 | `tools/list` hash drift | `tests/test_server_tool_schema.py` + `server/tools.py::ALL_TOOLS` |
 | Prompt cache miss between agent roles | `server/prompts.py` (BP1/BP2) + `server/orchestrator/id_canon.py` |
 | Retrieval results stale | `server/cache.py` corpus-version key |
-| Citation graph query empty | `server/handlers/citations.py` (stub!) vs `server/graph_queries.py` (real) |
+| Citation graph query empty | `server/handlers/citations.py` — read `graph_status` first (`absent` = graph never ingested, `unavailable` = path exists but unqueryable, `present` = real empty result); then `server/graph_queries.py` |
 | `make eval` skipped | `tests/eval/fixtures/queries.json` is still an empty stub |
 
 ---
