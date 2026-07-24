@@ -6,24 +6,35 @@ Two-mode dispatch on the ``latex_or_mathml`` input:
   :class:`server.retrieval.equations.EquationIndex` for the
   Zhang-Shasha tree-edit-distance + dense-cosine fusion path. The
   envelope reports ``retrieval_mode="ted_fused"``.
-* **LaTeX input** → keep the legacy dense-only fallback over the
-  chunks table's ``embedding_stmt`` column. The envelope reports
-  ``retrieval_mode="dense_only_stmt_fallback"``. Until a query-time
-  LaTeXML subprocess pool lands (deferred — see
-  ``research-synthesis.md`` §3 D4), there is no way to parse LaTeX
-  into MathML inside the request path.
+* **LaTeX input** → converted to Presentation MathML at query time
+  (latex2mathml) and routed onto the SAME TED lane, reporting
+  ``retrieval_mode="ted_fused"``/``"ted_fused_eq"`` with a
+  ``query_conversion`` provenance field (retrieval-unlocks-m4). Gated
+  by ``Config.eq_latex_route`` — **default OFF** (see the field's
+  docstring for why); when off, LaTeX keeps the legacy dense-only
+  fallback over ``embedding_stmt``
+  (``retrieval_mode="dense_only_stmt_fallback"``), which is also the
+  honest outcome when conversion fails.
 
 If the ``equations`` table is missing or every row has
 ``mathml_tree_json=NULL`` (the indexer has not run for this corpus),
 MathML inputs degrade to dense-only with
 ``retrieval_mode="dense_only_fallback"`` (AC4 of the brief).
+
+The TED scan is bounded (retrieval-unlocks-m4 security fix): see the
+``MAX_QUERY_TREE_NODES`` / ``MAX_TED_PAIR_PRODUCT`` / ``TED_WORK_BUDGET``
+guards in :mod:`server.retrieval.equations`. Without them a large query
+tree (which a short LaTeX string can amplify into) blocks the event loop
+for minutes.
 """
 
 from __future__ import annotations
 
 import logging
+from importlib.metadata import PackageNotFoundError, version
 from typing import Annotated, Any
 
+from latex2mathml.converter import convert as latex2mathml_convert
 from pydantic import Field
 
 from server.query_encoder import encode_query
@@ -71,7 +82,24 @@ async def handle_find_equation(
     is_mathml = looks_like_mathml(latex_or_mathml)
     equations_table = getattr(r, "equations_table", None)
 
-    if is_mathml and equations_table is not None:
+    # retrieval-unlocks-m4 — LaTeX now reaches the TED lane. Convert to
+    # Presentation MathML at query time, then feed the SAME
+    # ``EquationIndex.query`` path MathML input has always used. The
+    # conversion is the only new step; the retrieval method is unchanged,
+    # which is why ``retrieval_mode`` keeps its existing vocabulary and
+    # the cross-engine caveat rides a separate ``query_conversion`` field
+    # (trust-language-policy §6 rule 1: namespaced and axis-specific —
+    # retrieval METHOD and query PROVENANCE are two axes, not one token).
+    ted_input: str | None = latex_or_mathml if is_mathml else None
+    conversion: dict[str, Any] | None = None
+    if (
+        not is_mathml
+        and equations_table is not None
+        and getattr(r.config, "eq_latex_route", False)
+    ):
+        ted_input, conversion = _convert_latex_to_mathml(latex_or_mathml)
+
+    if ted_input is not None and equations_table is not None:
         # TED + cosine fusion path.
         alpha = getattr(r.config, "eq_ted_weight", 0.5)
         index = EquationIndex(
@@ -80,14 +108,36 @@ async def handle_find_equation(
             alpha=alpha,
         )
         try:
-            hits = index.query(latex_or_mathml, query_vec, k)
-        except ValueError as exc:
-            # Malformed MathML — fall through to dense-only rather
-            # than 5xx the request. The caller gets a coherent
-            # result set, just without TED.
+            hits = index.query(ted_input, query_vec, k)
+        except (ValueError, RecursionError) as exc:
+            # The parsed input could not be turned into a usable tree —
+            # degrade to dense-only rather than 5xx. Two sources:
+            #   * caller-supplied MathML that failed to parse
+            #     -> malformed_mathml_fallback.
+            #   * a converted-LaTeX query whose MathML did not parse.
+            #     latex2mathml can emit XML-INVALID output (e.g. it leaks
+            #     a raw ``&`` alignment tab from \begin{aligned} as
+            #     ``<mi>&</mi>``), so this is NOT "valid but degenerate".
+            #     The conversion output was therefore NOT used for
+            #     retrieval, so query_conversion.applied flips to False —
+            #     reporting applied=True here would claim TED ran when it
+            #     did not. (RecursionError is caught for symmetry with the
+            #     candidate-tree path; unreachable under the 4000-char cap
+            #     today, defensive if the cap ever rises.)
             logger.warning("EquationIndex.query failed on MathML: %s", exc)
+            if conversion is not None:
+                conversion = {
+                    "applied": False,
+                    "converter": conversion["converter"],
+                    "reason": "converter-output-unparseable",
+                }
             return await _dense_only(
-                r, query_vec, k, mode="malformed_mathml_fallback"
+                r, query_vec, k,
+                mode=(
+                    "dense_only_stmt_fallback" if conversion
+                    else "malformed_mathml_fallback"
+                ),
+                conversion=conversion,
             )
         if not hits:
             # Index is wired but the candidate set was empty (or
@@ -95,7 +145,8 @@ async def handle_find_equation(
             # the AC4 path so callers can distinguish from
             # "ted_fused with results".
             return await _dense_only(
-                r, query_vec, k, mode="dense_only_fallback"
+                r, query_vec, k, mode="dense_only_fallback",
+                conversion=conversion,
             )
         rows = [
             {
@@ -116,15 +167,16 @@ async def handle_find_equation(
         # in the EquationIndex constructor is ``"ted_fused"`` so
         # this defaults safely if a future code path forgets to
         # set the attribute.
-        return envelope(_cap(
-            {
-                "alpha": alpha,
-                "results": rows[:k],
-                "retrieval_mode": getattr(
-                    index, "last_retrieval_mode", "ted_fused"
-                ),
-            })
-        )
+        payload: dict[str, Any] = {
+            "alpha": alpha,
+            "results": rows[:k],
+            "retrieval_mode": getattr(
+                index, "last_retrieval_mode", "ted_fused"
+            ),
+        }
+        if conversion is not None:
+            payload["query_conversion"] = conversion
+        return envelope(_cap(payload))
 
     if is_mathml and equations_table is None:
         # MathML input but the equations table was not opened at
@@ -134,10 +186,79 @@ async def handle_find_equation(
             r, query_vec, k, mode="dense_only_fallback"
         )
 
-    # LaTeX input — legacy dense-only path on embedding_stmt.
+    # LaTeX that never reached the TED lane: the equations table is
+    # absent, the route is disabled, or conversion failed. Dense-only
+    # over embedding_stmt — the mode names that method, and
+    # ``query_conversion`` (when present) says which of those it was.
     return await _dense_only(
-        r, query_vec, k, mode="dense_only_stmt_fallback"
+        r, query_vec, k, mode="dense_only_stmt_fallback",
+        conversion=conversion,
     )
+
+
+def _latex_converter_id() -> str:
+    """``latex2mathml==<installed version>`` for the provenance field.
+
+    DERIVED from the installed distribution, never hardcoded: the string
+    exists to trace a result to the exact converter build, and a
+    hand-maintained literal would silently lie the moment the pin is
+    bumped and this line is forgotten (the critique's provenance-drift
+    finding). ``importlib.metadata`` reads the same metadata the pin
+    installs, so the two cannot diverge.
+    """
+    try:
+        return f"latex2mathml=={version('latex2mathml')}"
+    except PackageNotFoundError:  # pragma: no cover — dep is a hard req
+        return "latex2mathml==unknown"
+
+
+def _convert_latex_to_mathml(
+    latex: str,
+) -> tuple[str | None, dict[str, Any]]:
+    """Convert a LaTeX query to Presentation MathML (m4).
+
+    Returns ``(mathml_or_None, query_conversion_payload)``. A ``None``
+    first element means the caller must NOT use the TED lane — the
+    honest outcome is dense-only, reported as such.
+
+    **Cross-engine caveat, recorded in the payload.** The corpus trees
+    were produced by LaTeXML; this converts with latex2mathml, a
+    different engine that does NOT expand ``\\newcommand`` macros the way
+    LaTeXML did at ingest. The two therefore agree on structure only
+    approximately. That gap was measured before this route was made
+    available — see ``tests/eval/test_equations_parity.py``: on real
+    corpus equations the converted query still retrieves its own equation
+    rank-1 (the property that matters for serving), even though exact
+    tree agreement is only ~18%.
+
+    Never raises: latex2mathml is a third-party parser running on
+    caller-controlled input, so every failure becomes an honest
+    dense-only fallback. Input is bounded to 4000 chars by the handler's
+    ``Field(max_length=...)``, which bounds CONVERSION and PARSE cost —
+    but NOT the downstream TED cost, which a short input can amplify into
+    a huge tree. That is bounded separately by the ``MAX_QUERY_TREE_NODES``
+    / ``MAX_TED_PAIR_PRODUCT`` / ``TED_WORK_BUDGET`` guards in
+    :mod:`server.retrieval.equations`, not here.
+    """
+    try:
+        mathml = latex2mathml_convert(latex)
+    except Exception as exc:  # noqa: BLE001 — 3rd-party parser, any error
+        logger.info("latex2mathml could not convert query: %s", exc)
+        return None, {
+            "applied": False,
+            "converter": _latex_converter_id(),
+            "reason": "unconvertible-latex",
+        }
+    if not mathml or not looks_like_mathml(mathml):
+        # Converter returned something without a <math> root — treat as
+        # a failure rather than feeding a non-MathML string to the
+        # XML parser.
+        return None, {
+            "applied": False,
+            "converter": _latex_converter_id(),
+            "reason": "converter-output-not-mathml",
+        }
+    return mathml, {"applied": True, "converter": _latex_converter_id()}
 
 
 # ---------------------------------------------------------------------------
@@ -146,18 +267,29 @@ async def handle_find_equation(
 
 
 async def _dense_only(
-    r: Any, query_vec: Any, k: int, mode: str
+    r: Any,
+    query_vec: Any,
+    k: int,
+    mode: str,
+    conversion: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run the legacy dense-only ANN over ``embedding_stmt``.
 
     Used in three cases (the ``mode`` tag tells callers which):
 
-    * ``mode="dense_only_stmt_fallback"`` — LaTeX input; no LaTeXML
-      pool to parse into MathML; the current production path.
+    * ``mode="dense_only_stmt_fallback"`` — LaTeX that did not reach
+      the TED lane: the equations table is absent, the route is
+      disabled, or conversion failed. When m4's conversion was
+      attempted, ``conversion`` distinguishes those.
     * ``mode="dense_only_fallback"`` — MathML input but the
       equations table is absent or empty (AC4 of the brief).
-    * ``mode="malformed_mathml_fallback"`` — MathML input but the
-      parse failed; degrade rather than 5xx.
+    * ``mode="malformed_mathml_fallback"`` — caller-supplied MathML
+      that failed to parse; degrade rather than 5xx. NOT used for a
+      failed LaTeX conversion — that is not the caller's MathML.
+
+    ``conversion`` is echoed as ``query_conversion`` when present, so a
+    dense-only answer still says whether a conversion was tried and why
+    it did not carry (m4).
     """
     arrow = (
         r.chunks_table.search(
@@ -181,12 +313,13 @@ async def _dense_only(
             }
         )
     rows.sort(key=lambda row: (-row["score"], row["chunk_id"]))
-    return envelope(_cap(
-        {
-            "results": rows[:k],
-            "retrieval_mode": mode,
-        }
-    ))
+    payload: dict[str, Any] = {
+        "results": rows[:k],
+        "retrieval_mode": mode,
+    }
+    if conversion is not None:
+        payload["query_conversion"] = conversion
+    return envelope(_cap(payload))
 
 
 def _distance_to_score(dist: float | None) -> float:

@@ -160,6 +160,19 @@ dependencies = [
     #   compiled replacement (APTED via a C extension) is a future
     #   optimization tracked under E10_S03 follow-ups.
     "zss>=1.2.0",
+    # latex2mathml: pure-Python LaTeX -> Presentation-MathML converter
+    #   (retrieval-unlocks-m4). Lets find_equation route a LaTeX query
+    #   onto the TED lane instead of the dense-only fallback, WITHOUT a
+    #   query-time LaTeXML (Perl) subprocess — that heavier escape hatch
+    #   stays the documented alternative if parity proves insufficient.
+    #   Pinned EXACTLY: the converter's output tree shape is the input to
+    #   a distance metric, so a minor-version change to its <mrow>
+    #   grouping would silently move every equation score. Treat a bump
+    #   as an eval event — re-run tests/eval/test_equations_parity.py.
+    #   NOTE it does NOT expand \newcommand macros (LaTeXML did, at
+    #   ingest), which is the main source of query-vs-corpus divergence
+    #   and is what the parity gate measures. License: MIT.
+    "latex2mathml==3.81.0",
     # opentelemetry-{api,sdk,exporter-otlp-proto-grpc}: distributed-tracing
     #   surface for E14_S02 (one parent span per JSON-RPC tool call; child
     #   spans for embed / rerank / ANN). Pinned to the 1.x line — API has

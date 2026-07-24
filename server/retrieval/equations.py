@@ -43,6 +43,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import unicodedata
 from dataclasses import dataclass
 from typing import Any
 
@@ -73,6 +74,74 @@ def looks_like_mathml(text: str) -> bool:
         return False
     head = text.lstrip()[:1024]
     return _MATHML_ROOT_RE.search(head) is not None
+
+
+# ---------------------------------------------------------------------------
+# Presentation canonicalization (retrieval-unlocks-m4)
+# ---------------------------------------------------------------------------
+
+#: Bumped whenever the normalization below changes the tree a given
+#: MathML string produces. Stored ``equations.mathml_tree_json`` built
+#: under an older version is NOT comparable to a freshly-parsed query
+#: tree and must be re-indexed (``python -m ingest.index_equations``).
+#:
+#: v1 → v2 (retrieval-unlocks-m4): parallel-markup reduction, invisible
+#: operators dropped, redundant single-child ``mrow`` collapsed, text
+#: leaves NFKC-folded. No migration shipped because no equations table
+#: had ever been built — v1 trees exist nowhere.
+MATHML_TREE_NORMALIZER_VERSION: int = 2
+
+#: LaTeXML runs with ``--format=html5``, which emits PARALLEL MARKUP:
+#: every ``<math>`` wraps a ``<semantics>`` holding the presentation
+#: subtree PLUS a Content-MathML ``<annotation-xml>`` (``<apply>``/
+#: ``<ci>``/``<cn>``) PLUS an x-tex ``<annotation>``. Those annotation
+#: subtrees are a parallel ENCODING of the same equation, not extra
+#: math — carrying them into the tree more than doubles node count and
+#: makes any presentation-only MathML (what every non-LaTeXML converter
+#: emits) score a large TED against an identical stored equation.
+_ANNOTATION_TAGS: frozenset[str] = frozenset({"annotation", "annotation-xml"})
+
+#: Invisible operators LaTeXML inserts and other converters do not:
+#: FUNCTION APPLICATION, INVISIBLE TIMES, INVISIBLE SEPARATOR,
+#: INVISIBLE PLUS. They carry no rendered content, so dropping them
+#: symmetrically removes pure cross-converter noise.
+_INVISIBLE_OPERATOR_CHARS: frozenset[str] = frozenset(
+    {"⁡", "⁢", "⁣", "⁤"}
+)
+
+
+def _fold_text(text: str) -> str:
+    """Strip and NFKC-fold a MathML text run.
+
+    NFKC collapses the Unicode math-alphanumeric plane onto its ASCII
+    base, which the query side needs in order to meet the corpus side:
+    LaTeXML writes ``<mi mathvariant="double-struck">C</mi>`` (the
+    variant lives in an attribute :func:`_local_tag` drops, leaving leaf
+    ``C``) where another converter writes ``<mi>ℂ</mi>`` (U+2102). NFKC
+    maps ℂ → ``C``, 𝑡 → ``t``, ℝ → ``R``, so the converted query and the
+    stored tree agree on the leaf.
+
+    **Known limitation — this does NOT distinguish font variants, and
+    neither does the corpus.** NFKC also folds ℂ ≡ 𝒞 ≡ ℭ ≡ ``C``, so
+    ``\\mathbb{C}`` (the complex numbers) and ``\\mathcal{C}`` (a
+    category/curve) score TED 0 — a real loss in math.AG/math.NT where
+    those are distinct objects. But this is NOT introduced here: the
+    stored side ALREADY collapses them, because LaTeXML encodes the
+    variant in the ``mathvariant`` attribute that :func:`_local_tag`
+    dropped since E10_S03. NFKC only makes the query side match that
+    pre-existing collapse. Distinguishing variants would require
+    preserving ``mathvariant`` on BOTH sides plus a query-side
+    codepoint→variant map — an E10_S03-scope change with a re-index, out
+    of scope here. Compatibility folds (µ micro → μ mu, ﬁ → fi, ² → 2)
+    ride along; benign-to-helpful for retrieval, and ² is rare since
+    ``x^2`` is structural ``<msup>`` not the codepoint.
+
+    Returns ``""`` for whitespace-only.
+    """
+    stripped = text.strip()
+    if not stripped:
+        return ""
+    return unicodedata.normalize("NFKC", stripped)
 
 
 # ---------------------------------------------------------------------------
@@ -122,8 +191,14 @@ def parse_mathml_to_tree(mathml: str) -> zss.Node:
     (E10_S03 critique) close** — the previous implementation dropped
     tail-text, which silently conflated ``x+y``, ``x-y``, and ``xy``.
 
-    Raises ``ValueError`` on malformed MathML so the caller can fall
-    back to dense-only retrieval rather than 500-ing the request.
+    The tree is canonicalized to PRESENTATION form — see
+    :func:`_element_to_node` for the four rules and
+    :data:`MATHML_TREE_NORMALIZER_VERSION` for the re-index contract.
+
+    Raises ``ValueError`` on malformed MathML, and on input that
+    canonicalizes to nothing at all, so the caller can fall back to
+    dense-only retrieval rather than 500-ing the request or silently
+    scoring against an empty tree.
     """
     if not isinstance(mathml, str) or not mathml.strip():
         raise ValueError("mathml must be a non-empty string")
@@ -133,11 +208,25 @@ def parse_mathml_to_tree(mathml: str) -> zss.Node:
     except DET.ParseError as exc:
         raise ValueError(f"malformed MathML: {exc}") from exc
 
-    return _element_to_node(root)
+    node = _element_to_node(root)
+    if node is None:
+        # e.g. a bare <annotation-xml> document, or a <semantics> with
+        # no presentation child. An empty tree would score TED 0 against
+        # every other empty tree and 1.0 against everything else — both
+        # meaningless, so refuse rather than rank on it.
+        raise ValueError(
+            "MathML canonicalized to an empty presentation tree"
+        )
+    return node
 
 
-def _element_to_node(el: Any) -> zss.Node:
-    """Recursively convert an ``ElementTree`` element to a zss.Node.
+def _element_to_node(el: Any) -> zss.Node | None:
+    """Recursively convert an ``ElementTree`` element to a zss.Node,
+    canonicalized to its PRESENTATION form.
+
+    Returns ``None`` when the element contributes nothing to the
+    presentation tree (an annotation subtree, an invisible operator, or
+    a ``<semantics>`` with no presentation child) — callers drop it.
 
     Inner-text (``el.text``) is captured as a leaf child BEFORE
     recursing into children, matching MathML's "mixed content"
@@ -148,24 +237,63 @@ def _element_to_node(el: Any) -> zss.Node:
     for that child. This is the F1 fix: in mixed-content MathML
     such as ``<mrow><mi>x</mi> + <mi>y</mi></mrow>``, the operator
     " + " lives as tail-text on ``<mi>x</mi>`` and would otherwise
-    be lost. Future canonical-form MathML produced by LaTeXML wraps
-    operators in ``<mo>`` and emits no tail-text, so the new branch
-    is a no-op on that input class — only mixed-content sources
-    benefit.
+    be lost. Canonical LaTeXML output wraps operators in ``<mo>`` and
+    emits no tail-text, so that branch is a no-op on it — only
+    mixed-content sources benefit.
+
+    **retrieval-unlocks-m4 canonicalization** (four rules, applied on
+    BOTH the ingest and query side because this is the single shared
+    normalizer — ``ingest/index_equations.py`` and
+    :meth:`EquationIndex.query` both call it):
+
+    1. ``<semantics>`` collapses to its first surviving child. LaTeXML
+       parallel markup nests the presentation subtree there.
+    2. ``<annotation>`` / ``<annotation-xml>`` subtrees are dropped —
+       they re-encode the same equation (Content MathML, x-tex source)
+       and would otherwise dominate the node count.
+    3. Invisible operators (:data:`_INVISIBLE_OPERATOR_CHARS`) are
+       dropped wherever they appear, as element text or as tail-text.
+    4. A ``<mrow>`` left with exactly one child collapses to that child
+       — converters disagree on redundant row-wrapping, and the wrapper
+       carries no meaning.
     """
-    node = zss.Node(_local_tag(el.tag))
-    # Inner text before the first child.
-    text = (el.text or "").strip()
-    if text:
+    tag = _local_tag(el.tag)
+
+    # Rule 2 — an annotation subtree is a parallel encoding, not math.
+    if tag in _ANNOTATION_TAGS:
+        return None
+
+    # Rule 1 — <semantics> IS the parallel-markup wrapper; keep only the
+    # presentation child (the first that survives rules 2/3).
+    if tag == "semantics":
+        for child in el:
+            child_node = _element_to_node(child)
+            if child_node is not None:
+                return child_node
+        return None
+
+    text = _fold_text(el.text or "")
+
+    # Rule 3 — a childless <mo> holding only an invisible operator.
+    if tag == "mo" and len(el) == 0 and text in _INVISIBLE_OPERATOR_CHARS:
+        return None
+
+    node = zss.Node(tag)
+    if text and text not in _INVISIBLE_OPERATOR_CHARS:
         node.addkid(zss.Node(text))
     for child in el:
-        node.addkid(_element_to_node(child))
-        # F1 close — preserve tail-text as a sibling leaf after the
-        # child it follows. Empty/whitespace-only tail-text is
-        # dropped (canonical MathML emits no significant tail-text).
-        tail = (child.tail or "").strip()
-        if tail:
+        child_node = _element_to_node(child)
+        if child_node is not None:
+            node.addkid(child_node)
+        # F1 close — tail-text as a sibling leaf after the child it
+        # follows. Whitespace-only and invisible-operator tails drop.
+        tail = _fold_text(child.tail or "")
+        if tail and tail not in _INVISIBLE_OPERATOR_CHARS:
             node.addkid(zss.Node(tail))
+
+    # Rule 4 — collapse a redundant single-child row wrapper.
+    if tag == "mrow" and len(node.children) == 1:
+        return node.children[0]
     return node
 
 
@@ -302,8 +430,50 @@ class EquationHit:
 #: rescoring with TED. Larger values trade query latency for recall;
 #: 200 is the brief's recommendation and matches the heaviest
 #: per-candidate cost we expect at corpus scale (~100ms total at
-#: 0.5ms × 200).
+#: 0.5ms × 200 — for SMALL trees; see the TED-work bounds below for
+#: why that estimate is not a safety guarantee).
 DEFAULT_ANN_CANDIDATE_CAP = 200
+
+
+# ---------------------------------------------------------------------------
+# TED-work bounds (retrieval-unlocks-m4)
+# ---------------------------------------------------------------------------
+#
+# ``zss.simple_distance`` is superlinear in tree size and runs once per
+# candidate. The 0.5ms-per-candidate estimate above holds for real
+# equations (measured median 13 nodes, p99 157, max 590 across 11,734
+# corpus equations) but NOT for a large query tree: a 5,002-node tree
+# (a 4000-char LaTeX query like ``\pmod{2}`` repeated) measures ~20 s
+# against ONE candidate — ~69 minutes at the 200-candidate cap, run
+# synchronously on the async event loop. This is the retrieval-unlocks-m4
+# security finding, and it is NOT bounded by the handler's 4000-char
+# input cap (LaTeX amplifies ~6-900× into MathML nodes). It also affected
+# the pre-existing MathML-input path; these bounds fix both.
+#
+# The bound is on WORK, not input length, because work is the true cost
+# driver. Three layered guards, all thread-free and deterministic:
+
+#: A query tree larger than any real equation is not an equation — it is
+#: an amplified/adversarial input. Reject it before fetching candidates
+#: (cheap: one ``tree_size`` walk) so the handler falls back to dense.
+#: 1500 is ~2.5× the largest real corpus equation (590), so no genuine
+#: query is refused.
+MAX_QUERY_TREE_NODES = 1500
+
+#: Skip TED for an individual candidate whose ``|query| × |candidate|``
+#: node-product exceeds this, scoring it cosine-only. ~2500 is the
+#: measured ~30ms-per-pair line; a typical query (20 nodes × median-13
+#: candidate = 260) is two orders of magnitude under it, so normal
+#: retrieval is untouched.
+MAX_TED_PAIR_PRODUCT = 2500
+
+#: Cumulative node-product budget across all candidates in one query.
+#: Once exceeded, remaining candidates are cosine-only. Caps total TED
+#: wall-clock at ~2s worst-case (a typical full 200-candidate scan is
+#: ~52,000, well under budget, so it runs in full). Belt to
+#: ``MAX_TED_PAIR_PRODUCT``'s suspenders: the per-pair cap bounds one
+#: candidate, this bounds the sum.
+TED_WORK_BUDGET = 120_000
 
 
 #: Row cap on the ``_embedding_eq_is_populated`` exception fallback
@@ -391,6 +561,21 @@ class EquationIndex:
             return []
 
         query_tree = parse_mathml_to_tree(mathml)
+
+        # retrieval-unlocks-m4 DoS guard 1: a query tree bigger than any
+        # real equation is an amplified/adversarial input. Refuse TED
+        # (return [] → the handler's dense fallback) rather than run a
+        # multi-minute scan on the event loop. Cheap: one size walk
+        # before any candidate is fetched.
+        query_nodes = tree_size(query_tree)
+        if query_nodes > MAX_QUERY_TREE_NODES:
+            logger.warning(
+                "query tree has %d nodes (> %d cap); skipping TED, "
+                "dense-only fallback",
+                query_nodes, MAX_QUERY_TREE_NODES,
+            )
+            return []
+
         candidates = self._dense_candidates(query_vec)
         if not candidates:
             return []
@@ -404,6 +589,7 @@ class EquationIndex:
         # is closed-at-3 modes, so returning empty is the right
         # signal-channel.
         any_tree_seen = False
+        ted_work = 0  # cumulative |query|×|cand| node-product (DoS guard 3)
         hits: list[EquationHit] = []
         for cand in candidates:
             if cand.mathml_tree_json is None:
@@ -414,8 +600,23 @@ class EquationIndex:
             else:
                 try:
                     cand_tree = tree_from_json(cand.mathml_tree_json)
-                    ted_norm = normalized_ted(query_tree, cand_tree)
-                    any_tree_seen = True
+                    # DoS guards 2 & 3: skip TED for a pair whose
+                    # node-product is individually too expensive, or once
+                    # the cumulative work budget is spent. Skipped rows
+                    # degrade to cosine-only exactly like a NULL tree —
+                    # and crucially do NOT set ``any_tree_seen``, so an
+                    # all-skipped query (every pair over-budget, i.e. a
+                    # large adversarial tree that slipped under guard 1)
+                    # returns [] and the handler reports dense-only
+                    # rather than a ``ted_fused`` where TED discriminated
+                    # nothing.
+                    pair = query_nodes * tree_size(cand_tree)
+                    if pair > MAX_TED_PAIR_PRODUCT or ted_work >= TED_WORK_BUDGET:
+                        ted_norm = 1.0
+                    else:
+                        ted_norm = normalized_ted(query_tree, cand_tree)
+                        ted_work += pair
+                        any_tree_seen = True
                 except (
                     ValueError,
                     json.JSONDecodeError,
@@ -629,6 +830,9 @@ def _distance_to_cosine(dist: float | None) -> float:
 
 __all__ = [
     "DEFAULT_ANN_CANDIDATE_CAP",
+    "MAX_QUERY_TREE_NODES",
+    "MAX_TED_PAIR_PRODUCT",
+    "TED_WORK_BUDGET",
     "EquationHit",
     "EquationIndex",
     "fuse_scores",

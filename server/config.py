@@ -319,6 +319,31 @@ class Config(BaseSettings):
     #: ``ARXMCP_EQ_TED_WEIGHT``.
     eq_ted_weight: float = 0.5
 
+    #: retrieval-unlocks-m4 — route a LaTeX ``find_equation`` query onto
+    #: the TED lane by converting it to Presentation MathML with
+    #: latex2mathml, instead of falling back to dense-only over
+    #: ``embedding_stmt``.
+    #:
+    #: **Default OFF, deliberately**, even though the parity gate passes
+    #: (converted queries retrieve their own equation rank-1 on the
+    #: sampled corpus — 50/50, the property that matters for serving;
+    #: exact tree agreement is only ~18%, from macro divergence
+    #: latex2mathml can't resolve, which is why rank-1 not distance is the
+    #: gate). Three reasons to ship it off and flip the default later,
+    #: in the same W1 change that corrects the tool description:
+    #:   1. The regression guard (``tests/eval/test_equations_parity.py``)
+    #:      SKIPS when the parsed corpus is absent — i.e. in CI — so a
+    #:      default-ON route would have no automated protection against a
+    #:      latex2mathml bump. The exact pin is the only always-on guard.
+    #:   2. The parity evidence is a single small-pool draw; rank-1 on a
+    #:      200-equation pool does not prove it at 50K-corpus scale.
+    #:   3. No equations table exists on disk yet, so the route is latent
+    #:      regardless — OFF costs nothing today and keeps the (unedited,
+    #:      W1-staged) tool description TRUE until the flip.
+    #: Set ``ARXMCP_EQ_LATEX_ROUTE=true`` to enable. W1 (#72) flips this
+    #: default and the description together; see w1-schema-deltas.md.
+    eq_latex_route: bool = False
+
     # --- Observability ---------------------------------------------------
 
     log_level: str = "INFO"

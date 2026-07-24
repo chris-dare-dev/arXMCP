@@ -17,7 +17,8 @@ wishlist.
 | Delta | Source milestone | Behaviour commit | Status |
 |---|---|---|---|
 | `get_chunk` — `include_referenced` | retrieval-unlocks-m1 (#36) | `e5b4905` | staged |
-| `search_papers` — `filters.include_kinds` | retrieval-unlocks-m2 (#37) | see git log for `_parse_include_kinds` | staged |
+| `search_papers` — `filters.include_kinds` | retrieval-unlocks-m2 (#37) | `11c70ab` | staged |
+| `find_equation` — LaTeX on the TED lane | retrieval-unlocks-m4 (#39) | see git log for `_convert_latex_to_mathml` | staged |
 
 ---
 
@@ -160,3 +161,97 @@ For `agent-platform-m4` (#73):
 > never return statements — so answering "what does this paper prove,
 > and how" takes two calls. `get_chunk(include_referenced=True)` is the
 > cheaper move when you already hold one side and want its counterpart.
+
+---
+
+## `find_equation` — LaTeX on the TED lane — retrieval-unlocks-m4
+
+Tracked by **#61** (`retrieval-unlocks-t-w1-schema-delta-eq`).
+
+### 0. FLIP THE DEFAULT — do this in the SAME commit as the description
+
+The route ships **default-OFF** (`Config.eq_latex_route = False`). While
+off, the current tool description below is TRUE (LaTeX does fall back to
+dense-only), so there is nothing false on the wire yet. The W1 change
+must therefore be atomic:
+
+1. Set `Config.eq_latex_route = True` (default-on).
+2. Apply the description edit in §1 (which only becomes true once the
+   route is on).
+3. Bump `TOOL_SCHEMA_VERSION` + re-pin the hashes.
+
+Do NOT edit the description without flipping the default, or vice versa —
+either half alone makes the description and the behaviour disagree. This
+is the ordering the adversarial critique required (default-OFF keeps the
+staged-but-unedited description honest until the atomic flip).
+
+### 1. Tool description — will be false ONCE the route is default-on
+
+`server/tools.py`, the `FIND_EQUATION` ToolMeta. The current text says:
+
+```
+LaTeX inputs fall back to dense-only ANN over the chunks table's
+statement embeddings (retrieval_mode='dense_only_stmt_fallback')
+because there is no query-time LaTeXML pool.
+```
+
+True while the route is off; both halves become wrong the moment §0
+flips the default. **Replace (in that same commit) with:**
+
+```
+LaTeX inputs are converted to Presentation MathML at query time
+(latex2mathml) and routed onto the same TED+dense fusion path, so
+retrieval_mode reports ted_fused / ted_fused_eq. Because the corpus
+trees were built by a different engine (LaTeXML, which expanded
+paper-defined macros at ingest), the converted query matches
+approximately; query_conversion records that a conversion was applied.
+LaTeX that cannot be converted falls back to dense-only over statement
+embeddings (retrieval_mode='dense_only_stmt_fallback') with
+query_conversion.applied=false. Set ARXMCP_EQ_LATEX_ROUTE=false to
+restore the pre-m4 dense-only behaviour for LaTeX.
+```
+
+### 2. New response field — `query_conversion`
+
+Present **only** when a LaTeX→MathML conversion was attempted. Absent for
+MathML input, when the route is disabled, and when no equations table
+exists — absence means "no conversion was involved", which is distinct
+from `applied: false` ("we tried and could not").
+
+| Field | Type | Meaning |
+|---|---|---|
+| `query_conversion.applied` | bool | Whether the converted MathML was used for retrieval. |
+| `query_conversion.converter` | string | Exact pin, e.g. `latex2mathml==3.81.0` — the tree shape feeds a distance metric, so the build is provenance. |
+| `query_conversion.reason` | string | Only when `applied: false`: `unconvertible-latex` or `converter-output-not-mathml`. |
+
+**No `tools/list` impact** — response shape is not part of the tool
+schema hash. Only the description edit above forces the re-pin.
+
+### 3. `retrieval_mode` vocabulary is UNCHANGED
+
+Deliberately no new values. `ted_fused` / `ted_fused_eq` already name the
+method that runs, and a failed conversion genuinely is dense-only over
+statement embeddings. Retrieval METHOD and query PROVENANCE are two axes
+(trust-language-policy §6 rule 1), so the conversion rides its own
+namespaced field rather than multiplying the mode enum into
+converted/not-converted variants.
+
+One consequence worth the release note: **`dense_only_stmt_fallback` no
+longer means "LaTeX is unsupported"** — it now means "this query did not
+reach the TED lane", and `query_conversion` says why. A consumer that
+treated that token as "LaTeX was ignored" should read the new field.
+
+`malformed_mathml_fallback` keeps its narrow meaning — *caller-supplied*
+MathML that failed to parse. A failed LaTeX conversion never emits it.
+
+### 4. Agent-facing note for the tool-selection playbook
+
+For `agent-platform-m4` (#73):
+
+> `find_equation` now accepts LaTeX directly and searches the equation
+> index with it — you no longer need to hand-write MathML to get
+> structural matching. Check `query_conversion.applied`: when false, the
+> results came from statement-embedding similarity rather than equation
+> structure, so treat them as weaker. Matching is approximate for
+> equations built on paper-defined macros, because the converter does
+> not expand `\newcommand` the way the corpus ingest did.

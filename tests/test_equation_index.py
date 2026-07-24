@@ -900,3 +900,133 @@ class TestEquationHit:
         assert h.cosine_score == 0.5
         assert h.ted_norm == 0.1
         assert h.final_score == 0.7
+
+
+# ===========================================================================
+# retrieval-unlocks-m4 — TED-work bounds (DoS guards)
+# ===========================================================================
+
+
+class _StubCand:
+    """Minimal stand-in for a dense candidate row."""
+
+    def __init__(self, i: int, tree_json: str | None) -> None:
+        self.equation_id = f"eq{i}"
+        self.paper_id = "p"
+        self.parent_chunk_id = f"c{i}"
+        self.cosine_score = 0.5
+        self.mathml_tree_json = tree_json
+
+
+class _StubIndex(EquationIndex):
+    """EquationIndex whose candidate set is injected, so the query()
+    guard logic can be exercised without LanceDB."""
+
+    def __init__(self, cand_trees: list[str | None]) -> None:
+        self._equations = object()  # non-None => available
+        self._chunks = None
+        self._alpha = 0.5
+        self._ann_cap = 200
+        self.last_retrieval_mode = "ted_fused"
+        self._cands = [_StubCand(i, tj) for i, tj in enumerate(cand_trees)]
+
+    def _dense_candidates(self, query_vec):  # noqa: ANN001
+        return self._cands
+
+
+def _small_tree_json() -> str:
+    return tree_to_json(
+        parse_mathml_to_tree("<math><mrow><mi>x</mi><mo>+</mo><mi>y</mi></mrow></math>")
+    )
+
+
+def _mathml_of_size(n_terms: int) -> str:
+    """A MathML string whose parsed tree has many nodes (n_terms mi's)."""
+    inner = "".join(f"<mi>x{i}</mi>" for i in range(n_terms))
+    return f"<math><mrow>{inner}</mrow></math>"
+
+
+class TestTedWorkBounds:
+    """The DoS guards: a large query tree must not run an unbounded TED
+    scan on the event loop. All three degrade to the honest empty-list /
+    cosine-only paths rather than raising or stalling."""
+
+    def test_oversized_query_tree_returns_empty(self):
+        """Guard 1: a query tree past MAX_QUERY_TREE_NODES skips TED
+        entirely (→ handler dense fallback), before any candidate TED."""
+        from server.retrieval.equations import MAX_QUERY_TREE_NODES
+
+        big = _mathml_of_size(MAX_QUERY_TREE_NODES + 100)
+        idx = _StubIndex([_small_tree_json() for _ in range(5)])
+        assert tree_size(parse_mathml_to_tree(big)) > MAX_QUERY_TREE_NODES
+        assert idx.query(big, None, 10) == []
+
+    def test_oversized_query_never_runs_a_single_ted(self, monkeypatch):
+        """The guard must fire BEFORE the per-candidate TED loop — proven
+        by making normalized_ted explode if ever called."""
+        import server.retrieval.equations as eqmod
+        from server.retrieval.equations import MAX_QUERY_TREE_NODES
+
+        def _boom(*a, **k):
+            raise AssertionError("normalized_ted must not run for a capped query")
+
+        monkeypatch.setattr(eqmod, "normalized_ted", _boom)
+        idx = _StubIndex([_small_tree_json() for _ in range(5)])
+        assert idx.query(_mathml_of_size(MAX_QUERY_TREE_NODES + 50), None, 10) == []
+
+    def test_per_pair_cap_skips_expensive_pairs_to_cosine(self):
+        """Guard 2: a mid-size query whose every pair exceeds
+        MAX_TED_PAIR_PRODUCT gets no real TED → any_tree_seen False →
+        empty list (honest dense fallback), not a fake ted_fused."""
+        from server.retrieval.equations import MAX_TED_PAIR_PRODUCT
+
+        # query ~= 300 nodes, candidates ~= 300 nodes -> product ~90k >> cap
+        big_cand = tree_to_json(parse_mathml_to_tree(_mathml_of_size(150)))
+        idx = _StubIndex([big_cand for _ in range(20)])
+        q = _mathml_of_size(150)
+        qn = tree_size(parse_mathml_to_tree(q))
+        cn = tree_size(parse_mathml_to_tree(_mathml_of_size(150)))
+        assert qn * cn > MAX_TED_PAIR_PRODUCT
+        assert idx.query(q, None, 10) == []
+
+    def test_typical_query_still_runs_full_ted(self):
+        """The guards must NOT touch normal retrieval: a small query
+        against small candidates returns scored hits."""
+        idx = _StubIndex([_small_tree_json() for _ in range(10)])
+        hits = idx.query(
+            "<math><mrow><mi>x</mi><mo>+</mo><mi>y</mi></mrow></math>", None, 10
+        )
+        assert len(hits) == 10
+        # at least one real TED ran (an exact match scores ted_norm 0)
+        assert any(h.ted_norm == 0.0 for h in hits)
+
+    def test_budget_bounds_many_midsize_candidates(self):
+        """Guard 3: even under the per-pair cap, a flood of candidates
+        just under it stops accumulating TED work at the budget, so the
+        scan cannot run 200 near-cap pairs."""
+        import server.retrieval.equations as eqmod
+        from server.retrieval.equations import (
+            MAX_TED_PAIR_PRODUCT,
+            TED_WORK_BUDGET,
+        )
+        from server.retrieval.equations import normalized_ted as real_ted
+
+        calls = {"n": 0}
+
+        def _counting(a, b):
+            calls["n"] += 1
+            return real_ted(a, b)
+
+        # candidates sized so each pair is just under the per-pair cap.
+        cand = tree_to_json(parse_mathml_to_tree(_mathml_of_size(40)))
+        idx = _StubIndex([cand for _ in range(200)])
+        q = _mathml_of_size(20)
+        import pytest as _pytest
+        with _pytest.MonkeyPatch.context() as mp:
+            mp.setattr(eqmod, "normalized_ted", _counting)
+            idx.query(q, None, 10)
+        qn = tree_size(parse_mathml_to_tree(q))
+        cn = tree_size(parse_mathml_to_tree(_mathml_of_size(40)))
+        if qn * cn <= MAX_TED_PAIR_PRODUCT:
+            # per-pair allows these; the budget must still cap the count
+            assert calls["n"] <= TED_WORK_BUDGET // (qn * cn) + 1

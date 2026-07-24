@@ -38,7 +38,11 @@ from ingest.schema import (
     EQUATIONS_TABLE_NAME,
     LANCE_STORAGE_OPTIONS,
 )
-from server.retrieval.equations import parse_mathml_to_tree, tree_to_json
+from server.retrieval.equations import (
+    MATHML_TREE_NORMALIZER_VERSION,
+    parse_mathml_to_tree,
+    tree_to_json,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +98,16 @@ def index_equation_trees(lancedb_path: str | Path) -> dict[str, int]:
     if arrow.num_rows == 0:
         return counts
 
+    # retrieval-unlocks-m4: stamp the normalizer version into the ops log.
+    # Stored trees are only comparable to a query tree built by the SAME
+    # normalizer, and nothing in the schema records which one wrote them —
+    # this line is the audit trail for "was this table indexed before or
+    # after the m4 canonicalization?".
+    logger.info(
+        "indexing equation trees with normalizer v%d (%d rows)",
+        MATHML_TREE_NORMALIZER_VERSION,
+        arrow.num_rows,
+    )
     rows = arrow.to_pylist()
     new_rows: list[dict[str, Any]] = []
     for row in rows:
