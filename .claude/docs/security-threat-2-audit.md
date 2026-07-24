@@ -35,7 +35,7 @@
 | `find_lemma_by_name` | `matches[].display_name`, `matches[].theorem_name` | ✅ wrapped | both FTS5 path and in-memory fallback |
 | `find_equation` | (none at v1 — returns `chunk_id` / `score` / `paper_id` only) | ⏳ deferred — E10_S03 | when E10_S03 wires equation atom body text, add `wrap_retrieved_text(..., kind="equation")` |
 | `get_paper` | `paper.title` / `paper.abstract` / `paper.authors[]` (hydrated from the per-notebook metadata store) | ✅ wrapped | paper-metadata-m2 — sanitize pre-cap, wrap post-cap in `server/handlers/paper.py` (get_chunk ordering discipline); un-hydrated fallback returns NULLs (nothing to wrap); integration tests: `tests/test_tools_all.py::TestGetPaperHydrated` |
-| `cite_neighbors` | `neighbors[].abstract` (v1 stub returns `neighbors: []`) | ⏳ deferred — E09 wiring | when the Kùzu wiring lands and neighbors carry abstracts, wrap them |
+| `cite_neighbors` | (none — `neighbors[]` carry `chunk_id`/`paper_id`/`edge_kind`/`hop_distance`/`source`/`confidence` only) | ⏳ N/A — no paper-derived text | wired since verification-feedback-m1, but `CitationNeighbor` (`server/graph_types.py`) has no `abstract`/`title` field to wrap; re-arm if a future milestone adds one |
 
 **Wrapping covers 5 of the 7 retrieval tools** (v1 shipped 4; paper-metadata-m2
 graduated `get_paper` — its tripwire flipped to the positive guard
@@ -66,9 +66,11 @@ safe = wrap_retrieved_text(
 - `sanitize_retrieved_text(text: str | None) -> str`
 
 **Empty / None handling:** both helpers return `""` on empty / None input.
-The wrapper is a no-op on missing content — matches `get_paper`'s
+The wrapper is a no-op on missing content — e.g. `get_paper`'s
 un-hydrated fallback (NULL identity fields when the metadata store has no
-usable row) and `cite_neighbors` (empty stub).
+usable row). `cite_neighbors` needs no wrapper for a different reason: its
+`neighbors[]` carry only identifiers and scalars, so there is no
+paper-derived prose to wrap.
 
 ---
 
@@ -205,7 +207,7 @@ prompt-cache discipline is not affected.
 
 | When | What | Why deferred |
 |---|---|---|
-| E09 wiring lands | Wrap `neighbors[].abstract` in `cite_neighbors` | v1 stub returns empty list — no content to wrap today |
+| ~~E09 wiring lands~~ ✅ LANDED (verification-feedback-m1) — re-arm only if an `abstract`/`title` field is added | Wrap `neighbors[].abstract` in `cite_neighbors` | wiring landed, but `CitationNeighbor` carries no `abstract`/`title` — still no paper-derived text to wrap |
 | E10_S03 | Wrap equation atom body text in `find_equation` (kind=`equation`) | v1 returns only chunk_id + score |
 | ~~E11 (metadata backfill)~~ ✅ DONE — paper-metadata-m2 | Wrap `paper.abstract` (and `title` if treated as untrusted) in `get_paper` | shipped: title, abstract and each `authors[]` entry wrapped when a hydrated store row exists |
 

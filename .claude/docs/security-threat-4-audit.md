@@ -111,7 +111,7 @@ Every return-chunk-or-content tool now calls `enforce_byte_cap`.
 | `get_definitions` | ✅ (E13_S04) | Paginated at 100 items; cap defensive |
 | `find_lemma_by_name` | ✅ (E13_S04b) | v1 returns lightweight match rows; cap defensive against future chunk-body context expansion |
 | `get_paper` | ✅ (E13_S04b) | v1 returns metadata with abstract=NULL; cap forward-compat for E11/E12 metadata table (3000+ author lists) |
-| `cite_neighbors` | ✅ (E13_S04b) | v1 stub returns empty neighbor list; cap forward-compat for E09 wire-up |
+| `cite_neighbors` | ✅ (E13_S04b) | wired since verification-feedback-m1; `_cap()` now trims real `neighbors[]` rows (no longer forward-compat) |
 
 Each newly-covered handler defines a private `_cap()` helper that calls
 into the `server.tools` byte-cap infrastructure. The E13_S04b adversary

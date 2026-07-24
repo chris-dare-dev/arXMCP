@@ -59,7 +59,7 @@ this audit's test surface before merging.
 
 | # | Tool | Identifier arg | Validation today | Test coverage | Status |
 |---|---|---|---|---|---|
-| 1 | `search_papers` | `filters` (dict; accepted-but-ignored) | none | — | KNOWN GAP (see §Known gaps) |
+| 1 | `search_papers` | `filters.paper_id` (str/list) + `filters.notebook` | per-element `is_valid_paper_id` + single-quote escape (search.py `_build_paper_id_predicate`); notebook slug validated before path use | `tests/test_search_filter.py` (incl. `textbook:../etc/passwd`) | ✅ (see §Known gaps → closed) |
 | 2 | `get_chunk` | `chunk_id` | in-body `is_valid_chunk_id` (chunk.py:39-43) | 6 cases | ✅ |
 | 3 | `find_equation` | (none — `latex_or_mathml` is Threat 3 scope) | n/a | n/a | OUT OF SCOPE |
 | 4 | `get_definitions` | `paper_id` | in-body `is_valid_paper_id` (definitions.py:73-78) | 3 cases | ✅ |
@@ -69,9 +69,13 @@ this audit's test surface before merging.
 
 **Pre-E13_S01 state:** `cite_neighbors` accepted any `chunk_id`
 and echoed it straight into the response envelope without
-validation. The handler is a v1 stub but `server/graph_queries.py`
-is real and will be wired soon; landing the guard now ensures
-the future Kùzu-graph call cannot receive a malformed identifier.
+validation. When this audit ran, the handler was a v1 stub over
+the already-real `server/graph_queries.py`; landing the guard
+ahead of the wiring ensured the eventual Kùzu-graph call could
+not receive a malformed identifier. **Update (2026-07-24):** the
+handler has since been wired (verification-feedback-m1,
+`server/handlers/citations.py`), so that guard now fronts the
+live graph query rather than a stub.
 
 ## Adversarial input bank
 
@@ -129,20 +133,34 @@ is a deferred Tier-6+ task — out of E13_S01 budget. See
 
 ## Known gaps
 
-### `search_papers.filters` (deferred — E07_S04 dependency)
+### `search_papers.filters` — CLOSED (was deferred to E07_S04)
 
-Today the `filters` arg on `search_papers` is `dict[str, Any]`
-and is **accepted but discarded** (the handler records a warning
-under `filter_warnings`). A `paper_id`-shaped value inside
-`filters` never reaches the filesystem in v1.
+**Update (2026-07-24): this gap is closed.** The `filters` arg is
+no longer accepted-but-discarded. `filters.paper_id` (str or list)
+is now threaded into a LanceDB `paper_id IN (...)`
+`.where(prefilter=True)` predicate (proof-verify-handler-wiring-m1),
+and `filters.source_kind` / `filters.notebook` are honored too.
 
-When E07_S04 wires real filter execution, the matching audit
-extension MUST land in the same PR:
+The audit extension this section demanded is satisfied:
 
-- Validate every nested `paper_id` value through
-  `is_valid_paper_id` before any LanceDB query.
-- Extend `tests/security/test_path_traversal.py` to cover the
-  `search_papers(filters={"paper_id": <bad>})` path.
+- Every nested `paper_id` value is validated through
+  `is_valid_paper_id` before any LanceDB query, with a
+  defense-in-depth single-quote escape
+  (`server/handlers/search.py::_build_paper_id_predicate` +
+  `_escape_paper_id_literal`). The `notebook` slug is likewise
+  validated before any path use (m2 FM-4).
+- Path-traversal + SQL-injection coverage landed in
+  `tests/test_search_filter.py` (co-located with the feature rather
+  than in `tests/security/test_path_traversal.py`): a literal
+  `textbook:../etc/passwd` case
+  (`test_textbook_path_traversal_rejected`), regex-whitelist
+  injection rejection (`test_injection_attempt_rejected_by_regex`),
+  and the quote-escape defense
+  (`test_escape_function_doubles_single_quotes`).
+
+`filters.include_kinds=['proof']` (retrieval-unlocks-m2) routes the
+query onto a different embedding column — it is not an identifier or
+path, so it is outside Threat-1 scope.
 
 ### `find_equation` — out of Threat-1 scope
 
@@ -233,7 +251,7 @@ The four deferrals tracked from this audit:
 
 | Deferral | Tracked at | Status |
 |---|---|---|
-| `search_papers.filters` paper_id validation | E07_S04 (when real filter execution lands) | filed |
+| `search_papers.filters` paper_id validation | proof-verify-handler-wiring-m1 | ✅ closed (validated + tested in `tests/test_search_filter.py`) |
 | Pydantic `pattern=` migration | this audit's "Migration plan" above | needs roadmap entry |
 | `max_length` caps | this audit's "Migration plan" above | needs roadmap entry |
 | `McpError(INVALID_PARAMS)` wire-level wrap | this audit's "Migration plan" above | needs roadmap entry |
