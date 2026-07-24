@@ -217,6 +217,7 @@ items:
 
   - id: retrieval-unlocks-m2
     kind: milestone
+    status: done
     title: "Opt-in proof-kind search over search_papers"
     summary: "search_papers accepts filters={'include_kinds': ['proof']} and routes to the warmed embedding_proof ANN column via a per-notebook ANNPhase instance, returning honest retrieval_mode/excluded_kinds fields. The dual-column-RRF default for plain statement queries stays OFF; this ships as a versioned, ungated opt-in contract event in the W1 batch."
     parent: retrieval-unlocks-e1
@@ -235,6 +236,7 @@ items:
 
   - id: retrieval-unlocks-t-include-kinds-filter
     kind: task
+    status: done
     title: "Extend filters dict to accept include_kinds=['proof']"
     parent: retrieval-unlocks-m2
     lane: now
@@ -249,6 +251,7 @@ items:
 
   - id: retrieval-unlocks-t-per-notebook-ann-phase
     kind: task
+    status: done
     title: "Give proof-column queries a per-notebook ANNPhase instance"
     parent: retrieval-unlocks-m2
     lane: now
@@ -263,6 +266,7 @@ items:
 
   - id: retrieval-unlocks-t-honest-retrieval-mode-proof
     kind: task
+    status: done
     title: "Report honest retrieval_mode/excluded_kinds for the opt-in proof route"
     parent: retrieval-unlocks-m2
     lane: now
@@ -276,6 +280,7 @@ items:
 
   - id: retrieval-unlocks-t-w1-schema-delta-search
     kind: task
+    status: done
     title: "Stage search_papers filters-description delta for the W1 batch"
     parent: retrieval-unlocks-m2
     lane: now
