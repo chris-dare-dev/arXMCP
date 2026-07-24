@@ -307,6 +307,7 @@ items:
 
   - id: retrieval-unlocks-m4
     kind: milestone
+    status: done
     title: "find_equation routes LaTeX input onto the TED+dense fusion lane"
     summary: "find_equation converts LaTeX to presentation MathML at query time via pinned latex2mathml, normalizes through the existing parse_mathml_to_tree path, and runs the established TED+dense fusion instead of always falling back to dense_only_stmt_fallback. The dense fallback stays as the failure path; retrieval_mode reports the real route honestly. Ships gated on the equations-fixture parity check."
     parent: retrieval-unlocks-e2
@@ -324,6 +325,7 @@ items:
 
   - id: retrieval-unlocks-t-pin-latex2mathml
     kind: task
+    status: done
     title: "Pin latex2mathml as a new dependency"
     parent: retrieval-unlocks-m4
     lane: now
@@ -337,6 +339,7 @@ items:
 
   - id: retrieval-unlocks-t-query-time-latex-conversion
     kind: task
+    status: done
     title: "Convert LaTeX to presentation MathML at query time and normalize"
     parent: retrieval-unlocks-m4
     lane: now
@@ -350,6 +353,7 @@ items:
 
   - id: retrieval-unlocks-t-equations-fixture-parity
     kind: task
+    status: done
     title: "Run the equations-fixture parity check (latex2mathml vs stored LaTeXML trees)"
     parent: retrieval-unlocks-m4
     lane: now
@@ -363,6 +367,7 @@ items:
 
   - id: retrieval-unlocks-t-honest-retrieval-mode-eq
     kind: task
+    status: done
     title: "Report honest retrieval_mode for the TED-fused LaTeX route"
     parent: retrieval-unlocks-m4
     lane: now
@@ -376,6 +381,7 @@ items:
 
   - id: retrieval-unlocks-t-w1-schema-delta-eq
     kind: task
+    status: done
     title: "Stage find_equation description delta for the W1 batch"
     parent: retrieval-unlocks-m4
     lane: now
