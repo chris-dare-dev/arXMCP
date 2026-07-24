@@ -32,6 +32,8 @@ from server.config import Config
 from server.handlers.lean_verify import (
     MAX_IMPORT_LINE_LEN,
     _build_command,
+    _decode_token,
+    _encode_token,
     _normalize_position,
     _normalize_response,
     handle_lean_verify,
@@ -77,11 +79,16 @@ class _FakeLeanRepl:
         self,
         responses: list[dict[str, Any]] | None = None,
         raise_with: Exception | None = None,
+        generation: str = "fakegen",
     ) -> None:
         self._responses = list(responses or [])
         self._raise_with = raise_with
         self.commands: list[dict[str, Any]] = []
         self.closed = False
+        # lean-verify-continuation-m1: the handler namespaces continuation
+        # tokens with LeanRepl.generation. A distinct value per instance
+        # lets the respawn tests exercise the expired-token path.
+        self.generation = generation
 
     async def query(self, command: dict[str, Any]) -> dict[str, Any]:
         self.commands.append(command)
@@ -181,7 +188,7 @@ class TestToolRegistration:
         DROPPED the truncated_for_license response flag as the 300-char
         license-truncation gate was removed; lean_verify result shape once
         more unchanged)."""
-        assert TOOL_SCHEMA_VERSION == 19
+        assert TOOL_SCHEMA_VERSION == 20
 
         schema_path = (
             Path(__file__).parent.parent
@@ -241,7 +248,7 @@ class TestBuildCommand:
 
 class TestNormalizeResponse:
     def test_clean_compile_status_ok(self):
-        out = _normalize_response({"env": 0}, "full")
+        out = _normalize_response({"env": 0}, "full", repl_generation="g")
         assert out["status"] == "ok"
         assert out["compilation_success"] is True
         assert out["messages"] == []
@@ -265,7 +272,7 @@ class TestNormalizeResponse:
                 }
             ],
         }
-        out = _normalize_response(repl_resp, "full")
+        out = _normalize_response(repl_resp, "full", repl_generation="g")
         assert out["status"] == "error"
         assert out["compilation_success"] is False
         assert out["messages"] == [
@@ -290,7 +297,7 @@ class TestNormalizeResponse:
                 }
             ],
         }
-        out = _normalize_response(repl_resp, "full")
+        out = _normalize_response(repl_resp, "full", repl_generation="g")
         assert out["status"] == "sorry"
         assert out["compilation_success"] is False
         assert out["goals_remaining"] == ["n : Nat\n⊢ n = n"]
@@ -299,14 +306,22 @@ class TestNormalizeResponse:
             {
                 "goal": "n : Nat\n⊢ n = n",
                 "position": {"line": 1, "column": 30},
+                # lean-verify-continuation-m1: proofState surfaced as an
+                # opaque token namespaced by the REPL generation ("g").
+                "proof_state_id": "g:0",
             }
         ]
+        # The first sorry's proof state is also mirrored at top level, and
+        # the environment id is surfaced as a continuation token.
+        assert out["proof_state_id"] == "g:0"
+        assert out["env"] == "g:0"
+        assert out["continuation_status"] == "not-applicable"
 
     def test_syntax_only_clean_returns_compilation_success_null(self):
         """syntax_only mode short-circuits before kernel verification,
         so a clean elaboration carries compilation_success=null (NOT
         True) — kernel acceptance is not defined."""
-        out = _normalize_response({"env": 0}, "syntax_only")
+        out = _normalize_response({"env": 0}, "syntax_only", repl_generation="g")
         assert out["status"] == "ok"
         assert out["compilation_success"] is None
         assert out["mode"] == "syntax_only"
@@ -319,7 +334,7 @@ class TestNormalizeResponse:
             "messages": [{"severity": "error", "data": "bad"}],
             "sorries": [{"goal": "g"}],
         }
-        out = _normalize_response(repl_resp, "full")
+        out = _normalize_response(repl_resp, "full", repl_generation="g")
         assert out["messages"][0]["position"] == {"line": 0, "column": 0}
         assert out["sorry_goals"][0]["position"] == {"line": 0, "column": 0}
 
@@ -340,7 +355,7 @@ class TestNormalizeResponse:
             ],
             "sorries": [{"pos": {"line": 0, "column": 0}, "goal": "g"}],
         }
-        out = _normalize_response(repl_resp, "full")
+        out = _normalize_response(repl_resp, "full", repl_generation="g")
         assert out["status"] == "error"
 
 
@@ -429,6 +444,376 @@ class TestHandlerHappyPaths:
         )
         sent = repl.commands[0]["cmd"]
         assert sent.startswith("set_option maxHeartbeats 5000 in ")
+
+
+# ===========================================================================
+# Tier 1e — Continuation tokens: env reuse + proof stepping
+#           (lean-verify-continuation-m1)
+# ===========================================================================
+
+
+def _repl_with(responses, *, generation="fakegen"):
+    """Attach fake resources with a fake REPL of the given generation."""
+    repl = _FakeLeanRepl(responses=responses, generation=generation)
+    _attach_fake_resources(repl)
+    return repl
+
+
+class TestContinuationTokenCodec:
+    """Unit tests for the opaque generation-scoped token codec."""
+
+    def test_encode_roundtrips_through_decode(self):
+        tok = _encode_token("abc123", 7)
+        assert tok == "abc123:7"
+        assert _decode_token(tok, "abc123") == ("resumed", 7)
+
+    def test_generation_mismatch_is_expired(self):
+        # A token minted by a prior REPL instance must be rejected, never
+        # reused against a colliding env id in the respawned process.
+        assert _decode_token("oldgen:0", "newgen") == ("expired", None)
+
+    def test_missing_colon_is_malformed(self):
+        assert _decode_token("nocolon", "g") == ("malformed", None)
+
+    def test_empty_generation_is_malformed(self):
+        assert _decode_token(":5", "g") == ("malformed", None)
+
+    def test_non_integer_index_is_malformed(self):
+        assert _decode_token("g:notanint", "g") == ("malformed", None)
+
+    def test_negative_index_is_malformed(self):
+        assert _decode_token("g:-1", "g") == ("malformed", None)
+
+    def test_non_string_token_is_malformed(self):
+        assert _decode_token(123, "g") == ("malformed", None)
+        assert _decode_token(None, "g") == ("malformed", None)
+
+
+class TestEnvReuse:
+    """mode=full/syntax_only env continuation."""
+
+    def teardown_method(self):
+        reset_resources_for_tests()
+
+    def test_env_token_forwarded_and_new_token_returned(self):
+        repl = _repl_with([{"env": 5}], generation="genA")
+        result = _run(
+            handle_lean_verify(
+                snippet="theorem t : True := trivial", env="genA:0"
+            )
+        )
+        # The decoded raw env id (0) is forwarded to the REPL...
+        assert repl.commands == [
+            {"cmd": "theorem t : True := trivial", "env": 0}
+        ]
+        # ...and the produced env (5) comes back as a generation-scoped token.
+        assert result["env"] == "genA:5"
+        assert result["continuation_status"] == "resumed"
+        assert result["status"] == "ok"
+
+    def test_no_env_is_not_applicable(self):
+        repl = _repl_with([{"env": 0}], generation="genA")
+        result = _run(handle_lean_verify(snippet="theorem t : True := trivial"))
+        assert repl.commands == [{"cmd": "theorem t : True := trivial"}]
+        assert result["continuation_status"] == "not-applicable"
+        assert result["env"] == "genA:0"
+
+    def test_expired_env_fails_closed_without_querying(self):
+        # Token generation != live REPL generation -> the REPL was respawned
+        # since the token was minted. The call must NOT run.
+        repl = _repl_with([{"env": 9}], generation="genNEW")
+        result = _run(
+            handle_lean_verify(
+                snippet="theorem t : True := trivial", env="genOLD:0"
+            )
+        )
+        assert repl.commands == []  # never queried
+        assert result["status"] == "invalid-input"
+        assert result["continuation_status"] == "expired"
+        assert result["compilation_success"] is False
+
+    def test_malformed_env_fails_closed_without_querying(self):
+        repl = _repl_with([{"env": 9}], generation="genA")
+        result = _run(
+            handle_lean_verify(
+                snippet="theorem t : True := trivial", env="not-a-token"
+            )
+        )
+        assert repl.commands == []
+        assert result["status"] == "invalid-input"
+        assert result["continuation_status"] == "malformed"
+
+    def test_unknown_id_message_shape_fails_closed(self):
+        # THE fail-open regression guard. The REPL's {"message": ...} reply
+        # for an unknown env carries NEITHER messages NOR sorries, so the
+        # pre-m5 normalizer reported it as a CLEAN COMPILE (status "ok").
+        # It must be invalid-input.
+        repl = _repl_with(
+            [{"message": "Unknown environment."}], generation="genA"
+        )
+        result = _run(
+            handle_lean_verify(
+                snippet="theorem t : True := trivial", env="genA:3"
+            )
+        )
+        # It WAS forwarded (the generation matched)...
+        assert repl.commands == [
+            {"cmd": "theorem t : True := trivial", "env": 3}
+        ]
+        # ...but the unknown-id reply failed closed.
+        assert result["status"] == "invalid-input"
+        assert result["continuation_status"] == "unknown-id"
+        assert result["compilation_success"] is False
+
+    def test_imports_with_env_fails_closed(self):
+        # m5 critique F3: imports cannot apply to a continued env (Lean
+        # rejects a mid-session import). Reject up front, don't query.
+        repl = _repl_with([{"env": 1}], generation="genA")
+        result = _run(
+            handle_lean_verify(
+                snippet="theorem t : True := trivial",
+                env="genA:0",
+                imports=["Mathlib"],
+            )
+        )
+        assert repl.commands == []
+        assert result["status"] == "invalid-input"
+        assert result["continuation_status"] == "malformed"
+
+
+class TestTacticStep:
+    """mode=tactic_step proof stepping."""
+
+    def teardown_method(self):
+        reset_resources_for_tests()
+
+    def test_completed_step_is_ok_with_null_compilation_success(self):
+        repl = _repl_with(
+            [{"proofStatus": "Completed", "proofState": 1, "goals": []}],
+            generation="genA",
+        )
+        result = _run(
+            handle_lean_verify(
+                snippet="simp", mode="tactic_step", proof_state="genA:0"
+            )
+        )
+        assert repl.commands == [{"tactic": "simp", "proofState": 0}]
+        assert result["status"] == "ok"
+        assert result["goals_remaining"] == []
+        assert result["proof_state_id"] == "genA:1"
+        # A single tactic step is NOT a full-declaration kernel check.
+        assert result["compilation_success"] is None
+        assert result["env"] is None
+        assert result["continuation_status"] == "resumed"
+
+    def test_remaining_goals_is_incomplete(self):
+        _repl_with(
+            [
+                {
+                    "proofStatus": "Incomplete",
+                    "proofState": 2,
+                    "goals": ["⊢ P", "⊢ Q"],
+                }
+            ],
+            generation="genA",
+        )
+        result = _run(
+            handle_lean_verify(
+                snippet="constructor",
+                mode="tactic_step",
+                proof_state="genA:0",
+            )
+        )
+        assert result["status"] == "incomplete"
+        assert result["goals_remaining"] == ["⊢ P", "⊢ Q"]
+        assert result["proof_state_id"] == "genA:2"
+        assert result["proof_state"] == "⊢ P"
+        assert result["compilation_success"] is None
+
+    def test_tactic_error_is_error(self):
+        _repl_with(
+            [
+                {
+                    "messages": [
+                        {
+                            "severity": "error",
+                            "pos": {"line": 0, "column": 0},
+                            "data": "unknown tactic",
+                        }
+                    ]
+                }
+            ],
+            generation="genA",
+        )
+        result = _run(
+            handle_lean_verify(
+                snippet="bogus_tac", mode="tactic_step", proof_state="genA:0"
+            )
+        )
+        assert result["status"] == "error"
+
+    def test_missing_proof_state_fails_closed(self):
+        repl = _repl_with([{"proofStatus": "Completed", "goals": []}])
+        result = _run(handle_lean_verify(snippet="simp", mode="tactic_step"))
+        assert repl.commands == []
+        assert result["status"] == "invalid-input"
+        assert result["continuation_status"] == "malformed"
+
+    def test_expired_proof_state_fails_closed(self):
+        repl = _repl_with(
+            [{"proofStatus": "Completed", "goals": []}], generation="genNEW"
+        )
+        result = _run(
+            handle_lean_verify(
+                snippet="simp", mode="tactic_step", proof_state="genOLD:0"
+            )
+        )
+        assert repl.commands == []
+        assert result["status"] == "invalid-input"
+        assert result["continuation_status"] == "expired"
+
+    def test_thrown_lean_error_is_error_not_invalid_input(self):
+        # m5 critique F1: a FAILED tactic throws a bare
+        # {"message": "Lean error:\n..."} — a real tactic error, NOT a
+        # continuation-token problem. status=error, token still "resumed".
+        _repl_with(
+            [{"message": "Lean error:\nType mismatch\n  42\nhas type Nat"}],
+            generation="genA",
+        )
+        result = _run(
+            handle_lean_verify(
+                snippet="exact (42 : Nat)",
+                mode="tactic_step",
+                proof_state="genA:0",
+            )
+        )
+        assert result["status"] == "error"
+        assert result["continuation_status"] == "resumed"  # token WAS valid
+        assert result["compilation_success"] is False
+        assert "Type mismatch" in result["messages"][0]["text"]
+
+    def test_sorry_introducing_tactic_surfaces_frontier(self):
+        # m5 critique F2: a `sorry` tactic returns goals:[] + sorries:[...];
+        # the sorries frontier + its resumable proofState must surface.
+        _repl_with(
+            [
+                {
+                    "proofStatus": "Incomplete: contains sorry",
+                    "proofState": 2,
+                    "goals": [],
+                    "sorries": [{"proofState": 1, "goal": "⊢ True"}],
+                }
+            ],
+            generation="genA",
+        )
+        result = _run(
+            handle_lean_verify(
+                snippet="sorry", mode="tactic_step", proof_state="genA:0"
+            )
+        )
+        assert result["status"] == "incomplete"
+        assert result["sorry_goals"] == [
+            {
+                "goal": "⊢ True",
+                "position": {"line": 0, "column": 0},
+                "proof_state_id": "genA:1",
+            }
+        ]
+        assert result["proof_state"] == "⊢ True"
+        # top-level proof_state_id = the post-tactic state (2).
+        assert result["proof_state_id"] == "genA:2"
+
+    def test_env_in_tactic_step_fails_closed(self):
+        # m5 critique F5: env does not apply to tactic_step; reject it
+        # symmetric with proof_state rejection in full mode.
+        repl = _repl_with(
+            [{"proofStatus": "Completed", "goals": []}], generation="genA"
+        )
+        result = _run(
+            handle_lean_verify(
+                snippet="simp",
+                mode="tactic_step",
+                proof_state="genA:0",
+                env="genA:1",
+            )
+        )
+        assert repl.commands == []
+        assert result["status"] == "invalid-input"
+        assert result["continuation_status"] == "malformed"
+
+
+class TestModeCrossWiring:
+    """proof_state and env are mode-scoped; crossing them fails closed."""
+
+    def teardown_method(self):
+        reset_resources_for_tests()
+
+    def test_proof_state_rejected_in_full_mode(self):
+        # Even a well-formed, current-generation token is rejected when the
+        # mode does not accept it — the modes must not silently cross wires.
+        repl = _repl_with([{"env": 0}])
+        result = _run(
+            handle_lean_verify(
+                snippet="theorem t : True := trivial",
+                proof_state="fakegen:0",
+            )
+        )
+        assert repl.commands == []
+        assert result["status"] == "invalid-input"
+        assert result["continuation_status"] == "malformed"
+
+
+class TestContinuationSchemaConformance:
+    """The new envelope shapes conform to lean_verify_result.json v20."""
+
+    def teardown_method(self):
+        reset_resources_for_tests()
+
+    @staticmethod
+    def _validate(result):
+        from jsonschema import Draft7Validator
+
+        schema_path = (
+            Path(__file__).parent.parent
+            / "server"
+            / "schemas"
+            / "lean_verify_result.json"
+        )
+        with open(schema_path, encoding="utf-8") as f:
+            Draft7Validator(json.load(f)).validate(result)
+
+    def test_env_reuse_with_sorry_envelope_conforms(self):
+        _repl_with(
+            [{"env": 5, "sorries": [{"goal": "g", "proofState": 0}]}],
+            generation="genA",
+        )
+        result = _run(
+            handle_lean_verify(
+                snippet="theorem t : g := by sorry", env="genA:0"
+            )
+        )
+        self._validate(result)
+
+    def test_tactic_step_envelope_conforms(self):
+        _repl_with(
+            [{"proofStatus": "Completed", "proofState": 1, "goals": []}],
+            generation="genA",
+        )
+        result = _run(
+            handle_lean_verify(
+                snippet="simp", mode="tactic_step", proof_state="genA:0"
+            )
+        )
+        self._validate(result)
+
+    def test_invalid_input_envelope_conforms(self):
+        _repl_with([{"env": 0}], generation="genA")
+        result = _run(
+            handle_lean_verify(
+                snippet="theorem t : True := trivial", env="badtoken"
+            )
+        )
+        self._validate(result)
 
 
 class TestHandlerDisabled:
@@ -861,6 +1246,7 @@ class TestPositionClampsNegatives:
                 ]
             },
             "full",
+            repl_generation="g",
         )
         assert out["messages"][0]["position"] == {"line": 0, "column": 0}
 
@@ -882,6 +1268,7 @@ class TestNormalizeSeverityClamp:
                 ]
             },
             "full",
+            repl_generation="g",
         )
         assert out["messages"][0]["severity"] == "error"
         # ... AND status reflects the (clamped-to-error) severity.
@@ -903,6 +1290,7 @@ class TestNormalizeSeverityClamp:
                 "sorries": [{"pos": {"line": 0, "column": 0}, "goal": 42}],
             },
             "full",
+            repl_generation="g",
         )
         assert isinstance(out["messages"][0]["text"], str)
         assert "structured" in out["messages"][0]["text"]
@@ -1006,6 +1394,151 @@ class TestRealLeanRepl:
         assert result["status"] == "sorry"
         assert result["sorry_goals"], result
         assert result["proof_state"]
+
+    def test_real_env_reuse_carries_declarations(self):
+        """lean-verify-continuation-m1: a def elaborated in one call is
+        visible in a later call that continues from the returned env token
+        — the import-amortization primitive, on core Lean (no Mathlib)."""
+
+        async def _go():
+            repl = await self._setup_real_repl()
+            try:
+                first = await handle_lean_verify(
+                    snippet="def contFoo : Nat := 41"
+                )
+                second = await handle_lean_verify(
+                    snippet="theorem contUse : contFoo + 1 = 42 := rfl",
+                    env=first["env"],
+                )
+                # Control: WITHOUT the env, contFoo is not in scope.
+                third = await handle_lean_verify(
+                    snippet="theorem contBad : contFoo + 1 = 42 := rfl"
+                )
+                return first, second, third
+            finally:
+                await self._teardown(repl)
+
+        first, second, third = _run(_go())
+        assert first["status"] == "ok", first
+        assert first["env"] is not None
+        assert first["continuation_status"] == "not-applicable"
+        # Reusing the env makes contFoo visible -> the theorem checks.
+        assert second["status"] == "ok", second
+        assert second["continuation_status"] == "resumed"
+        # Without the env, contFoo is out of scope -> not ok.
+        assert third["status"] != "ok", third
+
+    def test_real_tactic_step_closes_sorry(self):
+        """A sorry's proof_state_id is advanced to closure by a tactic in a
+        follow-up tactic_step call."""
+
+        async def _go():
+            repl = await self._setup_real_repl()
+            try:
+                opened = await handle_lean_verify(
+                    snippet="theorem contStep : True := by sorry"
+                )
+                ps = opened["sorry_goals"][0]["proof_state_id"]
+                stepped = await handle_lean_verify(
+                    snippet="trivial", mode="tactic_step", proof_state=ps
+                )
+                return opened, stepped
+            finally:
+                await self._teardown(repl)
+
+        opened, stepped = _run(_go())
+        assert opened["status"] == "sorry", opened
+        assert opened["sorry_goals"][0]["proof_state_id"] is not None
+        assert stepped["status"] == "ok", stepped
+        assert stepped["goals_remaining"] == []
+        # A tactic step is never a full-declaration kernel verdict.
+        assert stepped["compilation_success"] is None
+
+    def test_real_expired_generation_fails_closed(self):
+        """A token whose generation does not match the live REPL is rejected
+        before any query (the cross-respawn guard)."""
+
+        async def _go():
+            repl = await self._setup_real_repl()
+            try:
+                return await handle_lean_verify(
+                    snippet="theorem x : True := trivial",
+                    env="deadbeefdeadbeef:0",
+                )
+            finally:
+                await self._teardown(repl)
+
+        result = _run(_go())
+        assert result["status"] == "invalid-input", result
+        assert result["continuation_status"] == "expired"
+
+    def test_real_unknown_env_id_fails_closed(self):
+        """A current-generation token pointing at a non-existent env id gets
+        the REPL's {"message": "Unknown environment."} reply, which MUST
+        fail closed (the fail-open regression guard, end to end)."""
+
+        async def _go():
+            repl = await self._setup_real_repl()
+            try:
+                bogus = f"{repl.generation}:999999"
+                return await handle_lean_verify(
+                    snippet="theorem x : True := trivial", env=bogus
+                )
+            finally:
+                await self._teardown(repl)
+
+        result = _run(_go())
+        assert result["status"] == "invalid-input", result
+        assert result["continuation_status"] == "unknown-id"
+        assert result["compilation_success"] is False
+
+    def test_real_failed_tactic_is_error_not_invalid_input(self):
+        """m5 F1: a real failed tactic (thrown 'Lean error:\\n...') is
+        status=error with the token still resumed — NOT mislabeled as a
+        bad continuation token."""
+
+        async def _go():
+            repl = await self._setup_real_repl()
+            try:
+                opened = await handle_lean_verify(
+                    snippet="theorem t : True := by sorry"
+                )
+                ps = opened["sorry_goals"][0]["proof_state_id"]
+                # 42 : Nat cannot close the goal `⊢ True` (Prop) -> throws.
+                return await handle_lean_verify(
+                    snippet="exact (42 : Nat)",
+                    mode="tactic_step",
+                    proof_state=ps,
+                )
+            finally:
+                await self._teardown(repl)
+
+        result = _run(_go())
+        assert result["status"] == "error", result
+        assert result["continuation_status"] == "resumed", result
+        assert result["compilation_success"] is False
+
+    def test_real_sorry_tactic_surfaces_frontier(self):
+        """m5 F2: stepping with `sorry` leaves a sorries frontier reachable
+        via sorry_goals[*].proof_state_id."""
+
+        async def _go():
+            repl = await self._setup_real_repl()
+            try:
+                opened = await handle_lean_verify(
+                    snippet="theorem t : True := by sorry"
+                )
+                ps = opened["sorry_goals"][0]["proof_state_id"]
+                return await handle_lean_verify(
+                    snippet="sorry", mode="tactic_step", proof_state=ps
+                )
+            finally:
+                await self._teardown(repl)
+
+        result = _run(_go())
+        assert result["status"] == "incomplete", result
+        assert result["sorry_goals"], result
+        assert result["sorry_goals"][0]["proof_state_id"] is not None
 
     @pytest.mark.skipif(
         sys.platform == "win32",

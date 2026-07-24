@@ -87,6 +87,68 @@ MAX_IMPORTS: int = 64
 
 
 # ---------------------------------------------------------------------------
+# Continuation-token codec (lean-verify-continuation-m1)
+# ---------------------------------------------------------------------------
+# The leanprover-community/repl ``env`` and ``proofState`` ids are integers
+# scoped to ONE subprocess instance. We NEVER expose the raw int: the tool
+# emits an opaque token ``"{generation}:{int}"`` where ``generation`` is the
+# per-spawn ``LeanRepl.generation`` (colon-free hex). On input the handler
+# splits the token and rejects — FAIL CLOSED — any token whose generation
+# does not match the live REPL (a token minted before a timeout-triggered
+# kill+respawn), so a stale id can never silently misbind onto a colliding
+# env id in the new process. It also rejects a fabricated / malformed token.
+
+
+def _encode_token(generation: str, n: int) -> str:
+    """Wrap a raw REPL env / proofState int in a generation-scoped token."""
+    return f"{generation}:{n}"
+
+
+def _decode_token(token: Any, current_generation: str) -> tuple[str, int | None]:
+    """Decode a continuation token against the live REPL generation.
+
+    Returns ``(disposition, value)`` where ``disposition`` is:
+    - ``"resumed"``  → ``value`` is the int to forward to the REPL;
+    - ``"expired"``  → the token is from a prior REPL instance (``value`` None);
+    - ``"malformed"``→ unparseable / fabricated (``value`` None).
+
+    The int is split off the RIGHT (``rpartition``) so a generation that ever
+    contained a colon would still round-trip; the current generation is
+    colon-free hex, but the parser does not depend on that.
+    """
+    if not isinstance(token, str):
+        return ("malformed", None)
+    gen, sep, num = token.rpartition(":")
+    if not sep or not gen:
+        return ("malformed", None)
+    try:
+        n = int(num)
+    except ValueError:
+        return ("malformed", None)
+    if n < 0:
+        return ("malformed", None)
+    if gen != current_generation:
+        return ("expired", None)
+    return ("resumed", n)
+
+
+def _continuation_reject_message(kind: str, disposition: str) -> str:
+    """Human-readable reason for a fail-closed continuation rejection."""
+    if disposition == "expired":
+        return (
+            f"The {kind} continuation token was minted by a previous Lean REPL "
+            "instance (the REPL is respawned after a per-query timeout). "
+            "Continuation tokens do not survive a respawn — re-run the setup "
+            "call (e.g. re-import) to obtain a fresh token before continuing."
+        )
+    return (
+        f"The {kind} continuation token is malformed. Pass back the opaque "
+        "token returned by a prior lean_verify call verbatim; do not "
+        "construct one."
+    )
+
+
+# ---------------------------------------------------------------------------
 # Progress notifications (verification-feedback-m4)
 # ---------------------------------------------------------------------------
 
@@ -244,27 +306,16 @@ def _normalize_position(pos: Any) -> dict[str, int]:
     return {"line": 0, "column": 0}
 
 
-def _normalize_response(resp: dict[str, Any], mode: str) -> dict[str, Any]:
-    """Project a ``LeanRepl.query`` response into the m3 schema shape.
+def _project_messages(raw_msgs: Any) -> list[dict[str, Any]]:
+    """Project REPL diagnostic rows into the schema ``messages`` shape.
 
-    REPL response keys are *optional* (a clean compile returns just
-    ``{"env": <int>}`` with no ``messages`` and no ``sorries``). Every
-    list-valued schema field defaults to ``[]`` — not ``null`` — so
-    the strict JSON Schema (``type: "array"``) holds on every path.
-
-    Derives ``status`` and ``compilation_success`` because the upstream
-    REPL emits neither — those are this handler's contract.
+    m3 critique F2: clamp severity to the schema enum (unknown values
+    default to "error" — the safer side; silent downgrade to "info" would
+    mask real diagnostics from a future REPL build) AND coerce ``data`` to
+    ``str`` so a structured upstream payload becomes a string rather than a
+    schema-violating slot. Shared by the cmd and tactic_step branches.
     """
-    raw_msgs = resp.get("messages") or []
-    raw_sorries = resp.get("sorries") or []
-
-    # m3 critique F2: clamp severity to the schema enum (unknown values
-    # default to "error" — the safer side; silent downgrade to "info"
-    # would mask real diagnostics from a future REPL build) AND coerce
-    # text / goal to ``str`` so a non-string upstream payload (a
-    # structured proof-state object — an active upstream RFC) becomes a
-    # string rather than a schema-violating slot.
-    messages = [
+    return [
         {
             "severity": (
                 m.get("severity")
@@ -274,22 +325,118 @@ def _normalize_response(resp: dict[str, Any], mode: str) -> dict[str, Any]:
             "position": _normalize_position(m.get("pos")),
             "text": str(m.get("data", "")),
         }
-        for m in raw_msgs
+        for m in (raw_msgs or [])
         if isinstance(m, dict)
     ]
-    sorry_goals = [
-        {
+
+
+def _project_sorries(
+    raw_sorries: Any, repl_generation: str
+) -> list[dict[str, Any]]:
+    """Project REPL ``sorries`` rows into the schema ``sorry_goals`` shape,
+    attaching a per-sorry ``proof_state_id`` continuation token when the REPL
+    supplied a ``proofState`` id. Shared by the cmd and tactic_step branches
+    (m5 critique F2 — tactic_step previously dropped the sorries frontier).
+    """
+    out: list[dict[str, Any]] = []
+    for s in raw_sorries or []:
+        if not isinstance(s, dict):
+            continue
+        row: dict[str, Any] = {
             "goal": str(s.get("goal", "")),
             "position": _normalize_position(s.get("pos")),
         }
-        for s in raw_sorries
-        if isinstance(s, dict)
-    ]
+        ps = s.get("proofState")
+        if isinstance(ps, int):
+            # Per-sorry continuation token so the tactician can target THIS
+            # sorry via mode=tactic_step.
+            row["proof_state_id"] = _encode_token(repl_generation, ps)
+        out.append(row)
+    return out
+
+
+#: The EXACT leanprover-community/repl replies for a stale/unknown env or
+#: proofState id (verified live). A bare top-level ``message`` matching one of
+#: these is a continuation-id rejection (invalid-input); any OTHER bare
+#: ``message`` (e.g. a thrown "Lean error:\n...") is a genuine kernel/tactic
+#: error, NOT a continuation problem (m5 critique F1).
+_UNKNOWN_ID_PREFIXES: tuple[str, ...] = (
+    "Unknown environment",
+    "Unknown proof state",
+)
+
+
+def _normalize_response(
+    resp: dict[str, Any],
+    mode: str,
+    *,
+    repl_generation: str,
+    resumed: bool = False,
+) -> dict[str, Any]:
+    """Project a ``LeanRepl.query`` response into the schema shape.
+
+    Handles THREE response shapes (lean-verify-continuation-m1):
+
+    1. ``{"message": <str>}`` — the REPL's "Unknown environment." /
+       "Unknown proof state." protocol error for a stale/unknown
+       continuation id. It carries NEITHER ``messages`` NOR ``sorries``,
+       so the pre-m5 path (both empty ⇒ status "ok") reported it as a
+       CLEAN COMPILE. Checked FIRST and failed closed — the primary
+       soundness fix of this milestone.
+    2. tactic_step — ``{"proofStatus", "proofState", "goals"}`` from a
+       ``{"tactic": ...}`` round-trip (see ``_normalize_tactic_step``).
+    3. cmd — ``{"env", "messages", "sorries"}`` from a ``{"cmd": ...}``
+       round-trip (the pre-m5 shape), now also surfacing the ``env`` token
+       and per-sorry ``proof_state_id`` tokens.
+
+    ``resumed`` records whether a valid continuation token was forwarded to
+    the REPL (⇒ ``continuation_status == "resumed"``); ``repl_generation``
+    stamps every token this call emits.
+    """
+    continuation_status = "resumed" if resumed else "not-applicable"
+
+    # Shape 1 — a bare top-level "message" (NEITHER a "messages" array NOR
+    # "env" / "sorries"). Two disjoint sub-cases, BOTH fail closed:
+    #   (a) the REPL's "Unknown environment." / "Unknown proof state." error
+    #       for a stale/unknown continuation id -> invalid-input (the primary
+    #       soundness fix: the pre-m5 path reported this as a CLEAN COMPILE);
+    #   (b) any OTHER thrown message — e.g. a failed tactic "Lean error:\n..."
+    #       (runProofStep catch, REPL/Main.lean) — a genuine kernel/tactic
+    #       ERROR, NOT a continuation problem (the token, if any, was valid).
+    #       m5 critique F1: routing (b) through the unknown-id path mislabeled
+    #       every failed tactic as a bad token and lied on the continuation
+    #       axis. Discriminated on the EXACT REPL strings (verified live).
+    raw_message = resp.get("message")
+    if isinstance(raw_message, str) and "env" not in resp:
+        if raw_message.strip().startswith(_UNKNOWN_ID_PREFIXES):
+            return _invalid_continuation_envelope(
+                mode,
+                continuation_status="unknown-id",
+                message=(
+                    f"Lean REPL rejected the continuation id: {raw_message} "
+                    "The env / proof_state token references a state that does "
+                    "not exist in the current REPL process."
+                ),
+            )
+        return _message_error_envelope(
+            mode, raw_message, continuation_status=continuation_status
+        )
+
+    # Shape 2 — tactic_step.
+    if mode == "tactic_step":
+        return _normalize_tactic_step(
+            resp,
+            continuation_status=continuation_status,
+            repl_generation=repl_generation,
+        )
+
+    # Shape 3 — cmd (full / syntax_only).
+    messages = _project_messages(resp.get("messages"))
+    sorry_goals = _project_sorries(resp.get("sorries"), repl_generation)
     goals_remaining = [s["goal"] for s in sorry_goals if s["goal"]]
 
     has_error = any(m["severity"] == "error" for m in messages)
     has_sorry = bool(sorry_goals)
-
     if has_error:
         status = "error"
     elif has_sorry:
@@ -298,13 +445,24 @@ def _normalize_response(resp: dict[str, Any], mode: str) -> dict[str, Any]:
         status = "ok"
 
     # syntax_only DID NOT run kernel verification — even a clean
-    # elaboration leaves "verification success" undefined. Surface this
-    # as null so the agent does not interpret a syntax-only pass as a
-    # full kernel acceptance.
+    # elaboration leaves "verification success" undefined. Surface this as
+    # null so the agent does not read a syntax-only pass as a full kernel
+    # acceptance.
     if mode == "syntax_only" and status == "ok":
         compilation_success: bool | None = None
     else:
         compilation_success = status == "ok"
+
+    env_raw = resp.get("env")
+    env_token = (
+        _encode_token(repl_generation, env_raw)
+        if isinstance(env_raw, int)
+        else None
+    )
+    first_ps_token = next(
+        (s["proof_state_id"] for s in sorry_goals if "proof_state_id" in s),
+        None,
+    )
 
     return {
         "status": status,
@@ -312,9 +470,83 @@ def _normalize_response(resp: dict[str, Any], mode: str) -> dict[str, Any]:
         "sorry_goals": sorry_goals,
         "goals_remaining": goals_remaining,
         "proof_state": goals_remaining[0] if goals_remaining else None,
+        "proof_state_id": first_ps_token,
         "compilation_success": compilation_success,
         "lean_status": "available",
         "mode": mode,
+        "env": env_token,
+        "continuation_status": continuation_status,
+    }
+
+
+def _normalize_tactic_step(
+    resp: dict[str, Any],
+    *,
+    continuation_status: str,
+    repl_generation: str,
+) -> dict[str, Any]:
+    """Project a ``{"tactic": ...}`` step response into the schema shape.
+
+    Response shape (measured): ``{"proofStatus": <str>, "proofState": <int>,
+    "goals": [<str>, ...]}`` plus optional ``sorries`` (a sorry-introducing
+    tactic) and ``messages`` (tactic diagnostics). ``goals`` empty + no
+    ``sorries`` + ``proofStatus == "Completed"`` ⇒ the goals at this state
+    are discharged (``status == "ok"``); open goals OR a remaining sorry ⇒
+    ``status == "incomplete"``; a tactic error ⇒ ``"error"``.
+
+    m5 critique F2: a sorry-introducing tactic returns ``{"goals": [],
+    "proofStatus": "Incomplete: contains sorry", "sorries": [...]}`` — the
+    ``sorries`` frontier (and its resumable ``proofState`` ids) MUST be
+    surfaced, else the caller sees "incomplete" with nothing to act on.
+
+    ``compilation_success`` is ALWAYS null here: a single tactic step is not
+    a full-declaration kernel check, and the trust-language policy forbids
+    inferring declaration fidelity from it. Re-verify the assembled proof in
+    ``mode="full"`` for a kernel verdict.
+    """
+    messages = _project_messages(resp.get("messages"))
+    goals_remaining = [str(g) for g in (resp.get("goals") or [])]
+    sorry_goals = _project_sorries(resp.get("sorries"), repl_generation)
+    has_error = any(m["severity"] == "error" for m in messages)
+    if has_error:
+        status = "error"
+    elif goals_remaining or sorry_goals:
+        # Open goals OR a sorry-marked obligation remain — not closed.
+        status = "incomplete"
+    elif resp.get("proofStatus") == "Completed":
+        status = "ok"
+    else:
+        # No goals, no sorries, but not "Completed" — do not claim "ok".
+        # A conservative, fail-closed default.
+        status = "incomplete"
+
+    new_ps = resp.get("proofState")
+    new_ps_token = (
+        _encode_token(repl_generation, new_ps)
+        if isinstance(new_ps, int)
+        else None
+    )
+    # proof_state text: the first open goal, else the first remaining sorry.
+    if goals_remaining:
+        proof_state_text: str | None = goals_remaining[0]
+    elif sorry_goals:
+        proof_state_text = sorry_goals[0]["goal"]
+    else:
+        proof_state_text = None
+
+    return {
+        "status": status,
+        "messages": messages,
+        "sorry_goals": sorry_goals,
+        "goals_remaining": goals_remaining,
+        "proof_state": proof_state_text,
+        "proof_state_id": new_ps_token,
+        # Never a full-declaration kernel verdict — see docstring.
+        "compilation_success": None,
+        "lean_status": "available",
+        "mode": "tactic_step",
+        "env": None,
+        "continuation_status": continuation_status,
     }
 
 
@@ -332,11 +564,16 @@ def _disabled_envelope(mode: str) -> dict[str, Any]:
         "sorry_goals": [],
         "goals_remaining": [],
         "proof_state": None,
+        "proof_state_id": None,
         "compilation_success": None,
+        "env": None,
+        "continuation_status": "not-applicable",
     }
 
 
-def _timeout_envelope(mode: str, timeout_s: float) -> dict[str, Any]:
+def _timeout_envelope(
+    mode: str, timeout_s: float, *, continuation_status: str = "not-applicable"
+) -> dict[str, Any]:
     return {
         "status": "timeout",
         "lean_status": "timeout",
@@ -355,7 +592,77 @@ def _timeout_envelope(mode: str, timeout_s: float) -> dict[str, Any]:
         "sorry_goals": [],
         "goals_remaining": [],
         "proof_state": None,
+        "proof_state_id": None,
         "compilation_success": False,
+        # The respawn mints a NEW generation, so any token emitted before
+        # this timeout is now expired for FUTURE calls; continuation_status
+        # still records THIS call's disposition (m5 critique F4).
+        "env": None,
+        "continuation_status": continuation_status,
+    }
+
+
+def _invalid_continuation_envelope(
+    mode: str, *, continuation_status: str, message: str
+) -> dict[str, Any]:
+    """Fail-closed envelope for a rejected continuation token.
+
+    Used when an ``env`` / ``proof_state`` token is malformed, was minted by
+    a prior REPL instance (``expired``), or is unknown to the live REPL
+    (``unknown-id``). The snippet did NOT run: ``status="invalid-input"`` and
+    ``compilation_success=False`` so no caller reads it as a kernel accept.
+    ``lean_status`` stays ``"available"`` — the REPL itself is healthy; the
+    input was rejected.
+    """
+    return {
+        "status": "invalid-input",
+        "lean_status": "available",
+        "mode": mode,
+        "messages": [
+            {
+                "severity": "error",
+                "position": {"line": 0, "column": 0},
+                "text": message,
+            }
+        ],
+        "sorry_goals": [],
+        "goals_remaining": [],
+        "proof_state": None,
+        "proof_state_id": None,
+        "compilation_success": False,
+        "env": None,
+        "continuation_status": continuation_status,
+    }
+
+
+def _message_error_envelope(
+    mode: str, message: str, *, continuation_status: str
+) -> dict[str, Any]:
+    """Fail-closed ERROR envelope for a bare top-level REPL ``message`` that
+    is NOT an unknown-id rejection — e.g. a thrown tactic error
+    ("Lean error:\\n...", the runProofStep catch). ``status="error"`` (a
+    genuine kernel/tactic error), NOT ``"invalid-input"``: the continuation
+    token, if any, was valid (m5 critique F1). ``continuation_status``
+    reflects whether a token was resumed on this call.
+    """
+    return {
+        "status": "error",
+        "lean_status": "available",
+        "mode": mode,
+        "messages": [
+            {
+                "severity": "error",
+                "position": {"line": 0, "column": 0},
+                "text": message,
+            }
+        ],
+        "sorry_goals": [],
+        "goals_remaining": [],
+        "proof_state": None,
+        "proof_state_id": None,
+        "compilation_success": False,
+        "env": None,
+        "continuation_status": continuation_status,
     }
 
 
@@ -426,17 +733,46 @@ async def handle_lean_verify(
         ),
     ] = None,
     mode: Annotated[
-        Literal["full", "syntax_only"],
+        Literal["full", "syntax_only", "tactic_step"],
         Field(
             description=(
                 "'full' runs elaboration AND kernel verification. "
                 "'syntax_only' wraps the snippet in `#check (...)' (or "
                 "set_option maxHeartbeats 5000 in <decl> for theorems) "
                 "to elaborate without kernel decide-instances + "
-                "reducibility — cheap pre-verify for the autoformalizer."
+                "reducibility — cheap pre-verify for the autoformalizer. "
+                "'tactic_step' advances an existing proof state: `snippet` "
+                "is a single tactic and `proof_state` carries the state "
+                "token to step; env / imports do not apply and "
+                "compilation_success is always null."
             ),
         ),
     ] = "full",
+    env: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Optional opaque continuation token (a prior lean_verify "
+                "`env` result) to run this full / syntax_only call on top of "
+                "that environment WITHOUT re-importing — pay `import Mathlib` "
+                "once, then reuse (~15-180s cold vs ~0.02s warm). Leave "
+                "`imports` empty when `env` is set (the environment already "
+                "carries them). A token minted before a timeout-triggered "
+                "REPL respawn is rejected as invalid-input, never silently "
+                "reused."
+            ),
+        ),
+    ] = None,
+    proof_state: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Opaque proof-state token (a prior `proof_state_id` result) "
+                "to advance with mode='tactic_step'. REQUIRED for "
+                "tactic_step; must be omitted for full / syntax_only."
+            ),
+        ),
+    ] = None,
     # verification-feedback-m4: FastMCP-injected MCP context for emitting
     # ``notifications/progress`` heartbeats during the 5–30 s Lean
     # elaboration. FastMCP excludes ``Context``-typed parameters from
@@ -477,7 +813,103 @@ async def handle_lean_verify(
     if lean_repl is None:
         return envelope(_disabled_envelope(mode))
 
-    cmd = _build_command(snippet, imports_list, mode)
+    # --- Continuation-token decode (lean-verify-continuation-m1) --------
+    # Decode env / proof_state tokens against the LIVE REPL generation and
+    # FAIL CLOSED before any REPL round-trip. This is where a token minted
+    # by a previous REPL instance (after a timeout respawn) is rejected as
+    # ``expired`` rather than misbound onto a colliding id in the new
+    # process. ``resumed`` feeds ``continuation_status`` on the success path.
+    generation = lean_repl.generation
+    resumed = False
+
+    if mode == "tactic_step":
+        # ``snippet`` is the tactic; ``proof_state`` is mandatory and ``env``
+        # does not apply. m5 critique F5: reject a stray env rather than
+        # silently ignore it — symmetric with the proof_state rejection in
+        # the cmd branch below.
+        if env is not None:
+            return envelope(
+                _invalid_continuation_envelope(
+                    mode,
+                    continuation_status="malformed",
+                    message=(
+                        "env is not valid with mode='tactic_step' (env "
+                        "continues a full / syntax_only environment). Use "
+                        "proof_state to advance a proof."
+                    ),
+                )
+            )
+        if proof_state is None:
+            return envelope(
+                _invalid_continuation_envelope(
+                    mode,
+                    continuation_status="malformed",
+                    message=(
+                        "mode='tactic_step' requires a proof_state "
+                        "continuation token (the proof state to advance)."
+                    ),
+                )
+            )
+        disp, ps_int = _decode_token(proof_state, generation)
+        if disp != "resumed":
+            return envelope(
+                _invalid_continuation_envelope(
+                    mode,
+                    continuation_status=disp,
+                    message=_continuation_reject_message("proof_state", disp),
+                )
+            )
+        resumed = True
+        command: dict[str, Any] = {"tactic": snippet, "proofState": ps_int}
+    else:
+        # full / syntax_only. ``proof_state`` is a tactic_step-only input;
+        # rejecting it here keeps the modes from silently crossing wires.
+        if proof_state is not None:
+            return envelope(
+                _invalid_continuation_envelope(
+                    mode,
+                    continuation_status="malformed",
+                    message=(
+                        "proof_state is only valid with mode='tactic_step'; "
+                        "use env to continue an environment in full / "
+                        "syntax_only mode."
+                    ),
+                )
+            )
+        env_int: int | None = None
+        if env is not None:
+            disp, env_int = _decode_token(env, generation)
+            if disp != "resumed":
+                return envelope(
+                    _invalid_continuation_envelope(
+                        mode,
+                        continuation_status=disp,
+                        message=_continuation_reject_message("env", disp),
+                    )
+                )
+            resumed = True
+            # m5 critique F3: imports cannot apply to a continued env (Lean
+            # rejects a mid-session `import`), and the env already carries
+            # its imports. Reject the contradictory combination up front
+            # rather than emitting a confusing kernel "invalid import" error.
+            if imports_list:
+                return envelope(
+                    _invalid_continuation_envelope(
+                        mode,
+                        continuation_status="malformed",
+                        message=(
+                            "imports cannot be combined with env: the "
+                            "environment already carries its imports and Lean "
+                            "rejects an import mid-session. Omit imports when "
+                            "continuing an env, or omit env to import into a "
+                            "fresh environment."
+                        ),
+                    )
+                )
+        cmd = _build_command(snippet, imports_list, mode)
+        command = (
+            {"cmd": cmd} if env_int is None else {"cmd": cmd, "env": env_int}
+        )
 
     # verification-feedback-m4 — spawn a heartbeat task ONLY when a
     # FastMCP-injected ``ctx`` is present AND the client opted in to
@@ -496,7 +928,7 @@ async def handle_lean_verify(
 
     try:
         try:
-            resp = await lean_repl.query({"cmd": cmd})
+            resp = await lean_repl.query(command)
         finally:
             if heartbeat_task is not None:
                 heartbeat_task.cancel()
@@ -529,7 +961,15 @@ async def handle_lean_verify(
                 "subsequent calls degrade to 'unavailable'"
             )
             resources.lean_repl = None
-        return envelope(_timeout_envelope(mode, DEFAULT_QUERY_TIMEOUT_S))
+        # m5 critique F4: a resumed continuation that then timed out still
+        # had its token accepted THIS call — record that, don't claim
+        # "not-applicable".
+        resumed_status = "resumed" if resumed else "not-applicable"
+        return envelope(
+            _timeout_envelope(
+                mode, DEFAULT_QUERY_TIMEOUT_S, continuation_status=resumed_status
+            )
+        )
     except LeanReplError as exc:
         # Any other LeanReplError (process exited, non-JSON response,
         # etc.) — surface as an error envelope, do NOT raise (the agent
@@ -550,11 +990,17 @@ async def handle_lean_verify(
                 "sorry_goals": [],
                 "goals_remaining": [],
                 "proof_state": None,
+                "proof_state_id": None,
                 "compilation_success": False,
+                "env": None,
+                # m5 critique F4 — reflect whether a token was resumed.
+                "continuation_status": "resumed" if resumed else "not-applicable",
             }
         )
 
-    payload = _normalize_response(resp, mode)
+    payload = _normalize_response(
+        resp, mode, repl_generation=generation, resumed=resumed
+    )
     # Multi-result cap surface — long elaborations can emit hundreds of
     # diagnostic rows; cap_result_list trims the trailing entries from
     # the messages array if the envelope exceeds Config.result_byte_cap.

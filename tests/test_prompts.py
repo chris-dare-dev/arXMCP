@@ -654,8 +654,15 @@ class TestBP1ByteIdentityAcrossFanout:
         # stale). ALL_TOOLS changed (single ToolMeta description
         # edit), so BP1 (system + tools) drifts; re-pinned in lockstep
         # with EXPECTED_TOOL_SCHEMA_SHA256.
+        #
+        # v20: lean-verify-continuation-m1 — the LEAN_VERIFY ToolMeta
+        # description was rewritten to document the env/proof_state
+        # continuation params, the tactic_step mode, and the new output
+        # fields. ALL_TOOLS changed (single ToolMeta description edit),
+        # so BP1 (system + tools) drifts; re-pinned in lockstep with
+        # EXPECTED_TOOL_SCHEMA_SHA256.
         EXPECTED_BP1_SHA256 = (
-            "720c744375d29a30d0d94d1c17d5a6db70384ba06e19505d49dbd601313b42b2"
+            "4676fa03933fe3bc473736513d4d0080097f2c6cdb5c82bf531d63c839015805"
         )
         req = _build_fanout_request(
             RouteTag.SYNTHESIS, "any problem; BP1 is independent of problem",

@@ -183,7 +183,13 @@ logger = logging.getLogger(__name__)
 #: response-shape change to v16 → EXPECTED_TOOL_SCHEMA_SHA256 re-pins (via
 #: the ``_meta.tool_schema_version`` echo); EXPECTED_BP1_SHA256 does NOT
 #: (GET_CHUNK description + inputSchema unchanged).
-TOOL_SCHEMA_VERSION: int = 19
+#: 19 -> 20 (lean-verify-continuation-m1): lean_verify gains the env /
+#: proof_state continuation input params + the tactic_step mode, and emits
+#: the env / proof_state_id / continuation_status output fields. Both the
+#: inputSchema change AND the LEAN_VERIFY.description edit below drift the
+#: tools/list bytes, so EXPECTED_TOOL_SCHEMA_SHA256 AND EXPECTED_BP1_SHA256
+#: both re-pin this milestone.
+TOOL_SCHEMA_VERSION: int = 20
 
 #: URI scheme for chunk resource_links per the design note. Used by
 #: handlers that switch to resource_link mode when payloads exceed
@@ -354,17 +360,26 @@ LEAN_VERIFY = ToolMeta(
     name="lean_verify",
     description=(
         "Verify a Lean 4 snippet against a managed local Lean kernel "
-        "(verification-feedback-m3). mode='full' runs elaboration AND "
+        "(verification-feedback-m3; env/proof_state continuation added at "
+        "lean-verify-continuation-m1). mode='full' runs elaboration AND "
         "full kernel verification; mode='syntax_only' wraps the snippet "
         "in #check(...) (or set_option maxHeartbeats 5000 in <decl> for "
         "theorem/def declarations) to skip post-elaboration kernel work "
         "- cheap pre-verify for the autoformalizer (the Lean REPL has "
         "no native syntax_only flag; #check is the documented "
-        "mechanism). Returns status (ok/error/sorry/timeout/unavailable), "
-        "compilation_success (null in syntax_only mode), messages with "
-        "severity + source position, proof_state (first unresolved "
-        "goal), goals_remaining + sorry_goals. Gated by "
-        "ARXMCP_ENABLE_LEAN: when disabled the tool returns "
+        "mechanism); mode='tactic_step' advances a proof state (snippet is "
+        "a single tactic, proof_state is the state token). Pass the opaque "
+        "env token from a prior result back as the env argument to reuse an "
+        "environment without re-importing - import Mathlib once, then reuse. "
+        "Returns status "
+        "(ok/error/sorry/incomplete/timeout/unavailable/invalid-input), "
+        "compilation_success (null in syntax_only + tactic_step), messages "
+        "with severity + source position, proof_state (first unresolved "
+        "goal) plus proof_state_id and per-sorry proof_state_id tokens, "
+        "goals_remaining + sorry_goals, an env token, and "
+        "continuation_status. A continuation token from before a timeout "
+        "respawn is rejected (invalid-input), never silently reused. Gated "
+        "by ARXMCP_ENABLE_LEAN: when disabled the tool returns "
         "lean_status='disabled' rather than 5xx. On a 30s elaboration "
         "timeout the REPL is killed and respawned before the next call. "
         "imports[] are prepended verbatim as 'import X' lines."

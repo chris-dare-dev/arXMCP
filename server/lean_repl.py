@@ -33,6 +33,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import secrets
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -112,10 +113,26 @@ class LeanRepl:
         proc: asyncio.subprocess.Process,
         lake_path: Path,
         repl_dir: Path,
+        generation: str | None = None,
     ) -> None:
         self._proc = proc
         self._lake_path = lake_path
         self._repl_dir = repl_dir
+        # Per-spawn generation token (lean-verify-continuation-m1). The
+        # leanprover-community/repl env / proofState ids are integers
+        # scoped to THIS subprocess: on a per-query-timeout kill+respawn
+        # the new process restarts its env counter at 0, so a stale env
+        # id from the old process can COLLIDE with a live env id in the
+        # new one and silently misbind. The lean_verify handler prefixes
+        # every continuation token it emits with this generation and
+        # rejects (fail-closed) any token whose generation does not match
+        # the current REPL instance. Auto-assigned (random hex, colon-free
+        # so it never clashes with the "generation:int" token separator)
+        # when not supplied, so the fake-process construction path in the
+        # tests needs no signature change.
+        self._generation = (
+            generation if generation is not None else secrets.token_hex(8)
+        )
         # One REPL process, one stdin/stdout stream: serialise
         # round-trips so two concurrent queries cannot interleave their
         # JSON on the wire.
@@ -262,6 +279,18 @@ class LeanRepl:
     def is_running(self) -> bool:
         """True while the REPL subprocess has not exited."""
         return self._proc.returncode is None
+
+    @property
+    def generation(self) -> str:
+        """Opaque per-spawn token identifying THIS subprocess instance.
+
+        Minted once at construction. The ``lean_verify`` handler uses it to
+        namespace the ``env`` / ``proof_state`` continuation tokens it
+        emits, so a token minted before a kill+respawn is rejected rather
+        than misbound onto a colliding env id in the new process
+        (lean-verify-continuation-m1).
+        """
+        return self._generation
 
     async def query(
         self,
