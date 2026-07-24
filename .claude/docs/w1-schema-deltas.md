@@ -16,7 +16,8 @@ wishlist.
 
 | Delta | Source milestone | Behaviour commit | Status |
 |---|---|---|---|
-| `get_chunk` — `include_referenced` | retrieval-unlocks-m1 (#36) | see git log for `server/proof_linkage.py` | staged |
+| `get_chunk` — `include_referenced` | retrieval-unlocks-m1 (#36) | `e5b4905` | staged |
+| `search_papers` — `filters.include_kinds` | retrieval-unlocks-m2 (#37) | see git log for `_parse_include_kinds` | staged |
 
 ---
 
@@ -94,3 +95,68 @@ ingest has recorded all along — it needed no schema change to compute,
 only to *describe*. Shipping behaviour early means the capability is
 live and under test now; batching the description means one cache
 invalidation instead of several.
+
+---
+
+## `search_papers.filters.include_kinds` — retrieval-unlocks-m2
+
+Tracked by **#56** (`retrieval-unlocks-t-w1-schema-delta-search`).
+
+m2's own brief calls this "a versioned, ungated opt-in **contract
+event** in the W1 batch" — so the wire-visible half belongs here by the
+milestone's own design, not merely by cache convenience.
+
+### 1. `filters` argument description
+
+`server/handlers/search.py`, the `filters` parameter. The current text
+enumerates the supported keys; **add** `include_kinds` to that
+enumeration with:
+
+```
+include_kinds: ['proof'] routes the search onto the proof-body
+embedding column instead of the default statement column, making
+proof text retrievable. The only supported value is ['proof'] --
+every other kind is already served by the default route. Changes
+retrieval_mode and excluded_kinds; see those fields.
+```
+
+### 2. Response-field semantics change (no new fields)
+
+`retrieval_mode` and `excluded_kinds` already exist, but both were
+hardcoded to the statement route's answer. They now vary:
+
+| Route | `retrieval_mode` | `excluded_kinds` |
+|---|---|---|
+| default | `dense_only` (unchanged) | `["proof"]` (unchanged) |
+| `include_kinds: ['proof']` | `dense_only_proof_column` | every non-proof kind |
+
+`excluded_kinds` on the proof route is derived from
+`ingest.store.ALLOWED_KINDS` minus `{"proof"}`, so a kind added to the
+write-time enum cannot silently go unreported.
+
+**This is the delta most likely to break a naive consumer**: anything
+that pattern-matched `retrieval_mode == "dense_only"` to mean "a search
+happened", or read `excluded_kinds == ["proof"]` as a constant, now sees
+different values. That is the point — the old values were a lie on the
+proof route — but it is a genuine contract change and belongs in the
+release note for the W1 bump.
+
+### 3. Error behaviour worth documenting
+
+An unsupported `include_kinds` value raises a tool error rather than
+falling back to the default route. A caller who asked for proofs and
+silently received statements could not tell from the response, so the
+failure is loud. Rejected: a bare string (`'proof'` rather than
+`['proof']`), an empty list, any non-`proof` kind, wrong case, and
+non-string members.
+
+### 4. Agent-facing note for the tool-selection playbook
+
+For `agent-platform-m4` (#73):
+
+> To find how a result is *proved* rather than what is *stated*, pass
+> `filters={'include_kinds': ['proof']}`. The two columns are disjoint —
+> a default search can never return proof text, and a proof search can
+> never return statements — so answering "what does this paper prove,
+> and how" takes two calls. `get_chunk(include_referenced=True)` is the
+> cheaper move when you already hold one side and want its counterpart.

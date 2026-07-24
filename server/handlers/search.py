@@ -5,6 +5,20 @@ of the chunks table. The hybrid BM25 + RRF + reranker pipeline
 lands in E07 (Sonnet B); the wire-level tool contract does not
 change when E07 ships — only the internal retrieval mode.
 
+**retrieval-unlocks-m2** adds one opt-in route:
+``filters={'include_kinds': ['proof']}`` searches ``embedding_proof``
+instead, making proof bodies reachable for the first time. The
+dual-column RRF default for plain queries stays OFF — this is an
+explicit per-call opt-in, not a ranking change. ``retrieval_mode`` and
+``excluded_kinds`` now describe the route that actually ran instead of
+being hardcoded to the statement route's answer.
+
+The ``filters`` DESCRIPTION string is deliberately unchanged: the
+opt-in ships as a versioned contract event in agent-platform's W1
+window, staged at ``.claude/docs/w1-schema-deltas.md``
+(retrieval-unlocks-t-w1-schema-delta-search). Behaviour now, one
+bundled ``TOOL_SCHEMA_VERSION`` re-pin later.
+
 Aggregation per ``level``:
 - ``level="theorem"`` (default): one row per chunk.
 - ``level="section"``: dedup by ``(paper_id, section_path[0])``,
@@ -66,6 +80,7 @@ from mcp.types import CallToolResult, ResourceLink, TextContent
 from pydantic import AnyUrl, Field
 
 from ingest.identifiers import is_valid_paper_id
+from ingest.store import ALLOWED_KINDS
 from server.cache import get_cache
 from server.observability.sanitize import sanitize_retrieved_text
 from server.query_encoder import encode_query, encode_query_with_fallback
@@ -259,7 +274,88 @@ SUPPORTED_FILTER_KEYS: frozenset[str] = frozenset({"paper_id", "source_kind"})
 #: the canonical filters dict so it participates in the cache key —
 #: per-notebook isolation (AC3) for free, since the key already hashes
 #: the filters dict.
-_ROUTING_FILTER_KEYS: frozenset[str] = frozenset({"notebook"})
+#: retrieval-unlocks-m2 adds ``include_kinds``, which routes the query
+#: onto a different EMBEDDING COLUMN rather than selecting a corpus —
+#: same routing-not-filtering character as ``notebook``, so it joins this
+#: set for the same three reasons: consumed by the handler, never passed
+#: to a LanceDB predicate, and never reported in ``filter_warnings`` (it
+#: is recognized, not ignored). It stays out of
+#: ``SUPPORTED_FILTER_KEYS`` so it never appears in the
+#: ``filters_applied`` echo, and stays IN the canonical filters dict so
+#: it participates in the cache key — a proof-column search and a
+#: statement search for the same query text are different queries and
+#: must not share a cache entry.
+_ROUTING_FILTER_KEYS: frozenset[str] = frozenset({"notebook", "include_kinds"})
+
+#: The dense column a plain (statement) query searches. Populated for
+#: every kind EXCEPT ``proof`` — see the dual-encoding contract in
+#: ``ingest/schema.py``.
+_STMT_COLUMN: str = "embedding_stmt"
+
+#: The dense column an ``include_kinds=['proof']`` query searches.
+#: Populated ONLY for ``kind="proof"`` rows.
+_PROOF_COLUMN: str = "embedding_proof"
+
+#: ``include_kinds`` values this milestone supports. Deliberately just
+#: ``proof``: the column split is binary (stmt-or-proof), so any other
+#: kind is served by the DEFAULT route, and accepting e.g.
+#: ``['lemma']`` would imply a within-column kind filter that does not
+#: exist. Rejected loudly rather than silently ignored — a caller who
+#: asked for lemma-only results and got everything would not be able to
+#: tell from the response.
+_SUPPORTED_INCLUDE_KINDS: frozenset[str] = frozenset({"proof"})
+
+#: What each route could not have returned, reported as
+#: ``excluded_kinds``. The statement column carries every kind except
+#: ``proof``; the proof column carries only ``proof``, so its exclusion
+#: set is the whole rest of the domain. Derived from
+#: ``ingest.store.ALLOWED_KINDS`` rather than hand-listed, so a new kind
+#: added to the write-time enum cannot silently go unreported here.
+_EXCLUDED_KINDS_STMT_ROUTE: list[str] = ["proof"]
+_EXCLUDED_KINDS_PROOF_ROUTE: list[str] = sorted(ALLOWED_KINDS - {"proof"})
+
+
+def _parse_include_kinds(filters: dict[str, Any] | None) -> bool:
+    """Return True iff this call opts into the proof-column route.
+
+    Raises ``ValueError`` on a malformed or unsupported value — the same
+    loud-failure posture as :func:`_build_source_kind_predicate`, not a
+    ``filter_warnings`` entry. A caller who asked for proofs and
+    silently received statements has no way to detect the difference.
+    """
+    if not filters or "include_kinds" not in filters:
+        return False
+    value = filters["include_kinds"]
+    if isinstance(value, str):
+        raise ValueError(
+            f"filters['include_kinds'] must be a list, got a str "
+            f"({value!r}); use ['{value}']"
+        )
+    if not isinstance(value, list) or not value:
+        raise ValueError(
+            f"filters['include_kinds'] must be a non-empty list, got "
+            f"{value!r}; omit the key entirely to request the default "
+            f"statement route"
+        )
+    # Sort by repr, NOT by the values themselves: a mixed list such as
+    # [123, 'proof'] would make sorted() raise TypeError comparing int
+    # to str, turning a caller's bad input into an unhandled 500 instead
+    # of the clean tool error this function exists to produce.
+    unsupported = sorted(
+        (
+            k for k in value
+            if not isinstance(k, str) or k not in _SUPPORTED_INCLUDE_KINDS
+        ),
+        key=repr,
+    )
+    if unsupported:
+        raise ValueError(
+            f"filters['include_kinds']={value!r} contains unsupported "
+            f"value(s) {unsupported!r}; supported: "
+            f"{sorted(_SUPPORTED_INCLUDE_KINDS)}. Every other kind is "
+            f"already reachable through the default route"
+        )
+    return True
 
 
 def _inject_filters_applied(
@@ -420,6 +516,14 @@ async def handle_search_papers(
                     f"so reflected keys must be bounded at the "
                     f"boundary)"
                 )
+
+    # retrieval-unlocks-m2: extract the proof-column routing key. Parsed
+    # at the same boundary as ``notebook`` and BEFORE any retrieval work,
+    # so a malformed value fails fast as a clean tool error rather than
+    # after a wasted embed. Raises on unsupported values; never a silent
+    # fall-through to the statement route.
+    proof_route = _parse_include_kinds(filters)
+    vector_column = _PROOF_COLUMN if proof_route else _STMT_COLUMN
 
     # notebook-retrieval-m2 (fork A): extract the per-call notebook
     # routing key. ``notebook`` selects WHICH corpus to search; it is
@@ -625,8 +729,14 @@ async def handle_search_papers(
     with span_ann(k=k):
         # m2: ``search_table`` is the notebook's table when a per-call
         # ``filters.notebook`` was supplied, else the shared/fork-C table.
+        # retrieval-unlocks-m2: the opt-in proof route swaps the vector
+        # column. ``search_table`` is ALREADY the notebook's table (m2
+        # fork A resolved it above), so proof-column results are drawn
+        # from that notebook's own corpus for free — there is no shared
+        # cross-notebook binding to isolate, because search_papers does
+        # not route through ANNPhase at all.
         search_q = search_table.search(
-            query_vec, vector_column_name="embedding_stmt"
+            query_vec, vector_column_name=vector_column
         )
         # Combine the active pre-filter clauses into a SINGLE .where()
         # call ANDed together — LanceDB's .where() REPLACES (not ANDs)
@@ -707,12 +817,19 @@ async def handle_search_papers(
 
     payload: dict[str, Any] = {
         "embed_model": "bge-m3",
-        # F5: explicit warning about proof-chunk exclusion at v1.
-        "excluded_kinds": ["proof"],
+        # retrieval-unlocks-m2: both fields now describe the route that
+        # ACTUALLY ran. They used to be hardcoded to the statement
+        # route's answer, which would have been a lie the moment the
+        # proof column was reachable. F5's original intent -- tell the
+        # agent which kinds it could not have seen -- is preserved and
+        # generalized rather than dropped.
+        "excluded_kinds": _EXCLUDED_KINDS_PROOF_ROUTE if proof_route
+        else _EXCLUDED_KINDS_STMT_ROUTE,
         "filter_warnings": filter_warnings,
         "next_cursor": None,    # v1: no pagination
         "results": rows,
-        "retrieval_mode": "dense_only",
+        "retrieval_mode": "dense_only_proof_column" if proof_route
+        else "dense_only",
     }
     if miss_degraded_reasons:
         payload["degraded"] = True

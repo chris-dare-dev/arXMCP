@@ -168,6 +168,14 @@ _ALLOWED_KINDS = frozenset(
     }
 )
 
+#: Public alias of :data:`_ALLOWED_KINDS` (retrieval-unlocks-m2).
+#: The write-time guard is this module's concern, but the SERVING side
+#: needs the same domain to answer "which kinds did this route exclude?"
+#: honestly — ``server/handlers/search.py`` computes its proof-route
+#: ``excluded_kinds`` as this set minus ``{"proof"}``. Exported rather
+#: than duplicated so the two can never disagree about what a kind is.
+ALLOWED_KINDS: frozenset[str] = _ALLOWED_KINDS
+
 # textbook-ingest-m2: domain of ``source_kind`` enum on the chunks
 # table. Enforced at write time by ``_build_arrow_table`` against
 # typos (``"arxv"``, ``"textboook"``) — same pattern as ``_ALLOWED_KINDS``.
