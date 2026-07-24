@@ -1,0 +1,50 @@
+{
+  "id": "lean-verify-continuation-m1",
+  "brief_source": "ad-hoc (owner request 2026-07-24): thread env/proofState through lean_verify",
+  "milestone_brief": "### lean-verify-continuation-m1 — Thread env + proofState continuation ids through lean_verify\n\n**Description.** Wire the leanprover-community/repl environment id and proof-state id through the `lean_verify` MCP tool so the pipeline can (a) pay `import Mathlib` once and reuse the environment (~700x on warm calls) and (b) step a proof incrementally. Opaque, per-spawn-generation-guarded tokens; fail-closed on stale/unknown/malformed ids; a new `tactic_step` mode. Governed by R3 verification-contract + trust-language policy (no fail-open, no bare trust token).\n\n**Acceptance criteria.**\n- [ ] `env` (str token) accepted on cmd modes; `proof_state` (str token) + `mode=tactic_step` accepted for stepping; both surfaced in output as opaque tokens.\n- [ ] A stale token (generation mismatch), an unknown-id protocol reply, and a malformed token ALL fail closed (status=invalid-input, compilation_success=false) — never a false status:ok.\n- [ ] TOOL_SCHEMA_VERSION bumped in lockstep across every server/schemas/*.json; EXPECTED_TOOL_SCHEMA_SHA256 re-pinned; result schema conformance suite green.\n- [ ] make test green (incl. requires_lean_repl against the Mathlib env), ruff clean.\n\n**Complexity.** M/L",
+  "implementation_base": "6ade74e9f77dee28f1dc3f04f58f83c73065b8bb",
+  "implementation_branch": "main",
+  "implementation_path": "inline",
+  "implementation_commits": ["755dc5e69621a9f971090aed0c68e2a1938c5241"],
+  "rectification_note": "Critique ran on the working tree (uncommitted), so F1-F5 fixes are folded into the single feat commit 755dc5e rather than a separate rect commit; a rect commit would need a pre-rectify implementation commit to anchor against, which does not exist. Traceability via critique-adversary.md.",
+  "research_mode": "standard-plus-live-probe",
+  "research_synthesis": ".claude/notes/milestones/lean-verify-continuation-m1/research-synthesis.md",
+  "research_briefs": [
+    {
+      "agent_id": "live-probe",
+      "brief_path": "scratchpad/protocol_probe.py",
+      "summary": "REPL protocol: env id fresh-per-call + immutable snapshots; tactic_step shape; stale-id => top-level {message} shape => current normalize is FAIL-OPEN"
+    },
+    {
+      "agent_id": "blast-radius-researcher",
+      "brief_path": ".claude/notes/milestones/lean-verify-continuation-m1/research-brief-blast-radius.md",
+      "summary": "TOOL_SCHEMA_VERSION cascade + hash re-pin + lean_verify test surface + resources REPL lifecycle (pending)"
+    }
+  ],
+  "implementation_summary_path": ".claude/notes/milestones/lean-verify-continuation-m1/implementation-summary.md",
+  "critics_dispatched": ["adversary-critic (general-purpose, 6-axis: soundness/codec/schema/boundary/concurrency/edges)"],
+  "critics_run": ["adversary-critic"],
+  "critique_path": ".claude/notes/milestones/lean-verify-continuation-m1/critique-adversary.md",
+  "critique_finding_counts": {"high": 1, "medium": 1, "low": 4, "deferred": 1},
+  "critique_verdict": "SOUND on fail-open (no false ok/verified); not clean — F1(HIGH)+F2(MED) broke tactic_step non-success paths, both fixed",
+  "findings_closed": 5,
+  "findings_deferred": 1,
+  "findings_invalidated": 0,
+  "deferred_findings": ["F7 unbounded in-process env growth — REPL-layer concern, R3 warm-pool follow-up; not introduced by m1, not soundness"],
+  "concurrency_note": "Concurrent session landed retrieval-unlocks-m4 (e1a91c6,6ade74e) during this milestone; did NOT touch tools.py/schemas/hash. Also a spawned session is fixing CLAUDE.md §7 (docs-only). Re-verify HEAD before commit.",
+  "test_gate": "make test (clean-env config) green: ruff clean, 0 pytest failures; real-REPL integration (ARXMCP_ENABLE_LEAN=true) 9+ passed incl. fail-open + F1/F2 regression guards",
+  "pushed": false,
+  "phase": "complete",
+  "phase_history": [
+    {"phase": "init", "entered_at": "2026-07-24T13:42:00Z", "left_at": "2026-07-24T13:44:00Z"},
+    {"phase": "research-running", "entered_at": "2026-07-24T13:44:00Z", "left_at": "2026-07-24T14:02:00Z"},
+    {"phase": "research-complete", "entered_at": "2026-07-24T14:02:00Z", "left_at": "2026-07-24T14:04:00Z"},
+    {"phase": "implement-running", "entered_at": "2026-07-24T14:04:00Z", "left_at": "2026-07-24T14:40:00Z"},
+    {"phase": "implement-complete", "entered_at": "2026-07-24T14:40:00Z", "left_at": "2026-07-24T14:42:00Z"},
+    {"phase": "critique-running", "entered_at": "2026-07-24T14:42:00Z", "left_at": "2026-07-24T15:05:00Z"},
+    {"phase": "critique-complete", "entered_at": "2026-07-24T15:05:00Z", "left_at": "2026-07-24T15:07:00Z"},
+    {"phase": "rectify-running", "entered_at": "2026-07-24T15:07:00Z", "left_at": "2026-07-24T15:25:00Z"},
+    {"phase": "complete", "entered_at": "2026-07-24T15:25:00Z", "left_at": null}
+  ],
+  "updated_at": "2026-07-24T15:25:00Z"
+}
