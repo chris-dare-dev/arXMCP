@@ -7,10 +7,20 @@ The body-size cap (E06_S01 ``BodySizeCapMiddleware`` exempts
 ``body_truncated=True`` and a ``resource_link`` to
 ``arxmcp://chunks/<chunk_id>`` in the ``content`` array.
 
-``include_referenced`` and ``include_equations`` accept the schema
-arguments but return empty arrays at v1 — referenced-chunk
-expansion (E07_S03 reranker output) and equation atoms
-(E10_S03) are not yet built.
+``include_referenced`` resolves statement <-> proof linkage as of
+retrieval-unlocks-m1 — see :mod:`server.proof_linkage` for the
+``(paper_id, theorem_label, kind)`` join, the uniqueness-gated
+section-scope fallback, and the four epistemic outcomes it can report.
+``include_equations`` still accepts the schema argument and returns
+nothing: equation atoms (E10_S03) are not yet built.
+
+**The tool DESCRIPTION strings are deliberately unchanged here.** They
+still say ``include_referenced`` is reserved and ignored, which is now
+false, but ``tools/list`` must stay byte-stable for BP1 prompt-cache
+discipline — one bundled ``TOOL_SCHEMA_VERSION`` re-pin lands the
+corrected text in agent-platform's W1 window. The delta is staged at
+``.claude/docs/w1-schema-deltas.md`` (retrieval-unlocks-t-w1-schema-
+delta-chunk). Behaviour ships now; the wire schema moves once.
 """
 
 from __future__ import annotations
@@ -21,6 +31,7 @@ from pydantic import Field
 
 from ingest.identifiers import is_valid_chunk_id
 from server.observability.sanitize import sanitize_retrieved_text
+from server.proof_linkage import resolve_referenced
 from server.tools import (
     enforce_byte_cap,
     envelope,
@@ -130,9 +141,34 @@ async def handle_get_chunk(
         "chunk": chunk,
         "found": True,
         "include_equations_applied": False,  # v1: deferred to E10_S03
-        "include_referenced_applied": False,  # v1: deferred to E07_S03
-        "unused_args": _record_unused_args(include_referenced, include_equations),
+        "include_referenced_applied": False,
+        "unused_args": _record_unused_args(include_equations),
     }
+
+    # retrieval-unlocks-m1: stmt <-> proof linkage. Resolved from the
+    # (paper_id, theorem_label, kind) scalar join ingest already records,
+    # with a uniqueness-gated section-scope fallback when theorem_label
+    # is NULL. ``linkage.outcome`` carries the epistemic result — a
+    # theorem with no proof in the corpus reports ``not-in-corpus``, and
+    # an undecidable unlabeled pairing reports ``ambiguous``, neither
+    # collapsing into a silently empty list (trust-language-policy §5d).
+    if include_referenced:
+        linkage = resolve_referenced(r.chunks_table, row)
+        # Threat 2: referenced bodies are author-controlled corpus text,
+        # exactly like the primary body, so they take the same
+        # sanitize-then-wrap path. Both steps happen here rather than in
+        # proof_linkage so there is ONE place where retrieved text
+        # becomes response text. Order differs from the primary body by
+        # necessity, not accident: enforce_byte_cap only ever truncates
+        # ``("chunk", "body_text")``, so a referenced body is never
+        # sliced by the cap and its wrap cannot be cut in half.
+        for ref in linkage["referenced_chunks"]:
+            ref["body_text"] = wrap_retrieved_text(
+                sanitize_retrieved_text(ref["body_text"]), kind="chunk"
+            )
+        payload["include_referenced_applied"] = True
+        payload["referenced_chunks"] = linkage["referenced_chunks"]
+        payload["linkage"] = linkage["linkage"]
     # F1 fix from E06_S03 critique: tell enforce_byte_cap that
     # body_text is nested under ``chunk``, not at the top level.
     # Without the explicit path, the cap would silently fail to
@@ -176,8 +212,13 @@ def _arrow_first_row(arrow) -> dict[str, Any]:  # noqa: ANN001
 def _record_unused_args(*flags: bool) -> list[str]:
     """Return a list of unused-arg names for any True flag — pure
     audit trail for the agent runtime to know which features it
-    requested were silently ignored. Empty list when all False."""
-    names = ("include_referenced", "include_equations")
+    requested were silently ignored. Empty list when all False.
+
+    ``include_referenced`` LEFT this list in retrieval-unlocks-m1: it is
+    now honoured, so reporting it as ignored would be the inverse lie.
+    ``include_equations`` remains deferred (E10_S03).
+    """
+    names = ("include_equations",)
     return [n for n, f in zip(names, flags, strict=True) if f]
 
 
