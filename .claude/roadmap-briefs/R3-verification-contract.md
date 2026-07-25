@@ -82,8 +82,8 @@ the performance tail.
    last milestone, gated on 4–5. Bounds the live environment-snapshot tree (inherited F7,
    below): the REPL exposes no per-env eviction, so pooled workers are **recycled** on a
    live-snapshot-count / age budget (optionally `pickle`-migrating the hot named env across
-   a recycle), and a REPL live-snapshot-count / worker-age gauge lands on `/metrics` for
-   operator visibility.
+   a recycle), consuming the REPL live-snapshot / worker-age gauge that ships standalone
+   ahead of this gate (`lean-repl-observability-m1`; see Inherited findings).
 
 ## Scope — out (wont)
 
@@ -143,7 +143,12 @@ the performance tail.
   track's env-reuse continuation tokens make the growth first-class. **Owned by m7** (KR8):
   bound the live tree by recycling pooled workers on a snapshot-count / age budget
   (per-env eviction is not available; `pickleEnvironment`→`unpickle` can migrate the hot
-  named env across a recycle), and expose a live-snapshot / worker-age gauge on `/metrics`.
+  named env across a recycle), and consume the live-snapshot / worker-age gauge on `/metrics`.
+  That observability gauge is now scoped as a **standalone, independently-schedulable
+  milestone** — `lean-repl-observability-m1`
+  ([`plans/lean-repl-observability.md`](../../plans/lean-repl-observability.md)) — pullable
+  *ahead* of the trust gate because read-only telemetry changes no REPL lifecycle; m7
+  consumes/extends it and retains only the env-tree *bounding* (recycling + pickle-migration).
   A respawn *policy* must NOT live in the `lean_verify` handler — a respawn mints a new
   REPL generation that expires every outstanding continuation token, so bolting it on would
   silently destroy the warm envs the tokens depend on; it is pooled-worker-lifecycle logic.
@@ -162,8 +167,9 @@ the performance tail.
 5. **m5 — named environments + manifests + build smoke** (M): incl. bridgeland-anchor
    pin from R5's audit (cross-track handshake).
 6. **m6 — result cache** (S→M). **m7 — pools + state reuse + latency report + env-tree
-   bounding** (M): incl. the inherited-F7 live-snapshot bound — worker recycling +
-   `/metrics` gauge; see the F7 note under "Inherited findings".
+   bounding** (M): incl. the inherited-F7 live-snapshot bound — worker recycling (the
+   `/metrics` gauge ships standalone as `lean-repl-observability-m1`, ahead of the gate);
+   see the F7 note under "Inherited findings".
 
 ## Gates
 

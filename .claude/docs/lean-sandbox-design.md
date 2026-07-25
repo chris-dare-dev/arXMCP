@@ -98,8 +98,11 @@ forking the REPL internals — **rejected**.
   the server between heavy sessions, or watch the REPL *child* process RSS.
   NOTE: the arXMCP server's own process telemetry does **not** observe this
   growth — the Lean REPL is a *separate child process*, so its RSS is invisible
-  to the server's `/metrics` counters. There is no in-product signal today (the
-  planned gauge is an m7 deliverable, below).
+  to the server's `/metrics` counters. There is no in-product signal today — the
+  REPL telemetry gauge is scoped as standalone milestone
+  `lean-repl-observability-m1`
+  ([`plans/lean-repl-observability.md`](../../plans/lean-repl-observability.md)),
+  pullable ahead of R3 m7 (see the forward-owner note below).
 
 **Forward owner: R3 m7.** The real fix — bounding the live-env tree — belongs in
 the pooled-worker lifecycle layer, **not** the `lean_verify` handler. A respawn
@@ -112,9 +115,13 @@ verification-contract brief
 KR8 + m7 + Inherited findings). Levers m7 can use: recycle a pooled worker on a
 live-snapshot-count / age budget; `pickleEnvironment` the hot named env to disk
 and `unpickle` it into a fresh worker across a recycle (preserving the warm
-import while resetting the tree); expose a REPL live-snapshot-count / worker-age
-gauge on `/metrics` for operator visibility. All gated behind R3's trust gate
-(m2–m5) — pooling/performance work is forbidden before it.
+import while resetting the tree); and consume the REPL live-snapshot / worker-age
+gauge now scoped as standalone milestone `lean-repl-observability-m1`
+([`plans/lean-repl-observability.md`](../../plans/lean-repl-observability.md)),
+which is pullable *ahead* of this gate because read-only telemetry adds no
+untrusted-execution surface. The env-tree *bounding* itself (recycling +
+pickle-migration) stays gated behind R3's trust gate (m2–m5) — pooling/
+performance work is forbidden before it.
 
 ## Out of scope for m2
 
