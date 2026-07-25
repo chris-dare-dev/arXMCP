@@ -652,11 +652,20 @@ def _sort_dict(d: dict[str, Any]) -> dict[str, Any]:
 
 #: Effective cap multiplier applied at measure time. Closes F4 from
 #: the E06_S03 critique: the wire ``CallToolResult`` carries the
-#: structured payload AS WELL AS a ``content[0].text`` block with a
-#: pretty-printed (indent=2) repeat of the same dict; the actual
-#: wire bytes are roughly 2× the inner JSON. Multiplying the inner
-#: measurement by 2 guarantees the wire bytes stay under the
-#: operator-configured cap.
+#: structured payload AS WELL AS a ``content[0].text`` block repeating
+#: the same dict, so the wire bytes are roughly 2× the inner JSON.
+#:
+#: **Re-derivation (agent-platform-t-compact-wire-format, #85):** the
+#: value stays **2**, and it is now *more* accurate. ``content[0].text``
+#: was pretty-printed (``indent=2``), roughly 1.75× the compact copy, so
+#: the true wire was ≈2.75× compact while this measurement (spaced
+#: default separators, ≈1.05× compact) × 2 ≈ 2.1× compact — i.e. the old
+#: factor slightly *under*-covered the pretty-printed duplicate. #85
+#: compacts ``content[0]`` (``separators=(",",":")``), bringing the wire
+#: to ≈2× compact, which the 2× factor now bounds with a small margin.
+#: The measurement itself is left at spaced separators deliberately: that
+#: makes ``factor × measurement`` a conservative *over*-estimate of the
+#: now-compact wire, so the cap never under-truncates.
 _WIRE_OVERHEAD_FACTOR = 2
 
 

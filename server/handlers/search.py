@@ -958,10 +958,21 @@ def _build_content_blocks(
     must be added to the wire-overhead factor calibration in
     ``server/tools.py``.
     """
+    # agent-platform-t-compact-wire-format (#85): compact separators
+    # rather than indent=2. content[0].text is a byte-for-byte duplicate
+    # of structuredContent that exists only so non-structured clients can
+    # read the payload; pretty-printing it inflated every search response
+    # with whitespace the agent never needs. sort_keys=True is retained
+    # for byte stability. This also tightens the byte-cap model: the
+    # indent=2 copy was ~1.75x the compact structuredContent, so the wire
+    # ran above the _WIRE_OVERHEAD_FACTOR=2 (two-copies) estimate; a
+    # compact duplicate brings the wire back in line with 2x.
     blocks: list[Any] = [
         TextContent(
             type="text",
-            text=json.dumps(structured, indent=2, sort_keys=True, ensure_ascii=False),
+            text=json.dumps(
+                structured, separators=(",", ":"), sort_keys=True, ensure_ascii=False
+            ),
         )
     ]
     for row in rows:

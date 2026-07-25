@@ -91,7 +91,7 @@ MAX_GET_CHUNK_CALLS: int = 100
 MAX_REGISTRY_SIZE: int = 10_000
 
 #: Tool names that participate in cap accounting. Other tools
-#: (`get_definitions`, `find_lemma_by_name`, `get_citations`,
+#: (`get_definitions`, `find_lemma_by_name`, `cite_neighbors`,
 #: `find_equation`) are not counted — their token impact is small
 #: and the brief does not name them.
 TOOLS_WITH_CAPS: Final[dict[str, str]] = {
