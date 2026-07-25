@@ -89,9 +89,22 @@ exhaust server memory, CPU, or downstream LanceDB query budget.
 | `get_paper` | `paper_id` | str | canonical regex | `is_valid_paper_id` |
 | `get_paper` | `version` | int \| None | (no cap; reserved) | — |
 | `cite_neighbors` | `chunk_id` | str | canonical regex | `is_valid_chunk_id` (E13_S01) |
-| `cite_neighbors` | `direction` | enum | 5 values | Pydantic `Literal[...]` |
-| `cite_neighbors` | `depth` | int | 3 | Pydantic `Field(ge=1, le=3)` |
+| `cite_neighbors` | `direction` | enum | 3 values (`cites`/`cited_by`/`depends_on`) | Pydantic `Literal[...]` |
+| `cite_neighbors` | `depth` | int | 2 | Pydantic `Field(ge=1, le=2)` |
 | `cite_neighbors` | `limit` | int | 100 | Pydantic `Field(ge=1, le=100)` |
+
+> **Update (2026-07-24) — `cite_neighbors` `direction` + `depth` rows.**
+> When this audit (E13_S04) ran, `cite_neighbors` was a v1 stub whose
+> input schema advertised `depth` `le=3` and a wider `direction` enum.
+> `verification-feedback-m1` wired the real handler and tightened the
+> schema to match the graph library, which accepts only `depth ∈ {1,2}`
+> and `direction ∈ {cites, cited_by, depends_on}`. The two cells above
+> now show the wired schema (`le=2`, 3 values). The `depth` 3→2
+> tightening has a regression guard at
+> `tests/security/test_resource_exhaustion.py::TestNumericParamRejection::test_cite_neighbors_depth_3_rejected_by_validator`.
+> The `depth` entries in the "Audit completion checklist" below are left
+> at the E13_S04-time value (`le=3`) and annotated in place, since those
+> `[x]` lines record what this audit actually verified.
 
 ---
 
@@ -301,7 +314,9 @@ The brief's AC named `dependency_graph(depth=100) → -32602`. **No
 
 The closest tool with a `depth` parameter is `cite_neighbors`, which
 already has `Field(ge=1, le=3)`. The reframed AC asserts the constraint
-table for `cite_neighbors.depth`.
+table for `cite_neighbors.depth`. **(Update 2026-07-24: the bound was
+later tightened to `le=2` in `verification-feedback-m1` — see the note
+under the per-parameter limit table. `le=3` is the E13_S04-time value.)**
 
 ---
 
@@ -313,7 +328,9 @@ table for `cite_neighbors.depth`.
   declare `Field(ge=1, le=50)`. Reframed from "-32602" to "Pydantic
   constraint present + handler body not entered".
 - [x] **AC3** — `cite_neighbors.depth` declares `Field(ge=1, le=3)`.
-  Reframed from fictional `dependency_graph`.
+  Reframed from fictional `dependency_graph`. **(Update 2026-07-24:
+  tightened to `le=2` in `verification-feedback-m1`; this line records
+  the E13_S04-time value AC3 verified.)**
 - [x] **AC4** — `search_papers.filters` enforces handler-body cap at 100
   items via `ValueError`. The 10000-item AC is exercised directly.
 - [x] **AC5** — `enforce_byte_cap` truncates oversized bodies and emits
