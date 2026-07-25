@@ -56,6 +56,7 @@ from prometheus_client import Counter, Gauge
 
 if TYPE_CHECKING:
     from server.cache import RetrievalCache
+    from server.lean_repl import LeanRepl
 
 # ---------------------------------------------------------------------------
 # Cache metric definitions
@@ -307,6 +308,42 @@ INGEST_LAST_RUN_TIMESTAMP_SECONDS: Gauge = Gauge(
 
 
 # ---------------------------------------------------------------------------
+# Lean REPL telemetry (lean-repl-observability-m1)
+# ---------------------------------------------------------------------------
+
+#: Proxy for the size of the running Lean REPL's append-only
+#: environment-snapshot tree: the count of successful ``LeanRepl.query``
+#: round-trips served by the CURRENT REPL instance. leanprover-community/repl
+#: records one immutable snapshot per command and frees none until a
+#: kill+respawn or an operator restart (F7 — see
+#: ``.claude/docs/lean-sandbox-design.md`` § "Environment-snapshot
+#: accumulation"). Refreshed at scrape time from
+#: :func:`refresh_lean_repl_metrics`; reads 0 when the REPL is
+#: disabled/absent and drops back toward 0 after a respawn mints a fresh
+#: instance. Operational telemetry (watch the growth; restart between heavy
+#: Mathlib-resident sessions) — NOT a hard limit.
+LEAN_REPL_ENV_SNAPSHOTS_GAUGE: Gauge = Gauge(
+    "arxmcp_lean_repl_env_snapshots",
+    "Successful Lean REPL query round-trips served by the current REPL "
+    "instance — a proxy for the size of the REPL's append-only "
+    "environment-snapshot tree (one immutable snapshot per command; freed "
+    "only by a respawn/restart). 0 when ARXMCP_ENABLE_LEAN is off/absent. "
+    "Refreshed at scrape time, not continuously.",
+)
+
+#: Seconds since the running Lean REPL instance spawned. Refreshed at scrape
+#: time; reads 0 when the REPL is disabled/absent and resets on a
+#: kill+respawn. Pairs with the env-snapshots gauge: a long-lived REPL with a
+#: high snapshot count is the F7 growth signal an operator acts on.
+LEAN_REPL_AGE_SECONDS_GAUGE: Gauge = Gauge(
+    "arxmcp_lean_repl_age_seconds",
+    "Seconds since the current Lean REPL subprocess was spawned. 0 when "
+    "ARXMCP_ENABLE_LEAN is off/absent; resets on a kill+respawn. Refreshed "
+    "at scrape time.",
+)
+
+
+# ---------------------------------------------------------------------------
 # Tier label constants — string-typed so label space stays canonical
 # ---------------------------------------------------------------------------
 
@@ -351,6 +388,29 @@ def refresh_cache_metrics(cache: RetrievalCache | None) -> None:
     CACHE_BYTES_GAUGE.labels(tier=TIER_1).set(cache.tier1_bytes_used())
     CACHE_BYTES_GAUGE.labels(tier=TIER_2).set(cache.tier2_bytes_used())
     CACHE_BYTES_GAUGE.labels(tier=TIER_3).set(cache.tier3_bytes_used())
+
+
+def refresh_lean_repl_metrics(lean_repl: LeanRepl | None) -> None:
+    """Pull the Lean REPL harness's read-only telemetry into the Prometheus
+    registry (lean-repl-observability-m1).
+
+    Called from :func:`server.health.refresh_metrics_from_singleton_state`
+    at scrape time. Unlike :func:`refresh_cache_metrics`, a ``None`` REPL
+    (the ``ARXMCP_ENABLE_LEAN`` default-off / disabled path) EXPLICITLY sets
+    both gauges to ``0.0`` rather than no-op'ing: the gauges are module-level
+    and persist for the whole process, so a bare return would leave a stale
+    nonzero value from a prior REPL generation (or a prior test). The
+    disabled path must read a clean 0 — a present-and-zero series, never a
+    stale "last observed" one.
+
+    Cheap (two attribute reads); borne on every ``/metrics`` scrape.
+    """
+    if lean_repl is None:
+        LEAN_REPL_ENV_SNAPSHOTS_GAUGE.set(0.0)
+        LEAN_REPL_AGE_SECONDS_GAUGE.set(0.0)
+        return
+    LEAN_REPL_ENV_SNAPSHOTS_GAUGE.set(lean_repl.env_snapshot_count)
+    LEAN_REPL_AGE_SECONDS_GAUGE.set(lean_repl.age_seconds)
 
 
 def _reset_child(child: object) -> None:
@@ -424,6 +484,13 @@ def reset_sentinel_metrics_for_tests() -> None:
     INGEST_LAST_RUN_TIMESTAMP_SECONDS.set(0)
 
 
+def reset_lean_repl_metrics_for_tests() -> None:
+    """Reset the lean-repl-observability-m1 gauges to zero. Test-only;
+    the gauges are unlabeled, so a plain ``.set(0)`` each suffices."""
+    LEAN_REPL_ENV_SNAPSHOTS_GAUGE.set(0)
+    LEAN_REPL_AGE_SECONDS_GAUGE.set(0)
+
+
 __all__ = [
     "ALL_TIERS",
     "BACKUP_LAST_SUCCESS_GAUGE",
@@ -441,13 +508,17 @@ __all__ = [
     "INGEST_LAST_RUN_TIMESTAMP_SECONDS",
     "LATEXML_DRIFT_DETECTED_COUNTER",
     "LATEXML_DRIFT_DETECTED_GAUGE",
+    "LEAN_REPL_AGE_SECONDS_GAUGE",
+    "LEAN_REPL_ENV_SNAPSHOTS_GAUGE",
     "RETRIEVAL_CAP_REJECTIONS_COUNTER",
     "TIER_1",
     "TIER_2",
     "TIER_3",
     "refresh_cache_metrics",
+    "refresh_lean_repl_metrics",
     "reset_cache_metrics_for_tests",
     "reset_drift_metrics_for_tests",
     "reset_eval_metrics_for_tests",
+    "reset_lean_repl_metrics_for_tests",
     "reset_sentinel_metrics_for_tests",
 ]

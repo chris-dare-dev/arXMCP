@@ -51,8 +51,12 @@ from server.metrics import (
     INGEST_LAST_RUN_PAPERS,
     INGEST_LAST_RUN_TIMESTAMP_SECONDS,
     LATEXML_DRIFT_DETECTED_GAUGE,
+    LEAN_REPL_AGE_SECONDS_GAUGE,
+    LEAN_REPL_ENV_SNAPSHOTS_GAUGE,
+    refresh_lean_repl_metrics,
     reset_drift_metrics_for_tests,
     reset_eval_metrics_for_tests,
+    reset_lean_repl_metrics_for_tests,
     reset_sentinel_metrics_for_tests,
 )
 from server.observability.metrics import (
@@ -136,6 +140,7 @@ def reset_all_metrics():
     reset_drift_metrics_for_tests()
     reset_eval_metrics_for_tests()
     reset_sentinel_metrics_for_tests()
+    reset_lean_repl_metrics_for_tests()
     reset_metrics_for_tests()
     yield
     reset_request_metrics_for_tests()
@@ -143,6 +148,7 @@ def reset_all_metrics():
     reset_drift_metrics_for_tests()
     reset_eval_metrics_for_tests()
     reset_sentinel_metrics_for_tests()
+    reset_lean_repl_metrics_for_tests()
     reset_metrics_for_tests()
 
 
@@ -603,6 +609,56 @@ class TestEvalNdcg5LabelCap:
         # Expect labels for versions 3..7 (five most-recent by integer).
         present = {labelvalues[0] for labelvalues in EVAL_NDCG5_GAUGE._metrics}
         assert present == {"3", "4", "5", "6", "7"}
+
+
+# ===========================================================================
+# lean-repl-observability-m1 — Lean REPL telemetry scrape hook
+# ===========================================================================
+
+
+class TestLeanReplMetrics:
+    """``refresh_lean_repl_metrics`` scrape hook: the gauges reflect a live
+    REPL's env-snapshot count + age, and read a clean 0 on the disabled
+    (``None``) path — even after a prior nonzero value (the module-level
+    gauge-persistence hazard AC3 guards against). A minimal duck-typed fake
+    stands in for the real ``LeanRepl`` (the hook reads two attributes)."""
+
+    def test_none_repl_sets_both_gauges_to_zero(self, reset_all_metrics):
+        # Seed prior stale values first to prove the None branch EXPLICITLY
+        # zeroes (a bare no-op would leave these — the refresh_cache_metrics
+        # hazard the disabled-path AC calls out).
+        LEAN_REPL_ENV_SNAPSHOTS_GAUGE.set(9.0)
+        LEAN_REPL_AGE_SECONDS_GAUGE.set(123.0)
+        refresh_lean_repl_metrics(None)
+        assert LEAN_REPL_ENV_SNAPSHOTS_GAUGE._value.get() == 0.0
+        assert LEAN_REPL_AGE_SECONDS_GAUGE._value.get() == 0.0
+
+    def test_live_repl_reflects_snapshot_count_and_age(self, reset_all_metrics):
+        fake = SimpleNamespace(env_snapshot_count=7, age_seconds=42.5)
+        refresh_lean_repl_metrics(fake)
+        assert LEAN_REPL_ENV_SNAPSHOTS_GAUGE._value.get() == 7.0
+        assert LEAN_REPL_AGE_SECONDS_GAUGE._value.get() == 42.5
+
+    def test_disabled_after_live_returns_to_zero(self, reset_all_metrics):
+        # Live (nonzero) then disabled (e.g. a respawn failed and the handler
+        # set resources.lean_repl = None) must zero on the next scrape.
+        refresh_lean_repl_metrics(
+            SimpleNamespace(env_snapshot_count=3, age_seconds=5.0)
+        )
+        assert LEAN_REPL_ENV_SNAPSHOTS_GAUGE._value.get() == 3.0
+        refresh_lean_repl_metrics(None)
+        assert LEAN_REPL_ENV_SNAPSHOTS_GAUGE._value.get() == 0.0
+        assert LEAN_REPL_AGE_SECONDS_GAUGE._value.get() == 0.0
+
+    def test_gauges_appear_in_exposition(self, reset_all_metrics):
+        # Unlabeled gauges register at import, so both names render at 0 in
+        # the default-registry exposition even before any scrape (AC1's
+        # "/metrics exposes ..." holds for the disabled path too).
+        from prometheus_client import generate_latest  # noqa: PLC0415
+
+        text = generate_latest().decode("utf-8")
+        assert "arxmcp_lean_repl_env_snapshots" in text
+        assert "arxmcp_lean_repl_age_seconds" in text
 
 
 # ===========================================================================

@@ -35,6 +35,7 @@ import json
 import logging
 import secrets
 import sys
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -137,6 +138,14 @@ class LeanRepl:
         # round-trips so two concurrent queries cannot interleave their
         # JSON on the wire.
         self._io_lock = asyncio.Lock()
+        # lean-repl-observability-m1 — read-only telemetry state, mirroring
+        # the per-instance ``_generation`` idiom above. Initialised HERE (not
+        # in ``spawn``) so the direct-construction path used by the fake-proc
+        # tests gets them too. A kill+respawn mints a brand-new LeanRepl, so
+        # both reset to their initial values for free — the "gauge drops
+        # toward 0 on respawn" behaviour surfaced at ``/metrics``.
+        self._spawn_monotonic = time.monotonic()
+        self._env_snapshot_count = 0
 
     # ------------------------------------------------------------------
     # Construction
@@ -292,6 +301,29 @@ class LeanRepl:
         """
         return self._generation
 
+    @property
+    def env_snapshot_count(self) -> int:
+        """Successful :meth:`query` round-trips served by THIS instance — a
+        proxy for the size of the REPL's append-only environment-snapshot
+        tree (leanprover-community/repl records one immutable snapshot per
+        command; see ``.claude/docs/lean-sandbox-design.md`` §
+        "Environment-snapshot accumulation (F7)"). Surfaced at ``/metrics``
+        scrape time as ``arxmcp_lean_repl_env_snapshots``; resets to 0 on a
+        kill+respawn because that mints a fresh instance
+        (lean-repl-observability-m1).
+        """
+        return self._env_snapshot_count
+
+    @property
+    def age_seconds(self) -> float:
+        """Seconds since THIS instance was constructed, computed live (like
+        :attr:`is_running`). Surfaced at ``/metrics`` scrape time as
+        ``arxmcp_lean_repl_age_seconds`` so an operator can see how long a
+        REPL — and its accumulating snapshot tree — has been resident; resets
+        on a kill+respawn (lean-repl-observability-m1).
+        """
+        return time.monotonic() - self._spawn_monotonic
+
     async def query(
         self,
         command: dict[str, Any],
@@ -315,7 +347,7 @@ class LeanRepl:
                     f"(returncode={self._proc.returncode}); cannot query."
                 )
             try:
-                return await asyncio.wait_for(
+                resp = await asyncio.wait_for(
                     self._round_trip(command), timeout=timeout
                 )
             except TimeoutError as exc:
@@ -327,6 +359,16 @@ class LeanRepl:
                 raise LeanReplTimeoutError(
                     f"Lean REPL query exceeded the {timeout}s timeout."
                 ) from exc
+            # lean-repl-observability-m1 — a successful round-trip means the
+            # REPL recorded one more immutable env snapshot in-process (it
+            # appends one per command). Count it here, still under _io_lock
+            # (which already serialises round-trips), so the increment is
+            # race-free with no new primitive. NOT reached on the
+            # already-exited raise above, the timeout path, or _round_trip's
+            # own EOF / non-JSON LeanReplError (all exit via exception), so a
+            # failed round-trip is never counted.
+            self._env_snapshot_count += 1
+            return resp
 
     async def _round_trip(self, command: dict[str, Any]) -> dict[str, Any]:
         """Write one command, read one JSON-block response.

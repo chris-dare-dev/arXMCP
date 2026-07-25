@@ -93,16 +93,20 @@ forking the REPL internals — **rejected**.
   (CLAUDE.md §4.1) bounds the blast radius.
 - The per-query-timeout **kill+respawn** (`lean_verify` handler) frees the whole
   tree — but only when a query actually times out, so it is partial relief.
-- **Operator restart** (`make up`) is the reset lever. An operator running a
-  **Mathlib-resident** REPL through a long verification session should restart
-  the server between heavy sessions, or watch the REPL *child* process RSS.
-  NOTE: the arXMCP server's own process telemetry does **not** observe this
-  growth — the Lean REPL is a *separate child process*, so its RSS is invisible
-  to the server's `/metrics` counters. There is no in-product signal today — the
-  REPL telemetry gauge is scoped as standalone milestone
-  `lean-repl-observability-m1`
-  ([`plans/lean-repl-observability.md`](../../plans/lean-repl-observability.md)),
-  pullable ahead of R3 m7 (see the forward-owner note below).
+- **In-product signal (lean-repl-observability-m1).** Two `/metrics` gauges make
+  the growth observable: `arxmcp_lean_repl_env_snapshots` (a proxy for the
+  append-only snapshot-tree size — the count of successful REPL round-trips this
+  generation) and `arxmcp_lean_repl_age_seconds` (worker age). Both read 0 when
+  the REPL is disabled and drop back toward 0 after a respawn. **Ops threshold:**
+  on a long-lived **Mathlib-resident** REPL, a steadily climbing
+  `arxmcp_lean_repl_env_snapshots` with no respawn is the F7 growth signal —
+  restart the server between heavy verification sessions to reclaim the tree.
+  (Direct child-process RSS is NOT surfaced this milestone — `psutil` is not a
+  dependency and there is no portable Windows RSS reader; the snapshot-count
+  proxy is the shipped signal. An RSS gauge can be revisited if R3 m7 needs an
+  RSS-based recycle trigger.)
+- **Operator restart** (`make up`) remains the reset lever until R3 m7's pooled
+  workers recycle automatically.
 
 **Forward owner: R3 m7.** The real fix — bounding the live-env tree — belongs in
 the pooled-worker lifecycle layer, **not** the `lean_verify` handler. A respawn
@@ -116,10 +120,10 @@ KR8 + m7 + Inherited findings). Levers m7 can use: recycle a pooled worker on a
 live-snapshot-count / age budget; `pickleEnvironment` the hot named env to disk
 and `unpickle` it into a fresh worker across a recycle (preserving the warm
 import while resetting the tree); and consume the REPL live-snapshot / worker-age
-gauge now scoped as standalone milestone `lean-repl-observability-m1`
-([`plans/lean-repl-observability.md`](../../plans/lean-repl-observability.md)),
-which is pullable *ahead* of this gate because read-only telemetry adds no
-untrusted-execution surface. The env-tree *bounding* itself (recycling +
+gauge **shipped** by `lean-repl-observability-m1`
+([`plans/lean-repl-observability.md`](../../plans/lean-repl-observability.md)) —
+that read-only telemetry landed *ahead* of this gate (it adds no
+untrusted-execution surface). The env-tree *bounding* itself (recycling +
 pickle-migration) stays gated behind R3's trust gate (m2–m5) — pooling/
 performance work is forbidden before it.
 
