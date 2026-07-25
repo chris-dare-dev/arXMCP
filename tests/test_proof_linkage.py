@@ -484,9 +484,11 @@ class TestHandlerIntegration:
         assert "<retrieved_chunk" in ref["body_text"]
         assert "PROOF BODY" in ref["body_text"]
 
-    def test_include_referenced_no_longer_reported_as_unused(
-        self, wired
-    ) -> None:
+    def test_no_unused_args_field(self, wired) -> None:
+        """agent-platform-t-inert-args-cleanup (#82): include_equations
+        was the last accepted-and-ignored get_chunk arg. With it removed,
+        the whole ``unused_args`` machinery is gone — the response no
+        longer carries that field at all."""
         wired["table"] = _FakeTable([
             _row(chunk_id=self._SID, kind="stmt", theorem_label="L1"),
         ])
@@ -494,14 +496,5 @@ class TestHandlerIntegration:
             handle_get_chunk(chunk_id=self._SID, include_referenced=True)
         )
         body = out.get("structuredContent", out)
-        assert "include_referenced" not in body["unused_args"]
-
-    def test_include_equations_still_reported_as_unused(self, wired) -> None:
-        wired["table"] = _FakeTable([
-            _row(chunk_id=self._SID, kind="stmt", theorem_label="L1"),
-        ])
-        out = asyncio.run(
-            handle_get_chunk(chunk_id=self._SID, include_equations=True)
-        )
-        body = out.get("structuredContent", out)
-        assert body["unused_args"] == ["include_equations"]
+        assert "unused_args" not in body
+        assert "include_equations_applied" not in body

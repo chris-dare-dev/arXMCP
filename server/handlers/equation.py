@@ -95,7 +95,7 @@ async def handle_find_equation(
     if (
         not is_mathml
         and equations_table is not None
-        and getattr(r.config, "eq_latex_route", False)
+        and getattr(r.config, "eq_latex_route", True)
     ):
         ted_input, conversion = _convert_latex_to_mathml(latex_or_mathml)
 

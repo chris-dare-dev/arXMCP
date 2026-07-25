@@ -260,3 +260,94 @@ class TestGetChunkSourceTruthFields:
         assert _inner(r["chunk"]["body_text"]) == big  # full body, not truncated
         assert "truncated_for_license" not in r
         assert r["chunk"]["license_ref"] == "not-allowlisted-open"
+
+
+# ===========================================================================
+# agent-platform-t-batch-chunk-fetch (#83) — batched get_chunk
+# ===========================================================================
+
+_VALID_ID = "arxiv:2401.00001:0123456789abcdef"
+_VALID_ID2 = "arxiv:2401.00002:0123456789abcdef"
+_VALID_ID3 = "arxiv:2401.00003:0123456789abcdef"
+
+
+def _chunk_arrow_multi(ids: list[str]) -> pa.Table:
+    """A multi-row chunks-table Arrow result (the batch IN query)."""
+    n = len(ids)
+    return pa.table({
+        "chunk_id": list(ids),
+        "paper_id": [f"2401.{i:05d}" for i in range(n)],
+        "kind": ["definition"] * n,
+        "section_path": pa.array([["Chapter 1"]] * n, type=pa.list_(pa.utf8())),
+        "body_text": pa.array([f"body {i}" for i in range(n)], type=pa.utf8()),
+        "theorem_name": pa.array([None] * n, type=pa.utf8()),
+        "theorem_label": pa.array([None] * n, type=pa.utf8()),
+        "chunker_version": ["tv0.1"] * n,
+        "embedder_version": ["bge-m3"] * n,
+        "preamble_ref": pa.array([None] * n, type=pa.utf8()),
+        "license": pa.array(["arxiv-license"] * n, type=pa.utf8()),
+    })
+
+
+class TestBatchFetch:
+    def test_scalar_still_returns_flat_object(self, res):
+        """The v1 contract is preserved: a scalar chunk_id returns the
+        flat {chunk, found} envelope, NOT a chunks[] array."""
+        res["holder"]["arrow"] = _chunk_arrow_multi([_VALID_ID])
+        out = _run(handle_get_chunk(chunk_id=_VALID_ID))
+        body = out.get("structuredContent", out)
+        assert "chunks" not in body
+        assert body["found"] is True
+        assert body["chunk"]["chunk_id"] == _VALID_ID
+
+    def test_list_returns_chunks_array_in_request_order(self, res):
+        res["holder"]["arrow"] = _chunk_arrow_multi([_VALID_ID2, _VALID_ID])
+        out = _run(handle_get_chunk(chunk_id=[_VALID_ID, _VALID_ID2]))
+        body = out.get("structuredContent", out)
+        assert "chunk" not in body  # not the flat shape
+        assert len(body["chunks"]) == 2
+        # request order preserved regardless of DB return order
+        assert body["chunks"][0]["chunk"]["chunk_id"] == _VALID_ID
+        assert body["chunks"][1]["chunk"]["chunk_id"] == _VALID_ID2
+
+    def test_missing_id_is_found_false_element(self, res):
+        # only _VALID_ID present; _VALID_ID2 absent
+        res["holder"]["arrow"] = _chunk_arrow_multi([_VALID_ID])
+        out = _run(handle_get_chunk(chunk_id=[_VALID_ID, _VALID_ID2]))
+        body = out.get("structuredContent", out)
+        assert body["chunks"][0]["found"] is True
+        assert body["chunks"][1]["found"] is False
+        assert body["chunks"][1]["chunk"] is None
+
+    def test_batch_is_one_query(self, res, monkeypatch):
+        """N ids => ONE LanceDB search, not N."""
+        calls = {"n": 0}
+        from server.tools import get_resources
+
+        table = get_resources().chunks_table
+        orig = table.search
+
+        def _counting_search(*a, **k):
+            calls["n"] += 1
+            return orig(*a, **k)
+
+        monkeypatch.setattr(table, "search", _counting_search)
+        res["holder"]["arrow"] = _chunk_arrow_multi([_VALID_ID, _VALID_ID2, _VALID_ID3])
+        _run(handle_get_chunk(chunk_id=[_VALID_ID, _VALID_ID2, _VALID_ID3]))
+        assert calls["n"] == 1
+
+    def test_over_max_batch_rejected(self, res):
+        ids = [f"arxiv:2401.{i:05d}:0123456789abcdef" for i in range(21)]
+        res["holder"]["arrow"] = _chunk_arrow_multi(ids[:20])
+        with pytest.raises(ValueError, match="max 20"):
+            _run(handle_get_chunk(chunk_id=ids))
+
+    def test_empty_batch_rejected(self, res):
+        res["holder"]["arrow"] = _chunk_arrow_multi([])
+        with pytest.raises(ValueError, match="must not be empty"):
+            _run(handle_get_chunk(chunk_id=[]))
+
+    def test_malformed_id_in_batch_rejected(self, res):
+        res["holder"]["arrow"] = _chunk_arrow_multi([_VALID_ID])
+        with pytest.raises(ValueError, match="does not match"):
+            _run(handle_get_chunk(chunk_id=[_VALID_ID, "not-a-chunk-id"]))

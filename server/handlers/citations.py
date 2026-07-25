@@ -42,6 +42,7 @@ from pydantic import Field
 
 from ingest.identifiers import is_valid_chunk_id
 from server.graph_queries import cite_neighbors
+from server.metadata_enrich import enrich_rows_with_titles
 from server.tools import cap_result_list, envelope, get_resources
 
 logger = logging.getLogger(__name__)
@@ -138,6 +139,13 @@ async def handle_cite_neighbors(
             # (hop_distance ASC, paper_id ASC) ordering is preserved:
             # envelope()'s _sort_dict sorts dict keys, not list order.
             neighbors = [dataclasses.asdict(n) for n in results]
+            # #84: join paper title/year onto each neighbor row from the
+            # shared PaperMetadataStore (cite_neighbors has no notebook
+            # routing, so the shared store is the correct source).
+            # Null-safe: absent store / un-backfilled paper → title:null.
+            await enrich_rows_with_titles(
+                getattr(get_resources(), "paper_metadata_store", None), neighbors
+            )
             graph_status = "present"
 
     return envelope(_cap(

@@ -182,25 +182,23 @@ class TestHonestFallback:
         assert out["retrieval_mode"] == "ted_fused"
         assert out["query_conversion"]["applied"] is True
 
-    def test_config_default_is_off(self):
-        """m4 ships default-OFF (adversarial-critique decision): the
-        parity guard is CI-skipped and the route is latent, so it stays
-        off until W1 flips it together with the tool description."""
+    def test_config_default_is_on(self):
+        """agent-platform-m3 / W1 flipped the default ON (from m4's
+        default-OFF), atomically with the corrected tool description."""
         from server.config import Config
 
-        assert Config().eq_latex_route is False
+        assert Config().eq_latex_route is True
 
-    def test_production_default_keeps_latex_dense_only(
+    def test_production_default_routes_latex_to_ted(
         self, tmp_path, monkeypatch
     ):
-        """With the flag UNSET (production default OFF), a LaTeX query
-        must NOT reach TED — byte-identical to pre-m4, no conversion
-        attempted."""
+        """With the flag UNSET (production default now ON), a LaTeX query
+        reaches the TED lane and records the conversion."""
         out = _call(
             r"\int_0^1 f(x) dx", tmp_path, monkeypatch, route=None
         )
-        assert out["retrieval_mode"] == "dense_only_stmt_fallback"
-        assert "query_conversion" not in out
+        assert out["retrieval_mode"] == "ted_fused"
+        assert out["query_conversion"]["applied"] is True
 
     def test_route_disabled_keeps_legacy_behaviour(
         self, tmp_path, monkeypatch

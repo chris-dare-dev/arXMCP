@@ -662,7 +662,7 @@ class TestBP1ByteIdentityAcrossFanout:
         # so BP1 (system + tools) drifts; re-pinned in lockstep with
         # EXPECTED_TOOL_SCHEMA_SHA256.
         EXPECTED_BP1_SHA256 = (
-            "4676fa03933fe3bc473736513d4d0080097f2c6cdb5c82bf531d63c839015805"
+            "79d79600c96d464021cdbe1f28491687156ca0ccc4fa0f4163e94590c63af942"
         )
         req = _build_fanout_request(
             RouteTag.SYNTHESIS, "any problem; BP1 is independent of problem",

@@ -108,8 +108,12 @@ def _cap(payload: dict[str, Any]) -> dict[str, Any]:
 
 async def handle_get_paper(
     paper_id: Annotated[str, Field(min_length=1, description="arXiv paper id")],
-    version: Annotated[int | None, Field(description="Reserved; v1 ignores")] = None,
 ) -> dict[str, Any]:
+    # agent-platform-t-inert-args-cleanup (#82): the former ``version``
+    # arg was accepted-and-ignored (never referenced) over a corpus that
+    # stores no per-version rows. Removed rather than left as a lie; an
+    # agent that needs a specific version parses the ``vN`` suffix it
+    # already carries on ``paper_id``.
     # F3 fix from the E06_S03 critique: validate before using
     # paper_id in a SQL-style WHERE clause.
     if not is_valid_arxiv_paper_id(paper_id):

@@ -11,16 +11,19 @@ The body-size cap (E06_S01 ``BodySizeCapMiddleware`` exempts
 retrieval-unlocks-m1 — see :mod:`server.proof_linkage` for the
 ``(paper_id, theorem_label, kind)`` join, the uniqueness-gated
 section-scope fallback, and the four epistemic outcomes it can report.
-``include_equations`` still accepts the schema argument and returns
-nothing: equation atoms (E10_S03) are not yet built.
 
-**The tool DESCRIPTION strings are deliberately unchanged here.** They
-still say ``include_referenced`` is reserved and ignored, which is now
-false, but ``tools/list`` must stay byte-stable for BP1 prompt-cache
-discipline — one bundled ``TOOL_SCHEMA_VERSION`` re-pin lands the
-corrected text in agent-platform's W1 window. The delta is staged at
-``.claude/docs/w1-schema-deltas.md`` (retrieval-unlocks-t-w1-schema-
-delta-chunk). Behaviour ships now; the wire schema moves once.
+**Batch fetch (agent-platform-t-batch-chunk-fetch, #83):** ``chunk_id``
+accepts either a scalar id (flat single-chunk envelope, unchanged v1
+contract) or a list of up to :data:`MAX_BATCH_CHUNK_IDS` ids, which
+returns ``{chunks: [...]}`` in request order — one round-trip for N ids.
+The per-session cap counts a batch by its id count, not as one call (see
+``server.session.check_both_caps`` / ``SessionCapMiddleware``).
+
+**Inert arg removed (agent-platform-t-inert-args-cleanup, #82):** the
+former ``include_equations`` (accepted-and-ignored since v1, equation
+atoms never built) is gone from the input schema rather than left as a
+lie. ``unused_args`` / ``include_equations_applied`` went with it — get_chunk
+has no accepted-and-ignored argument left.
 """
 
 from __future__ import annotations
@@ -39,44 +42,114 @@ from server.tools import (
     wrap_retrieved_text,
 )
 
+#: agent-platform-t-batch-chunk-fetch (#83): max chunk_ids in one
+#: batched call. Enforced in the handler body — NOT as a Pydantic Field
+#: constraint — so the bound never perturbs the tools/list inputSchema
+#: hash (mirrors search_papers' MAX_PAPER_ID_FILTER_ITEMS discipline).
+MAX_BATCH_CHUNK_IDS = 20
+
 
 async def handle_get_chunk(
-    chunk_id: Annotated[str, Field(description="Content-addressable chunk_id")],
+    chunk_id: Annotated[
+        str | list[str],
+        Field(
+            description=(
+                "A content-addressable chunk_id, OR a list of up to 20 "
+                "of them for one batched fetch."
+            )
+        ),
+    ],
     include_referenced: Annotated[
-        bool, Field(description="Reserved for E07_S03; ignored at v1")
-    ] = False,
-    include_equations: Annotated[
-        bool, Field(description="Reserved for E10_S03; ignored at v1")
+        bool,
+        Field(
+            description=(
+                "Resolve this chunk's statement/proof counterpart(s): a "
+                "theorem-like chunk returns its proof window(s), a proof "
+                "returns its originating statement. See linkage.outcome "
+                "for the result, including the abstention cases."
+            )
+        ),
     ] = False,
 ) -> dict[str, Any]:
-    """Fetch one chunk by id. Raises a JSON-RPC error if the id
-    is malformed. Returns ``{found: false, ...}`` if the chunk_id
-    is well-formed but not in the corpus.
-    """
-    if not is_valid_chunk_id(chunk_id):
-        raise ValueError(
-            f"chunk_id {chunk_id!r} does not match "
-            f"arxiv:<paper_id>:<16-hex> format"
-        )
-    r = get_resources()
+    """Fetch one chunk by id, or a batch of up to 20.
 
+    A scalar ``chunk_id`` returns the flat single-chunk envelope
+    (``{chunk, found, ...}``) unchanged from the v1 contract. A list of
+    ids returns ``{chunks: [<the same per-chunk object>, ...]}`` in
+    request order — one entry per id, each carrying its own ``found``,
+    byte-cap, and linkage — so N ids cost one round-trip instead of N.
+
+    A malformed id raises a JSON-RPC error; a well-formed id absent from
+    the corpus yields a per-chunk ``found: false`` (batch elements stay
+    positionally aligned with the request so a caller can map a miss
+    back to its id).
+    """
+    # Validate BEFORE touching Resources: a malformed / injection-shaped
+    # id (or an over-cap batch) must be rejected without the handler ever
+    # reaching the corpus — the security-test contract
+    # (tests/security/test_path_traversal.py: the validator fires before
+    # get_resources()).
+    batch = isinstance(chunk_id, list)
+    ids: list[str] = list(chunk_id) if batch else [chunk_id]
+
+    if batch:
+        if not ids:
+            raise ValueError("chunk_id list must not be empty")
+        if len(ids) > MAX_BATCH_CHUNK_IDS:
+            raise ValueError(
+                f"chunk_id list has {len(ids)} ids; max "
+                f"{MAX_BATCH_CHUNK_IDS} per batched get_chunk call"
+            )
+    for cid in ids:
+        if not is_valid_chunk_id(cid):
+            raise ValueError(
+                f"chunk_id {cid!r} does not match "
+                f"arxiv:<paper_id>:<16-hex> format"
+            )
+
+    r = get_resources()
+    row_map = _fetch_chunk_rows(r, ids)
+    if not batch:
+        return envelope(
+            _build_chunk_result(ids[0], row_map.get(ids[0]), include_referenced, r)
+        )
+    return envelope({
+        "chunks": [
+            _build_chunk_result(cid, row_map.get(cid), include_referenced, r)
+            for cid in ids
+        ]
+    })
+
+
+def _fetch_chunk_rows(r, ids: list[str]) -> dict[str, Any]:  # noqa: ANN001
+    """One LanceDB lookup for all requested ids -> {chunk_id: row}.
+
+    A single ``chunk_id IN (...)`` query serves both the scalar path
+    (one id) and the batch path (up to 20), so a batch is one query.
+    """
+    ids_escaped = ", ".join(f"'{_escape_lance_str(c)}'" for c in ids)
     arrow = (
         r.chunks_table.search()
-        .where(f"chunk_id = '{_escape_lance_str(chunk_id)}'", prefilter=True)
-        .limit(1)
+        .where(f"chunk_id IN ({ids_escaped})", prefilter=True)
+        .limit(len(ids))
         .to_arrow()
     )
-    if arrow.num_rows == 0:
-        return envelope(
-            {
-                "chunk": None,
-                "found": False,
-                "include_equations_applied": False,
-                "include_referenced_applied": False,
-            }
-        )
+    return {row["chunk_id"]: row for row in _arrow_all_rows(arrow)}
 
-    row = _arrow_first_row(arrow)
+
+def _build_chunk_result(
+    chunk_id: str, row: dict[str, Any] | None, include_referenced: bool, r: Any
+) -> dict[str, Any]:
+    """Build the per-chunk result object (used for both the scalar
+    return and each batch element). ``row is None`` -> a ``found:false``
+    object. Carries its own byte-cap / linkage / resource_link so a
+    batch element is self-contained."""
+    if row is None:
+        return {
+            "chunk": None,
+            "found": False,
+            "include_referenced_applied": False,
+        }
     # E13_S02 (Threat 2) — sanitize body_text BEFORE the byte-cap so the
     # 256 KB cap measures post-sanitize bytes. Wrapping is deferred until
     # AFTER the cap so the delimiter tags are not sliced off by the cap
@@ -140,9 +213,7 @@ async def handle_get_chunk(
     payload = {
         "chunk": chunk,
         "found": True,
-        "include_equations_applied": False,  # v1: deferred to E10_S03
         "include_referenced_applied": False,
-        "unused_args": _record_unused_args(include_equations),
     }
 
     # retrieval-unlocks-m1: stmt <-> proof linkage. Resolved from the
@@ -198,28 +269,19 @@ async def handle_get_chunk(
         # surface on search_papers; for get_chunk a single link is
         # sufficient.
         structured["resource_link_uri"] = content_blocks[0]["uri"]
-    return envelope(structured)
+    return structured
 
 
-def _arrow_first_row(arrow) -> dict[str, Any]:  # noqa: ANN001
-    """Convert the first row of a 1-row Arrow table to a dict."""
-    out: dict[str, Any] = {}
-    for col in arrow.column_names:
-        out[col] = arrow.column(col).to_pylist()[0]
-    return out
-
-
-def _record_unused_args(*flags: bool) -> list[str]:
-    """Return a list of unused-arg names for any True flag — pure
-    audit trail for the agent runtime to know which features it
-    requested were silently ignored. Empty list when all False.
-
-    ``include_referenced`` LEFT this list in retrieval-unlocks-m1: it is
-    now honoured, so reporting it as ignored would be the inverse lie.
-    ``include_equations`` remains deferred (E10_S03).
-    """
-    names = ("include_equations",)
-    return [n for n, f in zip(names, flags, strict=True) if f]
+def _arrow_all_rows(arrow) -> list[dict[str, Any]]:  # noqa: ANN001
+    """Convert every row of an Arrow table to a list of dicts (batch
+    fetch). Column-wise then transposed, so a 0-row table yields []."""
+    if arrow.num_rows == 0:
+        return []
+    cols = {name: arrow.column(name).to_pylist() for name in arrow.column_names}
+    return [
+        {name: cols[name][i] for name in arrow.column_names}
+        for i in range(arrow.num_rows)
+    ]
 
 
 def _escape_lance_str(s: str) -> str:

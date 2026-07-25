@@ -47,6 +47,7 @@ import asyncio
 import json
 import logging
 import sqlite3
+from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -100,10 +101,23 @@ class PaperMetadataStore:
     pattern.
     """
 
+    #: Bound on the :meth:`get_cached` LRU. At ~a few hundred bytes per
+    #: cached record, 4096 distinct papers is well under a MB — and the
+    #: enrichment consumer (search/cite rows) touches at most k≤50 +
+    #: neighbor-limit distinct ids per call.
+    _GET_LRU_CAP: int = 4096
+
     def __init__(self, db_path: Path, connection: sqlite3.Connection) -> None:
         self._db_path = db_path
         self._conn = connection
         self._lock = asyncio.Lock()
+        #: agent-platform-t-semantic-identifiers (#84): bounded LRU for
+        #: the row-enrichment title/year join. Keyed by the (caller-
+        #: normalized, unversioned) paper_id — safe for the single shared
+        #: store; if per-notebook stores are ever added, the key must
+        #: gain the notebook dimension (the LRU lives on the store
+        #: instance precisely so that stays a per-store concern).
+        self._get_lru: OrderedDict[str, PaperMetadataRecord | None] = OrderedDict()
 
     # ------------------------------------------------------------------
     # Open / close
@@ -247,6 +261,26 @@ class PaperMetadataStore:
                 ).fetchone()
                 return None if row is None else _record_from_row(row)
             return await asyncio.to_thread(_query)
+
+    async def get_cached(self, paper_id: str) -> PaperMetadataRecord | None:
+        """LRU-cached :meth:`get` for row enrichment (#84).
+
+        The caller passes an already version-normalized id (the store is
+        keyed unversioned). Bounds DB reads to one per distinct paper_id
+        across a response and keeps repeated queries warm. Cache is
+        performance, not correctness: a row backfilled out-of-band after
+        an entry is cached is served stale until eviction — the same
+        posture as the retrieval cache, and acceptable because the
+        null-safe consumer degrades a miss to ``title: null`` anyway.
+        """
+        if paper_id in self._get_lru:
+            self._get_lru.move_to_end(paper_id)
+            return self._get_lru[paper_id]
+        record = await self.get(paper_id)
+        self._get_lru[paper_id] = record
+        if len(self._get_lru) > self._GET_LRU_CAP:
+            self._get_lru.popitem(last=False)
+        return record
 
     async def hydrated_paper_ids(self) -> set[str]:
         """paper_ids whose title AND authors are non-empty.

@@ -38,10 +38,11 @@ small *relative to the distance to other equations*, so rank-1 holds.
 
 Scope honesty: one draw, a 200-equation pool from the parsed corpus.
 Rank-1 on a 200-pool does not prove rank-1 on a 50K-pool — near-collisions
-get likelier as the corpus grows, which is one reason the route ships
-default-OFF (``Config.eq_latex_route``). This test re-measures on whatever
-corpus is present, so the number tracks reality rather than a frozen
-claim.
+get likelier as the corpus grows. The route is default-ON as of W1
+(``Config.eq_latex_route``); this eval-marked gate re-measures on whatever
+corpus is present (skipping in CI), so the exact latex2mathml pin and the
+kill-switch are the live protections and this number tracks reality
+rather than a frozen claim.
 
 Skipped when the parsed corpus is absent (a clean checkout), which is why
 it lives under ``tests/eval`` rather than the always-on suite.

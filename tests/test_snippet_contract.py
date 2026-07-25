@@ -130,13 +130,14 @@ class TestSnippetShape:
             assert is_valid_chunk_id(row["chunk_id"])
 
     def test_required_fields_present(self, warm_app):
-        """Every row carries the 7 frozen fields per the schema
-        (source_kind added at textbook-ingest-m9 / e4)."""
+        """Every row carries the 9 frozen fields per the schema
+        (source_kind added at textbook-ingest-m9 / e4; title + year at
+        agent-platform-m3 / W1 semantic-identifiers)."""
         body = _search(warm_app)
         rows = body["result"]["structuredContent"]["results"]
         required = {
             "chunk_id", "label", "paper_id", "score", "section_path",
-            "snippet", "source_kind",
+            "snippet", "source_kind", "title", "year",
         }
         for row in rows:
             assert set(row.keys()) >= required, (
@@ -151,7 +152,7 @@ class TestSnippetShape:
         rows = body["result"]["structuredContent"]["results"]
         allowed = {
             "chunk_id", "label", "paper_id", "score", "section_path",
-            "snippet", "source_kind",
+            "snippet", "source_kind", "title", "year",
         }
         for row in rows:
             extra = set(row.keys()) - allowed
@@ -295,17 +296,18 @@ class TestSchemaConformance:
         Draft7Validator.check_schema(schema)
         assert schema.get("$schema") == "http://json-schema.org/draft-07/schema#"
 
-    def test_schema_requires_exactly_seven_row_fields(self):
+    def test_schema_requires_exactly_nine_row_fields(self):
         """The per-row schema's required list must match the
         handler's emitted fields. Drift here means the schema and
         the code disagree about what's required. source_kind added at
-        textbook-ingest-m9 / e4 (was six fields)."""
+        textbook-ingest-m9 / e4 (was six fields); title + year at
+        agent-platform-m3 / W1 (semantic-identifiers, now nine)."""
         schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
         row_schema = schema["properties"]["results"]["items"]
         required = set(row_schema["required"])
         assert required == {
             "chunk_id", "label", "paper_id", "score", "section_path",
-            "snippet", "source_kind",
+            "snippet", "source_kind", "title", "year",
         }
         # additionalProperties: false locks the closed contract.
         assert row_schema["additionalProperties"] is False

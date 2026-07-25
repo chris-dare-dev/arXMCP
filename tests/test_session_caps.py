@@ -824,3 +824,51 @@ class TestRectificationGuards:
             assert count >= 2
 
         asyncio.run(_run())
+
+
+class TestBatchCapByN:
+    """agent-platform-t-batch-chunk-fetch (#83): a batched get_chunk
+    consumes N per-tool cap units, not 1."""
+
+    def test_batch_increments_chunk_count_by_n(self, monkeypatch):
+        import server.session as sm
+        monkeypatch.setattr(sm, "MAX_GET_CHUNK_CALLS", 100)
+
+        async def _run_():
+            state = sm.SessionState(session_id="0" * 32)
+            verdict, count, limit = await sm.check_both_caps(
+                state, "get_chunk", n=5
+            )
+            assert verdict == "allowed"
+            assert state.chunk_count == 5  # by N, not 1
+        asyncio.run(_run_())
+
+    def test_batch_wholesale_rejected_when_over_cap(self, monkeypatch):
+        import server.session as sm
+        monkeypatch.setattr(sm, "MAX_GET_CHUNK_CALLS", 10)
+
+        async def _run_():
+            state = sm.SessionState(session_id="1" * 32)
+            state.chunk_count = 8  # 8 used of 10
+            # a batch of 5 would reach 13 > 10 -> whole batch rejected,
+            # no partial serve, counter untouched.
+            verdict, count, limit = await sm.check_both_caps(
+                state, "get_chunk", n=5
+            )
+            assert verdict == "per_tool_rejected"
+            assert state.chunk_count == 8  # unchanged
+            assert count == 13  # attempted total
+            assert limit == 10
+        asyncio.run(_run_())
+
+    def test_batch_exactly_at_cap_allowed(self, monkeypatch):
+        import server.session as sm
+        monkeypatch.setattr(sm, "MAX_GET_CHUNK_CALLS", 10)
+
+        async def _run_():
+            state = sm.SessionState(session_id="2" * 32)
+            state.chunk_count = 5
+            verdict, _, _ = await sm.check_both_caps(state, "get_chunk", n=5)
+            assert verdict == "allowed"  # 5 + 5 == 10, not over
+            assert state.chunk_count == 10
+        asyncio.run(_run_())

@@ -189,7 +189,17 @@ logger = logging.getLogger(__name__)
 #: inputSchema change AND the LEAN_VERIFY.description edit below drift the
 #: tools/list bytes, so EXPECTED_TOOL_SCHEMA_SHA256 AND EXPECTED_BP1_SHA256
 #: both re-pin this milestone.
-TOOL_SCHEMA_VERSION: int = 20
+#: 20 -> 21 (agent-platform-m3 / W1): ONE batched re-pin landing every
+#: staged schema change together — get_chunk widened to a batch chunk_id
+#: list + include_referenced/description edits, include_equations removed,
+#: get_paper.version removed, search_papers filters.include_kinds +
+#: truthful description, find_equation LaTeX-route description, canonical
+#: examples on 4 tools, and ToolAnnotations on all 8 (7 read-only +
+#: lean_verify open-world-false). inputSchema + description drift => BOTH
+#: EXPECTED_TOOL_SCHEMA_SHA256 and EXPECTED_BP1_SHA256 re-pin; annotations
+#: are tool-schema-only. search_papers_result.json also bumps 20 -> 21 for
+#: the added per-row title/year (semantic-identifiers).
+TOOL_SCHEMA_VERSION: int = 21
 
 #: URI scheme for chunk resource_links per the design note. Used by
 #: handlers that switch to resource_link mode when payloads exceed
@@ -240,23 +250,30 @@ SEARCH_PAPERS = ToolMeta(
         "or textbook:<slug> format. Pass filters={'source_kind': 'textbook'} "
         "(or 'arxiv') to restrict results to one corpus origin; omit it to "
         "return chunks of any source_kind. Each result row carries a "
-        "source_kind tag. NOTE: v1 ships dense-only ANN "
-        "retrieval over BGE-M3 statement embeddings; the BM25 + RRF "
-        "hybrid path lands in E07. WARNING: v1 indexes statement chunks "
-        "only — proof chunks are not retrievable until E07's dual-column "
-        "RRF lands. The result envelope's retrieval_mode and "
-        "excluded_kinds fields document the active mode."
+        "source_kind tag plus a title (and year when known) joined from "
+        "the paper-metadata store. Retrieval is dense-only ANN over "
+        "BGE-M3 statement embeddings. Proof bodies are opt-in via "
+        "filters={'include_kinds': ['proof']}, which searches the "
+        "proof-embedding column instead of the statement column; the "
+        "default route searches statement embeddings only. The result "
+        "envelope's retrieval_mode and excluded_kinds fields document the "
+        "active route. Example: search_papers('stability conditions on "
+        "triangulated categories', filters={'paper_id': ['2401.00001']})."
     ),
 )
 
 GET_CHUNK = ToolMeta(
     name="get_chunk",
     description=(
-        "Fetch the full body of one chunk by its content-addressable "
-        "chunk_id. Use search_papers first to obtain chunk_ids. Large "
-        "chunks (over the 256 KB inline cap) are returned as a "
-        "resource_link with body_truncated=True; agents follow the link "
-        "to fetch the full payload."
+        "Fetch the full body of a chunk by its content-addressable "
+        "chunk_id, or a batch of up to 20 chunk_ids in one call (a list "
+        "returns a chunks[] array in request order, one entry per id). "
+        "Use search_papers first to obtain chunk_ids. Pass "
+        "include_referenced=true to also resolve a theorem's proof "
+        "window(s) or a proof's originating statement (see "
+        "linkage.outcome). Large chunks (over the 256 KB inline cap) are "
+        "returned as a resource_link with body_truncated=True; agents "
+        "follow the link to fetch the full payload."
     ),
 )
 
@@ -273,15 +290,22 @@ FIND_EQUATION = ToolMeta(
         "falls back to the chunks table's embedding_stmt as a proxy "
         "when embedding_eq is all-NULL (retrieval_mode='ted_fused') for "
         "backward compatibility with pre-E10_S03b corpora. LaTeX inputs "
-        "fall back to dense-only ANN over the chunks table's statement "
-        "embeddings (retrieval_mode='dense_only_stmt_fallback') because "
-        "there is no query-time LaTeXML pool. When the equations table "
+        "are converted to Presentation MathML at query time (latex2mathml) "
+        "and routed onto the same fusion path, so retrieval_mode reports "
+        "ted_fused / ted_fused_eq; query_conversion records the conversion. "
+        "Matching is approximate for macro-heavy LaTeX (the corpus trees "
+        "came from LaTeXML). LaTeX that cannot be converted falls back to "
+        "dense-only over statement embeddings "
+        "(retrieval_mode='dense_only_stmt_fallback', "
+        "query_conversion.applied=false); set ARXMCP_EQ_LATEX_ROUTE=false "
+        "to force that dense path for all LaTeX. When the equations table "
         "is missing entirely, MathML inputs degrade to "
         "retrieval_mode='dense_only_fallback'. If MathML parsing "
         "fails outright (malformed input), the handler degrades to "
         "retrieval_mode='malformed_mathml_fallback' rather than "
         "5xx-ing the request. The retrieval_mode field always "
-        "documents the active path."
+        "documents the active path. Example: "
+        "find_equation('\\\\int_0^1 f(x)\\\\,dx')."
     ),
 )
 
@@ -351,8 +375,11 @@ CITE_NEIGHBORS = ToolMeta(
         "when the paper is in the graph but not the chunked corpus), "
         "edge_kind, hop_distance, source, and confidence; results are "
         "deduplicated by paper_id and ordered by (hop_distance, "
-        "paper_id). graph_status='absent' with an empty neighbors list "
-        "when the citation graph has not been ingested."
+        "paper_id); each row also carries the neighbor paper's title "
+        "(and year when known). graph_status='absent' with an empty "
+        "neighbors list when the citation graph has not been ingested. "
+        "Example: cite_neighbors('arxiv:2401.00001:0123456789abcdef', "
+        "direction='cited_by', depth=1)."
     ),
 )
 
@@ -382,7 +409,9 @@ LEAN_VERIFY = ToolMeta(
         "by ARXMCP_ENABLE_LEAN: when disabled the tool returns "
         "lean_status='disabled' rather than 5xx. On a 30s elaboration "
         "timeout the REPL is killed and respawned before the next call. "
-        "imports[] are prepended verbatim as 'import X' lines."
+        "imports[] are prepended verbatim as 'import X' lines. Example: "
+        "lean_verify('theorem t : 1 + 1 = 2 := by rfl', "
+        "imports=['Mathlib.Tactic'])."
     ),
 )
 
@@ -1026,8 +1055,35 @@ def register_all(mcp_server: FastMCP) -> None:
             name=tm.name,
             description=tm.description,
             meta=meta,
+            annotations=_annotations_for(tm.name),
         )
     logger.info("registered %d MCP tools (schema_version=%d)", len(ALL_TOOLS), TOOL_SCHEMA_VERSION)
+
+
+#: agent-platform-t-tool-annotations (#86): the 7 retrieval tools are
+#: read-only corpus reads — no writes, calling twice with the same args
+#: yields the same result, and they touch no world outside the local
+#: corpus. lean_verify is EXCLUDED: it computes rather than reads, and
+#: its env/proof_state continuation tokens make repeated calls
+#: order-dependent, so readOnlyHint is OMITTED (not asserted true) and
+#: idempotentHint is not claimed — only openWorldHint=False (a local
+#: kernel, not an open-world call) is stated.
+_RETRIEVAL_TOOL_NAMES: frozenset[str] = frozenset({
+    "search_papers", "get_chunk", "find_equation", "get_definitions",
+    "find_lemma_by_name", "get_paper", "cite_neighbors",
+})
+
+
+def _annotations_for(tool_name: str) -> Any:
+    """Per-tool MCP ToolAnnotations (#86)."""
+    from mcp.types import ToolAnnotations  # noqa: PLC0415
+
+    if tool_name in _RETRIEVAL_TOOL_NAMES:
+        return ToolAnnotations(
+            readOnlyHint=True, idempotentHint=True, openWorldHint=False
+        )
+    # lean_verify: stateful compute — readOnlyHint/idempotentHint omitted.
+    return ToolAnnotations(openWorldHint=False)
 
 
 __all__ = [

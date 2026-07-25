@@ -258,6 +258,7 @@ async def check_both_caps(
     state: SessionState,
     tool_name: str,
     now: float | None = None,
+    n: int = 1,
 ) -> tuple[str, int, int]:
     """Atomically check the per-tool retrieval cap AND the hourly
     rate limit under a SINGLE lock acquisition (E13_S04 F1 rect).
@@ -288,6 +289,16 @@ async def check_both_caps(
     and for code paths that need only one cap. ``SessionCapMiddleware``
     uses this compound function exclusively to avoid the F1 budget
     leak.
+
+    ``n`` is the number of per-tool units this call consumes
+    (agent-platform-t-batch-chunk-fetch, #83): a batched ``get_chunk``
+    of N ids costs N against the per-tool cap, not 1, so a caller cannot
+    escape the retrieval budget by folding many fetches into one request.
+    The batch is accounted WHOLESALE: if ``count + n`` would exceed the
+    limit the entire batch is rejected (no partial serve), consistent
+    with the single-call semantics. The hourly cap stays request-grained
+    (a batch is one request = one timestamp) — it bounds request rate,
+    which a single batched call does not inflate.
     """
     if now is None:
         now = time.time()
@@ -299,13 +310,13 @@ async def check_both_caps(
         if tool_name == "search_papers":
             per_tool_limit = MAX_SEARCH_PAPERS_CALLS
             per_tool_count = state.search_count
-            if per_tool_count >= per_tool_limit:
-                return "per_tool_rejected", per_tool_count + 1, per_tool_limit
+            if per_tool_count + n > per_tool_limit:
+                return "per_tool_rejected", per_tool_count + n, per_tool_limit
         elif tool_name == "get_chunk":
             per_tool_limit = MAX_GET_CHUNK_CALLS
             per_tool_count = state.chunk_count
-            if per_tool_count >= per_tool_limit:
-                return "per_tool_rejected", per_tool_count + 1, per_tool_limit
+            if per_tool_count + n > per_tool_limit:
+                return "per_tool_rejected", per_tool_count + n, per_tool_limit
         # Tools not in TOOLS_WITH_CAPS have no per-tool cap; fall
         # through to the hourly check.
 
@@ -319,9 +330,9 @@ async def check_both_caps(
 
         # --- Step 3: BOTH passed — commit BOTH atomically ---
         if tool_name == "search_papers":
-            state.search_count += 1
+            state.search_count += n
         elif tool_name == "get_chunk":
-            state.chunk_count += 1
+            state.chunk_count += n
         state.call_timestamps.append(now)
         return "allowed", hourly_count + 1, MAX_CALLS_PER_HOUR
 

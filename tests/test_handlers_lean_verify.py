@@ -188,7 +188,11 @@ class TestToolRegistration:
         DROPPED the truncated_for_license response flag as the 300-char
         license-truncation gate was removed; lean_verify result shape once
         more unchanged)."""
-        assert TOOL_SCHEMA_VERSION == 20
+        # 20->21 (agent-platform-m3 / W1): batched schema re-pin
+        # (get_chunk batch + arg cleanup, search/find_equation/cite
+        # description edits, ToolAnnotations, search-row title/year);
+        # lean_verify result shape unchanged, version tracks the global.
+        assert TOOL_SCHEMA_VERSION == 21
 
         schema_path = (
             Path(__file__).parent.parent

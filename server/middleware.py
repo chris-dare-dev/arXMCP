@@ -1173,6 +1173,7 @@ class SessionCapMiddleware:
         # Try to parse the JSON-RPC body. Failures fall through.
         tool_name: str | None = None
         request_id: Any = None
+        cap_units = 1
         try:
             parsed = json.loads(body_bytes.decode("utf-8"))
             if isinstance(parsed, dict) and parsed.get("method") == _MCP_TOOLS_CALL_METHOD:
@@ -1180,6 +1181,19 @@ class SessionCapMiddleware:
                 params = parsed.get("params") or {}
                 if isinstance(params, dict):
                     tool_name = params.get("name")
+                    # agent-platform-t-batch-chunk-fetch (#83): a batched
+                    # get_chunk consumes N per-tool cap units, not 1.
+                    # This is the ONE place the cap layer reads a tool's
+                    # arguments — deliberately narrow: only get_chunk,
+                    # only chunk_id's length. An invalid shape (empty /
+                    # over-max list) falls to the handler's own
+                    # validation; here it just yields a units count that
+                    # the wholesale cap check tolerates.
+                    if tool_name == "get_chunk":
+                        args = params.get("arguments")
+                        cid = args.get("chunk_id") if isinstance(args, dict) else None
+                        if isinstance(cid, list):
+                            cap_units = len(cid)
         except (ValueError, UnicodeDecodeError):
             tool_name = None  # malformed body → forward unchanged
 
@@ -1203,7 +1217,9 @@ class SessionCapMiddleware:
         # unless both pass — atomic two-cap commit.
         try:
             state = await get_or_create_session(session_id)
-            verdict, count, limit = await check_both_caps(state, tool_name)
+            verdict, count, limit = await check_both_caps(
+                state, tool_name, n=cap_units
+            )
         except Exception:  # noqa: BLE001
             # Failure-mode discipline: cap layer must not break the
             # request. Log + forward. If a cap is silently bypassed

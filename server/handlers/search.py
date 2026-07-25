@@ -1,9 +1,9 @@
 """``search_papers`` handler — dense-only ANN over BGE-M3 embeddings.
 
-v1 ships dense-only retrieval over the ``embedding_stmt`` column
-of the chunks table. The hybrid BM25 + RRF + reranker pipeline
-lands in E07 (Sonnet B); the wire-level tool contract does not
-change when E07 ships — only the internal retrieval mode.
+Dense-only retrieval over the ``embedding_stmt`` column of the chunks
+table. The E07 hybrid BM25 + RRF + reranker pipeline was cancelled
+(agent-platform-t-truthful-descriptions) — the tool no longer promises
+it. Proof bodies are reachable via the opt-in below.
 
 **retrieval-unlocks-m2** adds one opt-in route:
 ``filters={'include_kinds': ['proof']}`` searches ``embedding_proof``
@@ -82,6 +82,7 @@ from pydantic import AnyUrl, Field
 from ingest.identifiers import is_valid_paper_id
 from ingest.store import ALLOWED_KINDS
 from server.cache import get_cache
+from server.metadata_enrich import enrich_rows_with_titles
 from server.observability.sanitize import sanitize_retrieved_text
 from server.query_encoder import encode_query, encode_query_with_fallback
 from server.tools import (
@@ -457,8 +458,13 @@ async def handle_search_papers(
                 "Optional filters. Honors 'paper_id' as a str or "
                 "list[str] (up to 100 items, each validated against "
                 "the arXiv paper_id format) and 'source_kind' "
-                "('arxiv' or 'textbook'); these compose (AND). Other "
-                "keys are ignored and surface in 'filter_warnings'."
+                "('arxiv' or 'textbook'); these compose (AND). "
+                "include_kinds=['proof'] routes the search onto the "
+                "proof-body embedding column instead of the default "
+                "statement column, making proof text retrievable "
+                "(the only supported value is ['proof']; it changes "
+                "retrieval_mode and excluded_kinds). Other keys are "
+                "ignored and surface in 'filter_warnings'."
             ),
         ),
     ] = None,
@@ -670,6 +676,13 @@ async def handle_search_papers(
             # metadata; never stored in cached payload).
             structured = _inject_filters_applied(structured, canonical_filters)
             rows = structured.get("results", [])
+            # #84: enrich on the hit path too — idempotent (skips rows
+            # already carrying title), so payloads cached BEFORE this
+            # change still gain title/year, while post-change cached rows
+            # (already enriched at store time) incur no store read.
+            await enrich_rows_with_titles(
+                getattr(r, "paper_metadata_store", None), rows
+            )
             structured = _cap(structured)
             content = _build_content_blocks(structured, rows)
             return CallToolResult(content=content, structuredContent=structured)
@@ -711,6 +724,13 @@ async def handle_search_papers(
             # metadata; never stored in cached payload).
             structured = _inject_filters_applied(structured, canonical_filters)
             rows = structured.get("results", [])
+            # #84: enrich on the hit path too — idempotent (skips rows
+            # already carrying title), so payloads cached BEFORE this
+            # change still gain title/year, while post-change cached rows
+            # (already enriched at store time) incur no store read.
+            await enrich_rows_with_titles(
+                getattr(r, "paper_metadata_store", None), rows
+            )
             structured = _cap(structured)
             content = _build_content_blocks(structured, rows)
             return CallToolResult(content=content, structuredContent=structured)
@@ -776,6 +796,15 @@ async def handle_search_papers(
     # Sort: (score_desc, chunk_id_asc).
     rows.sort(key=lambda r: (-r["score"], r["chunk_id"]))
     rows = rows[:k]
+
+    # #84: join paper title/year onto each row BEFORE the payload is
+    # assembled and cached, so the cached payload carries titles and the
+    # cache-hit paths above need no store read. Null-safe: a notebook-
+    # routed search (whose papers are not in the shared store) or an
+    # un-backfilled corpus yields title:null rather than wrong data.
+    await enrich_rows_with_titles(
+        getattr(r, "paper_metadata_store", None), rows
+    )
 
     # F6: surface ignored filter/cursor warnings explicitly so the
     # agent runtime can detect partial support.
