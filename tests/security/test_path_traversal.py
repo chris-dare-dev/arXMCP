@@ -25,9 +25,10 @@ covered by the existing per-handler test suite.
 
 **Tool surface (synthesis D1; per ``server/tools.py::ALL_TOOLS``):**
 
-- ``search_papers`` — no scalar identifier (filters dict is
-  accepted-but-ignored); out of Threat-1 scope here. Known gap
-  in audit doc.
+- ``search_papers`` — no scalar identifier arg. ``filters.paper_id``
+  is now validated (proof-verify-handler-wiring-m1); its path-traversal
+  coverage lives in ``tests/test_search_filter.py`` (incl. a
+  ``textbook:../etc/passwd`` case), so this file does not duplicate it.
 - ``get_chunk`` — ``chunk_id``
 - ``find_equation`` — no identifier; out of Threat-1 scope
 - ``get_definitions`` — ``paper_id``
@@ -296,10 +297,10 @@ class TestValidatorFiresBeforeResources:
     def test_cite_neighbors_validator_fires_before_resources(
         self, bad_input, monkeypatch
     ):
-        """cite_neighbors does not currently call get_resources
-        (it's a v1 stub), so this test is forward-compat: if a
-        future wiring adds a resource access, the validator must
-        still fire first. Monkeypatch defensively."""
+        """cite_neighbors validates chunk_id BEFORE it calls
+        get_resources (wired in verification-feedback-m1), so the
+        chunk_id validator must fire before any resource access.
+        Monkeypatch get_resources to throw and assert ValueError wins."""
         from server import tools as tools_mod  # noqa: PLC0415
 
         monkeypatch.setattr(

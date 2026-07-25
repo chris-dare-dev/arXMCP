@@ -227,7 +227,7 @@ class TestNumericParamRejection:
 
     def test_cite_neighbors_depth_over_cap_rejected_by_validator(self):
         """Reframed from brief's fictional ``dependency_graph(depth=100)``.
-        Real depth=100 against ``cite_neighbors`` (le=3) is rejected
+        Real depth=100 against ``cite_neighbors`` (le=2) is rejected
         at validation."""
         from pydantic import ValidationError
 
@@ -1083,8 +1083,8 @@ class TestE13S04bCapExtension:
 
     def test_cite_neighbors_cap_passes_under_cap(self):
         """``cite_neighbors._cap`` takes ``chunk_id`` as a positional
-        argument. Under-cap payload (the v1 stub with empty
-        neighbors) routes through unchanged.
+        argument. An under-cap payload (here, an empty neighbor list)
+        routes through unchanged.
         """
         from server import tools as tools_mod
         from server.handlers.citations import _cap
@@ -1108,12 +1108,12 @@ class TestE13S04bCapExtension:
         assert out["chunk_id"] == small_payload["chunk_id"]
 
     def test_cite_neighbors_cap_fires_with_input_chunk_id(self):
-        """When ``cite_neighbors`` returns an over-cap response
-        (forward-compat for E09 wire-up), the ``body_truncated``
-        flag is set, the payload bytes are actually reduced below
-        cap (F2 — closes the silent-no-op regression), and the
-        ``cap_result_list`` helper trims the trailing entries of
-        ``neighbors[]``.
+        """When ``cite_neighbors`` returns an over-cap response — now
+        reachable since the handler is wired (verification-feedback-m1)
+        — the ``body_truncated`` flag is set, the payload bytes are
+        actually reduced below cap (F2 — closes the silent-no-op
+        regression), and the ``cap_result_list`` helper trims the
+        trailing entries of ``neighbors[]``.
         """
         import json
 

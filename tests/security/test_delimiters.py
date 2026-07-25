@@ -23,8 +23,9 @@ the full per-tool table; this file enforces it.
   add equation atom body text → wrapping required at that milestone)
 - ``get_paper`` — abstract / title / authors are NULL at v1 (E11 will
   backfill metadata → wrapping required at that milestone)
-- ``cite_neighbors`` — v1 stub returns ``{neighbors: []}`` with no
-  abstracts (E09 will wire real neighbors → wrapping required then)
+- ``cite_neighbors`` — wired since verification-feedback-m1, but
+  ``CitationNeighbor`` carries only ids + scalars (no abstract/title),
+  so there is no paper-derived text to wrap (re-arm if one is added)
 
 The sanitizer layer (``server/observability/sanitize.py``) is exercised
 in dedicated test classes below — OFF by default, opts in via
@@ -569,15 +570,15 @@ class TestV1Gaps:
         )
 
     def test_cite_neighbors_does_not_yet_wrap(self):
-        # cite_neighbors at v1 returns neighbors=[] with no paper
-        # abstracts. The infrastructure_status="deferred" flag tells
-        # callers this is a stub. When E09 wires real graph queries
-        # and neighbors carry abstracts, wrapping MUST be added.
+        # cite_neighbors is wired (verification-feedback-m1), but its
+        # neighbors carry only ids + scalars (no abstract/title), so
+        # there is no paper-derived text to wrap. If a future milestone
+        # adds such a field, wrapping MUST be added here.
         from server.handlers import citations
 
         assert not self._module_references_wrap_helper(citations), (
             "cite_neighbors now references wrap_retrieved_text. "
             "Update .claude/docs/security-threat-2-audit.md per-tool "
-            "table from 'deferred — E09 wiring' to '✅ wrapped' and "
-            "add integration tests under TestCiteNeighborsWrapping."
+            "table from 'N/A — no paper-derived text' to '✅ wrapped' "
+            "and add integration tests under TestCiteNeighborsWrapping."
         )
