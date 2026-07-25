@@ -523,10 +523,17 @@ Things that LOOK shipped but aren't fully wired — don't be surprised.
   always `null` (pagination deferred to E07_S04). Unrecognized `filters`
   keys (`categories`, `year_min`, …) are likewise ignored and surface in
   `filter_warnings` — but four keys ARE honored end-to-end (§6).
-- **`find_equation` on LaTeX input** is a dense-only fallback over
-  `embedding_stmt` (`retrieval_mode="dense_only_stmt_fallback"`). The
-  E10_S03 TED-fusion path (`ted_fused`) requires **MathML** input: there is
-  no query-time LaTeXML subprocess pool in the request path.
+- **`find_equation` on LaTeX input** is, by default, a dense-only fallback
+  over `embedding_stmt` (`retrieval_mode="dense_only_stmt_fallback"`).
+  retrieval-unlocks-m4 added an opt-in route (`Config.eq_latex_route`,
+  **default OFF**): when enabled, a LaTeX query is converted to Presentation
+  MathML at request time via `latex2mathml` and routed onto the SAME TED lane
+  as MathML input (`retrieval_mode="ted_fused"`/`"ted_fused_eq"`, plus a
+  `query_conversion` provenance field); an unconvertible query falls back to
+  `dense_only_stmt_fallback`. The conversion is a pure-Python `latex2mathml`
+  call — there is still **no** query-time LaTeXML subprocess pool in the
+  request path. MathML input has always taken the TED path (`ted_fused`)
+  directly.
 - **Index-absent degradation is by design, not breakage.** With no
   theorem-names SQLite DB, `find_lemma_by_name` falls back to the legacy
   in-memory scan (`retrieval_mode="in_memory_scan_fallback"`); with no
