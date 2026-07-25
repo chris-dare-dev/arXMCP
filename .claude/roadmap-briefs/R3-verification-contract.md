@@ -79,7 +79,11 @@ the performance tail.
    positive strict results durable across restarts; timeout/memory outcomes TTL ≤ 1h.
 8. Pooled warm workers (per named environment) with incremental state reuse; measured
    latency report (target: repeat-verification p50 < 1 s in mathlib env) — explicitly the
-   last milestone, gated on 4–5.
+   last milestone, gated on 4–5. Bounds the live environment-snapshot tree (inherited F7,
+   below): the REPL exposes no per-env eviction, so pooled workers are **recycled** on a
+   live-snapshot-count / age budget (optionally `pickle`-migrating the hot named env across
+   a recycle), and a REPL live-snapshot-count / worker-age gauge lands on `/metrics` for
+   operator visibility.
 
 ## Scope — out (wont)
 
@@ -126,6 +130,28 @@ the performance tail.
   + strict-check shape; Poiroux REPL state reuse (~8 s → ~0.02 s) and Kimina pooling
   (arXiv:2504.21230) for the performance tail.
 
+## Inherited findings
+
+- **F7 — unbounded environment-snapshot growth** (from the `lean-verify-continuation-m1`
+  adversary critique; deferred there, owned here). The `leanprover-community/repl` records
+  every command's environment as an immutable snapshot in an **append-only array** (env id
+  = array index) and exposes **no** eviction command — the surface is
+  `cmd`/`file`/`proofStep`/`pickleEnvironment`/`unpickleEnvironment`/`pickleProofSnapshot`/
+  `unpickleProofSnapshot` only, verified against the pinned `v4.30.0-rc2` source
+  (`~/lean-repl-spike/repl/REPL/Main.lean`, census 2026-07-25). Even a `#check` grows the
+  tree; only a respawn/restart frees it (~3.1 GB RSS for a Mathlib-resident process). This
+  track's env-reuse continuation tokens make the growth first-class. **Owned by m7** (KR8):
+  bound the live tree by recycling pooled workers on a snapshot-count / age budget
+  (per-env eviction is not available; `pickleEnvironment`→`unpickle` can migrate the hot
+  named env across a recycle), and expose a live-snapshot / worker-age gauge on `/metrics`.
+  A respawn *policy* must NOT live in the `lean_verify` handler — a respawn mints a new
+  REPL generation that expires every outstanding continuation token, so bolting it on would
+  silently destroy the warm envs the tokens depend on; it is pooled-worker-lifecycle logic.
+  Gated behind the trust gate like the rest of m6–m7. **Interim (pre-m7):** off-by-default
+  + opt-in reuse + single-user + operator restart; growth model + operator mitigation in
+  [`.claude/docs/lean-sandbox-design.md`](../docs/lean-sandbox-design.md)
+  § "Environment-snapshot accumulation (F7)".
+
 ## Milestone sketch
 
 1. **m1 — honest statuses + contract design** (S): rename, response-schema redesign per
@@ -135,7 +161,9 @@ the performance tail.
 4. **m4 — attack suite** (M): fixtures + gating; zero-false-accept report committed.
 5. **m5 — named environments + manifests + build smoke** (M): incl. bridgeland-anchor
    pin from R5's audit (cross-track handshake).
-6. **m6 — result cache** (S→M). **m7 — pools + state reuse + latency report** (M).
+6. **m6 — result cache** (S→M). **m7 — pools + state reuse + latency report + env-tree
+   bounding** (M): incl. the inherited-F7 live-snapshot bound — worker recycling +
+   `/metrics` gauge; see the F7 note under "Inherited findings".
 
 ## Gates
 

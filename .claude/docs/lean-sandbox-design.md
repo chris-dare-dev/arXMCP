@@ -31,6 +31,7 @@ untrusted compute sandbox, exactly as LaTeXML is.
 | **Memory cap** | A hard address-space cap. On POSIX this is `resource.setrlimit(RLIMIT_AS, ...)` via a subprocess `preexec_fn`; on Windows it requires a Job Object (`CREATE_BREAKAWAY_FROM_JOB` + `SetInformationJobObject`). | **Deferred** — documented, not implemented. The 30 s per-query timeout is the primary safeguard in m2/m3; the memory cap mirrors E13_S03, which itself defers Docker-level enforcement of the LaTeXML cap. A follow-up milestone adds `RLIMIT_AS` on POSIX. |
 | **No network** | The Lean toolchain caches every dependency at `lake build` time; a steady-state `lake exe repl` opens no sockets. No explicit network namespace is applied (consistent with the LaTeXML sandbox, which relies on "the subprocess never opens sockets" rather than a namespace). In Docker, the container's network policy is the backstop. | **By construction.** |
 | **System dependency, gated** | Lean is not a pip dependency; `pyproject.toml` cannot declare it. `ARXMCP_ENABLE_LEAN` defaults OFF — the subprocess is spawned only on explicit operator opt-in, and only when `ARXMCP_LAKE_PATH` + `ARXMCP_LEAN_REPL_DIR` resolve. An unresolvable toolchain under `enable_lean=true` is FATAL (`LeanUnavailableError`). | **Implemented.** |
+| **Environment-snapshot growth** | Every REPL command records a new immutable `CommandSnapshot` (and every `sorry`/tactic a `ProofSnapshot`) into an append-only array; ids are array indices, never freed. The in-process tree grows unbounded and is released only by the timeout kill+respawn or an operator restart. The upstream protocol has no per-env eviction command, so bounding the tree is a pooled-worker-lifecycle concern. See "Environment-snapshot accumulation (F7)" below. | **Documented — R3 m7 owns the fix.** |
 
 ## Process lifecycle
 
@@ -47,6 +48,73 @@ first use — that closes the first-call cold-start race (m2 AC2). The spawn is
 non-blocking (`asyncio.create_subprocess_exec` returns after fork+exec); Lean's
 kernel loads lazily on the first `query` (sub-second per spike-2), so the spawn
 does not block the lifespan `yield` and `/healthz` stays responsive.
+
+## Environment-snapshot accumulation (F7)
+
+**Finding.** F7 from the `lean-verify-continuation-m1` adversary critique
+([`critique-adversary.md`](../notes/milestones/lean-verify-continuation-m1/critique-adversary.md)).
+With env / proof-state continuation tokens now a first-class `lean_verify`
+feature (env reuse — pay `import Mathlib` once, then reuse it warm), a
+long-lived REPL process accumulates immutable environment snapshots without
+bound. **Not a soundness issue — a resource-exhaustion one.**
+
+**Growth model (verified against the pinned REPL source, 2026-07-25).** The
+built `leanprover-community/repl` on this workstation
+(`~/lean-repl-spike/repl`, toolchain `leanprover/lean4:v4.30.0-rc2`) keeps all
+state in two append-only arrays (`REPL/Main.lean` `structure State`):
+
+```
+cmdStates   : Array CommandSnapshot := #[]
+proofStates : Array ProofSnapshot   := #[]
+```
+
+`recordCommandSnapshot` sets `id := cmdStates.size` then `cmdStates.push` — the
+returned env id **is** the array index, and the array only ever grows. **Every**
+command records a snapshot: a `def`, a failed `theorem`, even a read-only
+`#check` advances the counter (measured — research-synthesis §1). Each snapshot
+pins a full `Environment`; for a Mathlib-resident REPL the imported Mathlib
+environment dominates (the F7 finding reports ~3.1 GB RSS for such a process;
+the default core-only REPL is small). Nothing frees an individual snapshot.
+
+**Per-env eviction is not available in the protocol.** The REPL's entire
+command surface is seven inputs (`REPL/Main.lean` `inductive Input`): `cmd`,
+`file`, `proofStep`, `pickleEnvironment`, `unpickleEnvironment`,
+`pickleProofSnapshot`, `unpickleProofSnapshot`. There is **no** drop / free /
+release / gc command, and because ids are array indices, removal would break id
+stability even if one were added. `pickleEnvironment` serializes a snapshot to
+disk but does **not** free the in-memory copy; `unpickle` *appends* a new one.
+⇒ a bounded-live-env LRU (critique scope option (a)) is infeasible without
+forking the REPL internals — **rejected**.
+
+**Interim mitigation (what holds today).**
+
+- The REPL is **off by default** (`ARXMCP_ENABLE_LEAN` unset); env reuse is
+  **opt-in** (a caller must pass an `env` token); single-user workstation
+  (CLAUDE.md §4.1) bounds the blast radius.
+- The per-query-timeout **kill+respawn** (`lean_verify` handler) frees the whole
+  tree — but only when a query actually times out, so it is partial relief.
+- **Operator restart** (`make up`) is the reset lever. An operator running a
+  **Mathlib-resident** REPL through a long verification session should restart
+  the server between heavy sessions, or watch the REPL *child* process RSS.
+  NOTE: the arXMCP server's own process telemetry does **not** observe this
+  growth — the Lean REPL is a *separate child process*, so its RSS is invisible
+  to the server's `/metrics` counters. There is no in-product signal today (the
+  planned gauge is an m7 deliverable, below).
+
+**Forward owner: R3 m7.** The real fix — bounding the live-env tree — belongs in
+the pooled-worker lifecycle layer, **not** the `lean_verify` handler. A respawn
+*policy* bolted onto the handler (or a standalone timer built now) would (i)
+silently invalidate the warm envs this milestone shipped, since a respawn mints
+a new `generation` and expires every outstanding continuation token, and (ii) be
+rebuilt at m7. Recorded as an explicit m7 requirement in the R3
+verification-contract brief
+([`R3-verification-contract.md`](../roadmap-briefs/R3-verification-contract.md),
+KR8 + m7 + Inherited findings). Levers m7 can use: recycle a pooled worker on a
+live-snapshot-count / age budget; `pickleEnvironment` the hot named env to disk
+and `unpickle` it into a fresh worker across a recycle (preserving the warm
+import while resetting the tree); expose a REPL live-snapshot-count / worker-age
+gauge on `/metrics` for operator visibility. All gated behind R3's trust gate
+(m2–m5) — pooling/performance work is forbidden before it.
 
 ## Out of scope for m2
 
