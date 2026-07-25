@@ -596,6 +596,13 @@ def refresh_metrics_from_singleton_state(resources: Resources) -> None:
 
     refresh_cache_metrics(getattr(resources, "cache", None))
 
+    # lean-repl-observability-m1: refresh the Lean REPL telemetry gauges
+    # (env-snapshot proxy + worker age). Cheap (two property reads); a
+    # disabled/absent REPL (getattr -> None) explicitly zeroes both gauges.
+    from server.metrics import refresh_lean_repl_metrics
+
+    refresh_lean_repl_metrics(getattr(resources, "lean_repl", None))
+
     # E14_S01: bridge cron-emitted sentinel files into Prometheus
     # gauges. Cron processes exit between runs so they can't keep a
     # gauge set in-process — the sentinel files ARE the cross-process

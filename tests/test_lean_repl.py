@@ -252,6 +252,74 @@ class TestFakeProcRoundTrips:
         assert elapsed < 5.0
 
 
+class TestObservabilityTelemetry:
+    """lean-repl-observability-m1 — the read-only env-snapshot-count +
+    worker-age telemetry the ``/metrics`` scrape hook surfaces. Harness
+    level (no Lean toolchain), driven by the fake subprocess."""
+
+    def test_env_snapshot_count_increments_on_success(self):
+        # Each successful round-trip counts one immutable env snapshot the
+        # REPL recorded in-process. Early-parse means each canned line is a
+        # complete round-trip.
+        proc = _FakeProc(
+            stdout_lines=[b'{"env": 0}\n', b'{"env": 1}\n', b'{"env": 2}\n']
+        )
+        repl = _repl(proc)
+        assert repl.env_snapshot_count == 0
+        for expected in (1, 2, 3):
+            _run(repl.query({"cmd": "x"}))
+            assert repl.env_snapshot_count == expected
+
+    def test_count_not_incremented_on_timeout(self):
+        proc = _FakeProc(stdout_hang=True)
+        repl = _repl(proc)
+        with pytest.raises(LeanReplError, match="timeout"):
+            _run(repl.query({"cmd": "x"}, timeout=0.1))
+        assert repl.env_snapshot_count == 0
+
+    def test_count_not_incremented_on_eof(self):
+        proc = _FakeProc(stdout_lines=[])
+        repl = _repl(proc)
+        with pytest.raises(LeanReplError, match="closed stdout"):
+            _run(repl.query({"cmd": "x"}))
+        assert repl.env_snapshot_count == 0
+
+    def test_count_not_incremented_on_non_json(self):
+        proc = _FakeProc(stdout_lines=[b"not json at all\n", b"\n"])
+        repl = _repl(proc)
+        with pytest.raises(LeanReplError, match="non-JSON"):
+            _run(repl.query({"cmd": "x"}))
+        assert repl.env_snapshot_count == 0
+
+    def test_count_not_incremented_after_exit(self):
+        proc = _FakeProc(returncode=0)
+        repl = _repl(proc)
+        with pytest.raises(LeanReplError, match="has exited"):
+            _run(repl.query({"cmd": "x"}))
+        assert repl.env_snapshot_count == 0
+
+    def test_new_instance_resets_count_and_age(self):
+        """AC2 at harness level: a kill+respawn mints a BRAND-NEW LeanRepl,
+        so the observability state (read from the current instance) drops
+        back toward 0 — no reset logic on the old instance is needed."""
+        proc_a = _FakeProc(stdout_lines=[b'{"env": 0}\n', b'{"env": 1}\n'])
+        repl_a = _repl(proc_a)
+        _run(repl_a.query({"cmd": "x"}))
+        _run(repl_a.query({"cmd": "y"}))
+        assert repl_a.env_snapshot_count == 2
+        # The respawn: a fresh instance over a new fake proc.
+        repl_b = _repl(_FakeProc(stdout_lines=[b'{"env": 0}\n']))
+        assert repl_b.env_snapshot_count == 0
+        assert repl_b.age_seconds <= repl_a.age_seconds
+
+    def test_age_seconds_nonnegative_and_nondecreasing(self):
+        repl = _repl(_FakeProc())
+        first = repl.age_seconds
+        assert first >= 0.0
+        time.sleep(0.01)
+        assert repl.age_seconds >= first
+
+
 # ===========================================================================
 # Tier 2 — real Lean REPL round-trips (requires the toolchain)
 # ===========================================================================
