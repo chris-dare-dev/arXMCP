@@ -211,6 +211,7 @@ items:
 
   - id: agent-platform-m3
     kind: milestone
+    status: done
     title: "W1 batched tool-schema re-pin ships and survives a live session"
     summary: "One TOOL_SCHEMA_VERSION bump landing truthful descriptions, input examples, inert-arg cleanup, batch chunk fetch, semantic identifiers, compact wire format, and ToolAnnotations together; confirmed against a live Claude Code session before being declared done."
     parent: agent-platform-e2
@@ -229,6 +230,7 @@ items:
 
   - id: agent-platform-t-truthful-descriptions
     kind: task
+    status: done
     title: "Fix false search_papers/get_paper descriptions and stale comments"
     parent: agent-platform-m3
     lane: now
@@ -245,6 +247,7 @@ items:
 
   - id: agent-platform-t-input-examples
     kind: task
+    status: done
     title: "Add canonical call examples to the riskiest tool descriptions"
     parent: agent-platform-m3
     lane: now
@@ -261,6 +264,7 @@ items:
 
   - id: agent-platform-t-inert-args-cleanup
     kind: task
+    status: done
     title: "Wire-or-delete inert tool arguments"
     parent: agent-platform-m3
     lane: now
@@ -278,6 +282,7 @@ items:
 
   - id: agent-platform-t-batch-chunk-fetch
     kind: task
+    status: done
     title: "Widen get_chunk to accept a batch of chunk ids"
     parent: agent-platform-m3
     lane: now
@@ -295,6 +300,7 @@ items:
 
   - id: agent-platform-t-semantic-identifiers
     kind: task
+    status: done
     title: "Join paper titles into search_papers and cite_neighbors rows"
     parent: agent-platform-m3
     lane: now
@@ -311,6 +317,7 @@ items:
 
   - id: agent-platform-t-compact-wire-format
     kind: task
+    status: done
     title: "Drop the pretty-printed duplicate payload from content[0]"
     parent: agent-platform-m3
     lane: now
@@ -327,6 +334,7 @@ items:
 
   - id: agent-platform-t-tool-annotations
     kind: task
+    status: done
     title: "Register ToolAnnotations on the 7 retrieval tools"
     parent: agent-platform-m3
     lane: now
@@ -343,6 +351,7 @@ items:
 
   - id: agent-platform-t-schema-repin-live-validation
     kind: task
+    status: done
     title: "Bump TOOL_SCHEMA_VERSION once and validate against a live session"
     parent: agent-platform-m3
     lane: now
