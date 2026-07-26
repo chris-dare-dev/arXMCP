@@ -702,6 +702,7 @@ def enforce_byte_cap(
     structured_content: dict[str, Any],
     chunk_id: str | None = None,
     body_text_path: tuple[str, ...] = ("body_text",),
+    cap_override: int | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Enforce the per-tool body-size cap (synthesis D9).
 
@@ -729,7 +730,11 @@ def enforce_byte_cap(
     accounts for the wire envelope's roughly-2× overhead.
     """
     serialized = json.dumps(structured_content, ensure_ascii=False, sort_keys=True)
-    cap = get_resources().config.result_byte_cap
+    # ``cap_override`` (agent-platform-t-batch-chunk-fetch) lets a batched
+    # get_chunk give each element a share (result_byte_cap // n) of the
+    # per-response cap, so the WHOLE chunks[] array stays bounded rather
+    # than n independent 256 KB elements summing to ~n×256 KB on the wire.
+    cap = cap_override if cap_override is not None else get_resources().config.result_byte_cap
     if len(serialized.encode("utf-8")) * _WIRE_OVERHEAD_FACTOR <= cap:
         return structured_content, []
 

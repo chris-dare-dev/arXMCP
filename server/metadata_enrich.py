@@ -21,6 +21,26 @@ from server.tools import wrap_retrieved_text
 from tools._arxiv_api import strip_id_version
 
 
+def _normalize_paper_id(paper_id: Any) -> str | None:
+    """Row paper_id -> the store's unversioned key, or None if it can't
+    be a store key. Never raises (the enrichment's contract).
+
+    - A non-string (None from a present-but-null column, an int) -> None.
+    - A ``textbook:<slug>`` id is returned verbatim: ``strip_id_version``
+      is arXiv-specific (``vN$``) and would corrupt a slug ending in
+      ``-v2`` into ``-v`` -> ``-`` (a false-null join). Textbook papers
+      aren't in the arXiv metadata store anyway, so this just keeps the
+      key honest.
+    - Otherwise strip the arXiv ``vN`` version suffix (the store is keyed
+      unversioned).
+    """
+    if not isinstance(paper_id, str) or not paper_id:
+        return None
+    if paper_id.startswith("textbook:"):
+        return paper_id
+    return strip_id_version(paper_id)
+
+
 async def enrich_rows_with_titles(
     store: Any,
     rows: list[dict[str, Any]],
@@ -54,9 +74,12 @@ async def enrich_rows_with_titles(
         return
 
     resolved: dict[str, tuple[str | None, int | None]] = {}
-    for norm in {
-        strip_id_version(row[id_key]) for row in pending if row.get(id_key)
-    }:
+    distinct = {
+        norm
+        for row in pending
+        if (norm := _normalize_paper_id(row.get(id_key))) is not None
+    }
+    for norm in distinct:
         try:
             record = await store.get_cached(norm)
         except Exception:  # noqa: BLE001 — enrichment must never break a response
@@ -71,7 +94,7 @@ async def enrich_rows_with_titles(
 
     for row in pending:
         raw_title, year = resolved.get(
-            strip_id_version(row.get(id_key, "")), (None, None)
+            _normalize_paper_id(row.get(id_key)), (None, None)
         )
         row["title"] = (
             wrap_retrieved_text(sanitize_retrieved_text(raw_title), kind="chunk")

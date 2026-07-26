@@ -1,9 +1,12 @@
 """``search_papers`` handler — dense-only ANN over BGE-M3 embeddings.
 
 Dense-only retrieval over the ``embedding_stmt`` column of the chunks
-table. The E07 hybrid BM25 + RRF + reranker pipeline was cancelled
-(agent-platform-t-truthful-descriptions) — the tool no longer promises
-it. Proof bodies are reachable via the opt-in below.
+table. The E07 hybrid BM25 + RRF + reranker MODULES exist under
+``server/retrieval/`` but were never wired into the ``search_papers``
+route, and that switch is not planned — so
+agent-platform-t-truthful-descriptions removed the tool's promise of a
+future hybrid mode (the description no longer advertises it). Proof
+bodies are reachable via the opt-in below.
 
 **retrieval-unlocks-m2** adds one opt-in route:
 ``filters={'include_kinds': ['proof']}`` searches ``embedding_proof``

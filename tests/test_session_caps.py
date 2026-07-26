@@ -872,3 +872,46 @@ class TestBatchCapByN:
             assert verdict == "allowed"  # 5 + 5 == 10, not over
             assert state.chunk_count == 10
         asyncio.run(_run_())
+
+
+class TestBatchLeakFix:
+    """The middleware must charge N only for a batch the handler will
+    actually serve — an invalid batch charges 0, so bad input can't burn
+    the retrieval budget."""
+
+    @staticmethod
+    def _chunk_body(chunk_id) -> bytes:
+        return json.dumps({
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": {"name": "get_chunk", "arguments": {"chunk_id": chunk_id}},
+        }).encode("utf-8")
+
+    def _drive_and_count(self, chunk_id, seed):
+        async def _run():
+            reset_session_state_for_tests()
+            mw = SessionCapMiddleware(app=None)  # type: ignore[arg-type]
+            sid = _hex_session_id(seed)
+            scope = _make_scope(session_id=sid)
+            await _drive_middleware(mw, scope, self._chunk_body(chunk_id))
+            state = await get_or_create_session(sid)
+            return state.chunk_count
+        return asyncio.run(_run())
+
+    _GOOD = "arxiv:2401.00001:0123456789abcdef"
+
+    def test_valid_batch_charges_n(self):
+        n = self._drive_and_count([self._GOOD, self._GOOD, self._GOOD], "valid-b")
+        assert n == 3
+
+    def test_over_max_batch_charges_zero(self):
+        ids = [f"arxiv:2401.{i:05d}:0123456789abcdef" for i in range(25)]
+        assert self._drive_and_count(ids, "overmax-b") == 0
+
+    def test_malformed_id_batch_charges_zero(self):
+        assert self._drive_and_count([self._GOOD, "not-an-id"], "malformed-b") == 0
+
+    def test_empty_batch_charges_zero(self):
+        assert self._drive_and_count([], "empty-b") == 0
+
+    def test_scalar_charges_one(self):
+        assert self._drive_and_count(self._GOOD, "scalar-b") == 1

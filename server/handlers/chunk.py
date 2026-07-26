@@ -113,9 +113,18 @@ async def handle_get_chunk(
         return envelope(
             _build_chunk_result(ids[0], row_map.get(ids[0]), include_referenced, r)
         )
+    # Per-element byte budget so the whole chunks[] array is bounded by
+    # the per-response cap, not n independent copies of it. Each element
+    # gets result_byte_cap // n; a chunk over its share is truncated to a
+    # resource_link exactly as a scalar over-cap chunk is, so every
+    # requested id is still returned.
+    per_elem_cap = getattr(r.config, "result_byte_cap", 256 * 1024) // len(ids)
     return envelope({
         "chunks": [
-            _build_chunk_result(cid, row_map.get(cid), include_referenced, r)
+            _build_chunk_result(
+                cid, row_map.get(cid), include_referenced, r,
+                byte_cap=per_elem_cap,
+            )
             for cid in ids
         ]
     })
@@ -138,18 +147,28 @@ def _fetch_chunk_rows(r, ids: list[str]) -> dict[str, Any]:  # noqa: ANN001
 
 
 def _build_chunk_result(
-    chunk_id: str, row: dict[str, Any] | None, include_referenced: bool, r: Any
+    chunk_id: str,
+    row: dict[str, Any] | None,
+    include_referenced: bool,
+    r: Any,
+    byte_cap: int | None = None,
 ) -> dict[str, Any]:
     """Build the per-chunk result object (used for both the scalar
     return and each batch element). ``row is None`` -> a ``found:false``
     object. Carries its own byte-cap / linkage / resource_link so a
-    batch element is self-contained."""
+    batch element is self-contained. ``byte_cap`` overrides the global
+    per-response cap for a batch element (its share of the total); a
+    ``found:false`` batch element also carries ``chunk_id`` so a miss is
+    identifiable without positional bookkeeping."""
     if row is None:
-        return {
+        miss: dict[str, Any] = {
             "chunk": None,
             "found": False,
             "include_referenced_applied": False,
         }
+        if byte_cap is not None:  # batch element -> self-describe the miss
+            miss["chunk_id"] = chunk_id
+        return miss
     # E13_S02 (Threat 2) — sanitize body_text BEFORE the byte-cap so the
     # 256 KB cap measures post-sanitize bytes. Wrapping is deferred until
     # AFTER the cap so the delimiter tags are not sliced off by the cap
@@ -248,6 +267,7 @@ def _build_chunk_result(
         payload,
         chunk_id=chunk_id,
         body_text_path=("chunk", "body_text"),
+        cap_override=byte_cap,
     )
     # E13_S02 — wrap AFTER the byte-cap so the delimiter pair is
     # well-formed regardless of whether the cap fired. The

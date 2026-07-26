@@ -318,6 +318,26 @@ class TestBatchFetch:
         assert body["chunks"][0]["found"] is True
         assert body["chunks"][1]["found"] is False
         assert body["chunks"][1]["chunk"] is None
+        # a batch miss self-describes which id missed (critique finding)
+        assert body["chunks"][1]["chunk_id"] == _VALID_ID2
+
+    def test_aggregate_byte_bound(self, res):
+        """20 large chunks must not sum to ~20x the per-response cap:
+        each element gets cap//n, truncated to a resource_link if over,
+        but every requested id is still returned (critique finding)."""
+        import json
+        ids = [f"arxiv:2401.{i:05d}:0123456789abcdef" for i in range(20)]
+        arrow = _chunk_arrow_multi(ids)
+        # overwrite bodies with 120 KB each (would be ~2.4 MB uncapped)
+        cols = {n: arrow.column(n).to_pylist() for n in arrow.column_names}
+        cols["body_text"] = ["x" * 120_000] * 20
+        res["holder"]["arrow"] = pa.table(cols)
+        out = _run(handle_get_chunk(chunk_id=ids))
+        body = out.get("structuredContent", out)
+        assert len(body["chunks"]) == 20  # every id returned
+        size = len(json.dumps(body).encode())
+        assert size <= 256 * 1024, f"aggregate {size} exceeds the 256 KB cap"
+        assert all(c.get("body_truncated") for c in body["chunks"])
 
     def test_batch_is_one_query(self, res, monkeypatch):
         """N ids => ONE LanceDB search, not N."""

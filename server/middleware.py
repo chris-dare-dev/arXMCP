@@ -1185,15 +1185,30 @@ class SessionCapMiddleware:
                     # get_chunk consumes N per-tool cap units, not 1.
                     # This is the ONE place the cap layer reads a tool's
                     # arguments — deliberately narrow: only get_chunk,
-                    # only chunk_id's length. An invalid shape (empty /
-                    # over-max list) falls to the handler's own
-                    # validation; here it just yields a units count that
-                    # the wholesale cap check tolerates.
+                    # only chunk_id. It charges N only for a batch the
+                    # HANDLER WILL ACTUALLY SERVE: an invalid batch (empty,
+                    # over the max, or any malformed id) charges 0, because
+                    # the handler rejects it wholesale and serves nothing —
+                    # charging it would leak retrieval budget on bad input
+                    # (the batch cap-by-N budget-leak finding). The size /
+                    # format checks reuse the handler's own primitives so
+                    # the two cannot hold divergent copies of the contract.
                     if tool_name == "get_chunk":
                         args = params.get("arguments")
                         cid = args.get("chunk_id") if isinstance(args, dict) else None
                         if isinstance(cid, list):
-                            cap_units = len(cid)
+                            from ingest.identifiers import (  # noqa: PLC0415
+                                is_valid_chunk_id,
+                            )
+                            from server.handlers.chunk import (  # noqa: PLC0415
+                                MAX_BATCH_CHUNK_IDS,
+                            )
+
+                            will_serve = (
+                                0 < len(cid) <= MAX_BATCH_CHUNK_IDS
+                                and all(is_valid_chunk_id(c) for c in cid)
+                            )
+                            cap_units = len(cid) if will_serve else 0
         except (ValueError, UnicodeDecodeError):
             tool_name = None  # malformed body → forward unchanged
 

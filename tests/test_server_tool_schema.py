@@ -639,3 +639,37 @@ class TestUpdateProcedure:
         BP1 cache surface — assert the count explicitly."""
         # verification-feedback-m3 — 8 tools (lean_verify added).
         assert len(_live_tools) == len(ALL_TOOLS) == 8
+
+
+class TestToolAnnotations:
+    """agent-platform-t-tool-annotations (#86): the hash catches ANY
+    annotation drift, but nothing semantically pins WHICH tool gets what.
+    This asserts the intent directly, so a future edit that (say) flips
+    lean_verify to readOnlyHint=True fails a named test, not just the
+    opaque hash."""
+
+    _RETRIEVAL = {
+        "search_papers", "get_chunk", "find_equation", "get_definitions",
+        "find_lemma_by_name", "get_paper", "cite_neighbors",
+    }
+
+    def test_retrieval_tools_are_read_only_idempotent_closed_world(
+        self, _live_tools
+    ):
+        for t in _live_tools:
+            if t.name not in self._RETRIEVAL:
+                continue
+            a = t.annotations
+            assert a is not None, f"{t.name} missing annotations"
+            assert a.readOnlyHint is True, t.name
+            assert a.idempotentHint is True, t.name
+            assert a.openWorldHint is False, t.name
+
+    def test_lean_verify_omits_read_only_and_idempotent(self, _live_tools):
+        lean = next(t for t in _live_tools if t.name == "lean_verify")
+        a = lean.annotations
+        assert a is not None
+        # stateful compute: readOnly/idempotent are OMITTED (not asserted)
+        assert a.readOnlyHint is None
+        assert a.idempotentHint is None
+        assert a.openWorldHint is False

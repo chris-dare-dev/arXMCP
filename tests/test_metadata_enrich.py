@@ -125,3 +125,30 @@ class TestOneReadPerDistinct:
         rows2 = [{"paper_id": "math/0212237", "chunk_id": "x"}]
         _run(enrich_rows_with_titles(store, rows2))
         assert calls["n"] == 0
+
+
+class TestNormalizationRobustness:
+    """Critique findings: the enrichment must never raise, and must not
+    mangle non-arxiv ids."""
+
+    def test_null_paper_id_is_null_safe_not_raising(self, store):
+        # present-but-null paper_id (row.get returns None) must not raise
+        rows = [{"paper_id": None, "chunk_id": "c1"}]
+        _run(enrich_rows_with_titles(store, rows))
+        assert rows[0]["title"] is None and rows[0]["year"] is None
+
+    def test_non_string_paper_id_is_null_safe(self, store):
+        rows = [{"paper_id": 12345, "chunk_id": "c1"}]
+        _run(enrich_rows_with_titles(store, rows))
+        assert rows[0]["title"] is None
+
+    def test_textbook_id_not_version_mangled(self):
+        from server.metadata_enrich import _normalize_paper_id
+        # a slug ending in -v2 must NOT be truncated to -v -> -
+        assert _normalize_paper_id("textbook:linear-algebra-v2") == \
+            "textbook:linear-algebra-v2"
+        # arxiv ids still get version-stripped
+        assert _normalize_paper_id("2401.00001v3") == "2401.00001"
+        assert _normalize_paper_id("math/0212237v1") == "math/0212237"
+        assert _normalize_paper_id(None) is None
+        assert _normalize_paper_id(42) is None
