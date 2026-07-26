@@ -660,6 +660,48 @@ class TestLeanReplMetrics:
         assert "arxmcp_lean_repl_env_snapshots" in text
         assert "arxmcp_lean_repl_age_seconds" in text
 
+    def test_singleton_refresh_reflects_live_repl(
+        self, monkeypatch, reset_all_metrics
+    ):
+        """M1 rectification — drive the gauges THROUGH the real
+        ``refresh_metrics_from_singleton_state`` wiring (``server/health.py``
+        ``refresh_lean_repl_metrics(getattr(resources, "lean_repl", None))``),
+        not by calling ``refresh_lean_repl_metrics`` directly. The class's
+        other tests exercise the hook in isolation, so a dropped scrape line
+        or a rename of ``Resources.lean_repl`` would silently drive both
+        gauges to 0 forever with the suite still green — the exact
+        silent-zero failure this milestone exists to prevent. Mirrors
+        ``TestF2SingleflightCounter``: a fully-shaped Resources fake carries
+        every field the setters read (corpus_info + startup_chunk_count +
+        singleflight source-of-truth), plus the ``lean_repl`` field."""
+        import server.query_encoder as qe_mod  # noqa: PLC0415
+        from server import health as health_mod  # noqa: PLC0415
+
+        # refresh_metrics_from_singleton_state also reads the singleflight
+        # dedup source-of-truth; pin it so the unrelated hook is a no-op.
+        health_mod._LAST_DEDUP_COUNT = 0
+        monkeypatch.setattr(qe_mod, "get_singleflight_dedup_count", lambda: 0)
+
+        fake = SimpleNamespace(
+            corpus_info=SimpleNamespace(version=1, chunk_count=2),
+            startup_chunk_count=2,
+            process_start_time_seconds=0.0,
+            is_resource_warm=lambda n: True,
+            cache=None,
+            config=None,
+            lean_repl=SimpleNamespace(env_snapshot_count=7, age_seconds=42.5),
+        )
+        health_mod.refresh_metrics_from_singleton_state(fake)
+        assert LEAN_REPL_ENV_SNAPSHOTS_GAUGE._value.get() == 7.0
+        assert LEAN_REPL_AGE_SECONDS_GAUGE._value.get() == 42.5
+
+        # Disabled path THROUGH the real wiring: getattr -> None must
+        # explicitly zero both gauges (not leave the prior live values).
+        fake.lean_repl = None
+        health_mod.refresh_metrics_from_singleton_state(fake)
+        assert LEAN_REPL_ENV_SNAPSHOTS_GAUGE._value.get() == 0.0
+        assert LEAN_REPL_AGE_SECONDS_GAUGE._value.get() == 0.0
+
 
 # ===========================================================================
 # D10 — /metrics endpoint end-to-end
