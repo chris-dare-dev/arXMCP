@@ -1,0 +1,90 @@
+{
+  "id": "lean-repl-observability-m1",
+  "created_at": "2026-07-25T23:12:48Z",
+  "updated_at": "2026-07-26T00:06:48Z",
+  "phase": "rectify-running",
+  "phase_history": [
+    {
+      "phase": "init",
+      "at": "2026-07-25T23:12:48Z"
+    },
+    {
+      "phase": "research-running",
+      "at": "2026-07-25T23:13:58Z"
+    },
+    {
+      "phase": "research-complete",
+      "at": "2026-07-25T23:26:55Z"
+    },
+    {
+      "phase": "implement-running",
+      "at": "2026-07-25T23:27:58Z"
+    },
+    {
+      "phase": "implement-complete",
+      "at": "2026-07-25T23:52:06Z"
+    },
+    {
+      "phase": "critique-running",
+      "at": "2026-07-25T23:52:39Z"
+    },
+    {
+      "phase": "critique-complete",
+      "at": "2026-07-26T00:01:09Z"
+    },
+    {
+      "phase": "rectify-running",
+      "at": "2026-07-26T00:02:29Z"
+    }
+  ],
+  "milestone_brief": "### lean-repl-observability-m1 \u2014 Lean REPL env-tree + worker-age telemetry gauge\r\n\r\n**Kind:** milestone (standalone / observability)\r\n**Created:** 2026-07-25\r\n**Relates to:** R3 verification-contract m7 (warm pools) \u2014\r\n[`.claude/roadmap-briefs/R3-verification-contract.md`](../.claude/roadmap-briefs/R3-verification-contract.md);\r\nresolves the \"no in-product signal\" half of **F7** from the\r\n`lean-verify-continuation-m1` adversary critique\r\n([`critique-adversary.md`](../.claude/notes/milestones/lean-verify-continuation-m1/critique-adversary.md)).\r\n\r\n#### Why this is standalone (and why now)\r\n\r\nF7 is unbounded in-process growth of the Lean REPL's immutable environment-snapshot\r\ntree: every REPL command records a snapshot into an append-only array (env id =\r\narray index), freed only by the timeout kill+respawn or an operator restart\r\n(~3.1 GB RSS for a Mathlib-resident process). Growth model + the pinned-source\r\ncensus are in\r\n[`.claude/docs/lean-sandbox-design.md`](../.claude/docs/lean-sandbox-design.md)\r\n\u00a7 \"Environment-snapshot accumulation (F7)\".\r\n\r\nThe **real fix** \u2014 bounding the tree by recycling pooled workers on a\r\nsnapshot-count / age budget, optionally `pickle`-migrating the hot env across a\r\nrecycle \u2014 belongs to R3 **m7**, which is gated behind R3's trust gate (m2\u2013m5).\r\nThis milestone is the one piece safely pullable *ahead* of that gate: **read-only\r\ntelemetry**. It changes no REPL lifecycle, invalidates no continuation token, and\r\ntouches no MCP tool surface \u2014 it only lets the operator *see* the growth (and\r\ngives m7's recycling policy a signal to act on). Today there is no in-product\r\nsignal at all: the Lean REPL is a **separate child process**, so its growth is\r\ninvisible to the arXMCP server's own `/metrics` counters.\r\n\r\n#### Scope\r\n\r\n1. **Harness (`server/lean_repl.py`).** `LeanRepl` tracks, per spawn/generation:\r\n   - a monotonic **env-snapshot proxy** \u2014 either the count of successful `query`\r\n     round-trips this generation, or (tighter) the max REPL `env` / `proofState`\r\n     id observed (both are faithful proxies for `cmdStates.size` /\r\n     `proofStates.size`, since ids are append-only array indices); and\r\n   - the **spawn time** (`time.monotonic()`), for a worker-age reading.\r\n   Exposed as read-only properties. Both reset naturally on a kill+respawn (a new\r\n   `LeanRepl` instance / new `generation`), which is exactly the semantics we want\r\n   \u2014 the gauge should drop when the tree is actually freed.\r\n2. **Metrics (`server/metrics.py`).** Add scrape-time-refreshed **gauges**\r\n   (mirroring `CACHE_BYTES_GAUGE`; note `prometheus_client` strips `_total` from\r\n   *counters*, so gauges are correct here):\r\n   - `arxmcp_lean_repl_env_snapshots` \u2014 live env-snapshot proxy for the running\r\n     REPL (0 when disabled/absent).\r\n   - `arxmcp_lean_repl_age_seconds` \u2014 seconds since the current REPL spawned\r\n     (0 when absent).\r\n   - **(optional, platform-gated)** `arxmcp_lean_repl_rss_bytes` \u2014 RSS of the REPL\r\n     *child* process, the metric that directly reflects the ~3.1 GB concern. Only\r\n     if child-RSS is resolvable without a heavy new dependency (e.g. `/proc` on\r\n     Linux, or `psutil` **iff** already available); otherwise omit and record it\r\n     as a deferred sub-item. The count + age gauges are the portable floor.\r\n   - a `reset_lean_repl_metrics_for_tests()` helper, mirroring the other\r\n     `reset_*_for_tests` functions.\r\n3. **Scrape hook (`server/health.py`).** Refresh the gauges at `/metrics` scrape\r\n   time from the `Resources.lean_repl` singleton (mirroring\r\n   `refresh_cache_metrics` / `refresh_sentinel_metrics`). A `None` REPL (disabled\r\n   path) sets the gauges to 0 \u2014 never a missing series, never a crash.\r\n4. **Docs.** Replace the \"no in-product signal today\" caveat in\r\n   `.claude/docs/lean-sandbox-design.md` \u00a7 F7 with a pointer to these gauges and a\r\n   short restart-threshold ops note. Surfacing the snapshot/age reading on\r\n   `/status` and the daily ops report is **optional** (do it only if it drops out\r\n   cheaply).\r\n\r\n#### Acceptance criteria\r\n\r\n1. Given `ARXMCP_ENABLE_LEAN=true` and a running REPL, when N successful\r\n   `lean_verify` cmd-mode calls have been made, then `/metrics` exposes\r\n   `arxmcp_lean_repl_env_snapshots` as monotonically non-decreasing across those\r\n   calls, and `arxmcp_lean_repl_age_seconds` as positive and increasing.\r\n2. Given a per-query-timeout kill+respawn, when the REPL respawns, then the\r\n   snapshot-count gauge drops toward 0 for the new generation (reflecting the\r\n   freed tree) and the age gauge resets \u2014 verified by a test that forces a\r\n   respawn.\r\n3. Given `ARXMCP_ENABLE_LEAN` unset (REPL disabled), when `/metrics` is scraped,\r\n   then the gauges are present and read 0 \u2014 no crash, no missing series\r\n   (consistent with the graceful-unavailable path).\r\n4. Given the MCP `tools/list` surface, when the schema hash is checked, then\r\n   `EXPECTED_TOOL_SCHEMA_SHA256` **and** `EXPECTED_BP1_SHA256` are **unchanged**\r\n   \u2014 `/metrics` is not the MCP tool surface and `lean_verify`'s input schema /\r\n   result schema are untouched.\r\n5. (Only if the optional RSS gauge ships) Given a platform where child-process\r\n   RSS is resolvable, when the REPL child is running, then\r\n   `arxmcp_lean_repl_rss_bytes` reads positive; given an unresolvable platform,\r\n   then the gauge is absent or 0 with no error and no new hard dependency.\r\n6. Given the full suite, when `make test` runs, then it is green (ruff clean +\r\n   pytest), with new tests covering the snapshot-proxy increment, the respawn\r\n   reset, the disabled-path 0 values, and the scrape hook (mirroring the existing\r\n   `tests/test_server_metrics.py` pattern).\r\n7. Given `.claude/docs/lean-sandbox-design.md` \u00a7 F7, when the change lands, then\r\n   the \"no in-product signal today\" caveat is replaced by a pointer to the new\r\n   gauges plus a restart-threshold ops note.\r\n\r\n#### Out of scope\r\n\r\n- **Any env-tree bounding** \u2014 eviction, worker recycling, respawn *policy*,\r\n  pickle-migration. That is R3 **m7** (gated behind the trust gate); this\r\n  milestone is telemetry ONLY and changes no REPL lifecycle behavior and no\r\n  continuation-token semantics.\r\n- No new MCP tool, no MCP tool input-schema change, no change to `lean_verify`\r\n  behavior or its result schema.\r\n- No child-process **memory cap** (the separate deferred POSIX `RLIMIT_AS` /\r\n  Windows Job-Object work \u2014 `lean-sandbox-design.md` \"Memory cap\" row).\r\n- No alerting rules wired (the gauge is exposed; alert-rule authoring in\r\n  `infra/`/ops is a later follow-up). If the implementer adds an alert rule, the\r\n  `milestone-infra-safety-critic` fires on the `infra/` touch.\r\n\r\n#### Dependencies\r\n\r\n- **None blocking.** Deliberately independent of R3's trust gate (m2\u2013m5): it adds\r\n  no untrusted-execution surface. Requires only the shipped `ARXMCP_ENABLE_LEAN`\r\n  REPL path (verification-feedback-m2+).\r\n- **Complements R3 m7:** provides the operator signal m7's recycling policy will\r\n  act on; m7 consumes/extends these gauges rather than reinventing them.\r\n\r\n#### Complexity\r\n\r\n**S (~1 day).** ~3\u20134 files: `server/lean_repl.py` (snapshot proxy + spawn time),\r\n`server/metrics.py` (gauges + reset helper), `server/health.py` (scrape hook),\r\ntests, plus the `lean-sandbox-design.md` \u00a7 F7 pointer. Small blast radius; **no\r\nschema/hash cascade** (no `TOOL_SCHEMA_VERSION` bump, no `server/schemas/*`\r\nchange).\r\n\r\n#### Data-plane note (CLAUDE.md \u00a74.8)\r\n\r\nRead-only operational telemetry \u2014 same class as the retrieval-cache byte gauges.\r\nNot a corpus write, not per-agent memory. Within the data-plane boundary.\r\n\r\n#### Notes for the implementer\r\n\r\n- Run the 4-phase pipeline (CLAUDE.md \u00a74.2 \u2014 touches >3 files + adds tests):\r\n  `/milestone-pipeline lean-repl-observability-m1`. Expect the `feat` + `rect` +\r\n  `chore` commit triple. Always-on `milestone-adversary-critic` plus the repo\r\n  overlay `milestone-arxmcp-critic`; `milestone-infra-safety-critic` fires only\r\n  if `infra/` / `Makefile` paths are touched (they should not be here).\r\n- Keep the optional RSS gauge genuinely optional: do **not** add `psutil` as a\r\n  hard runtime dependency for it. Ship the portable count + age gauges; record\r\n  the RSS gauge as a deferred sub-item if child-RSS isn't cheaply resolvable on\r\n  the Windows tier-1 host.\r\n- Follow the `arxmcp_<subsystem>_<metric>` naming convention already in\r\n  `server/metrics.py`, and the scrape-time-refresh pattern (gauges set from the\r\n  singleton in `server/health.py`, never incremented on the hot path).",
+  "brief_source": "legacy-prose plans/lean-repl-observability.md",
+  "research_mode": "standard",
+  "oss_scout_requested": false,
+  "allow_large_diff": false,
+  "research_briefs": [
+    ".claude/notes/milestones/lean-repl-observability-m1/research/brief-1.md",
+    ".claude/notes/milestones/lean-repl-observability-m1/research/brief-2.md"
+  ],
+  "research_synthesis": ".claude/notes/milestones/lean-repl-observability-m1/research/synthesis.md",
+  "implementation_path": "inline",
+  "implementation_plan": null,
+  "implementation_base": "21a859d5e76250a617b78755366bca7861b0f0d2",
+  "implementation_commit_range": "21a859d5e76250a617b78755366bca7861b0f0d2..e0dd72caef9646afd7de6226effc40187f4530e2",
+  "implementation_commits": [
+    "e0dd72caef9646afd7de6226effc40187f4530e2"
+  ],
+  "implementation_branch": null,
+  "external_writes_required": [
+    "git push origin main \u2014 land the feat/rect/chore triple on main (fast-forward/merge worktree branch claude/laughing-goldstine-b8ea4f then push); USER-GATED per CLAUDE.md 4.4"
+  ],
+  "critique_path": ".claude/notes/milestones/lean-repl-observability-m1/critique/dedup.md",
+  "critics_run": [
+    "milestone-adversary-critic",
+    "milestone-arxmcp-critic"
+  ],
+  "critique_files": [
+    "critique/adversary.md",
+    "critique/arxmcp.md"
+  ],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "medium": 1,
+    "low": 1
+  },
+  "findings_register": ".claude/notes/milestones/lean-repl-observability-m1/findings.json",
+  "rectification_commit": "51bfcc93765edcdb79e67e111a6ab06b79b732db",
+  "fixed_findings": [
+    "M1"
+  ],
+  "deferred_findings": [
+    "L1"
+  ],
+  "invalidated_findings": [],
+  "regression_tests_added": [
+    "tests/test_server_metrics.py::TestLeanReplMetrics::test_singleton_refresh_reflects_live_repl"
+  ],
+  "external_writes_authorized": [],
+  "external_writes_completed": []
+}

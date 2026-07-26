@@ -1,0 +1,50 @@
+{
+  "milestone_id": "lean-repl-observability-m1",
+  "critique_format_version": "1.0",
+  "critique_files": [
+    "dedup.md"
+  ],
+  "generated_at": "2026-07-26T00:06:48Z",
+  "findings": {
+    "M1": {
+      "id": "M1",
+      "severity": "MEDIUM",
+      "title": "health.py scrape-hook wiring has no live-REPL test",
+      "file": "server/health.py",
+      "line": 604,
+      "anchor": "refresh_lean_repl_metrics(getattr(resources, \"lean_repl\"",
+      "source_critic": "milestone-adversary-critic + milestone-arxmcp-critic",
+      "source_axis": "Test discipline / Test surface (AC1)",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Added TestLeanReplMetrics::test_singleton_refresh_reflects_live_repl driving refresh_metrics_from_singleton_state with a live and a None lean_repl through the real health.py:604 wiring; guard proven (commenting the wiring line fails the test 0.0!=7.0). rect 51bfcc9.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-07-26T00:06:48Z",
+          "resolution": "Added TestLeanReplMetrics::test_singleton_refresh_reflects_live_repl driving refresh_metrics_from_singleton_state with a live and a None lean_repl through the real health.py:604 wiring; guard proven (commenting the wiring line fails the test 0.0!=7.0). rect 51bfcc9."
+        }
+      ]
+    },
+    "L1": {
+      "id": "L1",
+      "severity": "LOW",
+      "title": "AC2 respawn reset tested at harness level only",
+      "file": "tests/test_lean_repl.py",
+      "line": 527,
+      "anchor": "def test_new_instance_resets_count_a",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Acceptance coverage (AC2)",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "LOW, telemetry-only scope; both critics confirmed the handler respawn path (lean_verify.py:955/:963) is already correct, so this is guard-hardening, not a live defect. Deferred per the adversary critic's explicit 'acceptable to defer'.",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-07-26T00:06:48Z",
+          "resolution": "LOW, telemetry-only scope; both critics confirmed the handler respawn path (lean_verify.py:955/:963) is already correct, so this is guard-hardening, not a live defect. Deferred per the adversary critic's explicit 'acceptable to defer'."
+        }
+      ]
+    }
+  }
+}
