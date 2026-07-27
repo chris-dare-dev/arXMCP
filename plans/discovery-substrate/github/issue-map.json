@@ -1,0 +1,94 @@
+{
+  "discovery-substrate-e1": {
+    "number": 211,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/211"
+  },
+  "discovery-substrate-e2": {
+    "number": 212,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/212"
+  },
+  "discovery-substrate-e3": {
+    "number": 213,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/213"
+  },
+  "discovery-substrate-e4": {
+    "number": 214,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/214"
+  },
+  "discovery-substrate-e5": {
+    "number": 215,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/215"
+  },
+  "discovery-substrate-m1": {
+    "number": 216,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/216"
+  },
+  "discovery-substrate-m2": {
+    "number": 217,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/217"
+  },
+  "discovery-substrate-m3": {
+    "number": 218,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/218"
+  },
+  "discovery-substrate-m4": {
+    "number": 219,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/219"
+  },
+  "discovery-substrate-m5": {
+    "number": 220,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/220"
+  },
+  "discovery-substrate-m6": {
+    "number": 221,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/221"
+  },
+  "discovery-substrate-m7": {
+    "number": 222,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/222"
+  },
+  "discovery-substrate-m8": {
+    "number": 223,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/223"
+  },
+  "discovery-substrate-spike-1": {
+    "number": 224,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/224"
+  },
+  "discovery-substrate-spike-2": {
+    "number": 225,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/225"
+  },
+  "discovery-substrate-spike-3": {
+    "number": 226,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/226"
+  },
+  "discovery-substrate-spike-4": {
+    "number": 227,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/227"
+  },
+  "discovery-substrate-t-boundary-lexicon": {
+    "number": 232,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/232"
+  },
+  "discovery-substrate-t-marker-serving": {
+    "number": 233,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/233"
+  },
+  "discovery-substrate-t-markers-table": {
+    "number": 230,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/230"
+  },
+  "discovery-substrate-t-math-aware-segmentation": {
+    "number": 229,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/229"
+  },
+  "discovery-substrate-t-precision-sampler": {
+    "number": 231,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/231"
+  },
+  "discovery-substrate-t-sentence-table": {
+    "number": 228,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/228"
+  }
+}

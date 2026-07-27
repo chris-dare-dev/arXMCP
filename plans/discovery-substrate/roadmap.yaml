@@ -1,0 +1,352 @@
+schema: roadmap/1
+slug: discovery-substrate
+project: arxmcp
+title: "Discovery substrate — mine the corpus's negatives, and refute before proving"
+status: active
+phase: complete          # init -> refined -> decomposed -> sequenced -> complete
+brief: |
+  arXMCP is a high-fidelity mathematical reading surface with no representation of a negative result in any of the three directions: it cannot retrieve the literature's own negatives (necessity, sharpness, converse-fails, open, counterexample-pointer sentences are prose, and search_papers is dense ANN over BGE-M3 statement embeddings which ranks mathematical topic and is blind to epistemic stance); it cannot compute one; and it cannot store one. Read down the discovery loop -- notice, locate the frontier, understand hypothesis usage, reduce, construct a candidate, test/falsify, record -- and arXMCP is served at exactly one stage (verify), partial at two, and absent at five, plus two whole unserved modalities (diagrams, cross-paper notation). Every live roadmap improves stage 3 and the retrieval feeding stage 1; nothing in the current plan touches the rest. This roadmap builds the un-gated half: the shared mining substrate that nine separate proposals each silently assumed exists, the miners that ride it as data files, and the fidelity debt where ingest already paid for signal that serving discards. It also builds the Lean refutation lane — the compute-a-negative direction — accepting that it gates on R3's honest statuses, isolation, and warm Mathlib-resident environment, recorded here as must-tier assumptions rather than assumed away. It deliberately excludes the durable-negative census and attempt ledger, which gate on an orchestrator repo that does not exist yet, and the object axis, which gates on a density measurement.
+goal:
+  hmw: "How might we build one span-addressed mining substrate over already-parsed LaTeXML prose, so that every negative signal the corpus already contains ships as a versioned lexicon with a measured precision number, instead of nine incompatible half-builds and a labeling campaign the owner-hours budget forbids?"
+  objective: "Give arXMCP a representation of the negative in two of its three directions — retrieve the literature's own recorded negatives from a shared, precision-measured mining substrate, and compute one through a Lean refutation lane that returns a kernel-checked witness — while paying the fidelity debt where ingest already produced signal that serving discards."
+  key_results:
+    - "A stratified hand-scored sample of the first lexicon (boundary markers) reports a per-class precision number and a coverage denominator as a dated record in the evidence-ledger 5-field census format — before any further lexicon is funded."
+    - "A query whose intent is epistemic stance rather than topic (`is the normality hypothesis necessary here`) returns the sentence `normality cannot be omitted, as Example 5.3 shows` via a marker class, where dense ANN over `embedding_stmt` today returns only topically-similar theorems."
+    - "`lean_verify` returns a kernel-checked refutation witness for a false finite statement under a status token distinct from both proved and error, with `plausible` (installed at the repl packages dir, unreachable today) on the path."
+    - "Every Lean result carries library identity (toolchain + Mathlib revision); a grep for `mathlib_rev`/`toolchain`/`lean_version` over the handler returns 0 today."
+    - "`ascii_form` is populated for a measured fraction of the equations table with the unconvertible fraction reported honestly, replacing the unconditional empty string written at both call sites (`ingest/extract_equations.py:195,264`)."
+    - "A corpus-wide symbol view reports the divergent-macro classes measured at 661 of 3,429 distinct symbols (19.3%), where `get_definitions` today requires a `paper_id` and cannot answer a cross-paper question at all."
+  assumptions:
+    - tier: must
+      text: "Sentence segmentation over research-mathematics prose (display math mid-sentence, enumerated hypotheses, closed abbreviations) is tractable enough that a curated regex lexicon clears a usable precision bar on a stratified sample."
+      validation: "spike-1 authors exactly ONE lexicon (boundary markers) against the substrate and hand-scores 50 matches; if per-class precision does not clear the recorded bar, the remaining lexicons are not funded and the roadmap ships the fidelity-debt epic alone."
+    - tier: must
+      text: "A warm Mathlib-resident Lean environment (owned by R3-m5/m7, nobody's deliverable in this roadmap) lands before the refutation lane ships; the known residual is that the 30 s query timeout is shorter than a cold `import Mathlib`."
+      validation: "the refutation milestone's acceptance records a measured cold-vs-warm import timing; until the warm env exists the lane's milestones stay in the Next lane and are never promoted to Now on schedule pressure alone."
+    - tier: must
+      text: "R3-m1 (honest per-axis statuses) and R3-m2 (isolation) land before any agent-supplied long-running search is exposed, since a refutation mode invites exactly that traffic."
+      validation: "the refutation milestone declares depends_on against them and its acceptance asserts isolation is in place before the mode is reachable."
+    - tier: should
+      text: "The `equations` table can be materialized at all — `ingest/index_equations.py` appears never to have been run on this workstation, so `ascii_form` may populate a column nothing reads."
+      validation: "spike-3 materializes the equations table on one notebook and measures Content-MathML to CAS convertibility before the ascii-form work is scoped."
+    - tier: should
+      text: "The 1,483 inline `<svg>` figures across 120 of 173 papers are TikZ/tikz-cd renderings usable as served artifacts rather than raster images."
+      validation: "spike-2 samples ~30 figures for asset-kind distribution; a raster-dominant result reduces the figure epic from a modality lane to caption-and-reference indexing."
+    - tier: might
+      text: "arXiv `<comments>` on revisions carry enough statement-change signal to justify a statement-level diff beyond the cheap comment parse."
+  wont:
+    - "No durable attempt-ledger or negative-result memory — it gates on an orchestrator repo that does not exist yet, and per the data-plane ADR the server may never hold per-run agent memory. The census record type belongs with it, not here."
+    - "No object axis, object-family registry, or enumerator surface — gates on a Wave-0 density scan and belongs to R7-KR1's adapter layer."
+    - "No statement graph, goal-shaped retrieval, or ingest-frontier ranking — gates on evidence-engine-e4's intra-paper extractor and R2-m3's precision gate."
+    - "No LLM anywhere at ingest — cross-synthesis §5 items 10-12 ban it; every miner in this roadmap is deterministic regex plus suppression guards, and abstains rather than guesses."
+    - "No generic multi-engine CAS tool with agent-supplied programs — R4-verified-computation already adjudicated this design space in the opposite direction (named, oracle-checked operations with replayable receipts)."
+    - "No second census schema — the evidence-ledger standard is Accepted (2026-07-12) and already carries a 5-field template; extend it with a claim class, never fork it."
+    - "No complement view (`theorems with no recorded necessity witness`) until the miner's precision is measured — an unmeasured complement manufactures false confidence, which is the most expensive error class here."
+  evidence:
+    - "The 2026-07-25 discovery capability gap analysis — six lenses, a duplicate/feasibility screen against 200 issues and nine roadmaps, two adversarial judge rankings, one completeness critique"
+    - "ingest/extract_equations.py:44 — 'No sentence tokenization at v1', the 4,000-char paragraph fallback that documents the missing substrate"
+    - "ingest/extract_equations.py:195,264 — ascii_form written as the empty string at both call sites"
+    - "ingest/chunker.py:230-231,263 — kind='conjecture' is written by the chunker and no MCP tool reads it"
+    - "ingest/chunker.py:757 — `figure` is in the chunker's non-recursed list; grep for ltx_figure/ltx_graphics/tikz over ingest/ and server/ returns 0"
+    - "server/handlers/lean_verify.py:736 — mode enum Literal['full','syntax_only','tactic_step'], no refutation mode; 0 grep hits for axiom/sorryAx/print axioms in the handler or lean_repl.py"
+    - "server/handlers/definitions.py:68-69 — get_definitions requires a paper_id, so no corpus-level symbol view is expressible"
+    - ".claude/docs/evidence-ledger-standard.md — Accepted 2026-07-12; the 5-field census template this roadmap's precision records use"
+    - ".claude/roadmap-briefs/R3-verification-contract.md — owns the honest-status and warm-environment preconditions this roadmap's Lean epic depends on"
+    - ".claude/roadmap-briefs/R4-verified-computation.md — the adjudication that rules out a generic CAS tool"
+generated_by: { agent: claude-opus-5, at: "2026-07-27" }
+generations:
+  - { rev: 1, at: "2026-07-27" }
+retired: []          # tombstoned item ids; ids are write-once, never deleted
+items:
+  - id: discovery-substrate-e1
+    kind: epic
+    title: "Span substrate and the first measured lexicon"
+    summary: "One vertical slice from parsed HTML to a queryable epistemic-stance facet. Ships (a) ingest/sentences.py emitting a content-addressed sentences table (sentence_id over chunk_id + normalised text + ordinal, math-aware: never split inside <math>, inside a \\cite group, or on a closed abbreviation list); (b) ONE markers table shared by every future miner (match_id, sentence_id, lexicon_id, lexicon_version, class, cue_span, confidence, extractor_status); (c) the lexicon file format as committed YAML — id, version, classes, cue regexes, suppression guards, chunk-kind restriction; (d) tools/lexicon_audit.py, a stratified precision sampler emitting a dated record in the Accepted evidence-ledger 5-field census format; and (e) the boundary-markers lexicon itself plus the serving surface that makes it reachable. Vertical, not horizontal: the epic is not done until an agent asking an epistemic-stance question gets the sentence, and the precision behind it is a published number. This is the prerequisite nine separate proposals silently assumed; building it once turns eight downstream miners into data files and collapses ~500-900 scattered hand-adjudications into one sampler run per lexicon."
+    priority: must
+    size: L
+    rice: { r: 8, i: 2, c: 0.5, e: 3, score: 2.67, rank: 2 }
+    tags: [value, substrate, mining, D-negative-space]
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/211"]
+
+  - id: discovery-substrate-e2
+    kind: epic
+    title: "The remaining miners, as data files"
+    summary: "Once e1's substrate exists each additional signal is a versioned YAML lexicon plus one sampler run, not an engineering project. Four miners: global reductions carrying their hypothesis delta and dated resolution evidence (loop stages 2 and 4); a proof-technique facet so an agent can retrieve BY TECHNIQUE — specialization, deformation, degeneration to the boundary, p-adic reduction — rather than by topic; arXiv revision <comments> parsed into the source-truth revision registry as additive columns; and an attention queue that ranks every human-resolvable abstention by downstream unblock value, which only becomes meaningful once two miners are feeding it. Each miner carries its own measured precision before its view is exposed, and each abstains rather than guesses. The technique-vacancy view and the statement-level revision diff are both gated on a measured non-empty cell count rather than assumed."
+    priority: should
+    size: M
+    rice: { r: 5, i: 2, c: 0.5, e: 2, score: 2.5, rank: 3 }
+    depends_on: [discovery-substrate-e1]
+    tags: [value, mining, D-negative-space]
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/212"]
+
+  - id: discovery-substrate-e3
+    kind: epic
+    title: "Fidelity debt: serve what ingest already parsed"
+    summary: "Three places where ingest already produced signal and serving discards it, independent of the mining substrate and startable in parallel. (a) The figure lane: 1,483 inline <svg> across 120 of 173 papers — class ltx_picture ltx_markedasmath, 262 of them literally inside <math> elements, i.e. TikZ/tikz-cd that LaTeXML itself classified as mathematics — plus 323 captioned floats, none of it reachable because `figure` sits in the chunker's non-recursed list (ingest/chunker.py:757) and grep for ltx_figure/ltx_graphics/tikz over ingest/ and server/ returns 0. In algebraic geometry a commutative diagram IS the content. (b) Notation consensus: 14,537 macros over 164 preamble.json files, 3,429 distinct symbols, 661 (19.3%) genuinely divergent after typographic normalisation — \\D spanning derived category / D-modules / the disc — while get_definitions requires a paper_id (server/handlers/definitions.py:68-69) so no cross-paper symbol question is expressible at all. (c) ascii_form, the executable rendering of the corpus's own equations, written as the empty string unconditionally at both call sites. Each of the three is scope-set by a Wave-0 measurement rather than assumed."
+    priority: should
+    size: M
+    rice: { r: 5, i: 2, c: 0.5, e: 2.5, score: 2.0, rank: 4 }
+    tags: [value, fidelity, D-modality]
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/213"]
+
+  - id: discovery-substrate-e4
+    kind: epic
+    title: "The Lean refutation lane: compute a negative"
+    summary: "arXMCP can prove and cannot disprove: lean_verify's mode enum is Literal['full','syntax_only','tactic_step'] (server/handlers/lean_verify.py:736) and no status token can mean 'this statement is false and here is the witness', while `plausible` — the counterexample finder — sits installed at the repl packages dir and unreachable. This epic adds a refutation mode returning a kernel-checked witness under its own status token, distinct from both proved and error and from operational failure; a directional definition probe (strictly-stronger / strictly-weaker / incomparable) as a mode of the same lane, attaching evidence to R5's human-owned faithfulness axis without setting it; and goal-directed search against a held proof state with an explicit exhaustiveness axis, so 'found nothing' and 'searched exhaustively and it is not there' never share a token. Gates externally on R3-m1 (honest per-axis statuses), R3-m2 (isolation, before agent-supplied long-running search is exposed) and R3-m5/m7 (a warm Mathlib-resident environment — the 30 s query timeout is shorter than a cold import Mathlib). Those are recorded as must-tier assumptions with validation, not scheduled away."
+    priority: must
+    size: L
+    rice: { r: 4, i: 3, c: 0.5, e: 4, score: 1.5, rank: 5 }
+    tags: [value, lean, refutation, D-falsify]
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/214"]
+
+  - id: discovery-substrate-e5
+    kind: epic
+    title: "Formal-result hygiene: library identity and name resolution"
+    summary: "Two small pieces of trust plumbing the refutation lane's output is only as good as. (a) Library identity on every Lean result: a grep for mathlib_rev / toolchain / lean_version across the 42 KB lean_verify handler returns 0, so a result today cannot be replayed, compared across time, or attributed to a library version — every Lean verdict is unpinned. (b) Pinned-Mathlib identifier resolution and deprecation repair, so an agent's reference to a declaration resolves against the environment actually in use rather than against the model's training-time memory of Mathlib, which is the dominant silent-failure mode in autoformalization. Deliberately NOT native Mathlib corpus ingestion — that is already adjudicated compose-don't-ingest (D2-R08, spike #186 unrun). Both are additive result fields and MUST ride the next batched TOOL_SCHEMA_VERSION re-pin window (agent-platform-e2 / W1) rather than minting their own, per the byte-stability discipline."
+    priority: must
+    size: S
+    rice: { r: 4, i: 1, c: 0.8, e: 0.5, score: 6.4, rank: 1 }
+    tags: [enabler, lean, trust, D-falsify]
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/215"]
+
+  # ---- spikes: one per unvalidated assumption; all time-boxed <=3 days ----
+
+  - id: discovery-substrate-spike-1
+    kind: spike
+    title: "Lexicon precision dry run: one lexicon, 50 hand-scored matches"
+    summary: "De-risks the must-tier assumption that regex mining over research-math prose clears a usable precision bar, BEFORE five more lexicons are funded. Author exactly one lexicon (boundary markers) against the substrate and hand-score a stratified sample of 50 matches."
+    parent: discovery-substrate-e1
+    lane: now
+    estimate_days: 1
+    acceptance:
+      - "Given the sentences and markers tables exist, when the boundary lexicon runs over the live notebook and 50 stratified matches are hand-scored, then a per-class precision figure and a coverage denominator are recorded in the evidence-ledger 5-field census format with a date"
+      - "Given the recorded per-class precision, when it falls below the bar committed BEFORE scoring, then the remaining lexicons are not funded and e2 is tombstoned or re-scoped rather than started"
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/224"]
+      code: ["ingest/extract_equations.py"]
+
+  - id: discovery-substrate-spike-2
+    kind: spike
+    title: "Figure asset-kind distribution over ~30 sampled figures"
+    summary: "Decides whether the figure lane is a full modality lane or caption-and-reference indexing only — the difference between M and S. Samples inline SVG vs raster vs tikz-source vs absent."
+    parent: discovery-substrate-e3
+    lane: now
+    estimate_days: 1
+    acceptance:
+      - "Given ~30 figures sampled across the 120 of 173 papers carrying inline <svg>, when each is classified as inline-SVG / raster / tikz-source / absent, then the distribution is recorded and the figure milestone's size is set from it rather than assumed"
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/225"]
+      code: ["ingest/chunker.py"]
+
+  - id: discovery-substrate-spike-3
+    kind: spike
+    title: "Materialize the equations table and measure MathML-to-CAS convertibility"
+    summary: "ingest/index_equations.py appears never to have been run on this workstation, so ascii_form may populate a column nothing reads. Materialize on one notebook and measure the honest unconvertible fraction."
+    parent: discovery-substrate-e3
+    lane: now
+    estimate_days: 1
+    acceptance:
+      - "Given one ingested notebook, when ingest/index_equations.py is run to completion, then the equations table row count and the Content-MathML-to-CAS convertible fraction are both recorded, including the unconvertible fraction stated as a number rather than omitted"
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/226"]
+      code: ["ingest/index_equations.py", "ingest/extract_equations.py", "server/retrieval/equations.py"]
+
+  - id: discovery-substrate-spike-4
+    kind: spike
+    title: "Cold-vs-warm Mathlib import timing against the 30 s query budget"
+    summary: "De-risks the must-tier assumption that a warm Mathlib-resident environment exists in time for the refutation lane. Measures the gap the R3-m5/m7 work has to close."
+    parent: discovery-substrate-e4
+    lane: next
+    estimate_days: 1
+    acceptance:
+      - "Given the pinned repl at the recorded Mathlib revision, when a cold `import Mathlib` and a warm env reuse are each timed, then both figures are recorded against the 30 s query timeout and the refutation milestone is only promoted to the Now lane once the warm path fits inside it"
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/227"]
+      code: ["server/lean_repl.py", "server/handlers/lean_verify.py"]
+
+  # ---- milestones ----
+
+  - id: discovery-substrate-m1
+    kind: milestone
+    title: "Sentence layer, marker table, lexicon format and sampler exist"
+    summary: "The shared substrate: a content-addressed sentences table, ONE markers table every future miner writes to, the committed-YAML lexicon format, and the stratified precision sampler. Ships the mechanism, not yet a serving surface."
+    parent: discovery-substrate-e1
+    lane: now
+    target_start: 2026-07-27
+    target_end: 2026-08-14
+    acceptance:
+      - "Given a re-ingest of an unchanged paper, when sentence ids are recomputed, then every sentence_id is byte-identical to the previous run, and when the chunk text changes then the affected sentence_id visibly changes rather than silently re-pointing"
+      - "Given a paragraph containing display math, an enumerated hypothesis list and the abbreviations Prop./Thm./resp./i.e., when segmentation runs, then no sentence boundary falls inside a <math> element or a \\cite group, and a paragraph that cannot be segmented emits segmentation_status=unsegmentable rather than a guessed split"
+      - "Given the markers table, when two different lexicons write matches over the same sentence, then both rows join on sentence_id with their own lexicon_id and lexicon_version, and no lexicon can write a span convention of its own"
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/216"]
+      code: ["ingest/chunker.py", "ingest/store.py", "ingest/schema.py"]
+
+  - id: discovery-substrate-m2
+    kind: milestone
+    title: "Boundary markers reachable, with published precision"
+    summary: "The vertical slice closes: the boundary-marker lexicon runs, its precision is published as a dated census, and an agent can retrieve by epistemic stance rather than topic."
+    parent: discovery-substrate-e1
+    lane: now
+    target_start: 2026-08-14
+    target_end: 2026-09-04
+    depends_on: [discovery-substrate-m1, discovery-substrate-spike-1]
+    acceptance:
+      - "Given the query intent 'is the normality hypothesis necessary here', when the marker class is queried, then the sentence asserting necessity is returned with its verbatim cue span, where dense ANN over embedding_stmt returns only topically-similar theorems"
+      - "Given a theorem with no cue-bearing sentence anywhere in its paper, when the marker class is queried, then the result is an explicit abstention token distinct from an operational failure, and never an empty list that reads as 'no boundary exists'"
+      - "Given a sentence matching an asserted-unsupported cue, when it carries an ltx_bibref anchor or a local proof chunk, then the suppression guard excludes it, and target attachment reports attribution as anchored / adjacency / unattributed on its own axis"
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/217"]
+      code: ["server/handlers/search.py", "server/handlers/chunk.py", "ingest/intra_paper_refs.py"]
+
+  - id: discovery-substrate-m3
+    kind: milestone
+    title: "Figure lane serves diagrams at the size the spike set"
+    summary: "Captioned figures and in-math TikZ/tikz-cd become reachable, scoped by spike-2's measured asset-kind distribution rather than by assumption."
+    parent: discovery-substrate-e3
+    lane: next
+    depends_on: [discovery-substrate-spike-2]
+    acceptance:
+      - "Given a paper carrying inline ltx_picture ltx_markedasmath SVG, when its chunk is retrieved, then the diagram and its caption are reachable rather than dropped by the chunker's non-recursed list"
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/218"]
+
+  - id: discovery-substrate-m4
+    kind: milestone
+    title: "Corpus-wide symbol view and a two-paper notation transport check"
+    summary: "get_definitions gains a corpus-level mode so a symbol's divergent meanings across papers become a question the surface can answer at all."
+    parent: discovery-substrate-e3
+    lane: next
+    acceptance:
+      - "Given a symbol that diverges across papers, when the corpus-wide view is queried without a paper_id, then its distinct expansion classes are returned with the papers each belongs to"
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/219"]
+
+  - id: discovery-substrate-m5
+    kind: milestone
+    title: "ascii_form populated with an honest unconvertible fraction"
+    summary: "Replaces the unconditional empty string with a real executable rendering, and reports what could not be converted instead of hiding it."
+    parent: discovery-substrate-e3
+    lane: next
+    depends_on: [discovery-substrate-spike-3]
+    acceptance:
+      - "Given the materialized equations table, when the ascii_form pass runs, then convertible equations carry a non-empty rendering and unconvertible ones carry an explicit token plus a reported corpus-level unconvertible fraction"
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/220"]
+
+  - id: discovery-substrate-m6
+    kind: milestone
+    title: "Library identity and pinned-Mathlib name resolution on every Lean result"
+    summary: "Two additive result fields that make a Lean verdict replayable and attributable. Rides the next batched TOOL_SCHEMA_VERSION window; does not mint its own re-pin."
+    parent: discovery-substrate-e5
+    lane: next
+    acceptance:
+      - "Given any lean_verify result, when it is returned, then it carries the toolchain and Mathlib revision actually used, so two results from different days are distinguishable"
+      - "Given an agent-supplied declaration name that was renamed or deprecated in the pinned Mathlib, when it is resolved, then the current name is returned with the deprecation recorded, rather than a bare elaboration failure"
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/221"]
+
+  - id: discovery-substrate-m7
+    kind: milestone
+    title: "Refutation mode returns a kernel-checked witness"
+    summary: "The compute-a-negative direction: a false finite statement returns a witness under its own status token, with `plausible` on the path. Promoted to the Now lane only once spike-4 shows the warm environment fits the query budget."
+    parent: discovery-substrate-e4
+    lane: next
+    depends_on: [discovery-substrate-spike-4]
+    acceptance:
+      - "Given a finite statement that is false, when the refutation mode runs, then a kernel-checked witness is returned under a status token distinct from proved, from error, and from operational failure"
+      - "Given a statement the search could not settle within budget, when the mode returns, then 'searched to exhaustion and found none' and 'ran out of budget' are reported as different tokens on an exhaustiveness axis, never collapsed"
+      - "Given R3-m2 isolation has not landed, when the mode is requested, then it is unavailable rather than reachable, since agent-supplied long-running search is exactly the traffic it gates"
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/222"]
+
+  - id: discovery-substrate-m8
+    kind: milestone
+    title: "Directional definition probe and goal-directed search"
+    summary: "Strictly-stronger / strictly-weaker / incomparable as a mode of the refutation lane, plus goal-directed search against a held proof state with an explicit exhaustiveness axis."
+    parent: discovery-substrate-e4
+    lane: next
+    depends_on: [discovery-substrate-m7]
+    acceptance:
+      - "Given two candidate formalizations of one informal definition, when the directional probe runs, then it reports strictly-stronger / strictly-weaker / equivalent / incomparable as evidence attached to a human-owned faithfulness axis, and never sets that axis itself"
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/223"]
+
+  # ---- now-lane tasks (only the Now lane is task-decomposed) ----
+
+  - id: discovery-substrate-t-sentence-table
+    kind: task
+    title: "ingest/sentences.py + content-addressed sentence_id"
+    parent: discovery-substrate-m1
+    lane: now
+    priority: must
+    estimate_days: 2
+    acceptance:
+      - "Given an unchanged chunk, when sentences are re-emitted, then sentence_id is stable; and given changed chunk text, then sentence_id changes visibly rather than silently re-pointing"
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/228"]
+
+  - id: discovery-substrate-t-math-aware-segmentation
+    kind: task
+    title: "Math-aware segmentation guards and the unsegmentable escape"
+    parent: discovery-substrate-m1
+    lane: now
+    priority: must
+    estimate_days: 2
+    acceptance:
+      - "Given display math mid-sentence, a \\cite group, or a closed abbreviation, when segmentation runs, then no boundary is placed inside them, and an unsegmentable paragraph emits segmentation_status=unsegmentable so miners fall back to paragraph grain"
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/229"]
+
+  - id: discovery-substrate-t-markers-table
+    kind: task
+    title: "The single shared markers table and lexicon YAML format"
+    parent: discovery-substrate-m1
+    lane: now
+    priority: must
+    estimate_days: 2
+    acceptance:
+      - "Given two lexicons writing over the same sentence, when both run, then their matches join on sentence_id carrying lexicon_id and lexicon_version, and neither can introduce its own span convention"
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/230"]
+
+  - id: discovery-substrate-t-precision-sampler
+    kind: task
+    title: "tools/lexicon_audit.py stratified precision sampler"
+    parent: discovery-substrate-m1
+    lane: now
+    priority: should
+    estimate_days: 2
+    acceptance:
+      - "Given a lexicon and a class, when the sampler runs, then it emits a stratified sample plus per-class precision and a coverage denominator as a dated record in the existing 5-field census format"
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/231"]
+
+  - id: discovery-substrate-t-boundary-lexicon
+    kind: task
+    title: "Author the boundary-marker lexicon with suppression guards"
+    parent: discovery-substrate-m2
+    lane: now
+    priority: must
+    estimate_days: 2
+    acceptance:
+      - "Given the classes necessity / sharp / converse-fails / counterexample-pointer / open / asserted-unsupported, when the lexicon runs, then \\sharp and sheaf notation do not match `sharp`, and 'necessary and sufficient' does not match a necessity cue"
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/232"]
+
+  - id: discovery-substrate-t-marker-serving
+    kind: task
+    title: "Serve marker classes with a first-class abstention token"
+    parent: discovery-substrate-m2
+    lane: now
+    priority: must
+    estimate_days: 3
+    acceptance:
+      - "Given a marker-class query with no match anywhere in the paper, when it returns, then the response carries an explicit abstention distinct from operational failure, and the filter key rides the next batched schema re-pin rather than minting its own"
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/233"]
