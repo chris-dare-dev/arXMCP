@@ -21,7 +21,14 @@ venv/
 Thumbs.db
 
 # Build / runtime artifacts (paths anticipated by the design notes)
-/var/arxmcp/
+# CLAUDE.md section 5 describes the WHOLE of var/ as the gitignored data tree,
+# but this pattern only ever covered var/arxmcp/ -- so ingest staging trees
+# (var/fourier-staging/, var/textbook-staging/, ~93 MB of source PDFs) and the
+# loose driver scripts beside them showed up as untracked noise on every
+# status, and were one `git add .` away from being committed. Widened to all
+# of var/ to match the documented intent. Nothing under var/ has ever been
+# tracked (`git ls-files var/` is empty), so this changes no history.
+/var/
 *.log
 *.egg-info/
 
