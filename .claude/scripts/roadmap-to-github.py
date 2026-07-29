@@ -53,9 +53,15 @@ import yaml
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 MARKER_RE = re.compile(r"<!-- roadmap-gh: (?P<key>\S+) -->")
+# A roadmap/1 `kind: milestone` is the unit `/milestone-pipeline` is invoked
+# with; a `kind: task` is not. Emitting `type:task` for both collapsed that
+# distinction on the board, so the one view this workflow needs -- "which
+# issues can the pipeline pick up right now" -- could not be expressed at all.
+# `type:milestone` is carried IN ADDITION to `type:task` rather than instead
+# of it, so every existing saved filter, view and query keeps matching.
 LABELS_BY_KIND = {
     "epic": ["epic"],
-    "milestone": ["type:task"],
+    "milestone": ["type:task", "type:milestone"],
     "task": ["type:task"],
     "spike": ["type:spike"],
 }

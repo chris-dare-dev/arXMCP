@@ -58,7 +58,13 @@ fields.
 - A roadmap/1 `kind: epic` becomes an ISSUE labeled `epic`; its body carries the
   outcome + acceptance, and children attach as native GitHub SUB-ISSUES.
 - `kind: milestone` / `kind: task` become issues (sub-issues under their epic;
-  a tiny task may instead stay as a checklist line in the epic body).
+  a tiny task may instead stay as a checklist line in the epic body). A
+  `kind: milestone` additionally carries **`type:milestone`** alongside
+  `type:task` — it is the unit `/milestone-pipeline` is invoked with, and a
+  leaf task is not. Without that distinction the board cannot express the one
+  view this workflow needs: *which issues can the pipeline pick up right now*
+  (`is:open label:"type:milestone" lane:"Now" -label:blocked`). The extra
+  label is additive, so filters written against `type:task` keep matching.
 - `kind: spike` becomes a `type:spike` issue that blocks its epic.
 - A roadmap slug maps to a GitHub Milestone (or a Projects iteration).
 - `lane` / `priority` / `size` map to the Mission Control fields of the same name.
