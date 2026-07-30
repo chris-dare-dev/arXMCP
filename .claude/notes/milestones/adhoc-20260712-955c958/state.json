@@ -1,0 +1,96 @@
+{
+  "id": "adhoc-20260712-955c958",
+  "created_at": "2026-07-12T19:42:37Z",
+  "updated_at": "2026-07-12T22:59:33Z",
+  "phase": "rectify-running",
+  "phase_history": [
+    {
+      "phase": "init",
+      "at": "2026-07-12T19:42:37Z"
+    },
+    {
+      "phase": "research-running",
+      "at": "2026-07-12T19:43:47Z"
+    },
+    {
+      "phase": "research-complete",
+      "at": "2026-07-12T20:06:53Z"
+    },
+    {
+      "phase": "implement-running",
+      "at": "2026-07-12T20:07:40Z"
+    },
+    {
+      "phase": "implement-complete",
+      "at": "2026-07-12T20:25:39Z"
+    },
+    {
+      "phase": "critique-running",
+      "at": "2026-07-12T20:27:02Z"
+    },
+    {
+      "phase": "critique-complete",
+      "at": "2026-07-12T20:38:51Z"
+    },
+    {
+      "phase": "rectify-running",
+      "at": "2026-07-12T20:40:08Z"
+    }
+  ],
+  "milestone_brief": "Fix the Kuzu database lifecycle in production graph-ingest so it releases the DB file lock on Windows, then remove the Windows-only test skips that guarded it.\n\nROOT CAUSE (verified live on Windows 11, kuzu 0.11.3): production finally blocks release the Kuzu file lock with del db. kuzu 0.11.3 takes a mandatory file lock, and del db alone does not release it because the live kuzu.Connection keeps the Database object alive; re-opening the same DB path in one process then raises RuntimeError IO exception Could not set lock on file. Verified live that BOTH explicit close (connection first via conn.close(), then database via db.close()) AND del of both names (del conn, db) release the lock; del db alone does not. POSIX advisory locks tolerate the overlap, which is why POSIX passes today and is the CLAUDE.md test authority.\n\nFIX (each production finally block): close explicitly, connection first then database, guarding against an unbound conn if kuzu.Connection(db) raised - initialize conn = None before the try, then in finally do: if conn is not None: conn.close(); then db.close(). Sites: ingest/kuzudb_schema.py apply_schema (around line 140-145) and read_schema_version (around line 182-183); ingest/graph_ingest.py (around line 668); ingest/inspire_ingest.py (around line 719 and around line 821).\n\nTESTS: update the matching del db teardown blocks in tests/test_graph_ingest.py and tests/test_inspire_ingest.py (and the equivalent teardown in tests/_graph_helpers.py build_synthetic_kuzu_graph) to the explicit-close discipline; then REMOVE the 8 kuzu_reopen_unsupported_on_windows skip decorators and the marker definition itself in tests/_graph_helpers.py.\n\nWORKING-TREE STATE (surgical mode): the 3 test files are already modified in the UNCOMMITTED working tree by today's Windows test-greening sweep. tests/_graph_helpers.py defines the kuzu_reopen_unsupported_on_windows marker (adds imports: sys, pytest). tests/test_graph_ingest.py has 1 decorator site (test_f3_fetch_failure_tracked_and_retried_on_resume) plus the marker import. tests/test_inspire_ingest.py has 7 decorator sites (test_simulated_v1_db_migrates_to_v2, test_both_sources_edges_coexist, test_f1_inspire_remerge_preserves_doi_when_response_drops_field, test_f2_enrich_accepts_old_style_hep_th_id, test_f6_failure_run_flushes_checkpoint_at_batch_size, test_f8_arxiv_categories_filter_anchor_for_post_f9, test_f3_fetch_failure_tracked_and_retried) plus the marker import. Analyze the ACTUAL working-tree state, not HEAD. The 3 production files are clean/committed. Scope is EXACTLY these 6 files; do not touch unrelated WIP.\n\nACCEPTANCE: the 8 previously-skipped close-and-reopen tests run and PASS on Windows (no longer skipped); ruff check clean; no del db lifecycle remains at the listed production sites. POSIX (macOS/Linux) must stay green and be re-verified there. NOTE this session runs on Windows 11 and cannot execute POSIX tests; a POSIX make test run is the final gate and likely must be performed by the user on their macOS/Linux workstation. Surface this as a residual; do not silently claim POSIX verification.\n\nCONTEXT: deferred out of the 2026-07-12 Windows test-greening sweep, which guarded the 8 tests rather than change production lifecycle without POSIX re-verification. Cross-cutting, correctness-sensitive change to graph-ingest resource management.",
+  "brief_source": "inline",
+  "research_mode": "deep",
+  "oss_scout_requested": false,
+  "allow_large_diff": false,
+  "research_briefs": [
+    ".claude/notes/milestones/adhoc-20260712-955c958/research/brief-1.md",
+    ".claude/notes/milestones/adhoc-20260712-955c958/research/brief-2.md",
+    ".claude/notes/milestones/adhoc-20260712-955c958/research/brief-3.md"
+  ],
+  "research_synthesis": ".claude/notes/milestones/adhoc-20260712-955c958/research/synthesis.md",
+  "implementation_path": "inline",
+  "implementation_plan": null,
+  "implementation_base": "f12f1643da3475fe65c27cd8e4d879bf9ab5527d",
+  "implementation_commit_range": "f12f1643da3475fe65c27cd8e4d879bf9ab5527d..6c5ff0d8e44592f71a64bf6aa08a8d509c505193",
+  "implementation_commits": [
+    "6c5ff0d8e44592f71a64bf6aa08a8d509c505193"
+  ],
+  "implementation_branch": null,
+  "external_writes_required": [
+    "git push origin main"
+  ],
+  "critique_path": ".claude/notes/milestones/adhoc-20260712-955c958/critique/dedup.md",
+  "critics_run": [
+    "milestone-adversary-critic",
+    "milestone-arxmcp-critic"
+  ],
+  "critique_files": [
+    "critique/adversary.md",
+    "critique/arxmcp.md"
+  ],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "medium": 2,
+    "low": 2
+  },
+  "findings_register": ".claude/notes/milestones/adhoc-20260712-955c958/findings.json",
+  "rectification_commit": "d8185827dc95c5ad1a94e1f21460c4fce81b7f5b",
+  "fixed_findings": [
+    "M1",
+    "M2"
+  ],
+  "deferred_findings": [
+    "L1",
+    "L2"
+  ],
+  "invalidated_findings": [],
+  "regression_tests_added": [
+    "tests/test_graph_ingest.py",
+    "tests/test_inspire_ingest.py"
+  ],
+  "external_writes_authorized": [],
+  "external_writes_completed": [
+    "git push origin main \u2014 DEFERRED by user 2026-07-12 pending POSIX make test; NOT performed by the pipeline"
+  ]
+}

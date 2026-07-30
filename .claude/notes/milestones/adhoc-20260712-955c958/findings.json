@@ -1,0 +1,90 @@
+{
+  "milestone_id": "adhoc-20260712-955c958",
+  "critique_format_version": "1.0",
+  "critique_files": [
+    "dedup.md"
+  ],
+  "generated_at": "2026-07-12T20:44:14Z",
+  "findings": {
+    "M1": {
+      "id": "M1",
+      "severity": "MEDIUM",
+      "title": "CLAUDE.md still lists the 8 tests as guarded + this fix as open",
+      "file": "CLAUDE.md",
+      "line": 92,
+      "anchor": "Test count (Windows 11, 2026-07-12)",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Doc drift",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "CLAUDE.md:92 census reconciled: 8 kuzu re-open tests moved GUARDED(26->18)/skipped(99->91) to passing(3915->3923); 'Open follow-up: kuzu close-discipline' rewritten to RESOLVED with pointer to this milestone + the 3 residual del db sites.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-07-12T20:44:13Z",
+          "resolution": "CLAUDE.md:92 census reconciled: 8 kuzu re-open tests moved GUARDED(26->18)/skipped(99->91) to passing(3915->3923); 'Open follow-up: kuzu close-discipline' rewritten to RESOLVED with pointer to this milestone + the 3 residual del db sites."
+        }
+      ]
+    },
+    "M2": {
+      "id": "M2",
+      "severity": "MEDIUM",
+      "title": "Identical del db bug left untracked at 2 out-of-scope sites",
+      "file": "server/graph_queries.py",
+      "line": 379,
+      "anchor": "del db",
+      "source_critic": "milestone-arxmcp-critic (cross-critic: also raised by milestone-adversary-critic at the same site)",
+      "source_axis": "Correctness / resource-lifecycle",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Tracked via spawned follow-up task task_959b2bf4 (critics' requested resolution: track, do not widen the 6-file surgical commit). Code fix for graph_queries.py::cite_neighbors + intra_paper_refs.py + restore_drill_check.py deferred to that follow-up with a double-call regression test.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-07-12T20:44:13Z",
+          "resolution": "Tracked via spawned follow-up task task_959b2bf4 (critics' requested resolution: track, do not widen the 6-file surgical commit). Code fix for graph_queries.py::cite_neighbors + intra_paper_refs.py + restore_drill_check.py deferred to that follow-up with a double-call regression test."
+        }
+      ]
+    },
+    "L1": {
+      "id": "L1",
+      "severity": "LOW",
+      "title": "~27-fold duplication of the nested close block",
+      "file": "tests/test_inspire_ingest.py",
+      "line": 177,
+      "anchor": "# nested: db.close() must run even if conn",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Duplication",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "LOW: ~27x nested-close duplication is correct and uniform; a _close_kuzu helper refactor exceeds the surgical 6-file scope. Deferred to a later cleanup.",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-07-12T20:44:14Z",
+          "resolution": "LOW: ~27x nested-close duplication is correct and uniform; a _close_kuzu helper refactor exceeds the surgical 6-file scope. Deferred to a later cleanup."
+        }
+      ]
+    },
+    "L2": {
+      "id": "L2",
+      "severity": "LOW",
+      "title": "POSIX make test unrun; new close path first-executed on POSIX",
+      "file": "ingest/kuzudb_schema.py",
+      "line": 104,
+      "anchor": "try:",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "Test surface",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "LOW/acknowledged residual: POSIX make test cannot run from this Windows session; user must run it on macOS/Linux before full verification. Surfaced in final summary + external boundary.",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-07-12T20:44:14Z",
+          "resolution": "LOW/acknowledged residual: POSIX make test cannot run from this Windows session; user must run it on macOS/Linux before full verification. Surfaced in final summary + external boundary."
+        }
+      ]
+    }
+  }
+}

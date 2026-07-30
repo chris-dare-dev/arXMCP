@@ -1,0 +1,68 @@
+{
+  "_README": "SCRATCH dry-run label file for evidence-engine-spike-1 (labeling-pace measurement). This is NOT the real fixture — do NOT copy into tests/eval/fixtures/queries.json (5 queries breaks the validator's all-or-nothing 0-or-20 rule). For each query: (1) rewrite query_text in YOUR OWN words FIRST, (2) list the chunks a perfect top-10 would contain in relevant_chunks with a grade 0-3 (3=primary answer, 2=direct addressee, 1=one-click context; never list grade-0), (3) ensure >=1 grade-3, (4) record owner_minutes = wall-clock from 'wrote query_text' to 'last grade recorded'. candidate_anchors_from_search are HINTS from a live search_papers run — verify/replace them; author your own grades. Grade against domain knowledge, not the dense ranking.",
+  "_protocol": "Server is up on corpus_version 4454 (bridgeland-stability). Per query: search_papers(query_text, k=10) -> ranked chunk_ids; get_chunk(chunk_id) for full body. Proof-kind chunks are NOT returned by search_papers (excluded_kinds:['proof']) — for the proof-anchored query, find a kind='proof' chunk_id via var/arxmcp/corpus/chunks/<paper_id>/chunk_manifest.json. Prefer new-style (YYMM.NNNNN) papers; old-style math/NNNNNNN anchors currently fail the validator (m1 blocker B2).",
+  "schema_version": "1.0-dryrun",
+  "chunker_version": "v1.1",
+  "queries": [
+    {
+      "query_id": "dq1",
+      "query_text": "<REWRITE: a Bridgeland (pre-)stability condition as the pair (Z, P) — the definition>",
+      "slice_axis": "topic=definition, kind=stmt, phrasing=formal",
+      "candidate_anchors_from_search": [
+        {"chunk_id": "arxiv:2504.12253:899c2891fdfdf1a9", "hint": "label [Bri07, Definition 5.1] — new-style, validator-safe"}
+      ],
+      "relevant_chunks": [],
+      "owner_minutes": null
+    },
+    {
+      "query_id": "dq2",
+      "query_text": "<REWRITE: wall-crossing behavior of Bridgeland moduli spaces on K3 surfaces>",
+      "slice_axis": "topic=wall-crossing, kind=stmt, phrasing=mid-formal",
+      "candidate_anchors_from_search": [
+        {"chunk_id": "arxiv:1106.5217:1d915c67a43455f3", "hint": "sec '3. The wall crossing behavior'"},
+        {"chunk_id": "arxiv:1106.5217:1139a81f9be30959", "hint": "same section — a grade 2/1 candidate"}
+      ],
+      "relevant_chunks": [],
+      "owner_minutes": null
+    },
+    {
+      "query_id": "dq3",
+      "query_text": "<REWRITE: stratification of the moduli of Bridgeland-stable objects for a primitive Mukai vector>",
+      "slice_axis": "topic=moduli, kind=stmt, phrasing=formal",
+      "candidate_anchors_from_search": [
+        {"chunk_id": "arxiv:2505.19890:98add59ae7f620c0", "hint": "sec '5. Stratification...', main result — new-style, recent"}
+      ],
+      "relevant_chunks": [],
+      "owner_minutes": null
+    },
+    {
+      "query_id": "dq4",
+      "query_text": "<REWRITE: geometric stability conditions on the local P^3 canonical bundle Tot(omega_P3)>",
+      "slice_axis": "topic=geometric-stability, kind=stmt, phrasing=informal-descriptive",
+      "candidate_anchors_from_search": [
+        {"chunk_id": "arxiv:2501.15251:a2551d248507e033", "hint": "Theorem 4.5 — new-style"},
+        {"chunk_id": "arxiv:2501.15251:6143af8782d77bb4", "hint": "Theorem 1.6 intro restatement — grade 2 candidate"}
+      ],
+      "relevant_chunks": [],
+      "owner_minutes": null
+    },
+    {
+      "query_id": "dq5-PROOF",
+      "query_text": "<REWRITE: pick a claim whose PROOF chunk you can anchor — a proof-kind query so pace captures the slower manifest-read path>",
+      "slice_axis": "topic=owner-choice, kind=proof, phrasing=owner-choice",
+      "candidate_anchors_from_search": [
+        {"chunk_id": "<find via var/arxmcp/corpus/chunks/<paper_id>/chunk_manifest.json — pick a kind='proof' chunk>", "hint": "search_papers will NOT surface proof chunks; read the manifest directly"}
+      ],
+      "relevant_chunks": [],
+      "owner_minutes": null
+    }
+  ],
+  "_extrapolation": {
+    "median_owner_minutes_per_query": null,
+    "projected_full_fixture_minutes_at_n20": null,
+    "owner_working_day_hours": null,
+    "budget_owner_days": 2,
+    "exceeds_budget": null,
+    "decision": "<keep n=20 | cut to n≈12-15 (never below watchdog floor n=10)>"
+  }
+}

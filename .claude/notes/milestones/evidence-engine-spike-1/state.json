@@ -1,0 +1,48 @@
+{
+  "id": "evidence-engine-spike-1",
+  "created_at": "2026-07-13T18:36:56Z",
+  "updated_at": "2026-07-13T18:46:26Z",
+  "phase": "research-complete",
+  "phase_history": [
+    {
+      "phase": "init",
+      "at": "2026-07-13T18:36:56Z"
+    },
+    {
+      "phase": "research-running",
+      "at": "2026-07-13T18:37:36Z"
+    },
+    {
+      "phase": "research-complete",
+      "at": "2026-07-13T18:46:26Z"
+    }
+  ],
+  "milestone_brief": "# Milestone brief \u2014 evidence-engine-spike-1\r\n\r\n**Title:** Labeling-pace dry run \u2014 first 5 queries\r\n**Kind:** spike\r\n**Roadmap:** evidence-engine (plans/evidence-engine/roadmap.yaml)\r\n**Status:** planned\r\n**Lane:** now\r\n**Target:** ? -> 2026-07-08\r\n\r\n## Parent epic\r\n\r\n- evidence-engine-e1 \u2014 Fixture curation, first harness numbers, and the pinned ledger\r\n  Build the offline static-HTML labeling report (D2-R12, wrapping server/handlers/search.py's search internals -- no new route, no server change) and use it to hand-label the 20-query graded-relevance fixture at tests/eval/fixtures/queries.json (D9-R01), producing arXMCP's first-ever make eval (dense) nDCG@5/Recall@10 numbers plus a pytest --hybrid run, committed into the PENDING tables of .claude/docs/retrieval-quality-report.md. Land the same day: a full run-manifest (embedder/chunker/tokenizer/reranker versions, fixture content-hash) appended to var/arxmcp/ops/eval/ledger.jsonl (D9-R10) so the numbers are born pinned and watchdog AC1 goes live, plus the mechanical D9-R14 rider relocating ndcg_at_k/recall_at_k/assert_threshold/_run_hybrid_against_corpus/score_and_write out of tests/eval/metrics.py into an importable package on this same harness-touching commit.\r\n\r\n## Summary\r\n\r\n(none in roadmap \u2014 derive scope from the acceptance criteria)\r\n\r\n## Acceptance criteria\r\n\r\n1. Given the first 5 of the ~20 planned queries, when the owner hand-labels graded relevance for them, then actual owner-minutes-per-query is recorded and extrapolated to a full-fixture time estimate\r\n2. Given the extrapolated total, when it exceeds ~2 owner-days, then the fixture size is cut to the smallest n that still supports D9-R02's paired-comparison math instead of letting the milestone slip again\r\n\r\n## Depends on\r\n\r\n- (none)",
+  "brief_source": "roadmap plans/evidence-engine/roadmap.yaml",
+  "research_mode": "single",
+  "oss_scout_requested": false,
+  "allow_large_diff": false,
+  "research_briefs": [
+    ".claude/notes/milestones/evidence-engine-spike-1/research/brief-2.md"
+  ],
+  "research_synthesis": ".claude/notes/milestones/evidence-engine-spike-1/research/synthesis.md",
+  "implementation_path": null,
+  "implementation_plan": null,
+  "implementation_base": null,
+  "implementation_commit_range": null,
+  "implementation_commits": [],
+  "implementation_branch": null,
+  "external_writes_required": [],
+  "critique_path": null,
+  "critics_run": [],
+  "critique_files": [],
+  "critique_finding_counts": null,
+  "findings_register": null,
+  "rectification_commit": null,
+  "fixed_findings": [],
+  "deferred_findings": [],
+  "invalidated_findings": [],
+  "regression_tests_added": [],
+  "external_writes_authorized": [],
+  "external_writes_completed": []
+}

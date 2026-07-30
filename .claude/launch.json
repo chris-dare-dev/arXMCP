@@ -1,0 +1,14 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "arxmcp-ui",
+      "runtimeExecutable": ".venv\\Scripts\\python.exe",
+      "runtimeArgs": [
+        "-c",
+        "import os; os.environ.setdefault('ARXMCP_BOOTSTRAP_MODE','1'); os.environ.setdefault('ARXMCP_LOG_FORMAT','text'); import runpy; runpy.run_module('server.main', run_name='__main__')"
+      ],
+      "port": 7733
+    }
+  ]
+}

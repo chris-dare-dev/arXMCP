@@ -1,0 +1,40 @@
+{
+  "backup": {
+    "capability-scout-adversary.toml": "67a71471c26003183b19cd30fbd93c427b79bf49985ec2fb1d6d9cb7bf65cb4d",
+    "capability-scout-challenger.toml": "3a8c3d3e1ca3869d1046f1240161b42801c93c8ce6cd9c8fd8544130ab91b83a",
+    "capability-scout-comparative.toml": "e956dbc90d37e787a794ffd526cfce2af0e4e571fb0aed5ca8dd48473a0e1d17",
+    "capability-scout-multi-agent.toml": "265bd3a9e3def9a356c3a7cd1b499e782e9910ce0d02a61f41acc7978a95b1b8",
+    "capability-scout-oss-trends.toml": "5be9deee24c2f4ef460c5891a4ee21ba44251feaf80d11f27f8ff6aa786f8470",
+    "capability-scout-research-frontier.toml": "b981c74238ccbe42324c355a8318482f3e82312a81b3f197da4f8f013b222448",
+    "capability-scout-synthesizer.toml": "ffddfe17cf0cf6cf6c915085b058d49176193e7d824fd9ef61340b550998f5e9",
+    "frontend-uplift-challenger.toml": "7497b0a62e9a336f1a98cb048c4226ab85f6f2e5242c0bfd6b55f5778bd9d456",
+    "frontend-uplift-current-state-critic.toml": "4b4d4758477e1538462daa82b6e2e9e2115b1ffdd20fee656245dc6b4543a3d7",
+    "frontend-uplift-experiential-scout.toml": "adf2d15fea5d0457b5be3b00cb1181c8580b072553682824590adb4efb9cd5e9",
+    "frontend-uplift-inspiration-scout.toml": "f5d5c41af8b49db6b28d59c2580370d3653c7696e1c78c7b4424866021f746ab",
+    "frontend-uplift-visual-scout.toml": "12b41dd5fcbac47691ba52d1976ecf1bfa9abe2bca77f57706a1139a356c9daa",
+    "milestone-adversary-critic.toml": "615fe860fd247458e8763c6fecd0eb4ca18c621b06162a83925091b01c79488f",
+    "milestone-adversary.toml": "aec28093137538bf28ef5a666d581ff684a9c76a984881cf4db86d9f4b52933e",
+    "milestone-arxmcp-critic.toml": "9a55a5d69a7d376013daf93ae3bf9da076c0f8c72bde82cc453fe36af3665c44",
+    "milestone-frontend-ux.toml": "28cd88cb10bf75d368324f777e76d054cbbc753a87d8537bbdec0dd7237cadfb",
+    "milestone-implementer.toml": "81fcd9791e9d2cbc186fef1119ce1c57fc3558ac541725ccf22fe216c3d649f8",
+    "milestone-infra-safety-critic.toml": "f94133503fba44db511e9a1cd1a21861567c0136996a9042284e0a19c46c619c",
+    "milestone-oss-scout.toml": "828bf9246199f6e0d5443a48140dd65ab9e34bc06f9db2122882ab2af331a8ac",
+    "milestone-rectifier.toml": "dbe40300419c0e3cf5e1e1305e1a6b5a4424af79a42ce9ae0608ef574c95e4ce",
+    "milestone-researcher.toml": "eb425a8fecf7db908622fc794a3d97c892c8614eb8c034c7d9620e53795db08d",
+    "pipeline-prioritizer.toml": "c9e4e4c2161493f5d3522ca33602fd58e855006cea571661b274554db484d63c",
+    "pipeline-synthesizer.toml": "938fe02eeeabcf82a74b885e52f02239772d0f3738761b4b69398096ba19bd5d"
+  },
+  "date": "2026-07-23",
+  "pending": {
+    ".codex/agents/frontend-uplift-experiential-scout.toml": "adf2d15fea5d0457b5be3b00cb1181c8580b072553682824590adb4efb9cd5e9",
+    ".codex/agents/milestone-adversary-critic.toml": "615fe860fd247458e8763c6fecd0eb4ca18c621b06162a83925091b01c79488f",
+    ".codex/agents/milestone-frontend-ux.toml": "28cd88cb10bf75d368324f777e76d054cbbc753a87d8537bbdec0dd7237cadfb",
+    ".codex/agents/milestone-implementer.toml": "81fcd9791e9d2cbc186fef1119ce1c57fc3558ac541725ccf22fe216c3d649f8",
+    ".codex/agents/milestone-oss-scout.toml": "828bf9246199f6e0d5443a48140dd65ab9e34bc06f9db2122882ab2af331a8ac",
+    ".codex/agents/milestone-researcher.toml": "eb425a8fecf7db908622fc794a3d97c892c8614eb8c034c7d9620e53795db08d",
+    ".codex/agents/pipeline-prioritizer.toml": "c9e4e4c2161493f5d3522ca33602fd58e855006cea571661b274554db484d63c",
+    ".codex/agents/pipeline-synthesizer.toml": "938fe02eeeabcf82a74b885e52f02239772d0f3738761b4b69398096ba19bd5d"
+  },
+  "repo": "C:\\Users\\cedar\\Documents\\Personal Projects\\Source Code\\arXMCP",
+  "tracked_collisions": []
+}

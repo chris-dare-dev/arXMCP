@@ -1,0 +1,110 @@
+{
+  "milestone_id": "adhoc-20260712-698fead",
+  "critique_format_version": "1.0",
+  "critique_files": [
+    "dedup.md"
+  ],
+  "generated_at": "2026-07-13T01:29:09Z",
+  "findings": {
+    "M1": {
+      "id": "M1",
+      "severity": "MEDIUM",
+      "title": "Regression test is non-deterministic on the target runtime",
+      "file": "tests/test_graph_queries.py",
+      "line": 665,
+      "anchor": "def test_second_call_same_path_does_not",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Test discipline",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Added deterministic spy test test_cite_neighbors_closes_conn_then_db (monkeypatches kuzu.Database/Connection.close, asserts cite_neighbors closes conn-then-db). Verified RED on reverted del db, GREEN on fix. Kept the reopen test as a behavioral companion.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-07-13T01:29:08Z",
+          "resolution": "Added deterministic spy test test_cite_neighbors_closes_conn_then_db (monkeypatches kuzu.Database/Connection.close, asserts cite_neighbors closes conn-then-db). Verified RED on reverted del db, GREEN on fix. Kept the reopen test as a behavioral companion."
+        }
+      ]
+    },
+    "L1": {
+      "id": "L1",
+      "severity": "LOW",
+      "title": "Same-family kuzu `del db` deferred at test_proof_chain.py:116",
+      "file": "tests/test_proof_chain.py",
+      "line": 116,
+      "anchor": "del db",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Dead code / leftovers",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Converted tests/test_proof_chain.py:116 kuzu graph_corpus fixture del db to nested conn-then-db explicit close, eradicating the last kuzu del db of the family. LanceDB del db at :212 left untouched.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-07-13T01:29:09Z",
+          "resolution": "Converted tests/test_proof_chain.py:116 kuzu graph_corpus fixture del db to nested conn-then-db explicit close, eradicating the last kuzu del db of the family. LanceDB del db at :212 left untouched."
+        }
+      ]
+    },
+    "L2": {
+      "id": "L2",
+      "severity": "LOW",
+      "title": "Unconditional db.close() in finally can mask the in-flight exception",
+      "file": "server/graph_queries.py",
+      "line": 386,
+      "anchor": "db.close()",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Correctness",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "Unconditional db.close() masking is inherent to the proven adhoc-20260712-955c958 idiom used across all 8 sites; wrapping db.close in try/except for a theoretical low-likelihood close-time error would break idiom consistency. Accept-as-is per the finding's own note.",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-07-13T01:29:09Z",
+          "resolution": "Unconditional db.close() masking is inherent to the proven adhoc-20260712-955c958 idiom used across all 8 sites; wrapping db.close in try/except for a theoretical low-likelihood close-time error would break idiom consistency. Accept-as-is per the finding's own note."
+        }
+      ]
+    },
+    "M2": {
+      "id": "M2",
+      "severity": "MEDIUM",
+      "title": "Named regression test passes on pre-fix code; not a red/green guard",
+      "file": "tests/test_graph_queries.py",
+      "line": 651,
+      "anchor": "def test_second_call_same_path_does_not_lock",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "test surface",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Added deterministic spy test test_cite_neighbors_closes_conn_then_db (monkeypatches kuzu.Database/Connection.close, asserts cite_neighbors closes conn-then-db). Verified RED on reverted del db, GREEN on fix. Kept the reopen test as a behavioral companion.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-07-13T01:29:08Z",
+          "resolution": "Added deterministic spy test test_cite_neighbors_closes_conn_then_db (monkeypatches kuzu.Database/Connection.close, asserts cite_neighbors closes conn-then-db). Verified RED on reverted del db, GREEN on fix. Kept the reopen test as a behavioral companion."
+        }
+      ]
+    },
+    "L3": {
+      "id": "L3",
+      "severity": "LOW",
+      "title": "Residual kuzu `del db` with retained conn in test_proof_chain fixture",
+      "file": "tests/test_proof_chain.py",
+      "line": 116,
+      "anchor": "del db",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "test surface",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Converted tests/test_proof_chain.py:116 kuzu graph_corpus fixture del db to nested conn-then-db explicit close, eradicating the last kuzu del db of the family. LanceDB del db at :212 left untouched.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-07-13T01:29:09Z",
+          "resolution": "Converted tests/test_proof_chain.py:116 kuzu graph_corpus fixture del db to nested conn-then-db explicit close, eradicating the last kuzu del db of the family. LanceDB del db at :212 left untouched."
+        }
+      ]
+    }
+  }
+}

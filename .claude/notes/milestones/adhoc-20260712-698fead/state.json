@@ -1,0 +1,102 @@
+{
+  "id": "adhoc-20260712-698fead",
+  "created_at": "2026-07-12T23:01:48Z",
+  "updated_at": "2026-07-13T02:13:43Z",
+  "phase": "complete",
+  "phase_history": [
+    {
+      "phase": "init",
+      "at": "2026-07-12T23:01:48Z"
+    },
+    {
+      "phase": "research-running",
+      "at": "2026-07-12T23:02:13Z"
+    },
+    {
+      "phase": "research-complete",
+      "at": "2026-07-12T23:31:52Z"
+    },
+    {
+      "phase": "implement-running",
+      "at": "2026-07-12T23:32:18Z"
+    },
+    {
+      "phase": "implement-complete",
+      "at": "2026-07-13T01:05:17Z"
+    },
+    {
+      "phase": "critique-running",
+      "at": "2026-07-13T01:06:31Z"
+    },
+    {
+      "phase": "critique-complete",
+      "at": "2026-07-13T01:19:39Z"
+    },
+    {
+      "phase": "rectify-running",
+      "at": "2026-07-13T01:22:42Z"
+    },
+    {
+      "phase": "complete",
+      "at": "2026-07-13T02:13:43Z"
+    }
+  ],
+  "milestone_brief": "Apply the kuzu 0.11.3 close-discipline fix (from milestone adhoc-20260712-955c958) to the 3 residual sites that still use finally: del db. del db does not release kuzu mandatory file lock on Windows because a live kuzu.Connection pins the Database past GC, so a same-process reopen raises \"Could not set lock on file\" (Windows-only; POSIX advisory locks tolerate the overlap). Sites: (1) server/graph_queries.py::cite_neighbors \u2014 live proof-chain MCP library path, async def, highest consequence; (2) ingest/intra_paper_refs.py::ingest \u2014 6th ingest CLI; (3) ops/restore_drill_check.py \u2014 currently no lifecycle management at all. Fix pattern: initialize conn=None before the try; replace finally: del db with a nested close so db.close() always runs even if conn.close() raises. Add a regression test in tests/test_graph_queries.py that calls cite_neighbors twice against the same kuzudb_path in one process and asserts no \"Could not set lock on file\" RuntimeError. Update matching del db teardowns in tests/test_intra_paper_refs.py to explicit-close discipline.",
+  "brief_source": "inline",
+  "research_mode": "standard",
+  "oss_scout_requested": false,
+  "allow_large_diff": false,
+  "research_briefs": [
+    ".claude/notes/milestones/adhoc-20260712-698fead/research/brief-1.md",
+    ".claude/notes/milestones/adhoc-20260712-698fead/research/brief-2.md"
+  ],
+  "research_synthesis": ".claude/notes/milestones/adhoc-20260712-698fead/research/synthesis.md",
+  "implementation_path": "inline",
+  "implementation_plan": null,
+  "implementation_base": "38b78cd9960617e839baa5f3d8ed48f3213b6de9",
+  "implementation_commit_range": "38b78cd9960617e839baa5f3d8ed48f3213b6de9..463b8701924a150f42a1d7fe3add04dd3066ad47",
+  "implementation_commits": [
+    "463b8701924a150f42a1d7fe3add04dd3066ad47"
+  ],
+  "implementation_branch": null,
+  "external_writes_required": [
+    "git push origin main"
+  ],
+  "critique_path": ".claude/notes/milestones/adhoc-20260712-698fead/critique/dedup.md",
+  "critics_run": [
+    "milestone-adversary-critic",
+    "milestone-arxmcp-critic"
+  ],
+  "critique_files": [
+    "critique/adversary.md",
+    "critique/arxmcp.md"
+  ],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 0,
+    "medium": 2,
+    "low": 3
+  },
+  "findings_register": ".claude/notes/milestones/adhoc-20260712-698fead/findings.json",
+  "rectification_commit": "f61cb8bfba2877e9cc969dc6a0cc0db819172e90",
+  "fixed_findings": [
+    "L1",
+    "L3",
+    "M1",
+    "M2"
+  ],
+  "deferred_findings": [
+    "L2"
+  ],
+  "invalidated_findings": [],
+  "regression_tests_added": [
+    "tests/test_graph_queries.py",
+    "tests/test_proof_chain.py"
+  ],
+  "external_writes_authorized": [
+    "git push origin main"
+  ],
+  "external_writes_completed": [
+    "git push origin main"
+  ]
+}
