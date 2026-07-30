@@ -48,7 +48,17 @@ ops/restic-env.sh
 # arXMCP's agent instructions live in CLAUDE.md; these are local codex state and
 # must not enter git. `.agents/` showed up as a stray, divergent skill mirror
 # (NOT written by sync-repos.py, which targets .claude/skills/); `.codex/` is the
-# codex session dir. (AGENTS.md is left tracked-eligible — decide per-repo whether
-# to author it as codex instructions or ignore it.)
+# codex session dir.
+#
+# AGENTS.md: DECIDED for arXMCP (2026-07-29) — ignore it. It was previously left
+# "tracked-eligible, decide per-repo". Reasons to ignore here: (a) CLAUDE.md § 1
+# restricts the repo root to eight named files and AGENTS.md is not one of them;
+# (b) this repo's agent instructions are CLAUDE.md, so a second 35 KB root
+# instruction file is a duplicate that will drift out of sync with it;
+# (c) `.codex/` is already ignored, so the rest of the codex surface is local
+# state and AGENTS.md is the same class. The fleet is deliberately NOT uniform on
+# this — proclivity tracks its AGENTS.md and that stays correct for proclivity;
+# the per-repo choice is the point.
 .agents/
 .codex/
+AGENTS.md
