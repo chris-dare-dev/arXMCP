@@ -522,6 +522,38 @@ async def encode_query_with_fallback(
     raise ValueError(f"unknown query_embed_provider: {provider!r}")
 
 
+def embedder_identity(provider: str, *, used_fallback: bool = False) -> str:
+    """Return a stable identity token for the embedder behind a vector.
+
+    Issue #204. The retrieval cache keys on this token so a ranking
+    produced by one embedder is never served to a request another
+    embedder answered. Two call shapes:
+
+    - ``embedder_identity(provider)`` — the INTENDED embedder, resolvable
+      before the encode runs. Used for the pre-encode Tier-1 probe.
+    - ``embedder_identity(provider, used_fallback=...)`` — the embedder
+      that ACTUALLY ran, known only after
+      :func:`encode_query_with_fallback` returns. Used for the Tier-2
+      probe and for every cache store.
+
+    The consequence is deliberate: while a hosted provider is down, the
+    intended identity (``hosted:voyage``) and the actual identity
+    (``local:bge-m3@<sha>``) diverge, so the pre-encode probe cannot
+    reach a fallback-produced entry. A healthy request therefore never
+    receives a degraded ranking with its ``degraded`` marker re-stamped
+    away, and outage traffic still shares entries with itself via the
+    post-encode probe. A cache miss is the correct failure direction —
+    slower, never wrong.
+
+    The BGE-M3 commit SHA rides the local token so a model-revision bump
+    makes every prior entry unreachable by hash construction, the same
+    property ``corpus_version`` gives the corpus axis.
+    """
+    if used_fallback or provider == "local":
+        return f"local:bge-m3@{BGE_M3_COMMIT_SHA}"
+    return f"hosted:{provider}"
+
+
 def _reset_hosted_fallback_logged_for_tests() -> None:
     """Test hook — reset the WARN-once guard so each test starts
     fresh."""
@@ -535,6 +567,7 @@ __all__ = [
     "EMBEDDING_DIM",
     "MAX_TOKENS",
     "SINGLEFLIGHT_DEDUP_COUNT",
+    "embedder_identity",
     "encode_query",
     "encode_query_with_fallback",
     "get_singleflight_dedup_count",

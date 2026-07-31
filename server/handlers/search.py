@@ -84,10 +84,14 @@ from pydantic import AnyUrl, Field
 
 from ingest.identifiers import is_valid_paper_id
 from ingest.store import ALLOWED_KINDS
-from server.cache import get_cache
+from server.cache import Tier2Match, get_cache
 from server.metadata_enrich import enrich_rows_with_titles
 from server.observability.sanitize import sanitize_retrieved_text
-from server.query_encoder import encode_query, encode_query_with_fallback
+from server.query_encoder import (
+    embedder_identity,
+    encode_query,
+    encode_query_with_fallback,
+)
 from server.tools import (
     CHUNK_RESOURCE_URI_SCHEME,
     cap_result_list,
@@ -491,6 +495,14 @@ async def handle_search_papers(
     ``filter_warnings``.
 
     ``cursor`` is still deferred to a future milestone.
+
+    **``cache_match`` (issue #204).** Present only when the response was
+    served from the Tier-2 semantic cache, carrying ``kind``
+    (``exact_query_embedding`` / ``approximate_neighbor``) and
+    ``cosine``. Absent means the rows were computed for THIS query — a
+    fresh pipeline run or an exact Tier-1 memo. See
+    :func:`_stamp_cache_match`; it is a provenance axis, independent of
+    ``degraded``.
     """
     # E13_S04 (Threat 4): handler-body cap on filter dict size.
     # An adversary or runaway LLM might pass `filters={"a": 1, ...}`
@@ -665,11 +677,28 @@ async def handle_search_papers(
     if r.degraded is not None:
         base_degraded_reasons.append(r.degraded.reason)
 
+    # Issue #204: the embedder that produced a ranking is part of every
+    # cache key. Before the encode we can only name the embedder this
+    # request INTENDS to use — the configured provider. That is the
+    # right question for the pre-encode probe: it must not reach an
+    # entry some other embedder produced.
+    #
+    # On the default ``local`` provider — every deployment today —
+    # intended and effective are always equal, so this path is unchanged.
+    # While a hosted provider is DOWN they diverge, and the cost is
+    # bounded and deliberate: this probe misses, so the request pays an
+    # encode it might have skipped, and the post-encode probe below (which
+    # uses the effective identity) still serves it from Tier 1. Outage
+    # traffic shares entries with itself; healthy traffic never reaches
+    # them. Slower, never wrong.
+    intended_embedder = embedder_identity(r.config.query_embed_provider)
+
     cache = get_cache()
     if cache is not None:
-        cached_payload, _hit_tier = await cache.lookup_search(
+        cached_payload, _hit_tier, _match = await cache.lookup_search(
             query=query, filters=canonical_filters, k=k, level=level,
             corpus_version=override_corpus_version,
+            embedder_id=intended_embedder,
         )
         if cached_payload is not None:
             # Tier-1 hit — bypass Phase 1/2/3.
@@ -707,12 +736,22 @@ async def handle_search_papers(
                 query, r.config.query_embed_provider
             )
 
+    # Issue #204: post-encode we know which embedder ACTUALLY ran, so
+    # the Tier-2 probe and every store below use the effective identity.
+    # Under a hosted-provider outage this differs from
+    # ``intended_embedder``, which is precisely what keeps a
+    # fallback-produced ranking out of a healthy request's reach.
+    effective_embedder = embedder_identity(
+        r.config.query_embed_provider, used_fallback=embed_fallback_active
+    )
+
     # Tier-2 lookup with the freshly-computed embedding.
     if cache is not None:
-        cached_payload, _hit_tier = await cache.lookup_search(
+        cached_payload, _hit_tier, match = await cache.lookup_search(
             query=query, filters=canonical_filters, k=k,
             query_embedding=query_vec, level=level,
             corpus_version=override_corpus_version,
+            embedder_id=effective_embedder,
         )
         if cached_payload is not None:
             set_cache_layer("tier2")
@@ -726,7 +765,14 @@ async def handle_search_papers(
             # m2: stamp filters_applied post-cache (caller-specific
             # metadata; never stored in cached payload).
             structured = _inject_filters_applied(structured, canonical_filters)
-            rows = structured.get("results", [])
+            # Issue #204: a Tier-2 entry may have been built for a LARGER
+            # k than this request asked for (that is the reuse the
+            # ordinal-k rule buys). Slice a COPY — never the cached list,
+            # which stays full-width for the next wider request. The
+            # entry can never be NARROWER: _tier2_lookup skips those.
+            rows = list(structured.get("results", []))[:k]
+            structured = {**structured, "results": rows}
+            structured = _stamp_cache_match(structured, match)
             # #84: enrich on the hit path too — idempotent (skips rows
             # already carrying title), so payloads cached BEFORE this
             # change still gain title/year, while post-change cached rows
@@ -891,6 +937,11 @@ async def handle_search_papers(
             query_embedding=query_vec,
             level=level,
             corpus_version=override_corpus_version,
+            # Issue #204: the EFFECTIVE embedder, not the configured
+            # one — a fallback-produced ranking must be labelled as
+            # such in the key, or it is reachable from a healthy
+            # request that would then strip its degraded marker.
+            embedder_id=effective_embedder,
         )
 
     # m2 rect F2: stamp filters_applied AFTER cache-store so the
@@ -940,6 +991,58 @@ def _restamp_degraded(
         structured["degraded"] = True
         structured["degraded_reasons"] = list(current_reasons)
     return structured
+
+
+def _stamp_cache_match(
+    structured: dict[str, Any], match: Tier2Match | None,
+) -> dict[str, Any]:
+    """Stamp the ``cache_match`` provenance axis onto a Tier-2 hit.
+
+    Issue #204. A Tier-2 hit at cosine 0.97 is a NEIGHBOURING query's
+    result set, and pre-#204 it came back shaped byte-identically to a
+    result computed for the query actually asked, with nothing on the
+    wire to tell them apart. An agent could not detect that it was
+    reasoning over the answer to a different question.
+
+    ``kind`` is one of:
+
+    - ``"exact_query_embedding"`` — the hit was this query's own
+      embedding (the ring-buffer dedup slot). Cache-served, so up to
+      ``TIER2_TTL_SECONDS`` stale, but the subject is this query.
+    - ``"approximate_neighbor"`` — the rows answer a DIFFERENT query
+      whose embedding sits within ``TIER2_COSINE_THRESHOLD``.
+
+    **This is its own axis** (`CLAUDE.md` §4.9). It is not folded into
+    ``degraded`` (operational state) and it is not an epistemic outcome:
+    an approximate hit is a real, complete answer to an adjacent
+    question — not an abstention, not a partial result, not a failure.
+    Collapsing those into one token is the exact trust-language failure
+    the policy forbids.
+
+    **Absent when not applicable**, matching ``filters_applied`` and
+    ``degraded``: a freshly-computed result and an exact Tier-1 memo
+    both answer the query as asked, and neither carries the field. So
+    "no ``cache_match``" reads as "these rows are about YOUR query",
+    which is the property an agent needs.
+    """
+    if match is None:
+        return structured
+    return {
+        **structured,
+        "cache_match": {
+            "kind": (
+                "exact_query_embedding" if match.exact_embedding
+                else "approximate_neighbor"
+            ),
+            # Rounded for wire stability; the threshold lives two
+            # decimal places up, so 4 dp is plenty of resolution.
+            # Clamped so the schema's declared [0.0, 1.0] bound holds by
+            # construction: a float32 self-inner-product can land a few
+            # ULPs above 1.0, and the response must not depend on that
+            # rounding to 4 dp happening to absorb it.
+            "cosine": round(min(1.0, max(0.0, match.cosine)), 4),
+        },
+    }
 
 
 def _cap(structured: dict[str, Any]) -> dict[str, Any]:

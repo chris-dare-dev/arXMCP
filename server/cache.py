@@ -19,9 +19,17 @@ not correctness."*).
   construction. Persists across server restarts (the SQLite file).
 - **Tier 2 — Semantic-query memo.** In-process FAISS ``IndexFlatIP``
   over the embeddings of recent queries (deque of 1,000). A hit
-  requires cosine similarity ≥ 0.97 AND exact filter match, 15-min
-  TTL. Logs and 1%-samples every hit for human review (threshold
-  tuning data). Cold-start no-op when the ring buffer is empty.
+  requires cosine similarity ≥ 0.97 AND an exact scope match
+  (filters + level + corpus_version + embedder identity) AND an entry
+  whose ``k`` was at least the requested ``k``, 15-min TTL. Logs and
+  1%-samples every hit for human review (threshold tuning data).
+  Cold-start no-op when the ring buffer is empty. **The embedding
+  covers the query TEXT axis and nothing else** — every other axis is
+  the scope fingerprint's or the ordinal ``k`` test's job (issue #204,
+  which found ``k`` covered by neither and a ``k=50`` request being
+  served a ``k=5`` payload). A hit carries a :class:`Tier2Match`
+  saying whether it was this query's own embedding or a NEIGHBOUR's;
+  the ``search_papers`` handler puts that on the wire.
 - **Tier 3 — Rerank-set memo.** In-process LRU keyed by the rerank
   singleflight key (reuses
   :func:`server.retrieval.rerank._build_singleflight_key` verbatim).
@@ -56,6 +64,7 @@ import sys
 import time
 from collections import OrderedDict
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -124,41 +133,62 @@ EMBEDDING_DIM: int = 1024
 # ---------------------------------------------------------------------------
 
 
-def _filter_fingerprint(
+def _tier2_scope_fingerprint(
     filters: dict[str, Any] | None,
     *,
     level: str | None = None,
+    corpus_version: int,
+    embedder_id: str | None = None,
 ) -> str:
-    """Return the canonical filter fingerprint used by Tier-2.
+    """Return the canonical SCOPE fingerprint used by Tier-2.
 
-    F12 fix from the E08_S03 critique: the Tier-2 fingerprint now
-    derives from the SAME ``canonical_key_components`` helper that
-    Tier-1's ``derive_tier1_key`` uses. Previously each tier had its
-    own ad-hoc encoding of ``(filters, level)``, inviting silent
-    drift on a future encoding fix. We hash the (filters, level)
-    sub-components via length-prefix encoding (matching Tier-1's
-    F1 fix) and return the hex digest as the fingerprint string.
+    F12 fix from the E08_S03 critique: the Tier-2 fingerprint derives
+    from the SAME ``canonical_key_components`` helper that Tier-1's
+    ``derive_tier1_key`` uses. Previously each tier had its own ad-hoc
+    encoding, inviting silent drift on a future encoding fix. We hash
+    the sub-components via length-prefix encoding (matching Tier-1's F1
+    fix) and return the hex digest as the fingerprint string.
 
-    ``None`` and ``{}`` produce the same fingerprint so a no-filter
-    query and an explicit-empty-filter query share a cache slot.
+    Every axis that changes WHICH rows are correct must be here, because
+    the only other thing keying a Tier-2 slot is the query embedding:
 
-    ``level`` is mixed into the fingerprint so Tier-2 hits across
-    different aggregation levels are NOT treated as filter-matches.
-    A ``None`` level encodes distinctly from any string value.
+    - ``filters`` — ``None`` and ``{}`` produce the same fingerprint so
+      a no-filter query and an explicit-empty-filter query share a slot.
+      Routing keys (``notebook``, ``include_kinds``) ride this dict.
+    - ``level`` — different aggregation levels produce different result
+      shapes and must not be treated as matches. ``None`` encodes
+      distinctly from any string value.
+    - ``corpus_version`` — a per-call notebook override or an in-process
+      corpus bump must not be served rows from the other corpus.
+    - ``embedder_id`` — a ranking produced by the local fallback while a
+      hosted provider was down must not be re-served to a request the
+      hosted provider answered (issue #204).
+
+    **``query`` and ``k`` are the two deliberate sentinels, for two
+    different reasons.** ``query=""`` is sound: the embedding the slot
+    is keyed on IS a function of the query text, so the text axis is
+    already covered. ``k=0`` is NOT covered by the embedding — the
+    embedding is a function of the query text ONLY — so ``k`` is
+    enforced separately, and ordinally, by
+    :meth:`RetrievalCache._tier2_lookup`: an entry answers a request
+    only when its own ``k`` was at least as large, and the caller
+    re-slices. Folding ``k`` in here instead would key ``k=49`` and
+    ``k=50`` to separate slots and forfeit that reuse. The pre-#204
+    comment claimed the embedding disambiguated ``k`` as well; it does
+    not, and that claim is exactly how a ``k=50`` request came to be
+    served a five-row payload.
     """
     # Reuse the Tier-1 canonicalizer so any future encoding fix to
     # the Tier-1 key automatically propagates to Tier-2's fingerprint.
-    # We feed sentinel values for query/k/corpus_version because Tier-2
-    # already keys on the embedding hash + filter+level fingerprint —
-    # the query and k are already disambiguated by the embedding.
     from server.cache_sqlite import canonical_key_components
 
     canonical = canonical_key_components(
         query="",
         filters=filters,
         k=0,
-        corpus_version=0,
+        corpus_version=corpus_version,
         level=level,
+        embedder_id=embedder_id,
     )
     return hashlib.sha256(canonical).hexdigest()
 
@@ -189,26 +219,60 @@ class _Tier2Entry:
     """One entry in the Tier-2 ring buffer.
 
     Holds the L2-normalized query embedding (for the FAISS index),
-    the filter fingerprint (for the exact-filter-match check), the
-    payload, and the expiry timestamp. The FAISS index does NOT
-    store the entry by itself — its ``ID -> entry`` mapping lives
-    in the parallel ``OrderedDict`` so we can rebuild the index
-    cleanly on overflow.
+    the scope fingerprint (for the exact-scope-match check), the ``k``
+    the payload was built for, the payload, and the expiry timestamp.
+    The FAISS index does NOT store the entry by itself — its
+    ``ID -> entry`` mapping lives in the parallel ``OrderedDict`` so we
+    can rebuild the index cleanly on overflow.
+
+    ``k`` is the ORDINAL axis (issue #204): an entry can answer any
+    request for ``k' <= k`` (the caller re-slices) and no request for
+    ``k' > k``. It is therefore stored on the entry rather than folded
+    into ``scope_fp``, which is the equality axis.
     """
 
-    __slots__ = ("embedding", "filter_fp", "payload", "expires_at")
+    __slots__ = ("embedding", "scope_fp", "k", "payload", "expires_at")
 
     def __init__(
         self,
         embedding: np.ndarray,
-        filter_fp: str,
+        scope_fp: str,
+        k: int,
         payload: Any,
         expires_at: float,
     ) -> None:
         self.embedding = embedding
-        self.filter_fp = filter_fp
+        self.scope_fp = scope_fp
+        self.k = k
         self.payload = payload
         self.expires_at = expires_at
+
+
+@dataclass(frozen=True)
+class Tier2Match:
+    """Provenance of a Tier-2 hit, returned alongside the payload.
+
+    Issue #204: a Tier-2 hit is a NEIGHBOUR's payload whenever
+    ``exact_embedding`` is False — the rows answer a query within
+    ``TIER2_COSINE_THRESHOLD`` of this one, not this one. Pre-#204 the
+    two cases came back shaped byte-identically with nothing on the
+    wire to tell them apart. The handler turns this record into the
+    response's ``cache_match`` field.
+
+    ``exact_embedding`` is decided by comparing ring-buffer slot keys
+    (SHA-256 over the embedding bytes), NOT by a float comparison
+    against 1.0 — byte equality is exact and needs no epsilon.
+
+    This is a PROVENANCE axis, deliberately separate from the
+    operational ``degraded`` axis and from any epistemic outcome
+    (`CLAUDE.md` §4.9: a degraded-but-answered result and an abstention
+    never share a token). An approximate hit is a real answer whose
+    subject is a nearby question.
+    """
+
+    cosine: float
+    exact_embedding: bool
+    cached_k: int
 
 
 # ---------------------------------------------------------------------------
@@ -339,14 +403,17 @@ class RetrievalCache:
         *,
         level: str | None = None,
         corpus_version: int | None = None,
-    ) -> tuple[Any | None, str]:
+        embedder_id: str | None = None,
+    ) -> tuple[Any | None, str, Tier2Match | None]:
         """Look up a ``search_papers`` payload across Tier 1 + Tier 2.
 
-        Returns ``(payload, hit_tier)`` where ``hit_tier`` is one of
-        ``"1"``, ``"2"``, or ``""`` (miss). The caller is responsible
-        for incrementing ``arxmcp_cache_hits_total`` only on the
-        terminating hit; this method increments ``arxmcp_cache_lookups_total``
-        for every tier consulted.
+        Returns ``(payload, hit_tier, match)`` where ``hit_tier`` is one
+        of ``"1"``, ``"2"``, or ``""`` (miss) and ``match`` is a
+        :class:`Tier2Match` on a Tier-2 hit, ``None`` otherwise. The
+        caller is responsible for incrementing
+        ``arxmcp_cache_hits_total`` only on the terminating hit; this
+        method increments ``arxmcp_cache_lookups_total`` for every tier
+        consulted.
 
         ``query_embedding`` is OPTIONAL. If absent, only Tier 1 is
         consulted (Tier 2 needs the embedding). The handler caller
@@ -356,9 +423,18 @@ class RetrievalCache:
         ``level`` is the ``search_papers`` aggregation argument
         (``"theorem" | "section" | "paper"``). Threaded through to
         :func:`derive_tier1_key` so distinct levels do not collide.
-        Tier 2 also uses ``level`` to disambiguate the filter
+        Tier 2 also uses ``level`` to disambiguate its scope
         fingerprint (the brief's "exact filter match" rule extends
         to all tool arguments that affect result shape).
+
+        ``embedder_id`` names the embedder this request intends to use
+        (issue #204); see :func:`server.query_encoder.embedder_identity`.
+        It participates in BOTH tiers' keys.
+
+        ``k`` is an EQUALITY axis for Tier 1 (it is in the key) and an
+        ORDINAL axis for Tier 2 (an entry answers only when it was built
+        for at least this many rows). A Tier-2 hit may therefore carry
+        MORE rows than ``k`` — read ``match.cached_k`` and slice.
         """
         # Tier 1. F16 fix from the E08_S03 critique: use _safe_inc
         # for ALL counter increments rather than mixing inline
@@ -376,27 +452,36 @@ class RetrievalCache:
                 query, filters, k,
                 self._corpus_version if corpus_version is None else corpus_version,
                 level=level,
+                embedder_id=embedder_id,
             )
             payload = await self._tier1_get(tier1_key)
             if payload is not None:
                 self._safe_inc(CACHE_HITS_COUNTER, TIER_1)
-                return payload, TIER_1
+                return payload, TIER_1, None
         except Exception:  # noqa: BLE001
             logger.exception("Tier-1 lookup failed; falling through")
 
         # Tier 2 (only if embedding provided).
         if query_embedding is None:
-            return None, ""
+            return None, "", None
         self._safe_inc(CACHE_LOOKUPS_COUNTER, TIER_2)
         try:
-            payload = await self._tier2_lookup(query_embedding, filters, level=level)
+            payload, match = await self._tier2_lookup(
+                query_embedding, filters, k,
+                level=level,
+                corpus_version=(
+                    self._corpus_version if corpus_version is None
+                    else corpus_version
+                ),
+                embedder_id=embedder_id,
+            )
             if payload is not None:
                 self._safe_inc(CACHE_HITS_COUNTER, TIER_2)
-                return payload, TIER_2
+                return payload, TIER_2, match
         except Exception:  # noqa: BLE001
             logger.exception("Tier-2 lookup failed; falling through")
 
-        return None, ""
+        return None, "", None
 
     async def store_search(
         self,
@@ -408,6 +493,7 @@ class RetrievalCache:
         *,
         level: str | None = None,
         corpus_version: int | None = None,
+        embedder_id: str | None = None,
     ) -> None:
         """Store a ``search_papers`` payload in BOTH Tier 1 and (if
         the embedding is available) Tier 2.
@@ -420,14 +506,28 @@ class RetrievalCache:
         ``level`` MUST match the value passed to ``lookup_search``
         for the corresponding miss; otherwise the lookup-key and
         the store-key diverge and the entry is unreachable.
+
+        ``embedder_id`` (issue #204) must name the embedder that
+        ACTUALLY produced this payload's ranking — including the local
+        fallback when a hosted provider was down. Passing the intended
+        rather than the actual embedder is what would let a degraded
+        ranking be re-served as undegraded.
+
+        ``k`` is recorded on the Tier-2 entry so a later request for a
+        LARGER ``k`` misses instead of being served this payload's
+        shorter row list.
         """
         try:
             # m2 F2: per-call corpus_version override (notebook's version
             # on a fork-A call); None → shared version, byte-identical (AC4).
+            resolved_corpus_version = (
+                self._corpus_version if corpus_version is None else corpus_version
+            )
             tier1_key = derive_tier1_key(
                 query, filters, k,
-                self._corpus_version if corpus_version is None else corpus_version,
+                resolved_corpus_version,
                 level=level,
+                embedder_id=embedder_id,
             )
             await self._tier1_put(tier1_key, payload)
         except Exception:  # noqa: BLE001
@@ -435,7 +535,15 @@ class RetrievalCache:
 
         if query_embedding is not None:
             try:
-                await self._tier2_put(query_embedding, filters, payload, level=level)
+                await self._tier2_put(
+                    query_embedding, filters, k, payload,
+                    level=level,
+                    corpus_version=(
+                        self._corpus_version if corpus_version is None
+                        else corpus_version
+                    ),
+                    embedder_id=embedder_id,
+                )
             except Exception:  # noqa: BLE001
                 logger.exception("Tier-2 store failed; cache stays cold")
 
@@ -456,13 +564,23 @@ class RetrievalCache:
         query_embedding: np.ndarray | None = None,
         *,
         level: str | None = None,
+        embedder_id: str | None = None,
     ) -> tuple[Any | None, str]:
         """Brief-spec alias for :meth:`lookup_search`. See that method
-        for details on the (Tier-1, Tier-2) lookup path."""
-        return await self.lookup_search(
+        for details on the (Tier-1, Tier-2) lookup path.
+
+        Returns the brief's ``(payload, hit_tier)`` pair — the
+        :class:`Tier2Match` provenance record added for issue #204 is
+        dropped here, since the brief pins this surface's shape. A
+        caller that renders the approximate-hit marker must use
+        :meth:`lookup_search` directly.
+        """
+        payload, hit_tier, _match = await self.lookup_search(
             query=query, filters=filters, k=k,
             query_embedding=query_embedding, level=level,
+            embedder_id=embedder_id,
         )
+        return payload, hit_tier
 
     async def store(
         self,
@@ -473,11 +591,13 @@ class RetrievalCache:
         query_embedding: np.ndarray | None = None,
         *,
         level: str | None = None,
+        embedder_id: str | None = None,
     ) -> None:
         """Brief-spec alias for :meth:`store_search`."""
         return await self.store_search(
             query=query, filters=filters, k=k, payload=payload,
             query_embedding=query_embedding, level=level,
+            embedder_id=embedder_id,
         )
 
     # ------------------------------------------------------------------
@@ -583,34 +703,55 @@ class RetrievalCache:
         self,
         query_embedding: np.ndarray,
         filters: dict[str, Any] | None,
+        k: int,
         *,
         level: str | None = None,
-    ) -> Any | None:
+        corpus_version: int,
+        embedder_id: str | None = None,
+    ) -> tuple[Any | None, Tier2Match | None]:
         """Search the FAISS index for a ≥ 0.97 cosine match with the
-        same filter fingerprint and unexpired TTL.
+        same scope fingerprint, a large-enough ``k``, and an unexpired
+        TTL.
 
         F9 fix from the E08_S03 critique: search the top-K nearest
-        neighbors (not just top-1) and iterate until one matches BOTH
-        the filter fingerprint AND the TTL check. The pre-fix
-        version returned a miss when the top-1 had a wrong filter
-        fingerprint OR was TTL-expired, even when a valid second-
-        nearest neighbor existed at cosine ≥ 0.97.
+        neighbors (not just top-1) and iterate until one matches EVERY
+        acceptance test. The pre-fix version returned a miss when the
+        top-1 failed one of them, even when a valid second-nearest
+        neighbor existed at cosine ≥ 0.97.
 
-        Returns the cached payload on a hit, ``None`` on a miss or
-        cold-start (empty ring buffer)."""
-        target_filter_fp = _filter_fingerprint(filters, level=level)
+        Issue #204 adds the ``k`` test to that iteration. It is ordinal,
+        not equality: an entry built for ``entry.k`` rows can answer any
+        request for at most that many (the caller slices) and NO request
+        for more, because the missing rows were never retrieved. A
+        too-small entry is skipped like a scope mismatch — never
+        returned truncated.
+
+        Returns ``(payload, match)`` on a hit; ``(None, None)`` on a
+        miss or cold-start (empty ring buffer)."""
+        target_scope_fp = _tier2_scope_fingerprint(
+            filters, level=level, corpus_version=corpus_version,
+            embedder_id=embedder_id,
+        )
         now = time.time()
 
         async with self._tier2_lock:
             if not self._tier2_buffer:
                 # Cold start no-op per the brief.
-                return None
+                return None, None
             index = self._ensure_faiss_index()
             if index.ntotal == 0:
-                return None
+                return None, None
             # Normalize for safety even though BGE-M3 returns
             # L2-normalized vectors.
             qv = np.ascontiguousarray(query_embedding.reshape(1, -1).astype(np.float32))
+            # The slot key of THIS query's own embedding. Comparing slot
+            # keys is how we classify a hit as exact vs approximate
+            # (issue #204) — byte equality, no float epsilon.
+            self_key = hashlib.sha256(
+                np.ascontiguousarray(
+                    query_embedding.reshape(-1).astype(np.float32)
+                ).tobytes()
+            ).hexdigest()
             # The FAISS IndexFlatIP returns inner-product scores;
             # for L2-normalized vectors that equals cosine. We ask
             # for top-K rather than top-1 so a wrong-filter top-1
@@ -626,13 +767,18 @@ class RetrievalCache:
                     # FAISS returns scores in DESCENDING order for
                     # IndexFlatIP, so once we drop below threshold no
                     # later candidate will exceed it.
-                    return None
+                    return None, None
                 cand_key = self._tier2_keys_in_index[cand_idx]
                 entry = self._tier2_buffer.get(cand_key)
                 if entry is None:
                     # Index drift — should not happen but guard.
                     continue
-                if entry.filter_fp != target_filter_fp:
+                if entry.scope_fp != target_scope_fp:
+                    continue
+                if entry.k < k:
+                    # Issue #204: this entry cannot answer a request for
+                    # more rows than it was built for. Keep scanning —
+                    # a farther neighbour may have been built wider.
                     continue
                 if entry.expires_at < now:
                     # Lazy eviction — drop from buffer.
@@ -642,19 +788,28 @@ class RetrievalCache:
                 # Hit. 1%-sample log per the brief.
                 if random.random() < TIER2_HIT_LOG_SAMPLE_RATE:
                     logger.info(
-                        "tier2_hit_sample cosine=%.4f filter_fp=%s",
-                        cand_score, entry.filter_fp,
+                        "tier2_hit_sample cosine=%.4f scope_fp=%s "
+                        "cached_k=%d requested_k=%d exact=%s",
+                        cand_score, entry.scope_fp, entry.k, k,
+                        cand_key == self_key,
                     )
-                return entry.payload
-            return None
+                return entry.payload, Tier2Match(
+                    cosine=cand_score,
+                    exact_embedding=(cand_key == self_key),
+                    cached_k=entry.k,
+                )
+            return None, None
 
     async def _tier2_put(
         self,
         query_embedding: np.ndarray,
         filters: dict[str, Any] | None,
+        k: int,
         payload: Any,
         *,
         level: str | None = None,
+        corpus_version: int,
+        embedder_id: str | None = None,
     ) -> None:
         """Append a query embedding to the ring buffer and rebuild
         the FAISS index. On overflow, evict the oldest entry.
@@ -662,6 +817,15 @@ class RetrievalCache:
         Embedding key is the SHA-256 of the embedding bytes — so an
         identical query embedding overwrites the previous slot
         (deduplicates).
+
+        **The slot key is the embedding alone**, so one slot holds one
+        payload per embedding. Two calls with the same embedding but
+        different scopes therefore overwrite rather than coexist: the
+        loser's scope fingerprint no longer matches, and it misses
+        cleanly (issue #204 — a miss, never a cross-scope serve). The
+        same is true of ``k``: a narrower re-store shrinks what the slot
+        can answer, which is correct-by-construction rather than a
+        silent truncation.
         """
         emb = np.ascontiguousarray(query_embedding.reshape(-1).astype(np.float32))
         # The brief uses the embedding as the "centroid" — we key the
@@ -669,7 +833,11 @@ class RetrievalCache:
         key = hashlib.sha256(emb.tobytes()).hexdigest()
         entry = _Tier2Entry(
             embedding=emb,
-            filter_fp=_filter_fingerprint(filters, level=level),
+            scope_fp=_tier2_scope_fingerprint(
+                filters, level=level, corpus_version=corpus_version,
+                embedder_id=embedder_id,
+            ),
+            k=k,
             payload=payload,
             expires_at=time.time() + TIER2_TTL_SECONDS,
         )
@@ -902,6 +1070,7 @@ __all__ = [
     "TIER2_TTL_SECONDS",
     "TIER3_LRU_CAPACITY",
     "TIER3_TTL_SECONDS",
+    "Tier2Match",
     "get_cache",
     "reset_cache_for_tests",
     "set_cache",

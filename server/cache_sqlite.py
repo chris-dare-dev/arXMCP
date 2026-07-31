@@ -107,6 +107,7 @@ def derive_tier1_key(
     corpus_version: int,
     *,
     level: str | None = None,
+    embedder_id: str | None = None,
 ) -> str:
     """Build the Tier-1 cache key.
 
@@ -131,6 +132,15 @@ def derive_tier1_key(
     ``filters=None`` is treated as ``{}`` for hash stability — the
     same query with no filters and the same query with explicit
     ``filters={}`` MUST hit the same cache entry.
+
+    ``embedder_id`` (issue #204) names the embedder that PRODUCED the
+    payload's ranking — see
+    :func:`server.query_encoder.embedder_identity`. A ranking computed
+    by the local BGE-M3 fallback while the configured hosted provider
+    was down must not be reachable from a request the hosted provider
+    served, or the degraded ranking is re-served with the degraded
+    marker stripped by ``_restamp_degraded``. ``None`` (legacy /
+    non-search callers) encodes distinctly from any string value.
     """
     return hashlib.sha256(canonical_key_components(
         query=query,
@@ -138,6 +148,7 @@ def derive_tier1_key(
         k=k,
         corpus_version=corpus_version,
         level=level,
+        embedder_id=embedder_id,
     )).hexdigest()
 
 
@@ -148,11 +159,12 @@ def canonical_key_components(
     k: int,
     corpus_version: int,
     level: str | None = None,
+    embedder_id: str | None = None,
 ) -> bytes:
     """Return the byte-stable canonical encoding of the (query, filters,
-    k, corpus_version, level) tuple. F12 fix from the E08_S03 critique:
-    extracted as a single helper so Tier-1 and Tier-2 cannot drift on
-    the encoding of the same semantic components.
+    k, corpus_version, level, embedder_id) tuple. F12 fix from the
+    E08_S03 critique: extracted as a single helper so Tier-1 and Tier-2
+    cannot drift on the encoding of the same semantic components.
 
     F1 fix from the E08_S03 critique: components are LENGTH-PREFIXED
     rather than separator-concatenated. The original
@@ -166,12 +178,20 @@ def canonical_key_components(
     The output is the canonical PRE-HASH bytes; hash with ``sha256`` to
     derive the Tier-1 lookup key, OR concatenate with a tier-specific
     suffix to derive a Tier-2 fingerprint.
+
+    ``embedder_id`` (issue #204) is the sixth component: the identity of
+    the embedder that produced the ranking. It is length-prefixed like
+    every other component, so appending it cannot collide with any
+    five-component encoding.
     """
     canonical = canonical_query_form(query)
     filters_json = json.dumps(filters or {}, sort_keys=True, separators=(",", ":"))
     # ``level=None`` encodes as the literal string "None" — distinct
     # from any tool-argument string ("theorem", "section", "paper").
     level_token = "None" if level is None else level
+    # Same convention for ``embedder_id``: an omitted embedder is a
+    # distinct value, never a wildcard that matches every embedder.
+    embedder_token = "None" if embedder_id is None else embedder_id
 
     parts = [
         canonical.encode("utf-8"),
@@ -179,6 +199,7 @@ def canonical_key_components(
         str(k).encode("ascii"),
         str(corpus_version).encode("ascii"),
         level_token.encode("utf-8"),
+        embedder_token.encode("utf-8"),
     ]
     out = bytearray()
     for part in parts:

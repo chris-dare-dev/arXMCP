@@ -1035,25 +1035,30 @@ class _FakeCache:
 
     async def lookup_search(
         self, query, filters, k, query_embedding=None, *, level=None,
-        corpus_version=None,
+        corpus_version=None, embedder_id=None,
     ):
         # notebook-retrieval-m2 F2: the real cache API gained an optional
         # ``corpus_version`` override; mirror it so the handler's call site
         # (which now always passes it) does not TypeError. The shared-corpus
-        # path passes None — this fake's keying is unaffected.
+        # path passes None — this fake's keying is unaffected. Issue #204
+        # added ``embedder_id`` on the same terms, and widened the return
+        # to ``(payload, hit_tier, Tier2Match | None)``. This fake reports
+        # ``None`` for the match: its Tier-2 stand-in is a filter+level
+        # dict lookup with no embedding geometry, so it has no cosine to
+        # report and must not fabricate one.
         t1 = self.tier1.get(self._t1_key(query, filters, k, level))
         if t1 is not None:
-            return t1, "1"
+            return t1, "1", None
         if query_embedding is None:
-            return None, ""
+            return None, "", None
         t2 = self.tier2.get(self._t2_key(filters, level))
         if t2 is not None:
-            return t2, "2"
-        return None, ""
+            return t2, "2", None
+        return None, "", None
 
     async def store_search(
         self, query, filters, k, payload, query_embedding=None, *, level=None,
-        corpus_version=None,
+        corpus_version=None, embedder_id=None,
     ):
         self.stored_payloads.append(payload)
         self.tier1[self._t1_key(query, filters, k, level)] = payload

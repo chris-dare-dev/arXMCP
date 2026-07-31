@@ -607,17 +607,17 @@ class TestCacheCorpusVersionOverride:
                     query="q", filters={"notebook": "a"}, k=10,
                     payload=payload, level="theorem", corpus_version=369,
                 )
-                hit, _ = await cache.lookup_search(
+                hit, _, _ = await cache.lookup_search(
                     query="q", filters={"notebook": "a"}, k=10,
                     level="theorem", corpus_version=369,
                 )
                 assert hit is not None  # same version → HIT
-                miss, _ = await cache.lookup_search(
+                miss, _, _ = await cache.lookup_search(
                     query="q", filters={"notebook": "a"}, k=10,
                     level="theorem", corpus_version=49,
                 )
                 assert miss is None  # different version salt → MISS
-                miss2, _ = await cache.lookup_search(
+                miss2, _, _ = await cache.lookup_search(
                     query="q", filters={"notebook": "a"}, k=10,
                     level="theorem", corpus_version=None,
                 )
@@ -640,11 +640,11 @@ class TestCacheCorpusVersionOverride:
                     query="q", filters=None, k=10, payload={"results": []},
                     level="theorem", corpus_version=None,
                 )
-                hit_none, _ = await cache.lookup_search(
+                hit_none, _, _ = await cache.lookup_search(
                     query="q", filters=None, k=10, level="theorem",
                     corpus_version=None,
                 )
-                hit_explicit, _ = await cache.lookup_search(
+                hit_explicit, _, _ = await cache.lookup_search(
                     query="q", filters=None, k=10, level="theorem",
                     corpus_version=101,
                 )

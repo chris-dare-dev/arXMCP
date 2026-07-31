@@ -136,7 +136,9 @@ matches.
 ### Tier 2: semantic memo
 
 ```
-key   = nearest centroid in query-embedding space, cosine > 0.97, AND filters match exactly
+key   = nearest centroid in query-embedding space, cosine > 0.97
+        AND scope matches exactly: filters + level + corpus_version + embedder identity
+        AND the entry's own k >= the requested k   (ordinal, not equality)
 value = full structuredContent payload
 ttl   = 15 minutes
 store = small in-process FAISS index over recent query embeddings
@@ -145,6 +147,36 @@ store = small in-process FAISS index over recent query embeddings
 Catches "definition of étale morphism" vs "what is an étale morphism" — same
 intent, different bytes. Threshold tuning matters: too loose conflates distinct
 queries; 0.97 is a defensible default.
+
+**The embedding covers the query TEXT axis and nothing else.** This spec
+originally read "cosine > 0.97 AND filters match exactly", and the
+implementation justified feeding sentinel values for `k` and
+`corpus_version` on the grounds that "the query and `k` are already
+disambiguated by the embedding". Half of that is true — the embedding *is*
+a function of the query text. It is **not** a function of `k`, so
+`search_papers(Q, k=5)` and `search_papers(Q, k=50)` shared one slot and
+the wider call was served the five-row payload: silent under-retrieval on
+the entry-point tool (issue #204, `sev:critical`). When adding an argument
+that changes *which rows are correct*, it belongs in the scope fingerprint
+(or, for a monotone argument like `k`, in an ordinal admission test) —
+never on the assumption that the embedding already carries it.
+
+`k` is ordinal rather than equality because an entry built for 50 rows can
+correctly answer a request for 5 (the caller slices) while the converse
+loses rows that were never retrieved. Folding `k` into the fingerprint
+would be sound but would key `k=49` and `k=50` to separate slots.
+
+Embedder identity is in the key so a ranking produced by the local
+fallback during a hosted-provider outage is not re-served to a healthy
+request — the handler re-stamps `degraded` from the CURRENT server state,
+so without this axis the degraded ranking loses its marker on the way out.
+
+A Tier-2 hit is by construction a *neighbour's* result set unless the
+embedding matched byte-for-byte, so the response carries a `cache_match`
+provenance object (`kind` + `cosine`) saying which. That is its own axis:
+an approximate hit is a complete answer to an adjacent question, never an
+abstention and never a `degraded` operational state
+([`.claude/docs/trust-language-policy.md`](../docs/trust-language-policy.md)).
 
 **Two-key normalization rule (critical):** the cache *lookup key* may use
 aggressive normalization; the *actual query passed to BM25 / embedder* must be
@@ -293,7 +325,10 @@ Done correctly, the second agent's call to the model gets a cache read on
   by construction after a restart with a new `corpus-version.json`.
 - **Tier 2 — Semantic-query (in-process FAISS, cosine > 0.97):** fires on
   near-duplicate queries ("étale morphism" vs "what is an étale morphism").
-  Requires exact filter match in addition to cosine threshold.
+  Requires an exact scope match (filters + level + corpus_version + embedder
+  identity) in addition to the cosine threshold, plus an entry at least as
+  wide as the requested `k`. The embedding disambiguates the query TEXT and
+  nothing else — see the Tier-2 section above and issue #204.
 - **Tier 3 — Rerank-set (in-process LRU):** key is
   `sha256(sorted_candidate_id_tuple + reranker_version_sha)`. Fires when Phase-2
   produces an identical candidate set — the reranker output is deterministic given

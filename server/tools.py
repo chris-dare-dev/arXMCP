@@ -199,6 +199,24 @@ logger = logging.getLogger(__name__)
 #: EXPECTED_TOOL_SCHEMA_SHA256 and EXPECTED_BP1_SHA256 re-pin; annotations
 #: are tool-schema-only. search_papers_result.json also bumps 20 -> 21 for
 #: the added per-row title/year (semantic-identifiers).
+#: STILL 21 at issue #204 (Tier-2 scope key), deliberately.
+#: search_papers' RESPONSE envelope grew an optional ``cache_match``
+#: object ({kind, cosine}) — present only when the rows were served from
+#: the Tier-2 semantic cache, and naming whether they answer THIS
+#: query's embedding or a cosine-≥0.97 NEIGHBOUR's (before #204 a
+#: neighbour's rows came back byte-identical in shape to an exact hit
+#: with no wire marker at all). The property is declared in
+#: server/schemas/search_papers_result.json — it has to be, the envelope
+#: is ``additionalProperties: false`` — but neither ``version`` field
+#: moves, because bumping THIS constant drifts the tools/list bytes via
+#: the ``_meta.tool_schema_version`` echo and the repo mints that re-pin
+#: only in a BATCHED window. The same call was made for lean_verify's
+#: ``axiom_audit`` (issues #205 / #281 / #332); both bumps are staged in
+#: .claude/docs/w1-schema-deltas.md for the next window. Consequence to
+#: know: until that bump, a consumer keying on the version integer
+#: cannot distinguish this shape from the pre-#204 v21 shape — key on
+#: the PRESENCE of ``cache_match`` instead, which is why it is absent
+#: rather than null when the response did not come from Tier 2.
 TOOL_SCHEMA_VERSION: int = 21
 
 #: URI scheme for chunk resource_links per the design note. Used by

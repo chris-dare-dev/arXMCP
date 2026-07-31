@@ -205,7 +205,7 @@ class TestTier1HitMissCycle:
             )
             try:
                 # First call — miss.
-                payload, hit_tier = await cache.lookup_search(
+                payload, hit_tier, _match = await cache.lookup_search(
                     query="my query", filters=None, k=10,
                 )
                 assert payload is None
@@ -217,7 +217,7 @@ class TestTier1HitMissCycle:
                 )
 
                 # Second call — hit on Tier 1.
-                payload, hit_tier = await cache.lookup_search(
+                payload, hit_tier, _match = await cache.lookup_search(
                     query="my query", filters=None, k=10,
                 )
                 assert payload == _payload()
@@ -240,7 +240,7 @@ class TestTier1HitMissCycle:
                     query="q", filters=None, k=10, payload=_payload(),
                 )
                 # NO query_embedding passed — Tier 1 still hits.
-                payload, hit_tier = await cache.lookup_search(
+                payload, hit_tier, _match = await cache.lookup_search(
                     query="q", filters=None, k=10, query_embedding=None,
                 )
                 assert payload == _payload()
@@ -279,7 +279,7 @@ class TestTier2SemanticHit:
 
                 # The semantically-near query has DIFFERENT exact text,
                 # so Tier 1 misses; Tier 2 must hit on cosine ≥ 0.97.
-                payload, hit_tier = await cache.lookup_search(
+                payload, hit_tier, _match = await cache.lookup_search(
                     query="different text",
                     filters={"year": 2024},
                     k=10,
@@ -307,7 +307,7 @@ class TestTier2SemanticHit:
                     payload=_payload(), query_embedding=base,
                 )
 
-                payload, hit_tier = await cache.lookup_search(
+                payload, hit_tier, _match = await cache.lookup_search(
                     query="different", filters=None, k=10, query_embedding=far,
                 )
                 assert payload is None
@@ -326,7 +326,7 @@ class TestTier2SemanticHit:
             )
             try:
                 emb = _make_embedding(seed=42)
-                payload, hit_tier = await cache.lookup_search(
+                payload, hit_tier, _match = await cache.lookup_search(
                     query="cold", filters=None, k=10, query_embedding=emb,
                 )
                 assert payload is None
@@ -352,7 +352,7 @@ class TestTier2SemanticHit:
                     query="orig", filters={"year": 2024}, k=10,
                     payload=_payload(), query_embedding=base,
                 )
-                payload, _ = await cache.lookup_search(
+                payload, _, _match = await cache.lookup_search(
                     query="diff", filters={"year": 2025},
                     k=10, query_embedding=near,
                 )
@@ -395,7 +395,7 @@ class TestCorpusVersionInvalidation:
                 cache_db_path=cache_db_path, corpus_version=7,
             )
             try:
-                payload, hit_tier = await cache_v7.lookup_search(
+                payload, hit_tier, _match = await cache_v7.lookup_search(
                     query="q", filters=None, k=10,
                 )
                 assert payload is None
@@ -406,7 +406,7 @@ class TestCorpusVersionInvalidation:
                 await cache_v7.store_search(
                     query="q", filters=None, k=10, payload=_payload("v7"),
                 )
-                payload, hit_tier = await cache_v7.lookup_search(
+                payload, hit_tier, _match = await cache_v7.lookup_search(
                     query="q", filters=None, k=10,
                 )
                 assert payload == _payload("v7")
@@ -530,7 +530,7 @@ class TestSqlitePersistence:
                 cache_db_path=cache_db_path, corpus_version=42,
             )
             try:
-                payload, hit_tier = await cache_b.lookup_search(
+                payload, hit_tier, _match = await cache_b.lookup_search(
                     query="persisted", filters=None, k=10,
                 )
                 assert payload == _payload("persisted")
@@ -565,7 +565,7 @@ class TestFailureModeDiscipline:
                 monkeypatch.setattr(cache._tier1_store, "get", boom)
 
                 # The lookup must return (None, "") rather than raising.
-                payload, hit_tier = await cache.lookup_search(
+                payload, hit_tier, _match = await cache.lookup_search(
                     query="q", filters=None, k=10,
                 )
                 assert payload is None
@@ -779,7 +779,7 @@ class TestRectificationGuards:
                 async def _none(*_a, **_kw):
                     return None
                 monkeypatch.setattr(cache._tier1_store, "get", _none)
-                got, hit = await cache.lookup_search(
+                got, hit, _match = await cache.lookup_search(
                     query="q", filters=None, k=10,
                 )
                 assert got is None
@@ -890,7 +890,7 @@ class TestRectificationGuards:
 
                 # Lookup for filters={"year": 2025}: top-1 (A) has
                 # the wrong filter; the top-K iteration must find B.
-                got, hit_tier = await cache.lookup_search(
+                got, hit_tier, _match = await cache.lookup_search(
                     query="lookup", filters={"year": 2025}, k=10,
                     query_embedding=q,
                 )
@@ -931,23 +931,30 @@ class TestRectificationGuards:
         )._value.get()
         assert skipped >= 1
 
-    def test_f12_filter_fingerprint_uses_canonical_components(self):
-        """F12 (MEDIUM): _filter_fingerprint must derive from the same
+    def test_f12_scope_fingerprint_uses_canonical_components(self):
+        """F12 (MEDIUM): the Tier-2 fingerprint must derive from the same
         canonical-components helper as derive_tier1_key. Verify by
         computing both with the same (filters, level) — they should
-        share the SHA-256 prefix derived from those components."""
+        share the SHA-256 prefix derived from those components.
+
+        Renamed from ``_filter_fingerprint`` at issue #204: the
+        fingerprint now spans more than the filters dict."""
         # Two distinct (filters, level) inputs MUST produce two
         # distinct fingerprints.
-        from server.cache import _filter_fingerprint
+        from server.cache import _tier2_scope_fingerprint
 
-        fp_a = _filter_fingerprint({"year": 2024}, level="theorem")
-        fp_b = _filter_fingerprint({"year": 2024}, level="paper")
-        fp_c = _filter_fingerprint({"year": 2025}, level="theorem")
+        fp_a = _tier2_scope_fingerprint(
+            {"year": 2024}, level="theorem", corpus_version=7)
+        fp_b = _tier2_scope_fingerprint(
+            {"year": 2024}, level="paper", corpus_version=7)
+        fp_c = _tier2_scope_fingerprint(
+            {"year": 2025}, level="theorem", corpus_version=7)
         assert fp_a != fp_b
         assert fp_a != fp_c
         # And: fingerprint depends on both level + filters.
         # None level distinct from string levels.
-        fp_none = _filter_fingerprint({"year": 2024}, level=None)
+        fp_none = _tier2_scope_fingerprint(
+            {"year": 2024}, level=None, corpus_version=7)
         assert fp_none not in {fp_a, fp_b, fp_c}
 
     def test_f13_lookup_and_store_aliases_exist(self, cache_db_path):

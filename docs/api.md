@@ -49,6 +49,13 @@ embeddings** (statement chunks only); the BM25 + RRF hybrid path is
 roadmapped (E07). `retrieval_mode` and `excluded_kinds` document the active
 mode.
 
+`cache_match` appears **only** when the response came from the semantic
+(Tier-2) cache, and says which query the rows actually answer:
+`kind="exact_query_embedding"` (yours, served from cache) or
+`kind="approximate_neighbor"` (a different query within `cosine` of yours —
+the value is reported). Its absence means the rows were retrieved for your
+query as asked. It is a provenance axis and is independent of `degraded`.
+
 ## `get_chunk`
 
 Fetch the full body of one chunk by its content-addressable `chunk_id`
