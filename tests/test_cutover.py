@@ -779,9 +779,19 @@ class TestBackupWrapperRectifications:
 
     def test_two_phase_sentinel(self):
         text = self.wrapper.read_text(encoding="utf-8")
-        # F4+IS2: a partial sentinel with status
-        # backup_complete_forget_pending must appear.
-        assert "backup_complete_forget_pending" in text
+        # F4+IS2: an in-flight sentinel must be written after the
+        # snapshot lands but BEFORE forget runs, so a forget failure
+        # cannot leave the operator looking at yesterdays record.
+        #
+        # arXMCP#202 re-pointed this token: it used to be the ad-hoc
+        # string "backup_complete_forget_pending", which no consumer
+        # state matched. It is now the shared vocabulary's `running`
+        # (ops/cron/backup-status-lib.sh + server/backup_status.py).
+        assert '"status": "${ARXMCP_BACKUP_STATE_RUNNING}"' in text
+        # The write must still precede the forget invocation.
+        assert text.index('"${ARXMCP_BACKUP_STATE_RUNNING}"') < text.index(
+            "restic forget --prune"
+        )
 
     def test_connectivity_check_always_on(self):
         text = self.wrapper.read_text(encoding="utf-8")
