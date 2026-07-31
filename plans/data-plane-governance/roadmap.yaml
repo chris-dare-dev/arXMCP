@@ -67,6 +67,7 @@ retired: []          # tombstoned item ids; ids are write-once, never deleted
 items:
   - id: data-plane-governance-e1
     kind: epic
+    status: done
     title: "Boundary ADR and binding CLAUDE.md constraints"
     summary: "Draft, owner-approve, and commit the data-plane boundary ADR at .claude/docs/adr-data-plane-boundary.md — recording the three boundary rules (no agent dispatch or per-run agent memory in the server; writes only via offline ingest or operator-gated console actions; orchestrator loop moved to a separate repo or re-scoped as a client-side tool under tools/ with zero server-side state), the disposition of server/orchestrator/model_selector.py, and the candidate-layer principle for non-commercially-licensed external data — then land the boundary rules in CLAUDE.md as binding agent constraints. Vertical slice ends in committed, citable state that closes the orchestrator-loop placement question."
     priority: must
@@ -74,11 +75,13 @@ items:
     rice: { r: 7, i: 2, c: 0.8, e: 0.4, score: 28.0, rank: 1 }  # c=0.8: briefs README gates every R1-R7 tool-surface change on m1; boundary ambiguity live-verified at plans/agent-platform/roadmap.yaml:23,120
     tags: [value, governance, boundary]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/234"]
       code: ["CLAUDE.md", "server/orchestrator/model_selector.py", "plans/agent-platform/roadmap.yaml"]
       note: [".claude/roadmap-briefs/R0-data-plane-governance.md"]
 
   - id: data-plane-governance-e2
     kind: epic
+    status: done
     title: "Owner disposition of the six untracked plan tracks"
     summary: "Owner records a disposition — committed, revised-then-committed, or vetoed-and-archived — for each pre-existing untracked plan track (agent-platform, evidence-engine, researcher-workbench, retrieval-unlocks, scale-ops-hardening, trustworthy-release), amending agent-platform to match the e1 ADR choice, until git status plans/ shows zero untracked pre-existing tracks. Owner-gated by design: any deferred track stays formally proposed and R2+ briefs treat its contents as suggestions, not commitments."
     priority: should
@@ -87,11 +90,13 @@ items:
     depends_on: [data-plane-governance-e1]
     tags: [value, governance, git-state]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/235"]
       code: ["plans/agent-platform/roadmap.yaml", "plans/evidence-engine/roadmap.yaml", "plans/researcher-workbench/roadmap.yaml", "plans/retrieval-unlocks/roadmap.yaml", "plans/scale-ops-hardening/roadmap.yaml", "plans/trustworthy-release/roadmap.yaml"]
       note: [".claude/roadmap-briefs/R0-data-plane-governance.md"]
 
   - id: data-plane-governance-e3
     kind: epic
+    status: done
     title: "Trust-language, abstention, and evidence-ledger policies"
     summary: "Draft, owner-approve, and commit the trust-language policy at .claude/docs/trust-language-policy.md — banning any single verified-style enum on the MCP surface, defining the multi-axis trust-record dimensions (aligned against the stability-mflds rigor.py lattice, divergences recorded) and the abstention outcomes (unknown / ambiguous / not-in-corpus / unsupported-by-provider) as first-class tool results — plus the evidence-ledger standard for novelty claims with a bounded retro census pass over the R0-R7 brief-cited claims, and land the trust rules in CLAUDE.md; the R3/R5 briefs' tool-surface gates reference the policy."
     priority: should
@@ -99,11 +104,13 @@ items:
     rice: { r: 7, i: 2, c: 0.8, e: 0.6, score: 18.67, rank: 2 }  # c=0.8: R3/R5 tool-surface gates reference m3 per briefs README; bare-status gap live-verified at server/handlers/lean_verify.py:290-298
     tags: [value, governance, trust]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/236"]
       code: ["server/handlers/lean_verify.py", "CLAUDE.md"]
       note: [".claude/roadmap-briefs/R0-data-plane-governance.md", ".claude/roadmap-briefs/R3-verification-contract.md", ".claude/roadmap-briefs/R5-formal-target-registry.md"]
 
   - id: data-plane-governance-m1
     kind: milestone
+    status: done
     title: "Boundary ADR owner-approved, committed, and binding in CLAUDE.md"
     summary: "The data-plane boundary ADR at .claude/docs/adr-data-plane-boundary.md is owner-approved and committed — closing the orchestrator-loop placement question — and CLAUDE.md carries the boundary rules as binding agent constraints."
     parent: data-plane-governance-e1
@@ -115,11 +122,13 @@ items:
       - "Given the committed ADR, when it is read, then it records a single choice for the orchestrator-loop placement, the disposition of server/orchestrator/model_selector.py, and the candidate-layer principle for non-commercially-licensed external data"
       - "Given the owner-approved ADR, when the CLAUDE.md amendment lands, then CLAUDE.md states the three boundary rules as binding agent constraints and the ADR records the chosen CLAUDE.md anchor (new hard-constraints section or extended section 4)"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/237"]
       code: ["CLAUDE.md", "server/orchestrator/model_selector.py"]
       note: [".claude/roadmap-briefs/R0-data-plane-governance.md"]
 
   - id: data-plane-governance-t-boundary-adr-draft
     kind: task
+    status: done
     title: "Draft the data-plane boundary ADR"
     parent: data-plane-governance-m1
     lane: now
@@ -129,11 +138,13 @@ items:
     acceptance:
       - "Given the R0 brief and plans/agent-platform/roadmap.yaml, when the draft at .claude/docs/adr-data-plane-boundary.md is complete, then it states the three boundary rules, records a single orchestrator-loop placement choice (separate repo, or client-side tool under tools/ with zero server-side state), and names the disposition of server/orchestrator/model_selector.py"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/240"]
       code: ["plans/agent-platform/roadmap.yaml", "server/orchestrator/model_selector.py"]
       note: [".claude/roadmap-briefs/R0-data-plane-governance.md"]
 
   - id: data-plane-governance-t-claudemd-boundary-constraints
     kind: task
+    status: done
     title: "Land the boundary rules in CLAUDE.md as binding agent constraints"
     parent: data-plane-governance-m1
     lane: now
@@ -144,10 +155,12 @@ items:
     acceptance:
       - "Given the owner-approved ADR, when CLAUDE.md is amended, then the three boundary rules appear as binding agent constraints linking to .claude/docs/adr-data-plane-boundary.md, and the chosen anchor (new section or extended section 4 working conventions) is recorded in the ADR"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/241"]
       code: ["CLAUDE.md", "README.md"]
 
   - id: data-plane-governance-spike-1
     kind: spike
+    status: done
     title: "Owner disposition sitting for the six untracked plan tracks"
     parent: data-plane-governance-e2
     lane: now
@@ -158,10 +171,12 @@ items:
       - "Given a disposition matrix covering all six pre-existing untracked plan tracks (agent-platform, evidence-engine, researcher-workbench, retrieval-unlocks, scale-ops-hardening, trustworthy-release) with a recommended disposition and rationale each, when the owner reviews it in one sitting, then an owner disposition (commit / revise-then-commit / veto-and-archive) or an explicit deferral is recorded per track"
       - "Given any deferred track, when the sitting closes, then the deferral is recorded, the track stays formally proposed, and R2+ briefs treat its contents as suggestions, not commitments"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/242"]
       note: [".claude/roadmap-briefs/R0-data-plane-governance.md", ".claude/roadmap-briefs/README.md"]
 
   - id: data-plane-governance-m2
     kind: milestone
+    status: done
     title: "Zero untracked pre-existing plan tracks under plans/"
     summary: "Every pre-existing untracked plan track carries an executed owner disposition — committed, revised-then-committed, or vetoed-and-archived — with plans/agent-platform amended to match the m1 ADR choice. Owner-gated by design: the owner records each disposition; this milestone executes them into git state."
     parent: data-plane-governance-e2
@@ -174,11 +189,13 @@ items:
       - "Given the m1 ADR's recorded orchestrator-loop choice, when plans/agent-platform/roadmap.yaml is dispositioned, then it is amended to match the recorded choice before being committed or archived"
       - "Given a vetoed track, when its disposition is executed, then the track is archived rather than deleted and the veto rationale is recorded with it"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/238"]
       code: ["plans/agent-platform/roadmap.yaml"]
       note: [".claude/roadmap-briefs/README.md"]
 
   - id: data-plane-governance-t-agent-platform-amend
     kind: task
+    status: done
     title: "Amend the agent-platform plan to match the ADR choice"
     parent: data-plane-governance-m2
     lane: now
@@ -188,10 +205,12 @@ items:
     acceptance:
       - "Given the ADR-recorded orchestrator-loop placement, when plans/agent-platform/roadmap.yaml is amended, then no item in it scopes a server-side dispatch loop or per-run agent memory inside this repo and the plan matches the recorded choice"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/243"]
       code: ["plans/agent-platform/roadmap.yaml"]
 
   - id: data-plane-governance-t-execute-dispositions
     kind: task
+    status: done
     title: "Execute the six recorded dispositions in git"
     parent: data-plane-governance-m2
     lane: now
@@ -202,10 +221,12 @@ items:
     acceptance:
       - "Given the owner dispositions recorded in the spike-1 sitting, when they are executed, then each of the six tracks is committed, revised-then-committed, or vetoed-and-archived, and git status plans/ shows zero untracked pre-existing plan tracks"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/244"]
       code: ["plans/paper-metadata/roadmap.yaml"]
 
   - id: data-plane-governance-m3
     kind: milestone
+    status: done
     title: "Trust-language and evidence-ledger policies committed and binding"
     summary: "The trust-language policy at .claude/docs/trust-language-policy.md (verified-enum ban, multi-axis trust-record dimensions, abstention outcomes) and the evidence-ledger standard at .claude/docs/evidence-ledger-standard.md are owner-approved, committed, referenced from CLAUDE.md, and wired into the R3/R5 briefs' tool-surface gates, with the bounded retro census pass over R0-R7 brief-cited novelty claims complete."
     parent: data-plane-governance-e3
@@ -218,11 +239,13 @@ items:
       - "Given the committed evidence-ledger standard at .claude/docs/evidence-ledger-standard.md, when any 'no system does X' novelty claim cited in the R0-R7 briefs is checked, then it carries a dated, scoped census naming the census set, the queries run, and the census date"
       - "Given the owner-approved policies, when CLAUDE.md is amended and the briefs are cross-referenced, then CLAUDE.md states the trust-language rules as binding agent constraints and the R3/R5 briefs' tool-surface gates reference .claude/docs/trust-language-policy.md"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/239"]
       code: ["server/handlers/lean_verify.py", "CLAUDE.md"]
       note: [".claude/roadmap-briefs/R3-verification-contract.md", ".claude/roadmap-briefs/R5-formal-target-registry.md"]
 
   - id: data-plane-governance-t-trust-language-policy
     kind: task
+    status: done
     title: "Draft the trust-language policy with the rigor.py alignment pass"
     parent: data-plane-governance-m3
     lane: now
@@ -232,10 +255,12 @@ items:
     acceptance:
       - "Given the stability-mflds rigor.py Rigor/Certificate lattice, when .claude/docs/trust-language-policy.md is drafted, then every multi-axis trust-record dimension is mapped onto that lattice with divergences recorded, the single verified-style enum ban is stated, and the four abstention outcomes are defined as first-class tool results"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/245"]
       code: ["server/handlers/lean_verify.py"]
 
   - id: data-plane-governance-t-evidence-ledger-standard
     kind: task
+    status: done
     title: "Draft the evidence-ledger standard for novelty claims"
     parent: data-plane-governance-m3
     lane: now
@@ -245,10 +270,12 @@ items:
     acceptance:
       - "Given a 'no system does X' novelty claim, when it is written per the committed .claude/docs/evidence-ledger-standard.md, then the standard requires it to name the census set, the queries run, and the census date"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/246"]
       note: [".claude/roadmap-briefs/R0-data-plane-governance.md"]
 
   - id: data-plane-governance-t-novelty-claims-census
     kind: task
+    status: done
     title: "Bounded retro census pass over R0-R7 brief-cited novelty claims"
     parent: data-plane-governance-m3
     lane: now
@@ -259,10 +286,12 @@ items:
     acceptance:
       - "Given the novelty claims cited in the .claude/roadmap-briefs/ R0-R7 briefs, when the retro pass completes, then every such claim carries a dated, scoped census per the standard and no claim outside the briefs is brought into scope"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/247"]
       note: [".claude/roadmap-briefs/README.md"]
 
   - id: data-plane-governance-t-claudemd-trust-rules
     kind: task
+    status: done
     title: "Land the trust rules in CLAUDE.md and cross-reference the R3/R5 gates"
     parent: data-plane-governance-m3
     lane: now
@@ -273,5 +302,6 @@ items:
     acceptance:
       - "Given the owner-approved trust-language policy, when CLAUDE.md is amended, then the trust-language rules appear as binding agent constraints alongside the m1 boundary rules and the R3/R5 briefs' tool-surface gates reference .claude/docs/trust-language-policy.md"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/248"]
       code: ["CLAUDE.md"]
       note: [".claude/roadmap-briefs/R3-verification-contract.md", ".claude/roadmap-briefs/R5-formal-target-registry.md"]

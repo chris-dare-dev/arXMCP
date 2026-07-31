@@ -42,6 +42,7 @@ retired: []          # tombstoned item ids; ids are write-once, never deleted
 items:
   - id: paper-metadata-e1
     kind: epic
+    status: done
     title: "Metadata store + arXiv hydration"
     summary: "Per-notebook papers metadata store (SQLite, notebooks_store.py pattern) hydrated from the arXiv Atom API via tools/_arxiv_api.py at ingest, plus a backfill driver for already-populated notebooks — one vertical slice from external source to on-disk store, observable via a hydrated bridgeland-stability notebook."
     priority: must
@@ -49,11 +50,13 @@ items:
     rice: { r: 6, i: 2, c: 0.5, e: 1.5, score: 4.0, rank: 2 }
     tags: [value, ingest]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/249"]
       code: ["tools/_arxiv_api.py", "server/notebooks_store.py"]
       note: [".claude/notes/HANDOFF.md"]
 
   - id: paper-metadata-e2
     kind: epic
+    status: done
     title: "get_paper serves real metadata"
     summary: "Wire server/handlers/paper.py to read the metadata store: real title/authors/abstract/year/categories for arxiv-kind ids, explicit metadata_status fallback for textbook ids, tool schema and BP1 hashes unchanged — the user-observable payoff slice."
     priority: should
@@ -62,10 +65,12 @@ items:
     depends_on: [paper-metadata-e1]
     tags: [value, server]
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/250"]
       code: ["server/handlers/paper.py", "tests/test_server_tool_schema.py"]
 
   - id: paper-metadata-spike-1
     kind: spike
+    status: done
     title: "Atom API field coverage across corpus ID shapes"
     parent: paper-metadata-e1
     lane: now
@@ -73,9 +78,12 @@ items:
     target_end: 2026-07-07
     acceptance:
       - "Given a mixed sample of corpus paper ids (new-style, old-style hep-th/0403166, versioned), when the Atom API is queried via tools/_arxiv_api.py, then per-field coverage for title/authors/abstract/year/categories is recorded in the spike note"
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/253"]
 
   - id: paper-metadata-m1
     kind: milestone
+    status: done
     title: "Existing notebook hydrated with arXiv metadata"
     parent: paper-metadata-e1
     lane: now
@@ -86,10 +94,12 @@ items:
       - "Given the bridgeland-stability notebook, when the backfill driver runs, then >=95% of its arxiv-kind paper_ids have a metadata row with non-NULL title and authors"
       - "Given a hydrated store, when the process restarts and the store is reopened cold, then metadata is served without touching the chunks table"
     links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/251"]
       code: ["tools/notebook_fetch.py", "tools/notebook_ingest.py"]
 
   - id: paper-metadata-t-store-schema
     kind: task
+    status: done
     title: "Per-notebook papers metadata table + idempotent writer"
     parent: paper-metadata-m1
     lane: now
@@ -98,9 +108,12 @@ items:
     target_end: 2026-07-08
     acceptance:
       - "Given a fresh notebook, when the store initializes twice, then the second run is a no-op and the schema-version row is unchanged"
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/254"]
 
   - id: paper-metadata-t-atom-mapper
     kind: task
+    status: done
     title: "Map Atom API entries to metadata records"
     parent: paper-metadata-m1
     lane: now
@@ -110,9 +123,12 @@ items:
     depends_on: [paper-metadata-t-store-schema]
     acceptance:
       - "Given an Atom feed entry for an old-style id, when it is mapped, then title/authors/abstract/year/categories are populated and the id round-trips unversioned"
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/255"]
 
   - id: paper-metadata-t-ingest-hook
     kind: task
+    status: done
     title: "Hydrate metadata during notebook fetch/ingest"
     parent: paper-metadata-m1
     lane: now
@@ -122,9 +138,12 @@ items:
     depends_on: [paper-metadata-t-atom-mapper]
     acceptance:
       - "Given a new paper added to a notebook, when notebook ingest completes, then its metadata row exists without any extra operator step"
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/256"]
 
   - id: paper-metadata-t-backfill-driver
     kind: task
+    status: done
     title: "Backfill CLI for already-populated notebooks"
     parent: paper-metadata-m1
     lane: now
@@ -134,9 +153,12 @@ items:
     depends_on: [paper-metadata-t-atom-mapper]
     acceptance:
       - "Given a notebook with ingested papers and no metadata rows, when the backfill CLI runs, then every lookup honors the arXiv politeness contract and a re-run is a no-op"
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/257"]
 
   - id: paper-metadata-m2
     kind: milestone
+    status: done
     title: "get_paper returns real metadata end-to-end"
     parent: paper-metadata-e2
     lane: next
@@ -145,3 +167,5 @@ items:
     depends_on: [paper-metadata-m1]
     acceptance:
       - "Given a hydrated notebook, when get_paper is called for an arxiv-kind id, then title/authors/abstract/year/categories are non-NULL and EXPECTED_TOOL_SCHEMA_SHA256 is unchanged"
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/252"]

@@ -1,0 +1,62 @@
+{
+  "data-plane-governance-e1": {
+    "number": 234,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/234"
+  },
+  "data-plane-governance-e2": {
+    "number": 235,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/235"
+  },
+  "data-plane-governance-e3": {
+    "number": 236,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/236"
+  },
+  "data-plane-governance-m1": {
+    "number": 237,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/237"
+  },
+  "data-plane-governance-m2": {
+    "number": 238,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/238"
+  },
+  "data-plane-governance-m3": {
+    "number": 239,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/239"
+  },
+  "data-plane-governance-spike-1": {
+    "number": 242,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/242"
+  },
+  "data-plane-governance-t-agent-platform-amend": {
+    "number": 243,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/243"
+  },
+  "data-plane-governance-t-boundary-adr-draft": {
+    "number": 240,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/240"
+  },
+  "data-plane-governance-t-claudemd-boundary-constraints": {
+    "number": 241,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/241"
+  },
+  "data-plane-governance-t-claudemd-trust-rules": {
+    "number": 248,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/248"
+  },
+  "data-plane-governance-t-evidence-ledger-standard": {
+    "number": 246,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/246"
+  },
+  "data-plane-governance-t-execute-dispositions": {
+    "number": 244,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/244"
+  },
+  "data-plane-governance-t-novelty-claims-census": {
+    "number": 247,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/247"
+  },
+  "data-plane-governance-t-trust-language-policy": {
+    "number": 245,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/245"
+  }
+}

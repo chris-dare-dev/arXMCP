@@ -1,0 +1,74 @@
+{
+  "source-truth-e1": {
+    "number": 258,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/258"
+  },
+  "source-truth-e2": {
+    "number": 259,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/259"
+  },
+  "source-truth-e3": {
+    "number": 260,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/260"
+  },
+  "source-truth-e4": {
+    "number": 261,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/261"
+  },
+  "source-truth-m1": {
+    "number": 262,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/262"
+  },
+  "source-truth-m2": {
+    "number": 263,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/263"
+  },
+  "source-truth-m3": {
+    "number": 264,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/264"
+  },
+  "source-truth-m4": {
+    "number": 266,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/266"
+  },
+  "source-truth-m5": {
+    "number": 265,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/265"
+  },
+  "source-truth-spike-1": {
+    "number": 267,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/267"
+  },
+  "source-truth-spike-2": {
+    "number": 268,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/268"
+  },
+  "source-truth-spike-3": {
+    "number": 274,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/274"
+  },
+  "source-truth-spike-4": {
+    "number": 275,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/275"
+  },
+  "source-truth-t-license-decision-fn": {
+    "number": 272,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/272"
+  },
+  "source-truth-t-license-hydration": {
+    "number": 271,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/271"
+  },
+  "source-truth-t-registry-backfill": {
+    "number": 273,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/273"
+  },
+  "source-truth-t-registry-schema": {
+    "number": 269,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/269"
+  },
+  "source-truth-t-revision-checksums": {
+    "number": 270,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/270"
+  }
+}
