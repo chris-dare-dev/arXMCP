@@ -156,12 +156,13 @@ _MAX_SENTINEL_BYTES: int = 64 * 1024
 # Prometheus registry — one per process, populated by the lifespan.
 # ---------------------------------------------------------------------------
 
-#: Pinned ``corpus_version`` integer. Updated once at startup.
+#: The ``corpus_version`` currently being served. Set at startup and
+#: refreshed whenever the process re-binds the corpus (issue #207).
 CORPUS_VERSION_GAUGE = Gauge(
     "arxmcp_corpus_version",
-    "The integer corpus_version the server pinned at startup. "
-    "Constant for the process lifetime; restart to pick up a new "
-    "corpus version.",
+    "The integer corpus_version the server is currently serving. "
+    "Changes in-process when an ingest advances corpus-version.json "
+    "and the server re-binds; a step in this gauge marks that rebind.",
 )
 
 #: corpus-integrity-observability-m2 — the marker's ``chunk_count`` read

@@ -577,12 +577,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             )
         # m9: ingest task tracker — fire-and-forget subprocess
         # registry for the UI ingest trigger.
-        # onboarding-uplift-m4: closure binds the tracker to
-        # resources.late_bind so a successful first ingest promotes
-        # the server from bootstrap mode to normal operation without
-        # a restart.
-        async def _on_ingest_success(_slug: str) -> None:
-            await resources.late_bind(config)
+        #
+        # onboarding-uplift-m4 bound this closure to
+        # ``resources.late_bind`` so a successful FIRST ingest promotes
+        # the server out of bootstrap mode without a restart.
+        #
+        # issue #207 widens it to ``on_ingest_complete``, which keeps
+        # that promotion and adds the two invalidations every SUBSEQUENT
+        # ingest needs: drop the memoized per-notebook table, and
+        # force-recheck the process corpus. Before this, the second and
+        # later ingests through the ``/ui/`` console silently changed
+        # nothing in the running server — it kept serving the memoized
+        # pre-ingest table while echoing the old ``corpus_version``.
+        async def _on_ingest_success(slug: str) -> None:
+            await resources.on_ingest_complete(config, slug)
 
         app.state.ingest_tracker = IngestTaskTracker(
             on_success_callback=_on_ingest_success,

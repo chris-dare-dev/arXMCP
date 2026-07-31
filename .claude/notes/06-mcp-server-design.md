@@ -456,6 +456,34 @@ Contract:
    The MCP server does NOT auto-switch — it continues using its pinned version.
    Restart the server to pick up the new corpus. (Rationale: agents in the middle of
    a session expect index stability.)
+
+   > **SUPERSEDED 2026-07-31 by issue #207.** The server DOES now auto-switch:
+   > it detects a marker naming a different version and re-binds the corpus
+   > in-process. Two triggers — the ingest-completion callback (the `/ui/`
+   > console's Ingest button) and a throttled probe on the MCP tool-dispatch
+   > path (out-of-band ingest). See `server/corpus_freshness.py`.
+   >
+   > **What forced the change.** This rule was written before the `/ui/`
+   > console existed. Once the project shipped an Ingest button, "does not
+   > auto-switch" stopped meaning "stable" and started meaning "the operator's
+   > most common action silently does nothing to the running server" — while
+   > the response envelope kept echoing the pre-ingest `corpus_version` as
+   > truth. That is not index stability; it is an undetectable stale read.
+   >
+   > **What survives of the rationale.** Stability *within* a request is
+   > preserved and was never at risk: a request resolves its table handle
+   > once, the swap publishes with no `await` between assignments, and the
+   > previous handles are closed only after the swap, so no in-flight query
+   > loses the handle it is using. What an agent no longer gets is stability
+   > across an operator's explicit re-ingest — which is the correct trade,
+   > because the alternative is serving content the operator believes they
+   > replaced. Agents that need a frozen view should pin `corpus_version`
+   > themselves; every response carries it (rule 6 in the determinism
+   > contract above), and it is now honest.
+   >
+   > **Set `ARXMCP_CORPUS_FRESHNESS_INTERVAL_SECONDS` negative** to restore
+   > the pull half of the old behavior. The push half (ingest completion)
+   > stays on: an operator who presses Ingest has asked for the change.
 3. **Shutdown:** drain in-flight requests with a 30-second deadline; close
    LanceDB and Kùzu cleanly; flush metrics.
 

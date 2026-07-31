@@ -63,21 +63,51 @@ path against the configured corpus root BEFORE invoking this function.
 Closes F9 from the E04_S02 critique by surfacing the deferral
 explicitly.
 
-**Cache invalidation contract (E04_S03 → E08_S03).** Downstream caches
-(E08_S03) must include corpus_version in their keys. Specifically:
-server-side caches use the ``version`` integer from
+**Cache invalidation contract (E04_S03 → E08_S03 → issue #207).**
+Downstream caches (E08_S03) must include corpus_version in their keys.
+Specifically: server-side caches use the ``version`` integer from
 :class:`CorpusVersionInfo` as their cache namespace key — NOT
 ``chunker_version``, NOT ``embedder_version``, NOT ``created_at``.
-Only ``version``. When the server reads a new ``corpus-version.json``
-with a higher ``version`` than its last-seen value, it MUST clear all
-in-process caches keyed on the old version. This prevents stale cache
-hits after a corpus update without requiring a server restart. The
-caching doc's Tier-1 key formula
+Only ``version``. When the server reads a ``corpus-version.json``
+naming a different ``version`` than the one it is serving, it MUST
+re-bind the corpus and clear every in-process cache keyed on the old
+version. This prevents stale serving after a corpus update without
+requiring a server restart. The caching doc's Tier-1 key formula
 (``07-multi-agent-caching.md`` § "Tier 1 — Exact-query") is::
 
     key = sha256(model_name + model_version + canonical_form(query) + corpus_version)
 
-Sonnet B's E08_S03 implementation honors this contract.
+**Where the contract is implemented, and what it did NOT cover until
+2026-07-31.** This paragraph previously ended "Sonnet B's E08_S03
+implementation honors this contract." Only the *keying* half was ever
+true. The *invalidation* half — "when the server reads a new marker it
+MUST clear" — had no implementation at all: nothing re-read the marker
+after startup, ``Resources.notebook_table`` memoized its
+``(table, corpus_info)`` pair for process lifetime, and
+:meth:`server.cache_sqlite.Tier1Store.purge_other_corpus_versions` had
+zero callers in the entire repo. The operator-visible consequence was
+that clicking **Ingest** in the shipped ``/ui/`` console left the
+running server serving the pre-ingest table while echoing the OLD
+``corpus_version`` in the response envelope as truth. Filed and closed
+as issue #207.
+
+Today the contract is carried by :mod:`server.corpus_freshness` and the
+methods it feeds — read that module's docstring for the seam's shape,
+its two trigger paths, and (importantly) the boundary it does NOT
+cover: the other six on-disk stores that must agree about what "the
+corpus" contains carry no version marker of their own.
+
+Two clarifications the original text got wrong, worth keeping straight:
+
+* The trigger is a **different** version, not a **higher** one. A
+  restore-from-backup lowers the marker, and serving handles pinned to
+  the higher version against the restored dataset is the same silent
+  lie in the other direction.
+* Old-version Tier-1 rows are unreachable **by key construction**, so
+  purging them is disk housekeeping, not correctness. The tiers that
+  genuinely needed clearing are Tier-2 and Tier-3, which key on the
+  query embedding and the rerank set and carry no version at all — see
+  :meth:`server.cache.RetrievalCache.invalidate_semantic_tiers`.
 """
 
 from __future__ import annotations

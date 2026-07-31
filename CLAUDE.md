@@ -816,7 +816,7 @@ Health: `curl http://127.0.0.1:7733/healthz` (always 200),
 | MCP server refuses to bind | `server/config.py::reject_non_loopback` |
 | `tools/list` hash drift | `tests/test_server_tool_schema.py` + `server/tools.py::ALL_TOOLS` |
 | Prompt cache miss between agent roles | `server/prompts.py` (BP1/BP2) + `server/orchestrator/id_canon.py` |
-| Retrieval results stale | `server/cache.py` corpus-version key |
+| Retrieval results stale | `server/corpus_freshness.py` (the seam that re-binds on a version bump — issue #207), then `server/cache.py` corpus-version key. Check `arxmcp_corpus_version` against `corpus-version.json`: equal means the served corpus IS current and the staleness is elsewhere. |
 | Citation graph query empty | `server/handlers/citations.py` — read `graph_status` first (`absent` = graph never ingested, `unavailable` = path exists but unqueryable, `present` = real empty result); then `server/graph_queries.py` |
 | `make eval` skipped | `tests/eval/fixtures/queries.json` is still an empty stub |
 

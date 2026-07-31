@@ -23,12 +23,20 @@ initial 200K-paper backfill.
 > active. Until that runbook fires, the active server sees no
 > changes.
 
-> **No automatic server reload.** When a delta run completes, the
-> MCP server continues serving its pinned `corpus_version`. A human
-> or ops script must restart the server to pick up new content.
-> Rationale (per `.claude/notes/06-mcp-server-design.md:346-354`):
-> agents in the middle of a session expect index stability. **There
-> is no touch file or filesystem signal at v1.**
+> **A delta run alone changes nothing for the running server** — but
+> not because the server refuses to reload. The delta loop writes to
+> *staging* and does not advance the active `corpus-version.json`, so
+> there is nothing for the server to notice. The active corpus changes
+> only when E11_S05's atomic cutover promotes staging → active.
+>
+> **Once the cutover advances the marker, the server picks it up
+> without a restart** (issue #207): it re-binds the corpus on a
+> throttled marker probe run at MCP tool dispatch, within
+> `ARXMCP_CORPUS_FRESHNESS_INTERVAL_SECONDS` (default 2s) of the next
+> query. Watch the `arxmcp_corpus_version` gauge to confirm the rebind
+> landed. Set that variable negative to restore the old
+> restart-required behavior. **There is still no touch file or
+> filesystem signal** — the marker itself is the signal.
 
 ---
 

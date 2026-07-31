@@ -38,6 +38,8 @@ from pathlib import Path
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from server.corpus_freshness import DEFAULT_FRESHNESS_INTERVAL_SECONDS
+
 # ---------------------------------------------------------------------------
 # Module-level constants
 # ---------------------------------------------------------------------------
@@ -360,6 +362,25 @@ class Config(BaseSettings):
     #: is applied on top so tiny corpora do not alarm on a single-row
     #: delta. Set via ``ARXMCP_CORPUS_CHUNK_COUNT_TOLERANCE``.
     corpus_chunk_count_tolerance: float = 0.05
+
+    #: Minimum seconds between two REQUEST-PATH corpus-freshness probes
+    #: (issue #207). Every MCP tool dispatch asks the served process
+    #: whether ``corpus-version.json`` still matches the version it is
+    #: bound to; this throttles that ``stat``+read so a 10 req/s
+    #: workload does not pay it per call. On a detected bump the process
+    #: re-binds the corpus (new chunks table, BM25 artifact, retrieval
+    #: cache) and drops the memoized per-notebook tables.
+    #:
+    #: ``> 0`` throttles (default 2s — the worst-case staleness window
+    #: for an ingest run OUTSIDE this process). ``0`` probes on every
+    #: tool call. ``< 0`` disables the request-path probe entirely; the
+    #: in-process push path (the ``/ui/`` Ingest button →
+    #: ``Resources.on_ingest_complete``) still invalidates, so
+    #: disabling only forfeits detection of out-of-band ingest.
+    #: Set via ``ARXMCP_CORPUS_FRESHNESS_INTERVAL_SECONDS``.
+    corpus_freshness_interval_seconds: float = (
+        DEFAULT_FRESHNESS_INTERVAL_SECONDS
+    )
 
     #: Root directory for runtime state — corpus, indices, caches,
     #: ops sentinels. The disk-full scrape hook (E14_S05 D4) calls
@@ -769,6 +790,31 @@ class Config(BaseSettings):
             raise ValueError(
                 f"ARXMCP_CORPUS_CHUNK_COUNT_TOLERANCE must be in "
                 f"[0.0, 1.0]; got {v}."
+            )
+        return v
+
+    @field_validator("corpus_freshness_interval_seconds")
+    @classmethod
+    def validate_corpus_freshness_interval(cls, v: float) -> float:
+        """Reject a non-finite freshness interval (#207).
+
+        ``nan`` is the dangerous value: every ``>=`` comparison against
+        it is ``False``, so
+        :meth:`server.corpus_freshness.FreshnessGate.is_due` would
+        return ``False`` forever after the first probe and the
+        request-path seam would go silently dead — the exact
+        declared-but-not-implemented failure mode #207 exists to
+        remove. ``inf`` is rejected for the same reason (a gate that is
+        never due again). Operators wanting the seam off should set a
+        NEGATIVE value, which is explicit and documented.
+        """
+        import math  # noqa: PLC0415
+
+        if not math.isfinite(v):
+            raise ValueError(
+                f"ARXMCP_CORPUS_FRESHNESS_INTERVAL_SECONDS must be finite; "
+                f"got {v!r}. Use a negative value to disable the "
+                f"request-path freshness probe."
             )
         return v
 

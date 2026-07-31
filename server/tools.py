@@ -884,6 +884,33 @@ def cap_result_list(
 # ---------------------------------------------------------------------------
 
 
+async def _refresh_corpus_freshness(resources: Any) -> None:
+    """Ask the served process to re-check the corpus marker (#207).
+
+    Duck-typed on purpose: dozens of tests install lightweight fakes via
+    :func:`set_resources` that are not :class:`server.resources.Resources`
+    instances at all. A fake without the method is simply skipped rather
+    than raising ``AttributeError`` on a tool call.
+
+    Swallows every failure. A freshness probe is a convergence step, not
+    part of answering the request — a failed probe must degrade to
+    "serve the corpus we are bound to", never to a failed tool call.
+    The rebind path already logs its own errors; this catch covers the
+    probe itself and anything unexpected above it.
+    """
+    refresh = getattr(resources, "refresh_corpus_if_stale", None)
+    if refresh is None:
+        return
+    try:
+        await refresh()
+    except Exception:  # noqa: BLE001 — see docstring
+        logger.exception(
+            "corpus-freshness check failed; serving the currently-bound "
+            "corpus. Retrieval is unaffected; a persistent failure here "
+            "means the process may serve a stale corpus until restart."
+        )
+
+
 def _wrap_with_observability(tool_name: str, handler: Any) -> Any:
     """Wrap a tool handler so every invocation records request-level
     Prometheus metrics (E14_S01) AND emits a parent OTel span
@@ -922,7 +949,14 @@ def _wrap_with_observability(tool_name: str, handler: Any) -> Any:
         # ``k``). Quietly absent for tools that don't.
         k_attr = kwargs.get("k") if isinstance(kwargs.get("k"), int) else None
 
-        # corpus_version is process-pinned. F3 rectification: drop the
+        # corpus_version is read from the currently-bound corpus. NB
+        # this is sampled BEFORE the freshness check below, so a span
+        # covering the request that TRIGGERS a rebind carries the
+        # pre-rebind version while the response envelope carries the
+        # post-rebind one. That is deliberate: the span describes the
+        # state the request arrived into, and the divergence is itself
+        # the trace-visible marker of when the rebind happened.
+        # F3 rectification: drop the
         # spurious ``from server.tools import get_resources`` — we ARE
         # in server.tools; the function is in local scope. F4: surface
         # the not-yet-warmed state via a sentinel string rather than
@@ -978,6 +1012,19 @@ def _wrap_with_observability(tool_name: str, handler: Any) -> Any:
                     result = _build_bootstrap_envelope(tool_name, ui_url=_ui_url)
                     status = "ok"
                     return result
+
+                # issue #207 — corpus-freshness PULL path. The single
+                # dispatch point every MCP tool passes through, so one
+                # call here covers all 8 tools. Throttled + single-
+                # flighted inside ``refresh_corpus_if_stale``; a no-op
+                # on the overwhelming majority of calls. This catches
+                # ingest that happened OUTSIDE this process (`make
+                # ingest`, a terminal `tools/notebook_ingest.py` run, a
+                # backup restore) where no in-process callback fired.
+                # The `/ui/` Ingest button does not depend on it — that
+                # path force-refreshes at ingest completion.
+                if _r is not None:
+                    await _refresh_corpus_freshness(_r)
 
                 result = await handler(*args, **kwargs)
                 status = "ok"

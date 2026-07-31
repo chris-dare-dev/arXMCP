@@ -26,6 +26,52 @@ detail is in `git log`.
 
 ## Unreleased
 
+### 2026-07-31 — corpus-freshness seam (issue #207)
+
+The server no longer serves a stale corpus after an ingest. Previously,
+clicking **Ingest** in the `/ui/` console completed the subprocess and
+bumped `corpus-version.json` while the running server kept serving its
+memoized pre-ingest table — and echoed the OLD `corpus_version` in the
+response envelope as truth. `server/corpus.py` declared this
+invalidation a MUST and asserted the implementation honored it; the
+keying half was real, the invalidation half had no implementation at
+all.
+
+- **NEW: `server/corpus_freshness.py`** — `FreshnessGate` (throttle +
+  single-flight, injectable clock) and `read_marker_off_loop`. The
+  module docstring is where "who owns corpus agreement" is answered,
+  including the boundary it does NOT cover: only the LanceDB dataset
+  carries a version marker, so the other seven on-disk stores are
+  re-opened at whatever state they are in rather than proven to agree.
+  (That census also corrects the issue's store count: eight, not
+  seven — `documents.db` is a fifth SQLite store.)
+- **NEW: `Resources._bind_corpus`** — the single post-startup corpus
+  binding path, shared by `late_bind` and the new rebind. Builds every
+  handle before publishing any, so a failed rebind keeps serving the
+  previous corpus intact. Also recomputes `startup_chunk_count` /
+  `startup_unindexed_rows` and re-opens the definitions, equations,
+  theorem-names and paper-metadata handles, which `late_bind` never did.
+- **NEW: `Resources.on_ingest_complete`** — wired to the ingest
+  tracker's `on_success_callback` in place of `late_bind`, which
+  returned `False` immediately once bootstrap mode was off, so every
+  ingest after the first invalidated nothing.
+- **NEW: request-path probe** at the MCP tool-dispatch seam, catching
+  out-of-band ingest (`make ingest`, a terminal `notebook_ingest` run,
+  a backup restore). Throttled by
+  `ARXMCP_CORPUS_FRESHNESS_INTERVAL_SECONDS` (default 2s; negative
+  disables the pull path — the push path stays on).
+- **FIXED: `purge_other_corpus_versions` had zero callers repo-wide.**
+  Now invoked via `RetrievalCache.open(purge_other_versions=True)` on
+  every rebind, before the Tier-1 rehydrate.
+- **FIXED: Tier-2/Tier-3 survived a corpus bump.** They key on the
+  query embedding and the rerank set, carrying no corpus version, so a
+  near-duplicate query would have been answered from the pre-ingest
+  corpus even after the table swap. New
+  `RetrievalCache.invalidate_semantic_tiers`.
+- **Constitution:** `.claude/notes/06-mcp-server-design.md` rule 2
+  ("the MCP server does NOT auto-switch") is marked SUPERSEDED with
+  the reasoning and the trade-off that survives it.
+
 ### 2026-05-22 — `proof-verify` handler-wiring (m9): UI ingest trigger + status polling
 
 Track-D frontend is complete. The operator can now click "Ingest

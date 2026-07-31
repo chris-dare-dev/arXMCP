@@ -333,13 +333,98 @@ class RetrievalCache:
         cls,
         cache_db_path: Path,
         corpus_version: int,
+        *,
+        purge_other_versions: bool = False,
     ) -> RetrievalCache:
         """Open the underlying SQLite store, initialize FAISS, and
-        rehydrate the Tier-1 mirror from unexpired SQLite rows."""
+        rehydrate the Tier-1 mirror from unexpired SQLite rows.
+
+        ``purge_other_versions=True`` drops every Tier-1 row belonging
+        to a different ``corpus_version`` BEFORE the rehydrate — issue
+        #207. This is the call site
+        :meth:`server.cache_sqlite.Tier1Store.purge_other_corpus_versions`
+        never had: ``server/corpus.py``'s cache-invalidation contract
+        declared that a corpus-version bump MUST clear caches keyed on
+        the old version, and the purge method existed to serve that
+        contract with zero callers anywhere in the repo.
+
+        Purging BEFORE the rehydrate is load-bearing: the rehydrate
+        loads every unexpired row into the bounded in-process mirror,
+        so purging afterwards would still let a rebind pull the old
+        corpus's rows into memory and evict live ones from the LRU.
+
+        Correctness does not depend on the purge — Tier-1 keys are
+        salted with ``corpus_version``, so old-version rows are already
+        unreachable by hash construction. It reclaims their disk and
+        their mirror slots. ``True`` is passed by
+        :meth:`server.resources.Resources._bind_corpus` on every rebind
+        and left ``False`` on the cold-start path, where there is no
+        previous in-process version to invalidate.
+        """
         store = await Tier1Store.open(cache_db_path)
+        if purge_other_versions:
+            try:
+                purged = await store.purge_other_corpus_versions(corpus_version)
+                if purged:
+                    logger.info(
+                        "RetrievalCache.open: purged %d Tier-1 row(s) from "
+                        "corpus versions other than %d",
+                        purged,
+                        corpus_version,
+                    )
+            except Exception:  # noqa: BLE001 — housekeeping, never fatal
+                logger.exception(
+                    "RetrievalCache.open: purge_other_corpus_versions failed; "
+                    "stale-version rows stay on disk (unreachable by key, so "
+                    "this costs disk, not correctness)"
+                )
         cache = cls(tier1_store=store, corpus_version=corpus_version)
         await cache._rehydrate_tier1_from_sqlite()
         return cache
+
+    async def invalidate_semantic_tiers(self) -> int:
+        """Drop every Tier-2 and Tier-3 entry. Returns the count dropped.
+
+        **Why these two tiers specifically (issue #207).** Tier-1 keys
+        are salted with ``corpus_version`` (``derive_tier1_key``), so a
+        version bump makes old entries unreachable by construction.
+        Tier-2 is NOT: it keys on the query EMBEDDING plus a
+        filter+level fingerprint, and Tier-3 keys on the rerank
+        singleflight key — neither carries the corpus version. A
+        near-duplicate query after a corpus bump would therefore hit a
+        Tier-2 entry computed against the PREVIOUS corpus and be served
+        pre-ingest results: the same silent staleness #207 is about,
+        one layer down, and it would have survived a fix that only
+        swapped the table.
+
+        Called on a detected corpus-version change that keeps this
+        cache object alive — today, dropping a memoized per-notebook
+        table. A full corpus rebind constructs a NEW ``RetrievalCache``
+        whose semantic tiers start empty, so it does not need this.
+
+        Deliberately a big hammer: it clears the tiers for EVERY corpus,
+        not just the one that bumped, because a Tier-2 entry does not
+        record which corpus produced it. Cheap to be wrong-and-safe here
+        — these tiers are performance, not correctness, and this fires
+        at most once per ingest.
+        """
+        dropped = 0
+        async with self._tier2_lock:
+            dropped += len(self._tier2_buffer)
+            self._tier2_buffer.clear()
+            self._tier2_keys_in_index = []
+            if self._tier2_index is not None:
+                self._tier2_index.reset()
+        async with self._tier3_lock:
+            dropped += len(self._tier3_lru)
+            self._tier3_lru.clear()
+        if dropped:
+            logger.info(
+                "RetrievalCache.invalidate_semantic_tiers: dropped %d "
+                "Tier-2/Tier-3 entr(ies) on a corpus-version change",
+                dropped,
+            )
+        return dropped
 
     async def close(self) -> None:
         """Flush + close the SQLite store. FAISS index released by GC."""

@@ -57,7 +57,7 @@ retrieval-quality dashboards are most useful once the
 | `mcp.tool_name` | string | tool registration | yes |
 | `mcp.session_id` | string | `Mcp-Session-Id` request header | only when header present |
 | `arxmcp.agent_role` | string | `Arxmcp-Agent-Role` request header (see below) | only when header present |
-| `arxmcp.corpus_version` | int | process-pinned at startup | yes when Resources warm |
+| `arxmcp.corpus_version` | int | the corpus currently bound (set at startup; changes on a #207 rebind) | yes when Resources warm |
 | `arxmcp.k` | int | tool kwargs `k=` | yes when the tool accepts `k` |
 | `arxmcp.cache_layer_served` | string enum | handler set via `set_cache_layer(...)` | yes (defaults to `"miss"`) |
 

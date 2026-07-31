@@ -8,10 +8,18 @@ Owns the three expensive, long-lived objects that the
    :mod:`server.query_encoder` — this module just *forces* the eager
    load at startup so :func:`server.query_encoder.encode_query` does
    not pay the cold-load cost on the first request.
-2. The **LanceDB chunks-table handle**, opened ONCE per pinned
-   ``corpus_version`` and cached for process lifetime. The brief is
-   load-bearing on this — the server never auto-switches versions;
-   restart the process to pick up a new corpus.
+2. The **LanceDB chunks-table handle**, opened per pinned
+   ``corpus_version`` and cached. The original brief said the server
+   never auto-switches versions and a restart was required to pick up
+   a new corpus; **issue #207 changed that**, because the shipped
+   ``/ui/`` console has an Ingest button and an operator pressing it
+   reasonably expects the next query to see the result. The handle is
+   still opened once per version and never ``checkout``-ed in place
+   (that would corrupt other readers' views per
+   :mod:`server.corpus`) — a version change opens a NEW handle and
+   swaps it in via :meth:`Resources._bind_corpus`. See
+   :mod:`server.corpus_freshness` for what triggers that and what it
+   does not cover.
 3. The **BGE-reranker-v2-m3** model handle, when
    ``ARXMCP_ENABLE_RERANK=true``. Loaded eagerly at startup (per
    ``/readyz`` semantics — see synthesis D3); failure on load is
@@ -74,6 +82,11 @@ from server.corpus import (
     DegradedState,
     open_chunks_table_with_fallback,
     read_corpus_version,
+)
+from server.corpus_freshness import (
+    DEFAULT_FRESHNESS_INTERVAL_SECONDS,
+    FreshnessGate,
+    read_marker_off_loop,
 )
 from server.query_encoder import (
     _get_model,
@@ -393,8 +406,13 @@ class Resources:
     #: count could not be read (``count_rows()`` raised — FM-2). Read by
     #: :func:`server.health.refresh_metrics_from_singleton_state` to set
     #: the ``arxmcp_corpus_chunk_count_actual`` gauge WITHOUT re-scanning
-    #: per ``/metrics`` scrape. STALE BY DESIGN: the server serves a
-    #: pinned corpus version for its full lifetime; restart to refresh.
+    #: per ``/metrics`` scrape. Cached, but NOT stale-by-design any more:
+    #: issue #207 made :meth:`_bind_corpus` recompute it on every corpus
+    #: rebind, so it always describes the corpus whose ``corpus_version``
+    #: the envelope is echoing. (Before #207 a rebind was impossible, so
+    #: "restart to refresh" was accurate; once the process can re-bind,
+    #: a gauge left describing the previous corpus is the same silent
+    #: lie #207 closed one layer up.)
     #: (F5: the reranker warm-up block independently calls ``count_rows()``
     #: when ``enable_rerank`` is on — that is a separate concern; do NOT
     #: couple it to this cached value.)
@@ -406,8 +424,9 @@ class Resources:
     #: brute-forces them). Read by
     #: :func:`server.health.refresh_metrics_from_singleton_state` to set the
     #: ``arxmcp_corpus_unindexed_rows`` gauge WITHOUT re-querying per scrape.
-    #: STALE BY DESIGN: the server is pinned to its corpus version for its
-    #: lifetime; restart to refresh.
+    #: Recomputed on every corpus rebind alongside ``startup_chunk_count``
+    #: (issue #207) — see that field's note for why "restart to refresh"
+    #: stopped being true.
     startup_unindexed_rows: int = -1
     # notebook-retrieval-m2 (fork A): bounded LRU registry of per-call
     # notebook chunks-tables, keyed by validated slug → (table, info).
@@ -423,6 +442,21 @@ class Resources:
         default_factory=OrderedDict
     )
     _notebook_tables_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    # issue #207 — corpus-freshness gates. Both are created lazily (on
+    # first use, inside a running loop) rather than via default_factory
+    # because the throttle interval comes from ``self.config`` and
+    # ``FreshnessGate`` builds an ``asyncio.Lock``. Lazy also means the
+    # ~40 tests that construct ``Resources(...)`` positionally keep
+    # working untouched.
+    #
+    # ``_corpus_gate`` guards the PROCESS corpus (``config.lancedb_path``
+    # — the shared corpus, or one notebook under fork-C
+    # ``ARXMCP_NOTEBOOK``). ``_notebook_gates`` holds one gate per
+    # memoized per-call notebook table, pruned in lockstep with
+    # ``_notebook_tables`` so a caller cycling synthetic slugs cannot
+    # grow it without bound (the m2 FM-6 discipline).
+    _corpus_gate: Any | None = None
+    _notebook_gates: dict[str, Any] = field(default_factory=dict)
     # onboarding-uplift-m4: bootstrap mode support.
     # ``bootstrap_mode_active`` is True only when ARXMCP_BOOTSTRAP_MODE=1
     # AND no corpus marker was present at startup.  Flips to False
@@ -637,8 +671,8 @@ class Resources:
         # skip entirely when `degraded` is already set (corpus_corruption is more
         # severe — do not clobber). MVCC-safe: index_stats on the version-pinned
         # handle reflects that version's coverage. Index names are DISCOVERED via
-        # list_indices() — never hardcoded. STALE BY DESIGN (startup-cached;
-        # restart to refresh). NB list_indices()/index_stats() are sync I/O →
+        # list_indices() — never hardcoded. Startup-cached and recomputed on
+        # every corpus rebind (#207). NB list_indices()/index_stats() are sync I/O →
         # run_in_executor; index_stats(name) can return None → guard.
         if degraded is not None:
             startup_unindexed_rows = -1
@@ -855,111 +889,17 @@ class Resources:
         # one shared connection per process, multiple open_table calls
         # on top of it. Negligible perf today; matters if a third
         # optional table joins the pattern.
-        definitions_table: Any | None = None
-        equations_table: Any | None = None
-        try:
-            import lancedb
-
-            from ingest.schema import (
-                DEFINITIONS_TABLE_NAME,
-                EQUATIONS_TABLE_NAME,
-            )
-
-            db_conn = await loop.run_in_executor(
-                None,
-                lambda: lancedb.connect(str(Path(config.lancedb_path).resolve())),
-            )
-
-            # 6b-i. Definitions table. Try open_table directly rather
-            # than relying on a version-fragile table-listing API.
-            # LanceDB raises ``ValueError`` (and on some versions
-            # ``FileNotFoundError``) when the table is absent; either
-            # is the cue to skip.
-            try:
-                definitions_table = await loop.run_in_executor(
-                    None,
-                    lambda: db_conn.open_table(DEFINITIONS_TABLE_NAME),
-                )
-                logger.info(
-                    "Resources.startup: opened LanceDB %s table",
-                    DEFINITIONS_TABLE_NAME,
-                )
-            except (ValueError, FileNotFoundError):
-                logger.info(
-                    "Resources.startup: %s table not present; "
-                    "get_definitions will return index_status=absent",
-                    DEFINITIONS_TABLE_NAME,
-                )
-
-            # 6b-ii. Equations table (E10_S03). Same pattern —
-            # missing table is normal at v1 because the equation
-            # atom extractor is deferred. The find_equation handler
-            # degrades gracefully when this is None.
-            try:
-                equations_table = await loop.run_in_executor(
-                    None,
-                    lambda: db_conn.open_table(EQUATIONS_TABLE_NAME),
-                )
-                logger.info(
-                    "Resources.startup: opened LanceDB %s table",
-                    EQUATIONS_TABLE_NAME,
-                )
-            except (ValueError, FileNotFoundError):
-                logger.info(
-                    "Resources.startup: %s table not present; "
-                    "find_equation will use dense-only fallback for "
-                    "MathML inputs",
-                    EQUATIONS_TABLE_NAME,
-                )
-        except Exception as exc:  # noqa: BLE001 — both tables are non-critical
-            # Optional tables are enrichments, not hard requirements.
-            # Log but do not block server startup.
-            logger.warning(
-                "Resources.startup: could not open optional tables: %s",
-                exc,
-            )
+        definitions_table, equations_table = await _open_optional_lancedb_tables(
+            config, caller="Resources.startup"
+        )
 
         # 6d. Theorem-names SQLite FTS5 store (E10_S02). Same lazy-
         # open contract as the LanceDB optional tables — missing
         # file is normal until the indexer runs. The find_lemma_by_name
         # handler falls back to in-memory scan on absent store.
-        theorem_names_db: Any | None = None
-        try:
-            from server.theorem_names_store import TheoremNamesStore
-
-            tdb_path = Path(config.theorem_names_db_path)
-            if tdb_path.exists():
-                theorem_names_db = await TheoremNamesStore.open(tdb_path)
-                # F5 (E10_S02 critique) — log the row count so an
-                # empty store (caused by a recent schema bump or a
-                # never-completed first ingest) is distinguishable
-                # from a populated one. An empty store + cold corpus
-                # would otherwise be silently indistinguishable from
-                # "no named theorems anywhere in the corpus."
-                row_count = await theorem_names_db.row_count()
-                logger.info(
-                    "Resources.startup: opened theorem_names SQLite store "
-                    "at %s (rows=%d)",
-                    tdb_path, row_count,
-                )
-                if row_count == 0:
-                    logger.warning(
-                        "Resources.startup: theorem_names store is EMPTY. "
-                        "Re-run `python -m ingest.index_theorem_names` "
-                        "to populate it; until then find_lemma_by_name "
-                        "returns zero matches.",
-                    )
-            else:
-                logger.info(
-                    "Resources.startup: theorem_names DB not present at %s; "
-                    "find_lemma_by_name will use in-memory scan fallback",
-                    tdb_path,
-                )
-        except Exception as exc:  # noqa: BLE001 — non-critical enrichment
-            logger.warning(
-                "Resources.startup: could not open theorem_names store: %s",
-                exc,
-            )
+        theorem_names_db = await _open_theorem_names_store(
+            config, caller="Resources.startup"
+        )
 
         # 6e. Per-notebook paper-metadata SQLite store (paper-metadata-m2).
         # Same lazy-open contract as the theorem-names store — the file
@@ -1026,25 +966,303 @@ class Resources:
                 "(ARXMCP_ENABLE_LEAN=true)"
             )
 
+        # issue #207: step 1 read the marker, so the freshness gate
+        # starts already-satisfied. Without this the FIRST tool call of
+        # every process life pays a redundant marker re-read.
+        instance._get_corpus_gate().mark_checked()
+
         logger.info("Resources.startup: warm")
         return instance
+
+    async def _bind_corpus(
+        self, config: Config, corpus_info: CorpusVersionInfo, *, caller: str
+    ) -> bool:
+        """Open every corpus-derived handle at ``corpus_info.version`` and
+        swap them onto this instance. Returns ``True`` on success.
+
+        The ONE place the served process binds itself to a corpus after
+        startup — shared by :meth:`late_bind` (bootstrap promotion) and
+        :meth:`refresh_corpus_if_stale` (issue #207's version-bump
+        rebind). Before #207 the second caller did not exist and this
+        body lived inline in ``late_bind``; adding a rebind that
+        re-implemented it would have made three copies of "how to open a
+        corpus" inside this class, and three chances to forget a handle.
+        (``startup`` remains a separate path: it also builds the
+        semaphores, eager-loads the reranker fatally-on-failure, runs
+        the warm-up pass and spawns Lean. Converging the two is a
+        worthwhile follow-up, not #207's job.)
+
+        **Build-everything-then-publish.** Every handle is constructed
+        BEFORE any field is assigned, so a failure part-way through
+        leaves the instance serving the PREVIOUS corpus intact rather
+        than half-swapped. This is the onboarding-uplift-m4 F7
+        discipline generalized from the cache to the whole binding: a
+        rebind either fully lands or fully does not.
+
+        **Never raises.** Failure is logged at ERROR and returns
+        ``False``. A rebind is a best-effort convergence step; the
+        correct fallback is "keep serving the corpus we have", not "take
+        the server down". The caller decides what to do with ``False``.
+
+        **Every heavyweight I/O runs off-loop** — ``run_in_executor``
+        for the LanceDB opens and the chunk_id scan, ``asyncio.to_thread``
+        inside the SQLite stores' own ``open``. So the single uvicorn
+        worker's event loop keeps serving while a rebind runs; the
+        triggering request awaits, the loop does not block. That is the
+        #208 boundary. (A stray ``mkdir`` and ``Path.exists`` still land
+        on the loop inside the store opens — microseconds, pre-existing,
+        and not worth threading.) Note that
+        ``BM25Phase.startup`` can AUTO-BUILD a missing artifact, which
+        is minutes on a large corpus; that is why the request-path
+        entry point is throttled and single-flighted, and why the push
+        path (ingest completion, already on a background task) is the
+        one expected to do this work in practice.
+        """
+        try:
+            loop = asyncio.get_running_loop()
+
+            # 1. LanceDB chunks table at the pinned version, with the
+            #    E14_S05 D2 N-1 fallback discipline.
+            chunks_table, degraded = await loop.run_in_executor(
+                None,
+                lambda: open_chunks_table_with_fallback(
+                    lancedb_path=config.lancedb_path,
+                    version=corpus_info.version,
+                ),
+            )
+            if degraded is not None:
+                logger.warning(
+                    "%s: LanceDB OPENED IN DEGRADED MODE (reason=%s); "
+                    "serving fallback version %d",
+                    caller,
+                    degraded.reason,
+                    degraded.fallback_version,
+                )
+
+            # 2. Count reconciliation + HNSW coverage against the NEW
+            #    marker. Without this a rebind would leave
+            #    ``/metrics`` and ``/readyz`` reporting the PREVIOUS
+            #    corpus's numbers next to the new corpus_version — the
+            #    same species of silent lie #207 is about. Both are
+            #    non-fatal observability (FM-2: -1 sentinel on failure)
+            #    and both are skipped when the more-severe
+            #    ``corpus_corruption`` degrade is already set (FM-7).
+            try:
+                startup_chunk_count = await loop.run_in_executor(
+                    None, chunks_table.count_rows
+                )
+            except Exception as exc:  # noqa: BLE001 — non-fatal
+                logger.warning(
+                    "%s: count_rows() failed (%s); skipping chunk_count "
+                    "reconciliation. Retrieval is unaffected.",
+                    caller,
+                    exc,
+                )
+                startup_chunk_count = -1
+
+            startup_unindexed_rows = -1
+            if degraded is None:
+                direction = compute_chunk_count_divergence(
+                    marker_count=corpus_info.chunk_count,
+                    actual_count=startup_chunk_count,
+                    tolerance=config.corpus_chunk_count_tolerance,
+                )
+                if direction is not None:
+                    logger.warning(
+                        "%s: corpus chunk_count DIVERGED — marker=%d "
+                        "actual=%d direction=%s tolerance=%.3f. Serving "
+                        "anyway (retrieval unaffected); /readyz will report "
+                        "degraded(reason=chunk_count_diverged).",
+                        caller,
+                        corpus_info.chunk_count,
+                        startup_chunk_count,
+                        direction,
+                        config.corpus_chunk_count_tolerance,
+                    )
+                    degraded = DegradedState(
+                        reason="chunk_count_diverged",
+                        fallback_version=corpus_info.version,
+                        original_version=corpus_info.version,
+                    )
+                else:
+                    try:
+                        startup_unindexed_rows, _breakdown = (
+                            await loop.run_in_executor(
+                                None, compute_unindexed_rows, chunks_table
+                            )
+                        )
+                    except Exception as exc:  # noqa: BLE001 — non-fatal
+                        startup_unindexed_rows = -1
+                        logger.warning(
+                            "%s: index_stats()/list_indices() unavailable "
+                            "(%s); unindexed-rows coverage UNKNOWN.",
+                            caller,
+                            exc,
+                        )
+                    else:
+                        if startup_unindexed_rows > 0:
+                            logger.warning(
+                                "%s: %d unindexed HNSW rows detected (%s) — "
+                                "ANN queries brute-force over these rows. "
+                                "Re-run ingest to rebuild the index.",
+                                caller,
+                                startup_unindexed_rows,
+                                ", ".join(_breakdown),
+                            )
+
+            # 3. BM25 phase. The chunk_id scan is a full column
+            #    materialization — off-loop (it was on the event loop in
+            #    the pre-#207 ``late_bind``, which was fine at cold start
+            #    and is not fine on a live rebind).
+            from server.retrieval import ANNPhase, BM25Phase  # noqa: PLC0415
+
+            live_chunk_ids = await loop.run_in_executor(
+                None,
+                lambda: set(
+                    chunks_table.to_arrow().column("chunk_id").to_pylist()
+                ),
+            )
+            bm25_phase = await BM25Phase.startup(
+                lancedb_path=config.lancedb_path,
+                corpus_version=corpus_info.version,
+                live_chunk_ids=live_chunk_ids,
+                bm25_index_root=config.bm25_index_root,
+            )
+
+            # 4. ANN phase — cheap; just caches the table reference.
+            ann_phase = ANNPhase(chunks_table=chunks_table)
+
+            # 5. Retrieval cache, pinned to the NEW version and purging
+            #    the previous version's Tier-1 rows (#207). Constructing
+            #    a fresh object also empties the Tier-2/Tier-3 semantic
+            #    memos, which are NOT version-namespaced and would
+            #    otherwise serve pre-bump results.
+            from server.cache import RetrievalCache, set_cache  # noqa: PLC0415
+
+            retrieval_cache = await RetrievalCache.open(
+                cache_db_path=config.cache_db_path,
+                corpus_version=corpus_info.version,
+                purge_other_versions=True,
+            )
+
+            # 6. Rerank phase. onboarding-uplift-m4 F5: the bootstrap
+            #    stub skips the reranker eager-load, so load it here
+            #    BEFORE constructing RerankPhase (enabled=True +
+            #    model_handle=None would raise). A no-op on the rebind
+            #    path, where the model is already resident.
+            from server.retrieval.rerank import RerankPhase  # noqa: PLC0415
+
+            if config.enable_rerank and self.reranker_model is None:
+                logger.info(
+                    "%s: lazily loading BGE-reranker-v2-m3 "
+                    "(skipped at bootstrap startup)",
+                    caller,
+                )
+                self.reranker_model = await _load_reranker_or_raise()
+                logger.info("%s: BGE-reranker-v2-m3 warm", caller)
+
+            rerank_phase = RerankPhase(
+                chunks_table=chunks_table,
+                rerank_singleflight=self.rerank_singleflight,
+                rerank_semaphore=self.rerank_semaphore,
+                enabled=config.enable_rerank,
+                model_handle=self.reranker_model,
+            )
+
+            # 7. The optional side stores. Re-opened rather than
+            #    carried over: an ingest rebuilds them too, and a
+            #    handle bound to the previous corpus is exactly the
+            #    staleness this seam exists to remove. All three
+            #    helpers return None instead of raising.
+            definitions_table, equations_table = (
+                await _open_optional_lancedb_tables(config, caller=caller)
+            )
+            theorem_names_db = await _open_theorem_names_store(
+                config, caller=caller
+            )
+            paper_metadata_store = await _open_paper_metadata_store(config)
+
+            # --- Publish. Everything above succeeded; swap atomically
+            # from the handlers' point of view (no await between the
+            # assignments, so no request can observe a half-swap).
+            previous_cache = self.cache
+            previous_theorem_names_db = self.theorem_names_db
+            previous_paper_metadata_store = self.paper_metadata_store
+
+            set_cache(retrieval_cache)
+            self.corpus_info = corpus_info
+            self.chunks_table = chunks_table
+            self.bm25_phase = bm25_phase
+            self.ann_phase = ann_phase
+            self.rerank_phase = rerank_phase
+            self.cache = retrieval_cache
+            self.definitions_table = definitions_table
+            self.equations_table = equations_table
+            self.theorem_names_db = theorem_names_db
+            self.paper_metadata_store = paper_metadata_store
+            self.degraded = degraded
+            self.startup_chunk_count = startup_chunk_count
+            self.startup_unindexed_rows = startup_unindexed_rows
+            self.warm = True
+
+        except Exception:  # noqa: BLE001 — see docstring
+            logger.exception(
+                "%s: corpus bind FAILED; the previously-bound corpus is "
+                "still being served. Fix the underlying error and retry "
+                "via another ingest run or a restart.",
+                caller,
+            )
+            return False
+
+        # Release the previous corpus's SQLite handles AFTER the swap,
+        # so an in-flight request never loses the handle it is using
+        # mid-query. Best-effort; a close failure is logged, not fatal.
+        if previous_cache is not None and previous_cache is not retrieval_cache:
+            await _close_quietly(previous_cache, label="retrieval cache")
+        if previous_theorem_names_db is not theorem_names_db:
+            await _close_quietly(
+                previous_theorem_names_db, label="theorem-names store"
+            )
+        if previous_paper_metadata_store is not paper_metadata_store:
+            await _close_quietly(
+                previous_paper_metadata_store, label="paper-metadata store"
+            )
+
+        # The marker was read as part of this bind, so the freshness
+        # gate's premise is satisfied as of now — no need for the very
+        # next request to re-read the file we just consumed. (Redundant
+        # when this ran THROUGH the gate, which marks in its own
+        # ``finally``; load-bearing for ``late_bind``, which calls here
+        # directly.)
+        self._get_corpus_gate().mark_checked()
+
+        logger.info(
+            "%s: bound corpus_version=%d (paper_count=%d, chunk_count=%d)",
+            caller,
+            corpus_info.version,
+            corpus_info.paper_count,
+            corpus_info.chunk_count,
+        )
+        return True
 
     async def late_bind(self, config: Config) -> bool:
         """Promote a bootstrap-mode stub to a fully-operational instance.
 
         Called by :class:`server.ingest_tracker.IngestTaskTracker`'s
-        ``on_success_callback`` after the first ingest subprocess exits 0.
-        Idempotent: returns ``False`` immediately if
-        ``bootstrap_mode_active`` is already ``False`` (either a previous
-        call succeeded, or the server booted normally).
+        ``on_success_callback`` (via :meth:`on_ingest_complete`) after
+        the first ingest subprocess exits 0. Idempotent: returns
+        ``False`` immediately if ``bootstrap_mode_active`` is already
+        ``False`` (either a previous call succeeded, or the server
+        booted normally).
 
         Failure modes:
         - ``corpus-version.json`` still absent after exit 0 (FM-3): logs
           WARN and returns ``False`` without flipping.  The next ingest
           run will retry.
         - Any other exception (LanceDB open, BM25 build, cache open):
-          logged at ERROR, NOT propagated.  The stub remains active;
-          the operator can trigger a retry via another ingest.
+          logged at ERROR by :meth:`_bind_corpus`, NOT propagated.  The
+          stub remains active; the operator can trigger a retry via
+          another ingest.
 
         Returns ``True`` on successful promotion, ``False`` otherwise.
         """
@@ -1060,114 +1278,301 @@ class Resources:
             )
             return False
 
-        try:
-            loop = asyncio.get_running_loop()
-
-            # Open the LanceDB chunks table at the pinned version.
-            chunks_table, degraded = await loop.run_in_executor(
-                None,
-                lambda: open_chunks_table_with_fallback(
-                    lancedb_path=config.lancedb_path,
-                    version=corpus_info.version,
-                ),
-            )
-            if degraded is not None:
-                logger.warning(
-                    "Resources.late_bind: LanceDB OPENED IN DEGRADED MODE "
-                    "(reason=%s); serving fallback version %d",
-                    degraded.reason,
-                    degraded.fallback_version,
-                )
-
-            # Build BM25 phase.
-            from server.retrieval import BM25Phase  # noqa: PLC0415
-
-            live_chunk_ids = set(
-                chunks_table.to_arrow().column("chunk_id").to_pylist()
-            )
-            bm25_phase = await BM25Phase.startup(
-                lancedb_path=config.lancedb_path,
-                corpus_version=corpus_info.version,
-                live_chunk_ids=live_chunk_ids,
-                bm25_index_root=config.bm25_index_root,
-            )
-
-            # Build ANN phase.
-            from server.retrieval import ANNPhase  # noqa: PLC0415
-
-            ann_phase = ANNPhase(chunks_table=chunks_table)
-
-            # Open retrieval cache.
-            from server.cache import RetrievalCache, set_cache  # noqa: PLC0415
-
-            retrieval_cache = await RetrievalCache.open(
-                cache_db_path=config.cache_db_path,
-                corpus_version=corpus_info.version,
-            )
-
-            # Build rerank phase (using existing semaphore/singleflight).
-            from server.retrieval.rerank import RerankPhase  # noqa: PLC0415
-
-            # onboarding-uplift-m4 F5: in bootstrap mode, the startup stub
-            # skips the reranker eager-load (reranker_model stays None).
-            # Lazy-load here BEFORE constructing RerankPhase so the
-            # enabled=True + model_handle=None combination doesn't raise.
-            if config.enable_rerank and self.reranker_model is None:
-                logger.info(
-                    "Resources.late_bind: lazily loading BGE-reranker-v2-m3 "
-                    "(skipped at bootstrap startup)"
-                )
-                self.reranker_model = await _load_reranker_or_raise()
-                logger.info("Resources.late_bind: BGE-reranker-v2-m3 warm")
-
-            rerank_phase = RerankPhase(
-                chunks_table=chunks_table,
-                rerank_singleflight=self.rerank_singleflight,
-                rerank_semaphore=self.rerank_semaphore,
-                enabled=config.enable_rerank,
-                model_handle=self.reranker_model,
-            )
-
-            # onboarding-uplift-m4 F7: publish cache AFTER RerankPhase
-            # construction succeeds — "build everything, then publish
-            # atomically". If RerankPhase raises, set_cache never runs
-            # so get_cache() stays None (no leaked global state).
-            set_cache(retrieval_cache)
-
-            # paper-metadata-m2: the backfill CLI may have hydrated the
-            # notebook's metadata store before/while the server sat in
-            # bootstrap mode. Best-effort — the helper returns None
-            # (never raises) when the file is absent or the open fails.
-            paper_metadata_store = await _open_paper_metadata_store(config)
-
-            # In-place mutate fields.  Flip bootstrap_mode_active = False
-            # LAST so all other fields are settled before handlers see False.
-            self.corpus_info = corpus_info
-            self.chunks_table = chunks_table
-            self.bm25_phase = bm25_phase
-            self.ann_phase = ann_phase
-            self.rerank_phase = rerank_phase
-            self.cache = retrieval_cache
-            self.paper_metadata_store = paper_metadata_store
-            self.degraded = degraded
-            self.warm = True
-            self.bootstrap_mode_active = False
-
-            logger.info(
-                "Resources.late_bind: promoted to normal operation "
-                "(corpus_version=%d, paper_count=%d, chunk_count=%d)",
-                corpus_info.version,
-                corpus_info.paper_count,
-                corpus_info.chunk_count,
-            )
-            return True
-
-        except Exception:  # noqa: BLE001
-            logger.exception(
+        bound = await self._bind_corpus(
+            config, corpus_info, caller="Resources.late_bind"
+        )
+        if not bound:
+            logger.error(
                 "Resources.late_bind: promotion failed; staying in "
                 "bootstrap mode. Retry via another ingest run."
             )
             return False
+
+        # Flip bootstrap_mode_active LAST, after every other field is
+        # settled — the orchestrator stub-check in server.tools reads
+        # this bool to decide whether to dispatch handlers at all.
+        self.bootstrap_mode_active = False
+        logger.info(
+            "Resources.late_bind: promoted to normal operation "
+            "(corpus_version=%d)",
+            corpus_info.version,
+        )
+        return True
+
+    # ------------------------------------------------------------------
+    # Corpus freshness (issue #207)
+    # ------------------------------------------------------------------
+
+    def _freshness_interval(self) -> float:
+        """The configured probe interval, defaulting defensively.
+
+        ``getattr`` rather than a plain attribute read because tests
+        install ``SimpleNamespace`` configs that predate this knob; a
+        missing field must fall back, not raise on the request path.
+        """
+        return getattr(
+            self.config,
+            "corpus_freshness_interval_seconds",
+            DEFAULT_FRESHNESS_INTERVAL_SECONDS,
+        )
+
+    def _get_corpus_gate(self) -> FreshnessGate:
+        """Lazily build the process-corpus freshness gate.
+
+        Lazy (not a ``default_factory``) because the throttle interval
+        comes from ``self.config`` and the gate builds an
+        ``asyncio.Lock``, which wants a running loop.
+        """
+        if self._corpus_gate is None:
+            self._corpus_gate = FreshnessGate(self._freshness_interval())
+        return self._corpus_gate
+
+    def _get_notebook_gate(self, slug: str) -> FreshnessGate:
+        """Lazily build the freshness gate for one memoized notebook.
+
+        Callers MUST hold ``self._notebook_tables_lock`` — the gate dict
+        is pruned in lockstep with ``_notebook_tables`` under that same
+        lock, so an unsynchronized insert here could resurrect a gate
+        for a slug that was just evicted.
+        """
+        gate = self._notebook_gates.get(slug)
+        if gate is None:
+            gate = FreshnessGate(self._freshness_interval())
+            self._notebook_gates[slug] = gate
+        return gate
+
+    def _can_refresh_corpus(self) -> bool:
+        """Whether this instance is eligible for a corpus rebind.
+
+        Requires a process that actually completed a corpus binding:
+        warm, with a live table and marker info. This excludes the
+        bootstrap stub (whose path is :meth:`late_bind`, not a rebind)
+        and the hand-constructed ``Resources(...)`` doubles that ~40
+        unit tests build with ``chunks_table=None`` — neither should
+        reach out to the filesystem and try to open a corpus.
+        """
+        return (
+            self.warm
+            and not self.bootstrap_mode_active
+            and self.chunks_table is not None
+            and self.corpus_info is not None
+        )
+
+    async def refresh_corpus_if_stale(
+        self, config: Config | None = None, *, force: bool = False
+    ) -> bool:
+        """Re-read the corpus marker; rebind if it names a different
+        version than the one being served. Returns ``True`` iff a
+        rebind actually landed (issue #207).
+
+        This is the seam ``server/corpus.py``'s cache-invalidation
+        contract has always described and never had. Two callers:
+
+        * :func:`server.tools._wrap_with_observability` — the PULL path,
+          on every MCP tool dispatch, throttled by
+          ``ARXMCP_CORPUS_FRESHNESS_INTERVAL_SECONDS``. Catches ingest
+          that happened outside this process.
+        * :meth:`on_ingest_complete` — the PUSH path, ``force=True``,
+          fired the moment the ``/ui/`` console's Ingest subprocess
+          exits 0. This is the one that matters for the reachable
+          consequence in #207, and it runs on a background task, so the
+          rebind normally completes before any query sees the bump.
+
+        **Any difference triggers a rebind, not just an increase.** The
+        contract text said "a higher version", but a restore-from-backup
+        lowers it, and serving v5 handles against a v3 dataset on disk
+        is the same silent lie in the other direction.
+
+        Never raises: a probe that cannot read the marker, and a rebind
+        that fails, both leave the currently-bound corpus in place.
+        """
+        cfg = config if config is not None else self.config
+        if not self._can_refresh_corpus():
+            return False
+
+        async def _probe_and_rebind() -> bool:
+            info = await read_marker_off_loop(
+                cfg.lancedb_path, reader=read_corpus_version
+            )
+            if info is None:
+                # Absent / unreadable / mid-rename. Keep serving.
+                return False
+            current = self.corpus_info
+            if current is not None and info.version == current.version:
+                return False
+            logger.warning(
+                "corpus-freshness: on-disk corpus_version=%d differs from "
+                "the served version=%s at %s; rebinding the process corpus. "
+                "Until this completes, responses echo the OLD version.",
+                info.version,
+                current.version if current is not None else "<unbound>",
+                cfg.lancedb_path,
+            )
+            return await self._bind_corpus(
+                cfg, info, caller="Resources.refresh_corpus_if_stale"
+            )
+
+        result = await self._get_corpus_gate().run_if_due(
+            _probe_and_rebind, force=force
+        )
+        return bool(result)
+
+    async def invalidate_notebook_table(self, slug: str) -> bool:
+        """Drop the memoized per-call notebook table for ``slug``.
+
+        Returns ``True`` if an entry was actually dropped. The next
+        ``filters.notebook=<slug>`` query re-opens the table through
+        :meth:`notebook_table`'s normal lazy path, at whatever version
+        the marker names then.
+
+        Also clears the retrieval cache's Tier-2 + Tier-3 memos: those
+        are keyed on the query embedding / rerank set and carry NO
+        corpus version, so a near-duplicate query after a notebook
+        re-ingest would otherwise still be answered from the pre-ingest
+        corpus. Tier-1 needs no help — its keys are version-salted.
+
+        Never raises; the caller is an ingest-completion callback whose
+        failure must not corrupt the ingest-status row.
+        """
+        dropped = False
+        async with self._notebook_tables_lock:
+            if self._notebook_tables.pop(slug, None) is not None:
+                dropped = True
+            gate = self._notebook_gates.pop(slug, None)
+            if gate is not None:
+                gate.reset()
+        if dropped:
+            logger.info(
+                "corpus-freshness: dropped the memoized notebook table for "
+                "%r; the next query re-opens it at the current version",
+                slug,
+            )
+            cache = self.cache
+            invalidate = getattr(cache, "invalidate_semantic_tiers", None)
+            if invalidate is not None:
+                try:
+                    await invalidate()
+                except Exception:  # noqa: BLE001 — cache is not correctness
+                    logger.exception(
+                        "corpus-freshness: clearing the semantic cache tiers "
+                        "failed after dropping notebook %r",
+                        slug,
+                    )
+        return dropped
+
+    async def on_ingest_complete(self, config: Config, slug: str) -> None:
+        """Corpus-freshness entry point for a completed ingest (#207).
+
+        Wired to :class:`server.ingest_tracker.IngestTaskTracker`'s
+        ``on_success_callback``, so it fires the moment the ``/ui/``
+        console's Ingest subprocess exits 0 — the operator's most common
+        action, and the path along which the pre-#207 server kept
+        serving its memoized pre-ingest table while echoing the OLD
+        ``corpus_version`` as truth.
+
+        Three steps, in order, each independently safe:
+
+        1. **Bootstrap promotion.** If the process is still a bootstrap
+           stub, this ingest is its first corpus — promote it. That
+           binds the corpus, so steps 2-3 find nothing to do.
+        2. **Drop the memoized notebook table** for ``slug``, whether or
+           not this notebook is the process corpus. Cheap, and it is the
+           only invalidation a per-call ``filters.notebook`` query needs.
+        3. **Force a process-corpus freshness check.** A no-op unless
+           the ingested notebook IS what this process serves (fork-C
+           ``ARXMCP_NOTEBOOK``, or the shared corpus): the probe reads
+           the marker, finds the version unchanged, and returns.
+
+        Never raises — the tracker logs and swallows, but a callback
+        that threw would still be a defect at this boundary.
+        """
+        try:
+            if self.bootstrap_mode_active:
+                await self.late_bind(config)
+            await self.invalidate_notebook_table(slug)
+            await self.refresh_corpus_if_stale(config, force=True)
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "Resources.on_ingest_complete: corpus-freshness handling "
+                "failed for slug=%r. The ingest itself succeeded; the "
+                "served process may still be bound to the previous corpus "
+                "until the next request-path freshness probe or a restart.",
+                slug,
+            )
+
+    async def _notebook_entry_is_stale(
+        self, slug: str, cached: tuple[Any, CorpusVersionInfo]
+    ) -> bool:
+        """Whether the memoized notebook entry no longer matches disk.
+
+        Called with ``self._notebook_tables_lock`` HELD, so the probe
+        and the resulting drop cannot interleave with another caller's
+        re-open. The gate adds throttling on top: at most one marker
+        read per slug per ``corpus_freshness_interval_seconds``, so a
+        hot notebook does not pay a ``stat``+read per query.
+
+        Returns ``False`` — "keep serving" — for every ambiguous case:
+        a marker that is absent (a delete/re-create window), unreadable,
+        or malformed. Only a marker that parses AND names a different
+        version is treated as staleness. Dropping a live table because
+        an ingest was mid-atomic-rename would be a worse bug than the
+        one this closes.
+        """
+        _table, info = cached
+        gate = self._get_notebook_gate(slug)
+
+        async def _probe() -> bool:
+            from tools._notebook_common import (  # noqa: PLC0415
+                notebook_lancedb_path,
+            )
+
+            try:
+                lancedb_path = notebook_lancedb_path(slug)
+            except Exception as exc:  # noqa: BLE001
+                # The slug validated on entry; a failure here means the
+                # notebook directory changed shape underneath us. Keep
+                # serving and let the next real open surface it.
+                logger.warning(
+                    "corpus-freshness: could not resolve the lancedb path "
+                    "for notebook %r (%s); keeping the memoized table",
+                    slug,
+                    exc,
+                )
+                return False
+            fresh = await read_marker_off_loop(
+                lancedb_path, reader=read_corpus_version
+            )
+            if fresh is None or fresh.version == info.version:
+                return False
+            logger.warning(
+                "corpus-freshness: notebook %r bumped from corpus_version=%d "
+                "to %d on disk; dropping the memoized table so the next "
+                "query reflects the new corpus",
+                slug,
+                info.version,
+                fresh.version,
+            )
+            return True
+
+        stale = bool(await gate.run_if_due(_probe))
+        if stale:
+            # A dropped entry invalidates the throttle's premise: the
+            # re-opened table is a different binding, so the next access
+            # must be free to probe again rather than sit inside the
+            # window this probe just opened.
+            gate.reset()
+            cache = self.cache
+            invalidate = getattr(cache, "invalidate_semantic_tiers", None)
+            if invalidate is not None:
+                try:
+                    await invalidate()
+                except Exception:  # noqa: BLE001 — cache is not correctness
+                    logger.exception(
+                        "corpus-freshness: clearing the semantic cache tiers "
+                        "failed after detecting a bump on notebook %r",
+                        slug,
+                    )
+        return stale
 
     async def notebook_table(
         self, slug: str
@@ -1198,6 +1603,15 @@ class Resources:
           ``self._notebook_tables_lock`` with a double-check, so two
           concurrent first-accesses cannot both open the table (fd leak)
           nor leave one request holding a closed handle.
+        * **Freshness (issue #207).** A memoized entry is NOT trusted
+          indefinitely. Before serving one, a throttled probe re-reads
+          that notebook's ``corpus-version.json``; a version that no
+          longer matches the memoized ``corpus_info`` drops the entry
+          and falls through to the re-open path below, so the caller
+          gets the new corpus AND the new ``corpus_version`` in its
+          envelope. Pre-#207 this method memoized ``(table,
+          corpus_info)`` for process lifetime with no re-check, which is
+          what let a mid-session ingest go unnoticed.
         """
         # Defer the import: tools._notebook_common is the shared C/A
         # seam (validate_slug + notebook_lancedb_path). Lazy keeps the
@@ -1215,9 +1629,16 @@ class Resources:
         async with self._notebook_tables_lock:
             cached = self._notebook_tables.get(slug)
             if cached is not None:
-                # LRU touch: most-recently-used moves to the end.
-                self._notebook_tables.move_to_end(slug)
-                return cached
+                if not await self._notebook_entry_is_stale(slug, cached):
+                    # LRU touch: most-recently-used moves to the end.
+                    self._notebook_tables.move_to_end(slug)
+                    return cached
+                # Stale — drop it and fall through to the re-open path
+                # below, which reads the marker again and pins the new
+                # version. Dropping under the SAME lock that guards the
+                # re-open means no concurrent caller can observe the
+                # gap.
+                self._notebook_tables.pop(slug, None)
 
             # Miss — open the notebook's lancedb. notebook_lancedb_path
             # re-runs the slug guard (symlink + containment) and builds
@@ -1254,9 +1675,18 @@ class Resources:
                 )
             self._notebook_tables[slug] = (table, corpus_info)
             self._notebook_tables.move_to_end(slug)
-            # Evict-oldest if over the slot cap (m2 FM-6).
+            # #207: the marker was read a few lines up, so start this
+            # slug's gate already-satisfied rather than making the next
+            # query re-read the same file.
+            self._get_notebook_gate(slug).mark_checked()
+            # Evict-oldest if over the slot cap (m2 FM-6). #207: the
+            # per-slug freshness gate is pruned in lockstep so the gate
+            # registry stays bounded by the SAME cap — an unbounded
+            # gates dict would reintroduce the fd-exhaustion shape m2
+            # FM-6 closed, one dict over.
             while len(self._notebook_tables) > MAX_NOTEBOOK_TABLE_SLOTS:
                 evicted_slug, _ = self._notebook_tables.popitem(last=False)
+                self._notebook_gates.pop(evicted_slug, None)
                 logger.info(
                     "Resources.notebook_table: evicted %r (LRU; cap=%d)",
                     evicted_slug,
@@ -1357,6 +1787,171 @@ class Resources:
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+
+async def _open_optional_lancedb_tables(
+    config: Config, *, caller: str
+) -> tuple[Any | None, Any | None]:
+    """Open the optional ``definitions`` + ``equations`` LanceDB tables.
+
+    Returns ``(definitions_table, equations_table)``, either of which is
+    ``None`` when that table is absent — a normal state that the
+    ``get_definitions`` / ``find_equation`` handlers degrade for
+    (``index_status="absent"`` / ``retrieval_mode="dense_only_fallback"``).
+    Never raises: these are enrichments, not hard requirements.
+
+    Extracted from :meth:`Resources.startup` for issue #207 so the
+    corpus-rebind path (:meth:`Resources._bind_corpus`) opens them the
+    SAME way rather than inheriting handles bound to the previous
+    corpus. Before the extraction, ``late_bind`` did not open them at
+    all — a bootstrap-mode server never got its optional tables until a
+    restart.
+
+    ``caller`` only labels the log lines, so an operator reading the
+    journal can tell a cold start from a mid-session rebind.
+
+    F7 (E10_S03 critique) — share ONE ``lancedb.connect`` across both
+    tables. LanceDB's idiom is one connection per process with multiple
+    ``open_table`` calls on top of it.
+    """
+    definitions_table: Any | None = None
+    equations_table: Any | None = None
+    loop = asyncio.get_running_loop()
+    try:
+        import lancedb  # noqa: PLC0415
+
+        from ingest.schema import (  # noqa: PLC0415
+            DEFINITIONS_TABLE_NAME,
+            EQUATIONS_TABLE_NAME,
+        )
+
+        db_conn = await loop.run_in_executor(
+            None,
+            lambda: lancedb.connect(str(Path(config.lancedb_path).resolve())),
+        )
+
+        # Try open_table directly rather than relying on a
+        # version-fragile table-listing API. LanceDB raises
+        # ``ValueError`` (and on some versions ``FileNotFoundError``)
+        # when the table is absent; either is the cue to skip.
+        try:
+            definitions_table = await loop.run_in_executor(
+                None,
+                lambda: db_conn.open_table(DEFINITIONS_TABLE_NAME),
+            )
+            logger.info(
+                "%s: opened LanceDB %s table", caller, DEFINITIONS_TABLE_NAME
+            )
+        except (ValueError, FileNotFoundError):
+            logger.info(
+                "%s: %s table not present; get_definitions will return "
+                "index_status=absent",
+                caller,
+                DEFINITIONS_TABLE_NAME,
+            )
+
+        # Equations table (E10_S03). Same pattern — missing table is
+        # normal at v1 because the equation atom extractor is deferred.
+        try:
+            equations_table = await loop.run_in_executor(
+                None,
+                lambda: db_conn.open_table(EQUATIONS_TABLE_NAME),
+            )
+            logger.info(
+                "%s: opened LanceDB %s table", caller, EQUATIONS_TABLE_NAME
+            )
+        except (ValueError, FileNotFoundError):
+            logger.info(
+                "%s: %s table not present; find_equation will use "
+                "dense-only fallback for MathML inputs",
+                caller,
+                EQUATIONS_TABLE_NAME,
+            )
+    except Exception as exc:  # noqa: BLE001 — both tables are non-critical
+        logger.warning("%s: could not open optional tables: %s", caller, exc)
+    return definitions_table, equations_table
+
+
+async def _open_theorem_names_store(config: Config, *, caller: str) -> Any | None:
+    """Open the theorem-names SQLite FTS5 store, or return ``None``.
+
+    Same lazy-open contract as the optional LanceDB tables — a missing
+    file is normal until ``python -m ingest.index_theorem_names`` runs,
+    and ``find_lemma_by_name`` falls back to the in-memory scan
+    (``retrieval_mode="in_memory_scan_fallback"``). Never raises.
+
+    Extracted alongside :func:`_open_optional_lancedb_tables` for issue
+    #207; see that function's docstring for why.
+    """
+    try:
+        from server.theorem_names_store import TheoremNamesStore  # noqa: PLC0415
+
+        tdb_path = Path(config.theorem_names_db_path)
+        if not tdb_path.exists():
+            logger.info(
+                "%s: theorem_names DB not present at %s; find_lemma_by_name "
+                "will use in-memory scan fallback",
+                caller,
+                tdb_path,
+            )
+            return None
+        store = await TheoremNamesStore.open(tdb_path)
+        # F5 (E10_S02 critique) — log the row count so an empty store
+        # (a recent schema bump, or a never-completed first ingest) is
+        # distinguishable from a populated one. An empty store + cold
+        # corpus would otherwise be indistinguishable from "no named
+        # theorems anywhere in the corpus."
+        row_count = await store.row_count()
+        logger.info(
+            "%s: opened theorem_names SQLite store at %s (rows=%d)",
+            caller,
+            tdb_path,
+            row_count,
+        )
+        if row_count == 0:
+            logger.warning(
+                "%s: theorem_names store is EMPTY. Re-run "
+                "`python -m ingest.index_theorem_names` to populate it; "
+                "until then find_lemma_by_name returns zero matches.",
+                caller,
+            )
+        return store
+    except Exception as exc:  # noqa: BLE001 — non-critical enrichment
+        logger.warning("%s: could not open theorem_names store: %s", caller, exc)
+        return None
+
+
+async def _close_quietly(handle: Any, *, label: str) -> None:
+    """Await ``handle.close()`` if it has one, swallowing any failure.
+
+    Used by :meth:`Resources._bind_corpus` to release the PREVIOUS
+    corpus's SQLite handles after the swap. A rebind that leaked them
+    would turn every ingest into a permanent fd + WAL-handle leak in a
+    long-lived server — the kind of slow failure a once-per-ingest code
+    path hides for weeks. Best-effort by design: the new handles are
+    already live, so a close error must not fail the rebind.
+
+    **Known narrow window.** A request that read ``get_cache()`` just
+    before the swap holds the OLD cache object and can have it closed
+    underneath it. Every cache method logs-and-falls-through on error
+    (``.claude/notes/07-multi-agent-caching.md``: caching is
+    performance, not correctness), so the worst outcome is one logged
+    cache miss on one request, at most once per ingest. Closing after
+    the swap rather than before is what keeps the window this small;
+    the alternatives are leaking a handle per ingest or refcounting
+    every cache borrow, and neither is worth it for a miss.
+    """
+    if handle is None:
+        return
+    close = getattr(handle, "close", None)
+    if close is None:
+        return
+    try:
+        result = close()
+        if asyncio.iscoroutine(result):
+            await result
+    except Exception:  # noqa: BLE001
+        logger.exception("corpus rebind: closing the previous %s failed", label)
 
 
 async def _open_paper_metadata_store(config: Config) -> Any | None:
