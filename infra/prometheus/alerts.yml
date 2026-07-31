@@ -75,6 +75,78 @@ groups:
             log for arxmcp-backup.service.
           runbook_url: "https://github.com/chris-dare-dev/arXMCP/blob/main/docs/ops/backup-restore.md"
 
+      # Backup outcome. chris-dare-dev/arXMCP#203 — before these rules
+      # the ONLY backup alert was ArXMCPBackupStale above, which reads
+      # the freshness gauge. Nothing anywhere referenced
+      # arxmcp_backup_status, so the state cells were emitted and never
+      # consumed: a backup could fail every night and, because the
+      # wrapper stamped finished_at regardless, the freshness gauge kept
+      # advancing and no rule fired at all. These three close that gap
+      # by alerting on the status metric itself. The state vocabulary is
+      # the shared one in server/backup_status.py +
+      # ops/cron/backup-status-lib.sh.
+      - alert: ArXMCPBackupFailed
+        expr: arxmcp_backup_status{state="failed"} == 1
+        for: 5m
+        labels:
+          severity: critical
+          component: backup
+        annotations:
+          summary: "last restic backup run produced no usable snapshot"
+          description: |
+            The most recent nightly run exited without a snapshot.
+            Data written since the last good backup is unprotected.
+            Read var/arxmcp/ops/backup-status.json (restic_backup_exit)
+            and `journalctl -u arxmcp-backup` for the restic error.
+          runbook_url: "https://github.com/chris-dare-dev/arXMCP/blob/main/docs/ops/backup-restore.md"
+
+      # `partial` means a snapshot EXISTS but the run was not clean:
+      # restic exit 3 (unreadable files), a degraded notebooks.db WAL
+      # checkpoint, or a failed retention pass. Warning, not critical —
+      # recoverable data was captured. It does NOT advance the
+      # last-success clock, so a run of partials also trips
+      # ArXMCPBackupStale after 48h, which is the intended escalation.
+      - alert: ArXMCPBackupPartial
+        expr: arxmcp_backup_status{state="partial"} == 1
+        for: 5m
+        labels:
+          severity: warning
+          component: backup
+        annotations:
+          summary: "last restic backup completed partial (snapshot not clean)"
+          description: |
+            A snapshot was taken but the run was not fully clean.
+            Read the backup_status and forget_status fields of
+            var/arxmcp/ops/backup-status.json to see which phase
+            degraded. A degraded notebooks.db WAL checkpoint means the
+            captured DB may be stale or corrupt-on-restore; the -wal
+            and -shm sidecars were included so the set can recover.
+          runbook_url: "https://github.com/chris-dare-dev/arXMCP/blob/main/docs/ops/backup-restore.md"
+
+      # Producer/consumer vocabulary drift tripwire. The `unknown` cell
+      # lights up only when the wrapper writes a status token the server
+      # does not recognise — i.e. a regression of arXMCP#202 itself,
+      # where the emitted vocabulary and the consumed enum were
+      # disjoint and every backup, including a perfect one, classified
+      # as unknown. Also fires on a corrupted sentinel.
+      - alert: ArXMCPBackupStatusUnknown
+        expr: arxmcp_backup_status{state="unknown"} == 1
+        for: 15m
+        labels:
+          severity: warning
+          component: backup
+        annotations:
+          summary: "backup sentinel reports an unrecognised status token"
+          description: |
+            var/arxmcp/ops/backup-status.json carries a `status` value
+            outside the shared vocabulary, so the real outcome of the
+            backup is UNKNOWN and the ok/partial/failed rules are all
+            silent. Grep the server log for "reports unknown state" to
+            see the offending token, then reconcile
+            ops/cron/backup-status-lib.sh with
+            server/backup_status.py.
+          runbook_url: "https://github.com/chris-dare-dev/arXMCP/blob/main/docs/ops/backup-restore.md"
+
       # Eval-quarantine sentinel (E11_S04). Surfaces the watchdog's
       # regression-detected state to Prometheus.
       - alert: ArXMCPEvalQuarantine

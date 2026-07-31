@@ -42,6 +42,13 @@ from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse
 from prometheus_client import Counter, Gauge
 
+from server.backup_status import (
+    BACKUP_STATE_UNKNOWN,
+    BACKUP_STATES,
+    advances_freshness,
+    classify_backup_state,
+)
+
 if TYPE_CHECKING:
     from server.resources import Resources
 
@@ -64,16 +71,76 @@ _BACKUP_STATUS_NAME: str = "backup-status.json"
 _INGEST_SUMMARY_NAME: str = "ingest-summary.json"
 _EVAL_REPORTS_DIR: str = "eval-reports"
 
-#: Backup states that the wrapper may emit, in the order
-#: ``backup-status.json`` documents (see
-#: ``docs/ops/backup-restore.md``). Used by
-#: :func:`refresh_sentinel_metrics` to zero-out the inactive
-#: states so exactly one cell is 1.0 at a time. ``"unknown"`` is
-#: the catch-all bucket the scrape hook lights up when the wrapper
-#: emits a state outside the documented set — closes F4 from the
-#: E14_S01 adversary critique (silent alert suppression on
-#: corrupted / future state strings).
-_BACKUP_STATES: tuple[str, ...] = ("ok", "failed", "running", "unknown")
+#: Backup label cells, sourced from the SHARED producer/consumer
+#: vocabulary in :mod:`server.backup_status` — see that module for why
+#: this must not be re-declared locally (``chris-dare-dev/arXMCP#202``:
+#: the local literal drifted disjoint from what the wrapper emitted, so
+#: every backup classified as ``unknown``). Used by
+#: :func:`refresh_sentinel_metrics` to zero-out the inactive states so
+#: exactly one cell is 1.0 at a time. ``"unknown"`` is the catch-all the
+#: scrape hook lights up when the wrapper emits a state outside the
+#: shared set — closes F4 from the E14_S01 adversary critique (silent
+#: alert suppression on corrupted / future state strings).
+_BACKUP_STATES: tuple[str, ...] = BACKUP_STATES
+
+
+def _last_success_stamp(
+    payload: dict[str, object], bucket: str | None
+) -> str | None:
+    """The ISO-8601 timestamp of the last SUCCESSFUL backup as recorded by
+    ``backup-status.json``, or ``None`` when there has never been one.
+
+    Shared by BOTH backup consumers — :func:`refresh_sentinel_metrics`
+    (``arxmcp_backup_last_success_timestamp_seconds``) and
+    :func:`compute_health_status` (the ``backup:time`` check) — so the two
+    can never disagree about when the last good backup happened. That
+    divergence is the shape ``chris-dare-dev/arXMCP#203`` took.
+
+    Resolution order:
+
+    1. ``last_success_at``, read **unconditionally**. The wrapper carries
+       this field forward onto every sentinel it writes, including the
+       failed / partial / running ones, so it names the last good run
+       regardless of how the current one went. Reading it without gating on
+       ``status`` is the whole point: it is what survives a server restart
+       taken while the latest run was not ``ok``. Before this field existed
+       the freshness gauge was pure process state that only an ``ok``
+       sentinel could seed, so such a restart left it at 0.0 with nothing
+       able to advance it — ``ArXMCPBackupStale`` fired instantly with an
+       age measured from epoch 0.
+    2. ``finished_at``, but only when ``bucket`` is a freshness-advancing
+       state. This is the upgrade path for sentinels written before the
+       wrapper carried the field, and the gate is #203 itself: the wrapper
+       stamps ``finished_at`` on every run that reaches the end, success or
+       not, so on its own it is not evidence of a backup having happened.
+
+    A candidate that is not a parseable timestamp is skipped with a WARNING
+    rather than raised on, so one corrupt field cannot cost the caller the
+    other, usable one.
+    """
+    from datetime import datetime  # noqa: PLC0415
+
+    gate_ok = bucket is not None and advances_freshness(bucket)
+    for key, gated in (("last_success_at", False), ("finished_at", True)):
+        if gated and not gate_ok:
+            continue
+        candidate = payload.get(key)
+        if not isinstance(candidate, str) or not candidate:
+            continue
+        try:
+            # ``fromisoformat`` handles RFC-3339 including the trailing-``Z``
+            # form on Python 3.11+, which is the project floor.
+            datetime.fromisoformat(candidate)
+        except ValueError:
+            logger.warning(
+                "backup-status.json carries an unparseable %s=%r; ignoring it",
+                key,
+                candidate,
+            )
+            continue
+        return candidate
+    return None
+
 
 #: Maximum bytes the scrape hook will ``read_text`` from any
 #: cron-emitted sentinel file. Each ``/metrics`` scrape walks
@@ -448,30 +515,70 @@ async def compute_health_status(
     checks["disk:utilization"] = [disk_check]
 
     # last-backup recency. Read finished_at defensively; absent or >25h → warn.
-    # (The status-string enum lives in /metrics; here recency is the robust
-    # signal.) backup-status.json carries both ``status`` (overall) and
-    # ``backup_status`` (backup phase) keys; recency does not depend on either.
+    # backup-status.json carries both ``status`` (overall run outcome) and
+    # ``backup_status`` (backup phase) keys.
+    #
+    # chris-dare-dev/arXMCP#203 — recency is gated on ``status`` FIRST. This
+    # check used to trust ``finished_at`` on its own, and the wrapper stamps
+    # that field on every run that reaches the end, success or not. So a run
+    # of failing backups kept ``backup:time`` reporting pass, exactly like
+    # the /metrics freshness gauge did. Both consumers now share one
+    # verdict: only a state in FRESHNESS_ADVANCING_STATES counts as a
+    # backup having happened.
     backup_warn = False
     backup_check: dict[str, object] = {
         "componentType": "system", "status": "pass", "time": t,
     }
     try:
+        from datetime import datetime  # noqa: PLC0415
+
         backup_path = Path(resources.config.ops_dir) / _BACKUP_STATUS_NAME
-        finished_at = None
+        payload: object = None
         if backup_path.is_file():
             raw = _read_capped(backup_path)
             payload = json.loads(raw) if raw else None
-            if isinstance(payload, dict):
-                finished_at = payload.get("finished_at")
-        if not isinstance(finished_at, str) or not finished_at:
+        backup_state = None
+        last_success = None
+        if isinstance(payload, dict):
+            backup_state = classify_backup_state(payload.get("status"))
+            # The same resolver /metrics uses, so ``backup:time`` and
+            # ``arxmcp_backup_last_success_timestamp_seconds`` cannot report
+            # different last-good times. ``last_success_at`` is carried
+            # forward by the wrapper, so this stays meaningful across a
+            # restart taken while the latest run was failed / partial.
+            last_success = _last_success_stamp(payload, backup_state)
+
+        def _age_hours(stamp: str) -> int:
+            return int(
+                max(0.0, clock - datetime.fromisoformat(stamp).timestamp())
+                // 3600
+            )
+
+        if backup_state is not None and not advances_freshness(backup_state):
+            # chris-dare-dev/arXMCP#203 — the latest run did not succeed, so
+            # warn no matter how fresh the last GOOD backup is. What changed
+            # with the carried field is only what we can SAY about it: the
+            # true last-good timestamp instead of nothing.
+            backup_warn = True
+            backup_check["status"] = "warn"
+            detail = (
+                "no successful backup on record"
+                if last_success is None
+                else f"last success {_age_hours(last_success)}h ago"
+            )
+            if last_success is not None:
+                backup_check["observedValue"] = last_success
+            backup_check["output"] = (
+                f"last backup run did not succeed "
+                f"(status={backup_state}); {detail}"
+            )
+        elif last_success is None:
             backup_warn = True
             backup_check["status"] = "warn"
             backup_check["output"] = "no backup recorded"
         else:
-            from datetime import datetime  # noqa: PLC0415
-
-            age = clock - datetime.fromisoformat(finished_at).timestamp()
-            backup_check["observedValue"] = finished_at
+            backup_check["observedValue"] = last_success
+            age = clock - datetime.fromisoformat(last_success).timestamp()
             if age > _BACKUP_STALE_SECONDS:
                 backup_warn = True
                 backup_check["status"] = "warn"
@@ -644,10 +751,14 @@ def refresh_sentinel_metrics(ops_dir: Path) -> None:
       set to 1.0. Absence sets the gauge to 0.0.
     - ``eval-quarantine.flag`` / ``delta-timeout.flag`` — touch-file
       style; presence sets the gauge to 1.0, absence to 0.0.
-    - ``backup-status.json`` — JSON ``{"status": "ok"|"failed"|"running",
-      "finished_at": <iso8601>}``. ``finished_at`` is parsed to an
-      epoch and set on :data:`BACKUP_LAST_SUCCESS_GAUGE`; ``status``
-      drives exclusive 1.0 on :data:`BACKUP_STATUS_GAUGE{state}`.
+    - ``backup-status.json`` — JSON ``{"status":
+      "ok"|"partial"|"failed"|"running", "finished_at": <iso8601>,
+      "last_success_at": <iso8601>|null}``. ``status`` drives exclusive
+      1.0 on :data:`BACKUP_STATUS_GAUGE{state}`;
+      :data:`BACKUP_LAST_SUCCESS_GAUGE` is set from whichever timestamp
+      :func:`_last_success_stamp` resolves — ``last_success_at``, which
+      the wrapper carries forward across runs, else ``finished_at`` on a
+      run that actually succeeded.
     - ``eval-reports/corpus_v<N>-*.json`` — the watchdog's per-corpus-
       version nDCG@5 reports. The N most-recent reports drive
       :data:`EVAL_NDCG5_GAUGE`; older labels are evicted from the
@@ -687,36 +798,54 @@ def refresh_sentinel_metrics(ops_dir: Path) -> None:
             raw = _read_capped(backup_status)
             payload = json.loads(raw) if raw is not None else None
             if payload is not None:
-                finished_at = payload.get("finished_at")
-                if isinstance(finished_at, str) and finished_at:
-                    # ``datetime.fromisoformat`` handles RFC-3339 (including
-                    # the trailing-``Z`` form on Python 3.11+, which is the
-                    # project floor).
+                # chris-dare-dev/arXMCP#203 — CLASSIFY THE RUN FIRST, then
+                # decide whether it may touch the freshness clock. This
+                # block used to set BACKUP_LAST_SUCCESS_GAUGE from
+                # ``finished_at`` BEFORE inspecting ``status`` at all, so a
+                # FAILED run advanced ``last_success`` and suppressed
+                # ArXMCPBackupStale — the alerting surface read healthy
+                # exactly while backups were broken. Order is load-bearing;
+                # do not hoist the ``finished_at`` read back above this.
+                raw_state = payload.get("status")
+                # F4 rectification — unknown / corrupted / future state
+                # strings light up the ``unknown`` cell instead of silently
+                # zeroing every state. Operators wiring
+                # ``arxmcp_backup_status{state="failed"}`` alerts would
+                # otherwise miss a regression to an emit-mismatched-string
+                # wrapper bug (which is precisely what #202 was).
+                bucket = classify_backup_state(raw_state)
+                if bucket == BACKUP_STATE_UNKNOWN:
+                    logger.warning(
+                        "backup-status.json at %s reports unknown state "
+                        "%r; routing to arxmcp_backup_status{state=\"unknown\"}",
+                        backup_status,
+                        raw_state,
+                    )
+                for s in _BACKUP_STATES:
+                    BACKUP_STATUS_GAUGE.labels(state=s).set(
+                        1.0 if s == bucket else 0.0
+                    )
+
+                # Only a fully clean run advances the last-success clock.
+                # A failed / partial / running / unknown run re-states the
+                # timestamp the wrapper carried forward, so the age of the
+                # last GOOD backup keeps growing and ArXMCPBackupStale can
+                # fire — see :func:`_last_success_stamp` for why the carried
+                # field is read WITHOUT gating on the current run's status,
+                # and why ``finished_at`` still is gated.
+                #
+                # The gauge is never cleared here. A sentinel that names no
+                # successful run at all leaves the prior value alone rather
+                # than zeroing it: on this path a zero reads as "no backup
+                # has ever succeeded", which is a stronger claim than the
+                # sentinel supports.
+                stamp = _last_success_stamp(payload, bucket)
+                if stamp is not None:
                     from datetime import datetime  # noqa: PLC0415
 
                     BACKUP_LAST_SUCCESS_GAUGE.set(
-                        datetime.fromisoformat(finished_at).timestamp()
+                        datetime.fromisoformat(stamp).timestamp()
                     )
-                state = payload.get("status")
-                if isinstance(state, str):
-                    # F4 rectification — unknown / corrupted / future state
-                    # strings light up the ``unknown`` cell instead of
-                    # silently zeroing every state. Operators wiring
-                    # ``arxmcp_backup_status{state="failed"}`` alerts
-                    # would otherwise miss a regression to an emit-
-                    # mismatched-string wrapper bug.
-                    bucket = state if state in _BACKUP_STATES else "unknown"
-                    if bucket == "unknown":
-                        logger.warning(
-                            "backup-status.json at %s reports unknown state "
-                            "%r; routing to arxmcp_backup_status{state=\"unknown\"}",
-                            backup_status,
-                            state,
-                        )
-                    for s in _BACKUP_STATES:
-                        BACKUP_STATUS_GAUGE.labels(state=s).set(
-                            1.0 if s == bucket else 0.0
-                        )
         except (json.JSONDecodeError, OSError, ValueError):
             logger.warning(
                 "backup-status.json at %s is malformed; leaving prior gauge values",

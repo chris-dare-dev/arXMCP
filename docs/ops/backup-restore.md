@@ -297,7 +297,10 @@ is safe if no `arxmcp-backup` process is actually running.
 
 ```json
 {
+  "backup_status": "ok",
   "finished_at": "2026-05-15T03:51:12Z",
+  "forget_status": "ok",
+  "last_success_at": "2026-05-15T03:51:12Z",
   "paths_backed_up": [
     ".../var/arxmcp/index/lancedb",
     ".../var/arxmcp/index/kuzu",
@@ -306,11 +309,46 @@ is safe if no `arxmcp-backup` process is actually running.
     ".../var/arxmcp/cache/notebooks.db"
   ],
   "repository": "/mnt/nas/arxmcp",
+  "restic_backup_exit": 0,
+  "restic_forget_exit": 0,
   "snapshot_id": "abc12345",
   "started_at": "2026-05-15T03:30:00Z",
-  "status": "success"
+  "status": "ok"
 }
 ```
+
+#### Status vocabulary
+
+`status` is the single token the `/metrics` and `/status` readers
+consume. It is **shared**, not per-file: the producer half lives in
+[`ops/cron/backup-status-lib.sh`](../../ops/cron/backup-status-lib.sh)
+and the consumer half in
+[`server/backup_status.py`](../../server/backup_status.py), bound by
+`tests/test_backup_status_vocabulary.py`.
+
+| `status` | Meaning | Advances `last_success`? |
+|---|---|---|
+| `ok` | Snapshot taken **and** retention applied. | yes |
+| `partial` | A snapshot exists but the run was not clean — `restic backup` exit 3, a degraded `notebooks.db` WAL checkpoint, or a failed `restic forget`. | no |
+| `failed` | No usable snapshot; `restic backup` hard-failed. `snapshot_id` is `null` and `paths_backed_up` is empty. | no |
+| `running` | Two-phase sentinel: snapshot landed, `forget` still in flight. Carries no `finished_at`. | no |
+
+`unknown` is a **consumer-only** cell. The wrapper never writes it; the
+server routes any unrecognised token there and logs a WARNING, which is
+what `ArXMCPBackupStatusUnknown` alerts on.
+
+The "advances `last_success`" column above is about `last_success_at`,
+which every sentinel carries — a `failed` / `partial` / `running` run
+re-states the value the prior run left rather than dropping it. Only an
+`ok` run replaces it with its own `finished_at`. `null` means no
+successful backup is on record at all. See "Metrics surface" below.
+
+Which phase degraded a `partial` run is read off the separate
+`backup_status` and `forget_status` fields — deliberately not folded
+back into `status`. Composite tokens of the form
+`backup_<x>_forget_<y>` were the arXMCP#202 bug: they matched no
+consumer state, so every run — including a perfect one — classified as
+`unknown` and `arxmcp_backup_status{state="ok"}` sat at 0.0 forever.
 
 ### `var/arxmcp/ops/restore-drill-passed.flag`
 
@@ -356,17 +394,64 @@ rehydrated at scrape time from `var/arxmcp/ops/backup-status.json`:
 
 | Metric | Type | Meaning |
 |---|---|---|
-| `arxmcp_backup_last_success_timestamp_seconds` | Gauge | Unix epoch of the last successful backup (from `finished_at`). `0` until the first backup runs. |
-| `arxmcp_backup_status{state="ok"\|"failed"\|"running"}` | Gauge | Exclusive 1.0 on the current state. All three cells are `0` until the first backup runs. |
+| `arxmcp_backup_last_success_timestamp_seconds` | Gauge | Unix epoch of the last **successful** backup, taken from the sentinel's `last_success_at`. `0` until the first successful backup runs. |
+| `arxmcp_backup_status{state="ok"\|"partial"\|"failed"\|"running"\|"unknown"}` | Gauge | Exclusive 1.0 on the current state. All cells are `0` until the first backup runs. |
 
-Suggested alert rules (PromQL):
+The freshness gauge is gated on `status`, so a failed or partial run
+leaves it where the last good backup put it and its age keeps growing.
+Before arXMCP#203 the reader stamped it from `finished_at` *before*
+looking at `status` at all — a nightly backup could fail indefinitely
+while `ArXMCPBackupStale` stayed silent, because the failing runs kept
+moving the clock forward.
+
+**The last-good time survives a restart.** The freshness gauge is still
+process state rehydrated from the sentinel, and the sentinel still
+records only the *most recent* run — but the wrapper now carries a
+`last_success_at` field forward onto **every** sentinel it writes,
+including the `failed` / `partial` / `running` ones. So a server restart
+taken while the latest run is broken rehydrates the gauge to the real
+last-good timestamp instead of starting at `0`, and `ArXMCPBackupStale`
+fires (when it should) with a meaningful age. `/status`'s `backup:time`
+check reads the same field, and reports both facts at once: that the
+latest run did not succeed, *and* how long ago the last one that did was.
+
+Mechanics: `ops/cron/arxmcp-backup.sh` reads the prior sentinel before
+overwriting it (`arxmcp_backup_prior_last_success` in
+[`ops/cron/backup-status-lib.sh`](../../ops/cron/backup-status-lib.sh)),
+preferring the prior `last_success_at` and falling back to the prior
+`finished_at` only when that run's `status` was `ok` — the upgrade path
+for sentinels written before the field existed. The value advances only
+on a clean run, the same gate as `FRESHNESS_ADVANCING_STATES`. It is
+`null` until the first success, which a consumer must read as "no
+successful backup on record" rather than as a timestamp.
+
+Two residual notes for triage. A sentinel written by a pre-`last_success_at`
+wrapper carries no history, so the first run after the upgrade reports
+`null` unless that older sentinel happened to be `ok`; the next clean run
+seeds the chain. And the field is a *record of*, not a *proof of*, a
+snapshot — `restic snapshots` remains the ground truth if you suspect the
+sentinel itself.
+
+Shipped alert rules live in
+[`infra/prometheus/alerts.yml`](../../infra/prometheus/alerts.yml):
+`ArXMCPBackupStale` (freshness), plus `ArXMCPBackupFailed`,
+`ArXMCPBackupPartial`, and `ArXMCPBackupStatusUnknown` on the status
+metric itself. Triage from the state cell:
 
 ```promql
-# Backup more than 25 hours late
-time() - arxmcp_backup_last_success_timestamp_seconds > 90000
+# No clean backup in 48h (freshness — catches a silently dead cron too)
+(time() - arxmcp_backup_last_success_timestamp_seconds) > 172800
 
-# Most recent backup outcome is failure
+# Most recent run produced no snapshot
 arxmcp_backup_status{state="failed"} == 1
+
+# Snapshot exists but the run was not clean — read backup_status /
+# forget_status in the sentinel to see which phase degraded
+arxmcp_backup_status{state="partial"} == 1
+
+# The wrapper wrote a token the server does not recognise: the
+# producer and consumer vocabularies have drifted apart again
+arxmcp_backup_status{state="unknown"} == 1
 ```
 
 Refresh happens on every `/metrics` scrape via

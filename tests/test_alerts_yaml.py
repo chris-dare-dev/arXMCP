@@ -73,6 +73,12 @@ def test_required_alerts_present():
         # protection for the new corpus-integrity rules.
         "ArXMCPCorpusCountRowsFailed",
         "ArXMCPCorpusUnindexedRows",
+        # chris-dare-dev/arXMCP#203: nothing referenced
+        # arxmcp_backup_status, so the status cells were emitted and
+        # never consumed. These three make the metric load-bearing.
+        "ArXMCPBackupFailed",
+        "ArXMCPBackupPartial",
+        "ArXMCPBackupStatusUnknown",
     }
     missing = required - alerts
     assert not missing, (

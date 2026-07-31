@@ -26,6 +26,7 @@ from types import SimpleNamespace
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from server.backup_status import BACKUP_STATE_FAILED, BACKUP_STATE_OK
 from server.health import compute_health_status
 from server.health import router as health_router
 from tools.status_line import format_status_line
@@ -75,7 +76,9 @@ def _write_recent_backup(ops_dir: Path) -> None:
     (ops_dir / "backup-status.json").write_text(
         json.dumps({
             "finished_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "status": "success",
+            # arXMCP#202: "success" was never a token any consumer knew.
+            # The shared vocabulary lives in server/backup_status.py.
+            "status": BACKUP_STATE_OK,
         }),
         encoding="utf-8",
     )
@@ -164,6 +167,28 @@ class TestComputeHealthStatus:
         assert report["status"] == "warn"
         assert report["checks"]["backup:time"][0]["status"] == "warn"
 
+    def test_warn_when_recent_backup_run_failed(self, tmp_path):
+        """chris-dare-dev/arXMCP#203 — the wrapper stamps ``finished_at``
+        on every run that reaches the end, success or not. A fresh
+        timestamp from a FAILED run must not read as a healthy backup;
+        pre-fix this check trusted the timestamp alone and reported pass.
+        """
+        ops = tmp_path / "ops"
+        ops.mkdir()
+        (ops / "backup-status.json").write_text(
+            json.dumps({
+                "finished_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "status": BACKUP_STATE_FAILED,
+            }),
+            encoding="utf-8",
+        )
+        res = _FakeResources(warm=True, data_dir=tmp_path, ops_dir=ops)
+        report = _run(compute_health_status(res, _FakeStore(1)))
+        assert report["status"] == "warn"
+        check = report["checks"]["backup:time"][0]
+        assert check["status"] == "warn"
+        assert "did not succeed" in check["output"]
+
     def test_warn_when_store_absent_does_not_500(self, tmp_path):
         _write_recent_backup(tmp_path / "ops")
         res = _FakeResources(
@@ -211,7 +236,11 @@ class TestComputeHealthStatus:
                 fixed_now - age_seconds, UTC
             ).strftime("%Y-%m-%dT%H:%M:%SZ")
             (ops / "backup-status.json").write_text(
-                json.dumps({"finished_at": ts}), encoding="utf-8"
+                # The status must be a real success, or the arXMCP#203 gate
+                # below warns for that reason instead of the age boundary
+                # this test is pinning.
+                json.dumps({"finished_at": ts, "status": BACKUP_STATE_OK}),
+                encoding="utf-8",
             )
 
         # Just inside the window → backup check passes.

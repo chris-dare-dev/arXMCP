@@ -70,9 +70,46 @@ fi
 export ARXMCP_RESTIC_CHECK=1
 source "${ENV_FILE}"
 
+# Closes chris-dare-dev/arXMCP#202: the sentinel status vocabulary is
+# SHARED with the consumer, not re-invented here. This lib is the shell
+# half of the contract; server/backup_status.py is the Python half, and
+# tests/test_backup_status_vocabulary.py binds them. Previously this
+# wrapper emitted "success" and backup_<x>_forget_<y> composites that
+# matched NO consumer state, so every run landed in
+# arxmcp_backup_status{state="unknown"}.
+STATUS_LIB="'"${REPO_ROOT}"'/ops/cron/backup-status-lib.sh"
+if [ ! -f "${STATUS_LIB}" ]; then
+    echo "ERROR: ${STATUS_LIB} missing. It is the shared status " \
+         "vocabulary; refusing to emit an unvalidated status." >&2
+    exit 1
+fi
+source "${STATUS_LIB}"
+
 STATUS_FILE="'"${REPO_ROOT}"'/var/arxmcp/ops/backup-status.json"
 TMP_STATUS="${STATUS_FILE}.tmp"
 STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+# Closes the #202/#203 follow-up documented in docs/ops/backup-restore.md.
+# The sentinel records only the MOST RECENT run, and the consumers freshness
+# gauge is process state rehydrated from it at each /metrics scrape — so a
+# server restart while the latest run was failed/partial started the gauge at
+# 0.0 with nothing able to advance it, and ArXMCPBackupStale fired with an age
+# measured from epoch 0. Read the prior sentinel BEFORE overwriting it and
+# carry the last-good timestamp into every sentinel this run writes, including
+# the failed/partial/running ones. See arxmcp_backup_prior_last_success in the
+# shared lib for the resolution order and why finished_at alone is not enough.
+#
+# Emitted as a JSON literal so "never yet succeeded" is null, not "" — a
+# consumer must be able to tell "no successful backup on record" apart from a
+# malformed field. The read is best-effort: `|| true` keeps a bookkeeping
+# hiccup from aborting the backup itself under set -euo pipefail.
+PRIOR_LAST_SUCCESS="$(arxmcp_backup_prior_last_success \
+    "${STATUS_FILE}" "${ARXMCP_BACKUP_STATE_OK}" || true)"
+if [ -n "${PRIOR_LAST_SUCCESS}" ]; then
+    PRIOR_LAST_SUCCESS_JSON="\"${PRIOR_LAST_SUCCESS}\""
+else
+    PRIOR_LAST_SUCCESS_JSON="null"
+fi
 
 # notebook-ops-hardening-m1: include non-regenerable user data.
 #   - notebooks/ (whole subtree): uploaded PDFs (pdf-deferred/, pdfs/),
@@ -147,6 +184,29 @@ RESTIC_BACKUP_EXIT=$?
 set -e
 if [ "${RESTIC_BACKUP_EXIT}" -ne 0 ] && [ "${RESTIC_BACKUP_EXIT}" -ne 3 ]; then
     echo "ERROR: restic backup failed (exit ${RESTIC_BACKUP_EXIT})" >&2
+    # Closes chris-dare-dev/arXMCP#202 (second half): emit a FAILED
+    # sentinel before exiting. Previously this path exited without
+    # writing anything, so the sentinel kept yesterdays values and
+    # arxmcp_backup_status{state="failed"} could never become 1.0 —
+    # the state was unreachable, which made any alert on it dead.
+    # Nothing was captured, so paths_backed_up is empty and there is
+    # no snapshot id.
+    FAILED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    cat > "${TMP_STATUS}" <<EOF
+{
+  "backup_status": "${ARXMCP_BACKUP_STATE_FAILED}",
+  "finished_at": "${FAILED_AT}",
+  "forget_status": null,
+  "last_success_at": ${PRIOR_LAST_SUCCESS_JSON},
+  "paths_backed_up": [],
+  "repository": "${RESTIC_REPOSITORY}",
+  "restic_backup_exit": ${RESTIC_BACKUP_EXIT},
+  "snapshot_id": null,
+  "started_at": "${STARTED_AT}",
+  "status": "${ARXMCP_BACKUP_STATE_FAILED}"
+}
+EOF
+    mv "${TMP_STATUS}" "${STATUS_FILE}"
     exit "${RESTIC_BACKUP_EXIT}"
 fi
 
@@ -160,18 +220,19 @@ SNAPSHOT_ID="$(echo "${SNAPSHOT_JSON}" | python3 -c \
 # operator sees yesterdays sentinel — no record of todays
 # successful backup. The two-phase write surfaces partial
 # success.
-BACKUP_STATUS="success"
+BACKUP_STATUS="${ARXMCP_BACKUP_STATE_OK}"
 if [ "${RESTIC_BACKUP_EXIT}" -eq 3 ]; then
-    BACKUP_STATUS="partial"
+    BACKUP_STATUS="${ARXMCP_BACKUP_STATE_PARTIAL}"
 fi
 # notebook-ops-hardening-m1 F1: a degraded WAL checkpoint means notebooks.db
 # was not cleanly captured (sidecars were added, but force partial so the
 # operator sees it and forget keeps the prior good snapshot).
 if [ "${CHECKPOINT_DEGRADED}" -eq 1 ]; then
-    BACKUP_STATUS="partial"
+    BACKUP_STATUS="${ARXMCP_BACKUP_STATE_PARTIAL}"
 fi
 cat > "${TMP_STATUS}" <<EOF
 {
+  "last_success_at": ${PRIOR_LAST_SUCCESS_JSON},
   "paths_backed_up": [
     "'"${REPO_ROOT}"'/var/arxmcp/index/lancedb",
     "'"${REPO_ROOT}"'/var/arxmcp/index/kuzu",
@@ -183,7 +244,7 @@ cat > "${TMP_STATUS}" <<EOF
   "restic_backup_exit": ${RESTIC_BACKUP_EXIT},
   "snapshot_id": "${SNAPSHOT_ID}",
   "started_at": "${STARTED_AT}",
-  "status": "backup_complete_forget_pending",
+  "status": "${ARXMCP_BACKUP_STATE_RUNNING}",
   "backup_status": "${BACKUP_STATUS}"
 }
 EOF
@@ -211,22 +272,39 @@ set -e
 # the operation, not just the backup phase.
 FINISHED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-FORGET_STATUS="success"
+FORGET_STATUS="${ARXMCP_BACKUP_STATE_OK}"
 if [ "${RESTIC_FORGET_EXIT}" -ne 0 ]; then
-    FORGET_STATUS="failed"
+    FORGET_STATUS="${ARXMCP_BACKUP_STATE_FAILED}"
 fi
 
-# Overwrite with the final status. backup_status is preserved
-# so a partial backup remains visible even after forget OK.
-FINAL_STATUS="success"
-if [ "${BACKUP_STATUS}" != "success" ] || [ "${FORGET_STATUS}" != "success" ]; then
-    FINAL_STATUS="backup_${BACKUP_STATUS}_forget_${FORGET_STATUS}"
+# Overwrite with the final status. backup_status and forget_status are
+# preserved as separate fields so a partial backup, and which phase caused
+# it, remain visible to the operator.
+#
+# Closes chris-dare-dev/arXMCP#202: the single status token comes from the
+# SHARED vocabulary via the shared decision function. It used to be built
+# by string interpolation here as backup_<x>_forget_<y>, which no consumer
+# state could ever match. The per-phase detail must stay in the per-phase
+# fields, never folded back into this token.
+FINAL_STATUS="$(arxmcp_backup_final_status "${BACKUP_STATUS}" "${FORGET_STATUS}")"
+
+# The ONLY place the carried last-success timestamp advances: a fully clean
+# run, which is the same gate as server.backup_status.FRESHNESS_ADVANCING_
+# STATES. Anything short of ok re-emits the prior value unchanged, so the age
+# of the last GOOD backup keeps growing and ArXMCPBackupStale can still fire —
+# it just now fires with a meaningful age instead of one measured from epoch 0.
+if [ "${FINAL_STATUS}" = "${ARXMCP_BACKUP_STATE_OK}" ]; then
+    LAST_SUCCESS_JSON="\"${FINISHED_AT}\""
+else
+    LAST_SUCCESS_JSON="${PRIOR_LAST_SUCCESS_JSON}"
 fi
+
 cat > "${TMP_STATUS}" <<EOF
 {
   "backup_status": "${BACKUP_STATUS}",
   "finished_at": "${FINISHED_AT}",
   "forget_status": "${FORGET_STATUS}",
+  "last_success_at": ${LAST_SUCCESS_JSON},
   "paths_backed_up": [
     "'"${REPO_ROOT}"'/var/arxmcp/index/lancedb",
     "'"${REPO_ROOT}"'/var/arxmcp/index/kuzu",
@@ -244,9 +322,10 @@ cat > "${TMP_STATUS}" <<EOF
 EOF
 mv "${TMP_STATUS}" "${STATUS_FILE}"
 
-if [ "${FINAL_STATUS}" = "success" ]; then
+if [ "${FINAL_STATUS}" = "${ARXMCP_BACKUP_STATE_OK}" ]; then
     echo "restic backup complete: snapshot=${SNAPSHOT_ID}"
 else
-    echo "restic backup partial: status=${FINAL_STATUS} snapshot=${SNAPSHOT_ID}" >&2
+    echo "restic backup ${FINAL_STATUS}: backup=${BACKUP_STATUS}" \
+         "forget=${FORGET_STATUS} snapshot=${SNAPSHOT_ID}" >&2
 fi
 '

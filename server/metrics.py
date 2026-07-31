@@ -253,11 +253,24 @@ DELTA_TIMEOUT_ACTIVE_GAUGE: Gauge = Gauge(
     "absent. Rehydrated at /metrics scrape time.",
 )
 
-#: E11_S05 backup last-success timestamp. Reads
-#: ``var/arxmcp/ops/backup-status.json::finished_at`` (ISO-8601)
-#: and exposes the Unix epoch. An alert rule of
-#: ``now() - arxmcp_backup_last_success_timestamp_seconds > 86400``
-#: fires when the nightly backup is more than a day late.
+#: E11_S05 backup last-success timestamp, as an ISO-8601 field of
+#: ``var/arxmcp/ops/backup-status.json`` resolved to a Unix epoch by
+#: :func:`server.health._last_success_stamp`. Read that for the
+#: resolution order; the two rules it encodes are:
+#:
+#: - ``finished_at`` counts ONLY when the run's ``status`` is in
+#:   :data:`server.backup_status.FRESHNESS_ADVANCING_STATES`. The
+#:   wrapper stamps it on every run that reaches the end, success or
+#:   not, so an ungated read lets failing backups advance the clock
+#:   forever (``chris-dare-dev/arXMCP#203``).
+#: - ``last_success_at`` counts unconditionally. The wrapper carries
+#:   it onto every sentinel including the failed ones, so it is what
+#:   makes this gauge survive a restart taken while the latest run was
+#:   broken — before it existed the gauge was process state only an
+#:   ``ok`` sentinel could seed, and such a restart pinned it at 0.0.
+#:
+#: ``ArXMCPBackupStale`` in infra/prometheus/alerts.yml fires on the
+#: resulting age.
 BACKUP_LAST_SUCCESS_GAUGE: Gauge = Gauge(
     "arxmcp_backup_last_success_timestamp_seconds",
     "Unix epoch of the last successful restic backup, "
@@ -267,8 +280,12 @@ BACKUP_LAST_SUCCESS_GAUGE: Gauge = Gauge(
 )
 
 #: E11_S05 backup status. Exactly one label is 1.0 at any time
-#: (or all are 0.0 when the sentinel is absent). States mirror
-#: the backup wrapper's emitted ``status`` field.
+#: (or all are 0.0 when the sentinel is absent). The label set is
+#: :data:`server.backup_status.BACKUP_STATES` — the SHARED vocabulary
+#: the wrapper emits into ``status``, plus the consumer-only
+#: ``unknown`` catch-all. It is not a local literal: when it was, it
+#: drifted disjoint from the producer and every backup classified as
+#: ``unknown`` (``chris-dare-dev/arXMCP#202``).
 BACKUP_STATUS_GAUGE: Gauge = Gauge(
     "arxmcp_backup_status",
     "Most recent restic backup outcome, rehydrated from "

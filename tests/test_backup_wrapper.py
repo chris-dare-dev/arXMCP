@@ -227,8 +227,11 @@ class TestNotebookBackupScope:
         assert 'BACKUP_PATHS+=("${SIDECAR}")' in text
         assert "${NOTEBOOKS_DB}-wal" in text
         assert "${NOTEBOOKS_DB}-shm" in text
-        # And the final status is forced partial when degraded.
-        assert 'BACKUP_STATUS="partial"' in text
+        # And the final status is forced partial when degraded. The token
+        # comes from the shared vocabulary (arXMCP#202), not a literal —
+        # see ops/cron/backup-status-lib.sh and tests/
+        # test_backup_status_vocabulary.py.
+        assert 'BACKUP_STATUS="${ARXMCP_BACKUP_STATE_PARTIAL}"' in text
 
     def test_checkpoint_stderr_not_discarded(self):
         """F2: the checkpoint helper's diagnostics must reach the log, not
