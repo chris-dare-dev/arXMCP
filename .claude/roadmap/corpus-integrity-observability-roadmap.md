@@ -1,4 +1,28 @@
+---
+project: arxmcp
+type: roadmap
+status: active
+authorship: agent-generated
+tags:
+- project/arxmcp
+- type/roadmap
+- authorship/agent-generated
+---
+
 # Corpus-integrity observability — Roadmap
+
+> [!done] ARCHIVED — track complete, retained for the record
+> **Moved** from `plans/corpus-integrity-observability-roadmap.md` to `.claude/roadmap/` on 2026-07-29.
+> `plans/` is reserved for live `roadmap/1` tracks (`plans/<slug>/roadmap.yaml`);
+> `CLAUDE.md` § 1 allows no other Markdown outside `.claude/`. This directory is
+> already the home of completed standalone briefs (`notebook-cutover.md`,
+> `embedder-truncation.md`, …) and stays inside
+> `milestone-pipeline-resolve-brief.py`'s legacy-prose glob, so `/milestone-pipeline`
+> still resolves every id below.
+>
+> **Completed milestones (5)** — `state.json` phase `complete`: `corpus-integrity-observability-e2`, `corpus-integrity-observability-e3`, `corpus-integrity-observability-m1`, `corpus-integrity-observability-m2`, `corpus-integrity-observability-m3`
+> **Last commit touching this track:** `c58c19e feat(infra,tests): corpus-integrity alert rules (corpus-integrity-completion-m1)`
+
 
 **Slug:** `corpus-integrity-observability`
 **Created:** 2026-05-28T20:30:08Z

@@ -52,8 +52,8 @@ goal:
     - "C:/Users/cedar/Documents/Personal Projects/Source Code/_pipeline/gap-analysis-2026-07/synthesis/cross-synthesis.md §1 T1, §4 S1, §6 quick win #1 — cross-dimension convergence and track seed"
     - "tests/eval/fixtures/queries.json — verified empty (queries: []), confirming G1's flagship-metric-never-computed finding"
     - ".claude/docs/eval-curation.md — the owner-labeling curation runbook; bars LLM-assisted grading as circular"
-    - "plans/verification-feedback-roadmap.md:108-158 — prior-tracked home of this work (epic verification-feedback-e3, Next lane), shaped but slipped since 2026-05-08"
-    - "plans/proof-verify-handler-wiring-roadmap.md:185-203 — spike-3/m5 PoC numbers (0 lift at 122x latency) and the ≥0.10 absolute-lift bar this roadmap's numbers must clear to re-open hybrid"
+    - ".claude/roadmap/verification-feedback-roadmap.md:108-158 — prior-tracked home of this work (epic verification-feedback-e3, Next lane), shaped but slipped since 2026-05-08"
+    - ".claude/roadmap/proof-verify-handler-wiring-roadmap.md:185-203 — spike-3/m5 PoC numbers (0 lift at 122x latency) and the ≥0.10 absolute-lift bar this roadmap's numbers must clear to re-open hybrid"
     - ".claude/docs/retrieval-quality-report.md — the PENDING-tables target for D9-R01's first harness numbers"
     - ".claude/TIER-GATES.md:24,160-185,220-224 — Tier-5 drift gate, Tier-2->3 cache-hit gate placeholder, CDM parser-bake-off deferral"
 generated_by: { agent: claude-sonnet-5, at: "2026-07-07" }

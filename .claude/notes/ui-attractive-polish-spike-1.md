@@ -94,7 +94,7 @@ Inspecting `frontend/static/htmx.min.js` (the vendored 2.0.10 file):
 ## Implications for UPL-13 (epic `ui-attractive-polish-e4`)
 
 The original m3-roadmap UPL-13 sketch (from
-`plans/ui-attractive-polish-roadmap.md` Phase 2 → epic e4 description +
+`.claude/roadmap/ui-attractive-polish-roadmap.md` Phase 2 → epic e4 description +
 `.claude/notes/frontend-uplifts/2026-05-ui-polish/artifacts/synthesis.md`
 UPL-13) anticipated this implementation:
 

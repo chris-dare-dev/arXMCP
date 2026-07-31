@@ -1,4 +1,28 @@
+---
+project: arxmcp
+type: roadmap
+status: active
+authorship: agent-generated
+tags:
+- project/arxmcp
+- type/roadmap
+- authorship/agent-generated
+---
+
 # Notebook topic-driven paper discovery — Roadmap
+
+> [!done] ARCHIVED — track complete, retained for the record
+> **Moved** from `plans/notebook-paper-discovery-roadmap.md` to `.claude/roadmap/` on 2026-07-29.
+> `plans/` is reserved for live `roadmap/1` tracks (`plans/<slug>/roadmap.yaml`);
+> `CLAUDE.md` § 1 allows no other Markdown outside `.claude/`. This directory is
+> already the home of completed standalone briefs (`notebook-cutover.md`,
+> `embedder-truncation.md`, …) and stays inside
+> `milestone-pipeline-resolve-brief.py`'s legacy-prose glob, so `/milestone-pipeline`
+> still resolves every id below.
+>
+> **Completed milestones (4)** — `state.json` phase `complete`: `notebook-paper-discovery-m1`, `notebook-paper-discovery-m2`, `notebook-paper-discovery-m3`, `notebook-paper-discovery-m4`
+> **Last commit touching this track:** `e6c9d81 chore(notes): finalize notebook-paper-discovery-m4 state -> complete`
+
 
 **Slug:** `notebook-paper-discovery`
 **Created:** 2026-05-31T14:49:03Z

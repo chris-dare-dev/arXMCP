@@ -8,7 +8,7 @@ m7 `# TODO(m8): per-chapter preamble inheritance` marker is retired.
 
 ## Why the roadmap's "per-chapter preamble inheritance" does not apply
 
-The e3 epic outcome (`plans/textbook-ingest-roadmap.md`) reads:
+The e3 epic outcome (`.claude/roadmap/textbook-ingest-roadmap.md`) reads:
 *"Per-chapter preamble inheritance works (textbook-shaped, not
 paper-shaped)."* That outcome was written before the PDF-vs-`.tex`
 ingest tension was understood. m8 research (both

@@ -51,7 +51,7 @@ goal:
       text: "researcher-workbench-e4's eval-fixture labeling instrument (a 0-3 relevance grade) is not the only declared downstream consumer of this workbench's labeling surface: R2's assumption-review (accept/reject a machine-extracted effective_hypotheses candidate) and R5's faithfulness-review (human sign-off + reviewer/date on a Lean-target-to-statement match) both route through this labeling UI per roadmap-briefs/README.md's interlock table and R5's own brief -- structurally different labeling primitives than a 0-3 grade, which this roadmap (authored 2026-07-07, before the 2026-07-11 R-briefs) does not yet accommodate"
       validation: "At researcher-workbench-e4 decomposition, either build minimal labeling-primitive extensibility into the v1 data model for R2's assumption-review and R5's faithfulness-review, or explicitly scope e4 as eval-fixture-only v1 with a named v2 follow-up owning those two review types; confirmed against the R2 and R5 briefs before e4 ships"
   wont:
-    - "No Cmd-K command palette — the search workbench's /-focus theorem/lemma jump absorbs the one differentiating use case; already double Won't-listed (plans/ui-attractive-polish-roadmap.md:198-201,391) and separately REJECTED as D3-R09"
+    - "No Cmd-K command palette — the search workbench's /-focus theorem/lemma jump absorbs the one differentiating use case; already double Won't-listed (.claude/roadmap/ui-attractive-polish-roadmap.md:198-201,391) and separately REJECTED as D3-R09"
     - "No watch-folder ingest, no zbMATH enrichment, no Logseq export, and no audio/video overviews — explicitly out per the brief, and each independently REJECTED or assessed-as-non-gap in the source chapters"
     - "No SPA and no Node/npm build chain for any researcher-critical surface (search, inspect, curate, label, ops) regardless of the Stage-2 merge outcome — /app stays reserved for rich islands genuinely beyond htmx; hard constraint recorded at .claude/notes/06-mcp-server-design.md:466-473"
     - "No live Zotero local-API client — ships a .bib/CSL-JSON file importer only; the interactive client stays behind an explicit owner-demand gate with zero repo signal today"
@@ -68,7 +68,7 @@ goal:
     - "_pipeline/gap-analysis-2026-07/synthesis/cross-synthesis.md — T1/T7 themes, section 2.2 M0/W1/FIX dependency edges, section 3 canonical-id merges (D8-R13 = D3-R12), section 4 S5 track seed, section 5 do-not-do list"
     - "plans/paper-metadata/roadmap.yaml:34 — phase complete; won't-list excludes only metadata editing, not display, which this roadmap's metadata-display item fills"
     - ".claude/notes/06-mcp-server-design.md:462-473 — Browser UI surface hard constraint: no SPA, no Node/npm build chain"
-    - "plans/ui-attractive-polish-roadmap.md:198-201,391 — Cmd-K parked until notebook count grows or a search surface lands; already double Won't-listed"
+    - ".claude/roadmap/ui-attractive-polish-roadmap.md:198-201,391 — Cmd-K parked until notebook count grows or a search surface lands; already double Won't-listed"
     - "SECURITY.md:59-63 — issue #9, tracked at chris-dare-dev/arXMCP#9, console not yet security-audited"
     - "server/routes/ui.py:556-559 — verified live: the POSIX-only startswith(... + '/') path-containment check breaks on Windows path separators"
     - "tests/eval/fixtures/queries.json — verified live: 0 queries today (schema_version/chunker_version/created_at/queries keys only)"

@@ -1,4 +1,29 @@
+---
+project: arxmcp
+type: plan
+status: active
+authorship: agent-generated
+tags:
+- project/arxmcp
+- type/plan
+- authorship/agent-generated
+---
+
 # Lean REPL observability — standalone milestone brief
+
+> [!done] ARCHIVED — track complete, retained for the record
+> **Moved** from `plans/lean-repl-observability.md` to `.claude/roadmap/` on 2026-07-29.
+> `plans/` is reserved for live `roadmap/1` tracks (`plans/<slug>/roadmap.yaml`);
+> `CLAUDE.md` § 1 allows no other Markdown outside `.claude/`. This directory is
+> already the home of completed standalone briefs (`notebook-cutover.md`,
+> `embedder-truncation.md`, …) and stays inside
+> `milestone-pipeline-resolve-brief.py`'s legacy-prose glob, so `/milestone-pipeline`
+> still resolves every id below.
+>
+> **Not `complete` in state.json:** `lean-repl-observability-m1` → `rectify-running`
+> ⚠️ `state.json` reads `rectify-running`, but the full close-out triple landed (`8844bd4` feat → `101bd4f` rect → `54232e0` finalize). The finalize commit added the state file without flipping the phase. Left as-is deliberately — it is another session's artifact to correct, not this archive pass's.
+> **Last commit touching this track:** `54232e0 chore(notes): finalize lean-repl-observability-m1`
+
 
 A one-off prose brief the `/milestone-pipeline` command resolves via its legacy
 `plans/*.md` fallback (see `.claude/scripts/milestone-pipeline-resolve-brief.py`).

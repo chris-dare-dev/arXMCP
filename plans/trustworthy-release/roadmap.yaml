@@ -134,7 +134,7 @@ items:
     tags: [enabler, adoption, scope, D6-R09, D4-R08, D4-R05]
     links:
       issue: ["https://github.com/chris-dare-dev/arXMCP/issues/173"]
-      code: ["docs/install.md", "ingest/oai_delta.py:109-114", "server/routes/notebooks.py:196-198", "plans/verification-feedback-roadmap.md:164"]
+      code: ["docs/install.md", "ingest/oai_delta.py:109-114", "server/routes/notebooks.py:196-198", ".claude/roadmap/verification-feedback-roadmap.md:164"]
 
   # ── e1 milestones/tasks (now) ──────────────────────────────
 
@@ -565,4 +565,4 @@ items:
     tags: [D4-R05]
     links:
       issue: ["https://github.com/chris-dare-dev/arXMCP/issues/186"]
-      note: ["plans/verification-feedback-roadmap.md:164"]
+      note: [".claude/roadmap/verification-feedback-roadmap.md:164"]

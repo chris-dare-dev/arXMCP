@@ -1,7 +1,7 @@
 # Security: PDF subprocess sandbox profile (textbook-ingest e2)
 
 **Spike output:** textbook-ingest-spike-2 from
-`plans/textbook-ingest-roadmap.md` Phase 3. Drafted **before** the e2
+`.claude/roadmap/textbook-ingest-roadmap.md` Phase 3. Drafted **before** the e2
 implementation milestone so the threat surface and mitigation
 discipline are settled before any operator-supplied PDF reaches a
 subprocess.
@@ -419,7 +419,7 @@ the `requires_mineru` marker (pyproject.toml).
 ## Spike validation status
 
 This document is the e2 implementer's contract. The synthesis from
-`plans/textbook-ingest-roadmap.md` records this as `[MUST]` assumption
+`.claude/roadmap/textbook-ingest-roadmap.md` records this as `[MUST]` assumption
 #2: *"Subprocess sandbox profile for MinerU under Threat 3 is
 sufficient to mitigate PDF-bomb / embedded-JS / polyglot attack
 surface for operator-supplied PDFs."*

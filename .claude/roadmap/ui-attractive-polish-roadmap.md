@@ -1,4 +1,28 @@
+---
+project: arxmcp
+type: roadmap
+status: active
+authorship: agent-generated
+tags:
+- project/arxmcp
+- type/roadmap
+- authorship/agent-generated
+---
+
 # UI attractive polish — close the bare-bones gap — Roadmap
+
+> [!done] ARCHIVED — track complete, retained for the record
+> **Moved** from `plans/ui-attractive-polish-roadmap.md` to `.claude/roadmap/` on 2026-07-29.
+> `plans/` is reserved for live `roadmap/1` tracks (`plans/<slug>/roadmap.yaml`);
+> `CLAUDE.md` § 1 allows no other Markdown outside `.claude/`. This directory is
+> already the home of completed standalone briefs (`notebook-cutover.md`,
+> `embedder-truncation.md`, …) and stays inside
+> `milestone-pipeline-resolve-brief.py`'s legacy-prose glob, so `/milestone-pipeline`
+> still resolves every id below.
+>
+> **Completed milestones (5)** — `state.json` phase `complete`: `ui-attractive-polish-m1`, `ui-attractive-polish-m2`, `ui-attractive-polish-m3`, `ui-attractive-polish-m4`, `ui-attractive-polish-m5`
+> **Last commit touching this track:** `79a209f docs(skill): ground-truth uplift design-system`
+
 
 **Slug:** `ui-attractive-polish`
 **Created:** 2026-05-31T01:55:30Z

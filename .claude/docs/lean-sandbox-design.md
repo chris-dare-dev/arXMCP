@@ -121,7 +121,7 @@ live-snapshot-count / age budget; `pickleEnvironment` the hot named env to disk
 and `unpickle` it into a fresh worker across a recycle (preserving the warm
 import while resetting the tree); and consume the REPL live-snapshot / worker-age
 gauge **shipped** by `lean-repl-observability-m1`
-([`plans/lean-repl-observability.md`](../../plans/lean-repl-observability.md)) —
+([`.claude/roadmap/lean-repl-observability.md`](../../.claude/roadmap/lean-repl-observability.md)) —
 that read-only telemetry landed *ahead* of this gate (it adds no
 untrusted-execution surface). The env-tree *bounding* itself (recycling +
 pickle-migration) stays gated behind R3's trust gate (m2–m5) — pooling/

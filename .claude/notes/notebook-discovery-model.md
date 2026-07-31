@@ -12,7 +12,7 @@ later milestone briefs rather than re-deriving these decisions.
 Origin: capability-scout `2026q2-crawl4ai-paper-discovery` (crawl4ai REJECTED — arXiv
 rate-limits by IP, `robots.txt` disallows `/search`/`/api/`/`/oai2/`/`/e-print/` and
 mandates a 15s crawl-delay, and Playwright is a heavyweight dep for zero gain) → roadmap
-`plans/notebook-paper-discovery-roadmap.md`.
+`.claude/roadmap/notebook-paper-discovery-roadmap.md`.
 
 ---
 
@@ -119,7 +119,7 @@ a notebook-detail-page htmx card (`server/routes/notebooks.py::discover_papers` 
 
 ## 5. Cross-references
 
-- Roadmap: `plans/notebook-paper-discovery-roadmap.md`
+- Roadmap: `.claude/roadmap/notebook-paper-discovery-roadmap.md`
 - Scout report: `.claude/notes/capability-scouts/2026q2-crawl4ai-paper-discovery/artifacts/final-report.md`
 - Schema: `server/notebooks_store.py` (SCHEMA_VERSION 5, v4→v5 block)
 - Routes: `server/routes/notebooks.py` (`_validate_discovery_category`, `NotebookTopicUpdate`, `PATCH /notebooks/{slug}/topic`)

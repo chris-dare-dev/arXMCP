@@ -1,4 +1,28 @@
+---
+project: arxmcp
+type: roadmap
+status: active
+authorship: agent-generated
+tags:
+- project/arxmcp
+- type/roadmap
+- authorship/agent-generated
+---
+
 # Verification Feedback for the Autoformalization Pipeline — Roadmap
+
+> [!done] ARCHIVED — track complete, retained for the record
+> **Moved** from `plans/verification-feedback-roadmap.md` to `.claude/roadmap/` on 2026-07-29.
+> `plans/` is reserved for live `roadmap/1` tracks (`plans/<slug>/roadmap.yaml`);
+> `CLAUDE.md` § 1 allows no other Markdown outside `.claude/`. This directory is
+> already the home of completed standalone briefs (`notebook-cutover.md`,
+> `embedder-truncation.md`, …) and stays inside
+> `milestone-pipeline-resolve-brief.py`'s legacy-prose glob, so `/milestone-pipeline`
+> still resolves every id below.
+>
+> **Completed milestones (4)** — `state.json` phase `complete`: `verification-feedback-m1`, `verification-feedback-m2`, `verification-feedback-m3`, `verification-feedback-m4`
+> **Last commit touching this track:** `188edfa chore(tests): correct stale cite_neighbors comments`
+
 
 **Slug:** `verification-feedback`
 **Created:** 2026-05-22T15:50:10Z

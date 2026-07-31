@@ -55,7 +55,7 @@ goal:
     - "_pipeline/gap-analysis-2026-07/chapters/D4.md — kind=definition filter D4-R12"
     - "_pipeline/gap-analysis-2026-07/chapters/D8.md — withdrawal/version provenance D8-R07"
     - "_pipeline/gap-analysis-2026-07/synthesis/cross-synthesis.md — §4 S2 is this track's seed; §2.2-2.3 rulings C3/C6/C13/C14; §3 canonical-id merges; §5 do-not-do"
-    - "plans/proof-verify-handler-wiring-roadmap.md:108-113 — e3 CLOSED 2026-05-21 verdict NO (the ADR-0008 governance precedent this track must not re-litigate at current scale)"
+    - ".claude/roadmap/proof-verify-handler-wiring-roadmap.md:108-113 — e3 CLOSED 2026-05-21 verdict NO (the ADR-0008 governance precedent this track must not re-litigate at current scale)"
     - ".claude/notes/deferred-work-tracker.md:40-55 — the ColBERT-v2 entry D1-R13 re-anchors to a falsifiable trigger"
     - "server/handlers/search.py:711,715 and server/handlers/equation.py:137-140 — the exact code sites this track unlocks"
     - "plans/evidence-engine/roadmap.yaml, plans/agent-platform/roadmap.yaml — sibling concurrent tracks owning FIX and W1 respectively (both phase:init as of this refine pass)"

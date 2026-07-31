@@ -1,4 +1,28 @@
+---
+project: arxmcp
+type: roadmap
+status: active
+authorship: agent-generated
+tags:
+- project/arxmcp
+- type/roadmap
+- authorship/agent-generated
+---
+
 # Corpus integrity completion (close the alarm + write-gate + integration-test gap) — Roadmap
+
+> [!done] ARCHIVED — track complete, retained for the record
+> **Moved** from `plans/corpus-integrity-completion-roadmap.md` to `.claude/roadmap/` on 2026-07-29.
+> `plans/` is reserved for live `roadmap/1` tracks (`plans/<slug>/roadmap.yaml`);
+> `CLAUDE.md` § 1 allows no other Markdown outside `.claude/`. This directory is
+> already the home of completed standalone briefs (`notebook-cutover.md`,
+> `embedder-truncation.md`, …) and stays inside
+> `milestone-pipeline-resolve-brief.py`'s legacy-prose glob, so `/milestone-pipeline`
+> still resolves every id below.
+>
+> **Completed milestones (5)** — `state.json` phase `complete`: `corpus-integrity-completion-e1`, `corpus-integrity-completion-m1`, `corpus-integrity-completion-m2`, `corpus-integrity-completion-m3`, `corpus-integrity-completion-spike-1`
+> **Last commit touching this track:** `198d98b chore(notes): session handoff 2026-06-01 â€” corpus-integrity-completion-e1`
+
 
 **Slug:** `corpus-integrity-completion`
 **Created:** 2026-05-31T19:27:56Z

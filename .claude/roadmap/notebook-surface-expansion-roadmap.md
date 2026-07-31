@@ -1,4 +1,28 @@
+---
+project: arxmcp
+type: roadmap
+status: active
+authorship: agent-generated
+tags:
+- project/arxmcp
+- type/roadmap
+- authorship/agent-generated
+---
+
 # Notebook surface expansion (UI completion + agent surface) — Roadmap
+
+> [!done] ARCHIVED — track complete, retained for the record
+> **Moved** from `plans/notebook-surface-expansion-roadmap.md` to `.claude/roadmap/` on 2026-07-29.
+> `plans/` is reserved for live `roadmap/1` tracks (`plans/<slug>/roadmap.yaml`);
+> `CLAUDE.md` § 1 allows no other Markdown outside `.claude/`. This directory is
+> already the home of completed standalone briefs (`notebook-cutover.md`,
+> `embedder-truncation.md`, …) and stays inside
+> `milestone-pipeline-resolve-brief.py`'s legacy-prose glob, so `/milestone-pipeline`
+> still resolves every id below.
+>
+> **Completed milestones (7)** — `state.json` phase `complete`: `notebook-surface-expansion-m1`, `notebook-surface-expansion-m2`, `notebook-surface-expansion-m3`, `notebook-surface-expansion-m4`, `notebook-surface-expansion-m5`, `notebook-surface-expansion-m6`, `notebook-surface-expansion-m7`
+> **Last commit touching this track:** `7f9cac9 chore(notes): land session planning + agent-memory artifacts`
+
 
 **Slug:** `notebook-surface-expansion`
 **Created:** 2026-05-29T15:14:27Z

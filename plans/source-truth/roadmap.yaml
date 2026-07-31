@@ -89,7 +89,7 @@ retired:               # tombstoned item ids; ids are write-once, never deleted
   # /roadmap if a fully consistent planning doc is wanted. The replacement work --
   # REMOVING the existing 300-char license-truncation gate so nothing is ever
   # truncated on license -- is milestone `license-serving-removal-m1`
-  # (brief: plans/license-serving-removal.md).
+  # (brief: .claude/roadmap/license-serving-removal.md).
   - source-truth-e4
   - source-truth-m4
 items:
@@ -137,7 +137,7 @@ items:
 
   # RETIRED 2026-07-13 (tombstoned in `retired:` above) -- owner ruled licensing
   # drives no serving decision; the fail-closed cutover is withdrawn. Superseded
-  # by milestone license-serving-removal-m1 (plans/license-serving-removal.md).
+  # by milestone license-serving-removal-m1 (.claude/roadmap/license-serving-removal.md).
   - id: source-truth-e4
     kind: epic
     status: dropped
@@ -354,7 +354,7 @@ items:
 
   # RETIRED 2026-07-13 (tombstoned in `retired:` above) -- see e4. This milestone
   # (owner-gated fail-closed cutover) is cancelled; replaced by the removal
-  # milestone license-serving-removal-m1 (plans/license-serving-removal.md).
+  # milestone license-serving-removal-m1 (.claude/roadmap/license-serving-removal.md).
   - id: source-truth-m4
     kind: milestone
     status: dropped

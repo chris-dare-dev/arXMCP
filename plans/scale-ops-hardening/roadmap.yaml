@@ -56,10 +56,10 @@ goal:
     - "C:/Users/cedar/Documents/Personal Projects/Source Code/_pipeline/gap-analysis-2026-07/chapters/D1.md — D1-R09 closes the E11 plan-vs-code GPU contradiction"
     - "C:/Users/cedar/Documents/Personal Projects/Source Code/_pipeline/gap-analysis-2026-07/synthesis/cross-synthesis.md — §4 track S4 seed (this track's canonical ordering), §2.2 dependency spine (M0/W1/FIX), §3 canonical-id merges, §5 do-not-do list"
     - "C:/Users/cedar/Documents/Personal Projects/Source Code/arXMCP/.claude/TIER-GATES.md:188-206 — Tier-5 cutover gate has no capacity/mechanical-scaling criterion today"
-    - "C:/Users/cedar/Documents/Personal Projects/Source Code/arXMCP/plans/verification-feedback-roadmap.md:160-163 — tracked-but-unexecuted verification-feedback-spike-1 (Kuzu successor), D5-R04's target"
+    - "C:/Users/cedar/Documents/Personal Projects/Source Code/arXMCP/.claude/roadmap/verification-feedback-roadmap.md:160-163 — tracked-but-unexecuted verification-feedback-spike-1 (Kuzu successor), D5-R04's target"
     - "C:/Users/cedar/Documents/Personal Projects/Source Code/arXMCP/docs/ops/daily-ops-cadence.md — documents systemd(Linux)/cron(macOS) cadence only; no Windows path named"
     - "C:/Users/cedar/Documents/Personal Projects/Source Code/arXMCP/.claude/roadmap/E11-scale-cutover.md — the GPU-days backfill budget D5-R05/D1-R09 must reconcile against the CPU-only shipped embedder"
-    - "C:/Users/cedar/Documents/Personal Projects/Source Code/arXMCP/plans/corpus-integrity-observability-roadmap.md — prior telemetry work (INGEST_LAST_RUN gauges) this track's D5-R06a/R07 extend"
+    - "C:/Users/cedar/Documents/Personal Projects/Source Code/arXMCP/.claude/roadmap/corpus-integrity-observability-roadmap.md — prior telemetry work (INGEST_LAST_RUN gauges) this track's D5-R06a/R07 extend"
 generated_by: { agent: claude-sonnet-5, at: "2026-07-07" }
 generations:
   - { rev: 1, at: "2026-07-07" }
@@ -702,7 +702,7 @@ items:
     links:
       issue: ["https://github.com/chris-dare-dev/arXMCP/issues/105"]
       code: ["pyproject.toml", "docs/architecture.md", "SECURITY.md"]
-      note: ["plans/verification-feedback-roadmap.md:160-163 — tracked-but-unexecuted verification-feedback-spike-1, executed by this milestone"]
+      note: [".claude/roadmap/verification-feedback-roadmap.md:160-163 — tracked-but-unexecuted verification-feedback-spike-1, executed by this milestone"]
 
   - id: scale-ops-hardening-m9
     kind: milestone

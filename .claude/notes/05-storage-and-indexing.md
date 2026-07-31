@@ -57,7 +57,7 @@ created_at            int64
 > (BGE-M3). The old column names and approach are superseded.
 
 > **Updated 2026-05-27 (see textbook-ingest-m2 at
-> `plans/textbook-ingest-roadmap.md`).** Seven textbook-aware columns
+> `.claude/roadmap/textbook-ingest-roadmap.md`).** Seven textbook-aware columns
 > appended to the `chunks` table to accommodate notebook-scoped
 > textbook chunks alongside the shared arXiv corpus. The arXiv-only
 > columns above stay byte-stable; the new columns get nullable

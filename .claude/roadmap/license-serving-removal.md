@@ -1,4 +1,28 @@
+---
+project: arxmcp
+type: plan
+status: active
+authorship: agent-generated
+tags:
+- project/arxmcp
+- type/plan
+- authorship/agent-generated
+---
+
 # Standalone milestone briefs
+
+> [!done] ARCHIVED — track complete, retained for the record
+> **Moved** from `plans/license-serving-removal.md` to `.claude/roadmap/` on 2026-07-29.
+> `plans/` is reserved for live `roadmap/1` tracks (`plans/<slug>/roadmap.yaml`);
+> `CLAUDE.md` § 1 allows no other Markdown outside `.claude/`. This directory is
+> already the home of completed standalone briefs (`notebook-cutover.md`,
+> `embedder-truncation.md`, …) and stays inside
+> `milestone-pipeline-resolve-brief.py`'s legacy-prose glob, so `/milestone-pipeline`
+> still resolves every id below.
+>
+> **Completed milestones (1)** — `state.json` phase `complete`: `license-serving-removal-m1`
+> **Last commit touching this track:** `6b9b8c9 chore(notes): materialize the 3 unrecorded roadmaps`
+
 
 Prose briefs the `/milestone-pipeline` command resolves via its legacy
 `plans/*.md` fallback (see `.claude/scripts/milestone-pipeline-resolve-brief.py`).

@@ -1,4 +1,29 @@
+---
+project: arxmcp
+type: roadmap
+status: active
+authorship: agent-generated
+tags:
+- project/arxmcp
+- type/roadmap
+- authorship/agent-generated
+---
+
 # search_papers handler wiring for /proof-verify — Roadmap
+
+> [!done] ARCHIVED — track complete, retained for the record
+> **Moved** from `plans/proof-verify-handler-wiring-roadmap.md` to `.claude/roadmap/` on 2026-07-29.
+> `plans/` is reserved for live `roadmap/1` tracks (`plans/<slug>/roadmap.yaml`);
+> `CLAUDE.md` § 1 allows no other Markdown outside `.claude/`. This directory is
+> already the home of completed standalone briefs (`notebook-cutover.md`,
+> `embedder-truncation.md`, …) and stays inside
+> `milestone-pipeline-resolve-brief.py`'s legacy-prose glob, so `/milestone-pipeline`
+> still resolves every id below.
+>
+> **Completed milestones (9)** — `state.json` phase `complete`: `proof-verify-handler-wiring-m1`, `proof-verify-handler-wiring-m10`, `proof-verify-handler-wiring-m2`, `proof-verify-handler-wiring-m3`, `proof-verify-handler-wiring-m4`, `proof-verify-handler-wiring-m6`, `proof-verify-handler-wiring-m7`, `proof-verify-handler-wiring-m8`, `proof-verify-handler-wiring-m9`
+> `proof-verify-handler-wiring-m5` has no `state.json` — it ran as a measurement outside the state machine; its own heading records **COMPLETE 2026-05-21, Verdict NO** (hybrid+rerank: zero P@10 lift, −10pp top-1, 122× latency).
+> **Last commit touching this track:** `a40807c docs(repo): correct stale stub claims in security audit docs`
+
 
 **Slug:** `proof-verify-handler-wiring`
 **Created:** 2026-05-21T04:00:24Z

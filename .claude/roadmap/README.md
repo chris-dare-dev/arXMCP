@@ -222,3 +222,53 @@ Full list of milestones across all authored epics. Sonnet B milestones are liste
 - E14_S10 — Ops runbook index
 - E14_S11 — Langfuse orchestrator-side tracing documentation
 - E14_S12 — API spend metrics for hosted-model fallbacks
+
+---
+
+## Archived standalone tracks (all complete)
+
+Eleven prose track briefs lived under `plans/*.md` until 2026-07-29. `plans/` is
+reserved for live `roadmap/1` tracks (`plans/<slug>/roadmap.yaml`), and `CLAUDE.md`
+§ 1 permits no other Markdown outside `.claude/` — so they moved here, joining the
+standalone briefs already in this directory (`notebook-cutover.md`,
+`embedder-truncation.md`, `notebook-preamble-recovery.md`, `notebook-retrieval.md`).
+
+They stay inside `milestone-pipeline-resolve-brief.py`'s legacy-prose glob
+(`.claude/roadmap/*.md`), so `/milestone-pipeline <id>` still resolves every
+milestone in them — verified after the move.
+
+Every one of these tracks is **complete**; each file carries a header recording
+its milestone list and the evidence.
+
+| Track | Milestones complete |
+|---|---|
+| [corpus-integrity-completion](corpus-integrity-completion-roadmap.md) | 5 |
+| [corpus-integrity-observability](corpus-integrity-observability-roadmap.md) | 5 |
+| [lean-repl-observability](lean-repl-observability.md) | 1 — see note below |
+| [license-serving-removal](license-serving-removal.md) | 1 |
+| [notebook-ops-hardening](notebook-ops-hardening-roadmap.md) | 4 |
+| [notebook-paper-discovery](notebook-paper-discovery-roadmap.md) | 4 |
+| [notebook-surface-expansion](notebook-surface-expansion-roadmap.md) | 7 |
+| [proof-verify-handler-wiring](proof-verify-handler-wiring-roadmap.md) | 9 + m5 |
+| [textbook-ingest](textbook-ingest-roadmap.md) | 12 |
+| [ui-attractive-polish](ui-attractive-polish-roadmap.md) | 5 |
+| [verification-feedback](verification-feedback-roadmap.md) | 4 |
+
+Two carry an asterisk:
+
+- **`proof-verify-handler-wiring-m5`** has no `state.json` — it ran as a measurement
+  outside the state machine. Its own heading records **COMPLETE 2026-05-21, Verdict
+  NO**: hybrid+rerank produced zero P@10 lift, a −10pp top-1 regression, and 122×
+  latency. That verdict is the ≥ 0.10-absolute-lift bar `evidence-engine` must clear
+  to re-open hybrid.
+- **`lean-repl-observability-m1`** reads `rectify-running` in `state.json` even though
+  its close-out triple landed (`8844bd4` feat → `101bd4f` rect → `54232e0` finalize).
+  The finalize commit committed the state file without flipping the phase. Left
+  uncorrected on purpose: it is a concurrent session's artifact. Anything reading
+  `state.json` (e.g. `milestone-pipeline-status.sh`) will report it in-flight until
+  that session closes it.
+
+Historical artifacts under `.claude/notes/milestones/` still cite the old
+`plans/*.md` paths. That is deliberate — they are dated records of where the file
+was when they were written, and rewriting them would falsify the record. Only live
+documents were repointed.

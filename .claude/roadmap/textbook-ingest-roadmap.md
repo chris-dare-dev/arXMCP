@@ -1,4 +1,28 @@
+---
+project: arxmcp
+type: roadmap
+status: active
+authorship: agent-generated
+tags:
+- project/arxmcp
+- type/roadmap
+- authorship/agent-generated
+---
+
 # Textbook ingest (PDFs into notebook-scoped corpus) — Roadmap
+
+> [!done] ARCHIVED — track complete, retained for the record
+> **Moved** from `plans/textbook-ingest-roadmap.md` to `.claude/roadmap/` on 2026-07-29.
+> `plans/` is reserved for live `roadmap/1` tracks (`plans/<slug>/roadmap.yaml`);
+> `CLAUDE.md` § 1 allows no other Markdown outside `.claude/`. This directory is
+> already the home of completed standalone briefs (`notebook-cutover.md`,
+> `embedder-truncation.md`, …) and stays inside
+> `milestone-pipeline-resolve-brief.py`'s legacy-prose glob, so `/milestone-pipeline`
+> still resolves every id below.
+>
+> **Completed milestones (12)** — `state.json` phase `complete`: `textbook-ingest-m1`, `textbook-ingest-m10`, `textbook-ingest-m11`, `textbook-ingest-m12`, `textbook-ingest-m2`, `textbook-ingest-m3`, `textbook-ingest-m4`, `textbook-ingest-m5`, `textbook-ingest-m6`, `textbook-ingest-m7`, `textbook-ingest-m8`, `textbook-ingest-m9`
+> **Last commit touching this track:** `2a34210 feat(server): lean_verify progress notifications (verification-feedback-m4)`
+
 
 **Slug:** `textbook-ingest`
 **Created:** 2026-05-27T20:34:27Z

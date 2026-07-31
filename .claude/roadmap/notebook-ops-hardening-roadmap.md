@@ -1,4 +1,28 @@
+---
+project: arxmcp
+type: roadmap
+status: active
+authorship: agent-generated
+tags:
+- project/arxmcp
+- type/roadmap
+- authorship/agent-generated
+---
+
 # Notebook ops hardening (storage durability · operability · container packaging · UI completion) — Roadmap
+
+> [!done] ARCHIVED — track complete, retained for the record
+> **Moved** from `plans/notebook-ops-hardening-roadmap.md` to `.claude/roadmap/` on 2026-07-29.
+> `plans/` is reserved for live `roadmap/1` tracks (`plans/<slug>/roadmap.yaml`);
+> `CLAUDE.md` § 1 allows no other Markdown outside `.claude/`. This directory is
+> already the home of completed standalone briefs (`notebook-cutover.md`,
+> `embedder-truncation.md`, …) and stays inside
+> `milestone-pipeline-resolve-brief.py`'s legacy-prose glob, so `/milestone-pipeline`
+> still resolves every id below.
+>
+> **Completed milestones (4)** — `state.json` phase `complete`: `notebook-ops-hardening-m1`, `notebook-ops-hardening-m2`, `notebook-ops-hardening-m3`, `notebook-ops-hardening-m4`
+> **Last commit touching this track:** `7f9cac9 chore(notes): land session planning + agent-memory artifacts`
+
 
 **Slug:** `notebook-ops-hardening`
 **Created:** 2026-05-28T21:04:26Z

@@ -346,7 +346,7 @@ gate script.
  M README.md, docs/README.md, docs/api.md, docs/architecture.md, docs/evaluation.md,
    docs/install.md, docs/observability/README.md, docs/ops/README.md, docs/releasing.md,
    docs/support.md, docs/usage.md                     <- Obsidian vault frontmatter stamper
- M plans/corpus-integrity-completion-roadmap.md (+8 more plans/*.md)  <- same stamper
+ M .claude/roadmap/corpus-integrity-completion-roadmap.md (+8 more plans/*.md)  <- same stamper
  M tests/conftest.py                                   <- from another session, uninspected
 
 ?? .agents/  .codex/  AGENTS.md                        <- Codex mirror scaffolding

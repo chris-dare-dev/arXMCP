@@ -146,7 +146,7 @@ the performance tail.
   named env across a recycle), and consume the live-snapshot / worker-age gauge on `/metrics`.
   That observability gauge is now scoped as a **standalone, independently-schedulable
   milestone** — `lean-repl-observability-m1`
-  ([`plans/lean-repl-observability.md`](../../plans/lean-repl-observability.md)) — pullable
+  ([`.claude/roadmap/lean-repl-observability.md`](../../.claude/roadmap/lean-repl-observability.md)) — pullable
   *ahead* of the trust gate because read-only telemetry changes no REPL lifecycle; m7
   consumes/extends it and retains only the env-tree *bounding* (recycling + pickle-migration).
   A respawn *policy* must NOT live in the `lean_verify` handler — a respawn mints a new
