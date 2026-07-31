@@ -20,6 +20,29 @@ another** — least of all fidelity from elaboration.
 
 ## 2. The motivating defect — what "banned" means, concretely
 
+> **Status update (2026-07-31) — the axiom half of this defect is closed.**
+> The section below is preserved as written on 2026-07-12; two of its
+> statements are now stale and are corrected here rather than edited in place,
+> since this is an Accepted, owner-approved policy. **(a)** "There is zero
+> axiom-audit code in `server/`" no longer holds: `lean_verify` runs a
+> `#print axioms` round-trip over the declarations a full-mode snippet
+> introduces and emits an always-present, `Certificate`-shaped `axiom_audit`
+> record (axis 7 of §4), with the allowlist this policy names and with
+> unmeasured paths reporting `not-applicable` / `unknown` rather than a
+> passing value (§6 rule 5). Issues #205 / #281 / #332.
+> **(b)** The line "R3 renames `"ok"` → `elaborated_no_errors`" describes R3's
+> planned five-operation redesign, which has **not** shipped: `status` still
+> carries the value `"ok"`, deliberately. Renaming it is a wire-breaking change
+> that belongs to R3-m1's batched window, and the axiom fix did not need it —
+> per §4, the cure for a collapsed token is an independent axis beside it, not
+> a relabelled token. `status` and `compilation_success` were left reporting
+> exactly what they measure; inferring them from the axiom axis would be this
+> section's conflation pointing the other way.
+> **What is still open here:** the second bullet below (`syntax_only` is not
+> syntax-only) is unchanged and still accurate, and axes 4 (formal alignment)
+> and 8 (checker identity) remain unmeasured by this tool — absent from its
+> record, per §4, not defaulted to passing.
+
 `lean_verify` today (`server/handlers/lean_verify.py:290-298`) computes:
 
 ```python

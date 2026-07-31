@@ -42,6 +42,7 @@ import asyncio
 import contextlib
 import logging
 import math
+import re
 from typing import Annotated, Any, Literal
 
 from mcp.server.fastmcp import Context
@@ -355,6 +356,284 @@ def _project_sorries(
     return out
 
 
+# ---------------------------------------------------------------------------
+# Axiom-hygiene axis (issues #205 / #281 / #332)
+# ---------------------------------------------------------------------------
+# CLAUDE.md §4.9 rule 1 named this module's ``status`` as THE live violation of
+# the trust-language policy: ``status="ok"`` <=> (no error-severity messages)
+# AND (no sorries), so a bare ``axiom h : False`` elaborates clean and the
+# surface calls a proof of False "ok". ``lean_verify`` is the only tool here
+# that emits a *verdict* rather than evidence, so that token is designed to be
+# believed.
+#
+# The fix is an INDEPENDENT axis, never a widened ``status``
+# (``.claude/docs/trust-language-policy.md`` §6 rule 1: "New trust-bearing
+# fields are namespaced and axis-specific"; §4: "no axis may be inferred from
+# another"). Concretely:
+#
+#   - ``status`` / ``compilation_success`` keep answering EXACTLY what they
+#     measure — elaboration + proof closure, and kernel acceptance. The kernel
+#     really did accept ``axiom h : False``; forcing those fields to "error"
+#     because of an axiom finding would be inferring the elaboration axis from
+#     the axiom axis — the same conflation in the opposite direction.
+#   - ``axiom_audit`` answers the fidelity question those fields never could,
+#     from the transitive axiom closure Lean itself reports.
+#
+# Certificate-shaped per policy §6 rule 3 — an ordinal ``outcome`` PLUS the
+# evidence behind it (the per-declaration axiom sets, the allowlist actually
+# applied, and the method). Always emitted, and NEVER defaulted to a passing
+# value (policy §6 rule 5): every path that does not measure the axis says so.
+
+#: The transitive axioms a proof may depend on and still count as clean. These
+#: three are Lean 4 / mathlib's standard classical foundation and are the
+#: allowlist named by the R3 verification contract
+#: (``.claude/roadmap-briefs/R3-verification-contract.md`` key result 3).
+#:
+#: Everything else is flagged, with no special-casing needed for the notable
+#: cases: ``sorryAx`` (an unproved hole — the axiom-side cross-check on the
+#: proof-closure axis), ``Lean.ofReduceBool`` / ``Lean.trustCompiler``
+#: (introduced by ``native_decide``, which the Lean community treats as a
+#: trust reduction), and any user-declared ``axiom``.
+AXIOM_ALLOWLIST: frozenset[str] = frozenset(
+    {"propext", "Quot.sound", "Classical.choice"}
+)
+
+#: Outcome precedence when combining per-declaration verdicts — a weakest-link
+#: ``meet`` WITHIN this one axis (policy §4 permits ``meet`` only within an
+#: axis, never across axes). ``flagged`` outranks ``unknown`` because it is
+#: strictly more informative and strictly more severe; ``clean`` is only
+#: reported when every declaration was measured AND every measurement passed.
+_AUDIT_SEVERITY: dict[str, int] = {"clean": 0, "unknown": 1, "flagged": 2}
+
+#: Declaration keywords whose bodies the Lean kernel checks. ``example`` is
+#: deliberately absent: it introduces no name, so ``#print axioms`` cannot
+#: address it (it is also caught indirectly — an ``example`` that leans on a
+#: bad axiom needs that axiom declared in the same snippet, which IS named).
+_DECL_KEYWORDS: tuple[str, ...] = (
+    "theorem",
+    "lemma",
+    "def",
+    "abbrev",
+    "axiom",
+    "opaque",
+    "instance",
+    "structure",
+    "inductive",
+    "class",
+)
+
+#: Modifiers that may precede a declaration keyword.
+_DECL_MODIFIERS: tuple[str, ...] = (
+    "private",
+    "protected",
+    "noncomputable",
+    "unsafe",
+    "partial",
+    "nonrec",
+    "scoped",
+    "local",
+)
+
+_MODIFIER_ALT = "|".join(_DECL_MODIFIERS)
+_KEYWORD_ALT = "|".join(_DECL_KEYWORDS)
+
+#: A declaration SITE — the keyword, whether or not a name follows. Counting
+#: sites separately from extracted names is what makes under-extraction
+#: fail-safe: an unnamed ``instance``, or any form this regex cannot name,
+#: leaves sites > names and forces the whole audit to ``unknown`` rather than
+#: letting an unaudited declaration ride along inside a ``clean`` verdict.
+_DECL_SITE_RE = re.compile(
+    rf"^\s*(?:@\[[^\]]*\]\s*)*(?:(?:{_MODIFIER_ALT})\s+)*(?:{_KEYWORD_ALT})\b"
+)
+
+#: A declaration site that DOES carry an extractable name. The name charset
+#: excludes the delimiters that can legally follow it (binders, type ascription,
+#: universe braces) rather than enumerating Lean's very permissive identifier
+#: alphabet, so unicode names (``φ``, ``α_lt``) and primed/`?`/`!` names survive.
+_DECL_NAME_RE = re.compile(
+    rf"^\s*(?:@\[[^\]]*\]\s*)*(?:(?:{_MODIFIER_ALT})\s+)*"
+    rf"(?:{_KEYWORD_ALT})\s+(?P<name>[^\s:{{(\[⦃<]+)"
+)
+
+#: ``namespace Foo`` / ``section [Foo]`` / ``end [Foo]`` — tracked as a stack so
+#: an extracted name is qualified exactly as Lean will have registered it.
+#: Sections are tracked too: a bare ``end`` closing a ``section`` must NOT pop
+#: an enclosing namespace and silently de-qualify every later name.
+_NAMESPACE_RE = re.compile(r"^\s*namespace\s+(?P<name>\S+)")
+_SECTION_RE = re.compile(r"^\s*section\b")
+_END_RE = re.compile(r"^\s*end\b")
+
+#: ``#print axioms Foo`` replies, verbatim from Lean:
+#:   ``'Foo' depends on axioms: [propext, Classical.choice]``
+#:   ``'Foo' does not depend on any axioms``
+#: Parsed by the quoted NAME rather than by message order, so a reply set that
+#: arrives reordered (or interleaved with unrelated diagnostics) still binds
+#: each axiom set to the right declaration.
+_PRINT_AXIOMS_RE = re.compile(
+    r"^'(?P<name>[^']+)'\s+(?:depends on axioms:\s*\[(?P<axioms>[^\]]*)\]"
+    r"|(?P<none>does not depend on any axioms))"
+)
+
+
+def _declaration_names(snippet: str) -> tuple[list[str], bool]:
+    """Extract the fully-qualified names ``snippet`` introduces.
+
+    Returns ``(names, complete)``. ``complete`` is False when the snippet
+    contains a declaration site this parser could not name (an unnamed
+    ``instance``, an exotic form) — the caller MUST degrade the audit to
+    ``unknown`` in that case, because a name we never asked about is a
+    declaration we never audited.
+
+    Namespace-aware: ``namespace N`` / ``end`` are tracked as a stack so
+    ``theorem t`` inside ``namespace N`` is audited as ``N.t`` — the name Lean
+    actually registered. A name that is nonetheless wrong is still fail-safe:
+    ``#print axioms`` answers "unknown identifier", which this module scores as
+    ``unknown``, never ``clean``.
+    """
+    names: list[str] = []
+    sites = 0
+    # Stack entries are (kind, name) — "namespace" contributes to the prefix,
+    # "section" does not, but both are closed by `end`.
+    scopes: list[tuple[str, str]] = []
+
+    for line in snippet.splitlines():
+        ns = _NAMESPACE_RE.match(line)
+        if ns:
+            scopes.append(("namespace", ns.group("name")))
+            continue
+        if _SECTION_RE.match(line):
+            scopes.append(("section", ""))
+            continue
+        if _END_RE.match(line):
+            if scopes:
+                scopes.pop()
+            continue
+        if not _DECL_SITE_RE.match(line):
+            continue
+        sites += 1
+        named = _DECL_NAME_RE.match(line)
+        if not named:
+            continue
+        prefix = ".".join(n for kind, n in scopes if kind == "namespace")
+        name = named.group("name")
+        names.append(f"{prefix}.{name}" if prefix else name)
+
+    # De-duplicate, preserving order (a snippet may legitimately re-declare a
+    # name in two namespaces; identical qualified names are one audit target).
+    seen: set[str] = set()
+    unique = [n for n in names if not (n in seen or seen.add(n))]
+    return unique, sites == len(names)
+
+
+def _audit_record(
+    outcome: str,
+    *,
+    declarations: list[dict[str, Any]] | None = None,
+    reason: str | None = None,
+    method: str | None = None,
+) -> dict[str, Any]:
+    """Build the Certificate-shaped ``axiom_audit`` record.
+
+    ``outcome`` is the ordinal level; ``declarations`` / ``disallowed`` /
+    ``allowlist`` / ``method`` are the attached evidence (policy §6 rule 3 — a
+    trust-bearing field carries its evidence, not a bare token).
+    """
+    decls = declarations or []
+    disallowed = sorted(
+        {
+            ax
+            for d in decls
+            for ax in d.get("axioms", [])
+            if ax not in AXIOM_ALLOWLIST
+        }
+    )
+    return {
+        "outcome": outcome,
+        "declarations": decls,
+        "disallowed_axioms": disallowed,
+        "allowlist": sorted(AXIOM_ALLOWLIST),
+        "method": method,
+        "reason": reason,
+    }
+
+
+def _audit_not_applicable(reason: str) -> dict[str, Any]:
+    """The tool did not measure this axis on this path. Distinct from
+    ``unknown`` (measurement was attempted and did not resolve) and from
+    ``clean`` — an unmeasured axis is NEVER a passing one (policy §6 rule 5).
+    """
+    return _audit_record("not-applicable", reason=reason)
+
+
+def _audit_unknown(reason: str, **kw: Any) -> dict[str, Any]:
+    return _audit_record("unknown", reason=reason, **kw)
+
+
+def _parse_print_axioms(messages: list[dict[str, Any]]) -> dict[str, list[str]]:
+    """Map declaration name -> transitive axiom list from ``#print axioms``
+    reply messages. Names Lean did not answer for are simply absent, which the
+    caller scores as ``unknown`` for that declaration."""
+    found: dict[str, list[str]] = {}
+    for msg in messages:
+        m = _PRINT_AXIOMS_RE.match(msg.get("text", "").strip())
+        if not m:
+            continue
+        if m.group("none") is not None:
+            found[m.group("name")] = []
+            continue
+        raw = m.group("axioms") or ""
+        found[m.group("name")] = [a.strip() for a in raw.split(",") if a.strip()]
+    return found
+
+
+def _audit_from_messages(
+    messages: list[dict[str, Any]], names: list[str], complete: bool
+) -> dict[str, Any]:
+    """Score a ``#print axioms`` reply set into an ``axiom_audit`` record."""
+    answered = _parse_print_axioms(messages)
+    declarations: list[dict[str, Any]] = []
+    worst = "clean"
+
+    for name in names:
+        if name not in answered:
+            # Lean did not report on this declaration — most often "unknown
+            # identifier" because the qualified name we derived is wrong.
+            # Fail-safe: unknown, never clean.
+            declarations.append({"name": name, "axioms": [], "verdict": "unknown"})
+            worst = _worse(worst, "unknown")
+            continue
+        axioms = answered[name]
+        bad = [a for a in axioms if a not in AXIOM_ALLOWLIST]
+        verdict = "flagged" if bad else "clean"
+        declarations.append({"name": name, "axioms": axioms, "verdict": verdict})
+        worst = _worse(worst, verdict)
+
+    reason: str | None = None
+    if not complete:
+        # A declaration site we could not name is a declaration we did not
+        # audit; the record must not read as a clean sweep.
+        worst = _worse(worst, "unknown")
+        reason = (
+            "The snippet contains a declaration this tool could not name (an "
+            "unnamed instance or an unrecognized declaration form), so the "
+            "audit does not cover every declaration it introduced."
+        )
+    elif worst == "unknown":
+        reason = (
+            "Lean did not report an axiom set for every declaration (the "
+            "derived name may not match the registered one)."
+        )
+
+    return _audit_record(
+        worst, declarations=declarations, reason=reason, method="#print axioms"
+    )
+
+
+def _worse(a: str, b: str) -> str:
+    """Weakest-link combinator, WITHIN the axiom axis only (policy §4)."""
+    return a if _AUDIT_SEVERITY[a] >= _AUDIT_SEVERITY[b] else b
+
+
 #: The EXACT leanprover-community/repl replies for a stale/unknown env or
 #: proofState id (verified live). A bare top-level ``message`` matching one of
 #: these is a continuation-id rejection (invalid-input); any OTHER bare
@@ -476,7 +755,34 @@ def _normalize_response(
         "mode": mode,
         "env": env_token,
         "continuation_status": continuation_status,
+        # Placeholder only. ``_normalize_response`` is a PURE projection of one
+        # REPL response; measuring the axiom axis needs a second round-trip, so
+        # the handler overwrites this via ``_attach_axiom_audit`` on the paths
+        # that warrant one. The default is deliberately non-passing: if that
+        # call is ever skipped or removed, the record degrades to "unmeasured",
+        # never to "clean" (policy §6 rule 5).
+        "axiom_audit": _default_audit_for(mode, status),
     }
+
+
+def _default_audit_for(mode: str, status: str) -> dict[str, Any]:
+    """The ``axiom_audit`` a cmd-shaped response carries before the handler's
+    second round-trip runs (or when one is not warranted)."""
+    if mode == "syntax_only":
+        return _audit_not_applicable(
+            "mode='syntax_only' short-circuits post-elaboration kernel work, "
+            "so no declaration is kernel-checked and there is no axiom closure "
+            "to audit. Re-run in mode='full' for an axiom verdict."
+        )
+    if status not in ("ok", "sorry"):
+        return _audit_not_applicable(
+            f"status={status!r}: the snippet introduced no kernel-checked "
+            "declaration to audit."
+        )
+    return _audit_unknown(
+        "The axiom audit did not run for this call.",
+        method="#print axioms",
+    )
 
 
 def _normalize_tactic_step(
@@ -547,6 +853,11 @@ def _normalize_tactic_step(
         "mode": "tactic_step",
         "env": None,
         "continuation_status": continuation_status,
+        "axiom_audit": _audit_not_applicable(
+            "A tactic step advances a proof state; it introduces no named "
+            "declaration, so there is nothing for '#print axioms' to address. "
+            "Re-verify the assembled proof in mode='full' for an axiom verdict."
+        ),
     }
 
 
@@ -568,6 +879,10 @@ def _disabled_envelope(mode: str) -> dict[str, Any]:
         "compilation_success": None,
         "env": None,
         "continuation_status": "not-applicable",
+        "axiom_audit": _audit_not_applicable(
+            "The Lean REPL is disabled (ARXMCP_ENABLE_LEAN=false); nothing "
+            "was elaborated, so no axiom closure exists to audit."
+        ),
     }
 
 
@@ -599,6 +914,11 @@ def _timeout_envelope(
         # still records THIS call's disposition (m5 critique F4).
         "env": None,
         "continuation_status": continuation_status,
+        "axiom_audit": _audit_not_applicable(
+            "The elaboration exceeded the per-query wall-clock and the REPL "
+            "was killed; no declaration was admitted, so no axiom closure "
+            "exists to audit."
+        ),
     }
 
 
@@ -632,6 +952,10 @@ def _invalid_continuation_envelope(
         "compilation_success": False,
         "env": None,
         "continuation_status": continuation_status,
+        "axiom_audit": _audit_not_applicable(
+            "The continuation token was rejected and the snippet did not run, "
+            "so no axiom closure exists to audit."
+        ),
     }
 
 
@@ -663,6 +987,10 @@ def _message_error_envelope(
         "compilation_success": False,
         "env": None,
         "continuation_status": continuation_status,
+        "axiom_audit": _audit_not_applicable(
+            "The Lean REPL reported an error rather than a checked "
+            "environment, so no axiom closure exists to audit."
+        ),
     }
 
 
@@ -701,6 +1029,123 @@ def _build_command(snippet: str, imports: list[str], mode: str) -> str:
     if import_lines:
         return f"{import_lines}\n{body}"
     return body
+
+
+async def _respawn_after_timeout(resources: Any, lean_repl: Any) -> None:
+    """Close a wedged REPL and respawn it from config.
+
+    The lean-sandbox-design contract: ``LeanRepl.query``'s wall-clock timeout
+    raises but does NOT terminate the subprocess, so a wedged elaboration would
+    interleave its stdout into every subsequent call. Shared by the primary
+    query path and the axiom-audit round-trip.
+
+    Best-effort by design: ``close`` on an already-wedged process can
+    legitimately raise, and a failed respawn degrades later calls to
+    "unavailable" rather than raising here. ``CancelledError`` propagates (it
+    is a ``BaseException``), so the narrow excepts below cannot swallow it.
+    """
+    try:
+        await lean_repl.close()
+    except (OSError, LeanReplError):
+        logger.exception("lean_verify: REPL close after timeout failed")
+    try:
+        resources.lean_repl = await LeanRepl.spawn_from_config(resources.config)
+    except (LeanUnavailableError, OSError):
+        logger.exception(
+            "lean_verify: respawn after timeout failed; "
+            "subsequent calls degrade to 'unavailable'"
+        )
+        resources.lean_repl = None
+
+
+def _invalidate_continuation_tokens(payload: dict[str, Any]) -> None:
+    """Strip every continuation token from ``payload`` in place.
+
+    Called when the REPL is respawned AFTER the primary response was projected:
+    the tokens that response minted address env / proofState ids inside a
+    process that no longer exists. They would be rejected as ``expired`` on
+    reuse (the generation guard holds), but emitting a token that is already
+    known-dead invites a pointless round-trip — and a caller that reads a
+    non-null ``env`` as "resumable" would be reading a false affordance.
+    """
+    payload["env"] = None
+    payload["proof_state_id"] = None
+    for row in payload.get("sorry_goals", []):
+        row.pop("proof_state_id", None)
+
+
+async def _attach_axiom_audit(
+    payload: dict[str, Any],
+    snippet: str,
+    env_raw: Any,
+    *,
+    resources: Any,
+    lean_repl: Any,
+) -> dict[str, Any]:
+    """Measure the axiom-hygiene axis and attach it to ``payload``.
+
+    Issues one extra ``{"cmd": "#print axioms <decl>", "env": <n>}`` round-trip
+    against the environment the snippet just produced, so Lean itself reports
+    the transitive axiom closure of every declaration the snippet introduced.
+
+    **Never raises, never edits another axis.** Every failure mode resolves to
+    ``outcome="unknown"`` with a reason — an audit that could not run is an
+    unmeasured axis, and an unmeasured axis is not a passing one (policy §6
+    rule 5). The primary verdict (``status`` / ``compilation_success`` /
+    ``messages``) is returned unchanged on every path.
+    """
+    if not isinstance(env_raw, int):
+        payload["axiom_audit"] = _audit_unknown(
+            "The REPL returned no environment id for this call, so there is no "
+            "environment in which to resolve the snippet's declarations."
+        )
+        return payload
+
+    names, complete = _declaration_names(snippet)
+    if not names:
+        payload["axiom_audit"] = _audit_unknown(
+            "No named declaration was found in the snippet, so there is "
+            "nothing for '#print axioms' to address. A snippet that only "
+            "elaborates a term (or declares an unnamed instance) carries no "
+            "auditable axiom closure — this is NOT a clean verdict."
+            if complete
+            else "The snippet's declarations could not be named, so the axiom "
+            "closure could not be resolved."
+        )
+        return payload
+
+    command = {
+        "cmd": "\n".join(f"#print axioms {name}" for name in names),
+        "env": env_raw,
+    }
+    try:
+        audit_resp = await lean_repl.query(command)
+    except LeanReplTimeoutError:
+        # Same stale-stdout hazard as the primary path — kill + respawn, then
+        # drop the now-dead tokens the primary response minted.
+        logger.warning(
+            "lean_verify: axiom audit timed out — closing and respawning"
+        )
+        await _respawn_after_timeout(resources, lean_repl)
+        _invalidate_continuation_tokens(payload)
+        payload["axiom_audit"] = _audit_unknown(
+            "The '#print axioms' round-trip exceeded the per-query wall-clock; "
+            "the REPL was killed and respawned. The axiom closure is unknown "
+            "for this snippet."
+        )
+        return payload
+    except LeanReplError as exc:
+        logger.warning("lean_verify: axiom audit REPL error: %s", exc)
+        payload["axiom_audit"] = _audit_unknown(
+            f"The '#print axioms' round-trip failed ({exc}); the axiom closure "
+            "is unknown for this snippet."
+        )
+        return payload
+
+    payload["axiom_audit"] = _audit_from_messages(
+        _project_messages(audit_resp.get("messages")), names, complete
+    )
+    return payload
 
 
 # ---------------------------------------------------------------------------
@@ -947,20 +1392,7 @@ async def handle_lean_verify(
         # m3 critique F4 — narrow the bare-except. The teardown is
         # best-effort (close on an already-wedged process can legitimately
         # raise OSError / LeanReplError); CancelledError MUST propagate.
-        try:
-            await lean_repl.close()
-        except (OSError, LeanReplError):
-            logger.exception("lean_verify: REPL close after timeout failed")
-        try:
-            resources.lean_repl = await LeanRepl.spawn_from_config(
-                resources.config
-            )
-        except (LeanUnavailableError, OSError):
-            logger.exception(
-                "lean_verify: respawn after timeout failed; "
-                "subsequent calls degrade to 'unavailable'"
-            )
-            resources.lean_repl = None
+        await _respawn_after_timeout(resources, lean_repl)
         # m5 critique F4: a resumed continuation that then timed out still
         # had its token accepted THIS call — record that, don't claim
         # "not-applicable".
@@ -995,12 +1427,31 @@ async def handle_lean_verify(
                 "env": None,
                 # m5 critique F4 — reflect whether a token was resumed.
                 "continuation_status": "resumed" if resumed else "not-applicable",
+                "axiom_audit": _audit_not_applicable(
+                    "The Lean REPL failed before returning a checked "
+                    "environment, so no axiom closure exists to audit."
+                ),
             }
         )
 
     payload = _normalize_response(
         resp, mode, repl_generation=generation, resumed=resumed
     )
+
+    # --- Axiom-hygiene axis (issues #205 / #281 / #332) -----------------
+    # A SECOND round-trip, because the axiom closure is only knowable after
+    # the declarations exist in an environment. Runs on the one path where
+    # the question is meaningful: a full-mode call whose snippet was actually
+    # admitted. Its outcome never edits status / compilation_success — those
+    # answer other axes and stay exactly as measured (policy §4).
+    if mode == "full" and payload["status"] in ("ok", "sorry"):
+        payload = await _attach_axiom_audit(
+            payload,
+            snippet,
+            resp.get("env"),
+            resources=resources,
+            lean_repl=lean_repl,
+        )
     # Multi-result cap surface — long elaborations can emit hundreds of
     # diagnostic rows; cap_result_list trims the trailing entries from
     # the messages array if the envelope exceeds Config.result_byte_cap.

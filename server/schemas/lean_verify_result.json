@@ -2,11 +2,67 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://arxmcp/schemas/lean_verify_result/v21.json",
   "additionalProperties": false,
-  "description": "Canonical structuredContent shape returned by the lean_verify MCP tool. Added at verification-feedback-m3. Bumped at textbook-ingest-m3 (12 -> 13) to track the global TOOL_SCHEMA_VERSION rise from the SEARCH_PAPERS description edit; the lean_verify result shape itself is unchanged. Bumped at textbook-ingest-m9 / e4 (13 -> 14) to track the global TOOL_SCHEMA_VERSION rise from the SEARCH_PAPERS source_kind filter description edit; the lean_verify result shape is again unchanged. Bumped again at textbook-ingest-m9 / e4 rectification (14 -> 15) to track the global TOOL_SCHEMA_VERSION rise from the critique-F3 ``filters`` parameter inputSchema description fix; the lean_verify result shape is once more unchanged. Bumped at textbook-ingest-m11 / e5 (15 -> 16) to track the global TOOL_SCHEMA_VERSION rise from the get_chunk ``truncated_for_license`` response flag; the lean_verify result shape is again unchanged. Bumped at paper-metadata-m2 (16 -> 17) to track the global TOOL_SCHEMA_VERSION rise from the GET_PAPER ToolMeta description rewrite (get_paper now serves hydrated title/authors/abstract/year/categories from the per-notebook paper-metadata store); the lean_verify result shape is once more unchanged. Bumped at source-truth-m5 (17 -> 18) and license-serving-removal-m1 (18 -> 19) to track the global TOOL_SCHEMA_VERSION rise (get_chunk +5 source-truth fields, then the truncated_for_license flag removal); the lean_verify result shape is unchanged at both steps. NO snippet field: lean_verify is a VERIFIER, not a retriever — the 150-char snippet contract (.claude/docs/snippet-contract.md) and the <retrieved_chunk> indirect-prompt-injection wrapping (E13_S02 Threat 2) apply ONLY to retrieval tools whose results are paper-derived text. The ``version`` field below MUST equal server.tools.TOOL_SCHEMA_VERSION (cross-checked by tests/test_handlers_lean_verify.py::TestToolRegistration::test_schema_version_matches_tool_schema_version) — that cross-check, plus the tests/test_handlers_lean_verify.py::TestLeanVerifyResultSchema Draft7Validator conformance suite (m3 critique F2), is the contract guard for this file; there is NO byte-hash pin on the file itself today (the E06_S06 ``EXPECTED_TOOL_SCHEMA_SHA256`` covers the canonical ``tools/list`` response JSON, not this result-row schema). Bumped at lean-verify-continuation-m1 (19 -> 20): this milestone threads the leanprover-community/repl continuation ids through the tool — added the env / proof_state_id / continuation_status output fields, the tactic_step mode value, and the invalid-input / incomplete status values. This is the first lean_verify result-SHAPE change since m3; env, proof_state_id and continuation_status are always emitted (nullable / not-applicable on the sentinel paths) and are therefore in the required list, mirroring the existing always-emitted proof_state field.",
+  "description": "Canonical structuredContent shape returned by the lean_verify MCP tool. Added at verification-feedback-m3. Bumped at textbook-ingest-m3 (12 -> 13) to track the global TOOL_SCHEMA_VERSION rise from the SEARCH_PAPERS description edit; the lean_verify result shape itself is unchanged. Bumped at textbook-ingest-m9 / e4 (13 -> 14) to track the global TOOL_SCHEMA_VERSION rise from the SEARCH_PAPERS source_kind filter description edit; the lean_verify result shape is again unchanged. Bumped again at textbook-ingest-m9 / e4 rectification (14 -> 15) to track the global TOOL_SCHEMA_VERSION rise from the critique-F3 ``filters`` parameter inputSchema description fix; the lean_verify result shape is once more unchanged. Bumped at textbook-ingest-m11 / e5 (15 -> 16) to track the global TOOL_SCHEMA_VERSION rise from the get_chunk ``truncated_for_license`` response flag; the lean_verify result shape is again unchanged. Bumped at paper-metadata-m2 (16 -> 17) to track the global TOOL_SCHEMA_VERSION rise from the GET_PAPER ToolMeta description rewrite (get_paper now serves hydrated title/authors/abstract/year/categories from the per-notebook paper-metadata store); the lean_verify result shape is once more unchanged. Bumped at source-truth-m5 (17 -> 18) and license-serving-removal-m1 (18 -> 19) to track the global TOOL_SCHEMA_VERSION rise (get_chunk +5 source-truth fields, then the truncated_for_license flag removal); the lean_verify result shape is unchanged at both steps. NO snippet field: lean_verify is a VERIFIER, not a retriever — the 150-char snippet contract (.claude/docs/snippet-contract.md) and the <retrieved_chunk> indirect-prompt-injection wrapping (E13_S02 Threat 2) apply ONLY to retrieval tools whose results are paper-derived text. The ``version`` field below MUST equal server.tools.TOOL_SCHEMA_VERSION (cross-checked by tests/test_handlers_lean_verify.py::TestToolRegistration::test_schema_version_matches_tool_schema_version) — that cross-check, plus the tests/test_handlers_lean_verify.py::TestLeanVerifyResultSchema Draft7Validator conformance suite (m3 critique F2), is the contract guard for this file; there is NO byte-hash pin on the file itself today (the E06_S06 ``EXPECTED_TOOL_SCHEMA_SHA256`` covers the canonical ``tools/list`` response JSON, not this result-row schema). Bumped at lean-verify-continuation-m1 (19 -> 20): this milestone threads the leanprover-community/repl continuation ids through the tool — added the env / proof_state_id / continuation_status output fields, the tactic_step mode value, and the invalid-input / incomplete status values. This is the first lean_verify result-SHAPE change since m3; env, proof_state_id and continuation_status are always emitted (nullable / not-applicable on the sentinel paths) and are therefore in the required list, mirroring the existing always-emitted proof_state field. SHAPE CHANGE at lean-verify-axiom-audit (issues #205 / #281 / #332), deliberately minting NO version bump of its own: the always-emitted axiom_audit record was added, and the compilation_success + status descriptions were corrected to stop overclaiming. ``version`` tracks the global server.tools.TOOL_SCHEMA_VERSION rather than this file's shape, and bumping THAT drifts the tools/list bytes via the ``_meta.tool_schema_version`` echo — a re-pin this change is explicitly forbidden from minting alone (#205 acceptance: it must ride the next BATCHED window, and the W1 window it named had already closed at agent-platform-m3). So the behaviour merges bump-free and the version bump + the LEAN_VERIFY.description edit are staged in .claude/docs/w1-schema-deltas.md for whichever batched re-pin comes next; the integer above may therefore be carried upward by an unrelated bump before that delta is applied. Consequence to know either way: the version integer alone cannot tell a consumer whether axiom_audit is present, because the shape changed without it moving — key on the PRESENCE of axiom_audit, which is why it is in the required list rather than optional.",
   "version": 21,
   "properties": {
+    "axiom_audit": {
+      "additionalProperties": false,
+      "description": "Axiom-hygiene axis — the transitive axiom closure Lean reports for the declarations this snippet introduced, and whether it stays inside the allowlist. Added at lean-verify-axiom-audit (issues #205 / #281 / #332). This axis exists because status and compilation_success cannot answer it: a bare `axiom h : False` elaborates with no error and no sorry, so it passes both, and CLAUDE.md §4.9 rule 1 names that exact construct as THE live violation of the trust-language policy. Per that policy (.claude/docs/trust-language-policy.md §4, §6) this is an INDEPENDENT axis: it is never folded into status, and status is never inferred from it — the kernel genuinely did accept the axiom-backed proof, and reporting otherwise would be the same conflation in the opposite direction. A caller deciding whether a Lean result is trustworthy MUST read this field as well as status; neither alone is a trust verdict. Always emitted, and never defaulted to a passing value: every path that does not measure the axis reports 'not-applicable' or 'unknown', not 'clean'.",
+      "properties": {
+        "allowlist": {
+          "description": "Evidence — the axiom allowlist actually applied to this verdict (Lean 4 / mathlib's standard classical foundation, per the R3 verification contract). Emitted so a consumer can re-derive the verdict rather than trust the token, and so a future allowlist change is visible in the record rather than silent.",
+          "items": {"type": "string"},
+          "type": "array"
+        },
+        "declarations": {
+          "description": "Evidence — one row per declaration the snippet introduced, with the transitive axiom set '#print axioms' reported for it. Empty when no declaration was audited (see outcome + reason).",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "axioms": {
+                "description": "The full transitive axiom closure Lean reported for this declaration, verbatim and unfiltered (allowlisted axioms included). Empty when Lean reported no axiom dependency, or when verdict == 'unknown'.",
+                "items": {"type": "string"},
+                "type": "array"
+              },
+              "name": {
+                "description": "The fully-qualified declaration name the audit addressed, namespace-prefixed as Lean registered it.",
+                "type": "string"
+              },
+              "verdict": {
+                "description": "'clean': every axiom in this declaration's closure is allowlisted. 'flagged': at least one is not. 'unknown': Lean returned no axiom set for this name (most often the derived qualified name did not match the registered one) — NOT a pass.",
+                "enum": ["clean", "flagged", "unknown"],
+                "type": "string"
+              }
+            },
+            "required": ["axioms", "name", "verdict"],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "disallowed_axioms": {
+          "description": "The sorted union of every non-allowlisted axiom across declarations[] — the actionable subset of the evidence. Non-empty iff outcome == 'flagged'. Notable members carry no special-casing but do carry meaning: 'sorryAx' is an unproved hole (the axiom-side cross-check on the proof-closure axis that status reports as 'sorry'); 'Lean.ofReduceBool' / 'Lean.trustCompiler' are introduced by native_decide, which the Lean community treats as a trust reduction; anything else is typically a user-declared axiom.",
+          "items": {"type": "string"},
+          "type": "array"
+        },
+        "method": {
+          "description": "Evidence — how the axis was measured ('#print axioms'), or null when it was not measured at all.",
+          "type": ["string", "null"]
+        },
+        "outcome": {
+          "description": "The ordinal level of this axis. 'clean': every declaration was resolved AND every transitive axiom is allowlisted. 'flagged': at least one declaration depends on a non-allowlisted axiom — the snippet may be kernel-accepted and still not trustworthy. 'unknown': the audit was attempted but did not resolve (no named declaration in the snippet, a declaration form this tool could not name, an unresolvable name, or a failed/timed-out '#print axioms' round-trip) — an epistemic abstention per policy §5a, explicitly NOT a pass. 'not-applicable': this call does not produce kernel-checked declarations at all (mode='syntax_only' skips post-elaboration kernel work; mode='tactic_step' introduces no name; the disabled / timeout / invalid-input / error paths admitted nothing). Combining per-declaration verdicts uses a weakest-link meet WITHIN this axis only, with flagged outranking unknown outranking clean.",
+          "enum": ["clean", "flagged", "unknown", "not-applicable"],
+          "type": "string"
+        },
+        "reason": {
+          "description": "Human-readable explanation of a non-'clean' outcome — why the axis was not measured, or could not be resolved. Null when outcome == 'clean' or when a flagged verdict speaks for itself through disallowed_axioms.",
+          "type": ["string", "null"]
+        }
+      },
+      "required": ["allowlist", "declarations", "disallowed_axioms", "method", "outcome", "reason"],
+      "type": "object"
+    },
     "compilation_success": {
-      "description": "Whether the Lean kernel accepted the snippet. true iff status == 'ok' (no error-severity messages AND no unresolved sorries). false on type errors, unresolved sorries, timeouts. null when mode == 'syntax_only' AND the snippet elaborated cleanly (kernel verification was not run, so 'success' is not defined). Derived field — the leanprover-community/repl protocol does not emit it directly.",
+      "description": "Whether the Lean kernel accepted the snippet — the kernel-acceptance axis ONLY. true iff status == 'ok' (no error-severity messages AND no unresolved sorries). false on type errors, unresolved sorries, timeouts. null when mode == 'syntax_only' AND the snippet elaborated cleanly (kernel verification was not run, so 'success' is not defined). Derived field — the leanprover-community/repl protocol does not emit it directly. DOES NOT speak to axiom soundness: `axiom h : False` followed by a proof that uses it is kernel-accepted and reports true here. It also does not speak to target fidelity (whether the declaration states the theorem you meant) or to checker identity. Read axiom_audit for the axiom axis; the other two are not measured by this tool at all and are therefore absent from its record, not defaulted to passing (trust-language policy §4).",
       "type": ["boolean", "null"]
     },
     "continuation_status": {
@@ -103,12 +159,13 @@
       "type": "array"
     },
     "status": {
-      "description": "High-level verification outcome. Precedence: 'unavailable' (the REPL is disabled or initial spawn never happened) > 'timeout' (snippet exceeded the per-query wall-clock; REPL was killed + respawned) > 'error' (any message with severity=='error') > 'sorry' (no errors but at least one unresolved sorry) > 'ok' (clean). A successful tool call returns 'error' / 'sorry' / 'ok' WITHOUT MCP isError=true — those are *kernel* outcomes, not RPC failures. Only 'timeout' / 'unavailable' may be paired with an isError content block by future revisions. 'incomplete' (mode=tactic_step only: the tactic elaborated but goals remain — the proof is not closed). 'invalid-input' (a supplied env / proof_state continuation token was malformed, was minted by a previous REPL instance, or was unknown to the REPL; the snippet did NOT run and compilation_success is false — continuation_status names which).",
+      "description": "Elaboration + proof-closure outcome, and the operational lane. NOT a trust verdict: it reports whether Lean raised an error-severity diagnostic and whether any sorry remains, and NOTHING else. In particular 'ok' does not mean the proof is sound — a snippet declaring its own axiom elaborates with no error and no sorry and lands here. The axiom axis is reported separately and independently in axiom_audit, and neither field is inferred from the other (trust-language policy §4; CLAUDE.md §4.9 rule 1). Precedence: 'unavailable' (the REPL is disabled or initial spawn never happened) > 'timeout' (snippet exceeded the per-query wall-clock; REPL was killed + respawned) > 'error' (any message with severity=='error') > 'sorry' (no errors but at least one unresolved sorry) > 'ok' (clean). A successful tool call returns 'error' / 'sorry' / 'ok' WITHOUT MCP isError=true — those are *kernel* outcomes, not RPC failures. Only 'timeout' / 'unavailable' may be paired with an isError content block by future revisions. 'incomplete' (mode=tactic_step only: the tactic elaborated but goals remain — the proof is not closed). 'invalid-input' (a supplied env / proof_state continuation token was malformed, was minted by a previous REPL instance, or was unknown to the REPL; the snippet did NOT run and compilation_success is false — continuation_status names which).",
       "enum": ["ok", "error", "sorry", "incomplete", "timeout", "unavailable", "invalid-input"],
       "type": "string"
     }
   },
   "required": [
+    "axiom_audit",
     "compilation_success",
     "continuation_status",
     "corpus_version",

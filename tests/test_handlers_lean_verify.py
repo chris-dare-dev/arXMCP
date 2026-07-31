@@ -30,14 +30,18 @@ import pytest
 
 from server.config import Config
 from server.handlers.lean_verify import (
+    AXIOM_ALLOWLIST,
     MAX_IMPORT_LINE_LEN,
+    _audit_from_messages,
     _build_command,
+    _declaration_names,
     _decode_token,
     _encode_token,
     _normalize_position,
     _normalize_response,
     handle_lean_verify,
 )
+from server.lean_repl import LeanReplError, LeanReplTimeoutError
 from server.tools import (
     LEAN_VERIFY,
     TOOL_SCHEMA_VERSION,
@@ -90,11 +94,29 @@ class _FakeLeanRepl:
         # lets the respawn tests exercise the expired-token path.
         self.generation = generation
 
+    def _next_response(self) -> dict[str, Any]:
+        """Pop the next queued response, or ``{}`` once the queue is empty.
+
+        A full-mode call now costs TWO round-trips: the snippet, then a
+        ``#print axioms`` audit over the declarations it introduced
+        (lean-verify-axiom-audit). Tests that queue only the primary response
+        are asserting about the primary axes, so the fake models "Lean told us
+        nothing about the axioms" rather than raising ``IndexError``.
+
+        ``{}`` is deliberately the *honest* exhausted-queue reply, not a
+        convenient one: an audit that learns nothing scores ``outcome
+        ="unknown"``. A fake that manufactured a clean ``#print axioms`` reply
+        would make every one of those tests silently assert a passing axiom
+        verdict that nothing measured — exactly the defect this milestone
+        exists to remove.
+        """
+        return self._responses.pop(0) if self._responses else {}
+
     async def query(self, command: dict[str, Any]) -> dict[str, Any]:
         self.commands.append(command)
         if self._raise_with is not None:
             raise self._raise_with
-        return self._responses.pop(0)
+        return self._next_response()
 
     async def close(self) -> None:
         self.closed = True
@@ -380,8 +402,13 @@ class TestHandlerHappyPaths:
         assert result["lean_status"] == "available"
         assert result["mode"] == "full"
         assert result["corpus_version"] == 1
-        # Command sent to REPL is the bare snippet.
-        assert repl.commands == [{"cmd": "theorem t : 1+1=2 := rfl"}]
+        # First command sent to the REPL is the bare snippet; the second is
+        # the axiom-hygiene audit over the declaration it introduced, run
+        # against the env that snippet produced (lean-verify-axiom-audit).
+        assert repl.commands == [
+            {"cmd": "theorem t : 1+1=2 := rfl"},
+            {"cmd": "#print axioms t", "env": 0},
+        ]
 
     def test_full_mode_type_error(self, fake_resources_with_repl):
         _fake, repl = fake_resources_with_repl
@@ -507,9 +534,13 @@ class TestEnvReuse:
             )
         )
         # The decoded raw env id (0) is forwarded to the REPL...
-        assert repl.commands == [
-            {"cmd": "theorem t : True := trivial", "env": 0}
-        ]
+        assert repl.commands[0] == {
+            "cmd": "theorem t : True := trivial",
+            "env": 0,
+        }
+        # ...and the axiom audit runs against the env the snippet PRODUCED
+        # (5), not the one it continued from (0).
+        assert repl.commands[1] == {"cmd": "#print axioms t", "env": 5}
         # ...and the produced env (5) comes back as a generation-scoped token.
         assert result["env"] == "genA:5"
         assert result["continuation_status"] == "resumed"
@@ -518,7 +549,10 @@ class TestEnvReuse:
     def test_no_env_is_not_applicable(self):
         repl = _repl_with([{"env": 0}], generation="genA")
         result = _run(handle_lean_verify(snippet="theorem t : True := trivial"))
-        assert repl.commands == [{"cmd": "theorem t : True := trivial"}]
+        assert repl.commands == [
+            {"cmd": "theorem t : True := trivial"},
+            {"cmd": "#print axioms t", "env": 0},
+        ]
         assert result["continuation_status"] == "not-applicable"
         assert result["env"] == "genA:0"
 
@@ -1705,7 +1739,7 @@ class _SlowFakeLeanRepl(_FakeLeanRepl):
             await asyncio.sleep(self._delay_s)
         if self._raise_with is not None:
             raise self._raise_with
-        return self._responses.pop(0)
+        return self._next_response()
 
 
 class TestProgressHeartbeat:
@@ -2180,3 +2214,571 @@ class TestProgressHeartbeat:
             )
         finally:
             reset_resources_for_tests()
+
+
+# ===========================================================================
+# Axiom-hygiene axis (issues #205 / #281 / #332)
+# ===========================================================================
+
+
+def _axioms_reply(**by_name: list[str]) -> dict[str, Any]:
+    """Build a fake ``#print axioms`` REPL reply for the given declarations,
+    in the exact wire form Lean emits (info-severity messages whose text is
+    ``'<name>' depends on axioms: [...]`` / ``'<name>' does not depend on any
+    axioms``)."""
+    messages = []
+    for name, axioms in by_name.items():
+        text = (
+            f"'{name}' depends on axioms: [{', '.join(axioms)}]"
+            if axioms
+            else f"'{name}' does not depend on any axioms"
+        )
+        messages.append(
+            {"severity": "info", "pos": {"line": 0, "column": 0}, "data": text}
+        )
+    return {"env": 1, "messages": messages}
+
+
+class TestDeclarationNameExtraction:
+    """Unit tests for the name extractor that decides WHAT gets audited.
+
+    Under-extraction is the dangerous direction — a declaration nobody asked
+    ``#print axioms`` about would ride along inside a ``clean`` verdict — so
+    the parser reports completeness separately and the scorer degrades to
+    ``unknown`` whenever a declaration site could not be named.
+    """
+
+    def test_bare_axiom_is_extracted(self):
+        assert _declaration_names("axiom h : False") == (["h"], True)
+
+    def test_axiom_plus_dependent_theorem(self):
+        names, complete = _declaration_names(
+            "axiom cheat : False\ntheorem t : 1 = 2 := absurd rfl (cheat.elim)"
+        )
+        assert names == ["cheat", "t"]
+        assert complete is True
+
+    def test_namespace_qualifies_the_name(self):
+        assert _declaration_names(
+            "namespace N\ntheorem t : True := trivial\nend N"
+        ) == (["N.t"], True)
+
+    def test_bare_end_closes_a_section_not_the_namespace(self):
+        """A ``section`` inside a ``namespace`` is closed by a bare ``end``.
+        Popping the namespace there would silently de-qualify every later
+        declaration, and a wrong name scores ``unknown`` — turning a clean
+        proof into an unresolvable one."""
+        names, complete = _declaration_names(
+            "namespace N\n"
+            "section\n"
+            "theorem a : True := trivial\n"
+            "end\n"
+            "theorem b : True := trivial\n"
+            "end N"
+        )
+        assert names == ["N.a", "N.b"]
+        assert complete is True
+
+    def test_attributes_and_modifiers_are_skipped(self):
+        assert _declaration_names(
+            "@[simp] private noncomputable def f (x : Nat) : Nat := x"
+        ) == (["f"], True)
+
+    def test_unnamed_instance_marks_the_extraction_incomplete(self):
+        """An unnamed ``instance`` gets a compiler-generated name this parser
+        cannot predict. It MUST surface as an unaudited declaration site, not
+        be silently dropped."""
+        assert _declaration_names("instance : Inhabited Nat := d") == ([], False)
+
+    def test_named_instance_is_extracted(self):
+        assert _declaration_names("instance nat0 : Inhabited Nat := d") == (
+            ["nat0"],
+            True,
+        )
+
+    def test_example_introduces_no_name(self):
+        assert _declaration_names("example : True := trivial") == ([], True)
+
+
+class TestAxiomAuditScoring:
+    """Unit tests for scoring a ``#print axioms`` reply set."""
+
+    def test_allowlisted_axioms_are_clean(self):
+        rec = _audit_from_messages(
+            [{"text": "'t' depends on axioms: [propext, Classical.choice]"}],
+            ["t"],
+            True,
+        )
+        assert rec["outcome"] == "clean"
+        assert rec["disallowed_axioms"] == []
+
+    def test_no_axiom_dependency_is_clean(self):
+        rec = _audit_from_messages(
+            [{"text": "'t' does not depend on any axioms"}], ["t"], True
+        )
+        assert rec["outcome"] == "clean"
+        assert rec["declarations"][0]["axioms"] == []
+
+    def test_user_axiom_is_flagged(self):
+        rec = _audit_from_messages(
+            [{"text": "'t' depends on axioms: [propext, h]"}], ["t"], True
+        )
+        assert rec["outcome"] == "flagged"
+        assert rec["disallowed_axioms"] == ["h"]
+
+    def test_sorry_ax_is_flagged(self):
+        """``sorryAx`` is the axiom-side cross-check on the proof-closure
+        axis: it needs no special-casing, it is simply not allowlisted."""
+        rec = _audit_from_messages(
+            [{"text": "'t' depends on axioms: [sorryAx]"}], ["t"], True
+        )
+        assert rec["outcome"] == "flagged"
+        assert rec["disallowed_axioms"] == ["sorryAx"]
+
+    def test_native_decide_trust_reduction_is_flagged(self):
+        rec = _audit_from_messages(
+            [{"text": "'t' depends on axioms: [Lean.ofReduceBool]"}], ["t"], True
+        )
+        assert rec["outcome"] == "flagged"
+        assert rec["disallowed_axioms"] == ["Lean.ofReduceBool"]
+
+    def test_unanswered_declaration_is_unknown_not_clean(self):
+        rec = _audit_from_messages([], ["t"], True)
+        assert rec["outcome"] == "unknown"
+        assert rec["declarations"][0]["verdict"] == "unknown"
+
+    def test_incomplete_extraction_downgrades_a_clean_sweep(self):
+        """Every name we DID ask about came back clean, but a declaration
+        site went unnamed — the record must not read as a clean sweep."""
+        rec = _audit_from_messages(
+            [{"text": "'t' does not depend on any axioms"}], ["t"], False
+        )
+        assert rec["outcome"] == "unknown"
+        assert "could not name" in rec["reason"]
+
+    def test_flagged_outranks_unknown(self):
+        """Weakest-link meet WITHIN the axis: a real finding is strictly more
+        informative and more severe than an unresolved name."""
+        rec = _audit_from_messages(
+            [{"text": "'a' depends on axioms: [h]"}], ["a", "b"], True
+        )
+        assert rec["outcome"] == "flagged"
+
+    def test_replies_bind_by_name_not_by_order(self):
+        rec = _audit_from_messages(
+            [
+                {"text": "'b' depends on axioms: [h]"},
+                {"text": "'a' does not depend on any axioms"},
+            ],
+            ["a", "b"],
+            True,
+        )
+        by_name = {d["name"]: d for d in rec["declarations"]}
+        assert by_name["a"]["verdict"] == "clean"
+        assert by_name["b"]["verdict"] == "flagged"
+
+    def test_record_carries_its_evidence(self):
+        """Policy §6 rule 3 — a trust-bearing field carries its evidence, not
+        a bare token."""
+        rec = _audit_from_messages(
+            [{"text": "'t' depends on axioms: [propext]"}], ["t"], True
+        )
+        assert rec["allowlist"] == sorted(AXIOM_ALLOWLIST)
+        assert rec["method"] == "#print axioms"
+        assert rec["declarations"][0]["axioms"] == ["propext"]
+
+
+class TestAxiomHygieneOnTheWire:
+    """The end-to-end defect from issues #205 / #281 / #332."""
+
+    def teardown_method(self):
+        reset_resources_for_tests()
+
+    def test_bare_axiom_false_does_not_report_a_clean_trust_record(self):
+        """THE acceptance test for #205.
+
+        ``axiom h : False`` elaborates with no error and no sorry, so the
+        elaboration and kernel-acceptance axes legitimately pass — the kernel
+        really did accept it. What must NOT happen is the result reading as a
+        clean trust record overall.
+        """
+        repl = _repl_with([{"env": 0}, _axioms_reply(h=["h"])])
+        result = _run(handle_lean_verify(snippet="axiom h : False"))
+
+        audit = result["axiom_audit"]
+        assert audit["outcome"] == "flagged"
+        assert audit["disallowed_axioms"] == ["h"]
+        assert audit["declarations"] == [
+            {"name": "h", "axioms": ["h"], "verdict": "flagged"}
+        ]
+        # The audit really was driven by Lean, against the produced env.
+        assert repl.commands[1] == {"cmd": "#print axioms h", "env": 0}
+
+        # No field anywhere in the envelope reports a clean trust record.
+        assert "clean" not in json.dumps(result)
+
+    def test_status_and_compilation_success_are_not_inferred_from_the_audit(
+        self,
+    ):
+        """Policy §4 / CLAUDE.md §4.9 rule 1: no axis is inferred from
+        another. The axiom finding must not rewrite the elaboration or
+        kernel-acceptance axes — that is the same conflation this milestone
+        removes, merely pointing the other way. The kernel DID accept the
+        snippet, and the record says so honestly while the axiom axis
+        carries the bad news."""
+        _repl_with([{"env": 0}, _axioms_reply(h=["h"])])
+        result = _run(handle_lean_verify(snippet="axiom h : False"))
+        assert result["status"] == "ok"
+        assert result["compilation_success"] is True
+        assert result["axiom_audit"]["outcome"] == "flagged"
+
+    def test_issue_332_failure_scenario(self):
+        """``axiom cheat : False`` + a theorem that leans on it. Both
+        declarations are audited and both are flagged."""
+        _repl_with(
+            [
+                {"env": 0},
+                _axioms_reply(cheat=["cheat"], t=["propext", "cheat"]),
+            ]
+        )
+        result = _run(
+            handle_lean_verify(
+                snippet=(
+                    "axiom cheat : False\n"
+                    "theorem t : 1 = 2 := absurd rfl (cheat.elim)"
+                )
+            )
+        )
+        audit = result["axiom_audit"]
+        assert audit["outcome"] == "flagged"
+        assert audit["disallowed_axioms"] == ["cheat"]
+        assert {d["name"] for d in audit["declarations"]} == {"cheat", "t"}
+
+    def test_honest_clean_proof_reports_clean(self):
+        """The axis is not a blanket refusal — a genuinely clean proof must
+        still be reportable as clean, or the signal is worthless."""
+        _repl_with(
+            [{"env": 0}, _axioms_reply(t=["propext", "Classical.choice"])]
+        )
+        result = _run(handle_lean_verify(snippet="theorem t : 1+1=2 := rfl"))
+        assert result["status"] == "ok"
+        assert result["axiom_audit"]["outcome"] == "clean"
+        assert result["axiom_audit"]["reason"] is None
+
+    def test_sorry_path_is_audited_and_flags_sorry_ax(self):
+        """A sorry-carrying theorem still runs the audit; ``sorryAx`` shows
+        up on the axiom axis independently of ``status='sorry'``."""
+        _repl_with(
+            [
+                {"env": 0, "sorries": [{"goal": "n = n", "proofState": 0}]},
+                _axioms_reply(t=["sorryAx"]),
+            ]
+        )
+        result = _run(handle_lean_verify(snippet="theorem t : n = n := by sorry"))
+        assert result["status"] == "sorry"
+        assert result["axiom_audit"]["outcome"] == "flagged"
+        assert result["axiom_audit"]["disallowed_axioms"] == ["sorryAx"]
+
+
+class TestAxiomAuditAbstentionPaths:
+    """Every path that does NOT measure the axis must say so — never 'clean'
+    (trust-language policy §6 rule 5: no axis defaults to passing)."""
+
+    def teardown_method(self):
+        reset_resources_for_tests()
+
+    def test_syntax_only_is_not_applicable(self):
+        _repl_with([{"env": 0}])
+        result = _run(
+            handle_lean_verify(
+                snippet="theorem t : True := trivial", mode="syntax_only"
+            )
+        )
+        assert result["axiom_audit"]["outcome"] == "not-applicable"
+        assert result["compilation_success"] is None
+
+    def test_syntax_only_issues_no_audit_round_trip(self):
+        repl = _repl_with([{"env": 0}])
+        _run(
+            handle_lean_verify(
+                snippet="theorem t : True := trivial", mode="syntax_only"
+            )
+        )
+        assert len(repl.commands) == 1
+
+    def test_tactic_step_is_not_applicable(self):
+        _repl_with(
+            [{"proofStatus": "Completed", "proofState": 1, "goals": []}],
+            generation="genA",
+        )
+        result = _run(
+            handle_lean_verify(
+                snippet="simp", mode="tactic_step", proof_state="genA:0"
+            )
+        )
+        assert result["axiom_audit"]["outcome"] == "not-applicable"
+
+    def test_type_error_is_not_applicable(self):
+        _repl_with(
+            [
+                {
+                    "env": 0,
+                    "messages": [
+                        {
+                            "severity": "error",
+                            "pos": {"line": 1, "column": 4},
+                            "data": "type mismatch",
+                        }
+                    ],
+                }
+            ]
+        )
+        result = _run(handle_lean_verify(snippet="theorem t : 1+1=3 := rfl"))
+        assert result["status"] == "error"
+        assert result["axiom_audit"]["outcome"] == "not-applicable"
+
+    def test_disabled_repl_is_not_applicable(self, fake_resources_disabled):
+        result = _run(handle_lean_verify(snippet="theorem t : True := trivial"))
+        assert result["status"] == "unavailable"
+        assert result["axiom_audit"]["outcome"] == "not-applicable"
+
+    def test_invalid_continuation_is_not_applicable(self):
+        _repl_with([{"env": 0}], generation="genA")
+        result = _run(
+            handle_lean_verify(
+                snippet="theorem t : True := trivial", env="badtoken"
+            )
+        )
+        assert result["status"] == "invalid-input"
+        assert result["axiom_audit"]["outcome"] == "not-applicable"
+
+    def test_term_snippet_with_no_declaration_is_unknown_not_clean(self):
+        """A snippet that names nothing carries no auditable axiom closure.
+        That is an epistemic abstention, explicitly not a pass."""
+        repl = _repl_with([{"env": 0}])
+        result = _run(handle_lean_verify(snippet="(1 : Nat) + 1"))
+        assert result["axiom_audit"]["outcome"] == "unknown"
+        # No pointless round-trip when there is nothing to address.
+        assert len(repl.commands) == 1
+
+    def test_missing_env_id_is_unknown(self):
+        """Without an env id there is no environment in which to resolve the
+        declarations — unknown, and no round-trip attempted."""
+        repl = _repl_with([{}])
+        result = _run(handle_lean_verify(snippet="theorem t : True := trivial"))
+        assert result["axiom_audit"]["outcome"] == "unknown"
+        assert len(repl.commands) == 1
+
+    def test_unanswered_audit_is_unknown(self):
+        """Lean returned nothing usable for the declaration — unknown."""
+        _repl_with([{"env": 0}, {"env": 1, "messages": []}])
+        result = _run(handle_lean_verify(snippet="theorem t : True := trivial"))
+        assert result["axiom_audit"]["outcome"] == "unknown"
+
+    def test_no_envelope_ever_defaults_the_axis_to_clean(self):
+        """Belt-and-braces over the whole sentinel family: a 'clean' outcome
+        must be impossible without a measurement behind it."""
+        from server.handlers.lean_verify import (
+            _disabled_envelope,
+            _invalid_continuation_envelope,
+            _message_error_envelope,
+            _timeout_envelope,
+        )
+
+        envelopes = [
+            _disabled_envelope("full"),
+            _timeout_envelope("full", 30.0),
+            _invalid_continuation_envelope(
+                "full", continuation_status="expired", message="x"
+            ),
+            _message_error_envelope(
+                "full", "boom", continuation_status="not-applicable"
+            ),
+        ]
+        for env in envelopes:
+            assert env["axiom_audit"]["outcome"] == "not-applicable"
+            assert env["axiom_audit"]["declarations"] == []
+            assert env["axiom_audit"]["reason"]
+
+
+class TestAxiomAuditFailureIsolation:
+    """An audit that cannot run must degrade to 'unknown' and leave the
+    primary verdict untouched — never crash the call, never fake a pass."""
+
+    def teardown_method(self):
+        reset_resources_for_tests()
+
+    def test_repl_error_during_audit_degrades_to_unknown(self):
+        class _FailOnAudit(_FakeLeanRepl):
+            async def query(self, command):
+                self.commands.append(command)
+                if "#print axioms" in command.get("cmd", ""):
+                    raise LeanReplError("boom")
+                return self._next_response()
+
+        repl = _FailOnAudit(responses=[{"env": 0}])
+        _attach_fake_resources(repl)
+        result = _run(handle_lean_verify(snippet="theorem t : True := trivial"))
+        # Primary verdict survives intact...
+        assert result["status"] == "ok"
+        assert result["compilation_success"] is True
+        # ...and the axis honestly reports that it could not be measured.
+        assert result["axiom_audit"]["outcome"] == "unknown"
+        assert "boom" in result["axiom_audit"]["reason"]
+
+    def test_audit_timeout_respawns_and_invalidates_dead_tokens(self):
+        """A wedged audit round-trip carries the same stale-stdout hazard as
+        the primary query, so it triggers the same kill+respawn. The
+        continuation tokens the primary response minted address a process
+        that no longer exists, so they must not be emitted as live."""
+        import server.handlers.lean_verify as lv
+
+        class _TimeoutOnAudit(_FakeLeanRepl):
+            async def query(self, command):
+                self.commands.append(command)
+                if "#print axioms" in command.get("cmd", ""):
+                    raise LeanReplTimeoutError("audit timed out")
+                return self._next_response()
+
+        repl = _TimeoutOnAudit(
+            responses=[
+                {"env": 7, "sorries": [{"goal": "g", "proofState": 3}]}
+            ]
+        )
+        fake = _attach_fake_resources(repl)
+
+        respawned = _FakeLeanRepl(generation="genB")
+
+        async def _fake_spawn(_config):
+            return respawned
+
+        original = lv.LeanRepl.spawn_from_config
+        lv.LeanRepl.spawn_from_config = staticmethod(_fake_spawn)
+        try:
+            result = _run(
+                handle_lean_verify(snippet="theorem t : g := by sorry")
+            )
+        finally:
+            lv.LeanRepl.spawn_from_config = original
+
+        assert repl.closed is True
+        assert fake.lean_repl is respawned
+        # Primary axes intact.
+        assert result["status"] == "sorry"
+        # Axiom axis unknown, not clean.
+        assert result["axiom_audit"]["outcome"] == "unknown"
+        # Dead tokens are not advertised as resumable.
+        assert result["env"] is None
+        assert result["proof_state_id"] is None
+        assert "proof_state_id" not in result["sorry_goals"][0]
+
+
+class TestAxiomAuditSchemaConformance:
+    """The new envelope shapes validate against lean_verify_result.json."""
+
+    def teardown_method(self):
+        reset_resources_for_tests()
+
+    @staticmethod
+    def _validate(result):
+        from jsonschema import Draft7Validator
+
+        schema_path = (
+            Path(__file__).parent.parent
+            / "server"
+            / "schemas"
+            / "lean_verify_result.json"
+        )
+        with open(schema_path, encoding="utf-8") as f:
+            Draft7Validator(json.load(f)).validate(result)
+
+    def test_flagged_envelope_conforms(self):
+        _repl_with([{"env": 0}, _axioms_reply(h=["h"])])
+        self._validate(_run(handle_lean_verify(snippet="axiom h : False")))
+
+    def test_clean_envelope_conforms(self):
+        _repl_with([{"env": 0}, _axioms_reply(t=["propext"])])
+        self._validate(
+            _run(handle_lean_verify(snippet="theorem t : 1+1=2 := rfl"))
+        )
+
+    def test_unknown_envelope_conforms(self):
+        _repl_with([{"env": 0}, {"env": 1, "messages": []}])
+        self._validate(
+            _run(handle_lean_verify(snippet="theorem t : True := trivial"))
+        )
+
+    def test_not_applicable_envelope_conforms(self):
+        _repl_with([{"env": 0}])
+        self._validate(
+            _run(
+                handle_lean_verify(
+                    snippet="theorem t : True := trivial", mode="syntax_only"
+                )
+            )
+        )
+
+    def test_axiom_audit_is_required_by_the_schema(self):
+        """Until the staged TOOL_SCHEMA_VERSION bump lands, the version
+        integer cannot distinguish this shape from the pre-audit one — so
+        consumers key on the PRESENCE of axiom_audit, which means it must be
+        required rather than optional."""
+        schema_path = (
+            Path(__file__).parent.parent
+            / "server"
+            / "schemas"
+            / "lean_verify_result.json"
+        )
+        with open(schema_path, encoding="utf-8") as f:
+            schema = json.load(f)
+        assert "axiom_audit" in schema["required"]
+
+
+@_lean_skip
+@pytest.mark.requires_lean_repl
+class TestAxiomHygieneAgainstRealLean:
+    """Tier-3: the same acceptance case against a REAL Lean kernel.
+
+    The fake-REPL tests pin the handler's scoring; this one pins the thing
+    that actually has to be true — that Lean's own ``#print axioms`` output,
+    in its real wire format, parses into a flagged verdict for a snippet the
+    elaborator is perfectly happy with.
+    """
+
+    def teardown_method(self):
+        reset_resources_for_tests()
+
+    def test_axiom_false_is_flagged_by_the_real_kernel(self):
+        from server.lean_repl import LeanRepl
+
+        async def _go():
+            repl = await LeanRepl.spawn(
+                lake_path=_LAKE_PATH, repl_dir=_REPL_DIR
+            )
+            cfg = Config(
+                result_byte_cap=256 * 1024,
+                enable_lean=True,
+                lake_path=_LAKE_PATH,
+                lean_repl_dir=_REPL_DIR,
+            )
+
+            class _R:
+                pass
+
+            r = _R()
+            r.config = cfg
+            r.corpus_info = _FakeCorpusInfo()
+            r.lean_repl = repl
+            set_resources(r)
+            try:
+                return await handle_lean_verify(snippet="axiom h : False")
+            finally:
+                await repl.close()
+
+        result = _run(_go())
+        # Elaboration is genuinely clean — that is the whole point.
+        assert result["status"] == "ok"
+        assert result["compilation_success"] is True
+        # And the axiom axis catches what those fields never could.
+        assert result["axiom_audit"]["outcome"] == "flagged"
+        assert "h" in result["axiom_audit"]["disallowed_axioms"]

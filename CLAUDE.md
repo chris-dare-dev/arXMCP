@@ -308,12 +308,25 @@ Constitution: [`trust-language-policy.md`](.claude/docs/trust-language-policy.md
 rule 3 binds every arXMCP planning/analysis document. These bind every agent session:
 
 1. **No bare "verified".** No tool response carries a single "verified"-style status that
-   collapses distinct trust questions into one token (the live case: `lean_verify`
-   `status:"ok"` ⇔ no-errors ∧ no-sorry, which a bare `axiom h : False` passes —
-   `server/handlers/lean_verify.py:290-298`). Trust is a multi-axis record (an ordinal level
-   + attached evidence per axis); **no axis is inferred from another** — fidelity is never
-   inferred from elaboration. New trust-bearing fields are namespaced and axis-specific, never
-   a new bare `status`.
+   collapses distinct trust questions into one token. Trust is a multi-axis record (an ordinal
+   level + attached evidence per axis); **no axis is inferred from another** — fidelity is
+   never inferred from elaboration. New trust-bearing fields are namespaced and axis-specific,
+   never a new bare `status`.
+   **The founding case is now closed** (issues #205 / #281 / #332): `lean_verify`'s
+   `status:"ok"` ⇔ no-errors ∧ no-sorry — which a bare `axiom h : False` passed — is joined by
+   an independent `axiom_audit` axis populated from `#print axioms` over the declarations the
+   snippet introduces (`server/handlers/lean_verify.py`, "Axiom-hygiene axis"). Read that
+   closure as the worked example of this rule, not as the rule retiring: `status` and
+   `compilation_success` were deliberately left reporting exactly what they measure
+   (elaboration, kernel acceptance), because forcing them to "error" on an axiom finding would
+   be the same conflation pointing the other way. Two axes the policy names are still
+   **unmeasured and therefore absent** from that tool's record rather than defaulted to
+   passing — formal alignment (does the declaration state the theorem you meant) and checker
+   identity (which checker, in which named environment). The wire-level half of the fix — the
+   `LEAN_VERIFY.description` edit and the `TOOL_SCHEMA_VERSION` bump — is staged in
+   [`w1-schema-deltas.md`](.claude/docs/w1-schema-deltas.md) for the next batched re-pin, so
+   until that lands the tool DESCRIPTION does not yet mention `axiom_audit` (§7's "don't trust
+   a tool description over §6 and this section" applies).
 2. **Abstention is a first-class, tested success state.** Every tool must be able to return the
    epistemic outcomes `unknown` / `ambiguous` / `not-in-corpus` / `unsupported-by-provider`,
    kept **distinct** from operational status (`timeout` / `unavailable` / `disabled` /
