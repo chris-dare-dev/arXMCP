@@ -38,7 +38,7 @@ if TYPE_CHECKING:
     from fastapi.testclient import TestClient
 
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
-FRONTEND: Path = REPO_ROOT / "frontend"
+FRONTEND: Path = REPO_ROOT / "server" / "frontend"
 TEMPLATES: Path = FRONTEND / "templates"
 STATIC: Path = FRONTEND / "static"
 

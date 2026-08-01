@@ -88,7 +88,7 @@ help:
 	@echo "  make parser-failures-report Roll up parser-failures/*.{log,jsonl} into the weekly review (E14_S04; see docs/ops/parser-failure-review.md)"
 	@echo "  make sbom        Generate CycloneDX SBOMs + grype scan (E13_S06; see .claude/docs/security-threat-6-audit.md)"
 	@echo "  make refresh-arxiv-ca       Re-download infra/ca/arxiv-ca-bundle.pem and verify against live arxiv hosts (E13_S07c)"
-	@echo "  make wheel-check            Build the wheel, install it into a throwaway venv, assert ops/ + frontend/ + console scripts (issue #206; ~10s)"
+	@echo "  make wheel-check            Build the wheel, install it into a throwaway venv, assert ops/ + server/frontend/ + console scripts (issue #206; ~10s)"
 	@echo "  make wheel-check-full       Same, but an isolated venv with the REAL deps + an ARXMCP_BOOTSTRAP_MODE=1 boot polled at /healthz. Pre-publish gate (~4 min warm)"
 	@echo ""
 	@echo "Override the python interpreter with: make test PYTHON=python3.13"

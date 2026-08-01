@@ -10,7 +10,7 @@ missing from the wheel       what the operator saw
 ===========================  ===================================================
 ``ops/``                     no backup, no cutover, no restore drill, no drift
                              watchdog — and no error announcing their absence
-``frontend/``                ``create_app()`` crash: StaticFiles directory
+console assets              ``create_app()`` crash: StaticFiles directory
                              ``.../frontend/static`` does not exist
 ``server/router_patterns``   ``RuntimeError: router_patterns.yaml missing``
 ``server/schemas/*.json``    the declared result-row source of truth absent
@@ -106,13 +106,17 @@ REQUIRED_INSTALLED_FILES: tuple[str, ...] = (
     "ops/cron/arxmcp-cron.cron",
     "ops/systemd/arxmcp-backup.service",
     "ops/systemd/arxmcp-backup.timer",
-    # frontend/ — operator console (issue #195 / trustworthy-release-m4).
-    # Absent, create_app() raises before serving a single request.
-    "frontend/templates/base.html",
-    "frontend/templates/index.html",
-    "frontend/templates/notebook_detail.html",
-    "frontend/static/htmx.min.js",
-    "frontend/static/app.css",
+    # server/frontend/ — operator console (issue #195 / trustworthy-release-m4).
+    # Absent, create_app() raises before serving a single request. Sited
+    # under server/ rather than top-level so the wheel does not claim the
+    # generic name ``frontend`` in the installing environment's
+    # site-packages; the paths below are the assertion that the move is
+    # actually reflected in the built artifact.
+    "server/frontend/templates/base.html",
+    "server/frontend/templates/index.html",
+    "server/frontend/templates/notebook_detail.html",
+    "server/frontend/static/htmx.min.js",
+    "server/frontend/static/app.css",
     # Data files inside already-declared packages that no package-data glob
     # covered, so setuptools dropped them silently.
     "server/router_patterns.yaml",

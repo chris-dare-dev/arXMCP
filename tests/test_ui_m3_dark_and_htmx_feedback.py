@@ -39,8 +39,8 @@ import re as _re
 from pathlib import Path
 
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
-FRONTEND_STATIC: Path = REPO_ROOT / "frontend" / "static"
-FRONTEND_TEMPLATES: Path = REPO_ROOT / "frontend" / "templates"
+FRONTEND_STATIC: Path = REPO_ROOT / "server" / "frontend" / "static"
+FRONTEND_TEMPLATES: Path = REPO_ROOT / "server" / "frontend" / "templates"
 
 APP_CSS: str = (FRONTEND_STATIC / "app.css").read_text(encoding="utf-8")
 APP_CSS_NO_COMMENTS: str = _re.sub(r"/\*.*?\*/", "", APP_CSS, flags=_re.S)

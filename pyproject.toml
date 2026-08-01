@@ -18,26 +18,28 @@ build-backend = "setuptools.build_meta"
 # in a flat-layout" error that an unscoped find would raise on var/, infra/,
 # docker/. ``shim`` (E06_S02) carries the arxmcp-shim console-script below.
 #
-# ``ops*`` (issue #206) and ``frontend*`` (issue #195 / trustworthy-release-m4)
-# were BOTH absent until 2026-07-31. The consequence was silent: a wheel-
-# installed operator got no backup, no cutover, no restore drill and no drift
-# watchdog, and ``create_app()`` crashed on the missing
-# ``frontend/static`` StaticFiles directory. ``ops`` is a real package
-# (``ops/__init__.py``); ``ops.cron`` / ``ops.systemd`` / ``frontend.*`` are
-# implicit-namespace dirs picked up because ``namespaces`` defaults to true
-# — they carry no ``.py`` at all and exist purely to anchor the
-# ``package-data`` globs below.
+# ``ops*`` (issue #206) and the operator-console assets (issue #195 /
+# trustworthy-release-m4) were BOTH absent until 2026-07-31. The consequence
+# was silent: a wheel-installed operator got no backup, no cutover, no
+# restore drill and no drift watchdog, and ``create_app()`` crashed on the
+# missing static-assets directory. ``ops`` is a real package
+# (``ops/__init__.py``); ``ops.cron`` / ``ops.systemd`` /
+# ``server.frontend.*`` are implicit-namespace dirs picked up because
+# ``namespaces`` defaults to true — they carry no ``.py`` at all and exist
+# purely to anchor the ``package-data`` globs below.
 #
-# ``frontend`` is deliberately TOP-LEVEL rather than ``server.frontend``:
-# both call sites resolve it relative to the ``server`` package's parent
-# (``server/routes/ui.py:77`` ``parents[2]`` and ``server/main.py:802``
-# ``parent.parent``), which lands on site-packages/ in a wheel install and on
-# the repo root in a source checkout — one path expression, both layouts, no
-# runtime change. This matches trustworthy-release-m4's acceptance verbatim
-# ("frontend/templates/*.html and frontend/static/* are present"). It does
-# claim a generic top-level name in site-packages; re-siting it under
-# ``server/`` is a follow-up to weigh before the first PyPI publish.
-include = ["server*", "ingest*", "tools*", "shim*", "ops*", "frontend*"]
+# NOTE there is deliberately no ``frontend*`` entry. The console assets
+# briefly shipped as a TOP-LEVEL ``frontend`` package and were moved under
+# ``server/frontend/`` before the first PyPI publish: a top-level name that
+# generic is claimed in every installing environment's site-packages, where
+# any other distribution can collide with it, and un-claiming it after
+# publishing is a one-way door. ``server*`` now covers them — the glob
+# matches ``server.frontend.templates`` and ``server.frontend.static`` the
+# same way it already matched ``server.handlers`` and ``server.routes``.
+# Both call sites resolve the assets relative to the ``server`` package
+# (``server/routes/ui.py`` ``parents[1]``, ``server/main.py`` ``parent``), so
+# one expression serves a source checkout and an installed wheel alike.
+include = ["server*", "ingest*", "tools*", "shim*", "ops*"]
 
 [tool.setuptools.package-data]
 # NON-``.py`` FILES ARE NOT PACKAGED WITHOUT AN EXPLICIT GLOB. Declaring a
@@ -66,9 +68,12 @@ include = ["server*", "ingest*", "tools*", "shim*", "ops*", "frontend*"]
 "ops" = ["*.sh", "*.template"]
 "ops.cron" = ["*.sh", "*.cron"]
 "ops.systemd" = ["*.service", "*.timer"]
-# frontend/: operator-console assets. NOT a Python package — data only.
-"frontend.templates" = ["*.html"]
-"frontend.static" = ["*.css", "*.js", "*.svg", "*.md"]
+# server/frontend/: operator-console assets. NOT a Python package — data
+# only, which is why these two globs are the whole mechanism that ships
+# them. Absent, ``create_app()`` raises on the missing StaticFiles
+# directory before serving a single request.
+"server.frontend.templates" = ["*.html"]
+"server.frontend.static" = ["*.css", "*.js", "*.svg", "*.md"]
 
 [project.scripts]
 # E06_S02 stdio shim. Installed on $PATH by ``pip install -e .`` /

@@ -834,7 +834,13 @@ def create_app(config: Config | None = None) -> FastAPI:
     # `realpath` resolution — see starlette/staticfiles.py:163).
     from fastapi.staticfiles import StaticFiles
 
-    _FRONTEND_STATIC = Path(__file__).resolve().parent.parent / "frontend" / "static"
+    # Resolved relative to the ``server`` package (``parent`` from
+    # ``server/main.py``), not the repo root — the assets live at
+    # ``server/frontend/`` so they travel with the package that reads them
+    # and work identically from a checkout and from site-packages. See the
+    # note on ``_TEMPLATES_DIR`` in ``server/routes/ui.py`` for why they are
+    # not top-level.
+    _FRONTEND_STATIC = Path(__file__).resolve().parent / "frontend" / "static"
     app.mount(
         "/ui/static",
         StaticFiles(directory=str(_FRONTEND_STATIC)),

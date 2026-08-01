@@ -153,7 +153,7 @@ X_FRAME_OPTIONS = b"DENY"
 #:   external JS/CDN can run; only same-origin assets). To tighten
 #:   further to ``script-src 'self'`` only, a future milestone
 #:   would need to:
-#:     (a) move the F1 shim to ``frontend/static/json-shim.js``,
+#:     (a) move the F1 shim to ``server/frontend/static/json-shim.js``,
 #:     (b) replace every ``hx-on::*`` attribute with a vanilla JS
 #:         event-listener block in another vendored file, AND
 #:     (c) add per-script hashes ``'sha256-...'`` to the policy.

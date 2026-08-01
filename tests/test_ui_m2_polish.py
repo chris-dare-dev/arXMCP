@@ -37,8 +37,8 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
-FRONTEND_STATIC: Path = REPO_ROOT / "frontend" / "static"
-FRONTEND_TEMPLATES: Path = REPO_ROOT / "frontend" / "templates"
+FRONTEND_STATIC: Path = REPO_ROOT / "server" / "frontend" / "static"
+FRONTEND_TEMPLATES: Path = REPO_ROOT / "server" / "frontend" / "templates"
 
 APP_CSS: str = (FRONTEND_STATIC / "app.css").read_text(encoding="utf-8")
 #: ``app.css`` with /* ... */ CSS comments stripped, so substring checks for

@@ -26,7 +26,7 @@ MINOR and must re-pin `EXPECTED_TOOL_SCHEMA_SHA256`.
    data file is right there on disk, so the suite passes, the server runs,
    and `make up` works — while the built wheel ships none of it. Before
    2026-07-31 the wheel was missing the entire `ops/` layer (backup,
-   cutover, restore drill, drift watchdog), `frontend/`,
+   cutover, restore drill, drift watchdog), the console assets,
    `server/router_patterns.yaml`, `server/schemas/*.json` and
    `tools/seed-papers.txt`, and declared no `arxmcp-server` console script
    at all. Nothing in the suite noticed, and an operator would have hit a

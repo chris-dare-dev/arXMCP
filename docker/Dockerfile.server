@@ -66,12 +66,12 @@ COPY tools/ ./tools/
 # E06_S02). Without it in the build context the wheel build fails with
 # "package directory 'shim' does not exist".
 COPY shim/ ./shim/
-# ops/ and frontend/ are declared setuptools packages too (issue #206 /
-# issue #195). EVERY directory named in pyproject.toml's
-# ``[tool.setuptools.packages.find] include`` list must be in the build
-# context or the wheel build fails outright ("package directory 'ops' does
-# not exist") — these COPY lines and that include list are one contract, so
-# adding a tree there means adding a line here.
+# ops/ is a declared setuptools package too (issue #206). EVERY directory
+# named in pyproject.toml's ``[tool.setuptools.packages.find] include`` list
+# must be in the build context or the wheel build fails outright ("package
+# directory 'ops' does not exist") — these COPY lines and that include list
+# are one contract, so adding a tree there means adding a line here.
+# tests/test_wheel_packaging.py asserts the pairing.
 #
 # ops/ carries the operability layer the docs/ops/ runbooks invoke: backup,
 # cutover, restore drill, drift watchdog. Before issue #206 it was in
@@ -79,10 +79,11 @@ COPY shim/ ./shim/
 # compose path had no backup and no restore drill, with nothing announcing
 # their absence.
 COPY ops/ ./ops/
-# frontend/ carries the operator-console Jinja2 templates + vendored
-# htmx/CSS. create_app() mounts StaticFiles(frontend/static) and CRASHES if
-# the directory is missing, so the wheel is unbootable without it.
-COPY frontend/ ./frontend/
+# NOTE no ``COPY frontend/``. The operator-console templates and vendored
+# htmx/CSS moved to ``server/frontend/`` before the first PyPI publish (a
+# top-level ``frontend`` package claims that generic name in every
+# installing environment's site-packages), so the ``COPY server/`` above
+# already carries them. Nothing else is needed here.
 
 # IS1 close: build a wheel rather than ``pip install -e .``. The
 # editable install bakes ``/build`` into the venv's .pth file; when
@@ -140,15 +141,13 @@ COPY server/ ./server/
 COPY ingest/ ./ingest/
 COPY pyproject.toml README.md ./
 
-# Operator-console assets (Jinja2 templates + vendored htmx/CSS). The wheel
-# NOW carries these (issue #195 added ``frontend*`` to the packages.find
-# include list plus package-data globs), so imports resolve them from
-# site-packages/frontend/ and this COPY is inspection-only, matching the
-# server/ and ingest/ copies above. It is kept rather than dropped because
-# the layouts must stay interchangeable: both call sites resolve the assets
-# relative to the ``server`` package's parent, which is site-packages/ for
-# the installed wheel and /app for the source tree.
-COPY frontend/ ./frontend/
+# Operator-console assets need no COPY of their own: they live at
+# ``server/frontend/`` (moved there before the first PyPI publish, issue
+# #195 follow-up), so the ``COPY server/`` above carries them and the wheel
+# installed below carries them into site-packages. Both call sites resolve
+# the assets relative to the ``server`` PACKAGE rather than a repo root,
+# which is what lets the source-tree and installed layouts stay
+# interchangeable.
 
 # ops/: the operability layer (issue #206) — ops/cutover.sh,
 # ops/restore_drill.sh, ops/drift_check.py, ops/checkpoint_notebooks_db.py,

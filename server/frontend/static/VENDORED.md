@@ -30,7 +30,7 @@ The recorded hash is of the file *as stored on disk* — i.e. with a
 1-line header comment prepended after download (naming the version
 + source URL + license). On re-vendor: download the upstream file,
 prepend the header line in the exact same format, compute
-`shasum -a 256 frontend/static/htmx.min.js`, update the SHA-256
+`shasum -a 256 server/frontend/static/htmx.min.js`, update the SHA-256
 above AND the constant in the test in lockstep.
 
 ### `app.css`

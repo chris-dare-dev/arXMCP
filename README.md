@@ -111,7 +111,7 @@ arXMCP/
 ├── server/     long-running MCP server (FastAPI + Streamable HTTP; indices + caches + /ui/ console)
 ├── ingest/     corpus pipeline (chunker, embedder, BM25, citation-graph ingest)
 ├── shim/       stateless stdio↔HTTP bridge registered in Claude Code's ~/.claude.json
-├── frontend/   operator-console templates + vendored htmx/CSS (no SPA, no Node build chain)
+├── ops/        operability layer (backup, cutover, restore drill, drift watchdog, cron/systemd units)
 ├── tools/      dev + ingest utilities (seed/notebook fetch, eval gates, ops reports)
 ├── tests/      pytest suite + retrieval-quality eval harness under tests/eval/
 ├── docker/     multi-stage Dockerfile (non-root, tini, HEALTHCHECK on /readyz)

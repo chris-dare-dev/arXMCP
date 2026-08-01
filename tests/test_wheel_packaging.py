@@ -9,7 +9,8 @@ none of it. Five separate holes were open simultaneously until 2026-07-31:
 * ``ops/`` — the whole operability layer. An operator installing the
   documented way got no backup, no cutover, no restore drill, no drift
   watchdog, and **no error announcing their absence**.
-* ``frontend/`` — ``create_app()`` raises on the missing StaticFiles dir.
+* the operator-console assets (now ``server/frontend/``) — ``create_app()``
+  raises on the missing StaticFiles dir.
 * ``server/router_patterns.yaml`` — ``server/router.py`` raises outright.
 * ``server/schemas/*.json`` — the declared result-row source of truth.
 * ``tools/seed-papers.txt`` — ``tools/fetch_seed.py`` cannot find it.
@@ -110,13 +111,41 @@ class TestPackagesDeclared:
             "watchdog would ship in no artifact, with no error."
         )
 
-    def test_frontend_is_in_the_wheel_include_list(self, pyproject: dict) -> None:
-        """trustworthy-release-m4: without this create_app() cannot start."""
-        assert "frontend*" in _include_patterns(pyproject), (
-            "pyproject.toml [tool.setuptools.packages.find].include does not "
-            "list 'frontend*'. create_app() mounts "
-            "StaticFiles(frontend/static) and raises when it is absent."
+    def test_console_assets_are_covered_by_the_server_tree(
+        self, pyproject: dict
+    ) -> None:
+        """trustworthy-release-m4: without these create_app() cannot start.
+
+        They live at ``server/frontend/`` and are therefore carried by the
+        ``server*`` glob — there is deliberately NO ``frontend*`` entry.
+        A top-level ``frontend`` package would claim that very generic name
+        in every installing environment's site-packages, and un-claiming it
+        after a PyPI publish is a one-way door.
+        """
+        patterns = _include_patterns(pyproject)
+        assert "server*" in patterns
+        assert "frontend*" not in patterns, (
+            "pyproject.toml re-added a TOP-LEVEL 'frontend*' package. The "
+            "console assets belong at server/frontend/ so the distribution "
+            "does not claim the generic name 'frontend' in site-packages."
         )
+        assert not (REPO_ROOT / "frontend").exists(), (
+            "a top-level frontend/ directory reappeared; the console assets "
+            "belong at server/frontend/"
+        )
+
+    def test_console_asset_dirs_exist_where_the_code_looks(self) -> None:
+        """Pin the move against the two call sites that resolve it.
+
+        ``server/routes/ui.py`` uses ``parents[1]`` and ``server/main.py``
+        uses ``parent`` — both package-relative, which is what makes one
+        expression work for a source checkout and an installed wheel. If the
+        assets move again without those being updated, the server raises at
+        ``create_app()``; this fails first and says so.
+        """
+        for sub in ("templates", "static"):
+            path = REPO_ROOT / "server" / "frontend" / sub
+            assert path.is_dir(), f"missing console assets dir: {path}"
 
     @pytest.mark.parametrize("tree", ["server", "ingest", "tools", "shim"])
     def test_original_package_trees_still_declared(
@@ -188,9 +217,9 @@ class TestPackageDataCoversEveryDataFile:
             ("ops.cron", "arxmcp-cron.cron"),
             ("ops.systemd", "arxmcp-backup.service"),
             ("ops.systemd", "arxmcp-backup.timer"),
-            ("frontend.templates", "base.html"),
-            ("frontend.static", "htmx.min.js"),
-            ("frontend.static", "app.css"),
+            ("server.frontend.templates", "base.html"),
+            ("server.frontend.static", "htmx.min.js"),
+            ("server.frontend.static", "app.css"),
         ]:
             globs = package_data.get(package, [])
             assert any(fnmatch.fnmatch(filename, g) for g in globs), (

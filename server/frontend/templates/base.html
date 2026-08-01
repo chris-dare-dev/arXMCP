@@ -12,7 +12,7 @@
      color is hardcoded #1e5b8a (matching --accent) because favicons
      render in browser-tab context and don't inherit page CSS variables. #}
   <link rel="icon" href="/ui/static/favicon.svg" type="image/svg+xml">
-  <!-- htmx 2.0.10 vendored at frontend/static/htmx.min.js (0BSD; m8 AC #5). -->
+  <!-- htmx 2.0.10 vendored at server/frontend/static/htmx.min.js (0BSD; m8 AC #5). -->
   <script src="/ui/static/htmx.min.js" defer></script>
   <!-- ui-htmx-json-fix-m1: JSON request-body extension for htmx 2.x. The m7
        JSON routes require application/json, but htmx defaults to
@@ -21,7 +21,7 @@
        has NO evt.detail.body hook (encodeParameters is the real body-override
        point), so it serialised an empty parameter map and the create-notebook /
        add-paper / discover / ingest / rename / topic forms sent an EMPTY body
-       and FastAPI 422'd. The extension (frontend/static/json-enc.js) implements
+       and FastAPI 422'd. The extension (server/frontend/static/json-enc.js) implements
        encodeParameters correctly. It is attached PER-FORM via hx-ext="json-enc"
        so multipart uploads (hx-encoding) and bodyless DELETE controls are left
        untouched. Loaded deferred AFTER htmx so htmx.defineExtension exists. -->

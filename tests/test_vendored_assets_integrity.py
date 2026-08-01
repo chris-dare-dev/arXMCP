@@ -17,7 +17,7 @@ import hashlib
 from pathlib import Path
 
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
-FRONTEND_STATIC: Path = REPO_ROOT / "frontend" / "static"
+FRONTEND_STATIC: Path = REPO_ROOT / "server" / "frontend" / "static"
 
 
 #: SHA-256 of the vendored ``htmx.min.js`` file AS STORED ON DISK

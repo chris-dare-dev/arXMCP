@@ -73,8 +73,20 @@ _META_REFRESH_RE: re.Pattern[bytes] = re.compile(
     re.IGNORECASE,
 )
 
-#: Repo-root-relative templates dir. Resolved once at import.
-_TEMPLATES_DIR: Path = Path(__file__).resolve().parents[2] / "frontend" / "templates"
+#: Templates dir, resolved once at import RELATIVE TO THE ``server`` PACKAGE
+#: (``parents[1]`` from ``server/routes/ui.py``), not to the repo root.
+#:
+#: The assets moved from a top-level ``frontend/`` to ``server/frontend/``
+#: before the first PyPI publish: shipping them top-level meant claiming the
+#: generic name ``frontend`` in every installing environment's
+#: site-packages, where any other distribution could collide with it. Under
+#: ``server/`` they travel with the package that reads them and the name is
+#: ours. Publishing first would have made that a one-way door.
+#:
+#: Package-relative resolution is what makes the same expression work for a
+#: source checkout and an installed wheel alike — there is no repo root in
+#: site-packages.
+_TEMPLATES_DIR: Path = Path(__file__).resolve().parents[1] / "frontend" / "templates"
 
 #: Jinja2Templates instance with an EXPLICITLY constructed environment.
 #: Starlette's default ``Jinja2Templates(directory=...)`` constructs

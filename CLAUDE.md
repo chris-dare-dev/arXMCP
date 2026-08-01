@@ -434,12 +434,12 @@ arXMCP/
 │   ├── corpus.py            LanceDB MVCC chunks-table reader
 │   ├── health.py            /healthz + /readyz + /status (health+json; m4)
 │   ├── metrics.py           Prometheus counters
-│   └── routes/              loopback-only browser operator console (Jinja2+htmx)
-│       ├── ui.py            HTML pages: /ui/, /ui/notebooks/{slug}, preview, /ui/status-badge
-│       └── notebooks.py     /ui/api/* REST + htmx (create/list/rename/delete/ingest/upload)
-├── frontend/                operator-console assets (NO SPA / NO Node build chain)
-│   ├── templates/           Jinja2 templates (base, index, notebook_detail); autoescape ON
-│   └── static/              vendored htmx.min.js + minimal CSS (mounted at /ui/static/)
+│   ├── routes/              loopback-only browser operator console (Jinja2+htmx)
+│   │   ├── ui.py            HTML pages: /ui/, /ui/notebooks/{slug}, preview, /ui/status-badge
+│   │   └── notebooks.py     /ui/api/* REST + htmx (create/list/rename/delete/ingest/upload)
+│   └── frontend/            operator-console assets (NO SPA / NO Node build chain)
+│       ├── templates/       Jinja2 templates (base, index, notebook_detail); autoescape ON
+│       └── static/          vendored htmx.min.js + minimal CSS (mounted at /ui/static/)
 ├── ingest/                  corpus pipeline (chunker → embedder → indices → graph)
 │   ├── chunker.py           theorem-aware structural chunker
 │   ├── preamble.py          per-paper \newcommand / \def extractor

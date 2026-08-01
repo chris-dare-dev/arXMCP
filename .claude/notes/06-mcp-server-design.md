@@ -496,8 +496,12 @@ Contract:
 > **loopback-only, server-rendered Jinja2 + htmx operator console** ships
 > with the server. It is an operator convenience for notebook management — NOT a
 > general-purpose research front-end, and NOT an SPA. **Hard constraint: no SPA, no
-> Node/npm build chain.** htmx is vendored under `frontend/static/`; templates live
-> under `frontend/templates/`. The MCP tool surface remains the primary agent
+> Node/npm build chain.** htmx is vendored under `server/frontend/static/`; templates
+> live under `server/frontend/templates/`. They sit inside the `server` package
+> (not top-level) so the built wheel does not claim the generic name `frontend`
+> in the installing environment's site-packages, and so both call sites can
+> resolve them package-relative — one expression for a source checkout and an
+> installed wheel alike. The MCP tool surface remains the primary agent
 > interface; this console exists alongside it.
 
 **HTML pages — `server/routes/ui.py` (mounted at `/ui/`):**

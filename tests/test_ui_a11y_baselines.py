@@ -46,8 +46,8 @@ from server.routes.ui import router as ui_router
 from tools import _notebook_common
 
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
-FRONTEND_STATIC: Path = REPO_ROOT / "frontend" / "static"
-FRONTEND_TEMPLATES: Path = REPO_ROOT / "frontend" / "templates"
+FRONTEND_STATIC: Path = REPO_ROOT / "server" / "frontend" / "static"
+FRONTEND_TEMPLATES: Path = REPO_ROOT / "server" / "frontend" / "templates"
 
 APP_CSS: str = (FRONTEND_STATIC / "app.css").read_text(encoding="utf-8")
 BASE_HTML: str = (FRONTEND_TEMPLATES / "base.html").read_text(encoding="utf-8")
