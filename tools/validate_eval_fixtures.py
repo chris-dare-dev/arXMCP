@@ -483,14 +483,23 @@ def _validate_query_set_invariants(
     Checks all of:
 
     - AC-1: exactly :data:`TARGET_QUERY_COUNT` queries (already
-      enforced by caller; assertion here is defense-in-depth).
+      enforced by caller; the check here is defense-in-depth).
     - AC-2: every query has at least one grade-3 relevant_chunk.
     - AC-3: every chunk_id resolves to a known manifest entry.
     - AC-7: at least :data:`MIN_QUERIES_BY_KIND` queries reference
       each named ``kind``.
     - Plus: unique ``query_id``s across the set.
     """
-    assert len(queries) == TARGET_QUERY_COUNT  # caller guard
+    # Was a bare ``assert`` until issue #210. ``tools*`` ships in the wheel,
+    # so this is shipped code and ``python -O`` would strip the guard
+    # (CLAUDE.md §4.7). Defense-in-depth that vanishes under -O is not
+    # defense at all.
+    if len(queries) != TARGET_QUERY_COUNT:
+        raise RuntimeError(
+            f"_validate_query_set_invariants called with {len(queries)} "
+            f"queries; the caller must gate this branch on exactly "
+            f"{TARGET_QUERY_COUNT} (fixture: {fixture_path})"
+        )
 
     seen_query_ids: set[str] = set()
     queries_by_kind: dict[str, set[str]] = {

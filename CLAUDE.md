@@ -210,8 +210,23 @@ change touches more than ~3 files or adds new tests, run the pipeline.
   ```bash
   uv run python -m pytest --tb=no -p no:warnings 2>&1 | grep "passed"
   ```
-- **Six test markers exist** (registered in `pyproject.toml`
-  `[tool.pytest.ini_options].markers`):
+- **Opt-in markers now really deselect** (issue #206, 2026-07-31). Every
+  `requires_*` marker registered in `pyproject.toml` documents "Skipped by
+  default; opt-in via `pytest -m <marker>`", but nothing implemented that:
+  `addopts` is bare `-q`, so the markers were pure metadata and every
+  marked test ran on every `make test`. Most marked tests carried a second
+  self-imposed guard (an env var, a `shutil.which` probe) which hid the
+  gap — `requires_latexmlc` did not, so a fresh clone with no LaTeXML
+  hard-failed its first `make test`. A `pytest_collection_modifyitems` hook
+  in `tests/conftest.py` now skips them unless `-m` names the marker.
+  **Adding a new opt-in marker means adding it to `_OPT_IN_MARKERS` there
+  as well as to `pyproject.toml`** — registering it alone is what created
+  this bug. `eval` is deliberately excluded (it is opt-OUT: `make eval`
+  needs it running by default).
+- **Nine test markers exist** (registered in `pyproject.toml`
+  `[tool.pytest.ini_options].markers`; the three added since this list was
+  written are `requires_mineru`, `requires_restic` and
+  `requires_wheel_build`):
   - **`requires_model`** — tests that download / load a real ML
     model (BGE-M3, BGE-reranker-v2-m3, etc.). Skipped by default;
     opt-in via `pytest -m requires_model` AND per-model env vars
@@ -239,6 +254,37 @@ change touches more than ~3 files or adds new tests, run the pipeline.
     `brew install --cask mactex-no-gui && brew install poppler` /
     `apt install texlive-base poppler-utils`. Subprocess sandbox
     profile at `.claude/docs/security-cdm-sandbox.md` (Threat-3 peer).
+  - **`requires_wheel_build`** — builds the wheel and installs it
+    into a throwaway venv (issue #206). Opt-in via `pytest -m
+    requires_wheel_build`, or `make wheel-check`. The `full` half
+    also needs `ARXMCP_RUN_FULL_WHEEL_CHECK=1`.
+  - (`requires_mineru` and `requires_restic` are registered too —
+    see `pyproject.toml` for their env-var prerequisites.)
+
+### 4.5b The packaging boundary is not covered by `make test`
+
+A packaging bug is **invisible from a source checkout**: the repo root is on
+`sys.path` and every data file is on disk, so the suite passes, the server
+runs, and `make up` works while the built wheel ships none of it. Five holes
+were open simultaneously until 2026-07-31 (issue #206) — the whole `ops/`
+layer, `frontend/`, `server/router_patterns.yaml`, `server/schemas/*.json`
+and `tools/seed-papers.txt` — plus an `arxmcp-server` console script that
+`docs/install.md` had promised for months and `pyproject.toml` never
+declared.
+
+Two rules follow:
+
+1. **Declaring a package in `[tool.setuptools.packages.find].include` ships
+   only its `.py` modules.** Every other file needs a matching glob in
+   `[tool.setuptools.package-data]`, and forgetting one is silent.
+   `tests/test_wheel_packaging.py` derives its check from the on-disk tree
+   and fails on any unmatched data file, so this cannot regress quietly.
+2. **Adding a tree to that include list means adding a `COPY` to
+   `docker/Dockerfile.server`** — the image build fails outright without
+   it. That pairing is asserted, also derived, in the same test file.
+
+Run `make wheel-check` (~10 s) after touching `pyproject.toml`, and
+`make wheel-check-full` before any publish (docs/releasing.md step 2).
 
 ### 4.6 Doc placement (re-stated; this is load-bearing)
 
@@ -254,8 +300,16 @@ change touches more than ~3 files or adds new tests, run the pipeline.
 
 ### 4.7 Coding conventions
 
-- **`assert` is BANNED for invariants** — Python `-O` strips them. Use
-  `if … raise RuntimeError(…)` instead.
+- **`assert` is BANNED for invariants** — Python `-O` strips them, so the
+  guard vanishes in exactly the deployment that opted into less checking.
+  Use `if … raise RuntimeError(…)` instead. **Enforced since issue #210**
+  (2026-08-01) by ruff `S101`, scoped to the trees that ship in the wheel;
+  `tests/**` is the only exemption, because `assert` is pytest's assertion
+  mechanism. `tests/test_assert_ban.py` re-derives the ban from the on-disk
+  tree via AST *and* pins the ruff config, so dropping `"S101"` from
+  `[tool.ruff.lint].select` cannot silently retire it. The live case was
+  `server/main.py`'s response-size-cap middleware: under `-O` the stripped
+  `assert start_event is not None` let `send(None)` reach the ASGI server.
 - **Pure-ASGI middleware required.** `BaseHTTPMiddleware` is project-banned
   (E06_S01 F1 — it silently no-ops response interception for SSE paths).
 - **No `anthropic` SDK at runtime.** The server is a tool provider; the

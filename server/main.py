@@ -259,7 +259,25 @@ class BodySizeCapMiddleware:
             # Under cap so far. Flush the held start event then this
             # body event.
             if not sent_start:
-                assert start_event is not None
+                if start_event is None:
+                    # ASGI guarantees an ``http.response.start`` precedes
+                    # any ``http.response.body``, so the held event is
+                    # always populated by the time the first body event
+                    # gets here. Reaching this means the wrapped app
+                    # violated the response protocol.
+                    #
+                    # This was a bare ``assert`` until issue #210.
+                    # ``python -O`` strips assertions, so under -O the
+                    # guard vanished and ``send(None)`` went straight to
+                    # the ASGI server — a confusing failure deep in
+                    # uvicorn instead of a named one here. CLAUDE.md §4.7
+                    # bans ``assert`` for invariants for exactly this.
+                    raise RuntimeError(
+                        "BodySizeCapMiddleware received an "
+                        "http.response.body event before any "
+                        "http.response.start; the wrapped ASGI app "
+                        "violated the response protocol"
+                    )
                 await send(start_event)
                 sent_start = True
             await send(event)

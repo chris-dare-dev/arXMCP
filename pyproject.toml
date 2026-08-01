@@ -310,7 +310,23 @@ extend-exclude = [
 ]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "B", "UP", "SIM"]
+# S101 (flake8-bandit "assert used") enforces CLAUDE.md §4.7: `assert` is
+# BANNED for invariants because `python -O` strips it, so the guard silently
+# vanishes in exactly the deployment that opted into less checking. Issue
+# #210 was the live case — a stripped `assert start_event is not None` let
+# `send(None)` reach the ASGI server from the response-size-cap middleware.
+#
+# Selected as the single rule code, not the whole `S` ruleset: the rest of
+# flake8-bandit is a separate, much larger decision that would need its own
+# triage pass over the subprocess and hashing call sites.
+select = ["E", "F", "I", "B", "UP", "SIM", "S101"]
+
+[tool.ruff.lint.per-file-ignores]
+# `assert` IS the assertion mechanism in pytest — the ban is on shipped code
+# under `python -O`, and the suite is neither. Every other tree ruff sees
+# here (server, ingest, tools, shim, ops, frontend) ships in the wheel per
+# §4.5b, so none of them get an exemption.
+"tests/**" = ["S101"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
