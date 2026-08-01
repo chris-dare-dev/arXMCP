@@ -252,6 +252,23 @@ def _build_singleflight_key(
     F7 fix: the previous docstring claimed "joined by NUL" but the
     code used ``\\n``. Now both are wrong AND obsolete: we use
     length-prefix encoding instead.
+
+    **No ``corpus_version`` component, deliberately (issue #337).** That
+    issue's remedy proposed adding one here for symmetry with Tier-1 and
+    Tier-2, which both key on it. Declined on the merits: the axis is
+    real for Tier 3 — a re-ingest that rewrites a chunk's BODY while
+    keeping its ``chunk_id`` leaves a memo whose ranking was computed
+    over the old text — but salting the key is the wrong instrument for
+    it. This function is the SINGLEFLIGHT key as well as the Tier-3
+    cache key, and the singleflight coalesces concurrent in-flight
+    calls, a window in which the corpus cannot meaningfully change; the
+    salt would be inert there while coupling a retrieval phase to the
+    cache's notion of corpus identity. The axis is instead covered by
+    invalidation: :meth:`server.cache.RetrievalCache.invalidate_semantic_tiers`
+    drops the whole Tier-3 LRU on a version bump, driven by
+    :mod:`server.corpus_freshness` (issue #207). If that seam is ever
+    removed, this decision must be revisited — Tier 3 has no other
+    corpus guard.
     """
     h = hashlib.sha256()
     # Query embedding bytes — float32 1024-dim L2-normalized. Length-

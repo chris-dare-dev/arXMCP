@@ -538,17 +538,20 @@ class RetrievalCache:
         # for ALL counter increments rather than mixing inline
         # try/except + the helper; one helper is the single source
         # of truth for "metrics failure must not propagate".
+        # notebook-retrieval-m2 F2: an optional per-call ``corpus_version``
+        # override lets a fork-A notebook query salt the keys on the
+        # NOTEBOOK's pinned version instead of the process-wide shared
+        # version. ``None`` (the default, every non-notebook call) reduces
+        # to ``self._corpus_version`` — byte-identical to pre-m2 (AC4).
+        # Resolved ONCE so both tiers ask the same question (#337).
+        resolved_corpus_version = (
+            self._corpus_version if corpus_version is None else corpus_version
+        )
         self._safe_inc(CACHE_LOOKUPS_COUNTER, TIER_1)
         try:
-            # notebook-retrieval-m2 F2: an optional per-call
-            # ``corpus_version`` override lets a fork-A notebook query salt
-            # the Tier-1 key on the NOTEBOOK's pinned version instead of the
-            # process-wide shared version. ``None`` (the default, every
-            # non-notebook call) reduces to ``self._corpus_version`` —
-            # byte-identical to pre-m2 (AC4).
             tier1_key = derive_tier1_key(
                 query, filters, k,
-                self._corpus_version if corpus_version is None else corpus_version,
+                resolved_corpus_version,
                 level=level,
                 embedder_id=embedder_id,
             )
@@ -567,10 +570,7 @@ class RetrievalCache:
             payload, match = await self._tier2_lookup(
                 query_embedding, filters, k,
                 level=level,
-                corpus_version=(
-                    self._corpus_version if corpus_version is None
-                    else corpus_version
-                ),
+                corpus_version=resolved_corpus_version,
                 embedder_id=embedder_id,
             )
             if payload is not None:
@@ -615,19 +615,25 @@ class RetrievalCache:
         LARGER ``k`` misses instead of being served this payload's
         shorter row list.
         """
+        # m2 F2: per-call corpus_version override (notebook's version on a
+        # fork-A call); None → shared version, byte-identical (AC4).
+        # Resolved ONCE, outside the try, so the Tier-1 key salt, the
+        # Tier-1 SQLite column and the Tier-2 fingerprint cannot drift
+        # apart — #337 is what three independent resolutions of the same
+        # value cost.
+        resolved_corpus_version = (
+            self._corpus_version if corpus_version is None else corpus_version
+        )
         try:
-            # m2 F2: per-call corpus_version override (notebook's version
-            # on a fork-A call); None → shared version, byte-identical (AC4).
-            resolved_corpus_version = (
-                self._corpus_version if corpus_version is None else corpus_version
-            )
             tier1_key = derive_tier1_key(
                 query, filters, k,
                 resolved_corpus_version,
                 level=level,
                 embedder_id=embedder_id,
             )
-            await self._tier1_put(tier1_key, payload)
+            await self._tier1_put(
+                tier1_key, payload, corpus_version=resolved_corpus_version,
+            )
         except Exception:  # noqa: BLE001
             logger.exception("Tier-1 store failed; cache stays cold")
 
@@ -636,10 +642,7 @@ class RetrievalCache:
                 await self._tier2_put(
                     query_embedding, filters, k, payload,
                     level=level,
-                    corpus_version=(
-                        self._corpus_version if corpus_version is None
-                        else corpus_version
-                    ),
+                    corpus_version=resolved_corpus_version,
                     embedder_id=embedder_id,
                 )
             except Exception:  # noqa: BLE001
@@ -653,6 +656,16 @@ class RetrievalCache:
     # method. The (lookup_rerank, store_rerank) Tier-3 surface keeps
     # its distinct name so a single-method ``lookup`` doesn't mix
     # the two semantically-distinct cache families.
+    #
+    # **Issue #337: these forward EVERY keyword the full methods take.**
+    # They previously omitted ``corpus_version``, so a caller following
+    # the documented API silently lost the per-call notebook override and
+    # got shared-corpus keys — a wrong-corpus answer from an API whose
+    # only sin was being the one the brief describes. An alias that
+    # narrows its target's contract is worse than no alias: the omission
+    # is invisible at the call site. Anything added to
+    # ``lookup_search`` / ``store_search`` belongs here in the same
+    # commit, and ``TestBriefSpecAliasParity`` fails if it is not.
 
     async def lookup(
         self,
@@ -662,6 +675,7 @@ class RetrievalCache:
         query_embedding: np.ndarray | None = None,
         *,
         level: str | None = None,
+        corpus_version: int | None = None,
         embedder_id: str | None = None,
     ) -> tuple[Any | None, str]:
         """Brief-spec alias for :meth:`lookup_search`. See that method
@@ -671,11 +685,13 @@ class RetrievalCache:
         :class:`Tier2Match` provenance record added for issue #204 is
         dropped here, since the brief pins this surface's shape. A
         caller that renders the approximate-hit marker must use
-        :meth:`lookup_search` directly.
+        :meth:`lookup_search` directly. Every OTHER argument is
+        forwarded verbatim (#337).
         """
         payload, hit_tier, _match = await self.lookup_search(
             query=query, filters=filters, k=k,
             query_embedding=query_embedding, level=level,
+            corpus_version=corpus_version,
             embedder_id=embedder_id,
         )
         return payload, hit_tier
@@ -689,12 +705,15 @@ class RetrievalCache:
         query_embedding: np.ndarray | None = None,
         *,
         level: str | None = None,
+        corpus_version: int | None = None,
         embedder_id: str | None = None,
     ) -> None:
-        """Brief-spec alias for :meth:`store_search`."""
+        """Brief-spec alias for :meth:`store_search`. Forwards every
+        argument verbatim (#337)."""
         return await self.store_search(
             query=query, filters=filters, k=k, payload=payload,
             query_embedding=query_embedding, level=level,
+            corpus_version=corpus_version,
             embedder_id=embedder_id,
         )
 
@@ -745,7 +764,34 @@ class RetrievalCache:
             self._tier1_mirror.move_to_end(key)
         return payload
 
-    async def _tier1_put(self, key: str, payload: Any) -> None:
+    async def _tier1_put(
+        self, key: str, payload: Any, *, corpus_version: int,
+    ) -> None:
+        """Write one Tier-1 row.
+
+        ``corpus_version`` MUST be the version the ``key`` was salted
+        with — the notebook's on a per-call routed write, the shared one
+        otherwise. Issue #337(c): this used to write
+        ``self._corpus_version`` unconditionally, so a notebook-routed
+        row's column and its key hash described DIFFERENT corpora, and
+        the column stopped being usable as an operational filter for the
+        thing it names.
+
+        **What this does and does not fix.** It makes the column honest:
+        every row now says which corpus version its key was derived
+        from, so ``purge_other_corpus_versions`` retains rows that are
+        actually reachable at the version it keeps, and drops ones whose
+        salt is genuinely superseded. It does NOT make that purge
+        notebook-aware — the method keeps ONE version, and a
+        notebook-keyed row salted on the notebook's version is not equal
+        to the shared version, so a shared-corpus rebind still deletes
+        it. That is a cache MISS, not a wrong answer (the row was
+        reachable; now it is recomputed), which is the failure direction
+        this layer is allowed to take. Making the purge keep a SET of
+        live versions is the real remedy and is out of #337's scope —
+        notebook tables are opened lazily, so their versions are not
+        known at rebind time.
+        """
         # Serialize once for SQLite.
         try:
             blob = json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
@@ -759,7 +805,7 @@ class RetrievalCache:
             key,
             blob,
             ttl_seconds=TIER1_TTL_SECONDS,
-            corpus_version=self._corpus_version,
+            corpus_version=corpus_version,
         )
         if evicted:
             self._safe_inc(CACHE_EVICTIONS_COUNTER, TIER_1, evicted)
