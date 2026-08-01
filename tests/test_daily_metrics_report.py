@@ -333,13 +333,21 @@ class TestRegenFixture:
         # the test process's prometheus_client registry). We run
         # the regen as a subprocess so the in-process registry of
         # the test runner stays clean.
-        import shutil  # noqa: PLC0415
         import subprocess  # noqa: PLC0415
+        import sys  # noqa: PLC0415
 
-        uv = shutil.which("uv") or "/Users/chris.dare/Library/Python/3.9/bin/uv"
+        # Use sys.executable, NOT `uv run`. `uv run` re-syncs the project venv
+        # before executing, which tries to replace .venv/Scripts/*.exe — and on
+        # Windows a *running* console script (arxmcp-shim.exe, registered as the
+        # MCP shim in ~/.claude.json) holds an exclusive lock, so the replace
+        # fails with "Access is denied. (os error 5)", uv exits 2, and this test
+        # fails for reasons that have nothing to do with the fixture. That made
+        # the suite red for anyone using arXMCP from Claude Code while testing.
+        # sys.executable gives the same fresh-interpreter isolation the comment
+        # above asks for, without mutating shared environment state.
         result = subprocess.run(
             [
-                uv, "run", "python", "-c",
+                sys.executable, "-c",
                 "from tools.regen_metrics_fixture import render_fixture_bytes;"
                 " import sys; sys.stdout.buffer.write(render_fixture_bytes())",
             ],
