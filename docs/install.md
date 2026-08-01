@@ -166,6 +166,26 @@ arxmcp-server --help       # FastAPI runner; defaults to 127.0.0.1:7733
 arxmcp-shim --help         # stdio shim; --server overrides the address
 ```
 
+Both take their configuration from `ARXMCP_*` environment variables rather
+than flags — `arxmcp-server --help` lists the common ones. An unrecognized
+`ARXMCP_*` variable is a startup **error**, not a warning, so a typo'd knob
+can never look like it took effect.
+
+> **Where the ops scripts live.** The operability layer — backup, cutover,
+> restore drill, drift watchdog — ships inside the distribution as the `ops`
+> package. The [`docs/ops/`](ops/) runbooks name these paths relative to a
+> source checkout (`ops/restore_drill.sh`), which is the right form if you
+> installed with `make bootstrap` as above. If you installed a built wheel
+> instead, the same files are under the `ops/` directory in your
+> environment's `site-packages`; print it with:
+>
+> ```sh
+> python -c "import ops, pathlib; print(pathlib.Path(ops.__file__).parent)"
+> ```
+>
+> The container image also carries them at `/app/ops/`, which is the path
+> the runbooks' `docker exec` examples assume.
+
 ## 2. Register with Claude Code
 
 Open `~/.claude.json` and merge this block into the top-level object

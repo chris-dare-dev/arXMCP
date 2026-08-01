@@ -712,6 +712,39 @@ Things that LOOK shipped but aren't fully wired — don't be surprised.
    were updated in lockstep. Don't reintroduce Markdown into `server/`,
    `ingest/`, etc.
 
+12. **A running `arxmcp-shim.exe` self-locks the venv and turns `uv run`
+    into an error on Windows.** Symptom — `make test` fails one test
+    (`test_daily_metrics_report.py::TestRegenFixture::test_regen_matches_checked_in_fixture`,
+    which shells out to `uv run`) with:
+
+    ```
+    error: failed to remove file `...\.venv\Lib\site-packages\../../Scripts/arxmcp-shim.exe`:
+    Access is denied. (os error 5)
+    ```
+
+    Reproduce with plain `uv run python -c "print(1)"` — it is not a pytest
+    problem. **Cause:** `[project.scripts]` gained `arxmcp-server` in
+    `004c814` (issue #206), so an environment installed before that commit
+    is stale in its console-scripts dimension and every `uv run` tries to
+    re-sync and rewrite `.venv/Scripts/`. If the arXMCP MCP server is
+    registered in `~/.claude.json`, `arxmcp-shim.exe` is RUNNING from that
+    directory and Windows holds an exclusive lock on a running executable,
+    so the delete fails and the whole sync aborts. POSIX does not have this
+    failure mode — unlinking a running binary is legal there.
+
+    **Fix:** stop the shim (quit the Claude session holding it, or kill the
+    `arxmcp-shim.exe` PID), then sync ONCE:
+
+    ```sh
+    uv sync --extra dev      # or: uv pip install --python .venv/Scripts/python.exe -e ".[dev]"
+    ```
+
+    Afterwards `uv run` finds the env in sync and stops touching
+    `Scripts/`, so the shim can run again freely. This bites once per
+    `[project.scripts]` change, not continuously. Do NOT "fix" it by
+    weakening the test — the lock is real and the same rewrite would fail
+    for any operator in the same state.
+
 ---
 
 ## 9. Common tasks for new agents

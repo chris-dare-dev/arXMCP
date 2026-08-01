@@ -19,29 +19,48 @@ MINOR and must re-pin `EXPECTED_TOOL_SCHEMA_SHA256`.
 
 1. **Green build.** `make test` passes (ruff + pytest) and `make sbom`
    reports no critical CVEs.
-2. **Pick the version** per the rules above.
-3. **Update [`CHANGES.md`](../CHANGES.md).** Move the relevant `Unreleased`
+2. **Clean-environment install.** `make wheel-check-full` exits 0.
+
+   This is a separate gate from `make test` on purpose. A packaging bug is
+   invisible to the test suite: the repo root is on `sys.path` and every
+   data file is right there on disk, so the suite passes, the server runs,
+   and `make up` works — while the built wheel ships none of it. Before
+   2026-07-31 the wheel was missing the entire `ops/` layer (backup,
+   cutover, restore drill, drift watchdog), `frontend/`,
+   `server/router_patterns.yaml`, `server/schemas/*.json` and
+   `tools/seed-papers.txt`, and declared no `arxmcp-server` console script
+   at all. Nothing in the suite noticed, and an operator would have hit a
+   `RuntimeError` on the missing router patterns before serving one
+   request.
+
+   `make wheel-check-full` builds the wheel, installs it into an isolated
+   venv that resolves the real dependency set, boots it with
+   `ARXMCP_BOOTSTRAP_MODE=1` and polls `/healthz`. Budget ~4 min on a warm
+   `uv` cache, ~15 min cold. `make wheel-check` is the ~10 s subset (file
+   inventory + console scripts, no dependency resolve) for quick loops.
+3. **Pick the version** per the rules above.
+4. **Update [`CHANGES.md`](../CHANGES.md).** Move the relevant `Unreleased`
    entries into a new `## [x.y.z] — YYYY-MM-DD` section and add a compare
    link at the bottom.
-4. **Update `version`** in [`pyproject.toml`](../pyproject.toml).
-5. **Commit** the bump: `chore(repo): release vX.Y.Z`.
-6. **Tag** an annotated, GPG-signed tag (signing is enabled repo-wide):
+5. **Update `version`** in [`pyproject.toml`](../pyproject.toml).
+6. **Commit** the bump: `chore(repo): release vX.Y.Z`.
+7. **Tag** an annotated, GPG-signed tag (signing is enabled repo-wide):
 
    ```sh
    git tag -s vX.Y.Z -m "arXMCP vX.Y.Z"
    ```
 
-7. **Push** the commit and tag (push is per-event authorized):
+8. **Push** the commit and tag (push is per-event authorized):
 
    ```sh
    git push origin main --follow-tags
    ```
 
-8. **Cut the GitHub Release** from the tag. The repo's
+9. **Cut the GitHub Release** from the tag. The repo's
    [`.github/release.yml`](../.github/release.yml) categorizes
    auto-generated notes by conventional-commit prefix; paste the
    `CHANGES.md` section in as the human summary above the generated list.
-9. **Attach assets** if any (the GitHub release-downloads badge counts
+10. **Attach assets** if any (the GitHub release-downloads badge counts
    these).
 
 ## Conventions
