@@ -333,20 +333,50 @@ class TestRegenFixture:
         # the test process's prometheus_client registry). We run
         # the regen as a subprocess so the in-process registry of
         # the test runner stays clean.
-        import shutil  # noqa: PLC0415
+        #
+        # The subprocess interpreter MUST be ``sys.executable`` and
+        # never ``uv run`` (2026-08-01 environment-damage report).
+        # ``uv run`` syncs the project environment to the project's
+        # DEFAULT dependency set before executing, and pytest/ruff
+        # are not in it, so a ``uv run`` fired from inside the suite
+        # prunes the test runner's own toolchain out of the very
+        # ``.venv`` it was launched from. The in-flight run survives
+        # on already-imported modules — so this test PASSES while
+        # the NEXT ``make test`` dies with "No module named pytest".
+        # On Windows the same sync then tries to replace
+        # ``.venv/Scripts/arxmcp-shim.exe``, which any connected MCP
+        # session holds open, and uv aborts with "Access is denied.
+        # (os error 5)" — pruning happens FIRST, so that failure
+        # mode leaves a half-stripped venv AND a red test.
+        # ``sys.executable`` is already the correct project
+        # interpreter under pytest and needs no environment sync.
+        # ``tools.regen_metrics_fixture`` is a source-tree import,
+        # not an installed-console-script call, so nothing here
+        # needs the project to be re-installed.
+        import os  # noqa: PLC0415
         import subprocess  # noqa: PLC0415
+        import sys  # noqa: PLC0415
 
-        uv = shutil.which("uv") or "/Users/chris.dare/Library/Python/3.9/bin/uv"
+        # ``python -c`` normally puts cwd on ``sys.path[0]``, but
+        # ``PYTHONSAFEPATH`` (or a ``-P`` in the outer invocation)
+        # suppresses that. Set PYTHONPATH so the repo is importable
+        # regardless of how the outer interpreter was configured.
+        env = dict(os.environ)
+        existing = env.get("PYTHONPATH")
+        env["PYTHONPATH"] = (
+            f"{REPO_ROOT}{os.pathsep}{existing}" if existing else str(REPO_ROOT)
+        )
         result = subprocess.run(
             [
-                uv, "run", "python", "-c",
+                sys.executable, "-c",
                 "from tools.regen_metrics_fixture import render_fixture_bytes;"
                 " import sys; sys.stdout.buffer.write(render_fixture_bytes())",
             ],
             capture_output=True,
-            timeout=30,
+            timeout=120,
             check=False,
             cwd=str(REPO_ROOT),
+            env=env,
         )
         assert result.returncode == 0, (
             f"regen failed: stderr={result.stderr.decode()!r}"

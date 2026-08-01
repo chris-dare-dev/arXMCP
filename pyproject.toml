@@ -301,6 +301,37 @@ dev = [
 # imports the mineru package directly.
 # See docs/install.md for the install procedure.
 
+[dependency-groups]
+# PEP 735 dependency group — deliberately MIRRORS the ``dev`` extra above.
+#
+# The duplication is load-bearing, not an oversight. The two tables are
+# consumed by different installers and neither can reference the other:
+#
+#   * ``[project.optional-dependencies].dev`` is what ``pip install -e
+#     ".[dev]"`` resolves — the Makefile ``bootstrap`` target and
+#     docs/install.md both use that form.
+#   * ``[dependency-groups].dev`` is what **uv** installs BY DEFAULT on
+#     every ``uv sync`` and every ``uv run``. Extras are NOT installed by
+#     default; groups named in ``default-groups`` are, and ``dev`` is
+#     uv's implicit default.
+#
+# Without this block, ANY ``uv run`` fired from inside the repo syncs the
+# project ``.venv`` down to the default dependency set and PRUNES pytest
+# and ruff out of it — including a ``uv run`` fired from inside the test
+# suite, which strips the toolchain of the very interpreter running the
+# tests. Observed live on 2026-08-01 (tests/test_daily_metrics_report.py
+# ``TestRegenFixture``): the in-flight run survived on already-imported
+# modules, so the test passed, and the NEXT ``make test`` died with
+# "No module named pytest". Roughly twenty ``uv run python -m tools.…``
+# commands are documented across tools/ docstrings and docs/ops/ runbooks;
+# this block is what makes every one of them safe to run.
+#
+# ``tests/test_dev_toolchain_guard.py`` fails if the two lists drift apart.
+dev = [
+    "ruff>=0.5",
+    "pytest>=8.0",
+]
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"
