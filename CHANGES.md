@@ -63,11 +63,14 @@ all.
 - **FIXED: `purge_other_corpus_versions` had zero callers repo-wide.**
   Now invoked via `RetrievalCache.open(purge_other_versions=True)` on
   every rebind, before the Tier-1 rehydrate.
-- **FIXED: Tier-2/Tier-3 survived a corpus bump.** They key on the
-  query embedding and the rerank set, carrying no corpus version, so a
-  near-duplicate query would have been answered from the pre-ingest
-  corpus even after the table swap. New
-  `RetrievalCache.invalidate_semantic_tiers`.
+- **FIXED: Tier-3 survived a corpus bump.** Its key is
+  `sha256(embedding + candidate_ids + reranker_version)` with no corpus
+  version, so a re-ingest that rewrites a chunk's body under the same
+  `chunk_id` left a reachable, stale rerank memo. New
+  `RetrievalCache.invalidate_semantic_tiers` drops it. Tier-2 had the
+  same hole when #207 was written; #204 closed it first by folding
+  `corpus_version` into the scope fingerprint, so clearing Tier-2 here
+  is now reclamation rather than correctness.
 - **Constitution:** `.claude/notes/06-mcp-server-design.md` rule 2
   ("the MCP server does NOT auto-switch") is marked SUPERSEDED with
   the reasoning and the trade-off that survives it.

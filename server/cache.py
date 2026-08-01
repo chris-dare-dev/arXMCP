@@ -385,17 +385,30 @@ class RetrievalCache:
     async def invalidate_semantic_tiers(self) -> int:
         """Drop every Tier-2 and Tier-3 entry. Returns the count dropped.
 
-        **Why these two tiers specifically (issue #207).** Tier-1 keys
-        are salted with ``corpus_version`` (``derive_tier1_key``), so a
-        version bump makes old entries unreachable by construction.
-        Tier-2 is NOT: it keys on the query EMBEDDING plus a
-        filter+level fingerprint, and Tier-3 keys on the rerank
-        singleflight key — neither carries the corpus version. A
-        near-duplicate query after a corpus bump would therefore hit a
-        Tier-2 entry computed against the PREVIOUS corpus and be served
-        pre-ingest results: the same silent staleness #207 is about,
-        one layer down, and it would have survived a fix that only
-        swapped the table.
+        **Where each tier stands after a corpus bump (issue #207,
+        re-checked against #204).**
+
+        * **Tier-1** — keys are salted with ``corpus_version``
+          (``derive_tier1_key``), so old entries are unreachable by
+          construction. Not this method's problem; the disk they occupy
+          is handled by ``purge_other_versions`` on
+          :meth:`open`.
+        * **Tier-2** — ``_tier2_scope_fingerprint`` folds in
+          ``corpus_version``, so as of #204 these are *also* unreachable
+          by construction. Clearing them is **reclamation, not
+          correctness**: a full ring buffer is 1,000 entries of
+          1024-dim float32 embeddings plus payloads, none of which can
+          ever be hit again after the bump. (#207 originally justified
+          this method on Tier-2 staleness. #204 landed the scope
+          fingerprint first and removed that hole — recorded here rather
+          than left as a stale rationale.)
+        * **Tier-3** — the live reason this method exists. Its key is
+          ``sha256(query_embedding + sorted_candidate_ids +
+          reranker_version)`` (``_build_singleflight_key``) with NO
+          corpus version. The window is narrow but real: a re-ingest
+          that rewrites a chunk's BODY while keeping its ``chunk_id``
+          leaves a reachable memo whose ranking was computed over the
+          old text. Nothing else invalidates it.
 
         Called on a detected corpus-version change that keeps this
         cache object alive — today, dropping a memoized per-notebook
@@ -403,7 +416,7 @@ class RetrievalCache:
         whose semantic tiers start empty, so it does not need this.
 
         Deliberately a big hammer: it clears the tiers for EVERY corpus,
-        not just the one that bumped, because a Tier-2 entry does not
+        not just the one that bumped, because a Tier-3 entry does not
         record which corpus produced it. Cheap to be wrong-and-safe here
         — these tiers are performance, not correctness, and this fires
         at most once per ingest.

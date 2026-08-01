@@ -382,9 +382,18 @@ class TestPurgeIsWired:
     def test_invalidate_semantic_tiers_clears_tier2_and_tier3(
         self, tmp_path
     ) -> None:
-        """Tier-2/Tier-3 key on the embedding and the rerank set, NOT on
-        corpus_version — so they survive a bump by construction and must
-        be cleared explicitly."""
+        """The semantic tiers are droppable on demand.
+
+        Tier-3 is the one that still NEEDS this — its key is
+        ``sha256(embedding + candidate_ids + reranker_version)`` with no
+        corpus version, so a re-ingest that edits a chunk's body while
+        keeping its ``chunk_id`` leaves a reachable, stale rerank memo.
+        Tier-2 became version-scoped in #204 and is now reclamation
+        rather than correctness — see
+        ``RetrievalCache.invalidate_semantic_tiers``. Both are asserted
+        here so a future key change on either side does not silently
+        remove the guarantee.
+        """
         from server.cache import RetrievalCache
 
         async def go():
@@ -398,26 +407,43 @@ class TestPurgeIsWired:
                     query="q", filters=None, k=5,
                     payload={"results": ["stale"]}, query_embedding=vec,
                 )
-                before, _tier = await cache.lookup_search(
+                await cache.store_rerank(
+                    query_embedding=vec,
+                    candidates=[("arxiv:2307.00001:aaaa", 0.9)],
+                    payload=[("arxiv:2307.00001:aaaa", 0.99)],
+                )
+                t2_before, _tier, _m = await cache.lookup_search(
                     query="different phrasing entirely",
                     filters=None, k=5, query_embedding=vec,
+                )
+                t3_before = await cache.lookup_rerank(
+                    query_embedding=vec,
+                    candidates=[("arxiv:2307.00001:aaaa", 0.9)],
                 )
                 dropped = await cache.invalidate_semantic_tiers()
-                after, _tier2 = await cache.lookup_search(
+                t2_after, _tier2, _m2 = await cache.lookup_search(
                     query="different phrasing entirely",
                     filters=None, k=5, query_embedding=vec,
                 )
-                return before, dropped, after
+                t3_after = await cache.lookup_rerank(
+                    query_embedding=vec,
+                    candidates=[("arxiv:2307.00001:aaaa", 0.9)],
+                )
+                return t2_before, t3_before, dropped, t2_after, t3_after
             finally:
                 await cache.close()
 
-        before, dropped, after = _run(go())
-        assert before is not None, (
+        t2_before, t3_before, dropped, t2_after, t3_after = _run(go())
+        assert t2_before is not None, (
             "precondition: an identical embedding must hit Tier-2 before "
             "the invalidation (otherwise this test proves nothing)"
         )
-        assert dropped >= 1
-        assert after is None, "Tier-2 entry survived invalidate_semantic_tiers"
+        assert t3_before is not None, (
+            "precondition: the rerank memo must hit before the invalidation"
+        )
+        assert dropped >= 2
+        assert t2_after is None, "Tier-2 entry survived invalidate_semantic_tiers"
+        assert t3_after is None, "Tier-3 entry survived invalidate_semantic_tiers"
 
 
 # ===========================================================================

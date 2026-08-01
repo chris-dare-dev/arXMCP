@@ -1425,11 +1425,14 @@ class Resources:
         :meth:`notebook_table`'s normal lazy path, at whatever version
         the marker names then.
 
-        Also clears the retrieval cache's Tier-2 + Tier-3 memos: those
-        are keyed on the query embedding / rerank set and carry NO
-        corpus version, so a near-duplicate query after a notebook
-        re-ingest would otherwise still be answered from the pre-ingest
-        corpus. Tier-1 needs no help — its keys are version-salted.
+        Also clears the retrieval cache's Tier-2 + Tier-3 memos. Tier-3
+        is the one that needs it: its key carries no corpus version, so
+        a re-ingest that rewrites a chunk's body under the same
+        ``chunk_id`` leaves a reachable, stale rerank memo. Tier-1 and
+        (since #204) Tier-2 are version-scoped and self-correcting;
+        dropping Tier-2 here just reclaims entries that can never be hit
+        again. See
+        :meth:`server.cache.RetrievalCache.invalidate_semantic_tiers`.
 
         Never raises; the caller is an ingest-completion callback whose
         failure must not corrupt the ingest-status row.
