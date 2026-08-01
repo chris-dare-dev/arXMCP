@@ -48,6 +48,78 @@ def pytest_sessionfinish(session, exitstatus) -> None:  # noqa: ARG001
     if not _KMP_WAS_PRESET_BY_USER:
         os.environ.pop(_KMP_KEY, None)
 
+
+# ---------------------------------------------------------------------------
+# Opt-in marker deselection (issue #206)
+# ---------------------------------------------------------------------------
+
+#: The markers whose ``pyproject.toml`` registration promises "Skipped by
+#: default; opt-in via ``pytest -m <marker>``". Nothing implemented that
+#: promise: ``addopts`` is bare ``-q``, so the markers were pure metadata
+#: and every marked test ran on every ``make test``.
+#:
+#: Most marked tests happen to carry a second, self-imposed guard (an env
+#: var, a ``shutil.which`` probe), which hid the gap. ``requires_latexmlc``
+#: on ``tests/test_drift_check.py::TestIntegrationRealLatexmlc`` does not,
+#: deliberately — its docstring records that an added ``skipif`` was REMOVED
+#: (F10) because it produced silent skips even on explicit opt-in. That
+#: reasoning is right, and it is exactly why the deselection belongs here,
+#: at collection, rather than in a per-class ``skipif``: opting in must
+#: still fail loudly. Without it a fresh clone with no LaTeXML installed
+#: hard-fails ``make test`` on its first run, and a box that HAS LaTeXML
+#: fails on the 15s render timeout instead.
+#:
+#: ``eval`` is deliberately NOT in this set: its registration documents
+#: opt-OUT semantics (``pytest -m "not eval"``) and ``make eval`` depends on
+#: it running by default.
+_OPT_IN_MARKERS: frozenset[str] = frozenset(
+    {
+        "requires_model",
+        "requires_latexmlc",
+        "requires_full_corpus",
+        "requires_lean_repl",
+        "requires_pdflatex",
+        "requires_mineru",
+        "requires_restic",
+        "requires_wheel_build",
+    }
+)
+
+
+def pytest_collection_modifyitems(
+    config: pytest.Config, items: list[pytest.Item]
+) -> None:
+    """Skip :data:`_OPT_IN_MARKERS`-marked tests unless ``-m`` names them.
+
+    The check is a substring test against the raw ``-m`` expression rather
+    than a parsed one. That is sufficient for the two shapes the project
+    documents — ``-m requires_restic`` (opt in) and ``-m "not eval"`` (opt
+    out of something else) — and errs toward RUNNING a test when an exotic
+    expression mentions the marker, which is the safe direction: a test that
+    runs when it should have been skipped is visible, one that silently
+    skips when it should have run is not.
+
+    Per-test guards are left in place. Where a test also probes for its
+    binary or env var, both fire and the skip reason may come from either;
+    the outcome (skipped) is the same.
+    """
+    markexpr = str(config.getoption("markexpr", default="") or "")
+    for item in items:
+        for marker in _OPT_IN_MARKERS:
+            if marker in item.keywords and marker not in markexpr:
+                item.add_marker(
+                    pytest.mark.skip(
+                        reason=(
+                            f"{marker}: opt-in only — run with "
+                            f"`pytest -m {marker}` (see pyproject.toml "
+                            f"[tool.pytest.ini_options].markers for the "
+                            f"binary / env-var prerequisites)"
+                        )
+                    )
+                )
+                break
+
+
 # ---------------------------------------------------------------------------
 # Custom pytest options (E05_S02)
 # ---------------------------------------------------------------------------

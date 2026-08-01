@@ -9,15 +9,66 @@ requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-# Scoped discovery over the four package trees. The ``*`` globs are
+# Scoped discovery over the six package trees. The ``*`` globs are
 # load-bearing: a bare list of top-level names (server, ingest, tools, shim)
 # OMITS subpackages — server.handlers, server.routes, tools.security, etc. —
 # so a built wheel raises ModuleNotFoundError at runtime (e.g. the container
 # crash on ``from tools.security.pdfid import ...``). Scoping the include to
-# these four patterns still avoids the "multiple top-level packages discovered
+# these patterns still avoids the "multiple top-level packages discovered
 # in a flat-layout" error that an unscoped find would raise on var/, infra/,
 # docker/. ``shim`` (E06_S02) carries the arxmcp-shim console-script below.
-include = ["server*", "ingest*", "tools*", "shim*"]
+#
+# ``ops*`` (issue #206) and ``frontend*`` (issue #195 / trustworthy-release-m4)
+# were BOTH absent until 2026-07-31. The consequence was silent: a wheel-
+# installed operator got no backup, no cutover, no restore drill and no drift
+# watchdog, and ``create_app()`` crashed on the missing
+# ``frontend/static`` StaticFiles directory. ``ops`` is a real package
+# (``ops/__init__.py``); ``ops.cron`` / ``ops.systemd`` / ``frontend.*`` are
+# implicit-namespace dirs picked up because ``namespaces`` defaults to true
+# — they carry no ``.py`` at all and exist purely to anchor the
+# ``package-data`` globs below.
+#
+# ``frontend`` is deliberately TOP-LEVEL rather than ``server.frontend``:
+# both call sites resolve it relative to the ``server`` package's parent
+# (``server/routes/ui.py:77`` ``parents[2]`` and ``server/main.py:802``
+# ``parent.parent``), which lands on site-packages/ in a wheel install and on
+# the repo root in a source checkout — one path expression, both layouts, no
+# runtime change. This matches trustworthy-release-m4's acceptance verbatim
+# ("frontend/templates/*.html and frontend/static/* are present"). It does
+# claim a generic top-level name in site-packages; re-siting it under
+# ``server/`` is a follow-up to weigh before the first PyPI publish.
+include = ["server*", "ingest*", "tools*", "shim*", "ops*", "frontend*"]
+
+[tool.setuptools.package-data]
+# NON-``.py`` FILES ARE NOT PACKAGED WITHOUT AN EXPLICIT GLOB. Declaring a
+# directory in ``packages.find`` above ships only its modules; every data
+# file needs a line here. Three of these were missing entirely until
+# 2026-07-31 and the failure mode was a hard crash, not a warning:
+#
+#   * ``server/router_patterns.yaml`` — ``server/router.py:261`` RAISES
+#     ("router_patterns.yaml missing at ...") when absent, so the wheel
+#     built before this section could not boot at all.
+#   * ``server/schemas/*.json`` — the declared source of truth for the
+#     ``search_papers`` / ``lean_verify`` result rows (``server/tools.py:103``).
+#   * ``tools/seed-papers.txt`` — read at ``tools/fetch_seed.py:55``.
+#
+# ``tests/test_wheel_packaging.py`` walks the shipped trees on disk and
+# fails if any non-``.py`` file is not matched by a glob here, so a future
+# data file cannot silently drop out of the wheel the same way.
+"server" = ["router_patterns.yaml"]
+"server.schemas" = ["*.json"]
+"ingest" = ["*.sh"]
+"tools" = ["*.sh", "seed-papers.txt"]
+# ops/: the operability layer (issue #206) — backup, cutover, restore drill,
+# drift watchdog. The ``.sh`` / ``.cron`` / ``.service`` / ``.timer`` files
+# are the halves an operator actually invokes; shipping only the ``.py``
+# modules would leave the runbooks in docs/ops/ pointing at absent files.
+"ops" = ["*.sh", "*.template"]
+"ops.cron" = ["*.sh", "*.cron"]
+"ops.systemd" = ["*.service", "*.timer"]
+# frontend/: operator-console assets. NOT a Python package — data only.
+"frontend.templates" = ["*.html"]
+"frontend.static" = ["*.css", "*.js", "*.svg", "*.md"]
 
 [project.scripts]
 # E06_S02 stdio shim. Installed on $PATH by ``pip install -e .`` /
@@ -25,6 +76,18 @@ include = ["server*", "ingest*", "tools*", "shim*"]
 # this command name verbatim; renaming would force every operator to
 # update their MCP server registration.
 arxmcp-shim = "shim.arxmcp_shim:main"
+# The long-running server (issue #206). ``docs/install.md`` has instructed
+# operators to verify their install with ``arxmcp-server --help`` since the
+# doc was written, but no ``[project.scripts]`` section existed at all — the
+# first verification step a new operator runs failed immediately.
+#
+# Points at ``server.cli``, NOT ``server.main``: importing ``server.main``
+# executes ``create_app()`` at module scope (``server/main.py:890``), so
+# hanging the console script off it would build the entire FastAPI app —
+# LanceDB handles, MCP mount, StaticFiles — just to print ``--help``, and
+# would exit non-zero on any config error before argparse ever ran.
+# ``server/cli.py`` imports ``server.main`` lazily, inside ``main()``.
+arxmcp-server = "server.cli:main"
 
 [project]
 name = "arxmcp"
@@ -48,7 +111,13 @@ dependencies = [
     #   a future infra ticket may switch to the CPU-specific extra-index URL
     #   ``--extra-index-url https://download.pytorch.org/whl/cpu`` to drop
     #   CUDA wheels.
-    "torch>=2.0",
+    #   Capped below 3.0 (issue #206): a torch major bump is the single
+    #   likeliest way for a fresh install to land on an ABI that
+    #   ``transformers``' BGE-M3 loader cannot use, and the failure would
+    #   surface as an embedder crash at ``Resources.startup`` — after the
+    #   operator has already downloaded ~2 GB. Bumping the cap is a
+    #   deliberate act with an eval re-run, not a resolver's choice.
+    "torch>=2.0,<3",
     # safetensors: Threat 6 (08-security-observability-ops.md) requires the
     #   safetensors weight format and refuses ``.bin`` / pickle files. The
     #   ``transformers`` model loader picks safetensors automatically when
@@ -68,11 +137,29 @@ dependencies = [
     #   here can't silently migrate the on-disk format under a pinned
     #   reader. The upper bound is intentionally NOT tightened yet — add
     #   ``<0.31`` only if a real format regression is observed.
-    "lancedb>=0.6",
+    #
+    #   FLOOR CORRECTED 2026-07-31 (issue #206): it was ``>=0.6``, which the
+    #   code cannot actually run against. ``ingest/schema.py:112`` documents
+    #   that the modern kwarg is
+    #   ``storage_options={"new_table_data_storage_version": "stable"}`` and
+    #   that the older bare ``data_storage_version="stable"`` was accepted
+    #   and SILENTLY DROPPED — a resolver picking any 0.6..0.29 release
+    #   would therefore write tables in an unpinned on-disk format while
+    #   every comment in the tree claims the format is pinned. The floor now
+    #   names the release whose behavior that comment was verified against.
+    #   The upper bound stays open per the recorded decision above.
+    "lancedb>=0.30.2",
     # pyarrow: schema definition for the LanceDB ``chunks`` table
     #   (E04_S01). The single source of truth for all downstream readers
     #   lives in ``ingest/schema.py`` as a ``pa.schema(...)`` object.
-    "pyarrow>=14.0",
+    #   Floor raised 16.0 and capped below 25 (issue #206): the schema
+    #   object is the contract between ingest and every reader, and pyarrow
+    #   has removed deprecated schema//type APIs at major boundaries before.
+    #   An unbounded range let a resolver pair a new pyarrow with the pinned
+    #   lancedb above, which is the combination least likely to have been
+    #   exercised. 16.0 is the oldest release still receiving fixes when this
+    #   floor was set.
+    "pyarrow>=16.0,<25",
     # rank-bm25: pure-Python BM25 index (E04_S04). MIT-licensed, no
     #   compiled deps, ~400 LOC. Closes H4 (no Tantivy LaTeX analyzer
     #   fiction); BM25 indexes the pre-tokenized ``body_tokens`` field
@@ -236,5 +323,6 @@ markers = [
     "requires_lean_repl: tests that invoke the real Lean 4 REPL subprocess (verification-feedback-m2+). Skipped by default; opt-in by setting BOTH ARXMCP_LAKE_PATH (absolute path to the lake binary) and ARXMCP_LEAN_REPL_DIR (a built leanprover-community/repl directory). Lean is a system dependency, not a pip dep — see .claude/notes/spikes/verification-feedback-spike-2.md.",
     "requires_pdflatex: tests that invoke the real `pdflatex` + `pdftoppm` binaries (parser-fidelity-eval-m1 CDM gate). Skipped by default; opt-in via `pytest -m requires_pdflatex` AND `ARXMCP_RUN_REAL_PDFLATEX=1`. Requires pdflatex (part of texlive: `brew install --cask mactex-no-gui` / `apt install texlive-base`) and pdftoppm (part of poppler-utils: `brew install poppler` / `apt install poppler-utils`) installed locally. Subprocess sandbox follows the same `start_new_session=True` + `os.killpg` discipline as LaTeXML per `.claude/docs/security-cdm-sandbox.md`.",
     "requires_mineru: tests that invoke the real `mineru` binary (textbook-ingest-m5 PDF parser subprocess driver). Skipped by default; opt-in via `pytest -m requires_mineru` AND `ARXMCP_RUN_REAL_MINERU=1` AND `ARXMCP_MINERU_BIN` set to the absolute path of the mineru binary (typically `~/venvs/mineru/bin/mineru` — install via `uv venv ~/venvs/mineru && uv pip install --python ~/venvs/mineru/bin/python 'mineru[pipeline,mlx]'`). Subprocess sandbox profile is documented at `.claude/docs/security-pdf-sandbox.md`. RLIMIT_AS 4 GB cap is Linux-only — macOS does NOT enforce (verified live test); wall timeout is the only memory backstop on Darwin.",
+    "requires_wheel_build: tests that build the project wheel and install it into a throwaway virtualenv (issue #206 / trustworthy-release-m4 clean-environment install check). Skipped by default; opt-in via `pytest -m requires_wheel_build`, or run the underlying script directly with `make wheel-check`. The `contents` half needs only `uv` (or `build`) on PATH and no network; the `full` half ALSO requires `ARXMCP_RUN_FULL_WHEEL_CHECK=1` and resolves the real ~2 GB dependency set before booting the server with ARXMCP_BOOTSTRAP_MODE=1 and polling /healthz. docs/releasing.md makes the full run a pre-publish gate.",
     "requires_restic: tests that invoke the real `restic` binary (notebook-ops-hardening-m1 backup round-trip). Skipped by default; opt-in via `pytest -m requires_restic` AND `ARXMCP_RUN_RESTIC_TESTS=1`. Requires restic >= 0.16 installed locally (`brew install restic` / `apt install restic`). The test inits a throwaway repo under tmp_path with RESTIC_PASSWORD=test and does a backup->wipe->restore->sha256 byte-equality round-trip of a synthetic notebook (uploaded PDF + notebooks.db row).",
 ]

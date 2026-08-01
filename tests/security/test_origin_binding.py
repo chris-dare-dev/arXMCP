@@ -428,20 +428,49 @@ class TestUnsafeNetworkBindEscapeHatch:
         assert "0.0.0.0" in msg
         assert ".claude/docs/security-binding.md" in msg
 
-    def test_warn_log_emission_in_main_module_is_guarded(self):
-        """F2 regression guard — text-based check that
-        ``server/main.py`` still contains the WARN-emission block
-        for ``unsafe_network_bind``. A refactor that drops the warn
-        entirely would fire this test.
+    def test_warn_log_emission_in_startup_path_is_guarded(self):
+        """F2 regression guard — text-based check that the server's
+        startup path still contains the WARN-emission block for
+        ``unsafe_network_bind``. A refactor that drops the warn entirely
+        fires this test.
+
+        The block lived in ``server/main.py``'s ``if __name__ ==
+        "__main__":`` body until issue #206 added the ``arxmcp-server``
+        console script; it now lives in ``server/cli.py::main``, which
+        ``server/main.py`` delegates to. This guard caught that move, which
+        is exactly what it is for — so it follows the code rather than
+        being deleted, and :meth:`test_main_module_delegates_to_cli` below
+        pins the delegation so the two entry points cannot diverge and
+        leave one of them silently un-warned.
         """
         from pathlib import Path
 
-        source = Path(__file__).parent.parent.parent / "server" / "main.py"
-        text = source.read_text()
+        source = Path(__file__).parent.parent.parent / "server" / "cli.py"
+        text = source.read_text(encoding="utf-8")
         # All three substrings must appear to prove the warn block is intact.
         assert "ARXMCP_UNSAFE_NETWORK_BIND=1" in text
         assert "unsafe_network_bind" in text
         assert "security-binding.md" in text
+
+    def test_main_module_delegates_to_cli(self):
+        """``python -m server.main`` must reach the same startup path.
+
+        The warn block above protects operators only if EVERY documented
+        way of starting the server executes it. There are three —
+        ``arxmcp-server``, ``python -m server.main`` and ``make up`` (which
+        shells out to the second) — and they must be one code path, not a
+        copy. This asserts ``server/main.py``'s ``__main__`` block
+        delegates rather than carrying its own duplicate.
+        """
+        from pathlib import Path
+
+        source = Path(__file__).parent.parent.parent / "server" / "main.py"
+        text = source.read_text(encoding="utf-8")
+        assert "from server.cli import main" in text, (
+            "server/main.py's __main__ block no longer delegates to "
+            "server.cli; `python -m server.main` may be running a divergent "
+            "startup sequence that skips the Threat-5 / Threat-7 warnings."
+        )
 
 
 # ===========================================================================

@@ -11,11 +11,20 @@ The long-running ``arxmcp-server`` process. Wires:
   :func:`server.mcp_mount.mount_mcp` (no tools registered yet —
   E06_S03 lands the tool implementations).
 
-**Run via uvicorn**: ``python -m server.main`` (preferred — honors
-``ARXMCP_BIND_HOST`` / ``ARXMCP_BIND_PORT`` via :class:`Config`) or,
-equivalently, ``make up``. The ``uvicorn server.main:app`` CLI form
-also works but does NOT honor the env-var bind overrides — closes
-IS3+IS4 from the E06_S01 critique.
+**Run via**: the ``arxmcp-server`` console script (issue #206), or
+``python -m server.main``, or ``make up`` — all three are the same code
+path and all honor ``ARXMCP_BIND_HOST`` / ``ARXMCP_BIND_PORT`` via
+:class:`Config`. The startup sequence itself lives in
+:func:`server.cli.main`; the ``__main__`` block at the bottom of this
+module only delegates to it. The ``uvicorn server.main:app`` CLI form also
+works but does NOT honor the env-var bind overrides — closes IS3+IS4 from
+the E06_S01 critique.
+
+Note the module-level ``app`` below is built as an import side effect, so
+anything wanting to invoke the CLI must import :mod:`server.cli` (which
+defers this module's import into the function body) rather than importing
+this module — otherwise ``arxmcp-server --help`` would construct the whole
+app before argparse ran.
 
 **Lifespan-style startup/shutdown**, NOT the deprecated
 ``@app.on_event("startup")`` decorator (FastAPI ≥0.93). The
@@ -891,99 +900,19 @@ app = _build_module_app() if __name__ != "__main__" else None
 
 
 if __name__ == "__main__":
-    # IS3+IS4 fix: the ``__main__`` path uses Config to source the
-    # bind host/port, so ``ARXMCP_BIND_HOST`` / ``ARXMCP_BIND_PORT``
-    # are honored. Use this entry point (``python -m server.main``)
-    # rather than the bare ``uvicorn server.main:app`` form for
-    # env-var-aware binding.
+    # The body that used to live here — Config load, env-var scan, logging
+    # setup, the Threat-5 / Threat-7 startup warnings, and uvicorn.run —
+    # moved to ``server/cli.py`` when issue #206 added the ``arxmcp-server``
+    # console script. It is NOT duplicated here: two entry points running
+    # two copies of the startup sequence is exactly how a security warning
+    # ends up firing on one path and not the other.
     #
-    # E06_S05: wrap Config() + the env-var scan so a bad bind host
-    # (or any other config validation failure) emits a FATAL log
-    # AND exits with code 1, not a multi-screen pydantic stack. This
-    # mirrors :func:`_build_module_app`'s wrapping for the uvicorn-
-    # CLI path so both entry points fail identically. Closes the
-    # brief AC: "Starting server with ARXMCP_BIND_HOST=0.0.0.0
-    # exits with code 1 and a log message."
-    import uvicorn
+    # ``python -m server.main`` therefore remains equivalent to
+    # ``arxmcp-server``, and both honor ARXMCP_BIND_HOST / ARXMCP_BIND_PORT
+    # via Config (IS3+IS4) rather than hardcoded uvicorn CLI flags.
+    from server.cli import main as _cli_main
 
-    # Configure logging BEFORE Config() so the FATAL log lands on
-    # stderr even when the failure is in Config() itself.
-    logging.basicConfig(level=os.environ.get("ARXMCP_LOG_LEVEL", "INFO"))
-    try:
-        cfg = Config()
-        _scan_unknown_arxmcp_env_vars(cfg)
-    except Exception as exc:
-        logger.error("FATAL during config load: %s", exc)
-        sys.stderr.write(f"FATAL: {exc}\n")
-        sys.exit(1)
-
-    # E13_S08 Threat 8 — install the RedactionFilter on the root
-    # logger AND re-apply the level from Config (which may differ
-    # from the env-var fallback used before Config() loaded). The
-    # filter strips REDACTED_FIELDS (query, body_canonical,
-    # body_raw_latex, mathml) from every log record at INFO+ level so
-    # accidental leakage of paper content into the operational log is
-    # blocked at the source. See
-    # ``.claude/docs/security-observability-logging.md``.
-    from server.observability.logging_setup import configure as _configure_logging
-    # corpus-integrity-observability-e2: cfg.log_format ("json" default,
-    # 12-factor) selects the JsonFormatter, installed on the same
-    # redaction-filtered handler inside configure().
-    _configure_logging(cfg.log_level, cfg.log_format)
-    # E13_S05 Threat 5 — emit a WARN log at startup if the operator
-    # has enabled the unsafe-network-bind escape hatch. This makes
-    # the security trade-off VISIBLE in the operational log so an
-    # operator can spot the misconfiguration in retrospect even if
-    # they forgot they set the env var.
-    if cfg.unsafe_network_bind:
-        logger.warning(
-            "ARXMCP_UNSAFE_NETWORK_BIND=1 is set; server binding to %r "
-            "(non-loopback). Container deployments only — the host-side "
-            "port mapping MUST still pin to 127.0.0.1. See "
-            ".claude/docs/security-binding.md.",
-            cfg.bind_host,
-        )
-    # E13_S07c Threat 7 — INFO log when CA pinning is on so the
-    # operator sees the opt-in at startup. The bundle path was
-    # already validated by ``Config.validate_arxiv_ca_bundle``
-    # (fail-closed); this log line just makes the active pin
-    # visible in the operational log.
-    if cfg.pin_arxiv_ca:
-        from server.ssl_pin import resolve_arxiv_ca_bundle
-        logger.info(
-            "ARXMCP_PIN_ARXIV_CA=1 set; using pinned CA bundle at %s "
-            "for arxiv.org / ar5iv.labs.arxiv.org / export.arxiv.org "
-            "fetches (Threat 7 mitigation #2). Refresh via "
-            "`make refresh-arxiv-ca`.",
-            resolve_arxiv_ca_bundle(cfg),
-        )
-        # E13_S07c v1 caller-side coverage caveat: the API surface
-        # is wired (try_cache + fetch_eprint accept ssl_context) but
-        # the existing production callers (bulk_ingest, fetch_seed,
-        # fetch_one_paper, notebook_fetch) do NOT auto-thread the
-        # context. Surface this WARN so an operator who sets the
-        # flag sees the gap explicitly rather than assuming bulk
-        # ingest is pinned. Full caller-side wiring is tracked as a
-        # follow-up; see .claude/docs/security-threat-7-audit.md.
-        logger.warning(
-            "ARXMCP_PIN_ARXIV_CA=1 set, BUT existing production "
-            "callers (ingest/bulk_ingest.py, tools/fetch_seed.py, "
-            "tools/fetch_one_paper.py, tools/notebook_fetch.py) do "
-            "NOT auto-thread the SSLContext. Bulk-ingest paths will "
-            "still use the system trust store. See "
-            ".claude/docs/security-threat-7-audit.md \"Caller-side "
-            "coverage\" for the workaround. Tracked as follow-up."
-        )
-    logger.info(
-        "Starting arxmcp-server on %s:%d", cfg.bind_host, cfg.bind_port
-    )
-    uvicorn.run(
-        "server.main:app",
-        host=cfg.bind_host,
-        port=cfg.bind_port,
-        lifespan="on",
-        log_config=None,
-    )
+    raise SystemExit(_cli_main())
 
 
 __all__ = [

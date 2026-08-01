@@ -13,6 +13,7 @@
 # OPS / MAINTENANCE — daily checks, status, drift, cutover.
 .PHONY: test eval status watchdog cutover notebook-cutover
 .PHONY: daily-report parser-failures-report sbom refresh-arxiv-ca
+.PHONY: wheel-check wheel-check-full
 
 # NOTEBOOK CRUD (m2) — first-class Make verbs for the notebook
 # lifecycle (proposal §9; backed by tools/notebook_*.py + /ui/api/*).
@@ -87,6 +88,8 @@ help:
 	@echo "  make parser-failures-report Roll up parser-failures/*.{log,jsonl} into the weekly review (E14_S04; see docs/ops/parser-failure-review.md)"
 	@echo "  make sbom        Generate CycloneDX SBOMs + grype scan (E13_S06; see .claude/docs/security-threat-6-audit.md)"
 	@echo "  make refresh-arxiv-ca       Re-download infra/ca/arxiv-ca-bundle.pem and verify against live arxiv hosts (E13_S07c)"
+	@echo "  make wheel-check            Build the wheel, install it into a throwaway venv, assert ops/ + frontend/ + console scripts (issue #206; ~10s)"
+	@echo "  make wheel-check-full       Same, but an isolated venv with the REAL deps + an ARXMCP_BOOTSTRAP_MODE=1 boot polled at /healthz. Pre-publish gate (~4 min warm)"
 	@echo ""
 	@echo "Override the python interpreter with: make test PYTHON=python3.13"
 	@echo ""
@@ -409,6 +412,35 @@ sbom:
 	@# A future flag that takes a path-bearing argument would need
 	@# the same "no spaces in ARGS" warning as ingest/re-embed/cutover.
 	bash tools/sbom.sh $(ARGS)
+
+wheel-check:
+	@# issue #206 / trustworthy-release-m4 — the packaging-boundary gate.
+	@# Builds the wheel, installs it into a THROWAWAY venv, and asserts
+	@# that what an operator receives matches what the docs promise.
+	@#
+	@# This exists because packaging bugs are invisible from a source
+	@# checkout: the repo root is on sys.path and every data file is right
+	@# there on disk, so the suite passes and `make up` works while the
+	@# wheel ships none of it. Five holes were open simultaneously until
+	@# 2026-07-31 — the whole ops/ layer, frontend/, router_patterns.yaml,
+	@# server/schemas/*.json and tools/seed-papers.txt — plus an
+	@# arxmcp-server console script that docs/install.md promised and
+	@# pyproject.toml never declared.
+	@#
+	@# Needs `uv` (or `python -m build`) on PATH. No network.
+	$(PYTHON) tools/wheel_install_check.py --mode contents
+
+wheel-check-full:
+	@# The pre-publish gate (docs/releasing.md). Same as `wheel-check`,
+	@# but the venv is fully isolated and resolves the REAL dependency set
+	@# (~2 GB: torch, transformers, faiss), then boots the installed
+	@# server with ARXMCP_BOOTSTRAP_MODE=1 and polls /healthz.
+	@#
+	@# Slow (~4 min on a warm uv cache, ~15 min cold) and network-bound.
+	@# Run it before any PyPI upload — it is the only check that proves an
+	@# operator with nothing pre-installed ends up with a server that
+	@# starts.
+	$(PYTHON) tools/wheel_install_check.py --mode full
 
 refresh-arxiv-ca:
 	@# E13_S07c — refresh the pinned CA bundle for arxiv.org /
