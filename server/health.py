@@ -765,7 +765,15 @@ def refresh_sentinel_metrics(ops_dir: Path) -> None:
       gauge to bound cardinality.
 
     Per-file errors are isolated: malformed JSON in one file does NOT
-    prevent the others from being refreshed.
+    prevent the others from being refreshed. "Malformed" includes JSON
+    that parses cleanly but is not the shape the reader expects — a
+    top-level array where an object is required, or an object whose
+    count field is not a number. Both are unusable sentinels, and every
+    unusable sentinel on this path takes the same route: log a WARNING
+    and LEAVE the prior gauge values. It never zeroes them; a zero is a
+    positive claim ("no backup has ever succeeded", "nothing was ever
+    ingested") that an unreadable file is not evidence for. Only a
+    genuinely ABSENT sentinel zeroes its gauges.
     """
     from server.metrics import (
         BACKUP_LAST_SUCCESS_GAUGE,
@@ -797,7 +805,17 @@ def refresh_sentinel_metrics(ops_dir: Path) -> None:
         try:
             raw = _read_capped(backup_status)
             payload = json.loads(raw) if raw is not None else None
-            if payload is not None:
+            # The guard is ``isinstance(payload, dict)``, NOT
+            # ``payload is not None``. Every field read below goes through
+            # ``.get``, which only a mapping has — a sentinel whose body is
+            # valid JSON of the wrong SHAPE (a top-level array, string,
+            # number or bool) raised ``AttributeError`` here, and that is
+            # not in the ``except`` tuple below, so it escaped the reader
+            # and 500'd the whole /metrics scrape. Every other gauge in
+            # this function went dark with it. ``compute_health_status``
+            # has always guarded this way for the /status consumer; the
+            # two readers now agree on what an unusable sentinel is.
+            if isinstance(payload, dict):
                 # chris-dare-dev/arXMCP#203 — CLASSIFY THE RUN FIRST, then
                 # decide whether it may touch the freshness clock. This
                 # block used to set BACKUP_LAST_SUCCESS_GAUGE from
@@ -846,6 +864,20 @@ def refresh_sentinel_metrics(ops_dir: Path) -> None:
                     BACKUP_LAST_SUCCESS_GAUGE.set(
                         datetime.fromisoformat(stamp).timestamp()
                     )
+            elif raw is not None:
+                # Parsed, but not an object. ``raw is None`` is excluded
+                # because that is the oversized case, which _read_capped
+                # has already logged — no duplicate line for it. Prior
+                # gauge values are left alone, matching the malformed-JSON
+                # path directly below: a zero here would assert "no backup
+                # has ever succeeded", which an unreadable sentinel is not
+                # evidence for.
+                logger.warning(
+                    "backup-status.json at %s is not a JSON object (got %s); "
+                    "leaving prior gauge values",
+                    backup_status,
+                    type(payload).__name__,
+                )
         except (json.JSONDecodeError, OSError, ValueError):
             logger.warning(
                 "backup-status.json at %s is malformed; leaving prior gauge values",
@@ -870,7 +902,10 @@ def refresh_sentinel_metrics(ops_dir: Path) -> None:
         try:
             raw = _read_capped(ingest_summary)
             payload = json.loads(raw) if raw is not None else None
-            if payload is not None:
+            # Shape guard before any ``.get`` — see the identical note on
+            # the backup-status reader above. This block mirrors that one,
+            # so it inherited the same non-object-JSON crash.
+            if isinstance(payload, dict):
                 # FM-7: schema_version check FIRST — unknown version means
                 # the reader cannot trust the field layout. Leave prior
                 # gauges intact rather than zeroing (a zero reads as
@@ -883,12 +918,16 @@ def refresh_sentinel_metrics(ops_dir: Path) -> None:
                         payload.get("schema_version"),
                     )
                 else:
-                    INGEST_LAST_RUN_PAPERS.set(
-                        float(payload.get("papers_processed", 0))
-                    )
-                    INGEST_LAST_RUN_CHUNKS.set(
-                        float(payload.get("chunks_written_this_run", 0))
-                    )
+                    # Coerce BOTH counts before setting EITHER gauge. Done
+                    # inline, this reader set papers, then raised on a
+                    # wrong-typed chunks value — leaving papers updated from
+                    # a file it had just rejected, which is neither the new
+                    # reading nor the prior one. "Leave the prior gauge
+                    # values" has to mean all of them or it means nothing.
+                    papers = float(payload.get("papers_processed", 0))
+                    chunks = float(payload.get("chunks_written_this_run", 0))
+                    INGEST_LAST_RUN_PAPERS.set(papers)
+                    INGEST_LAST_RUN_CHUNKS.set(chunks)
                     finished_at = payload.get("finished_at")
                     if isinstance(finished_at, str) and finished_at:
                         from datetime import datetime  # noqa: PLC0415
@@ -896,7 +935,19 @@ def refresh_sentinel_metrics(ops_dir: Path) -> None:
                         INGEST_LAST_RUN_TIMESTAMP_SECONDS.set(
                             datetime.fromisoformat(finished_at).timestamp()
                         )
-        except (json.JSONDecodeError, OSError, ValueError, KeyError):
+            elif raw is not None:
+                logger.warning(
+                    "ingest-summary.json at %s is not a JSON object (got %s); "
+                    "leaving prior gauge values",
+                    ingest_summary,
+                    type(payload).__name__,
+                )
+        # ``TypeError`` covers a correctly-shaped object carrying a
+        # wrong-TYPED count: ``float(None)`` and ``float([1, 2])`` raise it,
+        # not ValueError, so ``{"schema_version": 1, "papers_processed":
+        # null}`` escaped this handler the same way a top-level array
+        # escaped the shape guard.
+        except (json.JSONDecodeError, OSError, TypeError, ValueError, KeyError):
             logger.warning(
                 "ingest-summary.json at %s is malformed; leaving prior gauge values",
                 ingest_summary,
@@ -976,7 +1027,13 @@ def _read_drift_flag(drift_flag: Path) -> float:
         parsed = json.loads(raw)
         if isinstance(parsed, dict) and "fixture_count" in parsed:
             return float(parsed["fixture_count"])
-    except (json.JSONDecodeError, ValueError):
+    # The isinstance check above already made this reader safe against a
+    # non-object body, but not against an object with a wrong-typed count:
+    # ``float(None)`` and ``float([1, 2])`` raise TypeError, not ValueError,
+    # so ``{"fixture_count": null}`` escaped instead of taking the
+    # "non-numeric fixture_count -> 1.0 with a WARNING" row this function's
+    # own docstring promises.
+    except (json.JSONDecodeError, TypeError, ValueError):
         logger.warning(
             "drift-detected.flag at %s is malformed; treating as "
             "touch-file=1.0",
@@ -1020,6 +1077,19 @@ def _refresh_eval_ndcg5(reports_dir: Path) -> None:
             if raw is None:
                 continue
             payload = json.loads(raw)
+            # Third instance of the non-object-JSON shape bug — the two
+            # sentinel readers in refresh_sentinel_metrics guarded with
+            # ``is not None``, this one had no guard at all. A report file
+            # containing a top-level array reached ``.get`` and raised
+            # ``AttributeError``, which this ``except`` does not name, so
+            # it escaped _refresh_eval_ndcg5 AND its caller.
+            if not isinstance(payload, dict):
+                logger.warning(
+                    "eval-report %s is not a JSON object (got %s); skipping",
+                    report_path,
+                    type(payload).__name__,
+                )
+                continue
             ndcg5 = payload.get("ndcg5_mean")
             if not isinstance(ndcg5, (int, float)):
                 continue

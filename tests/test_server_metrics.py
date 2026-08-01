@@ -450,6 +450,264 @@ class TestF1OversizedSentinel:
         assert BACKUP_LAST_SUCCESS_GAUGE._value.get() == prior_ts
 
 
+class TestNonObjectJsonSentinel:
+    """A sentinel whose body is VALID JSON of the wrong SHAPE must not
+    500 the /metrics scrape.
+
+    Every reader in :func:`server.health.refresh_sentinel_metrics` pulls
+    fields with ``.get``, which only a mapping has. Two of them guarded
+    with ``if payload is not None`` and one had no guard at all, so a
+    top-level array / string / number / bool raised ``AttributeError`` —
+    a type named in none of their ``except`` tuples. It escaped the
+    reader, escaped ``refresh_sentinel_metrics``, and took the whole
+    scrape with it: EVERY gauge went dark, not just the one whose file
+    was bad. ``compute_health_status`` (the /status consumer) has always
+    guarded with ``isinstance(payload, dict)``; these tests pin the
+    /metrics readers to the same contract.
+
+    Expected behavior for an unusable sentinel on this path is the one
+    the malformed-JSON cases already established — **leave the prior
+    gauge values and log a WARNING**. Zeroing is wrong here: on the
+    backup path a 0.0 asserts "no backup has ever succeeded", which an
+    unparseable file is not evidence for.
+    """
+
+    # Valid JSON, none of it an object.
+    NON_OBJECT_BODIES = ["[1, 2, 3]", '"a string"', "123", "true", "null"]
+
+    def _seed_good_backup(self, ops_dir: Path) -> float:
+        (ops_dir / "backup-status.json").write_text(
+            json.dumps(
+                {"status": "ok", "finished_at": "2026-05-14T03:00:00+00:00"}
+            ),
+            encoding="utf-8",
+        )
+        refresh_sentinel_metrics(ops_dir)
+        prior = BACKUP_LAST_SUCCESS_GAUGE._value.get()
+        assert prior > 0
+        return prior
+
+    @pytest.mark.parametrize("body", NON_OBJECT_BODIES)
+    def test_backup_status_non_object_does_not_raise(
+        self, tmp_path: Path, body: str, reset_all_metrics
+    ):
+        """The reported case: ``[1, 2, 3]`` -> AttributeError -> scrape 500."""
+        (tmp_path / "backup-status.json").write_text(body, encoding="utf-8")
+        refresh_sentinel_metrics(tmp_path)  # must not raise
+
+    def test_backup_status_non_object_leaves_prior_and_warns(
+        self, tmp_path: Path, caplog, reset_all_metrics
+    ):
+        prior = self._seed_good_backup(tmp_path)
+        (tmp_path / "backup-status.json").write_text(
+            "[1, 2, 3]", encoding="utf-8"
+        )
+        with caplog.at_level("WARNING"):
+            refresh_sentinel_metrics(tmp_path)
+
+        assert BACKUP_LAST_SUCCESS_GAUGE._value.get() == prior
+        # Not zeroed either — the state cells keep the last known verdict.
+        assert BACKUP_STATUS_GAUGE.labels(state="ok")._value.get() == 1.0
+        assert any(
+            "backup-status.json" in rec.message
+            and "not a JSON object" in rec.message
+            for rec in caplog.records
+        )
+
+    def test_oversized_backup_status_does_not_double_warn(
+        self, tmp_path: Path, caplog, reset_all_metrics
+    ):
+        """An oversized file also yields ``payload is None``, but
+        ``_read_capped`` has already logged it. The shape guard must not
+        add a second, misleading "not a JSON object" line for a file it
+        never even read."""
+        from server import health as health_mod
+
+        self._seed_good_backup(tmp_path)
+        (tmp_path / "backup-status.json").write_bytes(
+            b"{" + b"x" * (health_mod._MAX_SENTINEL_BYTES + 1)
+        )
+        with caplog.at_level("WARNING"):
+            refresh_sentinel_metrics(tmp_path)
+
+        assert not any(
+            "not a JSON object" in rec.message for rec in caplog.records
+        )
+        assert any("cap is " in rec.message for rec in caplog.records)
+
+    @pytest.mark.parametrize("body", NON_OBJECT_BODIES)
+    def test_ingest_summary_non_object_does_not_raise(
+        self, tmp_path: Path, body: str, reset_all_metrics
+    ):
+        (tmp_path / "ingest-summary.json").write_text(body, encoding="utf-8")
+        refresh_sentinel_metrics(tmp_path)  # must not raise
+
+    def test_ingest_summary_non_object_leaves_prior_and_warns(
+        self, tmp_path: Path, caplog, reset_all_metrics
+    ):
+        INGEST_LAST_RUN_PAPERS.set(42.0)
+        INGEST_LAST_RUN_CHUNKS.set(4242.0)
+        (tmp_path / "ingest-summary.json").write_text(
+            "[1, 2, 3]", encoding="utf-8"
+        )
+        with caplog.at_level("WARNING"):
+            refresh_sentinel_metrics(tmp_path)
+
+        assert INGEST_LAST_RUN_PAPERS._value.get() == 42.0
+        assert INGEST_LAST_RUN_CHUNKS._value.get() == 4242.0
+        assert any(
+            "ingest-summary.json" in rec.message
+            and "not a JSON object" in rec.message
+            for rec in caplog.records
+        )
+
+    @pytest.mark.parametrize("bad_count", [None, [1, 2], {"n": 1}])
+    def test_ingest_summary_wrong_typed_count_leaves_prior(
+        self, tmp_path: Path, bad_count, caplog, reset_all_metrics
+    ):
+        """Right shape, wrong field type. ``float(None)`` raises TypeError,
+        which was absent from this reader's ``except`` tuple — so a
+        schema-v1 object with a null count crashed the scrape exactly like
+        a top-level array did."""
+        INGEST_LAST_RUN_PAPERS.set(42.0)
+        (tmp_path / "ingest-summary.json").write_text(
+            json.dumps({"schema_version": 1, "papers_processed": bad_count}),
+            encoding="utf-8",
+        )
+        with caplog.at_level("WARNING"):
+            refresh_sentinel_metrics(tmp_path)
+
+        assert INGEST_LAST_RUN_PAPERS._value.get() == 42.0
+        assert any(
+            "ingest-summary.json" in rec.message for rec in caplog.records
+        )
+
+    def test_ingest_summary_bad_second_count_leaves_both_prior(
+        self, tmp_path: Path, reset_all_metrics
+    ):
+        """"Leave the prior values" must cover ALL the gauges the reader
+        owns. With the coercions done inline at their ``.set`` call sites,
+        a wrong-typed SECOND count raised only after the first gauge had
+        already been written — so a rejected file still moved the papers
+        gauge, landing on a state that is neither the new reading nor the
+        prior one."""
+        INGEST_LAST_RUN_PAPERS.set(42.0)
+        INGEST_LAST_RUN_CHUNKS.set(4242.0)
+        (tmp_path / "ingest-summary.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "papers_processed": 52,          # fine on its own
+                    "chunks_written_this_run": None,  # blows up after it
+                }
+            ),
+            encoding="utf-8",
+        )
+        refresh_sentinel_metrics(tmp_path)
+
+        assert INGEST_LAST_RUN_PAPERS._value.get() == 42.0
+        assert INGEST_LAST_RUN_CHUNKS._value.get() == 4242.0
+
+    @pytest.mark.parametrize("body", NON_OBJECT_BODIES)
+    def test_eval_report_non_object_does_not_raise(
+        self, tmp_path: Path, body: str, reset_all_metrics
+    ):
+        """Third reader with the same shape — ``_refresh_eval_ndcg5`` had
+        no guard at all."""
+        reports_dir = tmp_path / "eval-reports"
+        reports_dir.mkdir()
+        (reports_dir / "corpus_v3-2026-05-14T00-00-00.json").write_text(
+            body, encoding="utf-8"
+        )
+        refresh_sentinel_metrics(tmp_path)  # must not raise
+
+    def test_eval_report_non_object_skips_only_that_file(
+        self, tmp_path: Path, caplog, reset_all_metrics
+    ):
+        """One bad report must not cost the other versions their gauge."""
+        reports_dir = tmp_path / "eval-reports"
+        reports_dir.mkdir()
+        (reports_dir / "corpus_v3-2026-05-14T00-00-00.json").write_text(
+            "[1, 2, 3]", encoding="utf-8"
+        )
+        (reports_dir / "corpus_v4-2026-05-14T00-00-00.json").write_text(
+            json.dumps({"ndcg5_mean": 0.42}), encoding="utf-8"
+        )
+        with caplog.at_level("WARNING"):
+            refresh_sentinel_metrics(tmp_path)
+
+        assert EVAL_NDCG5_GAUGE.labels(
+            corpus_version="4"
+        )._value.get() == pytest.approx(0.42)
+        assert any(
+            "eval-report" in rec.message and "not a JSON object" in rec.message
+            for rec in caplog.records
+        )
+
+    @pytest.mark.parametrize("bad_count", [None, [1, 2], {"n": 1}])
+    def test_drift_flag_wrong_typed_fixture_count_is_touchfile(
+        self, tmp_path: Path, bad_count, caplog, reset_all_metrics
+    ):
+        """``_read_drift_flag``'s docstring promises "non-numeric
+        ``fixture_count`` -> 1.0 with a WARNING", but ``float(None)``
+        raises TypeError, which its ``except`` tuple did not name."""
+        (tmp_path / "drift-detected.flag").write_text(
+            json.dumps({"fixture_count": bad_count}), encoding="utf-8"
+        )
+        with caplog.at_level("WARNING"):
+            refresh_sentinel_metrics(tmp_path)
+
+        assert LATEXML_DRIFT_DETECTED_GAUGE._value.get() == 1.0
+        assert any(
+            "drift-detected.flag" in rec.message for rec in caplog.records
+        )
+
+    def test_one_bad_sentinel_does_not_darken_the_whole_scrape(
+        self, tmp_path: Path, reset_all_metrics
+    ):
+        """The operator-visible consequence, pinned directly.
+
+        ``backup-status.json`` is read BEFORE ingest-summary and the eval
+        reports, so an escaping AttributeError meant a single malformed
+        file zeroed out the observability surface for gauges that had
+        nothing to do with it. Every later sentinel must still refresh.
+        """
+        (tmp_path / "backup-status.json").write_text(
+            "[1, 2, 3]", encoding="utf-8"
+        )
+        (tmp_path / "drift-detected.flag").write_text(
+            json.dumps({"fixture_count": 7}), encoding="utf-8"
+        )
+        (tmp_path / "eval-quarantine.flag").write_text("", encoding="utf-8")
+        (tmp_path / "ingest-summary.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "papers_processed": 52,
+                    "chunks_written_this_run": 4820,
+                }
+            ),
+            encoding="utf-8",
+        )
+        reports_dir = tmp_path / "eval-reports"
+        reports_dir.mkdir()
+        (reports_dir / "corpus_v9-2026-05-14T00-00-00.json").write_text(
+            json.dumps({"ndcg5_mean": 0.33}), encoding="utf-8"
+        )
+
+        refresh_sentinel_metrics(tmp_path)
+
+        # Read before the bad file.
+        assert LATEXML_DRIFT_DETECTED_GAUGE._value.get() == 7.0
+        assert EVAL_QUARANTINE_ACTIVE_GAUGE._value.get() == 1.0
+        # Read AFTER the bad file — these are what the crash used to eat.
+        assert INGEST_LAST_RUN_PAPERS._value.get() == 52.0
+        assert INGEST_LAST_RUN_CHUNKS._value.get() == 4820.0
+        assert EVAL_NDCG5_GAUGE.labels(
+            corpus_version="9"
+        )._value.get() == pytest.approx(0.33)
+
+
 class TestF2SingleflightCounter:
     """F2 rectification — the brief AC#3 named
     ``arxmcp_embed_singleflight_dedup_total`` increment on concurrent
