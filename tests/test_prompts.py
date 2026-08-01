@@ -661,8 +661,19 @@ class TestBP1ByteIdentityAcrossFanout:
         # fields. ALL_TOOLS changed (single ToolMeta description edit),
         # so BP1 (system + tools) drifts; re-pinned in lockstep with
         # EXPECTED_TOOL_SCHEMA_SHA256.
+        #
+        # v22: the W2 batched re-pin — the LEAN_VERIFY ToolMeta
+        # description now names axiom_audit and states outright that
+        # status / compilation_success do not check axiom soundness
+        # (issues #205 / #281 / #332). ALL_TOOLS changed (single ToolMeta
+        # description edit), so BP1 (system + tools) drifts; re-pinned in
+        # lockstep with EXPECTED_TOOL_SCHEMA_SHA256. The window's other
+        # delta — search_papers' cache_match, issue #204 — is a
+        # response-shape change only and does NOT touch BP1; it reaches
+        # EXPECTED_TOOL_SCHEMA_SHA256 through the _meta version echo
+        # alone. Hand-edited: BP1 has no --update flag by design.
         EXPECTED_BP1_SHA256 = (
-            "79d79600c96d464021cdbe1f28491687156ca0ccc4fa0f4163e94590c63af942"
+            "899aeb69962e75f5d762c7e6665454cab6c2d178462ebbaf89734daedece794f"
         )
         req = _build_fanout_request(
             RouteTag.SYNTHESIS, "any problem; BP1 is independent of problem",

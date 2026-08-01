@@ -199,25 +199,31 @@ logger = logging.getLogger(__name__)
 #: EXPECTED_TOOL_SCHEMA_SHA256 and EXPECTED_BP1_SHA256 re-pin; annotations
 #: are tool-schema-only. search_papers_result.json also bumps 20 -> 21 for
 #: the added per-row title/year (semantic-identifiers).
-#: STILL 21 at issue #204 (Tier-2 scope key), deliberately.
-#: search_papers' RESPONSE envelope grew an optional ``cache_match``
-#: object ({kind, cosine}) — present only when the rows were served from
-#: the Tier-2 semantic cache, and naming whether they answer THIS
-#: query's embedding or a cosine-≥0.97 NEIGHBOUR's (before #204 a
-#: neighbour's rows came back byte-identical in shape to an exact hit
-#: with no wire marker at all). The property is declared in
-#: server/schemas/search_papers_result.json — it has to be, the envelope
-#: is ``additionalProperties: false`` — but neither ``version`` field
-#: moves, because bumping THIS constant drifts the tools/list bytes via
-#: the ``_meta.tool_schema_version`` echo and the repo mints that re-pin
-#: only in a BATCHED window. The same call was made for lean_verify's
-#: ``axiom_audit`` (issues #205 / #281 / #332); both bumps are staged in
-#: .claude/docs/w1-schema-deltas.md for the next window. Consequence to
-#: know: until that bump, a consumer keying on the version integer
-#: cannot distinguish this shape from the pre-#204 v21 shape — key on
-#: the PRESENCE of ``cache_match`` instead, which is why it is absent
-#: rather than null when the response did not come from Tier 2.
-TOOL_SCHEMA_VERSION: int = 21
+#: 21 -> 22 (W2 batched re-pin): the second batched window, applying the
+#: two deltas that had been staged in .claude/docs/w1-schema-deltas.md
+#: after W1 closed. Both were response-shape changes whose behaviour had
+#: already merged bump-free, because bumping THIS constant drifts the
+#: tools/list bytes via the ``_meta.tool_schema_version`` echo and the
+#: repo mints that re-pin only in a BATCHED window:
+#:   - issue #204 (Tier-2 scope key): search_papers' response envelope
+#:     carries an optional ``cache_match`` object ({kind, cosine}),
+#:     present only when the rows were served from the Tier-2 semantic
+#:     cache and naming whether they answer THIS query's embedding or a
+#:     cosine-≥0.97 NEIGHBOUR's. Before #204 a neighbour's rows came back
+#:     byte-identical in shape to an exact hit with no wire marker at all.
+#:     SEARCH_PAPERS' description + inputSchema are UNCHANGED, so #204
+#:     contributes to EXPECTED_TOOL_SCHEMA_SHA256 only.
+#:   - issues #205 / #281 / #332 (axiom-hygiene axis): lean_verify's
+#:     response carries an always-emitted ``axiom_audit`` record, and the
+#:     LEAN_VERIFY description below now names it and states outright
+#:     that status / compilation_success do not check axiom soundness.
+#:     That description edit is what makes this window BP1-affecting.
+#: inputSchemas are untouched fleet-wide; the drift is descriptions +
+#: the version echo => EXPECTED_TOOL_SCHEMA_SHA256 re-pins via
+#: ``pytest --update-tool-schema-hash`` and EXPECTED_BP1_SHA256 re-pins
+#: BY HAND (no update flag). lean_verify_result.json and
+#: search_papers_result.json both bump 21 -> 22 in lockstep.
+TOOL_SCHEMA_VERSION: int = 22
 
 #: URI scheme for chunk resource_links per the design note. Used by
 #: handlers that switch to resource_link mode when payloads exceed
@@ -421,8 +427,14 @@ LEAN_VERIFY = ToolMeta(
         "compilation_success (null in syntax_only + tactic_step), messages "
         "with severity + source position, proof_state (first unresolved "
         "goal) plus proof_state_id and per-sorry proof_state_id tokens, "
-        "goals_remaining + sorry_goals, an env token, and "
-        "continuation_status. A continuation token from before a timeout "
+        "goals_remaining + sorry_goals, an env token, "
+        "continuation_status, and axiom_audit. IMPORTANT: status and "
+        "compilation_success report elaboration and kernel acceptance ONLY - "
+        "they do not check axiom soundness, so a snippet declaring its own "
+        "axiom returns status='ok'. Read axiom_audit (outcome "
+        "clean/flagged/unknown/not-applicable, plus the per-declaration axiom "
+        "sets behind it) before treating any result as trustworthy; neither "
+        "field alone is a trust verdict. A continuation token from before a timeout "
         "respawn is rejected (invalid-input), never silently reused. Gated "
         "by ARXMCP_ENABLE_LEAN: when disabled the tool returns "
         "lean_status='disabled' rather than 5xx. On a 30s elaboration "

@@ -214,7 +214,14 @@ class TestToolRegistration:
         # (get_chunk batch + arg cleanup, search/find_equation/cite
         # description edits, ToolAnnotations, search-row title/year);
         # lean_verify result shape unchanged, version tracks the global.
-        assert TOOL_SCHEMA_VERSION == 21
+        # 21->22 (W2 batched re-pin): the second batched window, applying
+        # the two deltas staged after W1 closed. This one DOES change the
+        # lean_verify result shape -- the always-emitted axiom_audit
+        # record (issues #205 / #281 / #332), whose behaviour had already
+        # merged bump-free -- alongside search_papers' cache_match
+        # (issue #204). The LEAN_VERIFY description edit landing in the
+        # same window is what made it BP1-affecting.
+        assert TOOL_SCHEMA_VERSION == 22
 
         schema_path = (
             Path(__file__).parent.parent
