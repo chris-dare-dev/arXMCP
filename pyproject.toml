@@ -140,8 +140,31 @@ dependencies = [
     #   ``storage_options={"new_table_data_storage_version": "stable"}``
     #   (see ``ingest.schema.LANCE_STORAGE_OPTIONS``) so a version bump
     #   here can't silently migrate the on-disk format under a pinned
-    #   reader. The upper bound is intentionally NOT tightened yet — add
-    #   ``<0.31`` only if a real format regression is observed.
+    #   reader.
+    #
+    #   CEILING ADDED 2026-08-02: the open upper bound was a live trap, not a
+    #   theoretical one. ``uv.lock`` pins 0.30.2, but the lock only binds
+    #   ``uv sync`` — ``uv pip install -e ".[dev]"``, a bare ``pip install``,
+    #   and anything resolving from this file alone all took the newest
+    #   release instead. That is 0.36.0, which rejects the variable-length
+    #   vector columns every embedding fixture builds:
+    #
+    #       ValueError: Vector column 'embedding_stmt' has variable length
+    #       vectors. Set on_bad_vectors='drop' ...
+    #
+    #   150 failures + 185 errors across the whole retrieval surface, on a
+    #   tree whose suite is green. Invisible from a normal ``make test``
+    #   because an already-provisioned venv still holds the locked 0.30.2 —
+    #   only a fresh install sees it, which is exactly the new-contributor
+    #   and clean-CI path (the §4.5b failure shape, one layer down).
+    #
+    #   ``<0.35`` is measured, not guessed. Full suite at ``de1a15f``:
+    #   0.30.2 green (4425 passed / 106 skipped / 1 xfailed) and 0.34.0 green
+    #   with identical counts; 0.32.0 / 0.33.0 / 0.34.0 each pass the
+    #   vector-write probe. 0.36.0 is the first version observed to break.
+    #   No 0.31.x or 0.35.x release resolved on PyPI, so the ceiling sits
+    #   just above the highest version actually verified. Raising it means
+    #   re-running the suite against the candidate, not editing this number.
     #
     #   FLOOR CORRECTED 2026-07-31 (issue #206): it was ``>=0.6``, which the
     #   code cannot actually run against. ``ingest/schema.py:112`` documents
@@ -152,8 +175,7 @@ dependencies = [
     #   would therefore write tables in an unpinned on-disk format while
     #   every comment in the tree claims the format is pinned. The floor now
     #   names the release whose behavior that comment was verified against.
-    #   The upper bound stays open per the recorded decision above.
-    "lancedb>=0.30.2",
+    "lancedb>=0.30.2,<0.35",
     # pyarrow: schema definition for the LanceDB ``chunks`` table
     #   (E04_S01). The single source of truth for all downstream readers
     #   lives in ``ingest/schema.py`` as a ``pa.schema(...)`` object.
