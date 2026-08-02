@@ -78,14 +78,28 @@ Target arXiv categories: `math.AG`, `math.NT`, `math-ph`, `hep-th`.
 | E13 — Security audit | ✅ SHIPPED | 10 milestones (Threats 1–7 + logging redaction + bind regression + cumulative coverage doc); 6 follow-up issues filed at `chris-dare-dev/arXMCP#1`–`#6` |
 | E14 — Observability/ops | ✅ SHIPPED (S01–S05) | `/metrics` endpoint, OTel tracing, Phoenix integration, daily ops cadence + parser-failures roll-up, restic backup + restore drill. S06 + S09–S12 (Tier-5/6+ follow-ups) remain unstarted |
 
-**Test count (Windows 11, 2026-07-14):** 4066 passing, 92 skipped, 1 xfailed,
-**0 failing**; `pytest` exit 0, `ruff check .` clean. Verified against a
-**pristine `git worktree` checkout of the pushed commit** (`6535810`),
-isolated from this box's dirty tree — the `.claude/`-only commits pushed since
-(origin tip `f8a2eaf`) don't touch the test/lint path. A **data-populated**
-box reports 4068 passing / 91 skipped instead: two data-precondition tests
-skip without the gitignored `var/` corpus tree and pass once it's hydrated —
-both configurations are **0 failing**.
+**Test count (Windows 11, 2026-08-01):** 4418 passing, 103 skipped, 1 xfailed,
+**0 failing**; `pytest` exit 0, `ruff check .` clean. Measured at the pushed
+commit `55b1a14`, but — unlike the 2026-07-14 entry below — **in this box's
+working tree, not a pristine `git worktree` checkout.** The 10 tracked files
+dirty at the time were all Markdown under `docs/` and `plans/`; nothing on the
+test/lint path. `main` has moved on since (three commits), so re-measure
+rather than quoting this.
+
+The skip count rose from 92 to 103 with no tests lost: issue #206 made the
+`requires_*` opt-in markers actually deselect (§4.5), so tests that used to
+run on every `make test` now skip unless `-m` names them.
+
+> **Concurrency note (2026-08-01):** this box regularly has two or three
+> agent sessions committing to `main` at once, so a suite run and the tree it
+> ran against diverge within minutes. Record the commit you measured at, as
+> above. One failure seen during this run —
+> `test_daily_metrics_report.py::TestRegenFixture` — was **not** a code
+> failure: the test shelled out to `uv run`, which re-syncs the venv and
+> cannot replace `.venv/Scripts/arxmcp-shim.exe` while a shim process holds
+> it open (Windows `os error 5`). `efecb09` fixed it at the source by dropping
+> `uv run` from that test. A concurrent `uv sync` can also empty `.venv` of
+> `pytest` mid-session; wait it out rather than rebuilding.
 
 > **Staleness correction (2026-07-14):** the line here previously asserted
 > **0 failing as of 2026-07-12**, but `main` was in fact RED from 2026-07-12
