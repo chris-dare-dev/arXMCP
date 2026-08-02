@@ -379,7 +379,7 @@ class TestPurgeIsWired:
             "call site in server/cache.py is itself unreachable"
         )
 
-    def test_invalidate_semantic_tiers_clears_tier2_and_tier3(
+    def test_invalidate_corpus_version_clears_tier2_and_tier3(
         self, tmp_path
     ) -> None:
         """The semantic tiers are droppable on demand.
@@ -390,7 +390,7 @@ class TestPurgeIsWired:
         keeping its ``chunk_id`` leaves a reachable, stale rerank memo.
         Tier-2 became version-scoped in #204 and is now reclamation
         rather than correctness — see
-        ``RetrievalCache.invalidate_semantic_tiers``. Both are asserted
+        ``RetrievalCache.invalidate_corpus_version``. Both are asserted
         here so a future key change on either side does not silently
         remove the guarantee.
         """
@@ -420,7 +420,7 @@ class TestPurgeIsWired:
                     query_embedding=vec,
                     candidates=[("arxiv:2307.00001:aaaa", 0.9)],
                 )
-                dropped = await cache.invalidate_semantic_tiers()
+                dropped = await cache.invalidate_corpus_version()
                 t2_after, _tier2, _m2 = await cache.lookup_search(
                     query="different phrasing entirely",
                     filters=None, k=5, query_embedding=vec,
@@ -442,8 +442,8 @@ class TestPurgeIsWired:
             "precondition: the rerank memo must hit before the invalidation"
         )
         assert dropped >= 2
-        assert t2_after is None, "Tier-2 entry survived invalidate_semantic_tiers"
-        assert t3_after is None, "Tier-3 entry survived invalidate_semantic_tiers"
+        assert t2_after is None, "Tier-2 entry survived invalidate_corpus_version"
+        assert t3_after is None, "Tier-3 entry survived invalidate_corpus_version"
 
 
 # ===========================================================================

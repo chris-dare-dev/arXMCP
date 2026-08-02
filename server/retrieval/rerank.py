@@ -264,7 +264,7 @@ def _build_singleflight_key(
     calls, a window in which the corpus cannot meaningfully change; the
     salt would be inert there while coupling a retrieval phase to the
     cache's notion of corpus identity. The axis is instead covered by
-    invalidation: :meth:`server.cache.RetrievalCache.invalidate_semantic_tiers`
+    invalidation: :meth:`server.cache.RetrievalCache.invalidate_corpus_version`
     drops the whole Tier-3 LRU on a version bump, driven by
     :mod:`server.corpus_freshness` (issue #207). If that seam is ever
     removed, this decision must be revisited — Tier 3 has no other

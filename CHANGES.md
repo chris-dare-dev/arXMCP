@@ -67,7 +67,7 @@ all.
   `sha256(embedding + candidate_ids + reranker_version)` with no corpus
   version, so a re-ingest that rewrites a chunk's body under the same
   `chunk_id` left a reachable, stale rerank memo. New
-  `RetrievalCache.invalidate_semantic_tiers` drops it. Tier-2 had the
+  `RetrievalCache.invalidate_corpus_version` drops it. Tier-2 had the
   same hole when #207 was written; #204 closed it first by folding
   `corpus_version` into the scope fingerprint, so clearing Tier-2 here
   is now reclamation rather than correctness.

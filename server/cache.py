@@ -382,8 +382,30 @@ class RetrievalCache:
         await cache._rehydrate_tier1_from_sqlite()
         return cache
 
-    async def invalidate_semantic_tiers(self) -> int:
+    async def invalidate_corpus_version(self) -> int:
         """Drop every Tier-2 and Tier-3 entry. Returns the count dropped.
+
+        Named for the API issue #338 asked for
+        (``RetrievalCache.invalidate_corpus_version``) so a reader
+        arriving from that issue finds it. **Two deliberate deviations
+        from the signature it sketched**, both because following it
+        literally would make the method worse:
+
+        * **No ``old`` parameter.** #338 proposed
+          ``invalidate_corpus_version(old)``. There is nothing to filter
+          on: neither a Tier-2 entry nor a Tier-3 entry records which
+          corpus produced it, so an ``old`` argument could only be
+          accepted and ignored. A parameter the implementation cannot
+          honor is the same species of defect #207 closed — a declared
+          contract with no implementation behind it.
+        * **It does not invoke ``purge_other_corpus_versions``.** #338
+          bundled that in. The purge has to run BEFORE
+          ``_rehydrate_tier1_from_sqlite`` or the mirror re-loads the
+          rows it just deleted, and that ordering only exists inside
+          :meth:`open` — an instance method called after construction is
+          already too late. It stays where the ordering is enforceable
+          (``open(purge_other_versions=True)``); this method owns the
+          in-process tiers only.
 
         **Where each tier stands after a corpus bump (issue #207,
         re-checked against #204).**
@@ -433,7 +455,7 @@ class RetrievalCache:
             self._tier3_lru.clear()
         if dropped:
             logger.info(
-                "RetrievalCache.invalidate_semantic_tiers: dropped %d "
+                "RetrievalCache.invalidate_corpus_version: dropped %d "
                 "Tier-2/Tier-3 entr(ies) on a corpus-version change",
                 dropped,
             )

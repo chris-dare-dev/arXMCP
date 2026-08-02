@@ -104,10 +104,15 @@ Two clarifications the original text got wrong, worth keeping straight:
   the higher version against the restored dataset is the same silent
   lie in the other direction.
 * Old-version Tier-1 rows are unreachable **by key construction**, so
-  purging them is disk housekeeping, not correctness. The tiers that
-  genuinely needed clearing are Tier-2 and Tier-3, which key on the
-  query embedding and the rerank set and carry no version at all — see
-  :meth:`server.cache.RetrievalCache.invalidate_semantic_tiers`.
+  purging them is disk housekeeping, not correctness. The tier that
+  genuinely needs clearing is **Tier-3**: its key is
+  ``sha256(query_embedding + sorted_candidate_ids + reranker_version)``
+  with no corpus version, so a re-ingest that rewrites a chunk's body
+  under the same ``chunk_id`` leaves a reachable, stale rerank memo.
+  Tier-2 had the same hole when this was written; issue #204 closed it
+  by folding ``corpus_version`` into the scope fingerprint, so clearing
+  Tier-2 is now reclamation rather than correctness — see
+  :meth:`server.cache.RetrievalCache.invalidate_corpus_version`.
 """
 
 from __future__ import annotations

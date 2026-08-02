@@ -1432,7 +1432,7 @@ class Resources:
         (since #204) Tier-2 are version-scoped and self-correcting;
         dropping Tier-2 here just reclaims entries that can never be hit
         again. See
-        :meth:`server.cache.RetrievalCache.invalidate_semantic_tiers`.
+        :meth:`server.cache.RetrievalCache.invalidate_corpus_version`.
 
         Never raises; the caller is an ingest-completion callback whose
         failure must not corrupt the ingest-status row.
@@ -1451,7 +1451,7 @@ class Resources:
                 slug,
             )
             cache = self.cache
-            invalidate = getattr(cache, "invalidate_semantic_tiers", None)
+            invalidate = getattr(cache, "invalidate_corpus_version", None)
             if invalidate is not None:
                 try:
                     await invalidate()
@@ -1565,7 +1565,7 @@ class Resources:
             # window this probe just opened.
             gate.reset()
             cache = self.cache
-            invalidate = getattr(cache, "invalidate_semantic_tiers", None)
+            invalidate = getattr(cache, "invalidate_corpus_version", None)
             if invalidate is not None:
                 try:
                     await invalidate()
