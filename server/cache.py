@@ -447,7 +447,8 @@ class RetrievalCache:
             logger.exception("RetrievalCache.close: tier1 close failed")
 
     async def _rehydrate_tier1_from_sqlite(self) -> None:
-        """Load every unexpired SQLite row into the in-process LRU.
+        """Load every unexpired SQLite row **for the active corpus
+        version** into the in-process LRU.
 
         Per the brief: *"On server startup, unexpired Tier-1 entries
         are loaded from the SQLite file into the in-process LRU."*
@@ -455,9 +456,33 @@ class RetrievalCache:
         Capped at the in-process LRU's :data:`MAX_ROWS` cap — if more
         rows are present we keep the most-recently-expiring (i.e.
         most-recently-inserted given uniform TTL).
+
+        **Filtered by ``corpus_version`` (issue #338).** The Tier-1 key
+        is salted with the version, so a row from another version is
+        unreachable by hash construction — loading it consumes one of
+        the 10K mirror slots that a reachable entry could have used, and
+        the cap then evicts live entries in its favour. The rows are
+        left on disk; ``purge_other_corpus_versions`` (invoked from
+        :meth:`open` on the #207 rebind path) is what reclaims them.
+
+        Two things made this filter safe only now. Issue #337 made the
+        column honest — before it, a notebook-routed row's column
+        disagreed with its key salt, so filtering on the column would
+        have dropped REACHABLE rows. And issue #204 added the embedder
+        component to the key, which retroactively orphaned every row
+        written by an older binary; without this filter the first
+        restart after that deploy rehydrates a mirror full of entries
+        that can never be hit.
+
+        Notebook-keyed rows are not loaded here, since their salt is the
+        notebook's version rather than the shared one. They are still
+        reachable — SQLite serves them on the first mirror miss — so
+        this costs one lookup per key after a restart, not a re-query.
         """
         try:
-            rows = await self._tier1_store.load_all_unexpired()
+            rows = await self._tier1_store.load_all_unexpired(
+                corpus_version=self._corpus_version,
+            )
         except Exception:  # noqa: BLE001
             logger.exception("RetrievalCache: rehydrate from sqlite failed")
             return
@@ -742,9 +767,10 @@ class RetrievalCache:
                     self._tier1_mirror.move_to_end(key)
                     return payload
         # Mirror miss → consult SQLite (which also evicts on TTL).
-        blob = await self._tier1_store.get(key)
-        if blob is None:
+        row = await self._tier1_store.get_with_expiry(key)
+        if row is None:
             return None
+        blob, expires_at = row
         try:
             payload = json.loads(blob.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError):
@@ -753,14 +779,18 @@ class RetrievalCache:
                 "from sqlite (deserialization failed)", key[:16] + "...",
             )
             return None
-        # Re-populate mirror with fresh TTL window. We assume the
-        # SQLite row's TTL is the same window the mirror would assign
-        # on its own put (TIER1_TTL_SECONDS); this is a small
-        # approximation — the SQLite row could have been written
-        # earlier and have a tighter remaining TTL — but acceptable
-        # for the mirror (worst case: served slightly past TTL).
+        # Re-populate the mirror under the ROW's expiry, not a fresh
+        # window. Issue #338: this used to write ``now +
+        # TIER1_TTL_SECONDS``, described as "a small approximation …
+        # worst case: served slightly past TTL". The worst case is not
+        # slight — it is 2x. A row written at T and first read from
+        # SQLite at T+3599 was re-cached until T+7199, and every
+        # subsequent mirror-miss read renewed it again, so a
+        # steadily-read key could outlive its TTL indefinitely. The
+        # mirror is a MIRROR: it inherits the row's remaining life and
+        # never mints new life for it.
         async with self._tier1_lock:
-            self._tier1_mirror[key] = (payload, now + TIER1_TTL_SECONDS)
+            self._tier1_mirror[key] = (payload, expires_at)
             self._tier1_mirror.move_to_end(key)
         return payload
 

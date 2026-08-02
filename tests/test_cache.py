@@ -775,9 +775,17 @@ class TestRectificationGuards:
                 #
                 # We also need the SQLite row to be expired so the
                 # fall-through doesn't repopulate. Use a monkeypatched
-                # store.get that returns None.
+                # store read that returns None.
+                #
+                # #338 moved the production fall-through from ``get`` to
+                # ``get_with_expiry`` (the mirror must re-cache under the
+                # ROW's expiry, not a fresh window), so patch that one.
+                # Both are patched: ``get`` now delegates, and patching
+                # only the delegate would leave this test passing for the
+                # wrong reason if the call site ever moves back.
                 async def _none(*_a, **_kw):
                     return None
+                monkeypatch.setattr(cache._tier1_store, "get_with_expiry", _none)
                 monkeypatch.setattr(cache._tier1_store, "get", _none)
                 got, hit, _match = await cache.lookup_search(
                     query="q", filters=None, k=10,

@@ -323,11 +323,33 @@ class Tier1Store:
         Expired rows are deleted lazily on read (the
         ``expires_at < now`` check + DELETE is atomic per the WAL
         connection's autocommit mode).
+
+        Thin wrapper over :meth:`get_with_expiry` that discards the
+        expiry. Callers that re-cache the value MUST use that method
+        instead — see issue #338.
+        """
+        row = await self.get_with_expiry(key, now=now)
+        return None if row is None else row[0]
+
+    async def get_with_expiry(
+        self, key: str, *, now: float | None = None
+    ) -> tuple[bytes, float] | None:
+        """Return ``(value, expires_at)`` for ``key``, or ``None`` if
+        absent or expired.
+
+        Issue #338: the row's OWN ``expires_at`` is what an in-process
+        mirror must re-cache under. ``server/cache.py::_tier1_get``
+        previously fell through to :meth:`get`, which discarded it, and
+        re-cached the payload under a fresh ``now + TTL`` window — so a
+        row written at T and first read at T+3599 stayed live in the
+        mirror until T+7199, twice the advertised TTL. Returning the
+        stored value makes the mirror inherit the row's remaining life
+        instead of restarting it.
         """
         now = now if now is not None else time.time()
 
         async with self._lock:
-            def _get_sync() -> bytes | None:
+            def _get_sync() -> tuple[bytes, float] | None:
                 row = self._conn.execute(
                     "SELECT value, expires_at FROM tier1_cache WHERE key = ?",
                     (key,),
@@ -343,7 +365,7 @@ class Tier1Store:
                         "DELETE FROM tier1_cache WHERE key = ?", (key,)
                     )
                     return None
-                return bytes(value)
+                return bytes(value), float(expires_at)
 
             return await asyncio.to_thread(_get_sync)
 
@@ -394,7 +416,10 @@ class Tier1Store:
             return await asyncio.to_thread(_put_sync)
 
     async def load_all_unexpired(
-        self, *, now: float | None = None
+        self,
+        *,
+        now: float | None = None,
+        corpus_version: int | None = None,
     ) -> list[tuple[str, bytes, float]]:
         """Return ``[(key, value, expires_at), ...]`` for every
         unexpired row. Used at server startup to rehydrate the
@@ -404,16 +429,36 @@ class Tier1Store:
         not start with already-stale entries) but ALSO not deleted
         here — the next ``get(expired_key)`` will lazy-evict them.
         Bulk cleanup is :meth:`purge_expired`.
+
+        ``corpus_version`` (issue #338) restricts the result to rows
+        carrying that version. Rows from another version are unreachable
+        by hash construction — the key is salted with the version — so
+        rehydrating them fills a bounded mirror with entries that can
+        never be hit, evicting live ones. Passing ``None`` keeps the
+        load-everything behaviour for callers that genuinely want it
+        (ops inspection, tests).
+
+        This filter is only trustworthy because issue #337 made the
+        column honest: before that fix a notebook-routed row's column
+        and its key salt disagreed, so filtering on the column would
+        have dropped reachable rows.
         """
         now = now if now is not None else time.time()
 
         async with self._lock:
             def _load_sync() -> list[tuple[str, bytes, float]]:
-                rows = self._conn.execute(
-                    "SELECT key, value, expires_at FROM tier1_cache "
-                    "WHERE expires_at >= ?",
-                    (now,),
-                ).fetchall()
+                if corpus_version is None:
+                    rows = self._conn.execute(
+                        "SELECT key, value, expires_at FROM tier1_cache "
+                        "WHERE expires_at >= ?",
+                        (now,),
+                    ).fetchall()
+                else:
+                    rows = self._conn.execute(
+                        "SELECT key, value, expires_at FROM tier1_cache "
+                        "WHERE expires_at >= ? AND corpus_version = ?",
+                        (now, corpus_version),
+                    ).fetchall()
                 return [(k, bytes(v), e) for k, v, e in rows]
 
             return await asyncio.to_thread(_load_sync)
