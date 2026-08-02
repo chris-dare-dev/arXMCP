@@ -184,6 +184,38 @@ def is_valid_arxiv_paper_id(value: str) -> bool:
     return isinstance(value, str) and ARXIV_PAPER_ID_RE.match(value) is not None
 
 
+#: The ``source_kind`` a paper_id's *shape* implies. Mirrors the
+#: chunks-table enum (``ingest.store._ALLOWED_SOURCE_KINDS``) and
+#: ``server.handlers.search._VALID_SOURCE_KIND_FILTER_VALUES``.
+SOURCE_KIND_ARXIV: str = "arxiv"
+SOURCE_KIND_TEXTBOOK: str = "textbook"
+
+
+def paper_id_source_kind(value: str) -> str | None:
+    """Return the ``source_kind`` implied by ``value``'s shape, or ``None``
+    when ``value`` is not a well-formed paper_id at all.
+
+    Lets a consumer separate two questions that
+    :func:`is_valid_arxiv_paper_id` collapsed into one boolean — "is this
+    malformed?" and "is this a kind I serve?". Conflating them is
+    ``chris-dare-dev/arXMCP#209``: three handlers gated on the arXiv-only
+    validator and raised ``ValueError("does not match the arXiv id
+    format")`` at a ``textbook:`` id that ``search_papers`` had emitted
+    moments earlier, reporting a well-formed identifier as malformed
+    input. Under §4.9 those are different outcomes — ``invalid-input``
+    versus ``unsupported-by-provider`` — and must not share a token.
+
+    Shape only. A ``textbook:`` id whose slug was never ingested still
+    returns ``"textbook"``; whether any row exists is the caller's query
+    to make, not this function's.
+    """
+    if not is_valid_paper_id(value):
+        return None
+    if value.startswith("textbook:"):
+        return SOURCE_KIND_TEXTBOOK
+    return SOURCE_KIND_ARXIV
+
+
 def is_valid_chunk_id(value: str) -> bool:
     """Return True if ``value`` is a well-formed chunk_id."""
     return isinstance(value, str) and CHUNK_ID_RE.match(value) is not None

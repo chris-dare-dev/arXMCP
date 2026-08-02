@@ -38,8 +38,13 @@ from typing import Annotated, Any
 
 from pydantic import Field
 
-from ingest.identifiers import is_valid_arxiv_paper_id
 from server.observability.sanitize import sanitize_retrieved_text
+from server.source_kinds import (
+    ALL_SOURCE_KINDS,
+    UnsupportedSourceKind,
+    admit_paper_id,
+    unsupported_outcome,
+)
 from server.tools import (
     enforce_byte_cap,
     envelope,
@@ -65,6 +70,12 @@ PAGE_SIZE = 100
 MAX_TERM_LENGTH = 200
 
 
+#: Source kinds ``get_definitions`` serves (arXMCP#209). Both: the
+#: definitions index is derived from the chunks table without a
+#: source-kind filter, so textbook rows are present.
+SUPPORTED_SOURCE_KINDS: frozenset[str] = ALL_SOURCE_KINDS
+
+
 async def handle_get_definitions(
     paper_id: Annotated[str, Field(min_length=1, description="arXiv paper id")],
     term: Annotated[
@@ -86,11 +97,25 @@ async def handle_get_definitions(
     # predicate and otherwise echoed to logs; validating against the
     # canonical regex before any further work is the F3 discipline
     # from the E06_S03 critique.
-    if not is_valid_arxiv_paper_id(paper_id):
-        raise ValueError(
-            f"paper_id {paper_id!r} does not match the arXiv id "
-            f"format (new-style YYMM.NNNNN[vN] or old-style "
-            f"subject/NNNNNNN[vN])"
+    # arXMCP#209: admit the full identifier domain. The definitions index
+    # is built from the chunks table with no source-kind filter, so a
+    # textbook paper's macros are already in it — the arXiv-only gate here
+    # was refusing to look them up and calling the id malformed.
+    try:
+        admit_paper_id(paper_id, SUPPORTED_SOURCE_KINDS)
+    except UnsupportedSourceKind as exc:
+        return _cap(
+            envelope(
+                {
+                    "definitions": [],
+                    "index_status": "ok",
+                    "next_cursor": None,
+                    "paper_id": paper_id,
+                    "term": term,
+                    "total": 0,
+                    **unsupported_outcome(exc),
+                }
+            )
         )
 
     # E13_S04 F4 rectification (Threat 4): cap the ``term`` argument

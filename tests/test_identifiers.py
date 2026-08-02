@@ -395,12 +395,27 @@ class TestM1RectGatesRejectTextbook:
             "until m2 schema columns ship"
         )
 
-    def test_paper_handler_uses_arxiv_only_helper(self):
-        # server/handlers/paper.py:65 same contract.
+    def test_paper_handler_admits_the_union_since_209(self):
+        """SUPERSEDED by chris-dare-dev/arXMCP#209.
+
+        This asserted the inverse — that ``get_paper`` imports the
+        arXiv-only helper and NOT the union — which was the correct m1
+        contract while the m2 schema columns were still landing. Those
+        shipped, and the arXiv-only gate then became the defect: the
+        handler rejected ``textbook:`` ids that ``search_papers`` had
+        emitted moments earlier, reporting a well-formed identifier as
+        malformed input.
+
+        Kept rather than deleted, inverted, so the history of the
+        contract is legible at the point that pinned it. The live
+        coverage is ``tests/test_source_kind_admission.py``.
+        """
         import server.handlers.paper as ph
 
-        assert hasattr(ph, "is_valid_arxiv_paper_id")
-        assert not hasattr(ph, "is_valid_paper_id")
+        assert not hasattr(ph, "is_valid_arxiv_paper_id"), (
+            "get_paper must no longer gate on the arXiv-only validator"
+        )
+        assert hasattr(ph, "SUPPORTED_SOURCE_KINDS")
 
     def test_upload_sanitizer_neutralizes_colon(self):
         # m1 rect F1: even if a textbook paper_id slipped past the

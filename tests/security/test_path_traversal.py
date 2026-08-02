@@ -72,8 +72,17 @@ ADVERSARIAL_INPUTS = [
 #: five handlers. Tightened from the prior ``r"paper_id"`` /
 #: ``r"chunk_id"`` shape-only assertion that would silently pass
 #: for any downstream ValueError mentioning the identifier name.
+#: arXMCP#209 added the third alternative. The three follow-up handlers
+#: now admit the identifier UNION and report a malformed id as "is not a
+#: well-formed paper_id" rather than "does not match the arXiv id format"
+#: — the old wording called every ``textbook:`` id malformed, which was
+#: the bug. The rejection itself is unchanged: each of these adversarial
+#: inputs still raises ``ValueError`` before any query or path is built,
+#: which is what this file exists to pin.
 _PAPER_ID_REJECT_RE = (
-    r"paper_id .* does not match|does not match the arXiv"
+    r"paper_id .* does not match"
+    r"|does not match the arXiv"
+    r"|is not a well-formed paper_id"
 )
 _CHUNK_ID_REJECT_RE = (
     r"chunk_id .* does not match|does not match.*arxiv:"

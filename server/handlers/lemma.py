@@ -39,8 +39,13 @@ from typing import Annotated, Any
 
 from pydantic import Field
 
-from ingest.identifiers import is_valid_arxiv_paper_id
 from server.observability.sanitize import sanitize_retrieved_text
+from server.source_kinds import (
+    ALL_SOURCE_KINDS,
+    UnsupportedSourceKind,
+    admit_paper_id,
+    unsupported_outcome,
+)
 from server.theorem_names_store import (
     TheoremNamesStore,
     TheoremRow,
@@ -80,6 +85,12 @@ def _cap(payload: dict[str, Any]) -> dict[str, Any]:
     return structured
 
 
+#: Source kinds ``find_lemma_by_name`` serves (arXMCP#209). Both: the
+#: FTS5 index and the in-memory fallback both read the chunks table
+#: without a source-kind filter.
+SUPPORTED_SOURCE_KINDS: frozenset[str] = ALL_SOURCE_KINDS
+
+
 async def handle_find_lemma_by_name(
     name: Annotated[
         str, Field(min_length=1, max_length=200, description="Theorem/lemma name")
@@ -91,10 +102,21 @@ async def handle_find_lemma_by_name(
 ) -> dict[str, Any]:
     # F3 fix from the E06_S03 critique: validate the optional
     # paper_id arg before using it as a filter (same as v1).
-    if paper_id is not None and not is_valid_arxiv_paper_id(paper_id):
-        raise ValueError(
-            f"paper_id {paper_id!r} does not match the arXiv id format"
-        )
+    # arXMCP#209: admit the full identifier domain. The FTS5 theorem-names
+    # index is built from the chunks table with no source-kind filter, so a
+    # textbook's theorem names are already indexed; the arXiv-only gate was
+    # refusing to scope a search to them and calling the id malformed.
+    if paper_id is not None:
+        try:
+            admit_paper_id(paper_id, SUPPORTED_SOURCE_KINDS)
+        except UnsupportedSourceKind as exc:
+            return envelope(_cap(
+                {
+                    "matches": [],
+                    "retrieval_mode": "unsupported_source_kind",
+                    **unsupported_outcome(exc),
+                }
+            ))
 
     r = get_resources()
     store: TheoremNamesStore | None = getattr(r, "theorem_names_db", None)

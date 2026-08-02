@@ -41,8 +41,13 @@ from typing import Annotated, Any
 
 from pydantic import Field
 
-from ingest.identifiers import is_valid_arxiv_paper_id
 from server.observability.sanitize import sanitize_retrieved_text
+from server.source_kinds import (
+    ALL_SOURCE_KINDS,
+    UnsupportedSourceKind,
+    admit_paper_id,
+    unsupported_outcome,
+)
 from server.tools import (
     enforce_byte_cap,
     envelope,
@@ -106,6 +111,34 @@ def _cap(payload: dict[str, Any]) -> dict[str, Any]:
     return structured
 
 
+#: Source kinds ``get_paper`` serves (arXMCP#209). Both: the handler reads
+#: the chunks table through an escaped ``paper_id =`` predicate, which is
+#: kind-agnostic, and the ``textbook:`` slug grammar admits only
+#: ``[a-z0-9-]`` after the colon — no quote, dot or separator that could
+#: reach the predicate or a path.
+SUPPORTED_SOURCE_KINDS: frozenset[str] = ALL_SOURCE_KINDS
+
+
+def _unsupported_envelope(
+    paper_id: str, exc: UnsupportedSourceKind
+) -> dict[str, Any]:
+    """The abstention response: the normal shape, empty, plus why.
+
+    Keeping ``paper``/``chunk_count`` present plus a positive
+    ``outcome`` means an agent gets a parseable answer instead of a
+    tool error, and can tell this apart from "paper not in corpus".
+    """
+    return envelope(
+        {
+            "chunk_count": 0,
+            "metadata_status": "unavailable",
+            "paper": None,
+            "paper_id": paper_id,
+            **unsupported_outcome(exc),
+        }
+    )
+
+
 async def handle_get_paper(
     paper_id: Annotated[str, Field(min_length=1, description="arXiv paper id")],
 ) -> dict[str, Any]:
@@ -116,10 +149,16 @@ async def handle_get_paper(
     # already carries on ``paper_id``.
     # F3 fix from the E06_S03 critique: validate before using
     # paper_id in a SQL-style WHERE clause.
-    if not is_valid_arxiv_paper_id(paper_id):
-        raise ValueError(
-            f"paper_id {paper_id!r} does not match the arXiv id format"
-        )
+    # arXMCP#209: admit the full identifier domain that ``search_papers``
+    # emits. This gated on the arXiv-only validator and raised "does not
+    # match the arXiv id format" at a ``textbook:`` id the server had just
+    # handed the caller. The rows are in the same chunks table under the
+    # same ``paper_id`` column, reached by the same escaped predicate
+    # below, so there was never a data reason to refuse them.
+    try:
+        admit_paper_id(paper_id, SUPPORTED_SOURCE_KINDS)
+    except UnsupportedSourceKind as exc:
+        return _cap(_unsupported_envelope(paper_id, exc))
     r = get_resources()
 
     # Filter to rows matching paper_id. LanceDB doesn't expose a
