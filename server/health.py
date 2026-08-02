@@ -711,15 +711,55 @@ def refresh_metrics_from_singleton_state(resources: Resources) -> None:
 
     refresh_lean_repl_metrics(getattr(resources, "lean_repl", None))
 
+    # E14_S05: degraded-mode gauge. Surface the failure-mode
+    # fallback state to Prometheus + Phoenix so the ArXMCPDegradedMode
+    # alert fires when the server is running on a fallback corpus
+    # version (or any other future degraded reason).
+    refresh_degraded_mode_metric(resources)
+
+    # NOTE the filesystem-backed gauges are deliberately NOT refreshed
+    # here — see :func:`refresh_filesystem_metrics` and issue #208.
+
+
+def refresh_filesystem_metrics(resources: Resources) -> None:
+    """Refresh the gauges whose source of truth is the filesystem.
+
+    **Split out of :func:`refresh_metrics_from_singleton_state` by issue
+    #208.** Both halves used to run inside the ``/metrics`` ASGI wrapper,
+    which made a Prometheus scrape do blocking disk I/O on the event loop
+    AND — via the ``ingest-paused`` sentinel — made a read-only ``GET``
+    the control plane for the disk-full mitigation. Three consequences,
+    all closed by moving this half onto
+    :mod:`server.metrics_refresh`'s background task:
+
+    1. **Layering.** Pausing ingest is a control action. It now runs on
+       its own schedule rather than as a side effect of someone scraping.
+    2. **It was inert where it was documented as live.** The shipped
+       compose stack contains no Prometheus, so on a stock install
+       *nothing ever scraped* and the failure-mode-7 mitigation never
+       ran — while ``docs/ops/README.md`` and the ``ArXMCPDiskFull``
+       alert both presented it as active. A background task runs whether
+       or not anyone is scraping.
+    3. **It failed in exactly the condition it exists to report.** On a
+       read-only filesystem the sentinel write raised, taking down
+       ``/metrics`` *and* startup — precisely when an operator most needs
+       both. The write is now fail-soft (see
+       :func:`refresh_disk_free_metric`) and the caller is a task whose
+       tick can fail without touching request handling.
+
+    This function is **synchronous and blocking by design** — it is meant
+    to be run via ``asyncio.to_thread`` from the background task, never
+    called directly from a coroutine on the event loop.
+    """
+    config = getattr(resources, "config", None)
+
     # E14_S01: bridge cron-emitted sentinel files into Prometheus
     # gauges. Cron processes exit between runs so they can't keep a
     # gauge set in-process — the sentinel files ARE the cross-process
-    # signal channel. Reading them at scrape time is cheap (a few
-    # stat() + small JSON parses) and the failure mode is per-file
-    # graceful: a missing file zeroes that gauge; a malformed file
-    # logs a warning and leaves the prior value (operator gets a
-    # stale-but-known signal rather than a misleading zero).
-    config = getattr(resources, "config", None)
+    # signal channel. The failure mode is per-file graceful: a missing
+    # file zeroes that gauge; a malformed file logs a warning and leaves
+    # the prior value (operator gets a stale-but-known signal rather
+    # than a misleading zero).
     ops_dir = getattr(config, "ops_dir", None) if config is not None else None
     if ops_dir is not None:
         refresh_sentinel_metrics(Path(ops_dir))
@@ -732,12 +772,6 @@ def refresh_metrics_from_singleton_state(resources: Resources) -> None:
     data_dir = getattr(config, "data_dir", None) if config is not None else None
     if data_dir is not None:
         refresh_disk_free_metric(Path(data_dir))
-
-    # E14_S05: degraded-mode gauge. Surface the failure-mode
-    # fallback state to Prometheus + Phoenix so the ArXMCPDegradedMode
-    # alert fires when the server is running on a fallback corpus
-    # version (or any other future degraded reason).
-    refresh_degraded_mode_metric(resources)
 
 
 def refresh_sentinel_metrics(ops_dir: Path) -> None:
@@ -1185,26 +1219,56 @@ def refresh_disk_free_metric(data_dir: Path) -> None:
                 DISK_PAUSE_THRESHOLD_BYTES,
                 sentinel_path,
             )
-        ingest_sentinel.write_pause(
-            reason=DISK_PAUSE_REASON,
-            free_bytes=usage.free,
-            threshold_bytes=DISK_PAUSE_THRESHOLD_BYTES,
-            path=sentinel_path,
-        )
+        # Issue #208: fail SOFT. This mitigation exists to react to a sick
+        # filesystem, and a read-only mount is one of the ways a filesystem
+        # gets sick — so the write raising OSError (EROFS/ENOSPC/EACCES) is
+        # a foreseeable state, not an impossible one. It used to propagate
+        # out through the /metrics scrape hook and the startup path, taking
+        # both down at exactly the moment the operator needed them. The
+        # gauge above is already set, so the disk-full ALERT still fires;
+        # only the automatic pause is lost, and the WARNING says so.
+        try:
+            ingest_sentinel.write_pause(
+                reason=DISK_PAUSE_REASON,
+                free_bytes=usage.free,
+                threshold_bytes=DISK_PAUSE_THRESHOLD_BYTES,
+                path=sentinel_path,
+            )
+        except OSError as exc:
+            logger.warning(
+                "could not write ingest-paused sentinel at %s: %s; "
+                "arxmcp_disk_free_bytes is still current so ArXMCPDiskFull "
+                "will fire, but ingestion is NOT automatically paused — "
+                "pause it manually",
+                sentinel_path,
+                exc,
+            )
     elif usage.free > DISK_CLEAR_THRESHOLD_BYTES and sentinel_path.is_file():
         # Only auto-clear sentinels we wrote (reason=disk_low). An
         # operator-written maintenance sentinel must survive auto-
         # recovery — the operator clears it manually.
-        record = ingest_sentinel.is_paused(path=sentinel_path)
-        if record is not None and record.get("reason") == DISK_PAUSE_REASON:
-            logger.info(
-                "disk_free recovered (%d > %d bytes); clearing "
-                "ingest-paused sentinel at %s",
-                usage.free,
-                DISK_CLEAR_THRESHOLD_BYTES,
+        try:
+            record = ingest_sentinel.is_paused(path=sentinel_path)
+            if record is not None and record.get("reason") == DISK_PAUSE_REASON:
+                logger.info(
+                    "disk_free recovered (%d > %d bytes); clearing "
+                    "ingest-paused sentinel at %s",
+                    usage.free,
+                    DISK_CLEAR_THRESHOLD_BYTES,
+                    sentinel_path,
+                )
+                ingest_sentinel.clear_pause(path=sentinel_path)
+        except OSError as exc:
+            # Same fail-soft rule as the write path (#208). Leaving a stale
+            # pause sentinel in place is the safe direction: ingestion stays
+            # paused until an operator looks, which is what they would want
+            # on a filesystem that cannot service an unlink.
+            logger.warning(
+                "could not clear ingest-paused sentinel at %s: %s; "
+                "ingestion stays paused until cleared manually",
                 sentinel_path,
+                exc,
             )
-            ingest_sentinel.clear_pause(path=sentinel_path)
 
 
 def refresh_degraded_mode_metric(resources: Resources) -> None:

@@ -501,6 +501,30 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if not getattr(resources, "bootstrap_mode_active", False):
         refresh_metrics_from_singleton_state(resources)
 
+    # Issue #208: the FILESYSTEM-backed gauges (cron sentinels + disk-free,
+    # which also drives the failure-mode-7 ingest pause) refresh on their own
+    # background schedule, NOT on the /metrics scrape path and NOT here.
+    #
+    # Deliberately not called synchronously at startup: this half writes the
+    # ingest-paused sentinel, and on a read-only var/ tree that write used to
+    # abort startup outright — the server refusing to boot in exactly the
+    # condition its disk gauge exists to report. The refresher runs its first
+    # tick immediately after the loop is up, where a failure is a logged
+    # warning instead of a dead process.
+    metrics_refresh_task = None
+    refresh_interval = getattr(
+        config, "metrics_refresh_interval_seconds", 0.0
+    )
+    if refresh_interval > 0 and not getattr(
+        resources, "bootstrap_mode_active", False
+    ):
+        from server.metrics_refresh import start_metrics_refresh_task
+
+        metrics_refresh_task = start_metrics_refresh_task(
+            resources, refresh_interval
+        )
+    app.state.metrics_refresh_task = metrics_refresh_task
+
     # E06_S03: tool handlers reach the live Resources via a
     # module-level reference set here. Synthesis D8 — handlers
     # raise ResourcesNotReadyError if invoked before this fires.
@@ -607,6 +631,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         else:
             yield
     finally:
+        # Issue #208: stop the filesystem-metrics refresher first. It only
+        # touches Prometheus gauges and the ops/ sentinel, so nothing below
+        # depends on it — cancelling early keeps it from racing the stores
+        # it reads through their own teardown.
+        from server.metrics_refresh import stop_metrics_refresh_task
+
+        await stop_metrics_refresh_task(
+            getattr(app.state, "metrics_refresh_task", None)
+        )
         # m9: cancel any in-flight ingest tasks first (best-effort;
         # subprocesses continue running until reaped, but the
         # async wrapper is torn down cleanly). Done BEFORE

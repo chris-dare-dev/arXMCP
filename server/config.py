@@ -39,6 +39,7 @@ from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from server.corpus_freshness import DEFAULT_FRESHNESS_INTERVAL_SECONDS
+from server.metrics_refresh import DEFAULT_REFRESH_INTERVAL_SECONDS
 
 # ---------------------------------------------------------------------------
 # Module-level constants
@@ -380,6 +381,26 @@ class Config(BaseSettings):
     #: Set via ``ARXMCP_CORPUS_FRESHNESS_INTERVAL_SECONDS``.
     corpus_freshness_interval_seconds: float = (
         DEFAULT_FRESHNESS_INTERVAL_SECONDS
+    )
+
+    #: Seconds between background refreshes of the FILESYSTEM-backed
+    #: Prometheus gauges — the cron sentinels and the disk-free reading
+    #: that drives the failure-mode-7 ingest pause (issue #208).
+    #:
+    #: This work used to run inside the ``/metrics`` scrape handler, which
+    #: put blocking disk I/O on the event loop and made a read-only ``GET``
+    #: the control plane for pausing ingestion — and meant that on a stock
+    #: install, where the compose stack ships no Prometheus, the mitigation
+    #: never ran at all. It now runs on this schedule regardless of whether
+    #: anything scrapes.
+    #:
+    #: ``> 0`` sets the interval. ``<= 0`` DISABLES the background task —
+    #: the gauges then keep their startup values and failure-mode 7 is not
+    #: mitigated automatically, so only set that in tests or when an
+    #: external supervisor owns the pause decision.
+    #: Set via ``ARXMCP_METRICS_REFRESH_INTERVAL_SECONDS``.
+    metrics_refresh_interval_seconds: float = (
+        DEFAULT_REFRESH_INTERVAL_SECONDS
     )
 
     #: Root directory for runtime state — corpus, indices, caches,
