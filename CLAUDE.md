@@ -78,13 +78,20 @@ Target arXiv categories: `math.AG`, `math.NT`, `math-ph`, `hep-th`.
 | E13 — Security audit | ✅ SHIPPED | 10 milestones (Threats 1–7 + logging redaction + bind regression + cumulative coverage doc); 6 follow-up issues filed at `chris-dare-dev/arXMCP#1`–`#6` |
 | E14 — Observability/ops | ✅ SHIPPED (S01–S05) | `/metrics` endpoint, OTel tracing, Phoenix integration, daily ops cadence + parser-failures roll-up, restic backup + restore drill. S06 + S09–S12 (Tier-5/6+ follow-ups) remain unstarted |
 
-**Test count (Windows 11, 2026-08-01):** 4418 passing, 103 skipped, 1 xfailed,
-**0 failing**; `pytest` exit 0, `ruff check .` clean. Measured at the pushed
-commit `55b1a14`, but — unlike the 2026-07-14 entry below — **in this box's
-working tree, not a pristine `git worktree` checkout.** The 10 tracked files
-dirty at the time were all Markdown under `docs/` and `plans/`; nothing on the
-test/lint path. `main` has moved on since (three commits), so re-measure
-rather than quoting this.
+**Test count (Windows 11, 2026-08-01):** 4447 passing, 103 skipped, 1 xfailed,
+**0 failing** in 9m28s; `pytest` exit 0, `ruff check .` clean. Measured at the
+pushed commit `6cfafa8`, which was `origin/main` at the time. As with the
+`55b1a14` measurement it replaces — and unlike the 2026-07-14 entry below —
+this ran in **this box's working tree, not a pristine `git worktree`
+checkout**, but every tracked file dirty at the time was Markdown, so the
+code and test paths matched the tip exactly.
+
+`make` is **not on PATH on this box**, so the run was the `test` target's
+three steps executed verbatim: the Python ≥3.11 gate, `ruff check .`, then
+`pytest` — all through `./.venv/Scripts/python.exe`, because the Makefile's
+`PYTHON ?= python3` does not resolve here either. Any agent quoting this
+number should reproduce it the same way rather than assuming `make test`
+runs.
 
 The skip count rose from 92 to 103 with no tests lost: issue #206 made the
 `requires_*` opt-in markers actually deselect (§4.5), so tests that used to
@@ -93,7 +100,18 @@ run on every `make test` now skip unless `-m` names them.
 > **Concurrency note (2026-08-01):** this box regularly has two or three
 > agent sessions committing to `main` at once, so a suite run and the tree it
 > ran against diverge within minutes. Record the commit you measured at, as
-> above. One failure seen during this run —
+> above. Two concrete ways that bites, both observed on 2026-08-01:
+>
+> - A commit can land *between* your last `git log` check and your own
+>   commit, making it your parent and putting it inside a push you then
+>   describe as covered by your green run. It was not. Re-measure at the tip
+>   after pushing, which is what the `6cfafa8` number above is.
+> - A source file edited mid-run makes `inspect.getsource` and `linecache`
+>   return stale text, so tests that read source (the `enforce_byte_cap`
+>   import check, the unsafe-bind log guard) fail against a snapshot that no
+>   longer exists. Re-run the named test in isolation before believing it.
+>
+> One failure seen during the earlier `55b1a14` run —
 > `test_daily_metrics_report.py::TestRegenFixture` — was **not** a code
 > failure: the test shelled out to `uv run`, which re-syncs the venv and
 > cannot replace `.venv/Scripts/arxmcp-shim.exe` while a shim process holds
