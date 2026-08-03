@@ -939,3 +939,167 @@ class TestIngestCallbackWiring:
             _run(callback("freshly-ingested-notebook"))
 
         assert calls == [(lancedb_path, "freshly-ingested-notebook")]
+
+
+
+# ===========================================================================
+# The seam INVOKES the invalidation — issue #381
+# ===========================================================================
+
+
+def _bare_resources(tmp_path, cache):
+    """A ``Resources`` with only what the invalidation seam touches.
+
+    ``Resources.startup`` needs a real corpus; the seam does not. The
+    docstring on the class permits direct construction in tests, and the
+    six required fields are filled with inert values so the test exercises
+    the seam rather than the startup path.
+    """
+    import asyncio as _asyncio
+
+    from server.resources import Resources, Singleflight
+
+    return Resources(
+        config=Config(
+            lancedb_path=tmp_path / "lancedb",
+            cache_db_path=tmp_path / "cache" / "retrieval.db",
+        ),
+        corpus_info=None,
+        chunks_table=None,
+        embed_semaphore=_asyncio.Semaphore(1),
+        rerank_semaphore=_asyncio.Semaphore(1),
+        rerank_singleflight=Singleflight(),
+        cache=cache,
+    )
+
+
+class TestInvalidationSeamIsWired:
+    """``TestPurgeIsWired`` and
+    ``test_invalidate_corpus_version_clears_tier2_and_tier3`` between them
+    prove the purge is requested and the method works. Neither proves the
+    freshness seam actually CALLS it.
+
+    That gap is issue #381. Both call sites used to reach the method as
+    ``getattr(cache, <name>, None)`` and skip a ``None``, so a rename, a
+    typo or a deletion turned corpus invalidation into a no-op with no
+    exception and no log line — while the direct-call test above stayed
+    green, because it names the method itself. The 2026-08-02 rename
+    survived on care, not on a mechanism.
+
+    These exercise the seam and assert invocation, covering the wiring
+    rather than the method.
+    """
+
+    def test_dropping_a_binding_invalidates_the_cache(self, tmp_path) -> None:
+        calls: list[str] = []
+
+        class _SpyCache:
+            async def invalidate_corpus_version(self) -> int:
+                calls.append("invalidate")
+                return 0
+
+        async def go():
+            resources = _bare_resources(tmp_path, _SpyCache())
+            # Seed a memoized binding: the seam only invalidates when it
+            # actually drops something.
+            resources._notebook_tables["nb"] = (object(), object())
+            return await resources.invalidate_notebook_table("nb")
+
+        dropped = _run(go())
+        assert dropped is True
+        assert calls == ["invalidate"], (
+            "dropping a memoized notebook binding did not invalidate the "
+            "semantic cache tiers, so a stale Tier-3 rerank memo survives "
+            "the re-ingest (issues #207 / #338)"
+        )
+
+    def test_no_drop_means_no_invalidation(self, tmp_path) -> None:
+        """The converse, so the test above cannot pass by invalidating
+        unconditionally: nothing memoized means nothing to invalidate."""
+        calls: list[str] = []
+
+        class _SpyCache:
+            async def invalidate_corpus_version(self) -> int:
+                calls.append("invalidate")
+                return 0
+
+        async def go():
+            resources = _bare_resources(tmp_path, _SpyCache())
+            return await resources.invalidate_notebook_table("never-memoized")
+
+        dropped = _run(go())
+        assert dropped is False
+        assert calls == []
+
+    def test_a_missing_method_is_loud_not_skipped(self, tmp_path, caplog) -> None:
+        """The #381 regression guard proper.
+
+        A cache object without the method stands in for a future rename
+        that misses these call sites. The seam must NOT silently skip it.
+        It stays non-fatal — caching is performance, not correctness
+        (``.claude/notes/07-multi-agent-caching.md``) — but it must leave
+        a logged traceback rather than nothing at all.
+        """
+        import logging
+
+        class _CacheMissingTheMethod:
+            """What a renamed-away method looks like from the seam."""
+
+        async def go():
+            resources = _bare_resources(tmp_path, _CacheMissingTheMethod())
+            resources._notebook_tables["nb"] = (object(), object())
+            return await resources.invalidate_notebook_table("nb")
+
+        with caplog.at_level(logging.ERROR):
+            dropped = _run(go())
+
+        # Non-fatal: the drop itself still succeeded.
+        assert dropped is True
+        # But LOUD: pre-#381 this produced no record whatsoever.
+        assert any(
+            r.levelno >= logging.ERROR and r.exc_info for r in caplog.records
+        ), (
+            "a cache missing invalidate_corpus_version produced no error "
+            "record; the seam swallowed a programming error, which is "
+            "exactly the #381 defect"
+        )
+
+    def test_no_cache_is_not_an_error(self, tmp_path, caplog) -> None:
+        """``cache is None`` is a REAL runtime state (pre-startup, or a
+        cache that failed to open), not a bug. It must stay silent — the
+        #381 fix must not convert it into noise."""
+        import logging
+
+        async def go():
+            resources = _bare_resources(tmp_path, None)
+            resources._notebook_tables["nb"] = (object(), object())
+            return await resources.invalidate_notebook_table("nb")
+
+        with caplog.at_level(logging.ERROR):
+            dropped = _run(go())
+
+        assert dropped is True
+        assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
+
+    def test_neither_call_site_uses_a_defaulting_getattr(self) -> None:
+        """Structural guard. The defect was a code SHAPE, so pin the
+        shape: no ``getattr`` on the cache with a default anywhere in
+        resources.py. Comments are stripped first — the fix's own comment
+        quotes the banned form to explain it, and matching that would be
+        the guard failing on its own documentation."""
+        import inspect
+        import re
+
+        import server.resources as resources_mod
+
+        code = "\n".join(
+            line for line in inspect.getsource(resources_mod).splitlines()
+            if not line.lstrip().startswith("#")
+        )
+        offenders = re.findall(r"getattr\(\s*cache\s*,[^)]*\)", code)
+        assert not offenders, (
+            f"resources.py reaches the cache through a defaulting getattr "
+            f"{offenders!r}. Issue #381: that form turns a renamed or "
+            f"missing method into a silently skipped branch. Call it "
+            f"directly and let the surrounding try/except log the failure."
+        )

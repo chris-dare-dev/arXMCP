@@ -853,11 +853,25 @@ class RetrievalCache:
                 reason="non_serializable",
             ).inc()
             return
+        # ONE clock reading for both writes. #338 made the SQLite
+        # fall-through re-cache under the row's own expiry; this closes
+        # the same gap at the other end. Previously ``put`` derived
+        # ``expires_at`` from its own ``time.time()`` and the mirror
+        # update below took a SECOND reading, so the two disagreed by
+        # however long the SQLite write took — the mirror was already
+        # not-quite-mirroring the row it was created alongside. Small
+        # (milliseconds, and invisible on Windows' ~15.6 ms clock
+        # granularity, which is why it went unnoticed) but it is the
+        # same defect class, and an equality invariant that holds only
+        # to within a scheduling delay is not an invariant.
+        now = time.time()
+        expires_at = now + TIER1_TTL_SECONDS
         evicted = await self._tier1_store.put(
             key,
             blob,
             ttl_seconds=TIER1_TTL_SECONDS,
             corpus_version=corpus_version,
+            now=now,
         )
         if evicted:
             self._safe_inc(CACHE_EVICTIONS_COUNTER, TIER_1, evicted)
@@ -866,7 +880,6 @@ class RetrievalCache:
         # never holds an entry the durable store does not have).
         # F2 fix: store ``(payload, expires_at)`` rather than the bare
         # payload so the mirror enforces TTL on read.
-        expires_at = time.time() + TIER1_TTL_SECONDS
         async with self._tier1_lock:
             self._tier1_mirror[key] = (payload, expires_at)
             self._tier1_mirror.move_to_end(key)

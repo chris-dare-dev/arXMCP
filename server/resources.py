@@ -1451,10 +1451,18 @@ class Resources:
                 slug,
             )
             cache = self.cache
-            invalidate = getattr(cache, "invalidate_corpus_version", None)
-            if invalidate is not None:
+            if cache is not None:
                 try:
-                    await invalidate()
+                    # Issue #381: called DIRECTLY, not through
+                    # ``getattr(cache, name, None)``. That form swallowed
+                    # a renamed or missing method into a skipped branch —
+                    # no exception, no log, invalidation silently stopped.
+                    # A direct call raises instead, and the handler below
+                    # turns it into a logged traceback. ``cache is None``
+                    # is the only real absence case (pre-startup, or a
+                    # cache that failed to open); a missing METHOD is a
+                    # bug and must look like one.
+                    await cache.invalidate_corpus_version()
                 except Exception:  # noqa: BLE001 — cache is not correctness
                     logger.exception(
                         "corpus-freshness: clearing the semantic cache tiers "
@@ -1565,10 +1573,12 @@ class Resources:
             # window this probe just opened.
             gate.reset()
             cache = self.cache
-            invalidate = getattr(cache, "invalidate_corpus_version", None)
-            if invalidate is not None:
+            if cache is not None:
+                # Issue #381 — see the sibling call site in
+                # ``drop_notebook_binding`` for why this is a direct
+                # call rather than a defaulting ``getattr``.
                 try:
-                    await invalidate()
+                    await cache.invalidate_corpus_version()
                 except Exception:  # noqa: BLE001 — cache is not correctness
                     logger.exception(
                         "corpus-freshness: clearing the semantic cache tiers "

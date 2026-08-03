@@ -92,6 +92,63 @@ class TestMirrorInheritsRowExpiry:
 
         _run(go())
 
+    def test_the_mirror_and_the_row_agree_at_write_time(
+        self, tmp_path, monkeypatch,
+    ):
+        """The invariant the loop test below depends on, pinned directly.
+
+        ``_tier1_put`` writes SQLite and the mirror. If it reads the
+        clock twice, the two expiries differ by however long the write
+        took — the mirror is not-quite-mirroring the row it was created
+        alongside.
+
+        **Driven by an injected clock, deliberately.** The real
+        ``time.time()`` cannot express this test on Windows: its ~15.6 ms
+        granularity makes two consecutive readings usually identical, so
+        a wall-clock version passes against the broken code and fails
+        only when the two readings straddle a tick. That is precisely how
+        the bug hid, and a test with the same blind spot would be
+        decoration. A clock that advances 1 ms per call makes a second
+        reading observable, so the assertion below is decided by the
+        code's structure rather than by scheduling luck.
+
+        Both ``server.cache`` and ``server.cache_sqlite`` do ``import
+        time`` and call ``time.time()``, so patching the module
+        attribute covers the pair.
+        """
+        import time as _time
+
+        ticks = iter(range(10_000))
+        base = 1_800_000_000.0
+        monkeypatch.setattr(
+            _time, "time", lambda: base + next(ticks) / 1000.0,
+        )
+
+        async def go():
+            cache = await RetrievalCache.open(tmp_path / "x.db", corpus_version=SHARED)
+            try:
+                await cache.store_search(
+                    query="q", filters=None, k=10, payload={"results": []},
+                    level="theorem",
+                )
+                key = next(iter(cache._tier1_mirror))
+                _payload, mirror_expiry = cache._tier1_mirror[key]
+
+                row = await cache._tier1_store.get_with_expiry(key)
+                assert row is not None
+                _blob, row_expiry = row
+
+                assert mirror_expiry == row_expiry, (
+                    f"mirror expiry {mirror_expiry!r} != row expiry "
+                    f"{row_expiry!r}; _tier1_put read the clock twice, so "
+                    f"the mirror does not mirror the row it was written "
+                    f"beside"
+                )
+            finally:
+                await cache.close()
+
+        _run(go())
+
     def test_repeated_mirror_misses_cannot_renew_indefinitely(self, tmp_path):
         """The compounding half. Ten fall-through reads must not push the
         expiry out ten times — pre-#338 each one restarted the clock."""
