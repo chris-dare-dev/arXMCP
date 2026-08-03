@@ -85,9 +85,25 @@ validator passes.
    phase, dispatch the next agent, or report success with a failing validator.
 2. **IDs are write-once (Regeneration protocol).** When revising an existing
    roadmap.yaml: read the current file first; carry EVERY existing id
-   forward; never renumber; new items get new (next-free) ids; a dropped
-   item keeps its entry with `status: dropped` AND its id is appended to
-   top-level `retired:`. Never delete an id that has existed.
+   forward; never renumber; new items get new (next-free) ids. Never delete
+   an id that has existed.
+
+   **Dropping an item — the two forms are mutually exclusive.**
+   `roadmap-validate.py` enforces *"retired ids are absent from items; no id
+   both places"*, so an id may appear in `items:` or in `retired:`, never in
+   both:
+   - **Retain (default).** Keep the entry in `items:` and set
+     `status: dropped`. Leave `retired:` alone. The id is reserved by its own
+     continued presence, and the item's `summary`/`acceptance` survive — so
+     prefer this whenever the reasoning is worth keeping. Record *why* it was
+     dropped in the `summary`; the item schema is `additionalProperties:
+     false`, so there is no separate reason field.
+   - **Delete.** Remove the entry from `items:` entirely and append its id to
+     `retired:`. Use only when the item should leave the plan outright;
+     `retired:` exists purely to stop a deleted id being reused.
+
+   Doing both fails the validator with
+   `<id>: listed in retired but still present in items`.
 3. **One writer — no execution progress in roadmap.yaml.** The file holds
    plan structure only. Execution progress (started / done / blocked during
    implementation) is journal appends to `plans/<slug>/progress/agent.jsonl`,
@@ -254,7 +270,7 @@ the validator and fix the reported errors first.
 | "Schema first, then API, then UI." | Horizontal slicing destroys the feedback loop. Vertical slices — every epic ships an observable change. |
 | "Milestones are just deadlines on epics." | Epics are bodies of work; milestones are checkpoint outcomes with acceptance. The schema keeps them separate kinds. |
 | "Acceptance criteria can come later." | Now-lane items without Given/When/Then fail validation. "Done" must be gradeable before work starts. |
-| "These old ids are messy — renumber them." | IDs are write-once. Renumbering severs journals, issues, and pipeline state pointing at them. Tombstone via `retired:`; never reuse. |
+| "These old ids are messy — renumber them." | IDs are write-once. Renumbering severs journals, issues, and pipeline state pointing at them. Tombstone with `status: dropped` (or, if deleting the entry, `retired:`) — never reuse. |
 | "Score MoSCoW/RICE in-context — skip the scripts." | The scripts are deterministic gates. In-context scoring inflates and silently skips the caps and defaults. |
 | "Create the GitHub issues while I'm at it." | Phase agents never run `gh`. Materialization is the orchestrator running `roadmap-to-github.py` — dry-run review, `--apply` only on an explicit per-run `[y]`. |
 | "Auto-invoke /milestone-pipeline — the user obviously wants it." | Offer and wait. Implicit auto-handoff hides the cost of execution. |

@@ -151,5 +151,7 @@ And on each scored epic:
   evidence citation.
 - **later lane gets no task decomposition.**
 - **Every `must` assumption: spike or evidence.** Neither is malpractice.
-- **IDs write-once** — regeneration carries all ids; drops tombstone to
-  `retired:`.
+- **IDs write-once** — regeneration carries all ids. A drop is EITHER a
+  retained entry with `status: dropped` (preferred) OR a removal plus the id
+  appended to `retired:`; never both (the validator enforces "retired ids are
+  absent from items; no id both places").

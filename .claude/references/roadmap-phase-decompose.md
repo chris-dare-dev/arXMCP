@@ -103,8 +103,10 @@ epics). No milestones/tasks/spikes in Phase 2 — that is SEQUENCE's job.
 ## Hard rules
 
 - **IDs `<slug>-eN`, write-once.** Regeneration carries every existing id;
-  new epics take the next free N; drops become `status: dropped` +
-  `retired:` entry. Never renumber.
+  new epics take the next free N. Never renumber. A drop is EITHER a retained
+  entry with `status: dropped` (preferred) OR a removal plus the id appended
+  to `retired:` — never both, since the validator enforces "retired ids are
+  absent from items; no id both places".
 - **No milestone/task decomposition in Phase 2.**
 - **`depends_on` targets must exist** — the validator rejects dangling refs.
 - **Respect the wont list** — an epic that implements a wont item is a scope

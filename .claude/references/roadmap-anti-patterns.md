@@ -30,7 +30,7 @@ The orchestrator may catch itself rehearsing one of these. When it does, stop.
 | "The decomposition is obvious — skip DECOMPOSE." | DECOMPOSE picks the *technique* and tags epics value-vs-enabler. Skipping means the implementer guesses. Run it. |
 | "Most items are genuinely must — the cap is wrong here." | Almost never true. A brief implying > 60% must is undersliced or overcommitted. Force-rank or split. |
 | "I'll write a prose roadmap doc — YAML is unfriendly." | The YAML IS the artifact; the vault compiler renders the prose views. A hand doc bypasses the schema, the validator, and the pipeline handoff. |
-| "These ids are ugly — renumber for cleanliness." | IDs are write-once. Journals, issues, and pipeline state point at them. Tombstone drops to `retired:`; never renumber, never reuse. |
+| "These ids are ugly — renumber for cleanliness." | IDs are write-once. Journals, issues, and pipeline state point at them. Tombstone a drop with `status: dropped` (or, if the entry is deleted outright, `retired:` — never both, the validator rejects it); never renumber, never reuse. |
 | "I'll just run `gh` myself and create the issues — saves a step." | Phase agents never invoke `gh`. Materialization is the orchestrator running `roadmap-to-github.py` — dry-run review, `--apply` only on an explicit per-run `[y]`. |
 | "Skip the spike — I'm confident in the assumption." | Confidence without evidence defaults to 0.5 (RICE low tier). A spike ≤ 3 days converts confidence to evidence. Cheap insurance against rework. |
 | "Auto-invoke the milestone pipeline at MATERIALIZE end — saves the user a step." | Auto-invoke removes the user gate and costs a fresh prompt prefix. Offer; do not invoke. |

@@ -31,8 +31,10 @@ Read `{ROADMAP_PATH}` end-to-end. The `goal:` block is your constraint set:
 every epic must serve `objective`; `wont` is the scope fence; `must`-tier
 assumptions foreshadow the spikes Phase 3 will add. If `items:` already
 contains epics this is a regeneration: carry every existing id forward,
-never renumber, give new epics the next free `eN`, and tombstone drops
-(`status: dropped` + id appended to `retired:`).
+never renumber, give new epics the next free `eN`, and tombstone drops —
+EITHER keep the entry with `status: dropped` (preferred; leave `retired:`
+alone) OR remove it from `items:` and append the id to `retired:`. Never
+both: the validator enforces "retired ids are absent from items".
 
 ### Step 3 — Select the technique
 

@@ -31,7 +31,10 @@ below 3 days.
 Read `{ROADMAP_PATH}` end-to-end: epics with priorities/sizes/deps, and the
 `goal.assumptions` list (every unvalidated `must`-tier assumption needs a
 spike). Regeneration rules apply: carry every id forward, never renumber,
-new items get new ids, drops become `status: dropped` + `retired:` entry.
+new items get new ids. A drop is EITHER a retained entry with
+`status: dropped` (preferred — keeps its acceptance criteria readable) OR a
+removal from `items:` plus the id appended to `retired:`. Never both — the
+validator enforces "retired ids are absent from items; no id both places".
 
 ### Step 3 — MoSCoW cap (script-enforced)
 
