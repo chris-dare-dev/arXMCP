@@ -8,14 +8,46 @@
      when prefers-color-scheme: dark fires. Without this declaration the
      UA defaults stay light-mode even when the page tokens flip. */
   color-scheme: light dark;
-  --fg: #1a1a1a;
-  --bg: #f8f8f8;
-  --card-bg: #fff;
-  --border: #d8d8d8;
-  --accent: #1e5b8a;
-  --danger: #a3271a;
-  --error-bg: #fff4f2;
+  /* ui-uplift-m6: ONE OKLCH material family. Every colour token in this
+     file is oklch(L% C H) on one of two deliberate hues — brand 250deg
+     (neutrals + accent) and danger 28deg (danger + its error surface) —
+     built by the SAME construction in both modes. That replaces the old
+     stitch of hand-picked achromatic light greys (C=0.0000) against a
+     self-labelled GitHub-Primer dark clone (C=0.014-0.020, H=256-258);
+     no value here is a Primer literal.
+     Lightness is never eyeballed. Every contrast-bearing token is the
+     binary-search solution for a TARGET WCAG RATIO against a named
+     ground — OKLCH L is perceptually uniform, WCAG contrast is sRGB
+     relative luminance, and equal L steps do NOT give equal ratios.
+     The surfaces (--bg/--card-bg/--error-bg) are the chosen anchors;
+     everything else is solved against them. Chroma stays low at the
+     lightness extremes because the sRGB gamut allows almost none there
+     (max C at L=99% on hue 250 is 0.0049).
+     All 67 rendered pairs, their targets and their measured ratios:
+     .claude/docs/ui-contrast-table.md — regenerated, not hand-typed, by
+     tests/test_ui_contrast.py (which is also the AA gate).
+     light-dark() is deliberately NOT used: Baseline Newly Available,
+     not Widely, and inside a custom property an unsupporting engine
+     fails at SUBSTITUTION — background-color does not inherit, so its
+     initial value (transparent) is what would render. */
+  --fg: oklch(22.842% 0.014 250);      /* solved: 16.0:1 on --bg */
+  --bg: oklch(98% 0.004 250);          /* anchor: page canvas */
+  --card-bg: oklch(99% 0.004 250);     /* anchor: raised card surface */
+  --border: oklch(62.984% 0.018 250);  /* solved: 3.30:1 on --bg (SC 1.4.11) */
+  --accent: oklch(47.863% 0.115 250);  /* solved: 6.20:1 on --bg */
+  --danger: oklch(52.018% 0.165 28);   /* solved: 5.30:1 on --error-bg */
+  --error-bg: oklch(96% 0.015 28);     /* anchor: error surface */
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  /* ui-uplift-m6: duration tokens NAME the three values already in this
+     file (200/400/600ms). The motion canon's 100/200/300 scale was NOT
+     adopted — no acceptance criterion authorises a visible re-timing,
+     and it would run the spinner 2x faster. Duration is not
+     colour-scheme dependent, so these are declared here only.
+     --dur-fast MUST stay 200ms: index.html's hx-swap="outerHTML
+     swap:200ms" modifier is numerically coupled to row-fade-out below. */
+  --dur-fast: 200ms;
+  --dur-normal: 400ms;
+  --dur-slow: 600ms;
 }
 
 * { box-sizing: border-box; }
@@ -189,7 +221,13 @@ pre.error:empty { display: none; }
    already pass (warn 5.39, ops-warn 6.74, down 6.80) and are unchanged. */
 .status-badge--ok       { background: #e6f4ea; color: #15682d; border-color: #15682d; }
 .status-badge--warn     { background: #fdf3e2; color: #8a5a00; border-color: #8a5a00; }
-.status-badge--ops-warn { background: #eef2f7; color: #475569; border-color: #94a3b8; }
+/* ui-uplift-m6: ops-warn's border was #94a3b8 = 2.41:1 on --bg, the ONLY
+   pair the full 67-pair sweep found below its floor (SC 1.4.11, 3:1). It
+   was already failing before this milestone (2.414:1 on the old --bg), and
+   it was the light-mode odd-one-out: the other three pills already set
+   border-color == color, which m5 had standardised in dark mode only.
+   Aligning it costs no line and lands at 6.36:1. */
+.status-badge--ops-warn { background: #eef2f7; color: #475569; border-color: #475569; }
 .status-badge--down     { background: var(--error-bg); color: var(--danger); border-color: var(--danger); }
 
 /* ui-attractive-polish-m1 (UPL-4): skip-to-main-content link. WebAIM G1
@@ -265,24 +303,36 @@ button.danger:focus-visible { outline-color: var(--danger); outline-offset: 3px;
    light bg + dark text, but contrast-jarring against the dark card).
    Acceptable for v0; v1 will remap them. */
 @media (prefers-color-scheme: dark) {
+  /* ui-uplift-m6: the SAME two hues and the SAME solve-for-a-target
+     method as the base :root — only the surface anchors are re-chosen
+     (dark canvas + a raised card 5pp lighter). Nothing here is lifted
+     from Primer any more; the old block was a labelled Primer clone. */
   :root {
-    --fg: #e8e8e8;        /* ~14:1 on --bg, ~12:1 on --card-bg */
-    --bg: #0d1117;        /* Primer canvas.default */
-    --card-bg: #161b22;   /* Primer canvas.subtle */
-    --border: #6e7681;    /* synthesis §2 C1: Primer canonical #30363d
-                             fails SC 1.4.11 (1.55:1); #6e7681 passes
-                             with margin (4.12:1). One stop lighter on
-                             the Primer grey scale. */
-    --accent: #58a6ff;    /* Primer accent.fg */
-    --danger: #f85149;    /* Primer danger.fg */
-    --error-bg: #2a1a18;  /* dark analogue of light #fff4f2 */
-    /* --mono unchanged */
+    --fg: oklch(89.089% 0.008 250);      /* solved: 14.0:1 on --bg */
+    --bg: oklch(16% 0.014 250);          /* anchor: page canvas */
+    --card-bg: oklch(21% 0.016 250);     /* anchor: raised card surface */
+    --border: oklch(52.923% 0.02 250);   /* solved: 3.35:1 on --card-bg,
+                                            the LIGHTER of its two grounds
+                                            and therefore the binding one
+                                            (3.67:1 on --bg) — SC 1.4.11 */
+    --accent: oklch(69.761% 0.13 250);   /* solved: 6.60:1 on --card-bg,
+                                            again the binding ground: in
+                                            dark mode --card-bg is LIGHTER
+                                            than --bg, so the focus ring is
+                                            tighter there, not on --bg */
+    --danger: oklch(69.137% 0.17 28);    /* solved: 5.60:1 on --error-bg */
+    --error-bg: oklch(24% 0.04 28);      /* anchor: error surface */
+    /* --mono and --dur-* unchanged (not colour-scheme dependent) */
   }
 
-  /* synthesis §2 C2: white text on #58a6ff is only ~3.1:1 — fails SC
-     1.4.3 for 14px button text. Dark text on the lighter dark-mode
-     --accent gives ~7.2:1. Restore contrast. */
-  button, .button { color: #0d1117; }
+  /* ui-uplift-m6: the on-accent text colour is a mode-conditional
+     companion, which is what lets ONE --accent serve all five of its
+     roles. In dark mode --accent is light, so its text must be dark:
+     var(--bg) gives 7.20:1 (and 8.26:1 on the lighter :hover mix).
+     .skip-link:focus-visible JOINS this rule — it is not a button, so
+     it never picked up the old override and shipped white-on-accent at
+     2.53:1, a live SC 1.4.3 failure this milestone closes. */
+  button, .button, .skip-link:focus-visible { color: var(--bg); }
 
   /* m3-rect F1: dark-mode input visibility — light --fg on hardcoded
      #fff = 1.22:1 (invisible). Override both bg + color. */
@@ -302,20 +352,30 @@ button.danger:focus-visible { outline-color: var(--danger); outline-offset: 3px;
 
   /* ui-attractive-polish-m5 (UPL-8 v1): dark-mode redeclaration of the
      4 .status-badge--* modifier classes + th background. The light-mode
-     pill colors (#e6f4ea / #fdf3e2 / #eef2f7 / #fff4f2) are too pale
-     for --bg #0d1117 and would read as bright pastel blotches; the
-     dark pairs below are Primer-Dark-anchored and WCAG-AA-verified
-     (text contrast ≥ 4.5:1, border ≥ 3:1 vs canvas) per the m5
-     research-synthesis C4 contrast table. Border = text for visual
-     uniformity (light-mode's ops-warn anomaly was the odd-one-out;
-     m5 simplifies to single-color across all 4 pills). The companion
-     th { background } redeclaration prevents the light #f0f0f0 header
-     from showing against the dark canvas. */
+     pill colors (#e6f4ea / #fdf3e2 / #eef2f7 / var(--error-bg)) are too
+     pale for the dark canvas and would read as bright pastel blotches;
+     the dark pairs below are WCAG-AA-verified (text contrast ≥ 4.5:1,
+     border ≥ 3:1 vs canvas). Border = text for visual uniformity
+     (light-mode's ops-warn anomaly was the odd-one-out until m6
+     aligned it too). The companion th { background } redeclaration
+     prevents the light #f0f0f0 header from showing against the dark
+     canvas.
+     ui-uplift-m6 note: these 8 pill literals are v1 scope and stay as
+     they are, so they no longer track --danger/--error-bg. The dark
+     --down pill in particular keeps the old Primer red (#f85149) while
+     --danger has moved — a pre-existing divergence (its background
+     #3d1216 already differed from --error-bg) that m6 widens rather
+     than introduces. Every one of them is still measured in
+     .claude/docs/ui-contrast-table.md and still passes. */
   .status-badge--ok       { background: #0d2818; color: #3fb950; border-color: #3fb950; }
   .status-badge--warn     { background: #3d2a07; color: #d29922; border-color: #d29922; }
   .status-badge--ops-warn { background: #1c2230; color: #8b949e; border-color: #8b949e; }
   .status-badge--down     { background: #3d1216; color: #f85149; border-color: #f85149; }
-  th { background: #161b22; }
+  /* ui-uplift-m6: was a hardcoded #161b22 — a byte-copy of the OLD dark
+     --card-bg. Pointing it at the token stops it drifting silently every
+     time the surface is re-derived. The v1 pill literals above are
+     deliberately left alone (out of m6 scope). */
+  th { background: var(--card-bg); }
 }
 
 /* ui-attractive-polish-m3 (UPL-11): in-flight loading-state styling
@@ -355,7 +415,7 @@ button.danger.htmx-request:focus-visible { outline-width: 3px; }
     border-right-color: transparent;
     border-radius: 50%;
     vertical-align: middle;
-    animation: spin 0.6s linear infinite;
+    animation: spin var(--dur-slow) linear infinite;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
 }
@@ -371,7 +431,7 @@ button.danger.htmx-request:focus-visible { outline-width: 3px; }
    default ~250ms. */
 @media (prefers-reduced-motion: no-preference) {
   .status-badge.htmx-settling {
-    animation: badge-flash 400ms ease-out;
+    animation: badge-flash var(--dur-normal) ease-out;
   }
   @keyframes badge-flash {
     from { background: color-mix(in oklab, var(--accent) 30%, transparent); }
@@ -379,7 +439,7 @@ button.danger.htmx-request:focus-visible { outline-width: 3px; }
   }
   ::view-transition-old(root),
   ::view-transition-new(root) {
-    animation-duration: 200ms;
+    animation-duration: var(--dur-fast);
   }
   /* ui-attractive-polish-m5 (UPL-12 v1): row-fade for in-place
      notebook removal. htmx applies .htmx-swapping to the swap target
@@ -387,9 +447,11 @@ button.danger.htmx-request:focus-visible { outline-width: 3px; }
      hx-swap="outerHTML swap:200ms" delay window; animation-fill-mode:
      forwards keeps opacity at 0 through the settle phase so the row
      doesn't flash back before removal. Duration MUST match the
-     swap:200ms modifier in index.html. */
+     swap:200ms modifier in index.html — that is why --dur-fast is
+     pinned at 200ms and cannot be re-timed without editing the
+     template's hx-swap in the same commit. */
   tr.htmx-swapping {
-    animation: row-fade-out 200ms ease-out forwards;
+    animation: row-fade-out var(--dur-fast) ease-out forwards;
   }
   @keyframes row-fade-out {
     from { opacity: 1; }

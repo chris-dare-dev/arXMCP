@@ -9,8 +9,10 @@
      (same-origin under the /ui carve-out, no SecFetchSite or CSP change
      needed — img-src 'self' in CONTENT_SECURITY_POLICY_UI already covers
      it). Eliminates the /favicon.ico → 403 devtools noise. The fill
-     color is hardcoded #1e5b8a (matching --accent) because favicons
-     render in browser-tab context and don't inherit page CSS variables. #}
+     color is a hardcoded hex kept in sync with the light --accent token
+     (ui-uplift-m6: #1f609b) because favicons render in browser-tab
+     context and don't inherit page CSS variables. The sync is asserted
+     by tests/test_ui_contrast.py::test_favicon_tracks_light_accent. #}
   <link rel="icon" href="/ui/static/favicon.svg" type="image/svg+xml">
   <!-- htmx 2.0.10 vendored at server/frontend/static/htmx.min.js (0BSD; m8 AC #5). -->
   <script src="/ui/static/htmx.min.js" defer></script>

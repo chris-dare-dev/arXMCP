@@ -525,22 +525,28 @@ class TestUPL13ViewTransitionsCss:
 
     def test_duration_override_is_200ms(self) -> None:
         # Find the View Transitions rule block and assert the
-        # animation-duration value.
+        # animation-duration RESOLVES to 200ms.
+        #
+        # ui-uplift-m6 replaced the literal with var(--dur-fast). The
+        # intent of this test is the effective duration, not its spelling,
+        # so it now resolves the token — a future edit that re-times
+        # --dur-fast still fails here, which is the point.
+        from tests._ui_color import load_raw_tokens
+
         m = _re.search(
-            r"::view-transition-old\(root\)[^{]*\{[^}]*animation-duration:\s*200ms",
+            r"::view-transition-(?:old|new)\(root\)[^{]*\{[^}]*"
+            r"animation-duration:\s*var\(--dur-fast\)",
             APP_CSS_NO_COMMENTS,
             flags=_re.S,
         )
-        if m is None:
-            # Accept either-side ordering: maybe -new comes first.
-            m = _re.search(
-                r"::view-transition-new\(root\)[^{]*\{[^}]*animation-duration:\s*200ms",
-                APP_CSS_NO_COMMENTS,
-                flags=_re.S,
-            )
         assert m is not None, (
-            "UPL-13: ::view-transition-*(root) { animation-duration: 200ms } "
-            "rule missing or has different value"
+            "UPL-13: ::view-transition-*(root) { animation-duration: "
+            "var(--dur-fast) } rule missing"
+        )
+        base_tokens, _dark = load_raw_tokens()
+        assert base_tokens["--dur-fast"] == "200ms", (
+            f"UPL-13: --dur-fast is {base_tokens['--dur-fast']}, not 200ms — "
+            f"the view transition would re-time."
         )
 
     def test_duration_override_gated_by_no_preference(self) -> None:
@@ -667,14 +673,17 @@ class TestCrossMilestoneSafety:
         # 2026q3-ui-uplift: m5=370 → 400 for UPL-27 (two WCAG AA contrast
         # fixes), UPL-8 v0 (the first select/textarea base rules) and
         # UPL-15a (tbody tr:hover).
+        # ui-uplift-m6: 400 → 480 for the OKLCH token family (every colour
+        # token re-derived in both modes) + 3 --dur-* tokens + the
+        # per-token derivation rationale (which target ratio, which ground).
         line_count = APP_CSS.count("\n") + (1 if not APP_CSS.endswith("\n") else 0)
-        assert line_count <= 400, (
-            f"app.css is {line_count} lines — over the 400-line cap (revised "
-            f"in 2026q3-ui-uplift from m5's 370 to accommodate UPL-27 "
-            f"contrast fixes + UPL-8 v0 select/textarea base rules + "
-            f"UPL-15a row hover). "
+        assert line_count <= 480, (
+            f"app.css is {line_count} lines — over the 480-line cap (revised "
+            f"in ui-uplift-m6 from 400 for the OKLCH token family + --dur-* "
+            f"tokens + their derivation rationale). "
             f"Consider stripping documentation comments, splitting the file "
             f"(e.g. tokens.css + app.css), or arguing for another revision. "
-            f"NOTE: the m3/m5 cap test in tests/test_ui_m3_dark_and_htmx_feedback.py "
-            f"must also move in lockstep — the two caps MUST agree."
+            f"NOTE: the cap tests in tests/test_ui_m3_dark_and_htmx_feedback.py "
+            f"and tests/test_ui_m5_create_remove_in_place.py must also move in "
+            f"lockstep — all three caps MUST agree."
         )

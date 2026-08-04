@@ -17,10 +17,14 @@ where order matters.
 
 Load-bearing correctness fixes from the research synthesis (§2):
 
-- **C1** ``--border #6e7681`` (NOT canonical Primer ``#30363d`` which
-  fails SC 1.4.11 at 1.55:1).
-- **C2** ``button, .button { color: #0d1117 }`` inside the dark block
-  (white-on-#58a6ff is only 3.1:1; fails SC 1.4.3).
+- **C1** dark ``--border`` must clear SC 1.4.11 (3:1) and must not be a
+  Primer grey-scale literal. *(ui-uplift-m6 re-derived every token in
+  OKLCH, so the two C1/C2 tests below assert the PROPERTY rather than the
+  specific hexes they used to pin — ``#6e7681`` and ``#0d1117`` — which
+  turned any legitimate re-derivation into a false regression.)*
+- **C2** the dark block must override the on-accent text colour so the
+  resulting pair clears SC 1.4.3 (4.5:1); m6 widened that rule to cover
+  ``.skip-link:focus-visible``, which had never picked it up.
 - **C3** ``button.danger.htmx-request:focus-visible { outline-width:
   3px }`` (m1's 2px danger ring at 0.6 opacity falls to 2.57:1; fails
   SC 1.4.11).
@@ -89,23 +93,33 @@ class TestUPL8DarkModeBlock:
                 f"{token}"
             )
 
-    def test_dark_border_uses_corrected_hex_not_primer_canonical(self) -> None:
-        # synthesis §2 C1: Primer's canonical #30363d gives only 1.55:1 against
-        # --bg #0d1117 — fails SC 1.4.11 (3:1 non-text). #6e7681 gives 4.12:1
-        # and passes with margin. If a future refactor reverts to #30363d,
-        # this regression fires.
+    def test_dark_border_is_not_a_primer_literal_and_clears_sc_1411(self) -> None:
+        # ORIGINAL INTENT (UPL-8 v0 C1), preserved: Primer's canonical
+        # #30363d gives only 1.55:1 against the dark canvas and fails SC
+        # 1.4.11, so the dark --border must NOT be that value.
+        #
+        # ui-uplift-m6 generalised the assertion. It used to pin the single
+        # replacement hex #6e7681, which made a legitimate re-derivation
+        # look like a regression. What actually matters is the property:
+        # not a Primer literal, AND clears 3:1 against BOTH of its grounds.
+        # In dark mode --card-bg is LIGHTER than --bg, so --card-bg is the
+        # binding ground — checking only --bg would pass a value that fails
+        # where it is actually thinnest.
+        from tests._ui_color import contrast_ratio, load_tokens
+
         block = self._dark_root_block()
-        assert "#6e7681" in block, (
-            "UPL-8 v0 C1 regression: dark --border must be #6e7681 (4.12:1 on "
-            "--bg, passes SC 1.4.11). Primer canonical #30363d fails 1.55:1."
-        )
-        # And the failed canonical value MUST NOT be present in the dark
-        # block — protects against the WCAG-failing alternative slipping
-        # back in.
-        assert "#30363d" not in block, (
-            "UPL-8 v0 C1 regression: dark --border #30363d fails SC 1.4.11 "
-            "(1.55:1). Use #6e7681 instead."
-        )
+        for primer in ("#30363d", "#6e7681"):
+            assert primer not in block, (
+                f"dark --border must not be the GitHub Primer grey-scale "
+                f"literal {primer} (ui-uplift-m6 AC#1 — derive it instead)"
+            )
+        _light, dark = load_tokens()
+        for ground in ("--bg", "--card-bg"):
+            ratio = contrast_ratio(dark["--border"], dark[ground])
+            assert ratio >= 3.0, (
+                f"UPL-8 v0 C1 regression: dark --border on {ground} = "
+                f"{ratio:.3f}:1, fails SC 1.4.11 (need >= 3:1)."
+            )
 
     def test_color_scheme_declared_on_root(self) -> None:
         # m3-rect F3 (MEDIUM): the initial :root must declare `color-scheme:
@@ -197,13 +211,20 @@ class TestUPL8DarkModeBlock:
                 f"low-contrast on dark backgrounds — fail SC 1.4.3."
             )
 
-    def test_dark_block_corrects_button_text_color(self) -> None:
-        # synthesis §2 C2: white text on dark --accent #58a6ff gives ~3.1:1
-        # for 14px text — fails SC 1.4.3 (4.5:1 text). Dark text (#0d1117)
-        # gives ~7.2:1. The fix is a single `button, .button { color: ... }`
-        # inside the dark @media block.
-        # Find the dark @media block and look for the button color rule
-        # inside it.
+    def test_dark_block_corrects_on_accent_text_color(self) -> None:
+        # ORIGINAL INTENT (UPL-8 v0 C2), preserved: white text on the light
+        # dark-mode --accent fails SC 1.4.3, so the dark block MUST override
+        # the on-accent text colour to something dark.
+        #
+        # ui-uplift-m6 generalised this too. It used to regex-pin the literal
+        # `color: #0d1117`, which was a byte-copy of the old dark --bg and so
+        # broke on any re-derivation. The real invariant is: an override
+        # exists in the dark block, and the resulting pair clears 4.5:1.
+        # m6 also widened the selector to include .skip-link:focus-visible,
+        # which is not a button and therefore never picked the override up —
+        # it shipped white-on-accent at 2.526:1.
+        from tests._ui_color import contrast_ratio, load_tokens
+
         full_dark_block_re = _re.compile(
             r"@media\s*\(\s*prefers-color-scheme:\s*dark\s*\)\s*\{(.*?)\n\}",
             flags=_re.S,
@@ -211,15 +232,26 @@ class TestUPL8DarkModeBlock:
         m = full_dark_block_re.search(APP_CSS_NO_COMMENTS)
         assert m is not None, "dark @media block not found"
         dark_full = m.group(1)
-        # The button rule must reside inside the dark @media block.
-        assert _re.search(
-            r"button\s*,\s*\.button\s*\{[^}]*color:\s*#0d1117[^}]*\}",
+        rule = _re.search(
+            r"(^|[},])\s*button\s*,\s*\.button[^{]*\{([^}]*)\}",
             dark_full,
-            flags=_re.S,
-        ), (
+            flags=_re.S | _re.M,
+        )
+        assert rule is not None, (
             "UPL-8 v0 C2 regression: inside @media (prefers-color-scheme: "
-            "dark), `button, .button { color: #0d1117 }` is missing. White "
-            "text on dark --accent #58a6ff = ~3.1:1, fails SC 1.4.3 at 14px."
+            "dark), the `button, .button { color: ... }` on-accent text "
+            "override is missing entirely."
+        )
+        color = _re.search(r"color:\s*([^;]+);", rule.group(2))
+        assert color is not None, "the dark button rule declares no color"
+
+        _light, dark = load_tokens()
+        on_accent = color.group(1).strip()
+        resolved = dark["--bg"] if on_accent == "var(--bg)" else on_accent
+        ratio = contrast_ratio(resolved, dark["--accent"])
+        assert ratio >= 4.5, (
+            f"UPL-8 v0 C2 regression: dark on-accent text {on_accent} on "
+            f"--accent = {ratio:.3f}:1, fails SC 1.4.3 at 14px."
         )
 
 
@@ -480,14 +512,21 @@ class TestCrossMilestoneSafety:
         # 2026q3-ui-uplift: m5=370 → 400 for UPL-27 (two WCAG AA contrast
         # fixes), UPL-8 v0 (the first select/textarea base rules) and
         # UPL-15a (tbody tr:hover).
+        # ui-uplift-m6: 400 → 480. The OKLCH re-derivation replaces every
+        # colour token in both modes and adds 3 duration tokens; the cost
+        # is the rationale block that records WHICH TARGET RATIO each token
+        # was solved for and against WHICH ground. That provenance is the
+        # deliverable — a bare oklch() triple with no target is exactly the
+        # un-rederivable hand-typed value m6 exists to eliminate.
         line_count = APP_CSS.count("\n") + (1 if not APP_CSS.endswith("\n") else 0)
-        assert line_count <= 400, (
-            f"app.css is {line_count} lines — over the 400-line cap "
-            f"(revised in 2026q3-ui-uplift from m5's 370 to accommodate "
-            f"UPL-27 contrast fixes + UPL-8 v0 select/textarea base rules + "
-            f"UPL-15a row hover). Consider stripping documentation comments, "
-            f"splitting the file (e.g. tokens.css + app.css per the "
-            f"escape-hatch noted in KR5), or arguing for another revision. "
-            f"NOTE: the m4/m5 cap test in tests/test_ui_m4_in_place_add_paper.py "
-            f"must also move in lockstep — the two caps MUST agree."
+        assert line_count <= 480, (
+            f"app.css is {line_count} lines — over the 480-line cap "
+            f"(revised in ui-uplift-m6 from 400 for the OKLCH token family + "
+            f"--dur-* tokens + their derivation rationale). Consider stripping "
+            f"documentation comments, splitting the file (e.g. tokens.css + "
+            f"app.css per the escape-hatch noted in KR5), or arguing for "
+            f"another revision. NOTE: the cap tests in "
+            f"tests/test_ui_m4_in_place_add_paper.py and "
+            f"tests/test_ui_m5_create_remove_in_place.py must also move in "
+            f"lockstep — all three caps MUST agree."
         )

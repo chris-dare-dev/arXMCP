@@ -15,9 +15,11 @@ Regression tests for the five m5 items bundled into one milestone:
   performs the ``hx-swap="outerHTML"`` row removal. The non-htmx path
   keeps the historical 204.
 - **UPL-8 v1** — 4 ``.status-badge--*`` modifier classes redeclared
-  inside the dark ``@media`` block + ``th { background: #161b22 }``
-  dark redeclaration. All 4 pill pairs verified WCAG-AA-compliant per
-  the m5 research-synthesis C4 contrast table.
+  inside the dark ``@media`` block + a ``th { background: … }`` dark
+  redeclaration (``#161b22`` until ui-uplift-m6 pointed it at
+  ``var(--card-bg)``, since the literal was a byte-copy of that token).
+  All 4 pill pairs verified WCAG-AA-compliant; they are now also covered,
+  alongside every other rendered pair, by ``tests/test_ui_contrast.py``.
 - **UPL-19 v1** — ``body max-width: 980px`` → ``clamp(640px, 92vw,
   1400px)`` so the papers table breathes on wider monitors.
 - **m4-F3** — add-paper form gains
@@ -564,10 +566,13 @@ class TestUPL8V1DarkModePillContrast:
             assert f"color: {fg}" in dark, (name, fg)
 
     def test_th_dark_background_redeclared(self) -> None:
-        # UPL-8 v1: th { background: #161b22; } inside the dark block
-        # so the light #f0f0f0 doesn't show on the dark canvas. Match
-        # with optional trailing semicolon to be lenient against
-        # CSS-formatter changes.
+        # UPL-8 v1: the dark block must redeclare th's background so the
+        # light #f0f0f0 header doesn't show on the dark canvas.
+        #
+        # ui-uplift-m6: this used to pin the literal `#161b22`, which was a
+        # byte-copy of the OLD dark --card-bg. It now references the token,
+        # so the header surface cannot drift away from the card surface on
+        # a future re-derivation. Assert the reference, not a hex.
         dark_block_re = _re.compile(
             r"@media\s*\(\s*prefers-color-scheme:\s*dark\s*\)\s*\{(.*?)\n\}",
             flags=_re.S,
@@ -576,10 +581,11 @@ class TestUPL8V1DarkModePillContrast:
         assert m is not None
         block = m.group(1)
         rule_re = _re.compile(
-            r"\bth\s*\{\s*background:\s*#161b22\s*;?\s*\}", flags=_re.S
+            r"\bth\s*\{\s*background:\s*var\(--card-bg\)\s*;?\s*\}", flags=_re.S
         )
         assert rule_re.search(block), (
-            "expected `th { background: #161b22 }` inside dark @media block"
+            "expected `th { background: var(--card-bg) }` inside the dark "
+            "@media block (ui-uplift-m6 replaced the duplicated #161b22 hex)"
         )
 
     @pytest.mark.parametrize(("name", "bg", "fg"), PILLS)
@@ -596,8 +602,17 @@ class TestUPL8V1DarkModePillContrast:
     def test_pill_text_color_also_visible_on_canvas(self) -> None:
         # SC 1.4.11: 3:1 for the border/text vs the surrounding canvas
         # (so the pill silhouette is distinguishable even outside
-        # its background fill). Canvas is --bg #0d1117 in dark mode.
-        canvas = "#0d1117"
+        # its background fill).
+        #
+        # ui-uplift-m6: the canvas is now PARSED from the stylesheet. It
+        # used to be the Python literal `canvas = "#0d1117"`, a duplicate
+        # of dark --bg — when that token was re-derived this test would not
+        # have failed, it would have silently kept validating against a
+        # ground the product no longer paints.
+        from tests._ui_color import load_tokens
+
+        _light, dark = load_tokens()
+        canvas = dark["--bg"]
         for name, _bg, fg in self.PILLS:
             ratio = _contrast_ratio(fg, canvas)
             assert ratio >= 3.0, (
@@ -717,8 +732,18 @@ class TestUPL12V1RowFadeKeyframe:
         assert m is not None
         rule = m.group(0)
         assert "forwards" in rule
-        # And the duration must match the swap:200ms modifier.
-        assert "200ms" in rule
+        # And the duration must match the swap:200ms modifier in
+        # index.html. ui-uplift-m6 replaced the literal with
+        # var(--dur-fast), so resolve the token rather than pinning the
+        # spelling — the numeric coupling is what matters.
+        from tests._ui_color import load_raw_tokens
+
+        assert "var(--dur-fast)" in rule
+        base_tokens, _dark = load_raw_tokens()
+        assert base_tokens["--dur-fast"] == "200ms", (
+            f"--dur-fast is {base_tokens['--dur-fast']} but index.html's "
+            f"hx-swap modifier is swap:200ms; they must stay in sync."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -793,13 +818,13 @@ class TestCrossMilestoneSafety:
         assert "<td>added</td>" in out
 
     def test_app_css_under_m5_cap(self) -> None:
-        # Cap = 400 (2026q3-ui-uplift, raised from m5's 370 for UPL-27
-        # contrast fixes + UPL-8 v0 select/textarea base rules + UPL-15a
-        # row hover). This test mirrors the cap-tests in m3 and m4 test
-        # files — all three MUST move in lockstep on a future cap raise.
+        # Cap = 480 (ui-uplift-m6, raised from 400 for the OKLCH token
+        # family + --dur-* tokens + their per-token derivation rationale).
+        # This test mirrors the cap-tests in m3 and m4 test files — all
+        # three MUST move in lockstep on a future cap raise.
         line_count = APP_CSS.count("\n") + (
             1 if not APP_CSS.endswith("\n") else 0
         )
-        assert line_count <= 400, (
-            f"app.css is {line_count} lines — over the 400-line cap"
+        assert line_count <= 480, (
+            f"app.css is {line_count} lines — over the 480-line cap"
         )

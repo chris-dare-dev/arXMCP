@@ -1,5 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
-  <rect width="32" height="32" rx="6" fill="#1e5b8a"/>
+  <!-- ui-uplift-m6: kept in sync with the light accent token, now
+       oklch(47.863% 0.115 250) = #1f609b. Favicons render in browser-tab
+       chrome and do NOT inherit page CSS custom properties, so this hex
+       must be updated by hand whenever the accent token is re-derived.
+       Asserted by tests/test_ui_contrast.py::test_favicon_tracks_light_accent.
+       (No double hyphen in this comment: it would not be well-formed XML.) -->
+  <rect width="32" height="32" rx="6" fill="#1f609b"/>
   <text x="16" y="22" text-anchor="middle"
         font-family="-apple-system,system-ui,sans-serif"
         font-weight="700" font-size="16" fill="#fff">aX</text>
