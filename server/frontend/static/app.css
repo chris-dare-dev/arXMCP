@@ -192,7 +192,7 @@ tbody tr:hover { background: color-mix(in oklab, var(--card-bg) 95%, var(--fg));
    0.875rem predate --text-small and would re-open the untokenised sizes m7
    closed. A hairline LADDER, not cards: direction D-1 deletes the box, and
    BAN-2 (a grid of equal cards) is on the must-remove list. No per-candidate
-   chip (BAN-7 is a ~5-per-view threshold and a run is up to 10 rows) and no
+   chip (BAN-7 is a ~5-per-view threshold; a run is up to 200 rows) and no
    icon (BAN-3 — the product has zero icons and the discovery names that an
    asset).
    REFUSED, roadmap AC#4 — a per-candidate relevance line. The arXiv Atom feed
@@ -209,7 +209,8 @@ tbody tr:hover { background: color-mix(in oklab, var(--card-bg) 95%, var(--fg));
 .discover-list { list-style: none; margin: 0; padding: 0; }
 .discover-candidate { padding: 0.75rem 0; border-bottom: 1px solid var(--border); }
 .discover-candidate:last-child { border-bottom: none; }
-.discover-title { margin: 0; font-weight: 600; }
+/* m10 rectify (M13): now an <h3> — reset the UA size/margins deliberately. */
+.discover-title { margin: 0; font-size: var(--text-section); font-weight: 600; line-height: 1.25; }
 /* The meta line takes the identifier voice as an ELEMENT, so the "·"
    separator matches the <code> and <time> it sits between (both already had
    --mono + --text-small from the rules below). The selector string
@@ -218,17 +219,36 @@ tbody tr:hover { background: color-mix(in oklab, var(--card-bg) 95%, var(--fg));
    the scope rather than inherit it. */
 .discover-meta { margin: 0.25rem 0 0 0; font-family: var(--mono); font-size: var(--text-small); color: var(--fg-muted); }
 /* abstract_head (tools/_arxiv_api.py:210) is `" ".join(summary.split())` —
-   whitespace normalisation, no truncation. Despite the name it carries the
-   FULL abstract, 800-1500 characters, at up to 200 candidates a run; left
-   unclamped it swamps the hierarchy above it on the first render.
-   max-height + overflow, NOT line-clamp: the unprefixed `line-clamp` is
-   Baseline Limited and -webkit-line-clamp is a deprecated prefixed form —
-   refused on exactly the basis m6 refused light-dark() and m7 refused
-   text-wrap: balance. 4.5em against body's inherited line-height 1.5 is
-   exactly three line boxes, so the cut lands on a boundary rather than
-   through a row of glyphs. The full text stays in the DOM deliberately: it
-   is what a screen reader announces and what a copy-paste yields. */
-.discover-abstract { margin: 0.25rem 0 0.5rem 0; font-size: var(--text-small); max-height: 4.5em; overflow: hidden; }
+   whitespace normalisation, no truncation: despite the name it carries the
+   FULL abstract, 800-1500 chars. max-height + overflow, NOT line-clamp,
+   which is Baseline Limited (refused on the basis m6 refused light-dark()
+   and m7 refused text-wrap: balance). 4.5em at line-height 1.5 is exactly
+   three line boxes, so the cut lands on a boundary, not through glyphs. */
+/* m10 rectify (H2/H3/M2): the bare clamp hid 40-85% of the text with no
+   ellipsis, fade, control or link — a short abstract and a truncated one
+   rendered identically. Native <details>: the summary carries the clamped
+   lede, expanding reveals text already in the DOM. No JS, keyboard-operable.
+   (M16): --text-meta restores the meta/abstract step H3 authored and m10
+   had collapsed onto one size. */
+.discover-abstract { margin: 0.25rem 0 0.5rem 0; font-size: var(--text-meta); color: var(--fg-muted); }
+.discover-abstract > summary {
+  max-height: 4.5em;      /* exactly 3 line boxes at line-height 1.5 */
+  overflow: hidden;
+  cursor: pointer;
+  list-style-position: outside;
+}
+.discover-abstract[open] > summary { max-height: none; }
+.discover-abstract > p { margin: 0.25rem 0 0 0; }
+
+/* m10 rectify (M14): BAN-9 "multiple primary CTAs per viewport" is on the
+   must-be-removed list, and this panel renders one Add per candidate. Only
+   the fill is dropped — same target, same size, same reachability. */
+button.button-quiet {
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--border);
+}
+button.button-quiet:hover { background: color-mix(in oklab, var(--accent) 8%, transparent); }
 
 /* ui-uplift-m10: the topic block (server/routes/notebooks.py:621-623 and its
    byte-identical Jinja twin notebook_detail.html:116-118 — two emitters, one

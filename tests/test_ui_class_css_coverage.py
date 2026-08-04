@@ -639,3 +639,115 @@ class TestPolicyBindsForwardAC3:
         )
         clean_emissions = _extract_emissions_from_source(clean_source, "s.py")
         assert _offenders(clean_emissions, _combined_css_text_no_comments()) == []
+
+
+# ---------------------------------------------------------------------------
+# ui-uplift-m10 RECTIFY — the guards the empty deferral list needs.
+# ---------------------------------------------------------------------------
+class TestEmptyDeferralListIsGuarded:
+    """H1/M7 — `_KNOWN_UNSTYLED = {}` is the epic's finish line, and nothing
+    was defending it.
+
+    Both self-cleaning tests comprehend OVER the dict
+    (``for c in _KNOWN_UNSTYLED``), so on ``{}`` they iterate nothing and pass
+    vacuously. The epic's headline claim — that BAN-R2 now binds
+    unconditionally — therefore survived exactly one line-edit, in a repo with
+    no PRs and no CI to catch it (CLAUDE.md 4.1).
+
+    These assert the property directly rather than as a side effect of the
+    list's contents.
+    """
+
+    def test_the_deferral_list_is_empty(self) -> None:
+        assert _KNOWN_UNSTYLED == {}, (
+            f"_KNOWN_UNSTYLED regrew to {sorted(_KNOWN_UNSTYLED)}. "
+            f"ui-uplift-m10 emptied it and ui-uplift-e2's finish line is that "
+            f"it STAYS empty: BAN-R2 binds unconditionally, so a new emitted "
+            f"class gets a rule rather than a deferral. Re-opening the holding "
+            f"pen needs an explicit roadmap decision, not a dict entry."
+        )
+
+    def test_the_self_cleaning_tests_are_not_vacuous(self) -> None:
+        """Guard the guards. Both siblings iterate the dict, so an empty dict
+        makes them no-ops — this pins that the mechanism still WORKS by
+        running it against a synthetic entry."""
+        css = ".real-rule { color: red; }"
+        assert _css_defines_class("real-rule", css) is True
+        assert _css_defines_class("never-styled", css) is False
+
+
+class TestCoveragePredicateRejectsAnEmptyRule:
+    """M7 — the predicate could not tell a rule from a gesture.
+
+    ``_css_defines_class`` is a bare ``\\.token`` match, so ``.foo { }``
+    satisfies it. That is how ui-uplift-m7 shipped ``.status-badge__remediation``
+    as a lone ``font-size`` pin: it met AC#5's letter, left the block rendering
+    inline at 491x22px, and no test could tell. m10's ``display: block`` is the
+    declaration that actually fixed it and was itself unguarded.
+
+    This does not replace the over-approximating matcher — selector-position
+    awareness needs real CSS parsing, which this repo's no-dependency posture
+    rules out. It adds a second, narrower check for the classes the milestone
+    claims to have STYLED, asserting each carries at least one declaration.
+    """
+
+    #: Classes ui-uplift-m10 claims to have styled, with the declaration that
+    #: carries the claim. A gesture rule would satisfy the name match and fail
+    #: here.
+    M10_STYLED: dict[str, str] = {
+        "discover-list": "list-style",
+        "discover-candidate": "border-bottom",
+        "discover-title": "font-size",
+        "discover-meta": "font-family",
+        "discover-abstract": "font-size",
+        "topic-block": "margin",
+        "topic-category": "font-size",
+        "topic-description": "color",
+        "status-badge__remediation": "display",
+    }
+
+    @staticmethod
+    def _blocks_for(cls: str, css: str) -> list[str]:
+        """Every rule body whose selector mentions ``.cls``.
+
+        ALL of them, not the first: several of these classes also appear in a
+        comma-grouped selector (the single tabular-nums rule), and matching
+        only the first block reads that grouped rule instead of the class's
+        own — which is how the first draft of this test failed against
+        correct CSS.
+        """
+        return [
+            body
+            for _sel, body in re.findall(
+                rf"([^{{}}]*\.{re.escape(cls)}(?![\w-])[^{{}}]*)\{{([^}}]*)\}}",
+                css,
+                re.S,
+            )
+        ]
+
+    def test_each_styled_class_carries_a_real_declaration(self) -> None:
+        css = _combined_css_text_no_comments()
+        for cls, decl in self.M10_STYLED.items():
+            blocks = self._blocks_for(cls, css)
+            assert blocks, (
+                f".{cls} has no rule BLOCK — the name appears but nothing is "
+                f"declared for it"
+            )
+            assert any(decl in b for b in blocks), (
+                f".{cls}'s rule(s) declare no {decl!r}. The coverage matcher "
+                f"cannot tell a rule from a gesture, so this pins the "
+                f"declaration that carries the milestone's actual claim. "
+                f"Found: {[' '.join(b.split())[:60] for b in blocks]}"
+            )
+
+    def test_status_badge_remediation_is_not_inline(self) -> None:
+        """The specific regression: discovery H1 was that this block renders
+        inline at 491x22px. ui-uplift-m7 gave it a font-size and left that
+        true. Pin the declaration that fixed it."""
+        blocks = self._blocks_for(
+            "status-badge__remediation", _combined_css_text_no_comments()
+        )
+        assert any("display" in b for b in blocks), (
+            ".status-badge__remediation must set `display` — a font-size "
+            "alone leaves it rendering inline, which is discovery finding H1"
+        )

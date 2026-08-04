@@ -727,8 +727,7 @@ class TestCrossMilestoneSafety:
         # 575 of 600.
         assert line_count <= 600, (
             f"app.css is {line_count} lines — over the 600-line cap (revised "
-            f"in ui-uplift-m6 from 400 for the OKLCH token family + --dur-* "
-            f"tokens + their derivation rationale). "
+            f"by m6 400->480, then m10 520->600 — see the raise history above). "
             f"Consider stripping documentation comments, splitting the file "
             f"(e.g. tokens.css + app.css), or arguing for another revision. "
             f"NOTE: the cap tests in tests/test_ui_m3_dark_and_htmx_feedback.py "

@@ -625,8 +625,8 @@ class TestCrossMilestoneSafety:
         # than the 2 lines m7 left itself and had to rectify.
         assert line_count <= 600, (
             f"app.css is {line_count} lines — over the 600-line cap "
-            f"(revised in ui-uplift-m6 from 400 for the OKLCH token family + "
-            f"--dur-* tokens + their derivation rationale). Consider stripping "
+            f"(m6: 400->480 for the OKLCH family; m10: 520->600 for the Discover "
+            f"bibliography rules — see the raise history above). Consider stripping "
             f"documentation comments, splitting the file (e.g. tokens.css + "
             f"app.css per the escape-hatch noted in KR5), or arguing for "
             f"another revision. NOTE: the cap tests in "

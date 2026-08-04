@@ -681,3 +681,89 @@ class TestRectifyTabularNumsScope:
         n = len(_re.findall(r"font-variant-numeric:\s*tabular-nums",
                             APP_CSS_NO_COMMENTS))
         assert n == 1, f"expected exactly 1 tabular-nums declaration, found {n}"
+
+
+# ---------------------------------------------------------------------------
+# ui-uplift-m10 RECTIFY guards.
+# ---------------------------------------------------------------------------
+NOTEBOOKS_PY: str = (REPO_ROOT / "server" / "routes" / "notebooks.py").read_text(
+    encoding="utf-8"
+)
+
+
+class TestM10RectifyDiscoverPanel:
+    """Guards for ui-uplift-m10's Phase-3 critique, where all three critics
+    independently filed the clipped abstract as their only HIGH."""
+
+    def test_abstract_has_a_reveal_affordance(self) -> None:
+        """H2/H3/M2: the abstract was clamped with `max-height` and NO
+        ellipsis, fade, control or link — 40-85% of the text unreachable on
+        the console's only operator-judgment surface, and a short abstract
+        rendered identically to a truncated one. <details> is native,
+        keyboard-operable and needs no JS."""
+        assert '<details class="discover-abstract">' in NOTEBOOKS_PY, (
+            "the abstract must ship a reveal affordance, not a bare clamp"
+        )
+        assert "<summary>" in NOTEBOOKS_PY
+
+    def test_the_clamp_moved_to_the_summary_not_the_details(self) -> None:
+        """If max-height stayed on the <details>, expanding would reveal
+        nothing — the container would clip its own expanded content."""
+        assert _re.search(
+            r"\.discover-abstract\s*>\s*summary\s*\{[^}]*max-height",
+            APP_CSS_NO_COMMENTS, flags=_re.S,
+        ), "the clamp belongs on > summary"
+        assert _re.search(
+            r"\.discover-abstract\[open\]\s*>\s*summary\s*\{[^}]*max-height:\s*none",
+            APP_CSS_NO_COMMENTS, flags=_re.S,
+        ), "the open state must release the clamp"
+
+    def test_candidate_title_is_a_heading(self) -> None:
+        """M13: it was a <p> carrying font-weight 600, so the hierarchy this
+        milestone built existed for sighted readers and nowhere in the
+        accessibility tree."""
+        assert '<h3 class="discover-title">' in NOTEBOOKS_PY
+
+    def test_the_list_keeps_its_role(self) -> None:
+        """M1/M12: `list-style: none` strips list semantics in WebKit, so the
+        candidate count stops being announced."""
+        assert _re.search(r'<ul class="discover-list" role="list">', NOTEBOOKS_PY)
+
+    def test_no_primary_cta_per_candidate_row(self) -> None:
+        """M14: BAN-9 ("multiple primary CTAs per viewport") is on the
+        must-be-removed list, and a results panel renders one Add per row."""
+        assert 'class="button-quiet"' in NOTEBOOKS_PY, (
+            "the per-row Add must not take the default full-accent button"
+        )
+
+    def test_ordering_basis_is_disclosed(self) -> None:
+        """M8/M15: the arXiv Atom feed carries no relevance score and the
+        driver sorts by date, but bibliography styling makes a list read as
+        relevance-ranked. AC#4 forbade a manufactured relevance line; silence
+        still let an operator infer a ranking the data does not support."""
+        assert "newest first" in NOTEBOOKS_PY
+        assert "does not rank by relevance" in NOTEBOOKS_PY
+
+    def test_no_relevance_claim_anywhere(self) -> None:
+        """AC#4's deliverable was an ABSENCE. Pin it so a later milestone
+        cannot quietly add one."""
+        frag = NOTEBOOKS_PY[NOTEBOOKS_PY.find("_discover_results_fragment"):][:4000]
+        # Strip Python comments: the rationale for WHY there is no relevance
+        # line legitimately uses the word, and scanning it would make this
+        # guard fail on its own explanation. Only emitted markup counts.
+        emitted = "\n".join(
+            line for line in frag.splitlines() if not line.lstrip().startswith("#")
+        )
+        for banned in ("relevance-", "match score", "score=", "rank=", "best match"):
+            assert banned not in emitted, (
+                f"{banned!r} in emitted markup implies a ranking basis the "
+                f"arXiv Atom feed does not supply (AC#4, CLAUDE.md 4.9)"
+            )
+
+    def test_run_size_is_bounded_explicitly(self) -> None:
+        """M17: the driver default is 200. At ~150px per styled candidate that
+        is a ~30,000px ladder, announced whole by an aria-atomic live region.
+        Explicit so a driver-side default change cannot re-open it."""
+        assert _re.search(r"max_results=\d+", NOTEBOOKS_PY), (
+            "the discover route must pass max_results explicitly"
+        )

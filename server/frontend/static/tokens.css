@@ -55,10 +55,29 @@
      GROUND — --card-bg, not --bg: every consumer (.discover-meta,
      .topic-description, .status-badge__remediation) renders inside
      <section class="card"> or inside a status pill, never on the canvas.
+     FORWARD RISK (critique M6): ui-uplift-m8 is lane `next` with both
+     dependencies shipped, and its AC re-roles --card-bg off panel ground.
+     When it lands these consumers move to --bg, where this token measures
+     6.80 (light) / 7.69 (dark) — no AA failure, so NOTHING FAILS LOUDLY and
+     the absent --bg registry rows would read as deliberate. m8 must re-solve
+     this token against its new ground and register those pairs; its "three
+     dark-mode rules depend on --card-bg" count is now four.
      TARGET — 7.00:1, i.e. SC 1.4.6 (AAA) rather than the 4.5:1 SC 1.4.3
-     floor. Two reasons: it is the measured band the greys it replaces
-     already occupied (#555 on the light card is 7.25:1), so nothing gets
-     lighter; and the AAA headroom is what lets ONE token serve the three
+     floor. The AAA headroom is what lets ONE token serve the three
+     status-pill grounds without a per-pill override.
+     CORRECTED by m10's own critique (M3/M9/M11): an earlier revision of this
+     comment claimed the target meant "nothing gets lighter" and implied the
+     greys had been migrated. Both were false. Measured on --card-bg, the
+     greys span 4.886:1 to 11.467:1, and #444 (9.47), #555 (7.25), #b3b9c0
+     (8.95) and #c9d1d9 (11.47) all get LIGHTER at 7.00 — only #666, #6f6f6f
+     and #9ba1a8 get darker. And NONE of the eleven was migrated: this token
+     is currently a TWELFTH value, not a consolidation. In dark mode it sits
+     within a 1.036 luminance ratio of .card .note/.empty's #9ba1a8, so three
+     near-identical muted greys can render in one card. Migrating them is a
+     colour change to shipped surfaces with its own contrast rows and belongs
+     to a milestone that owns it, not to a rectify pass — recorded here so the
+     next reader sees the debt rather than a claim it was paid.
+     Kept because the AAA headroom is what serves the three
      status-pill grounds the remediation caption renders on without a
      per-pill override — the tightest of those is dark --warn at 5.45:1,
      still clear of 4.5:1. Every one of those pairs is registered in

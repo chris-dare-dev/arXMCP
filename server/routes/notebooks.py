@@ -729,23 +729,53 @@ def _discover_results_fragment(
             # "Ingest now" step, exactly like URL-paste adding).
             rows.append(
                 '<li class="discover-candidate">'
-                f'<p class="discover-title">{html.escape(c.title) or "—"}</p>'
+                # m10 rectify (critique M13): <h3>, not <p>+font-weight. The
+                # title was a heading by styling only, so the hierarchy this
+                # milestone built existed for sighted readers and nowhere in
+                # the accessibility tree. <h3> is correct under the page's
+                # <h2> section headings.
+                f'<h3 class="discover-title">{html.escape(c.title) or "—"}</h3>'
                 f'<p class="discover-meta"><code>{pid}</code> · '
                 f'<time>{html.escape(c.submitted_date)}</time></p>'
-                f'<p class="discover-abstract">{html.escape(c.abstract_head)}</p>'
+                # m10 rectify (critique H2/H3/M2): the abstract was clamped
+                # with max-height and NO way to see the rest — 40-85% of the
+                # text unreachable on the console's only operator-judgment
+                # surface, and a short abstract looked identical to a
+                # truncated one. <details> is native, keyboard-operable and
+                # needs no JS; the full text was already in the DOM, so this
+                # adds a control rather than a payload.
+                '<details class="discover-abstract">'
+                f'<summary>{html.escape(c.abstract_head)}</summary>'
+                f'<p>{html.escape(c.abstract_head)}</p>'
+                "</details>"
                 f'<form hx-post="/ui/api/notebooks/{safe_slug}/papers"'
                 ' hx-target="#papers-tbody" hx-swap="beforeend"'
                 ' hx-disabled-elt="find button">'
                 '<input type="hidden" name="arxiv_url" '
                 f'value="https://arxiv.org/abs/{pid}">'
-                '<button type="submit">Add</button>'
+                # m10 rectify (critique M14): .button-quiet, not the default
+                # primary. BAN-9 ("multiple primary CTAs per viewport") is on
+                # the must-be-removed list, and a results panel renders one
+                # full-accent button PER ROW. The action stays equally
+                # available; it stops being the loudest thing on the surface.
+                '<button type="submit" class="button-quiet">Add</button>'
                 "</form>"
                 "</li>"
             )
+        # m10 rectify (critique M8/M15/M17): disclose the ordering basis.
+        # The arXiv Atom feed carries NO relevance score, and the driver pins
+        # sortBy=submittedDate — but bibliography styling makes a list read as
+        # relevance-ranked, so silence let an operator infer a ranking the
+        # data does not support (CLAUDE.md 4.9). Saying "newest first" is the
+        # honest disclosure the absent relevance line could not make.
         body = (
-            f'<p class="hint">{len(candidates)} new candidate(s) — results are '
-            "not saved; click Discover to re-run.</p>"
-            f'<ul class="discover-list">{"".join(rows)}</ul>'
+            f'<p class="hint">{len(candidates)} new candidate(s), newest first '
+            "— arXiv does not rank by relevance. Results are not saved; "
+            "click Discover to re-run.</p>"
+            # role="list" is NOT redundant: list-style:none strips the list
+            # role in WebKit/VoiceOver (critique M1/M12), so the count of
+            # candidates stops being announced without it.
+            f'<ul class="discover-list" role="list">{"".join(rows)}</ul>'
         )
     return (
         '<div id="discover-results" aria-live="polite" aria-atomic="true">'
@@ -796,8 +826,17 @@ async def discover_papers(
         )
 
     try:
+        # m10 rectify (critique M17): pass max_results EXPLICITLY. The driver
+        # default is 200 (tools/discover_for_notebook.py:69), and at ~150px
+        # per styled candidate that is a ~30,000px unbroken ladder with the
+        # only count scrolled off the top — and #discover-results carries
+        # aria-live="polite" aria-atomic="true", so a screen reader announces
+        # the whole region. m10's bibliography styling made the row taller,
+        # which turned an already-large default into an unusable one.
+        # 25 is an operator page. Explicit so a driver-side default change
+        # cannot silently re-open a 200-row render.
         candidates = await discover_for_notebook_async(
-            store, slug, contact_email=_safe_contact_email(),
+            store, slug, contact_email=_safe_contact_email(), max_results=25,
         )
     except ValueError as e:
         # Notebook exists but has no discovery_category set (not configured).
