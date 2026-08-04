@@ -360,11 +360,12 @@ def _project_sorries(
 # Axiom-hygiene axis (issues #205 / #281 / #332)
 # ---------------------------------------------------------------------------
 # CLAUDE.md §4.9 rule 1 named this module's ``status`` as THE live violation of
-# the trust-language policy: ``status="ok"`` <=> (no error-severity messages)
-# AND (no sorries), so a bare ``axiom h : False`` elaborates clean and the
-# surface calls a proof of False "ok". ``lean_verify`` is the only tool here
-# that emits a *verdict* rather than evidence, so that token is designed to be
-# believed.
+# the trust-language policy: the original ``status="ok"`` (renamed to
+# ``elaborated_no_errors`` at verification-contract-m1) <=> (no error-severity
+# messages) AND (no sorries), so a bare ``axiom h : False`` elaborates clean
+# and the surface called a proof of False clean. ``lean_verify`` is the only
+# tool here that emits a *verdict* rather than evidence, so that token is
+# designed to be believed.
 #
 # The fix is an INDEPENDENT axis, never a widened ``status``
 # (``.claude/docs/trust-language-policy.md`` §6 rule 1: "New trust-bearing
@@ -714,16 +715,24 @@ def _normalize_response(
     sorry_goals = _project_sorries(resp.get("sorries"), repl_generation)
     goals_remaining = [s["goal"] for s in sorry_goals if s["goal"]]
 
-    # `status` stays a bare-but-honest token, not a Certificate object, even
-    # though it is trust-bearing (verification-contract-m1). Policy §6 rule 3
-    # requires a Certificate (level + evidence) for a GRADED verdict;
-    # `status` is not graded — it is a single fact drawn from a fixed,
-    # mutually-exclusive ladder of outcomes, and
-    # ``.claude/docs/trust-language-policy.md`` §2 names the rename below
-    # (``"ok"`` -> ``"elaborated_no_errors"``) as the complete fix, not a
-    # re-architecture. Certificate-wrapping `status` here would duplicate
-    # `compilation_success`/`axiom_audit` for no new information. See
-    # ``.claude/docs/adr-verification-contract-five-operations.md``.
+    # `status` stays a bare token here, NOT because the trust-language policy
+    # exempts it — it does not. ``.claude/docs/trust-language-policy.md`` §6
+    # rule 3 reads "Every trust-bearing field carries its ``Certificate``
+    # (level + attached evidence), not a bare token", with no qualifier, and
+    # this field's own schema description defines an ordinal precedence
+    # ladder. So rule 3 DOES reach `status`.
+    #
+    # This is a SCOPED DEFERRAL, owned by ``verification-contract-e3``:
+    # nesting `status` into a Certificate is a wire-breaking shape change,
+    # and e3 owns the response-schema redesign that can carry it. m1's scope
+    # was the honest token plus the design ADR. Meanwhile the evidence rule 3
+    # wants attached does ship — as sibling fields (``messages``,
+    # ``sorry_goals``, ``proof_state``, ``axiom_audit``) rather than as one
+    # attached record.
+    #
+    # Do not read policy §2 as blessing the rename alone: §2 names the rename
+    # AND the five-operation split together as R3's remedy. See
+    # ``.claude/docs/adr-verification-contract-five-operations.md`` Decision 2.
     has_error = any(m["severity"] == "error" for m in messages)
     has_sorry = bool(sorry_goals)
     if has_error:

@@ -30,14 +30,24 @@ contract-e2`'s isolation boundary), per the roadmap's own `depends_on` edges.
 - **Note on this milestone's own rename** (recorded here per this milestone's own decision
   record, so a reader of this ADR does not need to separately reconstruct it): m1 renames
   `status="ok"` to `status="elaborated_no_errors"` but does **not** wrap `status` in a
-  Certificate object (level + evidence), even though `status` is trust-bearing. Policy §6
-  rule 3 requires a Certificate for a *graded* verdict; `status` is not graded — it is a
-  single fact drawn from a fixed, mutually-exclusive ladder of outcomes (`error` / `sorry`
-  / `incomplete` / `elaborated_no_errors`, plus the operational lane). Policy §2 itself
-  names the rename below as the complete fix for this token, not a re-architecture.
-  Certificate-wrapping `status` would duplicate `compilation_success` / `axiom_audit` for
-  no new information. See `server/handlers/lean_verify.py`'s `_normalize_response` for the
-  code-level comment carrying this same reasoning.
+  Certificate object (level + evidence), even though `status` is trust-bearing. **This is a
+  scoped deferral, not a policy exemption** — the distinction matters because
+  `verification-contract-e3` will read this record when it decides whether the response
+  schema still owes a Certificate shape, and "the policy does not require it" and "we
+  scoped it out of m1" lead to different e3 outcomes.
+  Policy §6 rule 3 reads "Every trust-bearing field carries its `Certificate` (level +
+  attached evidence), not a bare token" — with **no** graded-verdict qualifier — and this
+  field's own schema description defines an explicit ordinal precedence ladder, which is
+  exactly the "ordinal level" §4 and Appendix A say must carry attached evidence. So rule 3
+  reaches `status`, and m1 does not satisfy it.
+  It is deferred because nesting `status` into a Certificate is a wire-breaking shape
+  change owned by e3's response-schema redesign, not by a rename milestone; and because the
+  evidence rule 3 wants attached already ships as sibling fields (`messages`,
+  `sorry_goals`, `proof_state`, `axiom_audit`) rather than as one attached record.
+  Note also that policy §2 names the rename **and** the five-operation split together as
+  R3's remedy — it does not bless the rename alone as sufficient. See
+  `server/handlers/lean_verify.py`'s `_normalize_response` for the code-level comment
+  carrying this same reasoning.
 - Two prior-art systems were researched at source depth for this design (both fetched and
   sha256-pinned in `.claude/notes/milestones/verification-contract-m1/research/brief-2.md`):
   **AXLE** (arXiv:2606.26442) — a per-request-isolated, named-environment REPL-style
@@ -122,7 +132,8 @@ contract-e2`'s isolation boundary), per the roadmap's own `depends_on` edges.
   a live environment — typically chained immediately after `check_declaration` or
   `elaborate_signature` within the same `env` token, exactly as `lean_verify`'s existing
   `_attach_axiom_audit` second round-trip already does today for the shipped `axiom_audit`
-  axis (`server/handlers/lean_verify.py:1077-1148` — issues #205/#281/#332).
+  axis (`server/handlers/lean_verify.py::_attach_axiom_audit` — issues #205/#281/#332;
+  cited by symbol rather than line range, which rots on any insertion above it).
 - **Isolation dependency:** depends on `verification-contract-e2`, and runs inside the SAME
   isolated environment as the preceding operation (a second `{"cmd": "#print axioms
   <name>"}` round-trip against the already-loaded environment, not a fresh process).
@@ -183,7 +194,12 @@ contract-e2`'s isolation boundary), per the roadmap's own `depends_on` edges.
   committed now — a full, independent `Environment.replay` from scratch, never a
   trust-the-loaded-environment shortcut. The concrete TOOL that performs it (SafeVerify's
   CLI wrapper vs a bespoke fresh-process re-elaboration-plus-axiom-audit fallback) is
-  explicitly NOT decided here and is deferred to `verification-contract-spike-2`
+  explicitly NOT decided here and is deferred to `verification-contract-spike-2` — **bounded
+  by CLAUDE.md §4.7's no-fork policy: whatever spike-2 selects, arXMCP invokes it as an
+  external dependency or reimplements the idea, and does not vendor or fork SafeVerify's
+  source into this repo.** That bound is load-bearing precisely because no published
+  SafeVerify branch matches the pinned toolchain, which makes "just copy the checks in" the
+  tempting shortcut —
   (`plans/verification-contract/roadmap.yaml:216-228`), because SafeVerify's four published
   backport branches (Lean 4.9.0 / 4.14.0 / 4.15.0 / 4.20.0) do not include a branch matching
   the repo's pinned reference toolchain (`v4.30.0-rc2`). This ADR does not assume SafeVerify

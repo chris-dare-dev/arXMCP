@@ -1,0 +1,84 @@
+{
+  "id": "verification-contract-m1",
+  "created_at": "2026-08-04T00:46:08Z",
+  "updated_at": "2026-08-04T02:07:46Z",
+  "phase": "rectify-running",
+  "phase_history": [
+    {
+      "phase": "init",
+      "at": "2026-08-04T00:46:08Z"
+    },
+    {
+      "phase": "research-running",
+      "at": "2026-08-04T00:46:59Z"
+    },
+    {
+      "phase": "research-complete",
+      "at": "2026-08-04T01:04:13Z"
+    },
+    {
+      "phase": "implement-running",
+      "at": "2026-08-04T01:04:43Z"
+    },
+    {
+      "phase": "implement-complete",
+      "at": "2026-08-04T01:49:28Z"
+    },
+    {
+      "phase": "critique-running",
+      "at": "2026-08-04T02:06:26Z"
+    },
+    {
+      "phase": "critique-complete",
+      "at": "2026-08-04T02:06:26Z"
+    },
+    {
+      "phase": "rectify-running",
+      "at": "2026-08-04T02:07:46Z"
+    }
+  ],
+  "milestone_brief": "# Milestone brief \u2014 verification-contract-m1\r\n\r\n**Title:** Honest verification statuses & five-operation contract design\r\n**Kind:** milestone\r\n**Roadmap:** verification-contract (plans/verification-contract/roadmap.yaml)\r\n**Status:** planned\r\n**Lane:** now\r\n**Target:** 2026-08-04 -> 2026-08-10\r\n\r\n## Parent epic\r\n\r\n- verification-contract-e1 \u2014 Honest verification statuses & contract design\r\n  Rename status=\"ok\" to elaborated_no_errors, redesign the lean_verify response schema to conform to the R0 trust-language policy, and author the ADR defining the five-operation contract (parse_source / elaborate_signature / check_declaration / audit_axioms / strict_replay_proof). No operation lands yet \u2014 this epic only ensures no response leaving the server can be misread as a trust verdict from this point forward.\r\n\r\n## Summary\r\n\r\nRename status=\"ok\" to elaborated_no_errors, redesign the lean_verify response schema to conform to the R0 trust-language policy (no bare \"verified\", multi-axis trust record), and author the ADR defining the five-operation contract. Re-pins EXPECTED_TOOL_SCHEMA_SHA256, EXPECTED_BP1_SHA256, and the affected server/schemas/*.json version fields as its own work (W1/W2 batch windows are closed).\r\n\r\n## Acceptance criteria\r\n\r\n1. Given a lean_verify response that previously carried status=\"ok\", when the handler runs post-rename, then it returns status=\"elaborated_no_errors\" and no response field anywhere in the schema reads bare \"verified\"\r\n2. Given the redesigned response schema, when it is checked against .claude/docs/trust-language-policy.md, then no single field collapses distinct trust questions (elaboration vs kernel-check vs axiom-audit vs replay) into one token\r\n3. Given the LEAN_VERIFY.description bytes change, when pytest --update-tool-schema-hash and the hand-edited EXPECTED_BP1_SHA256 are applied, then tests/test_server_tool_schema.py and tests/test_prompts.py both pass and every affected server/schemas/*.json version field is bumped\r\n4. Given the five-operation ADR (parse_source / elaborate_signature / check_declaration / audit_axioms / strict_replay_proof), when it is committed, then it defines each operation's inputs, isolation dependency, and target-binding behavior without implementing any operation\r\n\r\n## Depends on\r\n\r\n- (none)",
+  "brief_source": "roadmap plans/verification-contract/roadmap.yaml",
+  "research_mode": "standard",
+  "oss_scout_requested": false,
+  "allow_large_diff": false,
+  "research_briefs": [
+    ".claude/notes/milestones/verification-contract-m1/research/brief-1.md",
+    ".claude/notes/milestones/verification-contract-m1/research/brief-2.md"
+  ],
+  "research_synthesis": ".claude/notes/milestones/verification-contract-m1/research/synthesis.md",
+  "implementation_path": "delegated",
+  "implementation_plan": null,
+  "implementation_base": "3a7d626e9aa7c59d8fd06599c15a20ee771719b2",
+  "implementation_commit_range": "3a7d626e9aa7c59d8fd06599c15a20ee771719b2..6c681b9bf88469dcb147844fa40ee6ccf5624839",
+  "implementation_commits": [
+    "6c681b9bf88469dcb147844fa40ee6ccf5624839"
+  ],
+  "implementation_branch": "main",
+  "external_writes_required": [
+    "git push origin main"
+  ],
+  "critique_path": ".claude/notes/milestones/verification-contract-m1/critique/dedup.md",
+  "critics_run": [
+    "milestone-adversary-critic",
+    "milestone-arxmcp-critic"
+  ],
+  "critique_files": [
+    "critique/adversary.md",
+    "critique/arxmcp.md"
+  ],
+  "critique_finding_counts": {
+    "critical": 2,
+    "high": 0,
+    "medium": 8,
+    "low": 4
+  },
+  "findings_register": ".claude/notes/milestones/verification-contract-m1/findings.json",
+  "rectification_commit": null,
+  "fixed_findings": [],
+  "deferred_findings": [],
+  "invalidated_findings": [],
+  "regression_tests_added": [],
+  "external_writes_authorized": [],
+  "external_writes_completed": []
+}

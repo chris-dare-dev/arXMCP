@@ -43,6 +43,29 @@ another** — least of all fidelity from elaboration.
 > and 8 (checker identity) remain unmeasured by this tool — absent from its
 > record, per §4, not defaulted to passing.
 
+> **Status update (2026-08-03) — amendment (b) above is itself now superseded.**
+> **(c)** `verification-contract-m1` shipped the rename (`TOOL_SCHEMA_VERSION`
+> 22 → 23). `status` now carries `elaborated_no_errors` on the
+> clean-elaboration path; the value `"ok"` is no longer emitted by any code
+> path. Amendment (b)'s assertion that the rename "has **not** shipped" and
+> that `status` "still carries the value `"ok"`, deliberately" was accurate on
+> 2026-07-31 and is retained above as the historical record — it must not be
+> read as current state. Everything (b) says about *why* the axiom fix did not
+> require the rename remains correct and unchanged: the cure for a collapsed
+> token is an independent axis beside it, and `status` / `compilation_success`
+> still report exactly what they measure.
+> **What (c) does NOT change:** the five-operation split
+> (`parse_source` / `elaborate_signature` / `check_declaration` /
+> `audit_axioms` / `strict_replay_proof`) remains **unbuilt** — m1 shipped the
+> honest token and a design-only ADR
+> ([`adr-verification-contract-five-operations.md`](adr-verification-contract-five-operations.md)),
+> not the operations; those belong to `verification-contract-e3`. The code
+> block and derivations in §2 below quote the pre-rename token verbatim and are
+> preserved as written, per this section's own preserved-as-written header.
+> `status` is also still a bare token rather than a `Certificate` (§6 rule 3) —
+> a **scoped deferral**, not an exemption; see the ADR's Decision 2 rationale
+> and §6 rule 3's note below.
+
 `lean_verify` today (`server/handlers/lean_verify.py:290-298`) computes:
 
 ```python

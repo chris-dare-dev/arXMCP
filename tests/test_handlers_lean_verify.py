@@ -287,7 +287,7 @@ class TestBuildCommand:
 
 
 class TestNormalizeResponse:
-    def test_clean_compile_status_ok(self):
+    def test_clean_compile_status_elaborated_no_errors(self):
         out = _normalize_response({"env": 0}, "full", repl_generation="g")
         assert out["status"] == "elaborated_no_errors"
         assert out["compilation_success"] is True
@@ -297,6 +297,31 @@ class TestNormalizeResponse:
         assert out["proof_state"] is None
         assert out["lean_status"] == "available"
         assert out["mode"] == "full"
+
+    def test_sorry_result_still_elaborated_cleanly(self):
+        """The elaboration axis is NOT readable from `status` alone.
+
+        Regression guard for verification-contract-m1 critique M5: the token
+        `elaborated_no_errors` names policy §4 axis 5 (elaboration) but is
+        additionally gated on axis 6 (proof closure). A snippet that
+        elaborates without a single error-severity diagnostic still reports
+        `status="sorry"` when a sorry remains — so a consumer reading the
+        elaboration axis off `status` gets the wrong answer, and must use the
+        absence of severity=="error" in `messages` instead.
+        """
+        out = _normalize_response(
+            {
+                "env": 0,
+                "sorries": [
+                    {"goal": "⊢ True", "pos": {"line": 1, "column": 0}},
+                ],
+            },
+            "full",
+            repl_generation="g",
+        )
+        assert out["status"] == "sorry"
+        # ...yet nothing failed to elaborate:
+        assert [m for m in out["messages"] if m["severity"] == "error"] == []
 
     def test_type_error_status_error(self):
         """AC: a snippet with a type error returns status=error with the

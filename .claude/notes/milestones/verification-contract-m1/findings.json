@@ -1,0 +1,290 @@
+{
+  "milestone_id": "verification-contract-m1",
+  "critique_format_version": "1.0",
+  "critique_files": [
+    "dedup.md"
+  ],
+  "generated_at": "2026-08-04T02:13:48Z",
+  "findings": {
+    "C1": {
+      "id": "C1",
+      "severity": "CRITICAL",
+      "title": "Policy doc still asserts the rename has not shipped",
+      "file": ".claude/docs/trust-language-policy.md",
+      "line": 34,
+      "anchor": "> planned five-operation redesign, which",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Doc drift",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Appended dated amendment (c) to trust-language-policy.md marking amendment (b) superseded: rename shipped at TOOL_SCHEMA_VERSION 23. Append-don't-edit convention honored; historical text preserved.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T02:13:47Z",
+          "resolution": "Appended dated amendment (c) to trust-language-policy.md marking amendment (b) superseded: rename shipped at TOOL_SCHEMA_VERSION 23. Append-don't-edit convention honored; historical text preserved."
+        }
+      ]
+    },
+    "C2": {
+      "id": "C2",
+      "severity": "CRITICAL",
+      "title": "CLAUDE.md \u00a74.9 rule 1 names a status token that no longer exists",
+      "file": "CLAUDE.md",
+      "line": 412,
+      "anchor": "**The founding case is now closed** (i",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Doc drift",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "CLAUDE.md 4.9: token updated to elaborated_no_errors with historical note; also corrected the adjacent w1-schema-deltas staging claim, verified false against the live LEAN_VERIFY.description.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T02:13:47Z",
+          "resolution": "CLAUDE.md 4.9: token updated to elaborated_no_errors with historical note; also corrected the adjacent w1-schema-deltas staging claim, verified false against the live LEAN_VERIFY.description."
+        }
+      ]
+    },
+    "M1": {
+      "id": "M1",
+      "severity": "MEDIUM",
+      "title": "Edited api.md line still lists 5 of the 7 status enum members",
+      "file": "docs/api.md",
+      "line": 131,
+      "anchor": "",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Doc drift",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "docs/api.md: completed the 7-member enum, fixed compilation_success null scope to include tactic_step, added tactic_step/env/proof_state rows and an axiom_audit independence sentence.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T02:13:47Z",
+          "resolution": "docs/api.md: completed the 7-member enum, fixed compilation_success null scope to include tactic_step, added tactic_step/env/proof_state rows and an axiom_audit independence sentence."
+        }
+      ]
+    },
+    "M2": {
+      "id": "M2",
+      "severity": "MEDIUM",
+      "title": "New ADR cites the pre-diff line range for `_attach_axiom_audit`",
+      "file": ".claude/docs/adr-verification-contract-five-operations.md",
+      "line": 125,
+      "anchor": "",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Doc drift",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "ADR now cites _attach_axiom_audit by symbol instead of the pre-diff line range 1077-1148.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T02:13:47Z",
+          "resolution": "ADR now cites _attach_axiom_audit by symbol instead of the pre-diff line range 1077-1148."
+        }
+      ]
+    },
+    "M3": {
+      "id": "M3",
+      "severity": "MEDIUM",
+      "title": "Axiom-hygiene banner comment still states `status=\"ok\"` as live semantics",
+      "file": "server/handlers/lean_verify.py",
+      "line": 363,
+      "anchor": "# the trust-language policy:",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Dead code / leftovers",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Axiom-hygiene banner comment retagged to past tense against the new token.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T02:13:48Z",
+          "resolution": "Axiom-hygiene banner comment retagged to past tense against the new token."
+        }
+      ]
+    },
+    "L1": {
+      "id": "L1",
+      "severity": "LOW",
+      "title": "\"No behaviour change\" understates a wire-visible enum rename",
+      "file": null,
+      "line": null,
+      "anchor": "",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Doc drift",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "CHANGES.md is epic-grain by convention (CLAUDE.md 5); a per-milestone entry would break that. The breaking-change signal is TOOL_SCHEMA_VERSION 22->23 plus the now-complete docs/api.md block. Recorded here rather than re-litigated.",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-04T02:13:48Z",
+          "resolution": "CHANGES.md is epic-grain by convention (CLAUDE.md 5); a per-milestone entry would break that. The breaking-change signal is TOOL_SCHEMA_VERSION 22->23 plus the now-complete docs/api.md block. Recorded here rather than re-litigated."
+        }
+      ]
+    },
+    "L2": {
+      "id": "L2",
+      "severity": "LOW",
+      "title": "Test name retains the renamed token",
+      "file": "tests/test_handlers_lean_verify.py",
+      "line": 290,
+      "anchor": "",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Dead code / leftovers",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Renamed test_clean_compile_status_ok -> test_clean_compile_status_elaborated_no_errors.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T02:13:48Z",
+          "resolution": "Renamed test_clean_compile_status_ok -> test_clean_compile_status_elaborated_no_errors."
+        }
+      ]
+    },
+    "M4": {
+      "id": "M4",
+      "severity": "MEDIUM",
+      "title": "Certificate-deferral rationale misreads the policy it cites",
+      "file": ".claude/docs/adr-verification-contract-five-operations.md",
+      "line": 34,
+      "anchor": "rule 3 requires a Certificate for a *graded",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "math fidelity / trust semantics",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "CONFIRMED: policy rule 3 carries no graded qualifier. Restated both ADR and code comment as a scoped deferral owned by e3, not a policy exemption; dropped the false 'policy 2 names the rename as the complete fix' clause.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T02:13:48Z",
+          "resolution": "CONFIRMED: policy rule 3 carries no graded qualifier. Restated both ADR and code comment as a scoped deferral owned by e3, not a policy exemption; dropped the false 'policy 2 names the rename as the complete fix' clause."
+        }
+      ]
+    },
+    "M5": {
+      "id": "M5",
+      "severity": "MEDIUM",
+      "title": "`elaborated_no_errors` names one axis but is gated on two",
+      "file": "server/schemas/lean_verify_result.json",
+      "line": 163,
+      "anchor": "\"enum\": [\"elaborated_no_errors\", \"e",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "math fidelity / trust semantics",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Added a two-axis clause to the status schema description; regression guard test_sorry_result_still_elaborated_cleanly pins that the elaboration axis is not readable from the token.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T02:13:48Z",
+          "resolution": "Added a two-axis clause to the status schema description; regression guard test_sorry_result_still_elaborated_cleanly pins that the elaboration axis is not readable from the token."
+        }
+      ]
+    },
+    "M6": {
+      "id": "M6",
+      "severity": "MEDIUM",
+      "title": "trust-language-policy.md \u00a72 now asserts the wire still carries \"ok\"",
+      "file": ".claude/docs/trust-language-policy.md",
+      "line": 34,
+      "anchor": "> planned five-operation redesign, which",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "math fidelity / trust semantics",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Appended dated amendment (c) to trust-language-policy.md marking amendment (b) superseded: rename shipped at TOOL_SCHEMA_VERSION 23. Append-don't-edit convention honored; historical text preserved.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T02:13:47Z",
+          "resolution": "Appended dated amendment (c) to trust-language-policy.md marking amendment (b) superseded: rename shipped at TOOL_SCHEMA_VERSION 23. Append-don't-edit convention honored; historical text preserved."
+        }
+      ]
+    },
+    "M7": {
+      "id": "M7",
+      "severity": "MEDIUM",
+      "title": "CLAUDE.md \u00a74.9 rule 1 still names the retired token",
+      "file": "CLAUDE.md",
+      "line": 413,
+      "anchor": "status:\"ok\"` \u21d4 no-errors \u2227 no-sorry \u2014 which",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "math fidelity / trust semantics",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "CLAUDE.md 4.9: token updated to elaborated_no_errors with historical note; also corrected the adjacent w1-schema-deltas staging claim, verified false against the live LEAN_VERIFY.description.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T02:13:47Z",
+          "resolution": "CLAUDE.md 4.9: token updated to elaborated_no_errors with historical note; also corrected the adjacent w1-schema-deltas staging claim, verified false against the live LEAN_VERIFY.description."
+        }
+      ]
+    },
+    "M8": {
+      "id": "M8",
+      "severity": "MEDIUM",
+      "title": "the operator API reference for lean_verify is stale on the line edited",
+      "file": "docs/api.md",
+      "line": 131,
+      "anchor": "Returns `status` (`elaborated_no_errors` / `error",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "math fidelity / trust semantics",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "docs/api.md: completed the 7-member enum, fixed compilation_success null scope to include tactic_step, added tactic_step/env/proof_state rows and an axiom_audit independence sentence.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T02:13:47Z",
+          "resolution": "docs/api.md: completed the 7-member enum, fixed compilation_success null scope to include tactic_step, added tactic_step/env/proof_state rows and an axiom_audit independence sentence."
+        }
+      ]
+    },
+    "L3": {
+      "id": "L3",
+      "severity": "LOW",
+      "title": "module comment still says the surface calls a proof of False \"ok\"",
+      "file": "server/handlers/lean_verify.py",
+      "line": 363,
+      "anchor": "# the trust-language policy: ``status=\"ok\"`",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "math fidelity / trust semantics",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Axiom-hygiene banner comment retagged to past tense against the new token.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T02:13:48Z",
+          "resolution": "Axiom-hygiene banner comment retagged to past tense against the new token."
+        }
+      ]
+    },
+    "L4": {
+      "id": "L4",
+      "severity": "LOW",
+      "title": "ADR defers the strict_replay_proof tool choice without a no-fork bound",
+      "file": ".claude/docs/adr-verification-contract-five-operations.md",
+      "line": 185,
+      "anchor": "CLI wrapper vs a bespoke fresh-process re-e",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "no-fork policy",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "ADR Decision 5 now bounds the deferred spike-2 tool choice by CLAUDE.md 4.7 no-fork policy.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T02:13:48Z",
+          "resolution": "ADR Decision 5 now bounds the deferred spike-2 tool choice by CLAUDE.md 4.7 no-fork policy."
+        }
+      ]
+    }
+  }
+}

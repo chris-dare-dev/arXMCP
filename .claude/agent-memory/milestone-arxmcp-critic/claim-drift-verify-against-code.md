@@ -58,6 +58,17 @@ Instances (each is a concrete replay of the pattern):
   IS the deliverable; flag HIGH when it omits the corpus prerequisite. Also diff copy-adapted
   compose tests' FUNCTION lists (m3 dropped `test_restart_policy_is_no`).
 
+- **authorizing-doc-goes-stale-after-the-rename-it-authorized** (verification-contract-m1,
+  MEDIUM x2): a wire-token rename (`lean_verify` `status` `"ok"` -> `elaborated_no_errors`) had
+  every hash/version pin correct, but the two docs that AUTHORIZED it were left asserting the
+  old wire: `.claude/docs/trust-language-policy.md:34` ("`status` still carries the value
+  `"ok"`, deliberately") and `CLAUDE.md:413` (§4.9 rule 1's worked example). On any
+  rename/deprecation milestone, grep the OLD token in (a) the policy/ADR the milestone cites as
+  authority — especially its own dated "status update" block — and (b) CLAUDE.md, which every
+  session loads. Also check the operator doc block the milestone edited: `docs/api.md:131` got a
+  one-token fix while the same four sentences still under-listed the enum by 2 values and never
+  named `axiom_audit`.
+
 Related: [[bp1-description-vs-handler-validator-drift]],
 [[middleware-cap-vs-handler-cap-read-ordering]], [[security-doc-drift-on-multi-byte-magic-sniff]],
 [[uv-lock-transitive-major-version-downgrade]].

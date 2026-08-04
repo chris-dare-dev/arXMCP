@@ -399,7 +399,9 @@ rule 3 binds every arXMCP planning/analysis document. These bind every agent ses
    never inferred from elaboration. New trust-bearing fields are namespaced and axis-specific,
    never a new bare `status`.
    **The founding case is now closed** (issues #205 / #281 / #332): `lean_verify`'s
-   `status:"ok"` ⇔ no-errors ∧ no-sorry — which a bare `axiom h : False` passed — is joined by
+   `status:"elaborated_no_errors"` ⇔ no-errors ∧ no-sorry — renamed from the original
+   `status:"ok"` at `verification-contract-m1` (2026-08-03, `TOOL_SCHEMA_VERSION` 23), and
+   which a bare `axiom h : False` passed — is joined by
    an independent `axiom_audit` axis populated from `#print axioms` over the declarations the
    snippet introduces (`server/handlers/lean_verify.py`, "Axiom-hygiene axis"). Read that
    closure as the worked example of this rule, not as the rule retiring: `status` and
@@ -409,10 +411,15 @@ rule 3 binds every arXMCP planning/analysis document. These bind every agent ses
    **unmeasured and therefore absent** from that tool's record rather than defaulted to
    passing — formal alignment (does the declaration state the theorem you meant) and checker
    identity (which checker, in which named environment). The wire-level half of the fix — the
-   `LEAN_VERIFY.description` edit and the `TOOL_SCHEMA_VERSION` bump — is staged in
-   [`w1-schema-deltas.md`](.claude/docs/w1-schema-deltas.md) for the next batched re-pin, so
-   until that lands the tool DESCRIPTION does not yet mention `axiom_audit` (§7's "don't trust
-   a tool description over §6 and this section" applies).
+   `LEAN_VERIFY.description` edit and the `TOOL_SCHEMA_VERSION` bump — **has landed**: the
+   `axiom_audit` delta was applied in the W2 batched re-pin (21 → 22) and the
+   `elaborated_no_errors` rename in `verification-contract-m1` (22 → 23), so the tool
+   DESCRIPTION now names both. [`w1-schema-deltas.md`](.claude/docs/w1-schema-deltas.md)
+   currently stages `_None._`. (§7's "don't trust a tool description over §6 and this section"
+   still applies as standing discipline — it is just no longer describing a live gap here.)
+   `status` remains a bare token rather than a `Certificate` (policy §6 rule 3); that is a
+   **scoped deferral owned by `verification-contract-e3`**, not an exemption — see
+   [`adr-verification-contract-five-operations.md`](.claude/docs/adr-verification-contract-five-operations.md).
 2. **Abstention is a first-class, tested success state.** Every tool must be able to return the
    epistemic outcomes `unknown` / `ambiguous` / `not-in-corpus` / `unsupported-by-provider`,
    kept **distinct** from operational status (`timeout` / `unavailable` / `disabled` /

@@ -125,15 +125,25 @@ Verify a Lean 4 snippet against a managed local Lean kernel.
 | Argument | Notes |
 |---|---|
 | `snippet` | The Lean 4 source to check. |
-| `mode` | `full` — elaboration **and** full kernel verification · `syntax_only` — wraps in `#check(...)` (or `set_option maxHeartbeats 5000 in <decl>` for declarations) for a cheap pre-verify. |
+| `mode` | `full` — elaboration **and** full kernel verification · `syntax_only` — wraps in `#check(...)` (or `set_option maxHeartbeats 5000 in <decl>` for declarations) for a cheap pre-verify · `tactic_step` — advances an existing proof state one tactic. |
 | `imports` | Prepended verbatim as `import X` lines. |
+| `env` | Opaque environment continuation token from a prior call; reuses that environment instead of re-importing. |
+| `proof_state` | Opaque proof-state token; required with `mode='tactic_step'`. |
 
-Returns `status` (`elaborated_no_errors` / `error` / `sorry` / `timeout` / `unavailable`),
-`compilation_success` (null in `syntax_only`), `messages` (severity + source
-position), `proof_state` (first unresolved goal), `goals_remaining`,
-`sorry_goals`. **Gated by `ARXMCP_ENABLE_LEAN`** — when disabled returns
+Returns `status` (`elaborated_no_errors` / `error` / `sorry` / `incomplete` /
+`timeout` / `unavailable` / `invalid-input`),
+`compilation_success` (null in `syntax_only` and `tactic_step`), `messages`
+(severity + source position), `proof_state` (first unresolved goal),
+`goals_remaining`, `sorry_goals`, `axiom_audit`, `env`, `proof_state_id`,
+`continuation_status`. **Gated by `ARXMCP_ENABLE_LEAN`** — when disabled returns
 `lean_status='disabled'` instead of a 5xx. A 30 s elaboration timeout kills
 and respawns the REPL before the next call.
+
+`status` reports elaboration **and** proof closure only — never axiom soundness.
+`elaborated_no_errors` (renamed from `ok` at `verification-contract-m1`) means Lean
+raised no error-severity diagnostic and no `sorry` remains; a snippet declaring its
+own `axiom` lands here. `axiom_audit` reports the transitive axiom closure
+independently; `status` and `compilation_success` never speak to it.
 
 ---
 
