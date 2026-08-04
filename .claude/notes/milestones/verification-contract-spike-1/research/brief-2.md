@@ -437,7 +437,7 @@ suspicion given how easy it was, in this session, to accidentally produce a fals
 5. **Stated bound for "the workstation falls over":** if a single probe invocation is ever observed
    to push system-wide available memory below ~2 GB or memory load above ~90%, or to leave more
    than the probe's own bounded process count running after its outer kill-switch should have
-   fired, **stop the spike immediately** or ,reduce every cap by half and use the containerized
+   fired, **stop the spike immediately**, or reduce every cap by half and use the containerized
    route exclusively — a workstation-wide slowdown affecting concurrent agent sessions is itself a
    real research-integrity problem (CLAUDE.md's own concurrency note), not just an inconvenience.
 
