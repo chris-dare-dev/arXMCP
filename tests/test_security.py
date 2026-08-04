@@ -54,6 +54,7 @@ from server.middleware import (
     LOOPBACK_ORIGIN_HOSTS,
     MAX_ECHOED_ORIGIN_LEN,
     REQUEST_BODY_MAX_BYTES,
+    HostValidationMiddleware,
     _origin_is_allowed,
     _validate_host_header,
 )
@@ -679,6 +680,110 @@ class TestHostHeaderHelper:
         assert "127.0.0.1" in LOOPBACK_HOST_HEADER_HOSTS
         assert "localhost" in LOOPBACK_HOST_HEADER_HOSTS
         assert "::1" in LOOPBACK_HOST_HEADER_HOSTS
+
+
+class TestAllowedHostsExtension:
+    """``ARXMCP_ALLOWED_HOSTS`` EXTENDS the loopback floor, never replaces it.
+
+    Container/k8s deployments need this: liveness/readiness probes and the
+    Prometheus scrape reach the server by pod IP or Service DNS name, not by
+    loopback, so Threat-5 Host validation rejected every one of them with the
+    loopback-only allow-list. The security property that must survive the
+    escape hatch is that ONLY explicitly-listed hosts pass — a DNS-rebinding
+    attacker's host is not on the list.
+    """
+
+    def test_empty_list_preserves_loopback_only_behavior(self):
+        """The default. An empty extension must be byte-identical to the
+        historical behavior, so shipping this feature changes nothing for
+        every deployment that does not opt in."""
+        assert _validate_host_header("127.0.0.1", allowed_port=None) is True
+        assert _validate_host_header(
+            "10.42.0.20", allowed_port=None, extra_hosts=frozenset()
+        ) is False
+
+    def test_listed_host_is_accepted(self):
+        """The pod-IP case the k8s downward API feeds in."""
+        assert _validate_host_header(
+            "10.42.0.20", allowed_port=None, extra_hosts=frozenset({"10.42.0.20"})
+        ) is True
+
+    def test_unlisted_host_is_still_rejected(self):
+        """The defense. Opting one host in does not open the door — this is
+        what separates an allow-list from a disabled check."""
+        assert _validate_host_header(
+            "evil.com", allowed_port=None, extra_hosts=frozenset({"10.42.0.20"})
+        ) is False
+        assert _validate_host_header(
+            "10.42.0.21", allowed_port=None, extra_hosts=frozenset({"10.42.0.20"})
+        ) is False
+
+    def test_loopback_floor_survives_a_populated_list(self):
+        """The floor is a baseline, not a default that the var replaces.
+        A deployment that lists only its pod IP must not lose localhost."""
+        extra = frozenset({"10.42.0.20"})
+        for host in ("127.0.0.1", "localhost", "[::1]", "testserver"):
+            assert _validate_host_header(
+                host, allowed_port=None, extra_hosts=extra
+            ) is True
+
+    def test_port_check_still_applies_to_an_extra_host(self):
+        """The extension widens WHICH host is acceptable, not which port."""
+        extra = frozenset({"10.42.0.20"})
+        assert _validate_host_header(
+            "10.42.0.20:7733", allowed_port=7733, extra_hosts=extra
+        ) is True
+        assert _validate_host_header(
+            "10.42.0.20:8080", allowed_port=7733, extra_hosts=extra
+        ) is False
+
+    def test_service_dns_name_is_accepted_when_listed(self):
+        """The other half of the k8s case — in-cluster Service DNS."""
+        extra = frozenset({"arxmcp.arxmcp.svc.cluster.local"})
+        assert _validate_host_header(
+            "arxmcp.arxmcp.svc.cluster.local", allowed_port=None, extra_hosts=extra
+        ) is True
+
+
+class TestHostValidationMiddlewareExtraHosts:
+    """The middleware's own normalization of ``extra_allowed_hosts``.
+
+    ``_validate_host_header`` lowercases the incoming Host, so the configured
+    list must be lowercased at construction or a ``Host`` header that differs
+    only in case would be rejected against its own allow-list entry.
+    """
+
+    def test_configured_hosts_are_lowercased_and_stripped(self):
+        mw = HostValidationMiddleware(
+            app=None, extra_allowed_hosts=["  10.42.0.20 ", "ArXMCP.SVC.Cluster.Local"]
+        )
+        assert mw._extra_hosts == frozenset(
+            {"10.42.0.20", "arxmcp.svc.cluster.local"}
+        )
+
+    def test_blank_entries_are_dropped(self):
+        """A blank entry kept in the set would become an empty-string
+        allow-list member, and a whitespace-only ``Host`` header normalizes to
+        exactly that — so a stray comma in the env var would admit it.
+
+        (A genuinely absent/empty Host header is a separate, deliberate pass
+        at ``_validate_host_header``'s first branch — it never reaches the
+        allow-list. This test is about the whitespace-only value that does.)
+        """
+        mw = HostValidationMiddleware(app=None, extra_allowed_hosts=["", "   "])
+        assert mw._extra_hosts == frozenset()
+        assert _validate_host_header(
+            "   ", allowed_port=None, extra_hosts=mw._extra_hosts
+        ) is False
+        # Pin the hazard itself: had the blank survived, this would pass.
+        assert _validate_host_header(
+            "   ", allowed_port=None, extra_hosts=frozenset({""})
+        ) is True
+
+    def test_default_is_an_empty_frozenset(self):
+        """Omitting the kwarg entirely is the loopback-only path."""
+        mw = HostValidationMiddleware(app=None)
+        assert mw._extra_hosts == frozenset()
 
 
 # ===========================================================================

@@ -74,6 +74,7 @@ def _build_test_client(
     monkeypatch,
     *,
     extra_allowed_origins: list[str] | None = None,
+    extra_allowed_hosts: list[str] | None = None,
 ) -> TestClient:
     """Build a TestClient with a minimal config so the
     middleware stack is exercised end-to-end.
@@ -99,6 +100,10 @@ def _build_test_client(
         )
     else:
         monkeypatch.delenv("ARXMCP_ALLOWED_ORIGINS", raising=False)
+    if extra_allowed_hosts is not None:
+        monkeypatch.setenv("ARXMCP_ALLOWED_HOSTS", json.dumps(extra_allowed_hosts))
+    else:
+        monkeypatch.delenv("ARXMCP_ALLOWED_HOSTS", raising=False)
     monkeypatch.delenv("ARXMCP_UNSAFE_NETWORK_BIND", raising=False)
     # `ARXMCP_CONTACT_EMAIL` is not a Config field — it's used by
     # `tools/arxiv_fetch.py`. The server-side env-var scanner
@@ -517,6 +522,53 @@ class TestHostValidationRegressionForThreat5:
         response = _warmup_app.get(
             "/healthz", headers={"Host": "127.0.0.1"}
         )
+        assert response.status_code != 421
+
+
+class TestAllowedHostsEnvVarWiring:
+    """``ARXMCP_ALLOWED_HOSTS`` end-to-end: env var -> Config -> create_app ->
+    HostValidationMiddleware.
+
+    The unit tests in ``tests/test_security.py`` cover the predicate. These
+    cover the WIRING — that ``create_app`` actually threads
+    ``cfg.allowed_hosts`` into the middleware, which is the half a
+    predicate-only test cannot see.
+
+    Motivation: under k3s/colima the liveness probe and the Prometheus scrape
+    reach the server by pod IP, so Threat-5 Host validation 421'd every one of
+    them. This var opts specific hosts in WITHOUT lowering the loopback floor.
+    """
+
+    def test_pod_ip_rejected_by_default(self, tmp_path, monkeypatch):
+        """The var unset — the historical loopback-only behavior, unchanged."""
+        client = _build_test_client(tmp_path, monkeypatch)
+        response = client.get("/healthz", headers={"Host": "10.42.0.20"})
+        assert response.status_code == 421
+
+    def test_listed_pod_ip_accepted(self, tmp_path, monkeypatch):
+        """The k8s downward-API case this feature exists for."""
+        client = _build_test_client(
+            tmp_path, monkeypatch, extra_allowed_hosts=["10.42.0.20"]
+        )
+        response = client.get("/healthz", headers={"Host": "10.42.0.20"})
+        assert response.status_code != 421
+
+    def test_listing_one_host_does_not_admit_others(self, tmp_path, monkeypatch):
+        """The escape hatch stays an allow-list. Opting the pod IP in must not
+        re-open the DNS-rebinding shapes the class above pins as rejected."""
+        client = _build_test_client(
+            tmp_path, monkeypatch, extra_allowed_hosts=["10.42.0.20"]
+        )
+        for host in ("8.8.8.8", "attacker.localhost", "7f000001.nip.io"):
+            assert client.get("/healthz", headers={"Host": host}).status_code == 421
+
+    def test_loopback_floor_survives(self, tmp_path, monkeypatch):
+        """Listing a pod IP must not COST the deployment localhost — the
+        floor is a baseline the var extends, never replaces."""
+        client = _build_test_client(
+            tmp_path, monkeypatch, extra_allowed_hosts=["10.42.0.20"]
+        )
+        response = client.get("/healthz", headers={"Host": "127.0.0.1"})
         assert response.status_code != 421
 
 
