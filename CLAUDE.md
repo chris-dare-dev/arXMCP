@@ -434,6 +434,89 @@ rule 3 binds every arXMCP planning/analysis document. These bind every agent ses
 Enforcement is by-reference discipline (no CI linter or schema validator this track); the
 consuming tracks (R3 Lean surface, R5 registry) implement and gate on the policy.
 
+### 4.10 Sibling formalization repos — the contract boundary (binding)
+
+arXMCP does not host formalization work. Independent Lean projects do, one per
+topic, and the interface is **files exchanged at git tags** — never a runtime
+call in either direction.
+
+The first sibling is
+[`chris-dare-dev/bridgeland-stab-lean`](https://github.com/chris-dare-dev/bridgeland-stab-lean):
+a Lean 4 project pinned to `leanprover/lean4:v4.29.0`, extending
+`mattrobball/BridgelandStability`, whose source material is the
+`bridgeland-stability` notebook. **Sibling, never a subdirectory, never a
+dependency.** Its design lives in that repo's `.claude/decisions/` (seven
+ADRs, short); its issue tracker holds the arXMCP-side work too, labelled
+`cross-repo` — see that repo's `ADR-0006` for why one tracker and what
+triggers a split.
+
+These bind every agent session here:
+
+1. **arXMCP never issues statement identity.** A citation key is minted by a
+   human in the topic repo and contains **zero corpus-derived bytes** — not
+   `chunk_id`, not `corpus_version`, not the notebook slug. Not a preference:
+   `chunk_id` rotates by design (`Makefile:80` — *"NOTE: triggers chunk_id
+   rotation; follow with make re-embed-all"*), there is no alias table, and
+   `ingest/store.py:908-910`'s `merge_insert` has `when_matched_update_all` +
+   `when_not_matched_insert_all` and **no delete arm**, so rotation doubles
+   rather than fails. An id we mint is an id we break.
+2. **arXMCP answers exactly one question about a registry entry:** does this
+   quote still appear in the corpus, and where. Offline, read-only, via an
+   ingest CLI per §4.8 rule 2 — never at request time. The answer is a file
+   the topic repo commits, not a response we serve into someone's build.
+   `source_span`, which `ingest/schema.py` calls the authoritative resolving
+   key, is written as literal `None` (`ingest/store.py:599`) and is NULL on
+   every live row, so resolution matches on a quote hash the topic repo owns.
+3. **arXMCP never produces elaboration or axiom evidence about a topic repo's
+   environment.** Two independent reasons, both current:
+   - **Wrong environment.** No `lean-toolchain` or `lakefile.toml` exists in
+     this repo; the REPL runs from an operator-supplied directory outside it,
+     at a different Lean version than any topic repo pins.
+   - **The audit can miss a declaration and still read clean** (issue #382).
+     `_declaration_names` (`server/handlers/lean_verify.py:479`) recognizes a
+     declaration only by the prefix on its line, and `set_option` / `open` are
+     in neither `_DECL_KEYWORDS` nor `_DECL_MODIFIERS`. Such a line increments
+     **neither** `sites` nor `names`, so the `sites == len(names)` fail-safe
+     never fires. Re-measured against this working tree on 2026-08-04:
+
+     | snippet | `_declaration_names` | record |
+     |---|---|---|
+     | `theorem harmless …` | `(['harmless'], True)` | audited |
+     | `set_option … in theorem sneaky …` alone | `([], True)` | **`unknown`** — honest |
+     | unnamed `instance` + `theorem harmless` | `(['harmless'], False)` | **`unknown`** — honest |
+     | `set_option … in theorem sneaky …` **+** `theorem harmless` | `(['harmless'], True)` | **`clean`** — `sneaky` silently dropped |
+
+     Only the last row is the hole, and it is the routine one: a
+     `set_option maxHeartbeats … in theorem` beside any ordinary declaration.
+     The sibling supplies a non-empty `names`, so the empty-names abstention at
+     `:1123` never triggers, and `#print axioms` audits only what it could see.
+
+     **Do not describe the empty case as the bug.** `:1123` abstains with
+     `outcome:"unknown"` and says in as many words *"this is NOT a clean
+     verdict"*, and `:613` downgrades on `complete=False` with a reason. Both
+     work as designed. An earlier revision of this section cited the empty path;
+     that was wrong, and the correction matters because it is the difference
+     between a design that abstains correctly and one that has a single
+     unguarded gap.
+
+   Any axis whose environment digest differs from the record's renders
+   `not_applicable` — never a pass, never a fail.
+4. **arXMCP may downgrade a trust axis from its own fresher resolution; it has
+   no path that raises one.** We can say "this got worse since you published
+   it." We can never say "this is better than you claimed."
+
+§4.9 applies unchanged to anything re-served from a topic repo: no bare
+"verified", no axis inferred from another, and coverage stated as a dated
+census rather than implied by the presence of records. A topic repo that mints
+ten entries against a 15,000-chunk notebook has covered ~0.07% of it, and the
+served surface must say so.
+
+**Do not describe this contract in the present tense.** As of 2026-08-03
+nothing here reads a `formalization.yaml` (`find -iname "*formaliz*"` → zero
+files), no `formal_releases` table exists, no `arxmcp://formal/*` resource is
+registered, and `enable_lean` is `False` by default (`server/config.py:208`).
+R5 is a brief with no `plans/` track. What exists is a design and a backlog.
+
 ---
 
 ## 5. Directory layout — what lives where
