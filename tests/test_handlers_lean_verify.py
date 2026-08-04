@@ -2339,6 +2339,153 @@ class TestDeclarationNameExtraction:
         assert _declaration_names("example : True := trivial") == ([], True)
 
 
+class TestPrefixedDeclarationSites:
+    """arXMCP#382 — a declaration behind an unrecognised ``… in`` combinator.
+
+    ``set_option maxHeartbeats 400000 in theorem t`` is the common Mathlib
+    idiom. ``set_option`` is in neither ``_DECL_KEYWORDS`` nor
+    ``_DECL_MODIFIERS``, so the line used to match NO site at all: ``sites``
+    never incremented, the ``sites == len(names)`` fail-safe reported
+    complete, and — whenever the snippet ALSO carried a recognised
+    declaration — the prefixed one was silently dropped from a verdict that
+    then read as ``clean``.
+
+    The fix counts such a line as a site with no extractable name, the same
+    fail-safe an unnamed ``instance`` already uses. It can only move
+    ``complete`` True -> False, so it can never admit an unaudited
+    declaration.
+    """
+
+    # --- the reported shapes: MIXED snippet, where the drop was silent ---
+
+    def test_set_option_in_theorem_is_not_silently_dropped(self):
+        """AC#1 — the reported bug. `sneaky` is invisible to the name
+        extractor, so the audit must refuse to call the sweep complete."""
+        names, complete = _declaration_names(
+            "set_option maxHeartbeats 400000 in theorem sneaky : False := sorry\n"
+            "theorem harmless : True := trivial"
+        )
+        assert names == ["harmless"]
+        assert complete is False
+
+    def test_open_in_theorem_is_not_silently_dropped(self):
+        """AC#2."""
+        names, complete = _declaration_names(
+            "open Classical in theorem sneaky : False := sorry\n"
+            "theorem harmless : True := trivial"
+        )
+        assert names == ["harmless"]
+        assert complete is False
+
+    # --- the three siblings research found in the same class (AC#3) ---
+
+    def test_variable_in_theorem_is_not_silently_dropped(self):
+        names, complete = _declaration_names(
+            "variable (n : Nat) in theorem sneaky : True := trivial\n"
+            "theorem harmless : True := trivial"
+        )
+        assert names == ["harmless"]
+        assert complete is False
+
+    def test_universe_in_theorem_is_not_silently_dropped(self):
+        names, complete = _declaration_names(
+            "universe u in theorem sneaky : True := trivial\n"
+            "theorem harmless : True := trivial"
+        )
+        assert names == ["harmless"]
+        assert complete is False
+
+    def test_attribute_in_theorem_is_not_silently_dropped(self):
+        names, complete = _declaration_names(
+            "attribute [simp] foo in theorem sneaky : True := trivial\n"
+            "theorem harmless : True := trivial"
+        )
+        assert names == ["harmless"]
+        assert complete is False
+
+    def test_modifier_after_the_in_combinator_still_counts(self):
+        """The prefix scan reuses the modifier/attribute grammar, so
+        ``open X in noncomputable def f`` is a site too."""
+        names, complete = _declaration_names(
+            "open Classical in noncomputable def f : Nat := 0\n"
+            "theorem harmless : True := trivial"
+        )
+        assert names == ["harmless"]
+        assert complete is False
+
+    # --- AC#4: the abstention path stays an abstention ---
+
+    def test_prefixed_declaration_alone_yields_no_names(self):
+        """A snippet whose ONLY declaration is prefixed still extracts no
+        name, so ``_attach_axiom_audit`` still takes its ``if not names``
+        branch and abstains. ``complete`` flips to False, which is strictly
+        more accurate: there IS a declaration here, it just could not be
+        named, and that is the reason string the caller now emits."""
+        assert _declaration_names(
+            "set_option maxHeartbeats 400000 in theorem sneaky : False := sorry"
+        ) == ([], False)
+
+    # --- AC#5: controls that must NOT regress ---
+
+    def test_multiline_open_in_is_unaffected(self):
+        """``open X in`` with the declaration on the NEXT line already worked
+        — the next line matches ``_DECL_SITE_RE`` normally. Nothing follows
+        ``in`` on the combinator line, so the prefix scan ignores it."""
+        assert _declaration_names(
+            "open Classical in\ntheorem fine : True := trivial"
+        ) == (["fine"], True)
+
+    def test_comment_mentioning_a_keyword_is_not_a_site(self):
+        """The false-positive shape a loose keyword scan would have created.
+        Lean prose uses these words constantly."""
+        names, complete = _declaration_names(
+            "-- prove this theorem using induction\n"
+            "-- def foo does something\n"
+            "theorem t : True := trivial"
+        )
+        assert names == ["t"]
+        assert complete is True
+
+    def test_mathlib_sum_binder_is_not_a_site(self):
+        """``∑ i in Finset.range n`` is an ``in`` on a continuation line. No
+        declaration keyword follows it, and ``instances`` / ``classical`` do
+        not word-boundary-match ``instance`` / ``class``."""
+        names, complete = _declaration_names(
+            "theorem s :\n"
+            "    ∑ i in Finset.range n, f i = g n := by\n"
+            "  simp [instances, classical]"
+        )
+        assert names == ["s"]
+        assert complete is True
+
+    def test_bare_open_and_variable_lines_stay_invisible(self):
+        """A bare ``open``/``variable``/``universe`` line introduces no
+        kernel-checked declaration ``#print axioms`` could address, and must
+        keep introducing no site."""
+        names, complete = _declaration_names(
+            "open Classical\n"
+            "variable (n : Nat)\n"
+            "universe u\n"
+            "theorem t : True := trivial"
+        )
+        assert names == ["t"]
+        assert complete is True
+
+    def test_the_whole_chain_refuses_to_report_clean(self):
+        """End-to-end over the two functions the caller composes: every name
+        we DID ask about came back clean, but the dropped declaration must
+        stop the record reading as a clean sweep."""
+        names, complete = _declaration_names(
+            "set_option maxHeartbeats 400000 in theorem sneaky : False := sorry\n"
+            "theorem harmless : True := trivial"
+        )
+        rec = _audit_from_messages(
+            [{"text": "'harmless' does not depend on any axioms"}], names, complete
+        )
+        assert rec["outcome"] == "unknown"
+        assert "could not name" in rec["reason"]
+
+
 class TestAxiomAuditScoring:
     """Unit tests for scoring a ``#print axioms`` reply set."""
 

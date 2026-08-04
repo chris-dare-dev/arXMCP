@@ -447,6 +447,33 @@ _DECL_SITE_RE = re.compile(
     rf"^\s*(?:@\[[^\]]*\]\s*)*(?:(?:{_MODIFIER_ALT})\s+)*(?:{_KEYWORD_ALT})\b"
 )
 
+#: A declaration site hidden behind an unrecognised `… in` combinator —
+#: ``set_option … in theorem t``, ``open … in theorem t``, and the same shape
+#: for ``variable`` / ``universe`` / ``attribute`` (#382). None of those
+#: prefixes is in ``_DECL_MODIFIERS``, so ``_DECL_SITE_RE`` fails at position 0
+#: and the declaration was invisible rather than merely unnamed — ``sites``
+#: never incremented, so the ``sites == len(names)`` fail-safe reported
+#: complete and an unaudited declaration rode inside a ``clean`` verdict.
+#:
+#: Deliberately does NOT teach the parser ``set_option`` / ``open`` grammar: a
+#: line matching this is counted as a site with NO extractable name, which is
+#: the same fail-safe the unnamed ``instance`` already uses. Fail-safe over
+#: feature — the effect is only ever to move ``complete`` True -> False, never
+#: the reverse, so this can never admit a declaration that went unaudited.
+#:
+#: Narrow on purpose. It requires a literal ``in`` combinator followed on the
+#: SAME line by a declaration keyword, so it leaves alone: a prose comment
+#: mentioning "theorem" or "def" (no ``in``), a multi-line ``open X in`` with
+#: the declaration on the next line (nothing follows ``in``), and a Mathlib
+#: binder such as ``∑ i in Finset.range n`` (no keyword follows ``in``, and
+#: ``instances`` / ``classical`` do not word-boundary-match ``instance`` /
+#: ``class``). Anchored with ``.match()`` like every other regex here — the
+#: repo-wide invariant that keeps comments safe.
+_PREFIXED_DECL_SITE_RE = re.compile(
+    rf"^\s*\S.*?\bin\s+(?:@\[[^\]]*\]\s*)*(?:(?:{_MODIFIER_ALT})\s+)*"
+    rf"(?:{_KEYWORD_ALT})\b"
+)
+
 #: A declaration site that DOES carry an extractable name. The name charset
 #: excludes the delimiters that can legally follow it (binders, type ascription,
 #: universe braces) rather than enumerating Lean's very permissive identifier
@@ -481,9 +508,10 @@ def _declaration_names(snippet: str) -> tuple[list[str], bool]:
 
     Returns ``(names, complete)``. ``complete`` is False when the snippet
     contains a declaration site this parser could not name (an unnamed
-    ``instance``, an exotic form) — the caller MUST degrade the audit to
-    ``unknown`` in that case, because a name we never asked about is a
-    declaration we never audited.
+    ``instance``, a declaration behind an unrecognised ``… in`` combinator
+    such as ``set_option … in theorem t``, an exotic form) — the caller MUST
+    degrade the audit to ``unknown`` in that case, because a name we never
+    asked about is a declaration we never audited.
 
     Namespace-aware: ``namespace N`` / ``end`` are tracked as a stack so
     ``theorem t`` inside ``namespace N`` is audited as ``N.t`` — the name Lean
@@ -510,6 +538,12 @@ def _declaration_names(snippet: str) -> tuple[list[str], bool]:
                 scopes.pop()
             continue
         if not _DECL_SITE_RE.match(line):
+            # #382: a declaration behind an unrecognised `… in` combinator is a
+            # site this parser cannot name, NOT an absent one. Counting it here
+            # is what lets the sites-vs-names fail-safe below fire instead of
+            # letting the declaration ride inside a `clean` verdict.
+            if _PREFIXED_DECL_SITE_RE.match(line):
+                sites += 1
             continue
         sites += 1
         named = _DECL_NAME_RE.match(line)
