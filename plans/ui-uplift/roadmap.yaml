@@ -373,25 +373,42 @@ items:
 
   - id: ui-uplift-m10
     kind: milestone
-    title: "Style the Discover-results candidate list"
+    title: "Style Discover results; close the last unstyled classes"
     summary: >-
       UPL-9. Five emitted classes with zero CSS rules. This is the ONLY surface in the console
       that presents external content for operator judgment and it is the least-styled thing in
       the product — a bare bulleted list with default browser margins. Give it a
       bibliography-style title/meta/abstract hierarchy.
+      SCOPE EXPANDED 2026-08-04 by ui-uplift-m9 finding M8: four further emitted classes have
+      zero CSS and no owning milestone anywhere in this roadmap —
+      `status-badge__remediation` (server/routes/ui.py:336) and the three
+      `topic-block` / `topic-category` / `topic-description` classes
+      (server/routes/notebooks.py:621-623). They were parked in the m9 coverage test's
+      `_KNOWN_UNSTYLED` deferral list, which is a holding pen, not a home. Folding them in here
+      means m10 empties that list entirely and the BAN-R2 coverage policy binds unconditionally
+      from then on — the epic's actual finish line.
     parent: ui-uplift-e2
     lane: now
     priority: must
     target_start: 2026-08-20
     target_end: 2026-08-27
-    tags: [UPL-9]
+    tags: [UPL-9, UPL-7-followup]
     acceptance:
       - "Given a discovery run returning candidates, when rendered, then title, meta and abstract are typographically distinguished and candidates are separated"
       - "Given the meta line, then it uses --mono and inherits tabular-nums"
       - "Given the results group, then NO fade-in keyframe is added — globalViewTransitions already crossfades that swap at 200ms and a second animation would double-animate"
       - "Given a relevance line, then it is only added if the arXiv Atom driver genuinely supplies the basis; a manufactured reason violates operational honesty"
+      - "Given the remediation block emitted at server/routes/ui.py:336, then `.status-badge__remediation` has a CSS rule in app.css"
+      - "Given the topic fragment at server/routes/notebooks.py:621-623, then `.topic-block`, `.topic-category` and `.topic-description` each have a CSS rule in app.css"
+      - "Given this milestone is complete, then `_KNOWN_UNSTYLED` in tests/test_ui_class_css_coverage.py is EMPTY and every emitted class is covered by a real rule rather than a deferral"
+      - "Given app.css grows past the line cap asserted in test_ui_m3/m4/m5 (480 at 2026-08-04, with app.css already at 460), then the cap is raised deliberately in all three sibling tests in the same commit — not worked around by writing denser CSS"
     links:
-      code: ["server/routes/notebooks.py:705-753"]
+      code:
+        - "server/routes/notebooks.py:705-753"
+        - "server/routes/notebooks.py:621-623"
+        - "server/routes/ui.py:336"
+        - "server/frontend/static/app.css"
+        - "tests/test_ui_class_css_coverage.py"
 
   - id: ui-uplift-m11
     kind: milestone
