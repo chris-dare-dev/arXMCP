@@ -1,8 +1,10 @@
 # UI contrast table — ui-uplift-m6
 
 Every rendered foreground/background pair in the operator console's
-stylesheet (`server/frontend/static/app.css`), with its measured WCAG 2.1
-contrast ratio. This document is the canonical record consulted by
+stylesheet, with its measured WCAG 2.1 contrast ratio. Since `ui-uplift-m7`
+that is two files: the token values are parsed from
+`server/frontend/static/tokens.css` and the rules that combine them live in
+`server/frontend/static/app.css`. This document is the canonical record consulted by
 `ui-uplift-m8`, whose rule-ladder depends on the light-mode `--border`
 token clearing 3:1 against `--bg` (it did not before m6 — it was 1.342:1).
 
@@ -88,14 +90,29 @@ is small, reviewable, and reviewed.
 
 | Floor | Success criterion | Applies to |
 |---|---|---|
-| 4.5:1 | SC 1.4.3 Contrast (Minimum) | all text below 24px, or below 18.7px bold |
+| 4.5:1 | SC 1.4.3 Contrast (Minimum) | **every** text pair in this stylesheet |
 | 3:1 | SC 1.4.11 Non-text Contrast | borders, focus rings, pill outlines |
-| 3:1 | SC 1.4.3 large-text exception | `header h1 a` only — it inherits the UA `h1` rule (2em **and** bold) |
 
-Nothing else in this stylesheet reaches the large-text threshold: buttons
-are 14px, badges 12px, table cells 14.4px, card hints/notes 12.8–14.4px.
-`th` at `font-weight:600`/14.4px is far below the 18.7px bold threshold and
-is held to the full 4.5:1.
+**No row claims WCAG's large-text exception, and that is a decision rather
+than an oversight.** Until `ui-uplift-m7` one did: `header h1 a` was held to
+3:1 because `header h1` carried no `font-size` and rode the UA
+`h1 { font-size: 2em }` — a fixed 32px at every viewport. m7 put the title on
+`clamp(1.5rem, 4vw + 0.5rem, 2.25rem)`, so its rendered size is now
+viewport-dependent: 24px at a 390px viewport, 36px above 700px. A
+viewport-agnostic registry cannot honestly carry a floor that holds only at
+some widths, so the row moved to the 4.5:1 text floor, which holds at all of
+them. It still passes with an order of magnitude of headroom, so the honesty
+cost nothing. The `LARGE` constant was removed with it — it was numerically
+identical to `NONTEXT`, so keeping an alias for a different criterion at the
+same number invited the SC column to be inferred from a float.
+
+Sizes under the m7 scale, for the record: meta 11px (`th`, `.status-badge`),
+small 13px (labels, captions, controls, table cells, and every identifier in
+`code`/`time`), body 16px, section 20px (`.card h2`), title fluid 24→36px.
+Note that `.card h2` at 20px inherits UA bold and therefore *would* qualify
+for the ≥18.7px-bold branch — it is held to the full 4.5:1 anyway, on the
+same reasoning as the title. `th` at `font-weight:600`/11px is nowhere near
+the threshold and is likewise held to 4.5:1.
 
 ## The family
 
@@ -211,30 +228,30 @@ pills — worse than the behaviour it would have replaced.
 |---|---|---|---|---|---|---|---|---|
 | 1 | light | body text | `#181d23` | `#f6f9fb` | **16.032:1** | 4.5:1 | 1.4.3 | PASS |
 | 2 | light | card body text | `#181d23` | `#fafcfe` | **16.483:1** | 4.5:1 | 1.4.3 | PASS |
-| 3 | light | header h1 a (large text) | `#181d23` | `#f6f9fb` | **16.032:1** | 3.0:1 | 1.4.11 / large text | PASS |
+| 3 | light | header h1 a | `#181d23` | `#f6f9fb` | **16.032:1** | 4.5:1 | 1.4.3 | PASS |
 | 4 | light | td text | `#181d23` | `#fafcfe` | **16.483:1** | 4.5:1 | 1.4.3 | PASS |
 | 5 | light | tbody tr:hover text | `#181d23` | `#edeff2` | **14.715:1** | 4.5:1 | 1.4.3 | PASS |
 | 6 | light | .breadcrumb a link [accent role 3] | `#1f609b` | `#f6f9fb` | **6.198:1** | 4.5:1 | 1.4.3 | PASS |
-| 7 | light | focus ring on --bg [accent role 2] | `#1f609b` | `#f6f9fb` | **6.198:1** | 3.0:1 | 1.4.11 / large text | PASS |
-| 8 | light | focus ring on --card-bg [accent role 2] | `#1f609b` | `#fafcfe` | **6.372:1** | 3.0:1 | 1.4.11 / large text | PASS |
+| 7 | light | focus ring on --bg [accent role 2] | `#1f609b` | `#f6f9fb` | **6.198:1** | 3.0:1 | 1.4.11 | PASS |
+| 8 | light | focus ring on --card-bg [accent role 2] | `#1f609b` | `#fafcfe` | **6.372:1** | 3.0:1 | 1.4.11 | PASS |
 | 9 | light | pre.error text | `#b5352d` | `#fceeec` | **5.291:1** | 4.5:1 | 1.4.3 | PASS |
-| 10 | light | button.danger focus ring on --bg | `#b5352d` | `#f6f9fb` | **5.656:1** | 3.0:1 | 1.4.11 / large text | PASS |
-| 11 | light | button.danger focus ring on --card-bg | `#b5352d` | `#fafcfe` | **5.815:1** | 3.0:1 | 1.4.11 / large text | PASS |
-| 12 | light | --border on --bg [AC#4 in light] | `#818a94` | `#f6f9fb` | **3.312:1** | 3.0:1 | 1.4.11 / large text | PASS |
-| 13 | light | --border on --card-bg | `#818a94` | `#fafcfe` | **3.405:1** | 3.0:1 | 1.4.11 / large text | PASS |
+| 10 | light | button.danger focus ring on --bg | `#b5352d` | `#f6f9fb` | **5.656:1** | 3.0:1 | 1.4.11 | PASS |
+| 11 | light | button.danger focus ring on --card-bg | `#b5352d` | `#fafcfe` | **5.815:1** | 3.0:1 | 1.4.11 | PASS |
+| 12 | light | --border on --bg [AC#4 in light] | `#818a94` | `#f6f9fb` | **3.312:1** | 3.0:1 | 1.4.11 | PASS |
+| 13 | light | --border on --card-bg | `#818a94` | `#fafcfe` | **3.405:1** | 3.0:1 | 1.4.11 | PASS |
 | 14 | dark | body text | `#d7dbe0` | `#090e13` | **13.931:1** | 4.5:1 | 1.4.3 | PASS |
 | 15 | dark | card body text | `#d7dbe0` | `#13191f` | **12.725:1** | 4.5:1 | 1.4.3 | PASS |
-| 16 | dark | header h1 a (large text) | `#d7dbe0` | `#090e13` | **13.931:1** | 3.0:1 | 1.4.11 / large text | PASS |
+| 16 | dark | header h1 a | `#d7dbe0` | `#090e13` | **13.931:1** | 4.5:1 | 1.4.3 | PASS |
 | 17 | dark | td text | `#d7dbe0` | `#13191f` | **12.725:1** | 4.5:1 | 1.4.3 | PASS |
 | 18 | dark | tbody tr:hover text | `#d7dbe0` | `#1b2127` | **11.673:1** | 4.5:1 | 1.4.3 | PASS |
 | 19 | dark | .breadcrumb a link [accent role 3] | `#59a2eb` | `#090e13` | **7.190:1** | 4.5:1 | 1.4.3 | PASS |
-| 20 | dark | focus ring on --bg [accent role 2] | `#59a2eb` | `#090e13` | **7.190:1** | 3.0:1 | 1.4.11 / large text | PASS |
-| 21 | dark | focus ring on --card-bg [accent role 2] | `#59a2eb` | `#13191f` | **6.568:1** | 3.0:1 | 1.4.11 / large text | PASS |
+| 20 | dark | focus ring on --bg [accent role 2] | `#59a2eb` | `#090e13` | **7.190:1** | 3.0:1 | 1.4.11 | PASS |
+| 21 | dark | focus ring on --card-bg [accent role 2] | `#59a2eb` | `#13191f` | **6.568:1** | 3.0:1 | 1.4.11 | PASS |
 | 22 | dark | pre.error text | `#f36b5d` | `#301714` | **5.620:1** | 4.5:1 | 1.4.3 | PASS |
-| 23 | dark | button.danger focus ring on --bg | `#f36b5d` | `#090e13` | **6.525:1** | 3.0:1 | 1.4.11 / large text | PASS |
-| 24 | dark | button.danger focus ring on --card-bg | `#f36b5d` | `#13191f` | **5.960:1** | 3.0:1 | 1.4.11 / large text | PASS |
-| 25 | dark | --border on --bg [AC#4 in light] | `#636d77` | `#090e13` | **3.676:1** | 3.0:1 | 1.4.11 / large text | PASS |
-| 26 | dark | --border on --card-bg | `#636d77` | `#13191f` | **3.358:1** | 3.0:1 | 1.4.11 / large text | PASS |
+| 23 | dark | button.danger focus ring on --bg | `#f36b5d` | `#090e13` | **6.525:1** | 3.0:1 | 1.4.11 | PASS |
+| 24 | dark | button.danger focus ring on --card-bg | `#f36b5d` | `#13191f` | **5.960:1** | 3.0:1 | 1.4.11 | PASS |
+| 25 | dark | --border on --bg [AC#4 in light] | `#636d77` | `#090e13` | **3.676:1** | 3.0:1 | 1.4.11 | PASS |
+| 26 | dark | --border on --card-bg | `#636d77` | `#13191f` | **3.358:1** | 3.0:1 | 1.4.11 | PASS |
 | 27 | light | button/.button text [accent role 1] | `#ffffff` | `#1f609b` | **6.553:1** | 4.5:1 | 1.4.3 | PASS |
 | 28 | light | button:hover text | `#ffffff` | `#3d73a8` | **4.981:1** | 4.5:1 | 1.4.3 | PASS |
 | 29 | light | button.danger text | `#ffffff` | `#b5352d` | **5.980:1** | 4.5:1 | 1.4.3 | PASS |
@@ -260,46 +277,46 @@ pills — worse than the behaviour it would have replaced.
 | 49 | dark | input/textarea typed text | `#d7dbe0` | `#13191f` | **12.725:1** | 4.5:1 | 1.4.3 | PASS |
 | 50 | dark | th text on th background | `#d7dbe0` | `#13191f` | **12.725:1** | 4.5:1 | 1.4.3 | PASS |
 | 51 | light | .status-badge--ok text | `#15682d` | `#e6f4ea` | **6.063:1** | 4.5:1 | 1.4.3 | PASS |
-| 52 | light | .status-badge--ok border on --bg | `#15682d` | `#f6f9fb` | **6.512:1** | 3.0:1 | 1.4.11 / large text | PASS |
+| 52 | light | .status-badge--ok border on --bg | `#15682d` | `#f6f9fb` | **6.512:1** | 3.0:1 | 1.4.11 | PASS |
 | 53 | light | .status-badge--warn text | `#8a5a00` | `#fdf3e2` | **5.389:1** | 4.5:1 | 1.4.3 | PASS |
-| 54 | light | .status-badge--warn border on --bg | `#8a5a00` | `#f6f9fb` | **5.606:1** | 3.0:1 | 1.4.11 / large text | PASS |
+| 54 | light | .status-badge--warn border on --bg | `#8a5a00` | `#f6f9fb` | **5.606:1** | 3.0:1 | 1.4.11 | PASS |
 | 55 | light | .status-badge--ops-warn text | `#475569` | `#eef2f7` | **6.740:1** | 4.5:1 | 1.4.3 | PASS |
-| 56 | light | .status-badge--ops-warn border on --bg | `#475569` | `#f6f9fb` | **7.167:1** | 3.0:1 | 1.4.11 / large text | PASS |
+| 56 | light | .status-badge--ops-warn border on --bg | `#475569` | `#f6f9fb` | **7.167:1** | 3.0:1 | 1.4.11 | PASS |
 | 57 | light | .status-badge--down text (tokens) | `#b5352d` | `#fceeec` | **5.291:1** | 4.5:1 | 1.4.3 | PASS |
-| 58 | light | .status-badge--down border on --bg (token) | `#b5352d` | `#f6f9fb` | **5.656:1** | 3.0:1 | 1.4.11 / large text | PASS |
+| 58 | light | .status-badge--down border on --bg (token) | `#b5352d` | `#f6f9fb` | **5.656:1** | 3.0:1 | 1.4.11 | PASS |
 | 59 | dark | .status-badge--ok text | `#3fb950` | `#0d2818` | **6.198:1** | 4.5:1 | 1.4.3 | PASS |
-| 60 | dark | .status-badge--ok border on --bg | `#3fb950` | `#090e13` | **7.627:1** | 3.0:1 | 1.4.11 / large text | PASS |
+| 60 | dark | .status-badge--ok border on --bg | `#3fb950` | `#090e13` | **7.627:1** | 3.0:1 | 1.4.11 | PASS |
 | 61 | dark | .status-badge--warn text | `#d29922` | `#3d2a07` | **5.428:1** | 4.5:1 | 1.4.3 | PASS |
-| 62 | dark | .status-badge--warn border on --bg | `#d29922` | `#090e13` | **7.676:1** | 3.0:1 | 1.4.11 / large text | PASS |
+| 62 | dark | .status-badge--warn border on --bg | `#d29922` | `#090e13` | **7.676:1** | 3.0:1 | 1.4.11 | PASS |
 | 63 | dark | .status-badge--ops-warn text | `#8b949e` | `#1c2230` | **5.169:1** | 4.5:1 | 1.4.3 | PASS |
-| 64 | dark | .status-badge--ops-warn border on --bg | `#8b949e` | `#090e13` | **6.299:1** | 3.0:1 | 1.4.11 / large text | PASS |
+| 64 | dark | .status-badge--ops-warn border on --bg | `#8b949e` | `#090e13` | **6.299:1** | 3.0:1 | 1.4.11 | PASS |
 | 65 | dark | .status-badge--down text | `#f85149` | `#3d1216` | **4.832:1** | 4.5:1 | 1.4.3 | PASS |
-| 66 | dark | .status-badge--down border on --bg | `#f85149` | `#090e13` | **5.780:1** | 3.0:1 | 1.4.11 / large text | PASS |
-| 67 | light | .status-badge base border on --bg | `#818a94` | `#f6f9fb` | **3.312:1** | 3.0:1 | 1.4.11 / large text | PASS |
-| 68 | dark | .status-badge base border on --bg | `#636d77` | `#090e13` | **3.676:1** | 3.0:1 | 1.4.11 / large text | PASS |
+| 66 | dark | .status-badge--down border on --bg | `#f85149` | `#090e13` | **5.780:1** | 3.0:1 | 1.4.11 | PASS |
+| 67 | light | .status-badge base border on --bg | `#818a94` | `#f6f9fb` | **3.312:1** | 3.0:1 | 1.4.11 | PASS |
+| 68 | dark | .status-badge base border on --bg | `#636d77` | `#090e13` | **3.676:1** | 3.0:1 | 1.4.11 | PASS |
 | 69 | light | in-flight accent button label on --bg [EXEMPT: inactive component, SC 1.4.3 — pointer-events:none] | `#fcfdfe` | `#608eb8` | **3.403:1** | — | exempt | EXEMPT |
-| 70 | light | in-flight accent focus ring on --bg | `#608eb8` | `#f6f9fb` | **3.278:1** | 3.0:1 | 1.4.11 / large text | PASS |
+| 70 | light | in-flight accent focus ring on --bg | `#608eb8` | `#f6f9fb` | **3.278:1** | 3.0:1 | 1.4.11 | PASS |
 | 71 | light | in-flight danger button label on --bg [EXEMPT: inactive component, SC 1.4.3 — pointer-events:none] | `#fcfdfe` | `#c8706b` | **3.445:1** | — | exempt | EXEMPT |
-| 72 | light | in-flight danger focus ring on --bg | `#c8706b` | `#f6f9fb` | **3.318:1** | 3.0:1 | 1.4.11 / large text | PASS |
+| 72 | light | in-flight danger focus ring on --bg | `#c8706b` | `#f6f9fb` | **3.318:1** | 3.0:1 | 1.4.11 | PASS |
 | 73 | light | in-flight accent button label on --card-bg [EXEMPT: inactive component, SC 1.4.3 — pointer-events:none] | `#fefeff` | `#618fb9` | **3.395:1** | — | exempt | EXEMPT |
-| 74 | light | in-flight accent focus ring on --card-bg | `#618fb9` | `#fafcfe` | **3.327:1** | 3.0:1 | 1.4.11 / large text | PASS |
+| 74 | light | in-flight accent focus ring on --card-bg | `#618fb9` | `#fafcfe` | **3.327:1** | 3.0:1 | 1.4.11 | PASS |
 | 75 | light | in-flight danger button label on --card-bg [EXEMPT: inactive component, SC 1.4.3 — pointer-events:none] | `#fefeff` | `#ca716c` | **3.421:1** | — | exempt | EXEMPT |
-| 76 | light | in-flight danger focus ring on --card-bg | `#ca716c` | `#fafcfe` | **3.353:1** | 3.0:1 | 1.4.11 / large text | PASS |
+| 76 | light | in-flight danger focus ring on --card-bg | `#ca716c` | `#fafcfe` | **3.353:1** | 3.0:1 | 1.4.11 | PASS |
 | 77 | dark | in-flight accent button label on --bg [EXEMPT: inactive component, SC 1.4.3 — pointer-events:none] | `#090e13` | `#4176aa` | **4.057:1** | — | exempt | EXEMPT |
-| 78 | dark | in-flight accent focus ring on --bg | `#4176aa` | `#090e13` | **4.057:1** | 3.0:1 | 1.4.11 / large text | PASS |
+| 78 | dark | in-flight accent focus ring on --bg | `#4176aa` | `#090e13` | **4.057:1** | 3.0:1 | 1.4.11 | PASS |
 | 79 | dark | in-flight danger button label on --bg [EXEMPT: inactive component, SC 1.4.3 — pointer-events:none] | `#090e13` | `#ad4f47` | **3.678:1** | — | exempt | EXEMPT |
-| 80 | dark | in-flight danger focus ring on --bg | `#ad4f47` | `#090e13` | **3.678:1** | 3.0:1 | 1.4.11 / large text | PASS |
+| 80 | dark | in-flight danger focus ring on --bg | `#ad4f47` | `#090e13` | **3.678:1** | 3.0:1 | 1.4.11 | PASS |
 | 81 | dark | in-flight accent button label on --card-bg [EXEMPT: inactive component, SC 1.4.3 — pointer-events:none] | `#0c1117` | `#4479ae` | **4.144:1** | — | exempt | EXEMPT |
-| 82 | dark | in-flight accent focus ring on --card-bg | `#4479ae` | `#13191f` | **3.870:1** | 3.0:1 | 1.4.11 / large text | PASS |
+| 82 | dark | in-flight accent focus ring on --card-bg | `#4479ae` | `#13191f` | **3.870:1** | 3.0:1 | 1.4.11 | PASS |
 | 83 | dark | in-flight danger button label on --card-bg [EXEMPT: inactive component, SC 1.4.3 — pointer-events:none] | `#0c1117` | `#b0524a` | **3.747:1** | — | exempt | EXEMPT |
-| 84 | dark | in-flight danger focus ring on --card-bg | `#b0524a` | `#13191f` | **3.499:1** | 3.0:1 | 1.4.11 / large text | PASS |
-| 85 | light | .status-badge.htmx-settling flash border on --bg [accent role 5] | `#1f609b` | `#f6f9fb` | **6.198:1** | 3.0:1 | 1.4.11 / large text | PASS |
-| 86 | light | .status-badge.htmx-settling flash border on --card-bg [accent role 5] | `#1f609b` | `#fafcfe` | **6.372:1** | 3.0:1 | 1.4.11 / large text | PASS |
-| 87 | dark | .status-badge.htmx-settling flash border on --bg [accent role 5] | `#59a2eb` | `#090e13` | **7.190:1** | 3.0:1 | 1.4.11 / large text | PASS |
-| 88 | dark | .status-badge.htmx-settling flash border on --card-bg [accent role 5] | `#59a2eb` | `#13191f` | **6.568:1** | 3.0:1 | 1.4.11 / large text | PASS |
-| 89 | light | --border on th #f0f0f0 | `#818a94` | `#f0f0f0` | **3.073:1** | 3.0:1 | 1.4.11 / large text | PASS |
-| 90 | light | --border on tbody tr:hover | `#818a94` | `#edeff2` | **3.040:1** | 3.0:1 | 1.4.11 / large text | PASS |
-| 91 | dark | --border on tbody tr:hover | `#636d77` | `#1b2127` | **3.080:1** | 3.0:1 | 1.4.11 / large text | PASS |
+| 84 | dark | in-flight danger focus ring on --card-bg | `#b0524a` | `#13191f` | **3.499:1** | 3.0:1 | 1.4.11 | PASS |
+| 85 | light | .status-badge.htmx-settling flash border on --bg [accent role 5] | `#1f609b` | `#f6f9fb` | **6.198:1** | 3.0:1 | 1.4.11 | PASS |
+| 86 | light | .status-badge.htmx-settling flash border on --card-bg [accent role 5] | `#1f609b` | `#fafcfe` | **6.372:1** | 3.0:1 | 1.4.11 | PASS |
+| 87 | dark | .status-badge.htmx-settling flash border on --bg [accent role 5] | `#59a2eb` | `#090e13` | **7.190:1** | 3.0:1 | 1.4.11 | PASS |
+| 88 | dark | .status-badge.htmx-settling flash border on --card-bg [accent role 5] | `#59a2eb` | `#13191f` | **6.568:1** | 3.0:1 | 1.4.11 | PASS |
+| 89 | light | --border on th #f0f0f0 | `#818a94` | `#f0f0f0` | **3.073:1** | 3.0:1 | 1.4.11 | PASS |
+| 90 | light | --border on tbody tr:hover | `#818a94` | `#edeff2` | **3.040:1** | 3.0:1 | 1.4.11 | PASS |
+| 91 | dark | --border on tbody tr:hover | `#636d77` | `#1b2127` | **3.080:1** | 3.0:1 | 1.4.11 | PASS |
 
 <!-- END GENERATED CONTRAST TABLE -->
 

@@ -1,0 +1,147 @@
+/* arXMCP UI — design tokens. Colour family (ui-uplift-m6) + type scale
+   (ui-uplift-m7). Ships under /ui/static/tokens.css and is linked BEFORE
+   app.css in base.html: a custom property must be declared before the rules
+   that var() it, so link order is load-bearing, not cosmetic.
+
+   ui-uplift-m7 split this file out of app.css, which stood at 471 of a
+   480-line cap asserted in lockstep by three test files. The alternative was
+   raising that cap a fourth time. The split was chosen because it is the
+   escape hatch those cap tests name themselves, and because it gives the
+   colour and type tokens ONE home — which is what AC#4's "do not
+   parallel-define a second token set" asks for structurally rather than by
+   convention. THIS FILE HOLDS ONLY :root BLOCKS. Rules live in app.css; a
+   rule authored here would make the split a second stylesheet rather than a
+   token layer (guarded: tests/test_ui_m7_type_scale.py). */
+
+:root {
+  /* ui-attractive-polish-m3-rect F3: declare color-scheme so browsers
+     auto-darken UA-styled controls (form-element internals, scrollbars,
+     default focus rings, default caret color, native <select> dropdowns)
+     when prefers-color-scheme: dark fires. Without this declaration the
+     UA defaults stay light-mode even when the page tokens flip. */
+  color-scheme: light dark;
+  /* ui-uplift-m6: ONE OKLCH material family. Every colour token in this
+     file is oklch(L% C H) on one of two deliberate hues — brand 250deg
+     (neutrals + accent) and danger 28deg (danger + its error surface) —
+     built by the SAME construction in both modes. That replaces the old
+     stitch of hand-picked achromatic light greys (C=0.0000) against a
+     self-labelled GitHub-Primer dark clone (C=0.014-0.020, H=256-258);
+     no value here is a Primer literal.
+     Lightness is never eyeballed. Every contrast-bearing token is the
+     binary-search solution for a TARGET WCAG RATIO against a named
+     ground — OKLCH L is perceptually uniform, WCAG contrast is sRGB
+     relative luminance, and equal L steps do NOT give equal ratios.
+     The surfaces (--bg/--card-bg/--error-bg) are the chosen anchors;
+     everything else is solved against them. Chroma stays low at the
+     lightness extremes because the sRGB gamut allows almost none there
+     (max C at L=99% on hue 250 is 0.0049).
+     Every rendered pair, its target and its measured ratio:
+     .claude/docs/ui-contrast-table.md — regenerated, not hand-typed, by
+     tests/test_ui_contrast.py (which is also the AA gate).
+     light-dark() is deliberately NOT used: Baseline Newly Available,
+     not Widely, and inside a custom property an unsupporting engine
+     fails at SUBSTITUTION — background-color does not inherit, so its
+     initial value (transparent) is what would render. */
+  --fg: oklch(22.842% 0.014 250);      /* solved: 16.0:1 on --bg */
+  --bg: oklch(98% 0.004 250);          /* anchor: page canvas */
+  --card-bg: oklch(99% 0.004 250);     /* anchor: raised card surface */
+  --border: oklch(62.984% 0.018 250);  /* solved: 3.30:1 on --bg (SC 1.4.11) */
+  --accent: oklch(47.863% 0.115 250);  /* solved: 6.20:1 on --bg */
+  --danger: oklch(52.018% 0.165 28);   /* solved: 5.30:1 on --error-bg */
+  --error-bg: oklch(96% 0.015 28);     /* anchor: error surface */
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  /* ui-uplift-m6: duration tokens NAME the three values already in this
+     file (200/400/600ms). The motion canon's 100/200/300 scale was NOT
+     adopted — no acceptance criterion authorises a visible re-timing,
+     and it would run the spinner 2x faster. Duration is not
+     colour-scheme dependent, so these are declared here only.
+     --dur-fast MUST stay 200ms: index.html's hx-swap="outerHTML
+     swap:200ms" modifier is numerically coupled to row-fade-out below. */
+  --dur-fast: 200ms;
+  --dur-normal: 400ms;
+  --dur-slow: 600ms;
+  /* ui-uplift-m7 (UPL-3): the two-voice type scale. Two voices — the
+     system SANS stack for prose and the --mono stack for identifiers —
+     over FOUR authored sizes plus a fluid title. Before m7 the product
+     had fourteen font-size declarations, no token among them, and a
+     heading step of exactly 1.100x (.card h2 at 1.1rem against a body
+     that computes to the UA default 16px): hierarchy was carried by the
+     inherited UA bold, not by size. The section step is now 1.25x.
+
+     METHOD — the sizes are HAND-PICKED ROUND PIXELS, not a modular
+     ramp, and must not be "regularised". 11 -> 13 -> 16 -> 20 steps at
+     1.182x / 1.231x / 1.250x, approximating a minor third without being
+     one; a true 1.2 ramp from 11 gives 13.2 and 15.84, which render
+     blurry on a system stack. The round values ARE the decision.
+
+     rem, NEVER px. Every size below is rem so it tracks the reader's
+     own default font size (WCAG SC 1.4.4). Nothing in the product sets
+     a font-size on html/:root/body, so the root is the UA default 16px
+     and --text-body: 1rem is byte-identical to today's rendering — but
+     writing 16px would silently override a reader's preference, in the
+     milestone whose whole point is that type responds to the reader.
+     --tracking-meta is correctly em, not rem: tracking must scale with
+     ITS OWN element's size, which is the entire point at 11px.
+
+     --text-title is the value authored by the 2026q3 uplift discovery
+     (art-direction-scout-brief.md:493, synthesis.md:270,
+     final-report.md:193 — identical in all three), NOT invented here.
+     It resolves to 24px, is pinned at that minimum below a 400px
+     viewport and at 36px above 700px. It clears SC 1.4.4 on both
+     counts: min and max are rem (so text-only zoom scales them), and
+     the preferred term carries a 0.5rem alongside the 4vw (so page zoom
+     does not cancel itself); max/min = 1.5x, inside the 2.5x ceiling.
+     DECLARED DEVIATION: the design canon states a title range of
+     28-40px. This clamp's minimum is 24px — 4px BELOW that floor, at a
+     390px viewport. Shipped deliberately: 24px is a reasonable mobile
+     title, and raising the minimum to 1.75rem would narrow the fluid
+     ramp to 28-36px (1.29x), which barely justifies a clamp at all.
+     Recorded here rather than left silent.
+
+     REFUSED — text-wrap: balance. final-report.md:492 attaches it to
+     UPL-3 by name, so it is the obvious reach for a fluid title. It is
+     Baseline NEWLY available (2024-05-13); Widely lands 2026-11-13,
+     after this milestone. Refused on exactly the basis ui-uplift-m6
+     refused light-dark() above. text-wrap: pretty is a harder no —
+     Baseline limited, Firefox has not shipped it at all.
+
+     COUPLING — .status-badge { min-width: 14ch } in app.css is coupled
+     to that rule's font-family AND font-size. m7 moves it to
+     --text-meta; the coupling SURVIVES because ch is the width of "0"
+     in the element's own font, so the box and the text rescale
+     together and the 14-character capacity is invariant. A change of
+     FAMILY would break it; a change of size does not. */
+  --text-meta: 0.6875rem;   /* 11px @ a 16px root — micro-caps column meta */
+  --text-small: 0.8125rem;  /* 13px — labels, captions, identifiers, controls */
+  --text-body: 1rem;        /* 16px — matches today's computed body exactly */
+  --text-section: 1.25rem;  /* 20px — 1.25x over body (was 1.100x) */
+  --text-title: clamp(1.5rem, 4vw + 0.5rem, 2.25rem);  /* 24px -> 36px */
+  --tracking-meta: 0.06em;  /* 0.66px at 11px — the all-caps mitigation */
+}
+
+@media (prefers-color-scheme: dark) {
+  /* ui-uplift-m6: the SAME two hues and the SAME solve-for-a-target
+     method as the base :root — only the surface anchors are re-chosen
+     (dark canvas + a raised card 5pp lighter). Nothing in THIS :root
+     block is lifted from Primer any more; the old block was a labelled
+     Primer clone. The four .status-badge--* literals in app.css are v1
+     scope and are still Primer Dark values — see the note above them. */
+  :root {
+    --fg: oklch(89.089% 0.008 250);      /* solved: 14.0:1 on --bg */
+    --bg: oklch(16% 0.014 250);          /* anchor: page canvas */
+    --card-bg: oklch(21% 0.016 250);     /* anchor: raised card surface */
+    --border: oklch(52.923% 0.02 250);   /* solved: 3.35:1 on --card-bg,
+                                            the LIGHTER of its two grounds
+                                            and therefore the binding one
+                                            (3.67:1 on --bg) — SC 1.4.11 */
+    --accent: oklch(69.761% 0.13 250);   /* solved: 6.60:1 on --card-bg,
+                                            again the binding ground: in
+                                            dark mode --card-bg is LIGHTER
+                                            than --bg, so the focus ring is
+                                            tighter there, not on --bg */
+    --danger: oklch(69.137% 0.17 28);    /* solved: 5.60:1 on --error-bg */
+    --error-bg: oklch(24% 0.04 28);      /* anchor: error surface */
+    /* --mono, --dur-*, --text-* and --tracking-* are unchanged here
+       (none of those families is colour-scheme dependent). */
+  }
+}

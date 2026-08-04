@@ -18,9 +18,23 @@ shipped: ``.card .note`` and ``.status-badge--ok`` (both fixed in UPL-27) and
 table in this repo had ever listed. The old table covered 12 token-on-ground
 cells; this one covers 67 rendered pairs.
 
-Floors: **4.5:1** for text (SC 1.4.3), **3:1** for non-text UI boundaries and
-graphical objects (SC 1.4.11) and for large text (>=24px, or >=18.7px bold —
-in this stylesheet only a bare ``header h1``).
+Floors: **4.5:1** for text (SC 1.4.3) and **3:1** for non-text UI boundaries
+and graphical objects (SC 1.4.11).
+
+**No row claims WCAG's large-text exception, and that is deliberate.** Until
+ui-uplift-m7, ``header h1 a`` was registered at 3:1 because ``header h1``
+carried no ``font-size`` and rode the UA ``h1 { font-size: 2em }`` = a fixed
+32px. m7 put it on ``clamp(1.5rem, 4vw + 0.5rem, 2.25rem)``, so its rendered
+size is now viewport-dependent — 24px at a 390px viewport, 36px above 700px.
+A viewport-agnostic registry cannot honestly carry a floor that only holds at
+some viewports, so the row moved to the 4.5:1 TEXT floor, which holds at
+every width. It still passes with an order of magnitude of headroom (16.0:1
+light / 13.9:1 dark), so nothing was traded for the honesty.
+
+The same m7 scale also makes the old "only a bare ``header h1``" claim wrong
+in the *other* direction: sections are now 20px and every ``<h2>`` inherits
+UA bold, so ``.card h2`` would qualify for the >=18.7px-bold branch. It is
+held to 4.5:1 anyway, on the same reasoning.
 
 Running this module directly regenerates ``.claude/docs/ui-contrast-table.md``:
 
@@ -38,6 +52,7 @@ import pytest
 from tests._ui_color import (
     APP_CSS_PATH,
     REPO_ROOT,
+    TOKENS_CSS_PATH,
     alpha_over,
     contrast_ratio,
     load_raw_tokens,
@@ -53,7 +68,17 @@ LIGHT, DARK = load_tokens()
 
 TEXT = 4.5
 NONTEXT = 3.0
-LARGE = 3.0
+#: ``LARGE = 3.0`` was REMOVED by ui-uplift-m7, not merely left unused.
+#: Its only consumer was the ``header h1 a`` row (see the module docstring),
+#: and it was numerically identical to ``NONTEXT`` — so an alias for a
+#: DIFFERENT success criterion at the SAME number bought nothing and cost the
+#: one thing this module exists to protect: ``render_table`` printed the SC
+#: column by comparing against it, which meant a row's criterion was inferred
+#: from its float. Two criteria that happen to share a threshold are exactly
+#: the conflation the SC column was added to prevent. If a future milestone
+#: earns a real large-text exemption, re-introduce it WITH a companion guard
+#: pinning the rendered size at the narrowest viewport — an exemption whose
+#: precondition nothing checks is unbacked.
 #: A pair that genuinely renders but that WCAG does not require to meet a
 #: floor. It is registered anyway, with its measured ratio, so the artifact
 #: shows the number and the reason — critique H3's point was that "an
@@ -118,7 +143,10 @@ for _m in ("light", "dark"):
     # -- token-on-surface text ------------------------------------------------
     _p(_m, "body text", "--fg", "--bg", TEXT)
     _p(_m, "card body text", "--fg", "--card-bg", TEXT)
-    _p(_m, "header h1 a (large text)", "--fg", "--bg", LARGE)
+    # ui-uplift-m7: was LARGE (3.0). The title is now a clamp, so its size is
+    # viewport-dependent and no single floor claim holds everywhere; TEXT is
+    # the conservative one that does. Still passes at 16.0:1 / 13.9:1.
+    _p(_m, "header h1 a", "--fg", "--bg", TEXT)
     _p(_m, "td text", "--fg", "--card-bg", TEXT)
     _p(_m, "tbody tr:hover text", "--fg", ROW_HOVER, TEXT)
     # -- --accent's five roles ------------------------------------------------
@@ -398,6 +426,10 @@ def test_no_pair_registry_duplicates_a_token_as_a_literal() -> None:
 # ---------------------------------------------------------------------------
 CSS_TEXT = APP_CSS_PATH.read_text(encoding="utf-8")
 CSS_NO_COMMENTS = re.sub(r"/\*.*?\*/", "", CSS_TEXT, flags=re.S)
+#: ui-uplift-m7 split the token blocks out of app.css. Assertions about
+#: TOKENS read this; assertions about RULES keep reading CSS_NO_COMMENTS.
+TOKENS_TEXT = TOKENS_CSS_PATH.read_text(encoding="utf-8")
+TOKENS_NO_COMMENTS = re.sub(r"/\*.*?\*/", "", TOKENS_TEXT, flags=re.S)
 BASE_RAW, DARK_RAW = load_raw_tokens()
 
 #: Values the previous stylesheet lifted from GitHub Primer, by its own
@@ -423,6 +455,40 @@ def test_no_token_is_a_primer_literal() -> None:
             )
 
 
+#: The CLOSED set of token families that are deliberately not colours.
+#:
+#: ui-uplift-m7 added the ``--text-*`` / ``--tracking-*`` families to
+#: ``:root``, which the oklch guard below would otherwise reject. Widening it
+#: is required — but the widening is an explicit allow-list, never a
+#: "skip anything that does not parse as a colour". That looser predicate
+#: would silently retire the guarantee ui-uplift-m6 shipped (EVERY colour
+#: token is ``oklch()`` on one of two hues): a future ``--fg: #444`` would
+#: stop being a colour by the predicate's own reckoning and skip itself.
+#: A new non-colour family means adding it HERE, deliberately.
+NON_COLOUR_TOKEN_NAMES = frozenset({"--mono"})
+NON_COLOUR_TOKEN_PREFIXES = ("--dur-", "--text-", "--tracking-")
+
+
+def _is_non_colour_token(name: str) -> bool:
+    return name in NON_COLOUR_TOKEN_NAMES or name.startswith(NON_COLOUR_TOKEN_PREFIXES)
+
+
+def test_the_non_colour_allow_list_has_no_dead_entries() -> None:
+    """The allow-list only stays honest while every entry is real.
+
+    A stale prefix is a hole nobody sees: it skips a name that no longer
+    exists today and quietly pre-authorises whatever claims that name
+    tomorrow. Assert each entry currently matches at least one token.
+    """
+    for name in NON_COLOUR_TOKEN_NAMES:
+        assert name in BASE_RAW, f"{name} is allow-listed but declared nowhere"
+    for prefix in NON_COLOUR_TOKEN_PREFIXES:
+        assert any(n.startswith(prefix) for n in BASE_RAW), (
+            f"no token starts with the allow-listed prefix {prefix!r} — "
+            f"drop the entry rather than leaving a pre-authorised namespace"
+        )
+
+
 def test_all_colour_tokens_are_oklch_on_one_of_two_hues() -> None:
     """AC#1, half two: ONE hue decision per semantic family, and the SAME
     construction in both modes — not achromatic greys in light against a
@@ -431,7 +497,7 @@ def test_all_colour_tokens_are_oklch_on_one_of_two_hues() -> None:
     seen: dict[str, set[str]] = {}
     for label, raw in (("light", BASE_RAW), ("dark", DARK_RAW)):
         for name, value in raw.items():
-            if name in ("--mono",) or name.startswith("--dur-"):
+            if _is_non_colour_token(name):
                 continue
             m = hue_re.fullmatch(value.strip())
             assert m is not None, f"{label} {name} = {value!r} is not an oklch() value"
@@ -446,19 +512,30 @@ def test_all_colour_tokens_are_oklch_on_one_of_two_hues() -> None:
 
 
 def test_color_scheme_light_dark_preserved() -> None:
-    """AC#6: load-bearing for UA control internals; not a token."""
-    base = re.search(r"^:root\s*\{(.*?)^\}", CSS_NO_COMMENTS, re.S | re.M)
-    assert base is not None
+    """AC#6: load-bearing for UA control internals; not a token.
+
+    ui-uplift-m7: the base ``:root`` now lives in tokens.css, so this reads
+    that file. The declaration itself must NOT move into app.css — it
+    belongs with the block it configures.
+    """
+    base = re.search(r"^:root\s*\{(.*?)^\}", TOKENS_NO_COMMENTS, re.S | re.M)
+    assert base is not None, "no base :root block in tokens.css"
     assert re.search(r"color-scheme:\s*light\s+dark", base.group(1))
 
 
 def test_light_dark_function_not_used() -> None:
     """AC#7: Baseline Newly Available, not Widely. Inside a custom property
     an unsupporting engine fails at SUBSTITUTION, and background-color does
-    not inherit — so its initial value (transparent) would render."""
-    assert not re.search(r"\blight-dark\s*\(", CSS_NO_COMMENTS), (
-        "light-dark() must not be used in ui-uplift-m6 v0"
-    )
+    not inherit — so its initial value (transparent) would render.
+
+    ui-uplift-m7 checks BOTH stylesheets: the refusal is about the token
+    layer above all, and after the split checking only app.css would leave
+    the file that actually declares the tokens unguarded.
+    """
+    for label, text in (("app.css", CSS_NO_COMMENTS), ("tokens.css", TOKENS_NO_COMMENTS)):
+        assert not re.search(r"\blight-dark\s*\(", text), (
+            f"light-dark() must not be used ({label}); ui-uplift-m6 AC#7"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -547,7 +624,11 @@ def render_table() -> str:
         if floor == EXEMPT:
             sc, floor_cell, verdict = "exempt", "—", "EXEMPT"
         else:
-            sc = "1.4.3" if floor == TEXT else "1.4.11 / large text"
+            # ui-uplift-m7: was `"1.4.3" if floor == TEXT else
+            # "1.4.11 / large text"`. With LARGE gone, every non-TEXT floor
+            # is SC 1.4.11 and nothing else, so the label says so plainly
+            # instead of offering the reader a criterion no row uses.
+            sc = "1.4.3" if floor == TEXT else "1.4.11"
             floor_cell = f"{floor}:1"
             verdict = "PASS" if ok else "FAIL"
         lines.append(

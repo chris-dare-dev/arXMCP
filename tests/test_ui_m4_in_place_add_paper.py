@@ -325,7 +325,17 @@ class TestUPL12PreFlightChecklist:
         assert "text/html" in r.headers.get("content-type", "").lower()
         text = r.text
         assert 'data-paper-id="hep-th/0001234"' in text
-        assert "<td>hep-th/0001234</td>" in text
+        # ui-uplift-m7: was `"<td>hep-th/0001234</td>"`. The cell now wraps
+        # the id in <code> (AC#2 — it is an identifier, and the template
+        # rendering this same table always did). The ASSERTION'S INTENT is
+        # the slash-bearing old-style id surviving the renderer intact and
+        # unescaped, not the element that carries it, so it is re-expressed
+        # that way rather than re-pinned to the new shape: the id appears in
+        # the id cell, and the slash is untouched.
+        assert "<td><code>hep-th/0001234</code></td>" in text
+        assert "hep-th&#x2F;0001234" not in text, (
+            "the slash is HTML-safe and must not be escaped"
+        )
         # has_preview=False branch (URL-paste writes no ar5iv HTML on
         # disk) — disabled-look Preview affordance present.
         assert "upload an ar5iv HTML to enable preview" in text
@@ -690,6 +700,11 @@ class TestCrossMilestoneSafety:
         # ui-uplift-m6: 400 → 480 for the OKLCH token family (every colour
         # token re-derived in both modes) + 3 --dur-* tokens + the
         # per-token derivation rationale (which target ratio, which ground).
+        # ui-uplift-m7: cap UNCHANGED at 480. m7 needed room for the type
+        # scale and took the tokens.css split this message already named as
+        # the alternative, rather than a fourth raise — see the fuller note
+        # on the m3 cap test. The lockstep requirement is unaffected: all
+        # three caps still MUST agree, and they still all read app.css.
         line_count = APP_CSS.count("\n") + (1 if not APP_CSS.endswith("\n") else 0)
         assert line_count <= 480, (
             f"app.css is {line_count} lines — over the 480-line cap (revised "

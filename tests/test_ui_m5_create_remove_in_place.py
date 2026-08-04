@@ -809,6 +809,10 @@ class TestCrossMilestoneSafety:
         # family + --dur-* tokens + their per-token derivation rationale).
         # This test mirrors the cap-tests in m3 and m4 test files — all
         # three MUST move in lockstep on a future cap raise.
+        # ui-uplift-m7: cap UNCHANGED. The type scale fit because m7 moved
+        # both :root blocks into server/frontend/static/tokens.css — the
+        # documented split, taken instead of a fourth raise. All three caps
+        # still measure app.css, so the lockstep rule is untouched.
         line_count = APP_CSS.count("\n") + (
             1 if not APP_CSS.endswith("\n") else 0
         )

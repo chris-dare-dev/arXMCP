@@ -2017,11 +2017,19 @@ def _paper_row_html(
             'title="upload an ar5iv HTML to enable preview">'
             'Preview</span></td>'
         )
+    # ui-uplift-m7 (AC#2): the paper id and the timestamp are wrapped in
+    # <code> and <time>, matching notebook_detail.html:325-326 — the template
+    # that renders THIS SAME TABLE on page load. They diverged: this builder
+    # emitted bare <td>, so an htmx-appended row rendered in the sans voice
+    # with proportional figures directly beside identical rows in mono with
+    # tabular figures, until the operator reloaded. _notebook_row_html below
+    # always got this right. Fragment and template must agree on the element
+    # wrapper, not merely on the text — the CSS keys off the element.
     return (
         f'<tr data-slug="{html.escape(slug)}" '
         f'data-paper-id="{html.escape(paper_id)}">'
-        f'<td>{html.escape(paper_id)}</td>'
-        f'<td>{html.escape(added_at)}</td>'
+        f'<td><code>{html.escape(paper_id)}</code></td>'
+        f'<td><time>{html.escape(added_at)}</time></td>'
         f'{preview_cell}'
         f'<td>added</td>'
         f"</tr>"
@@ -2359,18 +2367,18 @@ def _ingest_status_fragment(
             f'hx-get="/ui/api/notebooks/{safe_slug}/ingest/latest" '
             f'hx-trigger="every 2s" hx-target="#ingest-status" '
             f'hx-swap="outerHTML">'
-            f"Status: running"
-            f" · Started {html.escape(started_at or '')}"
-            f" · Run #{run_id}"
+            f"Status: <code>running</code>"
+            f" · Started <time>{html.escape(started_at or '')}</time>"
+            f" · Run #<code>{run_id}</code>"
             f"</div>"
         )
     if status == "success":
         return (
             f'<div id="ingest-status" data-status="success" '
             f'aria-live="polite" aria-atomic="true">'
-            f"Status: success"
-            f" · Finished {html.escape(finished_at or '')}"
-            f" · Run #{run_id}"
+            f"Status: <code>success</code>"
+            f" · Finished <time>{html.escape(finished_at or '')}</time>"
+            f" · Run #<code>{run_id}</code>"
             f"</div>"
         )
     # status == "failed"
@@ -2385,12 +2393,17 @@ def _ingest_status_fragment(
     stderr_pre = (
         f'<pre class="error">{stderr_tail}</pre>' if stderr_tail else ""
     )
+    # ui-uplift-m7 (AC#2): the state token, the timestamps, the run id and
+    # the exit code are identifiers — the operator reads them to correlate a
+    # run against a log — so they take the mono voice via <code>/<time> like
+    # every other identifier surface. The "Status:"/"Run #"/"Exit" prose
+    # around them stays in the sans voice, which is the two-voice split.
     return (
         f'<div id="ingest-status" data-status="failed" '
         f'aria-live="polite" aria-atomic="true">'
-        f"Status: failed"
-        f" · Exit {safe_exit}"
-        f" · Run #{run_id}"
+        f"Status: <code>failed</code>"
+        f" · Exit <code>{safe_exit}</code>"
+        f" · Run #<code>{run_id}</code>"
         f"{stderr_pre}"
         f"</div>"
     )

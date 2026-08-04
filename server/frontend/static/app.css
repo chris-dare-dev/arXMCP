@@ -1,54 +1,10 @@
 /* arXMCP UI — minimal CSS (m8 + m1..m4 + ui-attractive-polish-m1/m2/m3).
-   No external fonts; no CDN. Single file; ships under /ui/static/app.css. */
+   No external fonts; no CDN. Ships under /ui/static/app.css.
 
-:root {
-  /* ui-attractive-polish-m3-rect F3: declare color-scheme so browsers
-     auto-darken UA-styled controls (form-element internals, scrollbars,
-     default focus rings, default caret color, native <select> dropdowns)
-     when prefers-color-scheme: dark fires. Without this declaration the
-     UA defaults stay light-mode even when the page tokens flip. */
-  color-scheme: light dark;
-  /* ui-uplift-m6: ONE OKLCH material family. Every colour token in this
-     file is oklch(L% C H) on one of two deliberate hues — brand 250deg
-     (neutrals + accent) and danger 28deg (danger + its error surface) —
-     built by the SAME construction in both modes. That replaces the old
-     stitch of hand-picked achromatic light greys (C=0.0000) against a
-     self-labelled GitHub-Primer dark clone (C=0.014-0.020, H=256-258);
-     no value here is a Primer literal.
-     Lightness is never eyeballed. Every contrast-bearing token is the
-     binary-search solution for a TARGET WCAG RATIO against a named
-     ground — OKLCH L is perceptually uniform, WCAG contrast is sRGB
-     relative luminance, and equal L steps do NOT give equal ratios.
-     The surfaces (--bg/--card-bg/--error-bg) are the chosen anchors;
-     everything else is solved against them. Chroma stays low at the
-     lightness extremes because the sRGB gamut allows almost none there
-     (max C at L=99% on hue 250 is 0.0049).
-     Every rendered pair, its target and its measured ratio:
-     .claude/docs/ui-contrast-table.md — regenerated, not hand-typed, by
-     tests/test_ui_contrast.py (which is also the AA gate).
-     light-dark() is deliberately NOT used: Baseline Newly Available,
-     not Widely, and inside a custom property an unsupporting engine
-     fails at SUBSTITUTION — background-color does not inherit, so its
-     initial value (transparent) is what would render. */
-  --fg: oklch(22.842% 0.014 250);      /* solved: 16.0:1 on --bg */
-  --bg: oklch(98% 0.004 250);          /* anchor: page canvas */
-  --card-bg: oklch(99% 0.004 250);     /* anchor: raised card surface */
-  --border: oklch(62.984% 0.018 250);  /* solved: 3.30:1 on --bg (SC 1.4.11) */
-  --accent: oklch(47.863% 0.115 250);  /* solved: 6.20:1 on --bg */
-  --danger: oklch(52.018% 0.165 28);   /* solved: 5.30:1 on --error-bg */
-  --error-bg: oklch(96% 0.015 28);     /* anchor: error surface */
-  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  /* ui-uplift-m6: duration tokens NAME the three values already in this
-     file (200/400/600ms). The motion canon's 100/200/300 scale was NOT
-     adopted — no acceptance criterion authorises a visible re-timing,
-     and it would run the spinner 2x faster. Duration is not
-     colour-scheme dependent, so these are declared here only.
-     --dur-fast MUST stay 200ms: index.html's hx-swap="outerHTML
-     swap:200ms" modifier is numerically coupled to row-fade-out below. */
-  --dur-fast: 200ms;
-  --dur-normal: 400ms;
-  --dur-slow: 600ms;
-}
+   ui-uplift-m7: the :root token blocks (colour, duration, type) MOVED to
+   server/frontend/static/tokens.css, which base.html links FIRST. This file
+   holds every rule and no token. Do not re-declare a custom property here —
+   two token homes is exactly what UPL-3's AC#4 forbids. */
 
 * { box-sizing: border-box; }
 
@@ -59,6 +15,11 @@ body {
   background: var(--bg);
   margin: 0;
   padding: 1rem;
+  /* ui-uplift-m7: names the size body ALREADY computed to. Nothing set a
+     font-size on html/:root/body, so this is a no-op on rendering and a
+     token on the record — and it is 1rem, not 16px, so a reader who
+     raises their default font size still gets it (SC 1.4.4). */
+  font-size: var(--text-body);
   line-height: 1.5;
   /* ui-attractive-polish-m5 (UPL-19 v1): lift the m2 v0 980px ceiling
      to clamp(640px, 92vw, 1400px) so the papers table breathes on
@@ -72,14 +33,18 @@ body {
 }
 
 header { border-bottom: 1px solid var(--border); margin-bottom: 1.5rem; padding-bottom: 0.5rem; }
-header h1 { margin: 0 0 0.25rem 0; }
+/* ui-uplift-m7 (AC#3): the title had NO font-size and rode the UA
+   h1 { font-size: 2em } = a fixed 32px at every viewport. --text-title is
+   the authored clamp; line-height drops to 1.2 because body's 1.5 gives a
+   36px title 54px of leading. */
+header h1 { margin: 0 0 0.25rem 0; font-size: var(--text-title); line-height: 1.2; }
 header h1 a { color: var(--fg); text-decoration: none; }
-header .subtitle { margin: 0; color: #555; font-size: 0.9rem; }
+header .subtitle { margin: 0; color: #555; font-size: var(--text-small); }
 
 footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--border); color: #666; }
 footer a { color: #666; }
 
-.breadcrumb { margin-bottom: 1rem; font-size: 0.9rem; }
+.breadcrumb { margin-bottom: 1rem; font-size: var(--text-small); }
 .breadcrumb a { color: var(--accent); text-decoration: none; }
 
 .card {
@@ -90,20 +55,26 @@ footer a { color: #666; }
   margin-bottom: 1rem;
 }
 
-.card h2 { margin-top: 0; font-size: 1.1rem; }
-.card .hint { color: #555; font-size: 0.875rem; margin: 0 0 0.75rem 0; }
-/* UPL-27: #777 was under the 4.5:1 SC 1.4.3 floor at 0.8rem italic (no
+/* ui-uplift-m7 (AC#1): 1.1rem -> --text-section. The step over body was
+   EXACTLY 1.100x (17.6px vs 16px), a 1.6px difference no reader resolves —
+   the whole heading signal was the inherited UA bold. It is now 1.25x
+   (20px vs 16px), so size carries the hierarchy and weight reinforces it.
+   This declaration must be EDITED, never shadowed by a bare `h2` rule:
+   every <h2> in the product sits inside .card, and (0,1,1) beats (0,0,1). */
+.card h2 { margin-top: 0; font-size: var(--text-section); line-height: 1.25; }
+.card .hint { color: #555; font-size: var(--text-small); margin: 0 0 0.75rem 0; }
+/* UPL-27: #777 was under the 4.5:1 SC 1.4.3 floor at italic caption size (no
    large-text exception). #6f6f6f clears it — this is the second-tightest
    gated text pair in the sweep, so its live ratio is worth reading rather
    than trusting a comment: .claude/docs/ui-contrast-table.md */
-.card .note { color: #6f6f6f; font-size: 0.8rem; margin: 0.5rem 0 0 0; font-style: italic; }
+.card .note { color: #6f6f6f; font-size: var(--text-small); margin: 0.5rem 0 0 0; font-style: italic; }
 .card .empty { color: #666; font-style: italic; text-align: center; padding: 1.25rem 0.5rem; }
-.card .display-name { font-size: 1rem; color: #444; margin-top: 0; }
+.card .display-name { font-size: var(--text-body); color: #444; margin-top: 0; }
 
 label {
   display: block;
   margin-bottom: 0.75rem;
-  font-size: 0.875rem;
+  font-size: var(--text-small);
   font-weight: 500;
 }
 
@@ -111,7 +82,7 @@ input[type="text"], input[type="url"], input[type="file"] {
   display: block;
   width: 100%;
   padding: 0.4rem 0.5rem;
-  font-size: 0.95rem;
+  font-size: var(--text-body);
   margin-top: 0.25rem;
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -129,7 +100,7 @@ input[type="text"], input[type="url"] { font-family: var(--mono); }
    --mono is NOT extended to textarea: topic text is prose, not an identifier. */
 select, textarea {
   display: block; width: 100%; margin-top: 0.25rem;
-  padding: 0.4rem 0.5rem; font-size: 0.95rem; font-family: inherit;
+  padding: 0.4rem 0.5rem; font-size: var(--text-body); font-family: inherit;
   min-height: 2.0625rem;  /* 33px — the measured input height, as a floor */
 }
 textarea { border: 1px solid var(--border); border-radius: 4px; background: #fff; resize: vertical; }
@@ -137,7 +108,7 @@ textarea { border: 1px solid var(--border); border-radius: 4px; background: #fff
 button, .button {
   display: inline-block;
   padding: 0.4rem 0.85rem;
-  font-size: 0.875rem;
+  font-size: var(--text-small);
   background: var(--accent);
   color: #fff;
   border: none;
@@ -158,13 +129,41 @@ button:hover, .button:hover {
 button.danger { background: var(--danger); }
 
 dl.meta { display: grid; grid-template-columns: max-content 1fr; gap: 0.25rem 1rem; margin: 0; }
-dl.meta dt { font-weight: 500; color: #555; }
-dl.meta dd { margin: 0; }
+/* ui-uplift-m7: dt/dd drop to the label step together. dt is deliberately
+   NOT given the micro-caps treatment below — "LanceDB path" uppercased is
+   the string an AT would re-read as an initialism, which is precisely the
+   text-transform cost recorded on the th rule. */
+dl.meta dt { font-weight: 500; color: #555; font-size: var(--text-small); }
+dl.meta dd { margin: 0; font-size: var(--text-small); }
 
 table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
-th, td { text-align: left; padding: 0.5rem 0.5rem; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
-th { background: #f0f0f0; font-weight: 600; }
-table code { font-family: var(--mono); font-size: 0.85rem; }
+th, td { text-align: left; padding: 0.5rem 0.5rem; border-bottom: 1px solid var(--border); font-size: var(--text-small); }
+/* ui-uplift-m7 (UPL-3): the tracked micro-caps COLUMN-META role — the art
+   direction's 11px + uppercase + 0.06em, and the product's first
+   letter-spacing declaration. Positive tracking is not decoration here: all
+   caps removes the ascender/descender word-shape cues a reader uses at this
+   size, and the tracking is the standard mitigation. Ship the two together
+   or neither.
+   text-transform: uppercase, NOT font-variant-caps. No font in the system
+   stack carries true small-cap glyphs, so font-variant-caps would
+   SYNTHESIZE them by scaling capitals — lighter, shorter, and different
+   between macOS and Windows, i.e. not the art direction. The known cost is
+   that text-transform rewrites the string that reaches the accessibility
+   tree, so VoiceOver in Chrome can re-read a short word as an initialism.
+   CONSTRAINT THAT MAKES THAT ACCEPTABLE, and the reason this rule is scoped
+   to `th` alone: it is applied ONLY to authored, non-semantic label text —
+   never to an identifier, slug, path, timestamp, corpus version, state
+   token, or any operator-supplied content. The six column labels are
+   "Slug", "Display name", "Created", "Paper ID", "Added", "Preview"; the
+   only initialism among them is "ID", which already is one. Never move this
+   rule onto td, code, time, or a fragment builder's output. */
+th {
+  background: #f0f0f0;
+  font-weight: 600;
+  font-size: var(--text-meta);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-meta);
+}
 
 /* UPL-15a: row hover on both data tables. Before this the only :hover rule in
    the file was button:hover, so moving down a table gave zero positional
@@ -180,13 +179,33 @@ tbody tr:hover { background: color-mix(in oklab, var(--card-bg) 95%, var(--fg));
    the challenger's UPL-19 v0/v1 split (the wider clamp ships in v1). */
 .table-wrap { overflow-x: auto; }
 
+/* ui-uplift-m7 (AC#2): the MONO voice, applied by element rather than by
+   table position. Before m7 --mono reached only four selectors, so `table
+   code` was mono while every <code> outside a table — the slug in the
+   detail-page heading, the LanceDB path, the discovery category, the
+   discover-candidate paper id — fell back to the UA generic monospace: a
+   different face at a different size, on the same class of value.
+   The explicit font-size is load-bearing, not tidiness: browsers apply a
+   SMALLER default size to monospace elements, so a <code> with no
+   font-size renders around 13px while its 16px neighbours do not. Naming
+   the step defeats that quirk and puts both voices on one scale.
+   <time> joins for the same reason it joins the tabular rule below — a
+   timestamp is an identifier, and it was the one identifier class that had
+   never been mono at all. */
+code, time { font-family: var(--mono); font-size: var(--text-small); }
+
 /* ui-attractive-polish-m2 (UPL-10): tabular-nums on every numeric surface
    that changes on htmx swap (status-badge corpus version + notebooks count;
    <time> elements in tables and metadata; per-paper IDs in <code>). The
    OpenType tnum feature is shipped by every system-ui font in the body
    stack (SF Pro, Segoe UI, Noto Sans), so the high-level CSS property
-   suffices — no font-feature-settings fallback needed. */
-time, .status-badge, dl.meta dd, td code {
+   suffices — no font-feature-settings fallback needed.
+   ui-uplift-m7 widened `td code` to a bare `code`: the scope is now every
+   identifier <code> in the product, which is a superset of the original
+   four surfaces. Extended IN PLACE — a second tabular-nums declaration
+   would fork the scope, which is what AC#2's "inherits the existing
+   tabular-nums scope" rules out. */
+time, code, .status-badge, dl.meta dd {
   font-variant-numeric: tabular-nums;
 }
 
@@ -197,7 +216,7 @@ pre.error {
   margin: 0.5rem 0 0 0;
   border-radius: 4px;
   font-family: var(--mono);
-  font-size: 0.8rem;
+  font-size: var(--text-small);
   white-space: pre-wrap;
   min-height: 1.2em;
 }
@@ -210,12 +229,19 @@ pre.error:empty { display: none; }
   padding: 0.05rem 0.4rem;
   border-radius: 4px;
   font-family: var(--mono);
-  font-size: 0.75rem;
+  font-size: var(--text-meta);
   font-weight: 600;
   border: 1px solid var(--border);
   /* m4 UPL-22: stable footer width across state changes (READY/WARN/
      DEGRADED/DOWN/ops-warn). 14ch fits "DEGRADED · corpus v999 · 99
-     notebooks". Font-family is --mono so ch is predictable. */
+     notebooks". Font-family is --mono so ch is predictable.
+     ui-uplift-m7 moved this rule from 0.75rem to --text-meta and the 14ch
+     coupling SURVIVES unchanged: ch is the advance of "0" in the element's
+     OWN font, so box and text rescale together and the 14-character
+     capacity is invariant under a size change. Only a FAMILY change breaks
+     it. The badge is left un-uppercased — the server already sends its
+     label in caps, and the string carries a corpus version, so a
+     text-transform here would sit on an identifier. */
   min-width: 14ch;
 }
 /* UPL-27: #1a7f37 on #e6f4ea is 4.472:1 — under SC 1.4.3 at 0.75rem/600.
@@ -305,29 +331,10 @@ button.danger:focus-visible { outline-color: var(--danger); outline-offset: 3px;
    light bg + dark text, but contrast-jarring against the dark card).
    Acceptable for v0; v1 will remap them. */
 @media (prefers-color-scheme: dark) {
-  /* ui-uplift-m6: the SAME two hues and the SAME solve-for-a-target
-     method as the base :root — only the surface anchors are re-chosen
-     (dark canvas + a raised card 5pp lighter). Nothing in THIS :root
-     block is lifted from Primer any more; the old block was a labelled
-     Primer clone. The four .status-badge--* literals below are v1 scope
-     and are still Primer Dark values — see the note above them. */
-  :root {
-    --fg: oklch(89.089% 0.008 250);      /* solved: 14.0:1 on --bg */
-    --bg: oklch(16% 0.014 250);          /* anchor: page canvas */
-    --card-bg: oklch(21% 0.016 250);     /* anchor: raised card surface */
-    --border: oklch(52.923% 0.02 250);   /* solved: 3.35:1 on --card-bg,
-                                            the LIGHTER of its two grounds
-                                            and therefore the binding one
-                                            (3.67:1 on --bg) — SC 1.4.11 */
-    --accent: oklch(69.761% 0.13 250);   /* solved: 6.60:1 on --card-bg,
-                                            again the binding ground: in
-                                            dark mode --card-bg is LIGHTER
-                                            than --bg, so the focus ring is
-                                            tighter there, not on --bg */
-    --danger: oklch(69.137% 0.17 28);    /* solved: 5.60:1 on --error-bg */
-    --error-bg: oklch(24% 0.04 28);      /* anchor: error surface */
-    /* --mono and --dur-* unchanged (not colour-scheme dependent) */
-  }
+  /* ui-uplift-m7: the dark :root TOKEN block moved to tokens.css alongside
+     its light counterpart — one token home, per AC#4. What stays here is
+     the dark-mode RULE half: the on-accent text colour, the input
+     override, the tertiary-grey remaps and the v1 pill literals. */
 
   /* ui-uplift-m6: the on-accent text colour is a mode-conditional
      companion, which is what lets ONE --accent serve all five of its

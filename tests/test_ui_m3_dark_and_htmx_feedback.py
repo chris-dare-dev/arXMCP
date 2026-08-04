@@ -50,6 +50,13 @@ FRONTEND_TEMPLATES: Path = REPO_ROOT / "server" / "frontend" / "templates"
 
 APP_CSS: str = (FRONTEND_STATIC / "app.css").read_text(encoding="utf-8")
 APP_CSS_NO_COMMENTS: str = _re.sub(r"/\*.*?\*/", "", APP_CSS, flags=_re.S)
+#: ui-uplift-m7 moved the two `:root` token blocks into tokens.css. The
+#: assertions in this file split cleanly: those about TOKEN VALUES read
+#: TOKENS_CSS_NO_COMMENTS, those about RULES (the dark-mode input override,
+#: the grey remaps, the on-accent colour) keep reading app.css, because that
+#: is where those rules still live.
+TOKENS_CSS: str = (FRONTEND_STATIC / "tokens.css").read_text(encoding="utf-8")
+TOKENS_CSS_NO_COMMENTS: str = _re.sub(r"/\*.*?\*/", "", TOKENS_CSS, flags=_re.S)
 INDEX_HTML: str = (FRONTEND_TEMPLATES / "index.html").read_text(encoding="utf-8")
 NOTEBOOK_DETAIL_HTML: str = (
     FRONTEND_TEMPLATES / "notebook_detail.html"
@@ -72,10 +79,14 @@ class TestUPL8DarkModeBlock:
     )
 
     def _dark_root_block(self) -> str:
-        m = self._DARK_ROOT_RE.search(APP_CSS_NO_COMMENTS)
+        # ui-uplift-m7: the dark :root TOKEN block moved to tokens.css. The
+        # intent of this helper is unchanged — find the block that declares
+        # the dark token values — so it follows the tokens rather than
+        # staying pointed at the file they left.
+        m = self._DARK_ROOT_RE.search(TOKENS_CSS_NO_COMMENTS)
         assert m is not None, (
             "UPL-8 v0: no @media (prefers-color-scheme: dark) { :root { … } } "
-            "block found in app.css"
+            "block found in tokens.css"
         )
         return m.group(1)
 
@@ -133,13 +144,18 @@ class TestUPL8DarkModeBlock:
         # Scope the assertion to the INITIAL :root block (before any
         # @media query), so a future dark-block edit can't accidentally
         # satisfy this by adding color-scheme inside the @media.
+        # ui-uplift-m7: the base :root moved to tokens.css with the rest of
+        # the token layer; `color-scheme` travels with the block it
+        # configures, so this reads tokens.css. The "before any @media"
+        # scoping the comment above describes still holds — the base :root
+        # is the first block in that file.
         initial_root_re = _re.compile(
             r"^:root\s*\{([^}]*)\}", flags=_re.S | _re.M
         )
-        m = initial_root_re.search(APP_CSS_NO_COMMENTS)
+        m = initial_root_re.search(TOKENS_CSS_NO_COMMENTS)
         assert m is not None, (
             "m3-rect F3: initial :root { ... } block not found at the top "
-            "of app.css"
+            "of tokens.css"
         )
         initial_root = m.group(1)
         assert _re.search(r"color-scheme:\s*light\s+dark", initial_root), (
@@ -566,6 +582,17 @@ class TestCrossMilestoneSafety:
         # was solved for and against WHICH ground. That provenance is the
         # deliverable — a bare oklch() triple with no target is exactly the
         # un-rederivable hand-typed value m6 exists to eliminate.
+        # ui-uplift-m7: cap STAYS 480 — m7 took the escape hatch this
+        # comment has named since m3 instead of raising it a fourth time.
+        # The two :root blocks moved to server/frontend/static/tokens.css,
+        # which dropped app.css from 471 to ~400 and left room for the type
+        # scale inside the existing ceiling. The cap now bounds the RULE
+        # sheet alone, which is what it was always trying to bound; the
+        # token sheet has its own, separate bound plus a structural guard
+        # that it contains no rules (tests/test_ui_m7_type_scale.py).
+        # Splitting is therefore no longer available as a future escape
+        # hatch for THIS cap — it has been spent. A future milestone that
+        # needs more room argues for a raise on the merits.
         line_count = APP_CSS.count("\n") + (1 if not APP_CSS.endswith("\n") else 0)
         assert line_count <= 480, (
             f"app.css is {line_count} lines — over the 480-line cap "

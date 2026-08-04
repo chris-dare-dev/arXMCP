@@ -220,6 +220,15 @@ class TestPackageDataCoversEveryDataFile:
             ("server.frontend.templates", "base.html"),
             ("server.frontend.static", "htmx.min.js"),
             ("server.frontend.static", "app.css"),
+            # ui-uplift-m7 split the :root token blocks out of app.css. The
+            # existing "*.css" glob and the wholesale `COPY server/` already
+            # carry it — verified, not assumed, so no pyproject or Dockerfile
+            # edit was needed. Named here anyway: a stylesheet that ships
+            # without its token layer renders every var() as its initial
+            # value (transparent backgrounds, no fonts), and the source
+            # checkout cannot see that because the file is on disk either
+            # way. This is precisely the §4.5b invisible-from-source class.
+            ("server.frontend.static", "tokens.css"),
         ]:
             globs = package_data.get(package, [])
             assert any(fnmatch.fnmatch(filename, g) for g in globs), (

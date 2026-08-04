@@ -106,16 +106,38 @@ class TestUPL10TabularNums:
     def test_tabular_nums_covers_required_selectors(self) -> None:
         # Locate the tnum rule and assert it covers every digit-bearing
         # surface that changes on htmx swap: timestamps, the operability
-        # badge, the metadata dl values, and per-paper IDs in tables.
+        # badge, the metadata dl values, and per-paper IDs in <code>.
+        #
+        # ui-uplift-m7: the fourth requirement was spelled `td code`. m7
+        # widened that selector to a bare `code`, because every identifier
+        # <code> in the product needs tabular figures, not only the ones
+        # that happen to sit in a table — a strict SUPERSET of the original
+        # scope. Asserting the old spelling would now fail while the intent
+        # is more satisfied than before, so the requirement is expressed as
+        # the intent: per-paper IDs in <code> are covered, by `code` or by
+        # `td code`. The other three are unchanged.
+        #
+        # This is still deliberately a fixed backward window rather than a
+        # selector parser: it also pins that the scope stays ONE rule, which
+        # is what "inherits the existing tabular-nums scope" means. A second
+        # tabular-nums declaration elsewhere in the file would fork the
+        # scope and `.index()` (first match) would stop describing it.
         idx = APP_CSS.index("font-variant-numeric: tabular-nums")
-        # Look backward to capture the selector list (~200 chars
-        # comfortably covers the multi-selector block).
         selector_block = APP_CSS[max(0, idx - 300) : idx]
-        for sel in ("time", ".status-badge", "dl.meta dd", "td code"):
+        for sel in ("time", ".status-badge", "dl.meta dd"):
             assert sel in selector_block, (
                 f"UPL-10 selector {sel!r} missing from the tabular-nums "
                 f"rule's selector list"
             )
+        assert "code" in selector_block, (
+            "UPL-10: per-paper IDs in <code> must stay in the tabular-nums "
+            "scope — neither `code` nor `td code` is in the rule's selector "
+            "list"
+        )
+        assert APP_CSS.count("font-variant-numeric: tabular-nums") == 1, (
+            "the tabular-nums scope must stay a single rule; a second "
+            "declaration forks it (AC#2 requires extending in place)"
+        )
 
 
 # ---------------------------------------------------------------------------

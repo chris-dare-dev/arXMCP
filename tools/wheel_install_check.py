@@ -117,6 +117,12 @@ REQUIRED_INSTALLED_FILES: tuple[str, ...] = (
     "server/frontend/templates/notebook_detail.html",
     "server/frontend/static/htmx.min.js",
     "server/frontend/static/app.css",
+    # ui-uplift-m7: app.css references every colour, duration and type value
+    # through var(). If tokens.css is missing from the wheel the console
+    # still SERVES — it renders with every custom property falling back to
+    # its initial value, i.e. transparent surfaces and no scale. That is a
+    # worse failure than a 500 because nothing errors.
+    "server/frontend/static/tokens.css",
     # Data files inside already-declared packages that no package-data glob
     # covered, so setuptools dropped them silently.
     "server/router_patterns.yaml",

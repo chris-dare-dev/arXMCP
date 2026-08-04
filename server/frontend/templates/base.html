@@ -4,6 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}arXMCP — notebooks{% endblock %}</title>
+  {# ui-uplift-m7 (UPL-3): tokens.css carries the :root design-token blocks
+     (colour, duration, type) that used to open app.css. It MUST be linked
+     BEFORE app.css — a custom property has to be declared before the rules
+     that var() it, so this order is load-bearing, not cosmetic. Both are
+     same-origin under /ui/static/, so CSP style-src 'self' already covers
+     the second link and no middleware change was needed. #}
+  <link rel="stylesheet" href="/ui/static/tokens.css">
   <link rel="stylesheet" href="/ui/static/app.css">
   {# ui-attractive-polish-m2 (UPL-25): SVG favicon served from /ui/static/
      (same-origin under the /ui carve-out, no SecFetchSite or CSP change
@@ -39,10 +46,12 @@
        (the crossfade is suppressed, not just shortened).
 
        2026q3-ui-uplift UPL-22: the preference is now re-read on `change`, not
-       only once at DOMContentLoaded. The three CSS gates (app.css:223, :317,
-       :344) re-evaluate continuously because @media does; this single JS read
-       did not, so an operator who flipped their OS reduced-motion setting
-       mid-session kept view transitions until a full page reload. -->
+       only once at DOMContentLoaded. The three CSS gates (app.css:314, :418,
+       :445 — the reduce block plus the two no-preference blocks; ui-uplift-m7
+       re-derived these line numbers, which had been stale since the m6 token
+       family landed) re-evaluate continuously because @media does; this single
+       JS read did not, so an operator who flipped their OS reduced-motion
+       setting mid-session kept view transitions until a full page reload. -->
   <script>
     document.addEventListener('DOMContentLoaded', function () {
       if (typeof htmx === 'undefined') { return; }

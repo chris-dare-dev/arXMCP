@@ -13,10 +13,20 @@ Two jobs:
    OKLab<->linear-sRGB matrices needed to evaluate ``oklch()`` token values
    and ``color-mix(in oklab, ...)`` results.
 2. **Stylesheet parsing** — pull the ``:root`` token tables straight out of
-   ``app.css`` so no test ever duplicates a token value as a Python string.
-   (``test_ui_m5_create_remove_in_place.py`` used to hardcode
+   ``tokens.css`` so no test ever duplicates a token value as a Python
+   string. (``test_ui_m5_create_remove_in_place.py`` used to hardcode
    ``canvas = "#0d1117"``; when that token moved the test kept silently
    validating against the wrong ground.)
+
+   ui-uplift-m7 moved the two ``:root`` blocks out of ``app.css`` into
+   ``server/frontend/static/tokens.css``, so ``TOKENS_CSS_PATH`` — not
+   ``APP_CSS_PATH`` — is what the parsers read. ``APP_CSS_PATH`` is kept and
+   still exported: callers that assert on *rules* (and
+   ``test_ui_contrast.py``'s favicon sibling lookup) legitimately want the
+   rule sheet. Getting these two the wrong way round is silent, not loud —
+   a token parse against ``app.css`` now raises rather than returning an
+   empty table, which is the whole reason the missing-block errors below
+   name the file they searched.
 
 Every ratio is computed from the **8-bit hex a browser actually paints**,
 not from exact linear intermediates, so the published numbers are the
@@ -33,7 +43,12 @@ import re
 from pathlib import Path
 
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
-APP_CSS_PATH: Path = REPO_ROOT / "server" / "frontend" / "static" / "app.css"
+_STATIC: Path = REPO_ROOT / "server" / "frontend" / "static"
+#: The RULE sheet. Holds no custom property since ui-uplift-m7.
+APP_CSS_PATH: Path = _STATIC / "app.css"
+#: The TOKEN sheet — the only file with ``:root`` blocks. ``load_tokens`` /
+#: ``load_raw_tokens`` read this one.
+TOKENS_CSS_PATH: Path = _STATIC / "tokens.css"
 
 
 # --------------------------------------------------------------------------
@@ -217,17 +232,20 @@ def load_tokens(css: str | None = None) -> tuple[dict[str, str], dict[str, str]]
     what actually applies under ``prefers-color-scheme: dark`` — tokens the
     dark block does not redeclare (``--mono``, ``--dur-*``) fall through.
     Non-colour tokens are dropped.
+
+    ``css`` overrides the file read (used by tests that mutate a token to
+    prove a guard discriminates). It must be TOKEN css, not rule css.
     """
     if css is None:
-        css = APP_CSS_PATH.read_text(encoding="utf-8")
+        css = TOKENS_CSS_PATH.read_text(encoding="utf-8")
     stripped = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
 
     base_m = _BASE_ROOT_RE.search(stripped)
     if base_m is None:
-        raise RuntimeError("no base `:root { ... }` block found in app.css")
+        raise RuntimeError("no base `:root { ... }` block found in tokens.css")
     dark_m = _DARK_ROOT_RE.search(stripped)
     if dark_m is None:
-        raise RuntimeError("no dark-mode `:root { ... }` block found in app.css")
+        raise RuntimeError("no dark-mode `:root { ... }` block found in tokens.css")
 
     base_raw = _tokens_from(base_m.group(1))
     dark_raw = dict(base_raw)
@@ -250,10 +268,10 @@ def load_raw_tokens(css: str | None = None) -> tuple[dict[str, str], dict[str, s
     ``--mono``. ``dark`` here is only what the dark block itself declares.
     """
     if css is None:
-        css = APP_CSS_PATH.read_text(encoding="utf-8")
+        css = TOKENS_CSS_PATH.read_text(encoding="utf-8")
     stripped = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
     base_m = _BASE_ROOT_RE.search(stripped)
     dark_m = _DARK_ROOT_RE.search(stripped)
     if base_m is None or dark_m is None:
-        raise RuntimeError("app.css is missing a base or dark `:root` block")
+        raise RuntimeError("tokens.css is missing a base or dark `:root` block")
     return _tokens_from(base_m.group(1)), _tokens_from(dark_m.group(1))
