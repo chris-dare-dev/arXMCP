@@ -221,7 +221,14 @@ class TestToolRegistration:
         # merged bump-free -- alongside search_papers' cache_match
         # (issue #204). The LEAN_VERIFY description edit landing in the
         # same window is what made it BP1-affecting.
-        assert TOOL_SCHEMA_VERSION == 22
+        # 22->23 (verification-contract-m1): honest-vocabulary rename
+        # only -- the status enum member "ok" becomes
+        # "elaborated_no_errors" (trust-language-policy.md §2). No
+        # behaviour change; compilation_success / axiom_audit /
+        # continuation_status keep their existing semantics. The
+        # LEAN_VERIFY description's two "ok" mentions are edited in
+        # lockstep, which is what makes this window BP1-affecting.
+        assert TOOL_SCHEMA_VERSION == 23
 
         schema_path = (
             Path(__file__).parent.parent
@@ -282,7 +289,7 @@ class TestBuildCommand:
 class TestNormalizeResponse:
     def test_clean_compile_status_ok(self):
         out = _normalize_response({"env": 0}, "full", repl_generation="g")
-        assert out["status"] == "ok"
+        assert out["status"] == "elaborated_no_errors"
         assert out["compilation_success"] is True
         assert out["messages"] == []
         assert out["sorry_goals"] == []
@@ -355,7 +362,7 @@ class TestNormalizeResponse:
         so a clean elaboration carries compilation_success=null (NOT
         True) — kernel acceptance is not defined."""
         out = _normalize_response({"env": 0}, "syntax_only", repl_generation="g")
-        assert out["status"] == "ok"
+        assert out["status"] == "elaborated_no_errors"
         assert out["compilation_success"] is None
         assert out["mode"] == "syntax_only"
 
@@ -404,7 +411,7 @@ class TestHandlerHappyPaths:
         result = _run(
             handle_lean_verify(snippet="theorem t : 1+1=2 := rfl", imports=[])
         )
-        assert result["status"] == "ok"
+        assert result["status"] == "elaborated_no_errors"
         assert result["compilation_success"] is True
         assert result["lean_status"] == "available"
         assert result["mode"] == "full"
@@ -551,7 +558,7 @@ class TestEnvReuse:
         # ...and the produced env (5) comes back as a generation-scoped token.
         assert result["env"] == "genA:5"
         assert result["continuation_status"] == "resumed"
-        assert result["status"] == "ok"
+        assert result["status"] == "elaborated_no_errors"
 
     def test_no_env_is_not_applicable(self):
         repl = _repl_with([{"env": 0}], generation="genA")
@@ -643,7 +650,7 @@ class TestTacticStep:
             )
         )
         assert repl.commands == [{"tactic": "simp", "proofState": 0}]
-        assert result["status"] == "ok"
+        assert result["status"] == "elaborated_no_errors"
         assert result["goals_remaining"] == []
         assert result["proof_state_id"] == "genA:1"
         # A single tactic step is NOT a full-declaration kernel check.
@@ -1402,7 +1409,7 @@ class TestRealLeanRepl:
                 await self._teardown(repl)
 
         result = _run(_go())
-        assert result["status"] == "ok", result
+        assert result["status"] == "elaborated_no_errors", result
         assert result["compilation_success"] is True
 
     def test_real_type_error_carries_position(self):
@@ -1464,14 +1471,14 @@ class TestRealLeanRepl:
                 await self._teardown(repl)
 
         first, second, third = _run(_go())
-        assert first["status"] == "ok", first
+        assert first["status"] == "elaborated_no_errors", first
         assert first["env"] is not None
         assert first["continuation_status"] == "not-applicable"
         # Reusing the env makes contFoo visible -> the theorem checks.
-        assert second["status"] == "ok", second
+        assert second["status"] == "elaborated_no_errors", second
         assert second["continuation_status"] == "resumed"
         # Without the env, contFoo is out of scope -> not ok.
-        assert third["status"] != "ok", third
+        assert third["status"] != "elaborated_no_errors", third
 
     def test_real_tactic_step_closes_sorry(self):
         """A sorry's proof_state_id is advanced to closure by a tactic in a
@@ -1494,7 +1501,7 @@ class TestRealLeanRepl:
         opened, stepped = _run(_go())
         assert opened["status"] == "sorry", opened
         assert opened["sorry_goals"][0]["proof_state_id"] is not None
-        assert stepped["status"] == "ok", stepped
+        assert stepped["status"] == "elaborated_no_errors", stepped
         assert stepped["goals_remaining"] == []
         # A tactic step is never a full-declaration kernel verdict.
         assert stepped["compilation_success"] is None
@@ -1640,14 +1647,14 @@ class TestRealLeanRepl:
             assert result == "raised_lean_repl_error"
             return
         # The parent process is alive — that's necessary. AND the
-        # status must NOT be "ok": a clean compile under a 32 MiB cap
-        # would mean the cap is silently a no-op (i.e. the broken
-        # state F1 catches). Acceptable outcomes are "error"
-        # (subprocess crashed during query) or "timeout" (elaboration
-        # never returned because the kernel couldn't allocate); the
-        # Lean REPL's exact failure mode under memory pressure varies
-        # but never produces "ok".
-        assert result["status"] != "ok", (
+        # status must NOT be "elaborated_no_errors": a clean compile
+        # under a 32 MiB cap would mean the cap is silently a no-op
+        # (i.e. the broken state F1 catches). Acceptable outcomes are
+        # "error" (subprocess crashed during query) or "timeout"
+        # (elaboration never returned because the kernel couldn't
+        # allocate); the Lean REPL's exact failure mode under memory
+        # pressure varies but never produces "elaborated_no_errors".
+        assert result["status"] != "elaborated_no_errors", (
             f"RLIMIT_AS cap of 32 MiB did not constrain the subprocess "
             f"— Lean compiled cleanly anyway, meaning the cap silently "
             f"failed to apply. result={result!r}"
@@ -1794,7 +1801,7 @@ class TestProgressHeartbeat:
         result = _run(
             handle_lean_verify(snippet="theorem t : 1+1=2 := rfl", imports=[])
         )
-        assert result["status"] == "ok"
+        assert result["status"] == "elaborated_no_errors"
 
     def test_ac2_emits_progress_before_result_for_slow_call(self):
         """AC-2: a >3-heartbeat-interval REPL call emits >=1 progress
@@ -1811,7 +1818,7 @@ class TestProgressHeartbeat:
                     ctx=ctx,
                 )
             )
-            assert result["status"] == "ok"
+            assert result["status"] == "elaborated_no_errors"
             assert len(ctx.calls) >= 1, (
                 f"expected >=1 progress emission for a 200ms call at a "
                 f"50ms heartbeat interval; got {len(ctx.calls)} calls"
@@ -1914,7 +1921,7 @@ class TestProgressHeartbeat:
 
         try:
             result = _run(_go())
-            assert result["status"] == "ok"
+            assert result["status"] == "elaborated_no_errors"
         finally:
             reset_resources_for_tests()
 
@@ -2027,7 +2034,7 @@ class TestProgressHeartbeat:
                 )
             )
             # Query succeeded despite the ctx raising.
-            assert result["status"] == "ok"
+            assert result["status"] == "elaborated_no_errors"
             # At least one report_progress was attempted (and raised).
             assert len(ctx.calls) >= 1
         finally:
@@ -2074,7 +2081,7 @@ class TestProgressHeartbeat:
                     ctx=ctx,
                 )
             )
-            assert result["status"] == "ok"
+            assert result["status"] == "elaborated_no_errors"
             assert ctx.calls == [], (
                 f"no emissions expected when client omits progressToken; "
                 f"got {ctx.calls}"
@@ -2193,7 +2200,7 @@ class TestProgressHeartbeat:
                         ctx=ctx,
                     )
                 )
-            assert result["status"] == "ok"
+            assert result["status"] == "elaborated_no_errors"
             warn_records = [
                 r for r in caplog.records if r.levelno == _logging.WARNING
             ]
@@ -2435,7 +2442,7 @@ class TestAxiomHygieneOnTheWire:
         carries the bad news."""
         _repl_with([{"env": 0}, _axioms_reply(h=["h"])])
         result = _run(handle_lean_verify(snippet="axiom h : False"))
-        assert result["status"] == "ok"
+        assert result["status"] == "elaborated_no_errors"
         assert result["compilation_success"] is True
         assert result["axiom_audit"]["outcome"] == "flagged"
 
@@ -2468,7 +2475,7 @@ class TestAxiomHygieneOnTheWire:
             [{"env": 0}, _axioms_reply(t=["propext", "Classical.choice"])]
         )
         result = _run(handle_lean_verify(snippet="theorem t : 1+1=2 := rfl"))
-        assert result["status"] == "ok"
+        assert result["status"] == "elaborated_no_errors"
         assert result["axiom_audit"]["outcome"] == "clean"
         assert result["axiom_audit"]["reason"] is None
 
@@ -2627,7 +2634,7 @@ class TestAxiomAuditFailureIsolation:
         _attach_fake_resources(repl)
         result = _run(handle_lean_verify(snippet="theorem t : True := trivial"))
         # Primary verdict survives intact...
-        assert result["status"] == "ok"
+        assert result["status"] == "elaborated_no_errors"
         assert result["compilation_success"] is True
         # ...and the axis honestly reports that it could not be measured.
         assert result["axiom_audit"]["outcome"] == "unknown"
@@ -2784,7 +2791,7 @@ class TestAxiomHygieneAgainstRealLean:
 
         result = _run(_go())
         # Elaboration is genuinely clean — that is the whole point.
-        assert result["status"] == "ok"
+        assert result["status"] == "elaborated_no_errors"
         assert result["compilation_success"] is True
         # And the axiom axis catches what those fields never could.
         assert result["axiom_audit"]["outcome"] == "flagged"

@@ -672,8 +672,17 @@ class TestBP1ByteIdentityAcrossFanout:
         # response-shape change only and does NOT touch BP1; it reaches
         # EXPECTED_TOOL_SCHEMA_SHA256 through the _meta version echo
         # alone. Hand-edited: BP1 has no --update flag by design.
+        #
+        # v23: verification-contract-m1 — the LEAN_VERIFY ToolMeta
+        # description's two "ok" mentions are renamed to
+        # "elaborated_no_errors" (the honest-vocabulary fix named by
+        # trust-language-policy.md §2; no behaviour change). ALL_TOOLS
+        # changed (single ToolMeta description edit), so BP1 (system +
+        # tools) drifts; re-pinned in lockstep with
+        # EXPECTED_TOOL_SCHEMA_SHA256. Hand-edited: BP1 has no --update
+        # flag by design.
         EXPECTED_BP1_SHA256 = (
-            "899aeb69962e75f5d762c7e6665454cab6c2d178462ebbaf89734daedece794f"
+            "9063f404e87e554b78635733bff11596732a02ac80dcf1d6d318058661f4b6af"
         )
         req = _build_fanout_request(
             RouteTag.SYNTHESIS, "any problem; BP1 is independent of problem",

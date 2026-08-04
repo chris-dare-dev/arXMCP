@@ -223,7 +223,18 @@ logger = logging.getLogger(__name__)
 #: ``pytest --update-tool-schema-hash`` and EXPECTED_BP1_SHA256 re-pins
 #: BY HAND (no update flag). lean_verify_result.json and
 #: search_papers_result.json both bump 21 -> 22 in lockstep.
-TOOL_SCHEMA_VERSION: int = 22
+#: 22 -> 23 (verification-contract-m1): honest-vocabulary rename only, no
+#: behaviour change. lean_verify's status enum member "ok" becomes
+#: "elaborated_no_errors" (trust-language-policy.md §2's named fix -
+#: "ok" collapsed elaboration-clean with "trustworthy", which a bare
+#: ``axiom h : False`` passed). compilation_success / axiom_audit /
+#: continuation_status are unchanged fields, still independently derived.
+#: LEAN_VERIFY.description's two "ok" mentions are edited below, so this
+#: window is BP1-affecting: EXPECTED_TOOL_SCHEMA_SHA256 re-pins via
+#: ``pytest --update-tool-schema-hash`` and EXPECTED_BP1_SHA256 re-pins BY
+#: HAND. lean_verify_result.json and search_papers_result.json both bump
+#: 22 -> 23 in lockstep.
+TOOL_SCHEMA_VERSION: int = 23
 
 #: URI scheme for chunk resource_links per the design note. Used by
 #: handlers that switch to resource_link mode when payloads exceed
@@ -423,7 +434,8 @@ LEAN_VERIFY = ToolMeta(
         "env token from a prior result back as the env argument to reuse an "
         "environment without re-importing - import Mathlib once, then reuse. "
         "Returns status "
-        "(ok/error/sorry/incomplete/timeout/unavailable/invalid-input), "
+        "(elaborated_no_errors/error/sorry/incomplete/timeout/unavailable/"
+        "invalid-input), "
         "compilation_success (null in syntax_only + tactic_step), messages "
         "with severity + source position, proof_state (first unresolved "
         "goal) plus proof_state_id and per-sorry proof_state_id tokens, "
@@ -431,7 +443,7 @@ LEAN_VERIFY = ToolMeta(
         "continuation_status, and axiom_audit. IMPORTANT: status and "
         "compilation_success report elaboration and kernel acceptance ONLY - "
         "they do not check axiom soundness, so a snippet declaring its own "
-        "axiom returns status='ok'. Read axiom_audit (outcome "
+        "axiom returns status='elaborated_no_errors'. Read axiom_audit (outcome "
         "clean/flagged/unknown/not-applicable, plus the per-declaration axiom "
         "sets behind it) before treating any result as trustworthy; neither "
         "field alone is a trust verdict. A continuation token from before a timeout "

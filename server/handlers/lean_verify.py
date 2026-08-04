@@ -6,7 +6,7 @@ handler accepts a Lean 4 snippet + optional context imports + a
 ``mode`` of ``"full"`` (elaborator AND kernel) or ``"syntax_only"``
 (elaborator only — wrapped in ``#check (...)``), drives one REPL
 round-trip, and projects the response into the frozen schema at
-``server/schemas/lean_verify_result.json`` (version 12).
+``server/schemas/lean_verify_result.json`` (version 23).
 
 **No 150-char snippet contract.** ``lean_verify`` is a verifier, not a
 retriever — its result row contains no ``snippet`` field and is not
@@ -714,6 +714,16 @@ def _normalize_response(
     sorry_goals = _project_sorries(resp.get("sorries"), repl_generation)
     goals_remaining = [s["goal"] for s in sorry_goals if s["goal"]]
 
+    # `status` stays a bare-but-honest token, not a Certificate object, even
+    # though it is trust-bearing (verification-contract-m1). Policy §6 rule 3
+    # requires a Certificate (level + evidence) for a GRADED verdict;
+    # `status` is not graded — it is a single fact drawn from a fixed,
+    # mutually-exclusive ladder of outcomes, and
+    # ``.claude/docs/trust-language-policy.md`` §2 names the rename below
+    # (``"ok"`` -> ``"elaborated_no_errors"``) as the complete fix, not a
+    # re-architecture. Certificate-wrapping `status` here would duplicate
+    # `compilation_success`/`axiom_audit` for no new information. See
+    # ``.claude/docs/adr-verification-contract-five-operations.md``.
     has_error = any(m["severity"] == "error" for m in messages)
     has_sorry = bool(sorry_goals)
     if has_error:
@@ -721,16 +731,16 @@ def _normalize_response(
     elif has_sorry:
         status = "sorry"
     else:
-        status = "ok"
+        status = "elaborated_no_errors"
 
     # syntax_only DID NOT run kernel verification — even a clean
     # elaboration leaves "verification success" undefined. Surface this as
     # null so the agent does not read a syntax-only pass as a full kernel
     # acceptance.
-    if mode == "syntax_only" and status == "ok":
+    if mode == "syntax_only" and status == "elaborated_no_errors":
         compilation_success: bool | None = None
     else:
-        compilation_success = status == "ok"
+        compilation_success = status == "elaborated_no_errors"
 
     env_raw = resp.get("env")
     env_token = (
@@ -774,7 +784,7 @@ def _default_audit_for(mode: str, status: str) -> dict[str, Any]:
             "so no declaration is kernel-checked and there is no axiom closure "
             "to audit. Re-run in mode='full' for an axiom verdict."
         )
-    if status not in ("ok", "sorry"):
+    if status not in ("elaborated_no_errors", "sorry"):
         return _audit_not_applicable(
             f"status={status!r}: the snippet introduced no kernel-checked "
             "declaration to audit."
@@ -797,7 +807,7 @@ def _normalize_tactic_step(
     "goals": [<str>, ...]}`` plus optional ``sorries`` (a sorry-introducing
     tactic) and ``messages`` (tactic diagnostics). ``goals`` empty + no
     ``sorries`` + ``proofStatus == "Completed"`` ⇒ the goals at this state
-    are discharged (``status == "ok"``); open goals OR a remaining sorry ⇒
+    are discharged (``status == "elaborated_no_errors"``); open goals OR a remaining sorry ⇒
     ``status == "incomplete"``; a tactic error ⇒ ``"error"``.
 
     m5 critique F2: a sorry-introducing tactic returns ``{"goals": [],
@@ -820,10 +830,10 @@ def _normalize_tactic_step(
         # Open goals OR a sorry-marked obligation remain — not closed.
         status = "incomplete"
     elif resp.get("proofStatus") == "Completed":
-        status = "ok"
+        status = "elaborated_no_errors"
     else:
-        # No goals, no sorries, but not "Completed" — do not claim "ok".
-        # A conservative, fail-closed default.
+        # No goals, no sorries, but not "Completed" — do not claim
+        # "elaborated_no_errors". A conservative, fail-closed default.
         status = "incomplete"
 
     new_ps = resp.get("proofState")
@@ -1444,7 +1454,7 @@ async def handle_lean_verify(
     # the question is meaningful: a full-mode call whose snippet was actually
     # admitted. Its outcome never edits status / compilation_success — those
     # answer other axes and stay exactly as measured (policy §4).
-    if mode == "full" and payload["status"] in ("ok", "sorry"):
+    if mode == "full" and payload["status"] in ("elaborated_no_errors", "sorry"):
         payload = await _attach_axiom_audit(
             payload,
             snippet,

@@ -128,7 +128,7 @@ Verify a Lean 4 snippet against a managed local Lean kernel.
 | `mode` | `full` — elaboration **and** full kernel verification · `syntax_only` — wraps in `#check(...)` (or `set_option maxHeartbeats 5000 in <decl>` for declarations) for a cheap pre-verify. |
 | `imports` | Prepended verbatim as `import X` lines. |
 
-Returns `status` (`ok` / `error` / `sorry` / `timeout` / `unavailable`),
+Returns `status` (`elaborated_no_errors` / `error` / `sorry` / `timeout` / `unavailable`),
 `compilation_success` (null in `syntax_only`), `messages` (severity + source
 position), `proof_state` (first unresolved goal), `goals_remaining`,
 `sorry_goals`. **Gated by `ARXMCP_ENABLE_LEAN`** — when disabled returns
