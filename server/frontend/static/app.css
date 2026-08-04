@@ -184,6 +184,64 @@ tbody tr:hover { background: color-mix(in oklab, var(--card-bg) 95%, var(--fg));
    the challenger's UPL-19 v0/v1 split (the wider clamp ships in v1). */
 .table-wrap { overflow-x: auto; }
 
+/* ui-uplift-m10 (UPL-9): the Discover results panel — the one surface in the
+   console that presents externally-sourced content for an operator decision,
+   and the last one with zero CSS. The anatomy is discovery finding H3's five
+   authored rules (2026q3-ui-uplift/discover/current-state-critic-brief.md
+   :130-136), carried onto the m7 scale rather than pasted: H3's raw 0.8rem /
+   0.875rem predate --text-small and would re-open the untokenised sizes m7
+   closed. A hairline LADDER, not cards: direction D-1 deletes the box, and
+   BAN-2 (a grid of equal cards) is on the must-remove list. No per-candidate
+   chip (BAN-7 is a ~5-per-view threshold and a run is up to 10 rows) and no
+   icon (BAN-3 — the product has zero icons and the discovery names that an
+   asset).
+   REFUSED, roadmap AC#4 — a per-candidate relevance line. The arXiv Atom feed
+   carries no score or rank in either namespace, tools/_arxiv_api.py:156 pins
+   sortBy=submittedDate&sortOrder=descending, and DiscoveryCandidate holds four
+   fields with nowhere to put one. AC#4 was conditional on the driver supplying
+   the basis; it does not, so a "why this matched" string would be manufactured
+   — the fabricated evidence CLAUDE.md 4.9 exists to prevent.
+   REFUSED, roadmap AC#3 — a fade-in keyframe. htmx enables
+   globalViewTransitions (base.html:59) so this swap already crossfades, capped
+   at --dur-fast below; a keyframe would double-animate it. For the same reason
+   #discover-results must never take a view-transition-name: that would leave
+   the root group the duration override covers. */
+.discover-list { list-style: none; margin: 0; padding: 0; }
+.discover-candidate { padding: 0.75rem 0; border-bottom: 1px solid var(--border); }
+.discover-candidate:last-child { border-bottom: none; }
+.discover-title { margin: 0; font-weight: 600; }
+/* The meta line takes the identifier voice as an ELEMENT, so the "·"
+   separator matches the <code> and <time> it sits between (both already had
+   --mono + --text-small from the rules below). The selector string
+   `.discover-meta` is appended to the single tabular-nums rule in the same
+   edit — AC#2 is both halves, and a second tabular declaration would fork
+   the scope rather than inherit it. */
+.discover-meta { margin: 0.25rem 0 0 0; font-family: var(--mono); font-size: var(--text-small); color: var(--fg-muted); }
+/* abstract_head (tools/_arxiv_api.py:210) is `" ".join(summary.split())` —
+   whitespace normalisation, no truncation. Despite the name it carries the
+   FULL abstract, 800-1500 characters, at up to 200 candidates a run; left
+   unclamped it swamps the hierarchy above it on the first render.
+   max-height + overflow, NOT line-clamp: the unprefixed `line-clamp` is
+   Baseline Limited and -webkit-line-clamp is a deprecated prefixed form —
+   refused on exactly the basis m6 refused light-dark() and m7 refused
+   text-wrap: balance. 4.5em against body's inherited line-height 1.5 is
+   exactly three line boxes, so the cut lands on a boundary rather than
+   through a row of glyphs. The full text stays in the DOM deliberately: it
+   is what a screen reader announces and what a copy-paste yields. */
+.discover-abstract { margin: 0.25rem 0 0.5rem 0; font-size: var(--text-small); max-height: 4.5em; overflow: hidden; }
+
+/* ui-uplift-m10: the topic block (server/routes/notebooks.py:621-623 and its
+   byte-identical Jinja twin notebook_detail.html:116-118 — two emitters, one
+   rule, and they must not drift). A labelled meta row, never a chip: the
+   category already renders inside <code>, so it is an identifier surface that
+   takes --mono + tabular-nums from the element rules below. The description
+   stays in the SANS voice — it is operator prose, and
+   TestRectifyProseStaysSans exists because m7 put prose in the mono voice
+   once already. */
+.topic-block { margin: 0 0 0.75rem 0; }
+.topic-category { margin: 0; font-size: var(--text-small); }
+.topic-description { margin: 0.25rem 0 0 0; font-size: var(--text-small); color: var(--fg-muted); }
+
 /* ui-uplift-m7 (AC#2): the MONO voice, applied by element rather than by
    table position. Before m7 --mono reached only four selectors, so `table
    code` was mono while every <code> outside a table — the slug in the
@@ -219,7 +277,10 @@ h1 code, h2 code, h3 code { font-size: inherit; }
    list — the identifier inputs, pre.error, and the badge remediation. AC#2
    says an identifier surface takes --mono AND inherits this scope, so the two
    sets must match. Guarded by a derived test rather than review. */
+/* ui-uplift-m10 (AC#2): .discover-meta joins IN PLACE, on the same line, for
+   the same reason — it takes --mono above, so it takes this scope too. */
 time, code, .status-badge, .status-badge__remediation, dl.meta dd, pre.error,
+.discover-meta,
 input[name="slug"], input[name="paper_id"], input[name="arxiv_url"] {
   font-variant-numeric: tabular-nums;
 }
@@ -241,8 +302,24 @@ pre.error:empty { display: none; }
    Polls /ui/status-badge every 10s; the fragment sets the modifier class. */
 /* ui-uplift-m7 rectify (critique M3/M12): ui.py:336 nests a <small> in the
    11px badge, and UA <small> is 0.83em — the remediation text an operator
-   acts on compounded to ~9.2px. Pin it to the badge's own size. */
-.status-badge__remediation { font-size: var(--text-meta); }
+   acts on compounded to ~9.2px. Pin it to the badge's own size.
+   ui-uplift-m10 (AC#5) finishes it. The size pin met AC#5's letter — the
+   selector existed — while discovery finding H1 stayed open: <small> is
+   inline, so the <br>-separated block rendered as a measured 491x22px run-on
+   line welded to the side of a 14ch pill instead of a caption beneath it.
+   display: block is the fix; the top margin and line-height are what make it
+   read as a caption, and --fg-muted demotes it below the status token it
+   explains, which is what every live-status comparator does. That colour
+   renders on the three non-ok pill grounds only (_build_remediation_block
+   returns "" for ok) — all six mode/pill pairs are registered and measured in
+   tests/test_ui_contrast.py, tightest 5.45:1 against the 4.5:1 floor. */
+.status-badge__remediation {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: var(--text-meta);
+  line-height: 1.4;
+  color: var(--fg-muted);
+}
 
 .status-badge {
   display: inline-block;

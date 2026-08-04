@@ -718,8 +718,15 @@ class TestCrossMilestoneSafety:
         #     480 gave the pre-split file.
         # The cap is a discipline, not a dare — raise it deliberately and say
         # why, which m6 (400 -> 480) also did.
-        assert line_count <= 520, (
-            f"app.css is {line_count} lines — over the 520-line cap (revised "
+        # ui-uplift-m10: 520 -> 600, in lockstep. UPL-9 lands eight class
+        # rules in one pass (the .discover-* panel + the .topic-* trio, i.e.
+        # the last of the BAN-R2 debt) plus two recorded refusals — no
+        # relevance line, no fade-in keyframe. 22 lines of headroom did not
+        # fit that, and the tokens-split hatch named above is spent. The
+        # merits are argued at length on the m3 cap test; the file lands at
+        # 575 of 600.
+        assert line_count <= 600, (
+            f"app.css is {line_count} lines — over the 600-line cap (revised "
             f"in ui-uplift-m6 from 400 for the OKLCH token family + --dur-* "
             f"tokens + their derivation rationale). "
             f"Consider stripping documentation comments, splitting the file "

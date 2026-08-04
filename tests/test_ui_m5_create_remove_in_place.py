@@ -805,7 +805,7 @@ class TestCrossMilestoneSafety:
         assert "<td>added</td>" in out
 
     def test_app_css_under_m5_cap(self) -> None:
-        # Cap = 520 (ui-uplift-m6 raised 400 → 480 for the OKLCH token
+        # Cap = 600 (ui-uplift-m6 raised 400 → 480 for the OKLCH token
         # family + --dur-* tokens + their per-token derivation rationale).
         # This test mirrors the cap-tests in m3 and m4 test files — all
         # three MUST move in lockstep on a future cap raise.
@@ -828,6 +828,10 @@ class TestCrossMilestoneSafety:
         #     480 gave the pre-split file.
         # The cap is a discipline, not a dare — raise it deliberately and say
         # why, which m6 (400 -> 480) also did.
-        assert line_count <= 520, (
-            f"app.css is {line_count} lines — over the 520-line cap"
+        # ui-uplift-m10: 520 -> 600, in lockstep. UPL-9's eight class rules
+        # (.discover-* + .topic-*, the last of the BAN-R2 debt) plus two
+        # recorded refusals do not fit 22 lines, and the tokens-split hatch
+        # is spent. Merits argued on the m3 cap test; file lands at 575.
+        assert line_count <= 600, (
+            f"app.css is {line_count} lines — over the 600-line cap"
         )

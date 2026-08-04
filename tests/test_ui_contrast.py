@@ -16,7 +16,11 @@ That boundary matters because a *partial inventory* is how three AA failures
 shipped: ``.card .note`` and ``.status-badge--ok`` (both fixed in UPL-27) and
 ``.skip-link:focus-visible`` white-on-accent at 2.53:1, which no contrast
 table in this repo had ever listed. The old table covered 12 token-on-ground
-cells; this one covers 67 rendered pairs.
+cells; this one covers every pair the stylesheet renders. **Do not restate
+that count in prose here** — it was typed as "67" while the registry had
+grown to 91 by the time ui-uplift-m10 opened this file, in the module whose
+thesis is that hand-typed numbers rot. The live figure is generated into the
+published artifact's Headline by :func:`render_headline`.
 
 Floors: **4.5:1** for text (SC 1.4.3) and **3:1** for non-text UI boundaries
 and graphical objects (SC 1.4.11).
@@ -160,6 +164,14 @@ for _m in ("light", "dark"):
     # -- borders (SC 1.4.11) --------------------------------------------------
     _p(_m, "--border on --bg [AC#4 in light]", "--border", "--bg", NONTEXT)
     _p(_m, "--border on --card-bg", "--border", "--card-bg", NONTEXT)
+    # -- ui-uplift-m10: --fg-muted, the secondary text voice. Its card-ground
+    #    consumers are .discover-meta, .topic-description and (via the badge)
+    #    .status-badge__remediation; the pill grounds are registered below.
+    #    Every one of these is inside <section class="card">, so --card-bg is
+    #    the only canvas ground it renders against — --bg is deliberately NOT
+    #    registered, because registering a pair that does not render is the
+    #    same class of dishonesty as omitting one that does.
+    _p(_m, ".discover-meta / .topic-description --fg-muted", "--fg-muted", "--card-bg", TEXT)
 
 # -- on-accent text: white in light, var(--bg) in dark (mode-conditional) ----
 _p("light", "button/.button text [accent role 1]", WHITE, "--accent", TEXT)
@@ -192,10 +204,15 @@ _p("dark", "input/textarea typed text", "--fg", "--card-bg", TEXT)
 _p("dark", "th text on th background", "--fg", "--card-bg", TEXT)
 
 # -- status pills. Light --down uses the tokens, so it moves with them; the
-#    other 3 light and all 4 dark pills are v1 literals. The
-#    <small class="status-badge__remediation"> emitted by
-#    server/routes/ui.py has no rule of its own and inherits the active
-#    modifier's colour on its background — same ratio, second render site.
+#    other 3 light and all 4 dark pills are v1 literals.
+#    ui-uplift-m10 corrects what this note used to say. The
+#    <small class="status-badge__remediation"> emitted by server/routes/ui.py
+#    was described here as having "no rule of its own", inheriting the active
+#    modifier's colour at the same ratio. That is no longer true: m10 gave it
+#    --fg-muted (AC#5 / discovery H1), so it is now a DIFFERENT pair on the
+#    same ground and is registered per-pill below. It renders on the three
+#    non-ok pills only — _build_remediation_block returns "" when css == "ok"
+#    — so the ok pill gets no remediation row.
 _LIGHT_PILLS = [
     ("ok", "#e6f4ea", "#15682d", "#15682d"),
     ("warn", "#fdf3e2", "#8a5a00", "#8a5a00"),
@@ -210,11 +227,16 @@ _DARK_PILLS = [
 for _name, _bg, _fg, _bd in _LIGHT_PILLS:
     _p("light", f".status-badge--{_name} text", _fg, _bg, TEXT)
     _p("light", f".status-badge--{_name} border on --bg", _bd, "--bg", NONTEXT)
+    if _name != "ok":
+        _p("light", f".status-badge__remediation on --{_name}", "--fg-muted", _bg, TEXT)
 _p("light", ".status-badge--down text (tokens)", "--danger", "--error-bg", TEXT)
 _p("light", ".status-badge--down border on --bg (token)", "--danger", "--bg", NONTEXT)
+_p("light", ".status-badge__remediation on --down", "--fg-muted", "--error-bg", TEXT)
 for _name, _bg, _fg, _bd in _DARK_PILLS:
     _p("dark", f".status-badge--{_name} text", _fg, _bg, TEXT)
     _p("dark", f".status-badge--{_name} border on --bg", _bd, "--bg", NONTEXT)
+    if _name != "ok":
+        _p("dark", f".status-badge__remediation on --{_name}", "--fg-muted", _bg, TEXT)
 # .status-badge with no modifier uses the base border token.
 for _m in ("light", "dark"):
     _p(_m, ".status-badge base border on --bg", "--border", "--bg", NONTEXT)
@@ -773,7 +795,8 @@ def test_no_ratio_is_typed_outside_a_generated_region() -> None:
         # INPUTS — the target each token was binary-searched against — not
         # measurements of anything, so they cannot be generated from the
         # result. Written with 2 decimals precisely to read as targets.
-        "3.30:1", "3.35:1", "5.30:1", "5.60:1", "6.20:1", "6.60:1",
+        # ui-uplift-m10 adds --fg-muted's 7.00:1 (SC 1.4.6 / AAA, both modes).
+        "3.30:1", "3.35:1", "5.30:1", "5.60:1", "6.20:1", "6.60:1", "7.00:1",
     }
     typed = {m for m in _TYPED_RATIO_RE.findall(doc)} - historical - targets
     assert not typed, (

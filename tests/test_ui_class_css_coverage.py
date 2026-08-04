@@ -21,10 +21,15 @@ Design (research-synthesis.md; both Phase-1 briefs agreed):
   literals fold into ONE ``ast.JoinedStr``/``ast.Constant`` node at parse
   time, verified empirically — then regexes for ``class="..."`` within it.
 - **Word-bounded CSS token search, not a selector parser.** ``app.css``
-  has no bare ``.foo { }`` rules, so this matches ``.classname`` anywhere
-  in the comment-stripped text, guarded on the right only (``.error``
-  must not match inside ``.error-detail``; no left-side guard needed —
-  CSS classes can't start with a digit).
+  MIXES bare (``.card``), compound (``.card .hint``), element-qualified
+  (``pre.error``), comma-grouped (``button, .button``) and ``@media``
+  -nested selectors, so selector-position awareness would need real CSS
+  parsing. This matches ``.classname`` anywhere in the comment-stripped
+  text instead — a deliberate over-approximation, guarded on the right
+  only (``.error`` must not match inside ``.error-detail``; no left-side
+  guard needed — CSS classes can't start with a digit). The earlier claim
+  here, that the file has *no* bare class rules, was false and is the
+  premise ui-uplift-m9's critique M3 asked m10 to correct.
 - **Two structurally separate lists.** ``_DYNAMIC_MODIFIER_ALLOWLIST``
   (AC2) is permanent: ``class="status-badge status-badge--{css}"``
   (``ui.py:289``) is structurally unresolvable to a literal, so its 4 real
@@ -32,16 +37,23 @@ Design (research-synthesis.md; both Phase-1 briefs agreed):
   would let a future unstyled 5th value pass silently. A hypothetical 5th
   ``_classify_status_badge`` value with no matching allow-list edit is
   thus invisible to ANY static check — an inherent limit, not a bug.
-  ``_KNOWN_UNSTYLED`` is a DATED DEBT DEFERRAL, not an exemption: 9
-  classes ship today with zero CSS and ``app.css`` is at its 400-line
-  soft cap, so styling them is out of scope here. Unlike a
-  hand-maintained list it cannot rot silently:
+  ``_KNOWN_UNSTYLED`` is a DATED DEBT DEFERRAL, not an exemption, and it
+  is **empty since ui-uplift-m10**: the 8 classes it still held (three
+  ``topic-*``, five ``discover-*``) gained real rules in that milestone's
+  UPL-9 pass, so AC1 now binds unconditionally over ``server/routes/``.
+  Unlike a hand-maintained list it cannot rot silently:
   :class:`TestKnownUnstyledDebtIsSelfCleaning` fails the day an entry
-  gains a rule.
+  gains a rule, which is why it had to be emptied in the same commit as
+  the CSS.
 
 Templates are out of scope (AC1 and the epic's own ``links.code`` both
 name only ``server/routes/``): Jinja2-only classes like
 ``notebook_detail.html``'s ``rename-form`` are a deliberate scope line.
+**Read the headline above with that line in mind** — "every server-emitted
+CSS class" means every class emitted by a fragment builder under
+``server/routes/``, not every class that reaches a browser
+(ui-uplift-m9 critique M5). ui-uplift-m10 closed the ``server/routes/``
+half of the debt; the template half is still untracked.
 """
 
 from __future__ import annotations
@@ -85,21 +97,26 @@ _DYNAMIC_MODIFIER_ALLOWLIST: dict[str, frozenset[str]] = {
     "status-badge--": frozenset({"ok", "warn", "down", "ops-warn"}),
 }
 
-#: Dated debt deferral (2026-08-04) — NOT a policy exemption. These 9
-#: classes are emitted today with zero CSS; landing that CSS is out of
-#: ui-uplift-m9's scope (app.css is at its 400-line soft cap) and would
-#: poach ui-uplift-m10's own discover-* scope. Self-checked below: this
-#: list can only shrink (TestKnownUnstyledDebtIsSelfCleaning).
-_KNOWN_UNSTYLED: dict[str, str] = {
-    "topic-block": "notebooks.py:621 — unowned; no milestone scoped to style topic-*",
-    "topic-category": "notebooks.py:622 — unowned; see topic-block",
-    "topic-description": "notebooks.py:623 — unowned; see topic-block",
-    "discover-candidate": "notebooks.py:731 — owned by ui-uplift-m10 (UPL-9)",
-    "discover-title": "notebooks.py:732 — owned by ui-uplift-m10; see discover-candidate",
-    "discover-meta": "notebooks.py:733 — owned by ui-uplift-m10; see discover-candidate",
-    "discover-abstract": "notebooks.py:735 — owned by ui-uplift-m10; see discover-candidate",
-    "discover-list": "notebooks.py:748 — owned by ui-uplift-m10; see discover-candidate",
-}
+#: **EMPTY since ui-uplift-m10 (2026-08-04).** The deferral list opened at 9
+#: entries, dropped to 8 when m7's rectify styled ``status-badge__
+#: remediation``, and m10 (UPL-9) landed rules for the remaining 8 — the
+#: three ``topic-*`` and the five ``discover-*`` classes — so BAN-R2's AC1
+#: now binds every static class ``server/routes/`` emits, unconditionally.
+#:
+#: Empty is the intended terminal state, not a temporary one: both
+#: :class:`TestKnownUnstyledDebtIsSelfCleaning` checks iterate this dict and
+#: pass vacuously on ``{}``, and ``_offenders`` already defaults it to ``{}``.
+#: Re-populating it is a deliberate act that needs a dated reason per entry,
+#: and it is the ONLY escape hatch AC1 has — ``_DYNAMIC_MODIFIER_ALLOWLIST``
+#: is a structurally different thing (an interpolation the scan cannot
+#: resolve), not a debt list, and stays.
+#:
+#: SCOPE, stated because "unconditionally" is easy to over-read: this closes
+#: the ``server/routes/`` half only. Jinja templates are still unscanned
+#: (ui-uplift-m9 findings M5/L5 — eight unstyled template classes remain
+#: untracked), which is the deliberate scope line the module docstring's last
+#: paragraph draws.
+_KNOWN_UNSTYLED: dict[str, str] = {}
 
 
 @dataclass(frozen=True)
@@ -295,13 +312,19 @@ def _css_defines_class(classname: str, css_text_no_comments: str) -> bool:
     """Word-bounded ``.classname`` match anywhere in
     ``css_text_no_comments``.
 
-    ``app.css`` has no bare ``.foo { }`` rules — every selector is
-    compound (``.card .hint``), element+class (``pre.error``),
-    comma-grouped (``button, .button``), pseudo-suffixed, or ``@media``
-    -nested — so this matches ``.classname`` as a token ANYWHERE in the
-    text, guarded only on the right (``.error`` must not match inside
-    ``.error-detail``; CSS classes can't start with a digit, so there is
-    no left-side ambiguity with e.g. ``0.4rem``).
+    ui-uplift-m10 (m9 critique M3) corrects the premise this used to state.
+    It claimed ``app.css`` "has no bare ``.foo { }`` rules"; it has many
+    (``.card``, ``.table-wrap``, ``.status-badge``, ``.skip-link``, the four
+    ``.status-badge--*`` pills, and m10's own ``.discover-*`` / ``.topic-*``
+    set). The true and load-bearing reason is that the file MIXES bare,
+    compound (``.card .hint``), element-qualified (``pre.error``),
+    comma-grouped (``button, .button``), pseudo-suffixed and ``@media``
+    -nested selectors, so selector-position awareness would need real CSS
+    parsing. The anywhere-match is a deliberate over-approximation: it
+    matches ``.classname`` as a token ANYWHERE in the text, guarded only on
+    the right (``.error`` must not match inside ``.error-detail``; CSS
+    classes can't start with a digit, so there is no left-side ambiguity
+    with e.g. ``0.4rem``).
 
     Accepted, inert-today limitation: scanning full declaration text (not
     just selector position) means a future ``url(icon.svg)`` or a
@@ -352,10 +375,12 @@ def _offenders(
             offenders.append(
                 f"{e.file}:{e.lineno} — class {e.token!r} has no selector "
                 f"in app.css. Add a `.{e.token}` rule to "
-                "server/frontend/static/app.css, or (if genuinely dynamic "
-                "or a reasoned, dated deferral) add it to "
-                "_DYNAMIC_MODIFIER_ALLOWLIST or _KNOWN_UNSTYLED with a "
-                "reason."
+                "server/frontend/static/app.css. If the class is genuinely "
+                "dynamic, _DYNAMIC_MODIFIER_ALLOWLIST is the mechanism. "
+                "_KNOWN_UNSTYLED has been EMPTY since ui-uplift-m10 — "
+                "re-populating it re-opens debt this epic closed, so it "
+                "needs a dated reason and an owning milestone, not a "
+                "one-line silence (ui-uplift-m9 finding M2)."
             )
     return offenders
 

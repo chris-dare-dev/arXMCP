@@ -607,8 +607,24 @@ class TestCrossMilestoneSafety:
         #     480 gave the pre-split file.
         # The cap is a discipline, not a dare — raise it deliberately and say
         # why, which m6 (400 -> 480) also did.
-        assert line_count <= 520, (
-            f"app.css is {line_count} lines — over the 520-line cap "
+        # ui-uplift-m10: 520 -> 600, again in lockstep across all three files.
+        # The merits, since the split hatch above is spent and cannot be
+        # re-taken:
+        #  1. m10 lands EIGHT class rules at once — the whole .discover-*
+        #     panel plus the .topic-* trio — which is the last of the BAN-R2
+        #     debt (_KNOWN_UNSTYLED is empty as of this commit), not an
+        #     incremental tweak. 22 lines of headroom did not fit eight rules
+        #     under any authoring style.
+        #  2. Two REFUSALS are recorded in the stylesheet rather than left
+        #     silent: no per-candidate relevance line (the arXiv Atom driver
+        #     supplies no basis) and no fade-in keyframe (globalViewTransitions
+        #     already crossfades the swap). This repo writes refusals down —
+        #     tokens.css:101-106, app.css's select/textarea note — and that
+        #     prose is the deliverable, not padding to be trimmed.
+        # The file lands at 575 of 600, a 25-line margin: deliberately more
+        # than the 2 lines m7 left itself and had to rectify.
+        assert line_count <= 600, (
+            f"app.css is {line_count} lines — over the 600-line cap "
             f"(revised in ui-uplift-m6 from 400 for the OKLCH token family + "
             f"--dur-* tokens + their derivation rationale). Consider stripping "
             f"documentation comments, splitting the file (e.g. tokens.css + "
