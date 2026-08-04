@@ -1,0 +1,14 @@
+# frontend-uplift-challenger — accumulated lessons
+
+One line per generalizable lesson. Newest at the bottom.
+
+- Recompute every contrast claim yourself AND widen the pair set: a synthesis that re-runs the overlay's token table will miss token pairs the table never crossed (arXMCP 2026q3: `--danger` on `--error-bg` = 4.97:1 was tighter than the "tightest pair" 5.16:1 the whole colour gate was built on) and will inherit already-failing hardcoded literals as if the baseline were clean.
+- "This candidate only DELETES code" is the framing to attack hardest — check what the deleted code actually *did*: arXMCP's inline `hx-on::htmx:response-error` extracted a JSON `detail` field, so the htmx `response-targets` swap-in equivalent silently required a server response-contract change across seven endpoints.
+- Grep the repo's own vendoring manifest before accepting a vendored-asset candidate: a prior milestone may have already faced the same upstream and chosen to author in-repo (arXMCP `VENDORED.md` on `json-enc.js` vs htmx-extensions), which turns the candidate into an unacknowledged reversal.
+- When a run adopts a design direction, check it against the repo overlay's *pre-declared house default* and against BAN-15's list of the canon's own house look — a "chosen" direction that restates the overlay default under a new name is fine, but selling it as novelty is the finding.
+- If the synthesis scores §10 only on the current state, compute the PROJECTED state yourself per-tell — it is the number Axis 11 consumes, and it usually identifies exactly which one or two candidates push the program back out of band.
+- Hover-reveal a11y findings turn on the *hiding mechanism*, not on `:focus-within`: `display:none`/`visibility:hidden` removes the control from the tab order so `:focus-within` can never fire, making the "guarded" version worse than the hover-only version the synthesis called a BLOCKER.
+- Check proposed motion against motion already SHIPPED on the same swap target — htmx `globalViewTransitions` means a fade-in candidate on an `outerHTML` target is duplicating a crossfade that already runs.
+- Verify "does the backend even support this?" premises the synthesis flags as open; they are usually one grep, and the answer is often "the data exists but only a LIMIT 1 read path does", which reclassifies the candidate rather than killing it.
+- A candidate resting on a surface that never rendered (404 route, no fixture) is `UNSCORABLE` per canon §14 and must not be sized or ranked alongside `✓ live`-evidenced candidates.
+- Native `<details>` has no expand animation in Baseline CSS — a `[MOT-15 accordion-expand]` candidate claiming "native, zero JS" needs `interpolate-size`/`::details-content` (Chromium-only), which syntheses often park in their own rejected list without noticing the contradiction.

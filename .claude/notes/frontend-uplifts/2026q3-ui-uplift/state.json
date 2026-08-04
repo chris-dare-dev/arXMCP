@@ -1,0 +1,236 @@
+{
+  "id": "2026q3-ui-uplift",
+  "kind": "frontend-uplift",
+  "created_at": "2026-08-03T23:00:20Z",
+  "updated_at": "2026-08-04T00:00:10Z",
+  "phase": "complete",
+  "phase_history": [
+    {
+      "phase": "init",
+      "at": "2026-08-03T23:00:20Z"
+    },
+    {
+      "phase": "discover-running",
+      "at": "2026-08-03T23:16:57Z"
+    },
+    {
+      "phase": "discover-complete",
+      "at": "2026-08-03T23:31:31Z"
+    },
+    {
+      "phase": "synthesize-running",
+      "at": "2026-08-03T23:31:31Z"
+    },
+    {
+      "phase": "synthesize-complete",
+      "at": "2026-08-03T23:37:23Z"
+    },
+    {
+      "phase": "challenge-running",
+      "at": "2026-08-03T23:37:24Z"
+    },
+    {
+      "phase": "challenge-complete",
+      "at": "2026-08-03T23:56:44Z"
+    },
+    {
+      "phase": "prioritize-running",
+      "at": "2026-08-03T23:56:44Z"
+    },
+    {
+      "phase": "complete",
+      "at": "2026-08-04T00:00:10Z"
+    }
+  ],
+  "uplift_brief": "Uplift and improve the overall UI for the arXMCP application. Identify what sections and aspects could be improved, which parts look AI-generated and unoriginal in terms of the standard tailwind + shadcn UI feel, and propose new libraries which could give an interactive feel.",
+  "discover_mode": "standard",
+  "pages_to_walk": [],
+  "agents_dispatched": [
+    "visual-scout",
+    "current-state-critic",
+    "art-direction-scout",
+    "library-scout",
+    "inspiration-scout"
+  ],
+  "agents_returned": [
+    "visual-scout",
+    "current-state-critic",
+    "art-direction-scout",
+    "library-scout",
+    "inspiration-scout"
+  ],
+  "discover_briefs": [
+    ".claude/notes/frontend-uplifts/2026q3-ui-uplift/discover/visual-scout-brief.md",
+    ".claude/notes/frontend-uplifts/2026q3-ui-uplift/discover/current-state-critic-brief.md",
+    ".claude/notes/frontend-uplifts/2026q3-ui-uplift/discover/art-direction-scout-brief.md",
+    ".claude/notes/frontend-uplifts/2026q3-ui-uplift/discover/library-scout-brief.md",
+    ".claude/notes/frontend-uplifts/2026q3-ui-uplift/discover/inspiration-scout-brief.md"
+  ],
+  "screenshot_dir": ".claude/notes/frontend-uplifts/2026q3-ui-uplift/screenshots",
+  "synthesis_path": ".claude/notes/frontend-uplifts/2026q3-ui-uplift/artifacts/synthesis.md",
+  "candidate_count": 26,
+  "challenge_path": ".claude/notes/frontend-uplifts/2026q3-ui-uplift/artifacts/challenge.md",
+  "challenge_finding_counts": {
+    "critical": 0,
+    "high": 9,
+    "medium": 10,
+    "low": 7
+  },
+  "final_report_path": ".claude/notes/frontend-uplifts/2026q3-ui-uplift/artifacts/final-report.md",
+  "ranked_candidates": [
+    {
+      "id": "UPL-27",
+      "title": "Fix two shipped WCAG AA contrast failures",
+      "lane": "a11y-safety-debt",
+      "rice": 20.0,
+      "rank": 1
+    },
+    {
+      "id": "UPL-22",
+      "title": "Fix reduced-motion change listener",
+      "lane": "a11y-safety-debt",
+      "rice": 20.0,
+      "rank": 2
+    },
+    {
+      "id": "UPL-6",
+      "title": "Authored density + coarse-pointer touch floor",
+      "lane": "a11y-safety-debt",
+      "rice": 3.0,
+      "rank": 3
+    },
+    {
+      "id": "UPL-13",
+      "title": "Stop 2s poll re-announcing",
+      "lane": "a11y-safety-debt",
+      "rice": 2.25,
+      "rank": 4
+    },
+    {
+      "id": "UPL-3",
+      "title": "Two-voice type scale",
+      "lane": "signature-direction",
+      "rice": 19.5,
+      "rank": 1
+    },
+    {
+      "id": "UPL-2",
+      "title": "Retire the card; hairline rule ladder",
+      "lane": "signature-direction",
+      "rice": 9.75,
+      "rank": 2
+    },
+    {
+      "id": "UPL-4",
+      "title": "De-Primer the material (OKLCH)",
+      "lane": "signature-direction",
+      "rice": 7.31,
+      "rank": 3
+    },
+    {
+      "id": "UPL-1",
+      "title": "Corpus before machinery reorder",
+      "lane": "signature-direction",
+      "rice": 5.63,
+      "rank": 4
+    },
+    {
+      "id": "UPL-5",
+      "title": "Posture lede",
+      "lane": "signature-direction",
+      "rice": 5.25,
+      "rank": 5
+    },
+    {
+      "id": "UPL-7",
+      "title": "Emitted classes ship their CSS rule",
+      "lane": "foundations",
+      "rice": 6.5,
+      "rank": 1
+    },
+    {
+      "id": "UPL-16",
+      "title": "Container-query the form layout",
+      "lane": "foundations",
+      "rice": 2.1,
+      "rank": 2
+    },
+    {
+      "id": "UPL-8",
+      "title": "select/textarea sizing parity",
+      "lane": "workflow",
+      "rice": 8.4,
+      "rank": 1
+    },
+    {
+      "id": "UPL-10",
+      "title": "Ingest failure uses pre.error",
+      "lane": "workflow",
+      "rice": 8.4,
+      "rank": 2
+    },
+    {
+      "id": "UPL-9",
+      "title": "Style discover-results list",
+      "lane": "workflow",
+      "rice": 6.3,
+      "rank": 3
+    },
+    {
+      "id": "UPL-26",
+      "title": "user-invalid validation state",
+      "lane": "workflow",
+      "rice": 3.6,
+      "rank": 4
+    },
+    {
+      "id": "UPL-20",
+      "title": "notebook_kind as micro-caps text",
+      "lane": "workflow",
+      "rice": 3.15,
+      "rank": 5
+    },
+    {
+      "id": "UPL-12",
+      "title": "has() region in-flight cue",
+      "lane": "workflow",
+      "rice": 3.0,
+      "rank": 6
+    },
+    {
+      "id": "UPL-11",
+      "title": "In-language dialog confirm",
+      "lane": "workflow",
+      "rice": 2.25,
+      "rank": 7
+    },
+    {
+      "id": "UPL-21",
+      "title": "Author the four empty states",
+      "lane": "workflow",
+      "rice": 2.1,
+      "rank": 8
+    },
+    {
+      "id": "UPL-15a",
+      "title": "Table row hover tint",
+      "lane": "polish",
+      "rice": 4.2,
+      "rank": 1
+    },
+    {
+      "id": "UPL-14",
+      "title": "ingest-status settle flash",
+      "lane": "polish",
+      "rice": 1.8,
+      "rank": 2
+    },
+    {
+      "id": "UPL-19a",
+      "title": "cross-document view-transition at-rule",
+      "lane": "polish",
+      "rice": 1.8,
+      "rank": 3
+    }
+  ]
+}
