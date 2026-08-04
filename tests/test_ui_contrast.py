@@ -38,6 +38,7 @@ import pytest
 from tests._ui_color import (
     APP_CSS_PATH,
     REPO_ROOT,
+    alpha_over,
     contrast_ratio,
     load_raw_tokens,
     load_tokens,
@@ -53,14 +54,24 @@ LIGHT, DARK = load_tokens()
 TEXT = 4.5
 NONTEXT = 3.0
 LARGE = 3.0
+#: A pair that genuinely renders but that WCAG does not require to meet a
+#: floor. It is registered anyway, with its measured ratio, so the artifact
+#: shows the number and the reason — critique H3's point was that "an
+#: unstated exemption and an oversight look identical from the artifact".
+#: Every EXEMPT site string must carry its justification inline.
+EXEMPT = 0.0
 
 
 def _resolve(spec: object, mode: str) -> str:
     """Resolve a pair-registry colour spec to the hex a browser paints."""
     table = LIGHT if mode == "light" else DARK
     if isinstance(spec, tuple):
-        _tag, base, pct, other = spec
-        return mix_oklab(_resolve(base, mode), pct, _resolve(other, mode))
+        tag, base, amount, other = spec
+        if tag == "mix":
+            return mix_oklab(_resolve(base, mode), amount, _resolve(other, mode))
+        if tag == "fade":
+            return alpha_over(_resolve(base, mode), amount, _resolve(other, mode))
+        raise RuntimeError(f"unknown colour spec tag: {tag!r}")
     if isinstance(spec, str) and spec.startswith("--"):
         return table[spec]
     if isinstance(spec, str):
@@ -69,7 +80,19 @@ def _resolve(spec: object, mode: str) -> str:
 
 
 def mix(base: object, pct: float, other: object) -> tuple:
+    """``color-mix(in oklab, <base> <pct>%, <other>)`` — two opaque colours."""
     return ("mix", base, pct, other)
+
+
+def fade(base: object, alpha: float, ground: object) -> tuple:
+    """``opacity: <alpha>`` — composite ``base`` over ``ground`` in sRGB.
+
+    Distinct from :func:`mix` on purpose; see ``tests._ui_color.alpha_over``.
+    Registering these is critique H3: ``opacity`` moves BOTH an element's
+    text and its fill, so it changes the ground a pair is actually read
+    against, and the m6 registry had no composited row at all.
+    """
+    return ("fade", base, alpha, ground)
 
 
 WHITE = "#ffffff"
@@ -168,6 +191,70 @@ for _name, _bg, _fg, _bd in _DARK_PILLS:
 for _m in ("light", "dark"):
     _p(_m, ".status-badge base border on --bg", "--border", "--bg", NONTEXT)
 
+# ---------------------------------------------------------------------------
+# COMPOSITED STATE CLASSES (critique H1 / H3 / M1 / M8).
+#
+# The m6 registry held zero composited rows, so two whole rendered state
+# classes sat outside the "EVERY rendered pair" claim. Both change the ground
+# text is read against, which is exactly the case a token-on-token sweep
+# cannot see.
+# ---------------------------------------------------------------------------
+
+#: `form.htmx-request button[type=submit]` etc. `opacity` composites BOTH the
+#: label and the fill over whatever is behind the button, collapsing their
+#: mutual contrast. Registered for both grounds a button actually sits on.
+IN_FLIGHT = 0.7
+
+for _m in ("light", "dark"):
+    _on_accent = WHITE if _m == "light" else "--bg"
+    for _ground in ("--bg", "--card-bg"):
+        for _label, _fill in (("accent", "--accent"), ("danger", "--danger")):
+            # The label: exempt, and the exemption is `pointer-events: none`.
+            _p(
+                _m,
+                f"in-flight {_label} button label on {_ground} "
+                f"[EXEMPT: inactive component, SC 1.4.3 — pointer-events:none]",
+                fade(_on_accent, IN_FLIGHT, _ground),
+                fade(_fill, IN_FLIGHT, _ground),
+                EXEMPT,
+            )
+            # The focus ring is NOT exempt — a keyboard user can still focus
+            # the button mid-request, and SC 1.4.11 states a contrast
+            # threshold with no width trade (width is SC 2.4.13, a different
+            # criterion). This is the pair that forced opacity 0.6 -> 0.7.
+            _p(
+                _m,
+                f"in-flight {_label} focus ring on {_ground}",
+                fade(_fill, IN_FLIGHT, _ground),
+                _ground,
+                NONTEXT,
+            )
+
+#: AC#3 role 5. The flash animates `border-color` to --accent (it animated
+#: `background` before the m6 critique, which replaced the pill's fill and put
+#: 6 of 8 pill texts under 4.5:1). Because only the border moves, no text pair
+#: changes — this is the whole pair the state introduces.
+for _m in ("light", "dark"):
+    for _ground in ("--bg", "--card-bg"):
+        _p(
+            _m,
+            f".status-badge.htmx-settling flash border on {_ground} "
+            f"[accent role 5]",
+            "--accent",
+            _ground,
+            NONTEXT,
+        )
+
+# -- light --border's real binding grounds (critique M2). The token records
+#    "solved: 3.30:1 on --bg", but it is also drawn against th's #f0f0f0 and
+#    the tbody row-hover ground, both DARKER than --bg and therefore the
+#    actually-binding ones. Neither was registered, so ~2.5% of the headroom
+#    was unguarded and a future re-derivation aimed at the documented --bg
+#    target could drop the real thinnest pair under 3:1 with the gate green.
+_p("light", "--border on th #f0f0f0", "--border", "#f0f0f0", NONTEXT)
+for _m in ("light", "dark"):
+    _p(_m, "--border on tbody tr:hover", "--border", ROW_HOVER, NONTEXT)
+
 
 def _rows() -> list[tuple[str, str, str, str, float, float, bool]]:
     out = []
@@ -192,6 +279,15 @@ def test_rendered_pair_meets_wcag_floor(
     """AC#5, the hard gate: no rendered pair may sit under its floor."""
     fg_hex, bg_hex = _resolve(fg, mode), _resolve(bg, mode)
     ratio = contrast_ratio(fg_hex, bg_hex)
+    if floor == EXEMPT:
+        # Registered for the artifact, not gated. The site string carries the
+        # justification; this asserts only that it HAS one, so an exemption
+        # can never be added silently.
+        assert "[EXEMPT:" in site, (
+            f"{mode} / {site}: EXEMPT floor without a recorded justification. "
+            f"Put the reason in the site string as '[EXEMPT: <why>]'."
+        )
+        return
     assert ratio >= floor, (
         f"{mode} / {site}: {fg_hex} on {bg_hex} = {ratio:.3f}:1, under the "
         f"{floor}:1 floor. ui-uplift-m6 AC#5 makes this a ship blocker — "
@@ -208,24 +304,49 @@ def test_light_border_clears_three_to_one_on_bg() -> None:
     )
 
 
+def _accent_role_checks(mode: str) -> list[tuple[str, float, float]]:
+    """AC#3's five --accent roles, as (label, measured ratio, floor).
+
+    Shared by ``test_accent_satisfies_all_five_roles`` and the generated
+    roles table in the published artifact — critique H2 found that table
+    hand-typed, sitting outside the generated markers, with 9 of 12 numbers
+    wrong. Deriving both from this one function is what makes the artifact's
+    "Ratios are computed, never typed" claim true.
+    """
+    table = LIGHT if mode == "light" else DARK
+    on_accent = WHITE if mode == "light" else table["--bg"]
+    return [
+        ("role 1 button ground vs its own text",
+         contrast_ratio(on_accent, table["--accent"]), 4.5),
+        ("role 1b :hover ground vs its own text",
+         contrast_ratio(on_accent, _resolve(HOVER, mode)), 4.5),
+        ("role 2 focus ring vs --bg",
+         contrast_ratio(table["--accent"], table["--bg"]), 3.0),
+        ("role 2 focus ring vs --card-bg",
+         contrast_ratio(table["--accent"], table["--card-bg"]), 3.0),
+        ("role 3 link vs --bg",
+         contrast_ratio(table["--accent"], table["--bg"]), 4.5),
+        ("role 4 skip-link ground vs its own text",
+         contrast_ratio(on_accent, table["--accent"]), 4.5),
+        # Critique H1: role 5 was named in AC#3 and checked by nothing. The
+        # flash now moves border-color, so the measured pair is --accent
+        # against the ground the pill sits on.
+        ("role 5 badge-flash border vs --bg",
+         contrast_ratio(table["--accent"], table["--bg"]), 3.0),
+        ("role 5 badge-flash border vs --card-bg",
+         contrast_ratio(table["--accent"], table["--card-bg"]), 3.0),
+    ]
+
+
 def test_accent_satisfies_all_five_roles() -> None:
     """AC#3: ONE --accent token, five simultaneous roles, in BOTH modes."""
-    for mode, table in (("light", LIGHT), ("dark", DARK)):
-        on_accent = WHITE if mode == "light" else table["--bg"]
-        checks = [
-            ("role 1 button ground vs its own text",
-             contrast_ratio(on_accent, table["--accent"]), 4.5),
-            ("role 1b :hover ground vs its own text",
-             contrast_ratio(on_accent, _resolve(HOVER, mode)), 4.5),
-            ("role 2 focus ring vs --bg",
-             contrast_ratio(table["--accent"], table["--bg"]), 3.0),
-            ("role 2 focus ring vs --card-bg",
-             contrast_ratio(table["--accent"], table["--card-bg"]), 3.0),
-            ("role 3 link vs --bg",
-             contrast_ratio(table["--accent"], table["--bg"]), 4.5),
-            ("role 4 skip-link ground vs its own text",
-             contrast_ratio(on_accent, table["--accent"]), 4.5),
-        ]
+    for mode in ("light", "dark"):
+        checks = _accent_role_checks(mode)
+        roles = {label.split()[1] for label, _r, _f in checks}
+        assert roles == {"1", "1b", "2", "3", "4", "5"}, (
+            f"AC#3 enumerates five --accent roles; this test covers {sorted(roles)}. "
+            f"Role 5 (badge-flash) went unchecked through the whole of m6."
+        )
         for label, ratio, floor in checks:
             assert ratio >= floor, f"{mode}: --accent {label} = {ratio:.3f}:1 < {floor}"
 
@@ -237,6 +358,25 @@ def test_focus_ring_verified_against_card_bg_not_only_bg() -> None:
     assert DARK["--card-bg"] != DARK["--bg"]
     assert contrast_ratio(DARK["--accent"], DARK["--card-bg"]) >= 3.0
     assert contrast_ratio(DARK["--border"], DARK["--card-bg"]) >= 3.0
+
+
+def test_surface_separation_is_pinned_in_both_modes() -> None:
+    """Critique L4: the card/canvas surface pair was guarded by a bare
+    ``!=`` in dark and by nothing at all in light, while m6 halved the light
+    separation (1.062:1 -> ~1.028:1) without recording it.
+
+    Not a defect — net card visibility improved, because the 1 px --border
+    around the card went from 1.342:1 to over 3:1 — but two identical hexes
+    would have passed every test in the milestone. A floor at the shipped
+    value stops the surface distinction being collapsed silently.
+    """
+    for mode, table in (("light", LIGHT), ("dark", DARK)):
+        ratio = contrast_ratio(table["--card-bg"], table["--bg"])
+        assert ratio >= 1.02, (
+            f"{mode} --card-bg vs --bg = {ratio:.4f}:1. The card surface must "
+            f"stay distinguishable from the canvas; ui-uplift-m8 AC#2 depends "
+            f"on --card-bg having a successor role."
+        )
 
 
 def test_no_pair_registry_duplicates_a_token_as_a_literal() -> None:
@@ -377,10 +517,21 @@ def test_skip_link_has_a_mode_conditional_on_accent_text_colour() -> None:
 
 def test_favicon_tracks_light_accent() -> None:
     """SVG favicons render in browser-tab chrome and do NOT inherit page CSS
-    custom properties, so this hex cannot be tokenised — only kept in sync."""
+    custom properties, so this hex cannot be tokenised — only kept in sync.
+
+    Critique M6/M7: this asserted ``LIGHT["--accent"] in svg`` — a substring
+    test over the whole file — and ``favicon.svg`` embeds that same hex in
+    the explanatory XML comment this milestone added. The one guard between
+    a re-derived ``--accent`` and a stale brand colour in tab chrome was
+    satisfied by a comment: delete the ``<rect>`` entirely and it still
+    passed. Assert the rendered attribute instead.
+    """
     svg = (APP_CSS_PATH.parent / "favicon.svg").read_text(encoding="utf-8")
-    assert LIGHT["--accent"] in svg.lower(), (
-        f"favicon.svg must use the light --accent value {LIGHT['--accent']}"
+    m = re.search(r"<rect[^>]*\bfill=\"(#[0-9a-fA-F]{6})\"", svg)
+    assert m is not None, "favicon.svg has no <rect> with a fill attribute"
+    assert m.group(1).lower() == LIGHT["--accent"].lower(), (
+        f"favicon.svg <rect fill=\"{m.group(1)}\"> must track the light "
+        f"--accent value {LIGHT['--accent']}"
     )
 
 
@@ -393,33 +544,162 @@ def render_table() -> str:
         "|---|---|---|---|---|---|---|---|---|",
     ]
     for i, (mode, site, fg, bg, ratio, floor, ok) in enumerate(_rows(), start=1):
-        sc = "1.4.3" if floor == TEXT else "1.4.11 / large text"
+        if floor == EXEMPT:
+            sc, floor_cell, verdict = "exempt", "—", "EXEMPT"
+        else:
+            sc = "1.4.3" if floor == TEXT else "1.4.11 / large text"
+            floor_cell = f"{floor}:1"
+            verdict = "PASS" if ok else "FAIL"
         lines.append(
             f"| {i} | {mode} | {site} | `{fg}` | `{bg}` | **{ratio:.3f}:1** | "
-            f"{floor}:1 | {sc} | {'PASS' if ok else 'FAIL'} |"
+            f"{floor_cell} | {sc} | {verdict} |"
         )
     return "\n".join(lines)
 
 
-_REGION_RE = re.compile(
-    rf"{re.escape(BEGIN_MARK)}(.*?){re.escape(END_MARK)}", re.S
-)
+def render_roles_table() -> str:
+    """AC#3's five roles, generated (critique H2).
+
+    This table was hand-typed and outside the generated markers; nine of its
+    twelve ratio cells disagreed with what the milestone's own code computes,
+    several of them digit transpositions (6.583 vs 6.553, 7.199 vs 7.190) —
+    the classic hand-typing tell, inside the artifact written to end exactly
+    that failure mode.
+    """
+    light = {label: r for label, r, _f in _accent_role_checks("light")}
+    dark = {label: r for label, r, _f in _accent_role_checks("dark")}
+    _flash = "`@keyframes badge-flash`"
+    sites = [
+        ("1 · button ground", "`button, .button`",
+         "role 1 button ground vs its own text"),
+        ("1b · hover ground", "`button:hover`",
+         "role 1b :hover ground vs its own text"),
+        ("2 · focus ring vs `--bg`", "`:focus-visible`",
+         "role 2 focus ring vs --bg"),
+        ("2 · focus ring vs `--card-bg`", "`:focus-visible`",
+         "role 2 focus ring vs --card-bg"),
+        ("3 · link", "`.breadcrumb a`", "role 3 link vs --bg"),
+        ("4 · skip-link ground", "`.skip-link:focus-visible`",
+         "role 4 skip-link ground vs its own text"),
+        ("5 · badge-flash border vs `--bg`", _flash,
+         "role 5 badge-flash border vs --bg"),
+        ("5 · badge-flash border vs `--card-bg`", _flash,
+         "role 5 badge-flash border vs --card-bg"),
+    ]
+    lines = ["| Role | Site | Light | Dark |", "|---|---|---|---|"]
+    for role, site, key in sites:
+        lines.append(f"| {role} | {site} | {light[key]:.3f}:1 | {dark[key]:.3f}:1 |")
+    return "\n".join(lines)
 
 
-def _extract_generated(doc: str) -> str:
-    m = _REGION_RE.search(doc)
+def render_headline() -> str:
+    """The Headline block, generated (critique M4).
+
+    It hand-typed "68 (34 light, 34 dark)" when the split was 36/32, on the
+    first page of a document whose thesis is that hand-typed numbers are how
+    three AA failures shipped.
+    """
+    rows = _rows()
+    gated = [r for r in rows if r[5] != EXEMPT]
+    exempt = [r for r in rows if r[5] == EXEMPT]
+    light_n = sum(1 for r in rows if r[0] == "light")
+    failures = [r for r in gated if not r[6]]
+    tightest = min(gated, key=lambda r: r[4])
+    text_rows = [r for r in gated if r[5] == TEXT]
+    tightest_text = min(text_rows, key=lambda r: r[4])
+    return "\n".join([
+        "| | |",
+        "|---|---|",
+        f"| Pairs measured | **{len(rows)}** ({light_n} light, "
+        f"{len(rows) - light_n} dark) |",
+        f"| Of those, gated / exempt | **{len(gated)}** gated, "
+        f"**{len(exempt)}** exempt (each with its reason in the Site column) |",
+        f"| Failures | **{len(failures)}** |",
+        f"| Tightest gated pair | {tightest[0]} `{tightest[1]}` — "
+        f"**{tightest[4]:.3f}:1** against a {tightest[5]}:1 floor |",
+        f"| Tightest gated text pair | {tightest_text[0]} `{tightest_text[1]}` — "
+        f"**{tightest_text[4]:.3f}:1** against 4.5:1 |",
+    ])
+
+
+#: Every generated region in the artifact: marker name -> renderer.
+#: Critique H2/M4: the roles table and the Headline block were BOTH hand-typed
+#: and BOTH outside the single marker pair, so
+#: ``test_published_contrast_table_is_current`` structurally could not see
+#: them — it only ever compared the rows between the CONTRAST TABLE markers.
+GENERATED_REGIONS: dict[str, object] = {
+    "CONTRAST TABLE": render_table,
+    "ROLES TABLE": render_roles_table,
+    "HEADLINE": render_headline,
+}
+
+
+def _region_re(name: str) -> re.Pattern[str]:
+    return re.compile(
+        rf"<!-- BEGIN GENERATED {re.escape(name)} -->(.*?)"
+        rf"<!-- END GENERATED {re.escape(name)} -->",
+        re.S,
+    )
+
+
+def _extract_generated(doc: str, name: str = "CONTRAST TABLE") -> str:
+    m = _region_re(name).search(doc)
     if m is None:
-        raise RuntimeError(f"{TABLE_DOC} is missing the generated-table markers")
+        raise RuntimeError(f"{TABLE_DOC} is missing the GENERATED {name} markers")
     return m.group(1).strip()
 
 
-def test_published_contrast_table_is_current() -> None:
+@pytest.mark.parametrize("name", sorted(GENERATED_REGIONS))
+def test_published_region_is_current(name: str) -> None:
     """AC#2: the shipped artifact is generated, not hand-typed. If this
     fails, run `python -m tests.test_ui_contrast --update`."""
     doc = TABLE_DOC.read_text(encoding="utf-8")
-    assert _extract_generated(doc) == render_table().strip(), (
-        f"{TABLE_DOC.relative_to(REPO_ROOT).as_posix()} is stale — regenerate "
-        f"with: python -m tests.test_ui_contrast --update"
+    render = GENERATED_REGIONS[name]
+    assert _extract_generated(doc, name) == render().strip(), (  # type: ignore[operator]
+        f"{TABLE_DOC.relative_to(REPO_ROOT).as_posix()} region {name!r} is "
+        f"stale — regenerate with: python -m tests.test_ui_contrast --update"
+    )
+
+
+#: A contrast ratio written as prose. Critique H2: the artifact claimed
+#: "Ratios are computed, never typed" while carrying twelve typed ones, nine
+#: of them wrong.
+_TYPED_RATIO_RE = re.compile(r"\d+\.\d{2,3}:1")
+
+
+def test_no_ratio_is_typed_outside_a_generated_region() -> None:
+    """The artifact's own central claim, enforced instead of asserted.
+
+    Historical ratios (the before-values this milestone closed) are the one
+    legitimate typed number — they describe code that no longer exists, so
+    they cannot drift. They live in the narrative sections and are allow-
+    listed here explicitly.
+    """
+    doc = TABLE_DOC.read_text(encoding="utf-8")
+    for name in GENERATED_REGIONS:
+        doc = _region_re(name).sub("", doc)
+    historical = {
+        # Before-values this milestone closed, or measurements of code that
+        # no longer exists. None can drift: the code they describe is gone.
+        "1.342:1", "2.526:1", "4.974:1", "21.000:1", "2.414:1", "4.478:1",
+        "1.062:1", "5.025:1",
+        # Measurements of the REJECTED badge-flash alternatives, recorded so
+        # the decision is auditable (30% fill tint, inset box-shadow).
+        "3.095:1", "4.542:1", "3.044:1", "3.902:1",
+    }
+    targets = {
+        # The "Solved for" column of the token family table. These are design
+        # INPUTS — the target each token was binary-searched against — not
+        # measurements of anything, so they cannot be generated from the
+        # result. Written with 2 decimals precisely to read as targets.
+        "3.30:1", "3.35:1", "5.30:1", "5.60:1", "6.20:1", "6.60:1",
+    }
+    typed = {m for m in _TYPED_RATIO_RE.findall(doc)} - historical - targets
+    assert not typed, (
+        f"{TABLE_DOC.name} types the ratio(s) {sorted(typed)} outside a "
+        f"generated region. Either move the number into a generated region "
+        f"or, if it is a historical before-value that can never drift, add "
+        f"it to the allow-list in this test with a note."
     )
 
 
@@ -430,17 +710,46 @@ def test_table_covers_more_than_the_legacy_token_grid() -> None:
     assert {m for m, *_ in PAIRS} == {"light", "dark"}
 
 
+def test_every_faded_css_rule_has_a_registry_row() -> None:
+    """Critique H3's structural guard: an `opacity` under 1.0 changes the
+    ground text is read against, so every such rule needs composited rows.
+    The m6 registry had none, and nothing would have noticed the next one."""
+    faded = re.findall(r"opacity:\s*(0?\.\d+)\s*;", CSS_NO_COMMENTS)
+    if not faded:
+        return
+    registered = {
+        spec[2]
+        for _m, _s, fg, bg, _fl in PAIRS
+        for spec in (fg, bg)
+        if isinstance(spec, tuple) and spec[0] == "fade"
+    }
+    for value in set(faded):
+        assert float(value) in registered, (
+            f"app.css has an `opacity: {value}` rule but no PAIRS row "
+            f"composites at that alpha. A faded element's text and fill both "
+            f"composite over the page, so its real contrast is unmeasured."
+        )
+
+
 def _update() -> None:
     doc = TABLE_DOC.read_text(encoding="utf-8")
-    new, count = _REGION_RE.subn(
-        lambda _m: f"{BEGIN_MARK}\n\n{render_table()}\n\n{END_MARK}", doc
-    )
-    # Fail loudly rather than writing the file back unchanged — a silent
-    # no-match here would leave a stale table looking freshly generated.
-    if count != 1:
-        raise RuntimeError(
-            f"expected exactly 1 generated-table region in {TABLE_DOC}, found {count}"
+    for name, render in GENERATED_REGIONS.items():
+        body = render()  # type: ignore[operator]
+        doc, count = _region_re(name).subn(
+            lambda _m, _n=name, _b=body: (
+                f"<!-- BEGIN GENERATED {_n} -->\n\n{_b}\n\n"
+                f"<!-- END GENERATED {_n} -->"
+            ),
+            doc,
         )
+        # Fail loudly rather than writing the file back unchanged — a silent
+        # no-match here would leave a stale table looking freshly generated.
+        if count != 1:
+            raise RuntimeError(
+                f"expected exactly 1 GENERATED {name} region in {TABLE_DOC}, "
+                f"found {count}"
+            )
+    new = doc
     # newline="\n" explicitly: the default translates to os.linesep on
     # write, so regenerating on Windows vs POSIX would churn every line of
     # a checked-in artifact.

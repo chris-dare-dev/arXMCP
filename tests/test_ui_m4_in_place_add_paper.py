@@ -608,18 +608,32 @@ class TestUPL22BadgeStability:
             "a @media (prefers-reduced-motion: no-preference) block."
         )
 
-    def test_flash_uses_color_mix_not_hardcoded_hex(self) -> None:
-        # m2's color-mix() pattern: the flash background must derive
-        # from var(--accent), not hardcode a hex literal. Future dark-
-        # mode adopters get the derivation for free.
+    def test_flash_derives_from_accent_not_a_hardcoded_hex(self) -> None:
+        """UPL-22's real requirement: the flash colour must DERIVE from
+        ``var(--accent)`` so a re-derived accent carries into it for free,
+        rather than being a hex literal that silently goes stale.
+
+        This asserted the ``color-mix(in oklab, var(--accent) …)`` spelling
+        specifically. ui-uplift-m6's critique (H1/M8) found that flashing
+        the ``background`` property REPLACED each pill's opaque fill for
+        the full 400 ms, dropping 6 of 8 pill texts under SC 1.4.3, so the
+        flash now moves ``border-color`` to ``var(--accent)`` directly and
+        no text pair moves at all. Still derived, more directly than
+        before — so the requirement holds and only the spelling changed.
+        """
         m = _re.search(
-            r"@keyframes\s+badge-flash\s*\{[^}]*color-mix\(in\s+oklab,\s*var\(--accent\)",
+            r"@keyframes\s+badge-flash\s*\{(.*?)\n\s*\}",
             APP_CSS_NO_COMMENTS,
             flags=_re.S,
         )
-        assert m is not None, (
-            "UPL-22: badge-flash keyframe must use color-mix(in oklab, "
-            "var(--accent), ...) per the m2 pattern — not a hardcoded hex."
+        assert m is not None, "the badge-flash keyframe is gone"
+        body = m.group(1)
+        assert "var(--accent)" in body, (
+            "UPL-22: badge-flash must derive its colour from var(--accent)."
+        )
+        assert not _re.search(r"#[0-9a-fA-F]{3,8}\b", body), (
+            f"UPL-22: badge-flash hardcodes a hex literal: {body.strip()!r}. "
+            f"It must track --accent."
         )
 
 

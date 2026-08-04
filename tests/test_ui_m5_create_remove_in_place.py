@@ -52,6 +52,16 @@ from server.routes.notebooks import (
     router as notebooks_router,
 )
 from server.routes.ui import router as ui_router
+
+# ui-uplift-m6 rectify (critique M5): this file used to define its own
+# `_hex_to_rgb` / `_relative_luminance` / `_contrast_ratio` on the 0.03928
+# branch threshold, while `tests/_ui_color.py` claimed in its docstring to be
+# "the repo's single WCAG-contrast implementation". Two calculators on two
+# different thresholds is the precise hazard that module was created to end.
+# They could not actually diverge on any hex input (no 8-bit channel falls
+# between 0.03928 and the 0.04045 the shared module uses), which is exactly
+# why the duplicate could sit here indefinitely without a failing test.
+from tests._ui_color import contrast_ratio as _contrast_ratio
 from tools import _notebook_common
 
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
@@ -515,29 +525,6 @@ class TestUPL12V1DeleteTemplateChanges:
 # ---------------------------------------------------------------------------
 # UPL-8 v1 — dark-mode pill remap + th surface + programmatic contrast check
 # ---------------------------------------------------------------------------
-
-
-def _hex_to_rgb(hex_color: str) -> tuple[float, float, float]:
-    h = hex_color.lstrip("#")
-    return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
-
-
-def _relative_luminance(rgb: tuple[float, float, float]) -> float:
-    # WCAG 2.1 relative luminance per the W3C formula.
-    def channel(c: float) -> float:
-        c = c / 255.0
-        return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
-
-    r, g, b = (channel(x) for x in rgb)
-    return 0.2126 * r + 0.7152 * g + 0.0722 * b
-
-
-def _contrast_ratio(fg_hex: str, bg_hex: str) -> float:
-    l_fg = _relative_luminance(_hex_to_rgb(fg_hex))
-    l_bg = _relative_luminance(_hex_to_rgb(bg_hex))
-    lighter = max(l_fg, l_bg)
-    darker = min(l_fg, l_bg)
-    return (lighter + 0.05) / (darker + 0.05)
 
 
 class TestUPL8V1DarkModePillContrast:

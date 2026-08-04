@@ -137,6 +137,34 @@ def mix_oklab(color_a: str, pct_a: float, color_b: str) -> str:
     return linear_to_hex(oklab_to_linear_srgb(*mixed))
 
 
+def alpha_over(fg_hex: str, alpha: float, bg_hex: str) -> str:
+    """Composite ``fg_hex`` at ``alpha`` over ``bg_hex`` -> rendered hex.
+
+    **Not** :func:`mix_oklab`. Compositing and colour-mixing are different
+    operations and the difference is load-bearing here:
+
+    - ``color-mix(in oklab, A 30%, B)`` interpolates in OKLab between two
+      OPAQUE colours.
+    - Alpha compositing — what ``opacity`` does, and what
+      ``color-mix(in oklab, A 30%, transparent)`` reduces to once the
+      premultiplied result is painted — is a per-channel linear blend in the
+      **destination** space, which for a normal (non-``color()``-managed)
+      page is gamma-encoded sRGB. Browsers composite in 8-bit sRGB, so this
+      rounds to integer channels the same way.
+
+    ui-uplift-m6's critique (H3) found the pair registry had no composited
+    row at all, so ``opacity: 0.6`` in-flight buttons and the badge flash —
+    both of which change the ground that text is actually read against —
+    were outside the "EVERY rendered pair" sweep.
+    """
+    fg = [int(fg_hex.lstrip("#")[i : i + 2], 16) for i in (0, 2, 4)]
+    bg = [int(bg_hex.lstrip("#")[i : i + 2], 16) for i in (0, 2, 4)]
+    return "#" + "".join(
+        f"{round(alpha * f + (1 - alpha) * b):02x}"
+        for f, b in zip(fg, bg, strict=True)
+    )
+
+
 # --------------------------------------------------------------------------
 # Stylesheet parsing
 # --------------------------------------------------------------------------

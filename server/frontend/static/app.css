@@ -23,7 +23,7 @@
      everything else is solved against them. Chroma stays low at the
      lightness extremes because the sRGB gamut allows almost none there
      (max C at L=99% on hue 250 is 0.0049).
-     All 67 rendered pairs, their targets and their measured ratios:
+     Every rendered pair, its target and its measured ratio:
      .claude/docs/ui-contrast-table.md — regenerated, not hand-typed, by
      tests/test_ui_contrast.py (which is also the AA gate).
      light-dark() is deliberately NOT used: Baseline Newly Available,
@@ -92,8 +92,10 @@ footer a { color: #666; }
 
 .card h2 { margin-top: 0; font-size: 1.1rem; }
 .card .hint { color: #555; font-size: 0.875rem; margin: 0 0 0.75rem 0; }
-/* UPL-27: #777 on #fff is 4.478:1 — under the 4.5:1 SC 1.4.3 floor at 0.8rem
-   italic (no large-text exception). #6f6f6f is 5.02:1. */
+/* UPL-27: #777 was under the 4.5:1 SC 1.4.3 floor at 0.8rem italic (no
+   large-text exception). #6f6f6f clears it — this is the second-tightest
+   gated text pair in the sweep, so its live ratio is worth reading rather
+   than trusting a comment: .claude/docs/ui-contrast-table.md */
 .card .note { color: #6f6f6f; font-size: 0.8rem; margin: 0.5rem 0 0 0; font-style: italic; }
 .card .empty { color: #666; font-style: italic; text-align: center; padding: 1.25rem 0.5rem; }
 .card .display-name { font-size: 1rem; color: #444; margin-top: 0; }
@@ -222,7 +224,7 @@ pre.error:empty { display: none; }
 .status-badge--ok       { background: #e6f4ea; color: #15682d; border-color: #15682d; }
 .status-badge--warn     { background: #fdf3e2; color: #8a5a00; border-color: #8a5a00; }
 /* ui-uplift-m6: ops-warn's border was #94a3b8 = 2.41:1 on --bg, the ONLY
-   pair the full 67-pair sweep found below its floor (SC 1.4.11, 3:1). It
+   pair the full sweep found below its floor (SC 1.4.11, 3:1). It
    was already failing before this milestone (2.414:1 on the old --bg), and
    it was the light-mode odd-one-out: the other three pills already set
    border-color == color, which m5 had standardised in dark mode only.
@@ -305,8 +307,10 @@ button.danger:focus-visible { outline-color: var(--danger); outline-offset: 3px;
 @media (prefers-color-scheme: dark) {
   /* ui-uplift-m6: the SAME two hues and the SAME solve-for-a-target
      method as the base :root — only the surface anchors are re-chosen
-     (dark canvas + a raised card 5pp lighter). Nothing here is lifted
-     from Primer any more; the old block was a labelled Primer clone. */
+     (dark canvas + a raised card 5pp lighter). Nothing in THIS :root
+     block is lifted from Primer any more; the old block was a labelled
+     Primer clone. The four .status-badge--* literals below are v1 scope
+     and are still Primer Dark values — see the note above them. */
   :root {
     --fg: oklch(89.089% 0.008 250);      /* solved: 14.0:1 on --bg */
     --bg: oklch(16% 0.014 250);          /* anchor: page canvas */
@@ -390,17 +394,19 @@ button.danger:focus-visible { outline-color: var(--danger); outline-offset: 3px;
 form.htmx-request button[type="submit"],
 button.htmx-request,
 .button.htmx-request {
-  opacity: 0.6;
+  /* ui-uplift-m6 rectify (critique H3): was 0.6, which composited the
+     focus ring to 2.70-2.98:1 against SC 1.4.11's 3:1. 0.7 is the lowest
+     step clearing 3:1 on every ground (binding case needs >= 0.66); the
+     replaced `outline-width: 3px` compensation was not a valid trade —
+     width is SC 2.4.13, a different criterion. The dimmed LABEL cannot
+     reach 4.5:1 at any sane opacity and is exempt as an inactive
+     component (SC 1.4.3), which `pointer-events: none` is what earns.
+     Both are registered with measured ratios in
+     .claude/docs/ui-contrast-table.md — declared, not silent. */
+  opacity: 0.7;
   pointer-events: none;
   cursor: wait;
 }
-
-/* synthesis §2 C3: when a danger button is focused-AND-in-flight, the
-   m1 `outline: 2px solid var(--danger)` ring at the new 0.6 opacity
-   falls to ~2.57:1 on --card-bg — fails SC 1.4.11 (3:1 non-text). A
-   wider ring at 0.6 opacity is visually equivalent to a thinner ring
-   at full opacity. 1-LOC compensation. */
-button.danger.htmx-request:focus-visible { outline-width: 3px; }
 
 @media (prefers-reduced-motion: no-preference) {
   form.htmx-request button[type="submit"]::after,
@@ -433,9 +439,14 @@ button.danger.htmx-request:focus-visible { outline-width: 3px; }
   .status-badge.htmx-settling {
     animation: badge-flash var(--dur-normal) ease-out;
   }
+  /* ui-uplift-m6 rectify (critique H1/M8): this animated `background`,
+     which REPLACES the pill's opaque fill rather than overlaying it, so
+     pill text sat on accent@30% over the page ground — 6 of 8 under SC
+     1.4.3. Flashing `border-color` keeps every pill on its designed
+     ground, so no text pair moves; role 5 stays --accent. Rejected
+     alternatives and all measurements: .claude/docs/ui-contrast-table.md */
   @keyframes badge-flash {
-    from { background: color-mix(in oklab, var(--accent) 30%, transparent); }
-    to   { background: transparent; }
+    from { border-color: var(--accent); }
   }
   ::view-transition-old(root),
   ::view-transition-new(root) {

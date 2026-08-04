@@ -42,6 +42,8 @@ from __future__ import annotations
 import re as _re
 from pathlib import Path
 
+from tests._ui_color import alpha_over, contrast_ratio, load_tokens
+
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
 FRONTEND_STATIC: Path = REPO_ROOT / "server" / "frontend" / "static"
 FRONTEND_TEMPLATES: Path = REPO_ROOT / "server" / "frontend" / "templates"
@@ -290,7 +292,17 @@ class TestUPL11HtmxRequestStyling:
         # Heuristic: search for the first opacity:0.6 occurrence and check
         # the surrounding 600 chars don't show a prefers-reduced-motion
         # opening before it.
-        idx = APP_CSS_NO_COMMENTS.index("opacity: 0.6")
+        # ui-uplift-m6 rectify: the dim value moved 0.6 -> 0.7 (the 0.6 ring
+        # composited to 2.70-2.98:1, under SC 1.4.11). This test is about
+        # WHERE the declaration sits, not what the number is, so find it by
+        # pattern — hardcoding the value made an unrelated test fail on a
+        # contrast fix and told us nothing about the nesting it guards.
+        _dim = _re.search(r"opacity:\s*0\.\d+\s*;\s*\n\s*pointer-events:\s*none",
+                          APP_CSS_NO_COMMENTS)
+        assert _dim is not None, (
+            "the htmx-request dim rule (opacity + pointer-events: none) is gone"
+        )
+        idx = _dim.start()
         # Walk backward to find the nearest unmatched `{` — if it's a
         # @media block, check whether it's prefers-reduced-motion.
         backward = APP_CSS_NO_COMMENTS[max(0, idx - 800) : idx]
@@ -353,19 +365,55 @@ class TestUPL11HtmxRequestStyling:
                 f"UPL-11 C5 spinner: missing ::after selector {sel!r}."
             )
 
-    def test_danger_focus_ring_widened_under_htmx_request(self) -> None:
-        # synthesis §2 C3: m1's `button.danger:focus-visible { outline: 2px
-        # solid var(--danger) }` at 0.6 opacity (mid-htmx-request) drops to
-        # ~2.57:1 contrast — fails SC 1.4.11. Widening to 3px at the same
-        # opacity restores perceptible focus. 1-LOC compensation.
-        assert _re.search(
-            r"button\.danger\.htmx-request:focus-visible\s*\{[^}]*outline-width:\s*3px",
+    def test_in_flight_focus_ring_clears_the_non_text_floor(self) -> None:
+        """Successor to ``test_danger_focus_ring_widened_under_htmx_request``.
+
+        m3 identified the right problem — the danger ring composites below
+        SC 1.4.11 while the button is dimmed — but compensated with
+        ``outline-width: 3px``. ui-uplift-m6's critique (H3) showed that is
+        not a valid trade: **SC 1.4.11 states a contrast threshold and has
+        no width term.** Thickness is SC 2.4.13 (Focus Appearance), a
+        different criterion with its own separate requirements, so widening
+        the ring left the 1.4.11 failure exactly where it was while looking
+        like it had been addressed.
+
+        The fix was to raise the dim opacity until the ring genuinely
+        clears 3:1. This asserts the property m3 actually wanted, rather
+        than the mechanism it reached for; every composited pair is
+        enumerated in ``tests/test_ui_contrast.py``.
+        """
+        m = _re.search(r"opacity:\s*(0\.\d+)\s*;\s*\n\s*pointer-events:\s*none",
+                       APP_CSS_NO_COMMENTS)
+        assert m is not None, "the htmx-request dim rule is gone"
+        alpha = float(m.group(1))
+
+        light, dark = load_tokens()
+        for mode, table in (("light", light), ("dark", dark)):
+            for ground in ("--bg", "--card-bg"):
+                for name in ("--danger", "--accent"):
+                    ratio = contrast_ratio(
+                        alpha_over(table[name], alpha, table[ground]),
+                        table[ground],
+                    )
+                    assert ratio >= 3.0, (
+                        f"{mode} {name} focus ring at opacity {alpha} on "
+                        f"{ground} = {ratio:.3f}:1, under SC 1.4.11's 3:1. "
+                        f"Raise the opacity — widening the outline does not "
+                        f"satisfy a contrast criterion."
+                    )
+
+    def test_no_outline_width_compensation_remains(self) -> None:
+        """The invalid trade must not come back. If a future milestone
+        re-dims the in-flight button, the answer is the opacity, not the
+        outline width."""
+        assert not _re.search(
+            r"\.htmx-request:focus-visible\s*\{[^}]*outline-width:",
             APP_CSS_NO_COMMENTS,
             flags=_re.S,
         ), (
-            "UPL-11 C3 regression: button.danger.htmx-request:focus-visible "
-            "{ outline-width: 3px } missing. m1's 2px danger ring at 0.6 "
-            "opacity falls to 2.57:1 — fails SC 1.4.11."
+            "outline-width compensation reintroduced on an .htmx-request "
+            "focus ring. SC 1.4.11 is a contrast threshold with no width "
+            "term; see ui-uplift-m6 critique H3."
         )
 
 
