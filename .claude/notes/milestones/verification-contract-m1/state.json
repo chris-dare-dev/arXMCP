@@ -1,8 +1,8 @@
 {
   "id": "verification-contract-m1",
   "created_at": "2026-08-04T00:46:08Z",
-  "updated_at": "2026-08-04T02:07:46Z",
-  "phase": "rectify-running",
+  "updated_at": "2026-08-04T02:25:44Z",
+  "phase": "complete",
   "phase_history": [
     {
       "phase": "init",
@@ -35,6 +35,10 @@
     {
       "phase": "rectify-running",
       "at": "2026-08-04T02:07:46Z"
+    },
+    {
+      "phase": "complete",
+      "at": "2026-08-04T02:25:44Z"
     }
   ],
   "milestone_brief": "# Milestone brief \u2014 verification-contract-m1\r\n\r\n**Title:** Honest verification statuses & five-operation contract design\r\n**Kind:** milestone\r\n**Roadmap:** verification-contract (plans/verification-contract/roadmap.yaml)\r\n**Status:** planned\r\n**Lane:** now\r\n**Target:** 2026-08-04 -> 2026-08-10\r\n\r\n## Parent epic\r\n\r\n- verification-contract-e1 \u2014 Honest verification statuses & contract design\r\n  Rename status=\"ok\" to elaborated_no_errors, redesign the lean_verify response schema to conform to the R0 trust-language policy, and author the ADR defining the five-operation contract (parse_source / elaborate_signature / check_declaration / audit_axioms / strict_replay_proof). No operation lands yet \u2014 this epic only ensures no response leaving the server can be misread as a trust verdict from this point forward.\r\n\r\n## Summary\r\n\r\nRename status=\"ok\" to elaborated_no_errors, redesign the lean_verify response schema to conform to the R0 trust-language policy (no bare \"verified\", multi-axis trust record), and author the ADR defining the five-operation contract. Re-pins EXPECTED_TOOL_SCHEMA_SHA256, EXPECTED_BP1_SHA256, and the affected server/schemas/*.json version fields as its own work (W1/W2 batch windows are closed).\r\n\r\n## Acceptance criteria\r\n\r\n1. Given a lean_verify response that previously carried status=\"ok\", when the handler runs post-rename, then it returns status=\"elaborated_no_errors\" and no response field anywhere in the schema reads bare \"verified\"\r\n2. Given the redesigned response schema, when it is checked against .claude/docs/trust-language-policy.md, then no single field collapses distinct trust questions (elaboration vs kernel-check vs axiom-audit vs replay) into one token\r\n3. Given the LEAN_VERIFY.description bytes change, when pytest --update-tool-schema-hash and the hand-edited EXPECTED_BP1_SHA256 are applied, then tests/test_server_tool_schema.py and tests/test_prompts.py both pass and every affected server/schemas/*.json version field is bumped\r\n4. Given the five-operation ADR (parse_source / elaborate_signature / check_declaration / audit_axioms / strict_replay_proof), when it is committed, then it defines each operation's inputs, isolation dependency, and target-binding behavior without implementing any operation\r\n\r\n## Depends on\r\n\r\n- (none)",
@@ -74,11 +78,34 @@
     "low": 4
   },
   "findings_register": ".claude/notes/milestones/verification-contract-m1/findings.json",
-  "rectification_commit": null,
-  "fixed_findings": [],
-  "deferred_findings": [],
+  "rectification_commit": "0962916",
+  "fixed_findings": [
+    "C1",
+    "C2",
+    "L2",
+    "L3",
+    "L4",
+    "M1",
+    "M2",
+    "M3",
+    "M4",
+    "M5",
+    "M6",
+    "M7",
+    "M8"
+  ],
+  "deferred_findings": [
+    "L1"
+  ],
   "invalidated_findings": [],
-  "regression_tests_added": [],
-  "external_writes_authorized": [],
-  "external_writes_completed": []
+  "regression_tests_added": [
+    "tests/test_status_vocabulary_doc_consistency.py",
+    "tests/test_handlers_lean_verify.py"
+  ],
+  "external_writes_authorized": [
+    "git push origin main"
+  ],
+  "external_writes_completed": [
+    "git push origin main"
+  ]
 }
