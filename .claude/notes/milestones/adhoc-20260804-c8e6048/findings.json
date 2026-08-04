@@ -4,7 +4,7 @@
   "critique_files": [
     "dedup.md"
   ],
-  "generated_at": "2026-08-04T18:17:29Z",
+  "generated_at": "2026-08-04T18:44:25Z",
   "findings": {
     "C1": {
       "id": "C1",
@@ -16,9 +16,15 @@
       "source_critic": "milestone-adversary-critic",
       "source_axis": "Doc drift",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "CLAUDE.md 4.10 rule 3 re-measured post-fix, three drifted cites re-resolved, and pinned by a derived doc test that fails if doc or code moves alone",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T18:44:25Z",
+          "resolution": "CLAUDE.md 4.10 rule 3 re-measured post-fix, three drifted cites re-resolved, and pinned by a derived doc test that fails if doc or code moves alone"
+        }
+      ]
     },
     "H1": {
       "id": "H1",
@@ -30,9 +36,15 @@
       "source_critic": "milestone-adversary-critic",
       "source_axis": "Acceptance coverage",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "_strip_comments removes comment text (string-literal aware) and _PREFIXED_DECL_SITE_RE generalized to any unrecognised same-line prefix; alias added to _DECL_KEYWORDS",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T18:44:25Z",
+          "resolution": "_strip_comments removes comment text (string-literal aware) and _PREFIXED_DECL_SITE_RE generalized to any unrecognised same-line prefix; alias added to _DECL_KEYWORDS"
+        }
+      ]
     },
     "H2": {
       "id": "H2",
@@ -44,9 +56,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "trust-language / evidence-ledger (CLAUDE.md 4.9)",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "_strip_comments removes comment text (string-literal aware) and _PREFIXED_DECL_SITE_RE generalized to any unrecognised same-line prefix; alias added to _DECL_KEYWORDS",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T18:44:25Z",
+          "resolution": "_strip_comments removes comment text (string-literal aware) and _PREFIXED_DECL_SITE_RE generalized to any unrecognised same-line prefix; alias added to _DECL_KEYWORDS"
+        }
+      ]
     },
     "M1": {
       "id": "M1",
@@ -58,9 +76,15 @@
       "source_critic": "milestone-adversary-critic",
       "source_axis": "Correctness",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "_strip_comments removes comment text (string-literal aware) and _PREFIXED_DECL_SITE_RE generalized to any unrecognised same-line prefix; alias added to _DECL_KEYWORDS",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T18:44:25Z",
+          "resolution": "_strip_comments removes comment text (string-literal aware) and _PREFIXED_DECL_SITE_RE generalized to any unrecognised same-line prefix; alias added to _DECL_KEYWORDS"
+        }
+      ]
     },
     "M2": {
       "id": "M2",
@@ -72,9 +96,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "test surface",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "test_comment_containing_in_theorem_is_not_a_site plus 4 scanner-hazard tests; the false positive itself is gone, not merely pinned",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T18:44:25Z",
+          "resolution": "test_comment_containing_in_theorem_is_not_a_site plus 4 scanner-hazard tests; the false positive itself is gone, not merely pinned"
+        }
+      ]
     },
     "M3": {
       "id": "M3",
@@ -86,9 +116,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "trust-language / evidence-ledger (CLAUDE.md 4.9)",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "audit reason string now names the same-line-prefix cause, guarded by test_incomplete_extraction_reason_names_the_prefix_cause",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T18:44:25Z",
+          "resolution": "audit reason string now names the same-line-prefix cause, guarded by test_incomplete_extraction_reason_names_the_prefix_cause"
+        }
+      ]
     },
     "M4": {
       "id": "M4",
@@ -100,9 +136,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "test surface",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "test_prefixed_declaration_does_not_reach_the_wire_as_clean drives the drop through handle_lean_verify",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T18:44:25Z",
+          "resolution": "test_prefixed_declaration_does_not_reach_the_wire_as_clean drives the drop through handle_lean_verify"
+        }
+      ]
     },
     "L1": {
       "id": "L1",
@@ -114,9 +156,15 @@
       "source_critic": "milestone-adversary-critic",
       "source_axis": "Dead code / leftovers",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "invalidated",
+      "resolution": "superseded",
+      "history": [
+        {
+          "status": "invalidated",
+          "at": "2026-08-04T18:44:25Z",
+          "resolution": "superseded"
+        }
+      ]
     },
     "L2": {
       "id": "L2",
@@ -128,9 +176,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "trust-language / evidence-ledger (CLAUDE.md 4.9)",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "deferred",
+      "resolution": "LOW, out of the scope agreed for this rectify pass; L2 is a one-line wording change, L3 is procedural with no code impact",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-04T18:44:25Z",
+          "resolution": "LOW, out of the scope agreed for this rectify pass; L2 is a one-line wording change, L3 is procedural with no code impact"
+        }
+      ]
     },
     "L3": {
       "id": "L3",
@@ -142,9 +196,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "test surface",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "deferred",
+      "resolution": "LOW, out of the scope agreed for this rectify pass; L2 is a one-line wording change, L3 is procedural with no code impact",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-04T18:44:25Z",
+          "resolution": "LOW, out of the scope agreed for this rectify pass; L2 is a one-line wording change, L3 is procedural with no code impact"
+        }
+      ]
     }
   }
 }
