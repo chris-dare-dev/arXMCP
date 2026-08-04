@@ -1,8 +1,8 @@
 {
   "id": "ui-uplift-m10",
   "created_at": "2026-08-04T22:04:20Z",
-  "updated_at": "2026-08-04T23:11:40Z",
-  "phase": "rectify-running",
+  "updated_at": "2026-08-04T23:13:52Z",
+  "phase": "complete",
   "phase_history": [
     {
       "phase": "init",
@@ -35,6 +35,10 @@
     {
       "phase": "rectify-running",
       "at": "2026-08-04T23:00:26Z"
+    },
+    {
+      "phase": "complete",
+      "at": "2026-08-04T23:13:52Z"
     }
   ],
   "milestone_brief": "# Milestone brief \u2014 ui-uplift-m10\n\n**Title:** Style Discover results; close the last unstyled classes\n**Kind:** milestone\n**Roadmap:** ui-uplift (plans/ui-uplift/roadmap.yaml)\n**Status:** planned\n**Lane:** now\n**Target:** 2026-08-20 -> 2026-08-27\n\n## Parent epic\n\n- ui-uplift-e2 \u2014 Finish debt \u2014 every server-emitted class ships with its CSS rule\n  Four class families shipped with zero CSS rule anywhere in the stylesheet. The root cause the current-state critic traced nearly every HIGH finding to: feature milestones shipped complete, tested, secure behaviour and left CSS as an afterthought scoped to \"does it render\", not \"does it look finished\" \u2014 because no milestone's acceptance criteria ever said \"style this\". This epic closes the backlog AND lands the standing rule as a derived test so it cannot regenerate.\n\n## Summary\n\nUPL-9. Five emitted classes with zero CSS rules. This is the ONLY surface in the console that presents external content for operator judgment and it is the least-styled thing in the product \u2014 a bare bulleted list with default browser margins. Give it a bibliography-style title/meta/abstract hierarchy. SCOPE EXPANDED 2026-08-04 by ui-uplift-m9 finding M8: four further emitted classes have zero CSS and no owning milestone anywhere in this roadmap \u2014 `status-badge__remediation` (server/routes/ui.py:336) and the three `topic-block` / `topic-category` / `topic-description` classes (server/routes/notebooks.py:621-623). They were parked in the m9 coverage test's `_KNOWN_UNSTYLED` deferral list, which is a holding pen, not a home. Folding them in here means m10 empties that list entirely and the BAN-R2 coverage policy binds unconditionally from then on \u2014 the epic's actual finish line.\n\n## Acceptance criteria\n\n1. Given a discovery run returning candidates, when rendered, then title, meta and abstract are typographically distinguished and candidates are separated\n2. Given the meta line, then it uses --mono and inherits tabular-nums\n3. Given the results group, then NO fade-in keyframe is added \u2014 globalViewTransitions already crossfades that swap at 200ms and a second animation would double-animate\n4. Given a relevance line, then it is only added if the arXiv Atom driver genuinely supplies the basis; a manufactured reason violates operational honesty\n5. Given the remediation block emitted at server/routes/ui.py:336, then `.status-badge__remediation` has a CSS rule in app.css\n6. Given the topic fragment at server/routes/notebooks.py:621-623, then `.topic-block`, `.topic-category` and `.topic-description` each have a CSS rule in app.css\n7. Given this milestone is complete, then `_KNOWN_UNSTYLED` in tests/test_ui_class_css_coverage.py is EMPTY and every emitted class is covered by a real rule rather than a deferral\n8. Given app.css grows past the line cap asserted in test_ui_m3/m4/m5 (480 at 2026-08-04, with app.css already at 460), then the cap is raised deliberately in all three sibling tests in the same commit \u2014 not worked around by writing denser CSS\n\n## Depends on\n\n- (none)",
@@ -114,6 +118,10 @@
     "tests/test_ui_class_css_coverage.py",
     "tests/test_ui_m7_type_scale.py"
   ],
-  "external_writes_authorized": [],
-  "external_writes_completed": []
+  "external_writes_authorized": [
+    "git push origin main"
+  ],
+  "external_writes_completed": [
+    "git push origin main"
+  ]
 }
