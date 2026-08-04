@@ -41,3 +41,14 @@ happily produce a byte-identical file when the pattern misses, and print its
 success message anyway — leaving a stale artifact that looks freshly
 generated. Use `subn` and raise unless the count is exactly what you expect.
 Seen: ui-uplift-m6.
+
+## Splitting a file without following its parsers
+
+`tests/_ui_color.py` hard-coded `APP_CSS_PATH` and parsed the `:root` blocks
+out of it, so moving those blocks to `tokens.css` silently re-pointed the
+ENTIRE contrast gate and the published artifact at a file that no longer had
+them. It failed loudly here only because the parse raises on a missing block
+— a parser that returned an empty dict instead would have left every
+downstream assertion vacuously true. When a milestone moves a *region* of a
+file, grep for every reader of that region, not just for the filename. Seen:
+ui-uplift-m7 (2026-08-04).
