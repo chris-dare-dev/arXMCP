@@ -4,7 +4,7 @@
   "critique_files": [
     "dedup.md"
   ],
-  "generated_at": "2026-08-04T13:20:11Z",
+  "generated_at": "2026-08-04T19:11:16Z",
   "findings": {
     "H1": {
       "id": "H1",
@@ -16,9 +16,15 @@
       "source_critic": "milestone-adversary-critic",
       "source_axis": "Acceptance coverage",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "badge-flash now animates border-color to --accent instead of replacing the pill's background; no text pair moves. Role 5 added to test_accent_satisfies_all_five_roles and to the generated roles table",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T19:11:16Z",
+          "resolution": "badge-flash now animates border-color to --accent instead of replacing the pill's background; no text pair moves. Role 5 added to test_accent_satisfies_all_five_roles and to the generated roles table"
+        }
+      ]
     },
     "H2": {
       "id": "H2",
@@ -30,9 +36,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "math fidelity",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "roles table and Headline moved inside new BEGIN/END GENERATED markers and rendered from _accent_role_checks/_rows; all 9 wrong cells now computed. Added test_no_ratio_is_typed_outside_a_generated_region",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T19:11:16Z",
+          "resolution": "roles table and Headline moved inside new BEGIN/END GENERATED markers and rendered from _accent_role_checks/_rows; all 9 wrong cells now computed. Added test_no_ratio_is_typed_outside_a_generated_region"
+        }
+      ]
     },
     "H3": {
       "id": "H3",
@@ -44,9 +56,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "test surface",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "added alpha_over + fade() spec kind; registered 16 composited rows. Raised in-flight opacity 0.6 -> 0.7 so the focus ring clears 3:1, deleted the invalid outline-width trade, registered the label as EXEMPT with its reason",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T19:11:16Z",
+          "resolution": "added alpha_over + fade() spec kind; registered 16 composited rows. Raised in-flight opacity 0.6 -> 0.7 so the focus ring clears 3:1, deleted the invalid outline-width trade, registered the label as EXEMPT with its reason"
+        }
+      ]
     },
     "M1": {
       "id": "M1",
@@ -58,9 +76,15 @@
       "source_critic": "milestone-adversary-critic",
       "source_axis": "Acceptance coverage",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "added alpha_over + fade() spec kind; registered 16 composited rows. Raised in-flight opacity 0.6 -> 0.7 so the focus ring clears 3:1, deleted the invalid outline-width trade, registered the label as EXEMPT with its reason",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T19:11:16Z",
+          "resolution": "added alpha_over + fade() spec kind; registered 16 composited rows. Raised in-flight opacity 0.6 -> 0.7 so the focus ring clears 3:1, deleted the invalid outline-width trade, registered the label as EXEMPT with its reason"
+        }
+      ]
     },
     "M2": {
       "id": "M2",
@@ -72,9 +96,15 @@
       "source_critic": "milestone-adversary-critic",
       "source_axis": "Correctness",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "registered --border on th #f0f0f0 and on tbody tr:hover for both modes; the light row-hover pair at 3.040:1 is now the tightest gated pair in the sweep",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T19:11:16Z",
+          "resolution": "registered --border on th #f0f0f0 and on tbody tr:hover for both modes; the light row-hover pair at 3.040:1 is now the tightest gated pair in the sweep"
+        }
+      ]
     },
     "M3": {
       "id": "M3",
@@ -86,9 +116,15 @@
       "source_critic": "milestone-adversary-critic",
       "source_axis": "Test discipline",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "new tests/test_ui_color_math.py: 20 ground-truth anchors including the canonical oklch(62.796% 0.25768 29.234) -> #ff0000 round-trip, the three historical published ratios, gamut rejection, and mix-vs-composite separation",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T19:11:16Z",
+          "resolution": "new tests/test_ui_color_math.py: 20 ground-truth anchors including the canonical oklch(62.796% 0.25768 29.234) -> #ff0000 round-trip, the three historical published ratios, gamut rejection, and mix-vs-composite separation"
+        }
+      ]
     },
     "M4": {
       "id": "M4",
@@ -100,9 +136,15 @@
       "source_critic": "milestone-adversary-critic",
       "source_axis": "Doc drift",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "Headline is generated by render_headline(); the wrong 34/34 split is now computed, and gated-vs-exempt counts are stated",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T19:11:16Z",
+          "resolution": "Headline is generated by render_headline(); the wrong 34/34 split is now computed, and gated-vs-exempt counts are stated"
+        }
+      ]
     },
     "M5": {
       "id": "M5",
@@ -114,9 +156,15 @@
       "source_critic": "milestone-adversary-critic",
       "source_axis": "Doc drift",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "deleted the 0.03928 duplicate from test_ui_m5_create_remove_in_place.py and imported contrast_ratio from tests._ui_color, making the module docstring's single-implementation claim true",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T19:11:16Z",
+          "resolution": "deleted the 0.03928 duplicate from test_ui_m5_create_remove_in_place.py and imported contrast_ratio from tests._ui_color, making the module docstring's single-implementation claim true"
+        }
+      ]
     },
     "M6": {
       "id": "M6",
@@ -128,9 +176,15 @@
       "source_critic": "milestone-adversary-critic",
       "source_axis": "Test discipline",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "favicon test now regex-matches the <rect fill=...> attribute instead of substring-searching the whole file, so the XML comment can no longer satisfy it",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T19:11:16Z",
+          "resolution": "favicon test now regex-matches the <rect fill=...> attribute instead of substring-searching the whole file, so the XML comment can no longer satisfy it"
+        }
+      ]
     },
     "M7": {
       "id": "M7",
@@ -142,9 +196,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "test surface",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "favicon test now regex-matches the <rect fill=...> attribute instead of substring-searching the whole file, so the XML comment can no longer satisfy it",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T19:11:16Z",
+          "resolution": "favicon test now regex-matches the <rect fill=...> attribute instead of substring-searching the whole file, so the XML comment can no longer satisfy it"
+        }
+      ]
     },
     "M8": {
       "id": "M8",
@@ -156,9 +216,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "math fidelity",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "badge-flash now animates border-color to --accent instead of replacing the pill's background; no text pair moves. Role 5 added to test_accent_satisfies_all_five_roles and to the generated roles table",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T19:11:16Z",
+          "resolution": "badge-flash now animates border-color to --accent instead of replacing the pill's background; no text pair moves. Role 5 added to test_accent_satisfies_all_five_roles and to the generated roles table"
+        }
+      ]
     },
     "M9": {
       "id": "M9",
@@ -170,9 +236,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "tier sequencing",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "deferred",
+      "resolution": "the fix is an edit to plans/ui-uplift/roadmap.yaml links.code, which the pipeline's one-writer rule reserves for the roadmap agents. Correct values computed: app.css:85-91 (.card) and app.css:110-120 (input rule). Needs /roadmap",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-04T19:11:16Z",
+          "resolution": "the fix is an edit to plans/ui-uplift/roadmap.yaml links.code, which the pipeline's one-writer rule reserves for the roadmap agents. Correct values computed: app.css:85-91 (.card) and app.css:110-120 (input rule). Needs /roadmap"
+        }
+      ]
     },
     "L1": {
       "id": "L1",
@@ -184,9 +256,15 @@
       "source_critic": "milestone-adversary-critic",
       "source_axis": "Dead code / leftovers",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "removed the stale UPL-27 ratio literals, rephrased the pair counts so they cannot drift, and scoped the no-Primer claim to the :root block it is true of",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T19:11:16Z",
+          "resolution": "removed the stale UPL-27 ratio literals, rephrased the pair counts so they cannot drift, and scoped the no-Primer claim to the :root block it is true of"
+        }
+      ]
     },
     "L2": {
       "id": "L2",
@@ -198,9 +276,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "cache byte-stability",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "removed the stale UPL-27 ratio literals, rephrased the pair counts so they cannot drift, and scoped the no-Primer claim to the :root block it is true of",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T19:11:16Z",
+          "resolution": "removed the stale UPL-27 ratio literals, rephrased the pair counts so they cannot drift, and scoped the no-Primer claim to the :root block it is true of"
+        }
+      ]
     },
     "L3": {
       "id": "L3",
@@ -212,9 +296,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "no-fork policy",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "removed the stale UPL-27 ratio literals, rephrased the pair counts so they cannot drift, and scoped the no-Primer claim to the :root block it is true of",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T19:11:16Z",
+          "resolution": "removed the stale UPL-27 ratio literals, rephrased the pair counts so they cannot drift, and scoped the no-Primer claim to the :root block it is true of"
+        }
+      ]
     },
     "L4": {
       "id": "L4",
@@ -226,9 +316,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "math fidelity",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "test_surface_separation_is_pinned_in_both_modes replaces the bare != with a >= 1.02 floor in both modes; recorded in the artifact's observations",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T19:11:16Z",
+          "resolution": "test_surface_separation_is_pinned_in_both_modes replaces the bare != with a >= 1.02 floor in both modes; recorded in the artifact's observations"
+        }
+      ]
     }
   }
 }
