@@ -1,0 +1,510 @@
+{
+  "milestone_id": "ui-uplift-m10",
+  "critique_format_version": "1.0",
+  "critique_files": [
+    "dedup.md"
+  ],
+  "generated_at": "2026-08-04T23:11:09Z",
+  "findings": {
+    "H1": {
+      "id": "H1",
+      "severity": "HIGH",
+      "title": "AC#7's empty `_KNOWN_UNSTYLED` has no guard; both self-cleaning tests are vacuous",
+      "file": "tests/test_ui_class_css_coverage.py",
+      "line": 119,
+      "anchor": "_KNOWN_UNSTYLED: dict[str, str] = {}",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Acceptance coverage",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "TestEmptyDeferralListIsGuarded asserts _KNOWN_UNSTYLED == {} directly rather than by comprehension, and TestCoveragePredicateRejectsAnEmptyRule pins a real DECLARATION for each of the nine styled classes \u2014 including the display:block that fixes discovery H1, which the name-match predicate could never see",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T23:11:09Z",
+          "resolution": "TestEmptyDeferralListIsGuarded asserts _KNOWN_UNSTYLED == {} directly rather than by comprehension, and TestCoveragePredicateRejectsAnEmptyRule pins a real DECLARATION for each of the nine styled classes \u2014 including the display:block that fixes discovery H1, which the name-match predicate could never see"
+        }
+      ]
+    },
+    "H2": {
+      "id": "H2",
+      "severity": "HIGH",
+      "title": "Discover abstract clipped with no affordance and no route to full text",
+      "file": "server/frontend/static/app.css",
+      "line": 231,
+      "anchor": ".discover-abstract { margin: 0.25rem 0 0",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "test surface / trust language (CLAUDE.md \u00a74.9)",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "abstract now a native <details>: the clamp moved to > summary and [open] releases it, so the full text already in the DOM is reachable with zero JS and keyboard-operable. All three critics filed this as their only HIGH",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T23:11:09Z",
+          "resolution": "abstract now a native <details>: the clamp moved to > summary and [open] releases it, so the full text already in the DOM is reachable with zero JS and keyboard-operable. All three critics filed this as their only HIGH"
+        }
+      ]
+    },
+    "H3": {
+      "id": "H3",
+      "severity": "HIGH",
+      "title": "Abstract truncated with no reveal affordance and no truncation cue",
+      "file": "server/frontend/static/app.css",
+      "line": 231,
+      "anchor": ".discover-abstract { margin: 0.25rem 0 0",
+      "source_critic": "milestone-frontend-ux",
+      "source_axis": "First-time-user clarity / information density",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "abstract now a native <details>: the clamp moved to > summary and [open] releases it, so the full text already in the DOM is reachable with zero JS and keyboard-operable. All three critics filed this as their only HIGH",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T23:11:09Z",
+          "resolution": "abstract now a native <details>: the clamp moved to > summary and [open] releases it, so the full text already in the DOM is reachable with zero JS and keyboard-operable. All three critics filed this as their only HIGH"
+        }
+      ]
+    },
+    "M1": {
+      "id": "M1",
+      "severity": "MEDIUM",
+      "title": "`list-style: none` with no `role=\"list\"` strips list semantics in WebKit",
+      "file": "server/frontend/static/app.css",
+      "line": 209,
+      "anchor": ".discover-list { list-style: none; margi",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Correctness",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "role=\"list\" added; list-style:none strips list semantics in WebKit/VoiceOver so the candidate count stopped being announced",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T23:11:09Z",
+          "resolution": "role=\"list\" added; list-style:none strips list semantics in WebKit/VoiceOver so the candidate count stopped being announced"
+        }
+      ]
+    },
+    "M2": {
+      "id": "M2",
+      "severity": "MEDIUM",
+      "title": "the abstract clamp hides 800\u20131500 chars with no affordance and no reveal",
+      "file": "server/frontend/static/app.css",
+      "line": 231,
+      "anchor": ".discover-abstract { margin: 0.25rem 0 0",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Correctness",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "abstract now a native <details>: the clamp moved to > summary and [open] releases it, so the full text already in the DOM is reachable with zero JS and keyboard-operable. All three critics filed this as their only HIGH",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T23:11:09Z",
+          "resolution": "abstract now a native <details>: the clamp moved to > summary and [open] releases it, so the full text already in the DOM is reachable with zero JS and keyboard-operable. All three critics filed this as their only HIGH"
+        }
+      ]
+    },
+    "M3": {
+      "id": "M3",
+      "severity": "MEDIUM",
+      "title": "\"so nothing gets lighter\" is false against the greys it names",
+      "file": "server/frontend/static/tokens.css",
+      "line": 60,
+      "anchor": "already occupied (#555 on the light c",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Doc drift",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "the token comment's two false claims corrected against measurement: the greys span 4.886-11.467:1 and four of them get LIGHTER at 7.00, and NONE of the eleven was migrated \u2014 this token is currently a twelfth value. Recorded as debt rather than a claim it was paid; migrating shipped surfaces belongs to a milestone that owns it",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T23:11:09Z",
+          "resolution": "the token comment's two false claims corrected against measurement: the greys span 4.886-11.467:1 and four of them get LIGHTER at 7.00, and NONE of the eleven was migrated \u2014 this token is currently a twelfth value. Recorded as debt rather than a claim it was paid; migrating shipped surfaces belongs to a milestone that owns it"
+        }
+      ]
+    },
+    "M4": {
+      "id": "M4",
+      "severity": "MEDIUM",
+      "title": "the 600-line cap's failure message attributes the raise to m6",
+      "file": "tests/test_ui_m3_dark_and_htmx_feedback.py",
+      "line": 628,
+      "anchor": "f\"(revised in ui-uplift-m6 from",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Doc drift",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "cap failure messages attributed the 600 raise to m6; corrected to m6 400->480 and m10 520->600. I verified the cap COMMENTS preserved history in Phase 2 and did not check the assertion messages",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T23:11:09Z",
+          "resolution": "cap failure messages attributed the 600 raise to m6; corrected to m6 400->480 and m10 520->600. I verified the cap COMMENTS preserved history in Phase 2 and did not check the assertion messages"
+        }
+      ]
+    },
+    "M5": {
+      "id": "M5",
+      "severity": "MEDIUM",
+      "title": "implement synthesis cites app.css lines off by up to 58",
+      "file": ".claude/notes/milestones/ui-uplift-m10/implement/synthesis.md",
+      "line": 50,
+      "anchor": "existing tabular-nums rule at `app.css:2",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Doc drift",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "line-drift caveat added to the implement synthesis directing readers to locate rules by selector; the cites drifted mid-implementation and the rectify moved them again",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T23:11:09Z",
+          "resolution": "line-drift caveat added to the implement synthesis directing readers to locate rules by selector; the cites drifted mid-implementation and the rectify moved them again"
+        }
+      ]
+    },
+    "M6": {
+      "id": "M6",
+      "severity": "MEDIUM",
+      "title": "`--fg-muted` derived against a ground ui-uplift-m8 is scheduled to retire",
+      "file": "server/frontend/static/tokens.css",
+      "line": 66,
+      "anchor": "--fg-muted: oklch(45.706% 0.014 250);",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "tier sequencing / math fidelity",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "recorded in tokens.css as a FORWARD RISK: m8 re-roles --card-bg off panel ground, the consumers then move to --bg at 6.80/7.69 where nothing fails loudly, so m8 must re-solve and register those pairs. m8's three-dark-rules count is now four",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T23:11:09Z",
+          "resolution": "recorded in tokens.css as a FORWARD RISK: m8 re-roles --card-bg off panel ground, the consumers then move to --bg at 6.80/7.69 where nothing fails loudly, so m8 must re-solve and register those pairs. m8's three-dark-rules count is now four"
+        }
+      ]
+    },
+    "M7": {
+      "id": "M7",
+      "severity": "MEDIUM",
+      "title": "BAN-R2's predicate still cannot tell a rule from a gesture",
+      "file": "tests/test_ui_class_css_coverage.py",
+      "line": 119,
+      "anchor": "_KNOWN_UNSTYLED: dict[str, str] = {}",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "test surface",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "TestEmptyDeferralListIsGuarded asserts _KNOWN_UNSTYLED == {} directly rather than by comprehension, and TestCoveragePredicateRejectsAnEmptyRule pins a real DECLARATION for each of the nine styled classes \u2014 including the display:block that fixes discovery H1, which the name-match predicate could never see",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T23:11:09Z",
+          "resolution": "TestEmptyDeferralListIsGuarded asserts _KNOWN_UNSTYLED == {} directly rather than by comprehension, and TestCoveragePredicateRejectsAnEmptyRule pins a real DECLARATION for each of the nine styled classes \u2014 including the display:block that fixes discovery H1, which the name-match predicate could never see"
+        }
+      ]
+    },
+    "M8": {
+      "id": "M8",
+      "severity": "MEDIUM",
+      "title": "Discover panel discloses no ordering basis; the styled ladder reads as ranked",
+      "file": "server/routes/notebooks.py",
+      "line": 746,
+      "anchor": "f'<p class=\"hint\">{len(candidates)} new",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "trust language (CLAUDE.md \u00a74.9)",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "the hint now discloses 'newest first \u2014 arXiv does not rank by relevance'. AC#4 forbade a manufactured relevance line; silence still let bibliography styling imply a ranking. Guarded by test_ordering_basis_is_disclosed and test_no_relevance_claim_anywhere",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T23:11:09Z",
+          "resolution": "the hint now discloses 'newest first \u2014 arXiv does not rank by relevance'. AC#4 forbade a manufactured relevance line; silence still let bibliography styling imply a ranking. Guarded by test_ordering_basis_is_disclosed and test_no_relevance_claim_anywhere"
+        }
+      ]
+    },
+    "M9": {
+      "id": "M9",
+      "severity": "MEDIUM",
+      "title": "Token comment claims a grey migration that did not happen",
+      "file": "server/frontend/static/tokens.css",
+      "line": 47,
+      "anchor": "token, so the product carried eleven han",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "math fidelity (derivation record accuracy)",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "the token comment's two false claims corrected against measurement: the greys span 4.886-11.467:1 and four of them get LIGHTER at 7.00, and NONE of the eleven was migrated \u2014 this token is currently a twelfth value. Recorded as debt rather than a claim it was paid; migrating shipped surfaces belongs to a milestone that owns it",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T23:11:09Z",
+          "resolution": "the token comment's two false claims corrected against measurement: the greys span 4.886-11.467:1 and four of them get LIGHTER at 7.00, and NONE of the eleven was migrated \u2014 this token is currently a twelfth value. Recorded as debt rather than a claim it was paid; migrating shipped surfaces belongs to a milestone that owns it"
+        }
+      ]
+    },
+    "M10": {
+      "id": "M10",
+      "severity": "MEDIUM",
+      "title": "Five roadmap `links.code` anchors invalidated by the stylesheet growth",
+      "file": "plans/ui-uplift/roadmap.yaml",
+      "line": 190,
+      "anchor": "code: [\"server/frontend/static/app.css:6",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "tier sequencing",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "five roadmap links.code anchors invalidated; the one-writer rule reserves plans/ui-uplift/roadmap.yaml for the roadmap agents. Re-anchor after m10 completes, as with m7 \u2014 computing them now would only be invalidated by this rectify",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-04T23:11:09Z",
+          "resolution": "five roadmap links.code anchors invalidated; the one-writer rule reserves plans/ui-uplift/roadmap.yaml for the roadmap agents. Re-anchor after m10 completes, as with m7 \u2014 computing them now would only be invalidated by this rectify"
+        }
+      ]
+    },
+    "M11": {
+      "id": "M11",
+      "severity": "MEDIUM",
+      "title": "`--fg-muted` adds a twelfth grey instead of replacing any; dark mode now shows three secondary greys per card",
+      "file": "server/frontend/static/tokens.css",
+      "line": 162,
+      "anchor": "--fg-muted: oklch(71.512% 0.008 250)",
+      "source_critic": "milestone-frontend-ux",
+      "source_axis": "Design-token / design-system discipline",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "the token comment's two false claims corrected against measurement: the greys span 4.886-11.467:1 and four of them get LIGHTER at 7.00, and NONE of the eleven was migrated \u2014 this token is currently a twelfth value. Recorded as debt rather than a claim it was paid; migrating shipped surfaces belongs to a milestone that owns it",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T23:11:09Z",
+          "resolution": "the token comment's two false claims corrected against measurement: the greys span 4.886-11.467:1 and four of them get LIGHTER at 7.00, and NONE of the eleven was migrated \u2014 this token is currently a twelfth value. Recorded as debt rather than a claim it was paid; migrating shipped surfaces belongs to a milestone that owns it"
+        }
+      ]
+    },
+    "M12": {
+      "id": "M12",
+      "severity": "MEDIUM",
+      "title": "`list-style: none` removes list semantics in Safari/VoiceOver with no `role=\"list\"`",
+      "file": "server/frontend/static/app.css",
+      "line": 209,
+      "anchor": ".discover-list { list-style: none; margi",
+      "source_critic": "milestone-frontend-ux",
+      "source_axis": "Accessibility",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "role=\"list\" added; list-style:none strips list semantics in WebKit/VoiceOver so the candidate count stopped being announced",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T23:11:09Z",
+          "resolution": "role=\"list\" added; list-style:none strips list semantics in WebKit/VoiceOver so the candidate count stopped being announced"
+        }
+      ]
+    },
+    "M13": {
+      "id": "M13",
+      "severity": "MEDIUM",
+      "title": "Candidate titles carry no heading level; \"title\" is conveyed by font-weight alone",
+      "file": "server/routes/notebooks.py",
+      "line": 732,
+      "anchor": "f'<p class=\"discover-tit",
+      "source_critic": "milestone-frontend-ux",
+      "source_axis": "Accessibility",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "candidate titles are <h3>, not <p>+font-weight \u2014 the hierarchy existed for sighted readers and nowhere in the accessibility tree",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T23:11:09Z",
+          "resolution": "candidate titles are <h3>, not <p>+font-weight \u2014 the hierarchy existed for sighted readers and nowhere in the accessibility tree"
+        }
+      ]
+    },
+    "M14": {
+      "id": "M14",
+      "severity": "MEDIUM",
+      "title": "BAN-9 (multiple primary CTAs per viewport) ships unaddressed on the surface m10 designed",
+      "file": "server/frontend/static/app.css",
+      "line": 210,
+      "anchor": ".discover-candidate { padding: 0.75rem 0",
+      "source_critic": "milestone-frontend-ux",
+      "source_axis": "Experiential motion & distinctiveness (ban-list adherence)",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": ".button-quiet on the per-row Add. BAN-9 (multiple primary CTAs per viewport) is must-be-removed and a results panel renders one per row; same target, same size, only the fill dropped",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T23:11:09Z",
+          "resolution": ".button-quiet on the per-row Add. BAN-9 (multiple primary CTAs per viewport) is must-be-removed and a results panel renders one per row; same target, same size, only the fill dropped"
+        }
+      ]
+    },
+    "M15": {
+      "id": "M15",
+      "severity": "MEDIUM",
+      "title": "The panel discloses no ordering, and bibliography styling makes it read as relevance-ranked",
+      "file": "server/routes/notebooks.py",
+      "line": 746,
+      "anchor": "f'<p class=\"hint\">{len(candi",
+      "source_critic": "milestone-frontend-ux",
+      "source_axis": "Microcopy",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "the hint now discloses 'newest first \u2014 arXiv does not rank by relevance'. AC#4 forbade a manufactured relevance line; silence still let bibliography styling imply a ranking. Guarded by test_ordering_basis_is_disclosed and test_no_relevance_claim_anywhere",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T23:11:09Z",
+          "resolution": "the hint now discloses 'newest first \u2014 arXiv does not rank by relevance'. AC#4 forbade a manufactured relevance line; silence still let bibliography styling imply a ranking. Guarded by test_ordering_basis_is_disclosed and test_no_relevance_claim_anywhere"
+        }
+      ]
+    },
+    "M16": {
+      "id": "M16",
+      "severity": "MEDIUM",
+      "title": "H3's abstract/meta size step was dropped; the hierarchy is two steps, not three",
+      "file": "server/frontend/static/app.css",
+      "line": 219,
+      "anchor": ".discover-meta { margin: 0.25rem 0 0 0;",
+      "source_critic": "milestone-frontend-ux",
+      "source_axis": "Visual hierarchy",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "abstract dropped to --text-meta, restoring the meta/abstract step discovery H3 authored and m10 had collapsed onto one size",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T23:11:09Z",
+          "resolution": "abstract dropped to --text-meta, restoring the meta/abstract step discovery H3 authored and m10 had collapsed onto one size"
+        }
+      ]
+    },
+    "M17": {
+      "id": "M17",
+      "severity": "MEDIUM",
+      "title": "The run size is 200, not 10; the stylesheet contradicts itself and both the ladder and the live-region announcement are unbounded",
+      "file": "server/routes/notebooks.py",
+      "line": 748,
+      "anchor": "f'<ul class=\"discover-list\">",
+      "source_critic": "milestone-frontend-ux",
+      "source_axis": "Information density",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "stylesheet's 'up to 10 rows' corrected to 200, and the route now passes max_results=25 explicitly so a driver-default change cannot re-open a ~30,000px ladder announced whole by an aria-atomic live region",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T23:11:09Z",
+          "resolution": "stylesheet's 'up to 10 rows' corrected to 200, and the route now passes max_results=25 explicitly so a driver-default change cannot re-open a ~30,000px ladder announced whole by an aria-atomic live region"
+        }
+      ]
+    },
+    "L1": {
+      "id": "L1",
+      "severity": "LOW",
+      "title": "synthesis frontmatter names commits unreachable from main",
+      "file": ".claude/notes/milestones/ui-uplift-m10/implement/synthesis.md",
+      "line": 7,
+      "anchor": "- \"0edc12a feat(server): style Discover",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Doc drift",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "LOW, out of the scope agreed for this pass (all HIGH + all MEDIUM)",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-04T23:11:09Z",
+          "resolution": "LOW, out of the scope agreed for this pass (all HIGH + all MEDIUM)"
+        }
+      ]
+    },
+    "L2": {
+      "id": "L2",
+      "severity": "LOW",
+      "title": "remediation prose stays in the mono voice one rule from the sans argument",
+      "file": "server/frontend/static/app.css",
+      "line": 316,
+      "anchor": ".status-badge__remediation {",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Dead code / leftovers",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "LOW, out of the scope agreed for this pass (all HIGH + all MEDIUM)",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-04T23:11:09Z",
+          "resolution": "LOW, out of the scope agreed for this pass (all HIGH + all MEDIUM)"
+        }
+      ]
+    },
+    "L3": {
+      "id": "L3",
+      "severity": "LOW",
+      "title": "`list-style: none` drops list semantics under Safari/VoiceOver",
+      "file": "server/frontend/static/app.css",
+      "line": 209,
+      "anchor": ".discover-list { list-style: none; margin",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "test surface",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "LOW, out of the scope agreed for this pass (all HIGH + all MEDIUM)",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-04T23:11:09Z",
+          "resolution": "LOW, out of the scope agreed for this pass (all HIGH + all MEDIUM)"
+        }
+      ]
+    },
+    "L4": {
+      "id": "L4",
+      "severity": "LOW",
+      "title": "`.topic-category`'s label renders at full `--fg` while its value is muted, inverting the product's label/value convention",
+      "file": "server/frontend/static/app.css",
+      "line": 242,
+      "anchor": ".topic-category { margin: 0; font-size:",
+      "source_critic": "milestone-frontend-ux",
+      "source_axis": "Visual hierarchy",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "LOW, out of the scope agreed for this pass (all HIGH + all MEDIUM)",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-04T23:11:09Z",
+          "resolution": "LOW, out of the scope agreed for this pass (all HIGH + all MEDIUM)"
+        }
+      ]
+    },
+    "L5": {
+      "id": "L5",
+      "severity": "LOW",
+      "title": "The 3-line clamp silently depends on an inherited `line-height` nothing asserts",
+      "file": "server/frontend/static/app.css",
+      "line": 231,
+      "anchor": ".discover-abstract { margin: 0.25rem 0 0",
+      "source_critic": "milestone-frontend-ux",
+      "source_axis": "Design-token / design-system discipline",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "LOW, out of the scope agreed for this pass (all HIGH + all MEDIUM)",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-04T23:11:09Z",
+          "resolution": "LOW, out of the scope agreed for this pass (all HIGH + all MEDIUM)"
+        }
+      ]
+    }
+  }
+}

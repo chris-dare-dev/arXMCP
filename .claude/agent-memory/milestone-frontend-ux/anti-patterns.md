@@ -29,10 +29,23 @@ Nested `<small>` inside an already-small element compounds it. Audit for *absent
 declarations, not just literal ones.
 First seen: ui-uplift-m7 (`.status-badge__remediation` at ~9px; `.card .empty`; `footer > small`).
 
-## Inventory sites enumerated in research and then skipped in implementation
+## [CONFIRMED] Inventory sites enumerated in research and then skipped in implementation
 
 When a research brief ships a numbered inventory, diff the implemented sites against it
 explicitly. A partial sweep is worse than none: it leaves the same value class rendering
 two different ways on one page, which reads as a bug rather than as unfinished work.
 First seen: ui-uplift-m7 (brief-1 §2 site #10, `latest_run.status`, left in sans while
 sites 28–31 — the same token — were fixed).
+CONFIRMED: ui-uplift-m10 — the `--fg-muted` token comment enumerates ELEVEN hand-typed greys
+by hex and migrates zero of them, so the token ships as a twelfth value beside the eleven it
+names. The enumeration was in the diff itself, not just in a brief, and the sweep still did
+not happen. When a comment lists what a change replaces, check that it replaced it.
+
+## A design authored in discovery, honoured on the cheap rules and substituted on the costly one
+
+Discovery findings that ship *fully-specified* CSS get graded as "honoured" on rule count, but
+the rules that are pure declarations (list-style, padding, border, font-weight) are free and
+the one carrying a UX decision is not. Diff every authored rule individually and ask which one
+the implementation changed — that is where the design was actually re-decided.
+First seen: ui-uplift-m10 (discovery H3's five rules: four verbatim, and the fifth — the
+abstract — gained a `max-height` clamp with no reveal affordance that H3 never authored).

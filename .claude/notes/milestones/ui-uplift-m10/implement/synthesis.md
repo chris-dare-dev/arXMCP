@@ -13,6 +13,15 @@ external_writes_required:
 injection_attempts: 0
 ---
 
+> **Line-number caveat (critique M5).** The `app.css:NNN` citations below were
+> written against the file mid-implementation and drifted by up to 58 lines
+> before the commit landed; the rectify pass moved them again. Treat every
+> `app.css:` line number in this document as approximate and locate rules by
+> SELECTOR. The stable references are
+> `.claude/notes/milestones/ui-uplift-m10/rectify/summary.md` and the
+> generated `.claude/docs/ui-contrast-table.md`.
+
+
 # Implement synthesis — ui-uplift-m10 (UPL-9)
 
 ## Built
