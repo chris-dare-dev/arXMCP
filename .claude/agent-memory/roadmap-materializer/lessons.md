@@ -17,3 +17,11 @@
 - External-repo evidence without a URL (stability-mflds rigor.py) gets no url: link — goal.evidence carrying only a prose pointer is not a copyable URL; never invent one.
 - roadmap-init.py --advance rewrites roadmap.yaml (comment on the phase line is preserved but the file is re-emitted) — do all links/status Edits BEFORE advancing, then re-validate once after; Edit anchors may not survive the rewrite.
 - Dependency order for the handoff offer: when m2 and m3 both depend only on m1 (m2 also via spike-1), file order == sequenced order is the correct tiebreak; target_end confirms it.
+
+## verification-contract (2026-08-03)
+- Third consecutive arXMCP roadmap validator-clean on arrival at Phase 4 — upstream single-session phases keep making this gate a formality; still run it first.
+- When the orchestrator hands a rich, pre-vetted link list with explicit per-item hints (e.g. "docX.md (m1, m3)"), honor the hints literally rather than inferring broader placement — several epics (e2-e6) and one milestone (m6) legitimately got zero links because no hint named them; resist the urge to backfill "for symmetry".
+- For a doc with no item hint at all in the dispatch (evidence-ledger-standard.md here), the defensible move was co-locating it with its paired governance doc (trust-language-policy.md) on the milestone that authors schema-conforming docs — not inventing a new epic-level slot.
+- goal.evidence citing bare `arXiv:YYMM.NNNNN` (no scheme) should be normalized to `https://arxiv.org/abs/YYMM.NNNNN` for links.url — validator does not enforce a URL format but full URLs match the style of every other url: entry in this repo's roadmaps.
+- Existing spike items already carried a links.note pointing at `goal.assumptions[N] (...)` prose (not a real path) from an earlier phase — left those untouched rather than overwriting; links blocks accumulate across phases, this phase only adds.
+- `roadmap-init.py --advance complete` re-emits the file but preserved all 12 links: blocks (5 pre-existing from spikes/decompose-phase + 7 written this phase) — grep count before/after advance is a cheap confirmation the rewrite didn't drop anything.

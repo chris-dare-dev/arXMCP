@@ -1,0 +1,304 @@
+schema: roadmap/1
+slug: verification-contract
+project: arxmcp
+title: "Lean verification contract — honest five-operation trust surface"
+status: active
+phase: complete          # init -> refined -> decomposed -> sequenced -> complete
+brief: |
+  `lean_verify` is a useful feedback hook and an unsound trust surface. Verified at source (2026-07-11): the handler maps "no error messages and no sorries" to `status: "ok"` (`server/handlers/lean_verify.py:290-298`) with no comparison of the candidate against an expected target signature, no rejection of target replacement or declaration-kind changes, no transitive axiom enumeration (a bare `axiom h : False` passes silently and poisons everything after it), no unsafe/metaprogramming policy, and no independent replay; `syntax_only` is not syntax-only — terms are `#check`-wrapped (full elaboration) and declarations run under a 5,000-heartbeat cap that reduces but does not remove kernel work (`lean_verify.py:367-396`; mitigating: the handler already returns `compilation_success=null` for syntax_only passes). The live environment is a core-only REPL that cannot import Mathlib or BridgelandStability (verification spike: "No mathlib build was required"), the flag defaults off, and on Windows the only resource control is the 30 s wall-clock (`server/lean_repl.py` — RLIMIT path is POSIX-only; the repo's own sandbox design doc names filesystem/memory/FFI/network as open risks). This initiative replaces the single mode with an honest five-operation contract — `parse_source` (parser only), `elaborate_signature` (server-supplied expected signature; unsolved metavariables rejected), `check_declaration` (isolated environment compile), `audit_axioms` (transitive closure vs the allowlist propext / Quot.sound / Classical.choice), `strict_replay_proof` (fresh independent checker; exact target/signature equality; SafeVerify-pattern) — behind real OS isolation on Windows (Job Object + restricted token, or container/WSL2 boundary: read-only environment, per-call scratch, no network, CPU/memory/process/file-size limits, teardown on violation), validated by an adversarial attack suite whose required false-accept rate is zero. It adds named immutable environments (core; mathlib@commit; bridgeland-anchor@commit) with an `arxmcp://lean-env` manifest resource and a reproducible build smoke, and — only after the gates — content-addressed result caching keyed on (candidate hash, target hash, ordered imports, environment digest, checker + trust-policy version, compiler options, resource policy), with positive strict results durable and timeouts/memory failures cached briefly or not at all. Warm pooled workers with REPL incremental state reuse come last, inside the same boundary. Until the contract lands, trust-bearing labels are disabled: `status: "ok"` is renamed to what it is (`elaborated_no_errors`), and the trust-language policy (`.claude/docs/trust-language-policy.md`) governs the response schema. Existing prior art is adopted, not rebuilt: SafeVerify for kernel-bypass patterns, AXLE's per-request environment selection as the shape of named envs, Kimina/Poiroux pooling + state reuse (~8 s -> ~0.02 s Mathlib-import round-trips) for the performance tail.
+goal:
+  hmw: "How might we make every Lean-derived signal arXMCP serves impossible to misread — parse vs elaborate vs check vs axiom-audited vs strictly-replayed, in a named immutable environment, under real isolation — before any formal artifact ships?"
+  objective: "Ship the five-operation Lean verification contract, the isolation boundary, the zero-false-accept attack suite, named environments with manifests, then caching and pools."
+  key_results:
+    - "The MCP surface exposes the five operations (parse_source, elaborate_signature, check_declaration, audit_axioms, strict_replay_proof; naming/registration batched into W1), with lean_verify kept as a deprecated alias returning the honest renamed statuses."
+    - "elaborate_signature and strict_replay_proof take a server-side target reference (R5 registry id or inline expected signature); candidates that rename, re-kind, strengthen, or weaken the target are rejected with a specific error."
+    - "audit_axioms returns the exact transitive axiom set and an allowlist verdict; any non-allowlisted axiom, unsafe/partial declaration, or environment-mutating construct fails the trust verdict."
+    - "The adversarial suite runs in CI-equivalent local gating with zero false accepts across sorry, custom axiom (direct + via import), target replacement, kind change, strengthening/weakening, unsafe, metaprogramming/IO/filesystem attempts, native_decide-under-forbidding-policy, declaration shadowing, cross-request leakage probes, and heartbeat/memory/fork bombs (all fail closed as resource errors, never as acceptance)."
+    - "Untrusted Lean executes inside a measured OS boundary on Windows (Job Object + restricted token, or container/WSL2 — spiked and recorded as an ADR): no network, read-only toolchain/env, writable per-call scratch only, memory/CPU/wall/process caps, kill-and-teardown on violation; corpus and user home are unreachable."
+    - "Named environments (core@<lean-ver>, mathlib@<commit>, bridgeland-anchor@<commit>) exist with reproducible builds; the arxmcp://lean-env resource returns toolchain, commits, lake manifest hash, import universe, checker + policy versions, and environment digest; a build-smoke script reproduces each digest from scratch."
+    - "Result cache is content-addressed on the full key (candidate hash, target hash, ordered imports, environment digest, checker + trust-policy version, compiler options, resource policy) with hit/miss metrics on /metrics; positive strict results are durable across restarts, timeout/memory outcomes TTL <= 1h."
+    - "Pooled warm workers (per named environment) with incremental state reuse hit a measured p50 < 1s for repeat verification in the mathlib env — gated on the prior two key results — and bound the live REPL environment-snapshot tree (inherited F7) by recycling workers on a snapshot-count/age budget, consuming the live-snapshot/worker-age gauge already shipped standalone in lean-repl-observability-m1."
+  assumptions:
+    - tier: must
+      text: "A Windows isolation boundary with the required properties (no network, read-only toolchain, per-call scratch, CPU/memory/process/file-size caps, kill-and-teardown) is achievable at acceptable overhead via Job Objects + restricted token, or Docker/WSL2 (which scale-ops-hardening already plans for MinerU)."
+      validation: "A 3-day spike measures both routes against the attack suite's resource cases; if neither meets the bar, Lean stays disabled-by-default and R5 targets are checked via a documented manual operator workflow, not served live."
+    - tier: must
+      text: "A strict independent replay path exists for the pinned toolchain (SafeVerify supports version branches; fallback: fresh-environment re-elaboration with axiom audit in a second process)."
+      validation: "Replay catches 100% of the attack suite's kernel-bypass cases; if SafeVerify lacks the pinned version, the fallback is measured against the same suite before acceptance."
+    - tier: should
+      text: "mathlib@pinned-commit builds reproducibly on this workstation (disk/RAM budget ~tens of GB / >=16 GB)."
+      validation: "Build smoke with `lake exe cache get` timed and recorded in the environment manifest doc."
+    - tier: should
+      text: "Incremental REPL state reuse (prefix caching) composes with the isolation boundary without cross-request leakage."
+      validation: "Leakage probes run against the pooled configuration specifically; failure keeps pools per-request-fresh (slower, safe fallback)."
+  wont:
+    - "No proving, no tactic search, no premise selection (compose with LeanExplore/LeanSearch externally; R7 adapters)."
+    - "No claim that kernel acceptance equals paper fidelity (that axis belongs to R5's human review dimension)."
+    - "No multi-user tenancy; loopback-only stands."
+    - "No Mathlib ingestion."
+  evidence:
+    - "server/handlers/lean_verify.py:717-733 — status=\"ok\" <=> no error-severity messages AND no sorries, an elaboration-only verdict (line numbers re-verified 2026-08-03; shifted from the brief's original 290-298 after the axiom_audit block was inserted)."
+    - "server/handlers/lean_verify.py:1007-1027,1186 — syntax_only wraps terms in `#check (...)` / `set_option maxHeartbeats 5000 in` (full elaboration; the heartbeat cap reduces but does not remove kernel work; shifted from the brief's original 367-396)."
+    - "server/handlers/lean_verify.py:359-398 — the axiom-hygiene axis (axiom_audit, AXIOM_ALLOWLIST) now ships (issues #205/#281/#332, TOOL_SCHEMA_VERSION 21->22, verified 2026-08-03): the founding status=\"ok\" conflation is PARTIALLY closed. The five-operation split, target binding, OS isolation, attack suite, named environments, caching, and pools remain unbuilt — this track is not smaller for the closure."
+    - "server/lean_repl.py:44-224 — Windows has no RLIMIT_AS analogue; preexec_fn resource caps are POSIX-only; wall-clock timeout is the only Windows control today."
+    - ".claude/notes/spikes/verification-feedback-spike-2.md — core-only REPL, no mathlib build required, sub-second round-trips."
+    - ".claude/docs/lean-sandbox-design.md — self-documented open risks (elaboration is Turing-complete; FS/memory/FFI/network) and § \"Environment-snapshot accumulation (F7)\"."
+    - "CLAUDE.md §4.9 — the trust-language + evidence-ledger policy this track's response schema must conform to."
+    - "plans/data-plane-governance/roadmap.yaml (phase: complete) — R0, this track's dependency, SHIPPED."
+    - ".claude/roadmap/lean-repl-observability.md — F7's read-only telemetry half SHIPPED standalone (lean-repl-observability-m1, ahead of the trust gate); this track's m7 consumes/extends its gauges and retains only env-tree bounding (recycling + pickle-migration)."
+    - "SafeVerify (github.com/GasStationManager/SafeVerify); AXLE (arXiv:2606.26442) named-env + strict-check shape; Poiroux REPL state reuse (~8s -> ~0.02s) and Kimina pooling (arXiv:2504.21230) for the performance tail."
+generated_by: { agent: claude-sonnet-5, at: "2026-08-03" }
+generations:
+  - { rev: 1, at: "2026-08-03" }
+retired: []          # tombstoned item ids; ids are write-once, never deleted
+items:
+  - id: verification-contract-e1
+    kind: epic
+    title: "Honest verification statuses & contract design"
+    summary: "Rename status=\"ok\" to elaborated_no_errors, redesign the lean_verify response schema to conform to the R0 trust-language policy, and author the ADR defining the five-operation contract (parse_source / elaborate_signature / check_declaration / audit_axioms / strict_replay_proof). No operation lands yet — this epic only ensures no response leaving the server can be misread as a trust verdict from this point forward."
+    priority: must
+    size: S
+    tags: [value, trust-language, lean]
+    rice: { r: 3, i: 2, c: 0.5, e: 1, score: 3.0, rank: 1 }
+    links:
+      note: [".claude/roadmap-briefs/R3-verification-contract.md"]
+
+  - id: verification-contract-e2
+    kind: epic
+    title: "Windows isolation boundary"
+    summary: "Spike Job Object + restricted token against container/WSL2 on the attack suite's resource cases, record the choice as an ADR with measured overhead, and land the boundary itself (no network, read-only toolchain/env, writable per-call scratch only, CPU/memory/process/file-size caps, kill-and-teardown on violation) so untrusted Lean stops running unconfined on Windows. Enabler: unblocks verification-contract-e3, which executes untrusted candidates inside it."
+    priority: must
+    size: M
+    tags: [enabler, isolation, security]
+    rice: { r: 1, i: 3, c: 0.5, e: 2.5, score: 0.6, rank: 4 }
+
+  - id: verification-contract-e3
+    kind: epic
+    title: "Five-operation contract, target binding & axiom audit"
+    summary: "Implement parse_source, elaborate_signature, check_declaration, audit_axioms, and strict_replay_proof behind the e2 isolation boundary, using the e1 response schema. elaborate_signature and strict_replay_proof bind to a server-side target reference and reject candidates that rename, re-kind, strengthen, or weaken it; audit_axioms returns the exact transitive axiom set against the propext/Quot.sound/Classical.choice allowlist (the closure operation, not the axis already shipped in lean_verify.py:359-398). lean_verify remains only as a deprecated alias onto the renamed statuses. None of these operations is presented as a safe-to-trust verdict until the attack suite (e4) is clean."
+    priority: must
+    size: L
+    depends_on: [verification-contract-e1, verification-contract-e2]
+    tags: [value, lean, trust]
+    rice: { r: 3, i: 3, c: 0.5, e: 4, score: 1.12, rank: 2 }
+
+  - id: verification-contract-e4
+    kind: epic
+    title: "Adversarial attack suite at zero false accepts"
+    summary: "Build the adversarial fixture suite against the e3 operations — sorry; custom axiom (direct + via import); target replacement; kind change; strengthening/weakening; unsafe; metaprogramming/IO/filesystem attempts; native_decide under a forbidding policy; declaration shadowing; cross-request leakage probes; heartbeat/memory/fork bombs (all must fail closed as resource errors, never as acceptance) — wire it into CI-equivalent local gating, and commit the zero-false-accept report as the gating artifact this surface is validated against going forward."
+    priority: should
+    size: M
+    depends_on: [verification-contract-e3]
+    tags: [value, security, trust]
+    rice: { r: 2, i: 2, c: 0.5, e: 2, score: 1.0, rank: 3 }
+
+  - id: verification-contract-e5
+    kind: epic
+    title: "Named immutable environments & manifests"
+    summary: "Stand up core@<lean-ver>, mathlib@<commit>, and bridgeland-anchor@<commit> (pin consumed from R5's audit — R5's half is not modeled here) as reproducible builds behind the e2 isolation boundary; serve the arxmcp://lean-env manifest resource (toolchain, commits, lake manifest hash, import universe, checker + policy versions, environment digest) and a build-smoke script that reproduces each digest from scratch."
+    priority: should
+    size: M
+    depends_on: [verification-contract-e1, verification-contract-e2]
+    tags: [value, environments, lean]
+    rice: { r: 2, i: 1, c: 0.5, e: 2, score: 0.5, rank: 5 }
+
+  - id: verification-contract-e6
+    kind: epic
+    title: "Result cache & warm pools, gated behind the trust gate"
+    summary: "Only after the trust gate (e2 isolation, e3 operations, e4 attack suite, e5 named environments all complete — pooling an unsound verifier would only scale the blast radius): a content-addressed result cache keyed on candidate hash, target hash, ordered imports, environment digest, checker + trust-policy version, compiler options, and resource policy, with hit/miss metrics on /metrics, durable positive strict results, and timeout/memory outcomes TTL <= 1h; then warm pooled workers per named environment with incremental REPL state reuse, a measured p50 < 1s latency report for repeat mathlib verification, and env-tree bounding (worker recycling + pickle-migration) that consumes — not re-ships — the live-snapshot/worker-age gauge already standalone-shipped by lean-repl-observability-m1."
+    priority: should
+    size: L
+    depends_on: [verification-contract-e2, verification-contract-e3, verification-contract-e4, verification-contract-e5]
+    tags: [value, performance, lean]
+    rice: { r: 2, i: 1, c: 0.5, e: 4, score: 0.25, rank: 6 }
+
+  # ── e1: honest statuses & contract design (NOW — fully spec'd) ──────
+
+  - id: verification-contract-m1
+    kind: milestone
+    title: "Honest verification statuses & five-operation contract design"
+    summary: "Rename status=\"ok\" to elaborated_no_errors, redesign the lean_verify response schema to conform to the R0 trust-language policy (no bare \"verified\", multi-axis trust record), and author the ADR defining the five-operation contract. Re-pins EXPECTED_TOOL_SCHEMA_SHA256, EXPECTED_BP1_SHA256, and the affected server/schemas/*.json version fields as its own work (W1/W2 batch windows are closed)."
+    parent: verification-contract-e1
+    lane: now
+    target_start: 2026-08-04
+    target_end: 2026-08-10
+    acceptance:
+      - "Given a lean_verify response that previously carried status=\"ok\", when the handler runs post-rename, then it returns status=\"elaborated_no_errors\" and no response field anywhere in the schema reads bare \"verified\""
+      - "Given the redesigned response schema, when it is checked against .claude/docs/trust-language-policy.md, then no single field collapses distinct trust questions (elaboration vs kernel-check vs axiom-audit vs replay) into one token"
+      - "Given the LEAN_VERIFY.description bytes change, when pytest --update-tool-schema-hash and the hand-edited EXPECTED_BP1_SHA256 are applied, then tests/test_server_tool_schema.py and tests/test_prompts.py both pass and every affected server/schemas/*.json version field is bumped"
+      - "Given the five-operation ADR (parse_source / elaborate_signature / check_declaration / audit_axioms / strict_replay_proof), when it is committed, then it defines each operation's inputs, isolation dependency, and target-binding behavior without implementing any operation"
+    links:
+      code: ["server/handlers/lean_verify.py", "server/schemas/lean_verify_result.json", "tests/test_prompts.py", "tests/test_server_tool_schema.py", "tests/test_handlers_lean_verify.py", "server/tools.py"]
+      note: [".claude/docs/trust-language-policy.md", ".claude/docs/evidence-ledger-standard.md", ".claude/docs/w1-schema-deltas.md", ".claude/notes/07-multi-agent-caching.md"]
+
+  - id: verification-contract-t-rename-status
+    kind: task
+    title: "Rename status=\"ok\" to elaborated_no_errors"
+    parent: verification-contract-m1
+    lane: now
+    priority: must
+    estimate_days: 1
+    acceptance:
+      - "Given the existing status=\"ok\" call sites in server/handlers/lean_verify.py and its tests, when the rename lands, then no code path or test still asserts on the literal \"ok\" string for this field"
+    links:
+      code: ["server/handlers/lean_verify.py", "tests/test_handlers_lean_verify.py"]
+
+  - id: verification-contract-t-response-schema-redesign
+    kind: task
+    title: "Redesign lean_verify response schema per trust-language policy"
+    parent: verification-contract-m1
+    lane: now
+    priority: must
+    estimate_days: 2
+    acceptance:
+      - "Given the redesigned schema, when compilation_success, elaborated_no_errors, and axiom_audit are all present on one response, then each is independently derived (never inferred from another axis) per the policy"
+    links:
+      code: ["server/schemas/lean_verify_result.json", "server/handlers/lean_verify.py"]
+      note: [".claude/docs/trust-language-policy.md", ".claude/docs/evidence-ledger-standard.md"]
+
+  - id: verification-contract-t-five-op-adr
+    kind: task
+    title: "Author the five-operation contract ADR"
+    parent: verification-contract-m1
+    lane: now
+    priority: must
+    estimate_days: 1
+    acceptance:
+      - "Given the ADR document, when it is reviewed, then it names the isolation dependency (e2) and target-binding requirement (e3) for elaborate_signature and strict_replay_proof explicitly"
+
+  - id: verification-contract-t-repin-schemas
+    kind: task
+    title: "Re-pin tool-schema and BP1 hashes for the rename"
+    parent: verification-contract-m1
+    lane: now
+    priority: must
+    estimate_days: 1
+    acceptance:
+      - "Given the BP1-affecting description change, when make test runs after the re-pin, then tests/test_server_tool_schema.py and tests/test_prompts.py both pass with zero manual hash-mismatch failures"
+    links:
+      code: ["tests/test_prompts.py", "tests/test_server_tool_schema.py", "server/tools.py"]
+      note: [".claude/docs/w1-schema-deltas.md", ".claude/notes/07-multi-agent-caching.md"]
+
+  # ── e2: Windows isolation boundary (NEXT — shaped) ──────────────────
+
+  - id: verification-contract-spike-1
+    kind: spike
+    title: "Windows isolation route bake-off: Job Object+restricted token vs container/WSL2"
+    parent: verification-contract-e2
+    lane: next
+    estimate_days: 3
+    target_start: 2026-08-11
+    target_end: 2026-08-13
+    acceptance:
+      - "Given the attack suite's resource cases (heartbeat/memory/fork bombs, filesystem/network escape attempts), when both Job Object+restricted token and container/WSL2 routes are measured within the 3-day timebox, then pass/fail and overhead are recorded per route in an ADR"
+      - "Given neither route meets the isolation bar within the timebox, when the spike concludes, then Lean stays disabled-by-default and R5 targets are checked via the documented manual operator fallback instead of m2 proceeding"
+    links:
+      note: ["goal.assumptions[0] (must, R3 brief §Assumptions)"]
+
+  - id: verification-contract-m2
+    kind: milestone
+    title: "Windows isolation boundary lands"
+    summary: "Implements the spike-1 winning route (or the documented fallback) so untrusted Lean stops running unconfined on Windows: no network, read-only toolchain/env, writable per-call scratch only, CPU/memory/process/file-size caps, kill-and-teardown on violation."
+    parent: verification-contract-e2
+    lane: next
+    depends_on: [verification-contract-spike-1]
+    target_start: 2026-08-14
+    target_end: 2026-08-28
+    acceptance:
+      - "Given the spike's chosen isolation route, when the boundary is implemented, then untrusted Lean execution has no network access, a read-only toolchain/environment, writable per-call scratch only, and enforced CPU/memory/process/file-size caps"
+      - "Given a resource-limit violation, when it occurs, then the process is killed and torn down without leaking state into a subsequent request"
+    links:
+      code: ["server/lean_repl.py"]
+      note: [".claude/docs/lean-sandbox-design.md"]
+
+  # ── e3: five operations, target binding & axiom audit (NEXT — shaped) ─
+
+  - id: verification-contract-spike-2
+    kind: spike
+    title: "Strict replay path validation: SafeVerify version-branch vs fresh-environment fallback"
+    parent: verification-contract-e3
+    lane: next
+    estimate_days: 2
+    target_start: 2026-08-14
+    target_end: 2026-08-17
+    acceptance:
+      - "Given the pinned Lean toolchain version, when SafeVerify is probed for a matching version branch, then support is recorded yes/no with evidence"
+      - "Given the attack suite's kernel-bypass cases (custom axiom direct+via-import, target replacement, unsafe), when the chosen replay path is run against them, then it catches 100% of those cases before m3 accepts strict_replay_proof as complete"
+    links:
+      note: ["goal.assumptions[1] (must, R3 brief §Assumptions)"]
+
+  - id: verification-contract-m3
+    kind: milestone
+    title: "Five operations, target binding & axiom-audit closure land"
+    summary: "parse_source, elaborate_signature, check_declaration, audit_axioms (the transitive-closure + allowlist-verdict operation, distinct from the axiom_audit axis already shipped in lean_verify.py:359-398), and strict_replay_proof land behind the e2 isolation boundary using e1's response schema. lean_verify remains only as a deprecated alias onto the renamed statuses."
+    parent: verification-contract-e3
+    lane: next
+    depends_on: [verification-contract-m1, verification-contract-m2, verification-contract-spike-2]
+    target_start: 2026-08-18
+    target_end: 2026-09-15
+    acceptance:
+      - "Given a candidate that renames, re-kinds, strengthens, or weakens the server-side target signature, when elaborate_signature or strict_replay_proof runs, then it is rejected with a specific error naming the mismatch"
+      - "Given a declaration whose transitive closure includes a non-allowlisted axiom, when audit_axioms runs, then the allowlist verdict fails and the exact axiom set is returned"
+      - "Given a call to the deprecated lean_verify alias, when it runs after this milestone, then it responds only via the renamed, e1-schema-conformant statuses"
+    links:
+      code: ["server/handlers/lean_verify.py", "tests/test_handlers_lean_verify.py"]
+      note: [".claude/docs/trust-language-policy.md"]
+      url: ["https://github.com/GasStationManager/SafeVerify"]
+
+  # ── e4: adversarial attack suite (NEXT — shaped) ─────────────────────
+
+  - id: verification-contract-m4
+    kind: milestone
+    title: "Adversarial attack suite at zero false accepts"
+    summary: "Adversarial fixtures covering sorry, custom axiom (direct + via import), target replacement, kind change, strengthening/weakening, unsafe, metaprogramming/IO/filesystem attempts, native_decide under a forbidding policy, declaration shadowing, cross-request leakage probes, and heartbeat/memory/fork bombs; wired into CI-equivalent local gating; zero-false-accept report committed as the gating artifact."
+    parent: verification-contract-e4
+    lane: next
+    depends_on: [verification-contract-m3]
+    target_start: 2026-09-16
+    target_end: 2026-09-30
+    acceptance:
+      - "Given the full adversarial fixture set, when the suite runs against the e3 operations, then every fixture fails closed (zero false accepts) and the report is committed as the gating artifact"
+      - "Given a resource-bomb fixture (heartbeat/memory/fork), when it executes inside the e2 boundary, then it terminates as a resource error and never as an acceptance"
+    links:
+      code: ["tests/test_handlers_lean_verify.py"]
+      url: ["https://github.com/GasStationManager/SafeVerify"]
+
+  # ── e5: named immutable environments & manifests (NEXT — shaped) ─────
+
+  - id: verification-contract-m5
+    kind: milestone
+    title: "Named immutable environments, manifests & build smoke"
+    summary: "core@<lean-ver>, mathlib@<commit>, and bridgeland-anchor@<commit> (pin consumed from R5's audit — the R5 cross-track handshake) stood up as reproducible builds behind the e2 boundary; arxmcp://lean-env manifest resource; build-smoke script reproduces each digest from scratch."
+    parent: verification-contract-e5
+    lane: next
+    depends_on: [verification-contract-m1, verification-contract-m2]
+    target_start: 2026-08-29
+    target_end: 2026-09-12
+    acceptance:
+      - "Given the bridgeland-anchor commit pinned by R5's audit, when the build-smoke script runs from scratch, then it reproduces the recorded environment digest for core, mathlib, and bridgeland-anchor"
+      - "Given a request to arxmcp://lean-env, when it resolves, then it returns toolchain, commits, lake manifest hash, import universe, checker+policy versions, and environment digest for each named environment"
+    links:
+      note: [".claude/notes/spikes/verification-feedback-spike-2.md", ".claude/roadmap-briefs/R5-formal-target-registry.md"]
+      url: ["https://arxiv.org/abs/2606.26442"]
+
+  # ── e6: result cache & warm pools (LATER — directional, gated) ───────
+
+  - id: verification-contract-m6
+    kind: milestone
+    title: "Content-addressed result cache"
+    summary: "Cache keyed on candidate hash, target hash, ordered imports, environment digest, checker+trust-policy version, compiler options, and resource policy; hit/miss metrics on /metrics; positive strict results durable across restarts; timeout/memory outcomes TTL<=1h. Forbidden before the trust gate (m2-m5 complete, attack suite zero false accepts)."
+    parent: verification-contract-e6
+    lane: later
+    depends_on: [verification-contract-m2, verification-contract-m3, verification-contract-m4, verification-contract-m5]
+
+  - id: verification-contract-m7
+    kind: milestone
+    title: "Warm pools, state reuse, latency report & env-tree bounding"
+    summary: "Pooled warm workers per named environment with incremental REPL state reuse; measured p50<1s latency report for repeat mathlib verification; bounds the live REPL environment-snapshot tree (inherited F7) via worker recycling + pickle-migration, consuming (not re-shipping) lean-repl-observability-m1's gauges. Forbidden before the trust gate; gated behind m6."
+    parent: verification-contract-e6
+    lane: later
+    depends_on: [verification-contract-m2, verification-contract-m3, verification-contract-m4, verification-contract-m5, verification-contract-m6]
+    links:
+      code: ["server/lean_repl.py"]
+      note: [".claude/docs/lean-sandbox-design.md", ".claude/roadmap/lean-repl-observability.md"]
+      url: ["https://arxiv.org/abs/2504.21230"]
