@@ -394,8 +394,21 @@ return (an early dedupe is a race):
 
 ```bash
 CRIT="$NOTES/$MILESTONE_ID/critique/dedup.md"
-# 1. Concatenate every critique/*.md — adversary first, then trigger critics,
-#    then oss — into $CRIT.
+# 1. MERGE every critique/*.md into $CRIT. NEVER `cat` them: each critic authors
+#    its ids from 1 within its OWN file, so two critics both emit C1/M1/L1 and a
+#    concatenation is malformed three ways at once (duplicate ids, two
+#    `Severity counts:` lines, two rectification-order headings) — step 2 then
+#    refuses the whole phase. `merge` renumbers into one gapless per-severity
+#    sequence, emits ONE counts line and ONE order heading, and self-verifies.
+#    ARGUMENT ORDER IS THE ID ORDER and must be deterministic:
+#      adversary.md, then trigger/overlay critics in LEXICOGRAPHIC filename
+#      order, then oss.md.
+#    A single critic file is copied through byte-for-byte, so this is safe to
+#    run unconditionally. Contract: $REFS/milestone-pipeline-critique-format.md
+#    § "Merging multiple critics".
+python3 "$SCRIPTS/milestone-pipeline-findings.py" merge "$CRIT" \
+  "$NOTES/$MILESTONE_ID/critique/adversary.md" \
+  <overlay critique files, lexicographic> [".../oss.md"]
 
 # 2. Cluster cross-critic agreement (±5 lines, same file). Runs the fail-loud
 #    parser, so a malformed or uncited finding BLOCKS here instead of vanishing.
@@ -426,6 +439,14 @@ The `critique-complete` transition REFUSES unless `critique_path`,
 `findings_register` are all recorded — this is what makes `complete`
 register-gated later. Findings clustered within ±5 lines carry a "Cross-critic
 agreement" callout — fix those first.
+
+**From here on, `$CRIT` is the id authority.** When more than one critic ran,
+step 1 renumbered their ids, so `M4` in `dedup.md` is generally NOT the `M4` in
+any per-critic file. Every Phase-4 `findings.py set`, the `rect(<id>): close
+<ids>` subject, and any finding you quote to the user use the MERGED ids. If a
+critic file has to be corrected after step 3, that is a new critique round — a
+re-`merge` shifts ids and `merge`'s rebind guard will refuse it (by design; see
+the critique-format reference before reaching for `--force`).
 
 ---
 
@@ -642,6 +663,9 @@ Rect:      <rect-commit-sha>
 | Re-implement the findings gate in the command | ONE authority: `findings.py gate`. checkpoint + command SUBPROCESS it. |
 | Hand-append `fixed_findings` onto state | `findings.py set` is the sole status writer; state arrays are DERIVED via `summary --field`. |
 | `grep -c '^### CRITICAL'` for counts | v1.0 critiques carry authored ids; use `findings.py summary --counts-for`. |
+| `cat critique/*.md > dedup.md` | Every critic numbers from 1 — concatenation duplicates ids and dedupe refuses the phase. `findings.py merge` in dispatch order. |
+| Re-dispatch a critic because dedupe reported "duplicate finding id M1" | That is a MERGE fault, not a critic fault. Both files are valid v1.0. Re-run step 1 with `merge`. |
+| Hand-edit a critic file to dodge an id collision | Per-critic files are the durable evidence. Renumbering happens in the merged file only. |
 | Tick the checkbox / set `status: done` in roadmap.yaml | One-writer rule. Progress = `record-progress.py` journal append. |
 | Prompt "proceed anyway? [y]" on an unmet dep | The deterministic gate (exit 3) + audited `--override` is the only path. |
 | Edit `state.json` by hand | `checkpoint.py` only — atomicity + forward-only FSM. |

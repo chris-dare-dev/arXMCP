@@ -291,6 +291,14 @@ heading verbatim.)
 (`C`↔CRITICAL, `H`↔HIGH, `M`↔MEDIUM, `L`↔LOW). Number within each severity from 1:
 `C1, C2, …, H1, H2, …, M1, …, L1, …`. The parser rejects a mismatch.
 
+**Number from 1 even though the always-on adversary critic is running beside
+you.** It numbers from 1 too, so your ids WILL collide with its ids — that is
+expected and handled: the orchestrator merges with `findings.py merge`, which
+renumbers your findings to continue the adversary's sequence. Do not try to
+avoid the collision by namespacing (`IS-M1`, `I1`); the parser accepts a bare
+`<letter><serial>` only. See `milestone-pipeline-critique-format.md`
+§ "Merging multiple critics".
+
 Do **not** use the legacy `IS<n>` prefix, and do not use `### <SEVERITY>` headers —
 both are pre-v1.0 and `extract` will refuse the file. Use `**Source critic:**` to
 mark provenance instead; that is how the dedupe merge attributes an infra finding

@@ -57,8 +57,22 @@ Only after ALL critics return (an early dedupe is a race). All invocations use
 1. `milestone-oss-scout` returning `not-applicable` is a clean skip — exclude
    its file. A critic returning no file gets ONE re-dispatch; a second empty
    return fails the phase.
-2. Concatenate the critique files into `critique/dedup.md` — adversary first,
-   then overlays, then oss.
+2. MERGE the critique files into `critique/dedup.md` —
+   `python3 "$REPO_ROOT/.claude/scripts/milestone-pipeline-findings.py" merge <dedup.md> <adversary.md> <overlays…> [<oss.md>]`
+   — argument order **is** the id order: adversary first, then overlays in
+   lexicographic filename order, then oss. **Never `cat` them.** Every critic
+   authors its ids from 1 within its own file, so two critics both emit
+   `C1`/`M1`/`L1`; a concatenation carries duplicate ids, two `Severity counts:`
+   lines and two `## Recommended rectification order` headings, and step 3
+   refuses the whole phase over it. That is a merge fault, never a critic fault —
+   do not re-dispatch a critic and do not hand-edit a critic file. `merge`
+   renumbers into one gapless per-severity sequence, emits one counts line and
+   one order heading, and re-parses its own output before writing. A single
+   critic file is copied through byte-for-byte, so this step is unconditional.
+   **The merged ids are the ids Phase 4 uses** — `M4` in `dedup.md` is generally
+   not `M4` in any per-critic file. Full contract, including the rebind guard
+   that refuses a re-merge after a disposition is recorded:
+   `milestone-pipeline-critique-format.md` § "Merging multiple critics".
 3. `python3 "$REPO_ROOT/.claude/scripts/milestone-pipeline-findings.py" dedupe <dedup.md>`
    — clusters findings within ±5 lines of the same file into a "Cross-critic
    agreement" section (the strongest fix-first signals), labelled with the

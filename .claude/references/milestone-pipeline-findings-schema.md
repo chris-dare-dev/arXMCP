@@ -92,6 +92,7 @@ consumer repo needs no path wiring.
 | `summary <ID> [--field NAME]` | Derive `finding_counts`, per-file counts, and `open`/`fixed`/`deferred`/`invalidated` id arrays for `state.json`. |
 | `summary --counts-for <critique.md>` | C/H/M/L tally of one file (replaces `grep -c '^### CRITICAL'`). |
 | `dedupe <critique.md>` | Cross-critic agreement clustering through the same fail-loud parser. |
+| `merge <out.md> <in1.md> [in2.md …] [--id <ID>] [--force]` | Combine per-critic critiques into `critique/dedup.md`. Renumbers colliding authored ids into one gapless per-severity sequence **in argv (dispatch) order**, emits one `Severity counts:` line and one rectification-order heading, and self-verifies its output. Refuses a re-merge that would repoint an id already carrying a disposition (`--force` overrides). Single input = verbatim copy. |
 
 ## Gate authority (one authority, two call sites)
 

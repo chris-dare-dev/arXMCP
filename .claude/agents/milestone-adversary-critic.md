@@ -166,8 +166,13 @@ Follow `{REPO_ROOT}/.claude/references/milestone-pipeline-critique-format.md`
 EXACTLY — the extract/dedupe step parses the finding shape, so a deviation
 drops your findings out of dedup and the severity counts. Author your own
 finding ids in severity-descending order within this file (C1, C2, H1, H2,
-M1, L1, …); ids stay stable so Phase-4 re-verification can re-locate a finding
-after the merge:
+M1, L1, …). **Number from 1 even though other critics are running in parallel**
+— they will do the same, and the orchestrator renumbers on merge (critique-format
+§ "Merging multiple critics"). Do not try to namespace your ids by critic name;
+the parser accepts a bare `<letter><serial>` only and rejects anything else.
+Within this file the ids are stable, which is what lets Phase-4 re-verification
+re-locate a finding; across the merge they may shift, so cite `**Anchor:**`
+text rather than an id whenever you reference a finding in prose:
 
 ```
 **C1 — <short title under 70 chars>** (CRITICAL)

@@ -18,6 +18,13 @@ attached to the finding it was about across a re-`extract`. The id-letter must
 agree with the severity (`C`↔CRITICAL, `H`↔HIGH, `M`↔MEDIUM, `L`↔LOW); the
 parser rejects a mismatch.
 
+**Scope of that stability guarantee: it holds WITHIN one critic file.** Ids are
+authored per-file, so two critics both numbering from 1 both emit `C1`/`M1`/`L1`.
+Combining them requires renumbering, and renumbering is exactly the thing
+authored ids exist to avoid. See "Merging multiple critics" below — that section
+is where the guarantee is qualified, and it is not optional reading for any repo
+that runs more than one critic.
+
 ## File layout
 
 ```markdown
@@ -44,7 +51,9 @@ One of: SHIP / SHIP-WITH-FIXES / DO-NOT-SHIP
 
 (Zero or more findings in the per-finding template below, ordered
 CRITICAL → HIGH → MEDIUM → LOW. Number within each severity from 1:
-C1, C2, ..., H1, H2, ..., M1, ..., L1, ...)
+C1, C2, ..., H1, H2, ..., M1, ..., L1, ...  Number from 1 EVEN IF other critics
+are running — the orchestrator renumbers on merge; see "Merging multiple
+critics". Never try to pre-namespace by critic, the parser rejects it.)
 
 ## What was done well
 
@@ -57,7 +66,8 @@ Severity counts: C<n> H<n> M<n> L<n>
 
 (Ordered list of finding ids, e.g. `C1, H1, H3, M1`. Phase 4 follows this
 order by default. The dedupe step inserts its "Cross-critic agreement"
-section immediately BEFORE this heading — keep the heading verbatim.)
+section immediately BEFORE this heading — keep the heading verbatim, and
+ensure the merged file carries EXACTLY ONE of it.)
 
 ## Phase 4 status (filled by orchestrator at rectify time)
 
@@ -138,10 +148,100 @@ line means a finding was added or removed without updating it, and `extract`
 flags it. The register never trusts this line for the gate; it is an
 author-error tripwire, and `summary --counts-for` re-derives counts by parsing.
 
+Write it for YOUR file only. When several critics are merged, each input's line
+is dropped and one true total is emitted — a merged file with two of these lines
+is a merge bug, not a critic bug.
+
+## Merging multiple critics
+
+Phase 3 dispatches N critics in parallel and each authors its ids from 1 within
+its own file. **Two conformant v1.0 files therefore collide by construction**,
+and `cat`-ing them produces a file that is malformed three separate ways:
+
+| Naive concatenation produces | What rejects it |
+|---|---|
+| duplicate ids (`M1` from critic A and critic B) | `dedupe` / `extract` refuse the WHOLE file: `duplicate finding id M1 (first seen at …)` |
+| two `Severity counts:` lines | the parser reads the FIRST and warns it drifted against the real total |
+| two `## Recommended rectification order` headings | `dedupe` documents inserting its callout "immediately BEFORE this heading" — ambiguous with two |
+
+None of that is a critic error. **Do not re-dispatch a critic over it**, and do
+not hand-edit the critic files: they are the durable per-critic evidence. Merge
+them instead:
+
+```bash
+python3 .claude/scripts/milestone-pipeline-findings.py merge \
+  critique/dedup.md critique/adversary.md critique/<overlay>.md critique/oss.md
+```
+
+### The rules `merge` implements (and any manual merge MUST follow)
+
+1. **Renumber by continuing the sequence, in critic dispatch order.** Inputs are
+   processed in argv order — **adversary first, then overlay critics in
+   lexicographic filename order, then oss**. A per-severity counter runs across
+   all files: file 1 keeps `C1, C2, M1, M2, M3, L1, L2`, file 2's `M1–M5` become
+   `M4–M8` and its `L1–L2` become `L3–L4`. The parser accepts only a bare
+   `<letter><serial>` id, so **namespacing by critic (`ADV-M1`, `A.M1`) is not
+   available** — renumbering is the only mechanism.
+2. **Exactly one `Severity counts:` line**, carrying the true merged total,
+   placed just before the single rectification-order heading. Each input's own
+   line is dropped.
+3. **Exactly one `## Recommended rectification order` heading**, so `dedupe` has
+   one unambiguous insertion point. Its id list is the per-critic lists remapped
+   through the renumbering and stable-sorted by severity, which keeps each
+   critic's intra-severity priority intact.
+4. **Per-critic prose is preserved, not collapsed.** `## Verdict` gets one
+   `### <critic> — <verdict>` block per critic plus a merged verdict (the most
+   severe: `DO-NOT-SHIP` > `SHIP-WITH-FIXES` > `SHIP`); Executive summaries
+   become `## Executive summary — <critic>`; "What was done well" becomes
+   `### From <critic>` subsections. Sections `merge` does not recognize are
+   carried verbatim under `## Carried from <critic> — <heading>` rather than
+   dropped.
+5. **Finding bodies are verbatim; only the header id is rewritten.** A critic
+   that cross-references its own ids in prose ("as established in M2") keeps the
+   pre-merge token, which now names a different finding. `merge` warns when it
+   detects this; fix those references by hand.
+6. **A single input is a verbatim byte-for-byte copy** — no renumbering, no
+   header rewriting. Phase 3 can therefore call `merge` unconditionally.
+
+`merge` re-parses its own output through the same fail-loud parser and refuses
+to write a file that would not survive `dedupe`.
+
+### Merged ids are NOT the critics' authored ids
+
+Phase 4 dispositions attach to the **merged** ids. `critique/dedup.md` is the
+id authority from the moment it is written; `findings.json`, the `rect(<id>):
+close <ids>` commit subject, and every `findings.py set` call all speak merged
+ids. A `M4` in `arxmcp.md` and a `M4` in `dedup.md` are generally different
+findings — always cite the merged file.
+
+The merge is **deterministic**: same inputs in the same order produce a
+byte-identical file, so a re-merge followed by a re-`extract` preserves every
+disposition. Dispatch order is what makes that true, which is why rule 1 pins it
+rather than leaving it to glob order.
+
+**The guarantee breaks if an input file CHANGES between merges.** Add one MEDIUM
+to the adversary's file and every later MEDIUM shifts by one; the disposition
+recorded against `M4` now describes the finding that is `M5`. `extract` cannot
+catch this — it refuses only a *dropped* id, and a shift-by-one drops nothing,
+so it exits 0 and the register is silently wrong. Worked example:
+
+```
+before:  M1 alpha (open)   M2 beta (deferred: "cosmetic")
+after:   M1 alpha (open)   M2 gamma (deferred: "cosmetic")   M3 beta (open)
+                              ^ a finding nobody reviewed, carrying beta's disposition
+```
+
+So `merge` runs a **rebind guard**: if a findings register already exists and any
+disposed (non-`open`) id would land on a different title, it refuses and names
+the id. Treat that refusal as it reads — a critic file changed after `extract`,
+which is a NEW critique round, not a re-run. `--force` exists for the case where
+the register is genuinely disposable, and prints the same list as a warning.
+
 ## Dedup semantics
 
-The orchestrator concatenates all critic files into `critique/dedup.md`
-(adversary first, then overlays, then oss) and runs
+The orchestrator merges all critic files into `critique/dedup.md` with
+`findings.py merge` (adversary first, then overlays, then oss — see "Merging
+multiple critics" above; a plain `cat` produces a file `dedupe` refuses) and runs
 `milestone-pipeline-findings.py dedupe` on it. Findings within ±5 lines of the
 same file are clustered into a "Cross-critic agreement" callout — the strongest
 fix-first signal, labelled with the cluster's MOST-severe member. The dedupe
