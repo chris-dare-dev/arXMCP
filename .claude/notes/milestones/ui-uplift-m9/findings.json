@@ -1,0 +1,310 @@
+{
+  "milestone_id": "ui-uplift-m9",
+  "critique_format_version": "1.0",
+  "critique_files": [
+    "dedup.md"
+  ],
+  "generated_at": "2026-08-04T05:26:53Z",
+  "findings": {
+    "H1": {
+      "id": "H1",
+      "severity": "HIGH",
+      "title": "Diff exceeds the 400-LOC review-quality threshold",
+      "file": null,
+      "line": null,
+      "anchor": "520 insertions, 1 file",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Diff size (auto-finding)",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "TRUE and factual (520 LOC, 617 after rectification) but not a defect: one cohesive derived-test file, sized like siblings test_ui_m3 (493) and test_wheel_packaging (417). Splitting scatters one policy. Deferred rather than invalidated precisely because the finding is true.",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-04T05:26:53Z",
+          "resolution": "TRUE and factual (520 LOC, 617 after rectification) but not a defect: one cohesive derived-test file, sized like siblings test_ui_m3 (493) and test_wheel_packaging (417). Splitting scatters one policy. Deferred rather than invalidated precisely because the finding is true."
+        }
+      ]
+    },
+    "H2": {
+      "id": "H2",
+      "severity": "HIGH",
+      "title": "AC3 is bypassable: two emission shapes extract to zero offenders",
+      "file": "tests/test_ui_class_css_coverage.py",
+      "line": 62,
+      "anchor": "_CLASS_ATTR_RE: re.Pattern[str] = re.com",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Acceptance coverage",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Confirmed by direct probe: class='...' and \"a\"+\"b\" concatenation extracted ZERO tokens, so a new fragment in either shape bypassed AC1 silently. Fixed _CLASS_ATTR_RE to match both quote styles; added _fold_add_chain + visit_BinOp. Guard: test_every_writable_class_attribute_syntax_is_extracted.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T05:26:53Z",
+          "resolution": "Confirmed by direct probe: class='...' and \"a\"+\"b\" concatenation extracted ZERO tokens, so a new fragment in either shape bypassed AC1 silently. Fixed _CLASS_ATTR_RE to match both quote styles; added _fold_add_chain + visit_BinOp. Guard: test_every_writable_class_attribute_syntax_is_extracted."
+        }
+      ]
+    },
+    "M1": {
+      "id": "M1",
+      "severity": "MEDIUM",
+      "title": "`_KNOWN_UNSTYLED` self-cleans in one direction only, despite claiming both",
+      "file": "tests/test_ui_class_css_coverage.py",
+      "line": 460,
+      "anchor": "milestone replaces: it cannot silentl",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Correctness / dead code",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Deferral list guarded only the gained-CSS direction while its docstring claimed both. Added test_known_unstyled_entries_are_still_actually_emitted so a stale entry cannot stand as a silent exemption.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T05:26:53Z",
+          "resolution": "Deferral list guarded only the gained-CSS direction while its docstring claimed both. Added test_known_unstyled_entries_are_still_actually_emitted so a stale entry cannot stand as a silent exemption."
+        }
+      ]
+    },
+    "M2": {
+      "id": "M2",
+      "severity": "MEDIUM",
+      "title": "The deferral list has no ratchet or expiry, and the failure text advertises it",
+      "file": "tests/test_ui_class_css_coverage.py",
+      "line": 85,
+      "anchor": "_KNOWN_UNSTYLED: dict[str, str] = {",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Test discipline",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "Real but out of scope for this rectification pass: M3/M5 comment-accuracy, M4 second status-badge producer, M2 wants a ratchet, M8 is a roadmap-ownership gap. None blocks the gate; route to ui-uplift-m10.",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-04T05:26:53Z",
+          "resolution": "Real but out of scope for this rectification pass: M3/M5 comment-accuracy, M4 second status-badge producer, M2 wants a ratchet, M8 is a roadmap-ownership gap. None blocks the gate; route to ui-uplift-m10."
+        }
+      ]
+    },
+    "M3": {
+      "id": "M3",
+      "severity": "MEDIUM",
+      "title": "The matcher's stated rationale (\"no bare `.foo { }` rules\") is false",
+      "file": "tests/test_ui_class_css_coverage.py",
+      "line": 24,
+      "anchor": "has no bare ``.foo { }`` rules, so thi",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Doc drift",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "Real but out of scope for this rectification pass: M3/M5 comment-accuracy, M4 second status-badge producer, M2 wants a ratchet, M8 is a roadmap-ownership gap. None blocks the gate; route to ui-uplift-m10.",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-04T05:26:53Z",
+          "resolution": "Real but out of scope for this rectification pass: M3/M5 comment-accuracy, M4 second status-badge producer, M2 wants a ratchet, M8 is a roadmap-ownership gap. None blocks the gate; route to ui-uplift-m10."
+        }
+      ]
+    },
+    "M4": {
+      "id": "M4",
+      "severity": "MEDIUM",
+      "title": "AC2's allow-list is pinned to only one of two `status-badge--` producers",
+      "file": "tests/test_ui_class_css_coverage.py",
+      "line": 434,
+      "anchor": "def test_allowlist_matches_classify_",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Acceptance coverage",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "Real but out of scope for this rectification pass: M3/M5 comment-accuracy, M4 second status-badge producer, M2 wants a ratchet, M8 is a roadmap-ownership gap. None blocks the gate; route to ui-uplift-m10.",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-04T05:26:53Z",
+          "resolution": "Real but out of scope for this rectification pass: M3/M5 comment-accuracy, M4 second status-badge producer, M2 wants a ratchet, M8 is a roadmap-ownership gap. None blocks the gate; route to ui-uplift-m10."
+        }
+      ]
+    },
+    "M5": {
+      "id": "M5",
+      "severity": "MEDIUM",
+      "title": "Module headline claims \"every server-emitted class\"; templates are unscanned",
+      "file": "tests/test_ui_class_css_coverage.py",
+      "line": 1,
+      "anchor": "\"\"\"BAN-R2 \u2014 every server-emitted CSS cla",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Doc drift",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "Real but out of scope for this rectification pass: M3/M5 comment-accuracy, M4 second status-badge producer, M2 wants a ratchet, M8 is a roadmap-ownership gap. None blocks the gate; route to ui-uplift-m10.",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-04T05:26:53Z",
+          "resolution": "Real but out of scope for this rectification pass: M3/M5 comment-accuracy, M4 second status-badge producer, M2 wants a ratchet, M8 is a roadmap-ownership gap. None blocks the gate; route to ui-uplift-m10."
+        }
+      ]
+    },
+    "M6": {
+      "id": "M6",
+      "severity": "MEDIUM",
+      "title": "Extractor silently misses two writable class-attribute syntaxes",
+      "file": "tests/test_ui_class_css_coverage.py",
+      "line": 62,
+      "anchor": "_CLASS_ATTR_RE: re.Pattern[str] = re.com",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "test surface",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Confirmed by direct probe: class='...' and \"a\"+\"b\" concatenation extracted ZERO tokens, so a new fragment in either shape bypassed AC1 silently. Fixed _CLASS_ATTR_RE to match both quote styles; added _fold_add_chain + visit_BinOp. Guard: test_every_writable_class_attribute_syntax_is_extracted.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T05:26:53Z",
+          "resolution": "Confirmed by direct probe: class='...' and \"a\"+\"b\" concatenation extracted ZERO tokens, so a new fragment in either shape bypassed AC1 silently. Fixed _CLASS_ATTR_RE to match both quote styles; added _fold_add_chain + visit_BinOp. Guard: test_every_writable_class_attribute_syntax_is_extracted."
+        }
+      ]
+    },
+    "M7": {
+      "id": "M7",
+      "severity": "MEDIUM",
+      "title": "Debt list is guarded in one direction, not the two its docstring claims",
+      "file": "tests/test_ui_class_css_coverage.py",
+      "line": 465,
+      "anchor": "now_styled = [c for c in _KNOWN_UNSTYLED",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "test surface",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Deferral list guarded only the gained-CSS direction while its docstring claimed both. Added test_known_unstyled_entries_are_still_actually_emitted so a stale entry cannot stand as a silent exemption.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-04T05:26:53Z",
+          "resolution": "Deferral list guarded only the gained-CSS direction while its docstring claimed both. Added test_known_unstyled_entries_are_still_actually_emitted so a stale entry cannot stand as a silent exemption."
+        }
+      ]
+    },
+    "M8": {
+      "id": "M8",
+      "severity": "MEDIUM",
+      "title": "Four deferred classes have no owner anywhere in the roadmap",
+      "file": "tests/test_ui_class_css_coverage.py",
+      "line": 86,
+      "anchor": "\"status-badge__remediation\": \"ui.py:336",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "tier sequencing",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "Real but out of scope for this rectification pass: M3/M5 comment-accuracy, M4 second status-badge producer, M2 wants a ratchet, M8 is a roadmap-ownership gap. None blocks the gate; route to ui-uplift-m10.",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-04T05:26:53Z",
+          "resolution": "Real but out of scope for this rectification pass: M3/M5 comment-accuracy, M4 second status-badge producer, M2 wants a ratchet, M8 is a roadmap-ownership gap. None blocks the gate; route to ui-uplift-m10."
+        }
+      ]
+    },
+    "L1": {
+      "id": "L1",
+      "severity": "LOW",
+      "title": "Route glob is non-recursive; a route subpackage escapes silently",
+      "file": "tests/test_ui_class_css_coverage.py",
+      "line": 215,
+      "anchor": "return sorted(ROUTES_DIR.glob(\"*.py\")",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Correctness",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "LOW - deferred by protocol.",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-04T05:26:53Z",
+          "resolution": "LOW - deferred by protocol."
+        }
+      ]
+    },
+    "L2": {
+      "id": "L2",
+      "severity": "LOW",
+      "title": "Module-level app import couples the policy file to the full server import graph",
+      "file": "tests/test_ui_class_css_coverage.py",
+      "line": 54,
+      "anchor": "from server.routes.ui import _classify_s",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "local-first / dependency discipline",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "LOW - deferred by protocol.",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-04T05:26:53Z",
+          "resolution": "LOW - deferred by protocol."
+        }
+      ]
+    },
+    "L3": {
+      "id": "L3",
+      "severity": "LOW",
+      "title": "\"soft cap\" understates a hard, thrice-asserted 400-line limit",
+      "file": "tests/test_ui_class_css_coverage.py",
+      "line": 82,
+      "anchor": "#: ui-uplift-m9's scope (app.css is at i",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "test surface",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "LOW - deferred by protocol.",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-04T05:26:53Z",
+          "resolution": "LOW - deferred by protocol."
+        }
+      ]
+    },
+    "L4": {
+      "id": "L4",
+      "severity": "LOW",
+      "title": "Guard-the-guard floor compares token count against an attribute-site count",
+      "file": "tests/test_ui_class_css_coverage.py",
+      "line": 332,
+      "anchor": "assert len(emissions) >= 16, (",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "test surface",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "LOW - deferred by protocol.",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-04T05:26:53Z",
+          "resolution": "LOW - deferred by protocol."
+        }
+      ]
+    },
+    "L5": {
+      "id": "L5",
+      "severity": "LOW",
+      "title": "Eight unstyled template classes remain unguarded and untracked",
+      "file": "tests/test_ui_class_css_coverage.py",
+      "line": 42,
+      "anchor": "Templates are out of scope (AC1 and the",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "test surface",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "LOW - deferred by protocol.",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-04T05:26:53Z",
+          "resolution": "LOW - deferred by protocol."
+        }
+      ]
+    }
+  }
+}

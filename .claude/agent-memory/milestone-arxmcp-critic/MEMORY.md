@@ -5,6 +5,7 @@
 - [test-wiring-and-coverage-gaps](test-wiring-and-coverage-gaps.md) — selector/route/CLI WIRING ships untested while the new impl is unit-tested; dual-column embed needs vector↔id integration pins (route-tracker-fixture, second-chunker-envelope, cli-validate-slug, embedrecord-column, AC-names-benign)
 - [storage-schema-cache-gotchas](storage-schema-cache-gotchas.md) — LanceDB cast-nullability, per-notebook cache-path collision, WAL busy-checkpoint corruption, uv.lock transitive major downgrade
 - [severity-calibration-and-edge-inputs](severity-calibration-and-edge-inputs.md) — trace consequence class before severity; verify descopes via input contract; bytes preserved=MEDIUM/dropped=HIGH; deferred-without-tracking; path-leak redaction; k3s RO-rootfs; Windows env-artifact triage
+- [derived-policy-test-silent-miss-surface](derived-policy-test-silent-miss-surface.md) — when the diff IS a guard test: probe its extractor with synthetic alt syntaxes (silent-pass vs fail-loud), and check allow-list staleness in BOTH directions + name-global vs site-scoped suppression
 
 ## Specific pinned lessons
 - [spy-passthrough-vs-binding-forward](spy-passthrough-vs-binding-forward.md) — a spy on a native-binding call proves the kwarg was PASSED, not FORWARDED to Rust/C; silent-drop class unguarded → MEDIUM

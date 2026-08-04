@@ -1,0 +1,111 @@
+{
+  "id": "ui-uplift-m9",
+  "created_at": "2026-08-04T04:16:32Z",
+  "updated_at": "2026-08-04T12:55:16Z",
+  "phase": "complete",
+  "phase_history": [
+    {
+      "phase": "init",
+      "at": "2026-08-04T04:16:32Z"
+    },
+    {
+      "phase": "research-running",
+      "at": "2026-08-04T04:16:43Z"
+    },
+    {
+      "phase": "research-complete",
+      "at": "2026-08-04T04:37:18Z"
+    },
+    {
+      "phase": "implement-running",
+      "at": "2026-08-04T04:37:27Z"
+    },
+    {
+      "phase": "implement-complete",
+      "at": "2026-08-04T05:09:22Z"
+    },
+    {
+      "phase": "critique-running",
+      "at": "2026-08-04T05:09:40Z"
+    },
+    {
+      "phase": "critique-complete",
+      "at": "2026-08-04T05:22:03Z"
+    },
+    {
+      "phase": "rectify-running",
+      "at": "2026-08-04T05:22:22Z"
+    },
+    {
+      "phase": "complete",
+      "at": "2026-08-04T12:55:16Z"
+    }
+  ],
+  "milestone_brief": "# Milestone brief \u2014 ui-uplift-m9\r\n\r\n**Title:** Land the BAN-R2 policy as a derived test\r\n**Kind:** milestone\r\n**Roadmap:** ui-uplift (plans/ui-uplift/roadmap.yaml)\r\n**Status:** planned\r\n**Lane:** now\r\n**Target:** 2026-08-11 -> 2026-08-20\r\n\r\n## Parent epic\r\n\r\n- ui-uplift-e2 \u2014 Finish debt \u2014 every server-emitted class ships with its CSS rule\r\n  Four class families shipped with zero CSS rule anywhere in the stylesheet. The root cause the current-state critic traced nearly every HIGH finding to: feature milestones shipped complete, tested, secure behaviour and left CSS as an afterthought scoped to \"does it render\", not \"does it look finished\" \u2014 because no milestone's acceptance criteria ever said \"style this\". This epic closes the backlog AND lands the standing rule as a derived test so it cannot regenerate.\r\n\r\n## Summary\r\n\r\nUPL-7. Every server-emitted class must have a CSS rule, enforced by a test that derives the check from the on-disk tree rather than a hand-maintained list. Writable here because the fragments are f-strings in server/routes/ \u2014 a regex over emitted class literals checked against app.css selectors, with an allow-list for the dynamic status-badge modifier family. A test is the only version of this policy that cannot rot.\r\n\r\n## Acceptance criteria\r\n\r\n1. Given any class literal emitted by a fragment builder in server/routes/, when the test runs, then it fails unless a matching selector exists in app.css\r\n2. Given the dynamic status-badge modifier family, then the test carries an explicit allow-list rather than false-failing\r\n3. Given a new fragment added later with no CSS rule, when the suite runs, then it fails \u2014 the policy binds going forward, not just retroactively\r\n\r\n## Depends on\r\n\r\n- (none)",
+  "brief_source": "roadmap plans/ui-uplift/roadmap.yaml",
+  "research_mode": "standard",
+  "oss_scout_requested": false,
+  "allow_large_diff": false,
+  "research_briefs": [
+    ".claude/notes/milestones/ui-uplift-m9/research/brief-1.md",
+    ".claude/notes/milestones/ui-uplift-m9/research/brief-2.md"
+  ],
+  "research_synthesis": ".claude/notes/milestones/ui-uplift-m9/research/synthesis.md",
+  "implementation_path": "delegated",
+  "implementation_plan": null,
+  "implementation_base": "0c9572061864141e3a24b1cd8cb1094d9ac8eba8",
+  "implementation_commit_range": "0c9572061864141e3a24b1cd8cb1094d9ac8eba8..018bebd4c4aeb038bd8cd796fcccacd597b52196",
+  "implementation_commits": [
+    "018bebd4c4aeb038bd8cd796fcccacd597b52196"
+  ],
+  "implementation_branch": null,
+  "external_writes_required": [
+    "git push origin main"
+  ],
+  "critique_path": ".claude/notes/milestones/ui-uplift-m9/critique/dedup.md",
+  "critics_run": [
+    "milestone-adversary-critic",
+    "milestone-arxmcp-critic"
+  ],
+  "critique_files": [
+    "critique/adversary.md",
+    "critique/arxmcp.md"
+  ],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 2,
+    "medium": 8,
+    "low": 5
+  },
+  "findings_register": ".claude/notes/milestones/ui-uplift-m9/findings.json",
+  "rectification_commit": "f8e931e1dfbf0147c9678876b970b7f941212ab6",
+  "fixed_findings": [
+    "H2",
+    "M1",
+    "M6",
+    "M7"
+  ],
+  "deferred_findings": [
+    "H1",
+    "L1",
+    "L2",
+    "L3",
+    "L4",
+    "L5",
+    "M2",
+    "M3",
+    "M4",
+    "M5",
+    "M8"
+  ],
+  "invalidated_findings": [],
+  "regression_tests_added": [
+    "tests/test_ui_class_css_coverage.py"
+  ],
+  "external_writes_authorized": [
+    "git push origin main"
+  ],
+  "external_writes_completed": [
+    "git push origin main"
+  ]
+}
