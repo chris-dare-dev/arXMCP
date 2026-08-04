@@ -91,7 +91,6 @@ _DYNAMIC_MODIFIER_ALLOWLIST: dict[str, frozenset[str]] = {
 #: poach ui-uplift-m10's own discover-* scope. Self-checked below: this
 #: list can only shrink (TestKnownUnstyledDebtIsSelfCleaning).
 _KNOWN_UNSTYLED: dict[str, str] = {
-    "status-badge__remediation": "ui.py:336 — unowned; no milestone scoped to style it",
     "topic-block": "notebooks.py:621 — unowned; no milestone scoped to style topic-*",
     "topic-category": "notebooks.py:622 — unowned; see topic-block",
     "topic-description": "notebooks.py:623 — unowned; see topic-block",

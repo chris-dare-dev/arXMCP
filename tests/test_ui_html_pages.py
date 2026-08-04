@@ -220,6 +220,33 @@ class TestStaticAssets:
         assert r.status_code == 200
         assert "text/css" in r.headers["content-type"]
 
+    def test_tokens_css_served(self, client: TestClient) -> None:
+        """ui-uplift-m7 rectify (critique M7): tokens.css is a NEW runtime-
+        required file and no test fetched it over HTTP. Every other check on
+        it reads the file from disk, which cannot see a broken static mount,
+        a missing packaging entry, or a wrong URL in base.html. If it 404s,
+        the console renders with NO custom properties at all — every colour,
+        size and duration falls back to its initial value."""
+        r = client.get("/ui/static/tokens.css")
+        assert r.status_code == 200, (
+            "tokens.css must be served — without it the console has no tokens"
+        )
+        assert "text/css" in r.headers["content-type"]
+        assert ":root" in r.text
+
+    def test_base_html_links_tokens_before_app(self, client: TestClient) -> None:
+        """Order is load-bearing: a custom property must be declared before
+        the rule that consumes it, so tokens.css has to come first."""
+        body = client.get("/ui/").text
+        tokens_at = body.find("/ui/static/tokens.css")
+        app_at = body.find("/ui/static/app.css")
+        assert tokens_at != -1, "the page does not link tokens.css at all"
+        assert app_at != -1, "the page does not link app.css at all"
+        assert tokens_at < app_at, (
+            "tokens.css must be linked BEFORE app.css — otherwise every "
+            "var(--x) in the rule sheet resolves against an undeclared token"
+        )
+
     def test_static_404_on_missing_asset(self, client: TestClient) -> None:
         r = client.get("/ui/static/does-not-exist.js")
         assert r.status_code == 404

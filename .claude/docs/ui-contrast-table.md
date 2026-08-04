@@ -94,26 +94,42 @@ is small, reviewable, and reviewed.
 | 4.5:1 | SC 1.4.3 Contrast (Minimum) | **every** text pair in this stylesheet |
 | 3:1 | SC 1.4.11 Non-text Contrast | borders, focus rings, pill outlines |
 
-**No row claims WCAG's large-text exception, and that is a decision rather
-than an oversight.** Until `ui-uplift-m7` one did: `header h1 a` was held to
-3:1 because `header h1` carried no `font-size` and rode the UA
-`h1 { font-size: 2em }` — a fixed 32px at every viewport. m7 put the title on
-`clamp(1.5rem, 4vw + 0.5rem, 2.25rem)`, so its rendered size is now
-viewport-dependent: 24px at a 390px viewport, 36px above 700px. A
-viewport-agnostic registry cannot honestly carry a floor that holds only at
-some widths, so the row moved to the 4.5:1 text floor, which holds at all of
-them. It still passes with an order of magnitude of headroom, so the honesty
-cost nothing. The `LARGE` constant was removed with it — it was numerically
-identical to `NONTEXT`, so keeping an alias for a different criterion at the
+**No row claims WCAG's large-text exception. That is a deliberate choice to
+hold every text pair to one floor — NOT, as an earlier revision of this
+paragraph claimed, because the exemption stopped applying.**
+
+Until `ui-uplift-m7`, `header h1 a` was held to 3:1: `header h1` carried no
+`font-size` and rode the UA `h1 { font-size: 2em }` = a fixed 32px. m7 put the
+title on `clamp(1.5rem, 4vw + 0.5rem, 2.25rem)` and the row moved to the 4.5:1
+text floor.
+
+The rationale first written for that move was wrong, and ui-uplift-m7's
+critique (M2/M9) caught it. It claimed the clamp made the rendered size
+"viewport-dependent, so no single floor claim holds everywhere". It does not:
+the clamp's **minimum is exactly 24px**, which *is* WCAG's large-text
+threshold for non-bold text, and `header h1` carries no author `font-weight`
+so it keeps UA bold and clears the ≥18.66px-bold branch as well. **The
+exemption holds at every viewport, on both branches.** Keeping `LARGE` would
+have been defensible.
+
+The move to `TEXT` stands on its own merits — one floor for all text is
+simpler to reason about, and the pair passes at 16.0:1 / 13.9:1 with an order
+of magnitude of headroom, so nothing was traded for it. But it is a
+preference, not a requirement, and this document should not have said
+otherwise. The `LARGE` constant was removed with it: it was numerically
+identical to `NONTEXT`, so an alias for a different success criterion at the
 same number invited the SC column to be inferred from a float.
 
-Sizes under the m7 scale, for the record: meta 11px (`th`, `.status-badge`),
-small 13px (labels, captions, controls, table cells, and every identifier in
-`code`/`time`), body 16px, section 20px (`.card h2`), title fluid 24→36px.
-Note that `.card h2` at 20px inherits UA bold and therefore *would* qualify
-for the ≥18.7px-bold branch — it is held to the full 4.5:1 anyway, on the
-same reasoning as the title. `th` at `font-weight:600`/11px is nowhere near
-the threshold and is likewise held to 4.5:1.
+Sizes under the m7 scale, for the record: meta 11px (`th`, `.status-badge`,
+and the badge's nested `.status-badge__remediation`), small 13px (labels,
+captions, table cells, `pre.error`, and every identifier in `code`/`time`),
+body 16px, section 20px (`.card h2`), title fluid 24→36px. Form controls
+(`input`, `select`, `textarea`) and `.card .display-name` are on
+`var(--text-body)` = **16px**, not the 13px an earlier revision of this list
+claimed (critique M4). `.card h2` at 20px inherits UA bold and so *would* qualify for
+the ≥18.7px-bold branch; it is held to 4.5:1 anyway, on the same one-floor
+reasoning as the title. `th` at `font-weight:600`/11px is nowhere near the
+threshold and is likewise held to 4.5:1.
 
 ## The family
 

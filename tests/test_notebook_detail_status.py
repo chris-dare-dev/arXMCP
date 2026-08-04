@@ -187,7 +187,12 @@ class TestFreshnessSignal:
         r = client.get("/ui/notebooks/fresh-nb")
         assert r.status_code == 200
         assert "2026-05-28T03:30:00Z" in r.text
-        assert "ingest success" in r.text
+        # ui-uplift-m7 rectify (critique H2/H6/M5): latest_run.status is a
+        # state token and now renders inside <code> for the mono voice, so
+        # "ingest success" is no longer a contiguous string. The intent of
+        # this assertion is that the status reaches the page — assert that,
+        # not one particular markup spelling of it.
+        assert "ingest <code>success</code>" in r.text
         assert "Never indexed" not in r.text
 
     def test_failed_run_renders_finished_at_and_failed_status(

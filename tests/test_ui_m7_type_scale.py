@@ -119,10 +119,18 @@ class TestAC4OneTokenSet:
     def test_no_font_size_literal_survives_in_the_rule_sheet(self) -> None:
         # The scale is only a scale if everything is on it. Before m7 there
         # were 14 untokenised font-size declarations.
+        #
+        # ui-uplift-m7 rectify: the CSS-wide keywords are exempt. `inherit` is
+        # the OPPOSITE of a hard-coded size — it defers to whatever the
+        # cascade already decided, which is exactly how the rectify fixed the
+        # nested-<code>-in-a-heading bug (critique H1/H3/H5). A predicate that
+        # forbids it would force that fix to hard-code a size, i.e. force the
+        # very thing this test exists to prevent.
+        css_wide = {"inherit", "initial", "unset", "revert", "revert-layer"}
         literals = [
             v.strip()
             for v in _re.findall(r"font-size:\s*([^;]+);", APP_CSS_NO_COMMENTS)
-            if not v.strip().startswith("var(")
+            if not v.strip().startswith("var(") and v.strip() not in css_wide
         ]
         assert not literals, (
             f"app.css still hard-codes {len(literals)} font-size value(s) "
@@ -487,3 +495,189 @@ class TestBaselineRefusals:
                 f"letter-spacing: {value.strip()!r} is hand-typed; use the "
                 f"--tracking-meta token"
             )
+
+
+# ---------------------------------------------------------------------------
+# ui-uplift-m7 RECTIFY — guards for the Phase-3 critique findings.
+# ---------------------------------------------------------------------------
+NOTEBOOK_DETAIL: str = (
+    REPO_ROOT / "server" / "frontend" / "templates" / "notebook_detail.html"
+).read_text(encoding="utf-8")
+
+
+class TestRectifyNestedCodeSizing:
+    """H1/H3/H5 — all three critics, independently.
+
+    ``code, time { font-size: var(--text-small) }`` sets an ABSOLUTE size on
+    the element, so it also fires on a ``<code>`` nested inside a heading and
+    beats the size the heading inherits down. ``notebook_detail.html`` renders
+    its subject as ``<h2><code>{{ slug }}</code></h2>``, so the detail page's
+    own heading rendered at 13px inside a 20px ``<h2>`` — below body text, and
+    smaller than before this milestone, in the milestone whose whole thesis is
+    that size carries the hierarchy.
+
+    Not a specificity contest: the rules target different elements.
+    """
+
+    def test_heading_nested_code_inherits_the_heading_size(self) -> None:
+        assert _re.search(
+            r"h1 code,\s*h2 code,\s*h3 code\s*\{[^}]*font-size:\s*inherit",
+            APP_CSS_NO_COMMENTS,
+            flags=_re.S,
+        ), (
+            "A <code> nested in a heading must inherit the heading's size. "
+            "Without this, `code { font-size: --text-small }` shrinks it to "
+            "13px — see ui-uplift-m7 critique H1/H3/H5."
+        )
+
+    def test_the_detail_page_heading_is_still_the_shape_that_broke(self) -> None:
+        """If the template stops nesting <code> in <h2>, the rule above is
+        dead weight and this test says so instead of passing silently."""
+        assert _re.search(r"<h2><code>\{\{\s*notebook\.slug\s*\}\}</code></h2>",
+                          NOTEBOOK_DETAIL), (
+            "notebook_detail.html no longer renders <h2><code>slug</code></h2>. "
+            "Re-check whether the h1/h2/h3 code rule is still needed."
+        )
+
+    def test_nested_code_keeps_the_mono_voice(self) -> None:
+        """Only the SIZE defers to the heading. An identifier in a heading is
+        still machine-addressable and must stay mono (AC#2)."""
+        m = _re.search(r"h1 code,\s*h2 code,\s*h3 code\s*\{([^}]*)\}",
+                       APP_CSS_NO_COMMENTS, flags=_re.S)
+        assert m is not None
+        assert "font-family" not in m.group(1), (
+            "the nested-code rule must not override font-family — the mono "
+            "voice is the point of wrapping an identifier in <code>"
+        )
+
+
+class TestRectifyStateTokenVoice:
+    """H2/H6/M5 — brief-1 inventory site 10.
+
+    ``latest_run.status`` is a state token: a machine-addressable value from a
+    fixed vocabulary, which is exactly what AC#2 puts in the mono voice. It was
+    left in sans while the ingest-status FRAGMENT builder rendered the same
+    datum as ``<code>`` — two rendering paths for one value disagreeing about
+    its voice, the same defect class ``_paper_row_html`` carried.
+    """
+
+    def test_latest_run_status_is_mono(self) -> None:
+        assert _re.search(r"\(ingest <code>\{\{\s*latest_run\.status\s*\}\}</code>\)",
+                          NOTEBOOK_DETAIL), (
+            "latest_run.status must render inside <code> — it is a state "
+            "token, and the ingest fragment builder already renders the same "
+            "datum that way."
+        )
+
+
+class TestRectifyNestedSmallSizing:
+    """M3/M12 — the badge's remediation text compounded to ~9.2px.
+
+    ``.status-badge`` is 11px and ``server/routes/ui.py`` nests a ``<small>``
+    inside it; UA ``<small>`` is 0.83em. The string that tells an operator what
+    to DO about a degraded state ended up the smallest text in the product.
+    """
+
+    def test_remediation_is_pinned_to_the_badge_size(self) -> None:
+        assert _re.search(
+            r"\.status-badge__remediation\s*\{[^}]*font-size:\s*var\(--text-meta\)",
+            APP_CSS_NO_COMMENTS,
+            flags=_re.S,
+        ), (
+            "the nested <small> remediation must be pinned to --text-meta, or "
+            "UA 0.83em compounds it below the badge it explains"
+        )
+
+
+class TestRectifyProseStaysSans:
+    """M13 — AC#2's two-voice discipline runs BOTH ways.
+
+    The mono rule was scoped by input TYPE, which caught ``display_name`` — a
+    human-readable notebook title, i.e. prose.
+    """
+
+    def test_mono_inputs_are_scoped_by_name_not_type(self) -> None:
+        assert not _re.search(
+            r"input\[type=\"text\"\][^{]*\{[^}]*font-family:\s*var\(--mono\)",
+            APP_CSS_NO_COMMENTS,
+            flags=_re.S,
+        ), "scoping the mono voice by input TYPE catches display_name (prose)"
+
+    def test_display_name_input_is_not_mono(self) -> None:
+        mono_rules = _re.findall(
+            r"(input\[[^{]*\})\s*\{[^}]*font-family:\s*var\(--mono\)",
+            APP_CSS_NO_COMMENTS,
+            flags=_re.S,
+        )
+        for sel in mono_rules:
+            assert "display_name" not in sel, (
+                f"display_name is prose and must stay in the sans voice: {sel}"
+            )
+
+
+class TestRectifyCrossFileTokenIntegrity:
+    """M6 — nothing guarded that a ``var(--x)`` in the RULE sheet resolves to a
+    token actually declared in the TOKEN sheet.
+
+    Before ui-uplift-m7 the two lived in one file, so a typo was visible on
+    inspection. Splitting them made the correspondence a cross-file invariant
+    with no checker: a renamed or dropped token now fails silently at runtime
+    (the property resolves to its initial value) and no test notices.
+    """
+
+    def test_every_var_reference_resolves_to_a_declared_token(self) -> None:
+        declared = set(_re.findall(r"(--[\w-]+)\s*:", TOKENS_NO_COMMENTS))
+        referenced = set(_re.findall(r"var\((--[\w-]+)", APP_CSS_NO_COMMENTS))
+        missing = sorted(referenced - declared)
+        assert not missing, (
+            f"app.css references {missing} but tokens.css declares no such "
+            f"token. Since the m7 split these are different files, so this "
+            f"resolves to the property's initial value at runtime — silently."
+        )
+
+    def test_no_token_is_declared_in_the_rule_sheet(self) -> None:
+        """AC#4's other half: one token home, not two."""
+        stray = _re.findall(r"^\s*(--[\w-]+)\s*:", APP_CSS_NO_COMMENTS, flags=_re.M)
+        assert not stray, (
+            f"app.css declares custom properties {sorted(set(stray))}; tokens "
+            f"live in tokens.css. Two token homes is what AC#4 forbids."
+        )
+
+
+class TestRectifyTabularNumsScope:
+    """M10 — AC#2 has two halves and only one was guarded.
+
+    "Uses ``--mono`` AND inherits the existing tabular-nums scope" means the
+    two selector sets must agree. The tabular list was a four-name hand-list
+    that predated m7, and m7 added mono surfaces without extending it, so
+    identifier text rendered mono with PROPORTIONAL figures — the columns of
+    digits that motivated tabular-nums in the first place.
+
+    Derived, not hand-listed: a future milestone that adds a mono surface and
+    forgets the tabular rule fails here instead of shipping misaligned digits.
+    """
+
+    @staticmethod
+    def _selectors_with(decl: str) -> set[str]:
+        out: set[str] = set()
+        for sel, body in _re.findall(r"([^{}]+)\{([^}]*)\}", APP_CSS_NO_COMMENTS):
+            if decl in body:
+                out.update(s.strip() for s in sel.split(",") if s.strip())
+        return out
+
+    def test_every_mono_surface_inherits_tabular_nums(self) -> None:
+        mono = self._selectors_with("font-family: var(--mono)")
+        tabular = self._selectors_with("font-variant-numeric: tabular-nums")
+        missing = sorted(mono - tabular)
+        assert not missing, (
+            f"{missing} render in the --mono voice but are outside the "
+            f"tabular-nums scope. AC#2 requires both — an identifier shown "
+            f"with proportional figures does not align in a column."
+        )
+
+    def test_the_tabular_rule_is_still_a_single_declaration(self) -> None:
+        """Extended IN PLACE. A second tabular-nums rule would fork the scope,
+        which is what "inherits the EXISTING scope" rules out."""
+        n = len(_re.findall(r"font-variant-numeric:\s*tabular-nums",
+                            APP_CSS_NO_COMMENTS))
+        assert n == 1, f"expected exactly 1 tabular-nums declaration, found {n}"

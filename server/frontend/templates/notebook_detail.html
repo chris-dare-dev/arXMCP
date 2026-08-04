@@ -68,7 +68,14 @@
     <dd>
       {% if latest_run and (latest_run.finished_at or latest_run.started_at) %}
         <time>{{ latest_run.finished_at or latest_run.started_at }}</time>
-        <span class="hint">(ingest {{ latest_run.status }})</span>
+        {# ui-uplift-m7 rectify (critique H2/H6/M5): latest_run.status is a
+           state token — a machine-addressable value from a fixed vocabulary,
+           exactly what AC#2 puts in the mono voice. It was inventory site 10
+           and was left in sans, while the ingest-status fragment builder
+           renders the SAME datum as <code>. The two rendering paths for one
+           value disagreed on its voice, which is the same class of defect
+           _paper_row_html carried before this milestone fixed it. #}
+        <span class="hint">(ingest <code>{{ latest_run.status }}</code>)</span>
       {% else %}
         <span class="hint">Never indexed</span>
       {% endif %}

@@ -2,10 +2,18 @@
 name: milestone-frontend-ux
 description: |
   Conditional Phase 3 frontend / UI / UX critic for the /milestone-pipeline.
-  Fires ONLY when the implementation diff touches a frontend component file —
-  a `.tsx`, `.jsx`, `.vue`, or `.svelte` file (recommend also gating on a
-  `web/` or `frontend/` path prefix). Does NOT fire on bare `.ts`/`.js`
-  (config, tooling, tests, backend). Walks the UI/UX axes the always-on
+  Fires when the implementation diff touches a rendered frontend surface:
+  a `.tsx`, `.jsx`, `.vue` or `.svelte` component file ANYWHERE, or a
+  `.css`, `.html`, `.jinja` or `.j2` file under a `frontend/`, `templates/`
+  or `web/` path prefix. Does NOT fire on bare `.ts`/`.js` (config, tooling,
+  tests, backend), nor on CSS/HTML outside those prefixes (fixtures, docs,
+  generated reports).
+  The component-file-only form of this trigger was unreachable in
+  server-rendered repos — arXMCP forbids Node and any component library
+  (CLAUDE.md 4.7), so its hand-authored CSS + Jinja2 console could never
+  match, and every UI milestone in the ui-uplift track shipped without a UX
+  reviewer until ui-uplift-m7 dispatched this critic on the path-prefix gate
+  by hand. It found the milestone's only HIGH on first run. Walks the UI/UX axes the always-on
   adversary critic will miss — visual hierarchy, empty/error states,
   microcopy, mobile reflow, dark/light parity, loading, discoverability,
   accessibility, design-token discipline, and experiential motion. Scope is

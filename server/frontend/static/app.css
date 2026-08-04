@@ -89,7 +89,12 @@ input[type="text"], input[type="url"], input[type="file"] {
   background: #fff;
   font-family: inherit;
 }
-input[type="text"], input[type="url"] { font-family: var(--mono); }
+/* ui-uplift-m7 rectify (critique M13): scoped by NAME, not type. By type it
+   caught display_name — prose — and put it in the mono voice. AC#2 runs both
+   ways: identifiers mono, prose not. */
+input[name="slug"], input[name="paper_id"], input[name="arxiv_url"] {
+  font-family: var(--mono);
+}
 
 /* UPL-8 v0: select + textarea previously appeared ONLY in the :focus-visible
    list, so they rendered as raw UA widgets — measured 19px tall against a 33px
@@ -193,6 +198,11 @@ tbody tr:hover { background: color-mix(in oklab, var(--card-bg) 95%, var(--fg));
    timestamp is an identifier, and it was the one identifier class that had
    never been mono at all. */
 code, time { font-family: var(--mono); font-size: var(--text-small); }
+/* ui-uplift-m7 rectify (critique H1/H3/H5, all three critics): the rule
+   above sets an ABSOLUTE size, so a <code> nested in a heading overrode the
+   heading's size — notebook_detail.html's <h2><code>slug</code></h2> rendered
+   at 13px, under body. Mono VOICE is kept; only the size defers. */
+h1 code, h2 code, h3 code { font-size: inherit; }
 
 /* ui-attractive-polish-m2 (UPL-10): tabular-nums on every numeric surface
    that changes on htmx swap (status-badge corpus version + notebooks count;
@@ -205,7 +215,12 @@ code, time { font-family: var(--mono); font-size: var(--text-small); }
    four surfaces. Extended IN PLACE — a second tabular-nums declaration
    would fork the scope, which is what AC#2's "inherits the existing
    tabular-nums scope" rules out. */
-time, code, .status-badge, dl.meta dd {
+/* ui-uplift-m7 rectify (critique M10): three --mono surfaces sat outside this
+   list — the identifier inputs, pre.error, and the badge remediation. AC#2
+   says an identifier surface takes --mono AND inherits this scope, so the two
+   sets must match. Guarded by a derived test rather than review. */
+time, code, .status-badge, .status-badge__remediation, dl.meta dd, pre.error,
+input[name="slug"], input[name="paper_id"], input[name="arxiv_url"] {
   font-variant-numeric: tabular-nums;
 }
 
@@ -224,6 +239,11 @@ pre.error:empty { display: none; }
 
 /* notebook-ops-hardening-m4: live operability badge in the footer.
    Polls /ui/status-badge every 10s; the fragment sets the modifier class. */
+/* ui-uplift-m7 rectify (critique M3/M12): ui.py:336 nests a <small> in the
+   11px badge, and UA <small> is 0.83em — the remediation text an operator
+   acts on compounded to ~9.2px. Pin it to the badge's own size. */
+.status-badge__remediation { font-size: var(--text-meta); }
+
 .status-badge {
   display: inline-block;
   padding: 0.05rem 0.4rem;

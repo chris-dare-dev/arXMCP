@@ -115,6 +115,16 @@
   --text-small: 0.8125rem;  /* 13px — labels, captions, identifiers, controls */
   --text-body: 1rem;        /* 16px — matches today's computed body exactly */
   --text-section: 1.25rem;  /* 20px — 1.25x over body (was 1.100x) */
+  /* ui-uplift-m7 rectify (critique M11): this is a BRAND step, not a
+     page-title step. Its only consumer is `header h1` — the constant string
+     "arXMCP notebooks" on every page — so no page's actual subject ever
+     receives the scale's largest size. That leaves discovery BAN-5 ("no focal
+     element") in place, since the brand outranks the content on every screen.
+     Giving base.html a `{% block page_title %}` so the detail page's notebook
+     slug takes this step is an information-architecture change, and
+     `ui-uplift-m12` ("Corpus before machinery — reorder the detail page")
+     owns that. Recorded here rather than silently done, so the canon-deviation
+     note below is not describing a role this token does not yet play. */
   --text-title: clamp(1.5rem, 4vw + 0.5rem, 2.25rem);  /* 24px -> 36px */
   --tracking-meta: 0.06em;  /* 0.66px at 11px — the all-caps mitigation */
 }
