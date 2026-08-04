@@ -1,8 +1,8 @@
 {
   "id": "ui-uplift-m7",
   "created_at": "2026-08-04T20:03:44Z",
-  "updated_at": "2026-08-04T21:40:18Z",
-  "phase": "rectify-running",
+  "updated_at": "2026-08-04T21:48:21Z",
+  "phase": "complete",
   "phase_history": [
     {
       "phase": "init",
@@ -35,6 +35,10 @@
     {
       "phase": "rectify-running",
       "at": "2026-08-04T21:14:13Z"
+    },
+    {
+      "phase": "complete",
+      "at": "2026-08-04T21:48:21Z"
     }
   ],
   "milestone_brief": "# Milestone brief \u2014 ui-uplift-m7\n\n**Title:** Author a two-voice type scale\n**Kind:** milestone\n**Roadmap:** ui-uplift (plans/ui-uplift/roadmap.yaml)\n**Status:** planned\n**Lane:** now\n**Target:** 2026-08-11 -> 2026-08-22\n\n## Parent epic\n\n- ui-uplift-e1 \u2014 Material and type foundation \u2014 the D-1 Ledger Sheet core\n  Replace the stitched two-source palette (a self-documented GitHub-Primer dark clone plus an unattributed bespoke light block) with one authored OKLCH family; author the product's first real type scale and its first letter-spacing; then retire .card as a primitive in favour of a graded hairline rule ladder. These three are the signature direction and they are strictly ordered \u2014 the rule ladder cannot ship before the material, because rules become the sole structural device and the light border token is 1.342:1 today.\n\n## Summary\n\nUPL-3. Meta 11px uppercase tracked +0.06em, small 13px, body 16px, section 20px, title on a clamp; sans for prose, --mono for every id, path, slug, timestamp, corpus version and state token. Introduces the first letter-spacing declaration in the product's history. Both voices are system stacks \u2014 zero font files, zero bytes, zero CSP impact. Highest value-to-cost ratio in the catalog and INDEPENDENT of the material milestone, so it can run in parallel.\n\n## Acceptance criteria\n\n1. Given the heading scale, when measured, then the h2-to-body step is no longer 1.10x and hierarchy is not carried by font-weight alone\n2. Given any identifier surface (paper id, slug, path, timestamp, corpus version, state token), when rendered, then it uses --mono and inherits the existing tabular-nums scope\n3. Given a 390px viewport, when the page title renders, then it scales via clamp() rather than staying fixed at 32px\n4. Given the type tokens, then they extend the existing :root block and do not parallel-define a second token set\n\n## Depends on\n\n- (none)",
@@ -120,6 +124,10 @@
     "tests/test_ui_m7_type_scale.py",
     "tests/test_ui_html_pages.py"
   ],
-  "external_writes_authorized": [],
-  "external_writes_completed": []
+  "external_writes_authorized": [
+    "git push origin main"
+  ],
+  "external_writes_completed": [
+    "git push origin main"
+  ]
 }
