@@ -1,0 +1,689 @@
+schema: roadmap/1
+slug: ui-uplift
+project: arxmcp
+title: "Operator console UI uplift — give /ui/ an authored visual thesis"
+status: active
+phase: sequenced          # init -> refined -> decomposed -> sequenced -> complete
+brief: |
+  The arXMCP operator console at /ui/ reads as generic AI-dashboard output. The owner's
+  stated diagnosis was "the standard tailwind + shadcn feel" — that diagnosis is factually
+  wrong and the perception behind it is correct. There is no Tailwind, no shadcn, no Radix,
+  no component library, no Node and no build chain anywhere in this repo (CLAUDE.md 4.7
+  forbids them). /ui/ is a hand-authored 371-line stylesheet, three Jinja2 templates and one
+  vendored htmx.min.js.
+
+  A 2026-08-03 /frontend-uplift discovery run (5 scouts + an 11-axis adversarial challenger)
+  measured the actual causes against a live server. The console scores 6/13 on the
+  cookie-cutter rubric — the "generic AI dashboard" band edge — reached without a line of
+  shadcn. The measured causes: the dark palette is a self-documented GitHub-Primer clone
+  (app.css says so in its own comment and the hexes are GitHub's exact values); seven
+  visually identical .card panels carry the whole detail page; there is one effective type
+  step (h2->body is 1.10x, so hierarchy is carried by font-weight alone); and the file
+  contains zero box-shadow, zero letter-spacing and zero transition declarations.
+
+  This roadmap converts that discovery output into execution. It adopts direction D-1
+  "The Ledger Sheet" — retire .card as a primitive, let a graded hairline rule ladder carry
+  all structure, make --mono a true data voice on every identifier, and show the corpus
+  before the machinery that mutates it. The projected end state scores 2/13 (a pass on the
+  anti-pattern half) provided two specific candidates do NOT ship in their tempting form:
+  a coloured notebook_kind chip and an ingest state-history strip both push it back to 4-5.
+horizon: { start: 2026-08-04, end: 2026-10-31 }
+goal:
+  hmw: "How might we give the arXMCP operator console an authored visual identity — one legible as research-mathematics infrastructure rather than as any internal tool wearing GitHub's palette — without npm, a build chain, a CDN, a font file, or a widening of the still-open UI security audit?"
+  objective: "Replace a borrowed, undifferentiated visual system with an authored one: a single OKLCH material family, a real two-voice type scale, hairline structure in place of the repeated card, and an information architecture that shows the corpus before the six forms that mutate it."
+  key_results:
+    - "The cookie-cutter score falls from a measured 6/13 to 2/13 on the projected end state, with tell 13 (same-silhouette syndrome) the only remaining 1 — verified per-tell against evidence, not asserted"
+    - "Zero colour literals outside the token block: the ~12 hardcoded greys and 8 status-pill literals currently bypassing the 8 CSS variables are folded in, and a full RENDERED-pair contrast table ships as a milestone artifact (not the 8 token-on-ground pairs the design overlay tabulates, which is how two AA failures survived in shipped code)"
+    - "Every server-emitted class has a CSS rule, enforced by a test that derives the check from the on-disk tree rather than a hand-maintained list — four class families shipped with no rule at all before this roadmap"
+    - "The papers table — the only corpus content on the detail page — is reachable without scrolling past six input forms; it currently begins at y=1823 of a 2343px document"
+    - "A screen-reader operator mid-ingest receives announcements on genuine status change only, not every 2 seconds for the run's duration"
+    - "Net new vendored frontend files across the whole program: zero or one. Five candidates admitted JS surface at discovery; after adversarial review only the destructive-confirm dialog earns it, and it needs no new file"
+  assumptions:
+    - tier: must
+      text: "The 2022-2026 CSS platform (@container, :has(), :user-invalid, <dialog>, @view-transition, color-mix/OKLCH, text-wrap:balance) delivers, at zero bytes, enough of what Framer Motion / shadcn / Radix provide that this uplift needs no npm dependency and no build chain"
+      validation: "Each milestone that cites a platform API states its Baseline status and its fallback at implementation time; a candidate whose API has NOT reached Widely Available ships behind @supports or does not ship. If a required job turns out to have no native expression, that milestone is re-scoped rather than the no-build-chain lock being weakened"
+    - tier: must
+      text: "The light-mode --border token can be darkened enough to carry structure alone without breaking the palette's character — it computes to 1.342:1 on --bg today, which is fine while borders are incidental and fails SC 1.4.11's 3:1 non-text bar the moment rules become the sole structural device"
+      validation: "The rule-ladder milestone cannot start until the material milestone has shipped a darkened rule token that clears 3:1, verified by computation. This is a hard dependency edge, not a preference"
+    - tier: should
+      text: "An OKLCH re-derivation from a single hue decision can satisfy --accent's five simultaneous roles — button ground (>=4.5:1 vs its own text), focus ring (>=3:1 vs BOTH --bg and --card-bg per SC 1.4.11), link colour, skip-link ground, and badge-flash tint"
+      validation: "The material milestone reproduces the reasoning behind the existing hand-patched dark-mode compensation (button colour forced to the canvas value because white-on-accent measured ~3.1:1) rather than inheriting the patch; a derivation that cannot satisfy all five roles splits --accent into two tokens deliberately"
+    - tier: should
+      text: "Deleting .card as a primitive does not orphan --card-bg, because that token can be re-scoped from panel ground to control ground (inputs, table headers) where three dark-mode rules already depend on it"
+      validation: "The rule-ladder milestone states the successor role explicitly in its acceptance criteria; it must also migrate the table-header separation to a rule weight, because th background is 1.14:1 on white today and effectively vanishes once the card ground goes"
+    - tier: might
+      text: "The information-architecture reorder can move five live htmx swap targets into a native <details> disclosure without breaking hx-target resolution"
+      validation: "querySelector resolves hidden nodes, so target resolution is not the risk — the risk is invisible success: the ingest fragment carries hx-trigger every 2s and would poll for a whole run inside a closed disclosure. The milestone renders the disclosure OPEN on any non-terminal ingest state, with a summary state cue"
+  wont:
+    - "No npm, no Node, no bundler, no CDN, no SPA framework — Tailwind, shadcn, Radix, React/Vue/Svelte, Framer Motion, GSAP, anime.js, cmdk, Sonner, TanStack are all out. Not aesthetic preference: CLAUDE.md 4.7 forbids the build chain and CONTENT_SECURITY_POLICY_UI allow-lists no external script origin, so a CDN tag is blocked at the browser"
+    - "No web font. The product ships zero font files and both voices of the type scale are system stacks. Direction D-2 (editorial serif) was the declared runner-up and was rejected specifically because it costs a vendored woff2 — an asset-story change this uplift does not make"
+    - "No icons. The console has zero icons today and the frame treats that as an asset (BAN-3). Any milestone that reaches for one — a select dropdown indicator, an empty-state glyph, an ingest status icon — must escalate it as an explicit recorded decision, not drift into it"
+    - "No experiential motion — no parallax, scroll-scrub, scroll hijack, WebGL, cursor theater. Every /ui/ route is S-2 tool class; there is no marketing, login, or onboarding surface in this product for such motion to live on"
+    - "No JS animation engine. Motion here is CSS transitions plus htmx swap hooks (.htmx-request / .htmx-swapping / .htmx-settling) and native View Transitions. Every motion candidate names one of four jobs — orientation, causality, feedback, continuity — or it does not ship"
+    - "No motion on a poll tick. The 2s ingest poll and 10s badge poll may flash on a genuine state CHANGE only"
+    - "No charts. No ingest-activity sparkline without a threshold, an annotation and a stated 'so what'; no KPI stat-tile row, which would manufacture metrics the daemon does not have"
+    - "No backend or retrieval changes. This roadmap owns app.css, the three Jinja2 templates, and the HTML-fragment builders in server/routes/. Corpus, ingest, MCP tool surface and retrieval belong to other tracks"
+    # ---- killed or deferred at the adversarial-challenge phase (discovery ids kept for traceability) ----
+    - "KILLED UPL-17-vendored — vendoring the htmx response-targets extension. Billed as 'the safest kind of dependency, it only deletes code', but hx-target-4xx swaps the RAW response body, so the operator would see a JSON error envelope inside pre.error. Behaving as advertised requires changing the 4xx/5xx response contract on seven /ui/api endpoints and moving from textContent to innerHTML semantics. It also contradicts the repo's own recorded decision in VENDORED.md, where json-enc.js was authored in-repo specifically to avoid pinning an unverifiable htmx-extensions version. Survives in zero-dependency in-repo form as milestone ui-uplift-m18"
+    - "PARKED UPL-18 — vendoring idiomorph for continuity-preserving swaps. Parked on value, not legality. Names a motion job class but no unserved job: its applicable targets are the four smallest fragments in the product, two of them single-line text swaps, one already carrying a shipped tested settle animation. Puts row-fade-out and badge-flash at regression risk to gain a capability with no named consumer, and a 0-byte alternative (view-transition-name over the already-enabled globalViewTransitions) was never examined. Re-open only when a specific continuity failure is observed AND view-transition-name is shown insufficient for it"
+    - "DELETED UPL-19b — the htmx preload extension. Deleted rather than ranked low, because a low rank survives into backlogs and a deletion does not. ~4.5 KB gz plus a third vendored file, a third VENDORED.md entry, a third integrity-test pin and a third security-audit surface, spent to hide network latency on a server that binds 127.0.0.1 and rejects non-loopback at parse time. The problem it solves does not exist in this deployment"
+    - "KILLED UPL-24 — the ingest/operability state-history strip. The server does retain ingest history (append-only runs table) but exposes only the latest row, so this needs a new store method, a new route and a new fragment builder before a single pixel changes: a server candidate wearing a frontend candidate's clothes. The operability half has no history at all. It also transplants a fleet-monitoring instrument onto a single-operator loopback cadence, which is the borrowed-shell pattern this whole run exists to remove, and tick meaning available only on hover is an instrument without a reading. Re-file as a server candidate if a decision that depends on run history is ever named"
+    - "DEFERRED UPL-25 — an identity strip on the ar5iv preview surface. Unscorable: no paper in the deployment has stored ar5iv HTML, so the route correctly 404s and the surface was never rendered. Worse, that route serves UNTRUSTED third-party HTML under a deliberately tight CSP that permits inline styles, so a trusted identity strip placed inside that document can be restyled, covered or hidden by the untrusted markup — a spoofing surface on the one affordance whose purpose is telling the operator what they are looking at. Also contradicts this run's own surface map, which tags that route 'chrome recedes'. Revisit only with an uploaded fixture, an answer on whether the same-origin favicon already supplies the cue, and an out-of-document delivery decision"
+    - "DEFERRED UPL-15b — hover-revealed trailing row actions. Probably superseded by the destructive-confirm dialog (ui-uplift-m14): the rationale for hiding Remove buttons is accidental-click risk, which a real confirm removes at no accessibility cost. If ever revived it must use opacity-based hiding ONLY — display:none or visibility:hidden removes the control from the tab order so the :focus-within guard can never fire, making it permanently keyboard-unreachable and strictly worse than the always-visible buttons it replaces — plus an explicit SC 1.4.13 answer. It is also a pointer-precision regression for motor-impaired and screen-magnifier operators. The row hover TINT shipped separately as ui-uplift-m5 and is unaffected"
+  evidence:
+    - ".claude/notes/frontend-uplifts/2026q3-ui-uplift/artifacts/final-report.md — the ranked source report: 26 candidates, 5 portfolio lanes, RICE within lane, 6 killed/parked, and the projected per-tell end-state score"
+    - ".claude/notes/frontend-uplifts/2026q3-ui-uplift/artifacts/challenge.md — 11-axis adversarial review, 0 BLOCKER / 9 MAJOR / 10 MINOR / 7 NONE; caught three errors in the synthesis including a mis-scoped contrast gate"
+    - ".claude/notes/frontend-uplifts/2026q3-ui-uplift/artifacts/synthesis.md — the deduplicated candidate catalog with the adopted design frame in section 0"
+    - ".claude/notes/frontend-uplifts/2026q3-ui-uplift/discover/visual-manifest.md — live-measured DOM geometry, computed styles, token set, typography table, htmx inventory and tap-target measurements captured against a running server"
+    - ".claude/notes/frontend-uplifts/2026q3-ui-uplift/discover/ — five scout briefs (art-direction, visual, current-state-critic, library, inspiration)"
+    - "3a7d626 — fix(server): close 2 WCAG AA failures + 3 UI gaps; the first tranche, already shipped and pushed"
+    - "server/frontend/static/app.css — the entire stylesheet; every claim in this roadmap traces to a line in it"
+generated_by: { agent: claude-opus-5, at: 2026-08-04, command: /frontend-uplift }
+generations:
+  - rev: 1
+    at: 2026-08-04
+    note: |
+      PROVENANCE — READ THIS BEFORE TRUSTING THE PHASE FIELD. This roadmap was NOT produced by
+      the /roadmap 4-phase pipeline. It was hand-authored from the output of a /frontend-uplift
+      discovery run (2026q3-ui-uplift) whose own four phases were Discover -> Synthesize ->
+      Challenge -> Prioritize. The epics, milestones, lanes and acceptance criteria below are a
+      faithful transcription of that run's ranked report, not the product of roadmap-refiner /
+      decomposer / sequencer agents. The phase field reads "sequenced" because the content has
+      reached sequenced-equivalent detail, not because those agents ran. If a future session
+      wants canonical /roadmap provenance, re-run /roadmap against this file.
+
+      26 discovery candidates -> 4 epics + 23 milestones. 5 candidates already shipped in
+      3a7d626 are recorded with status done. 6 candidates were killed or deferred at the
+      adversarial-challenge phase; their rationales are recorded in goal.wont rather than in
+      `retired`, because `retired` is a tombstone list for ids that were once items in THIS
+      file and these never were.
+items:
+  # ---------------------------------------------------------------- epics
+  - id: ui-uplift-e1
+    kind: epic
+    title: "Material and type foundation — the D-1 Ledger Sheet core"
+    summary: >-
+      Replace the stitched two-source palette (a self-documented GitHub-Primer dark clone plus
+      an unattributed bespoke light block) with one authored OKLCH family; author the product's
+      first real type scale and its first letter-spacing; then retire .card as a primitive in
+      favour of a graded hairline rule ladder. These three are the signature direction and they
+      are strictly ordered — the rule ladder cannot ship before the material, because rules
+      become the sole structural device and the light border token is 1.342:1 today.
+    priority: must
+    size: L
+    tags: [signature-direction, foundational, tokens, typography]
+    rice: { r: 10, i: 3, c: 1.0, e: 10, score: 3.0, rank: 1 }
+    links:
+      note: [".claude/notes/frontend-uplifts/2026q3-ui-uplift/artifacts/final-report.md"]
+      code: ["server/frontend/static/app.css:11-18", "server/frontend/static/app.css:242-291", "server/frontend/static/app.css:53-59"]
+
+  - id: ui-uplift-e2
+    kind: epic
+    title: "Finish debt — every server-emitted class ships with its CSS rule"
+    summary: >-
+      Four class families shipped with zero CSS rule anywhere in the stylesheet. The root cause
+      the current-state critic traced nearly every HIGH finding to: feature milestones shipped
+      complete, tested, secure behaviour and left CSS as an afterthought scoped to "does it
+      render", not "does it look finished" — because no milestone's acceptance criteria ever
+      said "style this". This epic closes the backlog AND lands the standing rule as a derived
+      test so it cannot regenerate.
+    priority: should   # demoted from must to hold the 60% must-epic cap; the derived test (m9) is the load-bearing part
+    size: M
+    tags: [foundations, finish, BAN-R2]
+    rice: { r: 10, i: 1, c: 1.0, e: 3, score: 3.33, rank: 2 }
+    links:
+      code: ["server/routes/notebooks.py", "server/routes/ui.py", "server/frontend/static/app.css"]
+
+  - id: ui-uplift-e3
+    kind: epic
+    title: "Corpus before machinery — information architecture and live-region hygiene"
+    summary: >-
+      The papers table, the only corpus content on the detail page, begins at y=1823 of a
+      2343px document, after six consecutive input forms — an order that mirrors shipping
+      history, not operator priority. This epic reorders the page around its primary object,
+      adds the focal lede the page has never had, and fixes the live-region behaviour that
+      currently announces every 2 seconds for a whole ingest run.
+    priority: must
+    size: M
+    tags: [workflow, a11y, information-architecture, BAN-R1]
+    rice: { r: 10, i: 3, c: 1.0, e: 6, score: 5.0, rank: 3 }
+    links:
+      code: ["server/frontend/templates/notebook_detail.html:8-361", "server/frontend/templates/index.html"]
+
+  - id: ui-uplift-e4
+    kind: epic
+    title: "Interaction craft — confirms, in-flight state, validation, keyboard"
+    summary: >-
+      The three destructive actions are the only three moments the console's own visual
+      language does not apply at all, dropping into an unstyled OS dialog. hx-indicator is set
+      on zero of nine htmx elements, so operations with real latency get the same feedback as
+      an instant local write. The stylesheet has never had a validation-state rule. This epic
+      closes the interaction surface using native platform APIs at zero vendored bytes.
+    priority: should
+    size: M
+    tags: [workflow, interaction, native-css]
+    rice: { r: 3, i: 3, c: 1.0, e: 6, score: 1.5, rank: 4 }
+    links:
+      code: ["server/frontend/templates/notebook_detail.html:86", "server/frontend/templates/index.html:111"]
+
+  # ------------------------------------------------ shipped (3a7d626)
+  - id: ui-uplift-m1
+    kind: milestone
+    status: done
+    title: "Close two shipped WCAG AA contrast failures"
+    summary: >-
+      UPL-27. Two colour pairs already in production were below SC 1.4.3, found by recomputing
+      every RENDERED foreground/background pair rather than the 8 token-on-ground pairs the
+      design overlay tabulates. .card .note #777 on #fff was 4.478:1; .status-badge--ok #1a7f37
+      on #e6f4ea was 4.472:1. Neither qualifies for the large-text exception.
+    parent: ui-uplift-e1
+    lane: now
+    priority: must
+    target_start: 2026-08-03
+    target_end: 2026-08-03
+    tags: [a11y-safety-debt, UPL-27]
+    acceptance:
+      - "Given .card .note rendered on --card-bg in light mode, when contrast is computed by WCAG 2.1 relative luminance, then the ratio is >= 4.5:1 (shipped: 5.025:1)"
+      - "Given .status-badge--ok, when contrast is computed against its own background, then the ratio is >= 4.5:1 (shipped: 6.063:1) and its border clears 3:1 against the card ground (shipped: 6.885:1)"
+      - "Given the other three light-mode pills, when re-measured, then they are unchanged and still pass (5.39 / 6.74 / 6.80)"
+    links:
+      code: ["server/frontend/static/app.css:63-66", "server/frontend/static/app.css:188-190"]
+
+  - id: ui-uplift-m2
+    kind: milestone
+    status: done
+    title: "Re-read prefers-reduced-motion on change, not once per page load"
+    summary: >-
+      UPL-22. base.html sampled the media query once inside DOMContentLoaded and never
+      registered a change listener, so an operator who flipped the OS setting mid-session kept
+      View Transitions until a full reload. The three CSS gates react live because @media
+      re-evaluates continuously; only this JS read was stuck.
+    parent: ui-uplift-e4
+    lane: now
+    priority: must
+    target_start: 2026-08-03
+    target_end: 2026-08-03
+    tags: [a11y-safety-debt, UPL-22]
+    acceptance:
+      - "Given an operator flips the OS reduced-motion setting mid-session, when the next htmx swap occurs, then View Transitions state matches the new preference without a page reload"
+      - "Given the guard test suite, when it runs, then it asserts a 'change' listener exists so the fix cannot silently regress"
+    links:
+      code: ["server/frontend/templates/base.html:38-52"]
+
+  - id: ui-uplift-m3
+    kind: milestone
+    status: done
+    title: "Failed ingest gets the house pre.error alarm treatment"
+    summary: >-
+      UPL-10 v0. The failed-ingest stderr tail rendered as a bare <pre> while every other error
+      surface in the console uses pre.error with its tinted --error-bg and --danger text. A
+      failed corpus ingest is the highest-stakes error an operator reads here and was the one
+      alarm surface with no alarm styling. One line.
+    parent: ui-uplift-e2
+    lane: now
+    priority: must
+    target_start: 2026-08-03
+    target_end: 2026-08-03
+    tags: [UPL-10]
+    acceptance:
+      - "Given an ingest run with status failed and a non-empty stderr tail, when the status fragment renders, then the stderr block carries class=error and receives the same treatment as every other error surface"
+    links:
+      code: ["server/routes/notebooks.py:2379-2387"]
+
+  - id: ui-uplift-m4
+    kind: milestone
+    status: done
+    title: "select and textarea join the input family (v0, no appearance:none)"
+    summary: >-
+      UPL-8 v0. Both elements previously appeared in exactly one place in the stylesheet — the
+      shared :focus-visible selector list — so they rendered as raw UA widgets: 19px tall
+      against a 33px input in the same form row, now 37px and sharing the form font. v0 sets
+      only what takes effect WITHOUT appearance:none, deliberately.
+    parent: ui-uplift-e2
+    lane: now
+    priority: must
+    target_start: 2026-08-03
+    target_end: 2026-08-03
+    tags: [UPL-8]
+    acceptance:
+      - "Given the create and topic forms, when rendered, then select and textarea share the input family's font, size, padding and block display"
+      - "Given dark mode, when textarea renders, then it resolves to --card-bg / --fg; select keeps its UA appearance, which color-scheme:light dark already auto-darkens"
+      - "Given the v0 scope, then appearance:none is NOT used, because it would discard the UA control internals color-scheme exists to theme and would force the product's first icon"
+    links:
+      code: ["server/frontend/static/app.css:96-108"]
+
+  - id: ui-uplift-m5
+    kind: milestone
+    status: done
+    title: "Row hover tint on both data tables"
+    summary: >-
+      UPL-15a. Before this the only :hover rule in the entire stylesheet was button:hover, so
+      moving down either table gave zero positional feedback before clicking a destructive
+      Remove. Reuses the existing color-mix(in oklab) idiom. The hover-REVEAL half (UPL-15b)
+      was deferred and is recorded under retired.
+    parent: ui-uplift-e4
+    lane: now
+    priority: should
+    target_start: 2026-08-03
+    target_end: 2026-08-03
+    tags: [polish, UPL-15a]
+    acceptance:
+      - "Given either data table, when the pointer enters a tbody row, then that row takes a subtle tint derived from existing tokens and no other row changes"
+    links:
+      code: ["server/frontend/static/app.css:139"]
+
+  # ------------------------------------------------------- next wave
+  - id: ui-uplift-m6
+    kind: milestone
+    title: "Author one OKLCH material family + duration tokens (v0: the 8 tokens)"
+    summary: >-
+      UPL-4 v0. Replace the stitched palette with one authored family derived in OKLCH from a
+      single hue decision, both modes from the same source: a 4-step text ladder, hairline
+      borders at authored alpha, ONE brand accent, semantic colour reserved for live state.
+      Also folds in --dur-fast/normal/slow, because the motion canon requires token-referenced
+      durations and the stylesheet hard-codes 0.6s / 400ms / 200ms with no duration tokens.
+      FOUNDATIONAL — every colour-touching milestone waits on this.
+    parent: ui-uplift-e1
+    lane: now
+    priority: must
+    target_start: 2026-08-11
+    target_end: 2026-08-29
+    tags: [signature-direction, foundational, BAN-15, UPL-4]
+    acceptance:
+      - "Given the token block, when re-derived, then both light and dark modes come from ONE hue decision and no value is a GitHub Primer literal"
+      - "Given the milestone artifact, then it ships a contrast table covering EVERY rendered foreground/background pair — not the 8 token-on-ground pairs the overlay tabulates, which is how two AA failures survived in shipped code"
+      - "Given --accent, when re-derived, then it satisfies all five of its roles simultaneously: button ground >=4.5:1 against its own text, focus ring >=3:1 against BOTH --bg and --card-bg, link, skip-link ground, badge-flash tint"
+      - "Given the light-mode rule token, when computed, then it clears 3:1 against --bg so the rule ladder milestone is unblocked"
+      - "Given any pair, when it computes below 4.5:1, then the milestone does not ship — this is a hard gate"
+      - "Given color-scheme: light dark, then it is preserved — it is load-bearing for UA control internals and is not a token"
+      - "Given light-dark(), then it is NOT used in v0 — it is Newly Available not Widely, and inside a custom property an unsupporting engine fails at substitution, resolving button backgrounds to transparent and leaving white-on-white primary buttons"
+    links:
+      code: ["server/frontend/static/app.css:11-18", "server/frontend/static/app.css:242-291"]
+
+  - id: ui-uplift-m7
+    kind: milestone
+    title: "Author a two-voice type scale"
+    summary: >-
+      UPL-3. Meta 11px uppercase tracked +0.06em, small 13px, body 16px, section 20px, title on
+      a clamp; sans for prose, --mono for every id, path, slug, timestamp, corpus version and
+      state token. Introduces the first letter-spacing declaration in the product's history.
+      Both voices are system stacks — zero font files, zero bytes, zero CSP impact. Highest
+      value-to-cost ratio in the catalog and INDEPENDENT of the material milestone, so it can
+      run in parallel.
+    parent: ui-uplift-e1
+    lane: now
+    priority: must
+    target_start: 2026-08-11
+    target_end: 2026-08-22
+    tags: [signature-direction, foundational, typography, BAN-4, UPL-3]
+    acceptance:
+      - "Given the heading scale, when measured, then the h2-to-body step is no longer 1.10x and hierarchy is not carried by font-weight alone"
+      - "Given any identifier surface (paper id, slug, path, timestamp, corpus version, state token), when rendered, then it uses --mono and inherits the existing tabular-nums scope"
+      - "Given a 390px viewport, when the page title renders, then it scales via clamp() rather than staying fixed at 32px"
+      - "Given the type tokens, then they extend the existing :root block and do not parallel-define a second token set"
+    links:
+      code: ["server/frontend/static/app.css:23-25", "server/frontend/static/app.css:43", "server/frontend/static/app.css:61-66"]
+
+  - id: ui-uplift-m8
+    kind: milestone
+    title: "Retire .card; adopt the graded hairline rule ladder"
+    summary: >-
+      UPL-2. Delete the universal container. Three rule weights, horizontal only, no vertical
+      edges; radius 0 on structure and 4px surviving only on interactive controls, so geometry
+      itself encodes structure-versus-control. The rounded bordered card IS shadcn's identity
+      and seven identical ones is the literal measured form of the complaint — deleting the
+      primitive is the move a default assembly never makes. BLOCKED BY m6 and m7.
+    parent: ui-uplift-e1
+    lane: next
+    priority: must
+    depends_on: [ui-uplift-m6, ui-uplift-m7]
+    target_start: 2026-09-01
+    target_end: 2026-09-19
+    tags: [signature-direction, BAN-2, BAN-5, UPL-2]
+    acceptance:
+      - "Given the detail page, when rendered, then no .card primitive remains and structure is carried by three rule weights"
+      - "Given --card-bg, then its successor role is stated explicitly — control ground for inputs and table headers, not panel ground — because three dark-mode rules still depend on it"
+      - "Given the papers table, then its column-header separation has migrated to a rule weight, because the th background is 1.14:1 on white today and vanishes once the card ground goes"
+      - "Given light mode, when rules carry structure alone, then the rule token clears SC 1.4.11's 3:1 non-text bar (it is 1.342:1 today)"
+      - "Given the type scale from m7, then it has shipped — without it this milestone degrades to 'the same page with the borders removed', which is a worse outcome than shipping neither"
+    links:
+      code: ["server/frontend/static/app.css:53-59", "server/frontend/static/app.css:114-116"]
+
+  - id: ui-uplift-m9
+    kind: milestone
+    title: "Land the BAN-R2 policy as a derived test"
+    summary: >-
+      UPL-7. Every server-emitted class must have a CSS rule, enforced by a test that derives
+      the check from the on-disk tree rather than a hand-maintained list. Writable here because
+      the fragments are f-strings in server/routes/ — a regex over emitted class literals
+      checked against app.css selectors, with an allow-list for the dynamic status-badge
+      modifier family. A test is the only version of this policy that cannot rot.
+    parent: ui-uplift-e2
+    lane: now
+    priority: must
+    target_start: 2026-08-11
+    target_end: 2026-08-20
+    tags: [foundations, BAN-R2, UPL-7]
+    acceptance:
+      - "Given any class literal emitted by a fragment builder in server/routes/, when the test runs, then it fails unless a matching selector exists in app.css"
+      - "Given the dynamic status-badge modifier family, then the test carries an explicit allow-list rather than false-failing"
+      - "Given a new fragment added later with no CSS rule, when the suite runs, then it fails — the policy binds going forward, not just retroactively"
+    links:
+      code: ["server/routes/notebooks.py:705-753", "server/routes/ui.py:297-337"]
+
+  - id: ui-uplift-m10
+    kind: milestone
+    title: "Style the Discover-results candidate list"
+    summary: >-
+      UPL-9. Five emitted classes with zero CSS rules. This is the ONLY surface in the console
+      that presents external content for operator judgment and it is the least-styled thing in
+      the product — a bare bulleted list with default browser margins. Give it a
+      bibliography-style title/meta/abstract hierarchy.
+    parent: ui-uplift-e2
+    lane: now
+    priority: must
+    target_start: 2026-08-20
+    target_end: 2026-08-27
+    tags: [UPL-9]
+    acceptance:
+      - "Given a discovery run returning candidates, when rendered, then title, meta and abstract are typographically distinguished and candidates are separated"
+      - "Given the meta line, then it uses --mono and inherits tabular-nums"
+      - "Given the results group, then NO fade-in keyframe is added — globalViewTransitions already crossfades that swap at 200ms and a second animation would double-animate"
+      - "Given a relevance line, then it is only added if the arXiv Atom driver genuinely supplies the basis; a manufactured reason violates operational honesty"
+    links:
+      code: ["server/routes/notebooks.py:705-753"]
+
+  - id: ui-uplift-m11
+    kind: milestone
+    title: "Author the four empty states (cause + one action)"
+    summary: >-
+      UPL-21. The four empty states are italic centred grey text with zero action affordance.
+      Each already carries a cause in its copy; the missing half is turning the implied action
+      into an actual control. HARD-PAIRED with the index reorder — the copy says "Create one
+      above" / "Add one above", which becomes wrong the moment the form moves.
+    parent: ui-uplift-e2
+    lane: next
+    priority: should
+    depends_on: [ui-uplift-m12]
+    target_start: 2026-09-08
+    target_end: 2026-09-15
+    tags: [UPL-21]
+    acceptance:
+      - "Given any of the four empty states, when rendered, then it states a cause and offers one actual control, not a pointer to a form elsewhere on the page"
+      - "Given the reorder milestone, then this ships WITH it — shipping either alone leaves a page whose only instruction is wrong"
+      - "Given the source pattern leads with an icon, then either the anatomy is adopted WITHOUT the icon, or the product's first icon is an explicit recorded decision"
+    links:
+      code: ["server/frontend/static/app.css:64", "server/frontend/templates/index.html:86"]
+
+  - id: ui-uplift-m12
+    kind: milestone
+    title: "Corpus before machinery — reorder the detail page (v0)"
+    summary: >-
+      UPL-1. Lead with identity, state and the papers table; collapse the five mutation forms
+      into one native <details> below the corpus. Converts a measured 1823px scroll to the most
+      common task into roughly one viewport. Detail page only in v0; the index half pairs with
+      m11. Ships with NO expand animation — animating <details> needs interpolate-size or
+      ::details-content, both Chromium-only, and the discovery run parked interpolate-size as
+      too new without noticing its own motion primitive depended on it.
+    parent: ui-uplift-e3
+    lane: next
+    priority: must
+    depends_on: [ui-uplift-m8]
+    target_start: 2026-09-08
+    target_end: 2026-09-26
+    tags: [workflow, BAN-R1, BAN-5, UPL-1]
+    acceptance:
+      - "Given the detail page, when opened, then the papers table is visible without scrolling past any input form"
+      - "Given a notebook with a non-terminal or failed ingest state, when the page renders, then the Manage disclosure is OPEN — the ingest fragment polls every 2s and would otherwise poll invisibly for a whole run"
+      - "Given the disclosure summary, then it carries a state cue sourced from the same row the ingest fragment already reads"
+      - "Given the five moved forms, then every hx-target still resolves and no swap silently lands out of view"
+      - "Given the reorder, then NO expand animation is claimed or budgeted for"
+    links:
+      code: ["server/frontend/templates/notebook_detail.html:8-361"]
+
+  - id: ui-uplift-m13
+    kind: milestone
+    title: "Live-region hygiene — stop the 2s poll re-announcing"
+    summary: >-
+      UPL-13 v0. Twelve aria-live regions on one rendered page, six of them empty error blocks
+      at first paint, and the 2s ingest poll re-announces on every tick regardless of whether
+      the text changed. The fix is NOT a server-side delta check — the fragment builder is a
+      pure function of the current row and has no memory of what the client rendered. Move
+      aria-live onto a stable never-swapped wrapper: a live region only announces CHANGED text,
+      so an identical re-render is silent by spec.
+    parent: ui-uplift-e3
+    lane: next
+    priority: must
+    depends_on: [ui-uplift-m12]
+    target_start: 2026-09-26
+    target_end: 2026-10-03
+    tags: [a11y-safety-debt, UPL-13]
+    acceptance:
+      - "Given an ingest run in progress, when the 2s poll fires with unchanged status, then no announcement is made"
+      - "Given the six error blocks empty at first paint, then they no longer carry aria-live"
+      - "Given the ingest status region, then it is EXCLUDED from any <output> migration — its failed branch emits <pre>, which is flow content inside a phrasing-content element"
+      - "Given the reorder milestone, then this is sequenced with it — moving forms into a disclosure changes which live regions are in the accessibility tree at all"
+    links:
+      code: ["server/frontend/templates/notebook_detail.html", "server/frontend/templates/base.html:89"]
+
+  - id: ui-uplift-m14
+    kind: milestone
+    title: "In-language destructive confirm via native <dialog>"
+    summary: >-
+      UPL-11. The three destructive actions are the only three moments the console's visual
+      language does not apply at all; in dark mode it is the one place a bright OS dialog
+      flashes against the console. Also rescues genuinely good copy currently trapped in
+      unstyled chrome. THE ONE candidate that earns its JS cost — a CSS-only fake loses the
+      focus-trap semantics <dialog> provides free — and it needs no new vendored file.
+    parent: ui-uplift-e4
+    lane: next
+    priority: should
+    target_start: 2026-09-15
+    target_end: 2026-10-03
+    tags: [interaction, UPL-11]
+    acceptance:
+      - "Given any of the three destructive actions, when triggered, then an in-page dialog styled from existing tokens appears instead of window.confirm"
+      - "Given the confirm handler, then it early-returns when the htmx confirm question is null — that event fires on EVERY htmx request, so an unconditional preventDefault halts all twelve htmx elements including both polls"
+      - "Given the backdrop, then its colour does not rely on ::backdrop inheriting a custom property — historically it inherits from nothing, which would drop the declaration and leave an invisible backdrop on a destructive confirm"
+      - "Given the affirmative button, then it is labelled with the destructive verb, never OK"
+      - "Given the security audit, then the added JS surface is declared against the open UI audit issue rather than passing silently"
+    links:
+      code: ["server/frontend/templates/notebook_detail.html:86", "server/frontend/templates/index.html:111"]
+
+  - id: ui-uplift-m15
+    kind: milestone
+    title: "Region-level in-flight feedback via :has()"
+    summary: >-
+      UPL-12 v0. hx-indicator is set on ZERO of nine htmx elements. Discover (a live arXiv Atom
+      round-trip) and Ingest (a background subprocess) get exactly the same feedback as an
+      instant local write: one button dimming. :has() also disambiguates WHICH of six visually
+      identical Remove buttons is in flight — a job the per-element cue cannot serve.
+    parent: ui-uplift-e4
+    lane: next
+    priority: should
+    depends_on: [ui-uplift-m8]
+    target_start: 2026-10-03
+    target_end: 2026-10-10
+    tags: [interaction, UPL-12]
+    acceptance:
+      - "Given an in-flight request, when it is running, then the whole region carrying the request takes a busy treatment, not only the button"
+      - "Given the selector, then it targets an element that survives the .card deletion — the discovery catalog's proposed .card:has(...) keys off a class the rule-ladder milestone removes"
+      - "Given the shipped button spinner, then the region cue is a deliberate second signal, not an accidental double-signal"
+    links:
+      code: ["server/frontend/static/app.css:293-333"]
+
+  - id: ui-uplift-m16
+    kind: milestone
+    title: "Container-query the form layout and cap short fields"
+    summary: >-
+      UPL-16. A slug field expecting ~20 characters renders at 1251px, roughly 60x its expected
+      content. @container is technically exact here: the body max-width clamp means a viewport
+      breakpoint literally cannot see the section's rendered width.
+    parent: ui-uplift-e4
+    lane: later
+    priority: should
+    depends_on: [ui-uplift-m8]
+    target_start: 2026-10-10
+    target_end: 2026-10-17
+    tags: [layout, UPL-16]
+    acceptance:
+      - "Given a short-content field (slug, paper id), when rendered at desktop width, then it is capped near its expected content length"
+      - "Given the container, then it is re-targeted to the surviving ledger section rather than the deleted .card"
+    links:
+      code: ["server/frontend/static/app.css:74-84"]
+
+  - id: ui-uplift-m17
+    kind: milestone
+    title: "Cross-document View Transitions (at-rule only)"
+    summary: >-
+      UPL-19a. One line, zero bytes, a genuine no-op in engines that lack it so no @supports
+      gate is needed, reusing the 200ms cap already declared. The preload half of the original
+      candidate was DELETED, not deferred — it spent 4.5 KB gz and a third vendored file to
+      hide latency on a 127.0.0.1 binding.
+    parent: ui-uplift-e4
+    lane: later
+    priority: could
+    target_start: 2026-10-17
+    target_end: 2026-10-20
+    tags: [polish, motion, UPL-19a]
+    acceptance:
+      - "Given a same-origin navigation, when it occurs, then the browser crossfades within the existing 200ms cap"
+      - "Given the at-rule, then it lives INSIDE the existing prefers-reduced-motion no-preference block, or it becomes a second sticky reduced-motion gap"
+    links:
+      code: ["server/frontend/static/app.css:352-355"]
+
+  - id: ui-uplift-m18
+    kind: milestone
+    title: "De-duplicate the error handler with an in-repo helper"
+    summary: >-
+      UPL-17 redesigned. The same inline JSON-parse handler is duplicated SEVEN times across
+      the two templates. The vendored-extension form was killed (see retired). Instead add one
+      exported helper in the existing in-repo lane, reducing seven inline attributes to one
+      call each: zero vendored bytes, zero upstream-provenance questions, keeps textContent
+      semantics and therefore the no-new-XSS-surface claim, and requires no server response
+      contract change.
+    parent: ui-uplift-e4
+    lane: later
+    priority: could
+    target_start: 2026-10-20
+    target_end: 2026-10-24
+    tags: [refactor, UPL-17]
+    acceptance:
+      - "Given the seven error-handling sites, when refactored, then each is a single call to one shared in-repo helper"
+      - "Given the helper, then it writes via textContent, not innerHTML"
+      - "Given the /ui/api endpoints, then their 4xx/5xx response contract is UNCHANGED"
+    links:
+      code: ["server/frontend/static/json-enc.js", "server/frontend/templates/notebook_detail.html:37"]
+
+  - id: ui-uplift-m19
+    kind: milestone
+    title: "Surface notebook_kind as micro-caps text (NOT a chip)"
+    summary: >-
+      UPL-20 v0. notebook_kind appears ZERO times in index.html, so an operator must open every
+      notebook to learn whether it is arxiv or textbook — two kinds with different available
+      actions. The obvious vehicle is wrong twice over: the badge threshold is PER-VIEW (~5),
+      and one chip per row at six notebooks plus the footer badge is seven visible chips; and
+      painting a two-value taxonomy in the four-state semantic live-state palette is semantic
+      colour dilution. Plain text has zero exposure to either, and a chip is a box on a page
+      whose direction deletes boxes.
+    parent: ui-uplift-e3
+    lane: later
+    priority: should
+    target_start: 2026-10-06
+    target_end: 2026-10-10
+    tags: [workflow, BAN-7, BAN-11, UPL-20]
+    acceptance:
+      - "Given the notebooks list, when rendered, then each row shows its kind as plain tracked micro-caps text in its own column"
+      - "Given that rendering, then it uses no background, no border and no semantic colour"
+    links:
+      code: ["server/frontend/templates/index.html"]
+
+  - id: ui-uplift-m20
+    kind: milestone
+    title: "A posture lede for the notebook (v0)"
+    summary: >-
+      UPL-5. One authored sentence of metered facts at 2-3x weight answering "is this notebook
+      usable, and what is in it" — with the parse state's MEANING, not its token — and with
+      visible abstention where the daemon has no fact. The deliberate opposite of the template
+      opener: one honest sentence, not manufactured stat tiles.
+    parent: ui-uplift-e3
+    lane: later
+    priority: should
+    depends_on: [ui-uplift-m7, ui-uplift-m12]
+    target_start: 2026-10-06
+    target_end: 2026-10-24
+    tags: [signature-direction, BAN-13, UPL-5]
+    acceptance:
+      - "Given a notebook, when the detail page opens, then one sentence at 2-3x weight answers usability and contents from metered facts"
+      - "Given a fact the daemon does not have, then the lede abstains visibly rather than rendering a zero or a blank"
+      - "Given the paper count, then its definition is resolved BEFORE the sentence is authored — the API counts junction rows, which is why notebooks with large corpora can report zero; showing a number the operator cannot trust is forbidden"
+      - "Given v0, then the existing definition list is KEPT as the machine-readable substrate and the sentence is added above it; collapsing it into prose trades term-value associations screen readers expose for a flat text run"
+    links:
+      code: ["server/frontend/templates/notebook_detail.html:48-76"]
+
+  - id: ui-uplift-m21
+    kind: milestone
+    title: "Authored density + coarse-pointer touch floor"
+    summary: >-
+      UPL-6. Replace the single uniform padding rhythm with an authored density — compact for
+      tables and ledger rows, comfortable for the lede and forms — plus a 44px floor keyed to
+      pointer:coarse rather than a width breakpoint, which fixes the real problem (touch)
+      instead of the proxy (narrow window). Every button measures 32px, select 19px, footer
+      links 17px.
+    parent: ui-uplift-e4
+    lane: later
+    priority: should
+    depends_on: [ui-uplift-m8]
+    target_start: 2026-10-13
+    target_end: 2026-10-20
+    tags: [a11y-safety-debt, BAN-14, UPL-6]
+    acceptance:
+      - "Given a coarse pointer, when any interactive control renders, then its target is at least 44px"
+      - "Given a fine pointer at desktop width, then density is unchanged by that floor"
+      - "Given the density rhythm, then it differs deliberately between data tables and forms rather than being uniform-medium everywhere"
+    links:
+      code: ["server/frontend/static/app.css:87-98", "server/frontend/static/app.css:29"]
+
+  - id: ui-uplift-m22
+    kind: milestone
+    title: "First inline validation state (:user-invalid)"
+    summary: >-
+      UPL-26. The stylesheet has zero validation-state rules — not even :invalid — while seven
+      forms carry native constraint attributes. :user-invalid fires only AFTER interaction,
+      unlike :invalid which fires on page load for an empty required field and is the
+      well-known wrong default.
+    parent: ui-uplift-e4
+    lane: later
+    priority: could
+    target_start: 2026-10-24
+    target_end: 2026-10-28
+    tags: [interaction, UPL-26]
+    acceptance:
+      - "Given a field failing its native constraint after interaction, when it blurs, then it renders an invalid state inline rather than waiting for a server 422"
+      - "Given that state, then colour is NOT the sole carrier — it pairs with a border-width change, a text cue, or aria-invalid plus a description reference"
+      - "Given the invalid colour, then it uses the danger token, not a literal"
+    links:
+      code: ["server/frontend/templates/index.html:31-32"]
+
+  - id: ui-uplift-m23
+    kind: milestone
+    title: "Slash-key focus on the index (NOT a command palette)"
+    summary: >-
+      UPL-23 v0. Zero keydown or accesskey handlers exist anywhere in the product. Scope to the
+      index page where "the primary input" is unambiguous; the detail page has six candidates
+      and after the reorder five sit inside a collapsed disclosure where focus cannot go.
+      Deliberately NOT a searchable command surface — that was scoped down from the obvious
+      library answer.
+    parent: ui-uplift-e4
+    lane: later
+    priority: could
+    depends_on: [ui-uplift-m14]
+    target_start: 2026-10-28
+    target_end: 2026-10-31
+    tags: [interaction, keyboard, UPL-23]
+    acceptance:
+      - "Given the index page and focus outside any text field, when slash is pressed, then focus moves to the create form's primary input"
+      - "Given the exclusion set, then it covers input, textarea, contenteditable, modifier-held keys, AND an open dialog — otherwise typing slash inside a destructive confirm yanks focus out of the modal"
+      - "Given the affordance, then a visible key hint ships WITH it; a hidden keyboard affordance is an accessibility regression, not a feature"
+    links:
+      code: ["server/frontend/templates/base.html"]

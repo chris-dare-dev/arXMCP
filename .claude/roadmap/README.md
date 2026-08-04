@@ -225,6 +225,58 @@ Full list of milestones across all authored epics. Sonnet B milestones are liste
 
 ---
 
+## Live tracks (`plans/<slug>/roadmap.yaml`)
+
+**This section was missing until 2026-08-04.** `CLAUDE.md` §3 names this file as
+"the authoritative roadmap index", and `CLAUDE.md` §9 documents that
+`/milestone-pipeline` resolves briefs from `plans/<slug>/roadmap.yaml` — but no
+index of those live tracks existed anywhere in the repo, so twelve active tracks
+were reachable only by knowing to run `ls plans/`. That is a real onboarding hole
+for a fresh agent or a fresh clone, and it is why this table exists.
+
+Each row is a `roadmap/1` document consumed directly by
+`/milestone-pipeline <milestone-id>`. **This table is hand-maintained and goes
+stale** — regenerate it from the source of truth rather than trusting it:
+
+```bash
+python - <<'PY'
+import yaml, io, glob
+for f in sorted(glob.glob('plans/*/roadmap.yaml')):
+    d = yaml.safe_load(io.open(f, encoding='utf-8'))
+    ms = [i for i in (d.get('items') or []) if i.get('kind') == 'milestone']
+    done = [i for i in ms if i.get('status') == 'done']
+    print(f"{d['slug']:24s} {d.get('status'):8s} {d.get('phase'):10s} {len(done)}/{len(ms)}")
+PY
+```
+
+`phase` tracks the *planning* pipeline (`init → refined → decomposed → sequenced
+→ complete`); `phase: complete` means the roadmap is fully authored, **not** that
+the work shipped. Read the milestone column for delivery.
+
+| Track | Title | Status | Phase | Milestones done |
+|---|---|---|---|---|
+| [agent-platform](../../plans/agent-platform/roadmap.yaml) | Agent Platform & Protocol — truthful MCP surface, sane budgets | active | complete | 2/8 |
+| [data-plane-governance](../../plans/data-plane-governance/roadmap.yaml) | Data-plane governance — boundary ADR, plan dispositions | active | complete | 3/3 |
+| [discovery-substrate](../../plans/discovery-substrate/roadmap.yaml) | Discovery substrate — mine the corpus's negatives | active | complete | 0/8 |
+| [evidence-engine](../../plans/evidence-engine/roadmap.yaml) | Evidence Engine — end the never-measured era | active | complete | 0/6 |
+| [paper-metadata](../../plans/paper-metadata/roadmap.yaml) | get_paper real metadata | active | complete | 2/2 |
+| [researcher-workbench](../../plans/researcher-workbench/roadmap.yaml) | Researcher workbench — search, curate, label, export | active | complete | 0/14 |
+| [retrieval-unlocks](../../plans/retrieval-unlocks/roadmap.yaml) | arXMCP retrieval unlocks — proofs, equations, definitions | active | complete | 3/13 |
+| [scale-ops-hardening](../../plans/scale-ops-hardening/roadmap.yaml) | arXMCP scale, ops & content-security hardening | active | complete | 0/15 |
+| [source-truth](../../plans/source-truth/roadmap.yaml) | Source truth — revision registry, spans, license provenance | active | complete | 4/5 |
+| [trustworthy-release](../../plans/trustworthy-release/roadmap.yaml) | arXMCP — trustworthy release & adoption | active | complete | 0/13 |
+| [**ui-uplift**](../../plans/ui-uplift/roadmap.yaml) | Operator console UI uplift — give `/ui/` an authored visual thesis | active | sequenced | 5/23 |
+| [verification-contract](../../plans/verification-contract/roadmap.yaml) | Lean verification contract — honest five-operation trust surface | active | complete | 0/7 |
+
+**`ui-uplift` provenance note:** unlike its siblings it was NOT produced by the
+`/roadmap` 4-phase pipeline. It is a transcription of a `/frontend-uplift`
+discovery run (`2026q3-ui-uplift`), whose ranked report, adversarial challenge and
+five scout briefs live at
+[`.claude/notes/frontend-uplifts/2026q3-ui-uplift/`](../notes/frontend-uplifts/2026q3-ui-uplift/).
+Its own `generations[0].note` says so; read that before trusting its `phase` field.
+
+---
+
 ## Archived standalone tracks (all complete)
 
 Eleven prose track briefs lived under `plans/*.md` until 2026-07-29. `plans/` is
