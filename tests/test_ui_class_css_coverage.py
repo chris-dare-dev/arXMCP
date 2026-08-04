@@ -59,7 +59,15 @@ STATIC_DIR: Path = REPO_ROOT / "server" / "frontend" / "static"
 
 #: Negative lookbehind excludes a longer attribute name ending in "class"
 #: (e.g. a hypothetical ``data-class="..."``) from matching.
-_CLASS_ATTR_RE: re.Pattern[str] = re.compile(r'(?<![\w-])class="([^"]*)"')
+#:
+#: BOTH quote styles are matched. HTML permits ``class='...'`` and Python
+#: permits it inside any double-quoted string, so scanning only for the
+#: double-quoted form left a silent AC3 bypass: a new fragment written
+#: ``"<p class='x'>"`` extracted ZERO tokens and passed unnoticed
+#: (ui-uplift-m9 critique H2/M6).
+_CLASS_ATTR_RE: re.Pattern[str] = re.compile(
+    r"""(?<![\w-])class=(?:"([^"]*)"|'([^']*)')"""
+)
 _CSS_COMMENT_RE: re.Pattern[str] = re.compile(r"/\*.*?\*/", re.S)
 
 #: Cannot appear in real Python/HTML/CSS source; substituted for every
@@ -149,12 +157,34 @@ def _joined_str_text(node: ast.JoinedStr) -> str:
     return "".join(parts)
 
 
+def _fold_add_chain(node: ast.AST) -> str | None:
+    """Flatten a ``+`` chain of string parts into one text, or ``None``.
+
+    Returns ``None`` when the chain contains no string literal at all
+    (an arithmetic ``a + b`` is not our business). Non-string operands
+    inside an otherwise-stringy chain fold to ``_DYNAMIC_MARKER``.
+    """
+    if isinstance(node, ast.Constant):
+        return str(node.value) if isinstance(node.value, str) else _DYNAMIC_MARKER
+    if isinstance(node, ast.JoinedStr):
+        return _joined_str_text(node)
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        left = _fold_add_chain(node.left)
+        right = _fold_add_chain(node.right)
+        if left is None and right is None:
+            return None
+        return (left or _DYNAMIC_MARKER) + (right or _DYNAMIC_MARKER)
+    return None
+
+
 def _class_tokens_from_text(text: str) -> list[str]:
-    """Every whitespace-separated token inside every ``class="..."`` in
-    ``text``."""
+    """Every whitespace-separated token inside every ``class="..."`` or
+    ``class='...'`` in ``text``."""
     tokens: list[str] = []
     for match in _CLASS_ATTR_RE.finditer(text):
-        tokens.extend(match.group(1).split())
+        # Exactly one of the two quote-style groups participates per match.
+        value = match.group(1) if match.group(1) is not None else match.group(2)
+        tokens.extend(value.split())
     return tokens
 
 
@@ -185,6 +215,28 @@ class _EmissionVisitor(ast.NodeVisitor):
                 self.emissions.append(
                     EmittedClass(self.relpath, lineno, token, False, None)
                 )
+
+    def visit_BinOp(self, node: ast.BinOp) -> None:
+        """Fold ``+`` chains of string parts before extracting.
+
+        ``"<p class=\\"gam" + "ma\\">"`` splits the attribute across two
+        literals, so neither one alone contains a complete ``class="..."``
+        and both extract nothing — a silent AC3 bypass (critique H2/M6).
+        Concatenating the chain first restores the attribute. A part that
+        is not a static string folds to ``_DYNAMIC_MARKER``, so a runtime-
+        composed class is reported as dynamic rather than skipped.
+        """
+        if not isinstance(node.op, ast.Add):
+            self.generic_visit(node)
+            return
+        folded = _fold_add_chain(node)
+        if folded is None:
+            self.generic_visit(node)
+            return
+        self._record(node.lineno, folded)
+        # Do NOT generic_visit: the constituent literals are already
+        # represented in `folded`, and re-visiting them would double-count
+        # any complete attribute living wholly inside one part.
 
     def visit_JoinedStr(self, node: ast.JoinedStr) -> None:
         self._record(node.lineno, _joined_str_text(node))
@@ -459,6 +511,51 @@ class TestKnownUnstyledDebtIsSelfCleaning:
     """Separates ``_KNOWN_UNSTYLED`` from the hand-maintained list this
     milestone replaces: it cannot silently go stale in either direction.
     """
+
+    def test_known_unstyled_entries_are_still_actually_emitted(self) -> None:
+        """The SECOND direction the class docstring claims (critique M1/M7).
+
+        Only the "has it gained CSS?" direction was guarded, so an entry
+        whose emission site was deleted would sit in ``_KNOWN_UNSTYLED``
+        forever — precisely the silent rot this list is supposed to be
+        immune to. A stale entry is not harmless: it is a standing
+        exemption for a class nothing emits, which would silently excuse a
+        FUTURE re-introduction of that class with no CSS.
+        """
+        emitted = {e.token for e in _all_emissions() if not e.is_dynamic}
+        stale = sorted(c for c in _KNOWN_UNSTYLED if c not in emitted)
+        assert not stale, (
+            "the following _KNOWN_UNSTYLED entries are no longer emitted by "
+            "anything in server/routes/ — delete them from the list; leaving "
+            "them standing exempts a class that could later be re-introduced "
+            f"with no CSS rule: {stale}"
+        )
+
+    def test_every_writable_class_attribute_syntax_is_extracted(self) -> None:
+        """Regression guard for critique H2/M6 (ui-uplift-m9).
+
+        Both shapes below extracted ZERO tokens before the fix, so a new
+        fragment written either way slipped past AC1 silently — AC3 was
+        bypassable in practice. Each case here is a shape a developer can
+        legally write in this codebase today.
+        """
+        cases = {
+            'double-quoted': 'def f():\n    return "<p class=\\"alpha\\">x</p>"\n',
+            'single-quoted': "def f():\n    return \"<p class='beta'>x</p>\"\n",
+            'concatenated': 'def f():\n    return "<p class=\\"gam" + "ma\\">x</p>"\n',
+        }
+        expected = {'double-quoted': 'alpha', 'single-quoted': 'beta',
+                    'concatenated': 'gamma'}
+        missed = []
+        for name, src in cases.items():
+            tokens = [e.token for e in _extract_emissions_from_source(src, 'probe.py')]
+            if expected[name] not in tokens:
+                missed.append(f"{name}: expected {expected[name]!r}, extracted {tokens!r}")
+        assert not missed, (
+            "a writable class-attribute syntax extracts nothing, so a class "
+            "written that way would never be checked against app.css: "
+            + "; ".join(missed)
+        )
 
     def test_known_unstyled_entries_are_still_actually_unstyled(self) -> None:
         css_text = _combined_css_text_no_comments()
