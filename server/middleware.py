@@ -292,7 +292,11 @@ def _origin_is_allowed(origin: str) -> bool:
     return host in LOOPBACK_ORIGIN_HOSTS
 
 
-def _validate_host_header(host_value: str, allowed_port: int | None) -> bool:
+def _validate_host_header(
+    host_value: str,
+    allowed_port: int | None,
+    extra_hosts: frozenset[str] = frozenset(),
+) -> bool:
     """Return True if a ``Host`` header is acceptable.
 
     F3: Threat 5 (DNS rebinding) requires Host header validation in
@@ -338,7 +342,11 @@ def _validate_host_header(host_value: str, allowed_port: int | None) -> bool:
     else:
         host = raw
         port_str = None
-    if host not in LOOPBACK_HOST_HEADER_HOSTS:
+    # extra_hosts (from ARXMCP_ALLOWED_HOSTS) EXTENDS the loopback floor — used
+    # for container/k8s deployments where probes + Prometheus reach the server
+    # via the pod IP / Service DNS, not loopback. Empty by default = unchanged
+    # loopback-only behavior. Defense remains: only explicitly-listed hosts pass.
+    if host not in LOOPBACK_HOST_HEADER_HOSTS and host not in extra_hosts:
         return False
     if allowed_port is not None and port_str is not None:
         try:
@@ -677,11 +685,18 @@ class HostValidationMiddleware:
         self,
         app: Callable[..., Awaitable[None]],
         allowed_port: int | None = None,
+        extra_allowed_hosts: list[str] | tuple[str, ...] | None = None,
     ) -> None:
         self.app = app
         # ``allowed_port=None`` accepts any port — test harnesses
         # use this to avoid coupling tests to the live bind port.
         self.allowed_port = allowed_port
+        # extra_allowed_hosts (ARXMCP_ALLOWED_HOSTS) extends the loopback Host
+        # allow-list for container/k8s deployments (e.g. the pod IP injected via
+        # the downward API). Lowercased to match _validate_host_header.
+        self._extra_hosts: frozenset[str] = frozenset(
+            h.strip().lower() for h in (extra_allowed_hosts or []) if h.strip()
+        )
 
     async def __call__(self, scope: dict, receive: Callable, send: Callable) -> None:
         if scope["type"] != "http":
@@ -700,7 +715,7 @@ class HostValidationMiddleware:
         except UnicodeDecodeError:
             host_str = ""
 
-        if _validate_host_header(host_str, self.allowed_port):
+        if _validate_host_header(host_str, self.allowed_port, self._extra_hosts):
             await self.app(scope, receive, send)
             return
 

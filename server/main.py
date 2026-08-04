@@ -808,7 +808,11 @@ def create_app(config: Config | None = None) -> FastAPI:
     # whole FastAPI app. ``allowed_port=None`` accepts any port so
     # tests work; production binds to cfg.bind_port and the FastMCP
     # built-in pins the port on /mcp specifically.
-    app.add_middleware(HostValidationMiddleware, allowed_port=None)
+    app.add_middleware(
+        HostValidationMiddleware,
+        allowed_port=None,
+        extra_allowed_hosts=cfg.allowed_hosts,
+    )
     # Origin validation: MCP 2025-06-18 spec MUST. E13_S05 wires
     # the ARXMCP_ALLOWED_ORIGINS env-var allow-list (extends the
     # hardcoded loopback floor; default empty = floor only).

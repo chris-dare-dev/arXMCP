@@ -477,6 +477,17 @@ class Config(BaseSettings):
     #: ``ARXMCP_ALLOWED_ORIGINS='["http://my-tool.localhost:8080"]'``.
     allowed_origins: list[str] = Field(default_factory=list)
 
+    #: Threat 5 (DNS rebinding) — additional ``Host`` header values accepted
+    #: beyond the loopback floor (``LOOPBACK_HOST_HEADER_HOSTS`` in
+    #: :mod:`server.middleware`). Empty list (default) preserves loopback-only
+    #: behavior. Container/k8s deployments set this to the pod IP / Service DNS
+    #: name so in-cluster probes + Prometheus scrapes (which reach the server by
+    #: pod IP, not loopback) are accepted. The loopback floor is a baseline that
+    #: cannot be bypassed via this var. Parsed from ``ARXMCP_ALLOWED_HOSTS`` as a
+    #: JSON list, e.g. ``ARXMCP_ALLOWED_HOSTS='["10.42.0.20"]'`` (typically fed
+    #: the pod IP via the k8s downward API).
+    allowed_hosts: list[str] = Field(default_factory=list)
+
     #: E13_S05 (Threat 5) — escape hatch for non-loopback bind.
     #: Default ``False`` = ``ARXMCP_BIND_HOST=0.0.0.0`` is rejected
     #: at config parse time (the historical behavior preserved).
