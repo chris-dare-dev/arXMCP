@@ -10,15 +10,16 @@ roadmap: plans/verification-feedback-roadmap.md
 reviewer_target: opus
 review_status: requested
 milestones_covered:
-  - lean-verify-continuation-m1
+- lean-verify-continuation-m1
 tags:
-  - project/lean-verify-continuation
-  - type/handoff
-  - authorship/agent-generated
-  - handoff/review
-  - review/requested
+- project/lean-verify-continuation
+- type/handoff
+- authorship/agent-generated
+- handoff/review
+- review/requested
+- project/arxmcp
 aliases:
-  - "lean-verify-continuation — review handoff (2026-07-25)"
+- lean-verify-continuation — review handoff (2026-07-25)
 ---
 
 # HANDOFF (REVIEW) — lean-verify-continuation session, 2026-07-25

@@ -9,12 +9,13 @@ companion: HANDOFF-2026-07-25-lean-verify-continuation-session-review.md
 roadmap: plans/verification-feedback-roadmap.md
 resume_target: opus
 tags:
-  - project/lean-verify-continuation
-  - type/handoff
-  - authorship/agent-generated
-  - handoff/continuation
+- project/lean-verify-continuation
+- type/handoff
+- authorship/agent-generated
+- handoff/continuation
+- project/arxmcp
 aliases:
-  - "lean-verify-continuation — continuation handoff (2026-07-25)"
+- lean-verify-continuation — continuation handoff (2026-07-25)
 ---
 
 # CONTINUATION HANDOFF — lean-verify-continuation (2026-07-25)

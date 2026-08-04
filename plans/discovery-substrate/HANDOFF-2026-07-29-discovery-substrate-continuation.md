@@ -9,12 +9,13 @@ companion: HANDOFF-2026-07-29-discovery-substrate-session-review.md
 roadmap: plans/discovery-substrate/roadmap.yaml
 resume_target: any
 tags:
-  - project/discovery-substrate
-  - type/handoff
-  - authorship/agent-generated
-  - handoff/continuation
+- project/discovery-substrate
+- type/handoff
+- authorship/agent-generated
+- handoff/continuation
+- project/arxmcp
 aliases:
-  - "discovery-substrate — continuation handoff (2026-07-29)"
+- discovery-substrate — continuation handoff (2026-07-29)
 ---
 
 # CONTINUATION HANDOFF — discovery-substrate (2026-07-29)

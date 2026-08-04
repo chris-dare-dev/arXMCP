@@ -10,19 +10,20 @@ roadmap: plans/discovery-substrate/roadmap.yaml
 reviewer_target: opus
 review_status: requested
 milestones_covered:
-  - discovery-substrate-e1
-  - discovery-substrate-e2
-  - discovery-substrate-e3
-  - discovery-substrate-e4
-  - discovery-substrate-e5
+- discovery-substrate-e1
+- discovery-substrate-e2
+- discovery-substrate-e3
+- discovery-substrate-e4
+- discovery-substrate-e5
 tags:
-  - project/discovery-substrate
-  - type/handoff
-  - authorship/agent-generated
-  - handoff/review
-  - review/requested
+- project/discovery-substrate
+- type/handoff
+- authorship/agent-generated
+- handoff/review
+- review/requested
+- project/arxmcp
 aliases:
-  - "discovery-substrate — review handoff (2026-07-29)"
+- discovery-substrate — review handoff (2026-07-29)
 ---
 
 # HANDOFF (REVIEW) — discovery-substrate session, 2026-07-29
