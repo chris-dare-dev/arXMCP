@@ -1,0 +1,42 @@
+{
+  "id": "verification-contract-spike-1",
+  "created_at": "2026-08-04T02:36:10Z",
+  "updated_at": "2026-08-04T02:36:22Z",
+  "phase": "research-running",
+  "phase_history": [
+    {
+      "phase": "init",
+      "at": "2026-08-04T02:36:10Z"
+    },
+    {
+      "phase": "research-running",
+      "at": "2026-08-04T02:36:22Z"
+    }
+  ],
+  "milestone_brief": "# Milestone brief \u2014 verification-contract-spike-1\r\n\r\n**Title:** Windows isolation route bake-off: Job Object+restricted token vs container/WSL2\r\n**Kind:** spike\r\n**Roadmap:** verification-contract (plans/verification-contract/roadmap.yaml)\r\n**Status:** planned\r\n**Lane:** next\r\n**Target:** 2026-08-11 -> 2026-08-13\r\n\r\n## Parent epic\r\n\r\n- verification-contract-e2 \u2014 Windows isolation boundary\r\n  Spike Job Object + restricted token against container/WSL2 on the attack suite's resource cases, record the choice as an ADR with measured overhead, and land the boundary itself (no network, read-only toolchain/env, writable per-call scratch only, CPU/memory/process/file-size caps, kill-and-teardown on violation) so untrusted Lean stops running unconfined on Windows. Enabler: unblocks verification-contract-e3, which executes untrusted candidates inside it.\r\n\r\n## Summary\r\n\r\n(none in roadmap \u2014 derive scope from the acceptance criteria)\r\n\r\n## Acceptance criteria\r\n\r\n1. Given the attack suite's resource cases (heartbeat/memory/fork bombs, filesystem/network escape attempts), when both Job Object+restricted token and container/WSL2 routes are measured within the 3-day timebox, then pass/fail and overhead are recorded per route in an ADR\r\n2. Given neither route meets the isolation bar within the timebox, when the spike concludes, then Lean stays disabled-by-default and R5 targets are checked via the documented manual operator fallback instead of m2 proceeding\r\n\r\n## Depends on\r\n\r\n- (none)",
+  "brief_source": "roadmap plans/verification-contract/roadmap.yaml",
+  "research_mode": "standard",
+  "oss_scout_requested": false,
+  "allow_large_diff": false,
+  "research_briefs": [],
+  "research_synthesis": null,
+  "implementation_path": null,
+  "implementation_plan": null,
+  "implementation_base": null,
+  "implementation_commit_range": null,
+  "implementation_commits": [],
+  "implementation_branch": null,
+  "external_writes_required": [],
+  "critique_path": null,
+  "critics_run": [],
+  "critique_files": [],
+  "critique_finding_counts": null,
+  "findings_register": null,
+  "rectification_commit": null,
+  "fixed_findings": [],
+  "deferred_findings": [],
+  "invalidated_findings": [],
+  "regression_tests_added": [],
+  "external_writes_authorized": [],
+  "external_writes_completed": []
+}
