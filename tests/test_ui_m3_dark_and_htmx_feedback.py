@@ -477,12 +477,15 @@ class TestCrossMilestoneSafety:
         # test in tests/test_ui_m4_in_place_add_paper.py — the two
         # caps MUST agree (m4-rect F1 lesson; restated in m5 synthesis
         # C8).
+        # 2026q3-ui-uplift: m5=370 → 400 for UPL-27 (two WCAG AA contrast
+        # fixes), UPL-8 v0 (the first select/textarea base rules) and
+        # UPL-15a (tbody tr:hover).
         line_count = APP_CSS.count("\n") + (1 if not APP_CSS.endswith("\n") else 0)
-        assert line_count <= 370, (
-            f"app.css is {line_count} lines — over the 370-line cap "
-            f"(revised in m5 from m4's 335 to accommodate UPL-19 v1 body "
-            f"clamp + UPL-8 v1 dark pill remap + UPL-12 v1 row-fade "
-            f"keyframe). Consider stripping documentation comments, "
+        assert line_count <= 400, (
+            f"app.css is {line_count} lines — over the 400-line cap "
+            f"(revised in 2026q3-ui-uplift from m5's 370 to accommodate "
+            f"UPL-27 contrast fixes + UPL-8 v0 select/textarea base rules + "
+            f"UPL-15a row hover). Consider stripping documentation comments, "
             f"splitting the file (e.g. tokens.css + app.css per the "
             f"escape-hatch noted in KR5), or arguing for another revision. "
             f"NOTE: the m4/m5 cap test in tests/test_ui_m4_in_place_add_paper.py "

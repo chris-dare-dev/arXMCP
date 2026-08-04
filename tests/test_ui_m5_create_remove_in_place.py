@@ -793,12 +793,13 @@ class TestCrossMilestoneSafety:
         assert "<td>added</td>" in out
 
     def test_app_css_under_m5_cap(self) -> None:
-        # m5 cap = 370. This test mirrors the cap-tests in m3 and m4
-        # test files — all three MUST move in lockstep on a future
-        # cap raise.
+        # Cap = 400 (2026q3-ui-uplift, raised from m5's 370 for UPL-27
+        # contrast fixes + UPL-8 v0 select/textarea base rules + UPL-15a
+        # row hover). This test mirrors the cap-tests in m3 and m4 test
+        # files — all three MUST move in lockstep on a future cap raise.
         line_count = APP_CSS.count("\n") + (
             1 if not APP_CSS.endswith("\n") else 0
         )
-        assert line_count <= 370, (
-            f"app.css is {line_count} lines — over the m5-revised 370-line cap"
+        assert line_count <= 400, (
+            f"app.css is {line_count} lines — over the 400-line cap"
         )

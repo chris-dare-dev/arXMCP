@@ -429,8 +429,12 @@ class TestUPL13GlobalViewTransitions:
     """
 
     def test_global_view_transitions_flag_present(self) -> None:
-        # The exact opt-in assignment is still present.
-        assert "htmx.config.globalViewTransitions = true" in BASE_HTML
+        # The opt-in assignment is still present. Strip HTML comments first:
+        # base.html's explanatory comment QUOTES the old assignment to describe
+        # the original bug, so an un-stripped `in BASE_HTML` check would pass
+        # on the prose even if the real code were deleted.
+        base_code = _re.sub(r"<!--.*?-->", "", BASE_HTML, flags=_re.S)
+        assert "htmx.config.globalViewTransitions =" in base_code
 
     def test_global_view_transitions_runs_after_load_not_in_inline_defer(
         self,
@@ -444,7 +448,7 @@ class TestUPL13GlobalViewTransitions:
         # into a comment region (whose nearest preceding <script ...> is the
         # external deferred json-enc tag).
         base_code = _re.sub(r"<!--.*?-->", "", BASE_HTML, flags=_re.S)
-        idx = base_code.index("htmx.config.globalViewTransitions = true")
+        idx = base_code.index("htmx.config.globalViewTransitions =")
         # Walk back to the enclosing <script ...> opener.
         script_open = base_code.rfind("<script", 0, idx)
         assert script_open != -1, "expected an enclosing <script> block"
@@ -467,6 +471,23 @@ class TestUPL13GlobalViewTransitions:
         assert "prefers-reduced-motion" in script_body, (
             "ui-htmx-json-fix-m1: the View Transitions opt-in must honor "
             "prefers-reduced-motion."
+        )
+
+    def test_reduced_motion_preference_is_re_read_on_change(self) -> None:
+        # 2026q3-ui-uplift UPL-22 regression guard. The three CSS gates
+        # (app.css @media blocks) re-evaluate continuously because @media
+        # does; this single JS read did not, so an operator who flipped
+        # their OS reduced-motion setting mid-session kept View Transitions
+        # until a full page reload. The MediaQueryList must carry a
+        # `change` listener, not just be sampled once at DOMContentLoaded.
+        base_code = _re.sub(r"<!--.*?-->", "", BASE_HTML, flags=_re.S)
+        idx = base_code.index("htmx.config.globalViewTransitions =")
+        script_open = base_code.rfind("<script", 0, idx)
+        script_body = base_code[script_open : base_code.index("</script>", idx)]
+        assert "addEventListener('change'" in script_body.replace('"', "'"), (
+            "UPL-22 regression: the prefers-reduced-motion MediaQueryList is "
+            "sampled once and never re-read. Register a 'change' listener so "
+            "a mid-session OS preference flip takes effect without a reload."
         )
 
     def test_no_obsolete_htmx_beforeswap_wrapper_added(self) -> None:
@@ -643,11 +664,15 @@ class TestCrossMilestoneSafety:
         # AND tests/test_ui_m3_dark_and_htmx_feedback.py::
         # TestCrossMilestoneSafety::test_app_css_under_soft_cap must
         # move in lockstep — the two caps MUST agree.
+        # 2026q3-ui-uplift: m5=370 → 400 for UPL-27 (two WCAG AA contrast
+        # fixes), UPL-8 v0 (the first select/textarea base rules) and
+        # UPL-15a (tbody tr:hover).
         line_count = APP_CSS.count("\n") + (1 if not APP_CSS.endswith("\n") else 0)
-        assert line_count <= 370, (
-            f"app.css is {line_count} lines — over the 370-line cap (revised "
-            f"in m5 from m4's 335 to accommodate UPL-19 v1 body clamp + "
-            f"UPL-8 v1 dark pill remap + UPL-12 v1 row-fade keyframe). "
+        assert line_count <= 400, (
+            f"app.css is {line_count} lines — over the 400-line cap (revised "
+            f"in 2026q3-ui-uplift from m5's 370 to accommodate UPL-27 "
+            f"contrast fixes + UPL-8 v0 select/textarea base rules + "
+            f"UPL-15a row hover). "
             f"Consider stripping documentation comments, splitting the file "
             f"(e.g. tokens.css + app.css), or arguing for another revision. "
             f"NOTE: the m3/m5 cap test in tests/test_ui_m3_dark_and_htmx_feedback.py "

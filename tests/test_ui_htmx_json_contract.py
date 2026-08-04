@@ -245,13 +245,19 @@ class TestPerFormHxExt:
 
 class TestViewTransitionsOrdering:
     def test_assignment_present(self) -> None:
-        assert "htmx.config.globalViewTransitions = true" in BASE_CODE
+        assert "htmx.config.globalViewTransitions =" in BASE_CODE
+
+    def test_reduced_motion_preference_is_re_read_on_change(self) -> None:
+        # 2026q3-ui-uplift UPL-22: the preference must be re-read on `change`,
+        # not sampled once at DOMContentLoaded. See the twin guard in
+        # tests/test_ui_m4_in_place_add_paper.py.
+        assert "addEventListener('change'" in BASE_CODE.replace('"', "'")
 
     def test_assignment_in_domcontentloaded_not_inline_defer(self) -> None:
         # Run against comment-stripped code so the explanatory comment (which
         # quotes the assignment to describe the OLD bug) does not shift the
         # located index into a comment region.
-        idx = BASE_CODE.index("htmx.config.globalViewTransitions = true")
+        idx = BASE_CODE.index("htmx.config.globalViewTransitions =")
         script_open = BASE_CODE.rfind("<script", 0, idx)
         assert script_open != -1
         opener = BASE_CODE[script_open : BASE_CODE.index(">", script_open) + 1]

@@ -2376,8 +2376,14 @@ def _ingest_status_fragment(
     # status == "failed"
     safe_exit = html.escape(str(exit_code)) if exit_code is not None else "?"
     # stderr_tail is already html.escape'd by prepare_stderr_tail.
+    # 2026q3-ui-uplift UPL-10 v0: use the house `pre.error` treatment
+    # (app.css:137-148 — tinted --error-bg + --danger text) that every OTHER
+    # error surface in the console already uses (create-error, rename-error,
+    # topic-error, discover-error, paste-error, upload-error, ingest-error).
+    # A failed corpus ingest is the highest-stakes error an operator reads
+    # here and was the one alarm surface rendering as an unstyled <pre>.
     stderr_pre = (
-        f"<pre>{stderr_tail}</pre>" if stderr_tail else ""
+        f'<pre class="error">{stderr_tail}</pre>' if stderr_tail else ""
     )
     return (
         f'<div id="ingest-status" data-status="failed" '

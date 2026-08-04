@@ -60,7 +60,9 @@ footer a { color: #666; }
 
 .card h2 { margin-top: 0; font-size: 1.1rem; }
 .card .hint { color: #555; font-size: 0.875rem; margin: 0 0 0.75rem 0; }
-.card .note { color: #777; font-size: 0.8rem; margin: 0.5rem 0 0 0; font-style: italic; }
+/* UPL-27: #777 on #fff is 4.478:1 — under the 4.5:1 SC 1.4.3 floor at 0.8rem
+   italic (no large-text exception). #6f6f6f is 5.02:1. */
+.card .note { color: #6f6f6f; font-size: 0.8rem; margin: 0.5rem 0 0 0; font-style: italic; }
 .card .empty { color: #666; font-style: italic; text-align: center; padding: 1.25rem 0.5rem; }
 .card .display-name { font-size: 1rem; color: #444; margin-top: 0; }
 
@@ -83,6 +85,20 @@ input[type="text"], input[type="url"], input[type="file"] {
   font-family: inherit;
 }
 input[type="text"], input[type="url"] { font-family: var(--mono); }
+
+/* UPL-8 v0: select + textarea previously appeared ONLY in the :focus-visible
+   list, so they rendered as raw UA widgets — measured 19px tall against a 33px
+   input in the same row. v0 sets only what takes effect WITHOUT
+   `appearance: none`: forcing that would discard the UA control internals
+   `color-scheme: light dark` (:10) exists to auto-darken AND would require a
+   dropdown indicator, i.e. the product's first icon. Deferred to v1.
+   --mono is NOT extended to textarea: topic text is prose, not an identifier. */
+select, textarea {
+  display: block; width: 100%; margin-top: 0.25rem;
+  padding: 0.4rem 0.5rem; font-size: 0.95rem; font-family: inherit;
+  min-height: 2.0625rem;  /* 33px — the measured input height, as a floor */
+}
+textarea { border: 1px solid var(--border); border-radius: 4px; background: #fff; resize: vertical; }
 
 button, .button {
   display: inline-block;
@@ -115,6 +131,12 @@ table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
 th, td { text-align: left; padding: 0.5rem 0.5rem; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
 th { background: #f0f0f0; font-weight: 600; }
 table code { font-family: var(--mono); font-size: 0.85rem; }
+
+/* UPL-15a: row hover on both data tables. Before this the only :hover rule in
+   the file was button:hover, so moving down a table gave zero positional
+   feedback before clicking a destructive Remove. Reuses the color-mix(in oklab)
+   idiom above; instant, matching every other state change here. */
+tbody tr:hover { background: color-mix(in oklab, var(--card-bg) 95%, var(--fg)); }
 
 /* ui-attractive-polish-m2 (UPL-19 v0): mobile-overflow fix for both tables
    (notebooks + papers). Wrap the <table> in <div class="table-wrap"> in
@@ -162,7 +184,10 @@ pre.error:empty { display: none; }
      notebooks". Font-family is --mono so ch is predictable. */
   min-width: 14ch;
 }
-.status-badge--ok       { background: #e6f4ea; color: #1a7f37; border-color: #1a7f37; }
+/* UPL-27: #1a7f37 on #e6f4ea is 4.472:1 — under SC 1.4.3 at 0.75rem/600.
+   #15682d is the same hue one step darker, 6.06:1. The other three light pills
+   already pass (warn 5.39, ops-warn 6.74, down 6.80) and are unchanged. */
+.status-badge--ok       { background: #e6f4ea; color: #15682d; border-color: #15682d; }
 .status-badge--warn     { background: #fdf3e2; color: #8a5a00; border-color: #8a5a00; }
 .status-badge--ops-warn { background: #eef2f7; color: #475569; border-color: #94a3b8; }
 .status-badge--down     { background: var(--error-bg); color: var(--danger); border-color: var(--danger); }
@@ -261,7 +286,10 @@ button.danger:focus-visible { outline-color: var(--danger); outline-offset: 3px;
 
   /* m3-rect F1: dark-mode input visibility — light --fg on hardcoded
      #fff = 1.22:1 (invisible). Override both bg + color. */
-  input[type="text"], input[type="url"], input[type="file"] {
+  /* UPL-8 v0: textarea joins this override — it now carries an explicit
+     `background: #fff` in light mode. select is deliberately absent (it keeps
+     its UA appearance, which color-scheme: light dark already darkens). */
+  input[type="text"], input[type="url"], input[type="file"], textarea {
     background: var(--card-bg);
     color: var(--fg);
   }

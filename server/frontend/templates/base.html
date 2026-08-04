@@ -34,13 +34,20 @@
        assignment threw and never took effect. A DOMContentLoaded handler fires
        AFTER deferred scripts execute, so htmx is defined here. Gated on
        prefers-reduced-motion so motion-averse operators keep instant swaps
-       (the crossfade is suppressed, not just shortened). -->
+       (the crossfade is suppressed, not just shortened).
+
+       2026q3-ui-uplift UPL-22: the preference is now re-read on `change`, not
+       only once at DOMContentLoaded. The three CSS gates (app.css:223, :317,
+       :344) re-evaluate continuously because @media does; this single JS read
+       did not, so an operator who flipped their OS reduced-motion setting
+       mid-session kept view transitions until a full page reload. -->
   <script>
     document.addEventListener('DOMContentLoaded', function () {
-      if (typeof htmx !== 'undefined' &&
-          !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-        htmx.config.globalViewTransitions = true;
-      }
+      if (typeof htmx === 'undefined') { return; }
+      var mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+      var apply = function () { htmx.config.globalViewTransitions = !mq.matches; };
+      apply();
+      mq.addEventListener('change', apply);
     });
   </script>
 </head>
