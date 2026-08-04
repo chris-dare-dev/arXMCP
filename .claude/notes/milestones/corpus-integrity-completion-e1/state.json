@@ -16,8 +16,8 @@
   },
   "critique_path": ".claude/notes/milestones/corpus-integrity-completion-e1/critique-merged.md",
   "deferred_findings": [],
-  "external_writes_authorized": false,
-  "external_writes_completed": false,
+  "external_writes_authorized": true,
+  "external_writes_completed": true,
   "external_writes_required": [
     {
       "blocking": true,
@@ -111,5 +111,5 @@
   ],
   "research_mode": "standard",
   "research_synthesis": ".claude/notes/milestones/corpus-integrity-completion-e1/research-synthesis.md",
-  "updated_at": "2026-06-01T00:16:26Z"
+  "updated_at": "2026-06-01T00:30:25Z"
 }
