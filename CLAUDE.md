@@ -472,32 +472,49 @@ These bind every agent session here:
    - **Wrong environment.** No `lean-toolchain` or `lakefile.toml` exists in
      this repo; the REPL runs from an operator-supplied directory outside it,
      at a different Lean version than any topic repo pins.
-   - **The audit can miss a declaration and still read clean** (issue #382).
-     `_declaration_names` (`server/handlers/lean_verify.py:479`) recognizes a
-     declaration only by the prefix on its line, and `set_option` / `open` are
-     in neither `_DECL_KEYWORDS` nor `_DECL_MODIFIERS`. Such a line increments
-     **neither** `sites` nor `names`, so the `sites == len(names)` fail-safe
-     never fires. Re-measured against this working tree on 2026-08-04:
+   - **The audit's declaration extraction is a regex, not Lean** (issue #382,
+     **closed 2026-08-04**). `_declaration_names`
+     (`server/handlers/lean_verify.py:604`) recognizes a declaration by the
+     prefix on its line. `set_option` / `open` / `deriving` are in neither
+     `_DECL_KEYWORDS` nor `_DECL_MODIFIERS`, so such a line once incremented
+     **neither** `sites` nor `names` and the `sites == len(names)` fail-safe
+     never fired. It now increments `sites` but not `names`, so the fail-safe
+     does fire. Re-measured against this working tree on 2026-08-04, **after**
+     the fix:
 
      | snippet | `_declaration_names` | record |
      |---|---|---|
      | `theorem harmless …` | `(['harmless'], True)` | audited |
-     | `set_option … in theorem sneaky …` alone | `([], True)` | **`unknown`** — honest |
+     | `set_option … in theorem sneaky …` alone | `([], False)` | **`unknown`** — honest |
      | unnamed `instance` + `theorem harmless` | `(['harmless'], False)` | **`unknown`** — honest |
-     | `set_option … in theorem sneaky …` **+** `theorem harmless` | `(['harmless'], True)` | **`clean`** — `sneaky` silently dropped |
+     | `set_option … in theorem sneaky …` **+** `theorem harmless` | `(['harmless'], False)` | **`unknown`** — was `clean`, the #382 hole |
+     | `deriving instance …` **+** `theorem harmless` | `(['harmless'], False)` | **`unknown`** — honest |
+     | `/-- doc -/ axiom evil : False` **+** `theorem harmless` | `(['evil', 'harmless'], True)` | both audited |
 
-     Only the last row is the hole, and it is the routine one: a
-     `set_option maxHeartbeats … in theorem` beside any ordinary declaration.
-     The sibling supplies a non-empty `names`, so the empty-names abstention at
-     `:1123` never triggers, and `#print axioms` audits only what it could see.
+     The last two rows are the ones a first fix got wrong: it keyed on the `in`
+     combinator, which closes `set_option` / `open` / `variable` / `universe` /
+     `attribute` and leaves `deriving instance`, `alias`, `meta …` and a
+     same-line doc comment open. The correct characterisation is **the line
+     carries a declaration keyword with something unrecognised in front of it**
+     — it is not about `in`. Comment text is stripped before matching
+     (`_strip_comments`, `:528`), which is also what makes the broadened scan
+     safe on prose.
 
-     **Do not describe the empty case as the bug.** `:1123` abstains with
+     **What remains true, and is the reason this bullet still exists:** the
+     extraction is still a regex over source text, so the honest bound on what
+     the axis promises a sibling repo is unchanged. Only Lean knows what a
+     snippet declared; a future `Environment` diff (recorded for
+     `verification-contract-e3`) is the real answer.
+
+     **Do not describe the empty case as the bug.** `:1258` abstains with
      `outcome:"unknown"` and says in as many words *"this is NOT a clean
-     verdict"*, and `:613` downgrades on `complete=False` with a reason. Both
+     verdict"*, and `:744` downgrades on `complete=False` with a reason. Both
      work as designed. An earlier revision of this section cited the empty path;
      that was wrong, and the correction matters because it is the difference
      between a design that abstains correctly and one that has a single
-     unguarded gap.
+     unguarded gap. (Post-fix, the empty case's `complete` is now `False` rather
+     than `True` — the abstention is unchanged, but the reason string it emits
+     is now the more accurate "could not be named" one.)
 
    Any axis whose environment digest differs from the record's renders
    `not_applicable` — never a pass, never a fail.

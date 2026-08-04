@@ -2340,20 +2340,32 @@ class TestDeclarationNameExtraction:
 
 
 class TestPrefixedDeclarationSites:
-    """arXMCP#382 — a declaration behind an unrecognised ``… in`` combinator.
+    """arXMCP#382 — a declaration behind an unrecognised same-line prefix.
 
-    ``set_option maxHeartbeats 400000 in theorem t`` is the common Mathlib
-    idiom. ``set_option`` is in neither ``_DECL_KEYWORDS`` nor
-    ``_DECL_MODIFIERS``, so the line used to match NO site at all: ``sites``
-    never incremented, the ``sites == len(names)`` fail-safe reported
-    complete, and — whenever the snippet ALSO carried a recognised
-    declaration — the prefixed one was silently dropped from a verdict that
-    then read as ``clean``.
+    ``_DECL_SITE_RE`` anchors the keyword at the start of the line, so ANY
+    unrecognised token in front of it made the declaration invisible rather
+    than merely unnamed: ``sites`` never incremented, the
+    ``sites == len(names)`` fail-safe reported complete, and — whenever the
+    snippet ALSO carried a recognised declaration — the prefixed one was
+    silently dropped from a verdict that then read as ``clean``.
 
-    The fix counts such a line as a site with no extractable name, the same
-    fail-safe an unnamed ``instance`` already uses. It can only move
-    ``complete`` True -> False, so it can never admit an unaudited
-    declaration.
+    Two distinct outcomes are correct here, and the tests below assert which
+    one applies to each shape:
+
+    - Shapes the parser can now READ (a same-line doc comment, ``alias``) are
+      named and genuinely audited — strictly better than fail-safe.
+    - Shapes it still cannot read (``set_option … in``, ``deriving instance``,
+      ``meta …``) count as a site with no extractable name, the same fail-safe
+      an unnamed ``instance`` already uses.
+
+    Neither can move ``complete`` False -> True, so neither can admit an
+    unaudited declaration.
+
+    The first pass at #382 keyed on the ``in`` combinator and closed only five
+    of the eight shapes; both Phase-3 critics caught it independently. The
+    correct characterisation, from ``research/brief-2.md:155-158``, is that the
+    line carries a declaration keyword with something unrecognised in front of
+    it — "it is not really about ``in``".
     """
 
     # --- the reported shapes: MIXED snippet, where the drop was silent ---
@@ -2470,6 +2482,220 @@ class TestPrefixedDeclarationSites:
         )
         assert names == ["t"]
         assert complete is True
+
+    # --- H1: same-line comment prefixes (Phase-3 critique) ---
+
+    def test_same_line_doc_comment_declaration_is_audited(self):
+        """The founding threat, one doc comment away. Before the rectify pass
+        this returned ``(['harmless'], True)`` — `axiom evil : False` inside a
+        verdict that read `clean`. Comment text is now stripped, so `evil` is
+        a normally-named site and is genuinely sent to `#print axioms`."""
+        names, complete = _declaration_names(
+            "/-- Helper. -/ axiom evil : False\n"
+            "theorem harmless : True := trivial"
+        )
+        assert names == ["evil", "harmless"]
+        assert complete is True
+
+    def test_same_line_block_comment_declaration_is_audited(self):
+        names, complete = _declaration_names(
+            "/- setup -/ axiom evil : False\n"
+            "theorem harmless : True := trivial"
+        )
+        assert names == ["evil", "harmless"]
+        assert complete is True
+
+    # --- H2: prefixes with no `in` combinator (Phase-3 critique) ---
+
+    def test_deriving_instance_is_not_silently_dropped(self):
+        """Quoted verbatim from live mathlib4 via ``research/brief-2.md:141``.
+        No `in` anywhere, so the first pass at #382 missed it entirely."""
+        names, complete = _declaration_names(
+            "deriving instance ToExpr for ULift\n"
+            "theorem harmless : True := trivial"
+        )
+        assert names == ["harmless"]
+        assert complete is False
+
+    def test_meta_prefix_is_not_silently_dropped(self):
+        names, complete = _declaration_names(
+            "meta unsafe instance foo : Inhabited Nat := d\n"
+            "theorem harmless : True := trivial"
+        )
+        assert names == ["harmless"]
+        assert complete is False
+
+    def test_alias_is_a_declaration_keyword(self):
+        """`alias foo := bar` registers a real declaration. It was missing
+        from ``_DECL_KEYWORDS`` outright, so — unlike the fail-safe shapes —
+        the fix is to NAME it, not merely to count it."""
+        names, complete = _declaration_names(
+            "alias sneaky := Classical.choice\n"
+            "theorem harmless : True := trivial"
+        )
+        assert names == ["sneaky", "harmless"]
+        assert complete is True
+
+    # --- M1/M2: the broadened scan must not fire on prose ---
+
+    def test_comment_containing_in_theorem_is_not_a_site(self):
+        """The pinning test the first pass lacked. Its predecessor,
+        ``test_comment_mentioning_a_keyword_is_not_a_site``, uses comments with
+        no ``in`` — so it passed identically with and without the regex and
+        could never have caught this."""
+        names, complete = _declaration_names(
+            "-- as used in theorem 3.2\ntheorem t : True := trivial"
+        )
+        assert names == ["t"]
+        assert complete is True
+
+    def test_tactic_line_trailing_comment_is_not_a_site(self):
+        names, complete = _declaration_names(
+            "theorem t : True := by\n"
+            "  simp [Finset.sum_comm] -- in def form\n"
+            "  trivial"
+        )
+        assert names == ["t"]
+        assert complete is True
+
+    def test_multiline_block_comment_prose_is_not_a_site(self):
+        """Block comments span lines and nest; prose inside one must not be
+        scanned for declaration keywords."""
+        names, complete = _declaration_names(
+            "/-\n"
+            "This is proved in theorem 2.1, see also /- nested -/ remarks.\n"
+            "-/\n"
+            "theorem harmless : True := trivial"
+        )
+        assert names == ["harmless"]
+        assert complete is True
+
+    def test_snippet_with_no_declaration_does_not_claim_one(self):
+        """The false-evidence case: reporting ``complete=False`` here made the
+        record assert a declaration existed that could not be named, for a
+        snippet containing no declaration at all."""
+        assert _declaration_names(
+            "-- refer to the bound in lemma 2\n#check Nat"
+        ) == ([], True)
+
+    def test_projection_ending_in_a_keyword_is_not_a_site(self):
+        """The keyword must be whitespace-preceded, so ``Set.def`` in a tactic
+        argument is not a declaration site."""
+        names, complete = _declaration_names(
+            "theorem t : True := by\n  simp [Set.def]\n  trivial"
+        )
+        assert names == ["t"]
+        assert complete is True
+
+    # --- the comment scanner's own hazards ---
+
+    def test_comment_opener_inside_a_string_does_not_open_a_comment(self):
+        """Without string tracking, ``"/-"`` would open a block comment that
+        never closes and every later declaration in the snippet would vanish —
+        the exact silent drop this module exists to prevent."""
+        names, complete = _declaration_names(
+            'def s : String := "/-"\ntheorem harmless : True := trivial'
+        )
+        assert names == ["s", "harmless"]
+        assert complete is True
+
+    def test_line_comment_marker_inside_a_string_is_not_a_comment(self):
+        names, complete = _declaration_names(
+            'def s : String := "-- not a comment"\n'
+            "theorem harmless : True := trivial"
+        )
+        assert names == ["s", "harmless"]
+        assert complete is True
+
+    def test_escaped_quote_does_not_end_the_string(self):
+        names, complete = _declaration_names(
+            'def s : String := "he said \\"/-\\" loudly"\n'
+            "theorem harmless : True := trivial"
+        )
+        assert names == ["s", "harmless"]
+        assert complete is True
+
+    def test_apostrophe_identifiers_survive(self):
+        """``'`` is a legal identifier character in Lean, so the scanner
+        deliberately does NOT track char literals."""
+        names, complete = _declaration_names(
+            "theorem h' : True := trivial\ntheorem h'' : True := trivial"
+        )
+        assert names == ["h'", "h''"]
+        assert complete is True
+
+    def test_claude_md_table_matches_live_behavior(self):
+        """CLAUDE.md §4.10 rule 3 carries a measured table of
+        ``_declaration_names`` outputs. It is loaded at session start by every
+        agent in this repo and it is the constitutional statement of what the
+        axiom axis may promise a sibling formalization repo — so a stale row
+        teaches every future agent a false mechanism.
+
+        It went stale once already: the block described #382 as live, in the
+        present tense, after the fix landed. This derives the table's claims
+        from live code so the block cannot drift silently again in either
+        direction — change the code without the doc, or the doc without the
+        code, and this fails.
+        """
+        # One concrete snippet per table row, in the table's own order.
+        rows = [
+            ("theorem harmless : True := trivial", (["harmless"], True)),
+            (
+                "set_option maxHeartbeats 400000 in "
+                "theorem sneaky : True := trivial",
+                ([], False),
+            ),
+            (
+                "instance : Inhabited Nat := d\n"
+                "theorem harmless : True := trivial",
+                (["harmless"], False),
+            ),
+            (
+                "set_option maxHeartbeats 400000 in "
+                "theorem sneaky : True := trivial\n"
+                "theorem harmless : True := trivial",
+                (["harmless"], False),
+            ),
+            (
+                "deriving instance ToExpr for ULift\n"
+                "theorem harmless : True := trivial",
+                (["harmless"], False),
+            ),
+            (
+                "/-- doc -/ axiom evil : False\n"
+                "theorem harmless : True := trivial",
+                (["evil", "harmless"], True),
+            ),
+        ]
+
+        claude_md = (Path(__file__).resolve().parents[1] / "CLAUDE.md").read_text()
+        block = claude_md.split("issue #382")[1].split("Any axis whose")[0]
+        table = [
+            line for line in block.splitlines()
+            if line.strip().startswith("|") and "`_declaration_names`" not in line
+            and not set(line.strip()) <= set("|- ")
+        ]
+
+        assert len(table) == len(rows), (
+            f"CLAUDE.md §4.10 rule 3's table has {len(table)} rows but this "
+            f"test knows {len(rows)} snippets. Add the snippet for the new row "
+            "here — an unpinned row is how the block went stale before."
+        )
+
+        for (snippet, expected), doc_row in zip(rows, table, strict=True):
+            live = _declaration_names(snippet)
+            assert live == expected, (
+                f"live _declaration_names disagrees with this test: {live!r} "
+                f"!= {expected!r} for {snippet!r}"
+            )
+            # The doc's own middle column must state the same tuple.
+            names, complete = expected
+            rendered = f"({names!r}, {complete})".replace("'", "'")
+            assert rendered in doc_row.replace("`", ""), (
+                f"CLAUDE.md §4.10 rule 3 row is stale.\n"
+                f"  row:      {doc_row.strip()}\n"
+                f"  measured: {rendered}"
+            )
 
     def test_the_whole_chain_refuses_to_report_clean(self):
         """End-to-end over the two functions the caller composes: every name
@@ -2664,6 +2890,59 @@ class TestAxiomHygieneOnTheWire:
         assert result["status"] == "sorry"
         assert result["axiom_audit"]["outcome"] == "flagged"
         assert result["axiom_audit"]["disallowed_axioms"] == ["sorryAx"]
+
+    def test_prefixed_declaration_does_not_reach_the_wire_as_clean(self):
+        """arXMCP#382 end-to-end. Every name the tool DID ask about comes back
+        clean, but `deriving instance` was never asked about — the envelope
+        must not report a clean trust record.
+
+        The unit tests pin the tuple; this pins the whole round-trip, which is
+        where the defect was actually observable: `#print axioms` is issued for
+        `harmless` only, and the caller must still refuse to say `clean`.
+        """
+        repl = _repl_with([{"env": 0}, _axioms_reply(harmless=[])])
+        result = _run(
+            handle_lean_verify(
+                snippet=(
+                    "deriving instance ToExpr for ULift\n"
+                    "theorem harmless : True := trivial"
+                )
+            )
+        )
+
+        # The kernel-acceptance axis is untouched — the snippet really did
+        # elaborate. Only the axiom axis carries the bad news.
+        assert result["status"] == "elaborated_no_errors"
+        assert result["compilation_success"] is True
+
+        audit = result["axiom_audit"]
+        assert audit["outcome"] == "unknown"
+        assert audit["reason"] is not None
+        # Only `harmless` was ever asked about — that is the drop, made
+        # visible. `harmless` itself is legitimately clean per-declaration;
+        # what must not happen is the RECORD's outcome reading clean on the
+        # strength of it.
+        assert repl.commands[1] == {"cmd": "#print axioms harmless", "env": 0}
+        assert [d["name"] for d in audit["declarations"]] == ["harmless"]
+        assert json.loads(json.dumps(result))["axiom_audit"]["outcome"] != "clean"
+
+    def test_incomplete_extraction_reason_names_the_prefix_cause(self):
+        """The evidence attached to a trust-bearing field must name the actual
+        cause (policy §6 rule 3). Before the rectify pass the reason offered
+        only 'an unnamed instance or an unrecognized declaration form', which
+        pointed a reader at the wrong mechanism entirely."""
+        _repl_with([{"env": 0}, _axioms_reply(harmless=[])])
+        result = _run(
+            handle_lean_verify(
+                snippet=(
+                    "set_option maxHeartbeats 400000 in theorem sneaky : True := trivial\n"
+                    "theorem harmless : True := trivial"
+                )
+            )
+        )
+        reason = result["axiom_audit"]["reason"]
+        assert "same-line prefix" in reason
+        assert "set_option" in reason
 
 
 class TestAxiomAuditAbstentionPaths:

@@ -421,6 +421,14 @@ _DECL_KEYWORDS: tuple[str, ...] = (
     "structure",
     "inductive",
     "class",
+    # ``alias foo := bar`` registers a real declaration and was simply missing
+    # (#382 critique). Unlike ``set_option`` / ``open``, which are commands and
+    # NOT declarations, `alias` belongs in this list: naming it means the
+    # aliased declaration is audited rather than merely fail-safed. The Mathlib
+    # anonymous-constructor form ``alias ⟨a, b⟩ := h`` yields a name this
+    # parser cannot resolve, which `#print axioms` answers as an unknown
+    # identifier — scored ``unknown``, never ``clean``.
+    "alias",
 )
 
 #: Modifiers that may precede a declaration keyword.
@@ -447,30 +455,44 @@ _DECL_SITE_RE = re.compile(
     rf"^\s*(?:@\[[^\]]*\]\s*)*(?:(?:{_MODIFIER_ALT})\s+)*(?:{_KEYWORD_ALT})\b"
 )
 
-#: A declaration site hidden behind an unrecognised `… in` combinator —
-#: ``set_option … in theorem t``, ``open … in theorem t``, and the same shape
-#: for ``variable`` / ``universe`` / ``attribute`` (#382). None of those
-#: prefixes is in ``_DECL_MODIFIERS``, so ``_DECL_SITE_RE`` fails at position 0
-#: and the declaration was invisible rather than merely unnamed — ``sites``
-#: never incremented, so the ``sites == len(names)`` fail-safe reported
-#: complete and an unaudited declaration rode inside a ``clean`` verdict.
+#: A declaration site behind an unrecognised same-line prefix (#382).
 #:
-#: Deliberately does NOT teach the parser ``set_option`` / ``open`` grammar: a
-#: line matching this is counted as a site with NO extractable name, which is
-#: the same fail-safe the unnamed ``instance`` already uses. Fail-safe over
-#: feature — the effect is only ever to move ``complete`` True -> False, never
-#: the reverse, so this can never admit a declaration that went unaudited.
+#: ``_DECL_SITE_RE`` anchors the keyword at the start of the line, so ANY
+#: unrecognised token in front of it made the declaration invisible rather than
+#: merely unnamed: ``sites`` never incremented, the ``sites == len(names)``
+#: fail-safe reported complete, and — whenever the snippet also carried a
+#: recognised declaration — the prefixed one rode inside a ``clean`` verdict.
+#: The live shapes, all measured in this repo:
 #:
-#: Narrow on purpose. It requires a literal ``in`` combinator followed on the
-#: SAME line by a declaration keyword, so it leaves alone: a prose comment
-#: mentioning "theorem" or "def" (no ``in``), a multi-line ``open X in`` with
-#: the declaration on the next line (nothing follows ``in``), and a Mathlib
-#: binder such as ``∑ i in Finset.range n`` (no keyword follows ``in``, and
-#: ``instances`` / ``classical`` do not word-boundary-match ``instance`` /
-#: ``class``). Anchored with ``.match()`` like every other regex here — the
-#: repo-wide invariant that keeps comments safe.
+#:   set_option maxHeartbeats 400000 in theorem t    -- the Mathlib idiom
+#:   open Classical in theorem t
+#:   variable (n : Nat) in theorem t
+#:   universe u in theorem t
+#:   attribute [simp] foo in theorem t
+#:   deriving instance ToExpr for ULift              -- verbatim from mathlib4
+#:   meta unsafe instance foo : Inhabited Nat := d
+#:   /-- Helper. -/ axiom evil : False               -- see _strip_comments
+#:
+#: The characterisation is NOT "an ``in`` combinator" — that framing closed
+#: five shapes and left three open, which is what the first attempt at #382
+#: shipped. It is: **the physical line carries a declaration keyword, and
+#: something the parser does not recognise sits in front of it.** So the match
+#: is a non-empty prefix, then whitespace, then the ordinary
+#: attribute/modifier/keyword grammar.
+#:
+#: Deliberately does NOT teach the parser ``set_option`` / ``open`` /
+#: ``deriving`` grammar: a line matching this is counted as a site with NO
+#: extractable name, the same fail-safe the unnamed ``instance`` already uses.
+#: Fail-safe over feature — it only ever moves ``complete`` True -> False,
+#: never the reverse, so it can never admit a declaration that went unaudited.
+#:
+#: The keyword must be WHITESPACE-preceded, which is what keeps a projection
+#: like ``simp [Set.def]`` from counting as a site. Comment text is removed by
+#: :func:`_strip_comments` before this ever runs — that, not the ``.match()``
+#: anchor, is what makes the scan comment-safe now that it no longer requires
+#: an ``in``.
 _PREFIXED_DECL_SITE_RE = re.compile(
-    rf"^\s*\S.*?\bin\s+(?:@\[[^\]]*\]\s*)*(?:(?:{_MODIFIER_ALT})\s+)*"
+    rf"^\s*\S.*?\s(?:@\[[^\]]*\]\s*)*(?:(?:{_MODIFIER_ALT})\s+)*"
     rf"(?:{_KEYWORD_ALT})\b"
 )
 
@@ -503,6 +525,82 @@ _PRINT_AXIOMS_RE = re.compile(
 )
 
 
+def _strip_comments(snippet: str) -> list[str]:
+    """Return ``snippet``'s lines with Lean comment text blanked out.
+
+    Removing comment text — rather than skipping lines that look like comments
+    — is what lets :data:`_PREFIXED_DECL_SITE_RE` drop its ``in`` requirement
+    without the prose false-positives an unanchored keyword scan would other-
+    wise cause (``-- as used in theorem 3.2`` is not a declaration site). It
+    also turns the same-line doc-comment shape ``/-- Helper. -/ axiom evil``
+    into an ordinary NAMED site, so ``evil`` is genuinely audited rather than
+    merely fail-safed.
+
+    Handles what Lean 4's own lexer does at this level:
+
+    - ``--`` to end of line
+    - ``/- … -/`` block comments, INCLUDING nesting and spanning lines (Lean
+      block comments nest; ``/-- doc -/`` is just a block comment to us)
+    - ``"…"`` string literals with backslash escapes, so a ``--`` or ``/-``
+      inside a string does not open a comment. Without this, ``def s := "/-"``
+      would open a block comment that never closes and every later declaration
+      in the snippet would vanish — the exact silent-drop this module exists
+      to prevent.
+
+    Char literals (``'a'``) are deliberately NOT tracked: ``'`` is a legal
+    identifier character in Lean (``h'``, ``ε'``), so treating it as a
+    delimiter would corrupt far more lines than it protects.
+
+    Output has the same number of lines as the input, and comment text is
+    replaced rather than deleted, so every line-oriented match below keeps its
+    original column semantics.
+    """
+    out: list[str] = []
+    depth = 0  # open `/-` block-comment nesting depth, carried across lines
+    for line in snippet.splitlines():
+        kept: list[str] = []
+        i = 0
+        n = len(line)
+        while i < n:
+            if depth:
+                if line.startswith("-/", i):
+                    depth -= 1
+                    i += 2
+                elif line.startswith("/-", i):
+                    depth += 1
+                    i += 2
+                else:
+                    i += 1
+                continue
+            if line.startswith("/-", i):
+                depth += 1
+                i += 2
+                continue
+            if line.startswith("--", i):
+                break  # rest of the line is a comment
+            if line[i] == '"':
+                # Copy the string literal verbatim — its contents must not be
+                # scanned for comment openers, but they also must not shorten
+                # the line, or a declaration after it could be lost.
+                kept.append('"')
+                i += 1
+                while i < n:
+                    if line[i] == "\\" and i + 1 < n:
+                        kept.append(line[i : i + 2])
+                        i += 2
+                        continue
+                    kept.append(line[i])
+                    if line[i] == '"':
+                        i += 1
+                        break
+                    i += 1
+                continue
+            kept.append(line[i])
+            i += 1
+        out.append("".join(kept))
+    return out
+
+
 def _declaration_names(snippet: str) -> tuple[list[str], bool]:
     """Extract the fully-qualified names ``snippet`` introduces.
 
@@ -525,7 +623,7 @@ def _declaration_names(snippet: str) -> tuple[list[str], bool]:
     # "section" does not, but both are closed by `end`.
     scopes: list[tuple[str, str]] = []
 
-    for line in snippet.splitlines():
+    for line in _strip_comments(snippet):
         ns = _NAMESPACE_RE.match(line)
         if ns:
             scopes.append(("namespace", ns.group("name")))
@@ -538,7 +636,7 @@ def _declaration_names(snippet: str) -> tuple[list[str], bool]:
                 scopes.pop()
             continue
         if not _DECL_SITE_RE.match(line):
-            # #382: a declaration behind an unrecognised `… in` combinator is a
+            # #382: a declaration behind ANY unrecognised same-line prefix is a
             # site this parser cannot name, NOT an absent one. Counting it here
             # is what lets the sites-vs-names fail-safe below fire instead of
             # letting the declaration ride inside a `clean` verdict.
@@ -650,8 +748,10 @@ def _audit_from_messages(
         worst = _worse(worst, "unknown")
         reason = (
             "The snippet contains a declaration this tool could not name (an "
-            "unnamed instance or an unrecognized declaration form), so the "
-            "audit does not cover every declaration it introduced."
+            "unnamed instance, a declaration behind an unrecognized same-line "
+            "prefix such as 'set_option ... in' or 'deriving instance', or "
+            "another unrecognized declaration form), so the audit does not "
+            "cover every declaration it introduced."
         )
     elif worst == "unknown":
         reason = (
