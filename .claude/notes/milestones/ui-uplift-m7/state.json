@@ -1,8 +1,8 @@
 {
   "id": "ui-uplift-m7",
   "created_at": "2026-08-04T20:03:44Z",
-  "updated_at": "2026-08-04T20:18:11Z",
-  "phase": "implement-running",
+  "updated_at": "2026-08-04T21:40:18Z",
+  "phase": "rectify-running",
   "phase_history": [
     {
       "phase": "init",
@@ -19,6 +19,22 @@
     {
       "phase": "implement-running",
       "at": "2026-08-04T20:18:11Z"
+    },
+    {
+      "phase": "implement-complete",
+      "at": "2026-08-04T20:49:34Z"
+    },
+    {
+      "phase": "critique-running",
+      "at": "2026-08-04T20:50:57Z"
+    },
+    {
+      "phase": "critique-complete",
+      "at": "2026-08-04T21:13:20Z"
+    },
+    {
+      "phase": "rectify-running",
+      "at": "2026-08-04T21:14:13Z"
     }
   ],
   "milestone_brief": "# Milestone brief \u2014 ui-uplift-m7\n\n**Title:** Author a two-voice type scale\n**Kind:** milestone\n**Roadmap:** ui-uplift (plans/ui-uplift/roadmap.yaml)\n**Status:** planned\n**Lane:** now\n**Target:** 2026-08-11 -> 2026-08-22\n\n## Parent epic\n\n- ui-uplift-e1 \u2014 Material and type foundation \u2014 the D-1 Ledger Sheet core\n  Replace the stitched two-source palette (a self-documented GitHub-Primer dark clone plus an unattributed bespoke light block) with one authored OKLCH family; author the product's first real type scale and its first letter-spacing; then retire .card as a primitive in favour of a graded hairline rule ladder. These three are the signature direction and they are strictly ordered \u2014 the rule ladder cannot ship before the material, because rules become the sole structural device and the light border token is 1.342:1 today.\n\n## Summary\n\nUPL-3. Meta 11px uppercase tracked +0.06em, small 13px, body 16px, section 20px, title on a clamp; sans for prose, --mono for every id, path, slug, timestamp, corpus version and state token. Introduces the first letter-spacing declaration in the product's history. Both voices are system stacks \u2014 zero font files, zero bytes, zero CSP impact. Highest value-to-cost ratio in the catalog and INDEPENDENT of the material milestone, so it can run in parallel.\n\n## Acceptance criteria\n\n1. Given the heading scale, when measured, then the h2-to-body step is no longer 1.10x and hierarchy is not carried by font-weight alone\n2. Given any identifier surface (paper id, slug, path, timestamp, corpus version, state token), when rendered, then it uses --mono and inherits the existing tabular-nums scope\n3. Given a 390px viewport, when the page title renders, then it scales via clamp() rather than staying fixed at 32px\n4. Given the type tokens, then they extend the existing :root block and do not parallel-define a second token set\n\n## Depends on\n\n- (none)",
@@ -34,22 +50,76 @@
   "implementation_path": "delegated",
   "implementation_plan": null,
   "implementation_base": "2c6588446351f5d947d5c1dc366a036c661f6dc0",
-  "implementation_commit_range": null,
-  "implementation_commits": [],
+  "implementation_commit_range": "2c6588446351f5d947d5c1dc366a036c661f6dc0..a825898616dd8368b57c57adc4802d01cc72baa3",
+  "implementation_commits": [
+    "a825898616dd8368b57c57adc4802d01cc72baa3",
+    "27eda0963be457a57edcf478309ce671b3f15c40",
+    "f4d8d469dffda8404763dc4493c28ecb37c332d0"
+  ],
   "implementation_branch": null,
   "external_writes_required": [
     "git push origin main"
   ],
-  "critique_path": null,
-  "critics_run": [],
-  "critique_files": [],
-  "critique_finding_counts": null,
-  "findings_register": null,
-  "rectification_commit": null,
-  "fixed_findings": [],
-  "deferred_findings": [],
+  "critique_path": ".claude/notes/milestones/ui-uplift-m7/critique/dedup.md",
+  "critics_run": [
+    "milestone-adversary-critic",
+    "milestone-arxmcp-critic",
+    "milestone-frontend-ux"
+  ],
+  "critique_files": [
+    "critique/adversary.md",
+    "critique/arxmcp.md",
+    "critique/frontend.md"
+  ],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 6,
+    "medium": 15,
+    "low": 11
+  },
+  "findings_register": ".claude/notes/milestones/ui-uplift-m7/findings.json",
+  "rectification_commit": "f4b6bb12a1d353f4fb8463884bc4541c2c2461e3",
+  "fixed_findings": [
+    "H1",
+    "H2",
+    "H3",
+    "H4",
+    "H5",
+    "H6",
+    "M1",
+    "M10",
+    "M11",
+    "M12",
+    "M13",
+    "M14",
+    "M15",
+    "M2",
+    "M3",
+    "M4",
+    "M5",
+    "M6",
+    "M7",
+    "M9"
+  ],
+  "deferred_findings": [
+    "L1",
+    "L10",
+    "L11",
+    "L2",
+    "L3",
+    "L4",
+    "L5",
+    "L6",
+    "L7",
+    "L8",
+    "L9",
+    "M8"
+  ],
   "invalidated_findings": [],
-  "regression_tests_added": [],
+  "regression_tests_added": [
+    "tests/test_ui_m7_type_scale.py",
+    "tests/test_ui_html_pages.py"
+  ],
   "external_writes_authorized": [],
   "external_writes_completed": []
 }
