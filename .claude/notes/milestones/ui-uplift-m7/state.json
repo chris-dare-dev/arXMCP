@@ -1,0 +1,55 @@
+{
+  "id": "ui-uplift-m7",
+  "created_at": "2026-08-04T20:03:44Z",
+  "updated_at": "2026-08-04T20:18:11Z",
+  "phase": "implement-running",
+  "phase_history": [
+    {
+      "phase": "init",
+      "at": "2026-08-04T20:03:44Z"
+    },
+    {
+      "phase": "research-running",
+      "at": "2026-08-04T20:04:01Z"
+    },
+    {
+      "phase": "research-complete",
+      "at": "2026-08-04T20:16:35Z"
+    },
+    {
+      "phase": "implement-running",
+      "at": "2026-08-04T20:18:11Z"
+    }
+  ],
+  "milestone_brief": "# Milestone brief \u2014 ui-uplift-m7\n\n**Title:** Author a two-voice type scale\n**Kind:** milestone\n**Roadmap:** ui-uplift (plans/ui-uplift/roadmap.yaml)\n**Status:** planned\n**Lane:** now\n**Target:** 2026-08-11 -> 2026-08-22\n\n## Parent epic\n\n- ui-uplift-e1 \u2014 Material and type foundation \u2014 the D-1 Ledger Sheet core\n  Replace the stitched two-source palette (a self-documented GitHub-Primer dark clone plus an unattributed bespoke light block) with one authored OKLCH family; author the product's first real type scale and its first letter-spacing; then retire .card as a primitive in favour of a graded hairline rule ladder. These three are the signature direction and they are strictly ordered \u2014 the rule ladder cannot ship before the material, because rules become the sole structural device and the light border token is 1.342:1 today.\n\n## Summary\n\nUPL-3. Meta 11px uppercase tracked +0.06em, small 13px, body 16px, section 20px, title on a clamp; sans for prose, --mono for every id, path, slug, timestamp, corpus version and state token. Introduces the first letter-spacing declaration in the product's history. Both voices are system stacks \u2014 zero font files, zero bytes, zero CSP impact. Highest value-to-cost ratio in the catalog and INDEPENDENT of the material milestone, so it can run in parallel.\n\n## Acceptance criteria\n\n1. Given the heading scale, when measured, then the h2-to-body step is no longer 1.10x and hierarchy is not carried by font-weight alone\n2. Given any identifier surface (paper id, slug, path, timestamp, corpus version, state token), when rendered, then it uses --mono and inherits the existing tabular-nums scope\n3. Given a 390px viewport, when the page title renders, then it scales via clamp() rather than staying fixed at 32px\n4. Given the type tokens, then they extend the existing :root block and do not parallel-define a second token set\n\n## Depends on\n\n- (none)",
+  "brief_source": "roadmap plans/ui-uplift/roadmap.yaml",
+  "research_mode": "standard",
+  "oss_scout_requested": false,
+  "allow_large_diff": true,
+  "research_briefs": [
+    ".claude/notes/milestones/ui-uplift-m7/research/brief-1.md",
+    ".claude/notes/milestones/ui-uplift-m7/research/brief-2.md"
+  ],
+  "research_synthesis": ".claude/notes/milestones/ui-uplift-m7/research/synthesis.md",
+  "implementation_path": "delegated",
+  "implementation_plan": null,
+  "implementation_base": "2c6588446351f5d947d5c1dc366a036c661f6dc0",
+  "implementation_commit_range": null,
+  "implementation_commits": [],
+  "implementation_branch": null,
+  "external_writes_required": [
+    "git push origin main"
+  ],
+  "critique_path": null,
+  "critics_run": [],
+  "critique_files": [],
+  "critique_finding_counts": null,
+  "findings_register": null,
+  "rectification_commit": null,
+  "fixed_findings": [],
+  "deferred_findings": [],
+  "invalidated_findings": [],
+  "regression_tests_added": [],
+  "external_writes_authorized": [],
+  "external_writes_completed": []
+}

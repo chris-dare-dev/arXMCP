@@ -57,7 +57,8 @@ Ratios are **computed, never typed.** `tests/_ui_color.py` implements WCAG
 2.1 relative luminance (`0.2126 R + 0.7152 G + 0.0722 B` over linearised
 sRGB) and the OKLab↔linear-sRGB matrices needed to evaluate `oklch()` token
 values and `color-mix(in oklab, …)` results. It parses the token tables
-straight out of `app.css`, so no test duplicates a token value as a Python
+straight out of `tokens.css` — `TOKENS_CSS_PATH`, not `APP_CSS_PATH`, since
+`ui-uplift-m7` split them — so no test duplicates a token value as a Python
 string.
 
 The implementation reproduces all nine independently-published numbers it
@@ -322,7 +323,9 @@ pills — worse than the behaviour it would have replaced.
 
 ## Cross-references
 
-- `server/frontend/static/app.css` — the token block and its rationale comments
+- `server/frontend/static/tokens.css` — the token blocks and their per-token
+  derivation rationale (both `:root` blocks moved here in `ui-uplift-m7`)
+- `server/frontend/static/app.css` — the rules that consume those tokens
 - `tests/_ui_color.py` — the colour math and stylesheet parser
 - `tests/test_ui_contrast.py` — the gate, the pair registry, and this file's generator
 - `.claude/references/frontend-uplift/arxmcp-design-system.md` §4 — the superseded 12-cell table
