@@ -1,8 +1,8 @@
 {
   "id": "adhoc-20260804-c8e6048",
   "created_at": "2026-08-04T12:58:15Z",
-  "updated_at": "2026-08-04T13:31:25Z",
-  "phase": "research-complete",
+  "updated_at": "2026-08-04T17:56:44Z",
+  "phase": "implement-complete",
   "phase_history": [
     {
       "phase": "init",
@@ -15,6 +15,14 @@
     {
       "phase": "research-complete",
       "at": "2026-08-04T13:31:25Z"
+    },
+    {
+      "phase": "implement-running",
+      "at": "2026-08-04T17:48:04Z"
+    },
+    {
+      "phase": "implement-complete",
+      "at": "2026-08-04T17:56:44Z"
     }
   ],
   "milestone_brief": "Fix arXMCP#382 \u2014 `_declaration_names` drops `set_option \u2026 in theorem` and `open \u2026 in theorem` declaration sites, so an unaudited declaration can ride inside a clean `axiom_audit` verdict.\n\nDEFECT (verified against this tree). `_DECL_SITE_RE` in `server/handlers/lean_verify.py` anchors at `^\\s*`, then optional `@[...]`, then optional modifiers from `_DECL_MODIFIERS`, then a keyword from `_DECL_KEYWORDS`. `set_option` and `open` appear in neither list, so a line beginning with either matches NO site at all: `sites` is never incremented, and the sites-vs-names fail-safe (`sites == len(names)`) therefore reports complete. When the snippet also contains at least one recognised declaration, `names` is non-empty, the caller proceeds, and the unrecognised declaration is never passed to `#print axioms`.\n\nObserved:\n  plain (control)                          -> names=['harmless'] complete=True\n  \"set_option ... in theorem sneaky\" + thm -> names=['harmless'] complete=True   <- sneaky DROPPED\n  \"open Classical in theorem sneaky\" + thm -> names=['harmless'] complete=True   <- sneaky DROPPED\n  set_option ... in <thm>   (alone)        -> names=[]           complete=True   <- fine: caller emits _audit_unknown\n  multiline `open X in` on its own line    -> names=['fine']     complete=True   <- fine, unaffected\n\nThe empty-names path is NOT the bug: the caller hits `if not names:` and emits `_audit_unknown`, which is honest abstention per CLAUDE.md 4.9 rule 2 and must be left alone. The bug is strictly the MIXED case, and it needs the `... in` prefix on the SAME line as the declaration keyword \u2014 the common Mathlib idiom `set_option maxHeartbeats 400000 in theorem ...`.\n\nWHY IT MATTERS. `axiom_audit` is the axis that closed the founding `status:\"ok\"` conflation (issues #205/#281/#332); CLAUDE.md 4.9 rule 1 and the verification-contract track both lean on it. A declaration that declares its own axiom can currently pass through inside a verdict reported as clean.\n\nFIX (conservative, per the issue). Treat an unrecognised prefix before a declaration keyword as a SITE WITHOUT AN EXTRACTABLE NAME, so `sites > len(names)` and the existing fail-safe forces `complete=False` (the caller then emits `_audit_unknown`). Do NOT teach the regex `set_option` / `open` grammar \u2014 preserve the design intent that an unrecognised site fails safe rather than being parsed. Fail-safe over feature.\n\nACCEPTANCE CRITERIA.\n1. Given a snippet with `set_option ... in theorem X` on one line plus a second recognised theorem, when `_declaration_names` runs, then it returns complete=False (not a silent drop), and the caller emits `_audit_unknown` rather than a clean audit.\n2. Same for `open ... in theorem X`.\n3. The existing honest-abstention path is unchanged: a snippet with ONLY an unrecognised-prefix declaration still yields empty names and `_audit_unknown`.\n4. Controls do not regress: a plain declaration, a declaration with a recognised modifier (private, noncomputable, ...), an `@[simp]` attribute line, and a multi-line `open X in` followed by the declaration on the NEXT line all still return their names with complete=True.\n5. Regression fixture covers all of the above; `ruff check .` clean and the full pytest suite green.\n\nCONSTRAINTS. `assert` is banned outside `tests/**` (ruff S101, CLAUDE.md 4.7). No behaviour change to `status` / `compilation_success`. If the tool DESCRIPTION or the frozen schema would change, that is a TOOL_SCHEMA_VERSION re-pin per CLAUDE.md 9 \u2014 but a pure fail-safe tightening should not touch either; confirm rather than assume.",
@@ -27,11 +35,13 @@
     ".claude/notes/milestones/adhoc-20260804-c8e6048/research/brief-2.md"
   ],
   "research_synthesis": ".claude/notes/milestones/adhoc-20260804-c8e6048/research/synthesis.md",
-  "implementation_path": null,
+  "implementation_path": "inline",
   "implementation_plan": null,
-  "implementation_base": null,
-  "implementation_commit_range": null,
-  "implementation_commits": [],
+  "implementation_base": "d0082f0acd18117cebf029599ed0bbb6abb97fb4",
+  "implementation_commit_range": "d0082f0acd18117cebf029599ed0bbb6abb97fb4..e2651e9d80bd865ecaa361cfdb254ed62fd7c750",
+  "implementation_commits": [
+    "e2651e9d80bd865ecaa361cfdb254ed62fd7c750"
+  ],
   "implementation_branch": null,
   "external_writes_required": [
     "git push origin main"
