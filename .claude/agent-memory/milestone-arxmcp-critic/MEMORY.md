@@ -8,6 +8,7 @@
 - [derived-policy-test-silent-miss-surface](derived-policy-test-silent-miss-surface.md) — when the diff IS a guard test: probe its extractor with synthetic alt syntaxes (silent-pass vs fail-loud), and check allow-list staleness in BOTH directions + name-global vs site-scoped suppression
 
 ## Specific pinned lessons
+- [generated-artifact-hand-typed-outside-markers](generated-artifact-hand-typed-outside-markers.md) — the staleness gate covers only BETWEEN the markers; headline/summary numbers above it are hand-typed and were 9/12 wrong. Sibling: "every rendered pair" sweeps skip opacity/keyframe-composited pairs
 - [spy-passthrough-vs-binding-forward](spy-passthrough-vs-binding-forward.md) — a spy on a native-binding call proves the kwarg was PASSED, not FORWARDED to Rust/C; silent-drop class unguarded → MEDIUM
 - [kuzu-reopen-guard-nondeterministic-under-refcounting](kuzu-reopen-guard-nondeterministic-under-refcounting.md) — public-API double-call reopen test for the kuzu del-db lock leak passes on pre-fix code under CPython refcounting; spy on close() instead → MEDIUM
 - [threading-pinned-by-reading-not-assertion](threading-pinned-by-reading-not-assertion.md) — thread-through-startup milestones verify wiring by reading but rarely pin artifact LOCATION in the boot test → MEDIUM

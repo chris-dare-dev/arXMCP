@@ -1,0 +1,81 @@
+{
+  "id": "ui-uplift-m6",
+  "created_at": "2026-08-04T03:15:29Z",
+  "updated_at": "2026-08-04T13:20:26Z",
+  "phase": "critique-complete",
+  "phase_history": [
+    {
+      "phase": "init",
+      "at": "2026-08-04T03:15:29Z"
+    },
+    {
+      "phase": "research-running",
+      "at": "2026-08-04T03:16:07Z"
+    },
+    {
+      "phase": "research-complete",
+      "at": "2026-08-04T03:42:40Z"
+    },
+    {
+      "phase": "implement-running",
+      "at": "2026-08-04T03:42:55Z"
+    },
+    {
+      "phase": "implement-complete",
+      "at": "2026-08-04T13:06:46Z"
+    },
+    {
+      "phase": "critique-running",
+      "at": "2026-08-04T13:07:46Z"
+    },
+    {
+      "phase": "critique-complete",
+      "at": "2026-08-04T13:20:26Z"
+    }
+  ],
+  "milestone_brief": "# Milestone brief \u2014 ui-uplift-m6\r\n\r\n**Title:** Author one OKLCH material family + duration tokens (v0: the 8 tokens)\r\n**Kind:** milestone\r\n**Roadmap:** ui-uplift (plans/ui-uplift/roadmap.yaml)\r\n**Status:** planned\r\n**Lane:** now\r\n**Target:** 2026-08-11 -> 2026-08-29\r\n\r\n## Parent epic\r\n\r\n- ui-uplift-e1 \u2014 Material and type foundation \u2014 the D-1 Ledger Sheet core\r\n  Replace the stitched two-source palette (a self-documented GitHub-Primer dark clone plus an unattributed bespoke light block) with one authored OKLCH family; author the product's first real type scale and its first letter-spacing; then retire .card as a primitive in favour of a graded hairline rule ladder. These three are the signature direction and they are strictly ordered \u2014 the rule ladder cannot ship before the material, because rules become the sole structural device and the light border token is 1.342:1 today.\r\n\r\n## Summary\r\n\r\nUPL-4 v0. Replace the stitched palette with one authored family derived in OKLCH from a single hue decision, both modes from the same source: a 4-step text ladder, hairline borders at authored alpha, ONE brand accent, semantic colour reserved for live state. Also folds in --dur-fast/normal/slow, because the motion canon requires token-referenced durations and the stylesheet hard-codes 0.6s / 400ms / 200ms with no duration tokens. FOUNDATIONAL \u2014 every colour-touching milestone waits on this.\r\n\r\n## Acceptance criteria\r\n\r\n1. Given the token block, when re-derived, then both light and dark modes come from ONE hue decision and no value is a GitHub Primer literal\r\n2. Given the milestone artifact, then it ships a contrast table covering EVERY rendered foreground/background pair \u2014 not the 8 token-on-ground pairs the overlay tabulates, which is how two AA failures survived in shipped code\r\n3. Given --accent, when re-derived, then it satisfies all five of its roles simultaneously: button ground >=4.5:1 against its own text, focus ring >=3:1 against BOTH --bg and --card-bg, link, skip-link ground, badge-flash tint\r\n4. Given the light-mode rule token, when computed, then it clears 3:1 against --bg so the rule ladder milestone is unblocked\r\n5. Given any pair, when it computes below 4.5:1, then the milestone does not ship \u2014 this is a hard gate\r\n6. Given color-scheme: light dark, then it is preserved \u2014 it is load-bearing for UA control internals and is not a token\r\n7. Given light-dark(), then it is NOT used in v0 \u2014 it is Newly Available not Widely, and inside a custom property an unsupporting engine fails at substitution, resolving button backgrounds to transparent and leaving white-on-white primary buttons\r\n\r\n## Depends on\r\n\r\n- (none)",
+  "brief_source": "roadmap plans/ui-uplift/roadmap.yaml",
+  "research_mode": "standard",
+  "oss_scout_requested": false,
+  "allow_large_diff": true,
+  "research_briefs": [
+    ".claude/notes/milestones/ui-uplift-m6/research/brief-1.md",
+    ".claude/notes/milestones/ui-uplift-m6/research/brief-2.md"
+  ],
+  "research_synthesis": ".claude/notes/milestones/ui-uplift-m6/research/synthesis.md",
+  "implementation_path": "delegated",
+  "implementation_plan": null,
+  "implementation_base": "f8e931e1dfbf0147c9678876b970b7f941212ab6",
+  "implementation_commit_range": "f8e931e1dfbf0147c9678876b970b7f941212ab6..7817d8f84e905ddd1c887a9b39e009f97c73953b",
+  "implementation_commits": [
+    "7817d8f84e905ddd1c887a9b39e009f97c73953b",
+    "8ee611e71019fccc82359226801dfb2b3ef3dc1a"
+  ],
+  "implementation_branch": null,
+  "external_writes_required": [
+    "git push origin main"
+  ],
+  "critique_path": ".claude/notes/milestones/ui-uplift-m6/critique/dedup.md",
+  "critics_run": [
+    "milestone-adversary-critic",
+    "milestone-arxmcp-critic"
+  ],
+  "critique_files": [
+    "critique/adversary.md",
+    "critique/arxmcp.md"
+  ],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 3,
+    "medium": 9,
+    "low": 4
+  },
+  "findings_register": ".claude/notes/milestones/ui-uplift-m6/findings.json",
+  "rectification_commit": null,
+  "fixed_findings": [],
+  "deferred_findings": [],
+  "invalidated_findings": [],
+  "regression_tests_added": [],
+  "external_writes_authorized": [],
+  "external_writes_completed": []
+}
