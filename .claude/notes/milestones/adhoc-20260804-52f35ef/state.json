@@ -1,0 +1,51 @@
+{
+  "id": "adhoc-20260804-52f35ef",
+  "created_at": "2026-08-04T19:59:10Z",
+  "updated_at": "2026-08-04T20:15:28Z",
+  "phase": "research-complete",
+  "phase_history": [
+    {
+      "phase": "init",
+      "at": "2026-08-04T19:59:10Z"
+    },
+    {
+      "phase": "research-running",
+      "at": "2026-08-04T19:59:30Z"
+    },
+    {
+      "phase": "research-complete",
+      "at": "2026-08-04T20:15:28Z"
+    }
+  ],
+  "milestone_brief": "Contract v1 schemas and the mfc validate/lint-schemas subcommands.\n\nCreate arXMCP/contract/ per bridgeland-stab-lean ADR-0007: the seven JSON Schema 2020-12 documents (emission, environment, declarations, review, build, bundle, resolution) with additionalProperties:false throughout, plus the mfc CLI subcommands validate and lint-schemas.\n\nlint-schemas is the load-bearing one: it rejects any schema defining a property named status/verified/ok/passed/trusted/result, which converts arXMCP CLAUDE.md 4.9 trust-language policy from a review habit into a machine constraint.\n\nSchemas are copy-pasteable from bridgeland-stab-lean .claude/notes/2026-08-04-contract-schemas.md. Rule 7 of the bridge-contract system means mfc is an arXMCP-side CLI only; topic repos vendor schema copies with a checksum-drift test.\n\nTracks bridgeland-stab-lean issues #19 and #21 (epic contract-v1-e3).",
+  "brief_source": "inline",
+  "research_mode": "standard",
+  "oss_scout_requested": false,
+  "allow_large_diff": false,
+  "research_briefs": [
+    ".claude/notes/milestones/adhoc-20260804-52f35ef/research/brief-1.md",
+    ".claude/notes/milestones/adhoc-20260804-52f35ef/research/brief-2.md"
+  ],
+  "research_synthesis": ".claude/notes/milestones/adhoc-20260804-52f35ef/research/synthesis.md",
+  "implementation_path": null,
+  "implementation_plan": null,
+  "implementation_base": null,
+  "implementation_commit_range": null,
+  "implementation_commits": [],
+  "implementation_branch": null,
+  "external_writes_required": [
+    "git push origin main"
+  ],
+  "critique_path": null,
+  "critics_run": [],
+  "critique_files": [],
+  "critique_finding_counts": null,
+  "findings_register": null,
+  "rectification_commit": null,
+  "fixed_findings": [],
+  "deferred_findings": [],
+  "invalidated_findings": [],
+  "regression_tests_added": [],
+  "external_writes_authorized": [],
+  "external_writes_completed": []
+}
