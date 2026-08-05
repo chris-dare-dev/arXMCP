@@ -1,38 +1,80 @@
 {
   "id": "ui-uplift-m11",
   "created_at": "2026-08-05T17:18:47Z",
-  "updated_at": "2026-08-05T17:18:47Z",
-  "phase": "init",
+  "updated_at": "2026-08-06T00:30:00Z",
+  "phase": "critique-complete",
   "phase_history": [
     {
       "phase": "init",
       "at": "2026-08-05T17:18:47Z"
+    },
+    {
+      "phase": "research-running",
+      "at": "2026-08-05T23:59:00Z"
+    },
+    {
+      "phase": "research-complete",
+      "at": "2026-08-05T23:59:00Z"
+    },
+    {
+      "phase": "implement-running",
+      "at": "2026-08-05T23:59:00Z"
+    },
+    {
+      "phase": "implement-complete",
+      "at": "2026-08-05T23:59:00Z"
+    },
+    {
+      "phase": "critique-running",
+      "at": "2026-08-05T23:59:00Z"
+    },
+    {
+      "phase": "critique-complete",
+      "at": "2026-08-06T00:30:00Z"
     }
   ],
-  "milestone_brief": "# Milestone brief \u2014 ui-uplift-m11\n\n**Title:** Author the four empty states (cause + one action)\n**Kind:** milestone\n**Roadmap:** ui-uplift (plans/ui-uplift/roadmap.yaml)\n**Status:** planned\n**Lane:** next\n**Target:** 2026-09-26 -> 2026-10-03\n\n## Parent epic\n\n- ui-uplift-e2 \u2014 Finish debt \u2014 every server-emitted class ships with its CSS rule\n  Four class families shipped with zero CSS rule anywhere in the stylesheet. The root cause the current-state critic traced nearly every HIGH finding to: feature milestones shipped complete, tested, secure behaviour and left CSS as an afterthought scoped to \"does it render\", not \"does it look finished\" \u2014 because no milestone's acceptance criteria ever said \"style this\". This epic closes the backlog AND lands the standing rule as a derived test so it cannot regenerate.\n\n## Summary\n\nUPL-21. The four empty states are italic centred grey text with zero action affordance. Each already carries a cause in its copy; the missing half is turning the implied action into an actual control. HARD-PAIRED with the index reorder \u2014 the copy says \"Create one above\" / \"Add one above\", which becomes wrong the moment the form moves.\n\n## Acceptance criteria\n\n1. Given any of the four empty states, when rendered, then it states a cause and offers one actual control, not a pointer to a form elsewhere on the page\n2. Given ui-uplift-m12 has shipped, then this ships AFTER it and re-decides the interim empty-state copy m12 left behind, which currently points at the Manage disclosure rather than offering a control\n3. Given the source pattern leads with an icon, then either the anatomy is adopted WITHOUT the icon, or the product's first icon is an explicit recorded decision\n\n## Depends on\n\n- ui-uplift-m12 \u2014 Corpus before machinery \u2014 reorder the detail page (v0) [status: done]",
+  "milestone_brief": "# Milestone brief — ui-uplift-m11\n\n**Title:** Author the four empty states (cause + one action)\n**Kind:** milestone\n**Roadmap:** ui-uplift (plans/ui-uplift/roadmap.yaml)\n**Status:** planned\n**Lane:** next\n**Target:** 2026-09-26 -> 2026-10-03\n\n## Parent epic\n\n- ui-uplift-e2 — Finish debt — every server-emitted class ships with its CSS rule\n  Four class families shipped with zero CSS rule anywhere in the stylesheet. The root cause the current-state critic traced nearly every HIGH finding to: feature milestones shipped complete, tested, secure behaviour and left CSS as an afterthought scoped to \"does it render\", not \"does it look finished\" — because no milestone's acceptance criteria ever said \"style this\". This epic closes the backlog AND lands the standing rule as a derived test so it cannot regenerate.\n\n## Summary\n\nUPL-21. The four empty states are italic centred grey text with zero action affordance. Each already carries a cause in its copy; the missing half is turning the implied action into an actual control. HARD-PAIRED with the index reorder — the copy says \"Create one above\" / \"Add one above\", which becomes wrong the moment the form moves.\n\n## Acceptance criteria\n\n1. Given any of the four empty states, when rendered, then it states a cause and offers one actual control, not a pointer to a form elsewhere on the page\n2. Given ui-uplift-m12 has shipped, then this ships AFTER it and re-decides the interim empty-state copy m12 left behind, which currently points at the Manage disclosure rather than offering a control\n3. Given the source pattern leads with an icon, then either the anatomy is adopted WITHOUT the icon, or the product's first icon is an explicit recorded decision\n\n## Depends on\n\n- ui-uplift-m12 — Corpus before machinery — reorder the detail page (v0) [status: done]",
   "brief_source": "roadmap plans/ui-uplift/roadmap.yaml",
-  "research_mode": "standard",
+  "research_mode": "inline",
   "oss_scout_requested": false,
   "allow_large_diff": false,
   "research_briefs": [],
-  "research_synthesis": null,
-  "implementation_path": null,
+  "research_synthesis": ".claude/notes/milestones/ui-uplift-m11/research/synthesis.md",
+  "implementation_path": "inline",
   "implementation_plan": null,
   "implementation_base": null,
   "implementation_commit_range": null,
-  "implementation_commits": [],
+  "implementation_commits": [
+    "3338b43"
+  ],
   "implementation_branch": null,
   "external_writes_required": [],
   "critique_path": null,
-  "critics_run": [],
-  "critique_files": [],
-  "critique_finding_counts": null,
+  "critics_run": [
+    "adversary (general-purpose)",
+    "frontend-ux (general-purpose)"
+  ],
+  "critique_files": [
+    "critique/adversary.md",
+    "critique/frontend.md"
+  ],
+  "critique_finding_counts": {
+    "critical": 2,
+    "high": 8,
+    "medium": 10,
+    "low": 7
+  },
   "findings_register": null,
   "rectification_commit": null,
   "fixed_findings": [],
   "deferred_findings": [],
   "invalidated_findings": [],
   "regression_tests_added": [],
-  "external_writes_authorized": [],
-  "external_writes_completed": []
+  "external_writes_authorized": [
+    "git push origin main"
+  ],
+  "external_writes_completed": [
+    "git push origin main -> 3338b43 (2026-08-05)"
+  ],
+  "critique_verdict": "DO-NOT-SHIP"
 }
