@@ -50,6 +50,21 @@ the implementation changed — that is where the design was actually re-decided.
 First seen: ui-uplift-m10 (discovery H3's five rules: four verbatim, and the fifth — the
 abstract — gained a `max-height` clamp with no reveal affordance that H3 never authored).
 
+## A hand-enumerated a11y guard that a new element type walks straight past
+
+`:focus-visible` (and any other "every interactive element has X" rule) enforced by a
+literal tuple of selectors in a test is a guard that only covers the element vocabulary
+that existed when it was written. Every milestone introducing a NEW focusable element
+type — `<summary>`, `<dialog>`, `<details>`, a `[popover]` target — must add it to both
+the CSS selector list and the test's tuple, and nothing prompts it to. Before accepting
+"the repo has an authored focus ring", list the focusable elements the diff ADDS and
+check each against the enumeration, not against the prose claim.
+First seen: ui-uplift-m10 (`.discover-abstract > summary`), recurred unremarked in
+ui-uplift-m12 (`.manage-disclosure > summary`, the sole entry point to all five mutation
+forms) — `app.css:450` and
+`test_ui_a11y_baselines.py::test_focus_visible_rule_covers_all_interactive_selectors`
+both still list `button/.button/input/a/select/textarea/[tabindex]` only.
+
 ## A derived guard that reduces a selector list to one member
 
 A CSS guard that parses `selector { … }` and then classifies only

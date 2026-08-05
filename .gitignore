@@ -62,3 +62,11 @@ ops/restic-env.sh
 .agents/
 .codex/
 AGENTS.md
+
+# Milestone-pipeline concurrency lock — a live PID:milestone:timestamp record
+# written by milestone-pipeline-init-state.sh while a milestone holds the
+# pipeline. Pure runtime state: it names a process on THIS box, it is stale the
+# moment that process exits, and committing it would hand every clone a lock
+# referring to a PID that never existed there. Left on disk (deleting it mid-run
+# would let a second session start concurrently) and out of git.
+.claude/notes/milestones/.lock
