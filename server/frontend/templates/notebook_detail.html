@@ -233,23 +233,26 @@
    store.get_latest_ingest_run(slug) the polling endpoint calls at
    server/routes/notebooks.py:2283. That is what AC#3 asks for and it holds.
 
-   m12 rectify (H2/M2), correcting this comment: an earlier revision said
-   "the cue cannot drift from the fragment by construction". That is FALSE as
-   written and the critique reproduced the contradiction live — page load
-   emits `ingest running`, the poll then returns `success` into a fragment
-   inside this same open disclosure, and the summary never changes. What
-   cannot drift is the SOURCE ROW; the RENDERED value is a page-load snapshot
-   with no out-of-band refresh (`hx-swap-oob` appears nowhere in server/).
-   So the summary can read `running` over a settled body, and — the sharper
-   direction M2 found — `success` or `none` while a run started in-page is
-   live.
+   m12 rectify (H2/M2), round 2. An earlier revision claimed "the cue cannot
+   drift from the fragment by construction", which was FALSE: page load emitted
+   `ingest running`, the poll returned `success` into a fragment inside this
+   same open disclosure, and the summary never changed. Round 1 corrected the
+   COMMENT and kept the snapshot — but a cue that lies is a defect whether or
+   not the comment admits it, so this closes the behaviour.
 
-   Kept as a snapshot for v0 deliberately: making it live means a second swap
-   target on a disclosure whose semantics are already load-bearing (see the
-   D2-escape argument above), and that is a change worth its own milestone.
-   What was wrong was the claim, not the tradeoff — a comment asserting a
-   property the page does not have is the CLAUDE.md 4.9 defect, and it is
-   what this correction closes.
+   The cue is now OOB-refreshed. `_ingest_status_fragment`
+   (server/routes/notebooks.py) appends a top-level
+   `<code id="ingest-state-cue" hx-swap-oob="true">` carrying the SAME literal
+   token that branch renders into the body, so every path that produces a
+   fragment also re-renders this cue: the 2s poll, the terminal 286 response
+   that stops it, and the 202 returned when a run is started in-page (M2's
+   sharper direction — `success`/`none` displayed over a live run).
+
+   Both drift directions are therefore closed at the source that caused them.
+   The cue is NOT a second read of the row: the OOB token is the fragment's
+   own token, so there is exactly one reader and nothing to disagree with.
+   htmx strips `hx-swap-oob` from the element as it inserts it, so the swapped
+   cue is inert markup and re-swappable on the next cycle.
 
    OPEN (AC#2) MUST BE EMITTED BARE. open="false" renders the disclosure OPEN
    — HTML boolean attributes are presence-based — so the only correct Jinja
@@ -269,7 +272,7 @@
    No `name` attribute: a shared name opts disclosures into exclusive-
    accordion grouping and makes them close each other. #}
 <details class="manage-disclosure"{% if not latest_run or latest_run.status != 'success' %} open{% endif %}>
-  <summary>Manage this notebook — ingest <code>{{ latest_run.status if latest_run else 'none' }}</code></summary>
+  <summary>Manage this notebook — ingest <code id="ingest-state-cue">{{ latest_run.status if latest_run else 'none' }}</code></summary>
 
 {# DIV — the topic form and its readback. #}
 <div>

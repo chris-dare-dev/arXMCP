@@ -30,6 +30,10 @@ from fastapi.testclient import TestClient
 
 from server.notebooks_store import NotebooksStore
 from server.routes import notebooks as notebooks_module
+from server.routes.notebooks import (
+    INGEST_STATE_CUE_ID,
+    _ingest_status_fragment,
+)
 from server.routes.notebooks import router as notebooks_router
 from server.routes.ui import router as ui_router
 from tools import _notebook_common
@@ -51,6 +55,11 @@ APP_CSS: str = re.sub(
     r"/\*.*?\*/", "",
     (FRONTEND_STATIC / "app.css").read_text(encoding="utf-8"), flags=re.S,
 )
+
+#: The id joining the summary's state cue (template) to its OOB re-render
+#: (Python). Spelled literally here rather than imported alone, so a rename on
+#: either side has to be made deliberately on all three.
+CUE_ID: str = "ingest-state-cue"
 
 #: The authored label (art-direction-scout-brief.md:428-430), not invented
 #: copy: BAN-10 scores 0 on this page and the discovery calls that an asset.
@@ -275,11 +284,12 @@ class TestSummaryStateCue:
             f"the authored label {LABEL!r} is missing; 'Quick Actions' / "
             f"'Controls' / 'Tools' are the BAN-10 shapes it replaces."
         )
-        assert f"<code>{state}</code>" in summary, (
+        assert f'<code id="{CUE_ID}">{state}</code>' in summary, (
             f"no {state!r} cue. It must ride the summary's TEXT: browsers "
             f"that map <summary> to role=button treat its children as "
             f"presentational, so only a cue inside the accessible NAME is "
-            f"announced by every AT pairing."
+            f"announced by every AT pairing. The id is what the OOB refresh "
+            f"in _ingest_status_fragment addresses."
         )
 
     def test_the_cue_reads_the_same_row_the_fragment_reads(self) -> None:
@@ -288,14 +298,11 @@ class TestSummaryStateCue:
         ``notebooks.py`` calls the SAME method — one row, two readers, so the
         SOURCE row cannot drift from the fragment.
 
-        m12 rectify (H2/M2): an earlier revision of this docstring restated
-        the template's "cannot drift" claim unqualified, and both were false.
-        The rendered value IS a page-load snapshot — no `hx-swap-oob` exists
-        anywhere in server/ — so the summary can read `running` over a
-        settled body, or `success`/`none` while a run started in-page is
-        live. This test pins the SOURCE identity, which is what AC#3 asks
-        for and what actually holds; it does not and must not claim the
-        rendered value tracks the fragment."""
+        This pins the PAGE-LOAD source only. That the RENDERED value keeps
+        tracking the row afterwards is a separate property with its own guard
+        below (``TestSummaryCueIsRefreshedOutOfBand``) — round 1 of the m12
+        rectify conflated the two, corrected the comment that denied the
+        drift, and left the drift itself in place."""
         assert "latest_run" in self._summary(DETAIL), (
             "the cue does not read `latest_run`; any other source is a second "
             "read of one fact, free to drift."
@@ -311,7 +318,107 @@ class TestSummaryStateCue:
         """m7's rectify exists because two rendering paths for one value
         disagreed on voice. ``latest_run.status`` renders in ``<code>`` at
         'Last indexed'; the cue matches."""
-        assert DETAIL.count("ingest <code>") >= 2
+        assert DETAIL.count("ingest <code") >= 2
+
+
+# --- H2/M2 — the cue must TRACK the row, not snapshot it at page load
+class TestSummaryCueIsRefreshedOutOfBand:
+    """ui-uplift-m12 rectify (H2/M2), round 2.
+
+    The cue was a page-load snapshot with no refresh path, so it drifted in
+    both directions and the critique reproduced both live:
+
+    - page load renders `running`; the 2s poll lands `success` into a body
+      inside this same open disclosure; the summary still reads `running`.
+    - page load renders `success`/`none`; the operator starts a run in-page;
+      the 202 renders a `running` body under a summary still reading
+      `success`.
+
+    Round 1 corrected the comment that denied this and kept the snapshot. A
+    cue that lies is a defect whether or not the comment admits it, so this
+    pins the behaviour instead: EVERY fragment branch re-renders the cue out
+    of band with its own literal token.
+    """
+
+    #: (status kwarg, the token the branch renders) for all four branches.
+    BRANCHES = [("none", "none"), ("running", "running"),
+                ("success", "success"), ("failed", "failed")]
+
+    @pytest.mark.parametrize("status,token", BRANCHES)
+    def test_every_fragment_branch_carries_the_oob_cue(self, status, token) -> None:
+        frag = _ingest_status_fragment(
+            slug="demo", run_id=1, status=status,
+            started_at="2026-08-05T00:00:00Z",
+            finished_at="2026-08-05T00:01:00Z",
+            exit_code=1 if status == "failed" else None,
+            stderr_tail=None,
+        )
+        assert f'<code id="{CUE_ID}" hx-swap-oob="true">{token}</code>' in frag, (
+            f"the {status!r} fragment does not re-render the summary cue. "
+            f"Any branch that omits it reintroduces the drift: the body says "
+            f"one thing and the disclosure's accessible name says another."
+        )
+
+    @pytest.mark.parametrize("status,token", BRANCHES)
+    def test_the_oob_token_matches_the_body_token(self, status, token) -> None:
+        """The cue is not a second read of the row — it is the branch's own
+        token. One reader, so there is nothing left to disagree with."""
+        frag = _ingest_status_fragment(
+            slug="demo", run_id=1, status=status,
+            started_at="2026-08-05T00:00:00Z",
+            finished_at="2026-08-05T00:01:00Z",
+            exit_code=1 if status == "failed" else None,
+            stderr_tail=None,
+        )
+        body = frag.split(f'<code id="{CUE_ID}"')[0]
+        if status == "none":
+            assert "No ingest runs yet." in body
+        else:
+            assert f"Status: <code>{token}</code>" in body
+
+    def test_the_oob_element_is_top_level_in_the_response(self) -> None:
+        """htmx only processes ``hx-swap-oob`` on TOP-LEVEL elements of the
+        response. Nested inside ``#ingest-status`` the attribute is inert and
+        the cue silently stops updating — a failure that looks exactly like
+        the bug this closes."""
+        frag = _ingest_status_fragment(
+            slug="demo", run_id=1, status="running",
+            started_at="2026-08-05T00:00:00Z", finished_at=None,
+            exit_code=None, stderr_tail=None,
+        )
+        assert frag.index("</div>") < frag.index('<code id="'), (
+            "the OOB cue sits inside #ingest-status; htmx will not process it"
+        )
+        assert frag.endswith("</code>")
+
+    @pytest.mark.parametrize("state", ALL_STATES)
+    def test_the_poll_response_carries_the_cue_over_the_wire(
+        self, detail_client, state
+    ) -> None:
+        """The builder is not the contract — the RESPONSE is. This drives the
+        same endpoint the 2s poll drives and pins the cue on what actually
+        reaches the browser, which is where the drift was observed.
+        """
+        client, db_path = detail_client
+        page = _render(client, db_path, state)
+        # The page-load cue and the polled cue must agree from the first cycle.
+        assert f'<code id="{CUE_ID}">{state}</code>' in page
+
+        r = client.get(f"/ui/api/notebooks/m12-{state}/ingest/latest")
+        assert r.status_code in (200, 286), r.text
+        assert f'<code id="{CUE_ID}" hx-swap-oob="true">{state}</code>' in r.text, (
+            f"the {state!r} poll response does not re-render the cue; the "
+            f"summary would keep its page-load snapshot. Response: {r.text!r}"
+        )
+
+    def test_the_summary_cue_carries_the_id_the_fragment_addresses(self) -> None:
+        """The two halves are matched by a literal id string across a template
+        and a Python module — the one seam that can rot silently."""
+        assert f'id="{CUE_ID}"' in DETAIL, (
+            f"the summary cue lost id={CUE_ID!r}; the OOB swap now addresses "
+            f"nothing and fails silently."
+        )
+        assert INGEST_STATE_CUE_ID == CUE_ID
 
 
 # --- AC#4 — every target resolves, and nothing lands out of view

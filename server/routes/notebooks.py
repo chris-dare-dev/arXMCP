@@ -2361,6 +2361,36 @@ async def parse_status(
     }
 
 
+#: The id of the state cue riding the Manage disclosure's `<summary>` in
+#: `notebook_detail.html`. Named here because `_ingest_status_fragment` is the
+#: only writer of it after page load.
+INGEST_STATE_CUE_ID = "ingest-state-cue"
+
+
+def _state_cue_oob(token: str) -> str:
+    """The out-of-band re-render of the disclosure summary's state cue.
+
+    ui-uplift-m12 rectify (H2/M2). The summary cue used to be a page-load
+    snapshot with no refresh path, so it drifted in BOTH directions: it read
+    `running` over a settled success body once the 2s poll landed, and
+    `success`/`none` over a run started in-page. Round 1 of the rectify only
+    corrected the comment that denied this; the cue itself still lied.
+
+    Every fragment this module builds now carries this element, so the cue is
+    re-rendered by the same responses that re-render the body — the poll, the
+    terminal 286 that stops the poll, and the 202 that starts a run. ``token``
+    is the branch's OWN literal status token rather than a second read of the
+    row, so there is one reader and nothing left to disagree with.
+
+    htmx removes ``hx-swap-oob`` from the element as it swaps it in, so the
+    inserted cue is inert markup and remains swappable on the next cycle.
+    """
+    return (
+        f'<code id="{INGEST_STATE_CUE_ID}" hx-swap-oob="true">'
+        f"{html.escape(token)}</code>"
+    )
+
+
 def _ingest_status_fragment(
     *,
     slug: str,
@@ -2404,7 +2434,7 @@ def _ingest_status_fragment(
             f'hx-trigger="every 2s" hx-target="#ingest-status" '
             f'hx-swap="outerHTML">'
             f"No ingest runs yet."
-            f"</div>"
+            f"</div>" + _state_cue_oob("none")
         )
     if status == "running":
         return (
@@ -2416,7 +2446,7 @@ def _ingest_status_fragment(
             f"Status: <code>running</code>"
             f" · Started <time>{html.escape(started_at or '')}</time>"
             f" · Run #<code>{run_id}</code>"
-            f"</div>"
+            f"</div>" + _state_cue_oob("running")
         )
     if status == "success":
         return (
@@ -2425,7 +2455,7 @@ def _ingest_status_fragment(
             f"Status: <code>success</code>"
             f" · Finished <time>{html.escape(finished_at or '')}</time>"
             f" · Run #<code>{run_id}</code>"
-            f"</div>"
+            f"</div>" + _state_cue_oob("success")
         )
     # status == "failed"
     safe_exit = html.escape(str(exit_code)) if exit_code is not None else "?"
@@ -2451,7 +2481,7 @@ def _ingest_status_fragment(
         f" · Exit <code>{safe_exit}</code>"
         f" · Run #<code>{run_id}</code>"
         f"{stderr_pre}"
-        f"</div>"
+        f"</div>" + _state_cue_oob("failed")
     )
 
 
