@@ -375,13 +375,29 @@ for _m in ("light", "dark"):
 #    rather than letting two rows quietly vanish:
 #      * th's fill is now var(--card-bg), so that pair is the
 #        "--rule-section under thead, on --card-bg" row registered above.
-#      * no FULL-WEIGHT rule is drawn against the row-hover ground any more —
-#        the row rule dropped to --rule-row, which is registered over that
-#        same ground as an EXEMPT pair. Registering --border there would be
-#        registering a pair that does not render.
+#      * m8 RETIRED the row-hover pair claiming "no FULL-WEIGHT rule is drawn
+#        against the row-hover ground any more". That was WRONG, and both
+#        non-visual critics found it independently (H1/H2): the same commit's
+#        `thead th { border-block-end: var(--rule-section) }` sits directly
+#        above the first tbody row under `border-collapse: collapse`, so a
+#        full-weight rule IS drawn against the hover ground whenever that
+#        first row is hovered. It measures 3.0401 light / 3.0804 dark —
+#        TIGHTER than the artifact's regenerated "Tightest gated pair", so
+#        retiring it published a headline that named the wrong pair. Both
+#        clear 3:1, which is exactly why nothing failed and it survived.
+#        Re-registered below.
 #    M2's intent survives: --border's binding grounds are still both
 #    enumerated (--bg at 3.3123 light, --card-bg at 3.4054), and the tightest
 #    is the one the token's own comment names.
+
+for _m in ("light", "dark"):
+    _p(
+        _m,
+        "--rule-section under thead, on the hovered first row",
+        "--border",
+        ROW_HOVER,
+        NONTEXT,
+    )
 
 
 def _rows() -> list[tuple[str, str, str, str, float, float, bool]]:

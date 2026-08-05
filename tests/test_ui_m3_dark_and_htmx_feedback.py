@@ -628,7 +628,10 @@ class TestCrossMilestoneSafety:
         #     already crossfades the swap). This repo writes refusals down —
         #     tokens.css:101-106, app.css's select/textarea note — and that
         #     prose is the deliverable, not padding to be trimmed.
-        # The file lands at 575 of 600, a 25-line margin: deliberately more
+        # m8 rectify (M5/M11): the file lands at 593 of 600. The 25-line margin
+        # this block used to claim was consumed by the rectify pass itself;
+        # the cap was HELD rather than raised a fourth time, and the room
+        # came from trimming rationale. Deliberately more
         # than the 2 lines m7 left itself and had to rectify.
         assert line_count <= 600, (
             f"app.css is {line_count} lines — over the 600-line cap "

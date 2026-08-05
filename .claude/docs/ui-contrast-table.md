@@ -34,10 +34,10 @@ is typed anywhere else.
 
 | | |
 |---|---|
-| Pairs measured | **99** (51 light, 48 dark) |
-| Of those, gated / exempt | **85** gated, **14** exempt (each with its reason in the Site column) |
+| Pairs measured | **101** (52 light, 49 dark) |
+| Of those, gated / exempt | **87** gated, **14** exempt (each with its reason in the Site column) |
 | Failures | **0** |
-| Tightest gated pair | light `in-flight accent focus ring on tbody tr:hover` — **3.129:1** against a 3.0:1 floor |
+| Tightest gated pair | light `--rule-section under thead, on the hovered first row` — **3.040:1** against a 3.0:1 floor |
 | Tightest gated text pair | dark `.status-badge--down text` — **4.832:1** against 4.5:1 |
 
 <!-- END GENERATED HEADLINE -->
@@ -126,11 +126,14 @@ same number invited the SC column to be inferred from a float.
 Sizes under the m7 scale, for the record: meta 11px (`th`, `.status-badge`,
 and the badge's nested `.status-badge__remediation`), small 13px (labels,
 captions, table cells, `pre.error`, every identifier in `code`/`time`, and —
-since `ui-uplift-m10` — the Discover panel's `.discover-meta` /
-`.discover-abstract` and the `.topic-category` / `.topic-description` pair),
-body 16px (which `.discover-title` inherits, carrying its hierarchy on
-`font-weight: 600` rather than a size step, as reference lists do), section
-20px (`h2` — a bare element rule since `ui-uplift-m8` deleted `.card`),
+since `ui-uplift-m10` — the Discover panel's `.discover-meta` and the
+`.topic-category` / `.topic-description` pair), body 16px, section
+20px (`h2` — a bare element rule since `ui-uplift-m8` deleted `.card`, and
+`.discover-title`, which m10's rectify made an `<h3>` at the section step
+rather than body weight-600), meta 11px also covering `.discover-abstract`,
+which m10's rectify dropped to `--text-meta` to restore the meta/abstract
+step — both corrected here by m8's critique (M3/M12), which found this
+paragraph false on two counts,
 title fluid 24→36px. Form controls
 (`input`, `select`, `textarea`) and `.display-name` are on
 `var(--text-body)` = **16px**, not the 13px an earlier revision of this list
@@ -404,6 +407,8 @@ pills — worse than the behaviour it would have replaced.
 | 97 | light | .status-badge.htmx-settling flash border on --card-bg [accent role 5] | `#1f609b` | `#fafcfe` | **6.372:1** | 3.0:1 | 1.4.11 | PASS |
 | 98 | dark | .status-badge.htmx-settling flash border on --bg [accent role 5] | `#59a2eb` | `#090e13` | **7.190:1** | 3.0:1 | 1.4.11 | PASS |
 | 99 | dark | .status-badge.htmx-settling flash border on --card-bg [accent role 5] | `#59a2eb` | `#13191f` | **6.568:1** | 3.0:1 | 1.4.11 | PASS |
+| 100 | light | --rule-section under thead, on the hovered first row | `#818a94` | `#edeff2` | **3.040:1** | 3.0:1 | 1.4.11 | PASS |
+| 101 | dark | --rule-section under thead, on the hovered first row | `#636d77` | `#1b2127` | **3.080:1** | 3.0:1 | 1.4.11 | PASS |
 
 <!-- END GENERATED CONTRAST TABLE -->
 

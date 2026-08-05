@@ -120,11 +120,18 @@ class TestCardPrimitiveIsGone:
         )
         allowed_exceptions = {".status-badge", "@keyframes spin"}
         for selector, value in found.items():
-            leaf = selector.split(",")[-1].strip()
-            is_control = bool(
-                _re.search(r"(input|textarea|button|\.button|\.skip-link|"
-                           r"\[tabindex\]|:focus-visible)", leaf)
+            # m8 rectify (M17): check EVERY selector in a comma group, not
+            # just the last — a radius on a non-final selector was invisible
+            # here. And `[tabindex]` is dropped from the control pattern:
+            # `main[tabindex="-1"]` is the main landmark, so matching it would
+            # let structure carry a radius under the name of a control.
+            parts = [s.strip() for s in selector.split(",") if s.strip()]
+            is_control = all(
+                _re.search(r"(input|textarea|button|\.button|\.skip-link"
+                           r"|:focus-visible)", part)
+                for part in parts
             )
+            leaf = " , ".join(parts)
             is_circle = value == "50%"
             named = any(exc in selector for exc in allowed_exceptions)
             assert is_control or is_circle or named, (
@@ -186,9 +193,32 @@ class TestRuleLadder:
             )
             if not _re.match(r"border-\w+-color\b", decl)
         ]
-        assert not vertical, (
-            f"vertical edges found: {vertical}. The ladder is horizontal only; "
-            f"the box was deleted on purpose."
+        # m8 rectify (M9): the four-sided `border:` SHORTHAND draws vertical
+        # edges too, and the pattern above never saw it — so a square,
+        # differently-named box passed this guard and all three of its
+        # siblings. `border: none` and `border: 0` remove edges; a shorthand
+        # with a width and a style is the box coming back under another name.
+        # Scoped to STRUCTURE. Controls keep a four-sided box by design — it
+        # is the other half of "radius 0 on structure, 4px on controls" — so
+        # inputs, textareas, buttons and the spinner's `2px solid
+        # currentColor` arc are not vertical edges in the ladder's sense.
+        _CONTROL = _re.compile(
+            r"(input|textarea|button|\.button|\.skip-link|:focus-visible"
+            r"|@keyframes|\.status-badge)"
+        )
+        shorthand = [
+            f"{sel.strip()[:40]} {{ {decl.strip()} }}"
+            for sel, decl in _re.findall(
+                r"([^{}]+)\{[^{}]*?((?<![\w-])border\s*:[^;}]*)",
+                APP_CSS_NO_COMMENTS, flags=_re.S,
+            )
+            if not _re.search(r":\s*(none|0)\s*$", decl)
+            and not _CONTROL.search(sel)
+        ]
+        assert not vertical and not shorthand, (
+            f"vertical edges found: {vertical + shorthand}. The ladder is "
+            f"horizontal only; the box was deleted on purpose, and the "
+            f"four-sided `border:` shorthand re-draws it."
         )
 
     def test_the_block_ladder_uses_the_section_weight(self) -> None:
@@ -340,22 +370,63 @@ class TestSectioningElementDecision:
     #: (template, expected <section> count, expected top-level block count)
     EXPECTED = {"index.html": (1, 2), "notebook_detail.html": (2, 7)}
 
+    #: m8 rectify (M8): the ORDERED element of each top-level block, per
+    #: template. The count-only version of this guard passed after swapping
+    #: both index.html sites — the overlay critic proved it by mutation — so
+    #: it asserted nothing about the per-site decisions its own failure
+    #: message claimed to protect. A decision recorded as a total is not a
+    #: recorded decision.
+    #: Transcribed from implement/synthesis.md's D2 table, in its site order:
+    #:   1 create-notebook div · 2 existing-notebooks section
+    #:   3 record section · 4 topic div · 5 discover div · 6 add-paper div
+    #:   7 upload div · 8 ingest div · 9 papers section
+    #: Read from the RECORD, not from the templates — deriving it from the
+    #: markup would make this guard circular, asserting only that the file
+    #: equals itself.
+    DECIDED: dict[str, list[str]] = {
+        "index.html": ["div", "section"],
+        "notebook_detail.html": [
+            "section", "div", "div", "div", "div", "div", "section",
+        ],
+    }
+
+    @staticmethod
+    def _blocks(name: str) -> list[str]:
+        markup = _re.sub(
+            r"\{#.*?#\}", "", (_TEMPLATES / name).read_text(encoding="utf-8"),
+            flags=_re.S,
+        )
+        return [m.group(1) for m in
+                _re.finditer(r"^<(section|div)>", markup, flags=_re.M)]
+
     @pytest.mark.parametrize(("name", "counts"), sorted(EXPECTED.items()))
     def test_block_element_split_is_as_decided(
         self, name: str, counts: tuple[int, int]
     ) -> None:
         want_sections, want_blocks = counts
-        markup = _re.sub(
-            r"\{#.*?#\}", "", (_TEMPLATES / name).read_text(encoding="utf-8"),
-            flags=_re.S,
+        blocks = self._blocks(name)
+        sections = blocks.count("section")
+        assert (sections, len(blocks)) == (want_sections, want_blocks), (
+            f"{name}: {sections} <section> of {len(blocks)} top-level blocks; "
+            f"expected {want_sections} of {want_blocks}."
         )
-        sections = len(_re.findall(r"^<section>", markup, flags=_re.M))
-        divs = len(_re.findall(r"^<div>", markup, flags=_re.M))
-        assert (sections, sections + divs) == (want_sections, want_blocks), (
-            f"{name}: {sections} <section> + {divs} <div> top-level blocks; "
-            f"expected {want_sections} of {want_blocks}. The split is a "
-            f"recorded per-site judgement (implement/synthesis.md), not a "
-            f"default — changing it means re-deciding it."
+
+    @pytest.mark.parametrize("name", sorted(EXPECTED))
+    def test_each_block_keeps_the_element_it_was_decided_to_have(
+        self, name: str
+    ) -> None:
+        """m8 rectify (M8): the per-SITE assertion, in document order.
+
+        This is what the milestone actually decided — nine individual calls
+        about whether a block is a landmark a reader would jump to, or only a
+        visual grouping. Swapping any two of them is a different decision and
+        must fail here, which the count-only guard let through.
+        """
+        assert self._blocks(name) == self.DECIDED[name], (
+            f"{name}: top-level blocks are {self._blocks(name)}, decided "
+            f"{self.DECIDED[name]}. The split is a recorded per-site "
+            f"judgement (implement/synthesis.md); swapping two blocks is a "
+            f"re-decision, not a refactor."
         )
 
     @pytest.mark.parametrize("name", sorted(EXPECTED))
@@ -397,3 +468,69 @@ class TestSectioningElementDecision:
                     f"to a region landmark. ui-uplift-m8 refused this on "
                     f"purpose — see implement/synthesis.md."
                 )
+
+
+class TestExemptionIsConditionalPerSite:
+    """m8 rectify (M1). The owner granted the tinted rungs SC 1.4.11's
+    decorative carve-out on ONE condition: they are exempt only where
+    something ELSE carries the grouping. All three critics audited that by
+    inspection and it held — but nothing in the repo pinned it, so the next
+    milestone could add a fourth tinted-rung site with no second cue and no
+    test would notice.
+
+    The carve-out covers a boundary "that does not require the user to see or
+    understand it to understand the content". This asserts the structural
+    invariant that makes that true here: a tinted rung never appears on a
+    selector that is the ONLY separator between two groups — operationally,
+    every tinted-rung rule must also carry spacing, or sit inside a table or
+    definition list whose own semantics group the rows.
+    """
+
+    #: Every tinted-rung site, with the second cue that earns its exemption.
+    #: Adding a site without adding its cue here fails the test below.
+    TINTED_SITES: dict[str, str] = {
+        "dl.meta dt, dl.meta dd": "<dl> pairs are grouped by dt/dd semantics",
+        "tbody td": "<table> rows are grouped by the table itself",
+        ".discover-candidate": "each candidate carries its own padding rhythm",
+        "main > :where(section, div) + div": "1.25rem margin + padding",
+        # Added by m8's own rectify (M16) and caught by this guard on its
+        # first run — which is the guard doing its job. The cue here is
+        # degenerate and therefore the strongest: with an empty tbody there
+        # is no second group to separate from, so nothing depends on the
+        # rule to perceive a grouping that does not exist.
+        "table:has(tbody:empty) thead th": "no rows below it to separate from",
+    }
+
+    def test_every_tinted_rung_site_is_enumerated_with_its_second_cue(
+        self,
+    ) -> None:
+        used = _re.findall(
+            r"([^{}]+)\{[^{}]*var\(--rule-(?:row|meta)\)", APP_CSS_NO_COMMENTS
+        )
+        for selector in used:
+            sel = " ".join(selector.split())
+            assert any(k in sel for k in self.TINTED_SITES), (
+                f"`{sel}` uses a tinted rung but is not enumerated in "
+                f"TINTED_SITES with the second cue that earns its SC 1.4.11 "
+                f"exemption. A tinted rung measures 2.533:1 (row) or 1.960:1 "
+                f"(meta); it is decorative ONLY where something else carries "
+                f"the grouping. Add the site and its cue, or use "
+                f"--rule-section."
+            )
+
+    def test_no_tinted_site_relies_on_the_rule_alone(self) -> None:
+        """Each tinted-rung rule must also carry spacing, or sit in a
+        structure whose own semantics group its rows."""
+        for selector, cue in self.TINTED_SITES.items():
+            m = _re.search(
+                rf"{_re.escape(selector)}\s*\{{([^}}]*)\}}", APP_CSS_NO_COMMENTS
+            )
+            if m is None:
+                continue
+            body = m.group(1)
+            semantic = any(x in selector for x in ("dl.meta", "tbody"))
+            assert semantic or "padding" in body or "margin" in body, (
+                f"`{selector}` draws a tinted rung with no spacing and no "
+                f"grouping semantics, so the rule is the sole separator and "
+                f"the decorative exemption does not hold. Cue claimed: {cue}"
+            )

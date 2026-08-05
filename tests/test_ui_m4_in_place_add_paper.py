@@ -724,7 +724,7 @@ class TestCrossMilestoneSafety:
         # relevance line, no fade-in keyframe. 22 lines of headroom did not
         # fit that, and the tokens-split hatch named above is spent. The
         # merits are argued at length on the m3 cap test; the file lands at
-        # 575 of 600.
+        # 593 of 600 (m8 rectify M5/M11 — the cap was held, not raised).
         assert line_count <= 600, (
             f"app.css is {line_count} lines — over the 600-line cap (revised "
             f"by m6 400->480, then m10 520->600 — see the raise history above). "

@@ -55,7 +55,7 @@
      binary-searched for a target ratio against a NAMED ground.
      GROUND — --bg, re-solved by ui-uplift-m8. m10 solved it against
      --card-bg because every consumer then rendered inside
-     <section class="card">. m8 deleted that primitive, so .discover-meta
+     <section class="card">. m8 deleted that primitive, so .discover-meta, .discover-abstract
      and .topic-description now render on the canvas (the third consumer,
      .status-badge__remediation, still grounds on a status pill and did not
      move). m10's own critique M6 recorded this as the forward risk and it
@@ -151,7 +151,18 @@
      reads from column alignment (the tables) or from 1.5rem of combined
      padding under a per-item <h3> (.discover-candidate). */
   --rule-meta: 1px dotted color-mix(in oklab, var(--border) 60%, var(--bg));
-  /* DECORATIVE. 1.9596:1 light / 1.9591:1 dark on --bg. The discovery's
+
+  /* m8 rectify (M6/M10/M15), three corrections to the reasoning above:
+     M6 — dl.meta's exemption argued the whitespace INVERTED (it claimed the
+     rule separates pairs that spacing already separates; the spacing is
+     inside the pair, not between). The real second cue is <dl> semantics:
+     dt/dd association groups the rows regardless of the rule.
+     M10 — rule-meta's exemption argued a boundary the rung does not draw.
+     M15 — section and row rungs differ ONLY by tint at a shared 1px solid,
+     and they are adjacent in every table (thead th / tbody td). Two rungs a
+     reader cannot tell apart are one rung; this is recorded, not fixed —
+     changing a weight is a visual re-decision the rectify pass does not own,
+     and it needs a rendered check this repo cannot currently run. */  /* DECORATIVE. 1.9596:1 light / 1.9591:1 dark on --bg. The discovery's
      dotted rung, at the 60% tone its "row rule (60%)" phrasing authored —
      the 60% is read as the DEPTH of the ladder rather than as the row rung
      specifically, so the ladder stays monotone in tone and its last step is

@@ -52,12 +52,17 @@ footer a { color: #666; }
 .breadcrumb a { color: var(--accent); text-decoration: none; }
 
 /* ui-uplift-m8 (UPL-2) — what replaces the nine deleted cards. RHYTHM
-   absorbs the common region and the ladder only RANKS the groups, so 1rem
-   becomes 2rem above the rule and 2rem below; keeping 1rem is the "ruled
-   sheet reads as a spreadsheet" failure no AC names. :where() pins this at
-   (0,0,0) and names BOTH elements — the nine blocks are a per-site
-   <section>/<div> mix; `main >` excludes .breadcrumb. */
-main > :where(section, div) + :where(section, div) { border-block-start: var(--rule-section); margin-block-start: 2rem; padding-block-start: 2rem; }
+   absorbs the common region and the ladder only RANKS the groups; keeping
+   1rem is the "ruled sheet reads as a spreadsheet" failure no AC names.
+   `main >` excludes .breadcrumb. */
+/* m8 rectify (H4/M14/L1): one rule gave all nine boundaries the same rung, so
+   the per-site <section>/<div> decision rendered in NO channel and every
+   boundary paid 2rem+2rem (~96px added to the detail page). A <section> is a
+   landmark group and takes the section rung; a <div> was only a visual block
+   and takes the row rung with tighter rhythm. Specificity is (0,0,1), not the
+   (0,0,0) the old comment claimed twice — `main >` contributes. */
+main > :where(section, div) + section { border-block-start: var(--rule-section); margin-block-start: 2rem; padding-block-start: 2rem; }
+main > :where(section, div) + div { border-block-start: var(--rule-row); margin-block-start: 1.25rem; padding-block-start: 1.25rem; }
 
 /* ui-uplift-m8: the `.card X` compounds re-homed as bare selectors. m7's
    "must be EDITED, never shadowed by a bare `h2` rule" INVERTS with the
@@ -144,11 +149,16 @@ dl.meta dd { margin: 0; font-size: var(--text-small); }
 
 table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
 th, td { text-align: left; padding: 0.5rem 0.5rem; font-size: var(--text-small); }
-/* ui-uplift-m8 AC#3: the header separation migrates to the TOP rung. One
-   `th, td { border-bottom }` gave header and data rows the SAME weight,
-   leaving the boundary on a fill alone (1.1081 light / 1.0948 dark). AC#2
-   and AC#3 pull opposite ways; the resolution is BOTH — fill AND rule. */
+/* m8 rectify (M7): this published 1.1081:1 for the light th fill-alone
+   separation. Nothing measures that — the real figure is 1.0281, stated
+   by this file 27 lines below. The fill SURVIVES alongside the rule
+   (AC#2 and AC#3 together, not AC#3 alone). */
 thead th { border-block-end: var(--rule-section); }
+/* m8 rectify (M16): with no papers the ladder's heaviest rule was drawn over
+   an empty tbody — a structural boundary separating a header from nothing.
+   :has() is Baseline Widely (verified in brief-2), so the header drops to the
+   row rung when there is nothing below it to separate from. */
+table:has(tbody:empty) thead th { border-block-end: var(--rule-row); }
 tbody td { border-block-end: var(--rule-row); }
 /* ui-uplift-m7 (UPL-3): the tracked micro-caps COLUMN-META role — the art
    direction's 11px + uppercase + 0.06em, and the product's first
@@ -199,28 +209,17 @@ tbody tr:hover { background: color-mix(in oklab, var(--card-bg) 95%, var(--fg));
    the challenger's UPL-19 v0/v1 split (the wider clamp ships in v1). */
 .table-wrap { overflow-x: auto; }
 
-/* ui-uplift-m10 (UPL-9): the Discover results panel — the one surface in the
-   console that presents externally-sourced content for an operator decision,
-   and the last one with zero CSS. The anatomy is discovery finding H3's five
-   authored rules (2026q3-ui-uplift/discover/current-state-critic-brief.md
-   :130-136), carried onto the m7 scale rather than pasted: H3's raw 0.8rem /
-   0.875rem predate --text-small and would re-open the untokenised sizes m7
-   closed. A hairline LADDER, not cards (BAN-2); ui-uplift-m8 has since
-   deleted the box everywhere. No per-candidate chip (BAN-7 is a
-   ~5-per-view threshold; a run is up to 200 rows) and no
-   icon (BAN-3 — the product has zero icons and the discovery names that an
-   asset).
-   REFUSED, roadmap AC#4 — a per-candidate relevance line. The arXiv Atom feed
-   carries no score or rank in either namespace, tools/_arxiv_api.py:156 pins
-   sortBy=submittedDate&sortOrder=descending, and DiscoveryCandidate holds four
-   fields with nowhere to put one. AC#4 was conditional on the driver supplying
-   the basis; it does not, so a "why this matched" string would be manufactured
-   — the fabricated evidence CLAUDE.md 4.9 exists to prevent.
-   REFUSED, roadmap AC#3 — a fade-in keyframe. htmx enables
-   globalViewTransitions (base.html:59) so this swap already crossfades, capped
-   at --dur-fast below; a keyframe would double-animate it. For the same reason
-   #discover-results must never take a view-transition-name: that would leave
-   the root group the duration override covers. */
+/* ui-uplift-m10 (UPL-9): the Discover panel — the one surface presenting
+   externally-sourced content for an operator decision. Anatomy is discovery
+   H3's five authored rules (current-state-critic-brief.md:130-136) carried
+   onto the m7 scale, not pasted: H3's raw 0.8/0.875rem predate --text-small.
+   A hairline LADDER, not cards (BAN-2). No chip (BAN-7), no icon (BAN-3).
+   REFUSED AC#4 — a relevance line: the Atom feed carries no score in either
+   namespace and _arxiv_api.py:156 pins sortBy=submittedDate, so one would be
+   manufactured evidence (CLAUDE.md 4.9).
+   REFUSED AC#3 — a fade-in keyframe: globalViewTransitions (base.html:59)
+   already crossfades this swap at --dur-fast, so a keyframe double-animates.
+   Same reason #discover-results must never take a view-transition-name. */
 .discover-list { list-style: none; margin: 0; padding: 0; }
 /* ui-uplift-m8: m10 shipped this row rule at full --border weight, a
    milestone ahead of the ladder naming it. --rule-row now (exemption:
