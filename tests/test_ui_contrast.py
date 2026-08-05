@@ -862,6 +862,84 @@ def render_headline() -> str:
     ])
 
 
+#: The four `.status-badge--*` modifiers as (mode, name, fg, bg), derived from
+#: the same literals the pair registry uses. Light `--down` is token-sourced
+#: (`--danger` on `--error-bg`) and the other three are v1 literals — which is
+#: exactly how the artifact came to say "all seven pills": counting the literal
+#: rows gives 3 light + 4 dark, and the token-sourced light `--down` was
+#: silently dropped. There are EIGHT rendered variants.
+def _pill_variants() -> list[tuple[str, str, str, str]]:
+    out = [("light", name, fg, bg) for name, bg, fg, _bd in _LIGHT_PILLS]
+    out.append(("light", "down", LIGHT["--danger"], LIGHT["--error-bg"]))
+    out += [("dark", name, fg, bg) for name, bg, fg, _bd in _DARK_PILLS]
+    return out
+
+
+def render_rejected_alternatives() -> str:
+    """The rejected badge-flash alternatives, generated.
+
+    **Why this region exists.** These numbers were prose, and they were
+    allow-listed in ``test_no_ratio_is_typed_outside_a_generated_region`` as
+    "historical ... they describe code that no longer exists, so they cannot
+    drift". That reasoning was wrong twice over: a *rejected* alternative is
+    not historical code, it is a hypothetical recomputed from the CURRENT
+    tokens, so it drifts whenever ``--accent`` or a pill literal moves — and
+    two of the four were simply incorrect when written.
+
+    An external principal-engineer review (2026-08-05) found the inset row
+    published as ``3.044:1-3.902:1`` failing "all seven" pills. The true range
+    is ``3.044:1-4.311:1`` over EIGHT variants: ``3.902:1`` is light ``--ok``,
+    not the maximum, and light ``--down`` was missing from both the range and
+    the count. The rejection still stands — 8 of 8 fail — but a decision
+    record whose arithmetic nobody re-checks is how that survived.
+
+    Three models, and the distinction between them is the whole point:
+
+    - **fill tint** replaces the pill's ``background``, so its text lands on
+      accent-over-the-PAGE-ground. This is what shipped and what m6's rectify
+      removed, and what the 10% variant would have kept.
+    - **inset overlay** paints over the pill's own opaque fill, so the ground
+      is the PILL, not the page. Same alpha, different backdrop, different
+      answer — reading one model's number under the other's name is the error
+      this table makes impossible.
+    """
+    variants = _pill_variants()
+    lines = [
+        "| variant | shipped (`border-color`) | fill tint @10% | fill tint @30% | inset @30% |",
+        "|---|---|---|---|---|",
+    ]
+    cols: dict[str, list[float]] = {"shipped": [], "t10": [], "t30": [], "inset": []}
+    for mode, name, fg, bg in variants:
+        tok = LIGHT if mode == "light" else DARK
+        accent, page = tok["--accent"], tok["--bg"]
+        shipped = contrast_ratio(fg, bg)
+        t10 = contrast_ratio(fg, alpha_over(accent, 0.10, page))
+        t30 = contrast_ratio(fg, alpha_over(accent, 0.30, page))
+        inset = contrast_ratio(fg, alpha_over(accent, 0.30, bg))
+        for key, val in (("shipped", shipped), ("t10", t10),
+                         ("t30", t30), ("inset", inset)):
+            cols[key].append(val)
+        lines.append(
+            f"| {mode} `--{name}` | {shipped:.3f}:1 | {t10:.3f}:1 | "
+            f"{t30:.3f}:1 | {inset:.3f}:1 |"
+        )
+    labels = {
+        "shipped": "shipped (`border-color`)",
+        "t10": "fill tint @10%",
+        "t30": "fill tint @30%",
+        "inset": "inset @30%",
+    }
+    lines.append("")
+    for key, label in labels.items():
+        vals = cols[key]
+        under = sum(1 for v in vals if v < TEXT)
+        lines.append(
+            f"- **{label}**: {min(vals):.3f}:1–{max(vals):.3f}:1, "
+            f"**{under} of {len(vals)}** below {TEXT}:1."
+        )
+    return "\n".join(lines)
+
+
 #: Every generated region in the artifact: marker name -> renderer.
 #: Critique H2/M4: the roles table and the Headline block were BOTH hand-typed
 #: and BOTH outside the single marker pair, so
@@ -871,6 +949,11 @@ GENERATED_REGIONS: dict[str, object] = {
     "CONTRAST TABLE": render_table,
     "ROLES TABLE": render_roles_table,
     "HEADLINE": render_headline,
+    # 2026-08-05: added after an external review found the rejected-alternative
+    # range published with the wrong maximum over the wrong number of pills.
+    # They were prose, allow-listed as un-driftable "historical" values; they
+    # are neither historical nor un-driftable. See render_rejected_alternatives.
+    "REJECTED ALTERNATIVES": render_rejected_alternatives,
 }
 
 
@@ -923,9 +1006,23 @@ def test_no_ratio_is_typed_outside_a_generated_region() -> None:
         # no longer exists. None can drift: the code they describe is gone.
         "1.342:1", "2.526:1", "4.974:1", "21.000:1", "2.414:1", "4.478:1",
         "1.062:1", "5.025:1",
-        # Measurements of the REJECTED badge-flash alternatives, recorded so
-        # the decision is auditable (30% fill tint, inset box-shadow).
-        "3.095:1", "4.542:1", "3.044:1", "3.902:1",
+        # 2026-08-05: the rejected-alternative measurements USED to be
+        # allow-listed here on the reasoning that they "describe code that no
+        # longer exists, so they cannot drift". That was wrong — a rejected
+        # alternative is a hypothetical recomputed from the LIVE tokens, and
+        # it moves whenever --accent or a pill literal moves. It also let two
+        # incorrect figures sit unchecked through two milestones. They are now
+        # generated (region "REJECTED ALTERNATIVES"), and `4.542:1` left this
+        # list entirely because the generated table is its only home.
+        #
+        # What remains here are QUOTATIONS, not measurements:
+        "3.044:1",  # the published range's low end — correct, and quoted as
+        "3.902:1",  # such alongside the wrong high end it was paired with
+        # A genuine historical value: dark --down's text over accent@30%
+        # composited on --card-bg, the ground it had before ui-uplift-m8
+        # deleted .card. Against today's --bg ground the same model gives a
+        # different number, which is precisely why it needed this note.
+        "3.095:1",
     }
     targets = {
         # The "Solved for" column of the token family table. These are design

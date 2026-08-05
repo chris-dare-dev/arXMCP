@@ -20,9 +20,10 @@ here. Regenerate with:
 python -m tests.test_ui_contrast --update
 ```
 
-Three regions of this document are machine-written between
+Four regions of this document are machine-written between
 `<!-- BEGIN/END GENERATED … -->` markers — the Headline, the `--accent`
-roles table, and the pair table. Do not hand-edit them.
+roles table, the pair table, and (since 2026-08-05) the rejected
+badge-flash alternatives. Do not hand-edit them.
 `tests/test_ui_contrast.py::test_published_region_is_current` fails if any
 drifts from the stylesheet, and
 `::test_no_ratio_is_typed_outside_a_generated_region` fails if a new ratio
@@ -247,16 +248,75 @@ The on-accent text colour in light mode is `#fff`; in dark it is
 independently legible*. That was wrong on the facts: `@keyframes
 badge-flash` animated the `background` property itself, so for the whole
 400 ms the pill's opaque fill was **replaced**, not overlaid, and its text
-sat on accent@30% composited over the page ground — 3.095:1 for dark
-`--down`, with 6 of 8 pill texts under 4.5:1.
+sat on accent@30% composited over the surrounding ground — 3.095:1 for dark
+`--down` at the time.
+
+**That measurement's ground has since moved, and the count that stood beside
+it was wrong.** m6 measured against `--card-bg`, because the badge then sat
+inside a `.card`; `ui-uplift-m8` deleted `.card`, so the pill's surrounding
+ground is `--bg` today. The prose also claimed "6 of 8 pill texts under
+4.5:1", which matches neither ground on current tokens — `--bg` gives 5 of 8
+and `--card-bg` gives 7 of 8. The live figure for this model is the
+`fill tint @30%` column of the generated table below; do not restate it here.
+The 3.095:1 value is kept as the historical `--card-bg` reading it was, and
+nothing about the rectify decision changes: the model was replacing the
+pill's fill, and replacing it was the defect.
 
 The flash now animates `border-color` to `--accent` instead. No text pair
 moves at all, because every pill keeps its designed opaque ground, and the
 role-5 pair is a plain non-text boundary that measures well over its floor
-(rows above). Two alternatives were measured and rejected: dropping the
-fill tint to 10% clears 4.5:1 but is close to invisible, and an inset
-`box-shadow` overlay measures 3.044:1–3.902:1 and fails **all seven**
-pills — worse than the behaviour it would have replaced.
+(rows above).
+
+**Rejected alternatives — corrected and GENERATED, 2026-08-05.** This was a
+prose sentence claiming the inset `box-shadow` overlay "measures
+3.044:1–3.902:1 and fails **all seven** pills". An external
+principal-engineer review found both figures wrong: there are **eight**
+rendered variants (4 `.status-badge--*` modifiers × 2 modes), and the true
+inset maximum is light `--ops-warn`'s — see the generated table below, which
+is now the only place that number is written. The published `3.902:1` is
+light `--ok`, not the maximum at all. The missing variant is light `--down`,
+the only token-sourced pill: count the literal rows and you get seven.
+
+The rejection is unchanged and now stronger: **8 of 8** fail, not seven.
+
+The numbers below are generated from the live tokens, not typed. They were
+previously allow-listed in `test_no_ratio_is_typed_outside_a_generated_region`
+as "historical … cannot drift", which was the actual defect — a *rejected
+alternative* is not historical code, it is a hypothetical recomputed from the
+current `--accent` and pill literals, and it moves whenever they do.
+
+Read the two models as distinct, because conflating them is how a wrong
+number reads as plausible:
+
+- **fill tint** replaces the pill's `background`, so text lands on
+  accent-over-the-PAGE-ground. This is the behaviour that shipped and that
+  m6's rectify removed.
+- **inset overlay** paints over the pill's own opaque fill, so the backdrop
+  is the PILL. Same alpha, different ground, different answer.
+
+<!-- BEGIN GENERATED REJECTED ALTERNATIVES -->
+
+| variant | shipped (`border-color`) | fill tint @10% | fill tint @30% | inset @30% |
+|---|---|---|---|---|
+| light `--ok` | 6.063:1 | 5.642:1 | 4.127:1 | 3.902:1 |
+| light `--warn` | 5.389:1 | 4.857:1 | 3.552:1 | 3.426:1 |
+| light `--ops-warn` | 6.740:1 | 6.210:1 | 4.542:1 | 4.311:1 |
+| light `--down` | 5.291:1 | 4.900:1 | 3.584:1 | 3.373:1 |
+| dark `--ok` | 6.198:1 | 6.712:1 | 4.598:1 | 3.635:1 |
+| dark `--warn` | 5.428:1 | 6.755:1 | 4.628:1 | 3.404:1 |
+| dark `--ops-warn` | 5.169:1 | 5.544:1 | 3.797:1 | 3.044:1 |
+| dark `--down` | 4.832:1 | 5.086:1 | 3.484:1 | 3.049:1 |
+
+- **shipped (`border-color`)**: 4.832:1–6.740:1, **0 of 8** below 4.5:1.
+- **fill tint @10%**: 4.857:1–6.755:1, **0 of 8** below 4.5:1.
+- **fill tint @30%**: 3.484:1–4.628:1, **5 of 8** below 4.5:1.
+- **inset @30%**: 3.044:1–4.311:1, **8 of 8** below 4.5:1.
+
+<!-- END GENERATED REJECTED ALTERNATIVES -->
+
+The 10% fill tint does clear the bar (0 of 8 below), so it was rejected on
+visibility rather than contrast — that half of the original sentence was
+correct and is retained.
 
 ## Known non-blocking observations
 
