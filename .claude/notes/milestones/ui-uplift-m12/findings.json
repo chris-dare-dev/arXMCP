@@ -4,7 +4,7 @@
   "critique_files": [
     "dedup.md"
   ],
-  "generated_at": "2026-08-05T13:40:08Z",
+  "generated_at": "2026-08-05T16:10:36Z",
   "findings": {
     "H1": {
       "id": "H1",
@@ -32,9 +32,9 @@
       "title": "Summary state cue drifts from the ingest fragment it claims to share",
       "file": "server/frontend/templates/notebook_detail.html",
       "line": 258,
-      "anchor": "<summary>Manage this notebook — ingest <c",
+      "anchor": "<summary>Manage this notebook \u2014 ingest <c",
       "source_critic": "milestone-arxmcp-critic",
-      "source_axis": "security threat-model coverage — trust language (CLAUDE.md §4.9)",
+      "source_axis": "security threat-model coverage \u2014 trust language (CLAUDE.md \u00a74.9)",
       "source_file": "dedup.md",
       "status": "fixed",
       "resolution": "ROUND 2 - the behaviour is closed, not just the claim. Round 1 corrected the false 'the cue cannot drift from the fragment by construction' comment and deliberately kept the page-load snapshot; a cue that lies is a defect whether or not the comment admits it, and the owner's decision on re-review was to fix it properly. _ingest_status_fragment now appends a TOP-LEVEL <code id=\"ingest-state-cue\" hx-swap-oob=\"true\"> carrying that branch's OWN literal status token, so every response that re-renders the body also re-renders the cue: the 2s poll (H2's direction - `running` over a settled success body), the terminal 286 that stops the poll, and the 202 returned when a run is started in-page (M2's sharper direction - `success`/`none` over a live run). The cue is NOT a second read of the row: it is the fragment's own token, so there is one reader and nothing left to disagree with. Guarded by TestSummaryCueIsRefreshedOutOfBand in tests/test_ui_m12_corpus_before_machinery.py - every branch parametrised, plus a top-level-position guard, because a NESTED hx-swap-oob is inert and would fail exactly like the original bug.",
@@ -61,9 +61,15 @@
       "source_critic": "milestone-frontend-ux",
       "source_axis": "Error states",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "Closed by the OOB state cue, which is the primary remedy this finding itself proposed ('make the cue live instead of a snapshot, zero new JS'). The <summary> is rendered even when the disclosure is shut, so _ingest_status_fragment's top-level <code id=ingest-state-cue hx-swap-oob=true> now changes 'running' -> 'success'/'failed' under a collapsed operator on every poll branch, including the terminal 286. MITIGATED, NOT DISSOLVED, and the difference is recorded: stderr_tail still lives inside the collapsed subtree, so the operator sees THAT the run failed without expanding but must expand to read WHY. The larger alternative (hoist #ingest-status out of the disclosure entirely, brief-2 section 5.3) remains the road not taken.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-05T16:10:03Z",
+          "resolution": "Closed by the OOB state cue, which is the primary remedy this finding itself proposed ('make the cue live instead of a snapshot, zero new JS'). The <summary> is rendered even when the disclosure is shut, so _ingest_status_fragment's top-level <code id=ingest-state-cue hx-swap-oob=true> now changes 'running' -> 'success'/'failed' under a collapsed operator on every poll branch, including the terminal 286. MITIGATED, NOT DISSOLVED, and the difference is recorded: stderr_tail still lives inside the collapsed subtree, so the operator sees THAT the run failed without expanding but must expand to read WHY. The larger alternative (hoist #ingest-status out of the disclosure entirely, brief-2 section 5.3) remains the road not taken."
+        }
+      ]
     },
     "M1": {
       "id": "M1",
@@ -75,9 +81,15 @@
       "source_critic": "milestone-adversary-critic",
       "source_axis": "Acceptance coverage",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "implement/synthesis.md section AC#1 now carries a MEASURED AFTER block: y=590 (1440x900) and y=588 (375x812) for the papers table, against the pre-change y=1823 the epic was justified by. Attributed to the 2026-08-05 external review that measured it rather than claimed as our own - this repo ships no browser harness. The contributing box-model declarations are pinned by TestLadderDeclarationsCannotBeEmptiedSilently, so a masthead inflation re-opens the figure.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-05T16:10:03Z",
+          "resolution": "implement/synthesis.md section AC#1 now carries a MEASURED AFTER block: y=590 (1440x900) and y=588 (375x812) for the papers table, against the pre-change y=1823 the epic was justified by. Attributed to the 2026-08-05 external review that measured it rather than claimed as our own - this repo ships no browser harness. The contributing box-model declarations are pinned by TestLadderDeclarationsCannotBeEmptiedSilently, so a masthead inflation re-opens the figure."
+        }
+      ]
     },
     "M2": {
       "id": "M2",
@@ -85,7 +97,7 @@
       "title": "Summary cue can read `success`/`none` while a run started in-page is live",
       "file": "server/frontend/templates/notebook_detail.html",
       "line": 258,
-      "anchor": "<summary>Manage this notebook — ingest",
+      "anchor": "<summary>Manage this notebook \u2014 ingest",
       "source_critic": "milestone-adversary-critic",
       "source_axis": "Correctness",
       "source_file": "dedup.md",
@@ -114,9 +126,15 @@
       "source_critic": "milestone-adversary-critic",
       "source_axis": "Doc drift",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "Fixed structurally rather than numerically. The three lockstep cap comments each recorded 'the file lands at N' and each got N wrong (m7 wrote 471 at 478; m8 wrote 575 at 599; m12 wrote 635 at 627) - always in the one number the comment exists to carry. Writing 627 would have held until the next trim; app.css is 656 today. So no absolute count is recorded at all now, and TestCapCommentsCarryNoAbsoluteLineCount asserts that across all three files, allowing only past-tense milestone-scoped records. It found two MORE stale counts on its first run (m8's 593, m10's 575). The m7 480->520 hop missing from two raise chains was also inserted.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-05T16:10:03Z",
+          "resolution": "Fixed structurally rather than numerically. The three lockstep cap comments each recorded 'the file lands at N' and each got N wrong (m7 wrote 471 at 478; m8 wrote 575 at 599; m12 wrote 635 at 627) - always in the one number the comment exists to carry. Writing 627 would have held until the next trim; app.css is 656 today. So no absolute count is recorded at all now, and TestCapCommentsCarryNoAbsoluteLineCount asserts that across all three files, allowing only past-tense milestone-scoped records. It found two MORE stale counts on its first run (m8's 593, m10's 575). The m7 480->520 hop missing from two raise chains was also inserted."
+        }
+      ]
     },
     "M4": {
       "id": "M4",
@@ -128,9 +146,15 @@
       "source_critic": "milestone-adversary-critic",
       "source_axis": "Test discipline",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "Vocabulary renamed in place: 'top-level blocks' -> 'column-0 blocks' at the EXPECTED comment and all four failure messages in TestSectioningElementDecision. The page has THREE top-level blocks after m12 while the ^<(section|div)> extractor finds seven at column 0, so the guard's messages named a structure that does not exist. EXPECTED stays (2, 7) because no element decision changed. The indentation premise the guard now rests on is pinned from the other side by TestManageDisclosureNesting::test_the_mutation_divs_stay_at_column_zero, so indenting the five DIVs fails there with the right cause named.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-05T16:10:03Z",
+          "resolution": "Vocabulary renamed in place: 'top-level blocks' -> 'column-0 blocks' at the EXPECTED comment and all four failure messages in TestSectioningElementDecision. The page has THREE top-level blocks after m12 while the ^<(section|div)> extractor finds seven at column 0, so the guard's messages named a structure that does not exist. EXPECTED stays (2, 7) because no element decision changed. The indentation premise the guard now rests on is pinned from the other side by TestManageDisclosureNesting::test_the_mutation_divs_stay_at_column_zero, so indenting the five DIVs fails there with the right cause named."
+        }
+      ]
     },
     "M5": {
       "id": "M5",
@@ -142,9 +166,15 @@
       "source_critic": "milestone-adversary-critic",
       "source_axis": "Correctness",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "The HARD CONSTRAINT ('no swap may target the <details> or any ancestor of it') is now enforced, not just recorded. TestStructuralInvariantsHoldInTheRenderedTree resolves every hx-target against a real element tree built from the RENDERED page and asserts none is the disclosure or contains it, plus that the <details> carries no hx-* of its own. Mutation-verified against the critic's own m13-shaped attack: wrapping the disclosure in a polled <div hx-swap=outerHTML> is caught.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-05T16:10:03Z",
+          "resolution": "The HARD CONSTRAINT ('no swap may target the <details> or any ancestor of it') is now enforced, not just recorded. TestStructuralInvariantsHoldInTheRenderedTree resolves every hx-target against a real element tree built from the RENDERED page and asserts none is the disclosure or contains it, plus that the <details> carries no hx-* of its own. Mutation-verified against the critic's own m13-shaped attack: wrapping the disclosure in a polled <div hx-swap=outerHTML> is caught."
+        }
+      ]
     },
     "M6": {
       "id": "M6",
@@ -156,9 +186,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "test surface",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "'Reachability' now measures reachability. The two CSS regexes proved only that two selectors exist; the critic's wrapper-<div> mutation made .manage-disclosure > div + div match nothing - stripping rung, margin AND padding from all five relocated blocks - with six guards green. Added structural assertions over the rendered tree: the <details> is a DIRECT child of <main id=main> (which main > requires), it has at least two adjacent <div> children (which + requires), and every mutation form sits inside a direct <div> child. Mutation-verified: the wrapper div is caught.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-05T16:10:03Z",
+          "resolution": "'Reachability' now measures reachability. The two CSS regexes proved only that two selectors exist; the critic's wrapper-<div> mutation made .manage-disclosure > div + div match nothing - stripping rung, margin AND padding from all five relocated blocks - with six guards green. Added structural assertions over the rendered tree: the <details> is a DIRECT child of <main id=main> (which main > requires), it has at least two adjacent <div> children (which + requires), and every mutation form sits inside a direct <div> child. Mutation-verified: the wrapper div is caught."
+        }
+      ]
     },
     "M7": {
       "id": "M7",
@@ -170,9 +206,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "tier sequencing",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "The HARD CONSTRAINT ('no swap may target the <details> or any ancestor of it') is now enforced, not just recorded. TestStructuralInvariantsHoldInTheRenderedTree resolves every hx-target against a real element tree built from the RENDERED page and asserts none is the disclosure or contains it, plus that the <details> carries no hx-* of its own. Mutation-verified against the critic's own m13-shaped attack: wrapping the disclosure in a polled <div hx-swap=outerHTML> is caught.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-05T16:10:03Z",
+          "resolution": "The HARD CONSTRAINT ('no swap may target the <details> or any ancestor of it') is now enforced, not just recorded. TestStructuralInvariantsHoldInTheRenderedTree resolves every hx-target against a real element tree built from the RENDERED page and asserts none is the disclosure or contains it, plus that the <details> carries no hx-* of its own. Mutation-verified against the critic's own m13-shaped attack: wrapping the disclosure in a polled <div hx-swap=outerHTML> is caught."
+        }
+      ]
     },
     "M8": {
       "id": "M8",
@@ -184,9 +226,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "test surface",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "Vocabulary renamed in place: 'top-level blocks' -> 'column-0 blocks' at the EXPECTED comment and all four failure messages in TestSectioningElementDecision. The page has THREE top-level blocks after m12 while the ^<(section|div)> extractor finds seven at column 0, so the guard's messages named a structure that does not exist. EXPECTED stays (2, 7) because no element decision changed. The indentation premise the guard now rests on is pinned from the other side by TestManageDisclosureNesting::test_the_mutation_divs_stay_at_column_zero, so indenting the five DIVs fails there with the right cause named.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-05T16:10:03Z",
+          "resolution": "Vocabulary renamed in place: 'top-level blocks' -> 'column-0 blocks' at the EXPECTED comment and all four failure messages in TestSectioningElementDecision. The page has THREE top-level blocks after m12 while the ^<(section|div)> extractor finds seven at column 0, so the guard's messages named a structure that does not exist. EXPECTED stays (2, 7) because no element decision changed. The indentation premise the guard now rests on is pinned from the other side by TestManageDisclosureNesting::test_the_mutation_divs_stay_at_column_zero, so indenting the five DIVs fails there with the right cause named."
+        }
+      ]
     },
     "M9": {
       "id": "M9",
@@ -198,9 +246,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "tier sequencing",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "Relaxed to a direction-agnostic form. The guard required the empty copy to contain the literal 'Manage this notebook' - i.e. to BE a pointer to a form elsewhere on the page - which is exactly what ui-uplift-m11 AC#1 forbids, and m11 depends_on m12 and owns empty-state copy. m12 had pinned its declared successor out of satisfying its own first AC. Kept the durable half (the copy must not point 'above', the FACT m12 corrected and m11 cannot legitimately reverse); dropped the direction, which is m11's to choose.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-05T16:10:03Z",
+          "resolution": "Relaxed to a direction-agnostic form. The guard required the empty copy to contain the literal 'Manage this notebook' - i.e. to BE a pointer to a form elsewhere on the page - which is exactly what ui-uplift-m11 AC#1 forbids, and m11 depends_on m12 and owns empty-state copy. m12 had pinned its declared successor out of satisfying its own first AC. Kept the durable half (the copy must not point 'above', the FACT m12 corrected and m11 cannot legitimately reverse); dropped the direction, which is m11's to choose."
+        }
+      ]
     },
     "M10": {
       "id": "M10",
@@ -212,9 +266,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "tier sequencing",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "deferred",
+      "resolution": "DEFERRED TO /roadmap - one-writer rule, and both findings say so themselves. M10: app.css grew 598->627 (656 today) with insertions at 64-94, so every links.code anchor at line >=64 is off, and notebook_detail.html's reorder invalidated its own; twelve roadmap items affected. Its stated disposition is explicit: 'Owned by /roadmap under the one-writer rule - do not edit plans/ui-uplift/roadmap.yaml in Phase 4', and it wants symbol/selector-shaped anchors rather than line numbers for files this epic keeps rewriting, which is a re-resolution pass and not a Phase-4 edit. L4: ui-uplift-m11's window (2026-09-08 -> 09-15) ends 11 days before ui-uplift-m12's target_end (09-26) although m11 depends_on m12, and its AC#2 'ships WITH it' is stale now that m12 shipped alone; also /roadmap-owned. NOTE THE ONE EXCEPTION MADE DELIBERATELY: roadmap.yaml WAS edited this session, for AC#1's text only, on explicit owner instruction - that is an acceptance-criterion correction resolving a contradiction with the shipped page, not an anchor re-resolution, and it is recorded in the AC's own comment.",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-05T16:10:36Z",
+          "resolution": "DEFERRED TO /roadmap - one-writer rule, and both findings say so themselves. M10: app.css grew 598->627 (656 today) with insertions at 64-94, so every links.code anchor at line >=64 is off, and notebook_detail.html's reorder invalidated its own; twelve roadmap items affected. Its stated disposition is explicit: 'Owned by /roadmap under the one-writer rule - do not edit plans/ui-uplift/roadmap.yaml in Phase 4', and it wants symbol/selector-shaped anchors rather than line numbers for files this epic keeps rewriting, which is a re-resolution pass and not a Phase-4 edit. L4: ui-uplift-m11's window (2026-09-08 -> 09-15) ends 11 days before ui-uplift-m12's target_end (09-26) although m11 depends_on m12, and its AC#2 'ships WITH it' is stale now that m12 shipped alone; also /roadmap-owned. NOTE THE ONE EXCEPTION MADE DELIBERATELY: roadmap.yaml WAS edited this session, for AC#1's text only, on explicit owner instruction - that is an acceptance-criterion correction resolving a contradiction with the shipped page, not an anchor re-resolution, and it is recorded in the AC's own comment."
+        }
+      ]
     },
     "M11": {
       "id": "M11",
@@ -226,9 +286,15 @@
       "source_critic": "milestone-frontend-ux",
       "source_axis": "Accessibility",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "summary:focus-visible added to the ring selector list in app.css. <summary> was the only keyboard-reachable gate to all five mutation forms and its focus state was unauthored, falling back to the UA ring; m10's .discover-abstract > summary had the same gap. Added to the hand-enumerated tuple in test_ui_a11y_baselines.py AND paired with a derived guard: if any template ships a <details>, summary:focus-visible must be authored - the hand-maintained list is what made this invisible to the guard that exists for this class of omission.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-05T16:10:03Z",
+          "resolution": "summary:focus-visible added to the ring selector list in app.css. <summary> was the only keyboard-reachable gate to all five mutation forms and its focus state was unauthored, falling back to the UA ring; m10's .discover-abstract > summary had the same gap. Added to the hand-enumerated tuple in test_ui_a11y_baselines.py AND paired with a derived guard: if any template ships a <details>, summary:focus-visible must be authored - the hand-maintained list is what made this invisible to the guard that exists for this class of omission."
+        }
+      ]
     },
     "M12": {
       "id": "M12",
@@ -236,13 +302,19 @@
       "title": "Region 3 is absent from heading navigation and has no accessible name",
       "file": "server/frontend/templates/notebook_detail.html",
       "line": 258,
-      "anchor": "<summary>Manage this notebook — ingest",
+      "anchor": "<summary>Manage this notebook \u2014 ingest",
       "source_critic": "milestone-frontend-ux",
       "source_axis": "Accessibility",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "The <details> now carries aria-labelledby resolving to its own <summary>'s id. HTML-AAM maps <details> to role=group, so region 3 is announced by name on entry - previously it contributed NOTHING to the heading list (the summary is a role=button, whose children are presentational, so nesting an <h2> was correctly refused and nothing replaced it), and the heading list silently gained or lost five entries with the open state. Zero structural cost, no change to m8's ^<(section|div)> record view. Mutation-verified.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-05T16:10:03Z",
+          "resolution": "The <details> now carries aria-labelledby resolving to its own <summary>'s id. HTML-AAM maps <details> to role=group, so region 3 is announced by name on entry - previously it contributed NOTHING to the heading list (the summary is a role=button, whose children are presentational, so nesting an <h2> was correctly refused and nothing replaced it), and the heading list silently gained or lost five entries with the open state. Zero structural cost, no change to m8's ^<(section|div)> record view. Mutation-verified."
+        }
+      ]
     },
     "M13": {
       "id": "M13",
@@ -254,9 +326,15 @@
       "source_critic": "milestone-frontend-ux",
       "source_axis": "Discoverability",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "A link to #manage now sits with the papers <h2>, in EVERY state. store.list_papers() is uncapped, so on a 50-paper notebook the disclosure - the only affordance for adding, discovering, uploading or ingesting - sat ~2400px below the fold, and the only pointer to it was in the {% if not papers %} empty state, i.e. exactly when least needed. Deliberately a link and not a duplicated control (BAN-9 forbids a second primary CTA per viewport), pinned by test_the_pointer_is_a_link_not_a_second_control.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-05T16:10:03Z",
+          "resolution": "A link to #manage now sits with the papers <h2>, in EVERY state. store.list_papers() is uncapped, so on a 50-paper notebook the disclosure - the only affordance for adding, discovering, uploading or ingesting - sat ~2400px below the fold, and the only pointer to it was in the {% if not papers %} empty state, i.e. exactly when least needed. Deliberately a link and not a duplicated control (BAN-9 forbids a second primary CTA per viewport), pinned by test_the_pointer_is_a_link_not_a_second_control."
+        }
+      ]
     },
     "L1": {
       "id": "L1",
@@ -264,13 +342,19 @@
       "title": "`challenge.md:107` cite is wrong; the cue string is at 115-116",
       "file": "server/frontend/templates/notebook_detail.html",
       "line": 223,
-      "anchor": "form \"Manage this notebook — ingest runn",
+      "anchor": "form \"Manage this notebook \u2014 ingest runn",
       "source_critic": "milestone-adversary-critic",
       "source_axis": "Doc drift",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "challenge.md:107 -> :115-116 at all three sites (template, implement/synthesis.md, research/brief-2.md where the error originated). Verified independently before changing: line 107 is an Axis-11 sentence about shipping-history ordering; the cue string 'Manage this notebook - ingest running' spans 115-116. The label cite art-direction-scout-brief.md:428-430 was also widened to :429-431, where the phrase actually wraps. Every other discovery cite in this milestone verifies exactly, which is what made the one wrong cite likely to be trusted.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-05T16:10:35Z",
+          "resolution": "challenge.md:107 -> :115-116 at all three sites (template, implement/synthesis.md, research/brief-2.md where the error originated). Verified independently before changing: line 107 is an Axis-11 sentence about shipping-history ordering; the cue string 'Manage this notebook - ingest running' spans 115-116. The label cite art-direction-scout-brief.md:428-430 was also widened to :429-431, where the phrase actually wraps. Every other discovery cite in this milestone verifies exactly, which is what made the one wrong cite likely to be trusted."
+        }
+      ]
     },
     "L2": {
       "id": "L2",
@@ -282,9 +366,15 @@
       "source_critic": "milestone-adversary-critic",
       "source_axis": "Dead code / leftovers",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "The reason is recorded. list-style-position: outside was the one declaration in this milestone's rule set with no rationale; it was copied from .discover-abstract > summary, where it is REQUIRED because that rule sets overflow:hidden + max-height and an inside marker would be clipped. This rule sets neither, so it is visual parity only - it aligns the label's text edge with the sibling h2s and the marker hangs into body's 1rem (main has no padding). Kept rather than dropped, because dropping it misaligns the label against every other region heading. test_the_summary_needs_no_marker_clipping_workaround pins that this rule declares no overflow/max-height, so nobody re-derives the m10 requirement for it.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-05T16:10:35Z",
+          "resolution": "The reason is recorded. list-style-position: outside was the one declaration in this milestone's rule set with no rationale; it was copied from .discover-abstract > summary, where it is REQUIRED because that rule sets overflow:hidden + max-height and an inside marker would be clipped. This rule sets neither, so it is visual parity only - it aligns the label's text edge with the sibling h2s and the marker hangs into body's 1rem (main has no padding). Kept rather than dropped, because dropping it misaligns the label against every other region heading. test_the_summary_needs_no_marker_clipping_workaround pins that this rule declares no overflow/max-height, so nobody re-derives the m10 requirement for it."
+        }
+      ]
     },
     "L3": {
       "id": "L3",
@@ -296,9 +386,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "test surface",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "Fixed structurally rather than numerically. The three lockstep cap comments each recorded 'the file lands at N' and each got N wrong (m7 wrote 471 at 478; m8 wrote 575 at 599; m12 wrote 635 at 627) - always in the one number the comment exists to carry. Writing 627 would have held until the next trim; app.css is 656 today. So no absolute count is recorded at all now, and TestCapCommentsCarryNoAbsoluteLineCount asserts that across all three files, allowing only past-tense milestone-scoped records. It found two MORE stale counts on its first run (m8's 593, m10's 575). The m7 480->520 hop missing from two raise chains was also inserted.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-05T16:10:03Z",
+          "resolution": "Fixed structurally rather than numerically. The three lockstep cap comments each recorded 'the file lands at N' and each got N wrong (m7 wrote 471 at 478; m8 wrote 575 at 599; m12 wrote 635 at 627) - always in the one number the comment exists to carry. Writing 627 would have held until the next trim; app.css is 656 today. So no absolute count is recorded at all now, and TestCapCommentsCarryNoAbsoluteLineCount asserts that across all three files, allowing only past-tense milestone-scoped records. It found two MORE stale counts on its first run (m8's 593, m10's 575). The m7 480->520 hop missing from two raise chains was also inserted."
+        }
+      ]
     },
     "L4": {
       "id": "L4",
@@ -310,9 +406,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "tier sequencing",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "deferred",
+      "resolution": "DEFERRED TO /roadmap - one-writer rule, and both findings say so themselves. M10: app.css grew 598->627 (656 today) with insertions at 64-94, so every links.code anchor at line >=64 is off, and notebook_detail.html's reorder invalidated its own; twelve roadmap items affected. Its stated disposition is explicit: 'Owned by /roadmap under the one-writer rule - do not edit plans/ui-uplift/roadmap.yaml in Phase 4', and it wants symbol/selector-shaped anchors rather than line numbers for files this epic keeps rewriting, which is a re-resolution pass and not a Phase-4 edit. L4: ui-uplift-m11's window (2026-09-08 -> 09-15) ends 11 days before ui-uplift-m12's target_end (09-26) although m11 depends_on m12, and its AC#2 'ships WITH it' is stale now that m12 shipped alone; also /roadmap-owned. NOTE THE ONE EXCEPTION MADE DELIBERATELY: roadmap.yaml WAS edited this session, for AC#1's text only, on explicit owner instruction - that is an acceptance-criterion correction resolving a contradiction with the shipped page, not an anchor re-resolution, and it is recorded in the AC's own comment.",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-05T16:10:36Z",
+          "resolution": "DEFERRED TO /roadmap - one-writer rule, and both findings say so themselves. M10: app.css grew 598->627 (656 today) with insertions at 64-94, so every links.code anchor at line >=64 is off, and notebook_detail.html's reorder invalidated its own; twelve roadmap items affected. Its stated disposition is explicit: 'Owned by /roadmap under the one-writer rule - do not edit plans/ui-uplift/roadmap.yaml in Phase 4', and it wants symbol/selector-shaped anchors rather than line numbers for files this epic keeps rewriting, which is a re-resolution pass and not a Phase-4 edit. L4: ui-uplift-m11's window (2026-09-08 -> 09-15) ends 11 days before ui-uplift-m12's target_end (09-26) although m11 depends_on m12, and its AC#2 'ships WITH it' is stale now that m12 shipped alone; also /roadmap-owned. NOTE THE ONE EXCEPTION MADE DELIBERATELY: roadmap.yaml WAS edited this session, for AC#1's text only, on explicit owner instruction - that is an acceptance-criterion correction resolving a contradiction with the shipped page, not an anchor re-resolution, and it is recorded in the AC's own comment."
+        }
+      ]
     },
     "L5": {
       "id": "L5",
@@ -324,9 +426,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "test surface",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "Both mutation-proven misses are now guarded. TestLadderDeclarationsCannotBeEmptiedSilently asserts .manage-disclosure > summary declares font-size: var(--text-section) (the region size parity this milestone argued for at length, achieved WITHOUT wrapping an h2 in a role=button) and cursor: pointer, and that the top-level rung main > :where(section, div) + div declares both margin-block-start and padding-block-start. Emptying either set left every m12 and m8 guard green before this.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-05T16:10:35Z",
+          "resolution": "Both mutation-proven misses are now guarded. TestLadderDeclarationsCannotBeEmptiedSilently asserts .manage-disclosure > summary declares font-size: var(--text-section) (the region size parity this milestone argued for at length, achieved WITHOUT wrapping an h2 in a role=button) and cursor: pointer, and that the top-level rung main > :where(section, div) + div declares both margin-block-start and padding-block-start. Emptying either set left every m12 and m8 guard green before this."
+        }
+      ]
     },
     "L6": {
       "id": "L6",
@@ -338,9 +446,15 @@
       "source_critic": "milestone-frontend-ux",
       "source_axis": "Design-token / design-system discipline",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "DECIDED rather than inherited, which is what the finding asked for. The 20px label / 13px mono token step is now recorded in the app.css comment as the intended two-voice pairing - the label is a heading and the cue is a datum - with an explicit instruction not to 'fix' it to font-size: inherit without re-opening the decision. No token change, and the same element rule's effect on h2 > code is left where it is.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-05T16:10:35Z",
+          "resolution": "DECIDED rather than inherited, which is what the finding asked for. The 20px label / 13px mono token step is now recorded in the app.css comment as the intended two-voice pairing - the label is a heading and the cue is a datum - with an explicit instruction not to 'fix' it to font-size: inherit without re-opening the decision. No token change, and the same element rule's effect on h2 > code is left where it is."
+        }
+      ]
     },
     "L7": {
       "id": "L7",
@@ -352,9 +466,15 @@
       "source_critic": "milestone-frontend-ux",
       "source_axis": "Mobile / narrow-viewport",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "The reason is recorded. list-style-position: outside was the one declaration in this milestone's rule set with no rationale; it was copied from .discover-abstract > summary, where it is REQUIRED because that rule sets overflow:hidden + max-height and an inside marker would be clipped. This rule sets neither, so it is visual parity only - it aligns the label's text edge with the sibling h2s and the marker hangs into body's 1rem (main has no padding). Kept rather than dropped, because dropping it misaligns the label against every other region heading. test_the_summary_needs_no_marker_clipping_workaround pins that this rule declares no overflow/max-height, so nobody re-derives the m10 requirement for it.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-05T16:10:35Z",
+          "resolution": "The reason is recorded. list-style-position: outside was the one declaration in this milestone's rule set with no rationale; it was copied from .discover-abstract > summary, where it is REQUIRED because that rule sets overflow:hidden + max-height and an inside marker would be clipped. This rule sets neither, so it is visual parity only - it aligns the label's text edge with the sibling h2s and the marker hangs into body's 1rem (main has no padding). Kept rather than dropped, because dropping it misaligns the label against every other region heading. test_the_summary_needs_no_marker_clipping_workaround pins that this rule declares no overflow/max-height, so nobody re-derives the m10 requirement for it."
+        }
+      ]
     },
     "L8": {
       "id": "L8",
@@ -366,9 +486,15 @@
       "source_critic": "milestone-frontend-ux",
       "source_axis": "Information density",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "Overlap recorded in the masthead's own template note, which is what the finding asked for (it proposed leaving both and recording the decision so UPL-5 inherits it rather than rediscovering it). Notes that the two readings can no longer disagree - since m12's H2 rectify the summary copy is OOB-refreshed from the fragment's own token - but do repeat, and that if one goes it is the masthead's, because 'Last indexed <time>' already carries the freshness fact and a run's outcome belongs beside the control that produces it.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-05T16:10:35Z",
+          "resolution": "Overlap recorded in the masthead's own template note, which is what the finding asked for (it proposed leaving both and recording the decision so UPL-5 inherits it rather than rediscovering it). Notes that the two readings can no longer disagree - since m12's H2 rectify the summary copy is OOB-refreshed from the fragment's own token - but do repeat, and that if one goes it is the masthead's, because 'Last indexed <time>' already carries the freshness fact and a run's outcome belongs beside the control that produces it."
+        }
+      ]
     },
     "L9": {
       "id": "L9",
@@ -380,9 +506,15 @@
       "source_critic": "milestone-frontend-ux",
       "source_axis": "Visual hierarchy",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "The record now states the condition. 'Seven blocks to three regions' is state-dependent: with the open-unless-success predicate, a never-ingested, running or failed notebook still paints all seven headed blocks, and the reduction is realised only after a successful ingest. The predicate STAYS - open-on-first-run is right for an empty notebook, where the forms are the entire job - but the template note now says the three-region render is the post-success state and that first run deliberately trades it for immediate access. Claim-precision defect, not a layout one: the ladder still ranks the inner blocks at --rule-row under one --rule-section region.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-05T16:10:36Z",
+          "resolution": "The record now states the condition. 'Seven blocks to three regions' is state-dependent: with the open-unless-success predicate, a never-ingested, running or failed notebook still paints all seven headed blocks, and the reduction is realised only after a successful ingest. The predicate STAYS - open-on-first-run is right for an empty notebook, where the forms are the entire job - but the template note now says the three-region render is the post-success state and that first run deliberately trades it for immediate access. Claim-precision defect, not a layout one: the ladder still ranks the inner blocks at --rule-row under one --rule-section region."
+        }
+      ]
     }
   }
 }

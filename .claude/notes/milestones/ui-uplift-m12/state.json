@@ -1,8 +1,8 @@
 {
   "id": "ui-uplift-m12",
   "created_at": "2026-08-05T03:41:17Z",
-  "updated_at": "2026-08-05T18:30:00Z",
-  "phase": "rectify-running",
+  "updated_at": "2026-08-05T20:00:00Z",
+  "phase": "complete",
   "phase_history": [
     {
       "phase": "init",
@@ -35,6 +35,10 @@
     {
       "phase": "rectify-running",
       "at": "2026-08-05T13:27:40Z"
+    },
+    {
+      "phase": "complete",
+      "at": "2026-08-05T20:00:00Z"
     }
   ],
   "milestone_brief": "# Milestone brief — ui-uplift-m12\n\n**Title:** Corpus before machinery — reorder the detail page (v0)\n**Kind:** milestone\n**Roadmap:** ui-uplift (plans/ui-uplift/roadmap.yaml)\n**Status:** planned\n**Lane:** next\n**Target:** 2026-09-08 -> 2026-09-26\n\n## Parent epic\n\n- ui-uplift-e3 — Corpus before machinery — information architecture and live-region hygiene\n  The papers table, the only corpus content on the detail page, begins at y=1823 of a 2343px document, after six consecutive input forms — an order that mirrors shipping history, not operator priority. This epic reorders the page around its primary object, adds the focal lede the page has never had, and fixes the live-region behaviour that currently announces every 2 seconds for a whole ingest run.\n\n## Summary\n\nUPL-1. Lead with identity, state and the papers table; collapse the five mutation forms into one native <details> below the corpus. Converts a measured 1823px scroll to the most common task into roughly one viewport. Detail page only in v0; the index half pairs with m11. Ships with NO expand animation — animating <details> needs interpolate-size or ::details-content, both Chromium-only, and the discovery run parked interpolate-size as too new without noticing its own motion primitive depended on it.\n\n## Acceptance criteria\n\n1. Given the detail page, when opened, then the papers table is visible without scrolling past any input form\n2. Given a notebook with a non-terminal or failed ingest state, when the page renders, then the Manage disclosure is OPEN — the ingest fragment polls every 2s and would otherwise poll invisibly for a whole run\n3. Given the disclosure summary, then it carries a state cue sourced from the same row the ingest fragment already reads\n4. Given the five moved forms, then every hx-target still resolves and no swap silently lands out of view\n5. Given the reorder, then NO expand animation is claimed or budgeted for\n\n## Depends on\n\n- ui-uplift-m8 — Retire .card; adopt the graded hairline rule ladder [status: planned]",
@@ -77,16 +81,46 @@
     "low": 9
   },
   "findings_register": ".claude/notes/milestones/ui-uplift-m12/findings.json",
-  "rectification_commit": null,
+  "rectification_commit": "f235443",
   "fixed_findings": [
     "H1",
     "H2",
-    "M2"
+    "H3",
+    "M1",
+    "M2",
+    "M3",
+    "M4",
+    "M5",
+    "M6",
+    "M7",
+    "M8",
+    "M9",
+    "M11",
+    "M12",
+    "M13",
+    "L1",
+    "L2",
+    "L3",
+    "L5",
+    "L6",
+    "L7",
+    "L8",
+    "L9"
   ],
-  "deferred_findings": [],
+  "deferred_findings": [
+    "M10",
+    "L4"
+  ],
   "invalidated_findings": [],
   "regression_tests_added": [
-    "tests/test_ui_m12_corpus_before_machinery.py::TestSummaryCueIsRefreshedOutOfBand"
+    "tests/test_ui_m12_corpus_before_machinery.py::TestSummaryCueIsRefreshedOutOfBand",
+    "tests/test_ui_m12_corpus_before_machinery.py::TestStructuralInvariantsHoldInTheRenderedTree",
+    "tests/test_ui_m12_corpus_before_machinery.py::TestRegionThreeIsNamedAndReachable",
+    "tests/test_ui_m12_corpus_before_machinery.py::TestLadderDeclarationsCannotBeEmptiedSilently",
+    "tests/test_ui_m12_corpus_before_machinery.py::TestCorpusPrecedesMachinery::test_the_narrowing_agrees_with_the_canonical_AC",
+    "tests/test_ui_m12_corpus_before_machinery.py::TestManageDisclosureNesting::test_the_mutation_divs_stay_at_column_zero",
+    "tests/test_ui_m3_dark_and_htmx_feedback.py::TestCapCommentsCarryNoAbsoluteLineCount",
+    "tests/test_ui_a11y_baselines.py::test_every_shipped_disclosure_is_covered_by_the_ring"
   ],
   "external_writes_authorized": [
     "git push origin main"
