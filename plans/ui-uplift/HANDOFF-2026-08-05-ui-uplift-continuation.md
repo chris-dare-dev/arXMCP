@@ -100,21 +100,31 @@ original bug.
 3. **The 12 remaining open MEDIUMs and 9 LOWs** — `findings.py summary ui-uplift-m12` is the
    live list; do not work from any copy of it in prose, including this one.
 
-## 3. External review findings NOT yet actioned
+## 3. External review findings against CLOSED milestones — ALL FOUR FIXED
 
-The external review raised four beyond #382 and m12 H2/M2. All were independently reproduced
-and confirmed; none is fixed. They are recorded here because they are **not** in any milestone
-findings register — m6, m7, m8 and m10 are all closed milestones.
+The external review raised four beyond #382 and m12 H2/M2, against milestones (m6, m7, m8,
+m10) that are closed and have no findings register to hold them. All four were independently
+reproduced and then **fixed on 2026-08-05**. Recorded here because there is nowhere else.
 
-| Sev | Milestone | Finding | Disposition |
+| Sev | Milestone | Finding | Resolution |
 |---|---|---|---|
-| MEDIUM | m10 | `server/routes/notebooks.py` puts the identical `abstract_head` in both `<summary>` and `<p>` of `details.discover-abstract` — an 800–1500 char disclosure control | Use a bounded label ("Show abstract") or a short lede in `<summary>`; add a guard that summary != body and that the control name is bounded |
-| MEDIUM | m8 | `TestExemptionIsConditionalPerSite`'s `TINTED_SITES` is a hand-maintained dict of free-text cues. The guard skips selectors absent from CSS, never validates the cue string, and accepts any padding/margin declaration including `padding: 0` | Keep the exemptions (defensible by inspection); replace free-text proof with exact selector existence, positive spacing, and rendered-DOM assertions |
-| LOW | m7 | `base.html`, `tokens.css` and `test_ui_m7_type_scale.py` all assert custom properties "must be declared before the rules that `var()` them". **False** — custom properties resolve through the cascade and computed value; defining stylesheet order is irrelevant | Keep the link order as convention; delete the load-bearing claim and stop enforcing order as correctness |
-| LOW | m6 | `.claude/docs/ui-contrast-table.md:258` states the rejected inset alternative spans 3.044:1–3.902:1 across "all seven" pills; independent recomputation gives 3.044:1–**4.311:1** over eight rendered variants | Correct the artifact or regenerate the rejected-alternative numbers. The shipped `border-color` flash remains the right decision either way — only the measurement is wrong |
+| MEDIUM | m10 | `server/routes/notebooks.py` put the identical `abstract_head` in both `<summary>` and `<p>` of `details.discover-abstract`. A `<summary>` is the disclosure's accessible NAME and `abstract_head` is the untruncated abstract (800–1500 chars), so the control was named with a whole abstract and — since `[open]` releases the clamp — opening it rendered that abstract twice | `_abstract_lede()` bounds the summary to 120 chars on a word boundary, ellipsis only when text was actually cut, `"Abstract"` when there is none. Body keeps the full text once. Four guards incl. summary != body and no-duplicate over the real builder |
+| MEDIUM | m8 | `TestExemptionIsConditionalPerSite` proved none of what it claimed: it `continue`d past selectors absent from the CSS, never asserted anything about the cue string, tested `"tbody" in selector` as proof of table semantics, and accepted `padding: 0` | Rewritten. Cues are a closed vocabulary of checkable KINDS, not prose; selectors must exist verbatim and still paint a rung; spacing values are parsed and required positive; structural claims are proved by walking element ancestry in the shipped templates. **Mutation-tested: 6 of 6 injected regressions caught**, including the two the review demonstrated |
+| LOW | m7 | `base.html`, `tokens.css`, `test_ui_m7_type_scale.py` **and a fourth site the review did not find** (`test_ui_html_pages.py`) asserted custom properties "must be declared before the rules that `var()` them". False — they resolve through the cascade at computed-value time | Claim deleted in all four places; link order kept and documented as convention. Both order guards renamed and reduced to asserting both sheets are linked. The real failure mode (a 404 collapsing every `var()`) keeps its own guard |
+| LOW | m6 | `ui-contrast-table.md` stated the rejected inset alternative spans 3.044:1–3.902:1 across "all seven" pills | Confirmed wrong by independent recomputation: **3.044:1–4.311:1 over eight** variants. "Seven" counted only the literal pills and dropped token-sourced light `--down`; `3.902:1` is light `--ok`, not the maximum. Now a GENERATED region — the numbers had been allow-listed as un-driftable "historical" values, which was the actual defect, since a rejected alternative is recomputed from live tokens |
 
-**Not independently re-derived by this session:** the m6 contrast arithmetic. Everything else
-in that table was reproduced against the working tree before being recorded.
+**Two things the review did not catch, found while fixing these:**
+
+- The same doc's "6 of 8 pill texts under 4.5:1" for the *shipped-then-rectified* 30% fill
+  tint matches neither ground on current tokens (`--bg` gives 5 of 8, `--card-bg` gives 7 of
+  8). Its companion `3.095:1` was measured against `--card-bg`, the ground the badge had
+  before `ui-uplift-m8` deleted `.card`. Both annotated; the live figure is now generated.
+- The m7 claim had a **fourth** site, `tests/test_ui_html_pages.py`.
+
+**Corrected mid-session, for the record:** an earlier note in this session said m6's 10% fill
+tint claim was also wrong. It is not — that figure was computed against the wrong model (inset
+over the pill instead of replacement over the page ground). The 10% tint clears 4.5:1 on all
+eight variants and was rejected on visibility, exactly as the artifact said.
 
 ## 4. Do not repeat these
 
