@@ -364,8 +364,21 @@ class TestUPL12TemplateChanges:
         assert 'hx-target="#papers-tbody"' in form_block, (
             "UPL-12 v0: add-paper form missing hx-target=\"#papers-tbody\""
         )
-        assert 'hx-swap="beforeend"' in form_block, (
-            "UPL-12 v0: add-paper form missing hx-swap=\"beforeend\""
+        # ui-uplift-m12 (UPL-1) AC#4: the exact string `hx-swap="beforeend"`
+        # no longer appears — the reorder moved #papers-tbody ABOVE this form,
+        # so the append needs htmx's `show:` modifier or it lands off-screen
+        # upward. The KIND of swap is what UPL-12 v0 decided and is what this
+        # guard is for, so it is asserted on the value's first token; a
+        # modifier is an m12 addition, not a repeal. Anchored so `beforeend`
+        # is the swap and not a substring of some other attribute.
+        m_swap = _re.search(r'hx-swap="(beforeend)(?:\s+[^"]*)?"', form_block)
+        assert m_swap is not None, (
+            f"UPL-12 v0: add-paper form's swap is not beforeend: {form_block!r}"
+        )
+        assert "show:#papers-tbody" in form_block, (
+            "ui-uplift-m12 AC#4: after the reorder the beforeend target sits "
+            "above this form, so the swap must scroll the append point into "
+            "view or it succeeds invisibly."
         )
 
     def test_add_paper_form_no_longer_uses_location_reload(self) -> None:
@@ -725,9 +738,15 @@ class TestCrossMilestoneSafety:
         # fit that, and the tokens-split hatch named above is spent. The
         # merits are argued at length on the m3 cap test; the file lands at
         # 593 of 600 (m8 rectify M5/M11 — the cap was held, not raised).
-        assert line_count <= 600, (
-            f"app.css is {line_count} lines — over the 600-line cap (revised "
-            f"by m6 400->480, then m10 520->600 — see the raise history above). "
+        # ui-uplift-m12: 600 -> 680, in lockstep. UPL-1 adds a third top-level
+        # region (<details class="manage-disclosure">) plus the nested rule
+        # ladder the direct-child `main >` combinator no longer reaches. The
+        # merits are argued at length on the m3 cap test; the file lands at
+        # 635 of 680.
+        assert line_count <= 680, (
+            f"app.css is {line_count} lines — over the 680-line cap (revised "
+            f"by m6 400->480, then m10 520->600, then m12 600->680 — see the "
+            f"raise history above). "
             f"Consider stripping documentation comments, splitting the file "
             f"(e.g. tokens.css + app.css), or arguing for another revision. "
             f"NOTE: the cap tests in tests/test_ui_m3_dark_and_htmx_feedback.py "

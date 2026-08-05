@@ -633,10 +633,24 @@ class TestCrossMilestoneSafety:
         # the cap was HELD rather than raised a fourth time, and the room
         # came from trimming rationale. Deliberately more
         # than the 2 lines m7 left itself and had to rectify.
-        assert line_count <= 600, (
-            f"app.css is {line_count} lines — over the 600-line cap "
+        # ui-uplift-m12: 600 -> 680, in lockstep across all three files. m8
+        # held the cap because m8 was DELETING a primitive; m12 ADDS a
+        # structural element — <details class="manage-disclosure">, a third
+        # top-level region — which is the case the cap exists to make
+        # deliberate rather than to forbid. Two lines of headroom cannot hold
+        # a disclosure rule set (the existing .discover-abstract disclosure
+        # costs six lines) and the tokens-split escape hatch is spent twice
+        # over: tokens.css is at 289 of 290 and a test forbids putting rules
+        # there. Folding selectors to fit would have bought the number by
+        # spending readability, and m12 has three decisions to record at the
+        # site — the direct-child ladder break, the class-scoping requirement
+        # that protects m10's marker, and the corrected AC#5 refusal reason.
+        # The file lands at 635 of 680.
+        assert line_count <= 680, (
+            f"app.css is {line_count} lines — over the 680-line cap "
             f"(m6: 400->480 for the OKLCH family; m10: 520->600 for the Discover "
-            f"bibliography rules — see the raise history above). Consider stripping "
+            f"bibliography rules; m12: 600->680 for the Manage disclosure and the "
+            f"nested rule ladder — see the raise history above). Consider stripping "
             f"documentation comments, splitting the file (e.g. tokens.css + "
             f"app.css per the escape-hatch noted in KR5), or arguing for "
             f"another revision. NOTE: the cap tests in "

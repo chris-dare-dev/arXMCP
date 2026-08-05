@@ -61,8 +61,37 @@ footer a { color: #666; }
    landmark group and takes the section rung; a <div> was only a visual block
    and takes the row rung with tighter rhythm. Specificity is (0,0,1), not the
    (0,0,0) the old comment claimed twice — `main >` contributes. */
-main > :where(section, div) + section { border-block-start: var(--rule-section); margin-block-start: 2rem; padding-block-start: 2rem; }
+/* ui-uplift-m12 (UPL-1): the section rung's selector gained `details` — see
+   the block below for why, and why that is an edit in place rather than a
+   fourth rule. */
+main > :where(section, div) + :where(section, details) { border-block-start: var(--rule-section); margin-block-start: 2rem; padding-block-start: 2rem; }
 main > :where(section, div) + div { border-block-start: var(--rule-row); margin-block-start: 1.25rem; padding-block-start: 1.25rem; }
+
+/* ui-uplift-m12 (UPL-1): the ladder has to reach a THIRD region, and `main >`
+   is a DIRECT-CHILD combinator. The five mutation blocks are children of
+   <details class="manage-disclosure"> now, so without the nested rung below
+   they silently lose rule, margin AND padding and collapse into one
+   undifferentiated run. The break is a consequence of m8's own rectify —
+   splitting one selector into two is what made `main >` load-bearing — and no
+   existing test caught it, which is why test_ui_m12_corpus_before_machinery
+   pins ladder REACHABILITY and not only its tokens and horizontality.
+   The disclosure joins the `+ section` rung as a peer REGION of the two
+   sections, folded into that selector at zero net cost. The nested rung is
+   --rule-row, exactly what these blocks took as main's children.
+   CLASS-SCOPED on purpose: a bare `summary` is (0,0,1) and would win for
+   every property `.discover-abstract > summary` (0,1,1) does not declare, so
+   `summary { list-style: none }` here would silently strip m10's
+   abstract-reveal triangle. The marker also has to stay because in
+   Firefox + VoiceOver its direction is the ONLY open/closed channel.
+   REFUSED, extending the chain recorded at the line-clamp note below: no
+   expand animation. `::details-content` is Baseline NEWLY across ALL engines
+   since 2025-09-16 — not Chromium-only, unlike interpolate-size/calc-size —
+   but Widely lands 2028-03-16, and Newly-not-Widely is the m6/m7/m10 bar.
+   The summary takes --text-section instead of wrapping an <h2>: role=button
+   makes a summary's children presentational, so a heading inside it is not a
+   heading for AT. Size parity with the other regions, without the trap. */
+.manage-disclosure > summary { margin-block-end: 1.25rem; font-size: var(--text-section); cursor: pointer; list-style-position: outside; }
+.manage-disclosure > div + div { border-block-start: var(--rule-row); margin-block-start: 1.25rem; padding-block-start: 1.25rem; }
 
 /* ui-uplift-m8: the `.card X` compounds re-homed as bare selectors. m7's
    "must be EDITED, never shadowed by a bare `h2` rule" INVERTS with the

@@ -10,6 +10,45 @@
    rule and for why no aria-labelledby was added. Two SECTIONs survive on this
    page (the record's identity block and the papers inventory); the five job
    forms drop to DIV. #}
+{# ui-uplift-m12 (UPL-1) — corpus before machinery. Three re-decisions, each
+   recorded because each overturns something an earlier milestone pinned.
+
+   1. ORDER. The authored anatomy (art-direction-scout-brief.md:372): ruled
+      masthead -> papers ledger -> ONE <details> "Manage this notebook"
+      carrying the five mutation forms (Topic, Discover, Add-by-URL, Upload,
+      Ingest, in that order). Seven top-level blocks become THREE REGIONS —
+      the BAN-2 payload the roadmap dropped. m8's per-site <section>/<div>
+      decisions are UNCHANGED; only their order moved, and
+      tests/test_ui_m8_rule_ladder.py's DECIDED list is re-transcribed with a
+      reason per site rather than silently re-sorted. The five DIVs stay at
+      COLUMN 0 on purpose: indenting them would drop five of the seven
+      per-site records out of that guard's ^<(section|div)> view, and "a
+      decision recorded as a total is not a recorded decision" is m8's own
+      note. A separate guard pins that they are inside the disclosure.
+
+   2. AC#1 IS NARROWED, DELIBERATELY. The AC reads "without scrolling past any
+      input form". SIX forms exist here, not the five the roadmap counts: the
+      sixth is form.rename-form below, inside this identity <section>, and it
+      STAYS. Renaming is part of the record's identity — it belongs with the
+      slug and the metadata that lead the page — and moving it would pull a
+      control out of the <section> landmark m8 deliberately created. AC#1 is
+      therefore implemented as "no MUTATION form above the table": rename
+      edits the record's label, not the corpus. An unrecorded narrowing of an
+      AC is indistinguishable from failing it, which is why this is here.
+
+   3. WHY <details> IS SAFE HERE AND WAS REFUSED AT server/routes/ui.py:280.
+      onboarding-uplift-m3 synthesis D2 rejected <details>/<summary> for the
+      status badge because hx-swap="outerHTML" replaced the whole element
+      every 10s and would snap the disclosure closed on every poll. That does
+      not reach m12: the polled element (#ingest-status) is strictly NESTED
+      inside this disclosure and the <details> is never a swap target nor
+      inside one, so outerHTML replaces that div alone and `open` is never in
+      the swapped subtree. HARD CONSTRAINT for later milestones on this page
+      (m13 moves aria-live onto "a stable never-swapped wrapper" and is the
+      near-miss): no swap may target the <details> or any ancestor of it.
+      Verified at the vendored htmx 2.0.10 source — a poll inside a CLOSED
+      <details> keeps firing, the only guard being bodyContains — so the open
+      predicate below mitigates a live defect, not a hypothetical. #}
 {# SECTION — the record itself: identity, name, metadata, delete. #}
 <section>
   <h2><code>{{ notebook.slug }}</code></h2>
@@ -103,6 +142,120 @@
     </button>
   </div>
 </section>
+
+{# SECTION — the page's focal content region: the corpus itself. ui-uplift-m12
+   (UPL-1) moved it from LAST in source order to second, directly under the
+   record: it is the reason the operator opened the page. #}
+<section>
+  <h2>Papers in this notebook ({{ papers|length }})</h2>
+  {% if not papers %}
+    {# ui-uplift-m12 (UPL-1): was "No papers yet. Add one above." — false the
+       moment the Add-by-URL form moved below this table, and a first-run page
+       whose only instruction points the wrong way at a collapsed region is
+       the harm challenge.md:98-104 named. ui-uplift-m11 (UPL-21) owns
+       empty-state copy and depends_on m12, so it revisits the voice; this
+       fixes the FACT now. The disclosure's own label is quoted so the
+       instruction names the affordance the operator will actually see. #}
+    <p class="empty">No papers yet. Add one from "Manage this notebook" below.</p>
+  {% endif %}
+  {# ui-attractive-polish-m2 (UPL-19 v0): wrap the table in .table-wrap
+     (overflow-x:auto) so narrow viewports scroll the table rather than
+     clipping the Preview / Remove column off the right edge. The wrapper is
+     OUTSIDE the <table> but INSIDE this <section> (ui-uplift-m8 deleted the
+     card class; the wrapper's position is unchanged); m1's
+     aria-live="polite" on <tbody id="papers-tbody"> below is untouched. #}
+  <div class="table-wrap">
+  <table class="papers">
+    <thead>
+      <tr><th>Paper ID</th><th>Added</th><th>Preview</th><th></th></tr>
+    </thead>
+    {# ui-attractive-polish-m1 (UPL-3): aria-live="polite" on the tbody so
+       a successfully uploaded paper-row (hx-swap="beforeend" from the
+       Upload card) is announced to screen readers. Note this is a
+       beforeend swap (not outerHTML), so the <tbody> element itself is
+       NEVER replaced — only the static template attribute is required;
+       no server-fragment update. #}
+    <tbody id="papers-tbody" aria-live="polite">
+      {% for p in papers %}
+      <tr data-slug="{{ notebook.slug }}" data-paper-id="{{ p.paper_id }}">
+        <td><code>{{ p.paper_id }}</code></td>
+        <td><time>{{ p.added_at }}</time></td>
+        <td>
+          {# m10 AC #2: Preview link only when on-disk HTML exists.
+             ``target="_blank"`` opens in a new tab; ``rel="noopener"``
+             prevents the previewed page from accessing window.opener
+             (defense-in-depth alongside the tight CSP). When no
+             preview exists, render a disabled-looking ``<span>`` with
+             a tooltip explaining why. #}
+          {% if p.has_preview %}
+            <a href="/ui/notebooks/{{ notebook.slug }}/papers/{{ p.paper_id }}/preview"
+               target="_blank"
+               rel="noopener">Preview</a>
+          {% else %}
+            {# m10 rect F6: actionable tooltip text — directs the
+               operator to the upload card rather than leaving them
+               stuck at a "no preview" dead end. #}
+            <span class="hint"
+                  title="upload an ar5iv HTML to enable preview">Preview</span>
+          {% endif %}
+        </td>
+        <td>
+          <button type="button"
+                  hx-delete="/ui/api/notebooks/{{ notebook.slug }}/papers/{{ p.paper_id }}"
+                  hx-disabled-elt="this"
+                  hx-confirm="Remove paper '{{ p.paper_id }}' from notebook '{{ notebook.slug }}'?"
+                  hx-on::htmx:after-request="if(event.detail.successful) this.closest('tr').remove()"
+                  class="danger">
+            Remove
+          </button>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>{# /.table-wrap (UPL-19 v0) #}
+</section>
+
+{# ui-uplift-m12 (UPL-1): the Manage disclosure — region 3 of 3.
+
+   LABEL + STATE CUE (AC#3) are both AUTHORED strings, not invented copy:
+   "Manage this notebook" (art-direction-scout-brief.md:428-430) and the cue
+   form "Manage this notebook — ingest running" (challenge.md:107). BAN-10
+   scores 0 on this page and the discovery calls that a strength to protect —
+   "Quick Actions" / "Controls" / "Tools" are the shapes it replaces. The cue
+   is PLAIN TEXT, not a fourth status pill (BAN-7) and not a heading: browsers
+   mapping <summary> to role=button treat its children as presentational, so
+   only a cue riding the accessible NAME is announced by every AT pairing. The
+   <code> voice matches this datum's other rendering at "Last indexed" above —
+   m7's rectify exists because two paths for one value disagreed on voice.
+
+   SOURCE. `latest_run` is passed by server/routes/ui.py:461 from the SAME
+   store.get_latest_ingest_run(slug) the polling endpoint calls at
+   server/routes/notebooks.py:2283. One row, two readers, so the cue cannot
+   drift from the fragment by construction — which is what AC#3 asks for. It
+   is a page-LOAD snapshot while the fragment refreshes every 2s, so a long
+   run can leave `running` in the summary over a settled body: accepted for
+   v0, same row at different read times.
+
+   OPEN (AC#2) MUST BE EMITTED BARE. open="false" renders the disclosure OPEN
+   — HTML boolean attributes are presence-based — so the only correct Jinja
+   form is conditional emission of the attribute itself. The predicate is
+   "open unless success": `none` and `running` both still poll every 2s, and
+   `failed` is terminal but carries the stderr tail the operator has to read.
+
+   NO EXPAND ANIMATION (AC#5), and the roadmap's stated reason is wrong so it
+   is not repeated: `::details-content` is Baseline NEWLY across all engines
+   since 2025-09-16 (Chrome 131 / Firefox 143 / Safari 18.4, WPT 1.0) — only
+   `interpolate-size`/`calc-size()` are Chromium-only. The refusal stands on
+   Newly-not-Widely (Widely 2028-03-16), the basis m6 used for light-dark(),
+   m7 for text-wrap: balance and m10 for line-clamp. Seven live discovery
+   lines still assign [MOT-15 accordion-expand] to UPL-1; challenge.md and
+   final-report.md killed it, and those two are the record.
+
+   No `name` attribute: a shared name opts disclosures into exclusive-
+   accordion grouping and makes them close each other. #}
+<details class="manage-disclosure"{% if not latest_run or latest_run.status != 'success' %} open{% endif %}>
+  <summary>Manage this notebook — ingest <code>{{ latest_run.status if latest_run else 'none' }}</code></summary>
 
 {# DIV — the topic form and its readback. #}
 <div>
@@ -215,12 +368,22 @@
      the form; the m4 beforeend swap doesn't. Compatible with the m4
      negative-regression test (which asserts only `location.reload`
      absence). #}
+  {# ui-uplift-m12 (UPL-1) AC#4: #papers-tbody used to sit BELOW this form;
+     the reorder puts it above the disclosure this form now lives in, so a
+     bare beforeend append can land off-screen upward — "invisible success",
+     the failure AC#4's second clause names. The swap KIND is unchanged;
+     htmx's `show:` modifier only scrolls the append point into view, costs
+     zero CSS lines and adds no dependency. `:bottom` is the just-added row
+     AND the table edge nearest this disclosure, so the form stays near the
+     viewport. Sighted-only fix — the tbody's aria-live always announced.
+     The row count in the papers <h2> is server-rendered and still does NOT
+     update on a beforeend swap; that drift predates m12 (m13 owns it). #}
   <form
     hx-post="/ui/api/notebooks/{{ notebook.slug }}/papers"
     hx-ext="json-enc"
     hx-disabled-elt="find button"
     hx-target="#papers-tbody"
-    hx-swap="beforeend"
+    hx-swap="beforeend show:#papers-tbody:bottom"
     hx-on::htmx:after-request="if(event.detail.successful) this.reset()"
     hx-on::htmx:response-error="document.getElementById('paste-error').textContent = (function(t){try{return JSON.parse(t).detail||t;}catch(e){return t;}})(event.detail.xhr.responseText)"
   >
@@ -243,11 +406,14 @@
     <code>paper_id</code> field below (your local filename is NOT
     used) — this is the path-traversal defense.
   </p>
+  {# ui-uplift-m12 (UPL-1) AC#4: same `show:` fix as the Add-by-URL form
+     above, same reason. hx-encoding="multipart/form-data" is deliberate on
+     THIS form and must not be normalised to hx-ext="json-enc". #}
   <form
     hx-post="/ui/api/notebooks/{{ notebook.slug }}/papers/upload"
     hx-encoding="multipart/form-data"
     hx-target="#papers-tbody"
-    hx-swap="beforeend"
+    hx-swap="beforeend show:#papers-tbody:bottom"
     hx-disabled-elt="find button"
     hx-on::htmx:response-error="document.getElementById('upload-error').textContent = (function(t){try{return JSON.parse(t).detail||t;}catch(e){return t;}})(event.detail.xhr.responseText)"
   >
@@ -314,68 +480,5 @@
     Loading ingest status…
   </div>
 </div>
-
-{# SECTION — the page's focal content region: the corpus itself. #}
-<section>
-  <h2>Papers in this notebook ({{ papers|length }})</h2>
-  {% if not papers %}
-    <p class="empty">No papers yet. Add one above.</p>
-  {% endif %}
-  {# ui-attractive-polish-m2 (UPL-19 v0): wrap the table in .table-wrap
-     (overflow-x:auto) so narrow viewports scroll the table rather than
-     clipping the Preview / Remove column off the right edge. The wrapper is
-     OUTSIDE the <table> but INSIDE this <section> (ui-uplift-m8 deleted the
-     card class; the wrapper's position is unchanged); m1's
-     aria-live="polite" on <tbody id="papers-tbody"> below is untouched. #}
-  <div class="table-wrap">
-  <table class="papers">
-    <thead>
-      <tr><th>Paper ID</th><th>Added</th><th>Preview</th><th></th></tr>
-    </thead>
-    {# ui-attractive-polish-m1 (UPL-3): aria-live="polite" on the tbody so
-       a successfully uploaded paper-row (hx-swap="beforeend" from the
-       Upload card) is announced to screen readers. Note this is a
-       beforeend swap (not outerHTML), so the <tbody> element itself is
-       NEVER replaced — only the static template attribute is required;
-       no server-fragment update. #}
-    <tbody id="papers-tbody" aria-live="polite">
-      {% for p in papers %}
-      <tr data-slug="{{ notebook.slug }}" data-paper-id="{{ p.paper_id }}">
-        <td><code>{{ p.paper_id }}</code></td>
-        <td><time>{{ p.added_at }}</time></td>
-        <td>
-          {# m10 AC #2: Preview link only when on-disk HTML exists.
-             ``target="_blank"`` opens in a new tab; ``rel="noopener"``
-             prevents the previewed page from accessing window.opener
-             (defense-in-depth alongside the tight CSP). When no
-             preview exists, render a disabled-looking ``<span>`` with
-             a tooltip explaining why. #}
-          {% if p.has_preview %}
-            <a href="/ui/notebooks/{{ notebook.slug }}/papers/{{ p.paper_id }}/preview"
-               target="_blank"
-               rel="noopener">Preview</a>
-          {% else %}
-            {# m10 rect F6: actionable tooltip text — directs the
-               operator to the upload card rather than leaving them
-               stuck at a "no preview" dead end. #}
-            <span class="hint"
-                  title="upload an ar5iv HTML to enable preview">Preview</span>
-          {% endif %}
-        </td>
-        <td>
-          <button type="button"
-                  hx-delete="/ui/api/notebooks/{{ notebook.slug }}/papers/{{ p.paper_id }}"
-                  hx-disabled-elt="this"
-                  hx-confirm="Remove paper '{{ p.paper_id }}' from notebook '{{ notebook.slug }}'?"
-                  hx-on::htmx:after-request="if(event.detail.successful) this.closest('tr').remove()"
-                  class="danger">
-            Remove
-          </button>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  </div>{# /.table-wrap (UPL-19 v0) #}
-</section>
+</details>
 {% endblock %}

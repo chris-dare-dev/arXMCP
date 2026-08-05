@@ -383,10 +383,37 @@ class TestSectioningElementDecision:
     #: Read from the RECORD, not from the templates — deriving it from the
     #: markup would make this guard circular, asserting only that the file
     #: equals itself.
+    #:
+    #: ui-uplift-m12 (UPL-1) — a RE-DECISION of notebook_detail.html's order,
+    #: not a re-sort to match whatever the template now emits. m12 changed the
+    #: ORDER of the seven blocks and changed NOTHING about which element each
+    #: site takes: every one of m8's per-site judgements stands. The new site
+    #: order, transcribed from m12's implement/synthesis.md with the reason
+    #: each block sits where it does:
+    #:   1 record    SECTION — identity leads. It is what the URL names, and
+    #:                         it KEEPS form.rename-form: m12 reads AC#1 as
+    #:                         "no MUTATION form above the table" and renaming
+    #:                         edits the record's label, not the corpus. That
+    #:                         narrowing is recorded in the template too.
+    #:   2 papers    SECTION — the corpus, promoted from LAST to second. It is
+    #:                         the reason the page gets opened; leaving it
+    #:                         under six input forms is BAN-5 / BAN-R1 and was
+    #:                         the run's only CRITICAL visual finding.
+    #:   3 topic     DIV     — the five mutation blocks, unchanged in element
+    #:   4 discover  DIV       and in relative order (the authored sequence
+    #:   5 add-paper DIV       Topic -> Discover -> Add-by-URL -> Upload ->
+    #:   6 upload    DIV       Ingest), now nested inside
+    #:   7 ingest    DIV       <details class="manage-disclosure">.
+    #: The five DIVs deliberately stay at column 0: indenting them would drop
+    #: five of the seven per-site records out of this guard's ^<(section|div)>
+    #: view, and a decision recorded as a total is not a recorded decision
+    #: (m8 rectify M8, above). That they are INSIDE the disclosure is pinned
+    #: separately by tests/test_ui_m12_corpus_before_machinery.py, which is
+    #: also the guard indentation would only ever have asserted by accident.
     DECIDED: dict[str, list[str]] = {
         "index.html": ["div", "section"],
         "notebook_detail.html": [
-            "section", "div", "div", "div", "div", "div", "section",
+            "section", "section", "div", "div", "div", "div", "div",
         ],
     }
 
@@ -499,6 +526,13 @@ class TestExemptionIsConditionalPerSite:
         # is no second group to separate from, so nothing depends on the
         # rule to perceive a grouping that does not exist.
         "table:has(tbody:empty) thead th": "no rows below it to separate from",
+        # ui-uplift-m12 (UPL-1). The nested continuation of the row rung: the
+        # five mutation blocks left main's child list when they moved inside
+        # <details class="manage-disclosure">, so `main >` stopped reaching
+        # them. Same blocks, same rung, one level down — and the same second
+        # cue they had before the move, plus an <h2> opening each block.
+        ".manage-disclosure > div + div": "1.25rem margin + padding, and each "
+                                          "block still opens with its <h2>",
     }
 
     def test_every_tinted_rung_site_is_enumerated_with_its_second_cue(
