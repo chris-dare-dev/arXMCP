@@ -1,8 +1,8 @@
 {
   "id": "ui-uplift-m12",
   "created_at": "2026-08-05T03:41:17Z",
-  "updated_at": "2026-08-05T04:01:18Z",
-  "phase": "research-complete",
+  "updated_at": "2026-08-05T04:36:23Z",
+  "phase": "implement-complete",
   "phase_history": [
     {
       "phase": "init",
@@ -15,23 +15,34 @@
     {
       "phase": "research-complete",
       "at": "2026-08-05T04:01:18Z"
+    },
+    {
+      "phase": "implement-running",
+      "at": "2026-08-05T04:03:48Z"
+    },
+    {
+      "phase": "implement-complete",
+      "at": "2026-08-05T04:36:23Z"
     }
   ],
   "milestone_brief": "# Milestone brief \u2014 ui-uplift-m12\n\n**Title:** Corpus before machinery \u2014 reorder the detail page (v0)\n**Kind:** milestone\n**Roadmap:** ui-uplift (plans/ui-uplift/roadmap.yaml)\n**Status:** planned\n**Lane:** next\n**Target:** 2026-09-08 -> 2026-09-26\n\n## Parent epic\n\n- ui-uplift-e3 \u2014 Corpus before machinery \u2014 information architecture and live-region hygiene\n  The papers table, the only corpus content on the detail page, begins at y=1823 of a 2343px document, after six consecutive input forms \u2014 an order that mirrors shipping history, not operator priority. This epic reorders the page around its primary object, adds the focal lede the page has never had, and fixes the live-region behaviour that currently announces every 2 seconds for a whole ingest run.\n\n## Summary\n\nUPL-1. Lead with identity, state and the papers table; collapse the five mutation forms into one native <details> below the corpus. Converts a measured 1823px scroll to the most common task into roughly one viewport. Detail page only in v0; the index half pairs with m11. Ships with NO expand animation \u2014 animating <details> needs interpolate-size or ::details-content, both Chromium-only, and the discovery run parked interpolate-size as too new without noticing its own motion primitive depended on it.\n\n## Acceptance criteria\n\n1. Given the detail page, when opened, then the papers table is visible without scrolling past any input form\n2. Given a notebook with a non-terminal or failed ingest state, when the page renders, then the Manage disclosure is OPEN \u2014 the ingest fragment polls every 2s and would otherwise poll invisibly for a whole run\n3. Given the disclosure summary, then it carries a state cue sourced from the same row the ingest fragment already reads\n4. Given the five moved forms, then every hx-target still resolves and no swap silently lands out of view\n5. Given the reorder, then NO expand animation is claimed or budgeted for\n\n## Depends on\n\n- ui-uplift-m8 \u2014 Retire .card; adopt the graded hairline rule ladder [status: planned]",
   "brief_source": "roadmap plans/ui-uplift/roadmap.yaml",
   "research_mode": "standard",
   "oss_scout_requested": false,
-  "allow_large_diff": false,
+  "allow_large_diff": true,
   "research_briefs": [
     ".claude/notes/milestones/ui-uplift-m12/research/brief-1.md",
     ".claude/notes/milestones/ui-uplift-m12/research/brief-2.md"
   ],
   "research_synthesis": ".claude/notes/milestones/ui-uplift-m12/research/synthesis.md",
-  "implementation_path": null,
+  "implementation_path": "delegated",
   "implementation_plan": null,
-  "implementation_base": null,
-  "implementation_commit_range": null,
-  "implementation_commits": [],
+  "implementation_base": "6f5cbbc0be184e65a9ba39d4a4199d9b1971879c",
+  "implementation_commit_range": "6f5cbbc0be184e65a9ba39d4a4199d9b1971879c..fee853302aa9aca97d735b76c92689b99b7b6610",
+  "implementation_commits": [
+    "fee853302aa9aca97d735b76c92689b99b7b6610",
+    "ad74095afd666ae1d578e5d8ab9fe611a5b7eefe"
+  ],
   "implementation_branch": null,
   "external_writes_required": [
     "git push origin main"
