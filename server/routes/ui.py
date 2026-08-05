@@ -285,9 +285,15 @@ async def ui_status_badge(request: Request) -> HTMLResponse:
     # would snap any <details> closed on each poll. A static <small>
     # block visible-when-degraded has no open-state to lose.
     remediation = _build_remediation_block(report, css)
+    # ui-uplift-m13 (UPL-13, critique H1): NO aria-live/aria-atomic here, and
+    # the polarity is inverted from what ui-attractive-polish-m1 required.
+    # This span is replaced every 10s; a live region re-declared on each
+    # replacement announces its whole content every tick regardless of change.
+    # The region is now the never-swapped <span id="status-live"> wrapper in
+    # base.html. Re-adding them here nests a live region inside a live region
+    # and restores the per-tick announcement on the inner node.
     fragment = (
         f'<span id="status-badge" class="status-badge status-badge--{css}" '
-        f'aria-live="polite" aria-atomic="true" '
         f'hx-get="/ui/status-badge" hx-trigger="every 10s" '
         f'hx-swap="outerHTML" title="{safe}">{safe}{remediation}</span>'
     )

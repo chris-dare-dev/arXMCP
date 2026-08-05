@@ -70,6 +70,16 @@
                 placeholder="Bridgeland stability conditions on K3 surfaces"></textarea>
     </label>
     <button type="submit">Create</button>
+    {# ui-uplift-m13 (UPL-13, critique M1) — DELIBERATELY NOT migrated.
+       The detail page's six error blocks became <output> (implicit
+       role=status), so this is the only .error left carrying an explicit
+       aria-live. That is scope, not oversight: ui-uplift-m12 set v0 to the
+       detail page and the index half belongs to m11/m19, which own this
+       page's copy and empty states. It is not broken — the element is
+       never swapped, only its textContent is set — but it does still sit
+       behind `.error:empty`, so it inherits m13's zero-footprint fix and
+       is registered in the a11y tree at first paint like the other six.
+       Migrate it with the rest of the index, not alone. #}
     <pre id="create-error" class="error" aria-live="polite"></pre>
   </form>
 </div>

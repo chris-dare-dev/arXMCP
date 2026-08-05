@@ -360,28 +360,50 @@ h1 code, h2 code, h3 code { font-size: inherit; }
    would fork the scope, which is what AC#2's "inherits the existing
    tabular-nums scope" rules out. */
 /* ui-uplift-m7 rectify (critique M10): three --mono surfaces sat outside this
-   list — the identifier inputs, pre.error, and the badge remediation. AC#2
+   list — the identifier inputs, .error, and the badge remediation. AC#2
    says an identifier surface takes --mono AND inherits this scope, so the two
    sets must match. Guarded by a derived test rather than review. */
 /* ui-uplift-m10 (AC#2): .discover-meta joins IN PLACE, on the same line, for
    the same reason — it takes --mono above, so it takes this scope too. */
-time, code, .status-badge, .status-badge__remediation, dl.meta dd, pre.error,
+time, code, .status-badge, .status-badge__remediation, dl.meta dd, .error,
 .discover-meta,
 input[name="slug"], input[name="paper_id"], input[name="arxiv_url"] {
   font-variant-numeric: tabular-nums;
 }
 
 /* ui-uplift-m8: radius SQUARED — "0 on structure, 4px on controls" was false
-   three ways here (pre.error, .status-badge, the spinner). This panel
+   three ways here (.error, .status-badge, the spinner). This panel
    squares; the badge keeps its pill by the art direction's named grant, the
    spinner's 50% is a circle. Two exceptions means geometry only REINFORCES
    the split — rhythm and the ladder carry it. */
-pre.error {
+/* ui-uplift-m13 (UPL-13): the selector widened from `pre.error` to `.error`
+   because the six per-form error blocks became <output> (see AC#2 in
+   notebook_detail.html). `display: block` is required — <output> is phrasing
+   content and defaults to inline. <pre class="error"> still uses this rule in
+   two places that deliberately did NOT migrate: index.html's create-error
+   (the index half is m11/m19's, exactly as m12 scoped v0 to the detail page)
+   and _ingest_status_fragment's stderr tail (AC#3 — <pre> is flow content and
+   cannot live inside <output>). */
+.error {
+  display: block;
   background: var(--error-bg); color: var(--danger); padding: 0.5rem;
   margin: 0.5rem 0 0 0; font-family: var(--mono);
   font-size: var(--text-small); white-space: pre-wrap; min-height: 1.2em;
 }
-pre.error:empty { display: none; }
+/* ui-uplift-m13 (UPL-13), and this is the finding the brief did not carry:
+   this rule was `display: none`, which takes the element OUT OF THE
+   ACCESSIBILITY TREE. All six blocks are empty at first paint, so their live
+   regions did not exist as far as an AT was concerned; the error path then set
+   .textContent, which in one frame both gave the element content AND made
+   :empty stop matching — inserting an already-populated live region. A live
+   region must be present and rendered BEFORE its content arrives, so the old
+   arrangement was a reliable way to announce NOTHING.
+   Zero footprint instead of unrendered: the box collapses to nothing visible
+   while staying in the tree, so the region is registered at first paint and
+   the text that lands in it is announced. */
+.error:empty {
+  padding: 0; margin: 0; min-height: 0; background: none;
+}
 
 /* notebook-ops-hardening-m4: live operability badge in the footer.
    Polls /ui/status-badge every 10s; the fragment sets the modifier class. */

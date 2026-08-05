@@ -98,7 +98,7 @@
              placeholder="Display name">
     </label>
     <button type="submit">Rename</button>
-    <pre id="rename-error" class="error" aria-live="polite"></pre>
+    <output id="rename-error" class="error"></output>
   </form>
   <dl class="meta">
     <dt>LanceDB path</dt><dd><code>{{ notebook.lancedb_path }}</code></dd>
@@ -392,7 +392,7 @@
                 placeholder="Bridgeland stability conditions on K3 surfaces">{{ notebook.description }}</textarea>
     </label>
     <button type="submit">Save topic</button>
-    <pre id="topic-error" class="error" aria-live="polite"></pre>
+    <output id="topic-error" class="error"></output>
   </form>
 </div>
 
@@ -424,7 +424,7 @@
     hx-on::htmx:response-error="document.getElementById('discover-error').textContent = (function(t){try{return JSON.parse(t).detail||t;}catch(e){return t;}})(event.detail.xhr.responseText)"
   >
     <button type="submit">Discover</button>
-    <pre id="discover-error" class="error" aria-live="polite"></pre>
+    <output id="discover-error" class="error"></output>
   </form>
   <div id="discover-results" aria-live="polite" aria-atomic="true">
     <p class="hint">No discovery run yet — click Discover above.</p>
@@ -478,7 +478,7 @@
              placeholder="https://arxiv.org/abs/2604.26204">
     </label>
     <button type="submit">Add</button>
-    <pre id="paste-error" class="error" aria-live="polite"></pre>
+    <output id="paste-error" class="error"></output>
   </form>
 </div>
 
@@ -512,7 +512,7 @@
       <input type="file" name="file" accept=".html,text/html" required>
     </label>
     <button type="submit">Upload</button>
-    <pre id="upload-error" class="error" aria-live="polite"></pre>
+    <output id="upload-error" class="error"></output>
   </form>
 </div>
 
@@ -537,7 +537,7 @@
     hx-on::htmx:response-error="document.getElementById('ingest-error').textContent = (function(t){try{return JSON.parse(t).detail||t;}catch(e){return t;}})(event.detail.xhr.responseText)"
   >
     <button type="submit">Ingest now</button>
-    <pre id="ingest-error" class="error" aria-live="polite"></pre>
+    <output id="ingest-error" class="error"></output>
   </form>
   <!-- m9: status placeholder. The trigger handler returns an HTML
        fragment that replaces this div via hx-swap="outerHTML". The
@@ -554,15 +554,47 @@
        · Finished … · Run #42"), and atomic-true tells the AT to
        re-read the whole region rather than guessing diffs on a
        whole-element replacement. -->
-  <div id="ingest-status"
-       data-status="placeholder"
-       aria-live="polite"
-       aria-atomic="true"
-       hx-get="/ui/api/notebooks/{{ notebook.slug }}/ingest/latest"
-       hx-trigger="load"
-       hx-target="#ingest-status"
-       hx-swap="outerHTML">
-    Loading ingest status…
+  {# ui-uplift-m13 (UPL-13, AC#1) — THE LIVE REGION IS THIS WRAPPER, and it is
+     never swapped.
+
+     Before m13, aria-live sat on #ingest-status itself, which is the
+     hx-swap="outerHTML" target of a 2s poll. Inserting a node that carries
+     aria-live announces its content — the AT has no previous version of that
+     node to diff against, so "the status did not change" is not an observation
+     it can make. Every tick re-announced the whole composite string for the
+     entire run. That is UPL-13's complaint, stated exactly.
+
+     A live region only announces CHANGED text, and the element has to PERSIST
+     for that comparison to exist. So the region moves out here and the swap
+     target stays inside it: #ingest-status is replaced as before, this wrapper
+     is not, and an identical re-render is silent by spec.
+
+     AC#3 — this region is deliberately NOT migrated to <output> like the six
+     error blocks were. <output> is phrasing content; the failed branch of
+     _ingest_status_fragment emits <pre class="error">, which is flow content
+     and cannot legally sit inside it.
+
+     A WRAPPER, not hx-swap="innerHTML" on the existing element. Both make the
+     region persist. innerHTML would leave hx-trigger="every 2s" on the
+     surviving element permanently, discarding the defence-in-depth half of the
+     stop mechanism — terminal fragments OMIT the trigger AND the endpoint
+     returns HTTP 286. Keeping outerHTML keeps both halves.
+
+     HARD CONSTRAINT (see the m12 note at the top of this file, which names m13
+     as the near-miss): no swap may target the <details> or any ancestor of it.
+     This wrapper is a DESCENDANT of the disclosure, is never a swap target,
+     and carries no hx-* attribute. m12's
+     TestStructuralInvariantsHoldInTheRenderedTree enforces that and fails
+     loudly on the wrong shape. #}
+  <div id="ingest-live" aria-live="polite" aria-atomic="true">
+    <div id="ingest-status"
+         data-status="placeholder"
+         hx-get="/ui/api/notebooks/{{ notebook.slug }}/ingest/latest"
+         hx-trigger="load"
+         hx-target="#ingest-status"
+         hx-swap="outerHTML">
+      Loading ingest status…
+    </div>
   </div>
 </div>
 </details>

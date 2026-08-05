@@ -8,15 +8,22 @@ pipeline:
 - **UPL-2** ``:focus-visible`` outline-ring rules using ``var(--accent)``
   (and ``var(--danger)`` on ``button.danger``) + ``:focus:not(:focus-visible)``
   reset.
-- **UPL-3** ``aria-live="polite"`` parity on htmx success swap targets:
-  ``#display-name-block``, ``#ingest-status``, ``#papers-tbody``, and
-  ``#status-badge`` (with ``aria-atomic="true"``). The load-bearing test is
-  that the SERVER-RENDERED fragments (the outputs of ``_display_name_fragment``,
-  ``_ingest_status_fragment``, and the ``/ui/status-badge`` endpoint) ALSO
-  carry the attribute, not just the initial template render — htmx
-  ``hx-swap="outerHTML"`` replaces the element entirely, so without the
-  attribute on the swap result the live region goes silent after the first
-  poll (research-synthesis.md §2).
+- **UPL-3** ``aria-live="polite"`` parity on htmx swap targets. The rule
+  SPLIT at ui-uplift-m13 (UPL-13), and which half a target falls in is decided
+  by one question: *is it replaced by a user action, or by a timer?*
+
+  - **User-triggered** (``#display-name-block``, ``#papers-tbody``): the swap
+    result must carry the attribute, exactly as m1 required. One swap, one
+    announcement, which is what was wanted.
+  - **POLLED** (``#ingest-status`` at 2s, ``#status-badge`` at 10s): the
+    attribute moves OFF the swap target and onto a never-swapped wrapper
+    (``#ingest-live``, ``#status-live``), and the fragments assert its
+    ABSENCE. A freshly inserted live region has no previous version to diff
+    against, so re-declaring it on every replacement announces the full
+    content on every tick regardless of change. m1's rule fixed "the region
+    goes silent" by trading it for "the region never shuts up"; the badge did
+    that on every page, with no terminal state, for as long as the tab was
+    open.
 - **UPL-4** Skip-to-main-content link + ``<main id="main" tabindex="-1">`` in
   ``base.html`` + matching ``.skip-link`` rule in ``app.css``.
 
@@ -239,14 +246,30 @@ class TestUPL4SkipLink:
 
 
 class TestUPL3StaticTemplateAriaLive:
-    """The static templates emit ``aria-live`` on the 4 swap targets."""
+    """The static templates emit ``aria-live`` on the USER-TRIGGERED swap
+    targets, and on the never-swapped WRAPPER of each polled one."""
 
-    def test_status_badge_template_has_aria_live_and_aria_atomic(self) -> None:
-        # base.html — the static placeholder before the first poll.
-        idx = BASE_HTML.index('id="status-badge"')
-        attrs = BASE_HTML[idx : idx + 500]
-        assert 'aria-live="polite"' in attrs
-        assert 'aria-atomic="true"' in attrs
+    def test_status_badge_live_region_is_the_wrapper_not_the_badge(self) -> None:
+        """ui-uplift-m13 critique H1 inverted this, for the same reason as the
+        ingest region.
+
+        base.html's badge is the hx-swap="outerHTML" target of a 10s poll. With
+        aria-live on the badge itself, every poll re-inserted a live region and
+        announced "READY · corpus v… · N notebooks" again — on every page, with
+        no terminal state, for as long as the tab was open. The region is now
+        the never-swapped #status-live wrapper.
+        """
+        wrapper = BASE_HTML.index('id="status-live"')
+        wrapper_attrs = BASE_HTML[wrapper : wrapper + 120]
+        assert 'aria-live="polite"' in wrapper_attrs
+        assert 'aria-atomic="true"' in wrapper_attrs
+
+        badge = BASE_HTML.index('id="status-badge"')
+        badge_attrs = BASE_HTML[badge : BASE_HTML.index(">", badge)]
+        assert "aria-live" not in badge_attrs, (
+            "the badge is the SWAP TARGET; a live region on it is re-inserted "
+            "every 10s and announces unchanged text"
+        )
 
     def test_display_name_block_template_has_aria_live(self) -> None:
         # notebook_detail.html — the static initial render.
@@ -254,14 +277,36 @@ class TestUPL3StaticTemplateAriaLive:
         attrs = NOTEBOOK_DETAIL_HTML[idx : idx + 300]
         assert 'aria-live="polite"' in attrs
 
-    def test_ingest_status_template_has_aria_live_and_aria_atomic(self) -> None:
-        # notebook_detail.html — the static "Loading…" placeholder. Both
-        # attributes are required for parity with the swap fragments (m1-rect
-        # F1 added aria-atomic).
-        idx = NOTEBOOK_DETAIL_HTML.index('id="ingest-status"')
-        attrs = NOTEBOOK_DETAIL_HTML[idx : idx + 500]
-        assert 'aria-live="polite"' in attrs
-        assert 'aria-atomic="true"' in attrs
+    def test_ingest_live_wrapper_carries_the_region_not_the_swap_target(
+        self,
+    ) -> None:
+        """ui-uplift-m13 (UPL-13) INVERTED this guard, deliberately.
+
+        It used to assert aria-live on ``#ingest-status`` itself — the
+        hx-swap="outerHTML" target of a 2s poll. That is what made the poll
+        re-announce on every tick: a freshly inserted live region has no
+        previous version to diff against, so the AT reads its whole content
+        whether or not the status changed.
+
+        The region is now the never-swapped ``#ingest-live`` wrapper, and the
+        swap target inside it must NOT carry one — a live region nested in a
+        live region reinstates the per-tick announcement on the inner node.
+        """
+        wrapper = NOTEBOOK_DETAIL_HTML.index('id="ingest-live"')
+        wrapper_attrs = NOTEBOOK_DETAIL_HTML[wrapper : wrapper + 200]
+        assert 'aria-live="polite"' in wrapper_attrs, (
+            "#ingest-live must carry the live region — it is the element that "
+            "survives the poll"
+        )
+        assert 'aria-atomic="true"' in wrapper_attrs
+
+        target = NOTEBOOK_DETAIL_HTML.index('id="ingest-status"')
+        target_attrs = NOTEBOOK_DETAIL_HTML[target : NOTEBOOK_DETAIL_HTML.index(">", target)]
+        assert "aria-live" not in target_attrs, (
+            "#ingest-status is the SWAP TARGET; an aria-live on it is "
+            "re-inserted every 2s and announces unchanged text. UPL-13 exists "
+            "because of exactly this."
+        )
 
     def test_papers_tbody_template_has_aria_live(self) -> None:
         # notebook_detail.html — beforeend swap target; the tbody itself is
@@ -296,17 +341,23 @@ class TestUPL3DisplayNameFragmentAriaLive:
 
 
 class TestUPL3IngestStatusFragmentAriaLive:
-    """Every ``_ingest_status_fragment`` branch emits ``aria-live`` AND
-    ``aria-atomic`` on its <div>.
+    """NO ``_ingest_status_fragment`` branch may carry aria-live/aria-atomic.
 
-    Four code paths: none / running / success / failed. All four must carry
-    BOTH attributes — ``aria-live`` so the live-region fires after the
-    outerHTML swap, and ``aria-atomic="true"`` (m1-rect F1) so the AT re-reads
-    the whole composite string ("Status: success · Finished … · Run #42")
-    rather than guessing diffs on a whole-element replacement.
+    ui-uplift-m13 (UPL-13) inverted this class. It required all four branches
+    (none / running / success / failed) to emit both attributes, on m1's
+    reasoning that the outerHTML swap replaces the element so the replacement
+    must re-declare the region. That reasoning is sound and its result was the
+    defect: re-declaring a live region on every 2s replacement announces the
+    full composite string on every tick for the whole run, changed or not.
+
+    The region moved to the never-swapped ``#ingest-live`` wrapper. These
+    branches must now stay silent about it — nesting a live region inside the
+    wrapper would put the per-tick announcement straight back on the inner
+    node. Same four paths, opposite polarity, same underlying property: there
+    is exactly one live region here and it is the one that persists.
     """
 
-    def test_ingest_status_fragment_none_includes_aria_live(self) -> None:
+    def test_ingest_status_fragment_none_declares_no_live_region(self) -> None:
         out = _ingest_status_fragment(
             slug="bridgeland-stability",
             run_id=None,
@@ -317,10 +368,13 @@ class TestUPL3IngestStatusFragmentAriaLive:
             stderr_tail=None,
         )
         assert 'data-status="none"' in out
-        assert 'aria-live="polite"' in out
-        assert 'aria-atomic="true"' in out
+        assert "aria-live" not in out, (
+            "the 'none' fragment re-declares a live region inside "
+            "#ingest-live; that is the per-tick announcement UPL-13 removed"
+        )
+        assert "aria-atomic" not in out
 
-    def test_ingest_status_fragment_running_includes_aria_live(self) -> None:
+    def test_ingest_status_fragment_running_declares_no_live_region(self) -> None:
         out = _ingest_status_fragment(
             slug="bridgeland-stability",
             run_id=42,
@@ -331,10 +385,13 @@ class TestUPL3IngestStatusFragmentAriaLive:
             stderr_tail=None,
         )
         assert 'data-status="running"' in out
-        assert 'aria-live="polite"' in out
-        assert 'aria-atomic="true"' in out
+        assert "aria-live" not in out, (
+            "the 'running' fragment re-declares a live region inside "
+            "#ingest-live; that is the per-tick announcement UPL-13 removed"
+        )
+        assert "aria-atomic" not in out
 
-    def test_ingest_status_fragment_success_includes_aria_live(self) -> None:
+    def test_ingest_status_fragment_success_declares_no_live_region(self) -> None:
         out = _ingest_status_fragment(
             slug="bridgeland-stability",
             run_id=42,
@@ -345,10 +402,13 @@ class TestUPL3IngestStatusFragmentAriaLive:
             stderr_tail=None,
         )
         assert 'data-status="success"' in out
-        assert 'aria-live="polite"' in out
-        assert 'aria-atomic="true"' in out
+        assert "aria-live" not in out, (
+            "the 'success' fragment re-declares a live region inside "
+            "#ingest-live; that is the per-tick announcement UPL-13 removed"
+        )
+        assert "aria-atomic" not in out
 
-    def test_ingest_status_fragment_failed_includes_aria_live(self) -> None:
+    def test_ingest_status_fragment_failed_declares_no_live_region(self) -> None:
         out = _ingest_status_fragment(
             slug="bridgeland-stability",
             run_id=42,
@@ -359,8 +419,11 @@ class TestUPL3IngestStatusFragmentAriaLive:
             stderr_tail="boom",
         )
         assert 'data-status="failed"' in out
-        assert 'aria-live="polite"' in out
-        assert 'aria-atomic="true"' in out
+        assert "aria-live" not in out, (
+            "the 'failed' fragment re-declares a live region inside "
+            "#ingest-live; that is the per-tick announcement UPL-13 removed"
+        )
+        assert "aria-atomic" not in out
 
 
 # ---------------------------------------------------------------------------
@@ -442,13 +505,20 @@ class TestUPL3StatusBadgeEndpoint:
     poll.
     """
 
-    def test_status_badge_endpoint_fragment_has_aria_live(
+    def test_status_badge_endpoint_fragment_declares_no_live_region(
         self, status_badge_client: TestClient
     ) -> None:
+        """ui-uplift-m13 critique H1: inverted with the template guard above.
+
+        The fragment replaces #status-badge inside the never-swapped
+        #status-live wrapper. Re-declaring the region here would nest one live
+        region in another and put the 10s announcement back on the inner node.
+        """
         r = status_badge_client.get("/ui/status-badge")
         assert r.status_code == 200
-        # The fragment IS the response body (no surrounding chrome).
         text = r.text
         assert 'id="status-badge"' in text
-        assert 'aria-live="polite"' in text
-        assert 'aria-atomic="true"' in text
+        assert "aria-live" not in text, (
+            "the badge fragment re-declares a live region inside #status-live"
+        )
+        assert "aria-atomic" not in text

@@ -107,19 +107,32 @@
            HTML, and a browser XHR to /status would 403 via SecFetchSite).
            hx-get is same-origin under /ui so the existing CSP connect-src
            'self' covers it; no CSP change needed. -->
-      {# ui-attractive-polish-m1 (UPL-3): aria-live="polite" + aria-atomic="true"
-         so screen readers announce badge state transitions (READY/DEGRADED/
-         WARN/DOWN/ops-warn) instead of silent flips. atomic=true reads the
-         whole composite string ("READY · corpus v… · N notebooks") once per
-         change rather than only the changed substring. CRITICAL: the
-         outerHTML swap REPLACES this <span> entirely on each 10s poll, so
-         the SERVER-SIDE fragment in server/routes/ui.py::ui_status_badge
+      {# ui-uplift-m13 (UPL-13, critique H1) — the live region is #status-live,
+         which is never swapped. The badge inside it is.
+
+         This block previously read: "CRITICAL: the outerHTML swap REPLACES
+         this <span> entirely on each 10s poll, so the SERVER-SIDE fragment
          MUST also carry these attributes — otherwise the live region goes
-         silent after the first poll (research-synthesis.md §2). #}
-      <span id="status-badge" class="status-badge"
-            aria-live="polite" aria-atomic="true"
-            hx-get="/ui/status-badge" hx-trigger="load, every 10s"
-            hx-swap="outerHTML">checking…</span>
+         silent after the first poll." True, and it bought silence-avoidance
+         at the price of announcing the whole composite string ("READY ·
+         corpus v… · N notebooks") every ten seconds, on every page, for as
+         long as the tab stayed open. A re-inserted live region has no
+         previous version to diff against, so the AT cannot tell an unchanged
+         poll from a state transition.
+
+         This was NOT in m13's acceptance criteria — those were written from
+         the ingest symptom — but it is one of the twelve regions the
+         milestone's census counts, and unlike the ingest poll it has no
+         terminal state. Fixing the 2s poll and leaving the 10s one would have
+         made the milestone's title true and its purpose false.
+
+         A <span> wrapper, not a <div>: this lives inside <small> and must stay
+         phrasing content. #}
+      <span id="status-live" aria-live="polite" aria-atomic="true">
+        <span id="status-badge" class="status-badge"
+              hx-get="/ui/status-badge" hx-trigger="load, every 10s"
+              hx-swap="outerHTML">checking…</span>
+      </span>
     </small>
   </footer>
 </body>

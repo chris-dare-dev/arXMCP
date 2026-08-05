@@ -2464,24 +2464,33 @@ def _ingest_status_fragment(
     ``prepare_stderr_tail`` so it is interpolated raw into a
     ``<pre>`` here.
     """
-    # ui-attractive-polish-m1 (UPL-3): every fragment branch below MUST emit
-    # aria-live="polite" AND aria-atomic="true" on the new
-    # <div id="ingest-status">. The outerHTML swap REPLACES the element each
-    # poll cycle; without aria-live on the replacement, screen readers stop
-    # announcing ingest run-state transitions (running -> success/failed)
-    # after the first swap. aria-atomic="true" is added in m1-rect F1 for
-    # parity with the badge fragment in server/routes/ui.py — the
-    # ingest-status content is a composite string ("Status: success ·
-    # Finished … · Run #42") and atomic-true tells the AT to re-read the
-    # whole region, not just the changed nodes. Otherwise AT behavior on a
-    # whole-element-replaced node varies (some announce everything, some
-    # nothing — the parity gap surfaces as a regression at first manual
-    # VoiceOver test).
+    # ui-uplift-m13 (UPL-13, AC#1): NO branch below emits aria-live or
+    # aria-atomic, and that is the fix — the polarity here is inverted from
+    # what ui-attractive-polish-m1 required, so read this before restoring it.
+    #
+    # m1's rule was: "every fragment branch MUST emit aria-live, because the
+    # outerHTML swap REPLACES the element each poll cycle and without it screen
+    # readers stop announcing after the first swap." That was a correct reading
+    # of a broken arrangement. Re-emitting aria-live on a REPLACEMENT node is
+    # what made the 2s poll announce on every tick for a whole run: a freshly
+    # inserted live region has no previous version to diff against, so the AT
+    # announces its full content whether or not the status changed. m1 fixed
+    # "the region goes silent" by trading it for "the region never shuts up".
+    #
+    # The live region is now <div id="ingest-live"> in notebook_detail.html — a
+    # stable wrapper that is never swapped. It persists across every poll, so an
+    # unchanged re-render produces no change for it to announce, and a real
+    # transition (running -> success/failed) still does. Emitting aria-live here
+    # as well would nest a live region inside a live region and reinstate the
+    # per-tick announcement on the inner one.
+    #
+    # aria-atomic="true" lives on the wrapper for the same reason m1 wanted it:
+    # the content is a composite string ("Status: success · Finished … ·
+    # Run #42") and the whole region should be re-read when it does change.
     safe_slug = html.escape(slug)
     if status == "none":
         return (
             f'<div id="ingest-status" data-status="none" '
-            f'aria-live="polite" aria-atomic="true" '
             f'hx-get="/ui/api/notebooks/{safe_slug}/ingest/latest" '
             f'hx-trigger="every 2s" hx-target="#ingest-status" '
             f'hx-swap="outerHTML">'
@@ -2491,7 +2500,6 @@ def _ingest_status_fragment(
     if status == "running":
         return (
             f'<div id="ingest-status" data-status="running" '
-            f'aria-live="polite" aria-atomic="true" '
             f'hx-get="/ui/api/notebooks/{safe_slug}/ingest/latest" '
             f'hx-trigger="every 2s" hx-target="#ingest-status" '
             f'hx-swap="outerHTML">'
@@ -2502,8 +2510,7 @@ def _ingest_status_fragment(
         )
     if status == "success":
         return (
-            f'<div id="ingest-status" data-status="success" '
-            f'aria-live="polite" aria-atomic="true">'
+            f'<div id="ingest-status" data-status="success">'
             f"Status: <code>success</code>"
             f" · Finished <time>{html.escape(finished_at or '')}</time>"
             f" · Run #<code>{run_id}</code>"
@@ -2527,8 +2534,7 @@ def _ingest_status_fragment(
     # every other identifier surface. The "Status:"/"Run #"/"Exit" prose
     # around them stays in the sans voice, which is the two-voice split.
     return (
-        f'<div id="ingest-status" data-status="failed" '
-        f'aria-live="polite" aria-atomic="true">'
+        f'<div id="ingest-status" data-status="failed">'
         f"Status: <code>failed</code>"
         f" · Exit <code>{safe_exit}</code>"
         f" · Run #<code>{run_id}</code>"
