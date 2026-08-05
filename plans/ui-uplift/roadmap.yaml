@@ -115,7 +115,7 @@ items:
     rice: { r: 10, i: 3, c: 1.0, e: 10, score: 3.0, rank: 1 }
     links:
       note: [".claude/notes/frontend-uplifts/2026q3-ui-uplift/artifacts/final-report.md"]
-      code: ["server/frontend/static/tokens.css:45-102", "server/frontend/static/tokens.css:172-198", "server/frontend/static/app.css:50-56"]
+      code: ["server/frontend/static/tokens.css:46-185", "server/frontend/static/tokens.css:255-289", "server/frontend/static/app.css:64-65"]
 
   - id: ui-uplift-e2
     kind: epic
@@ -148,7 +148,7 @@ items:
     tags: [workflow, a11y, information-architecture, BAN-R1]
     rice: { r: 10, i: 3, c: 1.0, e: 6, score: 5.0, rank: 3 }
     links:
-      code: ["server/frontend/templates/notebook_detail.html:8-368", "server/frontend/templates/index.html"]
+      code: ["server/frontend/templates/notebook_detail.html:14-381", "server/frontend/templates/index.html"]
 
   - id: ui-uplift-e4
     kind: epic
@@ -164,7 +164,7 @@ items:
     tags: [workflow, interaction, native-css]
     rice: { r: 3, i: 3, c: 1.0, e: 6, score: 1.5, rank: 4 }
     links:
-      code: ["server/frontend/templates/notebook_detail.html:93", "server/frontend/templates/index.html:111"]
+      code: ["server/frontend/templates/notebook_detail.html:99", "server/frontend/templates/index.html:124"]
 
   # ------------------------------------------------ shipped (3a7d626)
   - id: ui-uplift-m1
@@ -187,7 +187,7 @@ items:
       - "Given .status-badge--ok, when contrast is computed against its own background, then the ratio is >= 4.5:1 (shipped: 6.063:1) and its border clears 3:1 against the card ground (shipped: 6.885:1)"
       - "Given the other three light-mode pills, when re-measured, then they are unchanged and still pass (5.39 / 6.74 / 6.80)"
     links:
-      code: ["server/frontend/static/app.css:66-70", "server/frontend/static/app.css:364-367"]
+      code: ["server/frontend/static/app.css:372-375"]
 
   - id: ui-uplift-m2
     kind: milestone
@@ -250,7 +250,7 @@ items:
       - "Given dark mode, when textarea renders, then it resolves to --card-bg / --fg; select keeps its UA appearance, which color-scheme:light dark already auto-darkens"
       - "Given the v0 scope, then appearance:none is NOT used, because it would discard the UA control internals color-scheme exists to theme and would force the product's first icon"
     links:
-      code: ["server/frontend/static/app.css:106-111"]
+      code: ["server/frontend/static/app.css:108-113"]
 
   - id: ui-uplift-m5
     kind: milestone
@@ -270,7 +270,7 @@ items:
     acceptance:
       - "Given either data table, when the pointer enters a tbody row, then that row takes a subtle tint derived from existing tokens and no other row changes"
     links:
-      code: ["server/frontend/static/app.css:177"]
+      code: ["server/frontend/static/app.css:202"]
 
   # ------------------------------------------------------- next wave
   - id: ui-uplift-m6
@@ -298,7 +298,7 @@ items:
       - "Given color-scheme: light dark, then it is preserved — it is load-bearing for UA control internals and is not a token"
       - "Given light-dark(), then it is NOT used in v0 — it is Newly Available not Widely, and inside a custom property an unsupporting engine fails at substitution, resolving button backgrounds to transparent and leaving white-on-white primary buttons"
     links:
-      code: ["server/frontend/static/tokens.css:45-102", "server/frontend/static/tokens.css:172-198"]
+      code: ["server/frontend/static/tokens.css:46-185", "server/frontend/static/tokens.css:255-289"]
 
   - id: ui-uplift-m7
     kind: milestone
@@ -322,7 +322,7 @@ items:
       - "Given a 390px viewport, when the page title renders, then it scales via clamp() rather than staying fixed at 32px"
       - "Given the type tokens, then they extend the existing :root block and do not parallel-define a second token set"
     links:
-      code: ["server/frontend/static/app.css:11-13", "server/frontend/static/app.css:47", "server/frontend/static/app.css:64-71", "server/frontend/static/tokens.css:154-169"]
+      code: ["server/frontend/static/app.css:15-17", "server/frontend/static/app.css:51", "server/frontend/static/app.css:71", "server/frontend/static/tokens.css:237-252"]
 
   - id: ui-uplift-m8
     kind: milestone
@@ -348,7 +348,7 @@ items:
       - "Given the type scale from m7, then it has shipped — without it this milestone degrades to 'the same page with the borders removed', which is a worse outcome than shipping neither"
     links:
       note: [".claude/docs/ui-contrast-table.md", ".claude/notes/milestones/ui-uplift-m10/rectify/summary.md"]
-      code: ["server/frontend/static/app.css:50-56", "server/frontend/static/app.css:81-91"]
+      code: ["server/frontend/static/app.css:64-65", "server/frontend/static/app.css:83-93"]
 
   - id: ui-uplift-m9
     kind: milestone
@@ -432,7 +432,7 @@ items:
       - "Given the reorder milestone, then this ships WITH it — shipping either alone leaves a page whose only instruction is wrong"
       - "Given the source pattern leads with an icon, then either the anatomy is adopted WITHOUT the icon, or the product's first icon is an explicit recorded decision"
     links:
-      code: ["server/frontend/static/app.css:71", "server/frontend/templates/index.html:86"]
+      code: ["server/frontend/static/app.css:73", "server/frontend/templates/index.html:99"]
 
   - id: ui-uplift-m12
     kind: milestone
@@ -458,7 +458,7 @@ items:
       - "Given the five moved forms, then every hx-target still resolves and no swap silently lands out of view"
       - "Given the reorder, then NO expand animation is claimed or budgeted for"
     links:
-      code: ["server/frontend/templates/notebook_detail.html:8-368"]
+      code: ["server/frontend/templates/notebook_detail.html:14-381"]
 
   - id: ui-uplift-m13
     kind: milestone
@@ -507,7 +507,7 @@ items:
       - "Given the affirmative button, then it is labelled with the destructive verb, never OK"
       - "Given the security audit, then the added JS surface is declared against the open UI audit issue rather than passing silently"
     links:
-      code: ["server/frontend/templates/notebook_detail.html:93", "server/frontend/templates/index.html:111"]
+      code: ["server/frontend/templates/notebook_detail.html:99", "server/frontend/templates/index.html:124"]
 
   - id: ui-uplift-m15
     kind: milestone
@@ -529,7 +529,7 @@ items:
       - "Given the selector, then it targets an element that survives the .card deletion — the discovery catalog's proposed .card:has(...) keys off a class the rule-ladder milestone removes"
       - "Given the shipped button spinner, then the region cue is a deliberate second signal, not an accidental double-signal"
     links:
-      code: ["server/frontend/static/app.css:509-533"]
+      code: ["server/frontend/static/app.css:512-536"]
 
   - id: ui-uplift-m16
     kind: milestone
@@ -549,7 +549,7 @@ items:
       - "Given a short-content field (slug, paper id), when rendered at desktop width, then it is capped near its expected content length"
       - "Given the container, then it is re-targeted to the surviving ledger section rather than the deleted .card"
     links:
-      code: ["server/frontend/static/app.css:81-91"]
+      code: ["server/frontend/static/app.css:83-93"]
 
   - id: ui-uplift-m17
     kind: milestone
@@ -569,7 +569,7 @@ items:
       - "Given a same-origin navigation, when it occurs, then the browser crossfades within the existing 200ms cap"
       - "Given the at-rule, then it lives INSIDE the existing prefers-reduced-motion no-preference block, or it becomes a second sticky reduced-motion gap"
     links:
-      code: ["server/frontend/static/app.css:575-578"]
+      code: ["server/frontend/static/app.css:578-581"]
 
   - id: ui-uplift-m18
     kind: milestone
@@ -592,7 +592,7 @@ items:
       - "Given the helper, then it writes via textContent, not innerHTML"
       - "Given the /ui/api endpoints, then their 4xx/5xx response contract is UNCHANGED"
     links:
-      code: ["server/frontend/static/json-enc.js", "server/frontend/templates/notebook_detail.html:37"]
+      code: ["server/frontend/static/json-enc.js", "server/frontend/templates/notebook_detail.html:43"]
 
   - id: ui-uplift-m19
     kind: milestone
@@ -638,7 +638,7 @@ items:
       - "Given the paper count, then its definition is resolved BEFORE the sentence is authored — the API counts junction rows, which is why notebooks with large corpora can report zero; showing a number the operator cannot trust is forbidden"
       - "Given v0, then the existing definition list is KEPT as the machine-readable substrate and the sentence is added above it; collapsing it into prose trades term-value associations screen readers expose for a flat text run"
     links:
-      code: ["server/frontend/templates/notebook_detail.html:48-83"]
+      code: ["server/frontend/templates/notebook_detail.html:54-89"]
 
   - id: ui-uplift-m21
     kind: milestone
@@ -661,7 +661,7 @@ items:
       - "Given a fine pointer at desktop width, then density is unchanged by that floor"
       - "Given the density rhythm, then it differs deliberately between data tables and forms rather than being uniform-medium everywhere"
     links:
-      code: ["server/frontend/static/app.css:95-108", "server/frontend/static/app.css:17"]
+      code: ["server/frontend/static/app.css:97-110", "server/frontend/static/app.css:21"]
 
   - id: ui-uplift-m22
     kind: milestone
@@ -682,7 +682,7 @@ items:
       - "Given that state, then colour is NOT the sole carrier — it pairs with a border-width change, a text cue, or aria-invalid plus a description reference"
       - "Given the invalid colour, then it uses the danger token, not a literal"
     links:
-      code: ["server/frontend/templates/index.html:31-32"]
+      code: ["server/frontend/templates/index.html:43-44"]
 
   - id: ui-uplift-m23
     kind: milestone
