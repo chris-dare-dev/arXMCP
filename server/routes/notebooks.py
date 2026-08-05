@@ -702,6 +702,48 @@ def _safe_contact_email() -> str | None:
         return None
 
 
+#: Longest lede allowed in a `.discover-abstract` <summary>, in characters.
+#: 120 is not arbitrary: `tools/_arxiv_api.py` already truncates
+#: `abstract_head` to 120 for its TSV column, so the console reuses the
+#: repo's existing "how much abstract is a preview" answer rather than
+#: inventing a second one.
+ABSTRACT_LEDE_CHARS = 120
+
+#: Shown when a candidate has no abstract at all. A <summary> is the
+#: disclosure's accessible name; an empty one produces an unnamed control,
+#: which is worse than a generic label.
+ABSTRACT_LEDE_FALLBACK = "Abstract"
+
+
+def _abstract_lede(abstract: str) -> str:
+    """Bound ``abstract`` to a label short enough to name a control.
+
+    A ``<summary>`` becomes the disclosure's accessible name, and
+    ``abstract_head`` carries the FULL arXiv abstract — ``tools/_arxiv_api.py``
+    builds it as ``" ".join(summary.split())`` with no truncation, normally
+    800–1500 characters. ui-uplift-m10 interpolated it into both the
+    ``<summary>`` and the ``<p>``, so the control was named with an entire
+    abstract and, once opened, the same abstract rendered twice at full
+    length (``.discover-abstract[open] > summary`` removes the clamp).
+
+    Cuts on a word boundary so the lede does not end mid-token, and appends
+    an ellipsis ONLY when text was actually removed — a short abstract that
+    fits must not look truncated, which is the failure m10 set out to fix in
+    the first place and would have reintroduced with a blind slice.
+    """
+    text = " ".join(abstract.split())
+    if not text:
+        return ABSTRACT_LEDE_FALLBACK
+    if len(text) <= ABSTRACT_LEDE_CHARS:
+        return text
+    cut = text[:ABSTRACT_LEDE_CHARS]
+    # rsplit on the last space keeps whole words; a 120-char run with no
+    # space at all (rare, but a single long token is possible) falls back to
+    # the hard cut rather than returning an empty lede.
+    head = cut.rsplit(" ", 1)[0] if " " in cut else cut
+    return f"{head}…"
+
+
 def _discover_results_fragment(
     slug: str, candidates: list[DiscoveryCandidate],
 ) -> str:
@@ -744,8 +786,18 @@ def _discover_results_fragment(
                 # truncated one. <details> is native, keyboard-operable and
                 # needs no JS; the full text was already in the DOM, so this
                 # adds a control rather than a payload.
+                #
+                # CORRECTED 2026-08-05 (external review). That fix put the
+                # IDENTICAL abstract_head in both <summary> and <p>. A
+                # <summary> is the disclosure's accessible NAME, and
+                # abstract_head is the full arXiv abstract — normally
+                # 800–1500 characters — so the control was named with the
+                # entire abstract, and opening it rendered that abstract
+                # twice in full (CSS unclips the summary at [open]). The
+                # summary now carries a bounded lede and the body carries the
+                # full text exactly once.
                 '<details class="discover-abstract">'
-                f'<summary>{html.escape(c.abstract_head)}</summary>'
+                f'<summary>{html.escape(_abstract_lede(c.abstract_head))}</summary>'
                 f'<p>{html.escape(c.abstract_head)}</p>'
                 "</details>"
                 f'<form hx-post="/ui/api/notebooks/{safe_slug}/papers"'

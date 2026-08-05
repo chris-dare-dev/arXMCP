@@ -234,17 +234,25 @@ class TestStaticAssets:
         assert "text/css" in r.headers["content-type"]
         assert ":root" in r.text
 
-    def test_base_html_links_tokens_before_app(self, client: TestClient) -> None:
-        """Order is load-bearing: a custom property must be declared before
-        the rule that consumes it, so tokens.css has to come first."""
+    def test_served_page_links_both_stylesheets(self, client: TestClient) -> None:
+        """Both sheets reach the browser. ORDER IS NOT ASSERTED.
+
+        Renamed from ``test_base_html_links_tokens_before_app``, which
+        asserted ``tokens_at < app_at`` on the claim that otherwise "every
+        var(--x) in the rule sheet resolves against an undeclared token".
+        That claim is false (external review, 2026-08-05): custom properties
+        resolve at computed-value time through the cascade, so the declaring
+        stylesheet need not precede a consuming rule and the two links may
+        appear in either order. The convention survives in ``base.html``; the
+        correctness claim does not. Full note at the link tags there, and the
+        source-level twin of this guard is in ``test_ui_m7_type_scale.py``.
+        """
         body = client.get("/ui/").text
-        tokens_at = body.find("/ui/static/tokens.css")
-        app_at = body.find("/ui/static/app.css")
-        assert tokens_at != -1, "the page does not link tokens.css at all"
-        assert app_at != -1, "the page does not link app.css at all"
-        assert tokens_at < app_at, (
-            "tokens.css must be linked BEFORE app.css — otherwise every "
-            "var(--x) in the rule sheet resolves against an undeclared token"
+        assert "/ui/static/tokens.css" in body, (
+            "the page does not link tokens.css at all"
+        )
+        assert "/ui/static/app.css" in body, (
+            "the page does not link app.css at all"
         )
 
     def test_static_404_on_missing_asset(self, client: TestClient) -> None:

@@ -5,11 +5,24 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}arXMCP — notebooks{% endblock %}</title>
   {# ui-uplift-m7 (UPL-3): tokens.css carries the :root design-token blocks
-     (colour, duration, type) that used to open app.css. It MUST be linked
-     BEFORE app.css — a custom property has to be declared before the rules
-     that var() it, so this order is load-bearing, not cosmetic. Both are
-     same-origin under /ui/static/, so CSP style-src 'self' already covers
-     the second link and no middleware change was needed. #}
+     (colour, duration, type) that used to open app.css.
+
+     CORRECTED (external review, 2026-08-05). This comment used to say the
+     order was load-bearing because "a custom property has to be declared
+     before the rules that var() it". That is FALSE. Custom properties are
+     resolved at computed-value time through the cascade, not by source
+     order across sheets: `var(--x)` in app.css picks up the winning
+     declaration of `--x` on the matched element regardless of which
+     stylesheet declared it or when. Swapping these two links changes
+     nothing about what renders.
+
+     The order is kept as CONVENTION — tokens before the rules that spend
+     them reads in the obvious direction, and a reader opening the head
+     should meet the vocabulary first. It is not correctness, and the guard
+     in tests/test_ui_m7_type_scale.py no longer claims it is.
+
+     Both are same-origin under /ui/static/, so CSP style-src 'self' already
+     covers the second link and no middleware change was needed. #}
   <link rel="stylesheet" href="/ui/static/tokens.css">
   <link rel="stylesheet" href="/ui/static/app.css">
   {# ui-attractive-polish-m2 (UPL-25): SVG favicon served from /ui/static/

@@ -476,17 +476,36 @@ class TestTokensCssSplit:
             f"not move with them)."
         )
 
-    def test_base_html_links_tokens_before_app(self) -> None:
-        # Custom properties must be declared before the rules that var()
-        # them. Getting this order wrong renders every var() as its initial
-        # value, and nothing else in the suite would notice.
-        tokens_at = BASE_HTML.find('href="/ui/static/tokens.css"')
-        app_at = BASE_HTML.find('href="/ui/static/app.css"')
-        assert tokens_at != -1, "base.html does not link tokens.css"
-        assert app_at != -1, "base.html does not link app.css"
-        assert tokens_at < app_at, (
-            "tokens.css must be linked BEFORE app.css — a custom property "
-            "has to be declared before the rules that reference it"
+    def test_base_html_links_both_stylesheets(self) -> None:
+        """Both sheets are linked. ORDER IS NOT ASSERTED — see below.
+
+        This test used to be ``test_base_html_links_tokens_before_app`` and
+        pinned ``tokens_at < app_at`` on the stated rationale that "a custom
+        property has to be declared before the rules that reference it" and
+        that getting it wrong "renders every var() as its initial value".
+
+        That rationale is false, and an external review (2026-08-05) caught
+        it. Custom properties are resolved at computed-value time through the
+        cascade: ``var(--x)`` in ``app.css`` takes the winning declaration of
+        ``--x`` for the matched element no matter which stylesheet declared
+        it or in what order the sheets loaded. Swapping the two links renders
+        identically. The order survives in ``base.html`` as a reading
+        convention and is documented there as one.
+
+        Enforcing a cosmetic convention as correctness is worse than not
+        testing it: the next reader trusts the assertion message, and a guard
+        whose stated failure mode cannot happen teaches a false mechanism
+        about the platform. What IS load-bearing — that both hrefs resolve to
+        files that actually ship — is pinned by
+        ``test_every_stylesheet_base_html_links_actually_exists`` below, and
+        that failure mode (a 404 collapsing every ``var()`` to its initial
+        value) is real.
+        """
+        assert 'href="/ui/static/tokens.css"' in BASE_HTML, (
+            "base.html does not link tokens.css"
+        )
+        assert 'href="/ui/static/app.css"' in BASE_HTML, (
+            "base.html does not link app.css"
         )
 
     def test_every_stylesheet_base_html_links_actually_exists(self) -> None:
@@ -757,6 +776,100 @@ class TestM10RectifyDiscoverPanel:
             r"\.discover-abstract\[open\]\s*>\s*summary\s*\{[^}]*max-height:\s*none",
             APP_CSS_NO_COMMENTS, flags=_re.S,
         ), "the open state must release the clamp"
+
+    def test_the_summary_is_a_bounded_lede_not_the_whole_abstract(self) -> None:
+        """External review, 2026-08-05.
+
+        m10's remedy put the IDENTICAL ``abstract_head`` in both the
+        ``<summary>`` and the ``<p>``. A ``<summary>`` is the disclosure's
+        accessible NAME, and ``abstract_head`` is the untruncated arXiv
+        abstract (``tools/_arxiv_api.py`` builds it as
+        ``" ".join(summary.split())``) — normally 800-1500 characters. So the
+        control was named with an entire abstract, and because
+        ``.discover-abstract[open] > summary`` releases the clamp, opening it
+        rendered that abstract twice at full length.
+
+        Asserted on the rendered fragment rather than on the source text: the
+        defect was that two rendered strings were equal, and only rendering
+        can show that.
+        """
+        from server.routes.notebooks import (  # noqa: PLC0415
+            ABSTRACT_LEDE_CHARS,
+            _abstract_lede,
+        )
+
+        abstract = (
+            "We prove a structure theorem for stability conditions on the "
+            "bounded derived category of coherent sheaves on a smooth "
+            "projective variety, extending Bridgeland's construction to the "
+            "relative setting over an arbitrary Noetherian base scheme. "
+        ) * 4
+        assert len(abstract) > 800, "the fixture must be a realistic abstract"
+
+        lede = _abstract_lede(abstract)
+        assert lede != abstract, (
+            "the summary reproduces the whole abstract — that is the defect"
+        )
+        assert len(lede) <= ABSTRACT_LEDE_CHARS + 1, (
+            f"the disclosure's accessible name is {len(lede)} chars; a control "
+            f"name must be bounded (limit {ABSTRACT_LEDE_CHARS} + ellipsis)"
+        )
+        assert lede.endswith("…"), "a truncated lede must say so"
+        assert abstract.startswith(lede.rstrip("…")), (
+            "the lede must be a prefix of the abstract, not a paraphrase"
+        )
+
+    def test_a_short_abstract_is_not_made_to_look_truncated(self) -> None:
+        """The failure m10 existed to fix, which a blind slice would have
+        reintroduced from the other side: a short abstract that fits must not
+        acquire an ellipsis suggesting there is more to reveal."""
+        from server.routes.notebooks import _abstract_lede  # noqa: PLC0415
+
+        short = "A short abstract that fits comfortably within the bound."
+        assert _abstract_lede(short) == short
+        assert "…" not in _abstract_lede(short)
+
+    def test_an_absent_abstract_still_names_the_control(self) -> None:
+        """An empty ``<summary>`` is an unnamed disclosure button, which is
+        worse than a generic label."""
+        from server.routes.notebooks import (  # noqa: PLC0415
+            ABSTRACT_LEDE_FALLBACK,
+            _abstract_lede,
+        )
+
+        for empty in ("", "   ", "\n\t "):
+            assert _abstract_lede(empty) == ABSTRACT_LEDE_FALLBACK
+
+    def test_the_fragment_does_not_render_the_abstract_twice(self) -> None:
+        """The end-to-end shape of the same defect, over the real builder."""
+        from server.routes.notebooks import (  # noqa: PLC0415
+            _discover_results_fragment,
+        )
+        from tools.discover_for_notebook import (  # noqa: PLC0415
+            DiscoveryCandidate,
+        )
+
+        abstract = "Sentence about sheaves. " * 60
+        frag = _discover_results_fragment(
+            "demo",
+            [DiscoveryCandidate(
+                paper_id="2307.00002", title="A title",
+                abstract_head=abstract, submitted_date="2026-08-05",
+            )],
+        )
+        summary = _re.search(r"<summary>(.*?)</summary>", frag, flags=_re.S)
+        body = _re.search(r"<details[^>]*>.*?<p>(.*?)</p>", frag, flags=_re.S)
+        assert summary is not None and body is not None, frag
+        assert summary.group(1) != body.group(1), (
+            "the disclosure control and its body render identical text; the "
+            "control is supposed to be a label FOR the body"
+        )
+        assert len(summary.group(1)) < len(body.group(1)), (
+            "the summary is not shorter than the body it labels"
+        )
+        assert frag.count(abstract.strip()) <= 1, (
+            "the full abstract appears more than once in the fragment"
+        )
 
     def test_candidate_title_is_a_heading(self) -> None:
         """M13: it was a <p> carrying font-weight 600, so the hierarchy this

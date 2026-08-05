@@ -1,8 +1,9 @@
 /* arXMCP UI — design tokens. Colour family (ui-uplift-m6) + type scale
    (ui-uplift-m7) + rule ladder (ui-uplift-m8). Ships under
-   /ui/static/tokens.css and is linked BEFORE
-   app.css in base.html: a custom property must be declared before the rules
-   that var() it, so link order is load-bearing, not cosmetic.
+   /ui/static/tokens.css and is linked BEFORE app.css in base.html as a
+   reading CONVENTION — this used to claim the order was load-bearing because
+   a property "must be declared before the rules that var() it", which is
+   false (corrected 2026-08-05). Full note at base.html's link tags.
 
    ui-uplift-m7 split this file out of app.css, which stood at 471 of a
    480-line cap asserted in lockstep by three test files. The alternative was
