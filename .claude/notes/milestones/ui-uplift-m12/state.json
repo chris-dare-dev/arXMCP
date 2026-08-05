@@ -1,7 +1,7 @@
 {
   "id": "ui-uplift-m12",
   "created_at": "2026-08-05T03:41:17Z",
-  "updated_at": "2026-08-05T20:00:00Z",
+  "updated_at": "2026-08-05T21:30:00Z",
   "phase": "complete",
   "phase_history": [
     {
@@ -86,7 +86,20 @@
     "H1",
     "H2",
     "H3",
+    "L1",
+    "L2",
+    "L3",
+    "L4",
+    "L5",
+    "L6",
+    "L7",
+    "L8",
+    "L9",
     "M1",
+    "M10",
+    "M11",
+    "M12",
+    "M13",
     "M2",
     "M3",
     "M4",
@@ -94,33 +107,20 @@
     "M6",
     "M7",
     "M8",
-    "M9",
-    "M11",
-    "M12",
-    "M13",
-    "L1",
-    "L2",
-    "L3",
-    "L5",
-    "L6",
-    "L7",
-    "L8",
-    "L9"
+    "M9"
   ],
-  "deferred_findings": [
-    "M10",
-    "L4"
-  ],
+  "deferred_findings": [],
   "invalidated_findings": [],
   "regression_tests_added": [
-    "tests/test_ui_m12_corpus_before_machinery.py::TestSummaryCueIsRefreshedOutOfBand",
-    "tests/test_ui_m12_corpus_before_machinery.py::TestStructuralInvariantsHoldInTheRenderedTree",
-    "tests/test_ui_m12_corpus_before_machinery.py::TestRegionThreeIsNamedAndReachable",
-    "tests/test_ui_m12_corpus_before_machinery.py::TestLadderDeclarationsCannotBeEmptiedSilently",
+    "tests/test_roadmap_links_resolve.py",
+    "tests/test_ui_a11y_baselines.py::test_every_shipped_disclosure_is_covered_by_the_ring",
     "tests/test_ui_m12_corpus_before_machinery.py::TestCorpusPrecedesMachinery::test_the_narrowing_agrees_with_the_canonical_AC",
+    "tests/test_ui_m12_corpus_before_machinery.py::TestLadderDeclarationsCannotBeEmptiedSilently",
     "tests/test_ui_m12_corpus_before_machinery.py::TestManageDisclosureNesting::test_the_mutation_divs_stay_at_column_zero",
-    "tests/test_ui_m3_dark_and_htmx_feedback.py::TestCapCommentsCarryNoAbsoluteLineCount",
-    "tests/test_ui_a11y_baselines.py::test_every_shipped_disclosure_is_covered_by_the_ring"
+    "tests/test_ui_m12_corpus_before_machinery.py::TestRegionThreeIsNamedAndReachable",
+    "tests/test_ui_m12_corpus_before_machinery.py::TestStructuralInvariantsHoldInTheRenderedTree",
+    "tests/test_ui_m12_corpus_before_machinery.py::TestSummaryCueIsRefreshedOutOfBand",
+    "tests/test_ui_m3_dark_and_htmx_feedback.py::TestCapCommentsCarryNoAbsoluteLineCount"
   ],
   "external_writes_authorized": [
     "git push origin main"

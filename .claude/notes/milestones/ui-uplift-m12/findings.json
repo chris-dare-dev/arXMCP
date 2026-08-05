@@ -4,7 +4,7 @@
   "critique_files": [
     "dedup.md"
   ],
-  "generated_at": "2026-08-05T16:10:36Z",
+  "generated_at": "2026-08-05T16:37:09Z",
   "findings": {
     "H1": {
       "id": "H1",
@@ -266,13 +266,18 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "tier sequencing",
       "source_file": "dedup.md",
-      "status": "deferred",
-      "resolution": "DEFERRED TO /roadmap - one-writer rule, and both findings say so themselves. M10: app.css grew 598->627 (656 today) with insertions at 64-94, so every links.code anchor at line >=64 is off, and notebook_detail.html's reorder invalidated its own; twelve roadmap items affected. Its stated disposition is explicit: 'Owned by /roadmap under the one-writer rule - do not edit plans/ui-uplift/roadmap.yaml in Phase 4', and it wants symbol/selector-shaped anchors rather than line numbers for files this epic keeps rewriting, which is a re-resolution pass and not a Phase-4 edit. L4: ui-uplift-m11's window (2026-09-08 -> 09-15) ends 11 days before ui-uplift-m12's target_end (09-26) although m11 depends_on m12, and its AC#2 'ships WITH it' is stale now that m12 shipped alone; also /roadmap-owned. NOTE THE ONE EXCEPTION MADE DELIBERATELY: roadmap.yaml WAS edited this session, for AC#1's text only, on explicit owner instruction - that is an acceptance-criterion correction resolving a contradiction with the shipped page, not an anchor re-resolution, and it is recorded in the AC's own comment.",
+      "status": "fixed",
+      "resolution": "/roadmap pass done 2026-08-05. All 39 line-number anchors in plans/ui-uplift/roadmap.yaml re-resolved to path#<literal> form, which a lint resolves by SEARCHING rather than counting - a line number in a hand-maintained doc is stale by construction, and app.css went 598->627->656 in two days with every insertion near the top. The damage was worse than filed: twelve anchors pointed at unrelated comment blocks, several at comments written the same day. Each item's intended target was re-derived from its own title and summary (m16 -> input[type=text] rules, m21 -> body/button padding, m18 -> JSON.parse handler, m17 -> ::view-transition-old(root), and so on), and every new anchor was verified to resolve before the rewrite was allowed to run. Durable fix: tests/test_roadmap_links_resolve.py, which is repo-local because roadmap-validate.py is registry-synced and must not be edited here. Strict for ui-uplift (every anchor resolves AND no line anchors - a line anchor that happens to resolve today is not evidence, since twelve of them resolved perfectly while pointing at the wrong code); a ratchet for the other eleven roadmaps, which carry 46 unresolvable anchors this pass did not touch.",
       "history": [
         {
           "status": "deferred",
           "at": "2026-08-05T16:10:36Z",
           "resolution": "DEFERRED TO /roadmap - one-writer rule, and both findings say so themselves. M10: app.css grew 598->627 (656 today) with insertions at 64-94, so every links.code anchor at line >=64 is off, and notebook_detail.html's reorder invalidated its own; twelve roadmap items affected. Its stated disposition is explicit: 'Owned by /roadmap under the one-writer rule - do not edit plans/ui-uplift/roadmap.yaml in Phase 4', and it wants symbol/selector-shaped anchors rather than line numbers for files this epic keeps rewriting, which is a re-resolution pass and not a Phase-4 edit. L4: ui-uplift-m11's window (2026-09-08 -> 09-15) ends 11 days before ui-uplift-m12's target_end (09-26) although m11 depends_on m12, and its AC#2 'ships WITH it' is stale now that m12 shipped alone; also /roadmap-owned. NOTE THE ONE EXCEPTION MADE DELIBERATELY: roadmap.yaml WAS edited this session, for AC#1's text only, on explicit owner instruction - that is an acceptance-criterion correction resolving a contradiction with the shipped page, not an anchor re-resolution, and it is recorded in the AC's own comment."
+        },
+        {
+          "status": "fixed",
+          "at": "2026-08-05T16:37:09Z",
+          "resolution": "/roadmap pass done 2026-08-05. All 39 line-number anchors in plans/ui-uplift/roadmap.yaml re-resolved to path#<literal> form, which a lint resolves by SEARCHING rather than counting - a line number in a hand-maintained doc is stale by construction, and app.css went 598->627->656 in two days with every insertion near the top. The damage was worse than filed: twelve anchors pointed at unrelated comment blocks, several at comments written the same day. Each item's intended target was re-derived from its own title and summary (m16 -> input[type=text] rules, m21 -> body/button padding, m18 -> JSON.parse handler, m17 -> ::view-transition-old(root), and so on), and every new anchor was verified to resolve before the rewrite was allowed to run. Durable fix: tests/test_roadmap_links_resolve.py, which is repo-local because roadmap-validate.py is registry-synced and must not be edited here. Strict for ui-uplift (every anchor resolves AND no line anchors - a line anchor that happens to resolve today is not evidence, since twelve of them resolved perfectly while pointing at the wrong code); a ratchet for the other eleven roadmaps, which carry 46 unresolvable anchors this pass did not touch."
         }
       ]
     },
@@ -406,13 +411,18 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "tier sequencing",
       "source_file": "dedup.md",
-      "status": "deferred",
-      "resolution": "DEFERRED TO /roadmap - one-writer rule, and both findings say so themselves. M10: app.css grew 598->627 (656 today) with insertions at 64-94, so every links.code anchor at line >=64 is off, and notebook_detail.html's reorder invalidated its own; twelve roadmap items affected. Its stated disposition is explicit: 'Owned by /roadmap under the one-writer rule - do not edit plans/ui-uplift/roadmap.yaml in Phase 4', and it wants symbol/selector-shaped anchors rather than line numbers for files this epic keeps rewriting, which is a re-resolution pass and not a Phase-4 edit. L4: ui-uplift-m11's window (2026-09-08 -> 09-15) ends 11 days before ui-uplift-m12's target_end (09-26) although m11 depends_on m12, and its AC#2 'ships WITH it' is stale now that m12 shipped alone; also /roadmap-owned. NOTE THE ONE EXCEPTION MADE DELIBERATELY: roadmap.yaml WAS edited this session, for AC#1's text only, on explicit owner instruction - that is an acceptance-criterion correction resolving a contradiction with the shipped page, not an anchor re-resolution, and it is recorded in the AC's own comment.",
+      "status": "fixed",
+      "resolution": "/roadmap pass done 2026-08-05. ui-uplift-m11 moved from 2026-09-08/09-15 to 2026-09-26/10-03, starting at the target_end of the ui-uplift-m12 it depends_on; nothing depends_on m11, so nothing else shifted. AC#2 amended from 'this ships WITH it' - unsatisfiable now that m12 has shipped alone - to 'ships AFTER it and re-decides the interim empty-state copy m12 left behind', which pairs with M9's relaxation so m11 can now satisfy its own AC#1. Also set status: done on the six ui-uplift milestones whose state.json reads complete (m6, m7, m8, m9, m10, m12); the roadmap only tracked m1-m5, and the ordering rule needs shipped items to be identifiable. Guarded by test_unshipped_items_do_not_start_before_their_dependencies_end, plus test_the_inversion_rule_actually_fires - the live check is now near-vacuous for ui-uplift because its dependency edges all point at shipped milestones, so the rule is proven on synthetic input instead of being left unobservable.",
       "history": [
         {
           "status": "deferred",
           "at": "2026-08-05T16:10:36Z",
           "resolution": "DEFERRED TO /roadmap - one-writer rule, and both findings say so themselves. M10: app.css grew 598->627 (656 today) with insertions at 64-94, so every links.code anchor at line >=64 is off, and notebook_detail.html's reorder invalidated its own; twelve roadmap items affected. Its stated disposition is explicit: 'Owned by /roadmap under the one-writer rule - do not edit plans/ui-uplift/roadmap.yaml in Phase 4', and it wants symbol/selector-shaped anchors rather than line numbers for files this epic keeps rewriting, which is a re-resolution pass and not a Phase-4 edit. L4: ui-uplift-m11's window (2026-09-08 -> 09-15) ends 11 days before ui-uplift-m12's target_end (09-26) although m11 depends_on m12, and its AC#2 'ships WITH it' is stale now that m12 shipped alone; also /roadmap-owned. NOTE THE ONE EXCEPTION MADE DELIBERATELY: roadmap.yaml WAS edited this session, for AC#1's text only, on explicit owner instruction - that is an acceptance-criterion correction resolving a contradiction with the shipped page, not an anchor re-resolution, and it is recorded in the AC's own comment."
+        },
+        {
+          "status": "fixed",
+          "at": "2026-08-05T16:37:09Z",
+          "resolution": "/roadmap pass done 2026-08-05. ui-uplift-m11 moved from 2026-09-08/09-15 to 2026-09-26/10-03, starting at the target_end of the ui-uplift-m12 it depends_on; nothing depends_on m11, so nothing else shifted. AC#2 amended from 'this ships WITH it' - unsatisfiable now that m12 has shipped alone - to 'ships AFTER it and re-decides the interim empty-state copy m12 left behind', which pairs with M9's relaxation so m11 can now satisfy its own AC#1. Also set status: done on the six ui-uplift milestones whose state.json reads complete (m6, m7, m8, m9, m10, m12); the roadmap only tracked m1-m5, and the ordering rule needs shipped items to be identifiable. Guarded by test_unshipped_items_do_not_start_before_their_dependencies_end, plus test_the_inversion_rule_actually_fires - the live check is now near-vacuous for ui-uplift because its dependency edges all point at shipped milestones, so the rule is proven on synthetic input instead of being left unobservable."
         }
       ]
     },

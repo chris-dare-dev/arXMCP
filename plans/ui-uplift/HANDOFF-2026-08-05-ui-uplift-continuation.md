@@ -30,14 +30,20 @@ aliases:
 
 ## 0. Resume state in one paragraph
 
-`ui-uplift-m12` is **`complete`**. Its register holds 25 findings: **23 fixed**, **2
+`ui-uplift-m12` is **`complete`**. Its register holds 25 findings: **25 fixed**, **0
 deferred**, **0 open**, and `milestone-pipeline-findings.py gate ui-uplift-m12` exits 0.
-The two deferrals are `/roadmap`-owned by the one-writer rule and are the first thing a
-`/roadmap` pass should pick up — **M10** (twelve `links.code` anchors invalidated by
-`app.css` 598→656 and the `notebook_detail.html` reorder; it also asks for symbol- or
-selector-shaped anchors instead of line numbers for files this epic keeps rewriting) and
-**L4** (`ui-uplift-m11`'s window ends 11 days before the `ui-uplift-m12` it `depends_on`,
-and its AC#2 "ships WITH it" is stale now that m12 shipped alone).
+
+The two `/roadmap`-owned deferrals were closed by a `/roadmap` pass on 2026-08-05. **M10** —
+all 39 line-number anchors in `plans/ui-uplift/roadmap.yaml` were re-resolved to
+`path#<literal>` form; the damage was worse than filed (twelve pointed at unrelated comment
+blocks, several written the same day), and each item's intended target was re-derived from
+its own title and summary. **L4** — `ui-uplift-m11` moved to start at `ui-uplift-m12`'s
+`target_end`, its AC#2 amended from the now-unsatisfiable "ships WITH it", and the six
+milestones whose `state.json` reads `complete` were finally given `status: done` in the
+roadmap, which only tracked m1–m5.
+
+Both are guarded by `tests/test_roadmap_links_resolve.py` — repo-local, because
+`.claude/scripts/roadmap-validate.py` is registry-synced and must not be edited here.
 
 **One deliberate exception to the one-writer rule is on the record:** `roadmap.yaml` *was*
 edited in Phase 4, for AC#1's text only, on explicit owner instruction — an
@@ -93,10 +99,7 @@ original bug.
 
 ## 2. Resume here — ranked
 
-1. **A `/roadmap` pass** for M10 and L4 (see §0). M10 is the one with teeth: a milestone that
-   cannot find its authored source is the documented root cause of m7/m8/m10 inventing
-   values, and twelve items currently point at the wrong lines.
-2. **`ui-uplift-m13`** (live-region hygiene) is next by `depends_on`. **Read
+1. **`ui-uplift-m13`** (live-region hygiene) is next by `depends_on`. **Read
    `notebook_detail.html`'s HARD CONSTRAINT note before starting it.** m13's roadmap summary
    prescribes "Move `aria-live` onto a stable never-swapped wrapper", which is exactly the
    shape that kills m12's AC#2 mechanism — a swap targeting the `<details>` or any ancestor
@@ -104,7 +107,7 @@ original bug.
    is now **enforced**, not just documented
    (`TestStructuralInvariantsHoldInTheRenderedTree`), so m13 will fail loudly rather than
    silently. The guard's failure message quotes the history.
-3. **`ui-uplift-m11`** owns empty-state copy and its AC#1 forbids "a pointer to a form
+2. **`ui-uplift-m11`** owns empty-state copy and its AC#1 forbids "a pointer to a form
    elsewhere on the page". m12 used to hard-pin exactly that property; the guard was relaxed
    to a direction-agnostic form (M9), so m11 is now free to satisfy its own AC. The durable
    half — the copy must not point *upward* — is retained and m11 cannot legitimately reverse
