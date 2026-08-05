@@ -30,11 +30,19 @@ aliases:
 
 ## 0. Resume state in one paragraph
 
-`ui-uplift-m12` is at **`rectify-running`** and is **NOT complete**. Its findings register
-holds 25 findings: **3 fixed** (H1, H2, M2), **22 open**. The completion gate
-(`milestone-pipeline-findings.py gate ui-uplift-m12`) exits 3 on **H3**, the one open HIGH.
-Nothing about m12 may be described as done, and the milestone must not advance to
-`complete`, until H3 is fixed, deferred, or invalidated through the sanctioned writer.
+`ui-uplift-m12` is **`complete`**. Its register holds 25 findings: **23 fixed**, **2
+deferred**, **0 open**, and `milestone-pipeline-findings.py gate ui-uplift-m12` exits 0.
+The two deferrals are `/roadmap`-owned by the one-writer rule and are the first thing a
+`/roadmap` pass should pick up — **M10** (twelve `links.code` anchors invalidated by
+`app.css` 598→656 and the `notebook_detail.html` reorder; it also asks for symbol- or
+selector-shaped anchors instead of line numbers for files this epic keeps rewriting) and
+**L4** (`ui-uplift-m11`'s window ends 11 days before the `ui-uplift-m12` it `depends_on`,
+and its AC#2 "ships WITH it" is stale now that m12 shipped alone).
+
+**One deliberate exception to the one-writer rule is on the record:** `roadmap.yaml` *was*
+edited in Phase 4, for AC#1's text only, on explicit owner instruction — an
+acceptance-criterion correction resolving a contradiction with the shipped page, not an
+anchor re-resolution. It is annotated in the AC's own comment.
 
 ## 1. What changed after the review handoff was written
 
@@ -85,20 +93,25 @@ original bug.
 
 ## 2. Resume here — ranked
 
-1. **m12 H3** — the only open HIGH and the only thing the gate blocks on. "Collapsing the
-   disclosure hides the ingest error path with no recovery." Note that the m12 rectify
-   round-2 work above changes its shape: hoisting live ingest status out of the disclosure
-   would close H3 and was the review's suggested remedy for H2/M2 as well. Consider whether
-   the OOB cue already partially satisfies it before re-implementing.
-2. **The AC#1 contradiction — OWNER DECISION REQUIRED, do not resolve unilaterally.**
-   `notebook_detail.html` declares AC#1 narrowed to "no mutation form above the table", but
-   the canonical AC at `plans/ui-uplift/roadmap.yaml:455` still reads "without scrolling past
-   any input form", and `form.rename-form` is above the table. One of the two must move.
-   The template's rationale (rename belongs with the record's identity) is defensible; it is
-   still a narrowing of a canonical AC that the roadmap does not record. **m12 must not be
-   completed with the contradiction intact.**
-3. **The 12 remaining open MEDIUMs and 9 LOWs** — `findings.py summary ui-uplift-m12` is the
-   live list; do not work from any copy of it in prose, including this one.
+1. **A `/roadmap` pass** for M10 and L4 (see §0). M10 is the one with teeth: a milestone that
+   cannot find its authored source is the documented root cause of m7/m8/m10 inventing
+   values, and twelve items currently point at the wrong lines.
+2. **`ui-uplift-m13`** (live-region hygiene) is next by `depends_on`. **Read
+   `notebook_detail.html`'s HARD CONSTRAINT note before starting it.** m13's roadmap summary
+   prescribes "Move `aria-live` onto a stable never-swapped wrapper", which is exactly the
+   shape that kills m12's AC#2 mechanism — a swap targeting the `<details>` or any ancestor
+   re-renders `open` from the server predicate every 2s and the disclosure snaps back. That
+   is now **enforced**, not just documented
+   (`TestStructuralInvariantsHoldInTheRenderedTree`), so m13 will fail loudly rather than
+   silently. The guard's failure message quotes the history.
+3. **`ui-uplift-m11`** owns empty-state copy and its AC#1 forbids "a pointer to a form
+   elsewhere on the page". m12 used to hard-pin exactly that property; the guard was relaxed
+   to a direction-agnostic form (M9), so m11 is now free to satisfy its own AC. The durable
+   half — the copy must not point *upward* — is retained and m11 cannot legitimately reverse
+   it.
+
+`findings.py summary ui-uplift-m12` is the live register; do not work from any copy of it in
+prose, including this one.
 
 ## 3. External review findings against CLOSED milestones — ALL FOUR FIXED
 
