@@ -2666,6 +2666,15 @@ class TestPrefixedDeclarationSites:
                 "theorem harmless : True := trivial",
                 (["evil", "harmless"], True),
             ),
+            # #382 round 2 — one physical line, two Lean commands.
+            (
+                "def harmless : Nat := 1 axiom evil : False",
+                (["harmless"], False),
+            ),
+            (
+                "namespace N theorem t : True := trivial axiom evil : False",
+                ([], False),
+            ),
         ]
 
         claude_md = (Path(__file__).resolve().parents[1] / "CLAUDE.md").read_text()
@@ -2710,6 +2719,147 @@ class TestPrefixedDeclarationSites:
         )
         assert rec["outcome"] == "unknown"
         assert "could not name" in rec["reason"]
+
+
+class TestMultipleDeclarationsOnOnePhysicalLine:
+    """arXMCP#382 round 2 — Lean reads COMMANDS, this parser reads LINES.
+
+    Lean 4 is whitespace-insensitive at the command level: the term parser
+    stops at a command keyword, so one physical line can carry any number of
+    declarations. ``_DECL_SITE_RE`` anchors at the start of the line and
+    ``.match()`` returns at most once, so a line was worth 0 or 1 sites no
+    matter how many declarations Lean actually read off it — and
+    ``sites == len(names)`` then reported a COMPLETE sweep over a snippet
+    whose second declaration was never named, never audited, and therefore
+    never able to move the record off ``clean``.
+
+    Every shape below was executed against real ``leanprover/lean4:v4.29.0``
+    before being pinned here. The reported one::
+
+        def harmless : Nat := 1 axiom evil : False
+
+        'harmless' does not depend on any axioms
+        'evil' depends on axioms: [evil]
+
+    Two declarations, one of them an axiom, and the pre-fix extractor returned
+    ``(['harmless'], True)``.
+
+    The scope commands are the same hole wearing a different hat: the
+    ``namespace`` / ``section`` / ``end`` branches consumed their line and
+    ``continue``d, so a declaration riding behind the scope command was not
+    merely unnamed but never counted. All three were confirmed live —
+    ``end N axiom evil : False`` and ``section axiom evil2 : False`` both
+    register their axiom.
+
+    As everywhere else in this module the correction is fail-safe, never
+    feature: over-counting sites can only move ``complete`` True -> False.
+    """
+
+    # --- the reported shape, both orderings ---
+
+    def test_axiom_hidden_behind_a_def_on_the_same_line(self):
+        """The reported bug, verbatim. `evil` is invisible to the name
+        extractor, so the sweep must refuse to call itself complete."""
+        names, complete = _declaration_names(
+            "def harmless : Nat := 1 axiom evil : False"
+        )
+        assert names == ["harmless"]
+        assert complete is False
+
+    def test_axiom_hidden_behind_a_theorem_on_the_same_line(self):
+        names, complete = _declaration_names(
+            "theorem harmless : True := trivial axiom evil : False"
+        )
+        assert names == ["harmless"]
+        assert complete is False
+
+    def test_leading_axiom_is_named_but_the_sweep_is_still_incomplete(self):
+        """Reversing the order names `evil` instead — but `harmless` is now
+        the dropped one, so the sweep is no more complete than before. The
+        fail-safe must not depend on WHICH declaration got lucky."""
+        names, complete = _declaration_names(
+            "axiom evil : False def harmless : Nat := 1"
+        )
+        assert names == ["evil"]
+        assert complete is False
+
+    # --- the scope commands, which used to consume their whole line ---
+
+    def test_namespace_cannot_swallow_a_declaration_sharing_its_line(self):
+        """Lean registers `N.t` AND `N.evil` here. The namespace branch used
+        to `continue` before anything on the line was counted."""
+        names, complete = _declaration_names(
+            "namespace N theorem t : True := trivial axiom evil : False"
+        )
+        assert names == []
+        assert complete is False
+
+    def test_end_cannot_swallow_a_declaration_sharing_its_line(self):
+        names, complete = _declaration_names(
+            "namespace N\ntheorem t : True := trivial\nend N axiom evil : False"
+        )
+        assert names == ["N.t"]
+        assert complete is False
+
+    def test_section_cannot_swallow_a_declaration_sharing_its_line(self):
+        names, complete = _declaration_names(
+            "section axiom evil : False\nend"
+        )
+        assert names == []
+        assert complete is False
+
+    # --- the counting scan must not over-fire on ordinary code ---
+
+    def test_prose_inside_a_string_literal_is_not_a_declaration_site(self):
+        """The scan reads the whole line, so `_strip_comments` must mask
+        string INTERIORS or every string mentioning `theorem`/`def` would
+        abstain a perfectly auditable snippet. Fail-safe is not free — an
+        `unknown` this snippet does not deserve is still a wrong answer."""
+        names, complete = _declaration_names(
+            'def s : String := "a theorem about a def"\n'
+            "theorem harmless : True := trivial"
+        )
+        assert names == ["s", "harmless"]
+        assert complete is True
+
+    def test_attribute_bracket_without_a_space_still_counts_once(self):
+        """`@[simp]theorem t` is legal Lean and the name extractor reads it,
+        so the scan must too — otherwise sites(0) < names(1) and a valid
+        snippet abstains."""
+        names, complete = _declaration_names("@[simp]theorem t : True := trivial")
+        assert names == ["t"]
+        assert complete is True
+
+    def test_projection_named_like_a_keyword_is_not_a_site(self):
+        """`Set.def` is dot-preceded, not whitespace-preceded."""
+        names, complete = _declaration_names(
+            "theorem t : True := by simp [Set.def]"
+        )
+        assert names == ["t"]
+        assert complete is True
+
+    # --- the round-trip, which is where the defect was observable ---
+
+    def test_same_line_axiom_does_not_reach_the_wire_as_clean(self):
+        """arXMCP#382 round 2, end-to-end. `#print axioms` is issued for
+        `harmless` only and comes back clean; the envelope must still refuse
+        to report a clean trust record, because `evil` was never asked about.
+        """
+        repl = _repl_with([{"env": 0}, _axioms_reply(harmless=[])])
+        result = _run(
+            handle_lean_verify(snippet="def harmless : Nat := 1 axiom evil : False")
+        )
+
+        # The kernel-acceptance axis is untouched — the snippet really did
+        # elaborate. Only the axiom axis carries the bad news (CLAUDE.md §4.9:
+        # no axis is inferred from another).
+        assert result["status"] == "elaborated_no_errors"
+        assert result["compilation_success"] is True
+
+        audit = result["axiom_audit"]
+        assert audit["outcome"] == "unknown"
+        assert audit["reason"] is not None
+        assert repl.commands[1] == {"cmd": "#print axioms harmless", "env": 0}
 
 
 class TestAxiomAuditScoring:

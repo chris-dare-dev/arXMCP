@@ -455,14 +455,32 @@ _DECL_SITE_RE = re.compile(
     rf"^\s*(?:@\[[^\]]*\]\s*)*(?:(?:{_MODIFIER_ALT})\s+)*(?:{_KEYWORD_ALT})\b"
 )
 
-#: A declaration site behind an unrecognised same-line prefix (#382).
+#: EVERY declaration site on a physical line, wherever it sits (#382).
 #:
-#: ``_DECL_SITE_RE`` anchors the keyword at the start of the line, so ANY
-#: unrecognised token in front of it made the declaration invisible rather than
-#: merely unnamed: ``sites`` never incremented, the ``sites == len(names)``
-#: fail-safe reported complete, and — whenever the snippet also carried a
-#: recognised declaration — the prefixed one rode inside a ``clean`` verdict.
-#: The live shapes, all measured in this repo:
+#: ``_DECL_SITE_RE`` anchors at the start of the line and ``.match()`` returns
+#: at most once, so for counting purposes a line was worth 0 or 1 sites no
+#: matter how many declarations Lean actually read off it. Two distinct holes
+#: followed, both of which produced a false ``clean`` rather than an honest
+#: ``unknown``, and both reproduced against real ``lean4:v4.29.0``:
+#:
+#:   def harmless : Nat := 1 axiom evil : False
+#:     -> Lean: 'harmless' does not depend on any axioms
+#:              'evil' depends on axioms: [evil]
+#:     -> extractor, before this fix: (['harmless'], True) -> audit `clean`
+#:
+#:   namespace N theorem t : True := trivial axiom evil : False
+#:     -> Lean registers BOTH `N.t` and `N.evil`; the namespace branch of
+#:        :func:`_declaration_names` consumed the line and `continue`d, so
+#:        neither declaration was counted at all.
+#:
+#: Lean 4 is whitespace-insensitive at the command level: the term parser stops
+#: at a command keyword, so `:= 1 axiom` ends the `def` body and opens a new
+#: command. Physical lines are OUR unit, never Lean's — so counting must scan
+#: the whole line.
+#:
+#: This also subsumes the earlier prefixed-site probe, whose shapes (all
+#: measured in this repo) are just the special case of a keyword that is not
+#: the first token:
 #:
 #:   set_option maxHeartbeats 400000 in theorem t    -- the Mathlib idiom
 #:   open Classical in theorem t
@@ -475,25 +493,24 @@ _DECL_SITE_RE = re.compile(
 #:
 #: The characterisation is NOT "an ``in`` combinator" — that framing closed
 #: five shapes and left three open, which is what the first attempt at #382
-#: shipped. It is: **the physical line carries a declaration keyword, and
-#: something the parser does not recognise sits in front of it.** So the match
-#: is a non-empty prefix, then whitespace, then the ordinary
-#: attribute/modifier/keyword grammar.
+#: shipped. It is: **count the declaration keywords the line carries, and
+#: compare against the names that could be extracted from it.**
 #:
 #: Deliberately does NOT teach the parser ``set_option`` / ``open`` /
-#: ``deriving`` grammar: a line matching this is counted as a site with NO
-#: extractable name, the same fail-safe the unnamed ``instance`` already uses.
-#: Fail-safe over feature — it only ever moves ``complete`` True -> False,
+#: ``deriving`` grammar: an unnameable site is counted with NO extractable
+#: name, the same fail-safe the unnamed ``instance`` already uses. Fail-safe
+#: over feature — over-counting only ever moves ``complete`` True -> False,
 #: never the reverse, so it can never admit a declaration that went unaudited.
 #:
-#: The keyword must be WHITESPACE-preceded, which is what keeps a projection
-#: like ``simp [Set.def]`` from counting as a site. Comment text is removed by
-#: :func:`_strip_comments` before this ever runs — that, not the ``.match()``
-#: anchor, is what makes the scan comment-safe now that it no longer requires
-#: an ``in``.
-_PREFIXED_DECL_SITE_RE = re.compile(
-    rf"^\s*\S.*?\s(?:@\[[^\]]*\]\s*)*(?:(?:{_MODIFIER_ALT})\s+)*"
-    rf"(?:{_KEYWORD_ALT})\b"
+#: The keyword must be preceded by start-of-line, whitespace, or ``]`` (the
+#: attribute-bracket case ``@[simp]theorem t``), which is what keeps a
+#: projection like ``simp [Set.def]`` or an identifier like ``inferInstance``
+#: from counting. Comment text is removed and string-literal interiors are
+#: masked by :func:`_strip_comments` before this ever runs — that masking is
+#: what keeps ``def s : String := "a theorem about X"`` at one site rather than
+#: two, now that the scan no longer anchors to the line start.
+_DECL_KEYWORD_SCAN_RE = re.compile(
+    rf"(?:^|(?<=\s)|(?<=\]))(?:{_KEYWORD_ALT})\b"
 )
 
 #: A declaration site that DOES carry an extractable name. The name charset
@@ -525,6 +542,12 @@ _PRINT_AXIOMS_RE = re.compile(
 )
 
 
+#: Filler substituted for each character inside a string literal. A word
+#: character, so it cannot create the whitespace boundary
+#: :data:`_DECL_KEYWORD_SCAN_RE` needs, and length-preserving one-for-one.
+_STRING_FILLER = "x"
+
+
 def _strip_comments(snippet: str) -> list[str]:
     """Return ``snippet``'s lines with Lean comment text blanked out.
 
@@ -545,7 +568,9 @@ def _strip_comments(snippet: str) -> list[str]:
       inside a string does not open a comment. Without this, ``def s := "/-"``
       would open a block comment that never closes and every later declaration
       in the snippet would vanish — the exact silent-drop this module exists
-      to prevent.
+      to prevent. The literal's interior is replaced character-for-character
+      with :data:`_STRING_FILLER` rather than copied, so prose inside a string
+      cannot be read as a declaration site either (#382 round 2).
 
     Char literals (``'a'``) are deliberately NOT tracked: ``'`` is a legal
     identifier character in Lean (``h'``, ``ε'``), so treating it as a
@@ -579,20 +604,27 @@ def _strip_comments(snippet: str) -> list[str]:
             if line.startswith("--", i):
                 break  # rest of the line is a comment
             if line[i] == '"':
-                # Copy the string literal verbatim — its contents must not be
-                # scanned for comment openers, but they also must not shorten
-                # the line, or a declaration after it could be lost.
+                # Mask the string literal's INTERIOR. Its contents must not be
+                # scanned for comment openers, they must not shorten the line
+                # (a declaration after it would be lost), and — since #382's
+                # second round made _DECL_KEYWORD_SCAN_RE scan the whole line
+                # rather than only its start — they must not contribute phantom
+                # declaration sites. `def s : String := "a theorem about X"` is
+                # ONE declaration; copying the literal verbatim would have made
+                # it two and abstained on a snippet that is perfectly auditable.
+                # A fixed filler char preserves length and carries no keyword.
                 kept.append('"')
                 i += 1
                 while i < n:
                     if line[i] == "\\" and i + 1 < n:
-                        kept.append(line[i : i + 2])
+                        kept.append(_STRING_FILLER * 2)
                         i += 2
                         continue
-                    kept.append(line[i])
                     if line[i] == '"':
+                        kept.append('"')
                         i += 1
                         break
+                    kept.append(_STRING_FILLER)
                     i += 1
                 continue
             kept.append(line[i])
@@ -624,6 +656,18 @@ def _declaration_names(snippet: str) -> tuple[list[str], bool]:
     scopes: list[tuple[str, str]] = []
 
     for line in _strip_comments(snippet):
+        # #382: count EVERY declaration keyword the line carries, before any
+        # branch below can `continue` past them. Two things make this the only
+        # safe place for it. (a) A declaration behind an unrecognised same-line
+        # prefix is a site this parser cannot name, NOT an absent one. (b) Lean
+        # reads commands sequentially, not one per physical line, so
+        # `def harmless : Nat := 1 axiom evil : False` is TWO declarations and
+        # `namespace N theorem t : True := trivial` is a scope command with a
+        # declaration riding behind it — both verified against lean4:v4.29.0.
+        # Counting here is what lets the sites-vs-names fail-safe below fire
+        # instead of letting a declaration ride inside a `clean` verdict.
+        sites += len(_DECL_KEYWORD_SCAN_RE.findall(line))
+
         ns = _NAMESPACE_RE.match(line)
         if ns:
             scopes.append(("namespace", ns.group("name")))
@@ -636,14 +680,7 @@ def _declaration_names(snippet: str) -> tuple[list[str], bool]:
                 scopes.pop()
             continue
         if not _DECL_SITE_RE.match(line):
-            # #382: a declaration behind ANY unrecognised same-line prefix is a
-            # site this parser cannot name, NOT an absent one. Counting it here
-            # is what lets the sites-vs-names fail-safe below fire instead of
-            # letting the declaration ride inside a `clean` verdict.
-            if _PREFIXED_DECL_SITE_RE.match(line):
-                sites += 1
             continue
-        sites += 1
         named = _DECL_NAME_RE.match(line)
         if not named:
             continue

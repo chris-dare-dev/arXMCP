@@ -473,32 +473,67 @@ These bind every agent session here:
      this repo; the REPL runs from an operator-supplied directory outside it,
      at a different Lean version than any topic repo pins.
    - **The audit's declaration extraction is a regex, not Lean** (issue #382,
-     **closed 2026-08-04**). `_declaration_names`
+     first closed 2026-08-04, **reopened and re-closed 2026-08-05** — the
+     first close left a second, sharper hole open). `_declaration_names`
      (`server/handlers/lean_verify.py:604`) recognizes a declaration by the
      prefix on its line. `set_option` / `open` / `deriving` are in neither
      `_DECL_KEYWORDS` nor `_DECL_MODIFIERS`, so such a line once incremented
      **neither** `sites` nor `names` and the `sites == len(names)` fail-safe
      never fired. It now increments `sites` but not `names`, so the fail-safe
-     does fire. Re-measured against this working tree on 2026-08-04, **after**
-     the fix:
+     does fire.
+
+     **Round 2 — the physical line is OUR unit, never Lean's.** Lean 4 is
+     whitespace-insensitive at the command level: the term parser stops at a
+     command keyword, so one line carries any number of declarations. The
+     round-1 counting still used `.match()`, which returns at most once, so a
+     line was worth 0 or 1 sites however many declarations Lean read off it.
+     Verified against real `leanprover/lean4:v4.29.0`, not reasoned about:
+
+     ```
+     def harmless : Nat := 1 axiom evil : False
+     -->  'harmless' does not depend on any axioms
+          'evil' depends on axioms: [evil]
+     ```
+
+     Pre-fix that returned `(['harmless'], True)` and the record read `clean`
+     with a live `axiom` inside it. The `namespace` / `section` / `end`
+     branches were the same hole wearing a different hat — they consumed their
+     line and `continue`d, so a declaration riding behind a scope command was
+     not merely unnamed but never counted (`end N axiom evil : False` and
+     `section axiom evil2 : False` both register their axiom; both confirmed
+     live). The fix counts **every** whitespace-, line-start- or `]`-preceded
+     declaration keyword on the line, before any branch can `continue` past
+     it, and masks string-literal interiors in `_strip_comments` so prose in a
+     string cannot manufacture a phantom site.
+
+     Re-measured against this working tree on 2026-08-05, **after** both
+     fixes:
 
      | snippet | `_declaration_names` | record |
      |---|---|---|
      | `theorem harmless …` | `(['harmless'], True)` | audited |
      | `set_option … in theorem sneaky …` alone | `([], False)` | **`unknown`** — honest |
      | unnamed `instance` + `theorem harmless` | `(['harmless'], False)` | **`unknown`** — honest |
-     | `set_option … in theorem sneaky …` **+** `theorem harmless` | `(['harmless'], False)` | **`unknown`** — was `clean`, the #382 hole |
+     | `set_option … in theorem sneaky …` **+** `theorem harmless` | `(['harmless'], False)` | **`unknown`** — was `clean`, the round-1 hole |
      | `deriving instance …` **+** `theorem harmless` | `(['harmless'], False)` | **`unknown`** — honest |
      | `/-- doc -/ axiom evil : False` **+** `theorem harmless` | `(['evil', 'harmless'], True)` | both audited |
+     | `def harmless : Nat := 1 axiom evil : False` | `(['harmless'], False)` | **`unknown`** — was `clean`, the round-2 hole |
+     | `namespace N theorem t … axiom evil …` | `([], False)` | **`unknown`** — was `clean`, round-2 via the scope branch |
 
-     The last two rows are the ones a first fix got wrong: it keyed on the `in`
+     Rows 5–6 are the ones a first fix got wrong: it keyed on the `in`
      combinator, which closes `set_option` / `open` / `variable` / `universe` /
      `attribute` and leaves `deriving instance`, `alias`, `meta …` and a
-     same-line doc comment open. The correct characterisation is **the line
-     carries a declaration keyword with something unrecognised in front of it**
-     — it is not about `in`. Comment text is stripped before matching
-     (`_strip_comments`, `:528`), which is also what makes the broadened scan
-     safe on prose.
+     same-line doc comment open. The correct characterisation is **count the
+     declaration keywords the line carries and compare against the names
+     extractable from it** — it is not about `in`, and it is not about what
+     sits at the START of the line either. Comment text is stripped and string
+     interiors masked before matching (`_strip_comments`, `:528`), which is
+     what makes the whole-line scan safe on prose.
+
+     **The recurring lesson, stated once:** every revision of this parser has
+     failed by assuming a shape (an `in` combinator; a line = a declaration).
+     Over-counting sites is free — it can only move `complete` True -> False —
+     so when in doubt, count.
 
      **What remains true, and is the reason this bullet still exists:** the
      extraction is still a regex over source text, so the honest bound on what
