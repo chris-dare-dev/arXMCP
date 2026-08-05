@@ -864,7 +864,7 @@ async def discover_papers(
     Security posture (security-reviewer): ``validate_slug`` first (path-traversal
     defense); candidate ``title``/``abstract`` are html.escape'd in the fragment
     (XSS guard); arXiv failures and unconfigured notebooks return 4xx/502 (the
-    panel's ``hx-on::htmx:response-error`` surfaces the detail) — never a 500.
+    panel's ``hx-on::response-error`` surfaces the detail) — never a 500.
     The route inherits ``SecFetchSite`` + ``OriginValidation`` on ``/ui/*``.
     NOTE: the synchronous arXiv fetch briefly blocks the event loop — accepted
     for the single-operator loopback console (``MAX_RESPONSE_BYTES`` caps the

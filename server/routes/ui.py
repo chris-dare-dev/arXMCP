@@ -12,7 +12,7 @@ operators visit in the browser:
 
 Both pages serve as the htmx shell — mutations POST to the m7 JSON
 routes (which return JSON), then trigger a full-page reload via
-``hx-on::htmx:afterRequest`` for simplicity. The new m8 upload
+``hx-on::after-request`` for simplicity. The new m8 upload
 endpoint at ``/ui/api/notebooks/{slug}/papers/upload`` is the one
 exception: it returns an HTML fragment so htmx can append to the
 papers table without a reload.

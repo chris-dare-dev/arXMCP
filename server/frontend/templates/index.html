@@ -35,8 +35,8 @@
     hx-disabled-elt="find button"
     hx-target="#notebooks-tbody"
     hx-swap="beforeend"
-    hx-on::htmx:after-request="if(event.detail.successful){document.getElementById('notebooks-empty')?.remove();this.reset();}"
-    hx-on::htmx:response-error="document.getElementById('create-error').textContent = (function(t){try{return JSON.parse(t).detail||t;}catch(e){return t;}})(event.detail.xhr.responseText)"
+    hx-on::after-request="if(event.detail.successful){document.getElementById('notebooks-empty')?.remove();this.reset();}"
+    hx-on::response-error="document.getElementById('create-error').textContent = (function(t){try{return JSON.parse(t).detail||t;}catch(e){return t;}})(event.detail.xhr.responseText)"
   >
     <label>
       Slug
@@ -121,7 +121,7 @@
                in app.css (gated by prefers-reduced-motion: no-preference);
                after the window htmx replaces the <tr> with the empty
                200 response body, effectively removing it. The legacy
-               hx-on::htmx:after-request="location.reload()" is replaced.
+               hx-on::after-request="location.reload()" is replaced.
                NOTE: this button IS inside a <tr> (the htmx "closest tr"
                CSS-selector ascent works); the delete-notebook button in
                notebook_detail.html is NOT inside a <tr> and stays on

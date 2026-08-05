@@ -89,7 +89,7 @@
     hx-target="#display-name-block"
     hx-swap="outerHTML"
     hx-disabled-elt="find button"
-    hx-on::htmx:response-error="document.getElementById('rename-error').textContent = (function(t){try{return JSON.parse(t).detail||t;}catch(e){return t;}})(event.detail.xhr.responseText)"
+    hx-on::response-error="document.getElementById('rename-error').textContent = (function(t){try{return JSON.parse(t).detail||t;}catch(e){return t;}})(event.detail.xhr.responseText)"
   >
     <label>
       Rename
@@ -158,7 +158,7 @@
             hx-delete="/ui/api/notebooks/{{ notebook.slug }}"
             hx-disabled-elt="this"
             hx-confirm="Delete notebook '{{ notebook.slug }}'? On-disk data at var/arxmcp/notebooks/{{ notebook.slug }}/ is NOT deleted — run tools/notebook_purge.py to wipe the disk."
-            hx-on::htmx:after-request="if(event.detail.successful) window.location.href='/ui/'"
+            hx-on::after-request="if(event.detail.successful) window.location.href='/ui/'"
             class="danger">
       Delete notebook
     </button>
@@ -237,7 +237,7 @@
                   hx-delete="/ui/api/notebooks/{{ notebook.slug }}/papers/{{ p.paper_id }}"
                   hx-disabled-elt="this"
                   hx-confirm="Remove paper '{{ p.paper_id }}' from notebook '{{ notebook.slug }}'?"
-                  hx-on::htmx:after-request="if(event.detail.successful) this.closest('tr').remove()"
+                  hx-on::after-request="if(event.detail.successful) this.closest('tr').remove()"
                   class="danger">
             Remove
           </button>
@@ -374,7 +374,7 @@
     hx-target="#topic-block"
     hx-swap="outerHTML"
     hx-disabled-elt="find button"
-    hx-on::htmx:response-error="document.getElementById('topic-error').textContent = (function(t){try{return JSON.parse(t).detail||t;}catch(e){return t;}})(event.detail.xhr.responseText)"
+    hx-on::response-error="document.getElementById('topic-error').textContent = (function(t){try{return JSON.parse(t).detail||t;}catch(e){return t;}})(event.detail.xhr.responseText)"
   >
     <label>
       Discovery category
@@ -421,7 +421,7 @@
     hx-target="#discover-results"
     hx-swap="outerHTML"
     hx-disabled-elt="find button"
-    hx-on::htmx:response-error="document.getElementById('discover-error').textContent = (function(t){try{return JSON.parse(t).detail||t;}catch(e){return t;}})(event.detail.xhr.responseText)"
+    hx-on::response-error="document.getElementById('discover-error').textContent = (function(t){try{return JSON.parse(t).detail||t;}catch(e){return t;}})(event.detail.xhr.responseText)"
   >
     <button type="submit">Discover</button>
     <output id="discover-error" class="error"></output>
@@ -469,8 +469,8 @@
     hx-disabled-elt="find button"
     hx-target="#papers-tbody"
     hx-swap="beforeend show:#papers-tbody:bottom"
-    hx-on::htmx:after-request="if(event.detail.successful) this.reset()"
-    hx-on::htmx:response-error="document.getElementById('paste-error').textContent = (function(t){try{return JSON.parse(t).detail||t;}catch(e){return t;}})(event.detail.xhr.responseText)"
+    hx-on::after-request="if(event.detail.successful) this.reset()"
+    hx-on::response-error="document.getElementById('paste-error').textContent = (function(t){try{return JSON.parse(t).detail||t;}catch(e){return t;}})(event.detail.xhr.responseText)"
   >
     <label>
       arXiv URL
@@ -500,7 +500,7 @@
     hx-target="#papers-tbody"
     hx-swap="beforeend show:#papers-tbody:bottom"
     hx-disabled-elt="find button"
-    hx-on::htmx:response-error="document.getElementById('upload-error').textContent = (function(t){try{return JSON.parse(t).detail||t;}catch(e){return t;}})(event.detail.xhr.responseText)"
+    hx-on::response-error="document.getElementById('upload-error').textContent = (function(t){try{return JSON.parse(t).detail||t;}catch(e){return t;}})(event.detail.xhr.responseText)"
   >
     <label>
       Paper ID
@@ -534,7 +534,7 @@
     hx-target="#ingest-status"
     hx-swap="outerHTML"
     hx-disabled-elt="find button"
-    hx-on::htmx:response-error="document.getElementById('ingest-error').textContent = (function(t){try{return JSON.parse(t).detail||t;}catch(e){return t;}})(event.detail.xhr.responseText)"
+    hx-on::response-error="document.getElementById('ingest-error').textContent = (function(t){try{return JSON.parse(t).detail||t;}catch(e){return t;}})(event.detail.xhr.responseText)"
   >
     <button type="submit">Ingest now</button>
     <output id="ingest-error" class="error"></output>
