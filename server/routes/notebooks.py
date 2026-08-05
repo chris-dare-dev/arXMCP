@@ -761,7 +761,20 @@ def _discover_results_fragment(
     """
     safe_slug = html.escape(slug)
     if not candidates:
-        body = '<p class="empty">No new candidates found for this topic.</p>'
+        # ui-uplift-m11 (UPL-21): CAUSE, stated as a cause rather than as an
+        # absence. "No new candidates" is ambiguous between "the feed returned
+        # nothing" and "everything it returned is already in the notebook";
+        # the second is the common one and is not a problem to fix.
+        # Control half REFUSED, same reasoning as the index empty row: the
+        # Discover button that produced this result is directly above it, and
+        # the genuinely useful next action is editing the TOPIC, which is a
+        # different block — a control here would either duplicate an adjacent
+        # button or be a pointer, and AC#1 forbids the pointer.
+        body = (
+            '<p class="empty">Nothing new for this topic — the feed returned '
+            'no papers this notebook does not already have. Adjust the topic '
+            'above and run Discover again.</p>'
+        )
     else:
         rows: list[str] = []
         for c in candidates:

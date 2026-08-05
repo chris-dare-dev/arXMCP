@@ -637,9 +637,13 @@ class TestSwapTargetsStillResolve:
         assert upload is not None
         assert 'hx-encoding="multipart/form-data"' in upload.group(0)
         assert 'hx-ext="json-enc"' not in upload.group(0)
-        assert DETAIL.count('hx-ext="json-enc"') == 5, (
-            "the four JSON forms inside the disclosure plus rename must keep "
-            'hx-ext="json-enc" through the move.'
+        # ui-uplift-m11 (UPL-21) made this SIX: the empty papers state gained
+        # a first-paper Add-by-URL control, which posts the same JSON endpoint
+        # and therefore carries the same extension. Counting is the point —
+        # a form that gains the endpoint without the encoding fails here.
+        assert DETAIL.count('hx-ext="json-enc"') == 6, (
+            "the four JSON forms inside the disclosure, rename, and m11's "
+            'empty-state control must all keep hx-ext="json-enc".'
         )
 
 
@@ -762,10 +766,16 @@ class TestStructuralInvariantsHoldInTheRenderedTree:
         rendered_value = value.strip('"').replace(
             "{{ notebook.slug }}", "m12-running"
         )
+        # ui-uplift-m11: the Add-by-URL endpoint now has TWO forms — the one
+        # in the disclosure and the empty state's first-paper control. This
+        # guard is about the DISCLOSURE's copy, so resolve inside it rather
+        # than taking whichever comes first in document order.
         node = _find(
-            root, lambda n: n.attrs.get(attr.strip()) == rendered_value
+            details, lambda n: n.attrs.get(attr.strip()) == rendered_value
         )
-        assert node is not None, f"the {name} form is not in the rendered page"
+        assert node is not None, (
+            f"the {name} form is not inside the Manage disclosure"
+        )
         block = next(
             (a for a in _iter_parents(node) if a.parent is details), None
         )
@@ -860,12 +870,33 @@ class TestRegionThreeIsNamedAndReachable:
             and _find(n, lambda m: m.attrs.get("id") == "papers-tbody") is not None,
         )
         assert papers is not None, "the papers <section> is not in the page"
+        rows = [n for n in papers.walk()
+                if n.tag == "tr" and n.attrs.get("data-paper-id")]
         forms = [n for n in papers.walk() if n.tag == "form"]
-        assert not forms, (
-            f"the papers section now carries {len(forms)} form(s); M13's "
-            f"pointer is deliberately a link, and AC#1 keeps corpus-mutation "
-            f"forms out of this region."
-        )
+        if rows:
+            assert not forms, (
+                f"the POPULATED papers section carries {len(forms)} form(s); "
+                f"M13's pointer is deliberately a link, and m12 AC#1 keeps "
+                f"corpus-mutation forms out of this region."
+            )
+        else:
+            # ui-uplift-m11 (UPL-21) narrowed this, and the narrowing is the
+            # M9 lesson applied to m12's own guard. The blanket "no form in
+            # the papers section" was written against the POPULATED page,
+            # where a second Add control beside the table is BAN-9's duplicate
+            # CTA. In the EMPTY state there is no table to duplicate beside
+            # and no other reachable control — m12 put every mutation form
+            # behind the disclosure — so m11 AC#1's "one actual control, not a
+            # pointer" lands exactly here. Forbidding it would have pinned m11
+            # out of its own acceptance criterion, which is precisely what M9
+            # had to be relaxed for.
+            assert len(forms) <= 1, (
+                f"the empty papers state carries {len(forms)} forms; m11 "
+                f"AC#1 authorises ONE control, not a panel"
+            )
+        # Either way the M13 pointer itself must stay a link.
+        assert _find(papers, lambda n: n.tag == "a"
+                     and n.attrs.get("href") == f"#{MANAGE_ID}") is not None
 
 
 class TestLadderDeclarationsCannotBeEmptiedSilently:
@@ -1029,48 +1060,40 @@ class TestRuleLadderReachesEveryRegion:
 
 
 class TestEmptyStateCopyIsNotWrong:
+    """m12 fixed a FACT in the papers empty state; ui-uplift-m11 (UPL-21) then
+    took ownership of the surface, as m12's own M9 relaxation anticipated.
+
+    m12's interim copy was a ``<p class="empty">`` ABOVE the table reading
+    'Add one from "Manage this notebook" below'. m11 replaced it with a row
+    INSIDE the tbody carrying a cause line and a real control, so the guards
+    that matched on that ``<p>`` no longer have a subject.
+
+    What survives is the DURABLE half — the property m12 established and m11
+    cannot legitimately reverse: the copy must not point UPWARD, which was
+    false the moment the Add-by-URL form moved below the table. Asserted
+    against whatever element carries the empty state rather than against the
+    ``<p>`` m12 happened to ship.
+    """
+
+    @staticmethod
+    def _empty_copy() -> str:
+        m = re.search(
+            r'<(?:p|td)[^>]*class="empty"[^>]*>(.*?)</(?:p|td)>', DETAIL, re.S
+        )
+        assert m is not None, "the papers empty state is gone entirely"
+        return m.group(1)
+
     def test_the_empty_state_no_longer_points_upward(self) -> None:
-        """"No papers yet. Add one above." was true while the Add-by-URL form
-        sat above the table. After the reorder a first-run notebook would
-        render a page whose only instruction is wrong and whose only action is
-        behind a disclosure. ``ui-uplift-m11`` (UPL-21) owns empty-state copy
-        and ``depends_on`` m12, so it revisits the voice; shipping the interim
-        page with a false instruction is not an option.
-        """
-        m = re.search(r'<p class="empty">([^<]*)</p>', DETAIL)
-        assert m is not None, "the papers empty-state <p> is gone"
-        copy = m.group(1)
-        assert "above" not in copy, (
-            f"the empty state still says {copy!r}; the add form is BELOW now."
+        copy = self._empty_copy()
+        assert "above" not in copy.lower(), (
+            f"the empty state points upward again: {copy.strip()[:120]!r}. "
+            f"The add path is BELOW the table since m12, and inside the empty "
+            f"state itself since m11."
         )
-        assert copy.strip(), "the empty state renders no copy at all"
 
-    def test_the_empty_state_wording_is_left_to_m11(self) -> None:
-        """m12 M9 — this guard used to hard-pin the property m11 exists to
-        remove.
-
-        It asserted the empty copy contains the literal "Manage this notebook",
-        i.e. that it IS a pointer to a form elsewhere on the page. But
-        ``ui-uplift-m11`` ``depends_on: [ui-uplift-m12]``, owns empty-state
-        copy, and has as its AC#1: "states a cause and offers one actual
-        control, **not a pointer to a form elsewhere on the page**." So m12
-        pinned its declared successor out of satisfying its own first
-        acceptance criterion. This test's sibling docstring already conceded
-        "m11 owns empty-state copy … so it revisits the voice", which makes
-        the strength of the old assertion an oversight, not a decision.
-
-        What is kept is the FACT m12 corrected — the copy must not point
-        UPWARD, which was false the moment the Add form moved below the table
-        and which m11 cannot legitimately reverse. What is dropped is the
-        DIRECTION, which is m11's to choose.
-        """
-        m = re.search(r'<p class="empty">([^<]*)</p>', DETAIL)
-        assert m is not None
-        copy = m.group(1)
-        # Direction-agnostic: the copy must name SOME affordance on the page,
-        # whether that is this disclosure (m12's interim wording) or an inline
-        # control (m11's AC#1). Both satisfy this; neither is forced.
-        assert re.search(r"[A-Za-z]", copy), "the empty state names nothing"
-        assert "above" not in copy, (
-            "the pre-m12 upward pointer is back; the add form is BELOW."
+    def test_the_empty_state_still_says_something(self) -> None:
+        assert re.search(r"[A-Za-z]", self._empty_copy()), (
+            "the empty state renders no copy at all"
         )
+
+

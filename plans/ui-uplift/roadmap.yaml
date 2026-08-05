@@ -414,9 +414,13 @@ items:
 
   - id: ui-uplift-m11
     kind: milestone
-    title: "Author the four empty states (cause + one action)"
+    title: "Author the three empty states (cause + one action)"
     summary: >-
-      UPL-21. The four empty states are italic centred grey text with zero action affordance.
+      UPL-21. The three empty states are italic centred grey text with zero action affordance.
+      COUNT CORRECTED 2026-08-05: the discovery said FOUR and the tree has THREE
+      (`class="empty"` on the index notebooks row, the papers table, and the discover
+      results fragment). Verified at the discovery-era commit 0c95720 as well, so this
+      was never four — the miscount was carried into the title and summary unchecked.
       Each already carries a cause in its copy; the missing half is turning the implied action
       into an actual control. HARD-PAIRED with the index reorder — the copy says "Create one
       above" / "Add one above", which becomes wrong the moment the form moves.
@@ -432,7 +436,21 @@ items:
     target_end: 2026-10-03
     tags: [UPL-21]
     acceptance:
-      - "Given any of the four empty states, when rendered, then it states a cause and offers one actual control, not a pointer to a form elsewhere on the page"
+      # NARROWED 2026-08-05 by owner decision. The control half is not
+      # implementable for two of the three without shipping a duplicate of an
+      # adjacent visible control, which BAN-9 ("multiple primary CTAs per
+      # viewport") forbids: the index empty row sits directly under the Create
+      # form, and the discover-results empty state sits directly under the
+      # Discover button that produced it. Only the PAPERS empty state has an
+      # unreachable action — ui-uplift-m12 moved every mutation form behind the
+      # Manage disclosure, so its copy could ONLY point, which is what this AC
+      # forbids in as many words. Recorded here rather than at the
+      # implementation site alone: that is the m12 AC#1 lesson.
+      # THE REFUSAL EXPIRES for the index when UPL-1 v1 moves the Create form
+      # below the table; the copy becomes wrong and the control half lands there
+      # for the same reason it landed on the papers table.
+      - "Given the papers empty state, when rendered, then it states a cause and offers one actual control, not a pointer to a form elsewhere on the page"
+      - "Given the index and discover-results empty states, then each states a cause and names a reachable action, and a duplicate of the adjacent visible control is REFUSED on BAN-9 rather than deferred"
       # AMENDED 2026-08-05 (L4). Read "then this ships WITH it — shipping either
       # alone leaves a page whose only instruction is wrong". ui-uplift-m12 HAS
       # now shipped alone, so that AC was unsatisfiable as written. m12 handled

@@ -143,7 +143,13 @@ class TestDiscoverHappyPath:
         _make_notebook(client)
         r = client.post("/ui/api/notebooks/bridgeland/discover")
         assert r.status_code == 200, r.text
-        assert "No new candidates" in r.text
+        # ui-uplift-m11 (UPL-21): the copy states a CAUSE now. "No new
+        # candidates" was ambiguous between "the feed returned nothing" and
+        # "everything it returned is already in this notebook" — the second is
+        # the common case and is not a problem to fix. Assert the empty-state
+        # class and the cause rather than the old sentence.
+        assert 'class="empty"' in r.text
+        assert "Nothing new for this topic" in r.text
         assert 'id="discover-results"' in r.text
 
 

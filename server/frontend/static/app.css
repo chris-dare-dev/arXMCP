@@ -120,6 +120,22 @@ main > :where(section, div) + div { border-block-start: var(--rule-row); margin-
 h2 { margin-top: 0; font-size: var(--text-section); line-height: 1.25; }
 .hint { color: #555; font-size: var(--text-small); margin: 0 0 0.75rem 0; }
 .empty { color: #666; font-style: italic; text-align: center; padding: 1.25rem 0.5rem; }
+/* ui-uplift-m11 (UPL-21): the empty state clears itself.
+   #papers-empty is a row INSIDE #papers-tbody, so every add path
+   (Add-by-URL, Upload, Discover->Add) appends AFTER it — and before m11
+   nothing removed it, leaving "No papers yet" above a populated table. The
+   index dodges that with a per-form JS hook wired to one form; this covers
+   every path, including ones not written yet, with no JS. :has() is already
+   load-bearing here (m8's `table:has(tbody:empty) thead th`) and Baseline
+   Widely. */
+#papers-empty:has(~ tr) { display: none; }
+/* The cause line and the control are the authored anatomy (UPL-21 AC#1),
+   NOT centred italic prose with a link in it: the cause keeps the .empty
+   voice, the control is a real form and takes the ordinary control voice
+   back. text-align is reset because a centred form row reads as a marketing
+   404, which is the S-2 register the discovery explicitly refused. */
+.empty > .empty-cause { margin: 0 0 0.75rem 0; }
+.empty > .empty-action { font-style: normal; text-align: left; max-width: 32rem; margin-inline: auto; }
 .display-name { font-size: var(--text-body); color: #444; margin-top: 0; }
 
 label {
