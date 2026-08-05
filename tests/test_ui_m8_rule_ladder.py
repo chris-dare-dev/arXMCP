@@ -20,6 +20,7 @@ Two failure modes shaped how these are written:
 from __future__ import annotations
 
 import re as _re
+from html.parser import HTMLParser as _HTMLParser
 
 import pytest
 
@@ -52,6 +53,107 @@ LIGHT, DARK = load_tokens()
 #: nor the grading — the same drop-shape as m7's ``clamp()`` values and m10's
 #: finding-H3 rules — so they are pinned here as authored requirements.
 RULE_TOKENS = ("--rule-section", "--rule-row", "--rule-meta")
+
+#: Elements that never open a scope, so they must not be pushed onto the
+#: ancestry stack in :func:`_element_ancestries`.
+_VOID_ELEMENTS = frozenset({
+    "area", "base", "br", "col", "embed", "hr", "img", "input", "link",
+    "meta", "source", "track", "wbr",
+})
+
+
+class _AncestryScanner(_HTMLParser):
+    """Record the open-element chain above every occurrence of a tag.
+
+    Added 2026-08-05. ``TestExemptionIsConditionalPerSite`` used to prove
+    "these cells are grouped by their table" with ``"tbody" in selector`` — a
+    substring test against a CSS string, which says nothing about what
+    renders. This walks the real element nesting instead.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.stack: list[str] = []
+        self.chains: dict[str, list[list[str]]] = {}
+
+    def handle_starttag(self, tag: str, attrs: object) -> None:
+        if tag in _VOID_ELEMENTS:
+            return
+        self.chains.setdefault(tag, []).append(list(self.stack))
+        self.stack.append(tag)
+
+    def handle_startendtag(self, tag: str, attrs: object) -> None:
+        self.chains.setdefault(tag, []).append(list(self.stack))
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in self.stack:
+            while self.stack and self.stack.pop() != tag:
+                pass
+
+
+def _strip_jinja(markup: str) -> str:
+    """Remove Jinja comments, statements and expressions.
+
+    What is left is the HTML skeleton every render shares, which is the level
+    the structural claims are about. Interpolated VALUES cannot change
+    nesting; only ``{% if %}`` around whole elements could, and the templates
+    here wrap attributes and text, not element boundaries.
+    """
+    for pattern in (r"\{#.*?#\}", r"\{%.*?%\}", r"\{\{.*?\}\}"):
+        markup = _re.sub(pattern, "", markup, flags=_re.S)
+    return markup
+
+
+def _split_selector_list(selector: str) -> list[str]:
+    """Split a selector list on top-level commas only.
+
+    ``main > :where(section, div) + div`` is ONE selector; a naive
+    ``split(",")`` makes it two and the second is nonsense.
+    """
+    parts, depth, current = [], 0, []
+    for ch in selector:
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        if ch == "," and depth == 0:
+            parts.append("".join(current))
+            current = []
+            continue
+        current.append(ch)
+    parts.append("".join(current))
+    return [p.strip() for p in parts if p.strip()]
+
+
+def _selector_subjects(selector: str) -> set[str]:
+    """The element name each alternative in ``selector`` finally targets.
+
+    Returns an empty-string entry for a compound with no element name (a bare
+    class or id), which is exactly the case a structural claim must not be
+    allowed to make: ``.discover-candidate`` cannot be "grouped by its
+    table", because nothing about that selector says it is in one.
+    """
+    subjects: set[str] = set()
+    for alt in _split_selector_list(selector):
+        # Drop functional pseudo-class arguments before splitting on
+        # descendant/child/sibling combinators, so `:has(tbody:empty)` does
+        # not contribute its inner tokens as compounds.
+        flat = _re.sub(r"\([^()]*\)", "", alt)
+        compounds = [c for c in _re.split(r"[\s>+~]+", flat) if c]
+        last = compounds[-1] if compounds else ""
+        m = _re.match(r"^([a-zA-Z][\w-]*)", last)
+        subjects.add(m.group(1).lower() if m else "")
+    return subjects
+
+
+def _element_ancestries(tag: str) -> list[list[str]]:
+    """Every ancestor chain under which ``tag`` is emitted by a template."""
+    chains: list[list[str]] = []
+    for path in TEMPLATE_PATHS:
+        scanner = _AncestryScanner()
+        scanner.feed(_strip_jinja(path.read_text(encoding="utf-8")))
+        chains.extend(scanner.chains.get(tag, []))
+    return chains
 
 
 # ---------------------------------------------------------------------------
@@ -511,60 +613,233 @@ class TestExemptionIsConditionalPerSite:
     selector that is the ONLY separator between two groups — operationally,
     every tinted-rung rule must also carry spacing, or sit inside a table or
     definition list whose own semantics group the rows.
+
+    **REWRITTEN 2026-08-05 after an external review found it proved nothing
+    it claimed.** The previous version stored a free-text sentence per site
+    and had four independent holes, each of which the review demonstrated:
+
+    1. ``if m is None: continue`` — a selector NOT in the stylesheet was
+       silently skipped, so an invented site with an invented cue passed.
+    2. The cue string was interpolated into failure messages and asserted
+       against nothing. It was documentation wearing a test's clothes.
+    3. ``semantic = any(x in selector for x in ("dl.meta", "tbody"))`` —
+       a substring test on the SELECTOR TEXT was treated as proof that the
+       rendered element sits inside a grouping structure.
+    4. ``"padding" in body or "margin" in body`` — satisfied by
+       ``padding: 0``. The review confirmed ``.discover-candidate`` still
+       passed after its spacing was reduced to zero.
+
+    Each cue is now a CHECKABLE KIND rather than a sentence, and each kind
+    has a test that can actually fail: spacing is parsed and required to be
+    positive, and the structural kinds are proved against the shipped markup
+    by walking an element ancestry, not by matching a substring of the CSS.
     """
 
-    #: Every tinted-rung site, with the second cue that earns its exemption.
-    #: Adding a site without adding its cue here fails the test below.
-    TINTED_SITES: dict[str, str] = {
-        "dl.meta dt, dl.meta dd": "<dl> pairs are grouped by dt/dd semantics",
-        "tbody td": "<table> rows are grouped by the table itself",
-        ".discover-candidate": "each candidate carries its own padding rhythm",
-        "main > :where(section, div) + div": "1.25rem margin + padding",
+    #: Cue kinds. A tinted rung is decorative — and so SC 1.4.11 exempt —
+    #: only where one of these independently carries the grouping.
+    SPACING = "spacing"      #: the rule itself declares POSITIVE spacing
+    TABLE = "table"          #: the marked cells sit inside a <table>
+    DEF_LIST = "dl"          #: the marked terms sit inside a <dl>
+    DEGENERATE = "degenerate"  #: there is no second group to separate from
+
+    CUE_KINDS = frozenset({SPACING, TABLE, DEF_LIST, DEGENERATE})
+
+    #: selector -> (cue kind, why this site qualifies). The NOTE is prose for
+    #: a reader; the KIND is what the tests below enforce. Adding a site
+    #: without a kind fails; adding one whose kind does not hold fails.
+    TINTED_SITES: dict[str, tuple[str, str]] = {
+        "dl.meta dt, dl.meta dd": (
+            DEF_LIST, "<dl> pairs are grouped by dt/dd semantics"),
+        "tbody td": (
+            TABLE, "<table> rows are grouped by the table itself"),
+        ".discover-candidate": (
+            SPACING, "each candidate carries its own padding rhythm"),
+        "main > :where(section, div) + div": (
+            SPACING, "1.25rem margin + padding"),
         # Added by m8's own rectify (M16) and caught by this guard on its
         # first run — which is the guard doing its job. The cue here is
         # degenerate and therefore the strongest: with an empty tbody there
         # is no second group to separate from, so nothing depends on the
         # rule to perceive a grouping that does not exist.
-        "table:has(tbody:empty) thead th": "no rows below it to separate from",
+        "table:has(tbody:empty) thead th": (
+            DEGENERATE, "no rows below it to separate from"),
         # ui-uplift-m12 (UPL-1). The nested continuation of the row rung: the
         # five mutation blocks left main's child list when they moved inside
         # <details class="manage-disclosure">, so `main >` stopped reaching
-        # them. Same blocks, same rung, one level down — and the same second
-        # cue they had before the move, plus an <h2> opening each block.
-        ".manage-disclosure > div + div": "1.25rem margin + padding, and each "
-                                          "block still opens with its <h2>",
+        # them. Same blocks, same rung, one level down.
+        ".manage-disclosure > div + div": (
+            SPACING, "1.25rem margin + padding, each block opening with its <h2>"),
     }
 
-    def test_every_tinted_rung_site_is_enumerated_with_its_second_cue(
+    @staticmethod
+    def _tinted_selectors_in_css() -> list[str]:
+        """Every selector whose rule body paints a tinted rung."""
+        return [
+            " ".join(sel.split())
+            for sel in _re.findall(
+                r"([^{}]+)\{[^{}]*var\(--rule-(?:row|meta)\)",
+                APP_CSS_NO_COMMENTS,
+            )
+        ]
+
+    @staticmethod
+    def _rule_body(selector: str) -> str | None:
+        """The declaration block for an EXACT selector, or None."""
+        m = _re.search(
+            rf"(?:^|\}})\s*{_re.escape(selector)}\s*\{{([^}}]*)\}}",
+            APP_CSS_NO_COMMENTS, flags=_re.M,
+        )
+        return m.group(1) if m else None
+
+    def test_cue_kinds_are_from_the_closed_set(self) -> None:
+        """Hole 2's replacement has to be a closed vocabulary, or it decays
+        back into free text that nothing enforces."""
+        assert self.TINTED_SITES, "vacuous: no tinted sites enumerated"
+        for selector, (kind, note) in self.TINTED_SITES.items():
+            assert kind in self.CUE_KINDS, (
+                f"`{selector}` claims cue kind {kind!r}, which no test can "
+                f"check. Use one of {sorted(self.CUE_KINDS)}."
+            )
+            assert note.strip(), f"`{selector}` has an empty note"
+
+    def test_every_enumerated_selector_exists_verbatim_in_app_css(self) -> None:
+        """Hole 1. The old guard skipped a selector it could not find, so a
+        site that does not exist — with any cue at all — passed."""
+        for selector in self.TINTED_SITES:
+            assert self._rule_body(selector) is not None, (
+                f"TINTED_SITES enumerates `{selector}`, which is not a "
+                f"selector in app.css. An entry that matches nothing used to "
+                f"be skipped silently; it is now a failure, because a guard "
+                f"that cannot find its subject proves nothing about it."
+            )
+
+    def test_every_enumerated_selector_actually_paints_a_tinted_rung(
         self,
     ) -> None:
-        used = _re.findall(
-            r"([^{}]+)\{[^{}]*var\(--rule-(?:row|meta)\)", APP_CSS_NO_COMMENTS
-        )
-        for selector in used:
-            sel = " ".join(selector.split())
-            assert any(k in sel for k in self.TINTED_SITES), (
+        """The dict is the exemption REGISTRY. An entry whose rule draws no
+        tinted rung is claiming an exemption for something that needs none —
+        which is how a stale entry would keep covering a site that changed."""
+        tinted = set(self._tinted_selectors_in_css())
+        for selector in self.TINTED_SITES:
+            assert selector in tinted, (
+                f"`{selector}` is registered as an SC 1.4.11 exemption but "
+                f"its rule no longer references var(--rule-row) or "
+                f"var(--rule-meta). Remove the entry."
+            )
+
+    def test_every_tinted_rung_site_is_enumerated(self) -> None:
+        """Coverage, the other direction — now by EXACT selector.
+
+        The old form was ``any(k in sel for k in TINTED_SITES)``, so a new
+        selector merely CONTAINING an enumerated one inherited its exemption
+        without ever being reviewed.
+        """
+        registered = set(self.TINTED_SITES)
+        for sel in self._tinted_selectors_in_css():
+            assert sel in registered, (
                 f"`{sel}` uses a tinted rung but is not enumerated in "
-                f"TINTED_SITES with the second cue that earns its SC 1.4.11 "
+                f"TINTED_SITES with the cue kind that earns its SC 1.4.11 "
                 f"exemption. A tinted rung measures 2.533:1 (row) or 1.960:1 "
                 f"(meta); it is decorative ONLY where something else carries "
-                f"the grouping. Add the site and its cue, or use "
+                f"the grouping. Add the site and its kind, or use "
                 f"--rule-section."
             )
 
-    def test_no_tinted_site_relies_on_the_rule_alone(self) -> None:
-        """Each tinted-rung rule must also carry spacing, or sit in a
-        structure whose own semantics group its rows."""
-        for selector, cue in self.TINTED_SITES.items():
-            m = _re.search(
-                rf"{_re.escape(selector)}\s*\{{([^}}]*)\}}", APP_CSS_NO_COMMENTS
+    def test_spacing_cues_declare_POSITIVE_spacing(self) -> None:
+        """Hole 4. ``padding: 0`` satisfied the old substring check, which
+        means a site could claim a spacing cue while providing no spacing.
+        The review reduced ``.discover-candidate`` to ``padding: 0`` and the
+        guard still passed.
+        """
+        spacing_sites = [
+            s for s, (kind, _n) in self.TINTED_SITES.items()
+            if kind == self.SPACING
+        ]
+        assert spacing_sites, "vacuous: no site claims the spacing cue"
+        for selector in spacing_sites:
+            body = self._rule_body(selector)
+            assert body is not None
+            lengths = _re.findall(
+                r"(?:padding|margin)(?:-[a-z-]+)?\s*:\s*([^;]+)", body
             )
-            if m is None:
+            assert lengths, (
+                f"`{selector}` claims a spacing cue and declares no "
+                f"padding or margin at all"
+            )
+            values = [
+                float(n)
+                for decl in lengths
+                for n in _re.findall(r"(-?\d*\.?\d+)(?=r?em|px|%|ch|vh|vw)", decl)
+            ]
+            assert values, (
+                f"`{selector}` declares padding/margin with no length value "
+                f"({lengths!r}) — `auto` and keywords do not separate groups"
+            )
+            assert any(v > 0 for v in values), (
+                f"`{selector}` claims a spacing cue but every declared length "
+                f"is {values!r}. Zero spacing means the tinted rule IS the "
+                f"only separator, and the decorative exemption does not hold."
+            )
+
+    def test_structural_cues_hold_in_the_SHIPPED_MARKUP(self) -> None:
+        """Hole 3. ``"tbody" in selector`` was treated as proof that the
+        marked element sits inside a table. It is proof of nothing — it is a
+        substring of a CSS string. This walks the element ancestry of the
+        shipped templates instead, so the claim is checked against the
+        structure that actually renders.
+        """
+        #: kind -> (elements that only exist inside the structure, the
+        #: grouping ancestor they must have).
+        required = {
+            self.TABLE: ({"td", "th", "tr", "tbody", "thead"}, "table"),
+            self.DEF_LIST: ({"dt", "dd"}, "dl"),
+        }
+        structural = [
+            (s, kind) for s, (kind, _n) in self.TINTED_SITES.items()
+            if kind in required
+        ]
+        assert structural, "vacuous: no site claims a structural cue"
+        for selector, kind in structural:
+            allowed, ancestor = required[kind]
+            subjects = _selector_subjects(selector)
+
+            # (a) The selector must actually TARGET the structure it invokes.
+            # Without this the check passes vacuously: any selector at all
+            # could claim TABLE and be validated against unrelated <td>s
+            # elsewhere in the templates.
+            assert subjects <= allowed and "" not in subjects, (
+                f"`{selector}` claims its grouping comes from <{ancestor}>, "
+                f"but it targets {sorted(subjects)!r} — not one of "
+                f"{sorted(allowed)!r}. A selector that does not target the "
+                f"structure cannot inherit that structure's grouping."
+            )
+
+            # (b) And that structure must really wrap it where it renders.
+            for subject in sorted(subjects):
+                chains = _element_ancestries(subject)
+                assert chains, (
+                    f"`{selector}` claims grouping from <{ancestor}>, but no "
+                    f"<{subject}> is emitted by any shipped template — the "
+                    f"claim is untestable and the exemption unearned."
+                )
+                for chain in chains:
+                    assert ancestor in chain, (
+                        f"`{selector}` claims <{ancestor}> semantics carry "
+                        f"the grouping, but a <{subject}> renders at "
+                        f"{chain!r} with no <{ancestor}> ancestor. There, "
+                        f"the tinted rule is the only separator."
+                    )
+
+    def test_the_degenerate_cue_really_targets_an_empty_group(self) -> None:
+        """The degenerate cue says "there is no second group to separate
+        from". That is only true if the selector itself is conditioned on
+        emptiness — otherwise it is the strongest-sounding claim in the
+        registry with nothing behind it."""
+        for selector, (kind, _n) in self.TINTED_SITES.items():
+            if kind != self.DEGENERATE:
                 continue
-            body = m.group(1)
-            semantic = any(x in selector for x in ("dl.meta", "tbody"))
-            assert semantic or "padding" in body or "margin" in body, (
-                f"`{selector}` draws a tinted rung with no spacing and no "
-                f"grouping semantics, so the rule is the sole separator and "
-                f"the decorative exemption does not hold. Cue claimed: {cue}"
+            assert ":empty" in selector, (
+                f"`{selector}` claims the degenerate cue but is not "
+                f"conditioned on an empty group; it applies with rows "
+                f"present, where the rung IS a separator."
             )
