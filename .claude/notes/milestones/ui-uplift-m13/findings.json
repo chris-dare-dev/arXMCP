@@ -1,0 +1,86 @@
+{
+  "milestone_id": "ui-uplift-m13",
+  "critique_format_version": "1.0",
+  "critique_files": [
+    "dedup.md"
+  ],
+  "generated_at": "2026-08-05T23:00:00Z",
+  "findings": {
+    "H1": {
+      "id": "H1",
+      "severity": "HIGH",
+      "title": "#status-badge carries the identical defect at 10s, on every page, forever",
+      "file": "server/frontend/templates/base.html",
+      "line": 120,
+      "source_critic": "inline-self-adversarial",
+      "source_axis": "Accessibility",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Wrapped in a never-swapped <span id=status-live aria-live=polite aria-atomic=true>; both attributes dropped from the badge and from ui_status_badge's fragment. Found by this milestone's own critique, NOT by its acceptance criteria - those were written from the ingest symptom, while the brief's census sentence ('twelve aria-live regions on one rendered page') is what actually scoped the work. Worse than the ingest case in two ways: base.html puts it on every page including the index, and it has no terminal state, so it re-announced 'READY - corpus v... - N notebooks' every 10 seconds for as long as the tab stayed open. Guarded by TestNoPolledSwapTargetIsItsOwnLiveRegion, which derives the rule over the rendered page rather than naming the two known ids, so the next polled region fails on arrival.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-05T23:00:00Z",
+          "resolution": "Wrapped in a never-swapped <span id=status-live aria-live=polite aria-atomic=true>; both attributes dropped from the badge and from ui_status_badge's fragment. Found by this milestone's own critique, NOT by its acceptance criteria - those were written from the ingest symptom, while the brief's census sentence ('twelve aria-live regions on one rendered page') is what actually scoped the work. Worse than the ingest case in two ways: base.html puts it on every page including the index, and it has no terminal state, so it re-announced 'READY - corpus v... - N notebooks' every 10 seconds for as long as the tab stayed open. Guarded by TestNoPolledSwapTargetIsItsOwnLiveRegion, which derives the rule over the rendered page rather than naming the two known ids, so the next polled region fails on arrival."
+        }
+      ]
+    },
+    "M1": {
+      "id": "M1",
+      "severity": "MEDIUM",
+      "title": "index.html's create-error left as <pre aria-live> with no recorded reason",
+      "file": "server/frontend/templates/index.html",
+      "line": 73,
+      "source_critic": "inline-self-adversarial",
+      "source_axis": "Accessibility",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Recorded at the site. Six detail-page error blocks became <output>; #create-error did not, which is scope (m12 set v0 to the detail page; m11/m19 own the index) but was left as an unexplained inconsistency - the only .error still carrying an explicit aria-live. The note states it is not broken (the element is never swapped, only its textContent is set) and that it DOES inherit m13's zero-footprint :empty fix, so it is registered in the a11y tree at first paint like the other six. Migrate it with the rest of the index, not alone.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-05T23:00:00Z",
+          "resolution": "Recorded at the site. Six detail-page error blocks became <output>; #create-error did not, which is scope (m12 set v0 to the detail page; m11/m19 own the index) but was left as an unexplained inconsistency - the only .error still carrying an explicit aria-live. The note states it is not broken (the element is never swapped, only its textContent is set) and that it DOES inherit m13's zero-footprint :empty fix, so it is registered in the a11y tree at first paint like the other six. Migrate it with the rest of the index, not alone."
+        }
+      ]
+    },
+    "L1": {
+      "id": "L1",
+      "severity": "LOW",
+      "title": "<output>'s implicit role=status is a spec fact this repo cannot test",
+      "file": "tests/test_ui_m13_live_region_hygiene.py",
+      "line": 0,
+      "source_critic": "inline-self-adversarial",
+      "source_axis": "Accessibility",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Stated as the HTML-AAM fact it is rather than asserted. The element is pinned by test_every_error_block_is_an_output and the census guard counts implicit-role elements, so a silent revert to <div> fails; what cannot be checked in-repo is the mapping itself, which needs an AT.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-05T23:00:00Z",
+          "resolution": "Stated as the HTML-AAM fact it is rather than asserted. The element is pinned by test_every_error_block_is_an_output and the census guard counts implicit-role elements, so a silent revert to <div> fails; what cannot be checked in-repo is the mapping itself, which needs an AT."
+        }
+      ]
+    },
+    "M2": {
+      "id": "M2",
+      "severity": "MEDIUM",
+      "title": "The empty-state collapse is derived from the CSS, not observed in a browser",
+      "file": "server/frontend/static/app.css",
+      "line": 0,
+      "source_critic": "inline-self-adversarial",
+      "source_axis": "Accessibility",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "DEFERRED - no in-repo remedy. Replacing `.error:empty { display: none }` with a zero-footprint box is reasoned from the cascade (`:empty` outranks `.error`, and padding/margin/min-height/background are all neutralised), and the reasoning is pinned by test_the_empty_state_has_no_visual_footprint. It is not OBSERVED: this repo ships no browser harness and the preview pane renders these pages as static snapshots. Six empty tinted boxes at first paint would be an obvious visual regression, so the risk is low but real. Recorded so the next operator with a browser checks it deliberately instead of assuming it was verified.",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-05T23:00:00Z",
+          "resolution": "no in-repo remedy; needs a browser"
+        }
+      ]
+    }
+  }
+}

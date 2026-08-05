@@ -1,0 +1,89 @@
+{
+  "id": "ui-uplift-m13",
+  "created_at": "2026-08-05T16:49:18Z",
+  "updated_at": "2026-08-05T23:10:00Z",
+  "phase": "complete",
+  "phase_history": [
+    {
+      "phase": "init",
+      "at": "2026-08-05T16:49:18Z"
+    },
+    {
+      "phase": "research-running",
+      "at": "2026-08-05T22:00:00Z"
+    },
+    {
+      "phase": "research-complete",
+      "at": "2026-08-05T22:00:00Z"
+    },
+    {
+      "phase": "implement-running",
+      "at": "2026-08-05T22:30:00Z"
+    },
+    {
+      "phase": "implement-complete",
+      "at": "2026-08-05T22:30:00Z"
+    },
+    {
+      "phase": "critique-running",
+      "at": "2026-08-05T22:30:00Z"
+    },
+    {
+      "phase": "critique-complete",
+      "at": "2026-08-05T22:30:00Z"
+    },
+    {
+      "phase": "rectify-running",
+      "at": "2026-08-05T22:30:00Z"
+    },
+    {
+      "phase": "complete",
+      "at": "2026-08-05T23:10:00Z"
+    }
+  ],
+  "milestone_brief": "# Milestone brief — ui-uplift-m13\n\n**Title:** Live-region hygiene — stop the 2s poll re-announcing\n**Kind:** milestone\n**Roadmap:** ui-uplift (plans/ui-uplift/roadmap.yaml)\n**Status:** planned\n**Lane:** next\n**Target:** 2026-09-26 -> 2026-10-03\n\n## Parent epic\n\n- ui-uplift-e3 — Corpus before machinery — information architecture and live-region hygiene\n  The papers table, the only corpus content on the detail page, begins at y=1823 of a 2343px document, after six consecutive input forms — an order that mirrors shipping history, not operator priority. This epic reorders the page around its primary object, adds the focal lede the page has never had, and fixes the live-region behaviour that currently announces every 2 seconds for a whole ingest run.\n\n## Summary\n\nUPL-13 v0. Twelve aria-live regions on one rendered page, six of them empty error blocks at first paint, and the 2s ingest poll re-announces on every tick regardless of whether the text changed. The fix is NOT a server-side delta check — the fragment builder is a pure function of the current row and has no memory of what the client rendered. Move aria-live onto a stable never-swapped wrapper: a live region only announces CHANGED text, so an identical re-render is silent by spec.\n\n## Acceptance criteria\n\n1. Given an ingest run in progress, when the 2s poll fires with unchanged status, then no announcement is made\n2. Given the six error blocks empty at first paint, then they no longer carry aria-live\n3. Given the ingest status region, then it is EXCLUDED from any <output> migration — its failed branch emits <pre>, which is flow content inside a phrasing-content element\n4. Given the reorder milestone, then this is sequenced with it — moving forms into a disclosure changes which live regions are in the accessibility tree at all\n\n## Depends on\n\n- ui-uplift-m12 — Corpus before machinery — reorder the detail page (v0) [status: done]",
+  "brief_source": "roadmap plans/ui-uplift/roadmap.yaml",
+  "research_mode": "inline",
+  "oss_scout_requested": false,
+  "allow_large_diff": false,
+  "research_briefs": [],
+  "research_synthesis": ".claude/notes/milestones/ui-uplift-m13/research/synthesis.md",
+  "implementation_path": "inline",
+  "implementation_plan": ".claude/notes/milestones/ui-uplift-m13/implement/synthesis.md",
+  "implementation_base": null,
+  "implementation_commit_range": null,
+  "implementation_commits": [
+    "73d5ef9"
+  ],
+  "implementation_branch": null,
+  "external_writes_required": [
+    "git push origin main"
+  ],
+  "critique_path": ".claude/notes/milestones/ui-uplift-m13/critique/dedup.md",
+  "critics_run": [
+    "inline-self-adversarial"
+  ],
+  "critique_files": [],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 1,
+    "medium": 2,
+    "low": 1
+  },
+  "findings_register": ".claude/notes/milestones/ui-uplift-m13/findings.json",
+  "rectification_commit": "73d5ef9",
+  "fixed_findings": [
+    "H1",
+    "M1",
+    "L1"
+  ],
+  "deferred_findings": [
+    "M2"
+  ],
+  "invalidated_findings": [],
+  "regression_tests_added": [
+    "tests/test_ui_m13_live_region_hygiene.py"
+  ],
+  "external_writes_authorized": [],
+  "external_writes_completed": []
+}

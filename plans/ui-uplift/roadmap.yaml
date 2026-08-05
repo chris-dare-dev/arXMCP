@@ -484,6 +484,7 @@ items:
   - id: ui-uplift-m13
     kind: milestone
     title: "Live-region hygiene — stop the 2s poll re-announcing"
+    status: done
     summary: >-
       UPL-13 v0. Twelve aria-live regions on one rendered page, six of them empty error blocks
       at first paint, and the 2s ingest poll re-announces on every tick regardless of whether
