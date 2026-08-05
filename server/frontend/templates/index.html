@@ -106,19 +106,7 @@
       </thead>
       <tbody id="notebooks-tbody" aria-live="polite">
         {% if not notebooks %}
-        {# ui-uplift-m11 (UPL-21): CAUSE half only, and the missing control is
-           REFUSED rather than deferred. The Create form is directly above this
-           table, visible, on the same page — a second Create button here would
-           be a duplicate of an adjacent control and BAN-9's "multiple primary
-           CTAs per viewport" is precisely that. AC#1's control half is narrowed
-           to the empty state whose action is UNREACHABLE (the papers table,
-           behind the disclosure ui-uplift-m12 created); the roadmap AC records
-           the narrowing so it is not asserted only here.
-           WHEN THE INDEX REORDER (UPL-1 v1) MOVES THE CREATE FORM BELOW THIS
-           TABLE, THIS COPY BECOMES WRONG AND THE REFUSAL EXPIRES WITH IT — the
-           form will no longer be "above", and the control half then has to
-           land here for the same reason it landed on the papers table. #}
-        <tr id="notebooks-empty"><td colspan="4" class="empty">No notebooks yet — nothing has been created on this server. Use the Create form above.</td></tr>
+        <tr id="notebooks-empty"><td colspan="4" class="empty">No notebooks yet. Create one above.</td></tr>
         {% endif %}
         {% for nb in notebooks %}
         <tr data-slug="{{ nb.slug }}">

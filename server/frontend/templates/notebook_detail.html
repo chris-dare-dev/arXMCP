@@ -181,6 +181,16 @@
      forbids. It costs no CSS and adds no swap target. #}
   <h2>Papers in this notebook ({{ papers|length }})
     <a class="hint" href="#manage">Manage this notebook</a></h2>
+  {% if not papers %}
+    {# ui-uplift-m12 (UPL-1): was "No papers yet. Add one above." — false the
+       moment the Add-by-URL form moved below this table, and a first-run page
+       whose only instruction points the wrong way at a collapsed region is
+       the harm challenge.md:98-104 named. ui-uplift-m11 (UPL-21) owns
+       empty-state copy and depends_on m12, so it revisits the voice; this
+       fixes the FACT now. The disclosure's own label is quoted so the
+       instruction names the affordance the operator will actually see. #}
+    <p class="empty">No papers yet. Add one from "Manage this notebook" below.</p>
+  {% endif %}
   {# ui-attractive-polish-m2 (UPL-19 v0): wrap the table in .table-wrap
      (overflow-x:auto) so narrow viewports scroll the table rather than
      clipping the Preview / Remove column off the right edge. The wrapper is
@@ -199,61 +209,6 @@
        NEVER replaced — only the static template attribute is required;
        no server-fragment update. #}
     <tbody id="papers-tbody" aria-live="polite">
-      {# ui-uplift-m11 (UPL-21) — the empty state, rewritten and RELOCATED.
-
-         It was a <p class="empty"> sitting ABOVE the table, and it had a bug
-         nobody had filed: NOTHING removed it. Add a paper by any of the three
-         paths (Add-by-URL, Upload, Discover→Add) and the row appends to this
-         tbody while "No papers yet." stays on screen above a populated table.
-         The index page dodges that with a per-form JS hook
-         (`document.getElementById('notebooks-empty')?.remove()`) wired to ONE
-         form; three paths here would need three hooks, and a fourth would
-         silently not get one.
-
-         Inside the tbody as a row instead, cleared by CSS: `#papers-empty` is
-         hidden whenever a sibling row follows it (app.css). Zero JS, and it
-         covers every add path including ones not written yet. `:has()` is
-         already load-bearing in this stylesheet (m8's
-         `table:has(tbody:empty) thead th`) and Baseline Widely.
-
-         AC#1 — CAUSE plus ONE ACTUAL CONTROL. This is the one empty state of
-         the three where the action is genuinely unreachable: ui-uplift-m12
-         moved every mutation form into the Manage disclosure, so the previous
-         copy could only POINT at it, which is what AC#1 forbids in as many
-         words. The other two empty states sit beside a visible form and get
-         the cause half only — see the roadmap AC, amended with that narrowing
-         rather than leaving it recorded here alone.
-
-         Its own #papers-empty-error, not a second element with the id the
-         Add-by-URL form already uses; duplicate ids would break both.
-
-         AC#3 — NO ICON. The source pattern leads with one; this adopts the
-         anatomy without it. The console ships zero icons and the frame treats
-         that as an asset (BAN-3), so adding the product's first one for an
-         empty state would be drifting into a decision the roadmap says must
-         be escalated. #}
-      <tr id="papers-empty">
-        <td colspan="4" class="empty">
-          <p class="empty-cause">Nothing indexed yet — this notebook has no papers.</p>
-          <form class="empty-action"
-            hx-post="/ui/api/notebooks/{{ notebook.slug }}/papers"
-            hx-ext="json-enc"
-            hx-disabled-elt="find button"
-            hx-target="#papers-tbody"
-            hx-swap="beforeend show:#papers-tbody:bottom"
-            hx-on::htmx:after-request="if(event.detail.successful) this.reset()"
-            hx-on::htmx:response-error="document.getElementById('papers-empty-error').textContent = (function(t){try{return JSON.parse(t).detail||t;}catch(e){return t;}})(event.detail.xhr.responseText)"
-          >
-            <label>
-              Add the first paper by arXiv URL
-              <input type="url" name="arxiv_url" required maxlength="512"
-                     placeholder="https://arxiv.org/abs/2604.26204">
-            </label>
-            <button type="submit">Add</button>
-            <output id="papers-empty-error" class="error"></output>
-          </form>
-        </td>
-      </tr>
       {% for p in papers %}
       <tr data-slug="{{ notebook.slug }}" data-paper-id="{{ p.paper_id }}">
         <td><code>{{ p.paper_id }}</code></td>

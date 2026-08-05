@@ -71,27 +71,12 @@ _FORM_OPEN_RE = re.compile(r"<form\b[^>]*?>")
 
 def _form_tag_containing(html: str, needle: str) -> str:
     """Return the single <form> opening tag whose attributes contain ``needle``."""
-    # ui-uplift-m11 (UPL-21): an endpoint may legitimately have MORE than one
-    # form now — the papers endpoint is posted by both the disclosure's
-    # Add-by-URL form and the empty state's first-paper control. Asserting
-    # "exactly one" would have made adding the second form look like a
-    # contract break; what the contract actually requires is that EVERY form
-    # on a JSON endpoint carries the extension, which is the stronger check.
     matches = [t for t in _FORM_OPEN_RE.findall(html) if needle in t]
-    if not matches:
-        raise AssertionError(f"no <form> opening tag contains {needle!r}")
-    # ui-uplift-m11 (UPL-21): an endpoint may now have MORE than one form —
-    # the papers endpoint is posted by both the disclosure's Add-by-URL form
-    # and the empty state's first-paper control. The contract this module
-    # enforces is "every form on a JSON endpoint carries the extension", so
-    # returning the concatenation would let one compliant form cover a
-    # non-compliant sibling. Each match is checked independently instead.
-    for tag in matches:
-        if "hx-ext" not in tag and "hx-encoding" not in tag:
-            raise AssertionError(
-                f"a <form> containing {needle!r} carries neither hx-ext nor "
-                f"hx-encoding: {tag}"
-            )
+    if len(matches) != 1:
+        raise AssertionError(
+            f"expected exactly one <form> opening tag containing {needle!r}, "
+            f"found {len(matches)}"
+        )
     return matches[0]
 
 

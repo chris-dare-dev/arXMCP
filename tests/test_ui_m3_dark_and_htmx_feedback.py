@@ -470,11 +470,8 @@ class TestUPL11HxDisabledEltAttributes:
         # notebook-paper-discovery-m4 added the Discover <form> on the detail
         # page (POST /ui/api/notebooks/{slug}/discover), bringing it to
         # 1 index + 6 detail = 7.
-        # ui-uplift-m11 (UPL-21): 8. The empty papers state carries a
-        # first-paper Add-by-URL control. The count is the guard — a form
-        # added without hx-disabled-elt fails right here.
-        assert len(all_forms) == 8, (
-            f"Expected 8 htmx-bound <form> elements total (1 index + 7 "
+        assert len(all_forms) == 7, (
+            f"Expected 7 htmx-bound <form> elements total (1 index + 6 "
             f"detail); found {len(all_forms)}"
         )
         for form in all_forms:
@@ -663,12 +660,11 @@ class TestCrossMilestoneSafety:
         # is the live count and the failure message reports it. A guard below
         # asserts these three comments carry no absolute count at all, so the
         # recurrence cannot start again.
-        assert line_count <= 720, (
-            f"app.css is {line_count} lines — over the 720-line cap "
+        assert line_count <= 680, (
+            f"app.css is {line_count} lines — over the 680-line cap "
             f"(m6: 400->480 for the OKLCH family; m7: 480->520 for the two-voice "
             f"type scale; m10: 520->600 for the Discover "
             f"bibliography rules; m12: 600->680 for the Manage disclosure and the "
-            f"nested rule ladder; m11: 680->720 for the empty-state anatomy "
             f"nested rule ladder — see the raise history above). Consider stripping "
             f"documentation comments, splitting the file (e.g. tokens.css + "
             f"app.css per the escape-hatch noted in KR5), or arguing for "

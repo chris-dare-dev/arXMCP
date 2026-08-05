@@ -744,8 +744,8 @@ class TestCrossMilestoneSafety:
         # merits are argued at length on the m3 cap test. NO absolute line
         # count is recorded here (m12 M3/L3): this said "the file lands at
         # 635 of 680" while it was 627, and `line_count` above is live.
-        assert line_count <= 720, (
-            f"app.css is {line_count} lines — over the 720-line cap (revised "
+        assert line_count <= 680, (
+            f"app.css is {line_count} lines — over the 680-line cap (revised "
             f"by m6 400->480, then m7 480->520, then m10 520->600, then m12 "
             f"600->680 — see the "
             f"raise history above). "

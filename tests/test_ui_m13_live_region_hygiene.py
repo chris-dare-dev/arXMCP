@@ -58,12 +58,6 @@ POLLED_ID = "ingest-status"
 ERROR_BLOCK_IDS = (
     "rename-error", "topic-error", "discover-error",
     "paste-error", "upload-error", "ingest-error",
-    # ui-uplift-m11 (UPL-21): the empty papers state gained a first-paper
-    # control, and its error surface got the <output> treatment on arrival
-    # rather than being the one block that reintroduced an explicit
-    # aria-live. Six was m13's count; this list is what the guards derive
-    # from, and it moves when the page does.
-    "papers-empty-error",
 )
 
 #: Elements whose implicit ARIA role IS a live region.
