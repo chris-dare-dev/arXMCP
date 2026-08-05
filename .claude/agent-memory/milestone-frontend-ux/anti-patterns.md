@@ -49,3 +49,18 @@ the one carrying a UX decision is not. Diff every authored rule individually and
 the implementation changed — that is where the design was actually re-decided.
 First seen: ui-uplift-m10 (discovery H3's five rules: four verbatim, and the fifth — the
 abstract — gained a `max-height` clamp with no reveal affordance that H3 never authored).
+
+## A derived guard that reduces a selector list to one member
+
+A CSS guard that parses `selector { … }` and then classifies only
+`selector.split(",")[-1]` checks one of N selectors, so anything grouped in a
+comma list anywhere but last is invisible to it — `section, button { border-radius: 8px }`
+passes a "no radius on structure" check. Pair it with a literal-value assertion
+(`"6px" not in values`) and the guard defends one exact string on one exact
+position. When a milestone ships the guard that makes its own headline claim
+falsifiable, read the guard's parser, not its docstring: this one opened with a
+warning about "guards that pass vacuously" and then shipped a partial-coverage
+classifier. Iterate every selector, and assert the guard REJECTS a synthetic
+violation.
+First seen: ui-uplift-m8 (`test_structure_carries_no_border_radius`, which also
+admits `[tabindex]` as a "control" when the product's only `[tabindex]` is `<main>`).

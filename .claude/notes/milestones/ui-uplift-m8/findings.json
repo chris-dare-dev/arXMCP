@@ -1,0 +1,590 @@
+{
+  "milestone_id": "ui-uplift-m8",
+  "critique_format_version": "1.0",
+  "critique_files": [
+    "dedup.md"
+  ],
+  "generated_at": "2026-08-05T02:03:10Z",
+  "findings": {
+    "H1": {
+      "id": "H1",
+      "severity": "HIGH",
+      "title": "Retired hover rows still render; artifact's tightest pair is wrong",
+      "file": "tests/test_ui_contrast.py",
+      "line": 371,
+      "anchor": "# -- light --border's real binding groun",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Acceptance coverage / repo-gate compliance",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "re-registered the row-hover rule pair in both modes. thead th carries --rule-section directly above the first tbody row under border-collapse:collapse, so a full-weight rule IS drawn against the hover ground; it measures 3.0401/3.0804 \u2014 tighter than the artifact's regenerated headline, which named the wrong pair",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-05T02:03:10Z",
+          "resolution": "re-registered the row-hover rule pair in both modes. thead th carries --rule-section directly above the first tbody row under border-collapse:collapse, so a full-weight rule IS drawn against the hover ground; it measures 3.0401/3.0804 \u2014 tighter than the artifact's regenerated headline, which named the wrong pair"
+        }
+      ]
+    },
+    "H2": {
+      "id": "H2",
+      "severity": "HIGH",
+      "title": "Retired row-hover rule pair is the registry's tightest, and still renders",
+      "file": "tests/test_ui_contrast.py",
+      "line": 378,
+      "anchor": "#      * no FULL-WEIGHT rule is drawn ag",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "math fidelity",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "re-registered the row-hover rule pair in both modes. thead th carries --rule-section directly above the first tbody row under border-collapse:collapse, so a full-weight rule IS drawn against the hover ground; it measures 3.0401/3.0804 \u2014 tighter than the artifact's regenerated headline, which named the wrong pair",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-05T02:03:10Z",
+          "resolution": "re-registered the row-hover rule pair in both modes. thead th carries --rule-section directly above the first tbody row under border-collapse:collapse, so a full-weight rule IS drawn against the hover ground; it measures 3.0401/3.0804 \u2014 tighter than the artifact's regenerated headline, which named the wrong pair"
+        }
+      ]
+    },
+    "H3": {
+      "id": "H3",
+      "severity": "HIGH",
+      "title": "Implementation diff is 3.1x the dispatch threshold",
+      "file": null,
+      "line": null,
+      "anchor": "",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "test surface",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "accepted and recorded. 1191 authored + 194 generated vs a ~450 threshold; 11 files within the ~14 bound. The implementer declared it and wrote scope-exceeded.md rather than hiding it, and its reason holds: deleting a CSS primitive has no partial-but-coherent commit \u2014 templates, both stylesheets, four named guards, BAN-R2 and the registry fail together",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-05T02:03:10Z",
+          "resolution": "accepted and recorded. 1191 authored + 194 generated vs a ~450 threshold; 11 files within the ~14 bound. The implementer declared it and wrote scope-exceeded.md rather than hiding it, and its reason holds: deleting a CSS primitive has no partial-but-coherent commit \u2014 templates, both stylesheets, four named guards, BAN-R2 and the registry fail together"
+        }
+      ]
+    },
+    "H4": {
+      "id": "H4",
+      "severity": "HIGH",
+      "title": "Nine identical top boundaries; the section/div rank renders nowhere",
+      "file": "server/frontend/static/app.css",
+      "line": 60,
+      "anchor": "main > :where(section, div) + :where(sec",
+      "source_critic": "milestone-frontend-ux",
+      "source_axis": "Visual hierarchy",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "the block ladder split: <section> boundaries take --rule-section at 2rem, <div> boundaries take --rule-row at 1.25rem. The per-site decision now renders in a visual channel instead of only the DOM, and the detail page's ~96px of added stacking comes back",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-05T02:03:10Z",
+          "resolution": "the block ladder split: <section> boundaries take --rule-section at 2rem, <div> boundaries take --rule-row at 1.25rem. The per-site decision now renders in a visual channel instead of only the DOM, and the detail page's ~96px of added stacking comes back"
+        }
+      ]
+    },
+    "M1": {
+      "id": "M1",
+      "severity": "MEDIUM",
+      "title": "The conditional exemption has no derived site guard",
+      "file": "tests/test_ui_m8_rule_ladder.py",
+      "line": 235,
+      "anchor": "class TestGradingIsMeasuredNotAsserted:",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Test discipline",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "TestExemptionIsConditionalPerSite pins the condition the owner attached to D1: every tinted-rung site must be enumerated with the second cue that earns its SC 1.4.11 exemption, and no tinted site may rely on the rule alone. It caught this same rectify's M16 fix on first run",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-05T02:03:10Z",
+          "resolution": "TestExemptionIsConditionalPerSite pins the condition the owner attached to D1: every tinted-rung site must be enumerated with the second cue that earns its SC 1.4.11 exemption, and no tinted site may rely on the rule alone. It caught this same rectify's M16 fix on first run"
+        }
+      ]
+    },
+    "M2": {
+      "id": "M2",
+      "severity": "MEDIUM",
+      "title": "`.discover-abstract` is a fourth `--fg-muted` consumer, enumerated nowhere",
+      "file": "tests/test_ui_contrast.py",
+      "line": 242,
+      "anchor": "_p(_m, \".discover-meta / .topic-desc",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Doc drift",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": ".discover-abstract added to tokens.css's --fg-muted consumer enumeration \u2014 four consumers, not three; the fourth arrived in m10's rectify and was never enumerated",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-05T02:03:10Z",
+          "resolution": ".discover-abstract added to tokens.css's --fg-muted consumer enumeration \u2014 four consumers, not three; the fourth arrived in m10's rectify and was never enumerated"
+        }
+      ]
+    },
+    "M3": {
+      "id": "M3",
+      "severity": "MEDIUM",
+      "title": "The artifact's m7-sizes paragraph is false on two counts after m8 edited it",
+      "file": ".claude/docs/ui-contrast-table.md",
+      "line": 126,
+      "anchor": "Sizes under the m7 scale, for the record",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Doc drift",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "the artifact's m7-sizes paragraph corrected on both counts: .discover-title is an <h3> at the section step (not body weight-600) and .discover-abstract ships at 11px (not 13px), both changed by m10's rectify",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-05T02:03:10Z",
+          "resolution": "the artifact's m7-sizes paragraph corrected on both counts: .discover-title is an <h3> at the section step (not body weight-600) and .discover-abstract ships at 11px (not 13px), both changed by m10's rectify"
+        }
+      ]
+    },
+    "M4": {
+      "id": "M4",
+      "severity": "MEDIUM",
+      "title": "Light input/textarea are `#fff`, so two renamed `--card-bg` rows over-register",
+      "file": "tests/test_ui_contrast.py",
+      "line": 189,
+      "anchor": "_p(_m, \"th / input / textarea text on",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Correctness",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "verified rather than changed: light input/textarea are #fff, and the two renamed --card-bg rows describe the DARK control ground, which is correct. The finding's premise held for light mode only and the rows are mode-scoped",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-05T02:03:10Z",
+          "resolution": "verified rather than changed: light input/textarea are #fff, and the two renamed --card-bg rows describe the DARK control ground, which is correct. The finding's premise held for light mode only and the rows are mode-scoped"
+        }
+      ]
+    },
+    "M5": {
+      "id": "M5",
+      "severity": "MEDIUM",
+      "title": "app.css cap comments still say \"575 of 600, a 25-line margin\"; it is 599 of 600",
+      "file": "tests/test_ui_m3_dark_and_htmx_feedback.py",
+      "line": 631,
+      "anchor": "# The file lands at 575 of 600,",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Doc drift / repo-gate compliance",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "the lockstep cap blocks recorded a 25-line app.css margin that no longer existed; corrected to the real figure, and the cap was HELD at 600 rather than raised a fourth time \u2014 the room came from trimming rationale",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-05T02:03:10Z",
+          "resolution": "the lockstep cap blocks recorded a 25-line app.css margin that no longer existed; corrected to the real figure, and the cap was HELD at 600 rather than raised a fourth time \u2014 the room came from trimming rationale"
+        }
+      ]
+    },
+    "M6": {
+      "id": "M6",
+      "severity": "MEDIUM",
+      "title": "`dl.meta`'s exemption: whitespace is inverted and `<dl>` semantics are unverified under `display: grid`",
+      "file": "server/frontend/static/tokens.css",
+      "line": 153,
+      "anchor": "--rule-meta: 1px dotted color-mix(in",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Correctness",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "dl.meta's exemption argued the whitespace inverted (the spacing is inside the pair, not between); the real second cue is <dl> dt/dd semantics. rule-meta's argued a boundary the rung does not draw. Both corrected in tokens.css",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-05T02:03:10Z",
+          "resolution": "dl.meta's exemption argued the whitespace inverted (the spacing is inside the pair, not between); the real second cue is <dl> dt/dd semantics. rule-meta's argued a boundary the rung does not draw. Both corrected in tokens.css"
+        }
+      ]
+    },
+    "M7": {
+      "id": "M7",
+      "severity": "MEDIUM",
+      "title": "app.css publishes a th-separation ratio that matches no pair",
+      "file": "server/frontend/static/app.css",
+      "line": 149,
+      "anchor": "leaving the boundary on a fill alone",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "math fidelity",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "app.css published 1.1081:1 for the light th fill-alone separation; nothing measures that \u2014 the real figure is 1.0281, stated by the same file 27 lines below",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-05T02:03:10Z",
+          "resolution": "app.css published 1.1081:1 for the light th fill-alone separation; nothing measures that \u2014 the real figure is 1.0281, stated by the same file 27 lines below"
+        }
+      ]
+    },
+    "M8": {
+      "id": "M8",
+      "severity": "MEDIUM",
+      "title": "Section/div guard pins counts, not the per-site decisions it claims",
+      "file": "tests/test_ui_m8_rule_ladder.py",
+      "line": 352,
+      "anchor": "sections = len(_re.findall(r\"^<s",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "test surface",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "the section/div guard now asserts the ORDERED per-site elements transcribed from implement/synthesis.md's D2 table, not counts. Mutation-verified: a count-preserving swap of index.html's two blocks now fails, which is the exact mutation that defeated the original",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-05T02:03:10Z",
+          "resolution": "the section/div guard now asserts the ORDERED per-site elements transcribed from implement/synthesis.md's D2 table, not counts. Mutation-verified: a count-preserving swap of index.html's two blocks now fails, which is the exact mutation that defeated the original"
+        }
+      ]
+    },
+    "M9": {
+      "id": "M9",
+      "severity": "MEDIUM",
+      "title": "Horizontal-only guard ignores the border shorthand, so the box can return",
+      "file": "tests/test_ui_m8_rule_ladder.py",
+      "line": 184,
+      "anchor": "r\"border-(?:left|right|i",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "test surface",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "the horizontal-only guard now also catches the four-sided border shorthand, scoped to structure. Controls keep their box by design (the other half of radius-0-on-structure / 4px-on-controls), so inputs, textareas, buttons and the spinner arc are not vertical edges in the ladder's sense.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-05T02:03:10Z",
+          "resolution": "the horizontal-only guard now also catches the four-sided  shorthand, scoped to structure \u2014 controls keep their box by design, which is the other half of radius-0-on-structure/4px-on-controls"
+        }
+      ]
+    },
+    "M10": {
+      "id": "M10",
+      "severity": "MEDIUM",
+      "title": "rule-meta's SC 1.4.11 exemption argues a boundary the rung does not draw",
+      "file": "server/frontend/static/tokens.css",
+      "line": 153,
+      "anchor": "--rule-meta: 1px dotted color-mix(in o",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "math fidelity",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "dl.meta's exemption argued the whitespace inverted (the spacing is inside the pair, not between); the real second cue is <dl> dt/dd semantics. rule-meta's argued a boundary the rung does not draw. Both corrected in tokens.css",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-05T02:03:10Z",
+          "resolution": "dl.meta's exemption argued the whitespace inverted (the spacing is inside the pair, not between); the real second cue is <dl> dt/dd semantics. rule-meta's argued a boundary the rung does not draw. Both corrected in tokens.css"
+        }
+      ]
+    },
+    "M11": {
+      "id": "M11",
+      "severity": "MEDIUM",
+      "title": "Lockstep cap blocks record a 25-line app.css margin that is now 1",
+      "file": "tests/test_ui_m3_dark_and_htmx_feedback.py",
+      "line": 631,
+      "anchor": "# The file lands at 575 of 600,",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "test surface",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "the lockstep cap blocks recorded a 25-line app.css margin that no longer existed; corrected to the real figure, and the cap was HELD at 600 rather than raised a fourth time \u2014 the room came from trimming rationale",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-05T02:03:10Z",
+          "resolution": "the lockstep cap blocks recorded a 25-line app.css margin that no longer existed; corrected to the real figure, and the cap was HELD at 600 rather than raised a fourth time \u2014 the room came from trimming rationale"
+        }
+      ]
+    },
+    "M12": {
+      "id": "M12",
+      "severity": "MEDIUM",
+      "title": "Audited artifact prose still puts .discover-abstract at 13px; it ships at 11px",
+      "file": ".claude/docs/ui-contrast-table.md",
+      "line": 130,
+      "anchor": "` `.discover-abstract` and the `.topic-cat `",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "math fidelity",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "the artifact's m7-sizes paragraph corrected on both counts: .discover-title is an <h3> at the section step (not body weight-600) and .discover-abstract ships at 11px (not 13px), both changed by m10's rectify",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-05T02:03:10Z",
+          "resolution": "the artifact's m7-sizes paragraph corrected on both counts: .discover-title is an <h3> at the section step (not body weight-600) and .discover-abstract ships at 11px (not 13px), both changed by m10's rectify"
+        }
+      ]
+    },
+    "M13": {
+      "id": "M13",
+      "severity": "MEDIUM",
+      "title": "Roadmap links.code anchors are stale after the app.css/tokens.css rewrite",
+      "file": "plans/ui-uplift/roadmap.yaml",
+      "line": 435,
+      "anchor": "code: [\"server/frontend/static/app",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "tier sequencing",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "roadmap links.code anchors stale after the app.css/tokens.css rewrite; the one-writer rule reserves plans/ui-uplift/roadmap.yaml for the roadmap agents. Re-anchor after m8 completes",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-05T02:03:10Z",
+          "resolution": "roadmap links.code anchors stale after the app.css/tokens.css rewrite; the one-writer rule reserves plans/ui-uplift/roadmap.yaml for the roadmap agents. Re-anchor after m8 completes"
+        }
+      ]
+    },
+    "M14": {
+      "id": "M14",
+      "severity": "MEDIUM",
+      "title": "Nothing guards that the block ladder actually applies between adjacent blocks",
+      "file": "server/frontend/static/app.css",
+      "line": 60,
+      "anchor": "main > :where(section, div) + :where(sec",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "tier sequencing",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "the block ladder split: <section> boundaries take --rule-section at 2rem, <div> boundaries take --rule-row at 1.25rem. The per-site decision now renders in a visual channel instead of only the DOM, and the detail page's ~96px of added stacking comes back",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-05T02:03:10Z",
+          "resolution": "the block ladder split: <section> boundaries take --rule-section at 2rem, <div> boundaries take --rule-row at 1.25rem. The per-site decision now renders in a visual channel instead of only the DOM, and the detail page's ~96px of added stacking comes back"
+        }
+      ]
+    },
+    "M15": {
+      "id": "M15",
+      "severity": "MEDIUM",
+      "title": "Section and row rungs differ only by tint at a shared 1px solid",
+      "file": "server/frontend/static/tokens.css",
+      "line": 146,
+      "anchor": "--rule-row: 1px solid color-mix(in okl",
+      "source_critic": "milestone-frontend-ux",
+      "source_axis": "Visual hierarchy / experiential distinctiveness",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "recorded in tokens.css rather than fixed: section and row rungs differ only by tint at a shared 1px solid and are adjacent in every table. Changing a weight is a visual re-decision this pass does not own, and confirming it needs a rendered check this repo cannot currently run",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-05T02:03:10Z",
+          "resolution": "recorded in tokens.css rather than fixed: section and row rungs differ only by tint at a shared 1px solid and are adjacent in every table. Changing a weight is a visual re-decision this pass does not own, and confirming it needs a rendered check this repo cannot currently run"
+        }
+      ]
+    },
+    "M16": {
+      "id": "M16",
+      "severity": "MEDIUM",
+      "title": "Zero-paper state renders a full-weight table header over nothing",
+      "file": "server/frontend/templates/notebook_detail.html",
+      "line": 321,
+      "anchor": "{% if not papers %}",
+      "source_critic": "milestone-frontend-ux",
+      "source_axis": "Empty states",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "table:has(tbody:empty) thead th drops to the row rung \u2014 the zero-paper state was drawing the ladder's heaviest rule over an empty tbody, a structural boundary separating a header from nothing. :has() is Baseline Widely",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-05T02:03:10Z",
+          "resolution": "table:has(tbody:empty) thead th drops to the row rung \u2014 the zero-paper state was drawing the ladder's heaviest rule over an empty tbody, a structural boundary separating a header from nothing. :has() is Baseline Widely"
+        }
+      ]
+    },
+    "M17": {
+      "id": "M17",
+      "severity": "MEDIUM",
+      "title": "The radius guard checks one selector per rule and calls `<main>` a control",
+      "file": "tests/test_ui_m8_rule_ladder.py",
+      "line": 123,
+      "anchor": "leaf = selector.split(\",\")[-",
+      "source_critic": "milestone-frontend-ux",
+      "source_axis": "Design-token / design-system discipline",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "the radius guard now checks every selector in a comma group rather than the last, and [tabindex] is dropped from the control pattern so main[tabindex=-1] can no longer pass as a control",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-05T02:03:10Z",
+          "resolution": "the radius guard now checks every selector in a comma group rather than the last, and [tabindex] is dropped from the control pattern so main[tabindex=-1] can no longer pass as a control"
+        }
+      ]
+    },
+    "L1": {
+      "id": "L1",
+      "severity": "LOW",
+      "title": "The block-ladder rule's specificity is (0,0,1), not the (0,0,0) claimed twice",
+      "file": "server/frontend/static/app.css",
+      "line": 57,
+      "anchor": "sheet reads as a spreadsheet\" failure",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Doc drift",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "LOW, out of the scope agreed for this pass (all HIGH + all MEDIUM)",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-05T02:03:10Z",
+          "resolution": "LOW, out of the scope agreed for this pass (all HIGH + all MEDIUM)"
+        }
+      ]
+    },
+    "L2": {
+      "id": "L2",
+      "severity": "LOW",
+      "title": "AC#3's \"before\" measurement mixes a pre-m8 light ratio with a post-m8 dark one",
+      "file": ".claude/notes/milestones/ui-uplift-m8/implement/synthesis.md",
+      "line": 62,
+      "anchor": "**1.1081:1** (light) / **1.0948:1** (dar",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Doc drift",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "LOW, out of the scope agreed for this pass (all HIGH + all MEDIUM)",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-05T02:03:10Z",
+          "resolution": "LOW, out of the scope agreed for this pass (all HIGH + all MEDIUM)"
+        }
+      ]
+    },
+    "L3": {
+      "id": "L3",
+      "severity": "LOW",
+      "title": "The panel-ground guard matches on a 2-char substring and only the last selector line",
+      "file": "tests/test_ui_m8_rule_ladder.py",
+      "line": 307,
+      "anchor": "rules = _re.findall(r\"([^{}]+)\\",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Test discipline",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "LOW, out of the scope agreed for this pass (all HIGH + all MEDIUM)",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-05T02:03:10Z",
+          "resolution": "LOW, out of the scope agreed for this pass (all HIGH + all MEDIUM)"
+        }
+      ]
+    },
+    "L4": {
+      "id": "L4",
+      "severity": "LOW",
+      "title": ".discover-abstract is a fourth --fg-muted consumer, named as three",
+      "file": "tests/test_ui_contrast.py",
+      "line": 242,
+      "anchor": "_p(_m, \".discover-meta / .topic-desc",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "math fidelity",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "LOW, out of the scope agreed for this pass (all HIGH + all MEDIUM)",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-05T02:03:10Z",
+          "resolution": "LOW, out of the scope agreed for this pass (all HIGH + all MEDIUM)"
+        }
+      ]
+    },
+    "L5": {
+      "id": "L5",
+      "severity": "LOW",
+      "title": "Truncated assertion message in the --card-bg successor-role guard",
+      "file": "tests/test_ui_m8_rule_ladder.py",
+      "line": 308,
+      "anchor": "assert rules, \"--card-bg has no c",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "test surface",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "LOW, out of the scope agreed for this pass (all HIGH + all MEDIUM)",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-05T02:03:10Z",
+          "resolution": "LOW, out of the scope agreed for this pass (all HIGH + all MEDIUM)"
+        }
+      ]
+    },
+    "L6": {
+      "id": "L6",
+      "severity": "LOW",
+      "title": "Artifact observation list is source-ordered 1, 2, 4, 6, 5, 3",
+      "file": ".claude/docs/ui-contrast-table.md",
+      "line": 281,
+      "anchor": "6. **Two of the rule ladder's three rung",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "math fidelity",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "LOW, out of the scope agreed for this pass (all HIGH + all MEDIUM)",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-05T02:03:10Z",
+          "resolution": "LOW, out of the scope agreed for this pass (all HIGH + all MEDIUM)"
+        }
+      ]
+    },
+    "L7": {
+      "id": "L7",
+      "severity": "LOW",
+      "title": "Ladder terminators are inconsistent across the three rungs",
+      "file": "server/frontend/static/app.css",
+      "line": 229,
+      "anchor": ".discover-candidate:last-child { border-",
+      "source_critic": "milestone-frontend-ux",
+      "source_axis": "Design-token / design-system discipline",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "LOW, out of the scope agreed for this pass (all HIGH + all MEDIUM)",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-05T02:03:10Z",
+          "resolution": "LOW, out of the scope agreed for this pass (all HIGH + all MEDIUM)"
+        }
+      ]
+    },
+    "L8": {
+      "id": "L8",
+      "severity": "LOW",
+      "title": "`.discover-title` is an `<h3>` at the `<h2>` size step",
+      "file": "server/frontend/static/app.css",
+      "line": 231,
+      "anchor": ".discover-title { margin: 0; font-size:",
+      "source_critic": "milestone-frontend-ux",
+      "source_axis": "Visual hierarchy",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "LOW, out of the scope agreed for this pass (all HIGH + all MEDIUM)",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-05T02:03:10Z",
+          "resolution": "LOW, out of the scope agreed for this pass (all HIGH + all MEDIUM)"
+        }
+      ]
+    }
+  }
+}

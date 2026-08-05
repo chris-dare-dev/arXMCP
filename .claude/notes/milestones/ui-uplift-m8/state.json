@@ -1,8 +1,8 @@
 {
   "id": "ui-uplift-m8",
   "created_at": "2026-08-05T00:16:54Z",
-  "updated_at": "2026-08-05T01:26:31Z",
-  "phase": "implement-complete",
+  "updated_at": "2026-08-05T02:03:56Z",
+  "phase": "rectify-running",
   "phase_history": [
     {
       "phase": "init",
@@ -23,6 +23,18 @@
     {
       "phase": "implement-complete",
       "at": "2026-08-05T01:26:31Z"
+    },
+    {
+      "phase": "critique-running",
+      "at": "2026-08-05T01:30:41Z"
+    },
+    {
+      "phase": "critique-complete",
+      "at": "2026-08-05T01:48:37Z"
+    },
+    {
+      "phase": "rectify-running",
+      "at": "2026-08-05T01:52:17Z"
     }
   ],
   "milestone_brief": "# Milestone brief \u2014 ui-uplift-m8\n\n**Title:** Retire .card; adopt the graded hairline rule ladder\n**Kind:** milestone\n**Roadmap:** ui-uplift (plans/ui-uplift/roadmap.yaml)\n**Status:** planned\n**Lane:** next\n**Target:** 2026-09-01 -> 2026-09-19\n\n## Parent epic\n\n- ui-uplift-e1 \u2014 Material and type foundation \u2014 the D-1 Ledger Sheet core\n  Replace the stitched two-source palette (a self-documented GitHub-Primer dark clone plus an unattributed bespoke light block) with one authored OKLCH family; author the product's first real type scale and its first letter-spacing; then retire .card as a primitive in favour of a graded hairline rule ladder. These three are the signature direction and they are strictly ordered \u2014 the rule ladder cannot ship before the material, because rules become the sole structural device and the light border token is 1.342:1 today.\n\n## Summary\n\nUPL-2. Delete the universal container. Three rule weights, horizontal only, no vertical edges; radius 0 on structure and 4px surviving only on interactive controls, so geometry itself encodes structure-versus-control. The rounded bordered card IS shadcn's identity and seven identical ones is the literal measured form of the complaint \u2014 deleting the primitive is the move a default assembly never makes. BLOCKED BY m6 and m7.\n\n## Acceptance criteria\n\n1. Given the detail page, when rendered, then no .card primitive remains and structure is carried by three rule weights\n2. Given --card-bg, then its successor role is stated explicitly \u2014 control ground for inputs and table headers, not panel ground \u2014 because three dark-mode rules still depend on it\n3. Given the papers table, then its column-header separation has migrated to a rule weight, because the th background is 1.14:1 on white today and vanishes once the card ground goes\n4. Given light mode, when rules carry structure alone, then the rule token clears SC 1.4.11's 3:1 non-text bar (it is 1.342:1 today)\n5. Given the type scale from m7, then it has shipped \u2014 without it this milestone degrades to 'the same page with the borders removed', which is a worse outcome than shipping neither\n\n## Depends on\n\n- ui-uplift-m6 \u2014 Author one OKLCH material family + duration tokens (v0: the 8 tokens) [status: planned]\n- ui-uplift-m7 \u2014 Author a two-voice type scale [status: planned]",
@@ -49,16 +61,62 @@
   "external_writes_required": [
     "git push origin main"
   ],
-  "critique_path": null,
-  "critics_run": [],
-  "critique_files": [],
-  "critique_finding_counts": null,
-  "findings_register": null,
-  "rectification_commit": null,
-  "fixed_findings": [],
-  "deferred_findings": [],
+  "critique_path": ".claude/notes/milestones/ui-uplift-m8/critique/dedup.md",
+  "critics_run": [
+    "milestone-adversary-critic",
+    "milestone-arxmcp-critic",
+    "milestone-frontend-ux"
+  ],
+  "critique_files": [
+    "critique/adversary.md",
+    "critique/arxmcp.md",
+    "critique/frontend.md"
+  ],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 4,
+    "medium": 17,
+    "low": 8
+  },
+  "findings_register": ".claude/notes/milestones/ui-uplift-m8/findings.json",
+  "rectification_commit": "fbe630534cfb98f73247054687c7229fda3e2795",
+  "fixed_findings": [
+    "H1",
+    "H2",
+    "H3",
+    "H4",
+    "M1",
+    "M10",
+    "M11",
+    "M12",
+    "M14",
+    "M16",
+    "M17",
+    "M2",
+    "M3",
+    "M4",
+    "M5",
+    "M6",
+    "M7",
+    "M8",
+    "M9"
+  ],
+  "deferred_findings": [
+    "L1",
+    "L2",
+    "L3",
+    "L4",
+    "L5",
+    "L6",
+    "L7",
+    "L8",
+    "M13",
+    "M15"
+  ],
   "invalidated_findings": [],
-  "regression_tests_added": [],
+  "regression_tests_added": [
+    "tests/test_ui_m8_rule_ladder.py"
+  ],
   "external_writes_authorized": [],
   "external_writes_completed": []
 }
