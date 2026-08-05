@@ -115,7 +115,7 @@ items:
     rice: { r: 10, i: 3, c: 1.0, e: 10, score: 3.0, rank: 1 }
     links:
       note: [".claude/notes/frontend-uplifts/2026q3-ui-uplift/artifacts/final-report.md"]
-      code: ["server/frontend/static/tokens.css:45-62", "server/frontend/static/tokens.css:132-157", "server/frontend/static/app.css:50-56"]
+      code: ["server/frontend/static/tokens.css:45-102", "server/frontend/static/tokens.css:172-198", "server/frontend/static/app.css:50-56"]
 
   - id: ui-uplift-e2
     kind: epic
@@ -187,7 +187,7 @@ items:
       - "Given .status-badge--ok, when contrast is computed against its own background, then the ratio is >= 4.5:1 (shipped: 6.063:1) and its border clears 3:1 against the card ground (shipped: 6.885:1)"
       - "Given the other three light-mode pills, when re-measured, then they are unchanged and still pass (5.39 / 6.74 / 6.80)"
     links:
-      code: ["server/frontend/static/app.css:66-70", "server/frontend/static/app.css:267-270"]
+      code: ["server/frontend/static/app.css:66-70", "server/frontend/static/app.css:364-367"]
 
   - id: ui-uplift-m2
     kind: milestone
@@ -228,7 +228,7 @@ items:
     acceptance:
       - "Given an ingest run with status failed and a non-empty stderr tail, when the status fragment renders, then the stderr block carries class=error and receives the same treatment as every other error surface"
     links:
-      code: ["server/routes/notebooks.py:2387-2395"]
+      code: ["server/routes/notebooks.py:2426-2434"]
 
   - id: ui-uplift-m4
     kind: milestone
@@ -298,7 +298,7 @@ items:
       - "Given color-scheme: light dark, then it is preserved — it is load-bearing for UA control internals and is not a token"
       - "Given light-dark(), then it is NOT used in v0 — it is Newly Available not Widely, and inside a custom property an unsupporting engine fails at substitution, resolving button backgrounds to transparent and leaving white-on-white primary buttons"
     links:
-      code: ["server/frontend/static/tokens.css:45-62", "server/frontend/static/tokens.css:132-157"]
+      code: ["server/frontend/static/tokens.css:45-102", "server/frontend/static/tokens.css:172-198"]
 
   - id: ui-uplift-m7
     kind: milestone
@@ -322,7 +322,7 @@ items:
       - "Given a 390px viewport, when the page title renders, then it scales via clamp() rather than staying fixed at 32px"
       - "Given the type tokens, then they extend the existing :root block and do not parallel-define a second token set"
     links:
-      code: ["server/frontend/static/app.css:11-13", "server/frontend/static/app.css:47", "server/frontend/static/app.css:64-71", "server/frontend/static/tokens.css:114-129"]
+      code: ["server/frontend/static/app.css:11-13", "server/frontend/static/app.css:47", "server/frontend/static/app.css:64-71", "server/frontend/static/tokens.css:154-169"]
 
   - id: ui-uplift-m8
     kind: milestone
@@ -347,7 +347,7 @@ items:
       - "Given light mode, when rules carry structure alone, then the rule token clears SC 1.4.11's 3:1 non-text bar (it is 1.342:1 today)"
       - "Given the type scale from m7, then it has shipped — without it this milestone degrades to 'the same page with the borders removed', which is a worse outcome than shipping neither"
     links:
-      note: [".claude/docs/ui-contrast-table.md"]
+      note: [".claude/docs/ui-contrast-table.md", ".claude/notes/milestones/ui-uplift-m10/rectify/summary.md"]
       code: ["server/frontend/static/app.css:50-56", "server/frontend/static/app.css:81-91"]
 
   - id: ui-uplift-m9
@@ -370,7 +370,7 @@ items:
       - "Given the dynamic status-badge modifier family, then the test carries an explicit allow-list rather than false-failing"
       - "Given a new fragment added later with no CSS rule, when the suite runs, then it fails — the policy binds going forward, not just retroactively"
     links:
-      code: ["server/routes/notebooks.py:705-753", "server/routes/ui.py:297-337"]
+      code: ["server/routes/notebooks.py:705-783", "server/routes/ui.py:297-337"]
 
   - id: ui-uplift-m10
     kind: milestone
@@ -406,7 +406,7 @@ items:
     links:
       note: [".claude/notes/milestones/ui-uplift-m7/rectify/summary.md"]
       code:
-        - "server/routes/notebooks.py:705-753"
+        - "server/routes/notebooks.py:705-783"
         - "server/routes/notebooks.py:621-623"
         - "server/routes/ui.py:336"
         - "server/frontend/static/app.css"
@@ -529,7 +529,7 @@ items:
       - "Given the selector, then it targets an element that survives the .card deletion — the discovery catalog's proposed .card:has(...) keys off a class the rule-ladder milestone removes"
       - "Given the shipped button spinner, then the region cue is a deliberate second signal, not an accidental double-signal"
     links:
-      code: ["server/frontend/static/app.css:412-436"]
+      code: ["server/frontend/static/app.css:509-533"]
 
   - id: ui-uplift-m16
     kind: milestone
@@ -569,7 +569,7 @@ items:
       - "Given a same-origin navigation, when it occurs, then the browser crossfades within the existing 200ms cap"
       - "Given the at-rule, then it lives INSIDE the existing prefers-reduced-motion no-preference block, or it becomes a second sticky reduced-motion gap"
     links:
-      code: ["server/frontend/static/app.css:478-481"]
+      code: ["server/frontend/static/app.css:575-578"]
 
   - id: ui-uplift-m18
     kind: milestone
