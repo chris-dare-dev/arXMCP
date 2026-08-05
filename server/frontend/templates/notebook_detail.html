@@ -231,11 +231,25 @@
 
    SOURCE. `latest_run` is passed by server/routes/ui.py:461 from the SAME
    store.get_latest_ingest_run(slug) the polling endpoint calls at
-   server/routes/notebooks.py:2283. One row, two readers, so the cue cannot
-   drift from the fragment by construction — which is what AC#3 asks for. It
-   is a page-LOAD snapshot while the fragment refreshes every 2s, so a long
-   run can leave `running` in the summary over a settled body: accepted for
-   v0, same row at different read times.
+   server/routes/notebooks.py:2283. That is what AC#3 asks for and it holds.
+
+   m12 rectify (H2/M2), correcting this comment: an earlier revision said
+   "the cue cannot drift from the fragment by construction". That is FALSE as
+   written and the critique reproduced the contradiction live — page load
+   emits `ingest running`, the poll then returns `success` into a fragment
+   inside this same open disclosure, and the summary never changes. What
+   cannot drift is the SOURCE ROW; the RENDERED value is a page-load snapshot
+   with no out-of-band refresh (`hx-swap-oob` appears nowhere in server/).
+   So the summary can read `running` over a settled body, and — the sharper
+   direction M2 found — `success` or `none` while a run started in-page is
+   live.
+
+   Kept as a snapshot for v0 deliberately: making it live means a second swap
+   target on a disclosure whose semantics are already load-bearing (see the
+   D2-escape argument above), and that is a change worth its own milestone.
+   What was wrong was the claim, not the tradeoff — a comment asserting a
+   property the page does not have is the CLAUDE.md 4.9 defect, and it is
+   what this correction closes.
 
    OPEN (AC#2) MUST BE EMITTED BARE. open="false" renders the disclosure OPEN
    — HTML boolean attributes are presence-based — so the only correct Jinja

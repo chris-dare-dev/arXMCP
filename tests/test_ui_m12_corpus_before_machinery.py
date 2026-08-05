@@ -286,7 +286,16 @@ class TestSummaryStateCue:
         """AC#3's actual content. ``ui.py`` passes ``latest_run`` from
         ``store.get_latest_ingest_run(slug)`` and the polling endpoint in
         ``notebooks.py`` calls the SAME method — one row, two readers, so the
-        cue cannot drift from the fragment."""
+        SOURCE row cannot drift from the fragment.
+
+        m12 rectify (H2/M2): an earlier revision of this docstring restated
+        the template's "cannot drift" claim unqualified, and both were false.
+        The rendered value IS a page-load snapshot — no `hx-swap-oob` exists
+        anywhere in server/ — so the summary can read `running` over a
+        settled body, or `success`/`none` while a run started in-page is
+        live. This test pins the SOURCE identity, which is what AC#3 asks
+        for and what actually holds; it does not and must not claim the
+        rendered value tracks the fragment."""
         assert "latest_run" in self._summary(DETAIL), (
             "the cue does not read `latest_run`; any other source is a second "
             "read of one fact, free to drift."

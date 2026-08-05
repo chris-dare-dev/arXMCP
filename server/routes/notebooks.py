@@ -749,7 +749,14 @@ def _discover_results_fragment(
                 f'<p>{html.escape(c.abstract_head)}</p>'
                 "</details>"
                 f'<form hx-post="/ui/api/notebooks/{safe_slug}/papers"'
-                ' hx-target="#papers-tbody" hx-swap="beforeend"'
+                # m12 rectify (H1): the papers table now sits ABOVE this
+                # disclosure, so a bare beforeend appended the new row
+                # off-screen — success with no visible effect, which is
+                # exactly AC#4's second clause. m12 fixed this for the two
+                # TEMPLATE forms and missed the fragment builder, a file the
+                # reorder never touched. Same show: string as those two.
+                ' hx-target="#papers-tbody"'
+                ' hx-swap="beforeend show:#papers-tbody:bottom"'
                 ' hx-disabled-elt="find button">'
                 '<input type="hidden" name="arxiv_url" '
                 f'value="https://arxiv.org/abs/{pid}">'
