@@ -214,12 +214,19 @@ class TestUPL8DarkModeBlock:
         m = full_dark_block_re.search(APP_CSS_NO_COMMENTS)
         assert m is not None
         dark_full = m.group(1)
+        # ui-uplift-m8: the four `.card X` compounds lost their ancestor when
+        # the primitive was deleted. ORIGINAL INTENT preserved — what this
+        # guard is for is that every hardcoded tertiary grey has a dark-mode
+        # remap, and the DESCENDANT half is what identifies each of them. So
+        # the prefix is dropped rather than the tokens. `.note` is removed
+        # outright: `class="note"` is emitted nowhere, so m8 deleted the
+        # selector, and asserting a remap for a selector that does not exist
+        # would be the same dead-guard problem pointing the other way.
         for sel_token in (
             "header .subtitle",
-            ".card .hint",
-            ".card .note",
-            ".card .empty",
-            ".card .display-name",
+            ".hint",
+            ".empty",
+            ".display-name",
             "dl.meta dt",
             "footer",
         ):

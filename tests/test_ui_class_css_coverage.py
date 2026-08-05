@@ -696,7 +696,9 @@ class TestCoveragePredicateRejectsAnEmptyRule:
     #: here.
     M10_STYLED: dict[str, str] = {
         "discover-list": "list-style",
-        "discover-candidate": "border-bottom",
+        # ui-uplift-m8 moved this from `border-bottom: 1px solid var(--border)`
+        # to the ladder's tinted row rung, which is a logical property.
+        "discover-candidate": "border-block-end",
         "discover-title": "font-size",
         "discover-meta": "font-family",
         "discover-abstract": "font-size",
@@ -704,6 +706,17 @@ class TestCoveragePredicateRejectsAnEmptyRule:
         "topic-category": "font-size",
         "topic-description": "color",
         "status-badge__remediation": "display",
+        # ui-uplift-m8: these three were covered ONLY as `.card X` compounds.
+        # Deleting the primitive re-homes them as bare selectors, and all
+        # three are emitted from server/routes/notebooks.py, so BAN-R2 binds
+        # on them unconditionally (_KNOWN_UNSTYLED is empty and pinned so).
+        # Under the bare `\.token` matcher they would still pass as empty
+        # gesture rules — pinning a real declaration per class is what this
+        # class exists for, so the re-homed rules are enrolled here rather
+        # than left under the weaker check.
+        "hint": "color",
+        "empty": "font-style",
+        "display-name": "font-size",
     }
 
     @staticmethod

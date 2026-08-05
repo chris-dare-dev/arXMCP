@@ -552,27 +552,47 @@ class TestUPL8V1DarkModePillContrast:
             assert f"background: {bg}" in dark, (name, bg)
             assert f"color: {fg}" in dark, (name, fg)
 
-    def test_th_dark_background_redeclared(self) -> None:
-        # UPL-8 v1: the dark block must redeclare th's background so the
-        # light #f0f0f0 header doesn't show on the dark canvas.
-        #
-        # ui-uplift-m6: this used to pin the literal `#161b22`, which was a
-        # byte-copy of the OLD dark --card-bg. It now references the token,
-        # so the header surface cannot drift away from the card surface on
-        # a future re-derivation. Assert the reference, not a hex.
+    def test_th_background_is_the_token_in_every_mode(self) -> None:
+        """UPL-8 v1's intent, satisfied more strongly than by the mechanism
+        it originally used — renamed from ``test_th_dark_background_redeclared``
+        because the mechanism is what changed.
+
+        THE INTENT: the light ``#f0f0f0`` table header must never show
+        against the dark canvas. UPL-8 v1 got that with a dark-block
+        redeclaration; ui-uplift-m6 pointed that redeclaration at
+        ``var(--card-bg)`` so it could not drift (it had been a byte-copy of
+        the old dark ``--card-bg``, ``#161b22``).
+
+        ui-uplift-m8 closes it at the source instead. AC#2 re-roles
+        ``--card-bg`` as the CONTROL GROUND, ``th`` is a control surface, so
+        the BASE rule names the token and the dark redeclaration is deleted
+        as dead code. Asserting the old mechanism now would pin a rule whose
+        only job was to fix a literal that no longer exists.
+
+        Both halves are checked, because half of this is a negative: the
+        token is named once, unconditionally, and NO light hex literal
+        remains as a ``th`` background anywhere in the sheet.
+        """
+        th_bg = _re.findall(r"\bth[^{}]*\{[^}]*?background:\s*([^;}]+)",
+                            APP_CSS_NO_COMMENTS)
+        assert th_bg, "no `th { background: ... }` rule found at all"
+        for value in th_bg:
+            assert value.strip() == "var(--card-bg)", (
+                f"th renders background {value.strip()!r}. It must be the "
+                f"--card-bg token in EVERY mode — a light hex literal here "
+                f"is what UPL-8 v1's dark redeclaration existed to hide, and "
+                f"ui-uplift-m8 removed that redeclaration by removing the "
+                f"literal. Two modes must not disagree about this surface."
+            )
         dark_block_re = _re.compile(
             r"@media\s*\(\s*prefers-color-scheme:\s*dark\s*\)\s*\{(.*?)\n\}",
             flags=_re.S,
         )
         m = dark_block_re.search(APP_CSS_NO_COMMENTS)
         assert m is not None
-        block = m.group(1)
-        rule_re = _re.compile(
-            r"\bth\s*\{\s*background:\s*var\(--card-bg\)\s*;?\s*\}", flags=_re.S
-        )
-        assert rule_re.search(block), (
-            "expected `th { background: var(--card-bg) }` inside the dark "
-            "@media block (ui-uplift-m6 replaced the duplicated #161b22 hex)"
+        assert not _re.search(r"\bth\s*\{", m.group(1)), (
+            "the dark @media block redeclares `th` again. Since the base rule "
+            "is token-tracked this can only re-introduce drift between modes."
         )
 
     @pytest.mark.parametrize(("name", "bg", "fg"), PILLS)

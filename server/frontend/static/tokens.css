@@ -1,5 +1,6 @@
 /* arXMCP UI — design tokens. Colour family (ui-uplift-m6) + type scale
-   (ui-uplift-m7). Ships under /ui/static/tokens.css and is linked BEFORE
+   (ui-uplift-m7) + rule ladder (ui-uplift-m8). Ships under
+   /ui/static/tokens.css and is linked BEFORE
    app.css in base.html: a custom property must be declared before the rules
    that var() it, so link order is load-bearing, not cosmetic.
 
@@ -52,16 +53,20 @@
      its mode's --fg chroma (light 0.014, dark 0.008 — the muted voice is
      the SAME material one lightness step recessive, not a second family),
      binary-searched for a target ratio against a NAMED ground.
-     GROUND — --card-bg, not --bg: every consumer (.discover-meta,
-     .topic-description, .status-badge__remediation) renders inside
-     <section class="card"> or inside a status pill, never on the canvas.
-     FORWARD RISK (critique M6): ui-uplift-m8 is lane `next` with both
-     dependencies shipped, and its AC re-roles --card-bg off panel ground.
-     When it lands these consumers move to --bg, where this token measures
-     6.80 (light) / 7.69 (dark) — no AA failure, so NOTHING FAILS LOUDLY and
-     the absent --bg registry rows would read as deliberate. m8 must re-solve
-     this token against its new ground and register those pairs; its "three
-     dark-mode rules depend on --card-bg" count is now four.
+     GROUND — --bg, re-solved by ui-uplift-m8. m10 solved it against
+     --card-bg because every consumer then rendered inside
+     <section class="card">. m8 deleted that primitive, so .discover-meta
+     and .topic-description now render on the canvas (the third consumer,
+     .status-badge__remediation, still grounds on a status pill and did not
+     move). m10's own critique M6 recorded this as the forward risk and it
+     is now CLOSED: on --bg the OLD light value measured 6.8230 — under its
+     own 7.00 target but over the 4.5 gate, so NOTHING WOULD HAVE FAILED
+     LOUDLY. Light is re-solved below against --bg; DARK IS DELIBERATELY NOT
+     re-solved: it measures 7.7040 on --bg, already over target, and pulling
+     it down to exactly 7.00 would REDUCE contrast on a passing token and on
+     all three dark pill grounds for symmetry's sake. The --bg pairs are now
+     registered in tests/test_ui_contrast.py, and the written refusal there
+     to register them has been inverted rather than merely deleted.
      TARGET — 7.00:1, i.e. SC 1.4.6 (AAA) rather than the 4.5:1 SC 1.4.3
      floor. The AAA headroom is what lets ONE token serve the three
      status-pill grounds without a per-pill override.
@@ -76,16 +81,83 @@
      near-identical muted greys can render in one card. Migrating them is a
      colour change to shipped surfaces with its own contrast rows and belongs
      to a milestone that owns it, not to a rectify pass — recorded here so the
-     next reader sees the debt rather than a claim it was paid.
+     next reader sees the debt rather than a claim it was paid. (m8 note: the
+     dark-mode collision it describes is unchanged — the greys moved ground
+     with the card, not value.)
      Kept because the AAA headroom is what serves the three
      status-pill grounds the remediation caption renders on without a
      per-pill override — the tightest of those is dark --warn at 5.45:1,
      still clear of 4.5:1. Every one of those pairs is registered in
      tests/test_ui_contrast.py and measured in the published table. */
-  --fg-muted: oklch(45.706% 0.014 250);/* solved: 7.00:1 on --card-bg */
+  --fg-muted: oklch(45.170% 0.014 250);/* m8: solved 7.00:1 on --bg (7.0176) */
   --bg: oklch(98% 0.004 250);          /* anchor: page canvas */
-  --card-bg: oklch(99% 0.004 250);     /* anchor: raised card surface */
+  /* ui-uplift-m8 AC#2 re-roles this token. It is no longer any element's
+     PANEL ground — .card, its only light-mode consumer, is deleted. It is
+     the CONTROL GROUND: th in both modes (app.css), input/textarea in dark
+     (app.css dark block), and the base of the tbody tr:hover tint, which is
+     an interaction surface and is argued as one at its rule. The AC's "three
+     dark-mode rules depend on --card-bg" undercounts twice over: the CSS
+     rules are 3 (th, dark input/textarea, tr:hover) of which 1 is dark-only,
+     and THREE dark TOKEN derivations also name it as their solved ground —
+     --border (below), --accent (below) and, until m8, --fg-muted. */
+  --card-bg: oklch(99% 0.004 250);     /* anchor: control surface */
   --border: oklch(62.984% 0.018 250);  /* solved: 3.30:1 on --bg (SC 1.4.11) */
+  /* ui-uplift-m8 (UPL-2): the graded hairline RULE LADDER that replaces the
+     .card primitive. The three weights are the ones the 2026q3 discovery
+     authored BY NAME (discover/art-direction-scout-brief.md:176-177,
+     artifacts/synthesis.md:234) and the roadmap summary dropped, as it
+     dropped m7's clamp() values and m10's finding-H3 rules. Horizontal
+     only; no vertical edge anywhere in the sheet.
+
+     SHORTHANDS, NOT COLOURS. Each value is a whole `border-*` shorthand, so
+     ONE declaration serves both colour schemes: the tint is a color-mix
+     against var(--border)/var(--bg), and a custom property substitutes at
+     USE time, so the dark :root's own tokens feed these same three. Three
+     declarations, not six. It is also why `--rule-` joins
+     test_ui_contrast.py's NON_COLOUR_TOKEN_PREFIXES — deliberately, as an
+     allow-list entry, never as "skip anything that is not a colour". The m6
+     guarantee (every COLOUR token is oklch on one of two hues) is unweakened.
+
+     GRADED BY LIGHTNESS, WITH THE TWO LOWER RUNGS DECORATIVE BY
+     DECLARATION. m6 solved --border to 3.30:1 — it IS the SC 1.4.11 floor —
+     so no tint of it toward the ground can clear 3:1: measured, 80% =
+     2.5332 light / 2.6766 dark, 70% = 2.2192 / 2.2856, 60% = 1.9596 /
+     1.9591. A tone ladder is legal only if the tinted rungs are genuinely
+     decorative, which SC 1.4.11 exempts ("for aesthetic purposes that does
+     not require the user to see or understand it to understand the
+     content"). That exemption is CONDITIONAL and this milestone MAKES IT
+     TRUE rather than asserting it: every tinted rule below sits on a
+     boundary ALSO carried by element semantics and layout, and every
+     boundary that nothing else carries takes --rule-section instead. Each
+     rung is registered with its measured ratio in tests/test_ui_contrast.py;
+     the tinted ones carry EXEMPT with the justification inline, so an
+     exemption and an oversight cannot look alike in the published table.
+
+     REJECTED — grading by THICKNESS. Butterick's usable range is half a
+     point to one point (~0.67-1.33px), the entire budget for three rungs;
+     a sub-pixel border rounds per device-pixel-ratio and at DPR 1 commonly
+     renders identical to the 1px rung or drops out. Two rungs an operator
+     cannot tell apart is not a ladder. */
+  --rule-section: 1px solid var(--border);
+  /* STRUCTURAL, full weight. 3.3123:1 light / 3.6762:1 dark on --bg;
+     3.4054 / 3.3580 on --card-bg. Clears SC 1.4.11 on every ground it is
+     drawn against, and carries EVERY boundary a reader must perceive to
+     understand the page. */
+  --rule-row: 1px solid color-mix(in oklab, var(--border) 80%, var(--bg));
+  /* DECORATIVE. 2.5332:1 light / 2.6766:1 dark on --bg; 2.3251 / 2.2428 on
+     the tbody tr:hover ground. Under 3:1 and exempt because it is never the
+     SOLE cue for a group: its two sites are <tr> and <li> boundaries, which
+     an AT announces from the element itself, and which a sighted reader also
+     reads from column alignment (the tables) or from 1.5rem of combined
+     padding under a per-item <h3> (.discover-candidate). */
+  --rule-meta: 1px dotted color-mix(in oklab, var(--border) 60%, var(--bg));
+  /* DECORATIVE. 1.9596:1 light / 1.9591:1 dark on --bg. The discovery's
+     dotted rung, at the 60% tone its "row rule (60%)" phrasing authored —
+     the 60% is read as the DEPTH of the ladder rather than as the row rung
+     specifically, so the ladder stays monotone in tone and its last step is
+     also a step in TEXTURE. Its only site is dl.meta, whose dt/dd pairing is
+     carried by <dl> semantics and by a two-column grid: delete the rule and
+     the grouping is unchanged, which is the test this exemption has to pass. */
   --accent: oklch(47.863% 0.115 250);  /* solved: 6.20:1 on --bg */
   --danger: oklch(52.018% 0.165 28);   /* solved: 5.30:1 on --error-bg */
   --error-bg: oklch(96% 0.015 28);     /* anchor: error surface */
@@ -178,7 +250,11 @@
      scope and are still Primer Dark values — see the note above them. */
   :root {
     --fg: oklch(89.089% 0.008 250);      /* solved: 14.0:1 on --bg */
-    --fg-muted: oklch(71.512% 0.008 250);/* solved: 7.00:1 on --card-bg */
+    --fg-muted: oklch(71.512% 0.008 250);/* m10 solved 7.00:1 on --card-bg;
+                                            m8 re-grounds it to --bg, where
+                                            it measures 7.7040 — over target,
+                                            so NOT re-solved down (see the
+                                            light block) */
     --bg: oklch(16% 0.014 250);          /* anchor: page canvas */
     --card-bg: oklch(21% 0.016 250);     /* anchor: raised card surface */
     --border: oklch(52.923% 0.02 250);   /* solved: 3.35:1 on --card-bg,
@@ -193,6 +269,10 @@
     --danger: oklch(69.137% 0.17 28);    /* solved: 5.60:1 on --error-bg */
     --error-bg: oklch(24% 0.04 28);      /* anchor: error surface */
     /* --mono, --dur-*, --text-* and --tracking-* are unchanged here
-       (none of those families is colour-scheme dependent). */
+       (none of those families is colour-scheme dependent). --rule-* is
+       absent for the opposite reason: it IS colour-scheme dependent, but
+       its values name var(--border)/var(--bg), which substitute at use
+       time against whichever :root won — so redeclaring the three rungs
+       here would fork the ladder into two definitions that could drift. */
   }
 }

@@ -4,9 +4,12 @@ Every rendered foreground/background pair in the operator console's
 stylesheet, with its measured WCAG 2.1 contrast ratio. Since `ui-uplift-m7`
 that is two files: the token values are parsed from
 `server/frontend/static/tokens.css` and the rules that combine them live in
-`server/frontend/static/app.css`. This document is the canonical record consulted by
-`ui-uplift-m8`, whose rule-ladder depends on the light-mode `--border`
-token clearing 3:1 against `--bg` (it did not before m6 — it was 1.342:1).
+`server/frontend/static/app.css`. It was the canonical record `ui-uplift-m8`
+was written against: that milestone's rule ladder depended on the light-mode
+`--border` token clearing 3:1 on `--bg` (it did not before m6 — it was
+1.342:1), and **m8 has since shipped**, deleting `.card` and re-grounding
+roughly a third of the registry from `--card-bg` onto `--bg`. Read the
+`--card-bg` rows as the CONTROL layer now, not as a panel.
 
 **Status:** GENERATED from the checked-in stylesheet by
 `tests/test_ui_contrast.py`. Counts and failures are in the generated
@@ -31,10 +34,10 @@ is typed anywhere else.
 
 | | |
 |---|---|
-| Pairs measured | **99** (52 light, 47 dark) |
-| Of those, gated / exempt | **91** gated, **8** exempt (each with its reason in the Site column) |
+| Pairs measured | **99** (51 light, 48 dark) |
+| Of those, gated / exempt | **85** gated, **14** exempt (each with its reason in the Site column) |
 | Failures | **0** |
-| Tightest gated pair | light `--border on tbody tr:hover` — **3.040:1** against a 3.0:1 floor |
+| Tightest gated pair | light `in-flight accent focus ring on tbody tr:hover` — **3.129:1** against a 3.0:1 floor |
 | Tightest gated text pair | dark `.status-badge--down text` — **4.832:1** against 4.5:1 |
 
 <!-- END GENERATED HEADLINE -->
@@ -127,10 +130,11 @@ since `ui-uplift-m10` — the Discover panel's `.discover-meta` /
 `.discover-abstract` and the `.topic-category` / `.topic-description` pair),
 body 16px (which `.discover-title` inherits, carrying its hierarchy on
 `font-weight: 600` rather than a size step, as reference lists do), section
-20px (`.card h2`), title fluid 24→36px. Form controls
-(`input`, `select`, `textarea`) and `.card .display-name` are on
+20px (`h2` — a bare element rule since `ui-uplift-m8` deleted `.card`),
+title fluid 24→36px. Form controls
+(`input`, `select`, `textarea`) and `.display-name` are on
 `var(--text-body)` = **16px**, not the 13px an earlier revision of this list
-claimed (critique M4). `.card h2` at 20px inherits UA bold and so *would* qualify for
+claimed (critique M4). `h2` at 20px inherits UA bold and so *would* qualify for
 the ≥18.7px-bold branch; it is held to 4.5:1 anyway, on the same one-floor
 reasoning as the title. `th` at `font-weight:600`/11px is nowhere near the
 threshold and is likewise held to 4.5:1.
@@ -152,13 +156,22 @@ luminance — equal `L` steps do not give equal ratios.
 | Token | Light | Solved for | Dark | Solved for |
 |---|---|---|---|---|
 | `--bg` | `oklch(98% 0.004 250)` | anchor | `oklch(16% 0.014 250)` | anchor |
-| `--card-bg` | `oklch(99% 0.004 250)` | anchor | `oklch(21% 0.016 250)` | anchor |
+| `--card-bg` | `oklch(99% 0.004 250)` | anchor (control) | `oklch(21% 0.016 250)` | anchor (control) |
 | `--error-bg` | `oklch(96% 0.015 28)` | anchor | `oklch(24% 0.04 28)` | anchor |
 | `--fg` | `oklch(22.842% 0.014 250)` | 16.0:1 on `--bg` | `oklch(89.089% 0.008 250)` | 14.0:1 on `--bg` |
-| `--fg-muted` | `oklch(45.706% 0.014 250)` | 7.00:1 on `--card-bg` | `oklch(71.512% 0.008 250)` | 7.00:1 on `--card-bg` |
+| `--fg-muted` | `oklch(45.170% 0.014 250)` | 7.00:1 on `--bg` | `oklch(71.512% 0.008 250)` | 7.00:1 on `--card-bg`, kept |
 | `--border` | `oklch(62.984% 0.018 250)` | 3.30:1 on `--bg` | `oklch(52.923% 0.02 250)` | 3.35:1 on `--card-bg` |
 | `--accent` | `oklch(47.863% 0.115 250)` | 6.20:1 on `--bg` | `oklch(69.761% 0.13 250)` | 6.60:1 on `--card-bg` |
 | `--danger` | `oklch(52.018% 0.165 28)` | 5.30:1 on `--error-bg` | `oklch(69.137% 0.17 28)` | 5.60:1 on `--error-bg` |
+| `--rule-section` | `1px solid var(--border)` | structural — see below | *(inherits)* | structural |
+| `--rule-row` | `1px solid` @ 80% toward `--bg` | **decorative, exempt** | *(inherits)* | decorative |
+| `--rule-meta` | `1px dotted` @ 60% toward `--bg` | **decorative, exempt** | *(inherits)* | decorative |
+
+The three `--rule-*` rows are `ui-uplift-m8`'s ladder and are **not colours**
+— each is a whole `border-*` shorthand, which is why one declaration serves
+both modes (`var(--border)` / `var(--bg)` substitute at use time) and why
+`--rule-` is on `test_ui_contrast.py`'s `NON_COLOUR_TOKEN_PREFIXES`
+allow-list. Their measured ratios are in the generated table above, not here.
 
 Chroma stays low at the lightness extremes because the sRGB gamut allows
 almost none there — max chroma at L=99% on hue 250 is 0.0049.
@@ -166,13 +179,29 @@ almost none there — max chroma at L=99% on hue 250 is 0.0049.
 **`--fg-muted` (ui-uplift-m10) is the family's first addition since m6**, and
 it follows the same construction rather than extending it: brand hue 250°, at
 its own mode's `--fg` chroma (0.014 light, 0.008 dark), solved against a named
-ground. Two choices in it are deliberate and worth reading. The ground is
-`--card-bg`, not `--bg`, because every consumer — `.discover-meta`,
-`.topic-description`, `.status-badge__remediation` — renders inside
-`<section class="card">` or inside a status pill and none renders on the page
-canvas; the registry therefore carries no `--fg-muted` on `--bg` row, since a
-registered pair that does not render is the same class of error as a rendered
-pair that is missing. The target is 7.00:1 (SC 1.4.6, AAA) rather than the
+ground. Two choices in it are deliberate and worth reading.
+
+**Its ground moved, and the move is the worked example of why this document
+exists.** m10 solved it against `--card-bg` because every consumer —
+`.discover-meta`, `.topic-description`, `.status-badge__remediation` — then
+rendered inside `<section class="card">` or inside a status pill, and it
+recorded a written *refusal* to register a `--bg` pair on the principle that
+a registered pair which does not render is the same class of error as a
+rendered pair that is missing. m10's own critique (M6) then flagged the
+forward risk: `ui-uplift-m8` deletes the card, two of the three consumers
+land on the canvas, and the light token would have measured **under its own
+stated AAA target while still clearing the 4.5 registry floor** — a miss that
+nothing in the suite would have reported. m8 re-solved the light value
+against `--bg`, inverted that refusal into the `--bg` rows the registry now
+carries, and added
+`test_fg_muted_meets_its_own_stated_target_on_its_real_ground` so the next
+such move is loud. Dark was deliberately **not** re-solved: it already clears
+the target on `--bg`, and pulling a passing token toward its floor for
+symmetry would cost contrast here and on all three dark pill grounds.
+`.status-badge__remediation` did not move at all — it still grounds on the
+pills, so those six rows are untouched.
+
+The target is 7.00:1 (SC 1.4.6, AAA) rather than the
 4.5:1 minimum, because that is the band the eleven hand-typed greys it exists
 to replace already occupied, and the extra headroom is what lets one token
 also clear the three status-pill grounds the remediation caption sits on
@@ -234,18 +263,31 @@ pills — worse than the behaviour it would have replaced.
    This is a *pre-existing* divergence (its background `#3d1216` already
    differed from `--error-bg`) that m6 widens rather than introduces. All 8
    are measured below and all 8 pass.
-2. **`.card .note` lost headroom** from a historical 5.025:1, because light
-   `--card-bg` is no longer pure white. It is an untouched v1 literal
-   (`#6f6f6f`) and still clears 4.5:1 — it is the second-tightest gated
-   text pair in the sweep, and its current value is the `.card .note`
-   row in the generated table rather than a number typed here.
+2. **`.card .note` is GONE**, and with it the pair that was for two
+   milestones the sweep's second-tightest gated text row (a historical
+   5.025:1 that had lost headroom when light `--card-bg` stopped being pure
+   white). `ui-uplift-m8` deleted the selector rather than re-homing it:
+   `class="note"` is emitted by no template and no fragment builder in
+   `server/`, so the rule, its two registry rows and its pinned dark-mode
+   remap were all defending markup that does not exist.
 4. **Light `--bg` → `--card-bg` separation halved** (critique L4), from a
    historical 1.062:1 to a value now pinned by
-   `test_surface_separation_is_pinned_in_both_modes`. Net card visibility
-   still improved, because the 1 px `--border` around it went from 1.342:1
-   to over 3:1 — but the surface pair itself was previously unmeasured and
-   unguarded, so nothing stopped a future re-derivation collapsing it to
-   two identical hexes.
+   `test_surface_separation_is_pinned_in_both_modes`. That guard survives
+   `ui-uplift-m8` for a changed reason: the two surfaces no longer separate a
+   *card* from the canvas — `--card-bg`'s successor role is the **control
+   ground** (`th` in both modes, dark `input`/`textarea`, and the base of the
+   `tbody tr:hover` tint) — but collapsing them to two identical hexes would
+   still erase a distinction the sheet relies on.
+6. **Two of the rule ladder's three rungs ship UNDER SC 1.4.11's 3:1 bar,
+   deliberately** (`ui-uplift-m8`). `--border` was solved to exactly the
+   floor, so no tint of it toward the ground can clear 3:1 — the ladder is
+   graded by tone and the lower two rungs are declared **decorative**, which
+   SC 1.4.11 exempts. That exemption is conditional, not a label: it holds
+   only while something else carries each grouping, so `--rule-section` (full
+   weight, clears the bar on every ground) carries every boundary a reader
+   must perceive, and the tinted rungs draw only `<tr>`, `<li>` and `dl.meta`
+   boundaries that element semantics and layout already establish. All six
+   rows are registered EXEMPT with that justification inline.
 5. **Two rendered state classes are composited, not flat** (critique
    H1/H3). `opacity` on an in-flight button and the badge flash both change
    the ground text is read against. Both are now in the registry: the
@@ -264,104 +306,104 @@ pills — worse than the behaviour it would have replaced.
 | # | Mode | Site / selector | Foreground | Background | Ratio | Floor | SC | Verdict |
 |---|---|---|---|---|---|---|---|---|
 | 1 | light | body text | `#181d23` | `#f6f9fb` | **16.032:1** | 4.5:1 | 1.4.3 | PASS |
-| 2 | light | card body text | `#181d23` | `#fafcfe` | **16.483:1** | 4.5:1 | 1.4.3 | PASS |
+| 2 | light | th / input / textarea text on --card-bg [control ground] | `#181d23` | `#fafcfe` | **16.483:1** | 4.5:1 | 1.4.3 | PASS |
 | 3 | light | header h1 a | `#181d23` | `#f6f9fb` | **16.032:1** | 4.5:1 | 1.4.3 | PASS |
-| 4 | light | td text | `#181d23` | `#fafcfe` | **16.483:1** | 4.5:1 | 1.4.3 | PASS |
+| 4 | light | td text | `#181d23` | `#f6f9fb` | **16.032:1** | 4.5:1 | 1.4.3 | PASS |
 | 5 | light | tbody tr:hover text | `#181d23` | `#edeff2` | **14.715:1** | 4.5:1 | 1.4.3 | PASS |
 | 6 | light | .breadcrumb a link [accent role 3] | `#1f609b` | `#f6f9fb` | **6.198:1** | 4.5:1 | 1.4.3 | PASS |
 | 7 | light | focus ring on --bg [accent role 2] | `#1f609b` | `#f6f9fb` | **6.198:1** | 3.0:1 | 1.4.11 | PASS |
-| 8 | light | focus ring on --card-bg [accent role 2] | `#1f609b` | `#fafcfe` | **6.372:1** | 3.0:1 | 1.4.11 | PASS |
-| 9 | light | pre.error text | `#b5352d` | `#fceeec` | **5.291:1** | 4.5:1 | 1.4.3 | PASS |
-| 10 | light | button.danger focus ring on --bg | `#b5352d` | `#f6f9fb` | **5.656:1** | 3.0:1 | 1.4.11 | PASS |
-| 11 | light | button.danger focus ring on --card-bg | `#b5352d` | `#fafcfe` | **5.815:1** | 3.0:1 | 1.4.11 | PASS |
-| 12 | light | --border on --bg [AC#4 in light] | `#818a94` | `#f6f9fb` | **3.312:1** | 3.0:1 | 1.4.11 | PASS |
-| 13 | light | --border on --card-bg | `#818a94` | `#fafcfe` | **3.405:1** | 3.0:1 | 1.4.11 | PASS |
-| 14 | light | .discover-meta / .topic-description --fg-muted | `#51585f` | `#fafcfe` | **7.015:1** | 4.5:1 | 1.4.3 | PASS |
-| 15 | dark | body text | `#d7dbe0` | `#090e13` | **13.931:1** | 4.5:1 | 1.4.3 | PASS |
-| 16 | dark | card body text | `#d7dbe0` | `#13191f` | **12.725:1** | 4.5:1 | 1.4.3 | PASS |
-| 17 | dark | header h1 a | `#d7dbe0` | `#090e13` | **13.931:1** | 4.5:1 | 1.4.3 | PASS |
-| 18 | dark | td text | `#d7dbe0` | `#13191f` | **12.725:1** | 4.5:1 | 1.4.3 | PASS |
-| 19 | dark | tbody tr:hover text | `#d7dbe0` | `#1b2127` | **11.673:1** | 4.5:1 | 1.4.3 | PASS |
-| 20 | dark | .breadcrumb a link [accent role 3] | `#59a2eb` | `#090e13` | **7.190:1** | 4.5:1 | 1.4.3 | PASS |
-| 21 | dark | focus ring on --bg [accent role 2] | `#59a2eb` | `#090e13` | **7.190:1** | 3.0:1 | 1.4.11 | PASS |
-| 22 | dark | focus ring on --card-bg [accent role 2] | `#59a2eb` | `#13191f` | **6.568:1** | 3.0:1 | 1.4.11 | PASS |
-| 23 | dark | pre.error text | `#f36b5d` | `#301714` | **5.620:1** | 4.5:1 | 1.4.3 | PASS |
-| 24 | dark | button.danger focus ring on --bg | `#f36b5d` | `#090e13` | **6.525:1** | 3.0:1 | 1.4.11 | PASS |
-| 25 | dark | button.danger focus ring on --card-bg | `#f36b5d` | `#13191f` | **5.960:1** | 3.0:1 | 1.4.11 | PASS |
-| 26 | dark | --border on --bg [AC#4 in light] | `#636d77` | `#090e13` | **3.676:1** | 3.0:1 | 1.4.11 | PASS |
-| 27 | dark | --border on --card-bg | `#636d77` | `#13191f` | **3.358:1** | 3.0:1 | 1.4.11 | PASS |
-| 28 | dark | .discover-meta / .topic-description --fg-muted | `#9fa4a8` | `#13191f` | **7.037:1** | 4.5:1 | 1.4.3 | PASS |
-| 29 | light | button/.button text [accent role 1] | `#ffffff` | `#1f609b` | **6.553:1** | 4.5:1 | 1.4.3 | PASS |
-| 30 | light | button:hover text | `#ffffff` | `#3d73a8` | **4.981:1** | 4.5:1 | 1.4.3 | PASS |
-| 31 | light | button.danger text | `#ffffff` | `#b5352d` | **5.980:1** | 4.5:1 | 1.4.3 | PASS |
-| 32 | light | .skip-link:focus-visible text [accent role 4] | `#ffffff` | `#1f609b` | **6.553:1** | 4.5:1 | 1.4.3 | PASS |
-| 33 | dark | button/.button text [accent role 1] | `#090e13` | `#59a2eb` | **7.190:1** | 4.5:1 | 1.4.3 | PASS |
-| 34 | dark | button:hover text | `#090e13` | `#6eaeee` | **8.260:1** | 4.5:1 | 1.4.3 | PASS |
-| 35 | dark | button.danger text | `#090e13` | `#f36b5d` | **6.525:1** | 4.5:1 | 1.4.3 | PASS |
-| 36 | dark | .skip-link:focus-visible text [accent role 4] | `#090e13` | `#59a2eb` | **7.190:1** | 4.5:1 | 1.4.3 | PASS |
-| 37 | light | header .subtitle #555 | `#555555` | `#f6f9fb` | **7.051:1** | 4.5:1 | 1.4.3 | PASS |
-| 38 | light | footer #666 | `#666666` | `#f6f9fb` | **5.431:1** | 4.5:1 | 1.4.3 | PASS |
-| 39 | light | footer a #666 | `#666666` | `#f6f9fb` | **5.431:1** | 4.5:1 | 1.4.3 | PASS |
-| 40 | light | .card .hint #555 | `#555555` | `#fafcfe` | **7.249:1** | 4.5:1 | 1.4.3 | PASS |
-| 41 | light | .card .note #6f6f6f | `#6f6f6f` | `#fafcfe` | **4.886:1** | 4.5:1 | 1.4.3 | PASS |
-| 42 | light | .card .empty #666 | `#666666` | `#fafcfe` | **5.583:1** | 4.5:1 | 1.4.3 | PASS |
-| 43 | light | .card .display-name #444 | `#444444` | `#fafcfe` | **9.471:1** | 4.5:1 | 1.4.3 | PASS |
-| 44 | light | dl.meta dt #555 | `#555555` | `#fafcfe` | **7.249:1** | 4.5:1 | 1.4.3 | PASS |
-| 45 | light | input/textarea typed text on #fff | `#181d23` | `#ffffff` | **16.951:1** | 4.5:1 | 1.4.3 | PASS |
-| 46 | light | th text on #f0f0f0 | `#181d23` | `#f0f0f0` | **14.875:1** | 4.5:1 | 1.4.3 | PASS |
-| 47 | dark | header .subtitle / footer / footer a #b3b9c0 | `#b3b9c0` | `#090e13` | **9.796:1** | 4.5:1 | 1.4.3 | PASS |
-| 48 | dark | .card .hint / dl.meta dt #b3b9c0 | `#b3b9c0` | `#13191f` | **8.948:1** | 4.5:1 | 1.4.3 | PASS |
-| 49 | dark | .card .note / .card .empty #9ba1a8 | `#9ba1a8` | `#13191f` | **6.790:1** | 4.5:1 | 1.4.3 | PASS |
-| 50 | dark | .card .display-name #c9d1d9 | `#c9d1d9` | `#13191f` | **11.467:1** | 4.5:1 | 1.4.3 | PASS |
-| 51 | dark | input/textarea typed text | `#d7dbe0` | `#13191f` | **12.725:1** | 4.5:1 | 1.4.3 | PASS |
-| 52 | dark | th text on th background | `#d7dbe0` | `#13191f` | **12.725:1** | 4.5:1 | 1.4.3 | PASS |
-| 53 | light | .status-badge--ok text | `#15682d` | `#e6f4ea` | **6.063:1** | 4.5:1 | 1.4.3 | PASS |
-| 54 | light | .status-badge--ok border on --bg | `#15682d` | `#f6f9fb` | **6.512:1** | 3.0:1 | 1.4.11 | PASS |
-| 55 | light | .status-badge--warn text | `#8a5a00` | `#fdf3e2` | **5.389:1** | 4.5:1 | 1.4.3 | PASS |
-| 56 | light | .status-badge--warn border on --bg | `#8a5a00` | `#f6f9fb` | **5.606:1** | 3.0:1 | 1.4.11 | PASS |
-| 57 | light | .status-badge__remediation on --warn | `#51585f` | `#fdf3e2` | **6.560:1** | 4.5:1 | 1.4.3 | PASS |
-| 58 | light | .status-badge--ops-warn text | `#475569` | `#eef2f7` | **6.740:1** | 4.5:1 | 1.4.3 | PASS |
-| 59 | light | .status-badge--ops-warn border on --bg | `#475569` | `#f6f9fb` | **7.167:1** | 3.0:1 | 1.4.11 | PASS |
-| 60 | light | .status-badge__remediation on --ops-warn | `#51585f` | `#eef2f7` | **6.417:1** | 4.5:1 | 1.4.3 | PASS |
-| 61 | light | .status-badge--down text (tokens) | `#b5352d` | `#fceeec` | **5.291:1** | 4.5:1 | 1.4.3 | PASS |
-| 62 | light | .status-badge--down border on --bg (token) | `#b5352d` | `#f6f9fb` | **5.656:1** | 3.0:1 | 1.4.11 | PASS |
-| 63 | light | .status-badge__remediation on --down | `#51585f` | `#fceeec` | **6.383:1** | 4.5:1 | 1.4.3 | PASS |
-| 64 | dark | .status-badge--ok text | `#3fb950` | `#0d2818` | **6.198:1** | 4.5:1 | 1.4.3 | PASS |
-| 65 | dark | .status-badge--ok border on --bg | `#3fb950` | `#090e13` | **7.627:1** | 3.0:1 | 1.4.11 | PASS |
-| 66 | dark | .status-badge--warn text | `#d29922` | `#3d2a07` | **5.428:1** | 4.5:1 | 1.4.3 | PASS |
-| 67 | dark | .status-badge--warn border on --bg | `#d29922` | `#090e13` | **7.676:1** | 3.0:1 | 1.4.11 | PASS |
-| 68 | dark | .status-badge__remediation on --warn | `#9fa4a8` | `#3d2a07` | **5.448:1** | 4.5:1 | 1.4.3 | PASS |
-| 69 | dark | .status-badge--ops-warn text | `#8b949e` | `#1c2230` | **5.169:1** | 4.5:1 | 1.4.3 | PASS |
-| 70 | dark | .status-badge--ops-warn border on --bg | `#8b949e` | `#090e13` | **6.299:1** | 3.0:1 | 1.4.11 | PASS |
-| 71 | dark | .status-badge__remediation on --ops-warn | `#9fa4a8` | `#1c2230` | **6.321:1** | 4.5:1 | 1.4.3 | PASS |
-| 72 | dark | .status-badge--down text | `#f85149` | `#3d1216` | **4.832:1** | 4.5:1 | 1.4.3 | PASS |
-| 73 | dark | .status-badge--down border on --bg | `#f85149` | `#090e13` | **5.780:1** | 3.0:1 | 1.4.11 | PASS |
-| 74 | dark | .status-badge__remediation on --down | `#9fa4a8` | `#3d1216` | **6.440:1** | 4.5:1 | 1.4.3 | PASS |
-| 75 | light | .status-badge base border on --bg | `#818a94` | `#f6f9fb` | **3.312:1** | 3.0:1 | 1.4.11 | PASS |
-| 76 | dark | .status-badge base border on --bg | `#636d77` | `#090e13` | **3.676:1** | 3.0:1 | 1.4.11 | PASS |
-| 77 | light | in-flight accent button label on --bg [EXEMPT: inactive component, SC 1.4.3 — pointer-events:none] | `#fcfdfe` | `#608eb8` | **3.403:1** | — | exempt | EXEMPT |
-| 78 | light | in-flight accent focus ring on --bg | `#608eb8` | `#f6f9fb` | **3.278:1** | 3.0:1 | 1.4.11 | PASS |
-| 79 | light | in-flight danger button label on --bg [EXEMPT: inactive component, SC 1.4.3 — pointer-events:none] | `#fcfdfe` | `#c8706b` | **3.445:1** | — | exempt | EXEMPT |
-| 80 | light | in-flight danger focus ring on --bg | `#c8706b` | `#f6f9fb` | **3.318:1** | 3.0:1 | 1.4.11 | PASS |
-| 81 | light | in-flight accent button label on --card-bg [EXEMPT: inactive component, SC 1.4.3 — pointer-events:none] | `#fefeff` | `#618fb9` | **3.395:1** | — | exempt | EXEMPT |
-| 82 | light | in-flight accent focus ring on --card-bg | `#618fb9` | `#fafcfe` | **3.327:1** | 3.0:1 | 1.4.11 | PASS |
-| 83 | light | in-flight danger button label on --card-bg [EXEMPT: inactive component, SC 1.4.3 — pointer-events:none] | `#fefeff` | `#ca716c` | **3.421:1** | — | exempt | EXEMPT |
-| 84 | light | in-flight danger focus ring on --card-bg | `#ca716c` | `#fafcfe` | **3.353:1** | 3.0:1 | 1.4.11 | PASS |
-| 85 | dark | in-flight accent button label on --bg [EXEMPT: inactive component, SC 1.4.3 — pointer-events:none] | `#090e13` | `#4176aa` | **4.057:1** | — | exempt | EXEMPT |
-| 86 | dark | in-flight accent focus ring on --bg | `#4176aa` | `#090e13` | **4.057:1** | 3.0:1 | 1.4.11 | PASS |
-| 87 | dark | in-flight danger button label on --bg [EXEMPT: inactive component, SC 1.4.3 — pointer-events:none] | `#090e13` | `#ad4f47` | **3.678:1** | — | exempt | EXEMPT |
-| 88 | dark | in-flight danger focus ring on --bg | `#ad4f47` | `#090e13` | **3.678:1** | 3.0:1 | 1.4.11 | PASS |
-| 89 | dark | in-flight accent button label on --card-bg [EXEMPT: inactive component, SC 1.4.3 — pointer-events:none] | `#0c1117` | `#4479ae` | **4.144:1** | — | exempt | EXEMPT |
-| 90 | dark | in-flight accent focus ring on --card-bg | `#4479ae` | `#13191f` | **3.870:1** | 3.0:1 | 1.4.11 | PASS |
-| 91 | dark | in-flight danger button label on --card-bg [EXEMPT: inactive component, SC 1.4.3 — pointer-events:none] | `#0c1117` | `#b0524a` | **3.747:1** | — | exempt | EXEMPT |
-| 92 | dark | in-flight danger focus ring on --card-bg | `#b0524a` | `#13191f` | **3.499:1** | 3.0:1 | 1.4.11 | PASS |
-| 93 | light | .status-badge.htmx-settling flash border on --bg [accent role 5] | `#1f609b` | `#f6f9fb` | **6.198:1** | 3.0:1 | 1.4.11 | PASS |
-| 94 | light | .status-badge.htmx-settling flash border on --card-bg [accent role 5] | `#1f609b` | `#fafcfe` | **6.372:1** | 3.0:1 | 1.4.11 | PASS |
-| 95 | dark | .status-badge.htmx-settling flash border on --bg [accent role 5] | `#59a2eb` | `#090e13` | **7.190:1** | 3.0:1 | 1.4.11 | PASS |
-| 96 | dark | .status-badge.htmx-settling flash border on --card-bg [accent role 5] | `#59a2eb` | `#13191f` | **6.568:1** | 3.0:1 | 1.4.11 | PASS |
-| 97 | light | --border on th #f0f0f0 | `#818a94` | `#f0f0f0` | **3.073:1** | 3.0:1 | 1.4.11 | PASS |
-| 98 | light | --border on tbody tr:hover | `#818a94` | `#edeff2` | **3.040:1** | 3.0:1 | 1.4.11 | PASS |
-| 99 | dark | --border on tbody tr:hover | `#636d77` | `#1b2127` | **3.080:1** | 3.0:1 | 1.4.11 | PASS |
+| 8 | light | input/textarea focus ring on --card-bg [accent role 2, control ground] | `#1f609b` | `#fafcfe` | **6.372:1** | 3.0:1 | 1.4.11 | PASS |
+| 9 | light | focus ring on tbody tr:hover [accent role 2] | `#1f609b` | `#edeff2` | **5.688:1** | 3.0:1 | 1.4.11 | PASS |
+| 10 | light | pre.error text | `#b5352d` | `#fceeec` | **5.291:1** | 4.5:1 | 1.4.3 | PASS |
+| 11 | light | button.danger focus ring on --bg | `#b5352d` | `#f6f9fb` | **5.656:1** | 3.0:1 | 1.4.11 | PASS |
+| 12 | light | button.danger focus ring on tbody tr:hover | `#b5352d` | `#edeff2` | **5.191:1** | 3.0:1 | 1.4.11 | PASS |
+| 13 | light | --rule-section on --bg — blocks, header, footer [AC#4 in light] | `#818a94` | `#f6f9fb` | **3.312:1** | 3.0:1 | 1.4.11 | PASS |
+| 14 | light | --rule-section under thead, on --card-bg | `#818a94` | `#fafcfe` | **3.405:1** | 3.0:1 | 1.4.11 | PASS |
+| 15 | light | --rule-row on --bg — tbody td, .discover-candidate [EXEMPT: decorative row rule, SC 1.4.11 aesthetic-purposes — its sites are <tr> and <li> boundaries an AT announces from the element, also carried by column alignment / 1.5rem padding under a per-item <h3>] | `#979fa8` | `#f6f9fb` | **2.533:1** | — | exempt | EXEMPT |
+| 16 | light | --rule-row over the tbody tr:hover tint [EXEMPT: decorative row rule, SC 1.4.11 aesthetic-purposes — its sites are <tr> and <li> boundaries an AT announces from the element, also carried by column alignment / 1.5rem padding under a per-item <h3>] | `#979fa8` | `#edeff2` | **2.325:1** | — | exempt | EXEMPT |
+| 17 | light | --rule-meta on --bg — dl.meta [EXEMPT: decorative dl.meta rule, SC 1.4.11 aesthetic-purposes — <dl> semantics and a two-column grid carry the dt/dd pairing, so deleting the rule changes no grouping] | `#aeb5bc` | `#f6f9fb` | **1.960:1** | — | exempt | EXEMPT |
+| 18 | light | .discover-meta / .topic-description --fg-muted | `#50565d` | `#f6f9fb` | **7.018:1** | 4.5:1 | 1.4.3 | PASS |
+| 19 | dark | body text | `#d7dbe0` | `#090e13` | **13.931:1** | 4.5:1 | 1.4.3 | PASS |
+| 20 | dark | th / input / textarea text on --card-bg [control ground] | `#d7dbe0` | `#13191f` | **12.725:1** | 4.5:1 | 1.4.3 | PASS |
+| 21 | dark | header h1 a | `#d7dbe0` | `#090e13` | **13.931:1** | 4.5:1 | 1.4.3 | PASS |
+| 22 | dark | td text | `#d7dbe0` | `#090e13` | **13.931:1** | 4.5:1 | 1.4.3 | PASS |
+| 23 | dark | tbody tr:hover text | `#d7dbe0` | `#1b2127` | **11.673:1** | 4.5:1 | 1.4.3 | PASS |
+| 24 | dark | .breadcrumb a link [accent role 3] | `#59a2eb` | `#090e13` | **7.190:1** | 4.5:1 | 1.4.3 | PASS |
+| 25 | dark | focus ring on --bg [accent role 2] | `#59a2eb` | `#090e13` | **7.190:1** | 3.0:1 | 1.4.11 | PASS |
+| 26 | dark | input/textarea focus ring on --card-bg [accent role 2, control ground] | `#59a2eb` | `#13191f` | **6.568:1** | 3.0:1 | 1.4.11 | PASS |
+| 27 | dark | focus ring on tbody tr:hover [accent role 2] | `#59a2eb` | `#1b2127` | **6.025:1** | 3.0:1 | 1.4.11 | PASS |
+| 28 | dark | pre.error text | `#f36b5d` | `#301714` | **5.620:1** | 4.5:1 | 1.4.3 | PASS |
+| 29 | dark | button.danger focus ring on --bg | `#f36b5d` | `#090e13` | **6.525:1** | 3.0:1 | 1.4.11 | PASS |
+| 30 | dark | button.danger focus ring on tbody tr:hover | `#f36b5d` | `#1b2127` | **5.468:1** | 3.0:1 | 1.4.11 | PASS |
+| 31 | dark | --rule-section on --bg — blocks, header, footer [AC#4 in light] | `#636d77` | `#090e13` | **3.676:1** | 3.0:1 | 1.4.11 | PASS |
+| 32 | dark | --rule-section under thead, on --card-bg | `#636d77` | `#13191f` | **3.358:1** | 3.0:1 | 1.4.11 | PASS |
+| 33 | dark | --rule-row on --bg — tbody td, .discover-candidate [EXEMPT: decorative row rule, SC 1.4.11 aesthetic-purposes — its sites are <tr> and <li> boundaries an AT announces from the element, also carried by column alignment / 1.5rem padding under a per-item <h3>] | `#4f5861` | `#090e13` | **2.677:1** | — | exempt | EXEMPT |
+| 34 | dark | --rule-row over the tbody tr:hover tint [EXEMPT: decorative row rule, SC 1.4.11 aesthetic-purposes — its sites are <tr> and <li> boundaries an AT announces from the element, also carried by column alignment / 1.5rem padding under a per-item <h3>] | `#4f5861` | `#1b2127` | **2.243:1** | — | exempt | EXEMPT |
+| 35 | dark | --rule-meta on --bg — dl.meta [EXEMPT: decorative dl.meta rule, SC 1.4.11 aesthetic-purposes — <dl> semantics and a two-column grid carry the dt/dd pairing, so deleting the rule changes no grouping] | `#3c444c` | `#090e13` | **1.959:1** | — | exempt | EXEMPT |
+| 36 | dark | .discover-meta / .topic-description --fg-muted | `#9fa4a8` | `#090e13` | **7.704:1** | 4.5:1 | 1.4.3 | PASS |
+| 37 | light | button/.button text [accent role 1] | `#ffffff` | `#1f609b` | **6.553:1** | 4.5:1 | 1.4.3 | PASS |
+| 38 | light | button:hover text | `#ffffff` | `#3d73a8` | **4.981:1** | 4.5:1 | 1.4.3 | PASS |
+| 39 | light | button.danger text | `#ffffff` | `#b5352d` | **5.980:1** | 4.5:1 | 1.4.3 | PASS |
+| 40 | light | .skip-link:focus-visible text [accent role 4] | `#ffffff` | `#1f609b` | **6.553:1** | 4.5:1 | 1.4.3 | PASS |
+| 41 | dark | button/.button text [accent role 1] | `#090e13` | `#59a2eb` | **7.190:1** | 4.5:1 | 1.4.3 | PASS |
+| 42 | dark | button:hover text | `#090e13` | `#6eaeee` | **8.260:1** | 4.5:1 | 1.4.3 | PASS |
+| 43 | dark | button.danger text | `#090e13` | `#f36b5d` | **6.525:1** | 4.5:1 | 1.4.3 | PASS |
+| 44 | dark | .skip-link:focus-visible text [accent role 4] | `#090e13` | `#59a2eb` | **7.190:1** | 4.5:1 | 1.4.3 | PASS |
+| 45 | light | header .subtitle #555 | `#555555` | `#f6f9fb` | **7.051:1** | 4.5:1 | 1.4.3 | PASS |
+| 46 | light | footer #666 | `#666666` | `#f6f9fb` | **5.431:1** | 4.5:1 | 1.4.3 | PASS |
+| 47 | light | footer a #666 | `#666666` | `#f6f9fb` | **5.431:1** | 4.5:1 | 1.4.3 | PASS |
+| 48 | light | .hint #555 | `#555555` | `#f6f9fb` | **7.051:1** | 4.5:1 | 1.4.3 | PASS |
+| 49 | light | .empty #666 | `#666666` | `#f6f9fb` | **5.431:1** | 4.5:1 | 1.4.3 | PASS |
+| 50 | light | .display-name #444 | `#444444` | `#f6f9fb` | **9.212:1** | 4.5:1 | 1.4.3 | PASS |
+| 51 | light | dl.meta dt #555 | `#555555` | `#f6f9fb` | **7.051:1** | 4.5:1 | 1.4.3 | PASS |
+| 52 | dark | header .subtitle / footer / footer a #b3b9c0 | `#b3b9c0` | `#090e13` | **9.796:1** | 4.5:1 | 1.4.3 | PASS |
+| 53 | dark | .hint / dl.meta dt #b3b9c0 | `#b3b9c0` | `#090e13` | **9.796:1** | 4.5:1 | 1.4.3 | PASS |
+| 54 | dark | .empty #9ba1a8 | `#9ba1a8` | `#090e13` | **7.434:1** | 4.5:1 | 1.4.3 | PASS |
+| 55 | dark | .display-name #c9d1d9 | `#c9d1d9` | `#090e13` | **12.553:1** | 4.5:1 | 1.4.3 | PASS |
+| 56 | light | .status-badge--ok text | `#15682d` | `#e6f4ea` | **6.063:1** | 4.5:1 | 1.4.3 | PASS |
+| 57 | light | .status-badge--ok border on --bg | `#15682d` | `#f6f9fb` | **6.512:1** | 3.0:1 | 1.4.11 | PASS |
+| 58 | light | .status-badge--warn text | `#8a5a00` | `#fdf3e2` | **5.389:1** | 4.5:1 | 1.4.3 | PASS |
+| 59 | light | .status-badge--warn border on --bg | `#8a5a00` | `#f6f9fb` | **5.606:1** | 3.0:1 | 1.4.11 | PASS |
+| 60 | light | .status-badge__remediation on --warn | `#50565d` | `#fdf3e2` | **6.747:1** | 4.5:1 | 1.4.3 | PASS |
+| 61 | light | .status-badge--ops-warn text | `#475569` | `#eef2f7` | **6.740:1** | 4.5:1 | 1.4.3 | PASS |
+| 62 | light | .status-badge--ops-warn border on --bg | `#475569` | `#f6f9fb` | **7.167:1** | 3.0:1 | 1.4.11 | PASS |
+| 63 | light | .status-badge__remediation on --ops-warn | `#50565d` | `#eef2f7` | **6.600:1** | 4.5:1 | 1.4.3 | PASS |
+| 64 | light | .status-badge--down text (tokens) | `#b5352d` | `#fceeec` | **5.291:1** | 4.5:1 | 1.4.3 | PASS |
+| 65 | light | .status-badge--down border on --bg (token) | `#b5352d` | `#f6f9fb` | **5.656:1** | 3.0:1 | 1.4.11 | PASS |
+| 66 | light | .status-badge__remediation on --down | `#50565d` | `#fceeec` | **6.565:1** | 4.5:1 | 1.4.3 | PASS |
+| 67 | dark | .status-badge--ok text | `#3fb950` | `#0d2818` | **6.198:1** | 4.5:1 | 1.4.3 | PASS |
+| 68 | dark | .status-badge--ok border on --bg | `#3fb950` | `#090e13` | **7.627:1** | 3.0:1 | 1.4.11 | PASS |
+| 69 | dark | .status-badge--warn text | `#d29922` | `#3d2a07` | **5.428:1** | 4.5:1 | 1.4.3 | PASS |
+| 70 | dark | .status-badge--warn border on --bg | `#d29922` | `#090e13` | **7.676:1** | 3.0:1 | 1.4.11 | PASS |
+| 71 | dark | .status-badge__remediation on --warn | `#9fa4a8` | `#3d2a07` | **5.448:1** | 4.5:1 | 1.4.3 | PASS |
+| 72 | dark | .status-badge--ops-warn text | `#8b949e` | `#1c2230` | **5.169:1** | 4.5:1 | 1.4.3 | PASS |
+| 73 | dark | .status-badge--ops-warn border on --bg | `#8b949e` | `#090e13` | **6.299:1** | 3.0:1 | 1.4.11 | PASS |
+| 74 | dark | .status-badge__remediation on --ops-warn | `#9fa4a8` | `#1c2230` | **6.321:1** | 4.5:1 | 1.4.3 | PASS |
+| 75 | dark | .status-badge--down text | `#f85149` | `#3d1216` | **4.832:1** | 4.5:1 | 1.4.3 | PASS |
+| 76 | dark | .status-badge--down border on --bg | `#f85149` | `#090e13` | **5.780:1** | 3.0:1 | 1.4.11 | PASS |
+| 77 | dark | .status-badge__remediation on --down | `#9fa4a8` | `#3d1216` | **6.440:1** | 4.5:1 | 1.4.3 | PASS |
+| 78 | light | .status-badge base border on --bg | `#818a94` | `#f6f9fb` | **3.312:1** | 3.0:1 | 1.4.11 | PASS |
+| 79 | dark | .status-badge base border on --bg | `#636d77` | `#090e13` | **3.676:1** | 3.0:1 | 1.4.11 | PASS |
+| 80 | light | in-flight accent button label on --bg [EXEMPT: inactive component, SC 1.4.3 — pointer-events:none] | `#fcfdfe` | `#608eb8` | **3.403:1** | — | exempt | EXEMPT |
+| 81 | light | in-flight accent focus ring on --bg | `#608eb8` | `#f6f9fb` | **3.278:1** | 3.0:1 | 1.4.11 | PASS |
+| 82 | light | in-flight danger button label on --bg [EXEMPT: inactive component, SC 1.4.3 — pointer-events:none] | `#fcfdfe` | `#c8706b` | **3.445:1** | — | exempt | EXEMPT |
+| 83 | light | in-flight danger focus ring on --bg | `#c8706b` | `#f6f9fb` | **3.318:1** | 3.0:1 | 1.4.11 | PASS |
+| 84 | light | in-flight accent button label on tbody tr:hover [EXEMPT: inactive component, SC 1.4.3 — pointer-events:none] | `#fafafb` | `#5d8bb5` | **3.456:1** | — | exempt | EXEMPT |
+| 85 | light | in-flight accent focus ring on tbody tr:hover | `#5d8bb5` | `#edeff2` | **3.129:1** | 3.0:1 | 1.4.11 | PASS |
+| 86 | light | in-flight danger button label on tbody tr:hover [EXEMPT: inactive component, SC 1.4.3 — pointer-events:none] | `#fafafb` | `#c66d68` | **3.478:1** | — | exempt | EXEMPT |
+| 87 | light | in-flight danger focus ring on tbody tr:hover | `#c66d68` | `#edeff2` | **3.149:1** | 3.0:1 | 1.4.11 | PASS |
+| 88 | dark | in-flight accent button label on --bg [EXEMPT: inactive component, SC 1.4.3 — pointer-events:none] | `#090e13` | `#4176aa` | **4.057:1** | — | exempt | EXEMPT |
+| 89 | dark | in-flight accent focus ring on --bg | `#4176aa` | `#090e13` | **4.057:1** | 3.0:1 | 1.4.11 | PASS |
+| 90 | dark | in-flight danger button label on --bg [EXEMPT: inactive component, SC 1.4.3 — pointer-events:none] | `#090e13` | `#ad4f47` | **3.678:1** | — | exempt | EXEMPT |
+| 91 | dark | in-flight danger focus ring on --bg | `#ad4f47` | `#090e13` | **3.678:1** | 3.0:1 | 1.4.11 | PASS |
+| 92 | dark | in-flight accent button label on tbody tr:hover [EXEMPT: inactive component, SC 1.4.3 — pointer-events:none] | `#0e1419` | `#467bb0` | **4.167:1** | — | exempt | EXEMPT |
+| 93 | dark | in-flight accent focus ring on tbody tr:hover | `#467bb0` | `#1b2127` | **3.650:1** | 3.0:1 | 1.4.11 | PASS |
+| 94 | dark | in-flight danger button label on tbody tr:hover [EXEMPT: inactive component, SC 1.4.3 — pointer-events:none] | `#0e1419` | `#b2554d` | **3.796:1** | — | exempt | EXEMPT |
+| 95 | dark | in-flight danger focus ring on tbody tr:hover | `#b2554d` | `#1b2127` | **3.324:1** | 3.0:1 | 1.4.11 | PASS |
+| 96 | light | .status-badge.htmx-settling flash border on --bg [accent role 5] | `#1f609b` | `#f6f9fb` | **6.198:1** | 3.0:1 | 1.4.11 | PASS |
+| 97 | light | .status-badge.htmx-settling flash border on --card-bg [accent role 5] | `#1f609b` | `#fafcfe` | **6.372:1** | 3.0:1 | 1.4.11 | PASS |
+| 98 | dark | .status-badge.htmx-settling flash border on --bg [accent role 5] | `#59a2eb` | `#090e13` | **7.190:1** | 3.0:1 | 1.4.11 | PASS |
+| 99 | dark | .status-badge.htmx-settling flash border on --card-bg [accent role 5] | `#59a2eb` | `#13191f` | **6.568:1** | 3.0:1 | 1.4.11 | PASS |
 
 <!-- END GENERATED CONTRAST TABLE -->
 

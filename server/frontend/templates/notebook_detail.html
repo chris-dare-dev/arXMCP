@@ -5,7 +5,13 @@
 {% block content %}
 <nav class="breadcrumb"><a href="/ui/">← All notebooks</a></nav>
 
-<section class="card">
+{# ui-uplift-m8 (UPL-2): `class="card"` is gone from all seven blocks here and
+   the ELEMENT was decided per site — see the same note in index.html for the
+   rule and for why no aria-labelledby was added. Two SECTIONs survive on this
+   page (the record's identity block and the papers inventory); the five job
+   forms drop to DIV. #}
+{# SECTION — the record itself: identity, name, metadata, delete. #}
+<section>
   <h2><code>{{ notebook.slug }}</code></h2>
   {# notebook-surface-expansion-m2: always-rendered display-name block — the
      stable htmx swap target (#display-name-block). PATCH /ui/api/notebooks/{slug}
@@ -98,7 +104,8 @@
   </div>
 </section>
 
-<section class="card">
+{# DIV — the topic form and its readback. #}
+<div>
   <h2>Topic &amp; discovery</h2>
   <p class="hint">
     The research interest the m2–m4 arXiv discovery channels will use to
@@ -149,9 +156,10 @@
     <button type="submit">Save topic</button>
     <pre id="topic-error" class="error" aria-live="polite"></pre>
   </form>
-</section>
+</div>
 
-<section class="card">
+{# DIV — a job form plus its transient htmx result panel. #}
+<div>
   <h2>Discover papers</h2>
   <p class="hint">
     Find new arXiv papers matching this notebook's topic (set in
@@ -183,9 +191,10 @@
   <div id="discover-results" aria-live="polite" aria-atomic="true">
     <p class="hint">No discovery run yet — click Discover above.</p>
   </div>
-</section>
+</div>
 
-<section class="card">
+{# DIV — a single add form. #}
+<div>
   <h2>Add paper by URL</h2>
   <p class="hint">
     Accepted forms: <code>https://arxiv.org/abs/&lt;id&gt;</code> or
@@ -223,9 +232,10 @@
     <button type="submit">Add</button>
     <pre id="paste-error" class="error" aria-live="polite"></pre>
   </form>
-</section>
+</div>
 
-<section class="card">
+{# DIV — a single upload form. #}
+<div>
   <h2>Upload ar5iv HTML</h2>
   <p class="hint">
     Drop an HTML file from <code>ar5iv.labs.arxiv.org</code>. Max
@@ -253,9 +263,10 @@
     <button type="submit">Upload</button>
     <pre id="upload-error" class="error" aria-live="polite"></pre>
   </form>
-</section>
+</div>
 
-<section class="card">
+{# DIV — a job form plus its htmx status target. #}
+<div>
   <h2>Ingest</h2>
   <p class="hint">
     Run the ingest pipeline against this notebook's
@@ -302,19 +313,20 @@
        hx-swap="outerHTML">
     Loading ingest status…
   </div>
-</section>
+</div>
 
-<section class="card">
+{# SECTION — the page's focal content region: the corpus itself. #}
+<section>
   <h2>Papers in this notebook ({{ papers|length }})</h2>
   {% if not papers %}
     <p class="empty">No papers yet. Add one above.</p>
   {% endif %}
   {# ui-attractive-polish-m2 (UPL-19 v0): wrap the table in .table-wrap
-     (overflow-x:auto) so mobile viewports scroll inside the card rather
-     than clipping the Preview / Remove column off the right edge. The
-     wrapper is OUTSIDE the <table> but INSIDE the <section class="card">;
-     m1's aria-live="polite" on <tbody id="papers-tbody"> below is
-     untouched. #}
+     (overflow-x:auto) so narrow viewports scroll the table rather than
+     clipping the Preview / Remove column off the right edge. The wrapper is
+     OUTSIDE the <table> but INSIDE this <section> (ui-uplift-m8 deleted the
+     card class; the wrapper's position is unchanged); m1's
+     aria-live="polite" on <tbody id="papers-tbody"> below is untouched. #}
   <div class="table-wrap">
   <table class="papers">
     <thead>

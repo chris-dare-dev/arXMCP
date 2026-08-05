@@ -1,0 +1,399 @@
+"""ui-uplift-m8 (UPL-2) — retire ``.card``; adopt the graded rule ladder.
+
+**AC#1 was unfalsifiable before this module existed.** "No ``.card``
+primitive remains" was asserted by nothing: a repo-wide grep at research time
+found the string only inside two test *comments*. The epic's headline claim
+was defended by prose. Everything here is derived from the on-disk tree.
+
+Two failure modes shaped how these are written:
+
+- **Scanning comments instead of code.** ui-uplift-m10's rectify pass caught
+  its own no-relevance guard flagging the rationale that explained the
+  refusal. Every CSS assertion below reads the comment-stripped text, and the
+  template assertions read markup only — which matters here more than usual,
+  because the stylesheet's m8 comments necessarily *talk about* ``.card``.
+- **Guards that pass vacuously.** A check that enumerates a set and asserts
+  something about each member passes trivially when the set is empty, so the
+  counts are pinned alongside the properties.
+"""
+
+from __future__ import annotations
+
+import re as _re
+
+import pytest
+
+from tests._ui_color import (
+    APP_CSS_PATH,
+    REPO_ROOT,
+    TOKENS_CSS_PATH,
+    contrast_ratio,
+    load_raw_tokens,
+    load_tokens,
+)
+
+APP_CSS: str = APP_CSS_PATH.read_text(encoding="utf-8")
+APP_CSS_NO_COMMENTS: str = _re.sub(r"/\*.*?\*/", "", APP_CSS, flags=_re.S)
+TOKENS_CSS: str = TOKENS_CSS_PATH.read_text(encoding="utf-8")
+TOKENS_NO_COMMENTS: str = _re.sub(r"/\*.*?\*/", "", TOKENS_CSS, flags=_re.S)
+COMBINED_NO_COMMENTS: str = APP_CSS_NO_COMMENTS + "\n" + TOKENS_NO_COMMENTS
+
+_TEMPLATES = REPO_ROOT / "server" / "frontend" / "templates"
+TEMPLATE_PATHS = sorted(_TEMPLATES.glob("*.html"))
+_ROUTES = REPO_ROOT / "server" / "routes"
+ROUTE_PATHS = sorted(_ROUTES.glob("*.py"))
+
+BASE_RAW, DARK_RAW = load_raw_tokens()
+LIGHT, DARK = load_tokens()
+
+#: The three weights the 2026q3 discovery authored BY NAME
+#: (``discover/art-direction-scout-brief.md:176-177``,
+#: ``artifacts/synthesis.md:234``). The roadmap item carries neither the names
+#: nor the grading — the same drop-shape as m7's ``clamp()`` values and m10's
+#: finding-H3 rules — so they are pinned here as authored requirements.
+RULE_TOKENS = ("--rule-section", "--rule-row", "--rule-meta")
+
+
+# ---------------------------------------------------------------------------
+# AC#1 — the primitive is gone, and that is now checkable
+# ---------------------------------------------------------------------------
+class TestCardPrimitiveIsGone:
+    def test_no_template_carries_the_card_class(self) -> None:
+        """The check AC#1 never had.
+
+        Reads markup, not prose: the m8 templates explain the deletion in
+        Jinja comments that necessarily contain the string ``class="card"``,
+        so a naive substring scan over the file would fail on the very
+        comment documenting the fix.
+        """
+        assert TEMPLATE_PATHS, "no templates found — the glob is wrong"
+        offenders = []
+        for path in TEMPLATE_PATHS:
+            markup = _re.sub(r"\{#.*?#\}", "", path.read_text(encoding="utf-8"),
+                             flags=_re.S)
+            for m in _re.finditer(r'class="([^"]*)"', markup):
+                if "card" in m.group(1).split():
+                    offenders.append(f"{path.name}: {m.group(0)}")
+        assert not offenders, (
+            "ui-uplift-m8 AC#1: the `.card` primitive must not remain in any "
+            f"template. Found {len(offenders)}:\n  " + "\n  ".join(offenders)
+        )
+
+    def test_no_fragment_builder_emits_the_card_class(self) -> None:
+        """The Jinja templates were never the only emitter of markup — the
+        htmx fragment builders in ``server/routes/`` emit class attributes
+        too, and a class re-introduced there would be invisible to the
+        template check above."""
+        assert ROUTE_PATHS, "no route modules found — the glob is wrong"
+        offenders = [
+            f"{p.name}:{i}"
+            for p in ROUTE_PATHS
+            for i, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1)
+            for m in _re.finditer(r'class=\\?"([^"\\]*)', line)
+            if "card" in m.group(1).split()
+        ]
+        assert not offenders, (
+            f"ui-uplift-m8 AC#1: a fragment builder emits class=\"card\": "
+            f"{offenders}"
+        )
+
+    def test_no_stylesheet_declares_a_card_rule(self) -> None:
+        """Deleting the markup without deleting the rule leaves the primitive
+        alive and re-appliable. Comment-stripped, because both stylesheets
+        discuss the deletion at length."""
+        selectors = _re.findall(r"\.card\b[^{;]*\{", COMBINED_NO_COMMENTS)
+        assert not selectors, (
+            f"ui-uplift-m8 AC#1: {selectors} still declare rules for the "
+            f"deleted primitive."
+        )
+
+    def test_structure_carries_no_border_radius(self) -> None:
+        """AC#1's geometry half. ``.card``'s 6px was the file's only radius on
+        structure; what survives must be the control layer plus the two
+        exceptions the art direction and physics grant, ENUMERATED so a new
+        one cannot be added silently."""
+        radii = _re.findall(r"([^{}]+)\{[^}]*border-radius:\s*([^;}]+)",
+                            APP_CSS_NO_COMMENTS)
+        found = {sel.strip(): value.strip() for sel, value in radii}
+        assert "6px" not in found.values(), (
+            "the 6px structural radius is back; AC#1 deletes it with .card"
+        )
+        allowed_exceptions = {".status-badge", "@keyframes spin"}
+        for selector, value in found.items():
+            leaf = selector.split(",")[-1].strip()
+            is_control = bool(
+                _re.search(r"(input|textarea|button|\.button|\.skip-link|"
+                           r"\[tabindex\]|:focus-visible)", leaf)
+            )
+            is_circle = value == "50%"
+            named = any(exc in selector for exc in allowed_exceptions)
+            assert is_control or is_circle or named, (
+                f"`{leaf}` carries border-radius: {value} but is neither a "
+                f"control nor one of the two documented exceptions "
+                f"({sorted(allowed_exceptions)}). ui-uplift-m8's claim is "
+                f"'radius marks the control layer, with named exceptions' — "
+                f"an unnamed third exception makes that claim false."
+            )
+
+
+# ---------------------------------------------------------------------------
+# The ladder itself
+# ---------------------------------------------------------------------------
+class TestRuleLadder:
+    @pytest.mark.parametrize("name", RULE_TOKENS)
+    def test_the_authored_token_is_declared(self, name: str) -> None:
+        assert name in BASE_RAW, (
+            f"{name} is one of the three weights the discovery authored by "
+            f"name; the roadmap summary dropped all three, so losing it again "
+            f"is the documented failure mode, not a new one."
+        )
+
+    @pytest.mark.parametrize("name", RULE_TOKENS)
+    def test_the_token_is_actually_used(self, name: str) -> None:
+        """A minted-but-unused token is a claim the sheet does not honour."""
+        assert f"var({name})" in APP_CSS_NO_COMMENTS, (
+            f"{name} is declared but no rule references it."
+        )
+
+    @pytest.mark.parametrize("name", RULE_TOKENS)
+    def test_the_token_is_not_forked_across_colour_schemes(self, name: str) -> None:
+        """One declaration, both modes. The values name ``var(--border)`` and
+        ``var(--bg)``, which substitute at USE time against whichever
+        ``:root`` won — so a dark redeclaration would fork the ladder into
+        two definitions free to drift, which is what the m6/m7 token
+        discipline exists to prevent."""
+        assert name not in DARK_RAW, (
+            f"{name} is redeclared in the dark :root. It resolves per mode "
+            f"already; two declarations can only drift apart."
+        )
+
+    def test_the_ladder_is_horizontal_only(self) -> None:
+        """The discovery's constraint, verbatim: "three weights, horizontal
+        only. No vertical edges anywhere." A vertical rule would re-introduce
+        the box one edge at a time.
+
+        ``*-color`` sub-properties are excluded, and the exclusion is the
+        interesting part rather than a convenience: the spinner is a circle
+        drawn from a 4-sided border with ``border-right-color: transparent``
+        cutting the arc. That declaration REMOVES an edge; reading it as a
+        vertical rule would fail this guard on the one rule in the file that
+        proves the constraint is being honoured.
+        """
+        vertical = [
+            decl for decl in _re.findall(
+                r"border-(?:left|right|inline-start|inline-end)[\w-]*\s*:[^;}]*",
+                APP_CSS_NO_COMMENTS,
+            )
+            if not _re.match(r"border-\w+-color\b", decl)
+        ]
+        assert not vertical, (
+            f"vertical edges found: {vertical}. The ladder is horizontal only; "
+            f"the box was deleted on purpose."
+        )
+
+    def test_the_block_ladder_uses_the_section_weight(self) -> None:
+        """The nine former cards are separated by the FULL weight, because a
+        reader must perceive that boundary to understand the page — which is
+        exactly the condition under which SC 1.4.11's decorative exemption
+        does NOT apply."""
+        m = _re.search(r"main\s*>[^{}]*\+[^{}]*\{([^}]*)\}", APP_CSS_NO_COMMENTS)
+        assert m is not None, "the block-ladder rule is missing from app.css"
+        assert "var(--rule-section)" in m.group(1), (
+            "the boundary between top-level blocks must take the FULL weight: "
+            "it is the sole cue for the grouping, so a tinted rung there "
+            "would be structural and its exemption would be false."
+        )
+
+    def test_the_thead_separation_uses_the_section_weight(self) -> None:
+        """AC#3. The header boundary is structural — a reader who cannot see
+        where the header ends reads a label as data."""
+        m = _re.search(r"thead\s+th\s*\{([^}]*)\}", APP_CSS_NO_COMMENTS)
+        assert m is not None, "no `thead th` rule — AC#3's rule is missing"
+        assert "var(--rule-section)" in m.group(1)
+
+    def test_the_th_fill_survives_alongside_the_rule(self) -> None:
+        """AC#2 and AC#3 pull opposite ways on ``th``: one keeps ``--card-bg``
+        as the control ground for table headers, the other migrates the
+        separation to a rule weight. The resolution is BOTH — reading AC#3
+        alone and deleting the fill breaks
+        ``test_ui_m5_create_remove_in_place``'s guard, and reading AC#2 alone
+        leaves the boundary at 1.03:1."""
+        # Anchored at line start: a bare `(?<![\w.-])th` also matches the
+        # `th` in `thead th`, which is the RULE half of this pair and would
+        # make the assertion read the wrong block.
+        m = _re.search(r"^th\s*\{([^}]*)\}", APP_CSS_NO_COMMENTS, flags=_re.M)
+        assert m is not None, "the base `th` rule is gone"
+        assert "background: var(--card-bg)" in m.group(1), (
+            f"the base th rule no longer carries the control-ground fill: "
+            f"{m.group(1).strip()!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# The exemption is conditional, so measure it
+# ---------------------------------------------------------------------------
+class TestGradingIsMeasuredNotAsserted:
+    def test_the_section_rung_clears_sc_1411_on_every_ground(self) -> None:
+        """The one rung that carries structure must clear 3:1 wherever it is
+        drawn — on the canvas (blocks, header, footer) AND on the ``th`` fill
+        it separates the header from."""
+        for mode, table in (("light", LIGHT), ("dark", DARK)):
+            for ground in ("--bg", "--card-bg"):
+                ratio = contrast_ratio(table["--border"], table[ground])
+                assert ratio >= 3.0, (
+                    f"{mode} --rule-section on {ground} = {ratio:.4f}:1, under "
+                    f"SC 1.4.11. This rung carries every structural boundary "
+                    f"in the product; it has no exemption to fall back on."
+                )
+
+    def test_no_tinted_rung_is_claimed_to_clear_the_bar(self) -> None:
+        """The honest half, and the reason the tinted rungs are registered
+        EXEMPT rather than gated.
+
+        ``--border`` was solved by m6 to exactly 3.30:1 — it IS the floor — so
+        every tint of it toward the ground lands under 3:1. This asserts that
+        the *shipped* tints really are under the bar, which is what makes
+        "declared decorative" the honest description of them rather than a
+        label on a value that happens to pass. A tint that crept back over 3:1
+        would mean the ladder had silently collapsed onto one weight.
+        """
+        from tests.test_ui_contrast import RULE_META, RULE_ROW, _resolve
+
+        for mode, table in (("light", LIGHT), ("dark", DARK)):
+            for label, spec in (("--rule-row", RULE_ROW), ("--rule-meta", RULE_META)):
+                ratio = contrast_ratio(_resolve(spec, mode), table["--bg"])
+                assert ratio < 3.0, (
+                    f"{mode} {label} on --bg = {ratio:.4f}:1, at or over SC "
+                    f"1.4.11's bar. If a tinted rung now clears 3:1 it is no "
+                    f"longer decorative and should be gated, not exempted — "
+                    f"or the ladder has collapsed onto a single weight."
+                )
+
+    def test_every_tinted_rung_is_registered_exempt_with_a_reason(self) -> None:
+        """``test_rendered_pair_meets_wcag_floor`` already refuses an EXEMPT
+        row without a justification. This is the other direction: it refuses
+        a tinted rung that was never registered AT ALL, which is how a
+        sub-3:1 boundary ships without anyone deciding it should."""
+        from tests.test_ui_contrast import EXEMPT, PAIRS
+
+        for label in ("--rule-row", "--rule-meta"):
+            rows = [p for p in PAIRS if label in p[1]]
+            assert rows, f"{label} renders but is registered nowhere"
+            for mode, site, _fg, _bg, floor in rows:
+                assert floor == EXEMPT and "[EXEMPT:" in site, (
+                    f"{mode} / {site}: a tinted rung must be registered with "
+                    f"the EXEMPT sentinel AND an inline justification."
+                )
+            assert {p[0] for p in rows} == {"light", "dark"}, (
+                f"{label} is registered in only one mode"
+            )
+
+
+# ---------------------------------------------------------------------------
+# AC#2 — --card-bg's successor role
+# ---------------------------------------------------------------------------
+class TestCardBgSuccessorRole:
+    #: Every rule-level ``var(--card-bg)`` consumer, with the role that keeps
+    #: it. The AC's own count ("three dark-mode rules") is wrong twice over:
+    #: there are three CSS rules of which only ONE is dark-only, plus three
+    #: dark TOKEN derivations that name it as their solved ground.
+    EXPECTED_CONSUMERS = {
+        "th": "control ground — table header fill, both modes",
+        "input": "control ground — dark input/textarea fill",
+        "tbody tr:hover": "control ground — the interaction-target tint",
+    }
+
+    def test_card_bg_is_no_longer_a_panel_ground(self) -> None:
+        rules = _re.findall(r"([^{}]+)\{[^}]*var\(--card-bg\)", APP_CSS_NO_COMMENTS)
+        assert rules, "--card-bg has no consumers left at all — AC#2 asks for "
+        for selector in rules:
+            leaf = selector.strip().splitlines()[-1].strip()
+            assert any(key in leaf for key in self.EXPECTED_CONSUMERS), (
+                f"`{leaf}` grounds on --card-bg but is not one of its "
+                f"successor-role consumers {sorted(self.EXPECTED_CONSUMERS)}. "
+                f"ui-uplift-m8 AC#2 re-roles this token from PANEL ground to "
+                f"CONTROL ground; a new panel use re-opens the primitive under "
+                f"another name."
+            )
+
+    def test_the_two_modes_agree_about_the_header_surface(self) -> None:
+        """UPL-8 v0 shipped a light ``th`` literal and a dark redeclaration to
+        hide it. m8 collapsed that to one token-tracked rule, so the light and
+        dark stylesheets must not disagree about this surface again."""
+        assert "#f0f0f0" not in APP_CSS_NO_COMMENTS, (
+            "the hardcoded light th fill is back; it is what forced the dark "
+            "redeclaration UPL-8 v1 added and ui-uplift-m8 removed."
+        )
+
+
+# ---------------------------------------------------------------------------
+# D2 — the per-site <section> vs <div> decision
+# ---------------------------------------------------------------------------
+class TestSectioningElementDecision:
+    """m8 decided the ELEMENT per site rather than keeping ``<section>`` by
+    reflex. An unnamed ``<section>`` exposes no region landmark — it is
+    semantically a ``<div>`` — so this moves no accessibility tree today; what
+    it records is intent. The property worth guarding is the one that DOES
+    carry navigation: every block still opens with its ``<h2>``.
+    """
+
+    #: (template, expected <section> count, expected top-level block count)
+    EXPECTED = {"index.html": (1, 2), "notebook_detail.html": (2, 7)}
+
+    @pytest.mark.parametrize(("name", "counts"), sorted(EXPECTED.items()))
+    def test_block_element_split_is_as_decided(
+        self, name: str, counts: tuple[int, int]
+    ) -> None:
+        want_sections, want_blocks = counts
+        markup = _re.sub(
+            r"\{#.*?#\}", "", (_TEMPLATES / name).read_text(encoding="utf-8"),
+            flags=_re.S,
+        )
+        sections = len(_re.findall(r"^<section>", markup, flags=_re.M))
+        divs = len(_re.findall(r"^<div>", markup, flags=_re.M))
+        assert (sections, sections + divs) == (want_sections, want_blocks), (
+            f"{name}: {sections} <section> + {divs} <div> top-level blocks; "
+            f"expected {want_sections} of {want_blocks}. The split is a "
+            f"recorded per-site judgement (implement/synthesis.md), not a "
+            f"default — changing it means re-deciding it."
+        )
+
+    @pytest.mark.parametrize("name", sorted(EXPECTED))
+    def test_every_block_still_opens_with_its_heading(self, name: str) -> None:
+        """The document outline is carried by heading rank, not by sectioning
+        elements — the HTML5 outline algorithm was never implemented in any
+        browser. So this, not the element choice, is what a screen-reader user
+        navigates by, and it must survive the swap intact."""
+        markup = _re.sub(
+            r"\{#.*?#\}", "", (_TEMPLATES / name).read_text(encoding="utf-8"),
+            flags=_re.S,
+        )
+        blocks = _re.findall(r"^<(?:section|div)>\s*\n\s*(<[^>\s]+)",
+                             markup, flags=_re.M)
+        want = self.EXPECTED[name][1]
+        assert len(blocks) == want, (
+            f"{name}: {len(blocks)} of {want} top-level blocks open with an "
+            f"element on the next line"
+        )
+        for opener in blocks:
+            assert opener == "<h2", (
+                f"{name}: a top-level block opens with {opener!r}, not <h2>. "
+                f"With the visual box gone the heading is ALL that delimits "
+                f"the group for an AT user."
+            )
+
+    def test_no_block_was_promoted_to_a_landmark(self) -> None:
+        """Deliberately NOT done. Naming these sections would mint seven or
+        nine ``region`` landmarks on one page, and over-populating a page with
+        landmarks reduces their ability to help users find the important
+        parts. Heading hierarchy is the recommended answer and is what ships.
+        """
+        for path in TEMPLATE_PATHS:
+            markup = _re.sub(r"\{#.*?#\}", "", path.read_text(encoding="utf-8"),
+                             flags=_re.S)
+            for m in _re.finditer(r"<section\b[^>]*>", markup):
+                assert "aria-label" not in m.group(0), (
+                    f"{path.name}: {m.group(0)} names a section, promoting it "
+                    f"to a region landmark. ui-uplift-m8 refused this on "
+                    f"purpose — see implement/synthesis.md."
+                )

@@ -4,7 +4,11 @@
    ui-uplift-m7: the :root token blocks (colour, duration, type) MOVED to
    server/frontend/static/tokens.css, which base.html links FIRST. This file
    holds every rule and no token. Do not re-declare a custom property here —
-   two token homes is exactly what UPL-3's AC#4 forbids. */
+   two token homes is exactly what UPL-3's AC#4 forbids.
+
+   ui-uplift-m8 (UPL-2): `.card` is DELETED. Structure is the three-rung
+   ladder in tokens.css (--rule-section/-row/-meta) over a doubled rhythm;
+   every rule here is HORIZONTAL and the only boxes left are controls. */
 
 * { box-sizing: border-box; }
 
@@ -32,7 +36,7 @@ body {
   margin-right: auto;
 }
 
-header { border-bottom: 1px solid var(--border); margin-bottom: 1.5rem; padding-bottom: 0.5rem; }
+header { border-block-end: var(--rule-section); margin-bottom: 1.5rem; padding-bottom: 0.5rem; }
 /* ui-uplift-m7 (AC#3): the title had NO font-size and rode the UA
    h1 { font-size: 2em } = a fixed 32px at every viewport. --text-title is
    the authored clamp; line-height drops to 1.2 because body's 1.5 gives a
@@ -41,35 +45,28 @@ header h1 { margin: 0 0 0.25rem 0; font-size: var(--text-title); line-height: 1.
 header h1 a { color: var(--fg); text-decoration: none; }
 header .subtitle { margin: 0; color: #555; font-size: var(--text-small); }
 
-footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--border); color: #666; }
+footer { margin-top: 3rem; padding-top: 1rem; border-block-start: var(--rule-section); color: #666; }
 footer a { color: #666; }
 
 .breadcrumb { margin-bottom: 1rem; font-size: var(--text-small); }
 .breadcrumb a { color: var(--accent); text-decoration: none; }
 
-.card {
-  background: var(--card-bg);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 1rem 1.25rem;
-  margin-bottom: 1rem;
-}
+/* ui-uplift-m8 (UPL-2) — what replaces the nine deleted cards. RHYTHM
+   absorbs the common region and the ladder only RANKS the groups, so 1rem
+   becomes 2rem above the rule and 2rem below; keeping 1rem is the "ruled
+   sheet reads as a spreadsheet" failure no AC names. :where() pins this at
+   (0,0,0) and names BOTH elements — the nine blocks are a per-site
+   <section>/<div> mix; `main >` excludes .breadcrumb. */
+main > :where(section, div) + :where(section, div) { border-block-start: var(--rule-section); margin-block-start: 2rem; padding-block-start: 2rem; }
 
-/* ui-uplift-m7 (AC#1): 1.1rem -> --text-section. The step over body was
-   EXACTLY 1.100x (17.6px vs 16px), a 1.6px difference no reader resolves —
-   the whole heading signal was the inherited UA bold. It is now 1.25x
-   (20px vs 16px), so size carries the hierarchy and weight reinforces it.
-   This declaration must be EDITED, never shadowed by a bare `h2` rule:
-   every <h2> in the product sits inside .card, and (0,1,1) beats (0,0,1). */
-.card h2 { margin-top: 0; font-size: var(--text-section); line-height: 1.25; }
-.card .hint { color: #555; font-size: var(--text-small); margin: 0 0 0.75rem 0; }
-/* UPL-27: #777 was under the 4.5:1 SC 1.4.3 floor at italic caption size (no
-   large-text exception). #6f6f6f clears it — this is the second-tightest
-   gated text pair in the sweep, so its live ratio is worth reading rather
-   than trusting a comment: .claude/docs/ui-contrast-table.md */
-.card .note { color: #6f6f6f; font-size: var(--text-small); margin: 0.5rem 0 0 0; font-style: italic; }
-.card .empty { color: #666; font-style: italic; text-align: center; padding: 1.25rem 0.5rem; }
-.card .display-name { font-size: var(--text-body); color: #444; margin-top: 0; }
+/* ui-uplift-m8: the `.card X` compounds re-homed as bare selectors. m7's
+   "must be EDITED, never shadowed by a bare `h2` rule" INVERTS with the
+   primitive gone — a bare `h2` IS the home now, m7's intent unchanged.
+   `.card .note` is DELETED: `class="note"` appears zero times in server/. */
+h2 { margin-top: 0; font-size: var(--text-section); line-height: 1.25; }
+.hint { color: #555; font-size: var(--text-small); margin: 0 0 0.75rem 0; }
+.empty { color: #666; font-style: italic; text-align: center; padding: 1.25rem 0.5rem; }
+.display-name { font-size: var(--text-body); color: #444; margin-top: 0; }
 
 label {
   display: block;
@@ -133,16 +130,26 @@ button:hover, .button:hover {
 }
 button.danger { background: var(--danger); }
 
-dl.meta { display: grid; grid-template-columns: max-content 1fr; gap: 0.25rem 1rem; margin: 0; }
+/* ui-uplift-m8: the ladder's LOWEST rung, and its only site. Gap drops to 0,
+   spacing moves into cell padding — a gapped grid cannot carry a continuous
+   per-cell border. Exemption argument: tokens.css, --rule-meta. */
+dl.meta { display: grid; grid-template-columns: max-content 1fr; gap: 0; margin: 0; }
+dl.meta dt, dl.meta dd { border-block-end: var(--rule-meta); padding-block: 0.25rem; }
 /* ui-uplift-m7: dt/dd drop to the label step together. dt is deliberately
    NOT given the micro-caps treatment below — "LanceDB path" uppercased is
    the string an AT would re-read as an initialism, which is precisely the
    text-transform cost recorded on the th rule. */
-dl.meta dt { font-weight: 500; color: #555; font-size: var(--text-small); }
+dl.meta dt { font-weight: 500; color: #555; font-size: var(--text-small); padding-inline-end: 1rem; }
 dl.meta dd { margin: 0; font-size: var(--text-small); }
 
 table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
-th, td { text-align: left; padding: 0.5rem 0.5rem; border-bottom: 1px solid var(--border); font-size: var(--text-small); }
+th, td { text-align: left; padding: 0.5rem 0.5rem; font-size: var(--text-small); }
+/* ui-uplift-m8 AC#3: the header separation migrates to the TOP rung. One
+   `th, td { border-bottom }` gave header and data rows the SAME weight,
+   leaving the boundary on a fill alone (1.1081 light / 1.0948 dark). AC#2
+   and AC#3 pull opposite ways; the resolution is BOTH — fill AND rule. */
+thead th { border-block-end: var(--rule-section); }
+tbody td { border-block-end: var(--rule-row); }
 /* ui-uplift-m7 (UPL-3): the tracked micro-caps COLUMN-META role — the art
    direction's 11px + uppercase + 0.06em, and the product's first
    letter-spacing declaration. Positive tracking is not decoration here: all
@@ -163,17 +170,25 @@ th, td { text-align: left; padding: 0.5rem 0.5rem; border-bottom: 1px solid var(
    only initialism among them is "ID", which already is one. Never move this
    rule onto td, code, time, or a fragment builder's output. */
 th {
-  background: #f0f0f0;
-  font-weight: 600;
-  font-size: var(--text-meta);
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-meta);
+  /* ui-uplift-m8 AC#2: was #f0f0f0 plus a dark redeclaration whose only job
+     was hiding that literal from the dark canvas. One token-tracked
+     declaration serves both modes. This IS --card-bg's successor role,
+     CONTROL GROUND; its 1.0281 separation is not the boundary — thead is. */
+  background: var(--card-bg); font-weight: 600; font-size: var(--text-meta);
+  text-transform: uppercase; letter-spacing: var(--tracking-meta);
 }
 
 /* UPL-15a: row hover on both data tables. Before this the only :hover rule in
    the file was button:hover, so moving down a table gave zero positional
    feedback before clicking a destructive Remove. Reuses the color-mix(in oklab)
-   idiom above; instant, matching every other state change here. */
+   idiom above; instant, matching every other state change here.
+   ui-uplift-m8: DELIBERATELY still var(--card-bg) after AC#2 re-roled that
+   token off panel ground — written down because an unedited line and an
+   oversight are indistinguishable. A hovered row IS a control surface (the
+   pointer's target; the buttons in it are why the tint exists), so it
+   classifies with th and the dark inputs. NOT for the research's reason —
+   re-basing on var(--bg) drops light --border here 3.0401 -> 2.9533, but
+   that cliff is RETIRED: the row rule is --rule-row now. */
 tbody tr:hover { background: color-mix(in oklab, var(--card-bg) 95%, var(--fg)); }
 
 /* ui-attractive-polish-m2 (UPL-19 v0): mobile-overflow fix for both tables
@@ -190,9 +205,9 @@ tbody tr:hover { background: color-mix(in oklab, var(--card-bg) 95%, var(--fg));
    authored rules (2026q3-ui-uplift/discover/current-state-critic-brief.md
    :130-136), carried onto the m7 scale rather than pasted: H3's raw 0.8rem /
    0.875rem predate --text-small and would re-open the untokenised sizes m7
-   closed. A hairline LADDER, not cards: direction D-1 deletes the box, and
-   BAN-2 (a grid of equal cards) is on the must-remove list. No per-candidate
-   chip (BAN-7 is a ~5-per-view threshold; a run is up to 200 rows) and no
+   closed. A hairline LADDER, not cards (BAN-2); ui-uplift-m8 has since
+   deleted the box everywhere. No per-candidate chip (BAN-7 is a
+   ~5-per-view threshold; a run is up to 200 rows) and no
    icon (BAN-3 — the product has zero icons and the discovery names that an
    asset).
    REFUSED, roadmap AC#4 — a per-candidate relevance line. The arXiv Atom feed
@@ -207,8 +222,11 @@ tbody tr:hover { background: color-mix(in oklab, var(--card-bg) 95%, var(--fg));
    #discover-results must never take a view-transition-name: that would leave
    the root group the duration override covers. */
 .discover-list { list-style: none; margin: 0; padding: 0; }
-.discover-candidate { padding: 0.75rem 0; border-bottom: 1px solid var(--border); }
-.discover-candidate:last-child { border-bottom: none; }
+/* ui-uplift-m8: m10 shipped this row rule at full --border weight, a
+   milestone ahead of the ladder naming it. --rule-row now (exemption:
+   tokens.css); :last-child stays as the ladder's terminator. */
+.discover-candidate { padding: 0.75rem 0; border-block-end: var(--rule-row); }
+.discover-candidate:last-child { border-block-end: none; }
 /* m10 rectify (M13): now an <h3> — reset the UA size/margins deliberately. */
 .discover-title { margin: 0; font-size: var(--text-section); font-weight: 600; line-height: 1.25; }
 /* The meta line takes the identifier voice as an ELEMENT, so the "·"
@@ -305,16 +323,15 @@ input[name="slug"], input[name="paper_id"], input[name="arxiv_url"] {
   font-variant-numeric: tabular-nums;
 }
 
+/* ui-uplift-m8: radius SQUARED — "0 on structure, 4px on controls" was false
+   three ways here (pre.error, .status-badge, the spinner). This panel
+   squares; the badge keeps its pill by the art direction's named grant, the
+   spinner's 50% is a circle. Two exceptions means geometry only REINFORCES
+   the split — rhythm and the ladder carry it. */
 pre.error {
-  background: var(--error-bg);
-  color: var(--danger);
-  padding: 0.5rem;
-  margin: 0.5rem 0 0 0;
-  border-radius: 4px;
-  font-family: var(--mono);
-  font-size: var(--text-small);
-  white-space: pre-wrap;
-  min-height: 1.2em;
+  background: var(--error-bg); color: var(--danger); padding: 0.5rem;
+  margin: 0.5rem 0 0 0; font-family: var(--mono);
+  font-size: var(--text-small); white-space: pre-wrap; min-height: 1.2em;
 }
 pre.error:empty { display: none; }
 
@@ -334,31 +351,23 @@ pre.error:empty { display: none; }
    returns "" for ok) — all six mode/pill pairs are registered and measured in
    tests/test_ui_contrast.py, tightest 5.45:1 against the 4.5:1 floor. */
 .status-badge__remediation {
-  display: block;
-  margin-top: 0.25rem;
-  font-size: var(--text-meta);
-  line-height: 1.4;
-  color: var(--fg-muted);
+  display: block; margin-top: 0.25rem; font-size: var(--text-meta);
+  line-height: 1.4; color: var(--fg-muted);
 }
 
 .status-badge {
-  display: inline-block;
-  padding: 0.05rem 0.4rem;
-  border-radius: 4px;
-  font-family: var(--mono);
-  font-size: var(--text-meta);
-  font-weight: 600;
+  display: inline-block; padding: 0.05rem 0.4rem; border-radius: 4px;
+  font-family: var(--mono); font-size: var(--text-meta); font-weight: 600;
   border: 1px solid var(--border);
   /* m4 UPL-22: stable footer width across state changes (READY/WARN/
      DEGRADED/DOWN/ops-warn). 14ch fits "DEGRADED · corpus v999 · 99
-     notebooks". Font-family is --mono so ch is predictable.
-     ui-uplift-m7 moved this rule from 0.75rem to --text-meta and the 14ch
-     coupling SURVIVES unchanged: ch is the advance of "0" in the element's
-     OWN font, so box and text rescale together and the 14-character
-     capacity is invariant under a size change. Only a FAMILY change breaks
-     it. The badge is left un-uppercased — the server already sends its
-     label in caps, and the string carries a corpus version, so a
-     text-transform here would sit on an identifier. */
+     notebooks". ui-uplift-m7 moved this rule from 0.75rem to --text-meta and
+     the coupling SURVIVES: ch is the advance of "0" in the element's OWN
+     font, so box and text rescale together and the 14-character capacity is
+     invariant under a size change. Only a FAMILY change breaks it. The badge
+     is left un-uppercased — the server already sends its label in caps, and
+     the string carries a corpus version, so a text-transform here would sit
+     on an identifier. */
   min-width: 14ch;
 }
 /* UPL-27: #1a7f37 on #e6f4ea is 4.472:1 — under SC 1.4.3 at 0.75rem/600.
@@ -442,11 +451,10 @@ button.danger:focus-visible { outline-color: var(--danger); outline-offset: 3px;
 /* ui-attractive-polish-m3 (UPL-8 v0): @media (prefers-color-scheme: dark)
    re-declares the 8 base tokens with GitHub-Primer-anchored values. The
    .status-badge--{ok,warn,ops-warn,down} hardcoded colors at
-   `.status-badge--*` rules above AND the `th { background: #f0f0f0 }`
-   table-header are explicitly DESCOPED to v1 per the challenger UPL-8
-   v0/v1 split — they stay light-mode in dark UI (internally consistent
-   light bg + dark text, but contrast-jarring against the dark card).
-   Acceptable for v0; v1 will remap them. */
+   `.status-badge--*` rules above were explicitly DESCOPED to v1 per the
+   challenger UPL-8 v0/v1 split, and v1 remapped them below. The `th`
+   background was the other descoped item; ui-uplift-m8 closed it at the
+   source by token-tracking the base rule in both modes. */
 @media (prefers-color-scheme: dark) {
   /* ui-uplift-m7: the dark :root TOKEN block moved to tokens.css alongside
      its light counterpart — one token home, per AC#4. What stays here is
@@ -471,12 +479,14 @@ button.danger:focus-visible { outline-color: var(--danger); outline-offset: 3px;
     background: var(--card-bg);
     color: var(--fg);
   }
-  /* m3-rect F2: remap hardcoded tertiary-text greys (#444-#888 at
-     app.css:33,35,36,50-53,99) — they fail SC 1.4.3 on dark bg. */
-  header .subtitle, footer, footer a, .card .hint, dl.meta dt
-                       { color: #b3b9c0; } /* ~9:1 on --bg / --card-bg */
-  .card .note, .card .empty { color: #9ba1a8; } /* italic captions/empty */
-  .card .display-name  { color: #c9d1d9; } /* ~13:1 */
+  /* m3-rect F2: remap hardcoded tertiary greys (#444-#888) — they fail SC
+     1.4.3 on dark bg. m8 drops the `.card ` prefix and the ground moves to
+     --bg, the DARKER surface here, so all three GAIN contrast (8.9484->
+     9.7962, 6.7905->7.4339, 11.4668->12.5532) — measured, not assumed. */
+  header .subtitle, footer, footer a, .hint, dl.meta dt
+                       { color: #b3b9c0; } /* ~9.8:1 on --bg */
+  .empty { color: #9ba1a8; } /* italic empty-state */
+  .display-name  { color: #c9d1d9; } /* ~12.6:1 */
 
   /* ui-attractive-polish-m5 (UPL-8 v1): dark-mode redeclaration of the
      4 .status-badge--* modifier classes + th background. The light-mode
@@ -485,9 +495,8 @@ button.danger:focus-visible { outline-color: var(--danger); outline-offset: 3px;
      the dark pairs below are WCAG-AA-verified (text contrast ≥ 4.5:1,
      border ≥ 3:1 vs canvas). Border = text for visual uniformity
      (light-mode's ops-warn anomaly was the odd-one-out until m6
-     aligned it too). The companion th { background } redeclaration
-     prevents the light #f0f0f0 header from showing against the dark
-     canvas.
+     aligned it too). The companion th { background } redeclaration is GONE
+     as of ui-uplift-m8 — the base th rule names var(--card-bg) in both modes.
      ui-uplift-m6 note: these 8 pill literals are v1 scope and stay as
      they are, so they no longer track --danger/--error-bg. The dark
      --down pill in particular keeps the old Primer red (#f85149) while
@@ -499,11 +508,6 @@ button.danger:focus-visible { outline-color: var(--danger); outline-offset: 3px;
   .status-badge--warn     { background: #3d2a07; color: #d29922; border-color: #d29922; }
   .status-badge--ops-warn { background: #1c2230; color: #8b949e; border-color: #8b949e; }
   .status-badge--down     { background: #3d1216; color: #f85149; border-color: #f85149; }
-  /* ui-uplift-m6: was a hardcoded #161b22 — a byte-copy of the OLD dark
-     --card-bg. Pointing it at the token stops it drifting silently every
-     time the surface is re-derived. The v1 pill literals above are
-     deliberately left alone (out of m6 scope). */
-  th { background: var(--card-bg); }
 }
 
 /* ui-attractive-polish-m3 (UPL-11): in-flight loading-state styling

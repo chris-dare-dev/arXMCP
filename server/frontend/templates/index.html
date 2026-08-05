@@ -3,7 +3,19 @@
 {% block title %}Notebooks · arXMCP{% endblock %}
 
 {% block content %}
-<section class="card">
+{# ui-uplift-m8 (UPL-2): `class="card"` is gone from all nine blocks, and the
+   ELEMENT was decided per site rather than kept by reflex. An unnamed
+   <section> exposes no region landmark — it is semantically a <div> — so
+   neither choice moves the accessibility tree today; what it records is
+   authorial intent, and the <h2> outline (which is what a screen-reader user
+   actually navigates by) is untouched either way. The rule kept: <section>
+   for a self-contained CONTENT region a reader would want to reach; <div>
+   where the box only wrapped a single job form, which its own <form> already
+   delimits. Deliberately NOT done: adding aria-labelledby to promote these to
+   real landmarks — nine regions on one page is the over-population the
+   guidance warns reduces landmarks' usefulness. #}
+{# DIV — a single create form. #}
+<div>
   <h2>Create notebook</h2>
   <p class="hint">
     Slug pattern: lowercase letters, digits, hyphens — 3–31 chars,
@@ -60,9 +72,10 @@
     <button type="submit">Create</button>
     <pre id="create-error" class="error" aria-live="polite"></pre>
   </form>
-</section>
+</div>
 
-<section class="card">
+{# SECTION — the page's focal content region: the notebook inventory. #}
+<section>
   <h2>Existing notebooks ({{ notebooks|length }})</h2>
   {# ui-attractive-polish-m5 (UPL-12 v1): the table+tbody are now
      ALWAYS rendered (no {% if not notebooks %} wrap) so the htmx

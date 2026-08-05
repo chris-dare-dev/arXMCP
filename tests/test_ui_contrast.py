@@ -37,8 +37,18 @@ light / 13.9:1 dark), so nothing was traded for the honesty.
 
 The same m7 scale also makes the old "only a bare ``header h1``" claim wrong
 in the *other* direction: sections are now 20px and every ``<h2>`` inherits
-UA bold, so ``.card h2`` would qualify for the >=18.7px-bold branch. It is
-held to 4.5:1 anyway, on the same reasoning.
+UA bold, so the section heading would qualify for the >=18.7px-bold branch.
+It is held to 4.5:1 anyway, on the same reasoning.
+
+**ui-uplift-m8 re-grounded a third of this registry.** Deleting ``.card``
+moved every pair whose element rendered inside one from ``--card-bg`` to
+``--bg``, and left ``--card-bg`` painting only the CONTROL layer (``th``,
+dark ``input``/``textarea``, and the base of the row-hover tint). Rows that
+moved were RENAMED as well as re-grounded — a row named for a selector that
+no longer exists is the registry rotting in place, and its site string is
+what ships into the published artifact. m8 also adds the rule ladder's three
+rungs; the two tinted ones are the registry's first ``EXEMPT`` rows that are
+exempt by DESIGN rather than by mechanism, so read their justifications.
 
 Running this module directly regenerates ``.claude/docs/ui-contrast-table.md``:
 
@@ -127,8 +137,33 @@ def fade(base: object, alpha: float, ground: object) -> tuple:
 WHITE = "#ffffff"
 #: ``button:hover`` / ``.button:hover`` ground.
 HOVER = mix("--accent", 88, WHITE)
-#: ``tbody tr:hover`` ground.
+#: ``tbody tr:hover`` ground. ui-uplift-m8 kept this based on ``--card-bg``
+#: after AC#2 re-roled that token: a hovered row is a CONTROL surface, which
+#: is the role ``--card-bg`` now holds. The argument is written into
+#: ``app.css`` at the rule itself, because an unedited line and an oversight
+#: are indistinguishable from the diff.
 ROW_HOVER = mix("--card-bg", 95, "--fg")
+#: ui-uplift-m8's two TINTED ladder rungs, as the ``color-mix()`` their
+#: tokens author (``tokens.css`` --rule-row / --rule-meta). Both mix toward
+#: ``--bg``, so ONE spec is correct in both modes — which is the same reason
+#: the tokens are not redeclared in the dark ``:root``.
+RULE_ROW = mix("--border", 80, "--bg")
+RULE_META = mix("--border", 60, "--bg")
+#: The two EXEMPT justifications, written once because they are the whole
+#: substance of the exemption and must not drift between the rows that cite
+#: them. SC 1.4.11 exempts a boundary "for aesthetic purposes that does not
+#: require the user to see or understand it to understand the content"; that
+#: is only true while something ELSE carries the grouping, so each names what.
+_ROW_WHY = (
+    "EXEMPT: decorative row rule, SC 1.4.11 aesthetic-purposes — its sites "
+    "are <tr> and <li> boundaries an AT announces from the element, also "
+    "carried by column alignment / 1.5rem padding under a per-item <h3>"
+)
+_META_WHY = (
+    "EXEMPT: decorative dl.meta rule, SC 1.4.11 aesthetic-purposes — <dl> "
+    "semantics and a two-column grid carry the dt/dd pairing, so deleting "
+    "the rule changes no grouping"
+)
 
 # ---------------------------------------------------------------------------
 # THE HAND-MAINTAINED HALF: which pairs render.
@@ -146,32 +181,65 @@ def _p(mode: str, site: str, fg: object, bg: object, floor: float) -> None:
 for _m in ("light", "dark"):
     # -- token-on-surface text ------------------------------------------------
     _p(_m, "body text", "--fg", "--bg", TEXT)
-    _p(_m, "card body text", "--fg", "--card-bg", TEXT)
+    # ui-uplift-m8: was "card body text". The card is deleted, so --card-bg's
+    # only remaining text ground is the CONTROL layer — th in both modes,
+    # input/textarea in dark. This one row replaces four (it also absorbs the
+    # old light "typed text on #fff" / "th text on #f0f0f0" literal rows, both
+    # of which now reference the token).
+    _p(_m, "th / input / textarea text on --card-bg [control ground]",
+       "--fg", "--card-bg", TEXT)
     # ui-uplift-m7: was LARGE (3.0). The title is now a clamp, so its size is
     # viewport-dependent and no single floor claim holds everywhere; TEXT is
     # the conservative one that does. Still passes at 16.0:1 / 13.9:1.
     _p(_m, "header h1 a", "--fg", "--bg", TEXT)
-    _p(_m, "td text", "--fg", "--card-bg", TEXT)
+    # ui-uplift-m8: the tables sit on the canvas now, not inside a card.
+    _p(_m, "td text", "--fg", "--bg", TEXT)
     _p(_m, "tbody tr:hover text", "--fg", ROW_HOVER, TEXT)
     # -- --accent's five roles ------------------------------------------------
     _p(_m, ".breadcrumb a link [accent role 3]", "--accent", "--bg", TEXT)
     _p(_m, "focus ring on --bg [accent role 2]", "--accent", "--bg", NONTEXT)
-    _p(_m, "focus ring on --card-bg [accent role 2]", "--accent", "--card-bg", NONTEXT)
+    # ui-uplift-m8 narrows this row's name. A focus ring on a BUTTON now sits
+    # on --bg (the row above); only a control whose own fill is --card-bg —
+    # input/textarea/th — reads against this ground.
+    _p(_m, "input/textarea focus ring on --card-bg [accent role 2, control ground]",
+       "--accent", "--card-bg", NONTEXT)
+    # ui-uplift-m8 adds the ground m6 never registered: the Open/Remove
+    # controls live in table rows, so a hovered row is a real ring ground and
+    # a tighter one than --bg.
+    _p(_m, "focus ring on tbody tr:hover [accent role 2]", "--accent", ROW_HOVER, NONTEXT)
     # -- danger -------------------------------------------------------------
     _p(_m, "pre.error text", "--danger", "--error-bg", TEXT)
     _p(_m, "button.danger focus ring on --bg", "--danger", "--bg", NONTEXT)
-    _p(_m, "button.danger focus ring on --card-bg", "--danger", "--card-bg", NONTEXT)
-    # -- borders (SC 1.4.11) --------------------------------------------------
-    _p(_m, "--border on --bg [AC#4 in light]", "--border", "--bg", NONTEXT)
-    _p(_m, "--border on --card-bg", "--border", "--card-bg", NONTEXT)
-    # -- ui-uplift-m10: --fg-muted, the secondary text voice. Its card-ground
-    #    consumers are .discover-meta, .topic-description and (via the badge)
-    #    .status-badge__remediation; the pill grounds are registered below.
-    #    Every one of these is inside <section class="card">, so --card-bg is
-    #    the only canvas ground it renders against — --bg is deliberately NOT
-    #    registered, because registering a pair that does not render is the
-    #    same class of dishonesty as omitting one that does.
-    _p(_m, ".discover-meta / .topic-description --fg-muted", "--fg-muted", "--card-bg", TEXT)
+    # ui-uplift-m8: button.danger never rendered on --card-bg even before the
+    # card went (it appears in a <td> and in .notebook-actions). Replaced by
+    # the ground it actually has.
+    _p(_m, "button.danger focus ring on tbody tr:hover", "--danger", ROW_HOVER, NONTEXT)
+    # -- the ui-uplift-m8 rule ladder (SC 1.4.11) -----------------------------
+    # --rule-section IS --border at full weight, so these two rows are the
+    # ladder's top rung measured on each ground it is drawn against: between
+    # the blocks that replaced the nine cards, on header/footer (--bg), and
+    # under <thead> (--card-bg, the th fill).
+    _p(_m, "--rule-section on --bg — blocks, header, footer [AC#4 in light]",
+       "--border", "--bg", NONTEXT)
+    _p(_m, "--rule-section under thead, on --card-bg", "--border", "--card-bg", NONTEXT)
+    _p(_m, f"--rule-row on --bg — tbody td, .discover-candidate [{_ROW_WHY}]",
+       RULE_ROW, "--bg", EXEMPT)
+    _p(_m, f"--rule-row over the tbody tr:hover tint [{_ROW_WHY}]",
+       RULE_ROW, ROW_HOVER, EXEMPT)
+    _p(_m, f"--rule-meta on --bg — dl.meta [{_META_WHY}]",
+       RULE_META, "--bg", EXEMPT)
+    # -- --fg-muted, the secondary text voice (ui-uplift-m10, re-grounded by
+    #    ui-uplift-m8). m10 wrote a REFUSAL here to register a --bg pair,
+    #    because every consumer then rendered inside <section class="card">.
+    #    That refusal is now INVERTED, not merely edited: .discover-meta and
+    #    .topic-description render on the canvas, so --bg is the ground and
+    #    --card-bg is the pair that no longer exists. m10's critique M6 called
+    #    this out as the silent one — on --bg the OLD token measured 6.8230,
+    #    under its own 7.00 AAA target but over the 4.5 gate, so nothing would
+    #    have failed. The light token was re-solved; this row is the guard.
+    #    (.status-badge__remediation is the third consumer and did NOT move —
+    #    it grounds on the status pills, registered separately below.)
+    _p(_m, ".discover-meta / .topic-description --fg-muted", "--fg-muted", "--bg", TEXT)
 
 # -- on-accent text: white in light, var(--bg) in dark (mode-conditional) ----
 _p("light", "button/.button text [accent role 1]", WHITE, "--accent", TEXT)
@@ -184,24 +252,25 @@ _p("dark", "button.danger text", "--bg", "--danger", TEXT)
 _p("dark", ".skip-link:focus-visible text [accent role 4]", "--bg", "--accent", TEXT)
 
 # -- light-mode hardcoded greys (v1 scope; grounds moved, so re-verified) ----
+# ui-uplift-m8: the `.card ` prefix is dropped from four site names because
+# the selectors themselves lost it, and every one of these re-grounds from
+# --card-bg to --bg. A row named for a selector that no longer exists is the
+# registry rotting in place, so the rename is part of the change, not
+# cosmetic. `.card .note` is gone entirely — the class is emitted nowhere.
+# None of the survivors crosses its floor; the tightest is `.empty` at 5.4306.
 _p("light", "header .subtitle #555", "#555555", "--bg", TEXT)
 _p("light", "footer #666", "#666666", "--bg", TEXT)
 _p("light", "footer a #666", "#666666", "--bg", TEXT)
-_p("light", ".card .hint #555", "#555555", "--card-bg", TEXT)
-_p("light", ".card .note #6f6f6f", "#6f6f6f", "--card-bg", TEXT)
-_p("light", ".card .empty #666", "#666666", "--card-bg", TEXT)
-_p("light", ".card .display-name #444", "#444444", "--card-bg", TEXT)
-_p("light", "dl.meta dt #555", "#555555", "--card-bg", TEXT)
-_p("light", "input/textarea typed text on #fff", "--fg", WHITE, TEXT)
-_p("light", "th text on #f0f0f0", "--fg", "#f0f0f0", TEXT)
+_p("light", ".hint #555", "#555555", "--bg", TEXT)
+_p("light", ".empty #666", "#666666", "--bg", TEXT)
+_p("light", ".display-name #444", "#444444", "--bg", TEXT)
+_p("light", "dl.meta dt #555", "#555555", "--bg", TEXT)
 
 # -- dark-mode hardcoded greys (v1 scope; grounds moved, so re-verified) -----
 _p("dark", "header .subtitle / footer / footer a #b3b9c0", "#b3b9c0", "--bg", TEXT)
-_p("dark", ".card .hint / dl.meta dt #b3b9c0", "#b3b9c0", "--card-bg", TEXT)
-_p("dark", ".card .note / .card .empty #9ba1a8", "#9ba1a8", "--card-bg", TEXT)
-_p("dark", ".card .display-name #c9d1d9", "#c9d1d9", "--card-bg", TEXT)
-_p("dark", "input/textarea typed text", "--fg", "--card-bg", TEXT)
-_p("dark", "th text on th background", "--fg", "--card-bg", TEXT)
+_p("dark", ".hint / dl.meta dt #b3b9c0", "#b3b9c0", "--bg", TEXT)
+_p("dark", ".empty #9ba1a8", "#9ba1a8", "--bg", TEXT)
+_p("dark", ".display-name #c9d1d9", "#c9d1d9", "--bg", TEXT)
 
 # -- status pills. Light --down uses the tokens, so it moves with them; the
 #    other 3 light and all 4 dark pills are v1 literals.
@@ -255,14 +324,18 @@ for _m in ("light", "dark"):
 #: mutual contrast. Registered for both grounds a button actually sits on.
 IN_FLIGHT = 0.7
 
+# ui-uplift-m8 re-grounds the second half of this sweep. An in-flight button
+# never sat on --card-bg once the card went — every form is on the canvas —
+# but the Remove button in a table row IS in-flight over the hovered-row tint
+# (hx-disabled-elt="this" fires exactly there), which nothing registered.
 for _m in ("light", "dark"):
     _on_accent = WHITE if _m == "light" else "--bg"
-    for _ground in ("--bg", "--card-bg"):
+    for _gname, _ground in (("--bg", "--bg"), ("tbody tr:hover", ROW_HOVER)):
         for _label, _fill in (("accent", "--accent"), ("danger", "--danger")):
             # The label: exempt, and the exemption is `pointer-events: none`.
             _p(
                 _m,
-                f"in-flight {_label} button label on {_ground} "
+                f"in-flight {_label} button label on {_gname} "
                 f"[EXEMPT: inactive component, SC 1.4.3 — pointer-events:none]",
                 fade(_on_accent, IN_FLIGHT, _ground),
                 fade(_fill, IN_FLIGHT, _ground),
@@ -274,7 +347,7 @@ for _m in ("light", "dark"):
             # criterion). This is the pair that forced opacity 0.6 -> 0.7.
             _p(
                 _m,
-                f"in-flight {_label} focus ring on {_ground}",
+                f"in-flight {_label} focus ring on {_gname}",
                 fade(_fill, IN_FLIGHT, _ground),
                 _ground,
                 NONTEXT,
@@ -296,14 +369,19 @@ for _m in ("light", "dark"):
         )
 
 # -- light --border's real binding grounds (critique M2). The token records
-#    "solved: 3.30:1 on --bg", but it is also drawn against th's #f0f0f0 and
-#    the tbody row-hover ground, both DARKER than --bg and therefore the
-#    actually-binding ones. Neither was registered, so ~2.5% of the headroom
-#    was unguarded and a future re-derivation aimed at the documented --bg
-#    target could drop the real thinnest pair under 3:1 with the gate green.
-_p("light", "--border on th #f0f0f0", "--border", "#f0f0f0", NONTEXT)
-for _m in ("light", "dark"):
-    _p(_m, "--border on tbody tr:hover", "--border", ROW_HOVER, NONTEXT)
+#    "solved: 3.30:1 on --bg", and m6 added rows for the two grounds DARKER
+#    than --bg that it was also drawn against: th's #f0f0f0 and the row-hover
+#    tint. ui-uplift-m8 retires BOTH, and it is worth being explicit about why
+#    rather than letting two rows quietly vanish:
+#      * th's fill is now var(--card-bg), so that pair is the
+#        "--rule-section under thead, on --card-bg" row registered above.
+#      * no FULL-WEIGHT rule is drawn against the row-hover ground any more —
+#        the row rule dropped to --rule-row, which is registered over that
+#        same ground as an EXEMPT pair. Registering --border there would be
+#        registering a pair that does not render.
+#    M2's intent survives: --border's binding grounds are still both
+#    enumerated (--bg at 3.3123 light, --card-bg at 3.4054), and the tightest
+#    is the one the token's own comment names.
 
 
 def _rows() -> list[tuple[str, str, str, str, float, float, bool]]:
@@ -352,6 +430,41 @@ def test_light_border_clears_three_to_one_on_bg() -> None:
         f"light --border on --bg = {ratio:.3f}:1; ui-uplift-m8's rule ladder "
         f"needs >= 3:1 (SC 1.4.11). It was 1.342:1 before ui-uplift-m6."
     )
+
+
+def test_fg_muted_meets_its_own_stated_target_on_its_real_ground() -> None:
+    """ui-uplift-m8, closing the carried risk ui-uplift-m10's critique (M6)
+    recorded — and the reason it was worth recording.
+
+    ``--fg-muted`` is not solved to the 4.5:1 SC 1.4.3 floor; it is solved to
+    **7.00:1**, SC 1.4.6 (AAA), because that headroom is what lets ONE token
+    serve the three status-pill grounds without a per-pill override. The
+    registry above gates it at ``TEXT`` = 4.5, which is correct for the
+    registry — but it means a token that quietly stops meeting its OWN
+    derivation still passes every row.
+
+    That is exactly what m8 would have done. Re-grounding the two canvas
+    consumers from ``--card-bg`` to ``--bg`` took the light value from
+    7.0148 to **6.8230** — a miss against its stated target, comfortably over
+    the gate, and therefore silent. The light token was re-solved; this test
+    is what makes the next such move loud.
+
+    Dark is deliberately NOT re-solved down to exactly 7.00: it measures
+    7.7040 on ``--bg``, and pulling a passing token toward its floor for
+    symmetry would reduce contrast here and on all three dark pill grounds.
+    The assertion is therefore ">= the target", not "== the target".
+    """
+    target = 7.00
+    for mode, table in (("light", LIGHT), ("dark", DARK)):
+        ratio = contrast_ratio(table["--fg-muted"], table["--bg"])
+        assert ratio >= target, (
+            f"{mode} --fg-muted on --bg = {ratio:.4f}:1, under the {target}:1 "
+            f"(SC 1.4.6 / AAA) target tokens.css states for this token. It "
+            f"still clears the 4.5:1 registry floor, so NOTHING ELSE IN THIS "
+            f"SUITE FAILS — which is the whole reason this guard exists. "
+            f"Re-solve the token against --bg or amend its stated target and "
+            f"say why."
+        )
 
 
 def _accent_role_checks(mode: str) -> list[tuple[str, float, float]]:
@@ -487,8 +600,16 @@ def test_no_token_is_a_primer_literal() -> None:
 #: token is ``oklch()`` on one of two hues): a future ``--fg: #444`` would
 #: stop being a colour by the predicate's own reckoning and skip itself.
 #: A new non-colour family means adding it HERE, deliberately.
+#:
+#: ui-uplift-m8 adds ``--rule-``. Those three tokens are whole ``border-*``
+#: SHORTHANDS (``1px solid var(--border)``, ``1px dotted color-mix(...)``),
+#: not colours — one declaration each serving both colour schemes, because
+#: the ``var()``s inside them substitute at use time against whichever
+#: ``:root`` won. Their COLOUR halves are not unguarded: every rung is
+#: registered in ``PAIRS`` above with its measured ratio, and the two tinted
+#: ones carry ``EXEMPT`` plus an inline justification.
 NON_COLOUR_TOKEN_NAMES = frozenset({"--mono"})
-NON_COLOUR_TOKEN_PREFIXES = ("--dur-", "--text-", "--tracking-")
+NON_COLOUR_TOKEN_PREFIXES = ("--dur-", "--text-", "--tracking-", "--rule-")
 
 
 def _is_non_colour_token(name: str) -> bool:

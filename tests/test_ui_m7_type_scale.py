@@ -174,15 +174,35 @@ class TestAC1HeadingStep:
         )
 
     def test_card_h2_is_edited_not_shadowed(self) -> None:
-        # Every <h2> in the product sits inside <section class="card">, so
-        # `.card h2` (0,1,1) shadows any bare `h2` rule (0,0,1). A milestone
-        # that "fixed" this by adding a bare h2 rule would change nothing
-        # rendered and every test that reads tokens would still pass.
-        m = _re.search(r"\.card h2\s*\{([^}]*)\}", APP_CSS_NO_COMMENTS)
-        assert m is not None, ".card h2 rule is missing"
+        """The ORIGINAL INTENT, preserved through ui-uplift-m8's deletion of
+        the primitive this test was named for.
+
+        m7's concern was that the section size must be set on the rule that
+        ACTUALLY WINS. Every <h2> then sat inside <section class="card">, so
+        `.card h2` (0,1,1) shadowed any bare `h2` (0,0,1) — a milestone that
+        "fixed" this by adding a bare `h2` rule would have changed nothing
+        rendered while every token-reading test still passed.
+
+        m8 deleted `.card`, which INVERTS the mechanism without touching the
+        intent: a bare `h2` is now the winning rule and no compound shadows
+        it. So the assertion becomes "the section size is on the rule that
+        wins, and NOTHING outranks it" — checked both ways, because dropping
+        to a bare-`h2` match alone would silently re-admit the shadowing bug
+        the moment some future milestone re-introduces a compound.
+        """
+        m = _re.search(r"(?<![\w.\-])h2\s*\{([^}]*)\}", APP_CSS_NO_COMMENTS)
+        assert m is not None, "the bare `h2` rule is missing"
         assert "var(--text-section)" in m.group(1), (
-            "the section size must be set ON `.card h2` — a bare `h2` rule "
-            "is shadowed by it and would have no effect"
+            "the section size must be set on the `h2` rule that wins the "
+            "cascade; ui-uplift-m8 made that the bare element rule"
+        )
+        shadowing = _re.findall(r"([.#][\w-]+(?:\s+|\s*>\s*))h2\s*\{",
+                                APP_CSS_NO_COMMENTS)
+        assert not shadowing, (
+            f"{sorted(set(shadowing))} outrank the bare `h2` rule that now "
+            f"carries --text-section. m7's point was that the size must sit "
+            f"on the winning rule — a compound selector re-opens exactly the "
+            f"shadowing bug that made `.card h2` necessary in the first place."
         )
 
     def test_the_scale_is_not_regularised_into_a_modular_ramp(self) -> None:
@@ -427,9 +447,29 @@ class TestTokensCssSplit:
         # app.css's 480-line cap is asserted in lockstep by m3/m4/m5 and
         # measures the RULE sheet. The token sheet needs its own bound or
         # the split is an unbounded escape valve.
+        # ui-uplift-m8: 200 -> 290, the FIRST raise of this bound since m7
+        # set it (m10 minted --fg-muted inside it and did not need one). The
+        # merits, recorded because "raise it deliberately here" is what the
+        # message below asks for:
+        #  1. m8 mints the three --rule-* ladder tokens, and their derivation
+        #     is unusually load-bearing: two of the three rungs sit UNDER SC
+        #     1.4.11's 3:1 bar and ship only because they are declared
+        #     decorative. That declaration is conditional — it holds only
+        #     while something else carries each grouping — so the argument
+        #     IS the deliverable, and a token comment is where it belongs.
+        #  2. The same edit re-solves --fg-muted against a new ground and
+        #     re-roles --card-bg, both of which this file records per token.
+        #  3. It bought app.css real room: the ladder's grading, exemption
+        #     and rejected-alternative prose lives HERE once instead of being
+        #     repeated at each of the four rule sites, which is why app.css
+        #     lands at 599 of its unchanged 600 cap rather than needing a
+        #     fourth raise of its own.
+        # The bound stays a single-file discipline: it is NOT one of the
+        # three app.css caps and does not move with them.
         count = TOKENS_CSS.count("\n") + (1 if not TOKENS_CSS.endswith("\n") else 0)
-        assert count <= 200, (
-            f"tokens.css is {count} lines — over its 200-line bound. The "
+        assert count <= 290, (
+            f"tokens.css is {count} lines — over its 290-line bound (m7 set "
+            f"200; ui-uplift-m8 raised it once, see the merits above). The "
             f"per-token derivation comments are the deliverable, so this is "
             f"generous; if a milestone needs more, raise it deliberately "
             f"here (this cap is NOT one of the three app.css caps and does "
