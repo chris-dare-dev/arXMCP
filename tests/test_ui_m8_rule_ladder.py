@@ -469,10 +469,28 @@ class TestSectioningElementDecision:
     carry navigation: every block still opens with its ``<h2>``.
     """
 
-    #: (template, expected <section> count, expected top-level block count)
+    #: (template, expected <section> count, expected COLUMN-0 block count)
+    #:
+    #: ui-uplift-m12 M4/M8: this said "top-level block count" and no longer
+    #: measured one. After m12 the detail page has THREE top-level blocks —
+    #: two <section>s and the <details> — while five of the seven blocks the
+    #: ^<(section|div)> extractor finds are children of <details>, kept at
+    #: column 0 on purpose (indenting them would drop five of the seven
+    #: per-site records out of this guard's view). So the extractor measures
+    #: blocks at COLUMN 0, and the tuple is honestly unchanged at (2, 7)
+    #: because no element decision changed.
+    #:
+    #: The coupling to source indentation is therefore real and load-bearing,
+    #: and DECIDED's comment said so while this one did not. It is pinned
+    #: from the other side by
+    #: test_ui_m12_corpus_before_machinery.py::TestManageDisclosureNesting
+    #: ::test_the_mutation_divs_stay_at_column_zero — so an agent or
+    #: formatter that indents them fails THERE, with the right cause named,
+    #: rather than failing here with a message about a structure that does
+    #: not exist.
     EXPECTED = {"index.html": (1, 2), "notebook_detail.html": (2, 7)}
 
-    #: m8 rectify (M8): the ORDERED element of each top-level block, per
+    #: m8 rectify (M8): the ORDERED element of each column-0 block, per
     #: template. The count-only version of this guard passed after swapping
     #: both index.html sites — the overlay critic proved it by mutation — so
     #: it asserted nothing about the per-site decisions its own failure
@@ -536,7 +554,7 @@ class TestSectioningElementDecision:
         blocks = self._blocks(name)
         sections = blocks.count("section")
         assert (sections, len(blocks)) == (want_sections, want_blocks), (
-            f"{name}: {sections} <section> of {len(blocks)} top-level blocks; "
+            f"{name}: {sections} <section> of {len(blocks)} column-0 blocks; "
             f"expected {want_sections} of {want_blocks}."
         )
 
@@ -552,7 +570,7 @@ class TestSectioningElementDecision:
         must fail here, which the count-only guard let through.
         """
         assert self._blocks(name) == self.DECIDED[name], (
-            f"{name}: top-level blocks are {self._blocks(name)}, decided "
+            f"{name}: column-0 blocks are {self._blocks(name)}, decided "
             f"{self.DECIDED[name]}. The split is a recorded per-site "
             f"judgement (implement/synthesis.md); swapping two blocks is a "
             f"re-decision, not a refactor."
@@ -572,12 +590,12 @@ class TestSectioningElementDecision:
                              markup, flags=_re.M)
         want = self.EXPECTED[name][1]
         assert len(blocks) == want, (
-            f"{name}: {len(blocks)} of {want} top-level blocks open with an "
+            f"{name}: {len(blocks)} of {want} column-0 blocks open with an "
             f"element on the next line"
         )
         for opener in blocks:
             assert opener == "<h2", (
-                f"{name}: a top-level block opens with {opener!r}, not <h2>. "
+                f"{name}: a column-0 block opens with {opener!r}, not <h2>. "
                 f"With the visual box gone the heading is ALL that delimits "
                 f"the group for an AT user."
             )

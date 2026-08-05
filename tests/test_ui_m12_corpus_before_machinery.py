@@ -21,6 +21,7 @@ import asyncio
 import re
 import sqlite3
 from collections.abc import Iterator
+from html.parser import HTMLParser
 from pathlib import Path
 
 import pytest
@@ -60,6 +61,109 @@ APP_CSS: str = re.sub(
 #: (Python). Spelled literally here rather than imported alone, so a rename on
 #: either side has to be made deliberately on all three.
 CUE_ID: str = "ingest-state-cue"
+
+#: The disclosure's own id (m12 M13's anchor target) and the id its
+#: aria-labelledby resolves to (m12 M12).
+MANAGE_ID: str = "manage"
+MANAGE_SUMMARY_ID: str = "manage-summary"
+
+_VOID_ELEMENTS = frozenset({
+    "area", "base", "br", "col", "embed", "hr", "img", "input", "link",
+    "meta", "source", "track", "wbr",
+})
+
+
+class _DomNode:
+    """A minimal element node: tag, attrs, children, parent."""
+
+    __slots__ = ("tag", "attrs", "children", "parent")
+
+    def __init__(self, tag: str, attrs: dict[str, str], parent=None) -> None:
+        self.tag = tag
+        self.attrs = attrs
+        self.children: list[_DomNode] = []
+        self.parent = parent
+
+    def walk(self):
+        yield self
+        for child in self.children:
+            yield from child.walk()
+
+    def ancestors(self) -> list[str]:
+        out, node = [], self.parent
+        while node is not None:
+            out.append(node.tag)
+            node = node.parent
+        return out
+
+    def contains(self, other: _DomNode) -> bool:
+        node = other.parent
+        while node is not None:
+            if node is self:
+                return True
+            node = node.parent
+        return False
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        ident = self.attrs.get("id") or self.attrs.get("class") or ""
+        return f"<{self.tag}{' ' + ident if ident else ''}>"
+
+
+class _DomBuilder(HTMLParser):
+    """Build a real element tree from RENDERED markup.
+
+    Added 2026-08-05 closing m12 M5/M6/M7. Those findings all have the same
+    shape: the milestone asserted a STRUCTURAL invariant ("no swap targets an
+    ancestor of the disclosure", "the ladder reaches every region") and then
+    checked it with a regex over CSS or source text, which cannot see
+    structure at all. Both were mutation-proven false by the critics — a
+    wrapper ``<div>`` inserted after the ``<summary>`` strips the rung,
+    margin AND padding from all five relocated blocks with every guard still
+    green. Structure needs a tree.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.root = _DomNode("#document", {})
+        self._cursor = self.root
+
+    def handle_starttag(self, tag: str, attrs) -> None:
+        node = _DomNode(tag, {k: (v or "") for k, v in attrs}, self._cursor)
+        self._cursor.children.append(node)
+        if tag not in _VOID_ELEMENTS:
+            self._cursor = node
+
+    def handle_startendtag(self, tag: str, attrs) -> None:
+        self._cursor.children.append(
+            _DomNode(tag, {k: (v or "") for k, v in attrs}, self._cursor)
+        )
+
+    def handle_endtag(self, tag: str) -> None:
+        node = self._cursor
+        while node is not self.root and node.tag != tag:
+            node = node.parent
+        if node is not self.root:
+            self._cursor = node.parent
+
+
+def _dom(html: str) -> _DomNode:
+    builder = _DomBuilder()
+    builder.feed(html)
+    return builder.root
+
+
+def _find(root: _DomNode, predicate) -> _DomNode | None:
+    return next((n for n in root.walk() if predicate(n)), None)
+
+
+def _disclosure(root: _DomNode) -> _DomNode:
+    node = _find(
+        root,
+        lambda n: n.tag == "details"
+        and "manage-disclosure" in n.attrs.get("class", ""),
+    )
+    assert node is not None, "the Manage disclosure is not in the rendered page"
+    return node
 
 #: The authored label (art-direction-scout-brief.md:428-430), not invented
 #: copy: BAN-10 scores 0 on this page and the discovery calls that an asset.
@@ -183,9 +287,48 @@ class TestCorpusPrecedesMachinery:
         assert DETAIL.index('class="rename-form"') < DETAIL.index(
             '<tbody id="papers-tbody"'
         ), "rename moved below the table — that is a re-decision of m12's D1."
-        assert "MUTATION form above the table" in DETAIL_HTML, (
-            "the template no longer records that AC#1 is read as 'no MUTATION "
-            "form above the table'."
+        assert "CORPUS-MUTATION form above the table" in DETAIL_HTML, (
+            "the template no longer records that AC#1 is read as 'no "
+            "CORPUS-MUTATION form above the table'."
+        )
+
+    def test_the_narrowing_agrees_with_the_canonical_AC(self) -> None:
+        """The narrowing must live in the ROADMAP too, not only here.
+
+        External review, 2026-08-05. m12 declared AC#1 narrowed to "no
+        mutation form above the table" in the template while
+        ``plans/ui-uplift/roadmap.yaml`` still read "without scrolling past
+        any input form" — and ``form.rename-form`` is an input form above the
+        table. So the milestone read as passing an AC its canonical text says
+        it fails, and nothing could see the disagreement because the two
+        statements lived in different files with no guard between them.
+
+        Resolved by owner decision: the AC text moved. That milestone's own
+        ``summary`` already scoped it to "the FIVE mutation forms" — rename is
+        the sixth — so the AC sentence was the outlier, not the shipped page.
+
+        This pins the agreement rather than either side alone. A future edit
+        that reverts the AC to "any input form" without moving rename fails
+        here, which is the state that existed before this test.
+        """
+        roadmap = (REPO_ROOT / "plans" / "ui-uplift" / "roadmap.yaml").read_text(
+            encoding="utf-8"
+        )
+        block = roadmap.split("id: ui-uplift-m12", 1)[1].split("id: ui-uplift-m13", 1)[0]
+        ac1 = next(
+            line for line in block.splitlines()
+            if "the papers table is visible without scrolling" in line
+        )
+        assert "corpus-mutation form" in ac1, (
+            f"roadmap AC#1 reads:\n  {ac1.strip()}\n"
+            f"but this page keeps form.rename-form above the table. Either the "
+            f"AC names corpus-mutation forms, or rename moves below the table. "
+            f"A narrowing recorded only in the template is a contradiction the "
+            f"roadmap does not know about."
+        )
+        assert "any input form" not in ac1, (
+            "roadmap AC#1 has reverted to the unnarrowed wording while rename "
+            "still sits above the table"
         )
 
     def test_the_page_lands_three_regions_not_seven_blocks(self) -> None:
@@ -218,6 +361,34 @@ class TestManageDisclosureNesting:
             "the papers table is inside the disclosure; both beforeend swaps "
             "target it, and a collapsed target is AC#4's invisible-success "
             "failure."
+        )
+
+    def test_the_mutation_divs_stay_at_column_zero(self) -> None:
+        """m12 M4/M8 — pin the premise another guard now rests on.
+
+        ``tests/test_ui_m8_rule_ladder.py::TestSectioningElementDecision``
+        finds the seven per-site element decisions with ``^<(section|div)>``.
+        After m12 five of those blocks are children of ``<details>``, kept at
+        column 0 deliberately: indenting them drops five of the seven records
+        out of that extractor's view, and "a decision recorded as a total is
+        not a recorded decision" is m8's own note.
+
+        Indenting them is the natural thing any agent or formatter would do,
+        and until this test the only thing preventing it was a prose paragraph
+        — in a repo with no CI and no code review (CLAUDE.md §4.1). Worse, the
+        m8 guard would fail with a message about "column-0 blocks" while the
+        reader looked for a layout regression that had not happened.
+
+        Fails HERE first, naming the real cause.
+        """
+        column_zero = re.findall(r"^<div>", DETAIL, flags=re.M)
+        assert len(column_zero) == 5, (
+            f"{len(column_zero)} <div>s are emitted at column 0; m12 ships "
+            f"five (topic, discover, add-paper, upload, ingest). If they were "
+            f"indented, tests/test_ui_m8_rule_ladder.py::"
+            f"TestSectioningElementDecision loses five of its seven per-site "
+            f"element records and fails with a misleading message. Keep them "
+            f"at column 0, or update that guard's extractor in the same edit."
         )
 
     def test_the_disclosure_is_not_an_exclusive_accordion(self) -> None:
@@ -472,6 +643,280 @@ class TestSwapTargetsStillResolve:
         )
 
 
+class TestStructuralInvariantsHoldInTheRenderedTree:
+    """m12 M5 / M6 / M7 — the invariants that were declared and not enforced.
+
+    All three share a shape: the milestone stated a STRUCTURAL property and
+    checked it with a regex over CSS or template text. The critics proved each
+    false by mutation while every guard stayed green.
+    """
+
+    def test_no_swap_targets_the_disclosure_or_an_ancestor(
+        self, detail_client
+    ) -> None:
+        """M5 + M7. The template records "no swap may target the <details> or
+        any ancestor of it" as the HARD CONSTRAINT that lets m12 escape
+        onboarding-uplift-m3 §3 D2's rejection of <details> — and named
+        ui-uplift-m13 as the near-miss. Nothing asserted it.
+
+        m13 `depends_on: [ui-uplift-m12]` and its roadmap summary prescribes
+        exactly the violating shape: "Move aria-live onto a stable
+        never-swapped wrapper." Mutation-proven by the critic: wrapping the
+        disclosure in a polled `<div hx-swap="outerHTML">` left all ten m12/m8
+        template guards green while destroying and recreating the `<details>`
+        every 2 seconds — the server-rendered `open` snaps back on every tick,
+        which is the D2 failure this milestone claims to have escaped.
+
+        Under §4.1's no-PR/no-CI posture a comment is not a constraint.
+        """
+        client, db_path = detail_client
+        root = _dom(_render(client, db_path, "running"))
+        details = _disclosure(root)
+
+        by_id = {n.attrs["id"]: n for n in root.walk() if n.attrs.get("id")}
+        targets = {
+            n.attrs["hx-target"] for n in root.walk() if n.attrs.get("hx-target")
+        }
+        assert targets, "no hx-targets found — the scan is broken"
+
+        for target in sorted(targets):
+            if not target.startswith("#"):
+                continue
+            node = by_id.get(target[1:])
+            if node is None:
+                continue  # resolution is TestSwapTargetsStillResolve's job
+            assert node is not details, (
+                f"hx-target={target!r} IS the Manage disclosure. Swapping it "
+                f"re-renders `open` from the server predicate on every tick, "
+                f"so the operator's open/closed state snaps back — the exact "
+                f"onboarding-uplift-m3 D2 failure m12's note claims to escape."
+            )
+            assert not node.contains(details), (
+                f"hx-target={target!r} is an ANCESTOR of the Manage "
+                f"disclosure ({node!r}). Any swap of it destroys and recreates "
+                f"the <details>, resetting open state. See the HARD "
+                f"CONSTRAINT note in notebook_detail.html before changing this."
+            )
+
+    def test_the_disclosure_itself_is_never_a_swap_participant(
+        self, detail_client
+    ) -> None:
+        """The other half of M7: the <details> must carry no hx-* of its own."""
+        client, db_path = detail_client
+        details = _disclosure(_dom(_render(client, db_path, "running")))
+        hx = {k: v for k, v in details.attrs.items() if k.startswith("hx-")}
+        assert not hx, (
+            f"the Manage disclosure carries {hx!r}; it must not participate "
+            f"in any swap — see the HARD CONSTRAINT note in the template."
+        )
+
+    def test_the_rule_ladder_actually_reaches_the_rendered_markup(
+        self, detail_client
+    ) -> None:
+        """M6. ``TestRuleLadderReachesEveryRegion`` asserts two selectors
+        EXIST in app.css and carry the right token — it never evaluates either
+        against the markup that has to match.
+
+        The critic's mutation, reproduced as an assertion here: inserting a
+        wrapper `<div>` after the `<summary>` makes
+        ``.manage-disclosure > div + div`` match nothing (one div child has no
+        adjacent div sibling), stripping the rung, the margin AND the padding
+        from all five relocated blocks — with six guards still green. The same
+        gap runs upward: ``main > :where(section, div) + div`` requires the
+        `<details>` to be a DIRECT child of `<main>`, which nothing pinned.
+        """
+        client, db_path = detail_client
+        root = _dom(_render(client, db_path, "running"))
+        details = _disclosure(root)
+
+        # (a) `main > …` requires a direct-child <details>.
+        assert details.parent is not None and details.parent.tag == "main", (
+            f"the disclosure's parent is <{details.parent.tag if details.parent else None}>, "
+            f"not <main> — `main > :where(section, div) + div` and the section "
+            f"rung both use the direct-child combinator and stop matching."
+        )
+        assert details.parent.attrs.get("id") == "main", (
+            "the disclosure is not inside <main id='main'>"
+        )
+
+        # (b) `.manage-disclosure > div + div` needs ADJACENT div children.
+        div_children = [c for c in details.children if c.tag == "div"]
+        assert len(div_children) >= 2, (
+            f"the disclosure has {len(div_children)} direct <div> children. "
+            f"`.manage-disclosure > div + div` is an adjacent-sibling rule, so "
+            f"fewer than two direct div children silently removes the rung, "
+            f"the 1.25rem margin AND the padding from every relocated block. "
+            f"A wrapper <div> around the group does exactly this."
+        )
+
+    @pytest.mark.parametrize(("marker", "name"), MUTATION_FORMS)
+    def test_every_mutation_form_is_inside_a_direct_div_child(
+        self, detail_client, marker: str, name: str
+    ) -> None:
+        """The other direction of (b): a form that drifts out of a direct div
+        child loses the rung even though the div count still passes."""
+        client, db_path = detail_client
+        root = _dom(_render(client, db_path, "running"))
+        details = _disclosure(root)
+        attr, _, value = marker.partition("=")
+        rendered_value = value.strip('"').replace(
+            "{{ notebook.slug }}", "m12-running"
+        )
+        node = _find(
+            root, lambda n: n.attrs.get(attr.strip()) == rendered_value
+        )
+        assert node is not None, f"the {name} form is not in the rendered page"
+        block = next(
+            (a for a in _iter_parents(node) if a.parent is details), None
+        )
+        assert block is not None and block.tag == "div", (
+            f"the {name} form is not inside a direct <div> child of the "
+            f"disclosure, so `.manage-disclosure > div + div` does not rung it."
+        )
+
+
+def _iter_parents(node: _DomNode):
+    current = node.parent
+    while current is not None:
+        yield current
+        current = current.parent
+
+
+class TestRegionThreeIsNamedAndReachable:
+    """m12 M12 + M13 — the region that was neither announceable nor findable."""
+
+    def test_the_disclosure_carries_an_accessible_name(
+        self, detail_client
+    ) -> None:
+        """M12. The summary is styled at --text-section, byte-identical to h2,
+        but is a role=button — so region 3 contributed nothing to the heading
+        list, and that list silently gained or lost five entries with the
+        disclosure's open state. Nesting an <h2> inside <summary> is NOT the
+        fix: role=button makes its children presentational. HTML-AAM maps
+        <details> to role=group, so naming the group is the zero-structure
+        answer."""
+        client, db_path = detail_client
+        root = _dom(_render(client, db_path, "running"))
+        details = _disclosure(root)
+
+        labelledby = details.attrs.get("aria-labelledby")
+        assert labelledby, (
+            "the Manage disclosure has no accessible name; region 3 is "
+            "announced as a bare group on entry."
+        )
+        summary = next(
+            (c for c in details.children if c.tag == "summary"), None
+        )
+        assert summary is not None, "the disclosure has no <summary>"
+        assert summary.attrs.get("id") == labelledby, (
+            f"aria-labelledby={labelledby!r} does not resolve to this "
+            f"disclosure's own <summary> (id={summary.attrs.get('id')!r}); an "
+            f"unresolvable reference names nothing."
+        )
+
+    def test_the_corpus_section_points_to_the_machinery(
+        self, detail_client
+    ) -> None:
+        """M13. store.list_papers() is uncapped, so on a 50-paper notebook the
+        disclosure sits ~2400px below the fold. The pointer to it existed only
+        in the `{% if not papers %}` empty state — i.e. exactly when it is
+        least needed. Asserted with papers PRESENT, which is the state that
+        was broken."""
+        client, db_path = detail_client
+        html = _render(client, db_path, "success")
+        root = _dom(html)
+        details = _disclosure(root)
+        assert details.attrs.get("id") == MANAGE_ID, (
+            f"the disclosure's id is {details.attrs.get('id')!r}; the anchor "
+            f"beside the papers heading targets #{MANAGE_ID}."
+        )
+
+        papers_h2 = _find(
+            root,
+            lambda n: n.tag == "h2"
+            and any(
+                c.tag == "a" and c.attrs.get("href") == f"#{MANAGE_ID}"
+                for c in n.children
+            ),
+        )
+        assert papers_h2 is not None, (
+            f"no link to #{MANAGE_ID} sits with the papers <h2>. Over an "
+            f"uncapped table the disclosure is the only affordance for adding, "
+            f"discovering, uploading or ingesting, and nothing near the corpus "
+            f"points at it."
+        )
+
+    def test_the_pointer_is_a_link_not_a_second_control(
+        self, detail_client
+    ) -> None:
+        """BAN-9 forbids multiple primary CTAs per viewport, so M13's fix must
+        stay a link — a duplicated Add/Ingest button up here would be the ban
+        it was written to avoid."""
+        client, db_path = detail_client
+        root = _dom(_render(client, db_path, "success"))
+        papers = _find(
+            root,
+            lambda n: n.tag == "section"
+            and _find(n, lambda m: m.attrs.get("id") == "papers-tbody") is not None,
+        )
+        assert papers is not None, "the papers <section> is not in the page"
+        forms = [n for n in papers.walk() if n.tag == "form"]
+        assert not forms, (
+            f"the papers section now carries {len(forms)} form(s); M13's "
+            f"pointer is deliberately a link, and AC#1 keeps corpus-mutation "
+            f"forms out of this region."
+        )
+
+
+class TestLadderDeclarationsCannotBeEmptiedSilently:
+    """m12 L5 + L2 — mutation-proven misses in the CSS guards."""
+
+    def test_the_summary_rule_keeps_its_size_parity_and_affordance(
+        self,
+    ) -> None:
+        """L5: emptying `.manage-disclosure > summary` entirely left every m12
+        and m8 guard green, while deleting the size parity this milestone
+        argued for at length and the `cursor: pointer` affordance."""
+        m = re.search(r"\.manage-disclosure\s*>\s*summary\s*\{([^}]*)\}", APP_CSS)
+        assert m is not None, "the summary rule is gone"
+        body = m.group(1)
+        assert "font-size: var(--text-section)" in body, (
+            "the summary lost --text-section. Region parity WITHOUT wrapping "
+            "an <h2> inside a role=button is the whole argument for this rule."
+        )
+        assert "cursor: pointer" in body, "the summary lost its pointer cursor"
+
+    def test_the_top_level_section_rung_keeps_its_rhythm(self) -> None:
+        """L5's second half: stripping margin-block-start/padding-block-start
+        from the top-level rung also passed everything."""
+        m = re.search(
+            r"main\s*>\s*:where\(section, div\)\s*\+\s*div\s*\{([^}]*)\}", APP_CSS
+        )
+        assert m is not None, "the top-level row rung is gone"
+        body = m.group(1)
+        for prop in ("margin-block-start", "padding-block-start"):
+            assert prop in body, (
+                f"the top-level rung lost {prop}; the rule becomes the sole "
+                f"separator, which is what m8's exemption forbids."
+            )
+
+    def test_the_summary_needs_no_marker_clipping_workaround(self) -> None:
+        """L2. `list-style-position: outside` was copied from
+        `.discover-abstract > summary`, where it is REQUIRED because that rule
+        sets `overflow: hidden` + `max-height` and an inside marker would be
+        clipped. Here it is visual parity only. Pin that this rule declares
+        neither, so nobody re-derives the m10 requirement for it."""
+        m = re.search(r"\.manage-disclosure\s*>\s*summary\s*\{([^}]*)\}", APP_CSS)
+        assert m is not None
+        body = m.group(1)
+        for prop in ("overflow", "max-height"):
+            assert prop not in body, (
+                f"`.manage-disclosure > summary` now declares {prop}. If it "
+                f"clips, `list-style-position: outside` stops being cosmetic "
+                f"parity and becomes load-bearing — re-open the note above it."
+            )
+
+
 # --- AC#5 — no expand animation, and not for the reason the roadmap gives
 class TestNoExpandAnimation:
     #: ``interpolate-size`` / ``calc-size()`` really are Chromium-only.
@@ -598,8 +1043,34 @@ class TestEmptyStateCopyIsNotWrong:
         assert "above" not in copy, (
             f"the empty state still says {copy!r}; the add form is BELOW now."
         )
-        assert LABEL in copy, (
-            f"{copy!r} does not name the affordance the operator has to open. "
-            f"Naming it is what keeps this disclosure on the legitimate side "
-            f"of the progressive-disclosure line."
+        assert copy.strip(), "the empty state renders no copy at all"
+
+    def test_the_empty_state_wording_is_left_to_m11(self) -> None:
+        """m12 M9 — this guard used to hard-pin the property m11 exists to
+        remove.
+
+        It asserted the empty copy contains the literal "Manage this notebook",
+        i.e. that it IS a pointer to a form elsewhere on the page. But
+        ``ui-uplift-m11`` ``depends_on: [ui-uplift-m12]``, owns empty-state
+        copy, and has as its AC#1: "states a cause and offers one actual
+        control, **not a pointer to a form elsewhere on the page**." So m12
+        pinned its declared successor out of satisfying its own first
+        acceptance criterion. This test's sibling docstring already conceded
+        "m11 owns empty-state copy … so it revisits the voice", which makes
+        the strength of the old assertion an oversight, not a decision.
+
+        What is kept is the FACT m12 corrected — the copy must not point
+        UPWARD, which was false the moment the Add form moved below the table
+        and which m11 cannot legitimately reverse. What is dropped is the
+        DIRECTION, which is m11's to choose.
+        """
+        m = re.search(r'<p class="empty">([^<]*)</p>', DETAIL)
+        assert m is not None
+        copy = m.group(1)
+        # Direction-agnostic: the copy must name SOME affordance on the page,
+        # whether that is this disclosure (m12's interim wording) or an inline
+        # control (m11's AC#1). Both satisfy this; neither is forced.
+        assert re.search(r"[A-Za-z]", copy), "the empty state names nothing"
+        assert "above" not in copy, (
+            "the pre-m12 upward pointer is back; the add form is BELOW."
         )

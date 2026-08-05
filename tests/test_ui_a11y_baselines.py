@@ -107,9 +107,38 @@ class TestUPL2FocusVisible:
             "a:focus-visible",
             "select:focus-visible",
             "textarea:focus-visible",
+            # ui-uplift-m12 M11. `summary` was missing while two shipped
+            # disclosures existed — m12's Manage gate (the ONLY keyboard route
+            # to all five mutation forms) and m10's abstract reveal — so both
+            # fell back to the UA ring instead of the authored one. This list
+            # is enumerated by hand, which is exactly why the omission was
+            # invisible to the guard that exists for this class of gap.
+            "summary:focus-visible",
             "[tabindex]:focus-visible",
         ):
             assert sel in APP_CSS, f"missing :focus-visible selector {sel!r}"
+
+    def test_every_shipped_disclosure_is_covered_by_the_ring(self) -> None:
+        """The list above is hand-maintained, so pair it with a derived check.
+
+        ui-uplift-m12 M11: `<summary>` is focusable by default and receives
+        focus with no `tabindex`, so it is invisible to a `[tabindex]` sweep.
+        If any template ships a `<details>`, `summary:focus-visible` must be
+        authored — otherwise the one control gating a whole region has an
+        unauthored focus state.
+        """
+        templates = sorted(
+            (FRONTEND_STATIC.parent / "templates").glob("*.html")
+        )
+        ships_details = any(
+            "<details" in p.read_text(encoding="utf-8") for p in templates
+        )
+        if not ships_details:
+            pytest.skip("no template ships a <details>")
+        assert "summary:focus-visible" in APP_CSS, (
+            "a template ships a <details> but `summary:focus-visible` is not "
+            "authored; its focus ring falls back to the UA default."
+        )
 
     def test_focus_visible_outline_uses_accent_token(self) -> None:
         # The baseline ring uses var(--accent), not a hardcoded hex.

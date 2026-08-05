@@ -452,7 +452,16 @@ items:
     target_end: 2026-09-26
     tags: [workflow, BAN-R1, BAN-5, UPL-1]
     acceptance:
-      - "Given the detail page, when opened, then the papers table is visible without scrolling past any input form"
+      # AMENDED 2026-08-05 by owner decision. Read "any input form" before this;
+      # the implementation shipped "no MUTATION form above the table", keeping
+      # form.rename-form in the identity <section> above the corpus, and
+      # recorded the narrowing in notebook_detail.html without amending the AC.
+      # An unrecorded narrowing is indistinguishable from a failed AC, so one of
+      # the two had to move. The AC moved, because this summary already scoped
+      # the milestone to "the FIVE mutation forms" — rename is the sixth, and it
+      # edits the record's label, not the corpus. The AC text was the outlier,
+      # not the implementation.
+      - "Given the detail page, when opened, then the papers table is visible without scrolling past any corpus-mutation form (rename edits the record's identity, not the corpus, and stays in the identity section above)"
       - "Given a notebook with a non-terminal or failed ingest state, when the page renders, then the Manage disclosure is OPEN — the ingest fragment polls every 2s and would otherwise poll invisibly for a whole run"
       - "Given the disclosure summary, then it carries a state cue sourced from the same row the ingest fragment already reads"
       - "Given the five moved forms, then every hx-target still resolves and no swap silently lands out of view"

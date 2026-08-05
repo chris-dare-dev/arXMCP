@@ -26,15 +26,25 @@
       decision recorded as a total is not a recorded decision" is m8's own
       note. A separate guard pins that they are inside the disclosure.
 
-   2. AC#1 IS NARROWED, DELIBERATELY. The AC reads "without scrolling past any
-      input form". SIX forms exist here, not the five the roadmap counts: the
-      sixth is form.rename-form below, inside this identity <section>, and it
-      STAYS. Renaming is part of the record's identity — it belongs with the
-      slug and the metadata that lead the page — and moving it would pull a
-      control out of the <section> landmark m8 deliberately created. AC#1 is
-      therefore implemented as "no MUTATION form above the table": rename
-      edits the record's label, not the corpus. An unrecorded narrowing of an
-      AC is indistinguishable from failing it, which is why this is here.
+   2. AC#1 WAS NARROWED HERE, AND THE ROADMAP NOW SAYS SO. SIX forms exist on
+      this page, not the five the roadmap scopes: the sixth is form.rename-form
+      below, inside this identity <section>, and it STAYS. Renaming is part of
+      the record's identity — it belongs with the slug and the metadata that
+      lead the page — and moving it would pull a control out of the <section>
+      landmark m8 deliberately created. AC#1 is implemented as "no
+      CORPUS-MUTATION form above the table": rename edits the record's label,
+      not the corpus.
+
+      RESOLVED 2026-08-05 (owner decision, external review). This note used to
+      read "the AC reads 'without scrolling past any input form'" and stop
+      there — declaring a narrowing against a canonical AC that still said
+      something else. An unrecorded narrowing is indistinguishable from failing
+      the AC, and a narrowing recorded ONLY at the implementation site is a
+      contradiction the roadmap does not know about, which is barely better.
+      plans/ui-uplift/roadmap.yaml now reads "without scrolling past any
+      corpus-mutation form". The AC text moved rather than the form, because
+      that milestone's own summary already scoped it to "the FIVE mutation
+      forms" — the AC sentence was the outlier, not the implementation.
 
    3. WHY <details> IS SAFE HERE AND WAS REFUSED AT server/routes/ui.py:280.
       onboarding-uplift-m3 synthesis D2 rejected <details>/<summary> for the
@@ -119,7 +129,19 @@
            and was left in sans, while the ingest-status fragment builder
            renders the SAME datum as <code>. The two rendering paths for one
            value disagreed on its voice, which is the same class of defect
-           _paper_row_html carried before this milestone fixed it. #}
+           _paper_row_html carried before this milestone fixed it.
+
+           OVERLAP RECORDED, NOT RESOLVED (m12 L8). `latest_run.status` is
+           rendered twice on this page in the same <code> voice — here, and
+           again in the Manage summary ~130 lines below. They cannot disagree
+           (one row, and since m12's H2 rectify the summary's copy is
+           OOB-refreshed from the fragment's own token), but they do repeat,
+           which adds density without adding a fact. Left as-is deliberately:
+           UPL-5's posture lede owns this masthead and has to resolve it
+           anyway, so deciding it here would be re-decided there. If one goes,
+           it is THIS one — "Last indexed <time>" already carries the
+           freshness fact, and a run's OUTCOME belongs beside the control that
+           produces it. #}
         <span class="hint">(ingest <code>{{ latest_run.status }}</code>)</span>
       {% else %}
         <span class="hint">Never indexed</span>
@@ -147,7 +169,18 @@
    (UPL-1) moved it from LAST in source order to second, directly under the
    record: it is the reason the operator opened the page. #}
 <section>
-  <h2>Papers in this notebook ({{ papers|length }})</h2>
+  {# ui-uplift-m12 M13: the pointer to the machinery has to be adjacent to the
+     corpus in EVERY state, not only the empty one. store.list_papers() is
+     uncapped (server/routes/ui.py) and the template renders every row, so on
+     a 50-paper notebook the disclosure below sits roughly 2400px down with no
+     anchor and no sticky affordance — m12 inverted the scroll rather than
+     removing it, and no milestone artifact recorded the large-corpus case.
+
+     Deliberately a LINK and not a duplicated control: a second Add/Ingest
+     button up here would be a second primary CTA in one viewport, which BAN-9
+     forbids. It costs no CSS and adds no swap target. #}
+  <h2>Papers in this notebook ({{ papers|length }})
+    <a class="hint" href="#manage">Manage this notebook</a></h2>
   {% if not papers %}
     {# ui-uplift-m12 (UPL-1): was "No papers yet. Add one above." — false the
        moment the Add-by-URL form moved below this table, and a first-run page
@@ -219,8 +252,13 @@
 {# ui-uplift-m12 (UPL-1): the Manage disclosure — region 3 of 3.
 
    LABEL + STATE CUE (AC#3) are both AUTHORED strings, not invented copy:
-   "Manage this notebook" (art-direction-scout-brief.md:428-430) and the cue
-   form "Manage this notebook — ingest running" (challenge.md:107). BAN-10
+   "Manage this notebook" (art-direction-scout-brief.md:429-431) and the cue
+   form "Manage this notebook — ingest running" (challenge.md:115-116).
+   Both cites CORRECTED 2026-08-05 (m12 L1): the cue was cited at
+   challenge.md:107, which is an Axis-11 sentence about shipping-history
+   ordering, and the label's span ended one line short of where the phrase
+   wraps. Every other discovery cite in this milestone verifies exactly,
+   which is what made the one wrong cite likely to be trusted. BAN-10
    scores 0 on this page and the discovery calls that a strength to protect —
    "Quick Actions" / "Controls" / "Tools" are the shapes it replaces. The cue
    is PLAIN TEXT, not a fourth status pill (BAN-7) and not a heading: browsers
@@ -260,6 +298,18 @@
    "open unless success": `none` and `running` both still poll every 2s, and
    `failed` is terminal but carries the stderr tail the operator has to read.
 
+   THE THREE-REGION RENDER IS THE POST-SUCCESS STATE (m12 L9). "Seven blocks
+   to three regions" is stated unconditionally in this milestone's record and
+   it is state-dependent: with this predicate, a never-ingested notebook
+   (`latest_run is None`), a running one and a failed one all still paint all
+   seven headed blocks stacked. The reduction is realised only after a
+   successful ingest. The predicate STAYS — open-on-first-run is the right
+   call for an empty notebook, where the forms are the entire job — but the
+   claim is a trade, not an unconditional win, and first run is precisely the
+   page the discovery cared about most. The ladder still ranks the inner
+   blocks at --rule-row under one --rule-section region, so this costs
+   claim precision, not layout.
+
    NO EXPAND ANIMATION (AC#5), and the roadmap's stated reason is wrong so it
    is not repeated: `::details-content` is Baseline NEWLY across all engines
    since 2025-09-16 (Chrome 131 / Firefox 143 / Safari 18.4, WPT 1.0) — only
@@ -271,8 +321,26 @@
 
    No `name` attribute: a shared name opts disclosures into exclusive-
    accordion grouping and makes them close each other. #}
-<details class="manage-disclosure"{% if not latest_run or latest_run.status != 'success' %} open{% endif %}>
-  <summary>Manage this notebook — ingest <code id="ingest-state-cue">{{ latest_run.status if latest_run else 'none' }}</code></summary>
+{# id + aria-labelledby added 2026-08-05 closing m12 M12 and M13.
+
+   M12 (Accessibility). <summary> is styled at --text-section, byte-identical
+   to h2, but it is a role=button — so region 3 contributed NOTHING to the
+   heading list. A screen-reader user navigating by heading went "Papers in
+   this notebook (N)" -> "Topic & discovery" with no signal they had entered a
+   different region, and the heading list silently gained or lost five entries
+   with the disclosure's open state. Nesting an <h2> inside <summary> is NOT
+   the fix (role=button makes its children presentational); HTML-AAM maps
+   <details> to role=group, so aria-labelledby gives the region an announced
+   name on entry at zero structural cost and without touching m8's
+   ^<(section|div)> record view.
+
+   M13 (Discoverability). store.list_papers() is uncapped, so on a 50-paper
+   notebook this disclosure — the only affordance for adding, discovering,
+   uploading or ingesting — sits ~2400px below the fold. The id is the anchor
+   target for the link beside the papers <h2>; see the note there for why it
+   is a link and not a second control. #}
+<details class="manage-disclosure" id="manage" aria-labelledby="manage-summary"{% if not latest_run or latest_run.status != 'success' %} open{% endif %}>
+  <summary id="manage-summary">Manage this notebook — ingest <code id="ingest-state-cue">{{ latest_run.status if latest_run else 'none' }}</code></summary>
 
 {# DIV — the topic form and its readback. #}
 <div>

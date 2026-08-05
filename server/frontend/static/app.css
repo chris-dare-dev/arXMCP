@@ -89,7 +89,27 @@ main > :where(section, div) + div { border-block-start: var(--rule-row); margin-
    but Widely lands 2028-03-16, and Newly-not-Widely is the m6/m7/m10 bar.
    The summary takes --text-section instead of wrapping an <h2>: role=button
    makes a summary's children presentational, so a heading inside it is not a
-   heading for AT. Size parity with the other regions, without the trap. */
+   heading for AT. Size parity with the other regions, without the trap —
+   the region's NAME is carried by aria-labelledby on the <details> instead
+   (m12 M12; HTML-AAM maps <details> to role=group).
+
+   `list-style-position: outside` (m12 L2/L7 — the one declaration here that
+   had no recorded reason). It is VISUAL PARITY, not an inherited requirement:
+   it aligns the label's text edge with the sibling <h2>s above, and the
+   marker hangs into `body`'s 1rem padding since `main` has none. It was
+   copied from `.discover-abstract > summary`, where it is genuinely REQUIRED
+   because that rule sets `overflow: hidden` + `max-height`, and an inside
+   marker would be clipped. This rule sets neither, so the justification does
+   not transfer and the declaration stands on alignment alone. Kept rather
+   than dropped because dropping it misaligns the label against every other
+   region heading; the guard below pins that this summary declares no
+   overflow/max-height, so nobody re-derives the m10 reason for it.
+
+   `<code>` inside this summary renders at --text-small (13px) against the
+   20px label, because `code, time` sets an absolute size (m12 L6). That is
+   DECIDED, not inherited: the mono token is a datum and the label is a
+   heading, so the two-voice scale is working as authored. Do not "fix" it to
+   `font-size: inherit` without re-opening that decision. */
 .manage-disclosure > summary { margin-block-end: 1.25rem; font-size: var(--text-section); cursor: pointer; list-style-position: outside; }
 .manage-disclosure > div + div { border-block-start: var(--rule-row); margin-block-start: 1.25rem; padding-block-start: 1.25rem; }
 
@@ -447,9 +467,18 @@ pre.error:empty { display: none; }
    the red destructive fill. The :focus:not(:focus-visible) reset
    suppresses the ring for mouse clicks (which preserve :focus but not
    :focus-visible). */
+/* ui-uplift-m12 M11: `summary` was absent from this list, so the ONE
+   keyboard-reachable gate to all five mutation forms — and m10's
+   .discover-abstract > summary — fell back to the UA ring instead of the
+   authored one. It was the only control on the page whose focus state was
+   unauthored, and the a11y guard enumerates this list by hand, so the gap was
+   invisible to the test that exists for exactly this class of omission.
+   --accent already clears SC 1.4.11's 3:1 on --bg as the button ring, so no
+   contrast row moves. */
 button:focus-visible, .button:focus-visible,
 input:focus-visible, a:focus-visible,
 select:focus-visible, textarea:focus-visible,
+summary:focus-visible,
 [tabindex]:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;

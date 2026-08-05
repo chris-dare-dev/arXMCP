@@ -42,6 +42,8 @@ from __future__ import annotations
 import re as _re
 from pathlib import Path
 
+import pytest
+
 from tests._ui_color import alpha_over, contrast_ratio, load_tokens
 
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
@@ -628,7 +630,8 @@ class TestCrossMilestoneSafety:
         #     already crossfades the swap). This repo writes refusals down —
         #     tokens.css:101-106, app.css's select/textarea note — and that
         #     prose is the deliverable, not padding to be trimmed.
-        # m8 rectify (M5/M11): the file lands at 593 of 600. The 25-line margin
+        # m8 rectify (M5/M11): app.css was 593 of 600 AS OF m8 — a historical
+        # record of that decision, not a claim about the file now. The 25-line margin
         # this block used to claim was consumed by the rectify pass itself;
         # the cap was HELD rather than raised a fourth time, and the room
         # came from trimming rationale. Deliberately more
@@ -645,10 +648,22 @@ class TestCrossMilestoneSafety:
         # spending readability, and m12 has three decisions to record at the
         # site — the direct-child ladder break, the class-scoping requirement
         # that protects m10's marker, and the corrected AC#5 refusal reason.
-        # The file lands at 635 of 680.
+        # HEADROOM IS NOT WRITTEN HERE, DELIBERATELY (ui-uplift-m12 M3/L3).
+        # This line used to read "The file lands at 635 of 680" while the file
+        # was 627 — the third consecutive occurrence of the same error (m7
+        # wrote "471 to ~400" at 478; m8 wrote "575 of 600" at 599), each time
+        # in the one number the comment exists to carry, each time in the
+        # direction that makes the raise look tighter than it was. It is the
+        # figure a future milestone reads before arguing the fifth raise.
+        #
+        # The fix is not a better number, it is no number: `line_count` above
+        # is the live count and the failure message reports it. A guard below
+        # asserts these three comments carry no absolute count at all, so the
+        # recurrence cannot start again.
         assert line_count <= 680, (
             f"app.css is {line_count} lines — over the 680-line cap "
-            f"(m6: 400->480 for the OKLCH family; m10: 520->600 for the Discover "
+            f"(m6: 400->480 for the OKLCH family; m7: 480->520 for the two-voice "
+            f"type scale; m10: 520->600 for the Discover "
             f"bibliography rules; m12: 600->680 for the Manage disclosure and the "
             f"nested rule ladder — see the raise history above). Consider stripping "
             f"documentation comments, splitting the file (e.g. tokens.css + "
@@ -657,4 +672,69 @@ class TestCrossMilestoneSafety:
             f"tests/test_ui_m4_in_place_add_paper.py and "
             f"tests/test_ui_m5_create_remove_in_place.py must also move in "
             f"lockstep — all three caps MUST agree."
+        )
+
+
+class TestCapCommentsCarryNoAbsoluteLineCount:
+    """ui-uplift-m12 M3 / L3 — end a three-milestone recurrence structurally.
+
+    The three lockstep cap comments each recorded "the file lands at N", and
+    each got N wrong, every time in the direction that made the raise look
+    tighter than it was:
+
+    - m7 wrote "471 to ~400" while the file was 478
+    - m8 wrote "575 of 600" while it was 599
+    - m12 wrote "635 of 680" while it was 627
+
+    Headroom is the entire content of a cap decision — it is what a future
+    milestone reads before arguing the next raise — so the one number these
+    comments exist to carry was the one number that kept rotting. Each fix was
+    "write the right number", and each held until the next trim.
+
+    The durable fix is to record no absolute count at all. Every cap test
+    already computes ``line_count`` live and reports it in its own failure
+    message, so the number was never load-bearing — only misleading. This
+    guard asserts the comments stay clean.
+    """
+
+    #: The three files whose caps move in lockstep.
+    CAP_TESTS = (
+        "tests/test_ui_m3_dark_and_htmx_feedback.py",
+        "tests/test_ui_m4_in_place_add_paper.py",
+        "tests/test_ui_m5_create_remove_in_place.py",
+    )
+
+    #: Phrases that introduce a hand-recorded absolute count.
+    _CLAIM = _re.compile(
+        r"#[^\n]*\b(?:file|it)\s+(?:lands?|is|sits?)\s+at\s+~?(\d{3})\b",
+        _re.I,
+    )
+
+    @pytest.mark.parametrize("rel", CAP_TESTS)
+    def test_no_cap_comment_records_a_live_line_count(self, rel: str) -> None:
+        text = (REPO_ROOT / rel).read_text(encoding="utf-8")
+        live = APP_CSS.count("\n") + (1 if not APP_CSS.endswith("\n") else 0)
+        claims = [m.group(0).strip() for m in self._CLAIM.finditer(text)]
+        # A comment QUOTING the historical error is fine and is how the
+        # lesson survives; it is introduced by "used to read" / "while it
+        # was" / "this read". A fresh claim is not.
+        fresh = [c for c in claims if not _re.search(
+            r"used to read|while it was|this read|this said", c, _re.I)]
+        assert not fresh, (
+            f"{rel} records an absolute app.css line count in a comment: "
+            f"{fresh!r}. app.css is {live} lines right now and moves on every "
+            f"edit — this exact claim has been wrong in three consecutive "
+            f"milestones (m7, m8, m12). The cap test already computes the "
+            f"count live and prints it on failure; do not write it down."
+        )
+
+    def test_every_cap_test_agrees_on_the_number(self) -> None:
+        """The lockstep property the three comments all assert in prose."""
+        caps = set()
+        for rel in self.CAP_TESTS:
+            text = (REPO_ROOT / rel).read_text(encoding="utf-8")
+            caps.update(int(n) for n in _re.findall(r"line_count <= (\d+)", text))
+        assert len(caps) == 1, (
+            f"the three lockstep cap tests disagree: {sorted(caps)}. They must "
+            f"move together or the tightest one silently becomes the cap."
         )

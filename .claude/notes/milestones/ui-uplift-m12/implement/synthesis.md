@@ -45,6 +45,44 @@ Guards: `tests/test_ui_m12_corpus_before_machinery.py::TestCorpusPrecedesMachine
 (five parametrized order assertions, one per mutation form; the three-region
 count; the rename narrowing) and `TestManageDisclosureNesting`.
 
+**RESOLUTION OF THE NARROWING, 2026-08-05.** The three places above recorded
+the narrowing but `plans/ui-uplift/roadmap.yaml` still said "without scrolling
+past **any input form**", so the milestone read as passing an AC whose
+canonical text it failed — and nothing could see the disagreement, because the
+two statements lived in different files with no guard between them. Resolved
+by owner decision: **the AC text moved**, to "without scrolling past any
+**corpus-mutation** form". That milestone's own `summary` already scoped it to
+"the FIVE mutation forms" — rename is the sixth — so the AC sentence was the
+outlier, not the shipped page. Pinned by
+`TestCorpusPrecedesMachinery::test_the_narrowing_agrees_with_the_canonical_AC`,
+which reads the roadmap and fails if either side drifts back.
+
+**MEASURED AFTER (closes M1).** Every AC#1 guard is a source-ORDER assertion,
+which proves the table precedes the forms but says nothing about the
+criterion's actual words — *visible without scrolling* — or about the epic's
+justification, a measured y=1823 of a 2343px document. No post-change y
+existed anywhere, so the "roughly one viewport" headline was carried forward
+unverified and a future masthead regression could not be distinguished from
+the shipped state.
+
+Measured in a real browser during the 2026-08-05 external principal-engineer
+review (ChatGPT-5.6 Sol) — **not** re-measured by this repo, which ships no
+browser harness, and attributed rather than claimed as our own:
+
+| viewport | papers table starts at | Manage summary at |
+|---|---|---|
+| 1440×900 | y≈590 | y≈780 |
+| 375×812  | y≈588 | — (no page-level horizontal overflow) |
+
+Against the pre-change y=1823, that is the claim the epic made: the corpus
+leads within the first viewport at both widths, and the machinery follows it
+rather than preceding it. The figure is a snapshot of one tree at one date; the
+box-model declarations it depends on are pinned by
+`TestLadderDeclarationsCannotBeEmptiedSilently` (the summary rule's size parity
+and the top-level rung's `margin-block-start` / `padding-block-start`), so a
+later milestone that inflates the masthead has to re-open this number rather
+than silently invalidating it.
+
 ### AC#2 — non-terminal or failed ⇒ the disclosure is OPEN
 
 `notebook_detail.html` — the disclosure open tag:
@@ -74,7 +112,7 @@ pins that the Jinja form is conditional emission of a bare attribute.
 - **Label and cue form are the AUTHORED strings**, recovered from the
   discovery tree rather than invented: `"Manage this notebook"`
   (`art-direction-scout-brief.md:428-430`) and the cue shape
-  `"Manage this notebook — ingest running"` (`challenge.md:107`). Both were
+  `"Manage this notebook — ingest running"` (`challenge.md:115-116`, corrected 2026-08-05 — L1). Both were
   dropped by the roadmap summary. BAN-10 scores 0 on this page and the
   discovery calls that a strength to protect.
 - **Same row, by construction.** `server/routes/ui.py:461` passes `latest_run`

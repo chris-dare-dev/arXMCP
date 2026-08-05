@@ -103,7 +103,7 @@ Restated unchanged at `synthesis.md:196-215`. Ratified with three corrections at
 | Authored value | Source | In m12's roadmap item? |
 |---|---|---|
 | Summary label **"Manage this notebook"** | `art-direction-scout-brief.md:428-430`, `synthesis.md:199` | **NO — dropped** |
-| Example state cue **"Manage this notebook — ingest running"** | `challenge.md:107` | **NO — dropped** |
+| Example state cue **"Manage this notebook — ingest running"** | `challenge.md:115-116` (corrected 2026-08-05; the cite originated here as :107) | **NO — dropped** |
 | Five forms named in order: **Topic, Discover, Add-by-URL, Upload, Ingest** | `art-direction-scout-brief.md:429-430` | **NO** — roadmap says only "the five mutation forms" |
 | Target region count: **7 cards → 3 regions** | `art-direction-scout-brief.md:434` | **NO — dropped** |
 | "**Zero new CSS required for the reorder itself**" | `art-direction-scout-brief.md:451` | NO — and it is FALSE in v0; see risk 4 |
