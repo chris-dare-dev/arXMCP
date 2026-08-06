@@ -4,7 +4,7 @@
   "critique_files": [
     "dedup.md"
   ],
-  "generated_at": "2026-08-06T14:02:28Z",
+  "generated_at": "2026-08-06T14:15:33Z",
   "findings": {
     "H1": {
       "id": "H1",
@@ -16,9 +16,15 @@
       "source_critic": "milestone-adversary-critic",
       "source_axis": "Acceptance coverage",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "Expanded and regression-pinned the installed control-loop, spawned-fetch, ops, build-only, and no-write scaffold classifications.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-06T14:15:33Z",
+          "resolution": "Expanded and regression-pinned the installed control-loop, spawned-fetch, ops, build-only, and no-write scaffold classifications."
+        }
+      ]
     },
     "H2": {
       "id": "H2",
@@ -30,9 +36,15 @@
       "source_critic": "milestone-adversary-critic",
       "source_axis": "Correctness",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "Redirected USERPROFILE, LOCALAPPDATA, and APPDATA below the root and proved they survive the MinerU scrubber.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-06T14:15:33Z",
+          "resolution": "Redirected USERPROFILE, LOCALAPPDATA, and APPDATA below the root and proved they survive the MinerU scrubber."
+        }
+      ]
     },
     "H3": {
       "id": "H3",
@@ -44,9 +56,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "security threat-model coverage",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "Replaced the predictable marker with an exclusive randomized temporary file and preserved pre-existing regular files and symlinks.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-06T14:15:33Z",
+          "resolution": "Replaced the predictable marker with an exclusive randomized temporary file and preserved pre-existing regular files and symlinks."
+        }
+      ]
     },
     "H4": {
       "id": "H4",
@@ -58,9 +76,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "local-first constraint",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "Expanded and regression-pinned the installed control-loop, spawned-fetch, ops, build-only, and no-write scaffold classifications.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-06T14:15:33Z",
+          "resolution": "Expanded and regression-pinned the installed control-loop, spawned-fetch, ops, build-only, and no-write scaffold classifications."
+        }
+      ]
     },
     "M1": {
       "id": "M1",
@@ -72,9 +96,15 @@
       "source_critic": "milestone-adversary-critic",
       "source_axis": "Correctness",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "Replaced the predictable marker with an exclusive randomized temporary file and preserved pre-existing regular files and symlinks.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-06T14:15:33Z",
+          "resolution": "Replaced the predictable marker with an exclusive randomized temporary file and preserved pre-existing regular files and symlinks."
+        }
+      ]
     },
     "M2": {
       "id": "M2",
@@ -86,9 +116,15 @@
       "source_critic": "milestone-adversary-critic",
       "source_axis": "Acceptance coverage",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "Validated every retained installed/container alias during root resolution and returned a frozen resolved alias mapping.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-06T14:15:33Z",
+          "resolution": "Validated every retained installed/container alias during root resolution and returned a frozen resolved alias mapping."
+        }
+      ]
     },
     "M3": {
       "id": "M3",
@@ -100,9 +136,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "test surface",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "Added a platform-neutral write observer that rejects package and startup-CWD mutations.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-06T14:15:33Z",
+          "resolution": "Added a platform-neutral write observer that rejects package and startup-CWD mutations."
+        }
+      ]
     },
     "M4": {
       "id": "M4",
@@ -114,9 +156,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "local-first constraint",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "Modeled the container volume contract and rejected missing, read-only, relative, mismatched, and duplicate mounts.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-06T14:15:33Z",
+          "resolution": "Modeled the container volume contract and rejected missing, read-only, relative, mismatched, and duplicate mounts."
+        }
+      ]
     }
   }
 }
