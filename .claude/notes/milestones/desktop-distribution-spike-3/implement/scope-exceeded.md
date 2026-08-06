@@ -59,7 +59,7 @@
 - Approved unsandboxed `make test PYTHON=.venv/bin/python`: PASS
   (`5021 passed, 43 skipped, 1 xfailed`; Ruff clean).
 - Tauri-generated `gen/schemas/` and the 1.7 GiB Cargo target are not tracked;
-  schemas were removed and target output remains under `/private/tmp`.
+  both were removed after the durable gate evidence was recorded.
 
 ## External writes
 
