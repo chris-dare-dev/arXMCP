@@ -1,0 +1,51 @@
+{
+  "id": "desktop-distribution-spike-2",
+  "created_at": "2026-08-06T11:43:33Z",
+  "updated_at": "2026-08-06T11:58:08Z",
+  "phase": "research-complete",
+  "phase_history": [
+    {
+      "phase": "init",
+      "at": "2026-08-06T11:43:33Z"
+    },
+    {
+      "phase": "research-running",
+      "at": "2026-08-06T11:44:09Z"
+    },
+    {
+      "phase": "research-complete",
+      "at": "2026-08-06T11:58:08Z"
+    }
+  ],
+  "milestone_brief": "### desktop-distribution-spike-2 \u2014 Prove one application-data root\n\n**Question.** Can every installed-runtime write be routed below one explicit\napplication-data root without breaking source, wheel, Docker/Compose, or test\nbehavior?\n\n**Description.** Time-box the work to inventory and prototype only. Inventory\nall runtime writes, exercise one typed `ARXMCP_DATA_DIR` resolver across source,\nwheel, and container fixtures, and record the compatibility and migration\ndecisions required before `desktop-distribution-m1` implementation begins.\n\n**Acceptance criteria.**\n- [ ] Inventory runtime writes and defaults across `server/`, `ingest/`, `tools/`, `shim/`, and `ops/`, distinguishing installed runtime from developer/ingest-only paths.\n- [ ] Prototype a typed path resolver rooted at `ARXMCP_DATA_DIR` against source, wheel, and container fixtures.\n- [ ] Verify containment for relative/absolute roots, symlinks, whitespace, Unicode, and read-only application locations.\n- [ ] Record compatibility aliases, migration order, and the exact call sites that remain.\n- [ ] Produce an ADR with GO/NO-GO and fallback.\n\n**Dependencies.** None.\n\n**Complexity.** S \u2014 spike, \u2264 3 days; inventory and prototype only.\n\n**GitHub.** [#385](https://github.com/chris-dare-dev/arXMCP/issues/385),\nmaterialized from the issue body on 2026-08-06.",
+  "brief_source": "legacy-prose plans/desktop-distribution-spike-2.md",
+  "research_mode": "standard",
+  "oss_scout_requested": false,
+  "allow_large_diff": false,
+  "research_briefs": [
+    ".claude/notes/milestones/desktop-distribution-spike-2/research/brief-1.md",
+    ".claude/notes/milestones/desktop-distribution-spike-2/research/brief-2.md"
+  ],
+  "research_synthesis": ".claude/notes/milestones/desktop-distribution-spike-2/research/synthesis.md",
+  "implementation_path": null,
+  "implementation_plan": null,
+  "implementation_base": null,
+  "implementation_commit_range": null,
+  "implementation_commits": [],
+  "implementation_branch": null,
+  "external_writes_required": [
+    "git push origin main"
+  ],
+  "critique_path": null,
+  "critics_run": [],
+  "critique_files": [],
+  "critique_finding_counts": null,
+  "findings_register": null,
+  "rectification_commit": null,
+  "fixed_findings": [],
+  "deferred_findings": [],
+  "invalidated_findings": [],
+  "regression_tests_added": [],
+  "external_writes_authorized": [],
+  "external_writes_completed": []
+}
