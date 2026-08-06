@@ -1,0 +1,75 @@
+{
+  "repository": "chris-dare-dev/arXMCP",
+  "materialized_on": "2026-08-05",
+  "program_tracker": {
+    "number": 398,
+    "url": "https://github.com/chris-dare-dev/arXMCP/issues/398"
+  },
+  "project": {
+    "number": 3,
+    "title": "arXMCP - Delivery",
+    "url": "https://github.com/users/chris-dare-dev/projects/3",
+    "views": {
+      "portfolio": "https://github.com/users/chris-dare-dev/projects/3/views/13",
+      "now": "https://github.com/users/chris-dare-dev/projects/3/views/14",
+      "release_gates": "https://github.com/users/chris-dare-dev/projects/3/views/15",
+      "discovery": "https://github.com/users/chris-dare-dev/projects/3/views/16"
+    }
+  },
+  "labels": [
+    "track:desktop-distribution",
+    "area:desktop",
+    "platform:macos",
+    "platform:windows",
+    "platform:linux"
+  ],
+  "milestones": [
+    {
+      "number": 13,
+      "title": "Desktop 0 — Architecture decisions",
+      "url": "https://github.com/chris-dare-dev/arXMCP/milestone/13",
+      "issues": [384, 385, 386, 387]
+    },
+    {
+      "number": 14,
+      "title": "Desktop 1 — Portable runtime",
+      "url": "https://github.com/chris-dare-dev/arXMCP/milestone/14",
+      "issues": [388, 394, 395]
+    },
+    {
+      "number": 15,
+      "title": "Desktop 2 — macOS walking skeleton",
+      "url": "https://github.com/chris-dare-dev/arXMCP/milestone/15",
+      "issues": [389, 396, 397]
+    },
+    {
+      "number": 16,
+      "title": "Desktop 3 — Signed macOS beta",
+      "url": "https://github.com/chris-dare-dev/arXMCP/milestone/16",
+      "issues": [390, 391]
+    },
+    {
+      "number": 17,
+      "title": "Desktop 4 — macOS v1",
+      "url": "https://github.com/chris-dare-dev/arXMCP/milestone/17",
+      "issues": [392, 393, 398]
+    }
+  ],
+  "issues": [
+    {"number": 384, "id": "desktop-distribution-spike-1", "kind": "spike", "lane": "Now", "priority": "Must", "size": "S"},
+    {"number": 385, "id": "desktop-distribution-spike-2", "kind": "spike", "lane": "Now", "priority": "Must", "size": "S"},
+    {"number": 386, "id": "desktop-distribution-spike-3", "kind": "spike", "lane": "Now", "priority": "Must", "size": "S"},
+    {"number": 387, "id": "desktop-distribution-spike-4", "kind": "spike", "lane": "Now", "priority": "Must", "size": "S"},
+    {"number": 388, "id": "desktop-distribution-e1", "kind": "epic", "lane": "Now", "priority": "Must", "size": "M"},
+    {"number": 389, "id": "desktop-distribution-e2", "kind": "epic", "lane": "Now", "priority": "Must", "size": "M"},
+    {"number": 390, "id": "desktop-distribution-e3", "kind": "epic", "lane": "Next", "priority": "Should", "size": "M"},
+    {"number": 391, "id": "desktop-distribution-e4", "kind": "epic", "lane": "Next", "priority": "Must", "size": "L"},
+    {"number": 392, "id": "desktop-distribution-e5", "kind": "epic", "lane": "Next", "priority": "Should", "size": "M"},
+    {"number": 393, "id": "desktop-distribution-e6", "kind": "epic", "lane": "Later", "priority": "Could", "size": "M"},
+    {"number": 394, "id": "desktop-distribution-m1", "kind": "milestone", "lane": "Now", "priority": "Must", "size": "M"},
+    {"number": 395, "id": "desktop-distribution-m2", "kind": "milestone", "lane": "Now", "priority": "Must", "size": "M"},
+    {"number": 396, "id": "desktop-distribution-m3", "kind": "milestone", "lane": "Now", "priority": "Must", "size": "M"},
+    {"number": 397, "id": "desktop-distribution-m4", "kind": "milestone", "lane": "Now", "priority": "Must", "size": "M"},
+    {"number": 398, "id": "desktop-distribution", "kind": "program", "lane": "Now", "priority": "Must", "size": "L"}
+  ]
+}
