@@ -20,3 +20,4 @@
 2026-08-06 | desktop-distribution-spike-2 | A managed macOS gate can deny loopback `bind()` with EPERM; rerun the exact gate via approved unsandboxed execution before classifying socket tests as regressions.
 2026-08-06 | desktop-distribution-m1 | Scope guards must add untracked-file line counts to `git diff --stat`, which omits them until staging and can hide a threshold breach.
 2026-08-06 | desktop-distribution-m1 | Installed-Config tests in a source checkout must disable source-layout detection and relocate autouse path aliases below the test root, or the fixtures mask strict installed-mode confinement.
+2026-08-06 | desktop-distribution-spike-1 | A frozen macOS native probe must run real FAISS search plus Torch forward: import-only checks miss duplicate-libomp behavior, while PyInstaller RPATH rewriting can change the outcome.
