@@ -4,7 +4,7 @@
   "critique_files": [
     "dedup.md"
   ],
-  "generated_at": "2026-08-05T23:00:00Z",
+  "generated_at": "2026-08-06T13:33:06Z",
   "findings": {
     "H1": {
       "id": "H1",
@@ -72,13 +72,18 @@
       "source_critic": "inline-self-adversarial",
       "source_axis": "Accessibility",
       "source_file": "dedup.md",
-      "status": "deferred",
-      "resolution": "DEFERRED - no in-repo remedy. Replacing `.error:empty { display: none }` with a zero-footprint box is reasoned from the cascade (`:empty` outranks `.error`, and padding/margin/min-height/background are all neutralised), and the reasoning is pinned by test_the_empty_state_has_no_visual_footprint. It is not OBSERVED: this repo ships no browser harness and the preview pane renders these pages as static snapshots. Six empty tinted boxes at first paint would be an obvious visual regression, so the risk is low but real. Recorded so the next operator with a browser checks it deliberately instead of assuming it was verified.",
+      "status": "fixed",
+      "resolution": "VERIFIED IN A BROWSER 2026-08-06, which is what it was deferred for. Ran the real server (127.0.0.1:7733) and measured the rendered detail page: all six <output class=error> blocks report display:block, height 0px, padding 0px, background rgba(0,0,0,0) while empty. So the region IS in the accessibility tree at first paint (not display:none, which was the defect) and has NO visual footprint (which was the risk of fixing it). The six-tinted-boxes regression this finding worried about does not occur. Confirmed in the same pass: #ingest-live carries aria-live=polite while the polled #ingest-status does not (AC#1), and #status-live is a SPAN wrapper with aria-live while #status-badge has none (critique H1) - both correct in the rendered DOM, not just the template.",
       "history": [
         {
           "status": "deferred",
           "at": "2026-08-05T23:00:00Z",
           "resolution": "no in-repo remedy; needs a browser"
+        },
+        {
+          "status": "fixed",
+          "at": "2026-08-06T13:33:06Z",
+          "resolution": "VERIFIED IN A BROWSER 2026-08-06, which is what it was deferred for. Ran the real server (127.0.0.1:7733) and measured the rendered detail page: all six <output class=error> blocks report display:block, height 0px, padding 0px, background rgba(0,0,0,0) while empty. So the region IS in the accessibility tree at first paint (not display:none, which was the defect) and has NO visual footprint (which was the risk of fixing it). The six-tinted-boxes regression this finding worried about does not occur. Confirmed in the same pass: #ingest-live carries aria-live=polite while the polled #ingest-status does not (AC#1), and #status-live is a SPAN wrapper with aria-live while #status-badge has none (critique H1) - both correct in the rendered DOM, not just the template."
         }
       ]
     }

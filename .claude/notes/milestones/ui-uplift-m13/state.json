@@ -1,7 +1,7 @@
 {
   "id": "ui-uplift-m13",
   "created_at": "2026-08-05T16:49:18Z",
-  "updated_at": "2026-08-05T23:20:00Z",
+  "updated_at": "2026-08-06T01:00:00Z",
   "phase": "complete",
   "phase_history": [
     {
@@ -74,12 +74,11 @@
   "rectification_commit": "73d5ef9",
   "fixed_findings": [
     "H1",
+    "L1",
     "M1",
-    "L1"
-  ],
-  "deferred_findings": [
     "M2"
   ],
+  "deferred_findings": [],
   "invalidated_findings": [],
   "regression_tests_added": [
     "tests/test_ui_m13_live_region_hygiene.py"
