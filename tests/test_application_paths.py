@@ -83,6 +83,73 @@ def test_installed_config_uses_one_canonical_root(
     assert config.notebooks_db_path == root / "cache/notebooks.db"
 
 
+def test_installed_notebook_uses_derived_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "installed data"
+    notebook = root / "notebooks" / "demo-nb"
+    marker = notebook / "lancedb" / "corpus-version.json"
+    marker.parent.mkdir(parents=True)
+    marker.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(paths_module, "_source_checkout_root", lambda: None)
+    monkeypatch.setenv("ARXMCP_DATA_DIR", str(root))
+    monkeypatch.setenv("ARXMCP_NOTEBOOK", "demo-nb")
+    monkeypatch.delenv("ARXMCP_CACHE_DB_PATH", raising=False)
+
+    config = Config()
+    assert config.lancedb_path == notebook / "lancedb"
+    assert config.cache_db_path == notebook / "cache/retrieval.db"
+    assert config.bm25_index_root == notebook / "index/bm25"
+    assert config.application_paths.lancedb == config.lancedb_path
+    assert config.application_paths.retrieval_cache_db == config.cache_db_path
+    assert config.application_paths.bm25 == config.bm25_index_root
+
+    monkeypatch.setenv("ARXMCP_LANCEDB_PATH", str(root / "other-lancedb"))
+    with pytest.raises(ValueError, match="either|both"):
+        Config()
+
+
+def test_source_config_propagates_explicit_root_and_alias(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "source"
+    startup = tmp_path / "startup"
+    root = tmp_path / "chosen root"
+    source.mkdir()
+    startup.mkdir()
+    monkeypatch.setattr(paths_module, "_source_checkout_root", lambda: source)
+    monkeypatch.setattr(paths_module, "_STARTUP_CWD", startup)
+    monkeypatch.setenv("ARXMCP_DATA_DIR", str(root))
+    monkeypatch.delenv("ARXMCP_CACHE_DB_PATH", raising=False)
+
+    config = Config()
+    field_pairs = (
+        ("lancedb_path", "lancedb"),
+        ("kuzu_path", "kuzu"),
+        ("cache_db_path", "retrieval_cache_db"),
+        ("bm25_index_root", "bm25"),
+        ("theorem_names_db_path", "theorem_names_db"),
+        ("notebooks_db_path", "notebooks_db"),
+        ("ops_dir", "ops"),
+    )
+    assert config.data_dir == root.resolve()
+    for config_field, paths_field in field_pairs:
+        value = getattr(config, config_field)
+        assert value == getattr(config.application_paths, paths_field)
+        value.relative_to(root.resolve())
+
+    monkeypatch.chdir(tmp_path)
+    assert config.lancedb_path == root.resolve() / "index/lancedb"
+
+    monkeypatch.setenv("ARXMCP_LANCEDB_PATH", "trusted corpus")
+    external = Config()
+    assert external.lancedb_path == (startup / "trusted corpus").resolve()
+    assert external.application_paths.lancedb == external.lancedb_path
+    assert external.application_paths.legacy_external_aliases == (
+        "ARXMCP_LANCEDB_PATH",
+    )
+
+
 @requires_symlink
 def test_symlink_escape_is_rejected(tmp_path: Path) -> None:
     target, outside, link = tmp_path / "target", tmp_path / "out", tmp_path / "link"

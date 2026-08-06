@@ -1,0 +1,66 @@
+{
+  "milestone_id": "desktop-distribution-m1",
+  "critique_format_version": "1.0",
+  "critique_files": [
+    "dedup.md"
+  ],
+  "generated_at": "2026-08-06T15:31:04Z",
+  "findings": {
+    "H1": {
+      "id": "H1",
+      "severity": "HIGH",
+      "title": "Installed notebook mode mistakes defaults for explicit aliases",
+      "file": "server/config.py",
+      "line": 585,
+      "anchor": "for path_field, config_field in config_",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Correctness",
+      "source_file": "dedup.md",
+      "status": "open",
+      "resolution": null,
+      "history": []
+    },
+    "H2": {
+      "id": "H2",
+      "severity": "HIGH",
+      "title": "Explicit source data root does not root server paths",
+      "file": "server/config.py",
+      "line": 584,
+      "anchor": "if paths.mode != \"source\":",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Acceptance coverage",
+      "source_file": "dedup.md",
+      "status": "open",
+      "resolution": null,
+      "history": []
+    },
+    "H3": {
+      "id": "H3",
+      "severity": "HIGH",
+      "title": "Derived defaults masquerade as notebook overrides",
+      "file": "server/config.py",
+      "line": 586,
+      "anchor": "setattr(self, config_field, getattr(paths, path_field))",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "test surface",
+      "source_file": "dedup.md",
+      "status": "open",
+      "resolution": null,
+      "history": []
+    },
+    "H4": {
+      "id": "H4",
+      "severity": "HIGH",
+      "title": "Source Config ignores its resolved data root",
+      "file": "server/config.py",
+      "line": 584,
+      "anchor": "if paths.mode != \"source\":",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "local-first + Docker constraint",
+      "source_file": "dedup.md",
+      "status": "open",
+      "resolution": null,
+      "history": []
+    }
+  }
+}

@@ -33,6 +33,7 @@ AC without ad-hoc startup checks scattered across modules.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 from pydantic import Field, PrivateAttr, SecretStr, field_validator, model_validator
@@ -91,6 +92,10 @@ class Config(BaseSettings):
     )
 
     _application_paths: ApplicationPaths = PrivateAttr()
+    _supplied_path_fields: frozenset[str] = PrivateAttr(
+        default_factory=frozenset
+    )
+    _explicit_lancedb_conflict: bool = PrivateAttr(default=False)
 
     # --- Network ---------------------------------------------------------
 
@@ -569,20 +574,33 @@ class Config(BaseSettings):
             "theorem_names_db": "theorem_names_db_path",
             "notebooks_db": "notebooks_db_path", "ops": "ops_dir",
         }
-        aliases = {
-            env_name: getattr(self, config_fields[path_field])
-            for env_name, path_field in COMPATIBILITY_ALIAS_FIELDS
-            if config_fields[path_field] in self.model_fields_set
-            and getattr(self, config_fields[path_field]) is not None
-        }
+        supplied_fields = frozenset(self.model_fields_set)
+        self._supplied_path_fields = supplied_fields
+        default_lancedb = type(self).model_fields["lancedb_path"].default
+        self._explicit_lancedb_conflict = (
+            "lancedb_path" in supplied_fields
+            and self.lancedb_path != default_lancedb
+        )
+        aliases = {}
+        for env_name, path_field in COMPATIBILITY_ALIAS_FIELDS:
+            config_field = config_fields[path_field]
+            value = getattr(self, config_field)
+            if config_field not in supplied_fields or value is None:
+                continue
+            # Preserve the existing notebook contract: explicitly repeating
+            # the legacy LanceDB default is a no-op, not a competing alias.
+            if config_field == "lancedb_path" and not self._explicit_lancedb_conflict:
+                continue
+            aliases[env_name] = value
         paths = ApplicationPaths.resolve(
-            root=self.data_dir if "data_dir" in self.model_fields_set else None,
+            root=self.data_dir if "data_dir" in supplied_fields else None,
             aliases=aliases,
         )
         self._application_paths = paths
         self.data_dir = paths.root
-        if paths.mode != "source":
-            for path_field, config_field in config_fields.items():
+        rebind_all = paths.mode != "source" or "data_dir" in supplied_fields
+        for path_field, config_field in config_fields.items():
+            if rebind_all or config_field in supplied_fields:
                 setattr(self, config_field, getattr(paths, path_field))
         return self
 
@@ -631,11 +649,7 @@ class Config(BaseSettings):
         # foot-gun for operators who carry a baseline ARXMCP_LANCEDB_PATH
         # in a shell profile. A value-equals-default override is a no-op,
         # so the notebook derivation proceeds unambiguously.
-        default_lancedb = type(self).model_fields["lancedb_path"].default
-        if (
-            "lancedb_path" in self.model_fields_set
-            and self.lancedb_path != default_lancedb
-        ):
+        if self._explicit_lancedb_conflict:
             raise ValueError(
                 "set either ARXMCP_NOTEBOOK or ARXMCP_LANCEDB_PATH, not "
                 f"both (got notebook={self.notebook!r} and an explicit "
@@ -651,7 +665,13 @@ class Config(BaseSettings):
             notebook_lancedb_path,
         )
         try:
-            derived = notebook_lancedb_path(self.notebook)
+            canonical_base = (
+                self._application_paths.notebooks
+                if self._application_paths.mode != "source"
+                or "data_dir" in self._supplied_path_fields
+                else None
+            )
+            derived = notebook_lancedb_path(self.notebook, base=canonical_base)
         except NotebookError as exc:
             raise ValueError(
                 f"invalid ARXMCP_NOTEBOOK={self.notebook!r}: {exc}"
@@ -680,7 +700,7 @@ class Config(BaseSettings):
         # relaunch from notebook A to notebook B can serve A's chunks for a
         # B query. Structural isolation here mirrors the lancedb isolation
         # and avoids the slug-in-key refactor deferred to m2.
-        if "cache_db_path" not in self.model_fields_set:
+        if "cache_db_path" not in self._supplied_path_fields:
             self.cache_db_path = derived.parent / "cache" / "retrieval.db"
         # notebook-bm25-isolation-m1: redirect the BM25 index root to a
         # per-notebook directory unless ARXMCP_BM25_INDEX_ROOT was set
@@ -689,8 +709,14 @@ class Config(BaseSettings):
         # BM25 root becomes ``var/arxmcp/notebooks/<slug>/index/bm25``.
         # The shared (non-notebook) path stays ``None`` via the
         # ``if self.notebook is None: return self`` guard above (FM-4).
-        if "bm25_index_root" not in self.model_fields_set:
+        if "bm25_index_root" not in self._supplied_path_fields:
             self.bm25_index_root = derived.parent / "index" / "bm25"
+        self._application_paths = replace(
+            self._application_paths,
+            lancedb=self.lancedb_path,
+            retrieval_cache_db=self.cache_db_path,
+            bm25=self.bm25_index_root or self._application_paths.bm25,
+        )
         return self
 
     @model_validator(mode="after")
