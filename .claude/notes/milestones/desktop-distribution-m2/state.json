@@ -1,8 +1,8 @@
 {
   "id": "desktop-distribution-m2",
   "created_at": "2026-08-06T18:49:38Z",
-  "updated_at": "2026-08-06T20:14:06Z",
-  "phase": "rectify-running",
+  "updated_at": "2026-08-06T21:23:48Z",
+  "phase": "complete",
   "phase_history": [
     {
       "phase": "init",
@@ -35,6 +35,10 @@
     {
       "phase": "rectify-running",
       "at": "2026-08-06T20:14:06Z"
+    },
+    {
+      "phase": "complete",
+      "at": "2026-08-06T21:23:48Z"
     }
   ],
   "milestone_brief": "### desktop-distribution-m2 \u2014 Make the installed server relocatable\n\n**Description.** Route the server, notebook registry, retrieval stores, and operational outputs through the centralized path contract for installed-runtime flows. Add a wheel relocation smoke that starts in bootstrap mode from an arbitrary working directory and proves no write lands beside the application or checkout.\n\n**Acceptance criteria.**\n- [ ] The installed `arxmcp-server` starts with a temporary application-data root from outside the repository and reaches `/healthz` in bootstrap mode.\n- [ ] Notebook, cache, log, corpus-marker, and settings writes observed in the smoke remain beneath that root.\n- [ ] The wheel, Docker/Compose, `make up`, and existing explicit per-store overrides retain their current behavior.\n- [ ] A regression test fails if an installed-runtime code path derives a writable location from `cwd` or repository root.\n- [ ] `make test` exits 0.\n\n**Dependencies.** desktop-distribution-e1, desktop-distribution-m1, desktop-distribution-spike-1\n\n**Complexity.** M\n\n**Specialist suggestion.** `security-reviewer`, `determinism-reviewer`",
@@ -75,11 +79,26 @@
     "low": 0
   },
   "findings_register": ".claude/notes/milestones/desktop-distribution-m2/findings.json",
-  "rectification_commit": null,
-  "fixed_findings": [],
+  "rectification_commit": "edfc05a2b752a398d6f13fb4db79999c74776869",
+  "fixed_findings": [
+    "H2",
+    "H3",
+    "H4",
+    "M1",
+    "M2"
+  ],
   "deferred_findings": [],
-  "invalidated_findings": [],
-  "regression_tests_added": [],
-  "external_writes_authorized": [],
-  "external_writes_completed": []
+  "invalidated_findings": [
+    "C1",
+    "H1"
+  ],
+  "regression_tests_added": [
+    "tests/test_installed_path_consumers.py"
+  ],
+  "external_writes_authorized": [
+    "git push origin main"
+  ],
+  "external_writes_completed": [
+    "git push origin main"
+  ]
 }

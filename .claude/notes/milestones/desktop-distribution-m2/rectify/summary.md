@@ -1,6 +1,7 @@
 # Rectify summary — desktop-distribution-m2
 
-- **Rect commit:** pending — `rect(desktop-distribution-m2): close H2-H4,M1-M2`
+- **Rect commit:** `edfc05a2b752a398d6f13fb4db79999c74776869` —
+  `rect(desktop-distribution-m2): close H2-H4,M1-M2`
 - **Fixed (5):** H2, H3, H4, M1, M2.
 - **Deferred:** none.
 - **Invalidated (2):** C1, H1.
