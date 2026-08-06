@@ -1,0 +1,51 @@
+{
+  "id": "desktop-distribution-m2",
+  "created_at": "2026-08-06T18:49:38Z",
+  "updated_at": "2026-08-06T19:02:06Z",
+  "phase": "research-complete",
+  "phase_history": [
+    {
+      "phase": "init",
+      "at": "2026-08-06T18:49:38Z"
+    },
+    {
+      "phase": "research-running",
+      "at": "2026-08-06T18:50:06Z"
+    },
+    {
+      "phase": "research-complete",
+      "at": "2026-08-06T19:02:06Z"
+    }
+  ],
+  "milestone_brief": "### desktop-distribution-m2 \u2014 Make the installed server relocatable\n\n**Description.** Route the server, notebook registry, retrieval stores, and operational outputs through the centralized path contract for installed-runtime flows. Add a wheel relocation smoke that starts in bootstrap mode from an arbitrary working directory and proves no write lands beside the application or checkout.\n\n**Acceptance criteria.**\n- [ ] The installed `arxmcp-server` starts with a temporary application-data root from outside the repository and reaches `/healthz` in bootstrap mode.\n- [ ] Notebook, cache, log, corpus-marker, and settings writes observed in the smoke remain beneath that root.\n- [ ] The wheel, Docker/Compose, `make up`, and existing explicit per-store overrides retain their current behavior.\n- [ ] A regression test fails if an installed-runtime code path derives a writable location from `cwd` or repository root.\n- [ ] `make test` exits 0.\n\n**Dependencies.** desktop-distribution-e1, desktop-distribution-m1, desktop-distribution-spike-1\n\n**Complexity.** M\n\n**Specialist suggestion.** `security-reviewer`, `determinism-reviewer`",
+  "brief_source": "legacy-prose plans/desktop-distribution-roadmap.md",
+  "research_mode": "standard",
+  "oss_scout_requested": false,
+  "allow_large_diff": false,
+  "research_briefs": [
+    "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/desktop-distribution-m2/research/brief-1.md",
+    "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/desktop-distribution-m2/research/brief-2.md"
+  ],
+  "research_synthesis": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/desktop-distribution-m2/research/synthesis.md",
+  "implementation_path": null,
+  "implementation_plan": null,
+  "implementation_base": null,
+  "implementation_commit_range": null,
+  "implementation_commits": [],
+  "implementation_branch": null,
+  "external_writes_required": [
+    "git push origin main"
+  ],
+  "critique_path": null,
+  "critics_run": [],
+  "critique_files": [],
+  "critique_finding_counts": null,
+  "findings_register": null,
+  "rectification_commit": null,
+  "fixed_findings": [],
+  "deferred_findings": [],
+  "invalidated_findings": [],
+  "regression_tests_added": [],
+  "external_writes_authorized": [],
+  "external_writes_completed": []
+}
