@@ -1,0 +1,51 @@
+{
+  "id": "desktop-distribution-spike-3",
+  "created_at": "2026-08-06T21:49:49Z",
+  "updated_at": "2026-08-06T22:04:25Z",
+  "phase": "research-complete",
+  "phase_history": [
+    {
+      "phase": "init",
+      "at": "2026-08-06T21:49:49Z"
+    },
+    {
+      "phase": "research-running",
+      "at": "2026-08-06T21:50:09Z"
+    },
+    {
+      "phase": "research-complete",
+      "at": "2026-08-06T22:04:25Z"
+    }
+  ],
+  "milestone_brief": "### desktop-distribution-spike-3 \u2014 Prove safe desktop sidecar lifecycle\n\n**Question.** Can the shared desktop supervisor safely own exactly one local server across normal launch, duplicate launch, timeout, child crash, supervisor crash, and shutdown on macOS?\n\n**Timebox.** At most 3 days. Fixture sidecar and protocol decision only.\n\n**Acceptance criteria.**\n- Exercise Tauri sidecar spawning, single-instance activation, dynamic loopback-port handoff, and readiness polling with a fixture process.\n- Exercise graceful stop, bounded forced kill, child crash, parent crash, and orphan/listener detection.\n- Confirm secrets are not passed in command-line arguments or written to logs and the server never binds non-loopback.\n- Measure 30 launch/stop cycles and record orphan/listener count.\n- Record the lifecycle protocol, OS primitives, and fallback if Tauri cannot enforce the contract.\n\n**Dependencies.** None.\n\n**GitHub issue.** chris-dare-dev/arXMCP#386.",
+  "brief_source": "inline",
+  "research_mode": "standard",
+  "oss_scout_requested": false,
+  "allow_large_diff": false,
+  "research_briefs": [
+    "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/desktop-distribution-spike-3/research/brief-1.md",
+    "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/desktop-distribution-spike-3/research/brief-2.md"
+  ],
+  "research_synthesis": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/desktop-distribution-spike-3/research/synthesis.md",
+  "implementation_path": null,
+  "implementation_plan": null,
+  "implementation_base": null,
+  "implementation_commit_range": null,
+  "implementation_commits": [],
+  "implementation_branch": null,
+  "external_writes_required": [
+    "git push origin main"
+  ],
+  "critique_path": null,
+  "critics_run": [],
+  "critique_files": [],
+  "critique_finding_counts": null,
+  "findings_register": null,
+  "rectification_commit": null,
+  "fixed_findings": [],
+  "deferred_findings": [],
+  "invalidated_findings": [],
+  "regression_tests_added": [],
+  "external_writes_authorized": [],
+  "external_writes_completed": []
+}
