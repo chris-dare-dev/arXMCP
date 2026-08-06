@@ -84,6 +84,7 @@ import time
 import urllib.error
 import urllib.request
 import zipfile
+from collections.abc import Mapping
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -375,22 +376,267 @@ def _free_port() -> int:
         return int(s.getsockname()[1])
 
 
-def assert_boots(venv: Path, site_packages: str) -> None:
-    """Boot the installed server and poll ``/healthz``.
+_CHILD_ENV_BLOCKED_PREFIXES: tuple[str, ...] = (
+    "ARXMCP_",
+    "DYLD_",
+    "LD_",
+    "PYTHON",
+)
+_CHILD_ENV_BLOCKED_KEYS: frozenset[str] = frozenset(
+    {"OLDPWD", "PWD", "VIRTUAL_ENV"}
+)
 
-    Runs from a temp cwd so the repo's own ``server/`` and ``frontend/``
-    cannot shadow the installed copies, and asserts up front that
-    ``server`` really resolves inside this venv — otherwise a parent
-    editable install would make the whole check vacuous.
+
+def build_relocated_child_environment(
+    data_dir: Path,
+    port: int,
+    *,
+    environ: Mapping[str, str] | None = None,
+) -> dict[str, str]:
+    """Build a hermetic environment for the installed-wheel boot.
+
+    The parent shell is developer-controlled and commonly contains an
+    editable-install ``PYTHONPATH``, legacy ``ARXMCP_*`` path overrides, or
+    platform cache locations.  Inheriting any of those makes a relocation
+    check capable of passing while importing or writing outside its sandbox.
+    Keep ordinary process settings (``PATH``, certificate locations, locale),
+    remove every Python/loader/arXMCP influence, then reconstruct the complete
+    writable environment beneath ``data_dir``.
+    """
+    source = os.environ if environ is None else environ
+    env = {
+        key: value
+        for key, value in source.items()
+        if key not in _CHILD_ENV_BLOCKED_KEYS
+        and not key.startswith(_CHILD_ENV_BLOCKED_PREFIXES)
+    }
+
+    root = data_dir.resolve(strict=False)
+    redirected = {
+        "HOME": root / "runtime" / "home",
+        "USERPROFILE": root / "runtime" / "home",
+        "LOCALAPPDATA": root / "runtime" / "local-app-data",
+        "APPDATA": root / "runtime" / "app-data",
+        "XDG_DATA_HOME": root / "runtime" / "xdg-data",
+        "XDG_CONFIG_HOME": root / "runtime" / "xdg-config",
+        "XDG_CACHE_HOME": root / "cache" / "xdg",
+        "HF_HOME": root / "cache" / "huggingface",
+        "TRANSFORMERS_CACHE": root / "cache" / "huggingface",
+        "MPLCONFIGDIR": root / "cache" / "matplotlib",
+        "TMPDIR": root / "tmp",
+        "TEMP": root / "tmp",
+        "TMP": root / "tmp",
+    }
+    for path in set(redirected.values()):
+        path.mkdir(parents=True, exist_ok=True)
+
+    env.update({key: str(path) for key, path in redirected.items()})
+    env.update(
+        {
+            "ARXMCP_BOOTSTRAP_MODE": "1",
+            "ARXMCP_BIND_HOST": "127.0.0.1",
+            "ARXMCP_BIND_PORT": str(port),
+            "ARXMCP_DATA_DIR": str(root),
+            "ARXMCP_LOG_LEVEL": "INFO",
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTHONUNBUFFERED": "1",
+        }
+    )
+    return env
+
+
+ManifestEntry = tuple[str, int, int, int, str]
+
+
+def filesystem_metadata_manifest(root: Path) -> dict[str, ManifestEntry]:
+    """Return a stable, recursive metadata manifest for mutation detection.
+
+    File contents are not hashed: hashing a dependency-complete venv would
+    reread roughly 2 GB twice.  Type, size, nanosecond mtime, mode, and symlink
+    target detect the write classes this relocation gate is concerned with
+    while keeping the full-wheel check practical.
+    """
+    if not root.exists():
+        return {}
+    manifest: dict[str, ManifestEntry] = {}
+    for path in sorted(root.rglob("*")):
+        try:
+            stat = path.lstat()
+        except FileNotFoundError:
+            # A concurrently-removed transient is itself caught by its parent
+            # directory's mtime; do not make the observer race-prone.
+            continue
+        if path.is_symlink():
+            kind = "symlink"
+            target = os.readlink(path)
+        elif path.is_dir():
+            kind = "dir"
+            target = ""
+        elif path.is_file():
+            kind = "file"
+            target = ""
+        else:
+            kind = "other"
+            target = ""
+        manifest[path.relative_to(root).as_posix()] = (
+            kind,
+            stat.st_size,
+            stat.st_mtime_ns,
+            stat.st_mode,
+            target,
+        )
+    return manifest
+
+
+def changed_manifest_paths(
+    before: Mapping[str, ManifestEntry],
+    after: Mapping[str, ManifestEntry],
+) -> list[str]:
+    """Return sorted paths added, removed, or metadata-modified."""
+    return sorted(
+        path
+        for path in set(before) | set(after)
+        if before.get(path) != after.get(path)
+    )
+
+
+def assert_manifest_unchanged(
+    label: str,
+    before: Mapping[str, ManifestEntry],
+    after: Mapping[str, ManifestEntry],
+) -> None:
+    """Raise when a watched tree changed during installed execution."""
+    changed = changed_manifest_paths(before, after)
+    if changed:
+        rendered = "\n".join(f"  - {path}" for path in changed[:50])
+        suffix = "\n  - ..." if len(changed) > 50 else ""
+        raise CheckFailed(
+            f"installed runtime mutated {label} outside ARXMCP_DATA_DIR:\n"
+            f"{rendered}{suffix}"
+        )
+
+
+def assert_manifest_changes_confined(
+    label: str,
+    before: Mapping[str, ManifestEntry],
+    after: Mapping[str, ManifestEntry],
+    *,
+    allowed_prefix: str,
+) -> None:
+    """Raise unless every manifest delta is at or below one relative path."""
+    changed = changed_manifest_paths(before, after)
+    unexpected = [
+        path
+        for path in changed
+        if path != allowed_prefix and not path.startswith(f"{allowed_prefix}/")
+    ]
+    if unexpected:
+        rendered = "\n".join(f"  - {path}" for path in unexpected[:50])
+        suffix = "\n  - ..." if len(unexpected) > 50 else ""
+        raise CheckFailed(
+            f"installed runtime escaped {label}'s allowed "
+            f"{allowed_prefix!r} subtree:\n{rendered}{suffix}"
+        )
+
+
+_WRITER_PROBE = r"""
+import asyncio, json
+
+from ingest.store import write_corpus_version_marker
+from server.cache import RetrievalCache
+from server.config import Config
+from server.operator_settings import set_setting
+
+async def main():
+    config = Config()
+    paths = config.application_paths
+    paths.prepare()
+
+    cache = await RetrievalCache.open(config.cache_db_path, corpus_version=1)
+    await cache.close()
+    set_setting("desktop_relocation_probe", "ok", config.notebooks_db_path)
+    write_corpus_version_marker(
+        config.lancedb_path,
+        version=1,
+        chunker_version="relocation-probe",
+        embedder_version="relocation-probe",
+        paper_count=0,
+        chunk_count=0,
+    )
+
+    print(json.dumps({
+        "mode": paths.mode,
+        "root": str(paths.root),
+        "notebooks": str(paths.notebooks),
+        "retrieval_cache": str(config.cache_db_path),
+        "settings_db": str(config.notebooks_db_path),
+        "corpus_marker": str(config.lancedb_path / "corpus-version.json"),
+        "logs": str(paths.logs),
+    }, sort_keys=True))
+
+asyncio.run(main())
+"""
+
+
+def _post_smoke_notebook(port: int) -> None:
+    body = json.dumps(
+        {"slug": "relocation-smoke", "display_name": "Relocation smoke"}
+    ).encode("utf-8")
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{port}/ui/api/notebooks",
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            payload = response.read().decode("utf-8", errors="replace")
+            if response.status != 201:
+                raise CheckFailed(
+                    "live installed notebook create returned "
+                    f"HTTP {response.status}: {payload[-2000:]}"
+                )
+    except urllib.error.HTTPError as exc:
+        payload = exc.read().decode("utf-8", errors="replace")
+        raise CheckFailed(
+            "live installed notebook create returned "
+            f"HTTP {exc.code}: {payload[-2000:]}"
+        ) from exc
+
+
+def _assert_path_inside(root: Path, raw_path: str, label: str) -> Path:
+    path = Path(raw_path).resolve(strict=False)
+    try:
+        path.relative_to(root)
+    except ValueError as exc:
+        raise CheckFailed(
+            f"writer probe reported {label} outside ARXMCP_DATA_DIR: {path}"
+        ) from exc
+    return path
+
+
+def assert_boots(venv: Path, site_packages: str) -> None:
+    """Boot the installed server and prove all writes stay under one root.
+
+    Besides ``/healthz``, this exercises the live notebook HTTP writer and
+    the cache/settings/corpus-marker writers.  Parent-side manifests watch
+    the checkout, installed venv, arbitrary CWD, and complete boot sandbox;
+    only the sandbox's ``data/`` subtree may change.
     """
     py = _venv_python(venv)
-    tmp_cwd = Path(tempfile.mkdtemp(prefix="arxmcp-boot-cwd-"))
-    data_dir = Path(tempfile.mkdtemp(prefix="arxmcp-boot-data-"))
+    sandbox = Path(tempfile.mkdtemp(prefix="arxmcp-boot-sandbox-"))
+    tmp_cwd = sandbox / "cwd"
+    data_dir = sandbox / "data"
+    tmp_cwd.mkdir()
+    data_dir.mkdir()
 
     try:
+        port = _free_port()
+        env = build_relocated_child_environment(data_dir, port)
         shadow = _run(
             [str(py), "-c", "import server, sys; print(server.__file__)"],
             cwd=tmp_cwd,
+            env=env,
         )
         if shadow.returncode != 0:
             raise CheckFailed(
@@ -407,19 +653,12 @@ def assert_boots(venv: Path, site_packages: str) -> None:
                 "Re-run with --mode full for a fully isolated environment."
             )
 
-        port = _free_port()
-        env = dict(os.environ)
-        env.pop("ARXMCP_CONTACT_EMAIL", None)  # server rejects this ingest-only var
-        env.update(
-            {
-                "ARXMCP_BOOTSTRAP_MODE": "1",
-                "ARXMCP_BIND_HOST": "127.0.0.1",
-                "ARXMCP_BIND_PORT": str(port),
-                "ARXMCP_DATA_DIR": str(data_dir),
-                "ARXMCP_LOG_LEVEL": "INFO",
-                "PYTHONUNBUFFERED": "1",
-            }
-        )
+        watched_before = {
+            "source checkout": filesystem_metadata_manifest(REPO_ROOT),
+            "installed environment": filesystem_metadata_manifest(venv),
+            "arbitrary boot CWD": filesystem_metadata_manifest(tmp_cwd),
+            "boot sandbox": filesystem_metadata_manifest(sandbox),
+        }
 
         exe = _script_path(venv, "arxmcp-server")
         # Stream the child's stdout+stderr to a file rather than a pipe.
@@ -427,7 +666,8 @@ def assert_boots(venv: Path, site_packages: str) -> None:
         # on a HANG (as opposed to a crash) the diagnostic output would be
         # stuck in the OS buffer and unreadable — exactly the case where it
         # is most needed. A file is readable at any moment.
-        log_path = tmp_cwd / "server-boot.log"
+        log_path = data_dir / "logs" / "server-boot.log"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
         _log(f"booting {exe.name} on 127.0.0.1:{port} with ARXMCP_BOOTSTRAP_MODE=1")
         _log(f"  child log: {log_path}")
         log_handle = log_path.open("w", encoding="utf-8", errors="replace")
@@ -453,6 +693,7 @@ def assert_boots(venv: Path, site_packages: str) -> None:
         # mistake for a hang.
         deadline = time.monotonic() + 300
         last_err: str = "never attempted"
+        healthy = False
         try:
             while time.monotonic() < deadline:
                 if proc.poll() is not None:
@@ -464,18 +705,51 @@ def assert_boots(venv: Path, site_packages: str) -> None:
                     with urllib.request.urlopen(url, timeout=5) as resp:
                         if resp.status == 200:
                             _log(f"/healthz returned 200 — clean-env boot OK (port {port})")
-                            return
+                            healthy = True
+                            break
                         last_err = f"HTTP {resp.status}"
                 except (urllib.error.URLError, OSError, TimeoutError) as exc:
                     last_err = str(exc)
                 time.sleep(1.0)
 
-            raise CheckFailed(
-                f"/healthz never returned 200 within 300s (last error: {last_err})\n"
-                f"child output:\n{_tail()}"
+            if not healthy:
+                raise CheckFailed(
+                    f"/healthz never returned 200 within 300s "
+                    f"(last error: {last_err})\nchild output:\n{_tail()}"
+                )
+
+            _post_smoke_notebook(port)
+            _log("live POST /ui/api/notebooks returned 201")
+
+            writer = _run(
+                [str(py), "-c", _WRITER_PROBE],
+                cwd=tmp_cwd,
+                env=env,
+                timeout=120,
             )
+            if writer.returncode != 0:
+                raise CheckFailed(
+                    "installed writer probe failed:\n"
+                    f"{writer.stdout[-3000:]}\n{writer.stderr[-3000:]}"
+                )
+            try:
+                writer_data = json.loads(writer.stdout.strip().splitlines()[-1])
+            except (IndexError, json.JSONDecodeError) as exc:
+                raise CheckFailed(
+                    "installed writer probe emitted no valid JSON:\n"
+                    f"{writer.stdout[-3000:]}\n{writer.stderr[-3000:]}"
+                ) from exc
+            if writer_data.get("mode") != "installed":
+                raise CheckFailed(
+                    "writer probe did not exercise installed path mode: "
+                    f"{writer_data.get('mode')!r}"
+                )
+            canonical_data = data_dir.resolve(strict=False)
+            for label, raw_path in writer_data.items():
+                if label == "mode":
+                    continue
+                _assert_path_inside(canonical_data, raw_path, label)
         finally:
-            log_handle.close()
             if proc.poll() is None:
                 proc.terminate()
                 try:
@@ -483,9 +757,52 @@ def assert_boots(venv: Path, site_packages: str) -> None:
                 except subprocess.TimeoutExpired:
                     proc.kill()
                     proc.wait(timeout=30)
+            log_handle.close()
+
+        expected = (
+            data_dir / "notebooks" / "relocation-smoke",
+            data_dir / "cache" / "retrieval.db",
+            data_dir / "cache" / "notebooks.db",
+            data_dir / "index" / "lancedb" / "corpus-version.json",
+            log_path,
+        )
+        missing = [path for path in expected if not path.exists()]
+        if missing:
+            raise CheckFailed(
+                "installed boot did not create expected application state:\n"
+                + "\n".join(f"  - {path}" for path in missing)
+            )
+
+        watched_after = {
+            "source checkout": filesystem_metadata_manifest(REPO_ROOT),
+            "installed environment": filesystem_metadata_manifest(venv),
+            "arbitrary boot CWD": filesystem_metadata_manifest(tmp_cwd),
+            "boot sandbox": filesystem_metadata_manifest(sandbox),
+        }
+        for label in ("source checkout", "installed environment", "arbitrary boot CWD"):
+            assert_manifest_unchanged(
+                label, watched_before[label], watched_after[label]
+            )
+        assert_manifest_changes_confined(
+            "boot sandbox",
+            watched_before["boot sandbox"],
+            watched_after["boot sandbox"],
+            allowed_prefix="data",
+        )
+        data_delta = [
+            path
+            for path in changed_manifest_paths(
+                watched_before["boot sandbox"],
+                watched_after["boot sandbox"],
+            )
+            if path == "data" or path.startswith("data/")
+        ]
+        _log(f"application-data manifest delta ({len(data_delta)} paths):")
+        for path in data_delta:
+            _log(f"  {path}")
+        _log("notebook/cache/settings/corpus-marker/log writes confined to data root")
     finally:
-        shutil.rmtree(tmp_cwd, ignore_errors=True)
-        shutil.rmtree(data_dir, ignore_errors=True)
+        shutil.rmtree(sandbox, ignore_errors=True)
 
 
 # ---------------------------------------------------------------------------

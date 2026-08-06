@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from mcp.server.fastmcp import FastMCP
@@ -21,7 +25,9 @@ from server.notebooks_store import NotebooksStore
 from server.routes.notebooks import router as notebooks_router
 from server.routes.ui import router as ui_router
 from server.tools import reset_resources_for_tests, set_resources
-from tools import _notebook_common
+from tools import _notebook_common, wheel_install_check
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_http_consumers_ignore_import_time_writable_roots(
@@ -160,3 +166,150 @@ def test_mcp_resources_use_live_config_paths(
         "settings_db_path": config.application_paths.notebooks_db,
     }
     assert not poison.exists()
+
+
+def test_relocated_child_environment_removes_parent_path_influence(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "application-data"
+    ambient = {
+        "PATH": "/usr/bin:/bin",
+        "SAFE_SETTING": "preserved",
+        "ARXMCP_LANCEDB_PATH": "/parent/leak",
+        "ARXMCP_CONTACT_EMAIL": "parent@example.invalid",
+        "PYTHONPATH": "/editable/checkout",
+        "PYTHONHOME": "/parent/python",
+        "PYTHONHASHSEED": "parent-value",
+        "DYLD_LIBRARY_PATH": "/parent/dylib",
+        "LD_PRELOAD": "/parent/preload.so",
+        "VIRTUAL_ENV": "/parent/venv",
+        "PWD": "/parent/cwd",
+        "OLDPWD": "/parent/old-cwd",
+    }
+
+    env = wheel_install_check.build_relocated_child_environment(
+        root, 47123, environ=ambient
+    )
+
+    assert env["PATH"] == ambient["PATH"]
+    assert env["SAFE_SETTING"] == "preserved"
+    for removed in (
+        "ARXMCP_LANCEDB_PATH",
+        "ARXMCP_CONTACT_EMAIL",
+        "PYTHONPATH",
+        "PYTHONHOME",
+        "PYTHONHASHSEED",
+        "DYLD_LIBRARY_PATH",
+        "LD_PRELOAD",
+        "VIRTUAL_ENV",
+        "PWD",
+        "OLDPWD",
+    ):
+        assert removed not in env
+
+    canonical_root = root.resolve()
+    assert env["ARXMCP_DATA_DIR"] == str(canonical_root)
+    assert env["ARXMCP_BIND_PORT"] == "47123"
+    assert env["PYTHONDONTWRITEBYTECODE"] == "1"
+    for redirected in (
+        "HOME",
+        "USERPROFILE",
+        "LOCALAPPDATA",
+        "APPDATA",
+        "XDG_DATA_HOME",
+        "XDG_CONFIG_HOME",
+        "XDG_CACHE_HOME",
+        "HF_HOME",
+        "TRANSFORMERS_CACHE",
+        "MPLCONFIGDIR",
+        "TMPDIR",
+        "TEMP",
+        "TMP",
+    ):
+        path = Path(env[redirected])
+        assert path.is_dir()
+        assert path.is_relative_to(canonical_root)
+
+
+def test_manifest_guard_rejects_an_arbitrary_cwd_write(tmp_path: Path) -> None:
+    sandbox = tmp_path / "sandbox"
+    data = sandbox / "data"
+    cwd = sandbox / "cwd"
+    data.mkdir(parents=True)
+    cwd.mkdir()
+    before = wheel_install_check.filesystem_metadata_manifest(sandbox)
+
+    allowed = data / "logs" / "server.log"
+    allowed.parent.mkdir()
+    allowed.write_text("inside root", encoding="utf-8")
+    after_allowed = wheel_install_check.filesystem_metadata_manifest(sandbox)
+    wheel_install_check.assert_manifest_changes_confined(
+        "test sandbox", before, after_allowed, allowed_prefix="data"
+    )
+
+    (cwd / "leak.db").write_text("outside root", encoding="utf-8")
+    after_leak = wheel_install_check.filesystem_metadata_manifest(sandbox)
+    with pytest.raises(wheel_install_check.CheckFailed, match="leak.db"):
+        wheel_install_check.assert_manifest_changes_confined(
+            "test sandbox", before, after_leak, allowed_prefix="data"
+        )
+
+
+def test_installed_writer_probe_is_independent_of_cwd(tmp_path: Path) -> None:
+    """Real writers stay under the configured root in installed path mode."""
+    checkout_before = wheel_install_check.filesystem_metadata_manifest(
+        REPO_ROOT
+    )
+    reports: list[dict[str, str]] = []
+    probe = (
+        "import server.application_paths as application_paths\n"
+        "application_paths._source_checkout_root = lambda: None\n"
+        + wheel_install_check._WRITER_PROBE
+    )
+
+    for ordinal in (1, 2):
+        cwd = tmp_path / f"arbitrary-cwd-{ordinal}"
+        root = tmp_path / f"application-data-{ordinal}"
+        cwd.mkdir()
+        env = wheel_install_check.build_relocated_child_environment(
+            root, 47200 + ordinal, environ={"PATH": "/usr/bin:/bin"}
+        )
+        # This always-on test imports the worktree to exercise the same code
+        # cheaply.  The full-wheel gate deliberately has no PYTHONPATH and
+        # separately proves imports resolve inside its isolated site-packages.
+        env["PYTHONPATH"] = str(REPO_ROOT)
+        cwd_before = wheel_install_check.filesystem_metadata_manifest(cwd)
+        result = subprocess.run(
+            [sys.executable, "-c", probe],
+            cwd=cwd,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        report = json.loads(result.stdout.strip().splitlines()[-1])
+        reports.append(report)
+        assert report["mode"] == "installed"
+        canonical_root = root.resolve()
+        for key, raw_path in report.items():
+            if key != "mode":
+                assert Path(raw_path).is_relative_to(canonical_root)
+        assert (root / "cache" / "retrieval.db").is_file()
+        assert (root / "cache" / "notebooks.db").is_file()
+        assert (
+            root / "index" / "lancedb" / "corpus-version.json"
+        ).is_file()
+        cwd_after = wheel_install_check.filesystem_metadata_manifest(cwd)
+        wheel_install_check.assert_manifest_unchanged(
+            f"arbitrary CWD {ordinal}", cwd_before, cwd_after
+        )
+
+    assert reports[0]["root"] != reports[1]["root"]
+    checkout_after = wheel_install_check.filesystem_metadata_manifest(
+        REPO_ROOT
+    )
+    wheel_install_check.assert_manifest_unchanged(
+        "source checkout", checkout_before, checkout_after
+    )

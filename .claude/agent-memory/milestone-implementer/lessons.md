@@ -21,3 +21,4 @@
 2026-08-06 | desktop-distribution-m1 | Scope guards must add untracked-file line counts to `git diff --stat`, which omits them until staging and can hide a threshold breach.
 2026-08-06 | desktop-distribution-m1 | Installed-Config tests in a source checkout must disable source-layout detection and relocate autouse path aliases below the test root, or the fixtures mask strict installed-mode confinement.
 2026-08-06 | desktop-distribution-spike-1 | A frozen macOS native probe must run real FAISS search plus Torch forward: import-only checks miss duplicate-libomp behavior, while PyInstaller RPATH rewriting can change the outcome.
+2026-08-06 | desktop-distribution-m2 | A relocation smoke must scrub ambient ARXMCP/Python/loader variables and watch the checkout, venv, arbitrary CWD, and enclosing sandbox; a temporary data root plus `/healthz` alone proves neither import isolation nor write confinement.
