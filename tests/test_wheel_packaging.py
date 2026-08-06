@@ -59,8 +59,12 @@ INSTALL_DOC = REPO_ROOT / "docs" / "install.md"
 #: means it can never accidentally cover a real data file.
 _NOT_SHIPPED_FILENAMES = frozenset({"README.md", "CLAUDE.md"})
 
-#: Directory names skipped when walking the shipped trees.
-_SKIP_DIRS = frozenset({"__pycache__", ".pytest_cache", ".ruff_cache"})
+#: Directory names skipped when walking the shipped trees. The desktop
+#: lifecycle spike is a source-only Rust/Tauri experiment, not Python wheel
+#: content; its locked crate is built directly with Cargo.
+_SKIP_DIRS = frozenset(
+    {"__pycache__", ".pytest_cache", ".ruff_cache", "desktop_lifecycle_spike"}
+)
 
 
 @pytest.fixture(scope="module")

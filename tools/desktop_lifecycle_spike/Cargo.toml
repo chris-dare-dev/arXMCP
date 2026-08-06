@@ -1,0 +1,28 @@
+[package]
+name = "arxmcp-desktop-lifecycle-spike"
+version = "0.0.0"
+edition = "2021"
+publish = false
+build = "build.rs"
+
+[dependencies]
+fs2 = "0.4"
+getrandom = "0.3"
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = "=2.11.5"
+tauri-plugin-shell = "=2.3.5"
+tauri-plugin-single-instance = "=2.4.3"
+tokio = { version = "1", features = ["time"] }
+
+[build-dependencies]
+tauri-build = "=2.6.3"
+
+[[bin]]
+name = "lifecycle-host"
+path = "src/main.rs"
+
+[[bin]]
+name = "fixture-sidecar"
+path = "src/bin/fixture_sidecar.rs"
