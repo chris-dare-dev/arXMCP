@@ -86,4 +86,12 @@ one. Deleting it would have left the strongest version of the defect untested.
   restored, a fragment branch re-declaring the region), control green.
 - Full suite: the documented 8 environment-bound failures, no new ones.
   `ruff check .` clean.
-- **Not observed in a browser** — see finding M2, deferred for that reason.
+- **NOW OBSERVED IN A BROWSER (2026-08-06).** M2 is closed, not deferred. Against the running
+  server: all six `<output class="error">` blocks render `display:block`, height `0px`, padding
+  `0px`, transparent background while empty — in the accessibility tree at first paint, with no
+  visual footprint. The six-tinted-boxes regression does not occur.
+- **AC#1's mechanism confirmed live**, which is the part an AT would then confirm audibly: across
+  real poll cycles `#ingest-live` is the SAME NODE with zero mutations while `#ingest-status` is
+  replaced. A persisting region with swapped content is exactly the precondition for an unchanged
+  re-render being silent.
+- **Still not covered:** the audible behaviour itself needs a screen reader.

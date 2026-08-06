@@ -43,11 +43,14 @@ clean. `roadmap-validate.py` OK.
 
 ## 2. RESUME HERE — a manual browser pass over `/ui/`
 
-**PARTLY DONE 2026-08-06 (`e8f149d`) — items 1, 2 and 3 are verified; 4 and 5 remain.**
-Re-run the rest before starting another milestone. Confirmed live: a real 409 now fills
-`#create-error` ("notebook slug '…' already exists"), which that surface had never done before
-`d53e284`; and the m13 / m12 live-region structure is correct in the RENDERED DOM, not just the
-template.
+**DONE 2026-08-06. Every item below was executed against the running server; nothing here is
+outstanding.** Kept as the record of what was checked and how, because one item found a defect
+and one of my own interim findings turned out to be a measurement artifact.
+
+**USE A MutationObserver, OR CAPTURE AT DISPATCH — NEVER `setTimeout` THEN READ.** Three times in
+one session a `setTimeout`-and-read showed an error block empty when it was not, and one of those
+nearly got written up as "the #383 fix does not work". This is the single most useful thing on
+this page for anyone re-verifying htmx behaviour.
 
 `make` is not on PATH here — start it through the preview pane instead (recipe in §6), or:
 
@@ -67,10 +70,17 @@ Check, in order:
 3. ~~**m13's empty error blocks**~~ — **DONE 2026-08-06** (`e8f149d`). Measured on the running
    server: all six report `display:block`, height 0px, padding 0px, transparent background while
    empty. m13 finding **M2** is closed and that milestone's gate now exits 0 with 0 deferred.
-4. **m13's ingest poll no longer re-announces.** With VoiceOver on, start an ingest: an unchanged
-   2s poll should be silent, a real transition should speak.
-5. **m10's abstract disclosure** — the `<summary>` is a bounded lede, the body carries the full
-   abstract once.
+4. ~~**m13's ingest poll**~~ — **MECHANISM VERIFIED.** Across real poll cycles `#ingest-live` is
+   the same node with zero mutations while `#ingest-status` is replaced. That is the structural
+   precondition for silence on an unchanged re-render. **The audible half still needs a screen
+   reader** — it is the only remaining unverified claim in the programme.
+5. ~~**m10's abstract disclosure**~~ — **VERIFIED against 25 live arXiv candidates.** Summary 114
+   chars, body 880, `summary === body` is **false** (the defect m10 fixed), ends with an ellipsis,
+   and is a genuine prefix of the body rather than a paraphrase.
+6. **Narrow viewport — FOUND A DEFECT, filed as arXMCP#399.** 323px of horizontal overflow at
+   375px: the absolute LanceDB path in `dl.meta dd` has no break opportunity. Pre-existing,
+   m8-era, outside every milestone's scope. `.table-wrap` works and simply does not cover the
+   masthead.
 
 ## 3. Definition of done for the in-flight milestone
 
@@ -127,6 +137,12 @@ worth more than the code that was reverted. Three things it establishes:
 - `make` is **not** on PATH on this box, and `python`/`python3` do not resolve the project venv.
   Use `/Users/chris.dare/Library/Python/3.9/bin/uv run --extra dev python -m pytest …`.
   Plain `uv run` without `--extra dev` intermittently loses `pytest`.
+- **Discovery needs `contact_email` in the OPERATOR-SETTINGS DB, not an env var.**
+  `get_contact_email()` reads `get_setting("contact_email")` from `var/arxmcp/cache/notebooks.db`;
+  `server/config.py` never mentions `ARXMCP_CONTACT_EMAIL`. Two docs are wrong about this: the
+  502 message suggests `export ARXMCP_CONTACT_EMAIL=…` (that path does nothing) and CLAUDE.md §9
+  says the server REJECTS the var (no such check exists). Without it, Discover 502s by design —
+  the arXiv TOS §3 politeness contract refusing to make an unattributed call.
 - **A Lean toolchain IS available** and was used to verify #382 against real Lean:
   `~/.elan/bin/elan run leanprover/lean4:v4.29.0 lean <file>`. There is no default toolchain, so
   the `elan run <toolchain>` form is required. `ARXMCP_LAKE_PATH` / `ARXMCP_LEAN_REPL_DIR` are unset.

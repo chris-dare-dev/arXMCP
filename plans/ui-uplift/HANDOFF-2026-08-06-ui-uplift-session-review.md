@@ -165,8 +165,13 @@ anything; no form had ever reset.** Present since the m2/m4/m5 era.
 
 ### What to SCRUTINIZE
 
-- **This is the highest-risk change in the session.** It re-arms seven error paths at once, and
-  none was observed working. If any handler has a second latent bug, it surfaces now.
+- **VERIFIED END-TO-END SINCE THIS WAS WRITTEN, for both 4xx and 5xx.** A real 409 fills
+  `#create-error`; a real 502 (forced by clearing `contact_email`, then restored) fills
+  `#discover-error` with the upstream detail. Neither surface had ever displayed anything before.
+  **An interim finding that the 5xx path did NOT surface was a measurement artifact** — a
+  `setTimeout`-and-read racing the request — and is corrected on the issue. Scrutinise that
+  correction: three such artifacts occurred in one session and each one initially looked like a
+  defect.
 - `tests/test_ui_hx_on_event_names.py` derives htmx's normaliser AND event vocabulary from the
   bundle, and pins the transcription so an htmx upgrade fails loudly. **Attack that pin.**
 - The `index.html` empty-row removal hook was among the dead ones — and m11's commit body cited it
