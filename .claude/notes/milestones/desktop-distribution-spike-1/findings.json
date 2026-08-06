@@ -1,0 +1,80 @@
+{
+  "milestone_id": "desktop-distribution-spike-1",
+  "critique_format_version": "1.0",
+  "critique_files": [
+    "dedup.md"
+  ],
+  "generated_at": "2026-08-06T17:48:09Z",
+  "findings": {
+    "H1": {
+      "id": "H1",
+      "severity": "HIGH",
+      "title": "Artifact census double-counts symlink targets",
+      "file": ".claude/notes/spikes/desktop-distribution-spike-1.md",
+      "line": 25,
+      "anchor": "| Artifact | 1,107,353,958 raw bytes;",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Acceptance coverage",
+      "source_file": "dedup.md",
+      "status": "open",
+      "resolution": null,
+      "history": []
+    },
+    "H2": {
+      "id": "H2",
+      "severity": "HIGH",
+      "title": "Artifact size double-counts symlink targets",
+      "file": ".claude/notes/spikes/desktop-distribution-spike-1.md",
+      "line": 25,
+      "anchor": "| Artifact | 1,107,353,958 raw bytes; 1,",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "test surface",
+      "source_file": "dedup.md",
+      "status": "open",
+      "resolution": null,
+      "history": []
+    },
+    "M1": {
+      "id": "M1",
+      "severity": "MEDIUM",
+      "title": "Manifest misses equal-size content mutations",
+      "file": "tools/desktop_sidecar_spike.py",
+      "line": 64,
+      "anchor": "row = f\"{path.relative_to(root)}\\0{stat.st_mode:o}",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Correctness",
+      "source_file": "dedup.md",
+      "status": "open",
+      "resolution": null,
+      "history": []
+    },
+    "M2": {
+      "id": "M2",
+      "severity": "MEDIUM",
+      "title": "Host-path scan omits bundled build metadata",
+      "file": ".claude/notes/spikes/desktop-distribution-spike-1.md",
+      "line": 30,
+      "anchor": "| Host paths | Runtime guard required",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Acceptance coverage",
+      "source_file": "dedup.md",
+      "status": "open",
+      "resolution": null,
+      "history": []
+    },
+    "M3": {
+      "id": "M3",
+      "severity": "MEDIUM",
+      "title": "Manifest misses equal-size content mutations",
+      "file": "tools/desktop_sidecar_spike.py",
+      "line": 64,
+      "anchor": "row = f\"{path.relative_to(root)}",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "test surface",
+      "source_file": "dedup.md",
+      "status": "open",
+      "resolution": null,
+      "history": []
+    }
+  }
+}

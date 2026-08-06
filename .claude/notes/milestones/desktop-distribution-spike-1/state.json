@@ -1,8 +1,8 @@
 {
   "id": "desktop-distribution-spike-1",
   "created_at": "2026-08-06T16:16:03Z",
-  "updated_at": "2026-08-06T16:31:23Z",
-  "phase": "research-complete",
+  "updated_at": "2026-08-06T17:49:22Z",
+  "phase": "rectify-running",
   "phase_history": [
     {
       "phase": "init",
@@ -15,6 +15,26 @@
     {
       "phase": "research-complete",
       "at": "2026-08-06T16:31:23Z"
+    },
+    {
+      "phase": "implement-running",
+      "at": "2026-08-06T16:37:33Z"
+    },
+    {
+      "phase": "implement-complete",
+      "at": "2026-08-06T17:20:36Z"
+    },
+    {
+      "phase": "critique-running",
+      "at": "2026-08-06T17:21:05Z"
+    },
+    {
+      "phase": "critique-complete",
+      "at": "2026-08-06T17:48:27Z"
+    },
+    {
+      "phase": "rectify-running",
+      "at": "2026-08-06T17:49:22Z"
     }
   ],
   "milestone_brief": "### desktop-distribution-spike-1 \u2014 Prove a relocatable bundled sidecar\n\n**Question.** Can the installed arXMCP wheel, operator-console assets, native libraries, and model-loading path run as a relocatable macOS sidecar without ambient Python or a repository checkout?\n\n**Timebox.** At most 3 days. The output is a disposable bundle, evidence, and an ADR\u2014not production packaging.\n\n**Acceptance criteria.**\n- Build a disposable one-directory sidecar from pinned inputs and launch it from an arbitrary read-only path on a supported Apple Silicon Mac.\n- Start in bootstrap mode, reach /healthz, locate packaged templates/static assets, and exercise the model-loading import path without a repository checkout.\n- Record artifact size, cold startup, native-library closure, codesigning implications, and any dependency that cannot be relocated.\n- Compare the leading bundling modes and record GO/NO-GO plus fallback in an ADR.\n- Do not commit models, credentials, or generated binaries.\n\n**Dependencies.** None.\n\n**GitHub issue.** chris-dare-dev/arXMCP#384.",
@@ -27,20 +47,33 @@
     ".claude/notes/milestones/desktop-distribution-spike-1/research/brief-2.md"
   ],
   "research_synthesis": ".claude/notes/milestones/desktop-distribution-spike-1/research/synthesis.md",
-  "implementation_path": null,
+  "implementation_path": "delegated",
   "implementation_plan": null,
-  "implementation_base": null,
-  "implementation_commit_range": null,
-  "implementation_commits": [],
+  "implementation_base": "10b8641a509b140ab5dcfd3e132e9578a169531a",
+  "implementation_commit_range": "10b8641a509b140ab5dcfd3e132e9578a169531a..ddd1d508bf8d01cf099a4ef2750e17bc824fdc3e",
+  "implementation_commits": [
+    "ddd1d508bf8d01cf099a4ef2750e17bc824fdc3e"
+  ],
   "implementation_branch": null,
   "external_writes_required": [
     "git push origin main"
   ],
-  "critique_path": null,
-  "critics_run": [],
-  "critique_files": [],
-  "critique_finding_counts": null,
-  "findings_register": null,
+  "critique_path": ".claude/notes/milestones/desktop-distribution-spike-1/critique/dedup.md",
+  "critics_run": [
+    "milestone-adversary-critic",
+    "milestone-arxmcp-critic"
+  ],
+  "critique_files": [
+    ".claude/notes/milestones/desktop-distribution-spike-1/critique/adversary.md",
+    ".claude/notes/milestones/desktop-distribution-spike-1/critique/arxmcp.md"
+  ],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 2,
+    "medium": 3,
+    "low": 0
+  },
+  "findings_register": ".claude/notes/milestones/desktop-distribution-spike-1/findings.json",
   "rectification_commit": null,
   "fixed_findings": [],
   "deferred_findings": [],

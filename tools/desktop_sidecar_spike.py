@@ -8,6 +8,7 @@ import json
 import multiprocessing
 import os
 import shutil
+import stat
 import sys
 from pathlib import Path
 
@@ -57,13 +58,36 @@ def validate_launch_environment(env: dict[str, str]) -> None:
 
 
 def tree_manifest(root: Path) -> str:
-    """Hash relative names, modes, and sizes for before/after snapshots."""
+    """Hash root metadata, entry metadata, file bytes, and symlink targets."""
     digest = hashlib.sha256()
-    for path in sorted(root.rglob("*")):
-        stat = path.lstat()
-        row = f"{path.relative_to(root)}\0{stat.st_mode:o}\0{stat.st_size}\n"
+    for path in [root, *sorted(root.rglob("*"))]:
+        metadata = path.lstat()
+        relative = "." if path == root else path.relative_to(root).as_posix()
+        row = f"{relative}\0{metadata.st_mode:o}\0{metadata.st_size}\n"
         digest.update(row.encode("utf-8"))
+        if stat.S_ISLNK(metadata.st_mode):
+            digest.update(os.fsencode(os.readlink(path)))
+        elif stat.S_ISREG(metadata.st_mode):
+            with path.open("rb") as stream:
+                while chunk := stream.read(1024 * 1024):
+                    digest.update(chunk)
     return digest.hexdigest()
+
+
+def tree_statistics(root: Path) -> dict[str, int]:
+    """Measure regular-file payloads without following in-tree symlinks."""
+    result = {"regular_files": 0, "symlinks": 0, "logical_bytes": 0,
+              "allocated_bytes": 0}
+    for path in root.rglob("*"):
+        metadata = path.lstat()
+        if stat.S_ISLNK(metadata.st_mode):
+            result["symlinks"] += 1
+        elif stat.S_ISREG(metadata.st_mode):
+            result["regular_files"] += 1
+            result["logical_bytes"] += metadata.st_size
+            blocks = getattr(metadata, "st_blocks", (metadata.st_size + 511) // 512)
+            result["allocated_bytes"] += blocks * 512
+    return result
 
 
 def validate_frozen_paths(bundle: Path) -> None:

@@ -6,6 +6,7 @@ import tools.desktop_sidecar_spike as spike
 from tools.desktop_sidecar_spike import (
     launch_environment,
     tree_manifest,
+    tree_statistics,
     validate_frozen_paths,
     validate_launch_environment,
 )
@@ -35,8 +36,37 @@ def test_tree_manifest_detects_bundle_mutation(tmp_path: Path) -> None:
     payload.parent.mkdir()
     payload.write_text("one", encoding="utf-8")
     before = tree_manifest(tmp_path)
-    payload.write_text("longer", encoding="utf-8")
+    payload.write_text("two", encoding="utf-8")
     assert tree_manifest(tmp_path) != before
+
+
+def test_tree_manifest_detects_symlink_retarget(tmp_path: Path) -> None:
+    first, other = tmp_path / "first.bin", tmp_path / "other.bin"
+    first.write_bytes(b"a")
+    other.write_bytes(b"b")
+    link = tmp_path / "alias"
+    try:
+        link.symlink_to(first.name)
+    except (NotImplementedError, OSError):
+        pytest.skip("symlinks unavailable")
+    before = tree_manifest(tmp_path)
+    link.unlink()
+    link.symlink_to(other.name)
+    assert tree_manifest(tmp_path) != before
+
+
+def test_tree_statistics_do_not_follow_symlinks(tmp_path: Path) -> None:
+    payload = tmp_path / "payload.bin"
+    payload.write_bytes(b"data")
+    link = tmp_path / "payload-link"
+    try:
+        link.symlink_to(payload.name)
+    except (NotImplementedError, OSError):
+        pytest.skip("symlinks unavailable")
+    measured = tree_statistics(tmp_path)
+    assert measured["regular_files"] == 1
+    assert measured["symlinks"] == 1
+    assert measured["logical_bytes"] == 4
 
 
 def test_frozen_paths_must_stay_in_bundle(tmp_path: Path, monkeypatch) -> None:
