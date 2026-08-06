@@ -4,7 +4,7 @@
   "critique_files": [
     "dedup.md"
   ],
-  "generated_at": "2026-08-06T17:48:09Z",
+  "generated_at": "2026-08-06T17:58:04Z",
   "findings": {
     "H1": {
       "id": "H1",
@@ -16,9 +16,15 @@
       "source_critic": "milestone-adversary-critic",
       "source_axis": "Acceptance coverage",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "Recomputed preserved artifact metrics with lstat, separated 5,530 regular files from 19 symlinks, corrected native counts and ADR evidence, and added a symlink-safe statistics regression test.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-06T17:58:04Z",
+          "resolution": "Recomputed preserved artifact metrics with lstat, separated 5,530 regular files from 19 symlinks, corrected native counts and ADR evidence, and added a symlink-safe statistics regression test."
+        }
+      ]
     },
     "H2": {
       "id": "H2",
@@ -30,9 +36,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "test surface",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "Recomputed preserved artifact metrics with lstat, separated 5,530 regular files from 19 symlinks, corrected native counts and ADR evidence, and added a symlink-safe statistics regression test.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-06T17:58:04Z",
+          "resolution": "Recomputed preserved artifact metrics with lstat, separated 5,530 regular files from 19 symlinks, corrected native counts and ADR evidence, and added a symlink-safe statistics regression test."
+        }
+      ]
     },
     "M1": {
       "id": "M1",
@@ -44,9 +56,15 @@
       "source_critic": "milestone-adversary-critic",
       "source_axis": "Correctness",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "tree_manifest now streams regular-file bytes and hashes symlink targets; equal-size file rewrites and same-length link retargets have regression coverage.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-06T17:58:04Z",
+          "resolution": "tree_manifest now streams regular-file bytes and hashes symlink targets; equal-size file rewrites and same-length link retargets have regression coverage."
+        }
+      ]
     },
     "M2": {
       "id": "M2",
@@ -58,9 +76,15 @@
       "source_critic": "milestone-adversary-critic",
       "source_axis": "Acceptance coverage",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "Corrected the ADR to disclose inert direct_url.json build metadata and made sanitization plus full regular-file build-root scanning an explicit release blocker.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-06T17:58:04Z",
+          "resolution": "Corrected the ADR to disclose inert direct_url.json build metadata and made sanitization plus full regular-file build-root scanning an explicit release blocker."
+        }
+      ]
     },
     "M3": {
       "id": "M3",
@@ -72,9 +96,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "test surface",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "tree_manifest now streams regular-file bytes and hashes symlink targets; equal-size file rewrites and same-length link retargets have regression coverage.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-06T17:58:04Z",
+          "resolution": "tree_manifest now streams regular-file bytes and hashes symlink targets; equal-size file rewrites and same-length link retargets have regression coverage."
+        }
+      ]
     }
   }
 }
