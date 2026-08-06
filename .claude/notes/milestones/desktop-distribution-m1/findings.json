@@ -4,7 +4,7 @@
   "critique_files": [
     "dedup.md"
   ],
-  "generated_at": "2026-08-06T15:31:04Z",
+  "generated_at": "2026-08-06T15:41:38Z",
   "findings": {
     "H1": {
       "id": "H1",
@@ -16,9 +16,15 @@
       "source_critic": "milestone-adversary-critic",
       "source_axis": "Correctness",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "Snapshot caller-supplied path fields before resolver rebinding, propagate explicit source roots and aliases, preserve notebook conflict/isolation decisions, synchronize effective notebook paths, and cover both modes in tests/test_application_paths.py.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-06T15:41:38Z",
+          "resolution": "Snapshot caller-supplied path fields before resolver rebinding, propagate explicit source roots and aliases, preserve notebook conflict/isolation decisions, synchronize effective notebook paths, and cover both modes in tests/test_application_paths.py."
+        }
+      ]
     },
     "H2": {
       "id": "H2",
@@ -30,9 +36,15 @@
       "source_critic": "milestone-adversary-critic",
       "source_axis": "Acceptance coverage",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "Snapshot caller-supplied path fields before resolver rebinding, propagate explicit source roots and aliases, preserve notebook conflict/isolation decisions, synchronize effective notebook paths, and cover both modes in tests/test_application_paths.py.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-06T15:41:38Z",
+          "resolution": "Snapshot caller-supplied path fields before resolver rebinding, propagate explicit source roots and aliases, preserve notebook conflict/isolation decisions, synchronize effective notebook paths, and cover both modes in tests/test_application_paths.py."
+        }
+      ]
     },
     "H3": {
       "id": "H3",
@@ -44,9 +56,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "test surface",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "Snapshot caller-supplied path fields before resolver rebinding, propagate explicit source roots and aliases, preserve notebook conflict/isolation decisions, synchronize effective notebook paths, and cover both modes in tests/test_application_paths.py.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-06T15:41:38Z",
+          "resolution": "Snapshot caller-supplied path fields before resolver rebinding, propagate explicit source roots and aliases, preserve notebook conflict/isolation decisions, synchronize effective notebook paths, and cover both modes in tests/test_application_paths.py."
+        }
+      ]
     },
     "H4": {
       "id": "H4",
@@ -58,9 +76,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "local-first + Docker constraint",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "Snapshot caller-supplied path fields before resolver rebinding, propagate explicit source roots and aliases, preserve notebook conflict/isolation decisions, synchronize effective notebook paths, and cover both modes in tests/test_application_paths.py.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-06T15:41:38Z",
+          "resolution": "Snapshot caller-supplied path fields before resolver rebinding, propagate explicit source roots and aliases, preserve notebook conflict/isolation decisions, synchronize effective notebook paths, and cover both modes in tests/test_application_paths.py."
+        }
+      ]
     }
   }
 }

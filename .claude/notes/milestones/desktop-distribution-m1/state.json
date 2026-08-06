@@ -1,8 +1,8 @@
 {
   "id": "desktop-distribution-m1",
   "created_at": "2026-08-06T03:38:05Z",
-  "updated_at": "2026-08-06T15:31:32Z",
-  "phase": "rectify-running",
+  "updated_at": "2026-08-06T15:45:32Z",
+  "phase": "complete",
   "phase_history": [
     {
       "phase": "init",
@@ -35,6 +35,10 @@
     {
       "phase": "rectify-running",
       "at": "2026-08-06T15:31:32Z"
+    },
+    {
+      "phase": "complete",
+      "at": "2026-08-06T15:45:32Z"
     }
   ],
   "milestone_brief": "### desktop-distribution-m1 \u2014 Centralize application paths\n\n**Description.** Introduce a single typed application-path resolver rooted at `ARXMCP_DATA_DIR`, with explicit paths for corpus, indices, notebooks, caches, logs, backups, and temporary state. Preserve the existing `var/arxmcp` source-checkout default while making installed-runtime behavior independent of the working directory.\n\n**Acceptance criteria.**\n- [ ] One module owns derivation and validation of every runtime root consumed by the server and desktop contract.\n- [ ] Relative, absolute, missing, read-only, symlink, Unicode, and whitespace-containing roots have deterministic tests on supported Python platforms.\n- [ ] No application path can escape the configured root through `..`, symlink traversal, or inconsistent resolution.\n- [ ] Existing environment-variable values and source-checkout defaults remain backward compatible.\n- [ ] `make test` exits 0.\n\n**Dependencies.** desktop-distribution-e1, desktop-distribution-spike-2\n\n**Complexity.** M\n\n**Specialist suggestion.** `security-reviewer`, `determinism-reviewer`",
@@ -74,11 +78,22 @@
     "low": 0
   },
   "findings_register": ".claude/notes/milestones/desktop-distribution-m1/findings.json",
-  "rectification_commit": null,
-  "fixed_findings": [],
+  "rectification_commit": "268c219aac37304a2f2db509d42e9d27c18ce861",
+  "fixed_findings": [
+    "H1",
+    "H2",
+    "H3",
+    "H4"
+  ],
   "deferred_findings": [],
   "invalidated_findings": [],
-  "regression_tests_added": [],
-  "external_writes_authorized": [],
-  "external_writes_completed": []
+  "regression_tests_added": [
+    "tests/test_application_paths.py"
+  ],
+  "external_writes_authorized": [
+    "git push origin main"
+  ],
+  "external_writes_completed": [
+    "git push origin main"
+  ]
 }
