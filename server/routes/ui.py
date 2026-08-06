@@ -37,8 +37,9 @@ from fastapi.responses import HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
 
 from ingest.identifiers import is_valid_arxiv_paper_id
+from server.application_paths import ApplicationPaths
 from server.middleware import CONTENT_SECURITY_POLICY_PREVIEW
-from server.routes.notebooks import get_notebooks_store
+from server.routes.notebooks import get_application_paths, get_notebooks_store
 from tools._notebook_common import (
     CORPUS_PARSED_DIR,
     NotebookError,
@@ -122,7 +123,13 @@ _PARSE_STATUS_CSS: dict[str, str] = {
 router = APIRouter(tags=["ui"])
 
 
-def _preview_html_path(slug: str, paper_id: str) -> Path | None:
+def _preview_html_path(
+    slug: str,
+    paper_id: str,
+    *,
+    notebooks_base: Path | None = None,
+    corpus_parsed_dir: Path | None = None,
+) -> Path | None:
     """Return the on-disk path to a paper's preview HTML, or ``None``.
 
     Search order (m10 research synthesis A1):
@@ -153,7 +160,7 @@ def _preview_html_path(slug: str, paper_id: str) -> Path | None:
     # symlink-rejection check; bubble NotebookError as None so the
     # browse-table render path treats it the same as a missing file.
     try:
-        nb_dir = notebook_dir(slug)
+        nb_dir = notebook_dir(slug, base=notebooks_base)
     except NotebookError:
         return None
     flat_paper_id = paper_id.replace("/", "_")
@@ -163,7 +170,8 @@ def _preview_html_path(slug: str, paper_id: str) -> Path | None:
     # Corpus-global (fallback). The corpus path uses paper_id directly
     # as a subdirectory name; old-style IDs like ``hep-th/0001234``
     # produce nested subdirs naturally.
-    corpus_html = CORPUS_PARSED_DIR / paper_id / "index.html"
+    parsed_dir = corpus_parsed_dir or CORPUS_PARSED_DIR
+    corpus_html = parsed_dir / paper_id / "index.html"
     if corpus_html.is_file():
         return corpus_html
     return None
@@ -422,6 +430,7 @@ async def ui_notebook_detail(
     slug: str,
     request: Request,
     store: NotebooksStore = Depends(get_notebooks_store),  # noqa: B008  (FastAPI DI pattern)
+    paths: ApplicationPaths = Depends(get_application_paths),  # noqa: B008
 ) -> HTMLResponse:
     """Per-notebook detail page — paper list + paste form + upload
     card (the "open" link from the landing page).
@@ -456,7 +465,12 @@ async def ui_notebook_detail(
         has_preview = (
             isinstance(paper_id, str)
             and is_valid_arxiv_paper_id(paper_id)
-            and _preview_html_path(slug, paper_id) is not None
+            and _preview_html_path(
+                slug,
+                paper_id,
+                notebooks_base=paths.notebooks,
+                corpus_parsed_dir=paths.corpus / "parsed",
+            ) is not None
         )
         annotated_papers.append({**row, "has_preview": has_preview})
     # notebook-surface-expansion-m1: per-notebook freshness signal. ONE O(1)
@@ -488,7 +502,8 @@ async def ui_notebook_detail(
 async def ui_paper_preview(
     slug: str,
     paper_id: str,
-    request: Request,  # noqa: ARG001  (FastAPI route-injection signature)
+    request: Request,
+    paths: ApplicationPaths = Depends(get_application_paths),  # noqa: B008
 ) -> Response:
     """Serve a paper's stored ar5iv HTML with a TIGHT per-response CSP.
 
@@ -551,7 +566,12 @@ async def ui_paper_preview(
     # CORPUS_PARSED_DIR), but we still verify the RESOLVED path lies
     # under one of them to defeat a hypothetical symlink-inside-a-
     # notebook attack that slipped past the m6 directory-level check.
-    html_path = _preview_html_path(slug, paper_id)
+    html_path = _preview_html_path(
+        slug,
+        paper_id,
+        notebooks_base=paths.notebooks,
+        corpus_parsed_dir=paths.corpus / "parsed",
+    )
     if html_path is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -563,14 +583,16 @@ async def ui_paper_preview(
     # passed and the m6 symlink check is idempotent. Both prefixes are
     # resolved so symlinked corpus volumes are handled correctly.
     try:
-        nb_ar5iv = (notebook_dir(slug) / "ar5iv").resolve()
+        nb_ar5iv = (
+            notebook_dir(slug, base=paths.notebooks) / "ar5iv"
+        ).resolve()
     except NotebookError as e:
         # Should not happen post-validate_slug, but treat defensively.
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(e),
         ) from e
-    corpus_root = CORPUS_PARSED_DIR.resolve()
+    corpus_root = (paths.corpus / "parsed").resolve()
     # Path.is_relative_to (== prefix OR strictly-under prefix) is the
     # os-agnostic containment check — matching the idiom already used in
     # server/routes/notebooks.py and ingest/preamble.py. The previous

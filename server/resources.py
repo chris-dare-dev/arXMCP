@@ -1538,7 +1538,9 @@ class Resources:
             )
 
             try:
-                lancedb_path = notebook_lancedb_path(slug)
+                lancedb_path = notebook_lancedb_path(
+                    slug, base=self.config.application_paths.notebooks
+                )
             except Exception as exc:  # noqa: BLE001
                 # The slug validated on entry; a failure here means the
                 # notebook directory changed shape underneath us. Keep
@@ -1658,7 +1660,9 @@ class Resources:
             # the path; read the corpus marker, then open the table at
             # the pinned version with the same fallback discipline as the
             # shared corpus (E14_S05 D2).
-            lancedb_path = notebook_lancedb_path(slug)
+            lancedb_path = notebook_lancedb_path(
+                slug, base=self.config.application_paths.notebooks
+            )
             corpus_info = read_corpus_version(lancedb_path)
             if corpus_info is None:
                 marker = Path(lancedb_path) / "corpus-version.json"

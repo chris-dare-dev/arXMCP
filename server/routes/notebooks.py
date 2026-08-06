@@ -43,6 +43,7 @@ import os
 import re
 import sqlite3
 import tarfile
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
@@ -62,6 +63,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
 from ingest.identifiers import is_valid_arxiv_paper_id, is_valid_paper_id
+from server.application_paths import ApplicationPaths
 from server.operator_settings import get_contact_email
 from tools._notebook_common import (
     NOTEBOOKS_BASE,
@@ -188,6 +190,23 @@ def get_notebooks_store(request: Request) -> NotebooksStore:
     return store
 
 
+def get_application_paths(request: Request) -> ApplicationPaths:
+    """Return the immutable path layout resolved by startup config."""
+    config = getattr(request.app.state, "config", None)
+    if config is not None:
+        return config.application_paths
+    # Isolated router tests and third-party embeddings may mount this router
+    # without ``server.main.create_app``. Preserve that supported seam while
+    # production always takes the Config branch above.
+    from tools import _notebook_common as common  # noqa: PLC0415
+
+    return replace(
+        ApplicationPaths.resolve(),
+        notebooks=NOTEBOOKS_BASE,
+        corpus=common.CORPUS_PARSED_DIR.parent,
+    )
+
+
 #: notebook-paper-discovery-m1: the arXiv categories a notebook may
 #: declare for topic-driven discovery (CLAUDE.md §2 target set:
 #: ``math.AG``, ``math.NT``, ``math-ph``, ``hep-th``). The empty string
@@ -311,6 +330,7 @@ async def create_notebook(
     body: NotebookCreate,
     request: Request,
     store: NotebooksStore = Depends(get_notebooks_store),  # noqa: B008  (FastAPI DI pattern)
+    paths: ApplicationPaths = Depends(get_application_paths),  # noqa: B008
 ) -> HTMLResponse | dict[str, str]:
     """Create a new notebook.
 
@@ -360,7 +380,7 @@ async def create_notebook(
     # Belt-and-braces: notebook_dir runs the m6 F3 symlink-rejection
     # containment check before any mkdir.
     try:
-        nb_dir = notebook_dir(body.slug)
+        nb_dir = notebook_dir(body.slug, base=paths.notebooks)
     except NotebookError as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -1270,6 +1290,7 @@ class _NotebookHealthResult(BaseModel):
 )
 async def repair_registry(
     store: NotebooksStore = Depends(get_notebooks_store),  # noqa: B008
+    paths: ApplicationPaths = Depends(get_application_paths),  # noqa: B008
 ) -> _RepairRegistryResult:
     """Walk ``var/arxmcp/notebooks/`` and register any on-disk dirs
     with a valid ``corpus-version.json`` marker that are NOT already
@@ -1292,11 +1313,12 @@ async def repair_registry(
 
     existing_slugs = {row["slug"] for row in await store.list_notebooks()}
 
-    if not NOTEBOOKS_BASE.is_dir():
+    notebooks_base = paths.notebooks
+    if not notebooks_base.is_dir():
         # No on-disk notebooks tree yet — nothing to walk.
         logger.info(
             "repair-registry: %s does not exist; nothing to walk",
-            NOTEBOOKS_BASE,
+            notebooks_base,
         )
         return _RepairRegistryResult(
             registered=[],
@@ -1305,7 +1327,7 @@ async def repair_registry(
             skipped_malformed_marker=[],
         )
 
-    for child in sorted(NOTEBOOKS_BASE.iterdir()):
+    for child in sorted(notebooks_base.iterdir()):
         if not child.is_dir() or child.is_symlink():
             continue
         slug = child.name
@@ -1342,7 +1364,9 @@ async def repair_registry(
             await store.create_notebook(
                 slug=slug,
                 display_name="",
-                lancedb_path=str(notebook_lancedb_path(slug)),
+                lancedb_path=str(
+                    notebook_lancedb_path(slug, base=notebooks_base)
+                ),
                 created_at=_now_iso(),
             )
             registered.append(slug)
@@ -1377,6 +1401,7 @@ async def repair_registry(
 async def reconcile_marker(
     slug: str,
     store: NotebooksStore = Depends(get_notebooks_store),  # noqa: B008
+    paths: ApplicationPaths = Depends(get_application_paths),  # noqa: B008
 ) -> _ReconcileResult:
     """Recount a notebook's LanceDB at the marker's pinned version and
     atomically rewrite the marker JSON.
@@ -1410,7 +1435,7 @@ async def reconcile_marker(
             detail=f"notebook {slug!r} not registered",
         )
 
-    nb_lance = notebook_lancedb_path(slug)
+    nb_lance = notebook_lancedb_path(slug, base=paths.notebooks)
     old_info, err = _read_marker_safely(nb_lance)
     if err == "no_marker":
         # m3 critique F1: do NOT leak the absolute install path. Match
@@ -1467,6 +1492,7 @@ async def reconcile_marker(
 async def notebook_health(
     slug: str,
     store: NotebooksStore = Depends(get_notebooks_store),  # noqa: B008
+    paths: ApplicationPaths = Depends(get_application_paths),  # noqa: B008
 ) -> _NotebookHealthResult:
     """Per-notebook drift report.
 
@@ -1498,7 +1524,7 @@ async def notebook_health(
             detail=f"notebook {slug!r} not registered",
         )
 
-    nb_lance = notebook_lancedb_path(slug)
+    nb_lance = notebook_lancedb_path(slug, base=paths.notebooks)
     info, err = _read_marker_safely(nb_lance)
     if err == "no_marker":
         return _NotebookHealthResult(
@@ -1773,6 +1799,7 @@ async def upload_paper(
     paper_id: str = Form(...),  # noqa: B008  (FastAPI DI pattern)
     file: UploadFile = File(...),  # noqa: B008  (FastAPI DI pattern)
     store: NotebooksStore = Depends(get_notebooks_store),  # noqa: B008  (FastAPI DI pattern)
+    paths: ApplicationPaths = Depends(get_application_paths),  # noqa: B008
 ) -> Response:
     """Upload an ar5iv HTML file for a paper into a notebook (m8 AC #2).
 
@@ -1913,7 +1940,7 @@ async def upload_paper(
     # on first upload (notebook_dir runs the m6 F3 symlink-rejection
     # check).
     try:
-        nb_dir = notebook_dir(slug)
+        nb_dir = notebook_dir(slug, base=paths.notebooks)
     except NotebookError as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -2701,6 +2728,7 @@ def _make_deterministic_tarinfo(name: str, size: int) -> tarfile.TarInfo:
 async def export_notebook(
     slug: str,
     store: NotebooksStore = Depends(get_notebooks_store),  # noqa: B008  (FastAPI DI pattern)
+    paths: ApplicationPaths = Depends(get_application_paths),  # noqa: B008
 ) -> Response:
     """Stream a portable, deterministic tar of ONE notebook (m6).
 
@@ -2734,7 +2762,7 @@ async def export_notebook(
         )
     papers = await store.list_papers(slug)
     try:
-        nb_dir = notebook_dir(slug)
+        nb_dir = notebook_dir(slug, base=paths.notebooks)
     except NotebookError as e:
         # Slug-level symlink / containment failure (m6 F3 / m6 D5). Same
         # 422 the existing handlers raise for path-traversal errors.

@@ -39,15 +39,17 @@ from __future__ import annotations
 
 import json
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from server import corpus_manifest
-from server.tools import wrap_retrieved_text
+from server.tools import ResourcesNotReadyError, get_resources, wrap_retrieved_text
 from tools._notebook_common import NotebookError, notebook_dir, validate_slug
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp import FastMCP
 
+    from server.application_paths import ApplicationPaths
     from server.notebooks_store import NotebooksStore
 
 logger = logging.getLogger(__name__)
@@ -88,6 +90,22 @@ def _require_store() -> NotebooksStore:
     return _notebooks_store
 
 
+def _configured_application_paths() -> ApplicationPaths | None:
+    """Return the live Config layout; permit isolated callback unit tests."""
+    try:
+        paths = get_resources().config.application_paths
+    except ResourcesNotReadyError:
+        return None
+    store_path = getattr(_notebooks_store, "_db_path", None)
+    if store_path is not None and Path(store_path).resolve() != (
+        paths.notebooks_db.resolve()
+    ):
+        # A separately mounted resource callback (notably an isolated test)
+        # must not inherit an unrelated process-global Resources instance.
+        return None
+    return paths
+
+
 def _wrap_json(payload: dict[str, Any], *, kind: str = "notebook") -> str:
     """Canonical-JSON the payload and wrap it as untrusted retrieved data.
 
@@ -115,12 +133,17 @@ async def _notebook_metadata(slug: str) -> dict[str, Any]:
     if notebook is None:
         raise NotebookError(f"notebook {slug!r} not found")
     papers = await store.list_papers(slug)
+    paths = _configured_application_paths()
     # is_ingested: does the on-disk LanceDB dir exist? Conveys ingestion state
     # WITHOUT leaking the absolute lancedb_path (m4 synthesis D3). notebook_dir
     # runs the m6 symlink-containment check; treat any rejection as "not
     # ingested" rather than leaking the failure to the agent.
     try:
-        is_ingested = (notebook_dir(slug) / "lancedb").is_dir()
+        is_ingested = (
+            notebook_dir(
+                slug, base=paths.notebooks if paths is not None else None
+            ) / "lancedb"
+        ).is_dir()
     except NotebookError:
         # m4-rect F2: a containment/symlink rejection here (m6 F3 hardening) is
         # a security signal — an out-of-band tamper at var/arxmcp/notebooks/<slug>.
@@ -219,7 +242,14 @@ def register_resources(mcp_server: FastMCP) -> None:
         # (Threat 2); the three operator-authored fields (override.set_by /
         # set_at / note) are all neutralized by the payload-wide
         # escape-on-emit (and str-coerced in _read_override).
-        payload = await corpus_manifest.build_manifest(_require_store())
+        paths = _configured_application_paths()
+        payload = await corpus_manifest.build_manifest(
+            _require_store(),
+            base=paths.notebooks if paths is not None else None,
+            settings_db_path=(
+                paths.notebooks_db if paths is not None else None
+            ),
+        )
         return _wrap_json(payload, kind="manifest")
 
 
