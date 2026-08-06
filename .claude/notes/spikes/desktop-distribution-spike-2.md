@@ -21,34 +21,45 @@ startup CWD with a deprecation warning. Installed/container mode rejects it.
 ## Executable evidence
 
 `tests/test_desktop_data_root_spike.py` contains the disposable resolver and
-six focused cases. They cover source, simulated installed-wheel, and
-container launch fixtures; existing/missing absolute roots; legacy-relative
-source roots; spaces and Unicode; root and descendant symlinks;
-lexical `..`; and a read-only application beside a writable data root.
-Construction leaves missing roots absent. The wheel fixture snapshots its
-package and unrelated CWD.
-The container fixture places ARXMCP, HF/Transformers, XDG, Matplotlib, HOME,
-and all three temp variables below one mount.
+focused source, simulated installed-wheel, and container launch fixtures. They
+cover existing/missing absolute roots; legacy-relative source roots; spaces and
+Unicode; root and descendant symlinks; lexical `..`; a read-only application
+beside a writable data root; and an observer that fails any package/CWD write on
+every platform. Construction leaves missing roots absent. The exclusive,
+randomized write probe preserves pre-existing regular files and symlinks.
+The container fixture requires exactly one matching writable mount. Launcher
+state places ARXMCP, HF/Transformers, XDG, Matplotlib, POSIX/Windows profiles,
+and all temp variables below that mount, including after the MinerU scrubber.
 
 ## Runtime-write inventory
 
-| Area / mode | Exact remaining owners | Current default or destination |
+| Area / mode | Remaining owner groups | Current default or destination |
 |---|---|---|
 | Server config; installed | `server/config.py:Config`, `server/operator_settings.py:DEFAULT_DB_PATH` | Independent LanceDB, Kuzu, cache, BM25, theorem-name, notebooks, ops, and observational data-root defaults under relative `var/arxmcp` |
 | Server stores; installed | `server/main.py:lifespan`, `server/resources.py:Resources.startup`, `{cache_sqlite,notebooks_store,operator_settings,theorem_names_store,paper_metadata_store,documents_store}.py` | SQLite create, WAL/PRAGMA, migration, metadata and document writes |
+| Disk-pressure control; installed | `server/main.py:lifespan` → `server/metrics_refresh.py:run_metrics_refresh_loop` → `server/health.py:refresh_disk_free_metric` → `tools/ingest_sentinel.py:write_pause/clear_pause` | Always-on background task writes or clears `ARXMCP_DATA_DIR/ops/ingest-paused` |
 | Retrieval; installed | `server/retrieval/bm25.py:BM25Phase._sync_startup`, `server/corpus_freshness.py`, `server/corpus_manifest.py` | BM25 auto-build and corpus-version/manifest state under `index/` |
-| Notebook UI; installed | `server/routes/notebooks.py`, `server/{ingest_tracker,parse_tracker}.py`, `tools/_notebook_common.py` | Notebook registry/tree, uploads, render scratch, markers, status/log paths; helper currently derives wheel paths beside `site-packages` |
+| Notebook UI; installed | `server/routes/notebooks.py`, `server/{ingest_tracker,parse_tracker}.py`, `tools/_notebook_common.py`; raw-source chain `tools/_notebook_common.py:ensure_raw_tex` → `tools/arxiv_fetch.py:fetch_eprint` | Notebook registry/tree, uploads, downloaded/extracted TeX, render scratch, markers, status/log paths; helper currently derives wheel paths beside `site-packages` |
 | Library state; installed | `server/model_loader.py`, `server/retrieval/rerank.py`, Starlette multipart, `ingest/textbook_parser.py` | HF/XDG caches, spooled temp, MinerU HOME/cache and per-run temp |
 | Spawned ingest; installed | `tools/{notebook_ingest,notebook_pdf_parse,notebook_textbook_ingest,notebook_fetch}.py`; `ingest/{ar5iv_fetch,bulk_ingest,chunker,preamble,embedder,store,bm25_indexer,extract_equations,index_definitions,index_equations,index_theorem_names,ingest_summary,textbook_chunker,textbook_parser,textbook_renderer}.py` | Raw/parsed/chunk/embed data, LanceDB/BM25/SQLite, summaries, failures and scratch |
 | Offline ingest | `ingest/{graph_ingest,inspire_ingest,intra_paper_refs,kuzudb_schema,oai_delta,re_embed,embed_equations}.py` | Explicit CLI outputs plus duplicated checkout/CWD-relative corpus, index, checkpoint and ops defaults |
-| Offline tools | `tools/{fetch_seed,fetch_one_paper,re_embed_all,recover_preambles,notebook_chunks_backfill,notebook_documents_backfill,notebook_metadata_backfill,notebook_cutover,notebook_init,notebook_purge,notebook_reconcile_marker,notebook_repair_registry,notebook_restore,daily_metrics_report,documents_coverage_report,parser_failures_report,ingest_sentinel,cdm_eval,regen_metrics_fixture,wheel_install_check}.py` | Developer/ingest/build outputs and repo-derived notebook, cache, reports, fixtures and ops paths |
+| Offline tools | `tools/{fetch_seed,fetch_one_paper,re_embed_all,recover_preambles,notebook_chunks_backfill,notebook_documents_backfill,notebook_metadata_backfill,notebook_cutover,notebook_init,notebook_purge,notebook_reconcile_marker,notebook_repair_registry,notebook_restore,daily_metrics_report,documents_coverage_report,parser_failures_report,cdm_eval,regen_metrics_fixture,wheel_install_check}.py`; `tools/quarterly_drill_reminder.sh` | Developer/ingest outputs and repo-derived notebook, cache, reports, fixtures and ops reminder paths |
+| Build-only output | `tools/sbom.sh` | Developer-selected `SBOM_DIR`, defaulting to `.claude/docs/security/sbom`; not installed application data |
+| Operator scaffold | `ingest/bulk_download.sh` | Prints a manual Academic Torrents workflow and performs no filesystem write |
 | Shim; installed | `shim/arxmcp_shim.py` | No filesystem writes; protocol bytes only |
 | Ops / developer | `ops/{cutover,drift_check,watchdog_eval,checkpoint_notebooks_db,restore_drill_check}.py`, `ops/{cron,systemd}/*`, `Makefile` | Repo-root `var/arxmcp` locks, sentinels, reports, checkpoints and cutover state |
-| Intentional external | `ops/backup.sh`, `ops/restore_drill.sh`; CLI output arguments; Lean/lake, CA and MinerU binary inputs | Operator-selected restic repository/restore target or explicit developer output; never silently reclassified as confined app data |
+| Intentional external | `ops/cron/arxmcp-backup.sh`, `ops/restore_drill.sh`; CLI output arguments; Lean/lake, CA and MinerU binary inputs | Operator-selected restic repository/restore target or explicit developer output; never silently reclassified as confined app data |
 
 Read-only `server/frontend/`, router YAML, JSON schemas, fixtures, binaries, and
 CA bundles are inputs, not writes. Every production owner above remains
 unchanged by this spike.
+
+The inventory was produced by searching path defaults and mutating filesystem
+primitives across all five requested trees, then tracing installed call chains.
+`test_inventory_covers_known_write_owners` freezes the critique-verified owner
+anchors, including indirect daemon and spawned-fetch writers, and distinguishes
+the no-write bulk-download scaffold and build-only SBOM output. Production m1
+must rerun the scan before wiring because later commits can add new owners.
 
 ## Compatibility and migration
 
@@ -57,7 +68,11 @@ Retain the names `ARXMCP_LANCEDB_PATH`, `ARXMCP_KUZU_PATH`,
 `ARXMCP_THEOREM_NAMES_DB_PATH`, `ARXMCP_NOTEBOOKS_DB_PATH`, and
 `ARXMCP_OPS_DIR`. In strict installed mode, canonical alias targets must remain
 under the root; arbitrary external aliases are incompatible with a one-root
-claim. Trusted offline CLI output flags remain explicit exceptions.
+claim. In installed/container modes the prototype validates every retained
+alias present in the same environment mapping during resolution and returns
+the frozen resolved mapping; callers cannot accidentally skip containment
+validation. Source compatibility and trusted offline CLI output flags remain
+explicit exceptions.
 
 Migration order: production resolver and fixtures; Compose/Docker/K8s explicit
 root and matching mount; `Config`; `_notebook_common` and import-time operator

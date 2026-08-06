@@ -1,0 +1,122 @@
+{
+  "milestone_id": "desktop-distribution-spike-2",
+  "critique_format_version": "1.0",
+  "critique_files": [
+    "dedup.md"
+  ],
+  "generated_at": "2026-08-06T14:02:28Z",
+  "findings": {
+    "H1": {
+      "id": "H1",
+      "severity": "HIGH",
+      "title": "Runtime-write inventory omits and misclassifies live writers",
+      "file": ".claude/notes/spikes/desktop-distribution-spike-2.md",
+      "line": 35,
+      "anchor": "| Area / mode | Exact remaining owners | Current default or destination |",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Acceptance coverage",
+      "source_file": "dedup.md",
+      "status": "open",
+      "resolution": null,
+      "history": []
+    },
+    "H2": {
+      "id": "H2",
+      "severity": "HIGH",
+      "title": "Windows MinerU state still escapes the launcher root",
+      "file": "tests/test_desktop_data_root_spike.py",
+      "line": 110,
+      "anchor": "\"ARXMCP_DATA_DIR\": \".\", \"HF_HOME\": \"cache/huggingface\",",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Correctness",
+      "source_file": "dedup.md",
+      "status": "open",
+      "resolution": null,
+      "history": []
+    },
+    "H3": {
+      "id": "H3",
+      "severity": "HIGH",
+      "title": "Write probe follows a pre-existing symlink outside the root",
+      "file": "tests/test_desktop_data_root_spike.py",
+      "line": 125,
+      "anchor": "marker.write_bytes(b\"probe\")",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "security threat-model coverage",
+      "source_file": "dedup.md",
+      "status": "open",
+      "resolution": null,
+      "history": []
+    },
+    "H4": {
+      "id": "H4",
+      "severity": "HIGH",
+      "title": "The runtime-write inventory is not exact or exhaustive",
+      "file": ".claude/notes/spikes/desktop-distribution-spike-2.md",
+      "line": 35,
+      "anchor": "| Area / mode | Exact remaining owners |",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "local-first constraint",
+      "source_file": "dedup.md",
+      "status": "open",
+      "resolution": null,
+      "history": []
+    },
+    "M1": {
+      "id": "M1",
+      "severity": "MEDIUM",
+      "title": "Fixed probe name can destroy an existing file",
+      "file": "tests/test_desktop_data_root_spike.py",
+      "line": 121,
+      "anchor": "marker = self.path(\"tmp\") / \".arxmcp-write-probe\"",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Correctness",
+      "source_file": "dedup.md",
+      "status": "open",
+      "resolution": null,
+      "history": []
+    },
+    "M2": {
+      "id": "M2",
+      "severity": "MEDIUM",
+      "title": "Resolver does not enforce aliases supplied in its environment",
+      "file": "tests/test_desktop_data_root_spike.py",
+      "line": 64,
+      "anchor": "raw = env.get(\"ARXMCP_DATA_DIR\", \"\")",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Acceptance coverage",
+      "source_file": "dedup.md",
+      "status": "open",
+      "resolution": null,
+      "history": []
+    },
+    "M3": {
+      "id": "M3",
+      "severity": "MEDIUM",
+      "title": "Read-only application coverage disappears on Windows",
+      "file": "tests/test_desktop_data_root_spike.py",
+      "line": 183,
+      "anchor": "@pytest.mark.skipif(sys.platform == \"win32\", reason=\"chmod is not authoritative\")",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "test surface",
+      "source_file": "dedup.md",
+      "status": "open",
+      "resolution": null,
+      "history": []
+    },
+    "M4": {
+      "id": "M4",
+      "severity": "MEDIUM",
+      "title": "Container fixture proves paths but not the mounted root",
+      "file": "tests/test_desktop_data_root_spike.py",
+      "line": 210,
+      "anchor": "mount = tmp_path / \"container-mount\"",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "local-first constraint",
+      "source_file": "dedup.md",
+      "status": "open",
+      "resolution": null,
+      "history": []
+    }
+  }
+}
