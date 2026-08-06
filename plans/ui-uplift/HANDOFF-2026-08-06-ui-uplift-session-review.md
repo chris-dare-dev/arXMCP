@@ -40,7 +40,7 @@ aliases:
 
 ## 0. TL;DR — what this session did
 
-`origin/main` `54f3cd3` → **`d53e284`** (18 commits).
+`origin/main` `54f3cd3` → **`e8f149d`** (20 commits).
 
 - **arXMCP#382 reopened and re-closed.** The round-1 fix left a second hole; a third, in the
   scope-command branches, was found here and was in nobody's report.
@@ -115,7 +115,7 @@ the original critics. They now assert against a real element tree built with `ht
 
 ## 4. ui-uplift-m13 — live-region hygiene
 
-**Commits:** `73d5ef9`, `2fdd74b`. Register: 3 fixed, 1 deferred.
+**Commits:** `73d5ef9`, `2fdd74b`, `e8f149d`. Register: 4 fixed, 0 deferred.
 
 The rule m1 established (*the swap result must re-declare the region*) is correct for a
 user-triggered swap and wrong for a timer. m13 split the rule on that axis. Its own critique found
@@ -124,10 +124,11 @@ user-triggered swap and wrong for a timer. m13 split the rule on that axis. Its 
 ### What to SCRUTINIZE
 
 - **The whole milestone rested on regions that could not receive text** (see §6). The `<output>`
-  migration and the `.error:empty` fix are correct, but were unverifiable until `d53e284`.
-  **Re-check m13 in a browser now that the handlers bind.**
-- Finding **M2** is deferred: the zero-footprint empty state is derived from the cascade, never
-  observed.
+  migration and the `.error:empty` fix were unverifiable until `d53e284` landed — a milestone
+  whose value was gated on a bug nobody had found yet. **Judge whether m13 should have been
+  called complete in that state.**
+- Finding **M2** is now CLOSED with browser evidence (`e8f149d`): six empty `<output>` blocks at
+  height 0px, padding 0px, transparent background. Verify the measurement rather than the claim.
 
 ## 5. ui-uplift-m11 — shipped, then REVERTED
 
@@ -191,10 +192,23 @@ anything; no form had ever reset.** Present since the m2/m4/m5 era.
   commit. `ruff check .` clean. `roadmap-validate.py` OK; roadmap lint 17 pass.
 - `findings.py gate` exits 0 for m12 and m13.
 - Mutation testing: m8 6/6, m12 5/5, m13 6/6, #383 1/1 (+control), m11 revert 1/1.
-- **NOT verified anywhere: anything visual.** No browser or AT was available. m10's lede, m12's
-  OOB cue, m13's empty-state collapse and announcement behaviour, and every re-armed error path
-  are derivations. This is the single largest gap in the session and the continuation handoff's
-  RESUME HERE step exists to close it.
+- **A browser pass ran after this section was first written (`e8f149d`), and it corrected a
+  claim this document made.** The original text here read "No browser or AT was available" and
+  listed every visual claim as derivation. That was FALSE and is the session's own last mistake:
+  the preview pane renders `file://` as static snapshots, and I generalised that into "no
+  browser", which is what justified deferring m13's M2. Pointing the pane at the real server
+  works — see the continuation handoff for the recipe.
+
+  **Now verified against the running server:** arXMCP#383's fix (a real 409 fills
+  `#create-error`, a surface that had never displayed anything); m13's M2 (six empty `<output>`
+  blocks at height 0px, padding 0px, transparent — in the a11y tree, no visual footprint); and
+  the m13/m12 live-region structure in the rendered DOM.
+
+  **Still derivation, and a reviewer should treat it as such:** announcement behaviour (needs a
+  real screen reader), m10's abstract lede (needs a live arXiv discovery call), and
+  narrow-viewport layout. **Scrutinise how the "no browser" claim survived a whole session
+  unchallenged** — it is the same failure shape as everything else this session found: an
+  assertion nobody re-tested.
 
 ## 9. How to review (repro + response contract)
 

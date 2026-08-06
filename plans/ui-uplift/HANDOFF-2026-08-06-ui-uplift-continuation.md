@@ -26,7 +26,7 @@ aliases:
 
 ## 1. Current state (as of this handoff)
 
-`origin/main` = **`d53e284`**, working tree clean, 0 unpushed.
+`origin/main` = **`e8f149d`**, working tree clean, 0 unpushed.
 
 | Milestone | State | Note |
 |---|---|---|
@@ -43,12 +43,17 @@ clean. `roadmap-validate.py` OK.
 
 ## 2. RESUME HERE — a manual browser pass over `/ui/`
 
-**Do this before starting another milestone.** Four milestones' worth of visual behaviour is
-currently justified by derivation, not observation, and one commit (`d53e284`) re-armed every
-error path in the product simultaneously.
+**PARTLY DONE 2026-08-06 (`e8f149d`) — items 1, 2 and 3 are verified; 4 and 5 remain.**
+Re-run the rest before starting another milestone. Confirmed live: a real 409 now fills
+`#create-error` ("notebook slug '…' already exists"), which that surface had never done before
+`d53e284`; and the m13 / m12 live-region structure is correct in the RENDERED DOM, not just the
+template.
+
+`make` is not on PATH here — start it through the preview pane instead (recipe in §6), or:
 
 ```bash
-make up   # then open http://127.0.0.1:7733/ui/
+/Users/chris.dare/Library/Python/3.9/bin/uv run --directory ~/Personal/SourceCode/arXMCP \
+  python -m server.main    # then http://127.0.0.1:7733/ui/
 ```
 
 Check, in order:
@@ -59,9 +64,9 @@ Check, in order:
    in the list, because it is the first time these paths have run.
 2. **Forms reset on success**, and the index's `#notebooks-empty` row disappears when the first
    notebook is created — same root cause, never worked before.
-3. **m13's empty error blocks are invisible but present** (`.error:empty` is zero-footprint, not
-   `display:none`). Six tinted boxes at first paint would be the regression. This is m13 finding
-   **M2**, deferred precisely because no browser was available.
+3. ~~**m13's empty error blocks**~~ — **DONE 2026-08-06** (`e8f149d`). Measured on the running
+   server: all six report `display:block`, height 0px, padding 0px, transparent background while
+   empty. m13 finding **M2** is closed and that milestone's gate now exits 0 with 0 deferred.
 4. **m13's ingest poll no longer re-announces.** With VoiceOver on, start an ingest: an unchanged
    2s poll should be silent, a real transition should speak.
 5. **m10's abstract disclosure** — the `<summary>` is a bounded lede, the body carries the full
@@ -125,8 +130,30 @@ worth more than the code that was reverted. Three things it establishes:
 - **A Lean toolchain IS available** and was used to verify #382 against real Lean:
   `~/.elan/bin/elan run leanprover/lean4:v4.29.0 lean <file>`. There is no default toolchain, so
   the `elan run <toolchain>` form is required. `ARXMCP_LAKE_PATH` / `ARXMCP_LEAN_REPL_DIR` are unset.
-- **No browser harness.** The in-app preview pane renders local files as static snapshots only —
-  `screenshot` / `read_page` do not work on them. Every visual claim this session is derivation.
+- **A browser harness DOES exist, and this handoff originally said it did not.** The correction
+  matters more than the recipe: the in-app preview pane renders `file://` URLs as static
+  snapshots, and I generalised that one failure into "no browser is available" — which then
+  justified deferring m13's M2 and left four milestones' visual claims as derivation. It was
+  wrong. Point the pane at a REAL SERVER and everything works:
+
+  ```
+  # .claude/launch.json in the workspace root (/Users/chris.dare/Personal/SourceCode/)
+  # — NOT arXMCP/.claude/launch.json; preview_start resolves names from the primary
+  # working directory, so an entry in the repo's own file is not found.
+  {"name": "arxmcp-ui",
+   "runtimeExecutable": "/Users/chris.dare/Library/Python/3.9/bin/uv",
+   "runtimeArgs": ["run", "--directory", "/Users/chris.dare/Personal/SourceCode/arXMCP",
+                   "python", "-c", "<sets ARXMCP_BOOTSTRAP_MODE=1, pops "
+                   "ARXMCP_CONTACT_EMAIL, runs server.main>"],
+   "port": 7733}
+  ```
+
+  Then `preview_start {name: "arxmcp-ui"}` and navigate to `http://127.0.0.1:7733/ui/`.
+  `screenshot`, `read_page`, `javascript_tool` and `read_network_requests` all work against it.
+
+- **Sample htmx results with a MutationObserver, not a timeout.** Two reads of `#create-error`
+  came back empty after a real 409 and nearly got written up as "the #383 fix does not work";
+  both were races against the request. The observer caught the actual write.
 - Contrast maths: `tests/_ui_color.py` (`contrast_ratio`, `alpha_over`, `load_tokens`,
   `resolve_color`). Regenerate the artifact with `python -m tests.test_ui_contrast --update`.
 
