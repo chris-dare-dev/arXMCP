@@ -1,8 +1,8 @@
 {
   "id": "desktop-distribution-m2",
   "created_at": "2026-08-06T18:49:38Z",
-  "updated_at": "2026-08-06T19:02:06Z",
-  "phase": "research-complete",
+  "updated_at": "2026-08-06T20:14:06Z",
+  "phase": "rectify-running",
   "phase_history": [
     {
       "phase": "init",
@@ -15,32 +15,66 @@
     {
       "phase": "research-complete",
       "at": "2026-08-06T19:02:06Z"
+    },
+    {
+      "phase": "implement-running",
+      "at": "2026-08-06T19:08:34Z"
+    },
+    {
+      "phase": "implement-complete",
+      "at": "2026-08-06T19:51:51Z"
+    },
+    {
+      "phase": "critique-running",
+      "at": "2026-08-06T19:52:32Z"
+    },
+    {
+      "phase": "critique-complete",
+      "at": "2026-08-06T20:13:47Z"
+    },
+    {
+      "phase": "rectify-running",
+      "at": "2026-08-06T20:14:06Z"
     }
   ],
   "milestone_brief": "### desktop-distribution-m2 \u2014 Make the installed server relocatable\n\n**Description.** Route the server, notebook registry, retrieval stores, and operational outputs through the centralized path contract for installed-runtime flows. Add a wheel relocation smoke that starts in bootstrap mode from an arbitrary working directory and proves no write lands beside the application or checkout.\n\n**Acceptance criteria.**\n- [ ] The installed `arxmcp-server` starts with a temporary application-data root from outside the repository and reaches `/healthz` in bootstrap mode.\n- [ ] Notebook, cache, log, corpus-marker, and settings writes observed in the smoke remain beneath that root.\n- [ ] The wheel, Docker/Compose, `make up`, and existing explicit per-store overrides retain their current behavior.\n- [ ] A regression test fails if an installed-runtime code path derives a writable location from `cwd` or repository root.\n- [ ] `make test` exits 0.\n\n**Dependencies.** desktop-distribution-e1, desktop-distribution-m1, desktop-distribution-spike-1\n\n**Complexity.** M\n\n**Specialist suggestion.** `security-reviewer`, `determinism-reviewer`",
   "brief_source": "legacy-prose plans/desktop-distribution-roadmap.md",
   "research_mode": "standard",
   "oss_scout_requested": false,
-  "allow_large_diff": false,
+  "allow_large_diff": true,
   "research_briefs": [
     "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/desktop-distribution-m2/research/brief-1.md",
     "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/desktop-distribution-m2/research/brief-2.md"
   ],
   "research_synthesis": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/desktop-distribution-m2/research/synthesis.md",
-  "implementation_path": null,
+  "implementation_path": "delegated",
   "implementation_plan": null,
-  "implementation_base": null,
-  "implementation_commit_range": null,
-  "implementation_commits": [],
+  "implementation_base": "092ab7b5f6e6d30dd2b6358074d0a7b97b12d57d",
+  "implementation_commit_range": "092ab7b5f6e6d30dd2b6358074d0a7b97b12d57d..3e2dd21819f7cf2ce8d5cb26934c8c59194b5253",
+  "implementation_commits": [
+    "3e2dd21819f7cf2ce8d5cb26934c8c59194b5253",
+    "be709d9b3cb0bcab6dfd5f22c276e4ead64bbc01"
+  ],
   "implementation_branch": null,
   "external_writes_required": [
     "git push origin main"
   ],
-  "critique_path": null,
-  "critics_run": [],
-  "critique_files": [],
-  "critique_finding_counts": null,
-  "findings_register": null,
+  "critique_path": ".claude/notes/milestones/desktop-distribution-m2/critique/dedup.md",
+  "critics_run": [
+    "milestone-adversary-critic",
+    "milestone-arxmcp-critic"
+  ],
+  "critique_files": [
+    "critique/adversary.md",
+    "critique/arxmcp.md"
+  ],
+  "critique_finding_counts": {
+    "critical": 1,
+    "high": 4,
+    "medium": 2,
+    "low": 0
+  },
+  "findings_register": ".claude/notes/milestones/desktop-distribution-m2/findings.json",
   "rectification_commit": null,
   "fixed_findings": [],
   "deferred_findings": [],

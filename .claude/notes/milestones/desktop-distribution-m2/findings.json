@@ -1,0 +1,150 @@
+{
+  "milestone_id": "desktop-distribution-m2",
+  "critique_format_version": "1.0",
+  "critique_files": [
+    "dedup.md"
+  ],
+  "generated_at": "2026-08-06T20:51:28Z",
+  "findings": {
+    "C1": {
+      "id": "C1",
+      "severity": "CRITICAL",
+      "title": "Implementation commits are unsigned",
+      "file": null,
+      "line": null,
+      "anchor": "be709d9b3cb0bcab6dfd5f22c276e4ead64bbc01 N",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Commit hygiene",
+      "source_file": "dedup.md",
+      "status": "invalidated",
+      "resolution": "code-no-longer-matches: both implementation commits carry valid GPG signatures; unsandboxed git verify-commit reports Good signature for each",
+      "history": [
+        {
+          "status": "invalidated",
+          "at": "2026-08-06T20:14:22Z",
+          "resolution": "code-no-longer-matches: both implementation commits carry valid GPG signatures; unsandboxed git verify-commit reports Good signature for each"
+        }
+      ]
+    },
+    "H1": {
+      "id": "H1",
+      "severity": "HIGH",
+      "title": "Cumulative diff exceeds the review limit",
+      "file": null,
+      "line": null,
+      "anchor": "9 files changed, 901 insertions(+), 51 deletions(-)",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Diff size",
+      "source_file": "dedup.md",
+      "status": "invalidated",
+      "resolution": "code-no-longer-matches: the user explicitly approved the large-diff continuation and live state records allow_large_diff=true",
+      "history": [
+        {
+          "status": "invalidated",
+          "at": "2026-08-06T20:14:22Z",
+          "resolution": "code-no-longer-matches: the user explicitly approved the large-diff continuation and live state records allow_large_diff=true"
+        }
+      ]
+    },
+    "H2": {
+      "id": "H2",
+      "severity": "HIGH",
+      "title": "Application-parent writes escape observation",
+      "file": "tools/wheel_install_check.py",
+      "line": 658,
+      "anchor": "\"installed environment\": filesystem_metadata_manifest(venv),",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Acceptance coverage",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Full-wheel confinement now snapshots and content-hashes the installed application parent; regression covers sibling writes and equal-size rewrites.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-06T20:51:28Z",
+          "resolution": "Full-wheel confinement now snapshots and content-hashes the installed application parent; regression covers sibling writes and equal-size rewrites."
+        }
+      ]
+    },
+    "H3": {
+      "id": "H3",
+      "severity": "HIGH",
+      "title": "Settings write has no persisted-effect check",
+      "file": "tools/wheel_install_check.py",
+      "line": 765,
+      "anchor": "data_dir / \"cache\" / \"notebooks.db\",",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Acceptance coverage",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "The writer probe now reads desktop_relocation_probe back through OperatorSettingsStore and requires the exact persisted value.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-06T20:51:28Z",
+          "resolution": "The writer probe now reads desktop_relocation_probe back through OperatorSettingsStore and requires the exact persisted value."
+        }
+      ]
+    },
+    "H4": {
+      "id": "H4",
+      "severity": "HIGH",
+      "title": "Installed UI ingest still writes through package-root defaults, outside the selected data root",
+      "file": "tools/wheel_install_check.py",
+      "line": 721,
+      "anchor": "_post_smoke_notebook(port)",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "local-first + Docker constraint",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Server ingest children receive canonical ARXMCP_DATA_DIR; ingest defaults resolve through ApplicationPaths; the installed wheel reports and validates every runtime path.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-06T20:51:28Z",
+          "resolution": "Server ingest children receive canonical ARXMCP_DATA_DIR; ingest defaults resolve through ApplicationPaths; the installed wheel reports and validates every runtime path."
+        }
+      ]
+    },
+    "M1": {
+      "id": "M1",
+      "severity": "MEDIUM",
+      "title": "Metadata manifest misses equal-size rewrites",
+      "file": "tools/wheel_install_check.py",
+      "line": 454,
+      "anchor": "File contents are not hashed: hashing a dependency-complete venv would",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Correctness",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Filesystem manifests now include SHA-256 content digests plus ctime and inode; an equal-size rewrite regression proves detection.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-06T20:51:28Z",
+          "resolution": "Filesystem manifests now include SHA-256 content digests plus ctime and inode; an equal-size rewrite regression proves detection."
+        }
+      ]
+    },
+    "M2": {
+      "id": "M2",
+      "severity": "MEDIUM",
+      "title": "Wheel provenance uses textual prefixing instead of canonical containment",
+      "file": "tools/wheel_install_check.py",
+      "line": 647,
+      "anchor": "if not resolved.lower().startswith(site_packages.lower()):",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "test surface",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Installed provenance now uses resolved pathlib containment; sibling-prefix and symlink-escape regressions are rejected.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-06T20:51:28Z",
+          "resolution": "Installed provenance now uses resolved pathlib containment; sibling-prefix and symlink-escape regressions are rejected."
+        }
+      ]
+    }
+  }
+}

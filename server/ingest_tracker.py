@@ -44,8 +44,10 @@ from __future__ import annotations
 import asyncio
 import html
 import logging
+import os
 import re
 import sys
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -129,6 +131,7 @@ class IngestTaskTracker:
         self,
         *,
         on_success_callback: Callable[[str], Awaitable[None]] | None = None,
+        data_root: Path | None = None,
     ) -> None:
         """Construct the tracker.
 
@@ -139,10 +142,19 @@ class IngestTaskTracker:
                 ERROR and NOT propagated (FM-3 from m4 synthesis §3 D6)
                 so a late-bind failure never leaves the ingest-status
                 row in a bad state or prevents the task from completing.
+            data_root: Canonical application-data root inherited by the
+                notebook-ingest child as ``ARXMCP_DATA_DIR``. ``None`` keeps
+                the legacy environment behavior for isolated unit callers.
         """
         self._tasks: dict[str, asyncio.Task] = {}
         self._global_cap = asyncio.Semaphore(1)
         self._on_success_callback = on_success_callback
+        self._subprocess_env: dict[str, str] | None = None
+        if data_root is not None:
+            self._subprocess_env = os.environ.copy()
+            self._subprocess_env["ARXMCP_DATA_DIR"] = str(
+                Path(data_root).resolve(strict=False)
+            )
 
     def is_running(self, slug: str) -> bool:
         """Return True if a live in-flight task exists for ``slug``.
@@ -236,6 +248,7 @@ class IngestTaskTracker:
                     slug,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
+                    env=self._subprocess_env,
                 )
                 _stdout, stderr_bytes = await proc.communicate()
                 exit_code = proc.returncode

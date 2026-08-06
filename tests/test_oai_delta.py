@@ -1054,7 +1054,12 @@ class _FakeUrlOpenResponse:
 
 
 class TestCLI:
-    def test_dry_run_flag_accepted(self, tmp_path, capsys):
+    def test_dry_run_flag_accepted(self, tmp_path, capsys, monkeypatch):
+        # Keep this CLI-unit test independent of the operator's live
+        # ingest-paused sentinel.  A low-disk pause in the repository data
+        # root is valid host state, but it is not part of the dry-run parser
+        # contract exercised here.
+        monkeypatch.setenv("ARXMCP_DATA_DIR", str(tmp_path / "data"))
         from ingest.oai_delta import DEFAULT_SETS, _cli
 
         # The CLI walks all DEFAULT_SETS — provide one mock page per set.

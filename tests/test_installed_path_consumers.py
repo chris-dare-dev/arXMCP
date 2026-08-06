@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -15,6 +16,7 @@ from fastapi.testclient import TestClient
 from mcp.server.fastmcp import FastMCP
 
 from server.config import Config
+from server.ingest_tracker import IngestTaskTracker
 from server.mcp_resources import (
     CORPUS_MANIFEST_URI,
     register_resources,
@@ -255,6 +257,142 @@ def test_manifest_guard_rejects_an_arbitrary_cwd_write(tmp_path: Path) -> None:
         )
 
 
+def test_manifest_guard_watches_application_parent_and_file_bytes(
+    tmp_path: Path,
+) -> None:
+    application_parent = tmp_path / "application"
+    venv = application_parent / "venv"
+    venv.mkdir(parents=True)
+    module = venv / "module.py"
+    module.write_text("AAAA", encoding="utf-8")
+    before = wheel_install_check.filesystem_metadata_manifest(
+        application_parent, hash_contents=True
+    )
+
+    original = module.stat()
+    module.write_text("BBBB", encoding="utf-8")
+    os.utime(module, ns=(original.st_atime_ns, original.st_mtime_ns))
+    rewritten = wheel_install_check.filesystem_metadata_manifest(
+        application_parent, hash_contents=True
+    )
+    assert "venv/module.py" in wheel_install_check.changed_manifest_paths(
+        before, rewritten
+    )
+
+    (application_parent / "leak.db").write_text("sibling", encoding="utf-8")
+    after_leak = wheel_install_check.filesystem_metadata_manifest(
+        application_parent, hash_contents=True
+    )
+    with pytest.raises(wheel_install_check.CheckFailed, match="leak.db"):
+        wheel_install_check.assert_manifest_unchanged(
+            "installed application parent", before, after_leak
+        )
+
+
+def test_wheel_provenance_requires_canonical_containment(tmp_path: Path) -> None:
+    site_packages = tmp_path / "site-packages"
+    installed = site_packages / "server" / "__init__.py"
+    installed.parent.mkdir(parents=True)
+    installed.write_text("installed", encoding="utf-8")
+    assert wheel_install_check._assert_installed_provenance(
+        str(installed), str(site_packages)
+    ) == installed.resolve()
+
+    sibling = tmp_path / "site-packages-shadow" / "server" / "__init__.py"
+    sibling.parent.mkdir(parents=True)
+    sibling.write_text("shadow", encoding="utf-8")
+    with pytest.raises(wheel_install_check.CheckFailed, match="SHADOWED"):
+        wheel_install_check._assert_installed_provenance(
+            str(sibling), str(site_packages)
+        )
+
+    symlink = site_packages / "linked-server.py"
+    try:
+        symlink.symlink_to(sibling)
+    except OSError:
+        pytest.skip("platform cannot create symlinks")
+    with pytest.raises(wheel_install_check.CheckFailed, match="SHADOWED"):
+        wheel_install_check._assert_installed_provenance(
+            str(symlink), str(site_packages)
+        )
+
+
+def test_server_ingest_child_uses_application_paths(
+    tmp_path: Path, monkeypatch
+) -> None:
+    root = tmp_path / "application-data"
+    captured: dict[str, object] = {}
+
+    class FakeProcess:
+        returncode = 0
+
+        async def communicate(self):
+            return b"", b""
+
+    async def fake_spawn(*args, **kwargs):
+        captured["args"] = args
+        captured["env"] = kwargs.get("env")
+        return FakeProcess()
+
+    monkeypatch.setattr(
+        "server.ingest_tracker.asyncio.create_subprocess_exec", fake_spawn
+    )
+
+    async def exercise_tracker() -> None:
+        store = await NotebooksStore.open(tmp_path / "tracker.db")
+        await store.create_notebook(
+            slug="demo-nb",
+            display_name="Demo",
+            lancedb_path="redacted",
+            created_at="2026-08-06T00:00:00Z",
+        )
+        run_id = await store.insert_ingest_run(
+            "demo-nb", "2026-08-06T00:00:00Z"
+        )
+        tracker = IngestTaskTracker(data_root=root)
+        await tracker._run_ingest_subprocess(
+            "demo-nb", run_id, store, lambda: "2026-08-06T00:01:00Z"
+        )
+        await store.close()
+
+    asyncio.run(exercise_tracker())
+    assert captured["args"][:3] == (
+        sys.executable,
+        "-m",
+        "tools.notebook_ingest",
+    )
+    child_env = captured["env"]
+    assert isinstance(child_env, dict)
+    assert child_env["ARXMCP_DATA_DIR"] == str(root.resolve())
+
+    env = wheel_install_check.build_relocated_child_environment(
+        root, 47300, environ={"PATH": "/usr/bin:/bin"}
+    )
+    env["PYTHONPATH"] = str(REPO_ROOT)
+    probe = (
+        "import json\n"
+        "import server.application_paths as application_paths\n"
+        "application_paths._source_checkout_root = lambda: None\n"
+        "from tools.notebook_ingest import runtime_paths_report\n"
+        "print(json.dumps(runtime_paths_report(), sort_keys=True))\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", probe],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    report = json.loads(result.stdout.strip().splitlines()[-1])
+    assert report["mode"] == "installed"
+    for label, raw_path in report.items():
+        if label != "mode":
+            assert Path(raw_path).is_relative_to(root.resolve()), label
+
+
 def test_installed_writer_probe_is_independent_of_cwd(tmp_path: Path) -> None:
     """Real writers stay under the configured root in installed path mode."""
     checkout_before = wheel_install_check.filesystem_metadata_manifest(
@@ -292,9 +430,10 @@ def test_installed_writer_probe_is_independent_of_cwd(tmp_path: Path) -> None:
         report = json.loads(result.stdout.strip().splitlines()[-1])
         reports.append(report)
         assert report["mode"] == "installed"
+        assert report["settings_value"] == "ok"
         canonical_root = root.resolve()
         for key, raw_path in report.items():
-            if key != "mode":
+            if key not in {"mode", "settings_value"}:
                 assert Path(raw_path).is_relative_to(canonical_root)
         assert (root / "cache" / "retrieval.db").is_file()
         assert (root / "cache" / "notebooks.db").is_file()

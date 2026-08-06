@@ -92,6 +92,7 @@ from ingest.chunker import (
 # ``chunker_types``.
 from ingest.chunker_types import CHUNKER_VERSION as EXPECTED_CHUNKER_VERSION
 from ingest.preamble import load_preamble
+from server.application_paths import ApplicationPaths
 
 logger = logging.getLogger(__name__)
 
@@ -157,13 +158,11 @@ EMBED_BATCH_DEFAULT = 8
 # Paths
 # ---------------------------------------------------------------------------
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-CHUNKS_DIR = REPO_ROOT / "var" / "arxmcp" / "corpus" / "chunks"
-EMBEDDINGS_DIR = REPO_ROOT / "var" / "arxmcp" / "corpus" / "embeddings"
-EMBED_STATS_PATH = REPO_ROOT / "var" / "arxmcp" / "ops" / "embed-stats.jsonl"
-EMBED_LOG_PATH = (
-    REPO_ROOT / "var" / "arxmcp" / "ops" / "parser-failures" / "embed.log"
-)
+_APPLICATION_PATHS = ApplicationPaths.resolve()
+CHUNKS_DIR = _APPLICATION_PATHS.corpus / "chunks"
+EMBEDDINGS_DIR = _APPLICATION_PATHS.corpus / "embeddings"
+EMBED_STATS_PATH = _APPLICATION_PATHS.ops / "embed-stats.jsonl"
+EMBED_LOG_PATH = _APPLICATION_PATHS.ops / "parser-failures" / "embed.log"
 
 
 # ---------------------------------------------------------------------------

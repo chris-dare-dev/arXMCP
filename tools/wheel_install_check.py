@@ -73,6 +73,7 @@ prints what was expected and what the wheel actually contained).
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -445,16 +446,25 @@ def build_relocated_child_environment(
     return env
 
 
-ManifestEntry = tuple[str, int, int, int, str]
+ManifestEntry = tuple[str, int, int, int, int, int, str, str]
 
 
-def filesystem_metadata_manifest(root: Path) -> dict[str, ManifestEntry]:
-    """Return a stable, recursive metadata manifest for mutation detection.
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
 
-    File contents are not hashed: hashing a dependency-complete venv would
-    reread roughly 2 GB twice.  Type, size, nanosecond mtime, mode, and symlink
-    target detect the write classes this relocation gate is concerned with
-    while keeping the full-wheel check practical.
+
+def filesystem_metadata_manifest(
+    root: Path, *, hash_contents: bool = False
+) -> dict[str, ManifestEntry]:
+    """Return a stable, recursive manifest for mutation detection.
+
+    The always-on unit checks use metadata plus inode/change time.  The opt-in
+    full-wheel gate passes ``hash_contents=True`` so an equal-size rewrite with
+    a restored mtime cannot evade the pre-publish confinement proof.
     """
     if not root.exists():
         return {}
@@ -482,8 +492,11 @@ def filesystem_metadata_manifest(root: Path) -> dict[str, ManifestEntry]:
             kind,
             stat.st_size,
             stat.st_mtime_ns,
+            stat.st_ctime_ns,
+            stat.st_ino,
             stat.st_mode,
             target,
+            _sha256_file(path) if hash_contents and kind == "file" else "",
         )
     return manifest
 
@@ -545,7 +558,7 @@ import asyncio, json
 from ingest.store import write_corpus_version_marker
 from server.cache import RetrievalCache
 from server.config import Config
-from server.operator_settings import set_setting
+from server.operator_settings import get_setting, set_setting
 
 async def main():
     config = Config()
@@ -555,6 +568,13 @@ async def main():
     cache = await RetrievalCache.open(config.cache_db_path, corpus_version=1)
     await cache.close()
     set_setting("desktop_relocation_probe", "ok", config.notebooks_db_path)
+    settings_value = get_setting(
+        "desktop_relocation_probe", config.notebooks_db_path
+    )
+    if settings_value != "ok":
+        raise RuntimeError(
+            "operator settings probe did not persist desktop_relocation_probe"
+        )
     write_corpus_version_marker(
         config.lancedb_path,
         version=1,
@@ -570,6 +590,7 @@ async def main():
         "notebooks": str(paths.notebooks),
         "retrieval_cache": str(config.cache_db_path),
         "settings_db": str(config.notebooks_db_path),
+        "settings_value": settings_value,
         "corpus_marker": str(config.lancedb_path / "corpus-version.json"),
         "logs": str(paths.logs),
     }, sort_keys=True))
@@ -615,6 +636,45 @@ def _assert_path_inside(root: Path, raw_path: str, label: str) -> Path:
     return path
 
 
+def _assert_installed_provenance(
+    resolved_module: str, site_packages: str
+) -> Path:
+    """Require the imported module to be canonically inside site-packages."""
+    try:
+        module_path = Path(resolved_module).resolve(strict=True)
+        site_path = Path(site_packages).resolve(strict=True)
+        module_path.relative_to(site_path)
+    except (OSError, ValueError) as exc:
+        raise CheckFailed(
+            "SHADOWED: `import server` resolved to\n"
+            f"  {resolved_module}\n"
+            f"but this venv's canonical site-packages is\n  {site_packages}\n"
+            "The boot check would not be testing the installed wheel."
+        ) from exc
+    return module_path
+
+
+def _installed_ingest_paths(py: Path, cwd: Path, env: dict[str, str]) -> dict[str, str]:
+    """Ask the real installed notebook-ingest entry module for writer paths."""
+    proc = _run(
+        [str(py), "-m", "tools.notebook_ingest", "--print-runtime-paths"],
+        cwd=cwd,
+        env=env,
+        timeout=120,
+    )
+    if proc.returncode != 0:
+        raise CheckFailed(
+            "installed notebook-ingest path probe failed:\n"
+            f"{proc.stdout[-3000:]}\n{proc.stderr[-3000:]}"
+        )
+    try:
+        return json.loads(proc.stdout.strip().splitlines()[-1])
+    except (IndexError, json.JSONDecodeError) as exc:
+        raise CheckFailed(
+            "installed notebook-ingest path probe emitted no valid JSON"
+        ) from exc
+
+
 def assert_boots(venv: Path, site_packages: str) -> None:
     """Boot the installed server and prove all writes stay under one root.
 
@@ -644,20 +704,21 @@ def assert_boots(venv: Path, site_packages: str) -> None:
                 f"{shadow.stdout}\n{shadow.stderr}"
             )
         resolved = shadow.stdout.strip()
-        if not resolved.lower().startswith(site_packages.lower()):
-            raise CheckFailed(
-                "SHADOWED: `import server` resolved to\n"
-                f"  {resolved}\n"
-                f"but this venv's site-packages is\n  {site_packages}\n"
-                "The boot check would be testing the source tree, not the wheel. "
-                "Re-run with --mode full for a fully isolated environment."
-            )
+        _assert_installed_provenance(resolved, site_packages)
 
         watched_before = {
-            "source checkout": filesystem_metadata_manifest(REPO_ROOT),
-            "installed environment": filesystem_metadata_manifest(venv),
-            "arbitrary boot CWD": filesystem_metadata_manifest(tmp_cwd),
-            "boot sandbox": filesystem_metadata_manifest(sandbox),
+            "source checkout": filesystem_metadata_manifest(
+                REPO_ROOT, hash_contents=True
+            ),
+            "installed application parent": filesystem_metadata_manifest(
+                venv.parent, hash_contents=True
+            ),
+            "arbitrary boot CWD": filesystem_metadata_manifest(
+                tmp_cwd, hash_contents=True
+            ),
+            "boot sandbox": filesystem_metadata_manifest(
+                sandbox, hash_contents=True
+            ),
         }
 
         exe = _script_path(venv, "arxmcp-server")
@@ -744,8 +805,22 @@ def assert_boots(venv: Path, site_packages: str) -> None:
                     "writer probe did not exercise installed path mode: "
                     f"{writer_data.get('mode')!r}"
                 )
+            if writer_data.get("settings_value") != "ok":
+                raise CheckFailed(
+                    "writer probe did not read back the persisted settings value"
+                )
             canonical_data = data_dir.resolve(strict=False)
             for label, raw_path in writer_data.items():
+                if label in {"mode", "settings_value"}:
+                    continue
+                _assert_path_inside(canonical_data, raw_path, label)
+
+            ingest_paths = _installed_ingest_paths(py, tmp_cwd, env)
+            if ingest_paths.get("mode") != "installed":
+                raise CheckFailed(
+                    "notebook-ingest path probe did not exercise installed mode"
+                )
+            for label, raw_path in ingest_paths.items():
                 if label == "mode":
                     continue
                 _assert_path_inside(canonical_data, raw_path, label)
@@ -774,12 +849,24 @@ def assert_boots(venv: Path, site_packages: str) -> None:
             )
 
         watched_after = {
-            "source checkout": filesystem_metadata_manifest(REPO_ROOT),
-            "installed environment": filesystem_metadata_manifest(venv),
-            "arbitrary boot CWD": filesystem_metadata_manifest(tmp_cwd),
-            "boot sandbox": filesystem_metadata_manifest(sandbox),
+            "source checkout": filesystem_metadata_manifest(
+                REPO_ROOT, hash_contents=True
+            ),
+            "installed application parent": filesystem_metadata_manifest(
+                venv.parent, hash_contents=True
+            ),
+            "arbitrary boot CWD": filesystem_metadata_manifest(
+                tmp_cwd, hash_contents=True
+            ),
+            "boot sandbox": filesystem_metadata_manifest(
+                sandbox, hash_contents=True
+            ),
         }
-        for label in ("source checkout", "installed environment", "arbitrary boot CWD"):
+        for label in (
+            "source checkout",
+            "installed application parent",
+            "arbitrary boot CWD",
+        ):
             assert_manifest_unchanged(
                 label, watched_before[label], watched_after[label]
             )

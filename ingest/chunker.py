@@ -66,6 +66,7 @@ from bs4 import BeautifulSoup, NavigableString, Tag
 # dataclass default in ChunkRecord references it directly.
 from ingest.chunker_types import CHUNKER_VERSION, ChunkRecord
 from ingest.tokenizer import tokenize_body
+from server.application_paths import ApplicationPaths
 
 if TYPE_CHECKING:
     pass
@@ -74,10 +75,10 @@ if TYPE_CHECKING:
 # Paths
 # ---------------------------------------------------------------------------
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-PARSED_DIR = REPO_ROOT / "var" / "arxmcp" / "corpus" / "parsed"
-CHUNKS_DIR = REPO_ROOT / "var" / "arxmcp" / "corpus" / "chunks"
-CHUNK_LOG_PATH = REPO_ROOT / "var" / "arxmcp" / "ops" / "parser-failures" / "chunk.log"
+_APPLICATION_PATHS = ApplicationPaths.resolve()
+PARSED_DIR = _APPLICATION_PATHS.corpus / "parsed"
+CHUNKS_DIR = _APPLICATION_PATHS.corpus / "chunks"
+CHUNK_LOG_PATH = _APPLICATION_PATHS.ops / "parser-failures" / "chunk.log"
 
 # ---------------------------------------------------------------------------
 # Token budget constants

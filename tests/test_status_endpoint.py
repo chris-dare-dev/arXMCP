@@ -92,13 +92,26 @@ def _run(coro):
         loop.close()
 
 
+def _set_healthy_disk(monkeypatch) -> None:
+    """Make tests for the healthy status independent of host capacity."""
+    monkeypatch.setattr(
+        "shutil.disk_usage",
+        lambda _: SimpleNamespace(
+            total=100 * 1024**3,
+            used=20 * 1024**3,
+            free=80 * 1024**3,
+        ),
+    )
+
+
 # ---------------------------------------------------------------------------
 # compute_health_status — unit
 # ---------------------------------------------------------------------------
 
 
 class TestComputeHealthStatus:
-    def test_pass_when_warm_healthy(self, tmp_path):
+    def test_pass_when_warm_healthy(self, tmp_path, monkeypatch):
+        _set_healthy_disk(monkeypatch)
         _write_recent_backup(tmp_path / "ops")
         res = _FakeResources(
             warm=True, version=7, data_dir=tmp_path, ops_dir=tmp_path / "ops",
@@ -271,7 +284,8 @@ def _app_with(resources, store) -> FastAPI:
 
 
 class TestStatusEndpoint:
-    def test_status_pass_is_health_json_200(self, tmp_path):
+    def test_status_pass_is_health_json_200(self, tmp_path, monkeypatch):
+        _set_healthy_disk(monkeypatch)
         _write_recent_backup(tmp_path / "ops")
         res = _FakeResources(
             warm=True, version=7, data_dir=tmp_path, ops_dir=tmp_path / "ops",
@@ -316,7 +330,8 @@ class TestStatusEndpoint:
 
 
 class TestStatusBadge:
-    def test_badge_returns_html_fragment_200(self, tmp_path):
+    def test_badge_returns_html_fragment_200(self, tmp_path, monkeypatch):
+        _set_healthy_disk(monkeypatch)
         _write_recent_backup(tmp_path / "ops")
         res = _FakeResources(
             warm=True, data_dir=tmp_path, ops_dir=tmp_path / "ops",

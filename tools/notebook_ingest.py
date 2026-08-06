@@ -53,6 +53,34 @@ from tools._notebook_common import (
 logger = logging.getLogger("notebook_ingest")
 
 
+def runtime_paths_report() -> dict[str, str]:
+    """Return every mutable default reached by the ingest child boundary."""
+    from ingest import ar5iv_fetch, bulk_ingest, chunker, embedder, store
+    from server.application_paths import ApplicationPaths
+
+    paths = ApplicationPaths.resolve()
+    return {
+        "mode": paths.mode,
+        "root": str(paths.root),
+        "notebooks": str(paths.notebooks),
+        "ar5iv_cache": str(ar5iv_fetch.DEFAULT_AR5IV_CACHE_DIR),
+        "parsed": str(ar5iv_fetch.DEFAULT_PARSED_DIR),
+        "chunker_parsed": str(chunker.PARSED_DIR),
+        "chunks": str(chunker.CHUNKS_DIR),
+        "chunk_log": str(chunker.CHUNK_LOG_PATH),
+        "embedder_chunks": str(embedder.CHUNKS_DIR),
+        "embeddings": str(embedder.EMBEDDINGS_DIR),
+        "embed_stats": str(embedder.EMBED_STATS_PATH),
+        "embed_log": str(embedder.EMBED_LOG_PATH),
+        "lancedb": str(store.DEFAULT_LANCEDB_PATH),
+        "store_stats": str(store.STORE_STATS_PATH),
+        "lancedb_staging": str(bulk_ingest.DEFAULT_LANCEDB_STAGING_PATH),
+        "parser_failures": str(bulk_ingest.DEFAULT_PARSER_FAILURES_PATH),
+        "ingestion_log": str(bulk_ingest.DEFAULT_INGESTION_LOG_PATH),
+        "ops": str(bulk_ingest.DEFAULT_OPS_DIR),
+    }
+
+
 def _read_corpus_version(lancedb_path) -> int:
     """Read ``corpus-version.json`` and return the integer version."""
     marker = lancedb_path / "corpus-version.json"
@@ -175,7 +203,13 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "slug",
+        nargs="?",
         help="Notebook slug (must match ^[a-z][a-z0-9-]{2,30}$).",
+    )
+    parser.add_argument(
+        "--print-runtime-paths",
+        action="store_true",
+        help="print installed ingest writer paths as JSON and exit",
     )
     parser.add_argument(
         "--log-level",
@@ -187,7 +221,13 @@ def _build_arg_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = _build_arg_parser().parse_args(argv)
+    parser = _build_arg_parser()
+    args = parser.parse_args(argv)
+    if args.print_runtime_paths:
+        print(json.dumps(runtime_paths_report(), sort_keys=True))
+        return 0
+    if args.slug is None:
+        parser.error("slug is required unless --print-runtime-paths is used")
     logging.basicConfig(
         level=getattr(logging, args.log_level),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",

@@ -618,6 +618,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
         app.state.ingest_tracker = IngestTaskTracker(
             on_success_callback=_on_ingest_success,
+            data_root=config.application_paths.root,
         )
         # textbook-ingest-m6: parse task tracker — fire-and-forget
         # registry for the textbook PDF parse pipeline (MinerU +

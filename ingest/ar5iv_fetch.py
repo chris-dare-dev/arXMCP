@@ -47,12 +47,13 @@ from pathlib import Path
 
 from ingest.chunker import STRUCTURE_SIGNAL_CLASSES
 from ingest.identifiers import is_valid_arxiv_paper_id
+from server.application_paths import ApplicationPaths
 
 logger = logging.getLogger(__name__)
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_AR5IV_CACHE_DIR = REPO_ROOT / "var" / "arxmcp" / "cache" / "ar5iv"
-DEFAULT_PARSED_DIR = REPO_ROOT / "var" / "arxmcp" / "corpus" / "parsed"
+_APPLICATION_PATHS = ApplicationPaths.resolve()
+DEFAULT_AR5IV_CACHE_DIR = _APPLICATION_PATHS.cache / "ar5iv"
+DEFAULT_PARSED_DIR = _APPLICATION_PATHS.corpus / "parsed"
 
 #: Base URL for the ar5iv cache. The labs domain is the canonical
 #: one; arxiv.org/html serves a newer rewrite of the same content

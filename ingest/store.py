@@ -102,6 +102,7 @@ from ingest.schema import (
     LANCE_STORAGE_OPTIONS,
     EmbedRecord,
 )
+from server.application_paths import ApplicationPaths
 
 # NB: ``server.corpus.read_corpus_version`` is imported function-locally
 # inside ``write_chunks`` (the WAP gate, corpus-integrity-completion-e1).
@@ -122,9 +123,9 @@ logger = logging.getLogger(__name__)
 # Paths
 # ---------------------------------------------------------------------------
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_LANCEDB_PATH = REPO_ROOT / "var" / "arxmcp" / "index" / "lancedb"
-STORE_STATS_PATH = REPO_ROOT / "var" / "arxmcp" / "ops" / "store-stats.jsonl"
+_APPLICATION_PATHS = ApplicationPaths.resolve()
+DEFAULT_LANCEDB_PATH = _APPLICATION_PATHS.lancedb
+STORE_STATS_PATH = _APPLICATION_PATHS.ops / "store-stats.jsonl"
 
 # Filename of the corpus-version marker (E04_S03). Co-located with the
 # LanceDB dataset directory so it's atomically renameable on the same

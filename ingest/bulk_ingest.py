@@ -66,31 +66,28 @@ from ingest.chunker import STRUCTURE_SIGNAL_CLASSES, chunk_paper
 from ingest.embedder import embed_paper
 from ingest.identifiers import is_valid_arxiv_paper_id
 from ingest.store import DEFAULT_LANCEDB_PATH, load_embed_record, write_chunks
+from server.application_paths import ApplicationPaths
 
 logger = logging.getLogger(__name__)
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+_APPLICATION_PATHS = ApplicationPaths.resolve()
 
 #: Default staging LanceDB path (synthesis D5). The active dataset
 #: sits at ``DEFAULT_LANCEDB_PATH`` (``var/arxmcp/index/lancedb``);
 #: bulk ingest writes here so the active ``corpus-version.json``
 #: is untouched. E11_S05's cutover swaps this with the active path.
-DEFAULT_LANCEDB_STAGING_PATH = (
-    REPO_ROOT / "var" / "arxmcp" / "index" / "lancedb-staging"
-)
+DEFAULT_LANCEDB_STAGING_PATH = _APPLICATION_PATHS.index / "lancedb-staging"
 
 #: Default location of the parser-failures log. Append-only JSONL.
 DEFAULT_PARSER_FAILURES_PATH = (
-    REPO_ROOT / "var" / "arxmcp" / "ops" / "parser-failures" / "bulk.jsonl"
+    _APPLICATION_PATHS.ops / "parser-failures" / "bulk.jsonl"
 )
 
 #: Default location of the ingestion log. Append-only text records.
-DEFAULT_INGESTION_LOG_PATH = (
-    REPO_ROOT / "var" / "arxmcp" / "ops" / "ingestion.log"
-)
+DEFAULT_INGESTION_LOG_PATH = _APPLICATION_PATHS.ops / "ingestion.log"
 
 #: Default ops directory for sentinel files (ingest-summary.json etc.).
-DEFAULT_OPS_DIR = REPO_ROOT / "var" / "arxmcp" / "ops"
+DEFAULT_OPS_DIR = _APPLICATION_PATHS.ops
 
 #: Progress checkpoint interval — emit a summary line every Nth paper.
 DEFAULT_PROGRESS_INTERVAL = 1000
