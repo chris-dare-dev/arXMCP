@@ -35,9 +35,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pydantic import Field, SecretStr, field_validator, model_validator
+from pydantic import Field, PrivateAttr, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from server.application_paths import (
+    COMPATIBILITY_ALIAS_FIELDS,
+    ApplicationPaths,
+    legacy_source_path,
+)
 from server.corpus_freshness import DEFAULT_FRESHNESS_INTERVAL_SECONDS
 from server.metrics_refresh import DEFAULT_REFRESH_INTERVAL_SECONDS
 
@@ -85,6 +90,8 @@ class Config(BaseSettings):
         extra="forbid",  # unknown ARXMCP_* vars are configuration errors.
     )
 
+    _application_paths: ApplicationPaths = PrivateAttr()
+
     # --- Network ---------------------------------------------------------
 
     bind_host: str = "127.0.0.1"
@@ -104,7 +111,7 @@ class Config(BaseSettings):
     #: path ``var/arxmcp/notebooks/<slug>/lancedb`` before
     #: ``Resources.startup`` reads it. Setting both ``ARXMCP_NOTEBOOK``
     #: and ``ARXMCP_LANCEDB_PATH`` explicitly is rejected as ambiguous.
-    lancedb_path: Path = Path("var/arxmcp/index/lancedb")
+    lancedb_path: Path = legacy_source_path("lancedb")
 
     #: notebook-retrieval-m1 (fork C) — when set to a notebook slug
     #: (via ``ARXMCP_NOTEBOOK``), the server serves THAT notebook's
@@ -128,13 +135,13 @@ class Config(BaseSettings):
     #: rather than accepting an agent-supplied path — the E09_S03 F2
     #: path-validation contract requires the graph path to be
     #: config-derived, never sourced from agent JSON arguments.
-    kuzu_path: Path = Path("var/arxmcp/index/kuzu")
+    kuzu_path: Path = legacy_source_path("kuzu")
 
     #: SQLite file path for the Tier-1 retrieval cache (E08_S03).
     #: Sibling-of-sibling to ``lancedb_path`` so a single ``var/``
     #: tree holds both the corpus index and the cache. Parent
     #: directory is created at ``Resources.startup()`` time.
-    cache_db_path: Path = Path("var/arxmcp/cache/retrieval.db")
+    cache_db_path: Path = legacy_source_path("retrieval_cache_db")
 
     #: Per-notebook BM25 index root (notebook-bm25-isolation-m1).
     #: Default ``None`` means "resolve :data:`ingest.bm25_indexer.BM25_INDEX_ROOT`
@@ -154,7 +161,7 @@ class Config(BaseSettings):
     #: parent directory is created on first indexer run. When the
     #: file is absent, ``find_lemma_by_name`` falls back to the
     #: legacy in-memory scan over the chunks table.
-    theorem_names_db_path: Path = Path("var/arxmcp/index/sqlite/theorem_names.db")
+    theorem_names_db_path: Path = legacy_source_path("theorem_names_db")
 
     #: SQLite file path for the per-notebook metadata store
     #: (proof-verify-handler-wiring-m7). SEPARATE file from
@@ -163,7 +170,7 @@ class Config(BaseSettings):
     #: (m7 synthesis FM-6). Sibling to ``cache_db_path`` per the
     #: m7 brief; the per-notebook on-disk assets live elsewhere
     #: at ``var/arxmcp/notebooks/<slug>/`` and are NOT in this DB.
-    notebooks_db_path: Path = Path("var/arxmcp/cache/notebooks.db")
+    notebooks_db_path: Path = legacy_source_path("notebooks_db")
 
     #: Directory that holds cron-emitted sentinel files
     #: (drift-detected.flag, eval-quarantine.flag,
@@ -173,7 +180,7 @@ class Config(BaseSettings):
     #: to rehydrate cross-process gauges from disk. Letting this
     #: be configurable lets tests inject a ``tmp_path`` cleanly
     #: without monkey-patching paths in three modules.
-    ops_dir: Path = Path("var/arxmcp/ops")
+    ops_dir: Path = legacy_source_path("ops")
 
     # --- Models ----------------------------------------------------------
 
@@ -412,7 +419,7 @@ class Config(BaseSettings):
     #: directory convention (CLAUDE.md §5). Production deployments
     #: under ``/var/lib/arxmcp`` or ``/opt/arxmcp/var`` should set
     #: ``ARXMCP_DATA_DIR`` accordingly.
-    data_dir: Path = Path("var/arxmcp")
+    data_dir: Path = legacy_source_path("root")
 
     #: Query-embedder provider (E14_S05 D6). ``"local"`` uses the
     #: in-process BGE-M3 weights. ``"voyage"`` reserves the hosted
@@ -547,6 +554,37 @@ class Config(BaseSettings):
     arxiv_ca_bundle_path: Path | None = None
 
     # --- Validators ------------------------------------------------------
+
+    @property
+    def application_paths(self) -> ApplicationPaths:
+        """The canonical runtime paths resolved once during config parsing."""
+        return self._application_paths
+
+    @model_validator(mode="after")
+    def resolve_application_paths(self) -> Config:
+        """Validate retained aliases and bind installed defaults to one root."""
+        config_fields = {
+            "lancedb": "lancedb_path", "kuzu": "kuzu_path",
+            "retrieval_cache_db": "cache_db_path", "bm25": "bm25_index_root",
+            "theorem_names_db": "theorem_names_db_path",
+            "notebooks_db": "notebooks_db_path", "ops": "ops_dir",
+        }
+        aliases = {
+            env_name: getattr(self, config_fields[path_field])
+            for env_name, path_field in COMPATIBILITY_ALIAS_FIELDS
+            if config_fields[path_field] in self.model_fields_set
+            and getattr(self, config_fields[path_field]) is not None
+        }
+        paths = ApplicationPaths.resolve(
+            root=self.data_dir if "data_dir" in self.model_fields_set else None,
+            aliases=aliases,
+        )
+        self._application_paths = paths
+        self.data_dir = paths.root
+        if paths.mode != "source":
+            for path_field, config_field in config_fields.items():
+                setattr(self, config_field, getattr(paths, path_field))
+        return self
 
     @model_validator(mode="after")
     def derive_notebook_lancedb_path(self) -> Config:

@@ -68,6 +68,8 @@ import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
+from server.application_paths import ApplicationPaths, legacy_source_path
+
 logger = logging.getLogger(__name__)
 
 
@@ -88,7 +90,8 @@ _SCHEMA_VERSION_KEY: str = "__schema_version__"
 #: Default ``notebooks.db`` path resolution — mirrors
 #: :class:`server.config.Config`'s default. CLI tools that don't have
 #: a ``Config`` available pass this directly to the sync helpers.
-DEFAULT_DB_PATH: Path = Path("var/arxmcp/cache/notebooks.db")
+DEFAULT_DB_PATH: Path = legacy_source_path("notebooks_db")
+_LEGACY_DEFAULT_DB_PATH = DEFAULT_DB_PATH
 
 #: SQLite ``busy_timeout`` in milliseconds — 5 s window before
 #: ``database is locked`` raises. Matches Python's
@@ -98,6 +101,14 @@ _BUSY_TIMEOUT_MS: int = 5000
 #: Keys that the public API refuses (reserved for internal
 #: bookkeeping). Today: just the schema-version sentinel.
 _RESERVED_KEYS: frozenset[str] = frozenset({_SCHEMA_VERSION_KEY})
+
+
+def _resolve_db_path(db_path: Path | None) -> Path:
+    if db_path is not None:
+        return db_path
+    if DEFAULT_DB_PATH != _LEGACY_DEFAULT_DB_PATH:
+        return DEFAULT_DB_PATH
+    return ApplicationPaths.resolve().notebooks_db
 
 
 # ---------------------------------------------------------------------------
@@ -283,7 +294,7 @@ def _check_key(key: str) -> None:
 
 
 def get_setting(
-    key: str, db_path: Path = DEFAULT_DB_PATH
+    key: str, db_path: Path | None = None
 ) -> str | None:
     """Read a single setting; return ``None`` if the key is absent
     OR the underlying file doesn't exist yet (CLI may run before
@@ -292,6 +303,7 @@ def get_setting(
     Opens a fresh connection, reads one row, closes. Safe to call
     repeatedly from CLI loops; the WAL + busy_timeout discipline
     means a concurrent server writer doesn't crash the CLI."""
+    db_path = _resolve_db_path(db_path)
     _check_key(key)
     if not db_path.exists():
         return None
@@ -307,7 +319,7 @@ def get_setting(
 
 
 def set_setting(
-    key: str, value: str, db_path: Path = DEFAULT_DB_PATH
+    key: str, value: str, db_path: Path | None = None
 ) -> None:
     """Upsert a setting. ``INSERT OR REPLACE`` is idempotent on
     repeated calls; ``updated_at`` is rewritten each call so callers
@@ -315,6 +327,7 @@ def set_setting(
 
     Empty-string values are permitted (operators sometimes clear a
     pref); ``None`` is not — call :func:`delete_setting` to remove."""
+    db_path = _resolve_db_path(db_path)
     _check_key(key)
     if not isinstance(value, str):
         raise TypeError(
@@ -332,11 +345,12 @@ def set_setting(
 
 
 def delete_setting(
-    key: str, db_path: Path = DEFAULT_DB_PATH
+    key: str, db_path: Path | None = None
 ) -> bool:
     """Remove a setting; return ``True`` if a row was deleted,
     ``False`` if the key was already absent. Safe to call against a
     missing DB file."""
+    db_path = _resolve_db_path(db_path)
     _check_key(key)
     if not db_path.exists():
         return False
@@ -352,7 +366,7 @@ def delete_setting(
 
 
 def get_contact_email(
-    db_path: Path = DEFAULT_DB_PATH,
+    db_path: Path | None = None,
 ) -> str | None:
     """Convenience reader for the canonical ``contact_email`` key.
 
@@ -365,7 +379,7 @@ def get_contact_email(
 
 
 def get_mineru_bin(
-    db_path: Path = DEFAULT_DB_PATH,
+    db_path: Path | None = None,
 ) -> str | None:
     """Convenience reader for the persisted ``mineru_bin`` path.
 
@@ -408,10 +422,12 @@ class OperatorSettingsStore:
         self._lock = asyncio.Lock()
 
     @classmethod
-    async def open(cls, db_path: Path = DEFAULT_DB_PATH) -> OperatorSettingsStore:
+    async def open(cls, db_path: Path | None = None) -> OperatorSettingsStore:
         """Open (or create) the SQLite file at ``db_path``. Applies the
         full pragma + migration stack. Idempotent against a
         current-version file."""
+
+        db_path = _resolve_db_path(db_path)
 
         def _open() -> sqlite3.Connection:
             return _open_sync(db_path)

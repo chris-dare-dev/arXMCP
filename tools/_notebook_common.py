@@ -23,22 +23,25 @@ import tarfile
 import urllib.error
 from pathlib import Path
 
+from server.application_paths import ApplicationPaths
+
 logger = logging.getLogger("notebook_common")
 
 # Repo root resolved from this file's location: tools/_notebook_common.py
 # → tools/ → repo root.
 REPO_ROOT: Path = Path(__file__).resolve().parent.parent
 
-# Variant 1 layout constants.
-NOTEBOOKS_BASE: Path = REPO_ROOT / "var" / "arxmcp" / "notebooks"
-CORPUS_PARSED_DIR: Path = REPO_ROOT / "var" / "arxmcp" / "corpus" / "parsed"
-CORPUS_CHUNKS_DIR: Path = REPO_ROOT / "var" / "arxmcp" / "corpus" / "chunks"
-CORPUS_EMBEDDINGS_DIR: Path = REPO_ROOT / "var" / "arxmcp" / "corpus" / "embeddings"
+_APPLICATION_PATHS = ApplicationPaths.resolve()
+# Compatibility aliases; the root and fixed children come from one resolver.
+NOTEBOOKS_BASE: Path = _APPLICATION_PATHS.notebooks
+CORPUS_PARSED_DIR: Path = _APPLICATION_PATHS.corpus / "parsed"
+CORPUS_CHUNKS_DIR: Path = _APPLICATION_PATHS.corpus / "chunks"
+CORPUS_EMBEDDINGS_DIR: Path = _APPLICATION_PATHS.corpus / "embeddings"
 # notebook-preamble-recovery-m1: raw `.tex` source root. Used by the
 # `fetch_raw_tex_if_missing` helper and the `tools/recover_preambles.py`
 # back-fill script. `fetch_eprint` internally appends `paper_id` so this
 # is the PARENT dir, never the per-paper subdir.
-CORPUS_RAW_DIR: Path = REPO_ROOT / "var" / "arxmcp" / "corpus" / "raw"
+CORPUS_RAW_DIR: Path = _APPLICATION_PATHS.corpus / "raw"
 
 # Slug regex — same constraint the roadmap skill applies to its own
 # slugs. Lowercase ASCII + digits + hyphens, 3-31 chars, must start
@@ -187,9 +190,9 @@ def resolve_contact_email(
     # a stripped-down virtualenv during early bootstrap).
     import os  # noqa: PLC0415
 
-    from server.operator_settings import DEFAULT_DB_PATH, get_contact_email
+    from server.operator_settings import get_contact_email
 
-    persisted = get_contact_email(db_path or DEFAULT_DB_PATH)
+    persisted = get_contact_email(db_path)
     env_value = os.environ.get("ARXMCP_CONTACT_EMAIL")
     if persisted:
         # m2 critique F4 rectification (MEDIUM): emit an INFO log when
