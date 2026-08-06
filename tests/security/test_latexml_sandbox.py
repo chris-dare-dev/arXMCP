@@ -124,7 +124,10 @@ def _run_fixture(
     """
     # Lazy import — these tests should be collectible even when
     # ``tools/`` is missing from the path (older Pythons).
-    from tools.arxiv_fetch import parse_with_latexml  # noqa: PLC0415
+    from tools.arxiv_fetch import (  # noqa: PLC0415
+        LatexmlProcessError,
+        parse_with_latexml,
+    )
 
     fixture_src = FIXTURES_DIR / fixture_name
     # Copy the fixture into a working subdirectory so latexmlc's cwd
@@ -148,10 +151,15 @@ def _run_fixture(
     except subprocess.TimeoutExpired:
         elapsed = time.monotonic() - start
         return (None, elapsed, "timed_out")
+    except LatexmlProcessError as exc:
+        elapsed = time.monotonic() - start
+        # parse_with_latexml deliberately raises for a non-zero child exit.
+        # Different LaTeXML versions reject the hostile fixtures with
+        # different return codes (including signal exits), and that is a
+        # containment-positive outcome for this test suite. Infrastructure
+        # errors such as a missing binary remain visible as runtime_error.
+        return (exc.returncode, elapsed, "terminated")
     except RuntimeError as exc:
-        # parse_with_latexml raises RuntimeError if `latexmlc` is not on
-        # PATH. The test would normally be skipped before reaching this
-        # point, but surface the error explicitly.
         elapsed = time.monotonic() - start
         return (None, elapsed, f"runtime_error: {exc}")
 
@@ -163,6 +171,36 @@ def _run_fixture(
 # ===========================================================================
 # Test class — fires only when latexmlc is on PATH
 # ===========================================================================
+
+
+class TestRunFixtureClassification:
+    """Always-on guards for typed child-exit classification."""
+
+    def test_nonzero_child_exit_is_terminated(self, tmp_path, monkeypatch):
+        from tools import arxiv_fetch  # noqa: PLC0415
+
+        def _failed_child(**_kwargs):
+            raise arxiv_fetch.LatexmlProcessError("fixture", -6, "")
+
+        monkeypatch.setattr(arxiv_fetch, "parse_with_latexml", _failed_child)
+        returncode, _elapsed, status = _run_fixture(
+            "network_call.tex", tmp_path
+        )
+        assert returncode == -6
+        assert status == "terminated"
+
+    def test_setup_runtime_error_stays_visible(self, tmp_path, monkeypatch):
+        from tools import arxiv_fetch  # noqa: PLC0415
+
+        def _setup_failure(**_kwargs):
+            raise RuntimeError("latexmlc not on PATH")
+
+        monkeypatch.setattr(arxiv_fetch, "parse_with_latexml", _setup_failure)
+        returncode, _elapsed, status = _run_fixture(
+            "network_call.tex", tmp_path
+        )
+        assert returncode is None
+        assert status == "runtime_error: latexmlc not on PATH"
 
 
 @pytest.mark.skipif(
@@ -1221,11 +1259,12 @@ class TestSandboxWiring:
         # locally-installed latexmlc accepts the flag). The Python-
         # side subprocess timeout + killpg remain the load-bearing
         # timeout discipline.
-        # The original cmd has 4 elements: ["latexmlc",
+        # The original cmd has 4 elements: ["<resolved>/latexmlc",
         # "<main_tex_name>", "--dest=...", "--format=html5"].
-        # Find the latexmlc index instead of searching for '--'.
-        assert "latexmlc" in argv
-        latexmlc_idx = argv.index("latexmlc")
+        # Find the resolved binary by basename instead of searching for '--'.
+        latexmlc_idx = next(
+            i for i, arg in enumerate(argv) if Path(arg).name == "latexmlc"
+        )
         # The element immediately before latexmlc must be the '--'
         # separator.
         assert argv[latexmlc_idx - 1] == "--", (

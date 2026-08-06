@@ -148,6 +148,25 @@ class ParseResult:
     message: str
 
 
+class LatexmlProcessError(RuntimeError):
+    """A completed ``latexmlc`` child that exited unsuccessfully.
+
+    This remains a :class:`RuntimeError` for compatibility with existing
+    ingest callers, while giving containment tests a stable, typed way to
+    distinguish a child-process outcome from setup failures such as a
+    missing executable.
+    """
+
+    def __init__(self, paper_id: str, returncode: int, stderr: str) -> None:
+        self.paper_id = paper_id
+        self.returncode = returncode
+        self.stderr_tail = stderr.strip()[-800:]
+        super().__init__(
+            f"latexmlc exited nonzero (rc={returncode}) for {paper_id}: "
+            f"{self.stderr_tail}"
+        )
+
+
 def build_user_agent(contact_email: str | None = None) -> str:
     """Format the User-Agent per arXiv TOS §3 (politeness contract).
 
@@ -733,10 +752,10 @@ def parse_with_latexml(
     # in fetch_seed's PER_PAPER_FAILURE_EXCEPTIONS, so batch fetches still
     # skip-and-continue on a bad paper.
     if proc.returncode != 0:
-        stderr_tail = (stderr or "").strip()[-800:]
-        raise RuntimeError(
-            f"latexmlc exited nonzero (rc={proc.returncode}) for {paper_id}: "
-            f"{stderr_tail}"
+        raise LatexmlProcessError(
+            paper_id=paper_id,
+            returncode=proc.returncode,
+            stderr=stderr or "",
         )
 
     return detect_parse_success(out_html, proc.returncode)

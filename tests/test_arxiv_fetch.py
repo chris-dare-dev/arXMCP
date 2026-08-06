@@ -18,6 +18,7 @@ from tools import arxiv_fetch
 from tools.arxiv_fetch import (
     DEFAULT_503_BACKOFF_SECONDS,
     MIN_PARSED_HTML_BYTES,
+    LatexmlProcessError,
     build_user_agent,
     detect_parse_success,
     find_main_tex,
@@ -327,7 +328,17 @@ class TestParseWithLatexml:
         proc.communicate.return_value = ("", "")
         sentinel = object()
         # Force the win32 code path regardless of the host OS.
-        monkeypatch.setattr(arxiv_fetch.os, "name", "nt")
+        # Replace only this module's os binding: mutating os.name on the
+        # shared module also changes pathlib's host flavour and makes POSIX
+        # Path construction raise NotImplementedError for WindowsPath.
+        class _WindowsOSProxy:
+            name = "nt"
+            path = os.path
+
+            def __getattr__(self, name: str):
+                return getattr(os, name)
+
+        monkeypatch.setattr(arxiv_fetch, "os", _WindowsOSProxy())
         with (
             patch.object(arxiv_fetch.shutil, "which", return_value=str(bat)),
             patch.object(arxiv_fetch, "_build_sandbox_cmd", side_effect=lambda cmd, **kw: cmd),
@@ -356,12 +367,14 @@ class TestParseWithLatexml:
             patch.object(arxiv_fetch.shutil, "which", return_value=fake_bin),
             patch.object(arxiv_fetch, "_build_sandbox_cmd", side_effect=lambda cmd, **kw: cmd),
             patch.object(arxiv_fetch.subprocess, "Popen", return_value=proc),
-            pytest.raises(RuntimeError) as excinfo,
+            pytest.raises(LatexmlProcessError) as excinfo,
         ):
             parse_with_latexml(main_tex, parsed, "2307.01156")
         msg = str(excinfo.value)
         assert "rc=29" in msg       # returncode surfaced
         assert "on PATH" in msg     # stderr tail surfaced
+        assert excinfo.value.paper_id == "2307.01156"
+        assert excinfo.value.returncode == 29
 
 
 class TestLatexmlTimeoutConfig:

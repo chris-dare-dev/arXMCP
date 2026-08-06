@@ -123,7 +123,10 @@ def mocked_bge_m3(monkeypatch):
 def warm_app(tmp_path, mocked_bge_m3):
     lancedb_path = tmp_path / "lancedb"
     _seed_corpus(lancedb_path)
-    cfg = Config(lancedb_path=lancedb_path)
+    cfg = Config(
+        lancedb_path=lancedb_path,
+        kuzu_path=tmp_path / "kuzu",
+    )
     reset_resources_for_tests()
     reset_metrics_for_tests()
     app = create_app(cfg)
@@ -170,7 +173,10 @@ def warm_app_with_paper_metadata(tmp_path, mocked_bge_m3):
     lancedb_path = tmp_path / "lancedb"
     _seed_corpus(lancedb_path)
     _seed_paper_metadata(tmp_path / "paper_metadata.db")
-    cfg = Config(lancedb_path=lancedb_path)
+    cfg = Config(
+        lancedb_path=lancedb_path,
+        kuzu_path=tmp_path / "kuzu",
+    )
     reset_resources_for_tests()
     reset_metrics_for_tests()
     app = create_app(cfg)
