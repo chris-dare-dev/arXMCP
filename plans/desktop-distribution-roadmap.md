@@ -245,6 +245,86 @@ greps for this. Do not change it.
 
 **Specialist suggestion.** `mcp-protocol-reviewer`, `security-reviewer`
 
+**Delivery note (2026-08-07).** M4 is delivered as two sequenced milestones,
+`desktop-distribution-m5` and `desktop-distribution-m6` below. The
+`--deep` research fan-out for M4 estimated 2,100–3,750 LOC across ~20–30
+files — past the milestone-pipeline's 800-LOC abort — and the three prior
+milestones in this family (m1 373 LOC, m2 901, m3 2,702) each required the
+large-diff override. M4's failure modes span a webview, OS process control,
+a new Python startup path, and secret handling in a second language, so a
+single critique pass is a materially weaker review than it was for m3's
+self-contained wire contract. M4 remains the umbrella for issue #397 and its
+release gate; #397 closes when m6 lands. Research artifacts under
+`.claude/notes/milestones/desktop-distribution-m4/research/` are the shared
+input to both slices.
+
+### desktop-distribution-m5 — Real single-cycle desktop lifecycle
+
+**Description.** Build the production desktop-child entry point and the
+minimal Tauri supervisor, and prove one real launch → ready → MCP → quit
+cycle against the actual `arxmcp-server`. The child binds `127.0.0.1:0`
+outside `Config`, retains the listener, hands the live socket to uvicorn,
+and speaks the M3 `launch`/`bound`/`shutdown` contract. The supervisor
+arbitrates single-instance ownership with a native lock, hosts the existing
+server-rendered `/ui/` in one window, and performs one real MCP smoke.
+
+**Acceptance criteria.**
+- [ ] Given no running instance, when the app launches, then exactly one
+      child server reaches health/readiness and the existing console renders
+      in the desktop window; the child's argv/module target is asserted to be
+      the production entry point, not the fixture sidecar.
+- [ ] Given a ready instance, when an MCP smoke request crosses the announced
+      endpoint, then a real `initialize` + `tools/list` exchange returns the
+      normal response, and the LIVE response bytes hash equal to
+      `EXPECTED_TOOL_SCHEMA_SHA256`.
+- [ ] Given a second launch released from a shared barrier with no delay,
+      then exactly one spawn event occurs and the loser activates the
+      existing app or exits clearly.
+- [ ] Given normal shutdown, bounded cleanup leaves no child process and no
+      residual listener, proven by probes whose own success is asserted.
+- [ ] `Config.validate_port_range` is unchanged and no non-desktop boot path
+      gains the ability to request an ephemeral bind.
+- [ ] `X-ArXMCP-Startup-Token` is enforced on `/readyz` via pure-ASGI
+      middleware scoped to the desktop-child path only; Docker, `make up`,
+      and existing callers are unaffected. `BaseHTTPMiddleware` is not used.
+- [ ] `make test` and `make desktop-conformance` exit 0.
+
+**Dependencies.** desktop-distribution-e2, desktop-distribution-m2,
+desktop-distribution-m3
+
+**Complexity.** M
+
+**Specialist suggestion.** `mcp-protocol-reviewer`, `security-reviewer`
+
+### desktop-distribution-m6 — Desktop fault matrix and lifecycle stress
+
+**Description.** Extend the m5 skeleton with the bounded-cleanup fault
+matrix and the stress evidence M4's remaining acceptance criteria name:
+startup timeout, malformed bound frame, child crash, supervisor crash, and
+ignored shutdown with force escalation, plus the 30-cycle orphan audit and
+socket-level loopback regression.
+
+**Acceptance criteria.**
+- [ ] Startup timeout, child crash, supervisor crash, and ignored shutdown
+      each complete bounded cleanup leaving no process and no listener.
+- [ ] Every persisted diagnostic is scanned recursively and proven free of
+      the startup capability; the Rust-side diagnostics writer redacts to
+      the same standard as the Python `RedactionFilter`.
+- [ ] Thirty fixture-sidecar cycles run with 30 distinct PIDs, zero orphan
+      process groups, and zero residual listeners; a failed or partial
+      `ps`/`lsof` probe is an evidence failure, never clean absence.
+- [ ] At least one real-server fault case is covered so bounded cleanup is
+      not proven by the fixture alone.
+- [ ] Loopback-only binding is asserted at socket level against the live
+      port, not by comparing a parsed wire field.
+- [ ] `make test` and `make desktop-conformance` exit 0.
+
+**Dependencies.** desktop-distribution-m5
+
+**Complexity.** M
+
+**Specialist suggestion.** `security-reviewer`, `determinism-reviewer`
+
 ---
 
 ## Phase 4 — Materialize
