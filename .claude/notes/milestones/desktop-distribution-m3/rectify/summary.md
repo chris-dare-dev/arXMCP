@@ -1,11 +1,12 @@
 # Rectify summary — desktop-distribution-m3
 
-- **Rect commit:** pending — `rect(desktop-distribution-m3): close H2-H5`
+- **Rect commit:** `5811b4d2ce994d344fc514d41ed81dba8304fe6e` —
+  `rect(desktop-distribution-m3): close H2-H5`
 - **Fixed (8):** H2, H3, H4, H5, M1, M2, M3, M4.
 - **Deferred (1):** H1.
 - **Invalidated:** none; every HIGH anchor re-verified against live code.
-- **External write:** `git push origin main` remains pending per-event user
-  authorization.
+- **External write:** `git push origin main` completed with per-event user
+  authorization (`e61211f..5811b4d`).
 
 ## Fixed
 
