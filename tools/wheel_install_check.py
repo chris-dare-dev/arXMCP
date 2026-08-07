@@ -130,6 +130,9 @@ REQUIRED_INSTALLED_FILES: tuple[str, ...] = (
     "server/router_patterns.yaml",
     "server/schemas/search_papers_result.json",
     "server/schemas/lean_verify_result.json",
+    # desktop-distribution-m3: M4's installed server adapter imports this
+    # dependency-light wire parser. A source checkout would hide its absence.
+    "server/desktop_contract.py",
     "tools/seed-papers.txt",
 )
 

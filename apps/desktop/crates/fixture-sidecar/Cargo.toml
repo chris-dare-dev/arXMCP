@@ -1,0 +1,13 @@
+[package]
+name = "arxmcp-fixture-sidecar"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+arxmcp-desktop-contract = { path = "../desktop-contract" }
+
+[[bin]]
+name = "fixture-sidecar"
+path = "src/main.rs"
