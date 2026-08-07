@@ -26,3 +26,13 @@ path = "src/main.rs"
 [[bin]]
 name = "fixture-sidecar"
 path = "src/bin/fixture_sidecar.rs"
+
+# The spike is compiled on space-constrained developer workstations. Symbol-rich
+# artifacts are not evidence, so keep both focused profiles deterministic and small.
+[profile.dev]
+debug = 0
+incremental = false
+
+[profile.test]
+debug = 0
+incremental = false

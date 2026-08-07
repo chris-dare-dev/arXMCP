@@ -1,0 +1,1751 @@
+{
+  "artifacts": {
+    "fixture_sha256": "8d8b45ebc976bfa2d9a6b776210a26a9ca1629a872f932f39296027aee8824b7",
+    "host_is_tauri_binary": true,
+    "host_sha256": "24ae008caa9d715e47a351f2786c31268941a9faf516a4fe46714e381cd722bc",
+    "raw_results_sha256": "63a96d6dbe98ff4df0711a77ebe1fa493ee8eabdf68c3e7be983baf05dab8964",
+    "sidecar_target_triple_name": "fixture-sidecar-aarch64-apple-darwin"
+  },
+  "commands": {
+    "fault_matrix": "run_spike.py --cycles 30",
+    "listener_audit": "/usr/sbin/lsof -nP -iTCP:<port> -sTCP:LISTEN",
+    "process_audit": "ps -axo pid=,pgid=,comm=",
+    "secret_process_audit": "ps eww -p <pids> -o command="
+  },
+  "decision": "GO",
+  "environment": {
+    "cargo": "cargo 1.93.0 (083ac5135 2025-12-15)",
+    "platform": "macOS-26.6-arm64-arm-64bit",
+    "python": "3.12.13",
+    "rust_target": "aarch64-apple-darwin",
+    "rustc": "rustc 1.93.0 (254b59607 2026-01-19)\nbinary: rustc\ncommit-hash: 254b59607d4417e9dffbc307138ae5c86280fe4c\ncommit-date: 2026-01-19\nhost: aarch64-apple-darwin\nrelease: 1.93.0\nLLVM version: 21.1.8"
+  },
+  "fault_matrix": [
+    {
+      "duplicate_exit": null,
+      "elapsed_ms": 1062.533,
+      "events": [
+        "bootstrap_sent",
+        "bound_validated",
+        "health_ok",
+        "host_completed",
+        "lifecycle_started",
+        "ready_authenticated",
+        "secret_scan_clean",
+        "shutdown_sent",
+        "sidecar_reaped",
+        "sidecar_spawned"
+      ],
+      "expected_events": [
+        "ready_authenticated",
+        "shutdown_sent",
+        "sidecar_reaped"
+      ],
+      "host_exit": 0,
+      "live_observation": {
+        "observed": true,
+        "process_secret_scan_clean": true,
+        "same_group_canary": true
+      },
+      "ok": true,
+      "post_run_audit": {
+        "clean": true,
+        "connect_refused": true,
+        "executable_identity_absent": true,
+        "listener_rows": [],
+        "metadata_present": true,
+        "pid_absent": true,
+        "process_group_empty": true
+      },
+      "raw_result_sha256": "c4a047af875912f66831612b715564c76b06d17f15d70d978a7559ffed1e0765",
+      "raw_stderr_bytes": 0,
+      "raw_stdout_bytes": 0,
+      "scenario": "normal",
+      "secret_scan_clean": true
+    },
+    {
+      "duplicate_exit": 0,
+      "elapsed_ms": 492.518,
+      "events": [
+        "bootstrap_sent",
+        "bound_validated",
+        "duplicate_activation",
+        "duplicate_routed_to_primary",
+        "health_ok",
+        "host_completed",
+        "lifecycle_started",
+        "ready_authenticated",
+        "secret_scan_clean",
+        "shutdown_sent",
+        "sidecar_reaped",
+        "sidecar_spawned"
+      ],
+      "expected_events": [
+        "duplicate_routed_to_primary",
+        "sidecar_reaped"
+      ],
+      "host_exit": 0,
+      "live_observation": {
+        "observed": true,
+        "process_secret_scan_clean": true,
+        "same_group_canary": true
+      },
+      "ok": true,
+      "post_run_audit": {
+        "clean": true,
+        "connect_refused": true,
+        "executable_identity_absent": true,
+        "listener_rows": [],
+        "metadata_present": true,
+        "pid_absent": true,
+        "process_group_empty": true
+      },
+      "raw_result_sha256": "b51aa22a9c477c3bdcfb0589f49bd7012c0785bcb6cc308aa90f95515f1d4f0a",
+      "raw_stderr_bytes": 0,
+      "raw_stdout_bytes": 0,
+      "scenario": "duplicate",
+      "secret_scan_clean": true
+    },
+    {
+      "duplicate_exit": null,
+      "elapsed_ms": 1725.473,
+      "events": [
+        "bootstrap_sent",
+        "group_sigterm",
+        "host_completed",
+        "lifecycle_started",
+        "secret_scan_clean",
+        "sidecar_reaped",
+        "sidecar_spawned",
+        "startup_deadline_enforced"
+      ],
+      "expected_events": [
+        "sidecar_reaped",
+        "startup_deadline_enforced"
+      ],
+      "host_exit": 0,
+      "live_observation": {
+        "observed": true,
+        "process_secret_scan_clean": true,
+        "same_group_canary": true
+      },
+      "ok": true,
+      "post_run_audit": {
+        "clean": true,
+        "connect_refused": true,
+        "executable_identity_absent": true,
+        "listener_rows": [],
+        "metadata_present": true,
+        "pid_absent": true,
+        "process_group_empty": true
+      },
+      "raw_result_sha256": "63cad249f42a712214b4a534e5a8f729fd26673bc621fa9c902cf8248f055b95",
+      "raw_stderr_bytes": 0,
+      "raw_stdout_bytes": 0,
+      "scenario": "startup-timeout",
+      "secret_scan_clean": true
+    },
+    {
+      "duplicate_exit": null,
+      "elapsed_ms": 330.358,
+      "events": [
+        "bootstrap_sent",
+        "group_sigterm",
+        "host_completed",
+        "invalid_bound_rejected",
+        "lifecycle_started",
+        "secret_scan_clean",
+        "sidecar_reaped",
+        "sidecar_spawned"
+      ],
+      "expected_events": [
+        "invalid_bound_rejected",
+        "sidecar_reaped"
+      ],
+      "host_exit": 0,
+      "live_observation": {
+        "observed": true,
+        "process_secret_scan_clean": true,
+        "same_group_canary": true
+      },
+      "ok": true,
+      "post_run_audit": {
+        "clean": true,
+        "connect_refused": true,
+        "executable_identity_absent": true,
+        "listener_rows": [],
+        "metadata_present": true,
+        "pid_absent": true,
+        "process_group_empty": true
+      },
+      "raw_result_sha256": "099d032d4e2200d4483e8a5e7c7f25b31b2a81e14a44ba308c434226e0c61fd3",
+      "raw_stderr_bytes": 0,
+      "raw_stdout_bytes": 0,
+      "scenario": "malformed-bound",
+      "secret_scan_clean": true
+    },
+    {
+      "duplicate_exit": null,
+      "elapsed_ms": 323.156,
+      "events": [
+        "bootstrap_sent",
+        "group_sigterm",
+        "host_completed",
+        "invalid_bound_rejected",
+        "lifecycle_started",
+        "secret_scan_clean",
+        "sidecar_reaped",
+        "sidecar_spawned"
+      ],
+      "expected_events": [
+        "invalid_bound_rejected",
+        "sidecar_reaped"
+      ],
+      "host_exit": 0,
+      "live_observation": {
+        "observed": true,
+        "process_secret_scan_clean": true,
+        "same_group_canary": true
+      },
+      "ok": true,
+      "post_run_audit": {
+        "clean": true,
+        "connect_refused": true,
+        "executable_identity_absent": true,
+        "listener_rows": [],
+        "metadata_present": true,
+        "pid_absent": true,
+        "process_group_empty": true
+      },
+      "raw_result_sha256": "48bea9b21f8ac0dc2d2b6010cddc2d29946167f5ed14e34f966f6865fc6bea1f",
+      "raw_stderr_bytes": 0,
+      "raw_stdout_bytes": 0,
+      "scenario": "wildcard-v4",
+      "secret_scan_clean": true
+    },
+    {
+      "duplicate_exit": null,
+      "elapsed_ms": 330.999,
+      "events": [
+        "bootstrap_sent",
+        "group_sigterm",
+        "host_completed",
+        "invalid_bound_rejected",
+        "lifecycle_started",
+        "secret_scan_clean",
+        "sidecar_reaped",
+        "sidecar_spawned"
+      ],
+      "expected_events": [
+        "invalid_bound_rejected",
+        "sidecar_reaped"
+      ],
+      "host_exit": 0,
+      "live_observation": {
+        "observed": true,
+        "process_secret_scan_clean": true,
+        "same_group_canary": true
+      },
+      "ok": true,
+      "post_run_audit": {
+        "clean": true,
+        "connect_refused": true,
+        "executable_identity_absent": true,
+        "listener_rows": [],
+        "metadata_present": true,
+        "pid_absent": true,
+        "process_group_empty": true
+      },
+      "raw_result_sha256": "521ad1db1fa27b5144ea1f4a11d29248d0e4dca5dd772b2da89a97ae372ea642",
+      "raw_stderr_bytes": 0,
+      "raw_stdout_bytes": 0,
+      "scenario": "wildcard-v6",
+      "secret_scan_clean": true
+    },
+    {
+      "duplicate_exit": null,
+      "elapsed_ms": 1721.428,
+      "events": [
+        "bootstrap_sent",
+        "bound_validated",
+        "group_sigterm",
+        "health_ok",
+        "host_completed",
+        "lifecycle_started",
+        "readiness_deadline_enforced",
+        "secret_scan_clean",
+        "sidecar_reaped",
+        "sidecar_spawned"
+      ],
+      "expected_events": [
+        "readiness_deadline_enforced",
+        "sidecar_reaped"
+      ],
+      "host_exit": 0,
+      "live_observation": {
+        "observed": true,
+        "process_secret_scan_clean": true,
+        "same_group_canary": true
+      },
+      "ok": true,
+      "post_run_audit": {
+        "clean": true,
+        "connect_refused": true,
+        "executable_identity_absent": true,
+        "listener_rows": [],
+        "metadata_present": true,
+        "pid_absent": true,
+        "process_group_empty": true
+      },
+      "raw_result_sha256": "f638810ef92a9b670c1422f543a9e3267d3b42246327bf272b6ff28465c7d564",
+      "raw_stderr_bytes": 0,
+      "raw_stdout_bytes": 0,
+      "scenario": "never-ready",
+      "secret_scan_clean": true
+    },
+    {
+      "duplicate_exit": null,
+      "elapsed_ms": 110.085,
+      "events": [
+        "bootstrap_sent",
+        "expected_crash_before_bound",
+        "host_completed",
+        "lifecycle_started",
+        "secret_scan_clean",
+        "sidecar_spawned"
+      ],
+      "expected_events": [
+        "expected_crash_before_bound"
+      ],
+      "host_exit": 0,
+      "live_observation": {
+        "observed": false,
+        "process_secret_scan_clean": true,
+        "same_group_canary": false
+      },
+      "ok": true,
+      "post_run_audit": {
+        "clean": true,
+        "connect_refused": true,
+        "executable_identity_absent": true,
+        "listener_rows": [],
+        "metadata_present": false,
+        "pid_absent": true,
+        "process_group_empty": true
+      },
+      "raw_result_sha256": "86c13daa8499c23ec6328ce1253b8751e72d1c7a7ec14bec8cf57848a2b95b8d",
+      "raw_stderr_bytes": 0,
+      "raw_stdout_bytes": 0,
+      "scenario": "crash-before-bound",
+      "secret_scan_clean": true
+    },
+    {
+      "duplicate_exit": null,
+      "elapsed_ms": 474.296,
+      "events": [
+        "bootstrap_sent",
+        "bound_validated",
+        "expected_crash_after_ready",
+        "health_ok",
+        "host_completed",
+        "lifecycle_started",
+        "ready_authenticated",
+        "secret_scan_clean",
+        "sidecar_spawned"
+      ],
+      "expected_events": [
+        "expected_crash_after_ready",
+        "ready_authenticated"
+      ],
+      "host_exit": 0,
+      "live_observation": {
+        "observed": true,
+        "process_secret_scan_clean": true,
+        "same_group_canary": true
+      },
+      "ok": true,
+      "post_run_audit": {
+        "clean": true,
+        "connect_refused": true,
+        "executable_identity_absent": true,
+        "listener_rows": [],
+        "metadata_present": true,
+        "pid_absent": true,
+        "process_group_empty": true
+      },
+      "raw_result_sha256": "55e26eb93a51aecff9a632740f857a43ec894ede9a0406203bdec9298f4a91f7",
+      "raw_stderr_bytes": 0,
+      "raw_stdout_bytes": 0,
+      "scenario": "crash-after-ready",
+      "secret_scan_clean": true
+    },
+    {
+      "duplicate_exit": null,
+      "elapsed_ms": 981.465,
+      "events": [
+        "bootstrap_sent",
+        "bound_validated",
+        "group_sigkill",
+        "group_sigterm",
+        "health_ok",
+        "host_completed",
+        "lifecycle_started",
+        "ready_authenticated",
+        "secret_scan_clean",
+        "shutdown_grace_expired",
+        "shutdown_sent",
+        "sidecar_reaped",
+        "sidecar_spawned"
+      ],
+      "expected_events": [
+        "group_sigkill",
+        "group_sigterm",
+        "shutdown_grace_expired",
+        "sidecar_reaped"
+      ],
+      "host_exit": 0,
+      "live_observation": {
+        "observed": true,
+        "process_secret_scan_clean": true,
+        "same_group_canary": true
+      },
+      "ok": true,
+      "post_run_audit": {
+        "clean": true,
+        "connect_refused": true,
+        "executable_identity_absent": true,
+        "listener_rows": [],
+        "metadata_present": true,
+        "pid_absent": true,
+        "process_group_empty": true
+      },
+      "raw_result_sha256": "40f92dd827302f93b11f61863b49b19c1d37cdf7d053b26257bbb49b801c53ff",
+      "raw_stderr_bytes": 0,
+      "raw_stdout_bytes": 0,
+      "scenario": "ignore-shutdown",
+      "secret_scan_clean": true
+    },
+    {
+      "duplicate_exit": null,
+      "elapsed_ms": 389.891,
+      "events": [
+        "awaiting_parent_sigkill",
+        "bootstrap_sent",
+        "bound_validated",
+        "health_ok",
+        "lifecycle_started",
+        "ready_authenticated",
+        "sidecar_spawned"
+      ],
+      "expected_events": [
+        "awaiting_parent_sigkill"
+      ],
+      "host_exit": -9,
+      "live_observation": {
+        "observed": true,
+        "process_secret_scan_clean": true,
+        "same_group_canary": true
+      },
+      "ok": true,
+      "post_run_audit": {
+        "clean": true,
+        "connect_refused": true,
+        "executable_identity_absent": true,
+        "listener_rows": [],
+        "metadata_present": true,
+        "pid_absent": true,
+        "process_group_empty": true
+      },
+      "raw_result_sha256": "b571dabd1df59667e3892226780c46090d4018fd0614a67cd35d1cfaa304c784",
+      "raw_stderr_bytes": 0,
+      "raw_stdout_bytes": 0,
+      "scenario": "parent-crash",
+      "secret_scan_clean": true
+    }
+  ],
+  "milestone": "desktop-distribution-spike-3",
+  "pinned_dependencies": {
+    "tauri": "2.11.5",
+    "tauri-plugin-shell": "2.3.5",
+    "tauri-plugin-single-instance": "2.4.3"
+  },
+  "production_contract": {
+    "bind_host": "127.0.0.1",
+    "fixture_shutdown_grace_ms": 350,
+    "shutdown_grace_ms": 35000,
+    "token_entropy_bits": 256,
+    "token_transport": "stdin-only"
+  },
+  "schema_version": 1,
+  "thirty_cycle_gate": {
+    "all_passed": true,
+    "completed": 30,
+    "cycles": [
+      {
+        "duplicate_exit": null,
+        "elapsed_ms": 380.346,
+        "events": [
+          "bootstrap_sent",
+          "bound_validated",
+          "health_ok",
+          "host_completed",
+          "lifecycle_started",
+          "ready_authenticated",
+          "secret_scan_clean",
+          "shutdown_sent",
+          "sidecar_reaped",
+          "sidecar_spawned"
+        ],
+        "expected_events": [
+          "ready_authenticated",
+          "shutdown_sent",
+          "sidecar_reaped"
+        ],
+        "host_exit": 0,
+        "live_observation": {
+          "observed": true,
+          "process_secret_scan_clean": true,
+          "same_group_canary": true
+        },
+        "ok": true,
+        "post_run_audit": {
+          "clean": true,
+          "connect_refused": true,
+          "executable_identity_absent": true,
+          "listener_rows": [],
+          "metadata_present": true,
+          "pid_absent": true,
+          "process_group_empty": true
+        },
+        "raw_result_sha256": "a18e84b814880abf3d3645be6000d3e57a3213e679478f6a5ae1389a8f4ca9f5",
+        "raw_stderr_bytes": 0,
+        "raw_stdout_bytes": 0,
+        "scenario": "normal",
+        "secret_scan_clean": true
+      },
+      {
+        "duplicate_exit": null,
+        "elapsed_ms": 388.887,
+        "events": [
+          "bootstrap_sent",
+          "bound_validated",
+          "health_ok",
+          "host_completed",
+          "lifecycle_started",
+          "ready_authenticated",
+          "secret_scan_clean",
+          "shutdown_sent",
+          "sidecar_reaped",
+          "sidecar_spawned"
+        ],
+        "expected_events": [
+          "ready_authenticated",
+          "shutdown_sent",
+          "sidecar_reaped"
+        ],
+        "host_exit": 0,
+        "live_observation": {
+          "observed": true,
+          "process_secret_scan_clean": true,
+          "same_group_canary": true
+        },
+        "ok": true,
+        "post_run_audit": {
+          "clean": true,
+          "connect_refused": true,
+          "executable_identity_absent": true,
+          "listener_rows": [],
+          "metadata_present": true,
+          "pid_absent": true,
+          "process_group_empty": true
+        },
+        "raw_result_sha256": "5f7c83c1356c64e69cac41602df8e41a7fce2073f7ee748715ed330da5faeb5f",
+        "raw_stderr_bytes": 0,
+        "raw_stdout_bytes": 0,
+        "scenario": "normal",
+        "secret_scan_clean": true
+      },
+      {
+        "duplicate_exit": null,
+        "elapsed_ms": 377.372,
+        "events": [
+          "bootstrap_sent",
+          "bound_validated",
+          "health_ok",
+          "host_completed",
+          "lifecycle_started",
+          "ready_authenticated",
+          "secret_scan_clean",
+          "shutdown_sent",
+          "sidecar_reaped",
+          "sidecar_spawned"
+        ],
+        "expected_events": [
+          "ready_authenticated",
+          "shutdown_sent",
+          "sidecar_reaped"
+        ],
+        "host_exit": 0,
+        "live_observation": {
+          "observed": true,
+          "process_secret_scan_clean": true,
+          "same_group_canary": true
+        },
+        "ok": true,
+        "post_run_audit": {
+          "clean": true,
+          "connect_refused": true,
+          "executable_identity_absent": true,
+          "listener_rows": [],
+          "metadata_present": true,
+          "pid_absent": true,
+          "process_group_empty": true
+        },
+        "raw_result_sha256": "0668de29ab0c5cd2d4e4fd55e191963efd719c858cd90e9bde5eaed47d3f7a5a",
+        "raw_stderr_bytes": 0,
+        "raw_stdout_bytes": 0,
+        "scenario": "normal",
+        "secret_scan_clean": true
+      },
+      {
+        "duplicate_exit": null,
+        "elapsed_ms": 386.886,
+        "events": [
+          "bootstrap_sent",
+          "bound_validated",
+          "health_ok",
+          "host_completed",
+          "lifecycle_started",
+          "ready_authenticated",
+          "secret_scan_clean",
+          "shutdown_sent",
+          "sidecar_reaped",
+          "sidecar_spawned"
+        ],
+        "expected_events": [
+          "ready_authenticated",
+          "shutdown_sent",
+          "sidecar_reaped"
+        ],
+        "host_exit": 0,
+        "live_observation": {
+          "observed": true,
+          "process_secret_scan_clean": true,
+          "same_group_canary": true
+        },
+        "ok": true,
+        "post_run_audit": {
+          "clean": true,
+          "connect_refused": true,
+          "executable_identity_absent": true,
+          "listener_rows": [],
+          "metadata_present": true,
+          "pid_absent": true,
+          "process_group_empty": true
+        },
+        "raw_result_sha256": "e614f7d95ddb4e57a7d9bb64ac45bac6c3f537d1fc48cc251da473d7822824ba",
+        "raw_stderr_bytes": 0,
+        "raw_stdout_bytes": 0,
+        "scenario": "normal",
+        "secret_scan_clean": true
+      },
+      {
+        "duplicate_exit": null,
+        "elapsed_ms": 387.138,
+        "events": [
+          "bootstrap_sent",
+          "bound_validated",
+          "health_ok",
+          "host_completed",
+          "lifecycle_started",
+          "ready_authenticated",
+          "secret_scan_clean",
+          "shutdown_sent",
+          "sidecar_reaped",
+          "sidecar_spawned"
+        ],
+        "expected_events": [
+          "ready_authenticated",
+          "shutdown_sent",
+          "sidecar_reaped"
+        ],
+        "host_exit": 0,
+        "live_observation": {
+          "observed": true,
+          "process_secret_scan_clean": true,
+          "same_group_canary": true
+        },
+        "ok": true,
+        "post_run_audit": {
+          "clean": true,
+          "connect_refused": true,
+          "executable_identity_absent": true,
+          "listener_rows": [],
+          "metadata_present": true,
+          "pid_absent": true,
+          "process_group_empty": true
+        },
+        "raw_result_sha256": "16653782a609a573c1476d1618ac21a1ef8d428ab8fb647238f15953df43e96f",
+        "raw_stderr_bytes": 0,
+        "raw_stdout_bytes": 0,
+        "scenario": "normal",
+        "secret_scan_clean": true
+      },
+      {
+        "duplicate_exit": null,
+        "elapsed_ms": 387.355,
+        "events": [
+          "bootstrap_sent",
+          "bound_validated",
+          "health_ok",
+          "host_completed",
+          "lifecycle_started",
+          "ready_authenticated",
+          "secret_scan_clean",
+          "shutdown_sent",
+          "sidecar_reaped",
+          "sidecar_spawned"
+        ],
+        "expected_events": [
+          "ready_authenticated",
+          "shutdown_sent",
+          "sidecar_reaped"
+        ],
+        "host_exit": 0,
+        "live_observation": {
+          "observed": true,
+          "process_secret_scan_clean": true,
+          "same_group_canary": true
+        },
+        "ok": true,
+        "post_run_audit": {
+          "clean": true,
+          "connect_refused": true,
+          "executable_identity_absent": true,
+          "listener_rows": [],
+          "metadata_present": true,
+          "pid_absent": true,
+          "process_group_empty": true
+        },
+        "raw_result_sha256": "0856a33b8bdbd92a73a4c3375a60d8e7c866941bb322b80980040cccfc2a67f5",
+        "raw_stderr_bytes": 0,
+        "raw_stdout_bytes": 0,
+        "scenario": "normal",
+        "secret_scan_clean": true
+      },
+      {
+        "duplicate_exit": null,
+        "elapsed_ms": 391.103,
+        "events": [
+          "bootstrap_sent",
+          "bound_validated",
+          "health_ok",
+          "host_completed",
+          "lifecycle_started",
+          "ready_authenticated",
+          "secret_scan_clean",
+          "shutdown_sent",
+          "sidecar_reaped",
+          "sidecar_spawned"
+        ],
+        "expected_events": [
+          "ready_authenticated",
+          "shutdown_sent",
+          "sidecar_reaped"
+        ],
+        "host_exit": 0,
+        "live_observation": {
+          "observed": true,
+          "process_secret_scan_clean": true,
+          "same_group_canary": true
+        },
+        "ok": true,
+        "post_run_audit": {
+          "clean": true,
+          "connect_refused": true,
+          "executable_identity_absent": true,
+          "listener_rows": [],
+          "metadata_present": true,
+          "pid_absent": true,
+          "process_group_empty": true
+        },
+        "raw_result_sha256": "1ad7e5f16bf7ea4f52e25bcc60d9a47420aafb6427218fe12383c8ae724ea40f",
+        "raw_stderr_bytes": 0,
+        "raw_stdout_bytes": 0,
+        "scenario": "normal",
+        "secret_scan_clean": true
+      },
+      {
+        "duplicate_exit": null,
+        "elapsed_ms": 389.686,
+        "events": [
+          "bootstrap_sent",
+          "bound_validated",
+          "health_ok",
+          "host_completed",
+          "lifecycle_started",
+          "ready_authenticated",
+          "secret_scan_clean",
+          "shutdown_sent",
+          "sidecar_reaped",
+          "sidecar_spawned"
+        ],
+        "expected_events": [
+          "ready_authenticated",
+          "shutdown_sent",
+          "sidecar_reaped"
+        ],
+        "host_exit": 0,
+        "live_observation": {
+          "observed": true,
+          "process_secret_scan_clean": true,
+          "same_group_canary": true
+        },
+        "ok": true,
+        "post_run_audit": {
+          "clean": true,
+          "connect_refused": true,
+          "executable_identity_absent": true,
+          "listener_rows": [],
+          "metadata_present": true,
+          "pid_absent": true,
+          "process_group_empty": true
+        },
+        "raw_result_sha256": "570e0d5ea5e6094361a47be48c36182ad37bbd2e7cd9154ff75ea14e0a4f4118",
+        "raw_stderr_bytes": 0,
+        "raw_stdout_bytes": 0,
+        "scenario": "normal",
+        "secret_scan_clean": true
+      },
+      {
+        "duplicate_exit": null,
+        "elapsed_ms": 390.744,
+        "events": [
+          "bootstrap_sent",
+          "bound_validated",
+          "health_ok",
+          "host_completed",
+          "lifecycle_started",
+          "ready_authenticated",
+          "secret_scan_clean",
+          "shutdown_sent",
+          "sidecar_reaped",
+          "sidecar_spawned"
+        ],
+        "expected_events": [
+          "ready_authenticated",
+          "shutdown_sent",
+          "sidecar_reaped"
+        ],
+        "host_exit": 0,
+        "live_observation": {
+          "observed": true,
+          "process_secret_scan_clean": true,
+          "same_group_canary": true
+        },
+        "ok": true,
+        "post_run_audit": {
+          "clean": true,
+          "connect_refused": true,
+          "executable_identity_absent": true,
+          "listener_rows": [],
+          "metadata_present": true,
+          "pid_absent": true,
+          "process_group_empty": true
+        },
+        "raw_result_sha256": "853ad14ed5f167a5c5cb0e80314c6ece017cc8e30b6cbb56002350fa642a3411",
+        "raw_stderr_bytes": 0,
+        "raw_stdout_bytes": 0,
+        "scenario": "normal",
+        "secret_scan_clean": true
+      },
+      {
+        "duplicate_exit": null,
+        "elapsed_ms": 381.719,
+        "events": [
+          "bootstrap_sent",
+          "bound_validated",
+          "health_ok",
+          "host_completed",
+          "lifecycle_started",
+          "ready_authenticated",
+          "secret_scan_clean",
+          "shutdown_sent",
+          "sidecar_reaped",
+          "sidecar_spawned"
+        ],
+        "expected_events": [
+          "ready_authenticated",
+          "shutdown_sent",
+          "sidecar_reaped"
+        ],
+        "host_exit": 0,
+        "live_observation": {
+          "observed": true,
+          "process_secret_scan_clean": true,
+          "same_group_canary": true
+        },
+        "ok": true,
+        "post_run_audit": {
+          "clean": true,
+          "connect_refused": true,
+          "executable_identity_absent": true,
+          "listener_rows": [],
+          "metadata_present": true,
+          "pid_absent": true,
+          "process_group_empty": true
+        },
+        "raw_result_sha256": "95481b2a6ae773398f931318ed9cffb04221e8da9d2248c346ad3fabf5329eba",
+        "raw_stderr_bytes": 0,
+        "raw_stdout_bytes": 0,
+        "scenario": "normal",
+        "secret_scan_clean": true
+      },
+      {
+        "duplicate_exit": null,
+        "elapsed_ms": 383.593,
+        "events": [
+          "bootstrap_sent",
+          "bound_validated",
+          "health_ok",
+          "host_completed",
+          "lifecycle_started",
+          "ready_authenticated",
+          "secret_scan_clean",
+          "shutdown_sent",
+          "sidecar_reaped",
+          "sidecar_spawned"
+        ],
+        "expected_events": [
+          "ready_authenticated",
+          "shutdown_sent",
+          "sidecar_reaped"
+        ],
+        "host_exit": 0,
+        "live_observation": {
+          "observed": true,
+          "process_secret_scan_clean": true,
+          "same_group_canary": true
+        },
+        "ok": true,
+        "post_run_audit": {
+          "clean": true,
+          "connect_refused": true,
+          "executable_identity_absent": true,
+          "listener_rows": [],
+          "metadata_present": true,
+          "pid_absent": true,
+          "process_group_empty": true
+        },
+        "raw_result_sha256": "9e15d29da42820c43276e6896fc02c9c2092c350176f1d7b968c91909b1115c7",
+        "raw_stderr_bytes": 0,
+        "raw_stdout_bytes": 0,
+        "scenario": "normal",
+        "secret_scan_clean": true
+      },
+      {
+        "duplicate_exit": null,
+        "elapsed_ms": 382.069,
+        "events": [
+          "bootstrap_sent",
+          "bound_validated",
+          "health_ok",
+          "host_completed",
+          "lifecycle_started",
+          "ready_authenticated",
+          "secret_scan_clean",
+          "shutdown_sent",
+          "sidecar_reaped",
+          "sidecar_spawned"
+        ],
+        "expected_events": [
+          "ready_authenticated",
+          "shutdown_sent",
+          "sidecar_reaped"
+        ],
+        "host_exit": 0,
+        "live_observation": {
+          "observed": true,
+          "process_secret_scan_clean": true,
+          "same_group_canary": true
+        },
+        "ok": true,
+        "post_run_audit": {
+          "clean": true,
+          "connect_refused": true,
+          "executable_identity_absent": true,
+          "listener_rows": [],
+          "metadata_present": true,
+          "pid_absent": true,
+          "process_group_empty": true
+        },
+        "raw_result_sha256": "776d601ed60fb7825992d93d649b106fd85ec2301dad62f1c160c0c68de7cadd",
+        "raw_stderr_bytes": 0,
+        "raw_stdout_bytes": 0,
+        "scenario": "normal",
+        "secret_scan_clean": true
+      },
+      {
+        "duplicate_exit": null,
+        "elapsed_ms": 388.016,
+        "events": [
+          "bootstrap_sent",
+          "bound_validated",
+          "health_ok",
+          "host_completed",
+          "lifecycle_started",
+          "ready_authenticated",
+          "secret_scan_clean",
+          "shutdown_sent",
+          "sidecar_reaped",
+          "sidecar_spawned"
+        ],
+        "expected_events": [
+          "ready_authenticated",
+          "shutdown_sent",
+          "sidecar_reaped"
+        ],
+        "host_exit": 0,
+        "live_observation": {
+          "observed": true,
+          "process_secret_scan_clean": true,
+          "same_group_canary": true
+        },
+        "ok": true,
+        "post_run_audit": {
+          "clean": true,
+          "connect_refused": true,
+          "executable_identity_absent": true,
+          "listener_rows": [],
+          "metadata_present": true,
+          "pid_absent": true,
+          "process_group_empty": true
+        },
+        "raw_result_sha256": "684fcd75a7170db4d085096a7f3222080fdc3afa55e4f762e8228786182081ea",
+        "raw_stderr_bytes": 0,
+        "raw_stdout_bytes": 0,
+        "scenario": "normal",
+        "secret_scan_clean": true
+      },
+      {
+        "duplicate_exit": null,
+        "elapsed_ms": 383.583,
+        "events": [
+          "bootstrap_sent",
+          "bound_validated",
+          "health_ok",
+          "host_completed",
+          "lifecycle_started",
+          "ready_authenticated",
+          "secret_scan_clean",
+          "shutdown_sent",
+          "sidecar_reaped",
+          "sidecar_spawned"
+        ],
+        "expected_events": [
+          "ready_authenticated",
+          "shutdown_sent",
+          "sidecar_reaped"
+        ],
+        "host_exit": 0,
+        "live_observation": {
+          "observed": true,
+          "process_secret_scan_clean": true,
+          "same_group_canary": true
+        },
+        "ok": true,
+        "post_run_audit": {
+          "clean": true,
+          "connect_refused": true,
+          "executable_identity_absent": true,
+          "listener_rows": [],
+          "metadata_present": true,
+          "pid_absent": true,
+          "process_group_empty": true
+        },
+        "raw_result_sha256": "17873bf1e2158519e0c3befc903a10b88d4760a7b3e2ec611c2bffb11aa92f59",
+        "raw_stderr_bytes": 0,
+        "raw_stdout_bytes": 0,
+        "scenario": "normal",
+        "secret_scan_clean": true
+      },
+      {
+        "duplicate_exit": null,
+        "elapsed_ms": 386.038,
+        "events": [
+          "bootstrap_sent",
+          "bound_validated",
+          "health_ok",
+          "host_completed",
+          "lifecycle_started",
+          "ready_authenticated",
+          "secret_scan_clean",
+          "shutdown_sent",
+          "sidecar_reaped",
+          "sidecar_spawned"
+        ],
+        "expected_events": [
+          "ready_authenticated",
+          "shutdown_sent",
+          "sidecar_reaped"
+        ],
+        "host_exit": 0,
+        "live_observation": {
+          "observed": true,
+          "process_secret_scan_clean": true,
+          "same_group_canary": true
+        },
+        "ok": true,
+        "post_run_audit": {
+          "clean": true,
+          "connect_refused": true,
+          "executable_identity_absent": true,
+          "listener_rows": [],
+          "metadata_present": true,
+          "pid_absent": true,
+          "process_group_empty": true
+        },
+        "raw_result_sha256": "7a678c6562cf408092d5ac61c83d87196fa4148f5326096e65d93b4a054bae5b",
+        "raw_stderr_bytes": 0,
+        "raw_stdout_bytes": 0,
+        "scenario": "normal",
+        "secret_scan_clean": true
+      },
+      {
+        "duplicate_exit": null,
+        "elapsed_ms": 394.374,
+        "events": [
+          "bootstrap_sent",
+          "bound_validated",
+          "health_ok",
+          "host_completed",
+          "lifecycle_started",
+          "ready_authenticated",
+          "secret_scan_clean",
+          "shutdown_sent",
+          "sidecar_reaped",
+          "sidecar_spawned"
+        ],
+        "expected_events": [
+          "ready_authenticated",
+          "shutdown_sent",
+          "sidecar_reaped"
+        ],
+        "host_exit": 0,
+        "live_observation": {
+          "observed": true,
+          "process_secret_scan_clean": true,
+          "same_group_canary": true
+        },
+        "ok": true,
+        "post_run_audit": {
+          "clean": true,
+          "connect_refused": true,
+          "executable_identity_absent": true,
+          "listener_rows": [],
+          "metadata_present": true,
+          "pid_absent": true,
+          "process_group_empty": true
+        },
+        "raw_result_sha256": "3891f127a4eea66d45eb6891500ed9c35c0a51c81122db8b95b6c8b847202dc3",
+        "raw_stderr_bytes": 0,
+        "raw_stdout_bytes": 0,
+        "scenario": "normal",
+        "secret_scan_clean": true
+      },
+      {
+        "duplicate_exit": null,
+        "elapsed_ms": 406.493,
+        "events": [
+          "bootstrap_sent",
+          "bound_validated",
+          "health_ok",
+          "host_completed",
+          "lifecycle_started",
+          "ready_authenticated",
+          "secret_scan_clean",
+          "shutdown_sent",
+          "sidecar_reaped",
+          "sidecar_spawned"
+        ],
+        "expected_events": [
+          "ready_authenticated",
+          "shutdown_sent",
+          "sidecar_reaped"
+        ],
+        "host_exit": 0,
+        "live_observation": {
+          "observed": true,
+          "process_secret_scan_clean": true,
+          "same_group_canary": true
+        },
+        "ok": true,
+        "post_run_audit": {
+          "clean": true,
+          "connect_refused": true,
+          "executable_identity_absent": true,
+          "listener_rows": [],
+          "metadata_present": true,
+          "pid_absent": true,
+          "process_group_empty": true
+        },
+        "raw_result_sha256": "8ef27ed83c4a111d72debe4c793a7a219ed1887511a8d909ddf2aad3674b9e34",
+        "raw_stderr_bytes": 0,
+        "raw_stdout_bytes": 0,
+        "scenario": "normal",
+        "secret_scan_clean": true
+      },
+      {
+        "duplicate_exit": null,
+        "elapsed_ms": 392.307,
+        "events": [
+          "bootstrap_sent",
+          "bound_validated",
+          "health_ok",
+          "host_completed",
+          "lifecycle_started",
+          "ready_authenticated",
+          "secret_scan_clean",
+          "shutdown_sent",
+          "sidecar_reaped",
+          "sidecar_spawned"
+        ],
+        "expected_events": [
+          "ready_authenticated",
+          "shutdown_sent",
+          "sidecar_reaped"
+        ],
+        "host_exit": 0,
+        "live_observation": {
+          "observed": true,
+          "process_secret_scan_clean": true,
+          "same_group_canary": true
+        },
+        "ok": true,
+        "post_run_audit": {
+          "clean": true,
+          "connect_refused": true,
+          "executable_identity_absent": true,
+          "listener_rows": [],
+          "metadata_present": true,
+          "pid_absent": true,
+          "process_group_empty": true
+        },
+        "raw_result_sha256": "1b05fc04aea387a0b12a4308d36a70cef0a13d674ad10ec1836cc8ceb7a632f0",
+        "raw_stderr_bytes": 0,
+        "raw_stdout_bytes": 0,
+        "scenario": "normal",
+        "secret_scan_clean": true
+      },
+      {
+        "duplicate_exit": null,
+        "elapsed_ms": 396.32,
+        "events": [
+          "bootstrap_sent",
+          "bound_validated",
+          "health_ok",
+          "host_completed",
+          "lifecycle_started",
+          "ready_authenticated",
+          "secret_scan_clean",
+          "shutdown_sent",
+          "sidecar_reaped",
+          "sidecar_spawned"
+        ],
+        "expected_events": [
+          "ready_authenticated",
+          "shutdown_sent",
+          "sidecar_reaped"
+        ],
+        "host_exit": 0,
+        "live_observation": {
+          "observed": true,
+          "process_secret_scan_clean": true,
+          "same_group_canary": true
+        },
+        "ok": true,
+        "post_run_audit": {
+          "clean": true,
+          "connect_refused": true,
+          "executable_identity_absent": true,
+          "listener_rows": [],
+          "metadata_present": true,
+          "pid_absent": true,
+          "process_group_empty": true
+        },
+        "raw_result_sha256": "923b98e0a6e6153b95fc41f7bd9a8338c826478fec452e1838b398e23cca5fe8",
+        "raw_stderr_bytes": 0,
+        "raw_stdout_bytes": 0,
+        "scenario": "normal",
+        "secret_scan_clean": true
+      },
+      {
+        "duplicate_exit": null,
+        "elapsed_ms": 386.919,
+        "events": [
+          "bootstrap_sent",
+          "bound_validated",
+          "health_ok",
+          "host_completed",
+          "lifecycle_started",
+          "ready_authenticated",
+          "secret_scan_clean",
+          "shutdown_sent",
+          "sidecar_reaped",
+          "sidecar_spawned"
+        ],
+        "expected_events": [
+          "ready_authenticated",
+          "shutdown_sent",
+          "sidecar_reaped"
+        ],
+        "host_exit": 0,
+        "live_observation": {
+          "observed": true,
+          "process_secret_scan_clean": true,
+          "same_group_canary": true
+        },
+        "ok": true,
+        "post_run_audit": {
+          "clean": true,
+          "connect_refused": true,
+          "executable_identity_absent": true,
+          "listener_rows": [],
+          "metadata_present": true,
+          "pid_absent": true,
+          "process_group_empty": true
+        },
+        "raw_result_sha256": "09520b518b6b1e5d01badc7447529e2fdfe48c28157f87ea4769453864a3c5e9",
+        "raw_stderr_bytes": 0,
+        "raw_stdout_bytes": 0,
+        "scenario": "normal",
+        "secret_scan_clean": true
+      },
+      {
+        "duplicate_exit": null,
+        "elapsed_ms": 397.797,
+        "events": [
+          "bootstrap_sent",
+          "bound_validated",
+          "health_ok",
+          "host_completed",
+          "lifecycle_started",
+          "ready_authenticated",
+          "secret_scan_clean",
+          "shutdown_sent",
+          "sidecar_reaped",
+          "sidecar_spawned"
+        ],
+        "expected_events": [
+          "ready_authenticated",
+          "shutdown_sent",
+          "sidecar_reaped"
+        ],
+        "host_exit": 0,
+        "live_observation": {
+          "observed": true,
+          "process_secret_scan_clean": true,
+          "same_group_canary": true
+        },
+        "ok": true,
+        "post_run_audit": {
+          "clean": true,
+          "connect_refused": true,
+          "executable_identity_absent": true,
+          "listener_rows": [],
+          "metadata_present": true,
+          "pid_absent": true,
+          "process_group_empty": true
+        },
+        "raw_result_sha256": "72621edebd72f86ec0d385f53ebeb096b385afa7dac7b3d7816b0d6ff5b33240",
+        "raw_stderr_bytes": 0,
+        "raw_stdout_bytes": 0,
+        "scenario": "normal",
+        "secret_scan_clean": true
+      },
+      {
+        "duplicate_exit": null,
+        "elapsed_ms": 399.565,
+        "events": [
+          "bootstrap_sent",
+          "bound_validated",
+          "health_ok",
+          "host_completed",
+          "lifecycle_started",
+          "ready_authenticated",
+          "secret_scan_clean",
+          "shutdown_sent",
+          "sidecar_reaped",
+          "sidecar_spawned"
+        ],
+        "expected_events": [
+          "ready_authenticated",
+          "shutdown_sent",
+          "sidecar_reaped"
+        ],
+        "host_exit": 0,
+        "live_observation": {
+          "observed": true,
+          "process_secret_scan_clean": true,
+          "same_group_canary": true
+        },
+        "ok": true,
+        "post_run_audit": {
+          "clean": true,
+          "connect_refused": true,
+          "executable_identity_absent": true,
+          "listener_rows": [],
+          "metadata_present": true,
+          "pid_absent": true,
+          "process_group_empty": true
+        },
+        "raw_result_sha256": "658fdfe06b5c34a4ec5f3b0ff76863c4afeb16c3d2484c2e69aabc3cea3b9a68",
+        "raw_stderr_bytes": 0,
+        "raw_stdout_bytes": 0,
+        "scenario": "normal",
+        "secret_scan_clean": true
+      },
+      {
+        "duplicate_exit": null,
+        "elapsed_ms": 395.714,
+        "events": [
+          "bootstrap_sent",
+          "bound_validated",
+          "health_ok",
+          "host_completed",
+          "lifecycle_started",
+          "ready_authenticated",
+          "secret_scan_clean",
+          "shutdown_sent",
+          "sidecar_reaped",
+          "sidecar_spawned"
+        ],
+        "expected_events": [
+          "ready_authenticated",
+          "shutdown_sent",
+          "sidecar_reaped"
+        ],
+        "host_exit": 0,
+        "live_observation": {
+          "observed": true,
+          "process_secret_scan_clean": true,
+          "same_group_canary": true
+        },
+        "ok": true,
+        "post_run_audit": {
+          "clean": true,
+          "connect_refused": true,
+          "executable_identity_absent": true,
+          "listener_rows": [],
+          "metadata_present": true,
+          "pid_absent": true,
+          "process_group_empty": true
+        },
+        "raw_result_sha256": "6951807c93732d7c60a07929751c1f13480556f17b64079e71c0c41581c303fe",
+        "raw_stderr_bytes": 0,
+        "raw_stdout_bytes": 0,
+        "scenario": "normal",
+        "secret_scan_clean": true
+      },
+      {
+        "duplicate_exit": null,
+        "elapsed_ms": 398.313,
+        "events": [
+          "bootstrap_sent",
+          "bound_validated",
+          "health_ok",
+          "host_completed",
+          "lifecycle_started",
+          "ready_authenticated",
+          "secret_scan_clean",
+          "shutdown_sent",
+          "sidecar_reaped",
+          "sidecar_spawned"
+        ],
+        "expected_events": [
+          "ready_authenticated",
+          "shutdown_sent",
+          "sidecar_reaped"
+        ],
+        "host_exit": 0,
+        "live_observation": {
+          "observed": true,
+          "process_secret_scan_clean": true,
+          "same_group_canary": true
+        },
+        "ok": true,
+        "post_run_audit": {
+          "clean": true,
+          "connect_refused": true,
+          "executable_identity_absent": true,
+          "listener_rows": [],
+          "metadata_present": true,
+          "pid_absent": true,
+          "process_group_empty": true
+        },
+        "raw_result_sha256": "349fecbe289bade145b79a30d104a34118bace9acff8fdf1b4bf54d09947dbc7",
+        "raw_stderr_bytes": 0,
+        "raw_stdout_bytes": 0,
+        "scenario": "normal",
+        "secret_scan_clean": true
+      },
+      {
+        "duplicate_exit": null,
+        "elapsed_ms": 399.682,
+        "events": [
+          "bootstrap_sent",
+          "bound_validated",
+          "health_ok",
+          "host_completed",
+          "lifecycle_started",
+          "ready_authenticated",
+          "secret_scan_clean",
+          "shutdown_sent",
+          "sidecar_reaped",
+          "sidecar_spawned"
+        ],
+        "expected_events": [
+          "ready_authenticated",
+          "shutdown_sent",
+          "sidecar_reaped"
+        ],
+        "host_exit": 0,
+        "live_observation": {
+          "observed": true,
+          "process_secret_scan_clean": true,
+          "same_group_canary": true
+        },
+        "ok": true,
+        "post_run_audit": {
+          "clean": true,
+          "connect_refused": true,
+          "executable_identity_absent": true,
+          "listener_rows": [],
+          "metadata_present": true,
+          "pid_absent": true,
+          "process_group_empty": true
+        },
+        "raw_result_sha256": "af7adfdc692c9637c618dc648dea8c198b74ad30a558ecbce52c4f078e6aa2e6",
+        "raw_stderr_bytes": 0,
+        "raw_stdout_bytes": 0,
+        "scenario": "normal",
+        "secret_scan_clean": true
+      },
+      {
+        "duplicate_exit": null,
+        "elapsed_ms": 396.371,
+        "events": [
+          "bootstrap_sent",
+          "bound_validated",
+          "health_ok",
+          "host_completed",
+          "lifecycle_started",
+          "ready_authenticated",
+          "secret_scan_clean",
+          "shutdown_sent",
+          "sidecar_reaped",
+          "sidecar_spawned"
+        ],
+        "expected_events": [
+          "ready_authenticated",
+          "shutdown_sent",
+          "sidecar_reaped"
+        ],
+        "host_exit": 0,
+        "live_observation": {
+          "observed": true,
+          "process_secret_scan_clean": true,
+          "same_group_canary": true
+        },
+        "ok": true,
+        "post_run_audit": {
+          "clean": true,
+          "connect_refused": true,
+          "executable_identity_absent": true,
+          "listener_rows": [],
+          "metadata_present": true,
+          "pid_absent": true,
+          "process_group_empty": true
+        },
+        "raw_result_sha256": "732ad14dc3345c8e0e66c963cc6197acfa69ad5b900580db7c00d881a1ee1fac",
+        "raw_stderr_bytes": 0,
+        "raw_stdout_bytes": 0,
+        "scenario": "normal",
+        "secret_scan_clean": true
+      },
+      {
+        "duplicate_exit": null,
+        "elapsed_ms": 398.25,
+        "events": [
+          "bootstrap_sent",
+          "bound_validated",
+          "health_ok",
+          "host_completed",
+          "lifecycle_started",
+          "ready_authenticated",
+          "secret_scan_clean",
+          "shutdown_sent",
+          "sidecar_reaped",
+          "sidecar_spawned"
+        ],
+        "expected_events": [
+          "ready_authenticated",
+          "shutdown_sent",
+          "sidecar_reaped"
+        ],
+        "host_exit": 0,
+        "live_observation": {
+          "observed": true,
+          "process_secret_scan_clean": true,
+          "same_group_canary": true
+        },
+        "ok": true,
+        "post_run_audit": {
+          "clean": true,
+          "connect_refused": true,
+          "executable_identity_absent": true,
+          "listener_rows": [],
+          "metadata_present": true,
+          "pid_absent": true,
+          "process_group_empty": true
+        },
+        "raw_result_sha256": "79feec0a33c9c8599898d210eef00c18e21d662f4c9f1e8f9e2a0d163c5a90bb",
+        "raw_stderr_bytes": 0,
+        "raw_stdout_bytes": 0,
+        "scenario": "normal",
+        "secret_scan_clean": true
+      },
+      {
+        "duplicate_exit": null,
+        "elapsed_ms": 393.311,
+        "events": [
+          "bootstrap_sent",
+          "bound_validated",
+          "health_ok",
+          "host_completed",
+          "lifecycle_started",
+          "ready_authenticated",
+          "secret_scan_clean",
+          "shutdown_sent",
+          "sidecar_reaped",
+          "sidecar_spawned"
+        ],
+        "expected_events": [
+          "ready_authenticated",
+          "shutdown_sent",
+          "sidecar_reaped"
+        ],
+        "host_exit": 0,
+        "live_observation": {
+          "observed": true,
+          "process_secret_scan_clean": true,
+          "same_group_canary": true
+        },
+        "ok": true,
+        "post_run_audit": {
+          "clean": true,
+          "connect_refused": true,
+          "executable_identity_absent": true,
+          "listener_rows": [],
+          "metadata_present": true,
+          "pid_absent": true,
+          "process_group_empty": true
+        },
+        "raw_result_sha256": "208511d0f8a744a5300b3c2151bd9a29d87c0d34ab14150ce15088d535c8a72b",
+        "raw_stderr_bytes": 0,
+        "raw_stdout_bytes": 0,
+        "scenario": "normal",
+        "secret_scan_clean": true
+      },
+      {
+        "duplicate_exit": null,
+        "elapsed_ms": 387.774,
+        "events": [
+          "bootstrap_sent",
+          "bound_validated",
+          "health_ok",
+          "host_completed",
+          "lifecycle_started",
+          "ready_authenticated",
+          "secret_scan_clean",
+          "shutdown_sent",
+          "sidecar_reaped",
+          "sidecar_spawned"
+        ],
+        "expected_events": [
+          "ready_authenticated",
+          "shutdown_sent",
+          "sidecar_reaped"
+        ],
+        "host_exit": 0,
+        "live_observation": {
+          "observed": true,
+          "process_secret_scan_clean": true,
+          "same_group_canary": true
+        },
+        "ok": true,
+        "post_run_audit": {
+          "clean": true,
+          "connect_refused": true,
+          "executable_identity_absent": true,
+          "listener_rows": [],
+          "metadata_present": true,
+          "pid_absent": true,
+          "process_group_empty": true
+        },
+        "raw_result_sha256": "daece6fafa78142198bc9184420630ba8ef2c960a58dfeaaf9268b5ea53265af",
+        "raw_stderr_bytes": 0,
+        "raw_stdout_bytes": 0,
+        "scenario": "normal",
+        "secret_scan_clean": true
+      },
+      {
+        "duplicate_exit": null,
+        "elapsed_ms": 399.62,
+        "events": [
+          "bootstrap_sent",
+          "bound_validated",
+          "health_ok",
+          "host_completed",
+          "lifecycle_started",
+          "ready_authenticated",
+          "secret_scan_clean",
+          "shutdown_sent",
+          "sidecar_reaped",
+          "sidecar_spawned"
+        ],
+        "expected_events": [
+          "ready_authenticated",
+          "shutdown_sent",
+          "sidecar_reaped"
+        ],
+        "host_exit": 0,
+        "live_observation": {
+          "observed": true,
+          "process_secret_scan_clean": true,
+          "same_group_canary": true
+        },
+        "ok": true,
+        "post_run_audit": {
+          "clean": true,
+          "connect_refused": true,
+          "executable_identity_absent": true,
+          "listener_rows": [],
+          "metadata_present": true,
+          "pid_absent": true,
+          "process_group_empty": true
+        },
+        "raw_result_sha256": "2480aa4f3d48172c1dcbbce9a2323cd3867f19d2898b1f14fa414cc21b2e7ea2",
+        "raw_stderr_bytes": 0,
+        "raw_stdout_bytes": 0,
+        "scenario": "normal",
+        "secret_scan_clean": true
+      }
+    ]
+  },
+  "totals": {
+    "orphan_process_groups": 0,
+    "residual_listeners": 0,
+    "secret_scan_failures": 0
+  }
+}
