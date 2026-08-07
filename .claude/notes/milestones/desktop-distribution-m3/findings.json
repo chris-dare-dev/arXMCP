@@ -1,0 +1,190 @@
+{
+  "milestone_id": "desktop-distribution-m3",
+  "critique_format_version": "1.0",
+  "critique_files": [
+    "dedup.md"
+  ],
+  "generated_at": "2026-08-07T18:03:57Z",
+  "findings": {
+    "H1": {
+      "id": "H1",
+      "severity": "HIGH",
+      "title": "Cumulative diff exceeds the review limit",
+      "file": null,
+      "line": null,
+      "anchor": "26 files changed, 2702 insertions(+)",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Diff size",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "The owner explicitly authorized the large-diff path before implementation; signed history is not destructively rewritten solely to repartition the same independently reviewed code. Risk is mitigated by two independent critics plus locked Rust, zero-skip desktop, wheel, and full repository gates.",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-07T18:03:57Z",
+          "resolution": "The owner explicitly authorized the large-diff path before implementation; signed history is not destructively rewritten solely to repartition the same independently reviewed code. Risk is mitigated by two independent critics plus locked Rust, zero-skip desktop, wheel, and full repository gates."
+        }
+      ]
+    },
+    "H2": {
+      "id": "H2",
+      "severity": "HIGH",
+      "title": "Positive fixtures are not Windows-portable",
+      "file": "apps/desktop/contract-fixtures/launch-v1.jsonl",
+      "line": 1,
+      "anchor": "{\"contract\":{\"major\":1,\"minor\":0},\"data_",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Acceptance coverage",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Rust and Python now keep paths as platform-neutral wire strings and apply one lexical POSIX/drive-qualified Windows grammar; shared positive fixtures exercise both styles on every host.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-07T18:03:57Z",
+          "resolution": "Rust and Python now keep paths as platform-neutral wire strings and apply one lexical POSIX/drive-qualified Windows grammar; shared positive fixtures exercise both styles on every host."
+        }
+      ]
+    },
+    "H3": {
+      "id": "H3",
+      "severity": "HIGH",
+      "title": "Nested extension fields violate minor compatibility",
+      "file": "apps/desktop/crates/desktop-contract/src/lib.rs",
+      "line": 489,
+      "anchor": "if !valid_extension_key(key, false) {",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Acceptance coverage",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Only top-level extension keys require a namespace; nested payload keys retain ordinary JSON semantics, guarded by a shared mixed-case compatible-minor fixture.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-07T18:03:57Z",
+          "resolution": "Only top-level extension keys require a namespace; nested payload keys retain ordinary JSON semantics, guarded by a shared mixed-case compatible-minor fixture."
+        }
+      ]
+    },
+    "H4": {
+      "id": "H4",
+      "severity": "HIGH",
+      "title": "Decoder causes retain the startup token",
+      "file": "server/desktop_contract.py",
+      "line": 206,
+      "anchor": "raise DesktopContractError(\"control frame",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "security threat-model coverage",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "UTF-8 and JSON decoder failures are converted outside exception handlers through payload-free sentinels; recursive exception-graph tests prove malformed canaries are absent.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-07T18:03:57Z",
+          "resolution": "UTF-8 and JSON decoder failures are converted outside exception handlers through payload-free sentinels; recursive exception-graph tests prove malformed canaries are absent."
+        }
+      ]
+    },
+    "H5": {
+      "id": "H5",
+      "severity": "HIGH",
+      "title": "Sidecar reflects rather than verifies executable SHA",
+      "file": "apps/desktop/crates/fixture-sidecar/src/main.rs",
+      "line": 122,
+      "anchor": "sha256: launch.executable.sha256.clone(),",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "security threat-model coverage",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "The sidecar hashes current_exe before binding, compares the expected digest in fixed time, emits the computed digest, and rejects a one-nibble mismatch with no endpoint announcement.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-07T18:03:57Z",
+          "resolution": "The sidecar hashes current_exe before binding, compares the expected digest in fixed time, emits the computed digest, and rejects a one-nibble mismatch with no endpoint announcement."
+        }
+      ]
+    },
+    "M1": {
+      "id": "M1",
+      "severity": "MEDIUM",
+      "title": "Executable-version validation diverges by language",
+      "file": "server/desktop_contract.py",
+      "line": 368,
+      "anchor": "and all(character.isascii() and character.isprintable() for character in version)",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Correctness",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Python now matches Rust's visible ASCII executable-version grammar, with a shared negative fixture for embedded space.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-07T18:03:57Z",
+          "resolution": "Python now matches Rust's visible ASCII executable-version grammar, with a shared negative fixture for embedded space."
+        }
+      ]
+    },
+    "M2": {
+      "id": "M2",
+      "severity": "MEDIUM",
+      "title": "Invalid-token stderr guard checks the wrong canary",
+      "file": "tests/test_desktop_contract.py",
+      "line": 391,
+      "anchor": "assert token.expose().encode() not in completed.stderr",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Test discipline",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "The invalid-launch process regression now checks the exact invalid token sent to the sidecar as well as the original capability.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-07T18:03:57Z",
+          "resolution": "The invalid-launch process regression now checks the exact invalid token sent to the sidecar as well as the original capability."
+        }
+      ]
+    },
+    "M3": {
+      "id": "M3",
+      "severity": "MEDIUM",
+      "title": "Path validation is not cross-language deterministic",
+      "file": "apps/desktop/crates/desktop-contract/src/lib.rs",
+      "line": 434,
+      "anchor": "if !path.is_absolute()",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "local-first + Docker constraint",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Rust and Python now keep paths as platform-neutral wire strings and apply one lexical POSIX/drive-qualified Windows grammar; shared positive fixtures exercise both styles on every host.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-07T18:03:57Z",
+          "resolution": "Rust and Python now keep paths as platform-neutral wire strings and apply one lexical POSIX/drive-qualified Windows grammar; shared positive fixtures exercise both styles on every host."
+        }
+      ]
+    },
+    "M4": {
+      "id": "M4",
+      "severity": "MEDIUM",
+      "title": "Canonical gate skips the live sidecar tests",
+      "file": "tests/test_desktop_contract.py",
+      "line": 280,
+      "anchor": "pytest.skip(\"build fixture-sidecar or set ARX",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "test surface",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "A mandatory make desktop-conformance gate performs the locked Rust build before the Python lifecycle suite and completed with 27 passed and zero skips.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-07T18:03:57Z",
+          "resolution": "A mandatory make desktop-conformance gate performs the locked Rust build before the Python lifecycle suite and completed with 27 passed and zero skips."
+        }
+      ]
+    }
+  }
+}

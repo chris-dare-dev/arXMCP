@@ -7,6 +7,7 @@ publish.workspace = true
 
 [dependencies]
 arxmcp-desktop-contract = { path = "../desktop-contract" }
+sha2.workspace = true
 
 [[bin]]
 name = "fixture-sidecar"

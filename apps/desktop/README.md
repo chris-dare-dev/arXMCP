@@ -31,6 +31,7 @@ Run these commands from the repository root. A temporary Cargo target keeps
 generated binaries out of the source tree.
 
 ```bash
+make desktop-conformance PYTHON=.venv/bin/python
 cargo fmt --all --manifest-path apps/desktop/Cargo.toml -- --check
 cargo test --locked --manifest-path apps/desktop/Cargo.toml \
   --target-dir /private/tmp/arxmcp-desktop-target
@@ -45,6 +46,11 @@ ARXMCP_FIXTURE_SIDECAR=/private/tmp/arxmcp-desktop-target/debug/fixture-sidecar 
 make wheel-check PYTHON=.venv/bin/python
 make test PYTHON=.venv/bin/python
 ```
+
+`make desktop-conformance` is the mandatory combined boundary gate: it performs
+the locked build before the live Python process suite, so lifecycle evidence
+cannot silently degrade to skipped tests in a clean checkout. The expanded
+commands below it are useful when diagnosing one layer independently.
 
 On Windows, use the target directory appropriate to the shell and point
 `ARXMCP_FIXTURE_SIDECAR` at `fixture-sidecar.exe`. The Cargo commands remain
@@ -69,14 +75,25 @@ logical component/version/SHA-256 identity, canonical data root, request for
 `127.0.0.1:0`, fixed probe paths, canonical log location, shutdown semantics,
 and a startup capability. The child retains the port-zero listener and emits a
 `bound` frame with the actual nonzero loopback port and URLs derived from that
-single authority. Four independently supplied URLs are never trusted.
+single authority. Four independently supplied URLs are never trusted. The
+sidecar hashes its own executable before binding, compares that digest with the
+launch identity, and reports the computed value rather than reflecting input.
+
+Paths are platform-neutral wire strings, not host-language path objects. They
+use `/` separators and are either POSIX absolute (`/var/...`) or uppercase,
+drive-qualified Windows absolute (`C:/Users/...`). Empty, `.`, and `..`
+segments, repeated or trailing separators, backslashes, and ASCII controls are
+rejected identically by Rust and Python. The runtime adapter alone converts a
+validated wire path to the native filesystem representation.
 
 Readers reject any major other than 1 before lifecycle side effects. They
 accept any same-major minor while still requiring every v1 field. Core objects
 are strict: compatible additions are allowed only under `extensions`, whose
 top-level ASCII keys must be namespaced (for example,
-`org.arxmcp.future`). This catches misspelled security fields without turning a
-minor addition into a breaking change.
+`org.arxmcp.future`). Nested extension objects retain ordinary JSON key
+semantics; only their values remain subject to the shared depth and safe-number
+bounds. This catches misspelled security fields without turning a minor
+addition into a breaking change.
 
 Shutdown reserves at least 35,000 ms for cooperative server drain. The wire
 contract then names a bounded force deadline, the stdin-EOF lifetime lease, and
@@ -104,9 +121,9 @@ for its absence.
 
 Rust and Python both consume every `.jsonl` file in `contract-fixtures/` and
 re-emit positive frames byte for byte. The set covers the v1 exchange, Unicode
-and spaces in paths, a compatible future minor extension, an incompatible
-major, duplicate and unknown core fields, wildcard binding, mismatched URL
-authority, and an oversized frame.
+and spaces in POSIX and Windows paths, a compatible future minor extension, an
+incompatible major, duplicate and unknown core fields, wildcard binding,
+mismatched URL authority, invalid executable identity, and an oversized frame.
 
 `fixtures.sha256` pins one aggregate SHA-256. Its input is each `.jsonl` file in
 lexicographic filename order, encoded as `UTF-8 filename`, one NUL byte, then

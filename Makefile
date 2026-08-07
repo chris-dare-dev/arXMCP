@@ -13,7 +13,7 @@
 # OPS / MAINTENANCE — daily checks, status, drift, cutover.
 .PHONY: test eval status watchdog cutover notebook-cutover
 .PHONY: daily-report parser-failures-report sbom refresh-arxiv-ca
-.PHONY: wheel-check wheel-check-full
+.PHONY: wheel-check wheel-check-full desktop-conformance
 
 # NOTEBOOK CRUD (m2) — first-class Make verbs for the notebook
 # lifecycle (proposal §9; backed by tools/notebook_*.py + /ui/api/*).
@@ -35,6 +35,11 @@ NOTEBOOK ?=
 EMAIL ?=
 MINERU_BIN ?=
 PAPER ?=
+ifeq ($(OS),Windows_NT)
+DESKTOP_EXE_SUFFIX := .exe
+else
+DESKTOP_EXE_SUFFIX :=
+endif
 
 help:
 	@echo "arXMCP development targets:"
@@ -90,6 +95,7 @@ help:
 	@echo "  make refresh-arxiv-ca       Re-download infra/ca/arxiv-ca-bundle.pem and verify against live arxiv hosts (E13_S07c)"
 	@echo "  make wheel-check            Build the wheel, install it into a throwaway venv, assert ops/ + server/frontend/ + console scripts (issue #206; ~10s)"
 	@echo "  make wheel-check-full       Same, but an isolated venv with the REAL deps + an ARXMCP_BOOTSTRAP_MODE=1 boot polled at /healthz. Pre-publish gate (~4 min warm)"
+	@echo "  make desktop-conformance    Build the locked fixture sidecar, then run its Rust/Python contract and lifecycle gate with zero skips"
 	@echo ""
 	@echo "Override the python interpreter with: make test PYTHON=python3.13"
 	@echo ""
@@ -132,6 +138,16 @@ test:
 Try: make test PYTHON=python3.$(MIN_PY_MINOR)'"
 	$(PYTHON) -m ruff check .
 	$(PYTHON) -m pytest
+
+# desktop-distribution-m3: the authoritative desktop boundary gate. The broad
+# Python suite keeps Rust optional, but this target must fail rather than skip
+# executable identity, loopback ownership, authentication, and lifecycle tests.
+desktop-conformance:
+	cargo fmt --all --manifest-path apps/desktop/Cargo.toml -- --check
+	cargo test --locked --manifest-path apps/desktop/Cargo.toml --workspace
+	cargo clippy --locked --manifest-path apps/desktop/Cargo.toml --workspace --all-targets --all-features -- -D warnings
+	cargo build --locked --manifest-path apps/desktop/Cargo.toml --bin fixture-sidecar
+	ARXMCP_FIXTURE_SIDECAR="$(CURDIR)/apps/desktop/target/debug/fixture-sidecar$(DESKTOP_EXE_SUFFIX)" $(PYTHON) -m pytest tests/test_desktop_contract.py
 
 # The Tier-0 → Tier-1 exit gate. See .claude/TIER-GATES.md for the full
 # behavior matrix (pass / fail / SKIP) and the operator's prerequisite

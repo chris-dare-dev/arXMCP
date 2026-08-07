@@ -40,12 +40,14 @@ POSITIVE_FIXTURES = (
     "bound-v1.jsonl",
     "shutdown-v1.jsonl",
     "launch-v1-minor-compatible.jsonl",
+    "launch-v1-windows-path.jsonl",
 )
 NEGATIVE_FIXTURES = (
     "duplicate-core-field.jsonl",
     "unknown-core-field.jsonl",
     "wildcard-bound.jsonl",
     "mismatched-url-bound.jsonl",
+    "invalid-version-space.jsonl",
     "oversized-frame.jsonl",
 )
 FIXTURE_ONLY_TOKEN = "0" * 64
@@ -94,11 +96,38 @@ def _runtime_launch(root: Path, binary: Path, token: StartupToken) -> Launch:
     )
     return replace(
         golden,
-        data_root=root,
+        data_root=root.as_posix(),
         executable=executable,
-        log_location=root / "logs" / "fixture-sidecar.log",
+        log_location=(root / "logs" / "fixture-sidecar.log").as_posix(),
         startup_token=token,
     )
+
+
+def _exception_graph_values(error: BaseException) -> list[str]:
+    values: list[str] = []
+    pending: list[object] = [error]
+    visited: set[int] = set()
+    while pending:
+        value = pending.pop()
+        if value is None or id(value) in visited:
+            continue
+        visited.add(id(value))
+        if isinstance(value, bytes):
+            values.append(value.decode("latin-1"))
+        elif isinstance(value, str):
+            values.append(value)
+        elif isinstance(value, BaseException):
+            pending.extend(value.args)
+            pending.extend((value.__cause__, value.__context__))
+            pending.extend(
+                getattr(value, attribute, None) for attribute in ("doc", "object")
+            )
+        elif isinstance(value, dict):
+            pending.extend(value.keys())
+            pending.extend(value.values())
+        elif isinstance(value, (list, tuple, set)):
+            pending.extend(value)
+    return values
 
 
 def _request(port: int, path: str, token: str | None = None) -> tuple[int, bytes]:
@@ -159,6 +188,7 @@ def test_compatible_minor_preserves_namespaced_additions() -> None:
     assert frame.contract.minor == 9
     assert frame.extensions["org.arxmcp.future"]["nested"] == {
         "a": ["β", 2],
+        "camelCase": True,
         "z": 1,
     }
 
@@ -237,6 +267,21 @@ def test_capabilities_use_256_random_bits_and_never_enter_repr_or_errors() -> No
     assert canary not in repr(raised.value)
 
 
+@pytest.mark.parametrize(
+    ("malformed", "canary"),
+    [
+        (b'{"canary":"decoder-secret"}\xff\n', "decoder-secret"),
+        (b'{"canary":"json-secret",}\n', "json-secret"),
+    ],
+)
+def test_decoder_exceptions_do_not_retain_control_input(
+    malformed: bytes, canary: str
+) -> None:
+    with pytest.raises(DesktopContractError) as raised:
+        parse_frame(malformed)
+    assert all(canary not in value for value in _exception_graph_values(raised.value))
+
+
 def test_child_control_state_rejects_sequence_violations() -> None:
     launch = parse_frame(_fixture("launch-v1.jsonl"))
     bound = parse_frame(_fixture("bound-v1.jsonl"))
@@ -260,6 +305,17 @@ def test_fixture_set_has_pinned_aggregate_digest() -> None:
         digest.update(path.read_bytes())
     expected = (FIXTURES / "fixtures.sha256").read_text(encoding="utf-8").strip()
     assert digest.hexdigest() == expected
+
+
+def test_desktop_conformance_gate_builds_before_process_tests() -> None:
+    makefile = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+    target = makefile.split("desktop-conformance:\n", 1)[1]
+    assert "cargo build --locked" in target
+    assert "--bin fixture-sidecar" in target
+    assert "ARXMCP_FIXTURE_SIDECAR=" in target
+    assert target.index("cargo build --locked") < target.index(
+        "ARXMCP_FIXTURE_SIDECAR="
+    )
 
 
 def test_fixture_token_is_explicitly_nonsecret_test_data() -> None:
@@ -296,7 +352,7 @@ def test_fixture_sidecar_is_model_free_token_safe_and_bounded(
             assert isinstance(bound, Bound)
             assert bound.endpoint == Endpoint("127.0.0.1", bound.endpoint.port)
             assert bound.endpoint.port != 0
-            assert bound.data_root == root
+            assert bound.data_root == root.as_posix()
             assert bound.executable.sha256 == launch.executable.sha256
             assert not hasattr(bound, "startup_token")
 
@@ -389,6 +445,38 @@ def test_fixture_sidecar_rejects_invalid_launch_before_binding(tmp_path: Path) -
     assert completed.returncode == 2
     assert completed.stdout == b""
     assert token.expose().encode() not in completed.stderr
+    assert invalid_token.encode() not in completed.stderr
+    assert not any(path.is_file() for path in root.rglob("*"))
+
+
+def test_fixture_sidecar_rejects_sha_mismatch_before_binding(tmp_path: Path) -> None:
+    binary = _sidecar_binary()
+    if binary is None:
+        pytest.skip("build fixture-sidecar or set ARXMCP_FIXTURE_SIDECAR")
+    root = (tmp_path / "identity mismatch").resolve()
+    (root / "logs").mkdir(parents=True)
+    launch = _runtime_launch(root, binary, generate_startup_token())
+    replacement = "0" if launch.executable.sha256[0] != "0" else "1"
+    mismatched = replace(
+        launch,
+        executable=replace(
+            launch.executable,
+            sha256=replacement + launch.executable.sha256[1:],
+        ),
+    )
+    completed = subprocess.run(
+        [str(binary)],
+        input=encode_frame(mismatched),
+        capture_output=True,
+        check=False,
+        env={},
+        timeout=2,
+    )
+    assert completed.returncode == 2
+    assert completed.stdout == b""
+    assert completed.stderr == (
+        b"fixture-sidecar: fixture executable identity mismatch\n"
+    )
     assert not any(path.is_file() for path in root.rglob("*"))
 
 

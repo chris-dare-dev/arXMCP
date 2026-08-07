@@ -11,7 +11,6 @@ use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 use std::fmt;
 use std::io::{self, BufRead, Read};
-use std::path::{Component, Path, PathBuf};
 
 pub const FRAME_LIMIT: usize = 4_096;
 pub const SUPPORTED_MAJOR: u16 = 1;
@@ -145,12 +144,12 @@ pub type Extensions = BTreeMap<String, Value>;
 #[serde(deny_unknown_fields)]
 pub struct Launch {
     pub contract: ContractVersion,
-    pub data_root: PathBuf,
+    pub data_root: String,
     pub endpoint_request: Endpoint,
     pub executable: ExecutableIdentity,
     pub extensions: Extensions,
     pub kind: String,
-    pub log_location: PathBuf,
+    pub log_location: String,
     pub probe_paths: ProbePaths,
     pub shutdown: ShutdownSemantics,
     pub startup_token: StartupToken,
@@ -178,13 +177,13 @@ impl fmt::Debug for Launch {
 #[serde(deny_unknown_fields)]
 pub struct Bound {
     pub contract: ContractVersion,
-    pub data_root: PathBuf,
+    pub data_root: String,
     pub endpoint: Endpoint,
     pub executable: ExecutableIdentity,
     pub extensions: Extensions,
     pub health_url: String,
     pub kind: String,
-    pub log_location: PathBuf,
+    pub log_location: String,
     pub mcp_url: String,
     pub readiness_url: String,
     pub shutdown: ShutdownSemantics,
@@ -414,15 +413,21 @@ fn validate_identity(identity: &ExecutableIdentity) -> Result<(), ContractError>
     Ok(())
 }
 
-fn validate_paths(root: &Path, log: &Path) -> Result<(), ContractError> {
-    validate_absolute_path(root, "data root must be canonical and absolute")?;
-    validate_absolute_path(log, "log location must be canonical and absolute")?;
-    let relative = log
-        .strip_prefix(root)
-        .map_err(|_| ContractError::InvalidFrame("log location escapes data root"))?;
-    let mut components = relative.components();
-    if components.next() != Some(Component::Normal("logs".as_ref())) || components.next().is_none()
+fn validate_paths(root: &str, log: &str) -> Result<(), ContractError> {
+    let (root_style, root_parts) =
+        wire_path_parts(root, "data root must be canonical and absolute")?;
+    let (log_style, log_parts) =
+        wire_path_parts(log, "log location must be canonical and absolute")?;
+    if root_style != log_style
+        || log_parts.len() < root_parts.len()
+        || log_parts[..root_parts.len()] != root_parts
     {
+        return Err(ContractError::InvalidFrame(
+            "log location escapes data root",
+        ));
+    }
+    let relative = &log_parts[root_parts.len()..];
+    if relative.len() < 2 || relative.first() != Some(&"logs") {
         return Err(ContractError::InvalidFrame(
             "log location must name a file beneath data_root/logs",
         ));
@@ -430,17 +435,46 @@ fn validate_paths(root: &Path, log: &Path) -> Result<(), ContractError> {
     Ok(())
 }
 
-fn validate_absolute_path(path: &Path, reason: &'static str) -> Result<(), ContractError> {
-    if !path.is_absolute()
-        || path.as_os_str().is_empty()
-        || path.to_str().is_none()
-        || path
-            .components()
-            .any(|part| matches!(part, Component::CurDir | Component::ParentDir))
+#[derive(PartialEq, Eq)]
+enum WirePathStyle {
+    Posix,
+    WindowsDrive(u8),
+}
+
+fn wire_path_parts<'a>(
+    path: &'a str,
+    reason: &'static str,
+) -> Result<(WirePathStyle, Vec<&'a str>), ContractError> {
+    if path.contains('\\') || path.chars().any(|character| character.is_ascii_control()) {
+        return Err(ContractError::InvalidFrame(reason));
+    }
+    let bytes = path.as_bytes();
+    let (style, remainder) = if let Some(remainder) = path.strip_prefix('/') {
+        (WirePathStyle::Posix, remainder)
+    } else if bytes.len() >= 3
+        && bytes[0].is_ascii_uppercase()
+        && bytes[1] == b':'
+        && bytes[2] == b'/'
+    {
+        (WirePathStyle::WindowsDrive(bytes[0]), &path[3..])
+    } else {
+        return Err(ContractError::InvalidFrame(reason));
+    };
+
+    if remainder.is_empty() {
+        return Ok((style, Vec::new()));
+    }
+    if remainder.ends_with('/') {
+        return Err(ContractError::InvalidFrame(reason));
+    }
+    let parts: Vec<_> = remainder.split('/').collect();
+    if parts
+        .iter()
+        .any(|part| part.is_empty() || *part == "." || *part == "..")
     {
         return Err(ContractError::InvalidFrame(reason));
     }
-    Ok(())
+    Ok((style, parts))
 }
 
 fn validate_probe_paths(paths: &ProbePaths) -> Result<(), ContractError> {
@@ -485,10 +519,7 @@ fn validate_extension_value(value: &Value, depth: usize) -> Result<(), ContractE
     }
     match value {
         Value::Object(values) => {
-            for (key, nested) in values {
-                if !valid_extension_key(key, false) {
-                    return Err(ContractError::InvalidFrame("invalid extension key"));
-                }
+            for nested in values.values() {
                 validate_extension_value(nested, depth + 1)?;
             }
         }

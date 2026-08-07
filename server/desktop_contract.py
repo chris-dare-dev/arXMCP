@@ -13,7 +13,6 @@ import math
 import re
 import secrets
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any, Literal, TypeAlias
 
 FRAME_LIMIT = 4_096
@@ -34,6 +33,7 @@ _DIGEST_PATTERN = re.compile(r"[0-9a-f]{64}\Z")
 _EXTENSION_KEY_PATTERN = re.compile(
     r"[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?\Z"
 )
+_INVALID_JSON = object()
 
 
 class DesktopContractError(ValueError):
@@ -126,12 +126,12 @@ Extensions: TypeAlias = dict[str, Any]
 @dataclass(frozen=True, slots=True)
 class Launch:
     contract: ContractVersion
-    data_root: Path
+    data_root: str
     endpoint_request: Endpoint
     executable: ExecutableIdentity
     extensions: Extensions
     kind: Literal["launch"]
-    log_location: Path
+    log_location: str
     probe_paths: ProbePaths
     shutdown: ShutdownSemantics
     startup_token: StartupToken = field(repr=False)
@@ -140,13 +140,13 @@ class Launch:
 @dataclass(frozen=True, slots=True)
 class Bound:
     contract: ContractVersion
-    data_root: Path
+    data_root: str
     endpoint: Endpoint
     executable: ExecutableIdentity
     extensions: Extensions
     health_url: str
     kind: Literal["bound"]
-    log_location: Path
+    log_location: str
     mcp_url: str
     readiness_url: str
     shutdown: ShutdownSemantics
@@ -189,21 +189,14 @@ class ChildControlState:
 def parse_frame(frame: bytes) -> Frame:
     """Parse and validate one LF-terminated, duplicate-free NDJSON frame."""
     payload = _frame_payload(frame)
-    try:
-        decoded = payload.decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise DesktopContractError("control frame is not valid UTF-8") from exc
-    try:
-        value = json.loads(
-            decoded,
-            object_pairs_hook=_unique_object,
-            parse_float=_reject_float,
-            parse_constant=_reject_constant,
-        )
-    except DuplicateKeyError:
-        raise
-    except (json.JSONDecodeError, DesktopContractError, ValueError) as exc:
-        raise DesktopContractError("control frame is not valid canonical JSON") from exc
+    decoded = _decode_utf8(payload)
+    if decoded is None:
+        raise DesktopContractError("control frame is not valid UTF-8") from None
+    value = _load_json(decoded)
+    if isinstance(value, DuplicateKeyError):
+        raise value from None
+    if value is _INVALID_JSON:
+        raise DesktopContractError("control frame is not valid canonical JSON") from None
 
     _validate_json_value(value)
     top = _require_object(value, "top-level JSON must be an object")
@@ -216,6 +209,29 @@ def parse_frame(frame: bytes) -> Frame:
     if kind == "shutdown":
         return _parse_shutdown(top)
     raise DesktopContractError("unsupported frame kind")
+
+
+def _decode_utf8(payload: bytes) -> str | None:
+    """Decode without retaining attacker-controlled bytes on an exception graph."""
+    try:
+        return payload.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+
+
+def _load_json(decoded: str) -> object:
+    """Parse JSON while dropping decoder exceptions that retain the source text."""
+    try:
+        return json.loads(
+            decoded,
+            object_pairs_hook=_unique_object,
+            parse_float=_reject_float,
+            parse_constant=_reject_constant,
+        )
+    except DuplicateKeyError:
+        return DuplicateKeyError("control frame contains a duplicate key")
+    except (json.JSONDecodeError, DesktopContractError, ValueError):
+        return _INVALID_JSON
 
 
 def encode_frame(frame: Frame) -> bytes:
@@ -364,8 +380,8 @@ def _parse_identity(value: object) -> ExecutableIdentity:
     digest = _require_string(obj["sha256"], "executable digest")
     version = _require_string(obj["version"], "executable version")
     version_ok = (
-        len(version) <= 64
-        and all(character.isascii() and character.isprintable() for character in version)
+        1 <= len(version) <= 64
+        and all(0x21 <= ord(character) <= 0x7E for character in version)
         and "/" not in version
         and "\\" not in version
     )
@@ -441,30 +457,57 @@ def _validate_extension_value(value: object, depth: int = 0) -> None:
     if depth > _MAX_JSON_DEPTH:
         raise DesktopContractError("extension nesting is too deep")
     if isinstance(value, dict):
-        for key, nested in value.items():
-            if _EXTENSION_KEY_PATTERN.fullmatch(key) is None:
-                raise DesktopContractError("invalid extension key")
+        for nested in value.values():
             _validate_extension_value(nested, depth + 1)
     elif isinstance(value, list):
         for nested in value:
             _validate_extension_value(nested, depth + 1)
 
 
-def _validate_paths(root: Path, log_location: Path) -> None:
-    try:
-        relative = log_location.relative_to(root)
-    except ValueError as exc:
-        raise DesktopContractError("log location escapes data root") from exc
-    if len(relative.parts) < 2 or relative.parts[0] != "logs":
+def _validate_paths(root: str, log_location: str) -> None:
+    root_style, root_parts = _wire_path_parts(
+        root, "data root must be canonical and absolute"
+    )
+    log_style, log_parts = _wire_path_parts(
+        log_location, "log location must be canonical and absolute"
+    )
+    if root_style != log_style or log_parts[: len(root_parts)] != root_parts:
+        raise DesktopContractError("log location escapes data root")
+    relative = log_parts[len(root_parts) :]
+    if len(relative) < 2 or relative[0] != "logs":
         raise DesktopContractError("log location must name a file beneath data_root/logs")
 
 
-def _parse_path(value: object, label: str) -> Path:
+def _parse_path(value: object, label: str) -> str:
     text = _require_string(value, label)
-    path = Path(text)
-    if not path.is_absolute() or path.resolve(strict=False) != path:
-        raise DesktopContractError(f"{label} must be canonical and absolute")
-    return path
+    _wire_path_parts(text, f"{label} must be canonical and absolute")
+    return text
+
+
+def _wire_path_parts(text: str, reason: str) -> tuple[str, tuple[str, ...]]:
+    if "\\" in text or any(ord(character) < 0x20 or ord(character) == 0x7F for character in text):
+        raise DesktopContractError(reason)
+    if text.startswith("/"):
+        style = "posix"
+        remainder = text[1:]
+    elif (
+        len(text) >= 3
+        and "A" <= text[0] <= "Z"
+        and text[1:3] == ":/"
+    ):
+        style = text[:2]
+        remainder = text[3:]
+    else:
+        raise DesktopContractError(reason)
+
+    if not remainder:
+        return style, ()
+    if remainder.endswith("/"):
+        raise DesktopContractError(reason)
+    parts = tuple(remainder.split("/"))
+    if any(not part or part in {".", ".."} for part in parts):
+        raise DesktopContractError(reason)
+    return style, parts
 
 
 def _frame_to_dict(frame: Frame) -> dict[str, Any]:

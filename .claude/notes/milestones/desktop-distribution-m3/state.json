@@ -1,8 +1,8 @@
 {
   "id": "desktop-distribution-m3",
   "created_at": "2026-08-07T16:17:56Z",
-  "updated_at": "2026-08-07T16:33:40Z",
-  "phase": "research-complete",
+  "updated_at": "2026-08-07T18:04:09Z",
+  "phase": "rectify-running",
   "phase_history": [
     {
       "phase": "init",
@@ -15,6 +15,26 @@
     {
       "phase": "research-complete",
       "at": "2026-08-07T16:30:56Z"
+    },
+    {
+      "phase": "implement-running",
+      "at": "2026-08-07T16:40:57Z"
+    },
+    {
+      "phase": "implement-complete",
+      "at": "2026-08-07T17:20:44Z"
+    },
+    {
+      "phase": "critique-running",
+      "at": "2026-08-07T17:21:17Z"
+    },
+    {
+      "phase": "critique-complete",
+      "at": "2026-08-07T17:36:36Z"
+    },
+    {
+      "phase": "rectify-running",
+      "at": "2026-08-07T17:36:58Z"
     }
   ],
   "milestone_brief": "### desktop-distribution-m3 \u2014 Define the desktop/server contract\n\n**Description.** Add the cross-platform desktop workspace and a fixture sidecar, then define the versioned launch manifest exchanged between supervisor and server: executable identity, compatibility version, data root, dynamic loopback endpoint, startup token, health/readiness URLs, log location, and shutdown semantics.\n\n**Acceptance criteria.**\n- [ ] `apps/desktop/README.md` states supported boundaries, development commands, and why macOS is a target rather than a fork.\n- [ ] A schema-versioned manifest rejects unknown incompatible major versions and tolerates documented compatible minor additions.\n- [ ] Secrets and startup tokens are never accepted in command-line arguments or persisted in logs.\n- [ ] A fixture sidecar lets desktop lifecycle tests run without loading BGE-M3 or a corpus.\n- [ ] Contract fixtures are byte-stable and testable from both Rust and Python.\n\n**Dependencies.** desktop-distribution-e2, desktop-distribution-m1, desktop-distribution-spike-3\n\n**Complexity.** M\n\n**Specialist suggestion.** `mcp-protocol-reviewer`, `security-reviewer`, `determinism-reviewer`",
@@ -27,25 +47,53 @@
     "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/desktop-distribution-m3/research/brief-2.md"
   ],
   "research_synthesis": "/Users/chris.dare/Personal/SourceCode/arXMCP/.claude/notes/milestones/desktop-distribution-m3/research/synthesis.md",
-  "implementation_path": null,
+  "implementation_path": "delegated",
   "implementation_plan": null,
-  "implementation_base": null,
-  "implementation_commit_range": null,
-  "implementation_commits": [],
+  "implementation_base": "d6b7d69100d2cf3d8bbe0c85f85e569bf13228fe",
+  "implementation_commit_range": "d6b7d69100d2cf3d8bbe0c85f85e569bf13228fe..e61a449fbc1ea2b49eb5177908288fd33fff6795",
+  "implementation_commits": [
+    "e61a449fbc1ea2b49eb5177908288fd33fff6795",
+    "fd8a0846de7dff4f7da692896ca0a3a42f200831"
+  ],
   "implementation_branch": null,
   "external_writes_required": [
     "git push origin main"
   ],
-  "critique_path": null,
-  "critics_run": [],
-  "critique_files": [],
-  "critique_finding_counts": null,
-  "findings_register": null,
+  "critique_path": ".claude/notes/milestones/desktop-distribution-m3/critique/dedup.md",
+  "critics_run": [
+    "milestone-adversary-critic",
+    "milestone-arxmcp-critic"
+  ],
+  "critique_files": [
+    ".claude/notes/milestones/desktop-distribution-m3/critique/adversary.md",
+    ".claude/notes/milestones/desktop-distribution-m3/critique/arxmcp.md"
+  ],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 5,
+    "medium": 4,
+    "low": 0
+  },
+  "findings_register": ".claude/notes/milestones/desktop-distribution-m3/findings.json",
   "rectification_commit": null,
-  "fixed_findings": [],
-  "deferred_findings": [],
+  "fixed_findings": [
+    "H2",
+    "H3",
+    "H4",
+    "H5",
+    "M1",
+    "M2",
+    "M3",
+    "M4"
+  ],
+  "deferred_findings": [
+    "H1"
+  ],
   "invalidated_findings": [],
-  "regression_tests_added": [],
+  "regression_tests_added": [
+    "apps/desktop/crates/desktop-contract/tests/contract.rs",
+    "tests/test_desktop_contract.py"
+  ],
   "external_writes_authorized": [],
   "external_writes_completed": []
 }

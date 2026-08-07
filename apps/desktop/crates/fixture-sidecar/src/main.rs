@@ -3,6 +3,7 @@ use arxmcp_desktop_contract::{
     ExecutableIdentity, Extensions, Frame, Launch, Shutdown, ShutdownSemantics, StartupToken,
     HEALTH_PATH, MCP_PATH, READINESS_PATH, STARTUP_TOKEN_HEADER, UI_PATH,
 };
+use sha2::{Digest, Sha256};
 use std::fmt;
 use std::fs;
 use std::io::{self, BufReader, Read, Write};
@@ -12,7 +13,7 @@ use std::time::Duration;
 
 const COMPONENT: &str = "arxmcp-fixture-sidecar";
 const POLL_INTERVAL: Duration = Duration::from_millis(5);
-const HTTP_READ_TIMEOUT: Duration = Duration::from_millis(200);
+const HTTP_READ_TIMEOUT: Duration = Duration::from_secs(2);
 
 #[derive(Debug)]
 enum SidecarError {
@@ -69,7 +70,8 @@ fn run() -> Result<(), SidecarError> {
         Frame::Launch(value) => value,
         _ => return Err(SidecarError::MissingLaunch),
     };
-    validate_fixture_launch(&launch)?;
+    let executable_digest = current_executable_sha256()?;
+    validate_fixture_launch(&launch, &executable_digest)?;
 
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).map_err(|_| SidecarError::Bind)?;
     listener
@@ -80,7 +82,7 @@ fn run() -> Result<(), SidecarError> {
         return Err(SidecarError::Bind);
     }
 
-    let bound = make_bound(&launch, address.port());
+    let bound = make_bound(&launch, address.port(), &executable_digest);
     let encoded = encode_frame(&Frame::Bound(bound))?;
     let mut output = io::stdout().lock();
     output.write_all(&encoded).map_err(|_| SidecarError::Io)?;
@@ -93,22 +95,45 @@ fn run() -> Result<(), SidecarError> {
     serve_until_stopped(listener, receiver, &token)
 }
 
-fn validate_fixture_launch(launch: &Launch) -> Result<(), SidecarError> {
+fn validate_fixture_launch(launch: &Launch, executable_digest: &str) -> Result<(), SidecarError> {
     if launch.executable.component != COMPONENT
         || launch.executable.version != env!("CARGO_PKG_VERSION")
+        || !constant_time_equal(
+            launch.executable.sha256.as_bytes(),
+            executable_digest.as_bytes(),
+        )
     {
         return Err(SidecarError::Identity);
     }
-    let canonical_root = fs::canonicalize(&launch.data_root).map_err(|_| SidecarError::DataRoot)?;
-    let log_parent = launch.log_location.parent().ok_or(SidecarError::DataRoot)?;
+    let data_root = std::path::PathBuf::from(&launch.data_root);
+    let log_location = std::path::PathBuf::from(&launch.log_location);
+    let canonical_root = fs::canonicalize(&data_root).map_err(|_| SidecarError::DataRoot)?;
+    let log_parent = log_location.parent().ok_or(SidecarError::DataRoot)?;
     let canonical_log_parent = fs::canonicalize(log_parent).map_err(|_| SidecarError::DataRoot)?;
-    if canonical_root != launch.data_root || !canonical_log_parent.starts_with(&canonical_root) {
+    if canonical_root != data_root || !canonical_log_parent.starts_with(&canonical_root) {
         return Err(SidecarError::DataRoot);
     }
     Ok(())
 }
 
-fn make_bound(launch: &Launch, port: u16) -> Bound {
+fn current_executable_sha256() -> Result<String, SidecarError> {
+    let path = std::env::current_exe().map_err(|_| SidecarError::Identity)?;
+    let mut executable = fs::File::open(path).map_err(|_| SidecarError::Identity)?;
+    let mut digest = Sha256::new();
+    let mut chunk = [0_u8; 64 * 1_024];
+    loop {
+        let count = executable
+            .read(&mut chunk)
+            .map_err(|_| SidecarError::Identity)?;
+        if count == 0 {
+            break;
+        }
+        digest.update(&chunk[..count]);
+    }
+    Ok(format!("{:x}", digest.finalize()))
+}
+
+fn make_bound(launch: &Launch, port: u16, executable_digest: &str) -> Bound {
     let authority = format!("http://127.0.0.1:{port}");
     Bound {
         contract: launch.contract.clone(),
@@ -119,7 +144,7 @@ fn make_bound(launch: &Launch, port: u16) -> Bound {
         },
         executable: ExecutableIdentity {
             component: COMPONENT.to_owned(),
-            sha256: launch.executable.sha256.clone(),
+            sha256: executable_digest.to_owned(),
             version: env!("CARGO_PKG_VERSION").to_owned(),
         },
         extensions: Extensions::new(),

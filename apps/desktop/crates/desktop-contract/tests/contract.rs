@@ -11,6 +11,7 @@ const POSITIVE_FIXTURES: &[&str] = &[
     "bound-v1.jsonl",
     "shutdown-v1.jsonl",
     "launch-v1-minor-compatible.jsonl",
+    "launch-v1-windows-path.jsonl",
 ];
 
 fn fixtures() -> PathBuf {
@@ -38,7 +39,10 @@ fn compatible_minor_preserves_namespaced_additions() {
         panic!("expected launch fixture");
     };
     assert_eq!(launch.contract.minor, 9);
-    assert!(launch.extensions.contains_key("org.arxmcp.future"));
+    assert_eq!(
+        launch.extensions["org.arxmcp.future"]["nested"]["camelCase"],
+        true
+    );
 }
 
 #[test]
@@ -55,6 +59,7 @@ fn negative_fixtures_are_rejected() {
         "unknown-core-field.jsonl",
         "wildcard-bound.jsonl",
         "mismatched-url-bound.jsonl",
+        "invalid-version-space.jsonl",
         "oversized-frame.jsonl",
     ] {
         assert!(parse_frame(&fixture(name)).is_err(), "accepted {name}");
