@@ -1,0 +1,54 @@
+{
+  "id": "desktop-distribution-m5",
+  "created_at": "2026-08-07T22:49:47Z",
+  "updated_at": "2026-08-07T23:57:38Z",
+  "phase": "implement-running",
+  "phase_history": [
+    {
+      "phase": "init",
+      "at": "2026-08-07T22:49:47Z"
+    },
+    {
+      "phase": "research-running",
+      "at": "2026-08-07T22:49:51Z"
+    },
+    {
+      "phase": "research-complete",
+      "at": "2026-08-07T23:03:33Z"
+    },
+    {
+      "phase": "implement-running",
+      "at": "2026-08-07T23:57:38Z"
+    }
+  ],
+  "milestone_brief": "### desktop-distribution-m5 \u2014 Real single-cycle desktop lifecycle\n\n**Description.** Build the production desktop-child entry point and the\nminimal Tauri supervisor, and prove one real launch \u2192 ready \u2192 MCP \u2192 quit\ncycle against the actual `arxmcp-server`. The child binds `127.0.0.1:0`\noutside `Config`, retains the listener, hands the live socket to uvicorn,\nand speaks the M3 `launch`/`bound`/`shutdown` contract. The supervisor\narbitrates single-instance ownership with a native lock, hosts the existing\nserver-rendered `/ui/` in one window, and performs one real MCP smoke.\n\n**Acceptance criteria.**\n- [ ] Given no running instance, when the app launches, then exactly one\n      child server reaches health/readiness and the existing console renders\n      in the desktop window; the child's argv/module target is asserted to be\n      the production entry point, not the fixture sidecar.\n- [ ] Given a ready instance, when an MCP smoke request crosses the announced\n      endpoint, then a real `initialize` + `tools/list` exchange returns the\n      normal response, and the LIVE response bytes hash equal to\n      `EXPECTED_TOOL_SCHEMA_SHA256`.\n- [ ] Given a second launch released from a shared barrier with no delay,\n      then exactly one spawn event occurs and the loser activates the\n      existing app or exits clearly.\n- [ ] Given normal shutdown, bounded cleanup leaves no child process and no\n      residual listener, proven by probes whose own success is asserted.\n- [ ] `Config.validate_port_range` is unchanged and no non-desktop boot path\n      gains the ability to request an ephemeral bind.\n- [ ] `X-ArXMCP-Startup-Token` is enforced on `/readyz` via pure-ASGI\n      middleware scoped to the desktop-child path only; Docker, `make up`,\n      and existing callers are unaffected. `BaseHTTPMiddleware` is not used.\n- [ ] `make test` and `make desktop-conformance` exit 0.\n\n**Dependencies.** desktop-distribution-e2, desktop-distribution-m2,\ndesktop-distribution-m3\n\n**Complexity.** M\n\n**Specialist suggestion.** `mcp-protocol-reviewer`, `security-reviewer`",
+  "brief_source": "legacy-prose plans/desktop-distribution-roadmap.md",
+  "research_mode": "single",
+  "oss_scout_requested": false,
+  "allow_large_diff": true,
+  "research_briefs": [
+    ".claude/notes/milestones/desktop-distribution-m5/research/brief-1.md"
+  ],
+  "research_synthesis": ".claude/notes/milestones/desktop-distribution-m5/research/synthesis.md",
+  "implementation_path": "delegated",
+  "implementation_plan": null,
+  "implementation_base": "cb83435843ac8a0720d12365a17e1c2c07ff5828",
+  "implementation_commit_range": null,
+  "implementation_commits": [],
+  "implementation_branch": null,
+  "external_writes_required": [
+    "git push origin main"
+  ],
+  "critique_path": null,
+  "critics_run": [],
+  "critique_files": [],
+  "critique_finding_counts": null,
+  "findings_register": null,
+  "rectification_commit": null,
+  "fixed_findings": [],
+  "deferred_findings": [],
+  "invalidated_findings": [],
+  "regression_tests_added": [],
+  "external_writes_authorized": [],
+  "external_writes_completed": []
+}
