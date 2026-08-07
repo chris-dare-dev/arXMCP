@@ -136,6 +136,10 @@ REQUIRED_INSTALLED_FILES: tuple[str, ...] = (
 #: Console scripts docs/install.md tells the operator to expect on $PATH.
 REQUIRED_CONSOLE_SCRIPTS: tuple[str, ...] = ("arxmcp-server", "arxmcp-shim")
 
+# Cargo-only developer experiments must never hitchhike into the production
+# Python wheel through setuptools' implicit namespace discovery.
+FORBIDDEN_WHEEL_PREFIXES: tuple[str, ...] = ("tools/desktop_lifecycle_spike/",)
+
 
 class CheckFailed(Exception):
     """A packaging assertion failed. Message is operator-facing."""
@@ -228,6 +232,16 @@ def assert_wheel_contents(wheel: Path) -> None:
             + "\n\nAdd the tree to [tool.setuptools.packages.find].include and a "
             "matching glob to [tool.setuptools.package-data] in pyproject.toml. "
             "Declaring the package alone ships only its .py modules."
+        )
+    forbidden = sorted(
+        name
+        for name in names
+        if any(name.startswith(prefix) for prefix in FORBIDDEN_WHEEL_PREFIXES)
+    )
+    if forbidden:
+        raise CheckFailed(
+            f"{wheel.name} contains {len(forbidden)} forbidden development file(s):\n"
+            + "\n".join(f"  - {name}" for name in forbidden)
         )
     _log(
         f"wheel contents OK ({len(names)} entries, "

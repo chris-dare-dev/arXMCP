@@ -1,0 +1,430 @@
+{
+  "milestone_id": "desktop-distribution-spike-3",
+  "critique_format_version": "1.0",
+  "critique_files": [
+    "dedup.md"
+  ],
+  "generated_at": "2026-08-07T15:41:35Z",
+  "findings": {
+    "H1": {
+      "id": "H1",
+      "severity": "HIGH",
+      "title": "Startup timeout can miss a child before it creates its PGID",
+      "file": "tools/desktop_lifecycle_spike/src/main.rs",
+      "line": 280,
+      "anchor": "if error.raw_os_error() == Some(libc::ES",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Correctness",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "When the PID-named group is absent, forced shutdown now signals the retained direct child and awaits its Tauri termination event; startup-timeout live evidence records direct_sigterm and a clean PID audit.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-07T15:41:34Z",
+          "resolution": "When the PID-named group is absent, forced shutdown now signals the retained direct child and awaits its Tauri termination event; startup-timeout live evidence records direct_sigterm and a clean PID audit."
+        }
+      ]
+    },
+    "H2": {
+      "id": "H2",
+      "severity": "HIGH",
+      "title": "The duplicate case starts only after the primary is ready",
+      "file": "tools/desktop_lifecycle_spike/run_spike.py",
+      "line": 312,
+      "anchor": "if not _wait_for_event(root / \"events.nd",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Acceptance coverage",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Two hosts now wait on one external barrier; a native supervisor advisory lock selects one owner before sidecar setup when Tauri activation loses the zero-delay race, and evidence requires overlap, one sidecar, one listener, and clean loser exit.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-07T15:41:34Z",
+          "resolution": "Two hosts now wait on one external barrier; a native supervisor advisory lock selects one owner before sidecar setup when Tauri activation loses the zero-delay race, and evidence requires overlap, one sidecar, one listener, and clean loser exit."
+        }
+      ]
+    },
+    "H3": {
+      "id": "H3",
+      "severity": "HIGH",
+      "title": "Missing metadata is counted as a clean post-run audit",
+      "file": "tools/desktop_lifecycle_spike/run_spike.py",
+      "line": 223,
+      "anchor": "if meta is None:",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Acceptance coverage",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Crash-before-bound now writes durable PID, PGID, canary, and listener metadata before aborting; missing metadata is unclean unless sidecar_spawned supplies an independently audited direct PID.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-07T15:41:34Z",
+          "resolution": "Crash-before-bound now writes durable PID, PGID, canary, and listener metadata before aborting; missing metadata is unclean unless sidecar_spawned supplies an independently audited direct PID."
+        }
+      ]
+    },
+    "H4": {
+      "id": "H4",
+      "severity": "HIGH",
+      "title": "Tauri binary provenance is hard-coded, not verified",
+      "file": "tools/desktop_lifecycle_spike/run_spike.py",
+      "line": 462,
+      "anchor": "\"host_is_tauri_binary\": True,",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Acceptance coverage",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Build.rs embeds a digest of the tracked manifest, lock, config, harness, and Rust sources in both Mach-O binaries; the harness validates roles, pins, and digest before running, and the repository gate recomputes it.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-07T15:41:34Z",
+          "resolution": "Build.rs embeds a digest of the tracked manifest, lock, config, harness, and Rust sources in both Mach-O binaries; the harness validates roles, pins, and digest before running, and the repository gate recomputes it."
+        }
+      ]
+    },
+    "H5": {
+      "id": "H5",
+      "severity": "HIGH",
+      "title": "Review quality is at risk across 8,927 changed lines",
+      "file": null,
+      "line": null,
+      "anchor": "15 files changed, 8925 insertions(+), 2 deletions(-)",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Diff size",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "The user explicitly approved the large diff; 5,054 lock lines and normalized evidence remain isolated artifacts, and destructive signed-history rewriting is deferred after two independent critics plus full Rust, live, wheel, and 5,033-test gates reviewed the authored surface.",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-07T15:41:35Z",
+          "resolution": "The user explicitly approved the large diff; 5,054 lock lines and normalized evidence remain isolated artifacts, and destructive signed-history rewriting is deferred after two independent critics plus full Rust, live, wheel, and 5,033-test gates reviewed the authored surface."
+        }
+      ]
+    },
+    "H6": {
+      "id": "H6",
+      "severity": "HIGH",
+      "title": "Crash faults are orderly exits",
+      "file": "tools/desktop_lifecycle_spike/src/bin/fixture_sidecar.rs",
+      "line": 175,
+      "anchor": "return Err(\"injected crash before bound\"",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "test surface",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Both crash faults now abort after group/canary creation so Drop cannot clean them; the host explicitly TERM/KILL-cleans and audits the residual process group after the direct-child termination event.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-07T15:41:34Z",
+          "resolution": "Both crash faults now abort after group/canary creation so Drop cannot clean them; the host explicitly TERM/KILL-cleans and audits the residual process group after the direct-child termination event."
+        }
+      ]
+    },
+    "H7": {
+      "id": "H7",
+      "severity": "HIGH",
+      "title": "Missing metadata is declared clean",
+      "file": "tools/desktop_lifecycle_spike/run_spike.py",
+      "line": 223,
+      "anchor": "if meta is None:",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "test surface",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Crash-before-bound now writes durable PID, PGID, canary, and listener metadata before aborting; missing metadata is unclean unless sidecar_spawned supplies an independently audited direct PID.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-07T15:41:34Z",
+          "resolution": "Crash-before-bound now writes durable PID, PGID, canary, and listener metadata before aborting; missing metadata is unclean unless sidecar_spawned supplies an independently audited direct PID."
+        }
+      ]
+    },
+    "H8": {
+      "id": "H8",
+      "severity": "HIGH",
+      "title": "Duplicate launch is not raced",
+      "file": "tools/desktop_lifecycle_spike/run_spike.py",
+      "line": 312,
+      "anchor": "if not _wait_for_event(root / \"events.nd",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "local-first + Docker constraint",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Two hosts now wait on one external barrier; a native supervisor advisory lock selects one owner before sidecar setup when Tauri activation loses the zero-delay race, and evidence requires overlap, one sidecar, one listener, and clean loser exit.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-07T15:41:34Z",
+          "resolution": "Two hosts now wait on one external barrier; a native supervisor advisory lock selects one owner before sidecar setup when Tauri activation loses the zero-delay race, and evidence requires overlap, one sidecar, one listener, and clean loser exit."
+        }
+      ]
+    },
+    "H9": {
+      "id": "H9",
+      "severity": "HIGH",
+      "title": "Spike harness leaks into the Python wheel",
+      "file": "tests/test_wheel_packaging.py",
+      "line": 65,
+      "anchor": "_SKIP_DIRS = frozenset(",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "test surface",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Setuptools explicitly excludes tools.desktop_lifecycle_spike namespaces; static discovery and a real contents-only wheel build assert that no lifecycle harness file ships.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-07T15:41:34Z",
+          "resolution": "Setuptools explicitly excludes tools.desktop_lifecycle_spike namespaces; static discovery and a real contents-only wheel build assert that no lifecycle harness file ships."
+        }
+      ]
+    },
+    "M1": {
+      "id": "M1",
+      "severity": "MEDIUM",
+      "title": "Readiness contract errors bypass bounded cleanup",
+      "file": "tools/desktop_lifecycle_spike/src/main.rs",
+      "line": 470,
+      "anchor": "wait_ready(&mut sidecar, bound.port, dea",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Correctness",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "These require broader lifecycle-actor cleanup, same-root recovery/contention, failure-path janitor, or real Tauri ExitRequested work beyond the <=30 LOC MEDIUM rectification cap; they remain documented follow-on constraints before production integration.",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-07T15:41:35Z",
+          "resolution": "These require broader lifecycle-actor cleanup, same-root recovery/contention, failure-path janitor, or real Tauri ExitRequested work beyond the <=30 LOC MEDIUM rectification cap; they remain documented follow-on constraints before production integration."
+        }
+      ]
+    },
+    "M2": {
+      "id": "M2",
+      "severity": "MEDIUM",
+      "title": "Parent-crash recovery never reacquires the same lock",
+      "file": "tools/desktop_lifecycle_spike/run_spike.py",
+      "line": 296,
+      "anchor": "root = Path(tempfile.mkdtemp(prefix=f\"{s",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Acceptance coverage",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "These require broader lifecycle-actor cleanup, same-root recovery/contention, failure-path janitor, or real Tauri ExitRequested work beyond the <=30 LOC MEDIUM rectification cap; they remain documented follow-on constraints before production integration.",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-07T15:41:35Z",
+          "resolution": "These require broader lifecycle-actor cleanup, same-root recovery/contention, failure-path janitor, or real Tauri ExitRequested work beyond the <=30 LOC MEDIUM rectification cap; they remain documented follow-on constraints before production integration."
+        }
+      ]
+    },
+    "M3": {
+      "id": "M3",
+      "severity": "MEDIUM",
+      "title": "Failed cases can leave the very orphan they detect",
+      "file": "tools/desktop_lifecycle_spike/run_spike.py",
+      "line": 393,
+      "anchor": "shutil.rmtree(root)",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Correctness",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "These require broader lifecycle-actor cleanup, same-root recovery/contention, failure-path janitor, or real Tauri ExitRequested work beyond the <=30 LOC MEDIUM rectification cap; they remain documented follow-on constraints before production integration.",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-07T15:41:35Z",
+          "resolution": "These require broader lifecycle-actor cleanup, same-root recovery/contention, failure-path janitor, or real Tauri ExitRequested work beyond the <=30 LOC MEDIUM rectification cap; they remain documented follow-on constraints before production integration."
+        }
+      ]
+    },
+    "M4": {
+      "id": "M4",
+      "severity": "MEDIUM",
+      "title": "The wheel skip still packages the Python spike harness",
+      "file": "tests/test_wheel_packaging.py",
+      "line": 65,
+      "anchor": "_SKIP_DIRS = frozenset(",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Packaging boundary",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Wheel exclusion, fail-closed ps/lsof probes, exact ordered event traces, cross-chunk secret scanning, and source-bound aggregate evidence now have focused regression guards and regenerated live evidence.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-07T15:41:35Z",
+          "resolution": "Wheel exclusion, fail-closed ps/lsof probes, exact ordered event traces, cross-chunk secret scanning, and source-bound aggregate evidence now have focused regression guards and regenerated live evidence."
+        }
+      ]
+    },
+    "M5": {
+      "id": "M5",
+      "severity": "MEDIUM",
+      "title": "A failed process-secret inspection is reported clean",
+      "file": "tools/desktop_lifecycle_spike/run_spike.py",
+      "line": 154,
+      "anchor": "return TOKEN_CANARY not in result.stdout",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Security / input handling",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Wheel exclusion, fail-closed ps/lsof probes, exact ordered event traces, cross-chunk secret scanning, and source-bound aggregate evidence now have focused regression guards and regenerated live evidence.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-07T15:41:35Z",
+          "resolution": "Wheel exclusion, fail-closed ps/lsof probes, exact ordered event traces, cross-chunk secret scanning, and source-bound aggregate evidence now have focused regression guards and regenerated live evidence."
+        }
+      ]
+    },
+    "M6": {
+      "id": "M6",
+      "severity": "MEDIUM",
+      "title": "Evidence discards lifecycle order and event multiplicity",
+      "file": "tools/desktop_lifecycle_spike/run_spike.py",
+      "line": 338,
+      "anchor": "names = {str(item.get(\"event\")) for item",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Test discipline",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Wheel exclusion, fail-closed ps/lsof probes, exact ordered event traces, cross-chunk secret scanning, and source-bound aggregate evidence now have focused regression guards and regenerated live evidence.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-07T15:41:35Z",
+          "resolution": "Wheel exclusion, fail-closed ps/lsof probes, exact ordered event traces, cross-chunk secret scanning, and source-bound aggregate evidence now have focused regression guards and regenerated live evidence."
+        }
+      ]
+    },
+    "M7": {
+      "id": "M7",
+      "severity": "MEDIUM",
+      "title": "Output secret scans lose matches across event chunks",
+      "file": "tools/desktop_lifecycle_spike/src/main.rs",
+      "line": 193,
+      "anchor": "fn output_is_clean(&self, bytes: &[u8])",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Security / input handling",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Wheel exclusion, fail-closed ps/lsof probes, exact ordered event traces, cross-chunk secret scanning, and source-bound aggregate evidence now have focused regression guards and regenerated live evidence.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-07T15:41:35Z",
+          "resolution": "Wheel exclusion, fail-closed ps/lsof probes, exact ordered event traces, cross-chunk secret scanning, and source-bound aggregate evidence now have focused regression guards and regenerated live evidence."
+        }
+      ]
+    },
+    "M8": {
+      "id": "M8",
+      "severity": "MEDIUM",
+      "title": "Ordinary Tauri exit bypasses graceful shutdown",
+      "file": "tools/desktop_lifecycle_spike/src/main.rs",
+      "line": 577,
+      "anchor": ".run(tauri::generate_context!());",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "security threat-model coverage",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "These require broader lifecycle-actor cleanup, same-root recovery/contention, failure-path janitor, or real Tauri ExitRequested work beyond the <=30 LOC MEDIUM rectification cap; they remain documented follow-on constraints before production integration.",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-07T15:41:35Z",
+          "resolution": "These require broader lifecycle-actor cleanup, same-root recovery/contention, failure-path janitor, or real Tauri ExitRequested work beyond the <=30 LOC MEDIUM rectification cap; they remain documented follow-on constraints before production integration."
+        }
+      ]
+    },
+    "M9": {
+      "id": "M9",
+      "severity": "MEDIUM",
+      "title": "Committed GO is not bound to reviewed source",
+      "file": "tests/test_desktop_lifecycle_spike.py",
+      "line": 80,
+      "anchor": "assert payload[\"decision\"] == \"GO\"",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "test surface",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Wheel exclusion, fail-closed ps/lsof probes, exact ordered event traces, cross-chunk secret scanning, and source-bound aggregate evidence now have focused regression guards and regenerated live evidence.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-07T15:41:35Z",
+          "resolution": "Wheel exclusion, fail-closed ps/lsof probes, exact ordered event traces, cross-chunk secret scanning, and source-bound aggregate evidence now have focused regression guards and regenerated live evidence."
+        }
+      ]
+    },
+    "M10": {
+      "id": "M10",
+      "severity": "MEDIUM",
+      "title": "Advisory-lock recovery is never exercised",
+      "file": "tools/desktop_lifecycle_spike/run_spike.py",
+      "line": 296,
+      "anchor": "root = Path(tempfile.mkdtemp(prefix=f\"{s",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "local-first + Docker constraint",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "These require broader lifecycle-actor cleanup, same-root recovery/contention, failure-path janitor, or real Tauri ExitRequested work beyond the <=30 LOC MEDIUM rectification cap; they remain documented follow-on constraints before production integration.",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-07T15:41:35Z",
+          "resolution": "These require broader lifecycle-actor cleanup, same-root recovery/contention, failure-path janitor, or real Tauri ExitRequested work beyond the <=30 LOC MEDIUM rectification cap; they remain documented follow-on constraints before production integration."
+        }
+      ]
+    },
+    "M11": {
+      "id": "M11",
+      "severity": "MEDIUM",
+      "title": "Listener audit fails open on lsof errors",
+      "file": "tools/desktop_lifecycle_spike/run_spike.py",
+      "line": 204,
+      "anchor": "check=False,",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "test surface",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Wheel exclusion, fail-closed ps/lsof probes, exact ordered event traces, cross-chunk secret scanning, and source-bound aggregate evidence now have focused regression guards and regenerated live evidence.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-07T15:41:35Z",
+          "resolution": "Wheel exclusion, fail-closed ps/lsof probes, exact ordered event traces, cross-chunk secret scanning, and source-bound aggregate evidence now have focused regression guards and regenerated live evidence."
+        }
+      ]
+    },
+    "L1": {
+      "id": "L1",
+      "severity": "LOW",
+      "title": "The scope-checkpoint commit subject exceeds the limit",
+      "file": null,
+      "line": null,
+      "anchor": "feat(tools): partial \u2014 milestone desktop-distribution-spike-3 scope exceeded",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Commit hygiene",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "Rewriting the signed local checkpoint history solely to shorten one prescribed scope-stop subject is not justified; future checkpoint subjects should use the shorter conventional form.",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-07T15:41:35Z",
+          "resolution": "Rewriting the signed local checkpoint history solely to shorten one prescribed scope-stop subject is not justified; future checkpoint subjects should use the shorter conventional form."
+        }
+      ]
+    }
+  }
+}

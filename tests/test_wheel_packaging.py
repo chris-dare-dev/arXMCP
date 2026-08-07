@@ -46,6 +46,7 @@ import tomllib
 from pathlib import Path
 
 import pytest
+from setuptools import find_namespace_packages
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PYPROJECT = REPO_ROOT / "pyproject.toml"
@@ -75,6 +76,10 @@ def pyproject() -> dict:
 
 def _include_patterns(pyproject: dict) -> list[str]:
     return pyproject["tool"]["setuptools"]["packages"]["find"]["include"]
+
+
+def _exclude_patterns(pyproject: dict) -> list[str]:
+    return pyproject["tool"]["setuptools"]["packages"]["find"].get("exclude", [])
 
 
 def _shipped_trees(pyproject: dict) -> list[str]:
@@ -163,6 +168,21 @@ class TestPackagesDeclared:
             f"pyproject.toml declares package tree(s) {missing} that do not "
             "exist; the wheel build fails outright with \"package directory "
             "does not exist\"."
+        )
+
+    def test_desktop_lifecycle_spike_is_not_a_wheel_package(
+        self, pyproject: dict
+    ) -> None:
+        assert "tools.desktop_lifecycle_spike*" in _exclude_patterns(pyproject)
+        discovered = find_namespace_packages(
+            where=str(REPO_ROOT),
+            include=_include_patterns(pyproject),
+            exclude=_exclude_patterns(pyproject),
+        )
+        assert not any(
+            package == "tools.desktop_lifecycle_spike"
+            or package.startswith("tools.desktop_lifecycle_spike.")
+            for package in discovered
         )
 
 

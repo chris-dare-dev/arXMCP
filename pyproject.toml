@@ -40,6 +40,10 @@ build-backend = "setuptools.build_meta"
 # (``server/routes/ui.py`` ``parents[1]``, ``server/main.py`` ``parent``), so
 # one expression serves a source checkout and an installed wheel alike.
 include = ["server*", "ingest*", "tools*", "shim*", "ops*"]
+# The desktop lifecycle spike is a Cargo-only experiment.  ``tools*`` would
+# otherwise discover its Python evidence harness as an implicit namespace and
+# silently add development-only process-control code to the production wheel.
+exclude = ["tools.desktop_lifecycle_spike*"]
 
 [tool.setuptools.package-data]
 # NON-``.py`` FILES ARE NOT PACKAGED WITHOUT AN EXPLICIT GLOB. Declaring a

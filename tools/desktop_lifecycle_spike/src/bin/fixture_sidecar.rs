@@ -13,7 +13,9 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 const READY_DELAY: Duration = Duration::from_millis(150);
+const CRASH_BEFORE_BOUND_DELAY: Duration = Duration::from_millis(100);
 const CRASH_AFTER_READY_DELAY: Duration = Duration::from_millis(100);
+const SOURCE_SHA256: &str = env!("ARXMCP_SPIKE_SOURCE_SHA256");
 
 #[derive(Serialize)]
 struct ListenerMeta<'a> {
@@ -159,6 +161,13 @@ fn run() -> Result<(), &'static str> {
     fs::create_dir_all(&expected_root).map_err(|_| "data root creation failed")?;
     let mut input = BufReader::new(io::stdin());
     let init = parse_bootstrap(&mut input, &expected_root)?;
+    if init.fault == Fault::StartupTimeout {
+        // Deliberately stall before setpgid: the supervisor must fall back to
+        // its retained direct-child PID when the PID-named group is absent.
+        loop {
+            std::thread::park_timeout(Duration::from_secs(60));
+        }
+    }
     configure_group(init.fault == Fault::IgnoreShutdown)?;
 
     let lock = OpenOptions::new()
@@ -170,10 +179,6 @@ fn run() -> Result<(), &'static str> {
     lock.try_lock_exclusive()
         .map_err(|_| "lifecycle lock busy")?;
     let canary = Canary::spawn()?;
-
-    if init.fault == Fault::CrashBeforeBound {
-        return Err("injected crash before bound");
-    }
 
     let listener =
         TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).map_err(|_| "loopback bind failed")?;
@@ -216,10 +221,9 @@ fn run() -> Result<(), &'static str> {
         .map_err(|_| "listener metadata open failed")?;
     serde_json::to_writer(metadata_file, &metadata)
         .map_err(|_| "listener metadata write failed")?;
-    if init.fault == Fault::StartupTimeout {
-        loop {
-            std::thread::park_timeout(Duration::from_secs(60));
-        }
+    if init.fault == Fault::CrashBeforeBound {
+        std::thread::sleep(CRASH_BEFORE_BOUND_DELAY);
+        std::process::abort();
     }
     if matches!(
         init.fault,
@@ -264,7 +268,7 @@ fn run() -> Result<(), &'static str> {
         }
         let now = Instant::now();
         if init.fault == Fault::CrashAfterReady && now >= crash_at {
-            return Err("injected crash after ready");
+            std::process::abort();
         }
         match listener.accept() {
             Ok((stream, _)) => {
@@ -288,8 +292,26 @@ fn run() -> Result<(), &'static str> {
 }
 
 fn main() {
-    if std::env::args_os().nth(1).as_deref() == Some(std::ffi::OsStr::new("--canary")) {
-        run_canary();
+    match std::env::args_os().nth(1).as_deref() {
+        Some(value) if value == std::ffi::OsStr::new("--provenance") => {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "schema_version": 1,
+                    "role": "fixture-sidecar",
+                    "tauri_host": false,
+                    "source_sha256": SOURCE_SHA256,
+                    "dependencies": {
+                        "tauri": "2.11.5",
+                        "tauri-plugin-shell": "2.3.5",
+                        "tauri-plugin-single-instance": "2.4.3"
+                    }
+                })
+            );
+            return;
+        }
+        Some(value) if value == std::ffi::OsStr::new("--canary") => run_canary(),
+        _ => {}
     }
     if run().is_err() {
         eprintln!("{{\"event\":\"fixture_failed\"}}");

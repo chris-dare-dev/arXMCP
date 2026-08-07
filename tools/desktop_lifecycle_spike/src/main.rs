@@ -2,6 +2,7 @@ use arxmcp_desktop_lifecycle_spike::{
     startup_token, validate_bound, Bootstrap, Bound, Fault, Shutdown, FRAME_LIMIT,
     PRODUCTION_GRACE_MS, PROTOCOL_VERSION, TOKEN_CANARY,
 };
+use fs2::FileExt;
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::fs::{self, OpenOptions};
@@ -20,6 +21,7 @@ const STARTUP_LIMIT: Duration = Duration::from_millis(1_500);
 const FIXTURE_SHUTDOWN_GRACE: Duration = Duration::from_millis(350);
 const SIGNAL_GRACE: Duration = Duration::from_millis(250);
 const SIDECAR_NAME: &str = concat!("fixture-sidecar-", env!("TAURI_ENV_TARGET_TRIPLE"));
+const SOURCE_SHA256: &str = env!("ARXMCP_SPIKE_SOURCE_SHA256");
 
 static DUPLICATE_ACTIVATIONS: AtomicU64 = AtomicU64::new(0);
 
@@ -122,11 +124,16 @@ impl Recorder {
             .append(true)
             .open(&state.path)
             .map_err(|_| "event log open failed")?;
-        serde_json::to_writer(&mut output, &record).map_err(|_| "event log write failed")?;
         output
+            .lock_exclusive()
+            .map_err(|_| "event log lock failed")?;
+        serde_json::to_writer(&mut output, &record).map_err(|_| "event log write failed")?;
+        let result = output
             .write_all(b"\n")
             .and_then(|_| output.flush())
-            .map_err(|_| "event log flush failed")
+            .map_err(|_| "event log flush failed");
+        let _ = output.unlock();
+        result
     }
 }
 
@@ -186,24 +193,39 @@ struct Sidecar {
     child: CommandChild,
     pid: u32,
     token: String,
-    stdout: Vec<u8>,
+    protocol_stdout: Vec<u8>,
+    stdout_secret_tail: Vec<u8>,
+    stderr_secret_tail: Vec<u8>,
 }
 
 impl Sidecar {
-    fn output_is_clean(&self, bytes: &[u8]) -> bool {
-        !bytes
-            .windows(self.token.len())
-            .any(|window| window == self.token.as_bytes())
-            && !bytes
-                .windows(TOKEN_CANARY.len())
-                .any(|window| window == TOKEN_CANARY.as_bytes())
-    }
-
-    fn inspect_output(&self, bytes: &[u8]) -> Result<(), &'static str> {
-        if bytes.len() > FRAME_LIMIT || !self.output_is_clean(bytes) {
+    fn inspect_chunk(token: &[u8], tail: &mut Vec<u8>, bytes: &[u8]) -> Result<(), &'static str> {
+        if bytes.len() > FRAME_LIMIT {
             return Err("sidecar output failed bounded secret scan");
         }
+        let mut combined = Vec::with_capacity(tail.len() + bytes.len());
+        combined.extend_from_slice(tail);
+        combined.extend_from_slice(bytes);
+        if combined.windows(token.len()).any(|window| window == token)
+            || combined
+                .windows(TOKEN_CANARY.len())
+                .any(|window| window == TOKEN_CANARY.as_bytes())
+        {
+            return Err("sidecar output failed bounded secret scan");
+        }
+        let retained = token.len().max(TOKEN_CANARY.len()).saturating_sub(1);
+        let start = combined.len().saturating_sub(retained);
+        tail.clear();
+        tail.extend_from_slice(&combined[start..]);
         Ok(())
+    }
+
+    fn inspect_stdout(&mut self, bytes: &[u8]) -> Result<(), &'static str> {
+        Self::inspect_chunk(self.token.as_bytes(), &mut self.stdout_secret_tail, bytes)
+    }
+
+    fn inspect_stderr(&mut self, bytes: &[u8]) -> Result<(), &'static str> {
+        Self::inspect_chunk(self.token.as_bytes(), &mut self.stderr_secret_tail, bytes)
     }
 
     async fn event(&mut self, timeout: Duration) -> Result<CommandEvent, &'static str> {
@@ -221,16 +243,17 @@ impl Sidecar {
             }
             match self.event(remaining).await? {
                 CommandEvent::Stdout(bytes) => {
-                    self.inspect_output(&bytes)?;
-                    if self.stdout.len() + bytes.len() > FRAME_LIMIT {
+                    self.inspect_stdout(&bytes)?;
+                    if self.protocol_stdout.len() + bytes.len() > FRAME_LIMIT {
                         return Err("oversized protocol output");
                     }
-                    self.stdout.extend(bytes);
-                    if let Some(index) = self.stdout.iter().position(|byte| *byte == b'\n') {
-                        return validate_bound(&self.stdout[..index], self.pid);
+                    self.protocol_stdout.extend(bytes);
+                    if let Some(index) = self.protocol_stdout.iter().position(|byte| *byte == b'\n')
+                    {
+                        return validate_bound(&self.protocol_stdout[..index], self.pid);
                     }
                 }
-                CommandEvent::Stderr(bytes) => self.inspect_output(&bytes)?,
+                CommandEvent::Stderr(bytes) => self.inspect_stderr(&bytes)?,
                 CommandEvent::Terminated(_) => return Err("sidecar exited before bound"),
                 CommandEvent::Error(_) => return Err("sidecar event error"),
                 _ => {}
@@ -246,9 +269,8 @@ impl Sidecar {
                 return Err("sidecar termination timeout");
             }
             match self.event(remaining).await? {
-                CommandEvent::Stdout(bytes) | CommandEvent::Stderr(bytes) => {
-                    self.inspect_output(&bytes)?;
-                }
+                CommandEvent::Stdout(bytes) => self.inspect_stdout(&bytes)?,
+                CommandEvent::Stderr(bytes) => self.inspect_stderr(&bytes)?,
                 CommandEvent::Terminated(status) => return Ok(status),
                 CommandEvent::Error(_) => return Err("sidecar event error"),
                 _ => {}
@@ -268,32 +290,109 @@ impl Sidecar {
     }
 }
 
-fn signal_group(pid: u32, signal: i32) -> Result<(), &'static str> {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SignalTarget {
+    ProcessGroup,
+    DirectChild,
+    AlreadyExited,
+}
+
+fn signal_process_group(pid: u32, signal: i32) -> Result<bool, &'static str> {
     let group = i32::try_from(pid).map_err(|_| "sidecar pid out of range")?;
     // SAFETY: kill is called with a validated positive child PID negated to address
     // only the process group created by the fixture sidecar.
     let result = unsafe { libc::kill(-group, signal) };
     if result == 0 {
-        return Ok(());
+        return Ok(true);
     }
     let error = std::io::Error::last_os_error();
     if error.raw_os_error() == Some(libc::ESRCH) {
-        return Ok(());
+        return Ok(false);
     }
     Err("process-group signal failed")
+}
+
+fn signal_owned_child(pid: u32, signal: i32) -> Result<SignalTarget, &'static str> {
+    if signal_process_group(pid, signal)? {
+        return Ok(SignalTarget::ProcessGroup);
+    }
+    let child = i32::try_from(pid).map_err(|_| "sidecar pid out of range")?;
+    // SAFETY: this is the retained direct-child PID. It is used only when the
+    // PID-named process group does not yet exist during bounded startup.
+    if unsafe { libc::kill(child, signal) } == 0 {
+        return Ok(SignalTarget::DirectChild);
+    }
+    if std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH) {
+        return Ok(SignalTarget::AlreadyExited);
+    }
+    Err("direct-child signal failed")
+}
+
+fn group_exists(pid: u32) -> Result<bool, &'static str> {
+    let group = i32::try_from(pid).map_err(|_| "sidecar pid out of range")?;
+    // SAFETY: signal 0 performs existence/permission probing without changing
+    // the process group.
+    if unsafe { libc::kill(-group, 0) } == 0 {
+        return Ok(true);
+    }
+    match std::io::Error::last_os_error().raw_os_error() {
+        Some(libc::ESRCH) => Ok(false),
+        Some(libc::EPERM) => Ok(true),
+        _ => Err("process-group probe failed"),
+    }
+}
+
+async fn wait_group_empty(pid: u32, timeout: Duration) -> Result<bool, &'static str> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if !group_exists(pid)? {
+            return Ok(true);
+        }
+        if Instant::now() >= deadline {
+            return Ok(false);
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+async fn cleanup_crashed_group(pid: u32, recorder: &Recorder) -> Result<(), &'static str> {
+    if !signal_process_group(pid, libc::SIGTERM)? {
+        recorder.record("crash_group_clean", json!({"pgid": pid}))?;
+        return Ok(());
+    }
+    recorder.record("crash_group_sigterm", json!({"pgid": pid}))?;
+    if !wait_group_empty(pid, SIGNAL_GRACE).await? {
+        if signal_process_group(pid, libc::SIGKILL)? {
+            recorder.record("crash_group_sigkill", json!({"pgid": pid}))?;
+        }
+        if !wait_group_empty(pid, Duration::from_secs(2)).await? {
+            return Err("crashed process group did not become empty");
+        }
+    }
+    recorder.record("crash_group_clean", json!({"pgid": pid}))
 }
 
 async fn force_group_stop(
     sidecar: &mut Sidecar,
     recorder: &Recorder,
 ) -> Result<TerminatedPayload, &'static str> {
-    signal_group(sidecar.pid, libc::SIGTERM)?;
-    recorder.record("group_sigterm", json!({"pgid": sidecar.pid}))?;
+    let first_target = signal_owned_child(sidecar.pid, libc::SIGTERM)?;
+    let first_event = match first_target {
+        SignalTarget::ProcessGroup => "group_sigterm",
+        SignalTarget::DirectChild => "direct_sigterm",
+        SignalTarget::AlreadyExited => "signal_target_exited",
+    };
+    recorder.record(first_event, json!({"pid": sidecar.pid}))?;
     match sidecar.terminated(SIGNAL_GRACE).await {
         Ok(status) => Ok(status),
         Err("sidecar termination timeout") | Err("sidecar event timeout") => {
-            signal_group(sidecar.pid, libc::SIGKILL)?;
-            recorder.record("group_sigkill", json!({"pgid": sidecar.pid}))?;
+            let second_target = signal_owned_child(sidecar.pid, libc::SIGKILL)?;
+            let second_event = match second_target {
+                SignalTarget::ProcessGroup => "group_sigkill",
+                SignalTarget::DirectChild => "direct_sigkill",
+                SignalTarget::AlreadyExited => "signal_target_exited",
+            };
+            recorder.record(second_event, json!({"pid": sidecar.pid}))?;
             sidecar.terminated(Duration::from_secs(2)).await
         }
         Err(error) => Err(error),
@@ -330,7 +429,9 @@ async fn spawn_sidecar(
         child,
         pid,
         token,
-        stdout: Vec::new(),
+        protocol_stdout: Vec::new(),
+        stdout_secret_tail: Vec::new(),
+        stderr_secret_tail: Vec::new(),
     };
     let bootstrap_token = sidecar.token.clone();
     sidecar.write(&Bootstrap {
@@ -404,6 +505,7 @@ async fn run_cycle(
             return Err("crash-before-bound exited successfully");
         }
         recorder.record("expected_crash_before_bound", status_fields(&status))?;
+        cleanup_crashed_group(sidecar.pid, &recorder).await?;
         recorder.record("secret_scan_clean", json!({"clean": true}))?;
         return Ok(());
     }
@@ -467,7 +569,10 @@ async fn run_cycle(
         return Ok(());
     }
 
-    wait_ready(&mut sidecar, bound.port, deadline).await?;
+    if let Err(error) = wait_ready(&mut sidecar, bound.port, deadline).await {
+        let _ = force_group_stop(&mut sidecar, &recorder).await;
+        return Err(error);
+    }
     recorder.record("ready_authenticated", json!({"port": bound.port}))?;
 
     if scenario == Scenario::Fault(Fault::CrashAfterReady) {
@@ -476,22 +581,27 @@ async fn run_cycle(
             return Err("crash-after-ready exited successfully");
         }
         recorder.record("expected_crash_after_ready", status_fields(&status))?;
+        cleanup_crashed_group(sidecar.pid, &recorder).await?;
         recorder.record("secret_scan_clean", json!({"clean": true}))?;
         return Ok(());
     }
 
     if scenario == Scenario::Duplicate {
         let duplicate_deadline = Instant::now() + STARTUP_LIMIT;
-        while DUPLICATE_ACTIVATIONS.load(Ordering::Acquire) == 0 {
+        let contention_marker = root.join("duplicate-contended");
+        while DUPLICATE_ACTIVATIONS.load(Ordering::Acquire) == 0 && !contention_marker.is_file() {
             if Instant::now() >= duplicate_deadline {
                 let _ = force_group_stop(&mut sidecar, &recorder).await;
-                return Err("duplicate activation not observed");
+                return Err("duplicate arbitration not observed");
             }
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
         recorder.record(
             "duplicate_routed_to_primary",
-            json!({"activations": DUPLICATE_ACTIVATIONS.load(Ordering::Relaxed)}),
+            json!({
+                "activations": DUPLICATE_ACTIVATIONS.load(Ordering::Relaxed),
+                "supervisor_lock_contention": contention_marker.is_file()
+            }),
         )?;
     }
 
@@ -530,7 +640,68 @@ fn required_env(name: &str) -> Result<String, &'static str> {
     std::env::var(name).map_err(|_| "required configuration missing")
 }
 
+fn await_launch_barrier(root: &Path) -> Result<(), &'static str> {
+    let Some(value) = std::env::var_os("ARXMCP_SPIKE_LAUNCH_BARRIER") else {
+        return Ok(());
+    };
+    let barrier = PathBuf::from(value);
+    if barrier.parent() != Some(root) {
+        return Err("launch barrier escaped data root");
+    }
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while !barrier.is_file() {
+        if Instant::now() >= deadline {
+            return Err("launch barrier timeout");
+        }
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    Ok(())
+}
+
+fn acquire_supervisor_lock(root: &Path) -> Result<Option<std::fs::File>, &'static str> {
+    let lock = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(root.join("supervisor.lock"))
+        .map_err(|_| "supervisor lock open failed")?;
+    match lock.try_lock_exclusive() {
+        Ok(()) => Ok(Some(lock)),
+        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+            fs::write(
+                root.join("duplicate-contended"),
+                format!("{}\n", std::process::id()),
+            )
+            .map_err(|_| "duplicate contention marker failed")?;
+            Ok(None)
+        }
+        Err(_) => Err("supervisor lock failed"),
+    }
+}
+
+fn print_provenance() {
+    println!(
+        "{}",
+        json!({
+            "schema_version": 1,
+            "role": "tauri-host",
+            "tauri_host": true,
+            "source_sha256": SOURCE_SHA256,
+            "dependencies": {
+                "tauri": "2.11.5",
+                "tauri-plugin-shell": "2.3.5",
+                "tauri-plugin-single-instance": "2.4.3"
+            }
+        })
+    );
+}
+
 fn main() {
+    if std::env::args_os().nth(1).as_deref() == Some(std::ffi::OsStr::new("--provenance")) {
+        print_provenance();
+        return;
+    }
     let root = match required_env("ARXMCP_SPIKE_DATA_DIR").map(PathBuf::from) {
         Ok(root) => root,
         Err(_) => std::process::exit(2),
@@ -548,6 +719,14 @@ fn main() {
         Ok(value) => value,
         Err(_) => std::process::exit(2),
     };
+    if await_launch_barrier(&root).is_err() {
+        std::process::exit(2);
+    }
+    let supervisor_lock = match acquire_supervisor_lock(&root) {
+        Ok(value) => value,
+        Err(_) => std::process::exit(2),
+    };
+    let owns_supervisor_lock = supervisor_lock.is_some();
     let duplicate_recorder = recorder.clone();
 
     let result = tauri::Builder::default()
@@ -559,6 +738,10 @@ fn main() {
         }))
         .plugin(tauri_plugin_shell::init())
         .setup(move |app| {
+            if !owns_supervisor_lock {
+                app.handle().exit(0);
+                return Ok(());
+            }
             let handle = app.handle().clone();
             let task_recorder = recorder.clone();
             let task_root = root.clone();
@@ -575,6 +758,7 @@ fn main() {
             Ok(())
         })
         .run(tauri::generate_context!());
+    drop(supervisor_lock);
     if result.is_err() {
         std::process::exit(1);
     }
@@ -582,8 +766,8 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::{request, Probe, Scenario, SIDECAR_NAME};
-    use arxmcp_desktop_lifecycle_spike::Fault;
+    use super::{request, Probe, Scenario, Sidecar, SIDECAR_NAME};
+    use arxmcp_desktop_lifecycle_spike::{Fault, TOKEN_CANARY};
     use std::io::{Read, Write};
     use std::net::{Ipv4Addr, TcpListener};
 
@@ -624,5 +808,25 @@ mod tests {
         });
         assert_eq!(request(port, "/healthz", None), Probe::Health);
         server.join().expect("join probe server");
+    }
+
+    #[test]
+    fn secret_scanner_detects_every_cross_chunk_split() {
+        let token = format!("{TOKEN_CANARY}{}", "a".repeat(64));
+        for split in 1..TOKEN_CANARY.len() {
+            let mut tail = Vec::new();
+            Sidecar::inspect_chunk(
+                token.as_bytes(),
+                &mut tail,
+                &TOKEN_CANARY.as_bytes()[..split],
+            )
+            .expect("first partial canary is not yet a leak");
+            assert!(Sidecar::inspect_chunk(
+                token.as_bytes(),
+                &mut tail,
+                &TOKEN_CANARY.as_bytes()[split..]
+            )
+            .is_err());
+        }
     }
 }

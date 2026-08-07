@@ -1,26 +1,30 @@
 # Desktop distribution spike 3 — lifecycle ownership
 
-**Decision:** GO — use the pinned Tauri shell handle as the direct-sidecar
-guardian for the production desktop implementation.
+**Decision:** GO — use the pinned Tauri shell handle for direct-sidecar control,
+with a native advisory supervisor lock as the simultaneous-launch guard.
 
 **Measured on:** macOS 26.6, Apple Silicon (`aarch64-apple-darwin`)
 
 **Raw-result digest:**
-`63a96d6dbe98ff4df0711a77ebe1fa493ee8eabdf68c3e7be983baf05dab8964`
+`dfc11ca3c99b9a8c4a19e237e03e257a4fef52d1052ef41f6cb7022a3ec96ab9`
 
 ## Decision record
 
 The built no-window Tauri host retained the shell plugin's stdin writer, exposed
 the direct-child PID, delivered raw bounded stdout/stderr events, and delivered a
 termination event after both cooperative and signalled exits. These primitives
-are sufficient for the direct-child contract, so the native Rust guardian
-fallback is not selected.
+are sufficient for the direct-child contract. The native *process guardian*
+fallback is not selected, but the simultaneous-launch run showed that Tauri's
+single-instance plugin alone does not close a zero-delay startup race.
 
 The single-instance plugin is registered before the shell plugin and before the
-setup callback. A raced second launch was routed to the first process, produced
-one activation callback, and the shared event record contained exactly one
-`sidecar_spawned` transition. The fixture's advisory lock remains a second guard
-beneath the application-data root.
+setup callback. Two hosts released from one external barrier produced zero Tauri
+activation callbacks; the native `supervisor.lock` fallback selected one owner
+before sidecar setup, the loser exited cleanly, and the shared event record
+contained exactly one `sidecar_spawned` transition. A steady-state Tauri
+activation remains supported, but the GO decision does not depend on it. The
+fixture's own advisory lock remains a second guard beneath the application-data
+root.
 
 ## Lifecycle and frame contract
 
@@ -34,6 +38,13 @@ The host serializes one lifecycle actor through these measured transitions:
 6. on expiry: process-group `SIGTERM` → bounded wait → process-group
    `SIGKILL` → direct-child termination event/reap
 
+Before the fixture creates its PID-named process group, a group signal can
+legitimately return `ESRCH` while the child is still alive. The host then signals
+the retained direct PID and still awaits its Tauri termination event. Abrupt
+pre-bound and post-ready faults use `abort()` (so Rust `Drop` cleanup does not
+run); after observing the direct-child exit, the host terminates and audits the
+residual canary group.
+
 All control frames are NDJSON protocol version 1 and capped at 4,096 bytes. The
 canonical `bound` frame carries sequence 1, direct-child PID, PGID, same-group
 canary PID, literal host `127.0.0.1`, and the nonzero kernel-selected port. The
@@ -46,15 +57,20 @@ The startup capability contains 256 random bits and the redaction canary prefix.
 It is sent only in the bounded stdin bootstrap and shutdown frames. The sidecar
 environment is cleared and receives only `ARXMCP_SPIKE_DATA_DIR`; argv contains
 only the target-triple executable path. Both the host and external harness scan
-raw stdout/stderr, persisted fixture files, event records, and live `ps eww`
-output without printing the secret.
+raw stdout/stderr with cross-event tails, persisted fixture files, event
+records, and live `ps eww` output without printing the secret. Failed or partial
+`ps`/`lsof` probes are evidence failures, never clean absence.
 
 ## macOS primitives exercised
 
 - Tauri 2 shell sidecar resolved as
   `fixture-sidecar-aarch64-apple-darwin` beside the real host executable.
+- `flock`-style `fs2` advisory locking selected one supervisor during the
+  measured simultaneous-launch race before either host could own a sidecar.
 - `setpgid(0, 0)` made the fixture its own process-group leader; its canary
   inherited that PGID.
+- Positive-PID `kill(pid, SIGTERM)` closed the measured pre-`setpgid` startup
+  timeout when negative-PGID signalling correctly returned `ESRCH`.
 - `kill(-pgid, SIGTERM)` and `kill(-pgid, SIGKILL)` enforced bounded group
   cleanup; the Tauri termination event proved the direct child was waited.
 - Closing the inherited stdin pipe acted as the parent-lifetime lease. A real
@@ -71,9 +87,11 @@ output without printing the secret.
 - `tauri-plugin-shell`: exactly 2.3.5
 - `tauri-plugin-single-instance`: exactly 2.4.3
 - Host binary SHA-256:
-  `24ae008caa9d715e47a351f2786c31268941a9faf516a4fe46714e381cd722bc`
+  `af33e3baef1c354f6c5676262d20ac7ec3ef32378454b50e0ce453a9c7ab6464`
 - Fixture binary SHA-256:
-  `8d8b45ebc976bfa2d9a6b776210a26a9ca1629a872f932f39296027aee8824b7`
+  `cd2019f17c6d1b91d550f9f95d6510266a1717430b0d285dc426f964848f30ce`
+- Tracked-source SHA-256 embedded in both binaries:
+  `484fdb957b2bb26a49b95dea32a8d093747b6ff179e0938f8af49a8403120912`
 
 ```bash
 cargo test --locked --target-dir /private/tmp/arxmcp-spike3-target \
@@ -91,8 +109,8 @@ cargo build --locked --target-dir /private/tmp/arxmcp-spike3-target \
 ```
 
 The live audit used `/usr/sbin/lsof -nP -iTCP:<port> -sTCP:LISTEN`,
-`ps -axo pid=,pgid=,comm=`, `ps eww -p <pids> -o command=`, and a loopback TCP
-connection after each scenario.
+`ps -axo pid=,pgid=,comm=`, `ps eww -p <pids> -o pid=,command=`, and a loopback
+TCP connection after each scenario.
 
 ## Fault matrix and measurements
 
@@ -102,7 +120,7 @@ never-ready, crash before bound, crash after readiness, ignored shutdown with
 TERM-to-KILL escalation, and parent `SIGKILL` with stdin-EOF cleanup.
 
 Thirty additional fresh launch → ready → graceful-stop cycles passed. Latency
-was 377.372 ms minimum, 390.912 ms mean, and 406.493 ms maximum. Across the fault
+was 383.352 ms minimum, 397.257 ms mean, and 408.178 ms maximum. Across the fault
 matrix and all cycles, the exact totals were:
 
 - orphan process groups: **0**
@@ -129,6 +147,9 @@ Cargo target output is committed.
 - Fixture stdout is the control stream. Production must choose a dedicated
   descriptor or explicit desktop logging mode.
 - The run proves macOS 26.6 on arm64, not the planned macOS 14 support floor.
+- Tauri's activation callback did not fire in the simultaneous-start run; the
+  production design must retain the native supervisor lock and treat the plugin
+  as a UX activation path rather than its sole ownership primitive.
 - No app bundle, signing, notarization, automatic restart, real server changes,
   or PyInstaller integration was attempted.
 
