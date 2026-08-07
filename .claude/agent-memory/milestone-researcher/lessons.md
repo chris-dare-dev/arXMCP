@@ -44,3 +44,4 @@
 2026-08-06 | desktop-distribution-m2 | A relocation smoke must create the venv at its final path and install the wheel there—Python venvs have absolute shebangs and are not themselves relocatable.
 2026-08-06 | desktop-distribution-spike-3 | On macOS, proving supervisor-crash cleanup requires a child-observed kernel lifetime lease such as stdin-pipe EOF; Tauri exit callbacks cannot run after SIGKILL, and free-port bind-close-rebind is inherently racy.
 2026-08-06 | desktop-distribution-spike-3 | A desktop supervisor must budget beyond the server's internal 30-second drain and cannot rely on Rust Drop cleanup because Tauri App::run terminates the process directly.
+2026-08-07 | desktop-distribution-m3 | Forward-compatible minor protocol changes need a strict versioned core plus an explicit extensions object; copying deny_unknown_fields wire structs makes the compatibility promise impossible.
