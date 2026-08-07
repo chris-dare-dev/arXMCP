@@ -1,0 +1,52 @@
+{
+  "id": "desktop-distribution-m4",
+  "created_at": "2026-08-07T22:28:00Z",
+  "updated_at": "2026-08-07T22:41:29Z",
+  "phase": "research-complete",
+  "phase_history": [
+    {
+      "phase": "init",
+      "at": "2026-08-07T22:28:00Z"
+    },
+    {
+      "phase": "research-running",
+      "at": "2026-08-07T22:28:33Z"
+    },
+    {
+      "phase": "research-complete",
+      "at": "2026-08-07T22:41:29Z"
+    }
+  ],
+  "milestone_brief": "### desktop-distribution-m4 \u2014 Ship the lifecycle walking skeleton\n\n**Description.** Connect the desktop supervisor to the relocatable server and existing `/ui/`. The slice owns a single instance, selects a loopback endpoint without widening the bind boundary, renders starting/ready/degraded/failed states, performs one MCP smoke request, and tears down cleanly after normal or forced exits.\n\n**Acceptance criteria.**\n- [ ] Given no running instance, when the app launches, then exactly one child server reaches health/readiness and the existing console renders in the desktop window.\n- [ ] Given a ready instance, when an MCP smoke request crosses the configured local endpoint, then the normal MCP response is returned without schema changes.\n- [ ] Given a second launch, then it activates the existing app or exits clearly without starting another server.\n- [ ] Given shutdown, startup timeout, sidecar crash, or supervisor crash, then bounded cleanup leaves no child process or listener and writes redacted diagnostics.\n- [ ] Lifecycle tests assert loopback-only binding and run 30 fixture-sidecar cycles without an orphan.\n\n**Dependencies.** desktop-distribution-e2, desktop-distribution-m2, desktop-distribution-m3\n\n**Complexity.** M\n\n**Specialist suggestion.** `mcp-protocol-reviewer`, `security-reviewer`\n\n---",
+  "brief_source": "legacy-prose plans/desktop-distribution-roadmap.md",
+  "research_mode": "deep",
+  "oss_scout_requested": false,
+  "allow_large_diff": false,
+  "research_briefs": [
+    ".claude/notes/milestones/desktop-distribution-m4/research/brief-1.md",
+    ".claude/notes/milestones/desktop-distribution-m4/research/brief-2.md",
+    ".claude/notes/milestones/desktop-distribution-m4/research/brief-3.md"
+  ],
+  "research_synthesis": ".claude/notes/milestones/desktop-distribution-m4/research/synthesis.md",
+  "implementation_path": null,
+  "implementation_plan": null,
+  "implementation_base": null,
+  "implementation_commit_range": null,
+  "implementation_commits": [],
+  "implementation_branch": null,
+  "external_writes_required": [
+    "git push origin main"
+  ],
+  "critique_path": null,
+  "critics_run": [],
+  "critique_files": [],
+  "critique_finding_counts": null,
+  "findings_register": null,
+  "rectification_commit": null,
+  "fixed_findings": [],
+  "deferred_findings": [],
+  "invalidated_findings": [],
+  "regression_tests_added": [],
+  "external_writes_authorized": [],
+  "external_writes_completed": []
+}
