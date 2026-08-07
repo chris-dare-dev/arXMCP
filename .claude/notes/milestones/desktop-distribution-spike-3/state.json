@@ -1,8 +1,8 @@
 {
   "id": "desktop-distribution-spike-3",
   "created_at": "2026-08-06T21:49:49Z",
-  "updated_at": "2026-08-07T15:42:06Z",
-  "phase": "rectify-running",
+  "updated_at": "2026-08-07T15:54:25Z",
+  "phase": "complete",
   "phase_history": [
     {
       "phase": "init",
@@ -35,6 +35,10 @@
     {
       "phase": "rectify-running",
       "at": "2026-08-07T15:13:58Z"
+    },
+    {
+      "phase": "complete",
+      "at": "2026-08-07T15:54:25Z"
     }
   ],
   "milestone_brief": "### desktop-distribution-spike-3 \u2014 Prove safe desktop sidecar lifecycle\n\n**Question.** Can the shared desktop supervisor safely own exactly one local server across normal launch, duplicate launch, timeout, child crash, supervisor crash, and shutdown on macOS?\n\n**Timebox.** At most 3 days. Fixture sidecar and protocol decision only.\n\n**Acceptance criteria.**\n- Exercise Tauri sidecar spawning, single-instance activation, dynamic loopback-port handoff, and readiness polling with a fixture process.\n- Exercise graceful stop, bounded forced kill, child crash, parent crash, and orphan/listener detection.\n- Confirm secrets are not passed in command-line arguments or written to logs and the server never binds non-loopback.\n- Measure 30 launch/stop cycles and record orphan/listener count.\n- Record the lifecycle protocol, OS primitives, and fallback if Tauri cannot enforce the contract.\n\n**Dependencies.** None.\n\n**GitHub issue.** chris-dare-dev/arXMCP#386.",
@@ -77,7 +81,7 @@
     "low": 1
   },
   "findings_register": ".claude/notes/milestones/desktop-distribution-spike-3/findings.json",
-  "rectification_commit": null,
+  "rectification_commit": "8d87a15764029aaac0524525a7131b3c040a5d2b",
   "fixed_findings": [
     "H1",
     "H2",
@@ -108,6 +112,10 @@
     "tests/test_desktop_lifecycle_spike.py",
     "tests/test_wheel_packaging.py"
   ],
-  "external_writes_authorized": [],
-  "external_writes_completed": []
+  "external_writes_authorized": [
+    "git push origin main"
+  ],
+  "external_writes_completed": [
+    "git push origin main"
+  ]
 }

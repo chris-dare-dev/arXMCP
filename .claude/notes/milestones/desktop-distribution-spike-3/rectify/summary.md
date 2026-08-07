@@ -1,12 +1,13 @@
 # Rectify summary — desktop-distribution-spike-3
 
-- **Rect commit:** pending — `rect(desktop-distribution-spike-3): close H1-H4,H6-H9`
+- **Rect commit:** `8d87a15764029aaac0524525a7131b3c040a5d2b` —
+  `rect(desktop-distribution-spike-3): close H1-H4,H6-H9`
 - **Fixed (14):** H1, H2, H3, H4, H6, H7, H8, H9, M4, M5, M6,
   M7, M9, M11.
 - **Deferred (7):** H5, M1, M2, M3, M8, M10, L1.
 - **Invalidated:** none; every HIGH anchor re-verified against live code.
-- **External write:** `git push origin main` remains pending per-event user
-  authorization.
+- **External write:** `git push origin main` completed with per-event user
+  authorization (`9a832b8..8d87a15`).
 
 ## Fixed
 
