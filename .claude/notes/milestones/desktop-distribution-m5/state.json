@@ -1,8 +1,8 @@
 {
   "id": "desktop-distribution-m5",
   "created_at": "2026-08-07T22:49:47Z",
-  "updated_at": "2026-08-07T23:57:56Z",
-  "phase": "implement-running",
+  "updated_at": "2026-08-08T01:06:02Z",
+  "phase": "rectify-running",
   "phase_history": [
     {
       "phase": "init",
@@ -19,6 +19,22 @@
     {
       "phase": "implement-running",
       "at": "2026-08-07T23:57:38Z"
+    },
+    {
+      "phase": "implement-complete",
+      "at": "2026-08-08T00:50:27Z"
+    },
+    {
+      "phase": "critique-running",
+      "at": "2026-08-08T00:50:27Z"
+    },
+    {
+      "phase": "critique-complete",
+      "at": "2026-08-08T01:05:47Z"
+    },
+    {
+      "phase": "rectify-running",
+      "at": "2026-08-08T01:06:02Z"
     }
   ],
   "milestone_brief": "### desktop-distribution-m5 \u2014 Real single-cycle desktop lifecycle\n\n**Description.** Build the production desktop-child entry point and the\nminimal Tauri supervisor, and prove one real launch \u2192 ready \u2192 MCP \u2192 quit\ncycle against the actual `arxmcp-server`. The child binds `127.0.0.1:0`\noutside `Config`, retains the listener, hands the live socket to uvicorn,\nand speaks the M3 `launch`/`bound`/`shutdown` contract. The supervisor\narbitrates single-instance ownership with a native lock, hosts the existing\nserver-rendered `/ui/` in one window, and performs one real MCP smoke.\n\n**Acceptance criteria.**\n- [ ] Given no running instance, when the app launches, then exactly one\n      child server reaches health/readiness and the existing console renders\n      in the desktop window; the child's argv/module target is asserted to be\n      the production entry point, not the fixture sidecar.\n- [ ] Given a ready instance, when an MCP smoke request crosses the announced\n      endpoint, then a real `initialize` + `tools/list` exchange returns the\n      normal response, and the LIVE response bytes hash equal to\n      `EXPECTED_TOOL_SCHEMA_SHA256`.\n- [ ] Given a second launch released from a shared barrier with no delay,\n      then exactly one spawn event occurs and the loser activates the\n      existing app or exits clearly.\n- [ ] Given normal shutdown, bounded cleanup leaves no child process and no\n      residual listener, proven by probes whose own success is asserted.\n- [ ] `Config.validate_port_range` is unchanged and no non-desktop boot path\n      gains the ability to request an ephemeral bind.\n- [ ] `X-ArXMCP-Startup-Token` is enforced on `/readyz` via pure-ASGI\n      middleware scoped to the desktop-child path only; Docker, `make up`,\n      and existing callers are unaffected. `BaseHTTPMiddleware` is not used.\n- [ ] `make test` and `make desktop-conformance` exit 0.\n\n**Dependencies.** desktop-distribution-e2, desktop-distribution-m2,\ndesktop-distribution-m3\n\n**Complexity.** M\n\n**Specialist suggestion.** `mcp-protocol-reviewer`, `security-reviewer`",
@@ -33,22 +49,42 @@
   "implementation_path": "delegated",
   "implementation_plan": null,
   "implementation_base": "1a542ee1bce9c4371ea47a8ffaac1b50bf90b480",
-  "implementation_commit_range": null,
-  "implementation_commits": [],
+  "implementation_commit_range": "1a542ee..4d797a7f462bec65298cac473913d6c7bf6ccf0b",
+  "implementation_commits": [
+    "4d797a7f462bec65298cac473913d6c7bf6ccf0b",
+    "ffecb7ef0175850123a77ef163101da63af9990b",
+    "a9b7202b11776701e0275e6150b768d8e8e8c428",
+    "b9054f0caa51e3e12f90edb4c1f3816682487f8e"
+  ],
   "implementation_branch": null,
   "external_writes_required": [
     "git push origin main"
   ],
-  "critique_path": null,
-  "critics_run": [],
-  "critique_files": [],
-  "critique_finding_counts": null,
-  "findings_register": null,
+  "critique_path": ".claude/notes/milestones/desktop-distribution-m5/critique/dedup.md",
+  "critics_run": [
+    "milestone-adversary-critic",
+    "milestone-arxmcp-critic",
+    "milestone-infra-safety-critic"
+  ],
+  "critique_files": [
+    "critique/adversary.md",
+    "critique/arxmcp.md",
+    "critique/infra-safety.md"
+  ],
+  "critique_finding_counts": {
+    "critical": 2,
+    "high": 3,
+    "medium": 18,
+    "low": 11
+  },
+  "findings_register": ".claude/notes/milestones/desktop-distribution-m5/findings.json",
   "rectification_commit": null,
   "fixed_findings": [],
   "deferred_findings": [],
   "invalidated_findings": [],
-  "regression_tests_added": [],
+  "regression_tests_added": [
+    "tests/test_desktop_child.py"
+  ],
   "external_writes_authorized": [],
   "external_writes_completed": []
 }
