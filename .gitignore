@@ -71,3 +71,7 @@ AGENTS.md
 # referring to a PID that never existed there. Left on disk (deleting it mid-run
 # would let a second session start concurrently) and out of git.
 .claude/notes/milestones/.lock
+
+# Tauri build regenerates crate-local gen/schemas on every cargo build;
+# generated permission-schema artifacts never enter git.
+apps/desktop/crates/supervisor/gen/
