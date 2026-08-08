@@ -293,11 +293,13 @@ change touches more than ~3 files or adds new tests, run the pipeline.
     into a throwaway venv (issue #206). Opt-in via `pytest -m
     requires_wheel_build`, or `make wheel-check`. The `full` half
     also needs `ARXMCP_RUN_FULL_WHEEL_CHECK=1`.
-  - **`requires_desktop_stack`** — desktop-distribution-m5
+  - **`requires_desktop_stack`** — desktop-distribution-m5/m6
     real-lifecycle tests that boot the ACTUAL server (`python -m
     server.desktop_child`, eager BGE-M3/LanceDB warm-up plus a
     BGE-reranker-v2-m3 load) and/or the built Tauri supervisor
-    binary. Skipped by default; opt-in via `pytest -m
+    binary, including the m6 fault matrix that drives the real
+    supervisor against fault-injected fixture-sidecar arms.
+    Skipped by default; opt-in via `pytest -m
     requires_desktop_stack`, or run `make desktop-conformance`,
     which builds both Rust binaries, exports `DESKTOP_SUPERVISOR_BIN`
     (deliberately NOT `ARXMCP_`-prefixed — see §4.5's env scan) and

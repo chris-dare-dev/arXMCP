@@ -19,17 +19,20 @@ unknown-``ARXMCP_*`` scan would otherwise FATAL on the harness knob.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import http.client
 import io
 import json
 import os
 import queue
 import re
+import signal
 import socket
 import subprocess
 import sys
 import threading
 import time
+import warnings
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -57,6 +60,12 @@ from server.desktop_contract import (
     encode_frame,
     generate_startup_token,
     parse_frame,
+)
+from tests.test_desktop_contract import (
+    _assert_loopback_only,
+    _listener_lines,
+    _pid_is_gone,
+    _sidecar_binary,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -801,8 +810,6 @@ def test_read_frame_matches_rust_reader_semantics() -> None:
 
 
 def test_executable_identity_is_wire_valid_and_self_measured() -> None:
-    import hashlib
-
     identity = executable_identity()
     assert identity.component == "arxmcp-server-desktop-child"
     assert identity.sha256 == hashlib.sha256(
@@ -811,3 +818,396 @@ def test_executable_identity_is_wire_valid_and_self_measured() -> None:
     launch = replace(_golden_launch(), executable=identity)
     # encode_frame round-trips only wire-valid identities.
     assert canonicalize_frame(encode_frame(launch)) == encode_frame(launch)
+
+
+# --- m6 fault matrix: the REAL supervisor driven against fault-injected
+# fixture-sidecar arms (selected via the namespaced `org.arxmcp.test-fault`
+# launch extension the production child never reads). Cleanup evidence uses
+# the self-asserting ps/lsof probes shared with the fixture-layer suite.
+
+
+def _supervisor_binary() -> str:
+    supervisor = os.environ.get(SUPERVISOR_BIN_ENV)
+    if not supervisor or not Path(supervisor).is_file():
+        pytest.fail(
+            f"{SUPERVISOR_BIN_ENV} must point at the built supervisor binary "
+            f"(run via `make desktop-conformance`)"
+        )
+    return supervisor
+
+
+def _fixture_binary() -> Path:
+    binary = _sidecar_binary()
+    if binary is None:
+        pytest.fail(
+            "fault-matrix tests need the built fixture-sidecar "
+            "(run via `make desktop-conformance`)"
+        )
+    return binary
+
+
+def _desktop_workspace_version() -> str:
+    """The fixture validates launch.executable.version == CARGO_PKG_VERSION,
+    which every crate inherits from [workspace.package]."""
+    manifest = (REPO_ROOT / "apps" / "desktop" / "Cargo.toml").read_text(
+        encoding="utf-8"
+    )
+    match = re.search(r'^version\s*=\s*"([^"]+)"$', manifest, re.MULTILINE)
+    assert match is not None, "workspace.package version not found"
+    return match.group(1)
+
+
+def _spawn_fault_supervisor(
+    root: Path, fault: str | None, **plan_overrides: object
+) -> subprocess.Popen[bytes]:
+    """Spawn the real supervisor with the fixture sidecar as its child.
+
+    Streams go to files under the data root (no PIPE: the caller may SIGKILL
+    the supervisor, so communicate() is not always available, and the files
+    land inside the post-run secret sweep's scope)."""
+    fixture = _fixture_binary()
+    plan: dict[str, object] = {
+        "child_argv": [str(fixture)],
+        "component": "arxmcp-fixture-sidecar",
+        "data_root": root.as_posix(),
+        "identity_file": str(fixture),
+        "smoke": True,
+        "version": _desktop_workspace_version(),
+    }
+    if fault is not None:
+        plan["test_fault"] = fault
+    plan.update(plan_overrides)
+    plan_path = root / "launch-plan.json"
+    plan_path.write_text(json.dumps(plan), encoding="utf-8")
+    env = {k: v for k, v in os.environ.items() if not k.startswith("ARXMCP_")}
+    env["ARXMCP_DESKTOP_LAUNCH_PLAN"] = str(plan_path)
+    with (
+        (root / "supervisor-stdout.log").open("wb") as out_handle,
+        (root / "supervisor-stderr.log").open("wb") as err_handle,
+    ):
+        return subprocess.Popen(
+            [_supervisor_binary()],
+            stdin=subprocess.DEVNULL,
+            stdout=out_handle,
+            stderr=err_handle,
+            env=env,
+            cwd=str(REPO_ROOT),
+        )
+
+
+def _supervisor_events(root: Path) -> list[dict]:
+    path = root / "logs" / "supervisor-events.ndjson"
+    if not path.is_file():
+        return []
+    return [
+        json.loads(line)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line
+    ]
+
+
+def _events_by_name(root: Path, name: str) -> list[dict]:
+    return [event for event in _supervisor_events(root) if event["event"] == name]
+
+
+def _wait_for_event(
+    root: Path, name: str, timeout: float, process: subprocess.Popen[bytes]
+) -> dict:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        events = _events_by_name(root, name)
+        if events:
+            return events[0]
+        if process.poll() is not None:
+            raise RuntimeError(
+                f"supervisor exited {process.returncode} before {name!r}; "
+                f"events: {_supervisor_events(root)}"
+            )
+        time.sleep(0.05)
+    raise TimeoutError(
+        f"event {name!r} not observed in {timeout}s; "
+        f"events: {_supervisor_events(root)}"
+    )
+
+
+def _sweep_fault_artifacts(root: Path) -> None:
+    """Structural capability sweep: the supervisor generated the token, so the
+    test cannot know it — any 64-hex string in a persisted artifact must be
+    the fixture's identity digest (AC3's technique)."""
+    allowed = {
+        hashlib.sha256(_fixture_binary().read_bytes()).hexdigest().encode("ascii")
+    }
+    for artifact in root.rglob("*"):
+        if not artifact.is_file():
+            continue
+        for match in set(_HEX64.findall(artifact.read_bytes())):
+            assert match in allowed, (artifact, match[:12])
+
+
+def _fault_root(tmp_path: Path, name: str) -> Path:
+    root = (tmp_path / f"fault {name} 数学").resolve()
+    root.mkdir(parents=True)
+    return root
+
+
+@pytest.mark.requires_desktop_stack
+def test_fault_startup_timeout_bounded_cleanup(tmp_path: Path) -> None:
+    """m6 fault matrix: the child never emits `bound`; the supervisor's bound
+    timeout (shrunk via the test-only plan knob; 240s in production) fires and
+    the Err-arm cleanup reaps the parked-but-cooperating child."""
+    root = _fault_root(tmp_path, "startup-timeout")
+    process = _spawn_fault_supervisor(
+        root, "startup-timeout", test_bound_timeout_ms=3000
+    )
+    try:
+        assert process.wait(timeout=90) == 1
+    finally:
+        _stop_process(process)
+    reasons = [
+        event["fields"]["reason"] for event in _events_by_name(root, "lifecycle-failed")
+    ]
+    assert reasons == ["bound frame timeout"], _supervisor_events(root)
+    spawns = _events_by_name(root, "child-spawn")
+    assert len(spawns) == 1, _supervisor_events(root)
+    # The parked fixture honors the shutdown frame the cleanup writes: a
+    # cooperative exit 0, not a force kill.
+    orphan = _events_by_name(root, "orphan-shutdown")
+    assert [event["fields"]["child_exit"] for event in orphan] == [0]
+    assert _pid_is_gone(spawns[0]["fields"]["child_pid"])
+    _sweep_fault_artifacts(root)
+
+
+@pytest.mark.requires_desktop_stack
+def test_fault_malformed_bound_scrubbed_and_reaped(tmp_path: Path) -> None:
+    """m6 fault matrix + AC2: a garbage `bound` frame is never treated as Ok,
+    cleanup works without the supervisor ever learning a port (it drives off
+    the retained Child handle), and — the redaction half — the fixture
+    deliberately EMBEDS the startup capability in the invalid frame, so the
+    persisted `bound-frame-invalid` diagnostic proves scrub-before-persist."""
+    root = _fault_root(tmp_path, "malformed-bound")
+    process = _spawn_fault_supervisor(root, "malformed-bound")
+    try:
+        assert process.wait(timeout=90) == 1
+    finally:
+        _stop_process(process)
+    reasons = [
+        event["fields"]["reason"] for event in _events_by_name(root, "lifecycle-failed")
+    ]
+    assert reasons == ["bound frame invalid"], _supervisor_events(root)
+    invalid = _events_by_name(root, "bound-frame-invalid")
+    assert len(invalid) == 1, _supervisor_events(root)
+    prefix = invalid[0]["fields"]["frame_prefix"]
+    assert "[REDACTED]" in prefix, prefix
+    assert not _HEX64.search(prefix.encode("utf-8")), prefix
+    orphan = _events_by_name(root, "orphan-shutdown")
+    assert [event["fields"]["child_exit"] for event in orphan] == [0]
+    spawns = _events_by_name(root, "child-spawn")
+    assert _pid_is_gone(spawns[0]["fields"]["child_pid"])
+    _sweep_fault_artifacts(root)
+
+
+@pytest.mark.requires_desktop_stack
+def test_fault_crash_before_bound_bounded_cleanup(tmp_path: Path) -> None:
+    """m6 fault matrix: the child aborts before binding or writing `bound`.
+    The supervisor must not treat a partial spawn as a live child; the reap
+    observes the SIGABRT death (-1: no exit code) instead of hanging."""
+    root = _fault_root(tmp_path, "crash-before-bound")
+    process = _spawn_fault_supervisor(root, "crash-before-bound")
+    try:
+        assert process.wait(timeout=90) == 1
+    finally:
+        _stop_process(process)
+    # Pinned from live observation on this box: abort() closes the pipe as a
+    # clean EOF, so the reader reports the closed-stdout arm.
+    reasons = [
+        event["fields"]["reason"] for event in _events_by_name(root, "lifecycle-failed")
+    ]
+    assert reasons == ["child stdout closed before bound"], _supervisor_events(root)
+    orphan = _events_by_name(root, "orphan-shutdown")
+    assert [event["fields"]["child_exit"] for event in orphan] == [-1]
+    spawns = _events_by_name(root, "child-spawn")
+    assert _pid_is_gone(spawns[0]["fields"]["child_pid"])
+    _sweep_fault_artifacts(root)
+
+
+@pytest.mark.requires_desktop_stack
+def test_fault_crash_after_ready_bounded_cleanup(tmp_path: Path) -> None:
+    """m6 fault matrix: the child aborts ~100ms after its first authorized
+    /readyz 200. The abort races the supervisor's next step, so this asserts
+    the observable invariant — no live PID, no live listener, bounded wall
+    time, failure recorded — not one fixed code path."""
+    root = _fault_root(tmp_path, "crash-after-ready")
+    process = _spawn_fault_supervisor(root, "crash-after-ready")
+    try:
+        assert process.wait(timeout=120) == 1
+    finally:
+        _stop_process(process)
+    assert _events_by_name(root, "child-ready"), _supervisor_events(root)
+    assert _events_by_name(root, "lifecycle-failed"), _supervisor_events(root)
+    orphan = _events_by_name(root, "orphan-shutdown")
+    assert len(orphan) == 1, _supervisor_events(root)
+    # Two-way race: the reap sees either the abort (-1) or, if the cleanup
+    # frame won, a cooperative 0. Both are bounded, reaped outcomes.
+    assert orphan[0]["fields"]["child_exit"] in (-1, 0)
+    port = _events_by_name(root, "child-bound")[0]["fields"]["port"]
+    spawns = _events_by_name(root, "child-spawn")
+    assert _pid_is_gone(spawns[0]["fields"]["child_pid"])
+    with pytest.raises(OSError):
+        socket.create_connection(("127.0.0.1", port), timeout=2).close()
+    assert _listener_lines(port) == []
+    _sweep_fault_artifacts(root)
+
+
+@pytest.mark.requires_desktop_stack
+def test_fault_ignored_shutdown_force_escalates(tmp_path: Path) -> None:
+    """m6 fault matrix: the child ignores the shutdown frame, stdin EOF, AND
+    SIGTERM, forcing the full grace -> TERM -> force -> KILL -> reap ladder
+    through the real cycle path (the m5 unit test drove shutdown_child alone
+    against a synthetic shell). Budgets are shrunk supervisor-side only; the
+    wire frame keeps the contract's MIN_GRACE_MS floor."""
+    root = _fault_root(tmp_path, "ignore-shutdown")
+    started = time.monotonic()
+    process = _spawn_fault_supervisor(
+        root,
+        "ignore-shutdown",
+        test_shutdown_grace_ms=400,
+        test_shutdown_force_after_ms=400,
+    )
+    try:
+        assert process.wait(timeout=90) == 1
+    finally:
+        _stop_process(process)
+    wall = time.monotonic() - started
+    # Well under the wire-mandated 35s + 5s + 2s: the shrunk ladder ran.
+    assert wall < 30.0, f"escalation ladder took {wall:.1f}s"
+    assert _events_by_name(root, "child-ready"), _supervisor_events(root)
+    orphan = _events_by_name(root, "orphan-shutdown")
+    # -1: force-killed, no exit code — mirrors the m5 unit test's assertion.
+    assert [event["fields"]["child_exit"] for event in orphan] == [-1]
+    port = _events_by_name(root, "child-bound")[0]["fields"]["port"]
+    spawns = _events_by_name(root, "child-spawn")
+    assert _pid_is_gone(spawns[0]["fields"]["child_pid"])
+    with pytest.raises(OSError):
+        socket.create_connection(("127.0.0.1", port), timeout=2).close()
+    assert _listener_lines(port) == []
+    _sweep_fault_artifacts(root)
+
+
+@pytest.mark.requires_desktop_stack
+def test_fault_supervisor_sigkill_cooperating_child_self_cleans(
+    tmp_path: Path,
+) -> None:
+    """m6 fault matrix: SIGKILL the SUPERVISOR while its bound child serves.
+
+    No supervisor code can run after the kill — the only cleanup mechanism is
+    the child's own parent-lifetime lease (the kernel closes the dead
+    parent's stdin write end; the child observes EOF). The never-ready arm
+    parks the supervisor in its 120s readiness poll, giving a stable window
+    with a live listener to kill into.
+
+    Scope (spike-3 non-claim #1, deliberately narrow): this proves a
+    COOPERATING child that is alive and polling stdin self-terminates. It
+    does NOT prove a wedged child can be cleaned up by a parent that no
+    longer exists, and the supervisor signals only the direct child PID —
+    never a process group."""
+    root = _fault_root(tmp_path, "supervisor-crash")
+    process = _spawn_fault_supervisor(root, "never-ready")
+    try:
+        bound = _wait_for_event(root, "child-bound", timeout=60.0, process=process)
+        spawn = _wait_for_event(root, "child-spawn", timeout=5.0, process=process)
+        port = bound["fields"]["port"]
+        child_pid = spawn["fields"]["child_pid"]
+        # Probe self-check: the listener IS live before the kill.
+        socket.create_connection(("127.0.0.1", port), timeout=2).close()
+        os.kill(process.pid, signal.SIGKILL)
+        assert process.wait(timeout=10) == -signal.SIGKILL
+    finally:
+        _stop_process(process)
+    # Bounded self-cleanup: nothing negotiates here — the parent is gone.
+    deadline = time.monotonic() + 15.0
+    gone = False
+    while time.monotonic() < deadline:
+        if _pid_is_gone(child_pid):
+            gone = True
+            break
+        time.sleep(0.1)
+    assert gone, f"fixture child {child_pid} survived the supervisor SIGKILL"
+    with pytest.raises(OSError):
+        socket.create_connection(("127.0.0.1", port), timeout=2).close()
+    assert _listener_lines(port) == []
+    _sweep_fault_artifacts(root)
+
+
+@pytest.mark.requires_desktop_stack
+def test_real_server_bare_stdin_eof_is_bounded_cleanup(tmp_path: Path) -> None:
+    """m6: the mandatory REAL-server fault case — bare stdin EOF, no shutdown
+    frame. This is the supervisor-crash row on shipped code: a SIGKILLed
+    supervisor's only effect on the child is the lease closing, and
+    `_watch_stdin` already treats bare EOF as shutdown (m5's AC4 always sent
+    an authenticated frame first, so this shipped path was untested).
+    `server/desktop_child.py` gains zero new lines for this.
+
+    Also asserts loopback at SOCKET level against the live real-server port
+    (AC5's real-server half). Scope (spike-3 non-claim #1): proves a
+    cooperating, live child observing EOF exits cleanly — NOT that a dead
+    parent can clean up a child wedged in uninterruptible I/O (e.g. a stalled
+    LanceDB/Kuzu read)."""
+    root = _seed_root(tmp_path / "eof runtime 数学")
+    token = generate_startup_token()
+    identity = executable_identity()
+    launch = replace(
+        _golden_launch(),
+        data_root=root.as_posix(),
+        executable=identity,
+        log_location=(root / "logs" / "desktop-child.log").as_posix(),
+        startup_token=token,
+    )
+    env = _child_env()
+    log_handle = (root / "logs" / "desktop-child.log").open("wb")
+    process = subprocess.Popen(
+        CHILD_ARGV,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=log_handle,
+        env=env,
+        cwd=str(REPO_ROOT),
+    )
+    try:
+        if process.stdin is None or process.stdout is None:
+            raise RuntimeError("desktop child control pipes unavailable")
+        process.stdin.write(encode_frame(launch))
+        process.stdin.flush()
+        bound_bytes = _readline_with_timeout(process.stdout, timeout=240.0)
+        bound = parse_frame(bound_bytes)
+        if not isinstance(bound, Bound):
+            raise RuntimeError("first control frame was not bound")
+        port = bound.endpoint.port
+        _connect_probe(port)  # probe self-check: SUCCEEDS against the live server
+        lan_ips = _assert_loopback_only(port)
+        if not lan_ips:
+            warnings.warn(
+                "no non-loopback IPv4 discoverable; LAN connect probe degraded "
+                "to the lsof structural checks",
+                stacklevel=1,
+            )
+        process.stdin.close()  # bare EOF: the lease, with NO shutdown frame
+        # No grace/force negotiation exists on this path — the child drains
+        # under its own launch-derived bound, strictly inside grace_ms.
+        assert process.wait(timeout=launch.shutdown.grace_ms / 1000.0) == 0
+        with pytest.raises(ConnectionRefusedError):
+            _connect_probe(port)
+        assert _pid_is_gone(process.pid)
+        assert _listener_lines(port) == []
+        remainder = process.stdout.read()
+        assert remainder == b"", "child stdout is control-only: one bound frame"
+        secret = token.expose().encode()
+        assert secret not in bound_bytes + remainder
+        assert all(secret not in str(part).encode() for part in process.args)
+        assert all(token.expose() not in value for value in env.values())
+    finally:
+        _stop_process(process)
+        log_handle.close()
+    secret = token.expose().encode()
+    for artifact in root.rglob("*"):
+        if artifact.is_file():
+            assert secret not in artifact.read_bytes(), artifact

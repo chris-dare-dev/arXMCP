@@ -8,10 +8,13 @@ import json
 import os
 import queue
 import re
+import shutil
+import socket
 import subprocess
 import sys
 import threading
 import time
+import warnings
 from dataclasses import replace
 from pathlib import Path
 from typing import BinaryIO
@@ -176,6 +179,87 @@ def _stop_process(process: subprocess.Popen[bytes]) -> None:
     except subprocess.TimeoutExpired:
         process.kill()
         process.wait(timeout=2)
+
+
+def _probe_command(argv: list[str]) -> subprocess.CompletedProcess[bytes]:
+    """Run one `ps`/`lsof` evidence probe, asserting the PROBE ITSELF worked.
+
+    Spike-3 discipline: a failed or partial probe is an evidence failure,
+    never clean absence. A missing binary, a timeout, or an exit code other
+    than the tool's documented found(0)/not-found(1) pair raises instead of
+    being read as "nothing there"."""
+    binary = shutil.which(argv[0]) or f"/usr/sbin/{argv[0]}"
+    if not Path(binary).is_file():
+        raise RuntimeError(
+            f"{argv[0]} unavailable — the audit cannot run, and no-probe is "
+            f"never clean absence"
+        )
+    completed = subprocess.run(
+        [binary, *argv[1:]], capture_output=True, timeout=10, check=False
+    )
+    if completed.returncode not in (0, 1):
+        raise RuntimeError(f"probe failed (not a clean no-match): {completed}")
+    return completed
+
+
+def _pid_is_gone(pid: int) -> bool:
+    completed = _probe_command(["ps", "-p", str(pid)])
+    return completed.returncode == 1
+
+
+def _listener_lines(port: int) -> list[str]:
+    """Non-header `lsof` LISTEN rows for the port; [] means verified absence."""
+    completed = _probe_command(["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN"])
+    return [
+        line
+        for line in completed.stdout.decode("utf-8", "replace").splitlines()
+        if line and not line.startswith("COMMAND")
+    ]
+
+
+def _non_loopback_ipv4s() -> list[str]:
+    """Best-effort discovery of this host's non-loopback IPv4 addresses.
+
+    Both probes can legitimately find nothing (loopback-only host); the
+    CALLER must record that degradation rather than skip silently."""
+    found: set[str] = set()
+    try:
+        infos = socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET)
+        found.update(info[4][0] for info in infos)
+    except OSError:
+        pass
+    try:
+        probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            # TEST-NET-1: a route lookup only; no packet leaves the host.
+            probe.connect(("192.0.2.1", 9))
+            found.add(probe.getsockname()[0])
+        finally:
+            probe.close()
+    except OSError:
+        pass
+    return sorted(ip for ip in found if not ip.startswith("127."))
+
+
+def _assert_loopback_only(port: int) -> list[str]:
+    """Socket-level loopback proof against a LIVE listener (not a wire field).
+
+    Three independent checks: lsof must FIND the listener (so a dead server or
+    broken probe cannot pass) and every row's local address must be
+    127.0.0.1; a TCP connect on each discoverable non-loopback address must
+    fail; the caller already proved 127.0.0.1 connects. Returns the LAN IPs
+    probed so the caller can record a loopback-only-host degradation."""
+    lines = _listener_lines(port)
+    assert lines, f"lsof found no listener on live port {port} — probe/server failure"
+    for line in lines:
+        assert f"127.0.0.1:{port}" in line, line
+        assert f"*:{port}" not in line, line
+        assert "0.0.0.0" not in line, line
+    lan_ips = _non_loopback_ipv4s()
+    for ip in lan_ips:
+        with pytest.raises(OSError):
+            socket.create_connection((ip, port), timeout=2).close()
+    return lan_ips
 
 
 def test_positive_fixtures_round_trip_byte_for_byte() -> None:
@@ -563,6 +647,167 @@ def test_fixture_sidecar_rejects_sha_mismatch_before_binding(tmp_path: Path) -> 
         b"fixture-sidecar: fixture executable identity mismatch\n"
     )
     assert not any(path.is_file() for path in root.rglob("*"))
+
+
+def test_redaction_vectors_shared_fixture_parity() -> None:
+    """m6 AC2: Rust/Python redaction parity rides ONE shared vector file.
+
+    The Rust production scrubber (`supervisor/src/redact.rs`, wired into the
+    `bound-frame-invalid` diagnostic) and this Python reference consume the
+    same `redaction-vectors.jsonl`, so a drift in either — or a vector edit —
+    must pass both languages plus the `fixtures.sha256` pin. Python has no
+    production substring-scrubber (its `RedactionFilter` drops named
+    structured-log fields, a different mechanism for a surface Rust does not
+    have), so the Python half is this reference semantic: EXACT-match
+    replacement with `[REDACTED]`, no partial and no case-insensitive
+    stripping."""
+    lines = (
+        (FIXTURES / "redaction-vectors.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    )
+    vectors = [json.loads(line) for line in lines if line]
+    assert len(vectors) >= 7, "redaction vector set shrank"
+    for vector in vectors:
+        scrubbed = vector["input"].replace(vector["secret"], "[REDACTED]")
+        assert scrubbed == vector["expected"], vector
+    # The two anti-over-eagerness cases must stay present: a partial secret
+    # and an uppercase near-miss are NOT redacted.
+    assert any(
+        vector["secret"] not in vector["input"]
+        and vector["secret"][:63] in vector["input"]
+        for vector in vectors
+    ), "partial-match vector missing"
+    assert any(
+        vector["input"] == vector["secret"].upper() != vector["secret"]
+        for vector in vectors
+    ), "uppercase near-miss vector missing"
+
+
+def test_thirty_cycles_distinct_pids_no_orphans_no_listeners(tmp_path: Path) -> None:
+    """m6 AC3: thirty FRESH fixture-sidecar processes, each fully reaped.
+
+    Every cycle spawns a new OS process (reusing one Popen is the named cheap
+    lie), proves the listener live with one HTTP round trip, stops it
+    (alternating authenticated-shutdown / stdin-EOF), then audits with
+    self-asserting `ps`/`lsof` probes. Evidence is aggregated so one bad
+    cycle cannot hide the shape of the other 29."""
+    binary = _sidecar_binary()
+    if binary is None:
+        pytest.skip("build fixture-sidecar or set ARXMCP_FIXTURE_SIDECAR")
+
+    root = (tmp_path / "stress runtime 数学").resolve()
+    logs = root / "logs"
+    logs.mkdir(parents=True)
+    started = time.monotonic()
+    evidence: list[dict] = []
+    with (logs / "fixture-sidecar.log").open("wb") as log_handle:
+        for cycle in range(30):
+            token = generate_startup_token()
+            launch = _runtime_launch(root, binary, token)
+            process, _env = _spawn_sidecar(binary, launch, log_handle)
+            try:
+                if process.stdout is None or process.stdin is None:
+                    raise RuntimeError("fixture sidecar control pipes unavailable")
+                bound = parse_frame(
+                    _readline_with_timeout(process.stdout, timeout=10.0)
+                )
+                if not isinstance(bound, Bound):
+                    raise RuntimeError(f"cycle {cycle}: first frame was not bound")
+                port = bound.endpoint.port
+                status, _ = _request(port, "/healthz")
+                assert status == 200, f"cycle {cycle}: live-listener probe failed"
+                if cycle % 2 == 0:
+                    process.stdin.write(
+                        encode_frame(
+                            Shutdown(
+                                contract=launch.contract,
+                                extensions={},
+                                kind="shutdown",
+                                startup_token=token,
+                            )
+                        )
+                    )
+                    process.stdin.flush()
+                else:
+                    process.stdin.close()
+                exit_code = process.wait(timeout=5)
+            finally:
+                _stop_process(process)
+            evidence.append(
+                {
+                    "cycle": cycle,
+                    "pid": process.pid,
+                    "port": port,
+                    "exit": exit_code,
+                    "pid_gone": _pid_is_gone(process.pid),
+                    "listeners": _listener_lines(port),
+                }
+            )
+    elapsed = time.monotonic() - started
+
+    bad = [
+        entry
+        for entry in evidence
+        if entry["exit"] != 0 or not entry["pid_gone"] or entry["listeners"]
+    ]
+    assert bad == [], bad
+    assert len(evidence) == 30
+    pids = [entry["pid"] for entry in evidence]
+    assert len(set(pids)) == 30, f"expected 30 DISTINCT PIDs: {pids}"
+    # Bounded, not aggressive (m3's 200ms->2s lesson): measured baseline is
+    # ~0.4s/cycle, so 120s only catches a real hang, not repository load.
+    assert elapsed < 120.0, f"30 cycles took {elapsed:.1f}s"
+
+
+def test_live_listener_is_loopback_only_at_socket_level(tmp_path: Path) -> None:
+    """m6 AC5 (fixture layer): loopback proven against the LIVE socket.
+
+    The wire-contract negative fixture (`wildcard-bound.jsonl`) proves the
+    FRAME cannot announce a wildcard; this proves the KERNEL state — lsof's
+    local-address column and a refused connect on every discoverable LAN
+    address. On a loopback-only host the LAN half legitimately degrades to
+    the structural checks; that degradation is recorded, never skipped."""
+    binary = _sidecar_binary()
+    if binary is None:
+        pytest.skip("build fixture-sidecar or set ARXMCP_FIXTURE_SIDECAR")
+
+    root = (tmp_path / "loopback runtime 数学").resolve()
+    (root / "logs").mkdir(parents=True)
+    token = generate_startup_token()
+    launch = _runtime_launch(root, binary, token)
+    with (root / "logs" / "fixture-sidecar.log").open("wb") as log_handle:
+        process, _env = _spawn_sidecar(binary, launch, log_handle)
+        try:
+            if process.stdout is None or process.stdin is None:
+                raise RuntimeError("fixture sidecar control pipes unavailable")
+            bound = parse_frame(_readline_with_timeout(process.stdout))
+            assert isinstance(bound, Bound)
+            port = bound.endpoint.port
+            # Positive probe self-check: loopback DOES connect.
+            socket.create_connection(("127.0.0.1", port), timeout=2).close()
+            lan_ips = _assert_loopback_only(port)
+            if not lan_ips:
+                warnings.warn(
+                    "no non-loopback IPv4 discoverable; LAN connect probe "
+                    "degraded to the lsof structural checks",
+                    stacklevel=1,
+                )
+            process.stdin.write(
+                encode_frame(
+                    Shutdown(
+                        contract=launch.contract,
+                        extensions={},
+                        kind="shutdown",
+                        startup_token=token,
+                    )
+                )
+            )
+            process.stdin.flush()
+            assert process.wait(timeout=5) == 0
+        finally:
+            _stop_process(process)
+    assert _listener_lines(port) == []
 
 
 def test_fixture_sidecar_refuses_command_line_configuration() -> None:
