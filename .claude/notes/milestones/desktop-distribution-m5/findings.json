@@ -4,7 +4,7 @@
   "critique_files": [
     "dedup.md"
   ],
-  "generated_at": "2026-08-08T01:05:39Z",
+  "generated_at": "2026-08-08T01:36:37Z",
   "findings": {
     "C1": {
       "id": "C1",
@@ -16,9 +16,15 @@
       "source_critic": "milestone-adversary-critic",
       "source_axis": "Doc drift",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "apps/desktop/README.md rewritten: opening paragraph names the supervisor crate and lifecycle adapter as landed (frozen runtime/signing/plan-authoring still deferred), the command block gains cargo build --bin supervisor plus the DESKTOP_SUPERVISOR_BIN pytest invocation, and the M3 paragraph records m5's port-zero adoption, authenticated readiness and Tauri exit handling. Guard: tests/test_desktop_contract.py::test_desktop_readme_describes_the_shipped_workspace.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-08T01:36:00Z",
+          "resolution": "apps/desktop/README.md rewritten: opening paragraph names the supervisor crate and lifecycle adapter as landed (frozen runtime/signing/plan-authoring still deferred), the command block gains cargo build --bin supervisor plus the DESKTOP_SUPERVISOR_BIN pytest invocation, and the M3 paragraph records m5's port-zero adoption, authenticated readiness and Tauri exit handling. Guard: tests/test_desktop_contract.py::test_desktop_readme_describes_the_shipped_workspace."
+        }
+      ]
     },
     "C2": {
       "id": "C2",
@@ -30,9 +36,15 @@
       "source_critic": "milestone-adversary-critic",
       "source_axis": "Doc drift",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "CLAUDE.md 4.5 now says Ten markers, names all four added since the list was written, and adds a requires_desktop_stack bullet. Guard: tests/test_marker_doc_consistency.py derives the count and the enumeration from pyproject.toml.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-08T01:36:00Z",
+          "resolution": "CLAUDE.md 4.5 now says Ten markers, names all four added since the list was written, and adds a requires_desktop_stack bullet. Guard: tests/test_marker_doc_consistency.py derives the count and the enumeration from pyproject.toml."
+        }
+      ]
     },
     "H1": {
       "id": "H1",
@@ -44,9 +56,15 @@
       "source_critic": "milestone-adversary-critic",
       "source_axis": "Correctness",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "server/desktop_child.py passes timeout_graceful_shutdown=_graceful_timeout_seconds(launch) (half of grace_ms, floor 1s) and the _serve docstring no longer calls an unbounded drain a superset of the contract floor. Trigger corrected: an open SSE stream does NOT hold the drain (sse-starlette closes its own streams on should_exit); any incomplete request cycle does. Measured live: unbounded = no exit at 60s, bounded = exit 0 at 17.9s. Guards: test_graceful_drain_is_bounded_by_the_launch_frame, test_serve_hands_the_bounded_drain_to_uvicorn, and AC4 now wedges an undrainable request across the shutdown.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-08T01:36:00Z",
+          "resolution": "server/desktop_child.py passes timeout_graceful_shutdown=_graceful_timeout_seconds(launch) (half of grace_ms, floor 1s) and the _serve docstring no longer calls an unbounded drain a superset of the contract floor. Trigger corrected: an open SSE stream does NOT hold the drain (sse-starlette closes its own streams on should_exit); any incomplete request cycle does. Measured live: unbounded = no exit at 60s, bounded = exit 0 at 17.9s. Guards: test_graceful_drain_is_bounded_by_the_launch_frame, test_serve_hands_the_bounded_drain_to_uvicorn, and AC4 now wedges an undrainable request across the shutdown."
+        }
+      ]
     },
     "H2": {
       "id": "H2",
@@ -58,9 +76,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "security threat-model coverage",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "main() calls _configure_child_logging(cfg) between Config construction and create_app, mirroring server/cli.py, so the desktop boot path installs the E13_S08 RedactionFilter and the JSON formatter. Guards: test_desktop_boot_installs_the_redaction_filter_and_json_format and test_desktop_boot_path_calls_the_logging_configurator.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-08T01:36:00Z",
+          "resolution": "main() calls _configure_child_logging(cfg) between Config construction and create_app, mirroring server/cli.py, so the desktop boot path installs the E13_S08 RedactionFilter and the JSON formatter. Guards: test_desktop_boot_installs_the_redaction_filter_and_json_format and test_desktop_boot_path_calls_the_logging_configurator."
+        }
+      ]
     },
     "H3": {
       "id": "H3",
@@ -72,9 +96,15 @@
       "source_critic": "milestone-infra-safety-critic",
       "source_axis": "Axis 4 \u2014 Makefile / build script discipline",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "Two halves. (a) tests/test_desktop_contract.py::test_desktop_conformance_marker_token_is_a_registered_opt_in_marker asserts every marker token in the Makefile -m string is a member of tests.conftest._OPT_IN_MARKERS (imported, not re-hardcoded), plus supervisor build-before-run ordering. (b) tests/conftest.py records skips via pytest_runtest_logreport whenever DESKTOP_SUPERVISOR_BIN is set and fails the session in pytest_sessionfinish. Verified: the reported drift case now exits 1 instead of 0.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-08T01:36:00Z",
+          "resolution": "Two halves. (a) tests/test_desktop_contract.py::test_desktop_conformance_marker_token_is_a_registered_opt_in_marker asserts every marker token in the Makefile -m string is a member of tests.conftest._OPT_IN_MARKERS (imported, not re-hardcoded), plus supervisor build-before-run ordering. (b) tests/conftest.py records skips via pytest_runtest_logreport whenever DESKTOP_SUPERVISOR_BIN is set and fails the session in pytest_sessionfinish. Verified: the reported drift case now exits 1 instead of 0."
+        }
+      ]
     },
     "M1": {
       "id": "M1",
@@ -86,9 +116,15 @@
       "source_critic": "milestone-adversary-critic",
       "source_axis": "Security / input handling",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "Documented, not widened, with evidence: server/frontend/templates/base.html polls /ui/status-badge every 10s from the webview, which holds no capability, so gating it would 401 the shipped desktop console on every page. The ReadyzStartupTokenMiddleware docstring now states the gate authenticates the supervisor on /readyz and is NOT a readiness-confidentiality control, naming /status and /ui/status-badge as the unauthenticated peers.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-08T01:36:21Z",
+          "resolution": "Documented, not widened, with evidence: server/frontend/templates/base.html polls /ui/status-badge every 10s from the webview, which holds no capability, so gating it would 401 the shipped desktop console on every page. The ReadyzStartupTokenMiddleware docstring now states the gate authenticates the supervisor on /readyz and is NOT a readiness-confidentiality control, naming /status and /ui/status-badge as the unauthenticated peers."
+        }
+      ]
     },
     "M2": {
       "id": "M2",
@@ -100,9 +136,15 @@
       "source_critic": "milestone-adversary-critic",
       "source_axis": "Correctness",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "shutdown_child's post-SIGKILL reap uses wait_exit(child, REAP_BUDGET_MS=2000).unwrap_or(-1); an exhausted budget returns -1, which the caller already records as shutdown-unclean.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-08T01:36:21Z",
+          "resolution": "shutdown_child's post-SIGKILL reap uses wait_exit(child, REAP_BUDGET_MS=2000).unwrap_or(-1); an exhausted budget returns -1, which the caller already records as shutdown-unclean."
+        }
+      ]
     },
     "M3": {
       "id": "M3",
@@ -114,9 +156,15 @@
       "source_critic": "milestone-adversary-critic",
       "source_axis": "Test discipline",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "New Rust unit test shutdown_child_escalates_through_terminate_to_kill drives a child that ignores stdin EOF and SIGTERM (sh -c trap TERM) with 200ms budgets, asserting the whole grace/TERM/force/KILL/reap ladder completes bounded and that the pid is reaped.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-08T01:36:21Z",
+          "resolution": "New Rust unit test shutdown_child_escalates_through_terminate_to_kill drives a child that ignores stdin EOF and SIGTERM (sh -c trap TERM) with 200ms budgets, asserting the whole grace/TERM/force/KILL/reap ladder completes bounded and that the pid is reaped."
+        }
+      ]
     },
     "M4": {
       "id": "M4",
@@ -128,9 +176,15 @@
       "source_critic": "milestone-adversary-critic",
       "source_axis": "Correctness",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "notify_running_instance narrowed from cfg(unix) to cfg(target_os=macos); the non-macOS arm returns ErrorKind::Unsupported with a comment naming the plugin's DBus transport. The loser now records lock-contended with an activated field, so the outcome is observable instead of implied.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-08T01:36:21Z",
+          "resolution": "notify_running_instance narrowed from cfg(unix) to cfg(target_os=macos); the non-macOS arm returns ErrorKind::Unsupported with a comment naming the plugin's DBus transport. The loser now records lock-contended with an activated field, so the outcome is observable instead of implied."
+        }
+      ]
     },
     "M5": {
       "id": "M5",
@@ -142,9 +196,15 @@
       "source_critic": "milestone-adversary-critic",
       "source_axis": "Acceptance coverage",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "AC3 replaces the wait()/post-hoc stderr.read() pair with communicate(timeout=300) on both supervisors, eliminating the undrained-PIPE deadlock, and feeds all four captured streams through the same _HEX64 allow-list sweep so a leak on supervisor stdout/stderr is now covered.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-08T01:36:21Z",
+          "resolution": "AC3 replaces the wait()/post-hoc stderr.read() pair with communicate(timeout=300) on both supervisors, eliminating the undrained-PIPE deadlock, and feeds all four captured streams through the same _HEX64 allow-list sweep so a leak on supervisor stdout/stderr is now covered."
+        }
+      ]
     },
     "M6": {
       "id": "M6",
@@ -156,9 +216,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "cache byte-stability",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "AC2 asserts set(payload[result]) == {tools} before hashing, so a wire-level nextCursor or top-level _meta fails the gate instead of being silently discarded by the reconstructed ListToolsResult envelope.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-08T01:36:21Z",
+          "resolution": "AC2 asserts set(payload[result]) == {tools} before hashing, so a wire-level nextCursor or top-level _meta fails the gate instead of being silently discarded by the reconstructed ListToolsResult envelope."
+        }
+      ]
     },
     "M7": {
       "id": "M7",
@@ -170,9 +236,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "MCP spec compliance",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "STARTUP_TOKEN_HEADER_BYTES is derived from desktop_contract.STARTUP_TOKEN_HEADER and used in the middleware; the literal is gone. Guard: test_startup_token_header_is_derived_from_the_contract_constant asserts the derivation, the concrete value, and the absence of the literal from the module.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-08T01:36:21Z",
+          "resolution": "STARTUP_TOKEN_HEADER_BYTES is derived from desktop_contract.STARTUP_TOKEN_HEADER and used in the middleware; the literal is gone. Guard: test_startup_token_header_is_derived_from_the_contract_constant asserts the derivation, the concrete value, and the absence of the literal from the module."
+        }
+      ]
     },
     "M8": {
       "id": "M8",
@@ -184,9 +256,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "security threat-model coverage",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "The _watch_stdin thread is started before await server.startup(sockets=[sock]), so a quit during the 5-30s warm-up sets should_exit and the existing should_exit-or-not-started guard converts it into a fast clean exit instead of a ~40s hang ending in SIGKILL.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-08T01:36:21Z",
+          "resolution": "The _watch_stdin thread is started before await server.startup(sockets=[sock]), so a quit during the 5-30s warm-up sets should_exit and the existing should_exit-or-not-started guard converts it into a fast clean exit instead of a ~40s hang ending in SIGKILL."
+        }
+      ]
     },
     "M9": {
       "id": "M9",
@@ -198,9 +276,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "test surface",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "AC3 replaces the wait()/post-hoc stderr.read() pair with communicate(timeout=300) on both supervisors, eliminating the undrained-PIPE deadlock, and feeds all four captured streams through the same _HEX64 allow-list sweep so a leak on supervisor stdout/stderr is now covered.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-08T01:36:21Z",
+          "resolution": "AC3 replaces the wait()/post-hoc stderr.read() pair with communicate(timeout=300) on both supervisors, eliminating the undrained-PIPE deadlock, and feeds all four captured streams through the same _HEX64 allow-list sweep so a leak on supervisor stdout/stderr is now covered."
+        }
+      ]
     },
     "M10": {
       "id": "M10",
@@ -212,9 +296,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "tier sequencing",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "The real_child namespace carries a stopped flag; AC4 sets it before touching the child and AC1/AC2 assert it is False, so a reorder or a parallel-runner change fails with the real reason instead of a bare ConnectionRefusedError.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-08T01:36:21Z",
+          "resolution": "The real_child namespace carries a stopped flag; AC4 sets it before touching the child and AC1/AC2 assert it is False, so a reorder or a parallel-runner change fails with the real reason instead of a bare ConnectionRefusedError."
+        }
+      ]
     },
     "M11": {
       "id": "M11",
@@ -226,9 +316,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "test surface",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "Kept ARXMCP_ENABLE_RERANK=1 (dropping it would weaken the AC1 all-true warm evidence) and declared the prerequisite: the requires_desktop_stack registration in pyproject.toml now names the BGE-reranker-v2-m3 load as fail-closed at startup. Guard: test_desktop_stack_marker_declares_its_reranker_prerequisite.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-08T01:36:21Z",
+          "resolution": "Kept ARXMCP_ENABLE_RERANK=1 (dropping it would weaken the AC1 all-true warm evidence) and declared the prerequisite: the requires_desktop_stack registration in pyproject.toml now names the BGE-reranker-v2-m3 load as fail-closed at startup. Guard: test_desktop_stack_marker_declares_its_reranker_prerequisite."
+        }
+      ]
     },
     "M12": {
       "id": "M12",
@@ -240,9 +336,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "local-first + Docker constraint",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "The socket path moved to a named SINGLE_INSTANCE_SOCKET constant pinned by a unit test against the tauri.conf.json identifier derivation; the notify refuses a socket this uid does not own (/tmp is world-writable) and is skipped entirely in smoke mode, so conformance runs never touch a machine-global path.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-08T01:36:37Z",
+          "resolution": "The socket path moved to a named SINGLE_INSTANCE_SOCKET constant pinned by a unit test against the tauri.conf.json identifier derivation; the notify refuses a socket this uid does not own (/tmp is world-writable) and is skipped entirely in smoke mode, so conformance runs never touch a machine-global path."
+        }
+      ]
     },
     "M13": {
       "id": "M13",
@@ -254,9 +356,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "no-fork policy",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "deferred",
+      "resolution": "Half landed: test_desktop_lockfile_has_no_git_sources pins the no-fork axis. The cargo audit / cargo deny step is deferred - it adds an uninstalled third-party tool to the MANDATORY gate and needs an explicit opt-out variable plus a recorded license census, which is a supply-chain milestone rather than a rectification.",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-08T01:36:37Z",
+          "resolution": "Half landed: test_desktop_lockfile_has_no_git_sources pins the no-fork axis. The cargo audit / cargo deny step is deferred - it adds an uninstalled third-party tool to the MANDATORY gate and needs an explicit opt-out variable plus a recorded license census, which is a supply-chain milestone rather than a rectification."
+        }
+      ]
     },
     "M14": {
       "id": "M14",
@@ -268,9 +376,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "test surface",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "apps/desktop/README.md rewritten: opening paragraph names the supervisor crate and lifecycle adapter as landed (frozen runtime/signing/plan-authoring still deferred), the command block gains cargo build --bin supervisor plus the DESKTOP_SUPERVISOR_BIN pytest invocation, and the M3 paragraph records m5's port-zero adoption, authenticated readiness and Tauri exit handling. Guard: tests/test_desktop_contract.py::test_desktop_readme_describes_the_shipped_workspace.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-08T01:36:00Z",
+          "resolution": "apps/desktop/README.md rewritten: opening paragraph names the supervisor crate and lifecycle adapter as landed (frozen runtime/signing/plan-authoring still deferred), the command block gains cargo build --bin supervisor plus the DESKTOP_SUPERVISOR_BIN pytest invocation, and the M3 paragraph records m5's port-zero adoption, authenticated readiness and Tauri exit handling. Guard: tests/test_desktop_contract.py::test_desktop_readme_describes_the_shipped_workspace."
+        }
+      ]
     },
     "M15": {
       "id": "M15",
@@ -282,9 +396,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "MCP spec compliance",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "mcp_post now uses a dedicated SMOKE_TIMEOUT of 15s instead of the 2s PROBE_TIMEOUT, so a transient overrun right after the BGE-M3/LanceDB load no longer makes cycle() return Err and quit the whole app.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-08T01:36:37Z",
+          "resolution": "mcp_post now uses a dedicated SMOKE_TIMEOUT of 15s instead of the 2s PROBE_TIMEOUT, so a transient overrun right after the BGE-M3/LanceDB load no longer makes cycle() return Err and quit the whole app."
+        }
+      ]
     },
     "M16": {
       "id": "M16",
@@ -296,9 +416,15 @@
       "source_critic": "milestone-infra-safety-critic",
       "source_axis": "Axis 4 \u2014 Makefile / build script discipline (build-script + dependency hygiene)",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "tauri_plugin_shell::init() removed from the builder and tauri-plugin-shell dropped from both manifests; Cargo.lock regenerated (480 -> 470 packages). This removes shell:allow-execute/spawn/open/kill from the grantable ACL for a webview that renders child-served HTTP. Guard: test_supervisor_grants_no_webview_capabilities.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-08T01:36:37Z",
+          "resolution": "tauri_plugin_shell::init() removed from the builder and tauri-plugin-shell dropped from both manifests; Cargo.lock regenerated (480 -> 470 packages). This removes shell:allow-execute/spawn/open/kill from the grantable ACL for a webview that renders child-served HTTP. Guard: test_supervisor_grants_no_webview_capabilities."
+        }
+      ]
     },
     "M17": {
       "id": "M17",
@@ -310,9 +436,15 @@
       "source_critic": "milestone-infra-safety-critic",
       "source_axis": "Axis 4 \u2014 Makefile / build script discipline (build-script + generated-artifact hygiene)",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "test_supervisor_grants_no_webview_capabilities asserts capabilities/ is absent-or-empty and tauri.conf.json declares no app.security.capabilities, so a future grant must land with an explicit edit to that test.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-08T01:36:37Z",
+          "resolution": "test_supervisor_grants_no_webview_capabilities asserts capabilities/ is absent-or-empty and tauri.conf.json declares no app.security.capabilities, so a future grant must land with an explicit edit to that test."
+        }
+      ]
     },
     "M18": {
       "id": "M18",
@@ -324,9 +456,15 @@
       "source_critic": "milestone-infra-safety-critic",
       "source_axis": "Axis 4 \u2014 Makefile / build script discipline",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "deferred",
+      "resolution": "Pinning a rust-toolchain channel is a cross-machine policy decision - every developer and CI then downloads that exact toolchain - and belongs with the packaging/release-signing milestone that also owns the MSRV claim. Nothing in the diff regresses without it.",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-08T01:36:37Z",
+          "resolution": "Pinning a rust-toolchain channel is a cross-machine policy decision - every developer and CI then downloads that exact toolchain - and belongs with the packaging/release-signing milestone that also owns the MSRV claim. Nothing in the diff regresses without it."
+        }
+      ]
     },
     "L1": {
       "id": "L1",
@@ -338,9 +476,15 @@
       "source_critic": "milestone-adversary-critic",
       "source_axis": "Test discipline",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "The real_child namespace carries a stopped flag; AC4 sets it before touching the child and AC1/AC2 assert it is False, so a reorder or a parallel-runner change fails with the real reason instead of a bare ConnectionRefusedError.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-08T01:36:21Z",
+          "resolution": "The real_child namespace carries a stopped flag; AC4 sets it before touching the child and AC1/AC2 assert it is False, so a reorder or a parallel-runner change fails with the real reason instead of a bare ConnectionRefusedError."
+        }
+      ]
     },
     "L2": {
       "id": "L2",
@@ -352,9 +496,15 @@
       "source_critic": "milestone-adversary-critic",
       "source_axis": "Security / input handling",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "deferred",
+      "resolution": "LOW: deferred per the Phase-4 severity policy. None is a correctness or security regression introduced by this diff; each is recorded in critique/dedup.md with a proposed fix for a later milestone (m6 owns the fault matrix and the socket-level loopback regression).",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-08T01:36:37Z",
+          "resolution": "LOW: deferred per the Phase-4 severity policy. None is a correctness or security regression introduced by this diff; each is recorded in critique/dedup.md with a proposed fix for a later milestone (m6 owns the fault matrix and the socket-level loopback regression)."
+        }
+      ]
     },
     "L3": {
       "id": "L3",
@@ -366,9 +516,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "security threat-model coverage",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "deferred",
+      "resolution": "LOW: deferred per the Phase-4 severity policy. None is a correctness or security regression introduced by this diff; each is recorded in critique/dedup.md with a proposed fix for a later milestone (m6 owns the fault matrix and the socket-level loopback regression).",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-08T01:36:37Z",
+          "resolution": "LOW: deferred per the Phase-4 severity policy. None is a correctness or security regression introduced by this diff; each is recorded in critique/dedup.md with a proposed fix for a later milestone (m6 owns the fault matrix and the socket-level loopback regression)."
+        }
+      ]
     },
     "L4": {
       "id": "L4",
@@ -380,9 +536,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "test surface",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "deferred",
+      "resolution": "LOW: deferred per the Phase-4 severity policy. None is a correctness or security regression introduced by this diff; each is recorded in critique/dedup.md with a proposed fix for a later milestone (m6 owns the fault matrix and the socket-level loopback regression).",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-08T01:36:37Z",
+          "resolution": "LOW: deferred per the Phase-4 severity policy. None is a correctness or security regression introduced by this diff; each is recorded in critique/dedup.md with a proposed fix for a later milestone (m6 owns the fault matrix and the socket-level loopback regression)."
+        }
+      ]
     },
     "L5": {
       "id": "L5",
@@ -394,9 +556,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "MCP spec compliance",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "deferred",
+      "resolution": "LOW: deferred per the Phase-4 severity policy. None is a correctness or security regression introduced by this diff; each is recorded in critique/dedup.md with a proposed fix for a later milestone (m6 owns the fault matrix and the socket-level loopback regression).",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-08T01:36:37Z",
+          "resolution": "LOW: deferred per the Phase-4 severity policy. None is a correctness or security regression introduced by this diff; each is recorded in critique/dedup.md with a proposed fix for a later milestone (m6 owns the fault matrix and the socket-level loopback regression)."
+        }
+      ]
     },
     "L6": {
       "id": "L6",
@@ -408,9 +576,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "local-first + Docker constraint",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "deferred",
+      "resolution": "LOW: deferred per the Phase-4 severity policy. None is a correctness or security regression introduced by this diff; each is recorded in critique/dedup.md with a proposed fix for a later milestone (m6 owns the fault matrix and the socket-level loopback regression).",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-08T01:36:37Z",
+          "resolution": "LOW: deferred per the Phase-4 severity policy. None is a correctness or security regression introduced by this diff; each is recorded in critique/dedup.md with a proposed fix for a later milestone (m6 owns the fault matrix and the socket-level loopback regression)."
+        }
+      ]
     },
     "L7": {
       "id": "L7",
@@ -422,9 +596,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "MCP spec compliance",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "deferred",
+      "resolution": "LOW: deferred per the Phase-4 severity policy. None is a correctness or security regression introduced by this diff; each is recorded in critique/dedup.md with a proposed fix for a later milestone (m6 owns the fault matrix and the socket-level loopback regression).",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-08T01:36:37Z",
+          "resolution": "LOW: deferred per the Phase-4 severity policy. None is a correctness or security regression introduced by this diff; each is recorded in critique/dedup.md with a proposed fix for a later milestone (m6 owns the fault matrix and the socket-level loopback regression)."
+        }
+      ]
     },
     "L8": {
       "id": "L8",
@@ -436,9 +616,15 @@
       "source_critic": "milestone-infra-safety-critic",
       "source_axis": "Axis 4 \u2014 Makefile / build script discipline",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "deferred",
+      "resolution": "LOW: deferred per the Phase-4 severity policy. None is a correctness or security regression introduced by this diff; each is recorded in critique/dedup.md with a proposed fix for a later milestone (m6 owns the fault matrix and the socket-level loopback regression).",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-08T01:36:37Z",
+          "resolution": "LOW: deferred per the Phase-4 severity policy. None is a correctness or security regression introduced by this diff; each is recorded in critique/dedup.md with a proposed fix for a later milestone (m6 owns the fault matrix and the socket-level loopback regression)."
+        }
+      ]
     },
     "L9": {
       "id": "L9",
@@ -450,9 +636,15 @@
       "source_critic": "milestone-infra-safety-critic",
       "source_axis": "Open scan \u2014 subprocess / process hygiene",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "deferred",
+      "resolution": "LOW: deferred per the Phase-4 severity policy. None is a correctness or security regression introduced by this diff; each is recorded in critique/dedup.md with a proposed fix for a later milestone (m6 owns the fault matrix and the socket-level loopback regression).",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-08T01:36:37Z",
+          "resolution": "LOW: deferred per the Phase-4 severity policy. None is a correctness or security regression introduced by this diff; each is recorded in critique/dedup.md with a proposed fix for a later milestone (m6 owns the fault matrix and the socket-level loopback regression)."
+        }
+      ]
     },
     "L10": {
       "id": "L10",
@@ -464,9 +656,15 @@
       "source_critic": "milestone-infra-safety-critic",
       "source_axis": "Open scan \u2014 subprocess / process hygiene",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "The socket path moved to a named SINGLE_INSTANCE_SOCKET constant pinned by a unit test against the tauri.conf.json identifier derivation; the notify refuses a socket this uid does not own (/tmp is world-writable) and is skipped entirely in smoke mode, so conformance runs never touch a machine-global path.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-08T01:36:37Z",
+          "resolution": "The socket path moved to a named SINGLE_INSTANCE_SOCKET constant pinned by a unit test against the tauri.conf.json identifier derivation; the notify refuses a socket this uid does not own (/tmp is world-writable) and is skipped entirely in smoke mode, so conformance runs never touch a machine-global path."
+        }
+      ]
     },
     "L11": {
       "id": "L11",
@@ -478,9 +676,15 @@
       "source_critic": "milestone-infra-safety-critic",
       "source_axis": "Axis 4 \u2014 Makefile / build script discipline",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "deferred",
+      "resolution": "LOW: deferred per the Phase-4 severity policy. None is a correctness or security regression introduced by this diff; each is recorded in critique/dedup.md with a proposed fix for a later milestone (m6 owns the fault matrix and the socket-level loopback regression).",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-08T01:36:37Z",
+          "resolution": "LOW: deferred per the Phase-4 severity policy. None is a correctness or security regression introduced by this diff; each is recorded in critique/dedup.md with a proposed fix for a later milestone (m6 owns the fault matrix and the socket-level loopback regression)."
+        }
+      ]
     }
   }
 }

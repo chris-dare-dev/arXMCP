@@ -28,10 +28,21 @@ use tauri::Manager;
 /// warm-up (server/main.py documents 5-30s); generous headroom for load.
 const BOUND_TIMEOUT: Duration = Duration::from_secs(240);
 const PROBE_TIMEOUT: Duration = Duration::from_secs(2);
+/// The MCP smoke has no `poll_until` retry, unlike the health (60s) and
+/// readiness (120s) probes, and it runs on a machine that has just finished
+/// loading BGE-M3 and LanceDB — where a 2s budget is least safe. In the
+/// production path a single transient overrun quits the whole app.
+const SMOKE_TIMEOUT: Duration = Duration::from_secs(15);
 const HEALTH_DEADLINE: Duration = Duration::from_secs(60);
 const READY_DEADLINE: Duration = Duration::from_secs(120);
 /// TERM -> KILL window; the wire contract caps this at MIN_GRACE_MS.
 const FORCE_AFTER_MS: u64 = 5_000;
+/// Post-SIGKILL reap budget. A child wedged in uninterruptible I/O (a stalled
+/// LanceDB/Kuzu read on a slow or disconnected volume) ignores SIGKILL until
+/// that I/O completes, and this runs on the `RunEvent::Exit` handler — leaving
+/// the process for the OS to reap beats hanging the app on quit. Exhausting it
+/// returns -1, which the caller records as `shutdown-unclean`.
+const REAP_BUDGET_MS: u64 = 2_000;
 
 pub struct ChildControl {
     child: Child,
@@ -325,7 +336,7 @@ fn mcp_post(
         MCP_PATH,
         headers,
         Some(&payload),
-        PROBE_TIMEOUT,
+        SMOKE_TIMEOUT,
     )?;
     if !matches!(response.status, 307 | 308) {
         return Ok(response);
@@ -345,7 +356,7 @@ fn mcp_post(
         return Err("redirect escaped the MCP mount");
     }
     let path = path.to_owned();
-    http::request(port, "POST", &path, headers, Some(&payload), PROBE_TIMEOUT)
+    http::request(port, "POST", &path, headers, Some(&payload), SMOKE_TIMEOUT)
 }
 
 /// Render state 2 of 2: point the existing window at the child's console.
@@ -390,10 +401,7 @@ pub fn shutdown_child(mut control: ChildControl) -> i64 {
         return code;
     }
     let _ = control.child.kill();
-    match control.child.wait() {
-        Ok(status) => status.code().map_or(-1, i64::from),
-        Err(_) => -1,
-    }
+    wait_exit(&mut control.child, REAP_BUDGET_MS).unwrap_or(-1)
 }
 
 fn wait_exit(child: &mut Child, budget_ms: u64) -> Option<i64> {
@@ -463,6 +471,42 @@ mod tests {
         assert_eq!(wait_exit(&mut slow, 50), None);
         assert!(process_control::request_terminate(slow.id()));
         let _ = slow.wait();
+    }
+
+    /// m5 critique M3: every other test drives a child that exits on the first
+    /// cooperative signal, so `shutdown_child`'s composition of
+    /// `wait_exit` -> `request_terminate` -> `wait_exit` -> `kill` -> bounded
+    /// reap was entirely uncovered — and it is the safety net for an
+    /// unresponsive child and the only thing preventing an orphan that holds
+    /// the ephemeral port and the LanceDB directory.
+    #[test]
+    fn shutdown_child_escalates_through_terminate_to_kill() {
+        // Ignores both stdin EOF and SIGTERM, forcing the whole ladder. No
+        // `exec`: that would replace the shell and lose the trap.
+        let mut child = Command::new("/bin/sh")
+            .args(["-c", "trap '' TERM; sleep 30"])
+            .stdin(Stdio::piped())
+            .spawn()
+            .expect("spawn stubborn child");
+        let stdin = child.stdin.take().expect("stubborn child stdin");
+        let pid = child.id();
+        let control = ChildControl {
+            child,
+            stdin,
+            token: generate_startup_token().expect("startup token"),
+            contract: ContractVersion { major: 1, minor: 0 },
+            grace_ms: 200,
+            force_after_ms: 200,
+        };
+        let started = Instant::now();
+        let code = shutdown_child(control);
+        assert!(
+            started.elapsed() < Duration::from_secs(10),
+            "every step of shutdown_child must stay bounded"
+        );
+        assert_eq!(code, -1, "a force-killed child reports no exit code");
+        // Reaped: signalling a reaped-and-not-recycled pid fails.
+        assert!(!process_control::request_terminate(pid));
     }
 
     #[test]

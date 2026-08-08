@@ -21,7 +21,6 @@ serde_json = "=1.0.151"
 sha2 = "=0.10.9"
 tauri = "=2.11.5"
 tauri-build = "=2.6.3"
-tauri-plugin-shell = "=2.3.5"
 tauri-plugin-single-instance = "=2.4.3"
 
 [profile.dev]

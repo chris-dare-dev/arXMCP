@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import http.client
+import json
 import os
 import queue
+import re
 import subprocess
 import sys
 import threading
@@ -307,15 +309,98 @@ def test_fixture_set_has_pinned_aggregate_digest() -> None:
     assert digest.hexdigest() == expected
 
 
-def test_desktop_conformance_gate_builds_before_process_tests() -> None:
+def _makefile_recipe(target: str) -> str:
+    """The tab-indented recipe lines of one target, excluding later targets."""
     makefile = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
-    target = makefile.split("desktop-conformance:\n", 1)[1]
+    body = makefile.split(f"\n{target}:\n", 1)[1]
+    lines: list[str] = []
+    for line in body.splitlines():
+        if not line.startswith("\t"):
+            break
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def test_desktop_conformance_gate_builds_before_process_tests() -> None:
+    target = _makefile_recipe("desktop-conformance")
     assert "cargo build --locked" in target
-    assert "--bin fixture-sidecar" in target
-    assert "ARXMCP_FIXTURE_SIDECAR=" in target
-    assert target.index("cargo build --locked") < target.index(
-        "ARXMCP_FIXTURE_SIDECAR="
+    for binary, harness_var in (
+        ("--bin fixture-sidecar", "ARXMCP_FIXTURE_SIDECAR="),
+        ("--bin supervisor", "DESKTOP_SUPERVISOR_BIN="),
+    ):
+        assert binary in target
+        assert harness_var in target
+        assert target.index(binary) < target.index(harness_var), (
+            f"{binary} must be built before the suite that consumes it"
+        )
+
+
+def test_desktop_conformance_marker_token_is_a_registered_opt_in_marker() -> None:
+    """m5 critique H3: `-m "<token> or not <token>"` is a tautology for ANY
+    token, so pytest's own filter selects everything however the name drifts;
+    the ONLY thing opting the real-stack tests in is the conftest hook's
+    substring check against ``_OPT_IN_MARKERS``. When those disagree the tests
+    skip and the gate still exits 0 (reproduced: `4 skipped, 9 passed`)."""
+    from tests.conftest import _OPT_IN_MARKERS
+
+    recipe = _makefile_recipe("desktop-conformance")
+    match = re.search(r'-m\s+"([^"]+)"', recipe)
+    assert match is not None, "desktop-conformance must select tests with -m"
+    tokens = {
+        token
+        for token in re.findall(r"[A-Za-z_][A-Za-z0-9_]*", match.group(1))
+        if token not in {"and", "or", "not"}
+    }
+    assert tokens, "the -m expression names no marker"
+    assert tokens <= _OPT_IN_MARKERS, (
+        f"{sorted(tokens - _OPT_IN_MARKERS)} is not in "
+        f"tests.conftest._OPT_IN_MARKERS — the gate would silently skip the "
+        f"real-stack tests and still exit 0"
     )
+
+
+def test_desktop_readme_describes_the_shipped_workspace() -> None:
+    """m5 critique C1: `process_control.rs` cites this README as the platform
+    authority, so a present-tense denial of a crate that exists in the tree is
+    a bug — and an operator reproducing the gate from it must be told to build
+    the supervisor."""
+    readme = (DESKTOP_ROOT / "README.md").read_text(encoding="utf-8")
+    if (DESKTOP_ROOT / "crates" / "supervisor" / "src" / "main.rs").is_file():
+        for stale in (
+            "does not yet contain the Tauri shell",
+            "not yet contain the Tauri shell",
+            "deferred to the lifecycle walking skeleton",
+        ):
+            assert stale not in readme, f"stale README claim: {stale!r}"
+        assert "supervisor" in readme
+        assert "DESKTOP_SUPERVISOR_BIN" in readme
+
+
+def test_desktop_lockfile_has_no_git_sources() -> None:
+    """No-fork policy (CLAUDE.md §4.7): every crate in the shipped desktop
+    dependency graph resolves from the crates.io registry."""
+    lockfile = (DESKTOP_ROOT / "Cargo.lock").read_text(encoding="utf-8")
+    assert 'source = "git' not in lockfile
+
+
+def test_supervisor_grants_no_webview_capabilities() -> None:
+    """m5 critique M16/M17: the window renders HTTP served by the child, so the
+    Tauri ACL is the boundary between a console scripting bug and host access.
+    Deny-by-default means no `capabilities/` tree and no declared capability
+    set; the unused shell plugin, whose permissions that ACL could grant, is
+    gone. A future grant must land with an explicit edit to this test."""
+    supervisor = DESKTOP_ROOT / "crates" / "supervisor"
+    capabilities = supervisor / "capabilities"
+    assert not capabilities.is_dir() or not list(capabilities.iterdir())
+    conf = json.loads((supervisor / "tauri.conf.json").read_text(encoding="utf-8"))
+    assert "capabilities" not in conf.get("app", {}).get("security", {})
+
+    sources = "\n".join(
+        path.read_text(encoding="utf-8") for path in (supervisor / "src").rglob("*.rs")
+    )
+    assert "tauri_plugin_shell" not in sources
+    for manifest in (supervisor / "Cargo.toml", DESKTOP_ROOT / "Cargo.toml"):
+        assert "tauri-plugin-shell" not in manifest.read_text(encoding="utf-8")
 
 
 def test_fixture_token_is_explicitly_nonsecret_test_data() -> None:

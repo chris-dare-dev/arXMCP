@@ -15,7 +15,6 @@ sha2.workspace = true
 # webview-data-url: the two-state render starts on an inline data: page
 # before navigating to the child's /ui/ console.
 tauri = { workspace = true, features = ["webview-data-url"] }
-tauri-plugin-shell.workspace = true
 tauri-plugin-single-instance.workspace = true
 
 [target.'cfg(unix)'.dependencies]

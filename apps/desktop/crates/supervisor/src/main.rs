@@ -95,16 +95,32 @@ fn acquire_supervisor_lock(root: &Path) -> Result<Option<fs::File>, &'static str
     }
 }
 
+/// Socket path `tauri-plugin-single-instance` 2.4.3 derives on macOS from the
+/// `tauri.conf.json` identifier (`.` and `-` become `_`). Mirrored, not
+/// called: the plugin exposes no client helper. A unit test pins it against
+/// the identifier so a rename cannot silently orphan activation.
+#[cfg(target_os = "macos")]
+const SINGLE_INSTANCE_SOCKET: &str = "/tmp/com_arxmcp_desktop_si.sock";
+
 /// Client half of tauri-plugin-single-instance's macOS protocol
-/// (`cwd \0\0 argv.join(\0)` over the identifier-derived Unix socket).
-/// Socket path mirrors the plugin's derivation for the identifier in
-/// `tauri.conf.json`; drift only degrades activation, never correctness —
-/// a failed connect still means "exit without spawning".
-#[cfg(unix)]
+/// (`cwd \0\0 argv.join(\0)`). Drift only degrades activation, never
+/// correctness — a failed connect still means "exit without spawning".
+/// `/tmp` is world-writable, so a socket this uid does not own is refused
+/// rather than handed the cwd and argv (the check races a swap, but a squatter
+/// must then also win that race against an owner-created socket).
+#[cfg(target_os = "macos")]
 fn notify_running_instance() -> std::io::Result<()> {
-    use std::io::Write;
+    use std::io::{Error, ErrorKind, Write};
+    use std::os::unix::fs::MetadataExt;
     use std::os::unix::net::UnixStream;
-    let mut stream = UnixStream::connect("/tmp/com_arxmcp_desktop_si.sock")?;
+    // SAFETY: getuid() is always successful and takes no arguments.
+    if fs::metadata(SINGLE_INSTANCE_SOCKET)?.uid() != unsafe { libc::getuid() } {
+        return Err(Error::new(
+            ErrorKind::PermissionDenied,
+            "single-instance socket is not owned by this user",
+        ));
+    }
+    let mut stream = UnixStream::connect(SINGLE_INSTANCE_SOCKET)?;
     let cwd = std::env::current_dir().unwrap_or_default();
     stream.write_all(cwd.to_string_lossy().as_bytes())?;
     stream.write_all(b"\0\0")?;
@@ -113,9 +129,16 @@ fn notify_running_instance() -> std::io::Result<()> {
     stream.flush()
 }
 
-#[cfg(not(unix))]
+/// Off macOS the plugin's activation transport is DBus (Linux `zbus`, on
+/// `<identifier>.SingleInstance`) or a window message, never a Unix socket, so
+/// there is no client half to speak yet. The loser still exits without
+/// spawning; only the focus hand-off to the winner is absent.
+#[cfg(not(target_os = "macos"))]
 fn notify_running_instance() -> std::io::Result<()> {
-    Ok(())
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "activation client half is macOS-only",
+    ))
 }
 
 fn main() {
@@ -140,8 +163,15 @@ fn main() {
         // (the zero-delay hazard Spike-3 measured). The loser instead plays
         // only the CLIENT half of the plugin protocol to activate a running
         // winner, then exits clearly without ever spawning a child.
-        let _ = recorder.record("lock-contended", serde_json::json!({}));
-        let _ = notify_running_instance();
+        // Smoke (conformance) runs never touch the machine-global socket: a
+        // developer's installed app must not absorb a test's cwd and argv.
+        // `activated` makes the loser's real outcome observable — off macOS it
+        // is always false, which the event log now says rather than implying.
+        let activated = !plan.smoke && notify_running_instance().is_ok();
+        let _ = recorder.record(
+            "lock-contended",
+            serde_json::json!({"activated": activated}),
+        );
         std::process::exit(0);
     };
     let _ = recorder.record("supervisor-started", serde_json::json!({"owns_lock": true}));
@@ -166,7 +196,6 @@ fn main() {
                 let _ = window.set_focus();
             }
         }))
-        .plugin(tauri_plugin_shell::init())
         .setup(move |app| {
             // Render state 1 of 2 ("starting"); lifecycle navigates the same
             // window to the child's `/ui/` console once ready.
@@ -227,6 +256,21 @@ mod tests {
         let result = await_launch_barrier(Path::new("/tmp/data-root"));
         std::env::remove_var(BARRIER_ENV);
         assert_eq!(result, Err("launch barrier escaped data root"));
+    }
+
+    /// The path is a hand-copy of plugin internals; pin it to the identifier
+    /// the plugin actually derives from so an identifier change cannot orphan
+    /// activation with only the exact-pin bump as a signal.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn single_instance_socket_matches_the_configured_identifier() {
+        let conf: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).expect("tauri.conf.json");
+        let identifier = conf["identifier"].as_str().expect("identifier is a string");
+        assert_eq!(
+            SINGLE_INSTANCE_SOCKET,
+            format!("/tmp/{}_si.sock", identifier.replace(['.', '-'], "_"))
+        );
     }
 
     #[test]

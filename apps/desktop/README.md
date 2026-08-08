@@ -1,10 +1,11 @@
 # arXMCP desktop workspace
 
 This directory is the production desktop boundary for arXMCP. It contains a
-platform-neutral Rust contract crate and a model-free fixture sidecar. It does
-not yet contain the Tauri shell, the frozen Python runtime, release signing, or
-the production server lifecycle adapter; those belong to the next desktop
-milestones.
+platform-neutral Rust contract crate, a model-free fixture sidecar, the
+production Tauri shell (`crates/supervisor`), and the server lifecycle adapter
+that shell drives (`server/desktop_child.py`). The frozen Python runtime,
+release signing, and launch-plan authoring are not here yet; those belong to
+the next desktop milestones.
 
 ## Supported boundary
 
@@ -41,16 +42,25 @@ cargo clippy --locked --manifest-path apps/desktop/Cargo.toml \
 cargo build --locked --manifest-path apps/desktop/Cargo.toml \
   --target-dir /private/tmp/arxmcp-desktop-target \
   --bin fixture-sidecar
+cargo build --locked --manifest-path apps/desktop/Cargo.toml \
+  --target-dir /private/tmp/arxmcp-desktop-target \
+  --bin supervisor
 ARXMCP_FIXTURE_SIDECAR=/private/tmp/arxmcp-desktop-target/debug/fixture-sidecar \
   .venv/bin/python -m pytest tests/test_desktop_contract.py
+DESKTOP_SUPERVISOR_BIN=/private/tmp/arxmcp-desktop-target/debug/supervisor \
+  .venv/bin/python -m pytest tests/test_desktop_child.py \
+  -m "requires_desktop_stack or not requires_desktop_stack"
 make wheel-check PYTHON=.venv/bin/python
 make test PYTHON=.venv/bin/python
 ```
 
 `make desktop-conformance` is the mandatory combined boundary gate: it performs
-the locked build before the live Python process suite, so lifecycle evidence
-cannot silently degrade to skipped tests in a clean checkout. The expanded
-commands below it are useful when diagnosing one layer independently.
+both locked binary builds before the live Python process suites, so lifecycle
+evidence cannot silently degrade to skipped tests in a clean checkout. The
+expanded commands below it are useful when diagnosing one layer independently.
+`DESKTOP_SUPERVISOR_BIN` is deliberately not `ARXMCP_`-prefixed — the real-child
+tests import `server.main`, whose unknown-`ARXMCP_*` scan would FATAL on a
+harness-only variable. Any skipped test in a run that sets it fails the session.
 
 On Windows, use the target directory appropriate to the shell and point
 `ARXMCP_FIXTURE_SIDECAR` at `fixture-sidecar.exe`. The Cargo commands remain
@@ -98,9 +108,13 @@ addition into a breaking change.
 Shutdown reserves at least 35,000 ms for cooperative server drain. The wire
 contract then names a bounded force deadline, the stdin-EOF lifetime lease, and
 the graceful/force/reap guarantee without encoding Unix signal names. M3 proves
-these contract semantics with the fixture. Production port-zero adoption,
-authenticated server readiness, ordinary Tauri exit handling, and universal
-cleanup are explicitly deferred to the lifecycle walking skeleton.
+these contract semantics with the fixture. M5 delivered production port-zero
+adoption, authenticated server readiness, and ordinary Tauri exit handling
+against the real server: the child imposes its OWN drain deadline (half of the
+launch frame's `grace_ms`) so the FastAPI lifespan shutdown — which closes the
+LanceDB and Kuzu handles — always runs strictly inside the supervisor's grace
+window instead of being cut short by a force kill. The fault matrix and
+universal cleanup remain deferred to the next milestone.
 
 ## Secret handling
 

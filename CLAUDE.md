@@ -255,10 +255,13 @@ change touches more than ~3 files or adds new tests, run the pipeline.
   as well as to `pyproject.toml`** — registering it alone is what created
   this bug. `eval` is deliberately excluded (it is opt-OUT: `make eval`
   needs it running by default).
-- **Nine test markers exist** (registered in `pyproject.toml`
-  `[tool.pytest.ini_options].markers`; the three added since this list was
-  written are `requires_mineru`, `requires_restic` and
-  `requires_wheel_build`):
+- **Ten test markers exist** (registered in `pyproject.toml`
+  `[tool.pytest.ini_options].markers`; the four added since this list was
+  written are `requires_mineru`, `requires_restic`,
+  `requires_wheel_build` and `requires_desktop_stack`).
+  `tests/test_marker_doc_consistency.py` re-derives this count and the
+  enumeration below from `pyproject.toml`, so a new marker cannot land
+  without amending this section:
   - **`requires_model`** — tests that download / load a real ML
     model (BGE-M3, BGE-reranker-v2-m3, etc.). Skipped by default;
     opt-in via `pytest -m requires_model` AND per-model env vars
@@ -290,6 +293,16 @@ change touches more than ~3 files or adds new tests, run the pipeline.
     into a throwaway venv (issue #206). Opt-in via `pytest -m
     requires_wheel_build`, or `make wheel-check`. The `full` half
     also needs `ARXMCP_RUN_FULL_WHEEL_CHECK=1`.
+  - **`requires_desktop_stack`** — desktop-distribution-m5
+    real-lifecycle tests that boot the ACTUAL server (`python -m
+    server.desktop_child`, eager BGE-M3/LanceDB warm-up plus a
+    BGE-reranker-v2-m3 load) and/or the built Tauri supervisor
+    binary. Skipped by default; opt-in via `pytest -m
+    requires_desktop_stack`, or run `make desktop-conformance`,
+    which builds both Rust binaries, exports `DESKTOP_SUPERVISOR_BIN`
+    (deliberately NOT `ARXMCP_`-prefixed — see §4.5's env scan) and
+    runs the suite with zero skips. A skip anywhere in a session
+    where `DESKTOP_SUPERVISOR_BIN` is set fails that session.
   - (`requires_mineru` and `requires_restic` are registered too —
     see `pyproject.toml` for their env-var prerequisites.)
 

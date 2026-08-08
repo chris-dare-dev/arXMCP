@@ -30,13 +30,14 @@ import sys
 import threading
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import BinaryIO
+from typing import TYPE_CHECKING, BinaryIO
 
 from server.desktop_contract import (
     FRAME_LIMIT,
     HEALTH_PATH,
     MCP_PATH,
     READINESS_PATH,
+    STARTUP_TOKEN_HEADER,
     UI_PATH,
     Bound,
     DesktopContractError,
@@ -51,7 +52,15 @@ from server.desktop_contract import (
 )
 from server.middleware import _get_header, _send_json_error
 
+if TYPE_CHECKING:  # heavy import; the child loads Config only after `launch`
+    from server.config import Config
+
 logger = logging.getLogger(__name__)
+
+#: ASGI headers are lower-cased bytes. Derived from the contract constant so a
+#: rename cannot ship a supervisor sending the new name and a child checking
+#: the old one — which would 401 every `/readyz` poll until READY_DEADLINE.
+STARTUP_TOKEN_HEADER_BYTES = STARTUP_TOKEN_HEADER.lower().encode("ascii")
 
 #: Distinct from ``arxmcp-server``: the supervisor's launch frame names this
 #: component so the fixture sidecar and the production child can never be
@@ -108,6 +117,17 @@ class ReadyzStartupTokenMiddleware:
     ``/readyz`` caller are structurally unreachable from it.
     ``BaseHTTPMiddleware`` is project-banned (E06_S01 F1); this follows the
     ``OriginValidationMiddleware`` pure-ASGI skeleton.
+
+    Scope, stated because the module docstring's "capability" framing invites
+    the stronger reading: this gate authenticates the SUPERVISOR on
+    ``/readyz``. It is NOT a readiness-confidentiality control. ``/status``
+    (``server/health.py``, its own docstring: "A SUPERSET of ``/readyz``") and
+    ``/ui/status-badge`` report the same warm snapshot unauthenticated on the
+    same ephemeral port, so any local process can read readiness without a
+    capability. Widening this path set is not the fix: the console's htmx
+    badge polls ``/ui/status-badge`` every 10s from the webview
+    (``server/frontend/templates/base.html``), which holds no capability, so
+    gating it would 401 the shipped desktop console on every page.
     """
 
     def __init__(
@@ -125,7 +145,7 @@ class ReadyzStartupTokenMiddleware:
             await self.app(scope, receive, send)
             return
         headers: list[tuple[bytes, bytes]] = scope.get("headers", [])
-        supplied = _get_header(headers, b"x-arxmcp-startup-token")
+        supplied = _get_header(headers, STARTUP_TOKEN_HEADER_BYTES)
         if supplied is None or not self._matches(supplied):
             await _send_json_error(
                 send, status=401, body={"error": "unauthorized"}
@@ -186,6 +206,41 @@ def _make_bound(
     )
 
 
+def _graceful_timeout_seconds(launch: Launch) -> int:
+    """Child-side drain bound in whole seconds, derived from the launch frame.
+
+    uvicorn's default ``timeout_graceful_shutdown=None`` makes
+    ``Server.shutdown()`` spin for as long as ANY request cycle is incomplete,
+    so a single client that stops mid-request parks the child until the
+    supervisor SIGKILLs it at grace + force — skipping ``lifespan.shutdown()``
+    and leaving the LanceDB/Kuzu handles open (the kuzu 0.11.3 mandatory-lock
+    hazard). Measured live: unbounded, the child never exits; bounded, it
+    exits 0 in ~18 s. Half of ``grace_ms`` leaves the same margin again for
+    the lifespan shutdown and process exit, so the whole sequence lands
+    strictly inside the supervisor's grace window.
+
+    A long-lived SSE stream is NOT the trigger, though it looks like one:
+    sse-starlette's shutdown watcher finds this Server via
+    ``signal.getsignal(SIGTERM).__self__`` (``capture_signals`` is active) and
+    closes its own streams on ``should_exit``.
+    """
+    return max(1, launch.shutdown.grace_ms // 2000)
+
+
+def _configure_child_logging(cfg: Config) -> None:
+    """Install the E13_S08 ``RedactionFilter`` and the 12-factor JSON format.
+
+    ``server/cli.py`` is the tree's only other caller of
+    ``logging_setup.configure``. Without this the desktop distribution is the
+    one shipped boot path that runs the full MCP server and persists its
+    stderr to ``<data_root>/logs/desktop-child.log`` with the Threat-8
+    redaction invariant structurally absent.
+    """
+    from server.observability.logging_setup import configure
+
+    configure(cfg.log_level, cfg.log_format)
+
+
 def _watch_stdin(stream: BinaryIO, server: object, launch: Launch) -> None:
     """Shutdown lease watcher (background OS thread; blocking stdin reads).
 
@@ -231,22 +286,36 @@ async def _serve(
     when it returns with ``started`` set, ``/readyz`` warmth and the LISTEN
     state both already hold. ``.run()``/``.serve()`` offer no hook between
     those steps, which is why this drives ``startup``/``main_loop``/
-    ``shutdown`` directly. ``MIN_GRACE_MS`` is honored by construction:
-    ``timeout_graceful_shutdown`` stays ``None`` (unbounded drain — a
-    superset of the contract's floor) and the parse layer already rejected
-    any launch with a smaller ``grace_ms``.
+    ``shutdown`` directly. ``MIN_GRACE_MS`` bounds how long the SUPERVISOR
+    waits and says nothing about the child bounding itself, so the drain
+    carries its own :func:`_graceful_timeout_seconds` deadline — an unbounded
+    drain is NOT a superset of the contract's floor.
     """
     import uvicorn
 
     port = sock.getsockname()[1]
     config = uvicorn.Config(
-        app, host="127.0.0.1", port=port, lifespan="on", log_config=None
+        app,
+        host="127.0.0.1",
+        port=port,
+        lifespan="on",
+        log_config=None,
+        timeout_graceful_shutdown=_graceful_timeout_seconds(launch),
     )
     server = uvicorn.Server(config)
     with server.capture_signals():
         if not config.loaded:
             config.load()
         server.lifespan = config.lifespan_class(config)
+        # Armed BEFORE startup(): the eager warm-up is 5-30s, and a quit
+        # during it must set should_exit — which the guard below turns into a
+        # fast clean exit — rather than meeting silence until the supervisor's
+        # SIGKILL 40s later.
+        threading.Thread(
+            target=_watch_stdin,
+            args=(control_stream, server, launch),
+            daemon=True,
+        ).start()
         await server.startup(sockets=[sock])
         if server.should_exit or not server.started:
             logger.error("desktop child startup failed; bound never emitted")
@@ -258,11 +327,6 @@ async def _serve(
         # The control stdout carries exactly one frame, ever; closing the fd
         # makes a second write structurally impossible.
         os.close(protocol_fd)
-        threading.Thread(
-            target=_watch_stdin,
-            args=(control_stream, server, launch),
-            daemon=True,
-        ).start()
         await server.main_loop()
         await server.shutdown(sockets=[sock])
     return 0
@@ -303,6 +367,7 @@ def main() -> int:
 
         try:
             cfg = Config(data_dir=Path(frame.data_root))
+            _configure_child_logging(cfg)
             app = create_app(cfg)
         except Exception as exc:
             logger.error("FATAL during desktop-child app build: %s", exc)

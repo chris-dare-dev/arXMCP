@@ -39,12 +39,15 @@ import pytest
 
 from server.desktop_child import (
     COMPONENT,
+    STARTUP_TOKEN_HEADER_BYTES,
     ReadyzStartupTokenMiddleware,
     executable_identity,
     read_frame,
 )
 from server.desktop_contract import (
     FRAME_LIMIT,
+    MIN_GRACE_MS,
+    STARTUP_TOKEN_HEADER,
     Bound,
     DesktopContractError,
     Launch,
@@ -129,6 +132,56 @@ def _request(
         connection.close()
 
 
+def _wedge_an_inflight_request(port: int) -> socket.socket:
+    """Park one request uvicorn cannot drain; returns the raw client socket.
+
+    The headers announce a body that never arrives, so the ASGI app stays
+    parked in ``receive()``. The request cycle is therefore incomplete,
+    uvicorn's ``connection.shutdown()`` can only clear ``keep_alive`` instead
+    of closing the transport, and ``Server._wait_tasks_to_complete`` spins on
+    it until ``timeout_graceful_shutdown`` fires.
+
+    NOT an SSE stream, which is the trigger the m5 critique named: measured
+    live, a held ``GET /mcp/`` stream lets the child exit in ~1 s either way,
+    because sse-starlette's shutdown watcher locates our Server through
+    ``signal.getsignal(SIGTERM).__self__`` — we run inside
+    ``Server.capture_signals()`` — and closes its own streams on
+    ``should_exit``. This shape was measured instead: unbounded drain -> no
+    exit at 60 s; launch-derived bound -> exit 0 at ~18 s.
+    """
+    status, headers, body = _request(
+        port,
+        "/mcp/",
+        method="POST",
+        body=json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 0,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {},
+                    "clientInfo": {"name": "drain-probe", "version": "1.0"},
+                },
+            }
+        ).encode(),
+        headers=_MCP_HEADERS,
+    )
+    assert status == 200, body[:300]
+    connection = socket.create_connection(("127.0.0.1", port), timeout=10)
+    connection.sendall(
+        (
+            f"POST /mcp/ HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n"
+            f"Content-Type: application/json\r\n"
+            f"Accept: application/json, text/event-stream\r\n"
+            f"Mcp-Protocol-Version: 2025-06-18\r\n"
+            f"Mcp-Session-Id: {headers['mcp-session-id']}\r\n"
+            f"Content-Length: 64\r\n\r\n"
+        ).encode()
+    )
+    return connection
+
+
 def _connect_probe(port: int) -> None:
     """Positive/negative listener probe whose own success is asserted: AC4
     first proves it CONNECTS against the live server, then expects the
@@ -200,6 +253,9 @@ def real_child(tmp_path_factory: pytest.TempPathFactory) -> SimpleNamespace:
             launch=launch,
             bound=bound,
             bound_bytes=bound_bytes,
+            # AC4 stops the shared child; the flag makes "AC4 ran first" fail
+            # with the real reason instead of a bare ConnectionRefusedError.
+            stopped=False,
         )
     finally:
         _stop_process(process)
@@ -210,6 +266,7 @@ def real_child(tmp_path_factory: pytest.TempPathFactory) -> SimpleNamespace:
 def test_ac1_real_child_ready_and_console(real_child: SimpleNamespace) -> None:
     """AC1: the production entry point (not the fixture sidecar) reaches
     health/readiness with an all-true warm map and serves the real console."""
+    assert not real_child.stopped, "AC4 already stopped the shared child"
     argv = [str(part) for part in real_child.process.args]
     assert argv == CHILD_ARGV
     assert all("fixture-sidecar" not in part for part in argv)
@@ -260,6 +317,7 @@ def test_ac2_mcp_smoke_live_schema_hash(real_child: SimpleNamespace) -> None:
         compute_tool_schema_hash,
     )
 
+    assert not real_child.stopped, "AC4 already stopped the shared child"
     port = real_child.bound.endpoint.port
     initialize = {
         "jsonrpc": "2.0",
@@ -302,6 +360,11 @@ def test_ac2_mcp_smoke_live_schema_hash(real_child: SimpleNamespace) -> None:
     assert status == 200, live_bytes[:300]
     payload = json.loads(live_bytes)
     assert "error" not in payload
+    # compute_tool_schema_hash rebuilds a FRESH ListToolsResult from the tool
+    # array, so a wire-level nextCursor or top-level _meta — exactly the
+    # envelope the E06_S06 F6 fix folded into the pin — would be discarded
+    # before hashing. Fail on an envelope key instead of silently dropping it.
+    assert set(payload["result"]) == {"tools"}, payload["result"].keys()
     wire_tools = payload["result"]["tools"]
     assert wire_tools, "tools/list served zero tools"
     live_hash = compute_tool_schema_hash(
@@ -353,16 +416,17 @@ def test_ac3_zero_delay_race_single_spawn(tmp_path: Path) -> None:
         # Both supervisors are now holding at the barrier; releasing it is
         # the zero-delay simultaneous start (Spike-3 technique).
         barrier.write_text("go\n", encoding="utf-8")
-        first_code = first.wait(timeout=300)
-        second_code = second.wait(timeout=300)
+        # communicate() drains both pipes concurrently. A bare wait() with
+        # nothing reading them is the textbook Popen deadlock: a chatty
+        # WKWebView filling the ~64 KB stderr buffer blocks the supervisor on
+        # write forever and burns the full 300 s budget.
+        streams = [*first.communicate(timeout=300), *second.communicate(timeout=300)]
+        first_code, second_code = first.returncode, second.returncode
     finally:
         _stop_process(first)
         _stop_process(second)
 
-    errors = (
-        first.stderr.read() if first.stderr else b"",
-        second.stderr.read() if second.stderr else b"",
-    )
+    errors = (streams[1], streams[3])
     assert first_code == 0 and second_code == 0, errors
 
     events = [
@@ -385,7 +449,13 @@ def test_ac3_zero_delay_race_single_spawn(tmp_path: Path) -> None:
     # The winner's capability is unknown to this test, so scan structurally:
     # any 64-hex string in a supervisor/child-written artifact must be the
     # known identity digest — a leaked 256-bit token cannot satisfy that.
+    # The supervisors' own stdout/stderr are in scope: `fail()` uses eprintln!
+    # and a panic payload lands there, which is precisely the stream the
+    # README's "Secret handling" section names.
     allowed = {identity.sha256.encode("ascii")}
+    for stream in streams:
+        for match in set(_HEX64.findall(stream)):
+            assert match in allowed, ("supervisor stream", match[:12])
     for artifact in root.rglob("*"):
         if not artifact.is_file() or "index" in artifact.relative_to(root).parts:
             continue
@@ -397,11 +467,18 @@ def test_ac3_zero_delay_race_single_spawn(tmp_path: Path) -> None:
 def test_ac4_normal_shutdown_leaves_nothing(real_child: SimpleNamespace) -> None:
     """AC4 (m5 slice — normal path only): bounded cleanup leaves no child
     process and no residual listener; probes assert their own success.
-    Runs LAST among the shared-fixture tests because it stops the child."""
+    Runs LAST among the shared-fixture tests because it stops the child.
+
+    Also the m5 critique H1 guard: an undrainable request is left in flight
+    across the shutdown, which is what made the unbounded uvicorn drain spin
+    forever — costing a 40 s hang and a supervisor SIGKILL that skipped the
+    FastAPI lifespan, leaving LanceDB/Kuzu handles unclosed."""
+    real_child.stopped = True
     process = real_child.process
     port = real_child.bound.endpoint.port
     launch = real_child.launch
     _connect_probe(port)  # probe self-check: must SUCCEED against the live server
+    wedged = _wedge_an_inflight_request(port)
 
     invalid = Shutdown(
         contract=launch.contract,
@@ -425,7 +502,15 @@ def test_ac4_normal_shutdown_leaves_nothing(real_child: SimpleNamespace) -> None
         )
     )
     process.stdin.flush()
-    assert process.wait(timeout=45) == 0
+    # The exit must land strictly inside the supervisor's grace window with
+    # the request still wedged: `wait` raising TimeoutExpired here IS the H1
+    # regression (the supervisor would SIGKILL at grace + force_after, so the
+    # lifespan shutdown never runs). Exit 0 proves the lifespan DID run.
+    grace_seconds = launch.shutdown.grace_ms / 1000.0
+    started = time.monotonic()
+    assert process.wait(timeout=grace_seconds) == 0
+    assert time.monotonic() - started < grace_seconds
+    wedged.close()
 
     with pytest.raises(ConnectionRefusedError):
         _connect_probe(port)
@@ -461,6 +546,125 @@ def test_ac5_port_zero_still_rejected_by_config() -> None:
     for port in (0, 80, 65536):
         with pytest.raises(pydantic.ValidationError):
             Config(bind_port=port)
+
+
+class _CapturedConfig(Exception):
+    """Carries the kwargs `_serve` handed to `uvicorn.Config`."""
+
+    def __init__(self, kwargs: dict) -> None:
+        super().__init__("captured")
+        self.kwargs = kwargs
+
+
+def test_graceful_drain_is_bounded_by_the_launch_frame() -> None:
+    """m5 critique H1: an unbounded drain is NOT a superset of the contract's
+    floor. MIN_GRACE_MS bounds how long the SUPERVISOR waits and says nothing
+    about the child bounding itself, so any incomplete request cycle kept
+    uvicorn's drain loop spinning past the supervisor's SIGKILL."""
+    from server.desktop_child import _graceful_timeout_seconds
+
+    launch = _golden_launch()
+    assert launch.shutdown.grace_ms == MIN_GRACE_MS
+    bound = _graceful_timeout_seconds(launch)
+    assert 0 < bound < launch.shutdown.grace_ms / 1000
+    # Half the grace window: the same margin again is left for the lifespan
+    # shutdown (LanceDB/Kuzu close) and process exit.
+    assert bound <= launch.shutdown.grace_ms / 2000
+    # uvicorn treats 0 as "cancel immediately"; never emit it.
+    tiny = replace(launch, shutdown=replace(launch.shutdown, grace_ms=1))
+    assert _graceful_timeout_seconds(tiny) >= 1
+
+
+def test_serve_hands_the_bounded_drain_to_uvicorn(monkeypatch) -> None:
+    """The wiring half of H1: `Server.shutdown()` applies
+    `timeout_graceful_shutdown` itself (uvicorn `server.py`: `wait_for(
+    _wait_tasks_to_complete(), timeout=...)` then `await lifespan.shutdown()`),
+    so the hand-driven boot path only needs to pass it."""
+    import uvicorn
+
+    from server.desktop_child import _graceful_timeout_seconds, _serve
+
+    def _spy(*_args, **kwargs):
+        raise _CapturedConfig(kwargs)
+
+    monkeypatch.setattr(uvicorn, "Config", _spy)
+    launch = _golden_launch()
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    try:
+        with pytest.raises(_CapturedConfig) as raised:
+            asyncio.run(
+                _serve(
+                    object(),
+                    sock,
+                    launch,
+                    executable_identity(),
+                    -1,
+                    io.BytesIO(),
+                )
+            )
+    finally:
+        sock.close()
+    assert raised.value.kwargs["timeout_graceful_shutdown"] == (
+        _graceful_timeout_seconds(launch)
+    )
+
+
+def test_desktop_boot_installs_the_redaction_filter_and_json_format() -> None:
+    """m5 critique H2: the desktop child was the one shipped boot path that
+    never called `logging_setup.configure`, so the distribution ran the full
+    MCP server — persisting stderr to <data_root>/logs/desktop-child.log —
+    with the E13_S08 Threat-8 redaction invariant structurally absent."""
+    import logging
+    import tempfile
+
+    from server.config import Config
+    from server.desktop_child import _configure_child_logging
+    from server.observability.logging_setup import JsonFormatter, RedactionFilter
+
+    root = logging.getLogger()
+    saved_filters = list(root.filters)
+    saved_level = root.level
+    saved_handler_state = {
+        handler: (list(handler.filters), handler.formatter)
+        for handler in root.handlers
+    }
+    try:
+        with tempfile.TemporaryDirectory() as data_dir:
+            _configure_child_logging(Config(data_dir=Path(data_dir)))
+        assert any(isinstance(f, RedactionFilter) for f in root.filters)
+        for handler in root.handlers:
+            assert any(isinstance(f, RedactionFilter) for f in handler.filters)
+            assert isinstance(handler.formatter, JsonFormatter)
+    finally:
+        root.filters.clear()
+        for restored in saved_filters:
+            root.addFilter(restored)
+        root.setLevel(saved_level)
+        for handler, (filters, formatter) in saved_handler_state.items():
+            if handler in root.handlers:
+                handler.filters.clear()
+                for restored in filters:
+                    handler.addFilter(restored)
+                handler.setFormatter(formatter)
+
+
+def test_desktop_boot_path_calls_the_logging_configurator() -> None:
+    identifiers = _code_identifiers(REPO_ROOT / "server" / "desktop_child.py")
+    assert "_configure_child_logging" in identifiers, (
+        "the helper must be CALLED from the boot path, not merely defined"
+    )
+
+
+def test_startup_token_header_is_derived_from_the_contract_constant() -> None:
+    """m5 critique M7: the header name was stated in three places with only one
+    authoritative, so a contract rename would ship a supervisor sending the new
+    name and a child checking the old one — 401 on every /readyz poll until
+    READY_DEADLINE, with no test failing first."""
+    assert STARTUP_TOKEN_HEADER.lower().encode("ascii") == STARTUP_TOKEN_HEADER_BYTES
+    assert STARTUP_TOKEN_HEADER_BYTES == b"x-arxmcp-startup-token"
+    source = (REPO_ROOT / "server" / "desktop_child.py").read_text(encoding="utf-8")
+    assert 'b"x-arxmcp-startup-token"' not in source
 
 
 def _code_identifiers(path: Path) -> set[str]:
@@ -546,7 +750,9 @@ class TestReadyzStartupTokenMiddleware:
     def test_readyz_with_wrong_or_malformed_token_is_401(self) -> None:
         app, inner, _ = self._wrapped()
         for supplied in (b"f" * 64, b"not-a-token", b"\xff\xfe"):
-            messages = _asgi_get(app, "/readyz", [(b"x-arxmcp-startup-token", supplied)])
+            messages = _asgi_get(
+                app, "/readyz", [(STARTUP_TOKEN_HEADER_BYTES, supplied)]
+            )
             assert messages[0]["status"] == 401
         assert inner.paths == []
 
@@ -555,7 +761,7 @@ class TestReadyzStartupTokenMiddleware:
         messages = _asgi_get(
             app,
             "/readyz",
-            [(b"x-arxmcp-startup-token", token.expose().encode("ascii"))],
+            [(STARTUP_TOKEN_HEADER_BYTES, token.expose().encode("ascii"))],
         )
         assert messages[0]["status"] == 200
         assert inner.paths == ["/readyz"]
