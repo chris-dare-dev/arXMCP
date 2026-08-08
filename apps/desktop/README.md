@@ -113,8 +113,34 @@ adoption, authenticated server readiness, and ordinary Tauri exit handling
 against the real server: the child imposes its OWN drain deadline (half of the
 launch frame's `grace_ms`) so the FastAPI lifespan shutdown — which closes the
 LanceDB and Kuzu handles — always runs strictly inside the supervisor's grace
-window instead of being cut short by a force kill. The fault matrix and
-universal cleanup remain deferred to the next milestone.
+window instead of being cut short by a force kill.
+
+## Fault matrix and cleanup claims (m6)
+
+M6 drives the REAL supervisor (`lifecycle.rs`) against fault-injected fixture
+arms selected by the `org.arxmcp.test-fault` launch extension — the contract's
+sanctioned compatible-addition channel, read only by the fixture sidecar and
+never by `server/desktop_child.py`. Covered: startup timeout, malformed
+`bound` (whose persisted diagnostic is scrubbed by `supervisor/src/redact.rs`
+before it is written), crash before bound, crash after ready, ignored shutdown
+with the full grace/TERM/KILL/reap escalation, and supervisor SIGKILL. A
+30-cycle stress run proves 30 distinct PIDs with zero residual processes or
+listeners, and loopback is asserted at socket level against the live port. All
+evidence probes assert their own success: a failed or partial `ps`/`lsof` is an
+evidence failure, never clean absence.
+
+Two spike-3 non-claims REMAIN non-claims — a passing fault matrix here is not
+universal cleanup:
+
+- **A parent that no longer exists cannot kill a wedged child.** Supervisor
+  SIGKILL cleanup is proven only for a cooperating child that is alive and
+  observing stdin EOF; a child parked in uninterruptible I/O (for example a
+  stalled LanceDB/Kuzu read) would outlive its dead parent.
+- **Process-group escape is not applicable, not handled.** The supervisor
+  signals only the direct child PID — never a process group — and neither the
+  production child nor the fixture spawns descendants today, so a
+  `setsid()`-style escape cannot occur. A future milestone that adds a
+  subprocess-spawning child must re-open this design before shipping it.
 
 ## Secret handling
 
@@ -143,6 +169,12 @@ mismatched URL authority, invalid executable identity, and an oversized frame.
 lexicographic filename order, encoded as `UTF-8 filename`, one NUL byte, then
 the exact file bytes. Adding or changing a fixture requires an intentional
 digest update that must pass independently in both languages.
+
+`redaction-vectors.jsonl` (m6) pins the redaction scrub the same way: the Rust
+production scrubber (`supervisor/src/redact.rs`) and the Python parity test
+consume the same vectors, so exact-match `[REDACTED]` replacement — including
+the deliberate NON-redaction of partial and case-shifted near-misses — cannot
+drift between languages.
 
 The fixture sidecar imports neither Python nor any model, corpus, LanceDB, or
 MCP-server module. It owns `127.0.0.1:0`, serves unauthenticated `/healthz` and

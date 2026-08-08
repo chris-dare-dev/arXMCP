@@ -14,6 +14,36 @@ use std::time::Duration;
 const COMPONENT: &str = "arxmcp-fixture-sidecar";
 const POLL_INTERVAL: Duration = Duration::from_millis(5);
 const HTTP_READ_TIMEOUT: Duration = Duration::from_secs(2);
+/// Namespaced launch-extension key carrying an m6 fault-matrix arm. Test-only
+/// by construction: the production child never reads extensions.
+const FAULT_EXTENSION_KEY: &str = "org.arxmcp.test-fault";
+/// Abrupt-crash arms abort shortly after their trigger so Rust `Drop`
+/// cleanup cannot run (spike-3 technique).
+const CRASH_DELAY: Duration = Duration::from_millis(100);
+
+/// Fault-matrix arms driven by the REAL supervisor. Every arm except
+/// `IgnoreShutdown` stays a cooperating child (exits on stdin EOF or a valid
+/// authenticated shutdown) — the spike-3 non-claim stands: a wedged child
+/// cannot be killed by a parent that no longer exists.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Fault {
+    None,
+    /// Park before binding; never emit `bound`; keep honoring the lease.
+    StartupTimeout,
+    /// Emit an invalid control line that EMBEDS the startup capability, then
+    /// serve normally — proving the supervisor scrubs before persisting.
+    MalformedBound,
+    /// Abort before any bind or `bound` write.
+    CrashBeforeBound,
+    /// Serve normally, then abort shortly after the first authorized
+    /// `/readyz` 200.
+    CrashAfterReady,
+    /// Ignore stdin EOF, shutdown frames, and SIGTERM: only SIGKILL ends it.
+    IgnoreShutdown,
+    /// Bind and answer `/healthz`, but never report ready — parks the
+    /// supervisor in its readiness poll (the supervisor-crash test window).
+    NeverReady,
+}
 
 #[derive(Debug)]
 enum SidecarError {
@@ -24,6 +54,7 @@ enum SidecarError {
     Bind,
     Control(ContractError),
     Io,
+    UnknownFault,
 }
 
 impl fmt::Display for SidecarError {
@@ -36,6 +67,7 @@ impl fmt::Display for SidecarError {
             Self::Bind => formatter.write_str("fixture loopback bind failed"),
             Self::Control(error) => write!(formatter, "{error}"),
             Self::Io => formatter.write_str("fixture control-channel I/O failed"),
+            Self::UnknownFault => formatter.write_str("fixture test fault is not recognized"),
         }
     }
 }
@@ -72,6 +104,16 @@ fn run() -> Result<(), SidecarError> {
     };
     let executable_digest = current_executable_sha256()?;
     validate_fixture_launch(&launch, &executable_digest)?;
+    let fault = parse_fault(&launch)?;
+
+    match fault {
+        Fault::StartupTimeout => return park_on_lease(control_input, &launch),
+        Fault::CrashBeforeBound => {
+            std::thread::sleep(CRASH_DELAY);
+            std::process::abort();
+        }
+        _ => {}
+    }
 
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).map_err(|_| SidecarError::Bind)?;
     listener
@@ -82,18 +124,76 @@ fn run() -> Result<(), SidecarError> {
         return Err(SidecarError::Bind);
     }
 
-    let bound = make_bound(&launch, address.port(), &executable_digest);
-    let encoded = encode_frame(&Frame::Bound(bound))?;
     let mut output = io::stdout().lock();
-    output.write_all(&encoded).map_err(|_| SidecarError::Io)?;
+    if fault == Fault::MalformedBound {
+        // Deliberately leaks the capability onto the control stream inside an
+        // invalid frame: the supervisor MUST scrub it before persisting its
+        // bound-frame-invalid diagnostic, and the test sweep proves it did.
+        let line = format!("{{\"bound\":\"{}\"\n", launch.startup_token.expose());
+        output
+            .write_all(line.as_bytes())
+            .map_err(|_| SidecarError::Io)?;
+    } else {
+        let bound = make_bound(&launch, address.port(), &executable_digest);
+        let encoded = encode_frame(&Frame::Bound(bound))?;
+        output.write_all(&encoded).map_err(|_| SidecarError::Io)?;
+    }
     output.flush().map_err(|_| SidecarError::Io)?;
     drop(output);
+
+    if fault == Fault::IgnoreShutdown {
+        ignore_sigterm();
+    }
 
     let token = launch.startup_token.clone();
     let receiver =
         spawn_control_reader(control_input, launch.contract.clone(), launch.startup_token);
-    serve_until_stopped(listener, receiver, &token)
+    serve_until_stopped(listener, receiver, &token, fault)
 }
+
+fn parse_fault(launch: &Launch) -> Result<Fault, SidecarError> {
+    let Some(value) = launch.extensions.get(FAULT_EXTENSION_KEY) else {
+        return Ok(Fault::None);
+    };
+    match value.as_str() {
+        Some("startup-timeout") => Ok(Fault::StartupTimeout),
+        Some("malformed-bound") => Ok(Fault::MalformedBound),
+        Some("crash-before-bound") => Ok(Fault::CrashBeforeBound),
+        Some("crash-after-ready") => Ok(Fault::CrashAfterReady),
+        Some("ignore-shutdown") => Ok(Fault::IgnoreShutdown),
+        Some("never-ready") => Ok(Fault::NeverReady),
+        _ => Err(SidecarError::UnknownFault),
+    }
+}
+
+/// StartupTimeout park: no bind, no `bound`, but still a cooperating child —
+/// mirrors the production `_watch_stdin` lease semantics.
+fn park_on_lease(mut input: BufReader<io::Stdin>, launch: &Launch) -> Result<(), SidecarError> {
+    loop {
+        match read_frame(&mut input) {
+            Ok(None) => return Ok(()),
+            Ok(Some(bytes)) => {
+                if let Ok(Frame::Shutdown(shutdown)) = parse_frame(&bytes) {
+                    if valid_shutdown(&shutdown, &launch.contract, &launch.startup_token) {
+                        return Ok(());
+                    }
+                }
+            }
+            Err(_) => {}
+        }
+    }
+}
+
+#[cfg(unix)]
+fn ignore_sigterm() {
+    // SAFETY: installing SIG_IGN for SIGTERM has no preconditions.
+    unsafe {
+        libc::signal(libc::SIGTERM, libc::SIG_IGN);
+    }
+}
+
+#[cfg(not(unix))]
+fn ignore_sigterm() {}
 
 fn validate_fixture_launch(launch: &Launch, executable_digest: &str) -> Result<(), SidecarError> {
     if launch.executable.component != COMPONENT
@@ -217,16 +317,33 @@ fn serve_until_stopped(
     listener: TcpListener,
     receiver: Receiver<LeaseEvent>,
     token: &StartupToken,
+    fault: Fault,
 ) -> Result<(), SidecarError> {
+    let mut abort_at: Option<std::time::Instant> = None;
     loop {
+        if let Some(at) = abort_at {
+            if std::time::Instant::now() >= at {
+                std::process::abort();
+            }
+        }
         match receiver.try_recv() {
-            Ok(LeaseEvent::Shutdown | LeaseEvent::Eof) => return Ok(()),
-            Ok(LeaseEvent::Invalid) | Err(TryRecvError::Empty) => {}
-            Err(TryRecvError::Disconnected) => return Ok(()),
+            // IgnoreShutdown: the lease is deliberately dishonored so only
+            // the supervisor's SIGKILL rung can end this process.
+            Ok(LeaseEvent::Shutdown | LeaseEvent::Eof) if fault != Fault::IgnoreShutdown => {
+                return Ok(())
+            }
+            Ok(_) | Err(TryRecvError::Empty) => {}
+            Err(TryRecvError::Disconnected) if fault != Fault::IgnoreShutdown => return Ok(()),
+            Err(TryRecvError::Disconnected) => {}
         }
 
         match listener.accept() {
-            Ok((stream, _address)) => respond(stream, token),
+            Ok((stream, _address)) => {
+                let ready_served = respond(stream, token, fault);
+                if ready_served && fault == Fault::CrashAfterReady && abort_at.is_none() {
+                    abort_at = Some(std::time::Instant::now() + CRASH_DELAY);
+                }
+            }
             Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
                 std::thread::sleep(POLL_INTERVAL);
             }
@@ -235,16 +352,18 @@ fn serve_until_stopped(
     }
 }
 
-fn respond(mut stream: TcpStream, token: &StartupToken) {
+/// Returns true when an AUTHORIZED `/readyz` 200 was served (the
+/// crash-after-ready trigger).
+fn respond(mut stream: TcpStream, token: &StartupToken, fault: Fault) -> bool {
     let _ = stream.set_read_timeout(Some(HTTP_READ_TIMEOUT));
     let mut request = Vec::new();
     let mut chunk = [0_u8; 512];
     loop {
         let Ok(count) = stream.read(&mut chunk) else {
-            return;
+            return false;
         };
         if count == 0 || request.len() + count > 4_096 {
-            return;
+            return false;
         }
         request.extend_from_slice(&chunk[..count]);
         if request.windows(4).any(|window| window == b"\r\n\r\n") {
@@ -253,7 +372,7 @@ fn respond(mut stream: TcpStream, token: &StartupToken) {
     }
 
     let Ok(text) = std::str::from_utf8(&request) else {
-        return;
+        return false;
     };
     let mut lines = text.split("\r\n");
     let request_line = lines.next().unwrap_or_default();
@@ -267,10 +386,16 @@ fn respond(mut stream: TcpStream, token: &StartupToken) {
         constant_time_equal(supplied.as_bytes(), token.expose().as_bytes())
     });
 
+    let mut ready_served = false;
     let (status, body) = if request_line == "GET /healthz HTTP/1.1" {
         ("200 OK", r#"{"status":"ok"}"#)
     } else if request_line == "GET /readyz HTTP/1.1" && authorized {
-        ("200 OK", r#"{"status":"ready"}"#)
+        if fault == Fault::NeverReady {
+            ("200 OK", r#"{"status":"starting"}"#)
+        } else {
+            ready_served = true;
+            ("200 OK", r#"{"status":"ready"}"#)
+        }
     } else if request_line == "GET /readyz HTTP/1.1" {
         ("401 Unauthorized", r#"{"status":"unauthorized"}"#)
     } else {
@@ -281,4 +406,5 @@ fn respond(mut stream: TcpStream, token: &StartupToken) {
         body.len()
     );
     let _ = stream.write_all(response.as_bytes());
+    ready_served
 }

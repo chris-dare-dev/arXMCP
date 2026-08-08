@@ -1,0 +1,9 @@
+{"expected":"[REDACTED] tail","input":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef tail","secret":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}
+{"expected":"head [REDACTED] tail","input":"head 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef tail","secret":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}
+{"expected":"head [REDACTED]","input":"head 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef","secret":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}
+{"expected":"{\"bound\":\"[REDACTED]\"}","input":"{\"bound\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}","secret":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}
+{"expected":"[REDACTED]-[REDACTED]","input":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef","secret":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}
+{"expected":"prefix 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde","input":"prefix 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde","secret":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}
+{"expected":"0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF","input":"0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF","secret":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}
+{"expected":"","input":"","secret":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}
+{"expected":"no secret here","input":"no secret here","secret":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}

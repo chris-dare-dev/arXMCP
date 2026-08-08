@@ -77,6 +77,7 @@ name = "arxmcp-fixture-sidecar"
 version = "0.1.0"
 dependencies = [
  "arxmcp-desktop-contract",
+ "libc",
  "sha2",
 ]
 

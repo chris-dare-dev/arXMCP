@@ -9,6 +9,11 @@ publish.workspace = true
 arxmcp-desktop-contract = { path = "../desktop-contract" }
 sha2.workspace = true
 
+# ignore-shutdown fault arm only: SIG_IGN on SIGTERM to force the
+# supervisor's TERM -> KILL escalation.
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
 [[bin]]
 name = "fixture-sidecar"
 path = "src/main.rs"

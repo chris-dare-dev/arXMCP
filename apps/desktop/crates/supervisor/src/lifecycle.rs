@@ -8,6 +8,7 @@
 use crate::events::Recorder;
 use crate::http;
 use crate::process_control;
+use crate::redact;
 use crate::Plan;
 use arxmcp_desktop_contract::{
     encode_frame, generate_startup_token, parse_frame, read_frame, Bound, ContractVersion,
@@ -88,7 +89,10 @@ pub fn run_cycle(
         Err(reason) => {
             let _ = recorder.record("lifecycle-failed", json!({"reason": reason}));
             if let Some(orphan) = control.take() {
-                let _ = shutdown_child(orphan);
+                // The fault-cleanup arm: record the outcome so the m6 fault
+                // matrix can assert bounded reaping, not just failure.
+                let code = shutdown_child(orphan);
+                let _ = recorder.record("orphan-shutdown", json!({"child_exit": code}));
             }
             1
         }
@@ -109,6 +113,16 @@ fn cycle(
         sha256: digest,
         version: plan.version.clone(),
     };
+    // The wire contract's sanctioned compatible-addition channel: the fault
+    // switch rides a namespaced extension read ONLY by the fixture sidecar.
+    // The production child never inspects extensions, so no contract bump.
+    let mut extensions = Extensions::new();
+    if let Some(fault) = &plan.test_fault {
+        extensions.insert(
+            "org.arxmcp.test-fault".to_owned(),
+            Value::String(fault.clone()),
+        );
+    }
     let launch = Launch {
         contract: ContractVersion { major: 1, minor: 0 },
         data_root: plan.data_root.clone(),
@@ -117,7 +131,7 @@ fn cycle(
             port: 0,
         },
         executable: expected_identity.clone(),
-        extensions: Extensions::new(),
+        extensions,
         kind: "launch".to_owned(),
         log_location: format!("{}/logs/desktop-child.log", plan.data_root),
         probe_paths: ProbePaths {
@@ -170,11 +184,17 @@ fn cycle(
         stdin,
         token: token.clone(),
         contract: ContractVersion { major: 1, minor: 0 },
-        grace_ms: MIN_GRACE_MS,
-        force_after_ms: FORCE_AFTER_MS,
+        // Test-only budget shrink: the WIRE frame above keeps the contract
+        // floor (MIN_GRACE_MS); only this process's local waits change, so
+        // the escalation ladder runs at test speed without a contract bump.
+        grace_ms: plan.test_shutdown_grace_ms.unwrap_or(MIN_GRACE_MS),
+        force_after_ms: plan.test_shutdown_force_after_ms.unwrap_or(FORCE_AFTER_MS),
     });
 
-    let bound = await_bound(stdout, recorder)?;
+    let bound_timeout = plan
+        .test_bound_timeout_ms
+        .map_or(BOUND_TIMEOUT, Duration::from_millis);
+    let bound = await_bound(stdout, recorder, &token, bound_timeout)?;
     if bound.executable != expected_identity {
         return Err("bound identity mismatch");
     }
@@ -206,9 +226,15 @@ fn cycle(
 
 /// Read exactly one `bound` frame; a background drain then flags any
 /// further stdout bytes (child stdout is control-only after `bound`).
+/// An unparseable frame persists a SCRUBBED prefix for post-mortem value —
+/// a misbehaving child echoing its launch frame is exactly how the startup
+/// capability could reach this diagnostic, so scrub runs before persist and
+/// before truncation (a boundary cut must not leave a partial secret).
 fn await_bound(
     stdout: std::process::ChildStdout,
     recorder: &Recorder,
+    token: &StartupToken,
+    timeout: Duration,
 ) -> Result<Bound, &'static str> {
     let (sender, receiver) = mpsc::channel();
     let drain_recorder = recorder.clone();
@@ -229,13 +255,19 @@ fn await_bound(
         }
     });
     let frame = receiver
-        .recv_timeout(BOUND_TIMEOUT)
+        .recv_timeout(timeout)
         .map_err(|_| "bound frame timeout")?
         .map_err(|_| "bound frame read failed")?
         .ok_or("child stdout closed before bound")?;
-    match parse_frame(&frame).map_err(|_| "bound frame invalid")? {
-        Frame::Bound(bound) => Ok(bound),
-        _ => Err("first control frame was not bound"),
+    match parse_frame(&frame) {
+        Ok(Frame::Bound(bound)) => Ok(bound),
+        Ok(_) => Err("first control frame was not bound"),
+        Err(_) => {
+            let scrubbed = redact::scrub(&String::from_utf8_lossy(&frame), token.expose());
+            let prefix: String = scrubbed.chars().take(256).collect();
+            let _ = recorder.record("bound-frame-invalid", json!({"frame_prefix": prefix}));
+            Err("bound frame invalid")
+        }
     }
 }
 

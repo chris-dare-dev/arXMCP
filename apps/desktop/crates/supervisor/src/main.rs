@@ -8,6 +8,7 @@ mod events;
 mod http;
 mod lifecycle;
 mod process_control;
+mod redact;
 
 use events::Recorder;
 use fs2::FileExt;
@@ -37,6 +38,23 @@ pub struct Plan {
     /// true: exit 0 after one full launch->ready->smoke->shutdown cycle.
     pub smoke: bool,
     pub version: String,
+    /// Test-only (m6 fault matrix): shrinks the supervisor's local bound-frame
+    /// wait. Never forwarded to the child.
+    #[serde(default)]
+    pub test_bound_timeout_ms: Option<u64>,
+    /// Test-only: fault name inserted under the `org.arxmcp.test-fault`
+    /// extension key. Read ONLY by the fixture sidecar; the production child
+    /// never inspects extensions, so a production launch is unaffected.
+    #[serde(default)]
+    pub test_fault: Option<String>,
+    /// Test-only: shrinks the supervisor's LOCAL grace/force budgets so the
+    /// escalation ladder runs at test speed. The wire frame keeps the
+    /// contract-mandated MIN_GRACE_MS floor — these never change what the
+    /// child is promised, only how long this process waits.
+    #[serde(default)]
+    pub test_shutdown_force_after_ms: Option<u64>,
+    #[serde(default)]
+    pub test_shutdown_grace_ms: Option<u64>,
 }
 
 fn fail(reason: &str) -> ! {
@@ -219,16 +237,36 @@ fn main() {
         .build(tauri::generate_context!())
         .unwrap_or_else(|_| fail("tauri application build failed"));
 
+    // tauri 2.11's run loop does NOT propagate `AppHandle::exit(code)` into
+    // the process exit status (measured by the m6 fault matrix: a failed
+    // cycle exited 0). Capture the requested code and exit with it ourselves
+    // once the RunEvent::Exit child shutdown has run.
+    let requested_exit: Arc<Mutex<i32>> = Arc::new(Mutex::new(0));
+    let exit_code_slot = requested_exit.clone();
     app.run(move |_handle, event| {
-        // Normal user-driven exit (window close / Cmd-Q): the child's
-        // parent-lifetime lease plus an authenticated shutdown, bounded
-        // grace -> TERM -> KILL -> reap, before the process exits.
-        if let tauri::RunEvent::Exit = event {
-            if let Some(control) = exit_slot.lock().ok().and_then(|mut slot| slot.take()) {
-                let code = lifecycle::shutdown_child(control);
-                let _ = exit_recorder
-                    .record("shutdown-on-exit", serde_json::json!({"child_exit": code}));
+        match event {
+            tauri::RunEvent::ExitRequested {
+                code: Some(code), ..
+            } => {
+                if let Ok(mut slot) = exit_code_slot.lock() {
+                    *slot = code;
+                }
             }
+            // Normal user-driven exit (window close / Cmd-Q): the child's
+            // parent-lifetime lease plus an authenticated shutdown, bounded
+            // grace -> TERM -> KILL -> reap, before the process exits.
+            tauri::RunEvent::Exit => {
+                if let Some(control) = exit_slot.lock().ok().and_then(|mut slot| slot.take()) {
+                    let code = lifecycle::shutdown_child(control);
+                    let _ = exit_recorder
+                        .record("shutdown-on-exit", serde_json::json!({"child_exit": code}));
+                }
+                let code = exit_code_slot.lock().map_or(0, |slot| *slot);
+                if code != 0 {
+                    std::process::exit(code);
+                }
+            }
+            _ => {}
         }
     });
     drop(supervisor_lock);
@@ -246,6 +284,11 @@ mod tests {
         let plan: Plan = serde_json::from_slice(valid).expect("valid plan parses");
         assert!(!plan.smoke);
         assert_eq!(plan.child_argv, vec!["/usr/bin/true".to_owned()]);
+        // Test-only knobs are absent from a production plan and default off.
+        assert_eq!(plan.test_fault, None);
+        assert_eq!(plan.test_bound_timeout_ms, None);
+        assert_eq!(plan.test_shutdown_grace_ms, None);
+        assert_eq!(plan.test_shutdown_force_after_ms, None);
     }
 
     #[test]
