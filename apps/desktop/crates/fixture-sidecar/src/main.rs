@@ -561,6 +561,7 @@ fn respond(mut stream: TcpStream, token: &StartupToken, fault: Fault) -> bool {
 #[cfg(test)]
 mod tests {
     use super::canonical_root_matches_wire_input;
+    #[cfg(windows)]
     use std::fs;
     use std::path::Path;
 
