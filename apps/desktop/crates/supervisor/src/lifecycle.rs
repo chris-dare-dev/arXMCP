@@ -220,7 +220,7 @@ fn cycle(
     let _ = recorder.record("mcp-smoke-ok", json!({"tools": tool_count}));
 
     navigate_window(handle, &bound)?;
-    let _ = recorder.record("window-ready", json!({}));
+    let _ = recorder.record("window-ready", json!({"visible": true}));
     Ok(())
 }
 
@@ -392,6 +392,11 @@ fn mcp_post(
 }
 
 /// Render state 2 of 2: point the existing window at the child's console.
+/// Ok additionally attests the native window is observably visible —
+/// `navigate` succeeding proves only that Tauri's registry has an entry
+/// (issue #423), while `is_visible()` reads the native window and was
+/// measured to report false for a hidden one. `window-ready` is emitted
+/// only on this attested path.
 fn navigate_window(handle: &tauri::AppHandle, bound: &Bound) -> Result<(), &'static str> {
     let url = tauri::Url::parse(&bound.ui_url).map_err(|_| "bound ui_url unparseable")?;
     let (sender, receiver) = mpsc::channel();
@@ -401,7 +406,14 @@ fn navigate_window(handle: &tauri::AppHandle, bound: &Bound) -> Result<(), &'sta
             let result = main_handle
                 .get_webview_window("main")
                 .ok_or("main window missing")
-                .and_then(|window| window.navigate(url).map_err(|_| "window navigate failed"));
+                .and_then(|window| {
+                    window.navigate(url).map_err(|_| "window navigate failed")?;
+                    match window.is_visible() {
+                        Ok(true) => Ok(()),
+                        Ok(false) => Err("window not visible after navigate"),
+                        Err(_) => Err("window visibility unobservable"),
+                    }
+                });
             let _ = sender.send(result);
         })
         .map_err(|_| "main-thread dispatch failed")?;

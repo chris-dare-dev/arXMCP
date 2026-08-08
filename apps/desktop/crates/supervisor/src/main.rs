@@ -237,7 +237,11 @@ fn main() {
         }))
         .setup(move |app| {
             // Render state 1 of 2 ("starting"); lifecycle navigates the same
-            // window to the child's `/ui/` console once ready.
+            // window to the child's `/ui/` console once ready. build() with
+            // the default visible=true already creates the on-screen native
+            // window (measured for issue #423: one AXStandardWindow; adding
+            // show()/set_focus() changed nothing) — do not add focus-stealing
+            // calls here without a measurement showing they are needed.
             let starting = tauri::Url::parse(
                 "data:text/html,%3Ctitle%3EarXMCP%3C%2Ftitle%3E%3Cp%3EarXMCP%20is%20starting%E2%80%A6%3C%2Fp%3E",
             )

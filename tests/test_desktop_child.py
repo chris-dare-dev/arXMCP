@@ -1268,6 +1268,121 @@ def test_teardown_reaps_a_sigterm_immune_child_when_the_ladder_never_runs(
     assert _listener_lines(port) == []
 
 
+def _osascript(script: str) -> str:
+    """One AppleScript round trip; a non-zero exit RAISES with the stderr so
+    an Automation/AX permission denial is distinguishable from a zero count."""
+    result = subprocess.run(
+        ["osascript", "-e", script],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or "osascript failed silently")
+    return result.stdout.strip()
+
+
+def _native_window_count(pid: int) -> int:
+    """Windows the OS (System Events / AX) attributes to ``pid`` — the
+    out-of-process observation an in-process ``is_visible()`` cannot fake."""
+    return int(
+        _osascript(
+            'tell application "System Events" to count windows of '
+            f"(first application process whose unix id is {pid})"
+        )
+    )
+
+
+def _any_windowed_pid() -> int | None:
+    """unix id of SOME process owning >=1 observable window, else None.
+
+    The per-process ``try`` matters: System Events raises on zombie entries,
+    and one bad process must not abort the whole positive-control sweep."""
+    out = _osascript(
+        'tell application "System Events"\n'
+        "repeat with p in application processes\n"
+        "try\n"
+        "if (count of windows of p) > 0 then return unix id of p\n"
+        "end try\n"
+        "end repeat\n"
+        'return "none"\n'
+        "end tell"
+    )
+    return None if out == "none" else int(out)
+
+
+@pytest.mark.requires_desktop_stack
+def test_supervisor_owns_a_native_window_while_running(tmp_path: Path) -> None:
+    """Issue #423 regression: the RUNNING supervisor must own a native window.
+
+    Evidence discipline (the mistake that produced #423 itself): any probe
+    that could conclude a window is ABSENT must first prove, in the SAME run,
+    that it can observe a window that is PRESENT. So before the supervisor is
+    even spawned, the exact probe function used against it must count >=1
+    window on some unrelated process. A session where NO window is observable
+    anywhere (headless CI, missing Automation permission, non-macOS) skips
+    LOUDLY naming the missing capability — and the desktop-conformance
+    zero-skip gate turns that skip into a session failure rather than a
+    silent pass. CGWindowListCopyWindowInfo is deliberately NOT used: without
+    Screen Recording permission it returns null, which reads as "no windows
+    for every application on the machine" — permission-denied masquerading as
+    verified absence, exactly how #423 was mis-filed.
+
+    The never-ready fixture arm parks the supervisor in its readiness poll,
+    giving a stable live interval to probe; the window is built in setup(),
+    long before readiness."""
+    if sys.platform != "darwin":
+        pytest.skip(
+            "native-window regression needs the System Events probe (the only "
+            "probe here with a same-run positive control); no equivalent is "
+            "wired off macOS — the conformance gate fails on this skip by design"
+        )
+    try:
+        control_pid = _any_windowed_pid()
+    except (RuntimeError, OSError, subprocess.TimeoutExpired) as exc:
+        pytest.skip(
+            f"System Events window probe unavailable — cannot distinguish "
+            f"window-absent from probe-blind (Automation/Accessibility "
+            f"permission for the test runner?): {exc}"
+        )
+    if control_pid is None:
+        pytest.skip(
+            "System Events observes zero windows on EVERY process, so absence "
+            "cannot be distinguished from a blind probe (headless session?)"
+        )
+    control_count = _native_window_count(control_pid)
+    assert control_count >= 1, (
+        f"probe self-check: the sweep said pid {control_pid} owns a window but "
+        f"the count probe read {control_count} — the probe is broken; this is "
+        f"NOT evidence about the supervisor"
+    )
+
+    root = _fault_root(tmp_path, "window-regression")
+    with _reaped_fault_supervisor(root, "never-ready") as process:
+        _wait_for_event(root, "child-bound", timeout=60.0, process=process)
+        deadline = time.monotonic() + 15.0
+        count = 0
+        while time.monotonic() < deadline:
+            # The just-launched supervisor may not be an AX "application
+            # process" yet; that transient raise is retried, not absence.
+            with contextlib.suppress(RuntimeError):
+                count = _native_window_count(process.pid)
+            if count >= 1:
+                break
+            time.sleep(0.5)
+        assert count >= 1, (
+            f"supervisor pid {process.pid} owns {count} native windows while "
+            f"running — issue #423 regressed. The probe is NOT blind: pid "
+            f"{control_pid} showed {control_count} window(s) this same run."
+        )
+        title = _osascript(
+            'tell application "System Events" to get name of window 1 of '
+            f"(first application process whose unix id is {process.pid})"
+        )
+        assert "arXMCP" in title, f"unexpected supervisor window title: {title!r}"
+
+
 @pytest.mark.requires_desktop_stack
 def test_real_server_bare_stdin_eof_is_bounded_cleanup(tmp_path: Path) -> None:
     """m6: the mandatory REAL-server fault case — bare stdin EOF, no shutdown
