@@ -1,0 +1,459 @@
+schema: roadmap/1
+slug: windows-distribution
+project: arxmcp
+title: "arXMCP for Windows — trusted native distribution"
+status: active
+phase: complete          # init -> refined -> decomposed -> sequenced -> complete
+brief: |
+  Build a production Windows distribution in parallel with macOS, reusing the shared desktop/server contract, lifecycle supervisor, MCP endpoint, and /ui/. Give Windows its own packaging, installer, process-tree cleanup, code-signing and SmartScreen trust, clean-host validation, upgrade and data-safety, and support milestones. Materialize epics, executable milestones, spikes, issues, dependencies, labels, native GitHub milestones, and Windows-specific views in the existing arXMCP - Delivery project. Cross-link the macOS program and remove its Windows-only-after-macOS-v1 sequencing constraint without duplicating shared desktop-distribution-m4 work. Resolve platform/version support, installer format, signing provider, ARM64 support, and update channel through explicit roadmap discovery rather than premature assumptions.
+horizon: { start: 2026-08-10, end: 2026-11-20 }
+goal:
+  hmw: "How might we make arXMCP a trustworthy, supportable native Windows application so that a Windows-based research mathematician can install, launch, update, and recover it without managing Python or bypassing Windows security?"
+  objective: "Make arXMCP dependable to install, operate, update, and recover on supported Windows hosts while preserving one cross-platform desktop/server contract and the local-first, loopback-only product boundary."
+  key_results:
+    - "On every declared supported Windows version and architecture, a clean-host release test installs the signed artifact, launches the existing /ui/ and MCP endpoint without Python, Git, a repository checkout, or a terminal, verifies the expected publisher, and needs no instruction to disable or weaken Windows security; any SmartScreen warning and reputation state is measured and documented honestly"
+    - "Thirty consecutive Windows launch-to-ready-to-MCP-to-quit cycles plus the forced-failure matrix leave 0 descendant processes, 0 loopback listeners, and 0 startup-capability disclosures after bounded shutdown"
+    - "Clean install, version upgrade, interrupted or rejected update, rollback, repair, and uninstall-with-data-preservation scenarios retain 100% of the fixture corpus, notebooks, configuration, and backups unless the operator explicitly chooses deletion"
+    - "The shared Rust/Python desktop conformance suite passes byte-for-byte on Windows using the same v1 fixtures, application-data layout, readiness contract, and lifecycle state machine as macOS, with 0 Windows-only protocol forks or duplicate implementations of desktop-distribution-m4"
+    - "Before public beta, a published support matrix names the tested Windows versions, architectures, installer and update policy, recovery path, and support boundaries; every supported tuple has a reproducible clean-host evidence record and 0 unresolved CRITICAL or HIGH release findings"
+  assumptions:
+    - tier: must
+      text: "The existing platform-neutral desktop contract and lifecycle state machine can be implemented on Windows with Windows-native process-tree ownership while keeping one wire protocol, one application-data layout, and one shared desktop-distribution-m4 behavior set"
+      validation: "windows-distribution-spike-1 builds and runs the locked Rust/Python conformance and lifecycle fault matrix on a clean Windows x64 host, proves descendant teardown through a Job Object with JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE or records why that primitive is insufficient, inventories every portability gap, and stops decomposition of the lifecycle lane if a protocol fork would be required"
+    - tier: must
+      text: "The Python server, native libraries, model-loading path, MCP shim, and /ui/ assets can be packaged into a relocatable Windows application that needs neither the repository nor a pre-existing Python installation"
+      validation: "windows-distribution-spike-2 uses a Windows build host (PyInstaller is not treated as a cross-compiler) to produce a disposable frozen runtime, launches it from a read-only application location on a separate clean Windows VM, exercises /readyz, /ui/, one MCP request, and model discovery, and inventories missing binaries, DLLs, writes, and artifact size"
+    - tier: must
+      text: "A code-signing identity and provider route can be obtained within the program's budget and can produce an installer whose signature, timestamp, publisher identity, and honestly characterized SmartScreen reputation behavior are acceptable on clean supported hosts"
+      validation: "windows-distribution-spike-3 compares Microsoft Artifact Signing and viable certificate-provider routes, signs a throwaway artifact without committing credentials, verifies it with Windows-native tooling on clean hosts, records the SmartScreen warning and reputation result without assuming signing suppresses it, records cost, lead time, and renewal path, and gates public beta on owner procurement approval"
+    - tier: should
+      text: "Windows x64 can serve as a useful first support floor while Windows version breadth and native ARM64 packaging are resolved from clean-host evidence rather than assumed"
+      validation: "The support-matrix discovery lane tests candidate Windows versions and x64/ARM64 build and dependency availability; if ARM64 is not release-ready, publish x64-only support with ARM64 explicitly unsupported, and if current supported Windows releases diverge materially, split their release gates"
+    - tier: should
+      text: "One Windows installer and update strategy can provide signed, operator-comprehensible upgrade and rollback semantics without coupling mutable data to the application directory"
+      validation: "The installer-format spike compares Tauri's Windows-built MSI/WiX and NSIS routes, credible Microsoft Store packaging, and WebView2 deployment modes, then exercises install, upgrade, failed update, rollback, repair, and uninstall-preserving-data; if no in-app-safe updater passes, fall back to a signed user-initiated installer plus preflight backup and documented rollback"
+    - tier: might
+      text: "Automatic background updates or a separate native ARM64 artifact will provide enough near-term user value to justify their additional signing, hosting, test-matrix, and support cost"
+      validation: "Revisit at sequencing after the support-matrix, installer, signing, and update-channel spikes report evidence; default to a signed user-initiated x64 release when value is unproven"
+  wont:
+    - "No Windows-only rewrite of the shared desktop/server protocol, application-data layout, lifecycle state machine, MCP endpoint, or /ui/; Windows owns adapters, packaging, trust, validation, and support"
+    - "No duplicate implementation of desktop-distribution-m4; this roadmap consumes the shared lifecycle walking skeleton and adds only Windows-specific process-tree and release evidence"
+    - "No dependency on macOS v1 completion before Windows work may begin; only concrete shared-contract milestones form cross-roadmap dependency edges"
+    - "No preselection of Microsoft Store versus direct distribution, MSIX, MSI/WiX, NSIS, WebView2 deployment mode, Artifact Signing versus a certificate provider, an update channel, a Windows version floor, or native ARM64 support before the named discovery evidence exists"
+    - "No weakening of the single-user, local-first, loopback-only security boundary and no cloud, remote-administration, Windows Server, or managed-enterprise deployment mode"
+    - "No SPA or platform-specific operator-console rewrite; the shipped server-rendered /ui/ remains the desktop surface"
+    - "No bundling or automatic download of the full research corpus in the installer; corpus acquisition remains an explicit operator action"
+  evidence:
+    - "plans/desktop-distribution-roadmap.md:25-65 — macOS roadmap establishes the shared cross-platform boundary, production-grade release outcomes, and the prior Windows-only-after-macOS-v1 constraint this roadmap removes"
+    - "plans/desktop-distribution-roadmap.md:214-246 — desktop-distribution-m3/m4 define the versioned contract and shared lifecycle walking skeleton that Windows must consume rather than duplicate"
+    - "apps/desktop/README.md:3-26 — current production boundary already names Windows x86-64 as a portability target, requires one protocol/data layout, and states that Windows packaging, process control, and signing gates have not landed"
+    - "apps/desktop/README.md:50-58,120-136 — the locked cross-language conformance gate, Windows .exe invocation, shared fixture corpus, and model-free sidecar are existing reusable validation substrate"
+    - "tests/test_desktop_contract.py:35-67 — Python conformance already includes a Windows-path fixture and Windows executable resolution"
+    - ".claude/notes/spikes/desktop-distribution-spike-3.md:3-7,64-80,136-154 — lifecycle GO evidence is macOS/Unix-process-group specific and explicitly does not prove Windows cleanup, production integration, bundling, or signing"
+    - "docs/install.md:41-98 — native Windows server and /ui/ operation exists today only as a developer-managed PowerShell/venv flow with degraded POSIX security features and platform test gaps"
+    - "tools/desktop_lifecycle_spike/tauri.conf.json:6-12 — the current lifecycle proof intentionally has no application window or active bundle, so it is not a Windows distribution artifact"
+    - "AGENTS.md:55,103,255-265 — arXMCP remains a single-user, single-workstation, loopback-only tool provider with operator-gated writes; distribution work may not widen that boundary"
+generated_by: { agent: codex-gpt-5, at: "2026-08-07" }
+generations:
+  - { rev: 1, at: "2026-08-07" }
+retired: []          # tombstoned item ids; ids are write-once, never deleted
+items:
+  - id: windows-distribution-e1
+    kind: epic
+    title: "Prove the Windows portability and support floor"
+    summary: "Exercise the locked Rust/Python contract, relocatable server, Windows-native process-tree ownership, and candidate OS/architecture matrix on clean Windows hosts, then record the supported tuples and portability gaps. This enabler unblocks e2, e3, and e4 while consuming the shared desktop contract and desktop-distribution-m4 lifecycle walking skeleton; it must not create a Windows-only protocol or duplicate lifecycle implementation. Specialist: general-purpose, with security review for the Job Object boundary."
+    priority: must
+    size: M
+    rice: { r: 5, i: 3, c: 0.5, e: 3, score: 2.5, rank: 2 }
+    tags: [enabler, windows, portability, specialist-general-purpose]
+    acceptance:
+      - "The shared Rust/Python v1 fixtures pass byte-for-byte on the selected Windows support floor with one application-data layout and no Windows-only wire behavior"
+      - "A Windows-native process-tree ownership proof demonstrates bounded descendant teardown or records a blocking gap without weakening the shared lifecycle contract"
+      - "A Windows-built disposable frozen runtime reaches /readyz, serves /ui/, completes one MCP request, and discovers models on a separate clean host without Python, Git, a checkout, or repository-relative writes"
+      - "The evidence names the candidate Windows versions and x64/ARM64 disposition, and defers unsupported tuples explicitly rather than treating them as shipped"
+      - "The dependency record points to shared desktop-distribution-m4 behavior and contains no duplicate Windows lifecycle milestone"
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/400"]
+      code: ["apps/desktop/README.md", "apps/desktop/crates/desktop-contract/src/lib.rs", "tests/test_desktop_contract.py", "tools/desktop_lifecycle_spike/src/lib.rs"]
+      note: ["plans/desktop-distribution-roadmap.md#desktop-distribution-m4", ".claude/notes/spikes/desktop-distribution-spike-3.md"]
+
+  - id: windows-distribution-e2
+    kind: epic
+    title: "Install a signed Windows application on clean hosts"
+    summary: "Produce and sign a Windows-native installer that launches the existing /ui/ and MCP endpoint through the shared desktop-distribution-m4 lifecycle, verifies its publisher and timestamp, and reports SmartScreen reputation honestly on clean supported hosts. Installer format, WebView2 mode, and signing provider remain evidence-driven choices. Specialist: security."
+    priority: must
+    size: L
+    rice: { r: 5, i: 3, c: 0.5, e: 4, score: 1.88, rank: 3 }
+    depends_on: [windows-distribution-e1]
+    tags: [value, windows, installer, signing, specialist-security]
+    acceptance:
+      - "Every selected supported tuple installs the signed artifact and launches /ui/ plus the MCP endpoint without Python, Git, a repository checkout, or a terminal"
+      - "Windows-native verification reports the expected publisher, a valid timestamped signature, and no committed signing credential or secret-bearing build input"
+      - "Clean-host evidence records the actual SmartScreen warning and reputation state without claiming that signing alone suppresses warnings"
+      - "The installed application preserves the loopback-only, single-user boundary and reuses the shared lifecycle and server contract without a platform-specific /ui/ or protocol fork"
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/401"]
+      code: ["apps/desktop/README.md", "docs/install.md", "tools/desktop_lifecycle_spike/tauri.conf.json"]
+      note: ["plans/desktop-distribution-roadmap.md#desktop-distribution-m4"]
+
+  - id: windows-distribution-e3
+    kind: epic
+    title: "Close the Windows process tree after every exit"
+    summary: "Add the Windows-native supervision and diagnostics needed for shared desktop-distribution-m4 to own one server instance, survive startup and sidecar failures, and close the full descendant tree and loopback listener after normal, forced, or supervisor exits. Specialist: general-purpose, with security review for containment and teardown."
+    priority: must
+    size: M
+    rice: { r: 5, i: 3, c: 0.5, e: 2.5, score: 3.0, rank: 1 }
+    depends_on: [windows-distribution-e1]
+    tags: [value, windows, lifecycle, security, specialist-general-purpose]
+    acceptance:
+      - "Thirty consecutive launch-to-ready-to-MCP-to-quit cycles leave zero descendant processes and zero loopback listeners after bounded shutdown"
+      - "The forced-failure matrix covers startup timeout, sidecar crash, supervisor crash, rejected second launch, and forced termination with zero orphaned descendants"
+      - "Starting, ready, degraded, and failed states expose redacted diagnostics without disclosing startup capabilities or widening the bind boundary"
+      - "The implementation is a Windows adapter for the shared lifecycle state machine and fixtures, not a duplicate of desktop-distribution-m4"
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/402"]
+      code: ["apps/desktop/README.md", "tools/desktop_lifecycle_spike/src/lib.rs", "tools/desktop_lifecycle_spike/src/main.rs"]
+      note: ["plans/desktop-distribution-roadmap.md#desktop-distribution-m4", ".claude/notes/spikes/desktop-distribution-spike-3.md"]
+
+  - id: windows-distribution-e4
+    kind: epic
+    title: "Preserve operator data through Windows servicing"
+    summary: "Select and deliver the signed Windows upgrade path through executable install, upgrade, interrupted or rejected update, rollback, repair, and uninstall-preserving-data journeys, keeping mutable state outside the application directory. Automatic background updates remain optional; a signed user-initiated installer with preflight backup is the fallback. Specialist: release-manager."
+    priority: should
+    size: L
+    rice: { r: 4, i: 3, c: 0.5, e: 5, score: 1.2, rank: 5 }
+    depends_on: [windows-distribution-e2]
+    tags: [value, windows, upgrade, recovery, specialist-release-manager]
+    acceptance:
+      - "Clean install, version upgrade, interrupted or rejected update, rollback, repair, and uninstall-preserving-data retain 100% of the fixture corpus, notebooks, configuration, and backups"
+      - "Uninstall deletes operator data only after an explicit deletion choice, and the default path leaves a documented recoverable data root"
+      - "A failed servicing operation leaves either the prior runnable signed version or a documented repair path backed by a preflight backup"
+      - "Installer and update behavior is reproducible on each selected supported tuple, with background update and native ARM64 support shipped only when their evidence gates pass"
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/403"]
+      code: ["apps/desktop/README.md", "docs/install.md", "tools/desktop_lifecycle_spike/tauri.conf.json"]
+
+  - id: windows-distribution-e5
+    kind: epic
+    title: "Publish the supported Windows beta boundary"
+    summary: "Turn the clean-host install, lifecycle, and servicing evidence into a public-beta support matrix, recovery path, release checklist, and support boundary that cross-links the macOS program without waiting for macOS v1. Each supported tuple is gated independently, and unsupported versions, architectures, or update modes are named plainly. Specialist: release-manager."
+    priority: should
+    size: M
+    rice: { r: 5, i: 2, c: 0.5, e: 3, score: 1.67, rank: 4 }
+    depends_on: [windows-distribution-e3, windows-distribution-e4]
+    tags: [value, windows, support, release, specialist-release-manager]
+    acceptance:
+      - "The published matrix names the tested Windows versions, architectures, installer and update policy, recovery path, and explicit unsupported boundaries"
+      - "Every supported tuple links to reproducible clean-host install, signature, SmartScreen, lifecycle, upgrade, rollback, repair, and uninstall evidence"
+      - "The public-beta gate has zero unresolved CRITICAL or HIGH release findings and does not describe warnings, reputation, or untested tuples as passing"
+      - "Cross-roadmap links identify the shared desktop contract and desktop-distribution-m4 as reused dependencies while imposing no dependency on macOS v1 completion"
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/404"]
+      code: ["apps/desktop/README.md", "docs/install.md"]
+      note: ["plans/desktop-distribution-roadmap.md#desktop-distribution-m4"]
+
+  # Discovery lane: every unvalidated must and both load-bearing should assumptions.
+
+  - id: windows-distribution-spike-1
+    kind: spike
+    status: done
+    title: "Prove Windows process-tree ownership against the shared lifecycle"
+    summary: "Output: decision doc at plans/windows-distribution-spike-1-decision.md recording the locked Rust/Python conformance and lifecycle fault matrix, the Job Object proof with JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, every portability gap, and a stop decision if desktop-distribution-m4 would require a Windows-only protocol fork."
+    parent: windows-distribution-e1
+    lane: now
+    estimate_days: 3
+    target_start: 2026-08-10
+    target_end: 2026-08-12
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/410"]
+      code: ["apps/desktop/crates/desktop-contract/src/lib.rs", "apps/desktop/crates/desktop-contract/tests/contract.rs", "tests/test_desktop_contract.py", "tools/desktop_lifecycle_spike/src/lib.rs"]
+      note: ["plans/windows-distribution-spike-1-decision.md", "plans/desktop-distribution-roadmap.md#desktop-distribution-m4"]
+
+  - id: windows-distribution-spike-2
+    kind: spike
+    status: done
+    title: "Freeze and relocate the Windows server runtime"
+    summary: "Output: decision doc at plans/windows-distribution-spike-2-decision.md recording a Windows-built disposable frozen runtime exercised from a read-only application location on a separate clean Windows host, including /readyz, /ui/, one MCP request, model discovery, missing DLLs, unexpected writes, and artifact size."
+    parent: windows-distribution-e1
+    lane: now
+    estimate_days: 3
+    target_start: 2026-08-10
+    target_end: 2026-08-12
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/411"]
+      code: ["apps/desktop/README.md", "apps/desktop/crates/fixture-sidecar/src/main.rs", "docs/install.md"]
+      note: ["plans/windows-distribution-spike-2-decision.md"]
+
+  - id: windows-distribution-spike-3
+    kind: spike
+    title: "Choose an attainable Windows signing route"
+    summary: "Output: decision doc at plans/windows-distribution-spike-3-decision.md comparing Microsoft Artifact Signing and viable certificate-provider routes, with throwaway-artifact signature and timestamp evidence, observed SmartScreen state on clean hosts, cost, lead time, renewal, credential handling, and the owner procurement gate."
+    parent: windows-distribution-e2
+    lane: next
+    estimate_days: 3
+    target_start: 2026-09-21
+    target_end: 2026-09-23
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/412"]
+      code: ["apps/desktop/README.md", "tools/desktop_lifecycle_spike/tauri.conf.json"]
+      note: ["plans/windows-distribution-spike-3-decision.md"]
+
+  - id: windows-distribution-spike-4
+    kind: spike
+    status: done
+    title: "Choose the first supported Windows tuples"
+    summary: "Output: decision doc at plans/windows-distribution-spike-4-decision.md naming the clean-host evidence for candidate Windows versions and x64/ARM64 dependency availability, the first support floor, explicitly unsupported tuples, and the fallback to x64-only support when native ARM64 is not release-ready."
+    parent: windows-distribution-e1
+    lane: now
+    estimate_days: 3
+    target_start: 2026-08-10
+    target_end: 2026-08-14
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/413"]
+      code: ["apps/desktop/README.md", "apps/desktop/contract-fixtures/launch-v1-windows-path.jsonl", "tests/test_desktop_contract.py", "docs/install.md"]
+      note: ["plans/windows-distribution-spike-4-decision.md"]
+
+  - id: windows-distribution-spike-5
+    kind: spike
+    title: "Choose the Windows installer and update strategy"
+    summary: "Output: decision doc at plans/windows-distribution-spike-5-decision.md comparing Windows-built MSI/WiX and NSIS routes, credible Microsoft Store packaging, WebView2 deployment modes, and update channels through install, upgrade, failed update, rollback, repair, and uninstall-preserving-data evidence, with a signed user-initiated installer plus preflight backup as the fallback."
+    parent: windows-distribution-e2
+    lane: next
+    estimate_days: 3
+    target_start: 2026-09-21
+    target_end: 2026-09-25
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/414"]
+      code: ["apps/desktop/README.md", "docs/install.md", "tools/desktop_lifecycle_spike/tauri.conf.json"]
+      note: ["plans/windows-distribution-spike-5-decision.md"]
+
+  # Now: the two highest-ranked Must epics fit the six-week capacity envelope.
+
+  - id: windows-distribution-m1
+    kind: milestone
+    title: "Windows portability and support floor proved"
+    summary: "Prove the existing shared desktop/server contract and desktop-distribution-m4 behavior on clean Windows hosts, produce a relocatable frozen runtime, and name the first supported tuples without creating a Windows-only protocol or duplicate lifecycle implementation."
+    parent: windows-distribution-e1
+    lane: now
+    target_start: 2026-08-10
+    target_end: 2026-08-28
+    depends_on: [windows-distribution-spike-1, windows-distribution-spike-2, windows-distribution-spike-4]
+    external_writes_required: ["git push origin main"]
+    acceptance:
+      - "Given the shared desktop-distribution-m4 lifecycle walking skeleton and v1 fixtures, when the Rust/Python conformance suite runs on the selected Windows support floor, then every fixture passes byte-for-byte with one wire protocol and one application-data layout"
+      - "Given a Windows-built frozen runtime in a read-only application location on a separate clean host, when it starts without Python, Git, a checkout, or a terminal, then /readyz, /ui/, one MCP request, and model discovery succeed with no repository-relative writes"
+      - "Given the candidate Windows versions and x64/ARM64 evidence, when the support-floor record is published locally, then supported and unsupported tuples are explicit and the dependency points to desktop-distribution-m4 without an internal surrogate item"
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/405"]
+      code: ["apps/desktop/README.md", "apps/desktop/crates/desktop-contract/src/lib.rs", "apps/desktop/crates/desktop-contract/tests/contract.rs", "tests/test_desktop_contract.py"]
+      note: ["plans/desktop-distribution-roadmap.md#desktop-distribution-m4"]
+
+  - id: windows-distribution-t-contract-conformance
+    kind: task
+    title: "Run the shared contract fixtures on Windows"
+    parent: windows-distribution-m1
+    lane: now
+    priority: must
+    estimate_days: 3
+    target_end: 2026-08-18
+    depends_on: [windows-distribution-spike-1]
+    external_writes_required: ["git push origin main"]
+    acceptance:
+      - "Given the desktop-distribution-m4 manifest and locked v1 fixtures, when the Rust and Python suites run on Windows x64, then their serialized contract results are byte-identical and no Windows-only field or state is introduced"
+      - "Given Windows executable paths and the shared data-root fixture, when process launch and readiness are exercised, then .exe resolution, Unicode paths, and the loopback endpoint follow the existing cross-platform contract"
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/415"]
+      code: ["apps/desktop/crates/desktop-contract/src/lib.rs", "apps/desktop/crates/desktop-contract/tests/contract.rs", "apps/desktop/contract-fixtures/launch-v1-windows-path.jsonl", "tests/test_desktop_contract.py"]
+
+  - id: windows-distribution-t-clean-host-runtime
+    kind: task
+    title: "Automate the clean-host frozen-runtime proof"
+    parent: windows-distribution-m1
+    lane: now
+    priority: must
+    estimate_days: 3
+    target_end: 2026-08-21
+    depends_on: [windows-distribution-spike-2]
+    external_writes_required: ["git push origin main"]
+    acceptance:
+      - "Given a Windows-built disposable runtime copied to a read-only application directory on a clean host, when the smoke suite runs, then /readyz, /ui/, one MCP request, and model discovery succeed without ambient Python or repository access"
+      - "Given the smoke suite's filesystem and module-load trace, when it completes, then every mutable write is beneath the application-data root and every required DLL or native binary is inventoried"
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/416"]
+      code: ["apps/desktop/README.md", "apps/desktop/crates/fixture-sidecar/src/main.rs", "docs/install.md"]
+
+  - id: windows-distribution-t-support-floor
+    kind: task
+    title: "Record the tested Windows support floor"
+    parent: windows-distribution-m1
+    lane: now
+    priority: must
+    estimate_days: 3
+    target_end: 2026-08-25
+    depends_on: [windows-distribution-spike-4, windows-distribution-t-clean-host-runtime]
+    external_writes_required: ["git push origin main"]
+    acceptance:
+      - "Given the candidate Windows-version and architecture matrix, when clean-host contract and runtime evidence is compared, then every supported tuple has a reproducible evidence row and every untested or failing tuple is marked unsupported"
+      - "Given native ARM64 dependency gaps, when any release gate is unmet, then the recorded support floor remains x64-only and does not imply emulation or native ARM64 support"
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/417"]
+      code: ["apps/desktop/README.md", "docs/install.md", "tests/test_desktop_contract.py"]
+
+  - id: windows-distribution-t-portability-ledger
+    kind: task
+    title: "Publish the portability gaps and dependency record"
+    parent: windows-distribution-m1
+    lane: now
+    priority: should
+    estimate_days: 2
+    target_end: 2026-08-28
+    depends_on: [windows-distribution-t-contract-conformance, windows-distribution-t-clean-host-runtime, windows-distribution-t-support-floor]
+    external_writes_required: ["git push origin main"]
+    acceptance:
+      - "Given the completed contract, runtime, and support-floor runs, when the portability ledger is written, then every gap names an owner or blocking decision and the cross-roadmap dependency is the existing desktop-distribution-m4 identifier rather than a duplicated internal item"
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/418"]
+      code: ["apps/desktop/README.md", "docs/install.md"]
+      note: ["plans/desktop-distribution-roadmap.md#desktop-distribution-m4"]
+
+  - id: windows-distribution-m2
+    kind: milestone
+    title: "Every Windows exit closes the full process tree"
+    summary: "Add only the Windows-native process ownership, containment, and diagnostics adapter required by the shared desktop-distribution-m4 lifecycle, then prove bounded cleanup across normal and forced exits without widening the loopback-only boundary."
+    parent: windows-distribution-e3
+    lane: now
+    target_start: 2026-08-31
+    target_end: 2026-09-18
+    depends_on: [windows-distribution-m1]
+    external_writes_required: ["git push origin main"]
+    acceptance:
+      - "Given the shared desktop-distribution-m4 lifecycle state machine with the Windows Job Object adapter, when 30 launch-to-ready-to-MCP-to-quit cycles run, then zero descendant processes and zero loopback listeners remain after bounded shutdown"
+      - "Given startup timeout, sidecar crash, supervisor crash, rejected second launch, and forced termination, when each failure is injected, then the full descendant tree is closed and redacted diagnostics identify the failing state"
+      - "Given starting, ready, degraded, and failed states, when diagnostics are inspected, then startup capabilities remain undisclosed and no listener binds beyond loopback"
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/406"]
+      code: ["apps/desktop/README.md", "tools/desktop_lifecycle_spike/src/lib.rs", "tools/desktop_lifecycle_spike/src/main.rs"]
+      note: ["plans/desktop-distribution-roadmap.md#desktop-distribution-m4"]
+
+  - id: windows-distribution-t-job-object-adapter
+    kind: task
+    title: "Own the server tree with a Windows Job Object"
+    parent: windows-distribution-m2
+    lane: now
+    priority: must
+    estimate_days: 3
+    target_end: 2026-09-04
+    depends_on: [windows-distribution-m1]
+    external_writes_required: ["git push origin main"]
+    acceptance:
+      - "Given the shared supervisor launches the Windows server, when the child and its descendants are assigned to the Job Object, then closing the owner with JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE terminates the complete tree within the bounded shutdown interval"
+      - "Given Job Object assignment or containment fails, when startup evaluates the error, then launch fails closed with a redacted diagnostic instead of starting an unowned server"
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/419"]
+      code: ["tools/desktop_lifecycle_spike/src/lib.rs", "tools/desktop_lifecycle_spike/src/main.rs"]
+
+  - id: windows-distribution-t-lifecycle-failure-matrix
+    kind: task
+    title: "Exercise the Windows lifecycle failure matrix"
+    parent: windows-distribution-m2
+    lane: now
+    priority: must
+    estimate_days: 3
+    target_end: 2026-09-10
+    depends_on: [windows-distribution-t-job-object-adapter]
+    external_writes_required: ["git push origin main"]
+    acceptance:
+      - "Given startup timeout, sidecar crash, supervisor crash, rejected second launch, and forced termination fixtures, when each path runs on Windows, then bounded cleanup leaves zero descendant processes and zero loopback listeners"
+      - "Given a failure before readiness, when cleanup completes, then a subsequent launch can acquire single-instance ownership and reuse no stale capability"
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/420"]
+      code: ["tools/desktop_lifecycle_spike/run_spike.py", "tools/desktop_lifecycle_spike/src/lib.rs"]
+
+  - id: windows-distribution-t-redacted-diagnostics
+    kind: task
+    title: "Expose redacted Windows lifecycle diagnostics"
+    parent: windows-distribution-m2
+    lane: now
+    priority: must
+    estimate_days: 2
+    target_end: 2026-09-11
+    depends_on: [windows-distribution-t-job-object-adapter]
+    external_writes_required: ["git push origin main"]
+    acceptance:
+      - "Given starting, ready, degraded, and failed lifecycle transitions, when an operator inspects diagnostics, then the state, bounded action, and recovery hint are visible without startup tokens, capability values, corpus content, or non-loopback endpoints"
+      - "Given any configured bind value outside loopback, when the Windows supervisor validates startup, then it rejects launch before the server begins listening"
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/421"]
+      code: ["tools/desktop_lifecycle_spike/src/lib.rs", "tools/desktop_lifecycle_spike/src/main.rs"]
+
+  - id: windows-distribution-t-lifecycle-soak
+    kind: task
+    title: "Run the thirty-cycle cleanup soak"
+    parent: windows-distribution-m2
+    lane: now
+    priority: must
+    estimate_days: 2
+    target_end: 2026-09-18
+    depends_on: [windows-distribution-t-lifecycle-failure-matrix, windows-distribution-t-redacted-diagnostics]
+    external_writes_required: ["git push origin main"]
+    acceptance:
+      - "Given a clean supported Windows host, when 30 consecutive launch-to-ready-to-MCP-to-quit cycles complete, then process enumeration and listener inspection report zero residual descendants and zero residual loopback listeners after every cycle"
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/422"]
+      code: ["tools/desktop_lifecycle_spike/run_spike.py", "tools/desktop_lifecycle_spike/src/lib.rs"]
+
+  # Next: the remaining Must and the top Should, shaped without task decomposition.
+
+  - id: windows-distribution-m3
+    kind: milestone
+    title: "Signed Windows application installs on clean hosts"
+    summary: "Select the evidence-backed installer, WebView2, and signing routes, then produce a timestamped Windows artifact that launches the existing /ui/ and MCP endpoint through desktop-distribution-m4 on every selected supported tuple while reporting SmartScreen reputation honestly."
+    parent: windows-distribution-e2
+    lane: next
+    target_start: 2026-09-28
+    target_end: 2026-10-23
+    depends_on: [windows-distribution-m1, windows-distribution-spike-3, windows-distribution-spike-5]
+    external_writes_required: ["git push origin main", "provision the owner-approved Windows code-signing identity", "submit artifacts to the approved signing and timestamp services"]
+    acceptance:
+      - "Given each selected supported Windows tuple, when the signed installer runs on a clean host, then the installed application launches /ui/ and the MCP endpoint without Python, Git, a checkout, or a terminal"
+      - "Given the installed binaries and installer, when Windows-native signature verification runs, then the expected publisher and valid timestamp are reported and no signing credential is committed or embedded in a build input"
+      - "Given a newly signed artifact on clean hosts, when SmartScreen evaluates it, then the actual warning and reputation state are recorded without claiming that signing alone suppresses warnings"
+      - "Given the application launches through the shared lifecycle, when its protocol and bind behavior are inspected, then it reuses desktop-distribution-m4, the existing /ui/, and the loopback-only boundary without a platform-specific fork"
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/407"]
+      code: ["apps/desktop/README.md", "docs/install.md", "tools/desktop_lifecycle_spike/tauri.conf.json"]
+      note: ["plans/desktop-distribution-roadmap.md#desktop-distribution-m4"]
+
+  - id: windows-distribution-m4
+    kind: milestone
+    title: "Windows servicing preserves operator data"
+    summary: "Deliver the selected signed install and upgrade path through clean install, upgrade, rejected or interrupted update, rollback, repair, and uninstall-preserving-data journeys, with mutable state outside the application directory and the user-initiated signed installer fallback retained."
+    parent: windows-distribution-e4
+    lane: next
+    target_start: 2026-10-26
+    target_end: 2026-11-20
+    depends_on: [windows-distribution-m3, windows-distribution-spike-5]
+    external_writes_required: ["git push origin main", "publish signed servicing artifacts to the owner-approved test channel"]
+    acceptance:
+      - "Given clean install, version upgrade, rejected or interrupted update, rollback, repair, and uninstall-preserving-data fixtures, when each journey runs on every selected supported tuple, then 100% of corpus fixtures, notebooks, configuration, and backups remain recoverable"
+      - "Given the default uninstall path, when uninstall completes without an explicit deletion choice, then the documented application-data root remains intact and recoverable"
+      - "Given a failed servicing operation, when recovery begins, then either the prior signed version remains runnable or the documented repair path restores it from a preflight backup"
+      - "Given background update or native ARM64 evidence does not pass its gate, when the servicing policy is published locally, then the release uses the signed user-initiated installer and marks the unproven mode unsupported"
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/408"]
+      code: ["apps/desktop/README.md", "docs/install.md", "tools/desktop_lifecycle_spike/tauri.conf.json"]
+
+  # Later: outcome only; decomposition waits for Now/Next evidence.
+
+  - id: windows-distribution-m5
+    kind: milestone
+    title: "Supported Windows beta boundary published"
+    summary: "Publish the tested Windows versions, architectures, installer/update policy, recovery path, reproducible evidence links, and explicit unsupported boundaries only after install, lifecycle, and servicing gates are green; cross-link desktop-distribution-m4 without waiting for macOS v1 completion."
+    parent: windows-distribution-e5
+    lane: later
+    depends_on: [windows-distribution-m2, windows-distribution-m4]
+    external_writes_required: ["git push origin main", "publish the owner-approved public-beta support boundary and release evidence"]
+    links:
+      issue: ["https://github.com/chris-dare-dev/arXMCP/issues/409"]
+      code: ["apps/desktop/README.md", "docs/install.md"]
+      note: ["plans/desktop-distribution-roadmap.md#desktop-distribution-m4"]

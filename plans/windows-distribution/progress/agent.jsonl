@@ -1,0 +1,4 @@
+{"id": "windows-distribution-spike-1", "field": "status", "value": "done", "at": "2026-08-08T10:10:28-04:00", "actor": "milestone-pipeline", "note": "accepted UNCERTAIN; SDK installed, native path-normalization defect isolated"}
+{"id": "windows-distribution-spike-2", "field": "status", "value": "done", "at": "2026-08-08T10:10:29-04:00", "actor": "milestone-pipeline", "note": "accepted UNCERTAIN; PyInstaller onedir transfer-ready, clean-host qualification pending"}
+{"id": "windows-distribution-spike-4", "field": "status", "value": "done", "at": "2026-08-08T10:10:29-04:00", "actor": "milestone-pipeline", "note": "accepted UNCERTAIN; Windows 11 25H2 x64 candidate, ARM64 deferred"}
+{"id": "windows-distribution-m1", "field": "status", "value": "in_progress", "at": "2026-08-08T10:10:30-04:00", "actor": "milestone-pipeline", "note": "Windows-owned milestone pipeline research started"}

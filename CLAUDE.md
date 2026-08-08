@@ -5,6 +5,17 @@ captures the project's mission, current state, working conventions, and the
 landmines learned across E01–E09. **If you're a new agent picking up this
 codebase, read this top-to-bottom before touching code.**
 
+## Distribution machine ownership (2026-08-08)
+
+- The Windows machine owned by Chris is the build and execution authority for
+  the Windows distribution roadmap and its Windows-specific milestones.
+- Chris's separate Mac and the agents running there are the build and execution
+  authority for the macOS distribution roadmap and macOS-specific milestones.
+- An agent must not take over the other machine's platform implementation or
+  treat results from the wrong host as native release evidence. Shared desktop
+  contract changes may be coordinated across the two tracks, but each platform
+  owner builds, tests, packages, and qualifies its own distribution.
+
 ---
 
 ## 1. Repo doc layout (READ FIRST)
