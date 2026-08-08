@@ -1,0 +1,54 @@
+{
+  "id": "desktop-distribution-m6",
+  "created_at": "2026-08-08T02:30:59Z",
+  "updated_at": "2026-08-08T02:40:34Z",
+  "phase": "implement-running",
+  "phase_history": [
+    {
+      "phase": "init",
+      "at": "2026-08-08T02:30:59Z"
+    },
+    {
+      "phase": "research-running",
+      "at": "2026-08-08T02:30:59Z"
+    },
+    {
+      "phase": "research-complete",
+      "at": "2026-08-08T02:40:34Z"
+    },
+    {
+      "phase": "implement-running",
+      "at": "2026-08-08T02:40:34Z"
+    }
+  ],
+  "milestone_brief": "### desktop-distribution-m6 \u2014 Desktop fault matrix and lifecycle stress\n\n**Description.** Extend the m5 skeleton with the bounded-cleanup fault\nmatrix and the stress evidence M4's remaining acceptance criteria name:\nstartup timeout, malformed bound frame, child crash, supervisor crash, and\nignored shutdown with force escalation, plus the 30-cycle orphan audit and\nsocket-level loopback regression.\n\n**Acceptance criteria.**\n- [ ] Startup timeout, child crash, supervisor crash, and ignored shutdown\n      each complete bounded cleanup leaving no process and no listener.\n- [ ] Every persisted diagnostic is scanned recursively and proven free of\n      the startup capability; the Rust-side diagnostics writer redacts to\n      the same standard as the Python `RedactionFilter`.\n- [ ] Thirty fixture-sidecar cycles run with 30 distinct PIDs, zero orphan\n      process groups, and zero residual listeners; a failed or partial\n      `ps`/`lsof` probe is an evidence failure, never clean absence.\n- [ ] At least one real-server fault case is covered so bounded cleanup is\n      not proven by the fixture alone.\n- [ ] Loopback-only binding is asserted at socket level against the live\n      port, not by comparing a parsed wire field.\n- [ ] `make test` and `make desktop-conformance` exit 0.\n\n**Dependencies.** desktop-distribution-m5\n\n**Complexity.** M\n\n**Specialist suggestion.** `security-reviewer`, `determinism-reviewer`\n\n---",
+  "brief_source": "legacy-prose plans/desktop-distribution-roadmap.md",
+  "research_mode": "single",
+  "oss_scout_requested": false,
+  "allow_large_diff": true,
+  "research_briefs": [
+    ".claude/notes/milestones/desktop-distribution-m6/research/brief-1.md"
+  ],
+  "research_synthesis": ".claude/notes/milestones/desktop-distribution-m6/research/synthesis.md",
+  "implementation_path": "delegated",
+  "implementation_plan": null,
+  "implementation_base": "33b5412aa6bdc42ffeb563259f12ef914825b3c8",
+  "implementation_commit_range": null,
+  "implementation_commits": [],
+  "implementation_branch": null,
+  "external_writes_required": [
+    "git push origin main"
+  ],
+  "critique_path": null,
+  "critics_run": [],
+  "critique_files": [],
+  "critique_finding_counts": null,
+  "findings_register": null,
+  "rectification_commit": null,
+  "fixed_findings": [],
+  "deferred_findings": [],
+  "invalidated_findings": [],
+  "regression_tests_added": [],
+  "external_writes_authorized": [],
+  "external_writes_completed": []
+}
