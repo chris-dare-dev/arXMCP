@@ -1,7 +1,7 @@
 {
   "id": "desktop-distribution-m6",
   "created_at": "2026-08-08T02:30:59Z",
-  "updated_at": "2026-08-08T03:31:46Z",
+  "updated_at": "2026-08-08T04:17:12Z",
   "phase": "rectify-running",
   "phase_history": [
     {
@@ -77,9 +77,37 @@
     "low": 6
   },
   "findings_register": ".claude/notes/milestones/desktop-distribution-m6/findings.json",
-  "rectification_commit": null,
-  "fixed_findings": [],
-  "deferred_findings": [],
+  "rectification_commit": "e22eee5",
+  "fixed_findings": [
+    "C1",
+    "H1",
+    "H2",
+    "H3",
+    "H4",
+    "H5",
+    "H6",
+    "L1",
+    "L2",
+    "L3",
+    "L4",
+    "L5",
+    "L6",
+    "M1",
+    "M10",
+    "M11",
+    "M12",
+    "M13",
+    "M2",
+    "M3",
+    "M4",
+    "M5",
+    "M6",
+    "M7",
+    "M9"
+  ],
+  "deferred_findings": [
+    "M8"
+  ],
   "invalidated_findings": [],
   "regression_tests_added": [
     "tests/test_desktop_contract.py",
