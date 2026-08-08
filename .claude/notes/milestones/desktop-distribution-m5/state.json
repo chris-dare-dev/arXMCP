@@ -1,8 +1,8 @@
 {
   "id": "desktop-distribution-m5",
   "created_at": "2026-08-07T22:49:47Z",
-  "updated_at": "2026-08-08T02:00:31Z",
-  "phase": "rectify-running",
+  "updated_at": "2026-08-08T02:01:02Z",
+  "phase": "complete",
   "phase_history": [
     {
       "phase": "init",
@@ -35,6 +35,10 @@
     {
       "phase": "rectify-running",
       "at": "2026-08-08T01:06:02Z"
+    },
+    {
+      "phase": "complete",
+      "at": "2026-08-08T02:01:02Z"
     }
   ],
   "milestone_brief": "### desktop-distribution-m5 \u2014 Real single-cycle desktop lifecycle\n\n**Description.** Build the production desktop-child entry point and the\nminimal Tauri supervisor, and prove one real launch \u2192 ready \u2192 MCP \u2192 quit\ncycle against the actual `arxmcp-server`. The child binds `127.0.0.1:0`\noutside `Config`, retains the listener, hands the live socket to uvicorn,\nand speaks the M3 `launch`/`bound`/`shutdown` contract. The supervisor\narbitrates single-instance ownership with a native lock, hosts the existing\nserver-rendered `/ui/` in one window, and performs one real MCP smoke.\n\n**Acceptance criteria.**\n- [ ] Given no running instance, when the app launches, then exactly one\n      child server reaches health/readiness and the existing console renders\n      in the desktop window; the child's argv/module target is asserted to be\n      the production entry point, not the fixture sidecar.\n- [ ] Given a ready instance, when an MCP smoke request crosses the announced\n      endpoint, then a real `initialize` + `tools/list` exchange returns the\n      normal response, and the LIVE response bytes hash equal to\n      `EXPECTED_TOOL_SCHEMA_SHA256`.\n- [ ] Given a second launch released from a shared barrier with no delay,\n      then exactly one spawn event occurs and the loser activates the\n      existing app or exits clearly.\n- [ ] Given normal shutdown, bounded cleanup leaves no child process and no\n      residual listener, proven by probes whose own success is asserted.\n- [ ] `Config.validate_port_range` is unchanged and no non-desktop boot path\n      gains the ability to request an ephemeral bind.\n- [ ] `X-ArXMCP-Startup-Token` is enforced on `/readyz` via pure-ASGI\n      middleware scoped to the desktop-child path only; Docker, `make up`,\n      and existing callers are unaffected. `BaseHTTPMiddleware` is not used.\n- [ ] `make test` and `make desktop-conformance` exit 0.\n\n**Dependencies.** desktop-distribution-e2, desktop-distribution-m2,\ndesktop-distribution-m3\n\n**Complexity.** M\n\n**Specialist suggestion.** `mcp-protocol-reviewer`, `security-reviewer`",
@@ -126,5 +130,7 @@
   "external_writes_authorized": [
     "git push origin main"
   ],
-  "external_writes_completed": []
+  "external_writes_completed": [
+    "git push origin main"
+  ]
 }
