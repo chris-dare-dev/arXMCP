@@ -32,6 +32,15 @@ from tools import _notebook_common, wheel_install_check
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
+def _minimal_subprocess_environment() -> dict[str, str]:
+    environment = {"PATH": "/usr/bin:/bin"}
+    if sys.platform == "win32":
+        for name in ("SYSTEMROOT", "WINDIR"):
+            if value := os.environ.get(name):
+                environment[name] = value
+    return environment
+
+
 def test_http_consumers_ignore_import_time_writable_roots(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -366,7 +375,7 @@ def test_server_ingest_child_uses_application_paths(
     assert child_env["ARXMCP_DATA_DIR"] == str(root.resolve())
 
     env = wheel_install_check.build_relocated_child_environment(
-        root, 47300, environ={"PATH": "/usr/bin:/bin"}
+        root, 47300, environ=_minimal_subprocess_environment()
     )
     env["PYTHONPATH"] = str(REPO_ROOT)
     probe = (
@@ -410,7 +419,7 @@ def test_installed_writer_probe_is_independent_of_cwd(tmp_path: Path) -> None:
         root = tmp_path / f"application-data-{ordinal}"
         cwd.mkdir()
         env = wheel_install_check.build_relocated_child_environment(
-            root, 47200 + ordinal, environ={"PATH": "/usr/bin:/bin"}
+            root, 47200 + ordinal, environ=_minimal_subprocess_environment()
         )
         # This always-on test imports the worktree to exercise the same code
         # cheaply.  The full-wheel gate deliberately has no PYTHONPATH and

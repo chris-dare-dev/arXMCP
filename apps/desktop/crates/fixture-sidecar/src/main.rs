@@ -8,6 +8,7 @@ use std::fmt;
 use std::fs;
 use std::io::{self, BufReader, Read, Write};
 use std::net::{Ipv4Addr, TcpListener, TcpStream};
+use std::path::Path;
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::time::Duration;
 
@@ -265,10 +266,40 @@ fn validate_fixture_launch(launch: &Launch, executable_digest: &str) -> Result<(
     let canonical_root = fs::canonicalize(&data_root).map_err(|_| SidecarError::DataRoot)?;
     let log_parent = log_location.parent().ok_or(SidecarError::DataRoot)?;
     let canonical_log_parent = fs::canonicalize(log_parent).map_err(|_| SidecarError::DataRoot)?;
-    if canonical_root != data_root || !canonical_log_parent.starts_with(&canonical_root) {
+    if !canonical_root_matches_wire_input(&canonical_root, &data_root)
+        || !canonical_log_parent.starts_with(&canonical_root)
+    {
         return Err(SidecarError::DataRoot);
     }
     Ok(())
+}
+
+#[cfg(windows)]
+fn canonical_root_matches_wire_input(canonical_root: &Path, wire_root: &Path) -> bool {
+    use std::path::{Component, Prefix};
+
+    let mut canonical_components = canonical_root.components();
+    let Some(Component::Prefix(canonical_prefix)) = canonical_components.next() else {
+        return false;
+    };
+    let Prefix::VerbatimDisk(canonical_drive) = canonical_prefix.kind() else {
+        return false;
+    };
+
+    let mut wire_components = wire_root.components();
+    let Some(Component::Prefix(wire_prefix)) = wire_components.next() else {
+        return false;
+    };
+    let Prefix::Disk(wire_drive) = wire_prefix.kind() else {
+        return false;
+    };
+
+    canonical_drive == wire_drive && canonical_components.eq(wire_components)
+}
+
+#[cfg(not(windows))]
+fn canonical_root_matches_wire_input(canonical_root: &Path, wire_root: &Path) -> bool {
+    canonical_root == wire_root
 }
 
 fn current_executable_sha256() -> Result<String, SidecarError> {
@@ -399,6 +430,9 @@ fn serve_until_stopped(
 
         match listener.accept() {
             Ok((stream, _address)) => {
+                stream
+                    .set_nonblocking(false)
+                    .map_err(|_| SidecarError::Io)?;
                 let ready_served = respond(stream, token, fault);
                 if ready_served && fault == Fault::CrashAfterReady && abort_at.is_none() {
                     abort_at = Some(std::time::Instant::now() + CRASH_DELAY);
@@ -522,4 +556,67 @@ fn respond(mut stream: TcpStream, token: &StartupToken, fault: Fault) -> bool {
     );
     let _ = stream.write_all(response.as_bytes());
     ready_served
+}
+
+#[cfg(test)]
+mod tests {
+    use super::canonical_root_matches_wire_input;
+    use std::fs;
+    use std::path::Path;
+
+    #[cfg(windows)]
+    #[test]
+    fn conventional_windows_wire_path_matches_verbatim_canonical_path() {
+        let canonical = Path::new(r"\\?\C:\Users\fixture\runtime data 数学");
+        let wire = Path::new("C:/Users/fixture/runtime data 数学");
+
+        assert!(canonical_root_matches_wire_input(canonical, wire));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn materially_different_windows_path_does_not_match() {
+        let canonical = Path::new(r"\\?\C:\Users\fixture\runtime data");
+        let wire = Path::new("C:/Users/fixture/other data");
+
+        assert!(!canonical_root_matches_wire_input(canonical, wire));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn verbatim_unc_path_is_not_treated_as_a_drive_wire_path() {
+        let canonical = Path::new(r"\\?\UNC\server\share\runtime data");
+        let wire = Path::new("C:/server/share/runtime data");
+
+        assert!(!canonical_root_matches_wire_input(canonical, wire));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn prepared_windows_directory_matches_its_conventional_wire_spelling() {
+        let root = std::env::temp_dir().join(format!(
+            "arxmcp fixture runtime data 数学 {}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).expect("create fixture root");
+        let canonical = fs::canonicalize(&root).expect("canonicalize fixture root");
+        let wire = std::path::PathBuf::from(root.to_string_lossy().replace('\\', "/"));
+
+        let matches = canonical_root_matches_wire_input(&canonical, &wire);
+        let _ = fs::remove_dir(&root);
+        assert!(matches, "canonical={canonical:?}, wire={wire:?}");
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn non_windows_comparison_remains_exact() {
+        assert!(canonical_root_matches_wire_input(
+            Path::new("/tmp/runtime data"),
+            Path::new("/tmp/runtime data")
+        ));
+        assert!(!canonical_root_matches_wire_input(
+            Path::new("/tmp/runtime data"),
+            Path::new("/tmp/other data")
+        ));
+    }
 }
