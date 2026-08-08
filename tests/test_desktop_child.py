@@ -19,6 +19,8 @@ unknown-``ARXMCP_*`` scan would otherwise FATAL on the harness knob.
 from __future__ import annotations
 
 import asyncio
+import atexit
+import contextlib
 import hashlib
 import http.client
 import io
@@ -826,6 +828,31 @@ def test_executable_identity_is_wire_valid_and_self_measured() -> None:
 # the self-asserting ps/lsof probes shared with the fixture-layer suite.
 
 
+#: Must EXCEED the supervisor's own worst case on these paths — health 60s +
+#: readiness 120s + MCP smoke 15s + the grace/force/reap ladder (~198s total,
+#: `lifecycle.rs`) plus tauri boot — because only the grace/force rungs are
+#: shrunk by the test knobs. A 90s wait timed out on a loaded box with no bug,
+#: and in the ignore-shutdown arm that timeout was itself what stranded the
+#: SIGTERM-immune child. m6 critique M4/H3. Duration is asserted from the
+#: event log's monotonic `elapsed_ms`, never from this ceiling.
+_SUPERVISOR_WAIT_TIMEOUT = 300.0
+
+
+def _ladder_ms(root: Path) -> int:
+    """Milliseconds from `lifecycle-failed` to `orphan-shutdown` — the
+    escalation ladder ALONE.
+
+    m6 critique M12: a wall-clock budget started before `_spawn_fault_supervisor`
+    measures plan authoring, supervisor exec, tauri boot, webview creation,
+    child spawn and the readiness poll, and names the ladder in its failure
+    message. `Recorder` stamps a monotonic `elapsed_ms` on every event, and
+    these two bracket `shutdown_child` exactly."""
+    failed = _events_by_name(root, "lifecycle-failed")
+    orphan = _events_by_name(root, "orphan-shutdown")
+    assert failed and orphan, _supervisor_events(root)
+    return int(orphan[0]["elapsed_ms"]) - int(failed[0]["elapsed_ms"])
+
+
 def _supervisor_binary() -> str:
     supervisor = os.environ.get(SUPERVISOR_BIN_ENV)
     if not supervisor or not Path(supervisor).is_file():
@@ -895,6 +922,72 @@ def _spawn_fault_supervisor(
         )
 
 
+#: Fixture-sidecar PIDs the SUPERVISOR spawned during the fault matrix. The
+#: `ignore-shutdown` arm installs SIG_IGN for SIGTERM and ignores stdin EOF
+#: and channel disconnect, so only SIGKILL ends it — and reaping only the
+#: supervisor stranded it whenever the ladder did not complete (an expired
+#: wait, an earlier assertion, a Ctrl-C), leaving a process spinning a 5 ms
+#: accept loop on a live loopback port. m6 critique H3/H6.
+_FAULT_CHILD_PIDS: set[int] = set()
+
+
+def _reap_fault_children(pids: set[int] | None = None) -> list[int]:
+    """SIGKILL the named (default: all recorded) fault children.
+
+    Returns the PIDs that were STILL ALIVE, so a caller can distinguish a
+    clean supervisor ladder from a leak it had to clean up after."""
+    targets = _FAULT_CHILD_PIDS if pids is None else pids
+    survivors: list[int] = []
+    for pid in sorted(targets):
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError, OSError):
+            continue
+        survivors.append(pid)
+    _FAULT_CHILD_PIDS.difference_update(targets)
+    return survivors
+
+
+atexit.register(_reap_fault_children)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _fault_child_session_backstop():
+    """Nothing this module spawns may outlive the session — not even when a
+    KeyboardInterrupt lands between a spawn and its own `finally`."""
+    yield
+    leaked = _reap_fault_children()
+    if leaked:
+        warnings.warn(
+            f"session backstop SIGKILLed leaked fault children: {leaked}",
+            stacklevel=1,
+        )
+
+
+@contextlib.contextmanager
+def _reaped_fault_supervisor(root: Path, fault: str | None, **plan_overrides: object):
+    """`_spawn_fault_supervisor` with a `finally` that reaps the GRANDCHILD.
+
+    m6 critique H3/H6: `_stop_process` reaches only the supervisor, so every
+    exit path that skips the escalation ladder used to leave the fixture
+    alive. SIGTERM is useless for the ignore-shutdown arm, so this sends
+    SIGKILL and then CONFIRMS the process is gone rather than assuming it."""
+    process = _spawn_fault_supervisor(root, fault, **plan_overrides)
+    try:
+        yield process
+    finally:
+        _stop_process(process)
+        spawned = {
+            event["fields"]["child_pid"] for event in _events_by_name(root, "child-spawn")
+        }
+        _reap_fault_children(spawned)
+        deadline = time.monotonic() + 5.0
+        for pid in spawned:
+            while not _pid_is_gone(pid) and time.monotonic() < deadline:
+                time.sleep(0.05)
+            assert _pid_is_gone(pid), f"fault child {pid} survived teardown SIGKILL"
+
+
 def _supervisor_events(root: Path) -> list[dict]:
     path = root / "logs" / "supervisor-events.ndjson"
     if not path.is_file():
@@ -907,7 +1000,12 @@ def _supervisor_events(root: Path) -> list[dict]:
 
 
 def _events_by_name(root: Path, name: str) -> list[dict]:
-    return [event for event in _supervisor_events(root) if event["event"] == name]
+    events = [event for event in _supervisor_events(root) if event["event"] == name]
+    if name == "child-spawn":
+        # Register eagerly: the session backstop can only reap what it knows
+        # about, and the ignore-shutdown arm answers to nothing but SIGKILL.
+        _FAULT_CHILD_PIDS.update(event["fields"]["child_pid"] for event in events)
+    return events
 
 
 def _wait_for_event(
@@ -956,13 +1054,10 @@ def test_fault_startup_timeout_bounded_cleanup(tmp_path: Path) -> None:
     timeout (shrunk via the test-only plan knob; 240s in production) fires and
     the Err-arm cleanup reaps the parked-but-cooperating child."""
     root = _fault_root(tmp_path, "startup-timeout")
-    process = _spawn_fault_supervisor(
+    with _reaped_fault_supervisor(
         root, "startup-timeout", test_bound_timeout_ms=3000
-    )
-    try:
-        assert process.wait(timeout=90) == 1
-    finally:
-        _stop_process(process)
+    ) as process:
+        assert process.wait(timeout=_SUPERVISOR_WAIT_TIMEOUT) == 1
     reasons = [
         event["fields"]["reason"] for event in _events_by_name(root, "lifecycle-failed")
     ]
@@ -985,11 +1080,8 @@ def test_fault_malformed_bound_scrubbed_and_reaped(tmp_path: Path) -> None:
     deliberately EMBEDS the startup capability in the invalid frame, so the
     persisted `bound-frame-invalid` diagnostic proves scrub-before-persist."""
     root = _fault_root(tmp_path, "malformed-bound")
-    process = _spawn_fault_supervisor(root, "malformed-bound")
-    try:
-        assert process.wait(timeout=90) == 1
-    finally:
-        _stop_process(process)
+    with _reaped_fault_supervisor(root, "malformed-bound") as process:
+        assert process.wait(timeout=_SUPERVISOR_WAIT_TIMEOUT) == 1
     reasons = [
         event["fields"]["reason"] for event in _events_by_name(root, "lifecycle-failed")
     ]
@@ -1012,11 +1104,8 @@ def test_fault_crash_before_bound_bounded_cleanup(tmp_path: Path) -> None:
     The supervisor must not treat a partial spawn as a live child; the reap
     observes the SIGABRT death (-1: no exit code) instead of hanging."""
     root = _fault_root(tmp_path, "crash-before-bound")
-    process = _spawn_fault_supervisor(root, "crash-before-bound")
-    try:
-        assert process.wait(timeout=90) == 1
-    finally:
-        _stop_process(process)
+    with _reaped_fault_supervisor(root, "crash-before-bound") as process:
+        assert process.wait(timeout=_SUPERVISOR_WAIT_TIMEOUT) == 1
     # Pinned from live observation on this box: abort() closes the pipe as a
     # clean EOF, so the reader reports the closed-stdout arm.
     reasons = [
@@ -1037,11 +1126,8 @@ def test_fault_crash_after_ready_bounded_cleanup(tmp_path: Path) -> None:
     the observable invariant — no live PID, no live listener, bounded wall
     time, failure recorded — not one fixed code path."""
     root = _fault_root(tmp_path, "crash-after-ready")
-    process = _spawn_fault_supervisor(root, "crash-after-ready")
-    try:
-        assert process.wait(timeout=120) == 1
-    finally:
-        _stop_process(process)
+    with _reaped_fault_supervisor(root, "crash-after-ready") as process:
+        assert process.wait(timeout=_SUPERVISOR_WAIT_TIMEOUT) == 1
     assert _events_by_name(root, "child-ready"), _supervisor_events(root)
     assert _events_by_name(root, "lifecycle-failed"), _supervisor_events(root)
     orphan = _events_by_name(root, "orphan-shutdown")
@@ -1066,20 +1152,20 @@ def test_fault_ignored_shutdown_force_escalates(tmp_path: Path) -> None:
     against a synthetic shell). Budgets are shrunk supervisor-side only; the
     wire frame keeps the contract's MIN_GRACE_MS floor."""
     root = _fault_root(tmp_path, "ignore-shutdown")
-    started = time.monotonic()
-    process = _spawn_fault_supervisor(
+    with _reaped_fault_supervisor(
         root,
         "ignore-shutdown",
         test_shutdown_grace_ms=400,
         test_shutdown_force_after_ms=400,
+    ) as process:
+        assert process.wait(timeout=_SUPERVISOR_WAIT_TIMEOUT) == 1
+    # The LADDER, from the event log's monotonic clock — not wall time, which
+    # is dominated by tauri boot and readiness polling. Shrunk budget is
+    # 400ms grace + 400ms force + <=2s reap; the wire floor stays 35s.
+    ladder_ms = _ladder_ms(root)
+    assert 0 <= ladder_ms < 5000, (
+        f"escalation ladder took {ladder_ms}ms: {_supervisor_events(root)}"
     )
-    try:
-        assert process.wait(timeout=90) == 1
-    finally:
-        _stop_process(process)
-    wall = time.monotonic() - started
-    # Well under the wire-mandated 35s + 5s + 2s: the shrunk ladder ran.
-    assert wall < 30.0, f"escalation ladder took {wall:.1f}s"
     assert _events_by_name(root, "child-ready"), _supervisor_events(root)
     orphan = _events_by_name(root, "orphan-shutdown")
     # -1: force-killed, no exit code — mirrors the m5 unit test's assertion.
@@ -1111,8 +1197,9 @@ def test_fault_supervisor_sigkill_cooperating_child_self_cleans(
     longer exists, and the supervisor signals only the direct child PID —
     never a process group."""
     root = _fault_root(tmp_path, "supervisor-crash")
-    process = _spawn_fault_supervisor(root, "never-ready")
-    try:
+    # Every assertion sits INSIDE the with: the harness reap must run only
+    # after self-cleanup has been proved, or it would do the child's job for it.
+    with _reaped_fault_supervisor(root, "never-ready") as process:
         bound = _wait_for_event(root, "child-bound", timeout=60.0, process=process)
         spawn = _wait_for_event(root, "child-spawn", timeout=5.0, process=process)
         port = bound["fields"]["port"]
@@ -1121,21 +1208,64 @@ def test_fault_supervisor_sigkill_cooperating_child_self_cleans(
         socket.create_connection(("127.0.0.1", port), timeout=2).close()
         os.kill(process.pid, signal.SIGKILL)
         assert process.wait(timeout=10) == -signal.SIGKILL
-    finally:
-        _stop_process(process)
-    # Bounded self-cleanup: nothing negotiates here — the parent is gone.
-    deadline = time.monotonic() + 15.0
-    gone = False
-    while time.monotonic() < deadline:
-        if _pid_is_gone(child_pid):
-            gone = True
-            break
-        time.sleep(0.1)
-    assert gone, f"fixture child {child_pid} survived the supervisor SIGKILL"
-    with pytest.raises(OSError):
+        # Bounded self-cleanup: nothing negotiates here — the parent is gone.
+        deadline = time.monotonic() + 15.0
+        gone = False
+        while time.monotonic() < deadline:
+            if _pid_is_gone(child_pid):
+                gone = True
+                break
+            time.sleep(0.1)
+        assert gone, f"fixture child {child_pid} survived the supervisor SIGKILL"
+        with pytest.raises(OSError):
+            socket.create_connection(("127.0.0.1", port), timeout=2).close()
+        assert _listener_lines(port) == []
+        _sweep_fault_artifacts(root)
+
+
+@pytest.mark.requires_desktop_stack
+def test_teardown_reaps_a_sigterm_immune_child_when_the_ladder_never_runs(
+    tmp_path: Path,
+) -> None:
+    """m6 critique H3/H6 regression guard: the harness — not the supervisor —
+    must reap the fixture when the escalation ladder does NOT get to run.
+
+    SIGKILLing the supervisor mid-cycle is the cheap reproduction of the real
+    triggers (an expired `process.wait`, an assertion firing earlier in the
+    body, a Ctrl-C during `make desktop-conformance`). The ignore-shutdown arm
+    dishonors stdin EOF and channel disconnect and installs SIG_IGN for
+    SIGTERM, so its own lease cannot save it and `_stop_process` — which
+    reaches only the supervisor — never touches it. Against the pre-fix
+    `finally` this leaks a process spinning a 5 ms accept loop on a live
+    loopback port; the assertion below fails within 5 s."""
+    root = _fault_root(tmp_path, "unreaped-ignore-shutdown")
+    with _reaped_fault_supervisor(
+        root,
+        "ignore-shutdown",
+        test_shutdown_grace_ms=400,
+        test_shutdown_force_after_ms=400,
+    ) as process:
+        bound = _wait_for_event(root, "child-bound", timeout=60.0, process=process)
+        spawn = _wait_for_event(root, "child-spawn", timeout=5.0, process=process)
+        port = bound["fields"]["port"]
+        child_pid = spawn["fields"]["child_pid"]
         socket.create_connection(("127.0.0.1", port), timeout=2).close()
+        # No ladder: the supervisor dies where it stands.
+        os.kill(process.pid, signal.SIGKILL)
+        assert process.wait(timeout=10) == -signal.SIGKILL
+        # The child is SIGTERM-immune and ignores the closed lease, so it is
+        # still alive here — that is the leak the context manager must close.
+        assert not _pid_is_gone(child_pid), (
+            "the ignore-shutdown arm exited on its own, so this test no "
+            "longer exercises the unreaped path"
+        )
+    deadline = time.monotonic() + 5.0
+    while not _pid_is_gone(child_pid) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert _pid_is_gone(child_pid), (
+        f"teardown left the SIGTERM-immune fixture {child_pid} alive"
+    )
     assert _listener_lines(port) == []
-    _sweep_fault_artifacts(root)
 
 
 @pytest.mark.requires_desktop_stack

@@ -1,11 +1,20 @@
 //! Active scrub-before-persist for the one secret the supervisor handles.
 //!
-//! The Python side's `RedactionFilter` drops named structured-log fields; the
-//! supervisor never carries those fields, so its equivalent of "the same
-//! standard" is this exact-match scrub applied to every persisted string
-//! derived from raw child output. Behavior is pinned by the shared
-//! `contract-fixtures/redaction-vectors.jsonl`, which Python consumes too —
-//! two independent implementations that can drift are the failure mode.
+//! Coverage is CALL-SITE discipline, not a writer property: `Recorder::record`
+//! does not scrub, and `scrub` has exactly one production caller — the
+//! `bound-frame-invalid` diagnostic in `lifecycle.rs`. The other raw-child
+//! sink, `logs/desktop-child.log`, is the child's own stderr fd and is
+//! defended independently by the Python `RedactionFilter`. **Any new event
+//! field carrying a child-derived string MUST route through `scrub` itself**;
+//! nothing structural enforces that yet.
+//!
+//! Behavior is pinned by `contract-fixtures/redaction-vectors.jsonl`, which
+//! Python consumes too — so an intentional change must be re-approved in the
+//! Rust implementation, in the Python reference semantic, and in the
+//! `fixtures.sha256` pin. That is a shared-vector lock, NOT cross-language
+//! parity: Python ships no production substring scrubber to compare against
+//! (its `RedactionFilter` drops named structured-log fields, a different
+//! mechanism for a surface Rust does not have).
 
 /// Replace every exact occurrence of `secret` in `input` with `[REDACTED]`.
 ///
@@ -25,8 +34,8 @@ pub fn scrub(input: &str, secret: &str) -> String {
 mod tests {
     use super::scrub;
 
-    /// Parity with Python rides the shared vector file; both languages must
-    /// pass independently after any intentional `fixtures.sha256` update.
+    /// The shared vector file is the lock; both languages must pass
+    /// independently after any intentional `fixtures.sha256` update.
     #[test]
     fn scrub_matches_every_shared_redaction_vector() {
         let vectors = include_str!("../../../contract-fixtures/redaction-vectors.jsonl");
@@ -40,6 +49,8 @@ mod tests {
             assert_eq!(scrub(input, secret), expected, "vector: {line}");
             count += 1;
         }
-        assert!(count >= 7, "redaction vector set shrank to {count}");
+        // Exact, not a floor: >= 7 against 9 shipped vectors let two be
+        // deleted with neither language noticing.
+        assert_eq!(count, 9, "redaction vector set changed");
     }
 }

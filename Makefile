@@ -147,14 +147,17 @@ Try: make test PYTHON=python3.$(MIN_PY_MINOR)'"
 # running the file's fast tests, so the gate runs test_desktop_child.py with
 # zero skips. DESKTOP_SUPERVISOR_BIN is deliberately NOT ARXMCP_-prefixed —
 # tests in that file import server.main, whose unknown-ARXMCP_* scan would
-# FATAL on a harness-only variable.
+# FATAL on a harness-only variable. BOTH env vars arm conftest's zero-skip
+# guard (m6 critique H2/H5): keying it on DESKTOP_SUPERVISOR_BIN alone left
+# the contract line — which runs AC3's stress and AC5's loopback proof —
+# able to skip both while this target still exited 0.
 desktop-conformance:
 	cargo fmt --all --manifest-path apps/desktop/Cargo.toml -- --check
 	cargo test --locked --manifest-path apps/desktop/Cargo.toml --workspace
 	cargo clippy --locked --manifest-path apps/desktop/Cargo.toml --workspace --all-targets --all-features -- -D warnings
 	cargo build --locked --manifest-path apps/desktop/Cargo.toml --bin fixture-sidecar
 	cargo build --locked --manifest-path apps/desktop/Cargo.toml --bin supervisor
-	ARXMCP_FIXTURE_SIDECAR="$(CURDIR)/apps/desktop/target/debug/fixture-sidecar$(DESKTOP_EXE_SUFFIX)" $(PYTHON) -m pytest tests/test_desktop_contract.py
+	ARXMCP_FIXTURE_SIDECAR="$(CURDIR)/apps/desktop/target/debug/fixture-sidecar$(DESKTOP_EXE_SUFFIX)" $(PYTHON) -m pytest tests/test_desktop_contract.py -m "requires_desktop_stack or not requires_desktop_stack"
 	DESKTOP_SUPERVISOR_BIN="$(CURDIR)/apps/desktop/target/debug/supervisor$(DESKTOP_EXE_SUFFIX)" $(PYTHON) -m pytest tests/test_desktop_child.py -m "requires_desktop_stack or not requires_desktop_stack"
 
 # The Tier-0 → Tier-1 exit gate. See .claude/TIER-GATES.md for the full

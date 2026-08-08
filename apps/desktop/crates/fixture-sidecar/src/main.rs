@@ -20,6 +20,17 @@ const FAULT_EXTENSION_KEY: &str = "org.arxmcp.test-fault";
 /// Abrupt-crash arms abort shortly after their trigger so Rust `Drop`
 /// cleanup cannot run (spike-3 technique).
 const CRASH_DELAY: Duration = Duration::from_millis(100);
+/// Hard self-destruct for `IgnoreShutdown`, which is SIGTERM-immune and
+/// dishonors both stdin EOF and channel disconnect: without a wall-clock
+/// bound, a harness killed outside its own teardown leaves this process
+/// polling `accept()` on a live loopback port forever. Two orders of
+/// magnitude above the shrunk ~800ms ladder it must not mask, and the
+/// harness reaps far sooner on every non-pathological path.
+const IGNORE_SHUTDOWN_DEADLINE: Duration = Duration::from_secs(60);
+/// Consecutive stdin read errors tolerated in the startup-timeout park loop.
+/// EOF returns cleanly, so a persistent error means a wedged pipe: without a
+/// bound the arm spins a core for the life of the process.
+const MAX_CONSECUTIVE_READ_ERRORS: u32 = 3;
 
 /// Fault-matrix arms driven by the REAL supervisor. Every arm except
 /// `IgnoreShutdown` stays a cooperating child (exits on stdin EOF or a valid
@@ -169,17 +180,25 @@ fn parse_fault(launch: &Launch) -> Result<Fault, SidecarError> {
 /// StartupTimeout park: no bind, no `bound`, but still a cooperating child —
 /// mirrors the production `_watch_stdin` lease semantics.
 fn park_on_lease(mut input: BufReader<io::Stdin>, launch: &Launch) -> Result<(), SidecarError> {
+    let mut consecutive_errors = 0_u32;
     loop {
         match read_frame(&mut input) {
             Ok(None) => return Ok(()),
             Ok(Some(bytes)) => {
+                consecutive_errors = 0;
                 if let Ok(Frame::Shutdown(shutdown)) = parse_frame(&bytes) {
                     if valid_shutdown(&shutdown, &launch.contract, &launch.startup_token) {
                         return Ok(());
                     }
                 }
             }
-            Err(_) => {}
+            Err(_) => {
+                consecutive_errors += 1;
+                if consecutive_errors >= MAX_CONSECUTIVE_READ_ERRORS {
+                    return Err(SidecarError::Io);
+                }
+                std::thread::sleep(POLL_INTERVAL);
+            }
         }
     }
 }
@@ -320,6 +339,9 @@ fn serve_until_stopped(
     fault: Fault,
 ) -> Result<(), SidecarError> {
     let mut abort_at: Option<std::time::Instant> = None;
+    if fault == Fault::IgnoreShutdown {
+        abort_at = Some(std::time::Instant::now() + IGNORE_SHUTDOWN_DEADLINE);
+    }
     loop {
         if let Some(at) = abort_at {
             if std::time::Instant::now() >= at {

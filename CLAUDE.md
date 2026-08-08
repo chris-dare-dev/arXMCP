@@ -298,13 +298,19 @@ change touches more than ~3 files or adds new tests, run the pipeline.
     server.desktop_child`, eager BGE-M3/LanceDB warm-up plus a
     BGE-reranker-v2-m3 load) and/or the built Tauri supervisor
     binary, including the m6 fault matrix that drives the real
-    supervisor against fault-injected fixture-sidecar arms.
+    supervisor against fault-injected fixture-sidecar arms, plus the
+    30-cycle orphan stress and the socket-level loopback proof.
+    `lsof` and `ps` are hard binary prerequisites of the m6
+    cleanup-evidence probes and RAISE rather than skip when absent
+    (`apt install lsof` / `procps`; both ship on macOS) — which is why
+    those two tests are marked rather than unmarked.
     Skipped by default; opt-in via `pytest -m
     requires_desktop_stack`, or run `make desktop-conformance`,
     which builds both Rust binaries, exports `DESKTOP_SUPERVISOR_BIN`
-    (deliberately NOT `ARXMCP_`-prefixed — see §4.5's env scan) and
-    runs the suite with zero skips. A skip anywhere in a session
-    where `DESKTOP_SUPERVISOR_BIN` is set fails that session.
+    (deliberately NOT `ARXMCP_`-prefixed — see §4.5's env scan) plus
+    `ARXMCP_FIXTURE_SIDECAR`, and runs the suite with zero skips. A
+    skip anywhere in a session where EITHER var is set fails that
+    session.
   - (`requires_mineru` and `requires_restic` are registered too —
     see `pyproject.toml` for their env-var prerequisites.)
 

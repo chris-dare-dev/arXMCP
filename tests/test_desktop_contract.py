@@ -63,12 +63,26 @@ def _fixture(name: str) -> bytes:
 
 
 def _sidecar_binary() -> Path | None:
+    """The built fixture sidecar, or None when nobody asked for one.
+
+    An EXPLICIT ``ARXMCP_FIXTURE_SIDECAR`` that does not resolve to a file
+    is a build failure, not an absence: returning None there let the two
+    headline m6 tests skip while ``make desktop-conformance`` still exited 0
+    (a wrong DESKTOP_EXE_SUFFIX, an interrupted `cargo build`, an ambient
+    CARGO_TARGET_DIR). ``pytest.fail`` matches `_supervisor_binary` /
+    `_fixture_binary` in tests/test_desktop_child.py."""
     configured = os.environ.get("ARXMCP_FIXTURE_SIDECAR")
     if configured:
         candidate = Path(configured).resolve()
-    else:
-        executable = "fixture-sidecar.exe" if sys.platform == "win32" else "fixture-sidecar"
-        candidate = DESKTOP_ROOT / "target" / "debug" / executable
+        if not candidate.is_file():
+            pytest.fail(
+                f"ARXMCP_FIXTURE_SIDECAR is set to {configured!r} but that is "
+                f"not a file — build it with `make desktop-conformance`; a "
+                f"missing explicitly-requested binary is never a skip"
+            )
+        return candidate
+    executable = "fixture-sidecar.exe" if sys.platform == "win32" else "fixture-sidecar"
+    candidate = DESKTOP_ROOT / "target" / "debug" / executable
     return candidate if candidate.is_file() else None
 
 
@@ -181,15 +195,32 @@ def _stop_process(process: subprocess.Popen[bytes]) -> None:
         process.wait(timeout=2)
 
 
+#: Directories searched when `shutil.which` misses. `/usr/sbin` is where macOS
+#: keeps `lsof`; most Linux distros use `/usr/bin/lsof` and `/bin/ps`.
+_PROBE_DIRS = ("/usr/sbin", "/usr/bin", "/bin", "/sbin")
+
+
 def _probe_command(argv: list[str]) -> subprocess.CompletedProcess[bytes]:
     """Run one `ps`/`lsof` evidence probe, asserting the PROBE ITSELF worked.
 
     Spike-3 discipline: a failed or partial probe is an evidence failure,
-    never clean absence. A missing binary, a timeout, or an exit code other
-    than the tool's documented found(0)/not-found(1) pair raises instead of
-    being read as "nothing there"."""
-    binary = shutil.which(argv[0]) or f"/usr/sbin/{argv[0]}"
-    if not Path(binary).is_file():
+    never clean absence. **Exit code alone cannot establish that.** Measured
+    on this box, `lsof -nP --bogus`, `lsof` on an unresolvable service, and
+    `ps -p notanumber` all exit 1 with an EMPTY stdout — byte-identical to a
+    clean no-match. So this raises on a missing binary, a timeout, an exit
+    code outside (0, 1), and on an exit-1 that carries stderr diagnostics —
+    and every caller additionally supplies its own positive control (see
+    `_listener_lines` and `_pgid_members`), which is what actually
+    discriminates "the probe worked and found nothing" from "the probe
+    failed"."""
+    binary = shutil.which(argv[0])
+    if binary is None:
+        for directory in _PROBE_DIRS:
+            candidate = f"{directory}/{argv[0]}"
+            if Path(candidate).is_file():
+                binary = candidate
+                break
+    if binary is None or not Path(binary).is_file():
         raise RuntimeError(
             f"{argv[0]} unavailable — the audit cannot run, and no-probe is "
             f"never clean absence"
@@ -199,22 +230,106 @@ def _probe_command(argv: list[str]) -> subprocess.CompletedProcess[bytes]:
     )
     if completed.returncode not in (0, 1):
         raise RuntimeError(f"probe failed (not a clean no-match): {completed}")
+    if completed.returncode == 1 and completed.stderr.strip():
+        raise RuntimeError(
+            f"probe exited 1 WITH diagnostics, so it is an error rather than "
+            f"a clean no-match: {completed.stderr!r}"
+        )
     return completed
 
 
 def _pid_is_gone(pid: int) -> bool:
-    completed = _probe_command(["ps", "-p", str(pid)])
-    return completed.returncode == 1
+    """Unambiguous liveness via `os.kill(pid, 0)` — no subprocess to misreport.
+
+    `ps -p <pid>` exits 1 both for "no such process" and for a genuine error
+    (a malformed pid, a `hidepid` mount, a denied /proc), so it cannot tell a
+    broken probe from verified absence. The signal-0 probe has no such
+    ambiguity: ProcessLookupError is gone, PermissionError is alive."""
+    if sys.platform == "win32":  # pragma: no cover - POSIX-only audit
+        raise RuntimeError(
+            "signal-0 liveness probing is POSIX-only (on Windows os.kill "
+            "TERMINATES the target), and no-probe is never clean absence"
+        )
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return True
+    except PermissionError:
+        return False
+    return False
 
 
 def _listener_lines(port: int) -> list[str]:
-    """Non-header `lsof` LISTEN rows for the port; [] means verified absence."""
-    completed = _probe_command(["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN"])
-    return [
-        line
-        for line in completed.stdout.decode("utf-8", "replace").splitlines()
-        if line and not line.startswith("COMMAND")
-    ]
+    """Non-header `lsof` LISTEN rows for `port`; [] means VERIFIED absence.
+
+    Verified by a SAME-INVOCATION positive control: this opens a throwaway
+    loopback listener and asks `lsof` about both ports at once. A broken,
+    denied, or misinvoked `lsof` exits 1 with empty stdout exactly as a clean
+    no-match does, so the missing control row — not the exit code — is what
+    proves the probe failed, and that raises instead of reading as absence.
+
+    AC3: "a failed or partial `ps`/`lsof` probe is an evidence failure, never
+    clean absence."""
+    holds: list[socket.socket] = []
+    try:
+        while True:
+            control = socket.socket()
+            holds.append(control)
+            control.bind(("127.0.0.1", 0))
+            control.listen(1)
+            control_port = control.getsockname()[1]
+            # A control that landed ON the audited port would be indistinguishable
+            # from a real residual listener; keep it bound and try another.
+            if control_port != port:
+                break
+        completed = _probe_command(
+            ["lsof", "-nP", f"-iTCP:{port},{control_port}", "-sTCP:LISTEN"]
+        )
+        rows = [
+            line
+            for line in completed.stdout.decode("utf-8", "replace").splitlines()
+            if line and not line.startswith("COMMAND")
+        ]
+        # Trailing space: ":4924 " must not match a ":49248 " row.
+        control_row = f":{control_port} "
+        if not any(control_row in row for row in rows):
+            raise RuntimeError(
+                f"lsof failed its positive control — port {control_port} is "
+                f"held open by this process yet was not reported "
+                f"(rc={completed.returncode}, stderr={completed.stderr!r}). "
+                f"An unverified probe is never clean absence."
+            )
+        return [row for row in rows if control_row not in row]
+    finally:
+        for held in holds:
+            held.close()
+
+
+def _pgid_members(pgid: int) -> list[int]:
+    """PIDs currently in process group `pgid`; [] means VERIFIED empty.
+
+    Reads the FULL process table rather than `ps -g <pgid>`, which exits 1
+    for both "empty group" and a genuine error. The control is intrinsic:
+    our own pid must appear in the listing, so a truncated, denied, or
+    misparsed table raises instead of reading as an empty group."""
+    completed = _probe_command(["ps", "-A", "-o", "pid=,pgid="])
+    members: list[int] = []
+    saw_self = False
+    for line in completed.stdout.decode("utf-8", "replace").splitlines():
+        parts = line.split()
+        if len(parts) != 2 or not all(part.isdigit() for part in parts):
+            continue
+        pid, group = int(parts[0]), int(parts[1])
+        saw_self = saw_self or pid == os.getpid()
+        if group == pgid:
+            members.append(pid)
+    if not saw_self:
+        raise RuntimeError(
+            f"the ps process-table probe never listed our own pid "
+            f"{os.getpid()} — a partial listing is never a verified-empty "
+            f"process group"
+        )
+    return members
 
 
 def _non_loopback_ipv4s() -> list[str]:
@@ -428,18 +543,137 @@ def test_desktop_conformance_marker_token_is_a_registered_opt_in_marker() -> Non
     from tests.conftest import _OPT_IN_MARKERS
 
     recipe = _makefile_recipe("desktop-conformance")
-    match = re.search(r'-m\s+"([^"]+)"', recipe)
-    assert match is not None, "desktop-conformance must select tests with -m"
-    tokens = {
-        token
-        for token in re.findall(r"[A-Za-z_][A-Za-z0-9_]*", match.group(1))
-        if token not in {"and", "or", "not"}
+    expressions = re.findall(r'-m\s+"([^"]+)"', recipe)
+    assert expressions, "desktop-conformance must select tests with -m"
+    for expression in expressions:
+        tokens = {
+            token
+            for token in re.findall(r"[A-Za-z_][A-Za-z0-9_]*", expression)
+            if token not in {"and", "or", "not"}
+        }
+        assert tokens, f"the -m expression names no marker: {expression!r}"
+        assert tokens <= _OPT_IN_MARKERS, (
+            f"{sorted(tokens - _OPT_IN_MARKERS)} is not in "
+            f"tests.conftest._OPT_IN_MARKERS — the gate would silently skip "
+            f"the real-stack tests and still exit 0"
+        )
+
+
+def test_every_conformance_pytest_line_arms_the_zero_skip_gate() -> None:
+    """m6 critique H2/H5: the zero-skip guard keyed on DESKTOP_SUPERVISOR_BIN
+    alone, so the recipe line that runs THIS file — AC3's 30-cycle stress and
+    AC5's socket-level loopback proof — was unguarded. Both could skip (an
+    ambient CARGO_TARGET_DIR is enough) and `make desktop-conformance` still
+    exited 0, satisfying AC6 with AC3 and AC5 absent."""
+    from tests.conftest import _DESKTOP_GATE_ENV
+
+    recipe = _makefile_recipe("desktop-conformance")
+    pytest_lines = [line for line in recipe.splitlines() if "-m pytest" in line]
+    assert len(pytest_lines) >= 2, recipe
+    for line in pytest_lines:
+        assert any(f"{name}=" in line for name in _DESKTOP_GATE_ENV), (
+            f"this line runs pytest without arming the zero-skip gate "
+            f"({' / '.join(_DESKTOP_GATE_ENV)}): {line.strip()}"
+        )
+
+
+def test_explicit_but_missing_sidecar_path_fails_rather_than_skips(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """m6 critique H5: `_sidecar_binary` returned None — hence a SKIP — when
+    ARXMCP_FIXTURE_SIDECAR was set but did not resolve, which is a build
+    failure, not an absence of interest."""
+    monkeypatch.setenv("ARXMCP_FIXTURE_SIDECAR", str(tmp_path / "not-built"))
+    with pytest.raises(pytest.fail.Exception, match="never a skip"):
+        _sidecar_binary()
+
+
+def test_probe_exit_one_with_diagnostics_is_an_error_not_a_no_match(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """m6 critique H1/H4: `lsof --bogus` and `ps -p notanumber` both exit 1,
+    the same code a clean no-match uses."""
+    monkeypatch.setattr(shutil, "which", lambda name: sys.executable)
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda argv, **kwargs: subprocess.CompletedProcess(
+            argv, 1, b"", b"lsof: illegal option character: -\n"
+        ),
+    )
+    with pytest.raises(RuntimeError, match="WITH diagnostics"):
+        _probe_command(["lsof", "-nP", "--bogus"])
+
+
+def test_listener_probe_failure_raises_instead_of_reading_as_absence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """m6 critique H1/H4 — the load-bearing half. A broken `lsof` exits 1 with
+    an EMPTY stdout and an EMPTY stderr, byte-identical to a clean no-match,
+    so the exit code cannot carry the evidence and the stderr heuristic above
+    does not fire either. The same-invocation positive control is what
+    discriminates: the probe is asked about a port this process is holding
+    open, and a reply that omits it can only mean the probe failed."""
+    invocations: list[list[str]] = []
+
+    def silently_broken(argv: list[str], **kwargs: object):
+        invocations.append(argv)
+        return subprocess.CompletedProcess(argv, 1, b"", b"")
+
+    monkeypatch.setattr(shutil, "which", lambda name: sys.executable)
+    monkeypatch.setattr(subprocess, "run", silently_broken)
+    with pytest.raises(RuntimeError, match="positive control"):
+        _listener_lines(65000)
+    assert invocations, "the probe was never invoked"
+    assert any(arg.startswith("-iTCP:65000,") for arg in invocations[0]), (
+        f"the control port must ride the SAME invocation as the audited "
+        f"port: {invocations[0]}"
+    )
+
+
+def test_process_group_probe_requires_seeing_its_own_pid(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """m6 critique M11: `ps -g <pgid>` exits 1 for an empty group and for a
+    denied one alike, so the group probe reads the whole table and treats a
+    listing that omits this very process as a failure, not an empty group."""
+    monkeypatch.setattr(shutil, "which", lambda name: sys.executable)
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda argv, **kwargs: subprocess.CompletedProcess(argv, 0, b"", b""),
+    )
+    with pytest.raises(RuntimeError, match="never listed our own pid"):
+        _pgid_members(1)
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="signal-0 liveness probing is POSIX-only"
+)
+def test_pid_liveness_uses_signal_zero_rather_than_a_subprocess() -> None:
+    """m6 critique H4: replacing `ps -p` removes the ambiguity at the source —
+    there is no subprocess left to misreport."""
+    reaped = subprocess.Popen([sys.executable, "-c", "pass"])
+    reaped.wait(timeout=30)
+    assert _pid_is_gone(reaped.pid) is True
+    assert _pid_is_gone(os.getpid()) is False
+
+
+def test_contract_fixture_directory_has_no_unclaimed_files() -> None:
+    """m6 critique M10: the aggregate digest is the only thing that notices a
+    new fixture, and a digest bump is indistinguishable from an intentional
+    one — so a frame fixture could land with zero parse coverage. Adding one
+    must now be a conscious consumer decision."""
+    claimed = {
+        *POSITIVE_FIXTURES,
+        *NEGATIVE_FIXTURES,
+        "incompatible-major.jsonl",
+        "redaction-vectors.jsonl",
     }
-    assert tokens, "the -m expression names no marker"
-    assert tokens <= _OPT_IN_MARKERS, (
-        f"{sorted(tokens - _OPT_IN_MARKERS)} is not in "
-        f"tests.conftest._OPT_IN_MARKERS — the gate would silently skip the "
-        f"real-stack tests and still exit 0"
+    present = {path.name for path in FIXTURES.glob("*.jsonl")}
+    assert present == claimed, (
+        f"unclaimed fixtures: {sorted(present - claimed)}; "
+        f"missing fixtures: {sorted(claimed - present)}"
     )
 
 
@@ -458,6 +692,45 @@ def test_desktop_readme_describes_the_shipped_workspace() -> None:
             assert stale not in readme, f"stale README claim: {stale!r}"
         assert "supervisor" in readme
         assert "DESKTOP_SUPERVISOR_BIN" in readme
+
+
+def test_desktop_readme_never_claims_a_descendant_free_child() -> None:
+    """m6 critique C1: the README asserted "neither the production child nor
+    the fixture spawns descendants today, so a `setsid()`-style escape cannot
+    occur" — inverted in the unsafe direction. The production child hosts
+    `ingest_tracker` / `parse_tracker`, whose helpers spawn with
+    `start_new_session=True` (literally `setsid()`), so a forced kill of the
+    child orphans them TODAY. Derived from the tree in the style of
+    `tests/test_assert_ban.py`: while a spawn site exists, the README may not
+    re-assert descendant-freedom."""
+    spawners = sorted(
+        path
+        for tree in ("server", "ingest", "tools")
+        for path in (REPO_ROOT / tree).rglob("*.py")
+        if re.search(
+            r"create_subprocess_exec|subprocess\.(?:Popen|run)",
+            path.read_text(encoding="utf-8"),
+        )
+    )
+    if not spawners:
+        pytest.skip("no subprocess spawn site in the shipped trees")
+    readme = (DESKTOP_ROOT / "README.md").read_text(encoding="utf-8")
+    for inverted in (
+        "spawns descendants today",
+        "escape cannot occur",
+        "not applicable, not handled",
+    ):
+        assert inverted not in readme, (
+            f"README re-asserts descendant-freedom ({inverted!r}) while "
+            f"{len(spawners)} spawn site(s) exist, e.g. "
+            f"{spawners[0].relative_to(REPO_ROOT)}"
+        )
+    # The truthful replacement must name the real paths, not go vague.
+    for required in ("ingest_tracker", "parse_tracker", "start_new_session"):
+        assert required in readme, (
+            f"the process-group section must name {required!r} — a vague "
+            f"limit is not an honest one"
+        )
 
 
 def test_desktop_lockfile_has_no_git_sources() -> None:
@@ -667,7 +940,10 @@ def test_redaction_vectors_shared_fixture_parity() -> None:
         .splitlines()
     )
     vectors = [json.loads(line) for line in lines if line]
-    assert len(vectors) >= 7, "redaction vector set shrank"
+    # Exact, not a floor: a floor of 7 against 9 shipped vectors let two be
+    # deleted silently, and `fixtures.sha256` already forces the deliberate
+    # two-language edit that adding or removing one requires.
+    assert len(vectors) == 9, f"redaction vector set changed: {len(vectors)}"
     for vector in vectors:
         scrubbed = vector["input"].replace(vector["secret"], "[REDACTED]")
         assert scrubbed == vector["expected"], vector
@@ -684,6 +960,7 @@ def test_redaction_vectors_shared_fixture_parity() -> None:
     ), "uppercase near-miss vector missing"
 
 
+@pytest.mark.requires_desktop_stack
 def test_thirty_cycles_distinct_pids_no_orphans_no_listeners(tmp_path: Path) -> None:
     """m6 AC3: thirty FRESH fixture-sidecar processes, each fully reaped.
 
@@ -691,7 +968,12 @@ def test_thirty_cycles_distinct_pids_no_orphans_no_listeners(tmp_path: Path) -> 
     lie), proves the listener live with one HTTP round trip, stops it
     (alternating authenticated-shutdown / stdin-EOF), then audits with
     self-asserting `ps`/`lsof` probes. Evidence is aggregated so one bad
-    cycle cannot hide the shape of the other 29."""
+    cycle cannot hide the shape of the other 29.
+
+    AC3's "zero orphan process GROUPS" clause is measured, not argued: while
+    the child is live its pgid must still be the harness's own group (it did
+    not `setsid()` away), and after teardown the group rooted at the child's
+    pid must be empty (nothing survives had it escaped)."""
     binary = _sidecar_binary()
     if binary is None:
         pytest.skip("build fixture-sidecar or set ARXMCP_FIXTURE_SIDECAR")
@@ -717,6 +999,7 @@ def test_thirty_cycles_distinct_pids_no_orphans_no_listeners(tmp_path: Path) -> 
                 port = bound.endpoint.port
                 status, _ = _request(port, "/healthz")
                 assert status == 200, f"cycle {cycle}: live-listener probe failed"
+                live_pgid = os.getpgid(process.pid)
                 if cycle % 2 == 0:
                     process.stdin.write(
                         encode_frame(
@@ -742,6 +1025,11 @@ def test_thirty_cycles_distinct_pids_no_orphans_no_listeners(tmp_path: Path) -> 
                     "exit": exit_code,
                     "pid_gone": _pid_is_gone(process.pid),
                     "listeners": _listener_lines(port),
+                    # A `setsid()`-style escape shows up as a pgid that is not
+                    # the harness's; an escaped group's residue shows up as
+                    # surviving members of the group rooted at the child pid.
+                    "escaped_group": live_pgid != os.getpgid(0),
+                    "group_residue": _pgid_members(process.pid),
                 }
             )
     elapsed = time.monotonic() - started
@@ -749,7 +1037,11 @@ def test_thirty_cycles_distinct_pids_no_orphans_no_listeners(tmp_path: Path) -> 
     bad = [
         entry
         for entry in evidence
-        if entry["exit"] != 0 or not entry["pid_gone"] or entry["listeners"]
+        if entry["exit"] != 0
+        or not entry["pid_gone"]
+        or entry["listeners"]
+        or entry["escaped_group"]
+        or entry["group_residue"]
     ]
     assert bad == [], bad
     assert len(evidence) == 30
@@ -760,6 +1052,7 @@ def test_thirty_cycles_distinct_pids_no_orphans_no_listeners(tmp_path: Path) -> 
     assert elapsed < 120.0, f"30 cycles took {elapsed:.1f}s"
 
 
+@pytest.mark.requires_desktop_stack
 def test_live_listener_is_loopback_only_at_socket_level(tmp_path: Path) -> None:
     """m6 AC5 (fixture layer): loopback proven against the LIVE socket.
 

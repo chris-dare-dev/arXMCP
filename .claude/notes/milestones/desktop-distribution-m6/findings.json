@@ -4,7 +4,7 @@
   "critique_files": [
     "dedup.md"
   ],
-  "generated_at": "2026-08-08T03:31:37Z",
+  "generated_at": "2026-08-08T03:58:13Z",
   "findings": {
     "C1": {
       "id": "C1",
@@ -16,9 +16,15 @@
       "source_critic": "milestone-adversary-critic",
       "source_axis": "Doc drift",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "README process-group bullet rewritten to state the truth: the supervisor signals only the direct child PID, the fixture spawns no descendants so the matrix proves nothing about them, and the production child DOES spawn them via ingest_tracker/parse_tracker with start_new_session=True. Critic's proposed mitigation text was itself false and was NOT copied: verified at source that both trackers' shutdown() cancel only the asyncio wrapper and send the subprocess no signal, so descendants outlive the COOPERATIVE path too; killpg exists only on per-call wall-timeout paths. Guard: tests/test_desktop_contract.py::test_desktop_readme_never_claims_a_descendant_free_child (source-derived).",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-08T03:56:47Z",
+          "resolution": "README process-group bullet rewritten to state the truth: the supervisor signals only the direct child PID, the fixture spawns no descendants so the matrix proves nothing about them, and the production child DOES spawn them via ingest_tracker/parse_tracker with start_new_session=True. Critic's proposed mitigation text was itself false and was NOT copied: verified at source that both trackers' shutdown() cancel only the asyncio wrapper and send the subprocess no signal, so descendants outlive the COOPERATIVE path too; killpg exists only on per-call wall-timeout paths. Guard: tests/test_desktop_contract.py::test_desktop_readme_never_claims_a_descendant_free_child (source-derived)."
+        }
+      ]
     },
     "H1": {
       "id": "H1",
@@ -30,9 +36,15 @@
       "source_critic": "milestone-adversary-critic",
       "source_axis": "Acceptance coverage",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "Probe discriminator rebuilt. _pid_is_gone now uses os.kill(pid,0) (ProcessLookupError=gone, PermissionError=alive), removing the subprocess that could misreport. _listener_lines opens a throwaway loopback listener and queries lsof about BOTH ports in ONE invocation; a reply omitting the control row raises. _probe_command also raises on exit-1-with-stderr and its stale found(0)/not-found(1) docstring is corrected. Demonstrated: with a stub lsof exiting 1 / empty stdout / empty stderr, the pre-fix helper returned [] for a port that WAS genuinely listening (vacuous pass); post-fix it raises 'lsof failed its positive control'. Guards: test_listener_probe_failure_raises_instead_of_reading_as_absence, test_probe_exit_one_with_diagnostics_is_an_error_not_a_no_match, test_pid_liveness_uses_signal_zero_rather_than_a_subprocess.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-08T03:57:04Z",
+          "resolution": "Probe discriminator rebuilt. _pid_is_gone now uses os.kill(pid,0) (ProcessLookupError=gone, PermissionError=alive), removing the subprocess that could misreport. _listener_lines opens a throwaway loopback listener and queries lsof about BOTH ports in ONE invocation; a reply omitting the control row raises. _probe_command also raises on exit-1-with-stderr and its stale found(0)/not-found(1) docstring is corrected. Demonstrated: with a stub lsof exiting 1 / empty stdout / empty stderr, the pre-fix helper returned [] for a port that WAS genuinely listening (vacuous pass); post-fix it raises 'lsof failed its positive control'. Guards: test_listener_probe_failure_raises_instead_of_reading_as_absence, test_probe_exit_one_with_diagnostics_is_an_error_not_a_no_match, test_pid_liveness_uses_signal_zero_rather_than_a_subprocess."
+        }
+      ]
     },
     "H2": {
       "id": "H2",
@@ -44,9 +56,15 @@
       "source_critic": "milestone-adversary-critic",
       "source_axis": "Repo-gate compliance",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "conftest._DESKTOP_GATE_ENV widened to the tuple (DESKTOP_SUPERVISOR_BIN, ARXMCP_FIXTURE_SIDECAR) so the contract-suite conformance line is zero-skip gated too; Makefile:157 gains -m 'requires_desktop_stack or not requires_desktop_stack'; _sidecar_binary now pytest.fail()s when ARXMCP_FIXTURE_SIDECAR is set but does not resolve, matching _supervisor_binary/_fixture_binary. Verified: ARXMCP_FIXTURE_SIDECAR=/nonexistent pytest tests/test_desktop_contract.py now exits 1 (was 0 with skips). Guards: test_every_conformance_pytest_line_arms_the_zero_skip_gate, test_explicit_but_missing_sidecar_path_fails_rather_than_skips, plus the marker-token test extended to every -m expression.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-08T03:57:04Z",
+          "resolution": "conftest._DESKTOP_GATE_ENV widened to the tuple (DESKTOP_SUPERVISOR_BIN, ARXMCP_FIXTURE_SIDECAR) so the contract-suite conformance line is zero-skip gated too; Makefile:157 gains -m 'requires_desktop_stack or not requires_desktop_stack'; _sidecar_binary now pytest.fail()s when ARXMCP_FIXTURE_SIDECAR is set but does not resolve, matching _supervisor_binary/_fixture_binary. Verified: ARXMCP_FIXTURE_SIDECAR=/nonexistent pytest tests/test_desktop_contract.py now exits 1 (was 0 with skips). Guards: test_every_conformance_pytest_line_arms_the_zero_skip_gate, test_explicit_but_missing_sidecar_path_fails_rather_than_skips, plus the marker-token test extended to every -m expression."
+        }
+      ]
     },
     "H3": {
       "id": "H3",
@@ -58,9 +76,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "local-first + Docker constraint (no residue on the workstation)",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "New _reaped_fault_supervisor context manager wraps every fault test: its finally stops the supervisor, SIGKILLs every child-spawn PID from the event log, and CONFIRMS each is gone within 5s. Backed by an eager _FAULT_CHILD_PIDS registry with a session-scoped autouse fixture and an atexit reaper for the Ctrl-C/interpreter-exit paths. Defense in depth (M3): the IgnoreShutdown arm now abort()s 60s after launch. Demonstrated: pre-fix teardown left the SIGTERM-immune fixture alive (measured, pid 42763); the M3 deadline fires at 60.1s with rc=-6 even with SIGTERM and stdin EOF both ignored. Guard: test_teardown_reaps_a_sigterm_immune_child_when_the_ladder_never_runs.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-08T03:57:04Z",
+          "resolution": "New _reaped_fault_supervisor context manager wraps every fault test: its finally stops the supervisor, SIGKILLs every child-spawn PID from the event log, and CONFIRMS each is gone within 5s. Backed by an eager _FAULT_CHILD_PIDS registry with a session-scoped autouse fixture and an atexit reaper for the Ctrl-C/interpreter-exit paths. Defense in depth (M3): the IgnoreShutdown arm now abort()s 60s after launch. Demonstrated: pre-fix teardown left the SIGTERM-immune fixture alive (measured, pid 42763); the M3 deadline fires at 60.1s with rc=-6 even with SIGTERM and stdin EOF both ignored. Guard: test_teardown_reaps_a_sigterm_immune_child_when_the_ladder_never_runs."
+        }
+      ]
     },
     "H4": {
       "id": "H4",
@@ -72,9 +96,15 @@
       "source_critic": "milestone-infra-safety-critic",
       "source_axis": "Axis 4 \u2014 Makefile / build script discipline",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "Probe discriminator rebuilt. _pid_is_gone now uses os.kill(pid,0) (ProcessLookupError=gone, PermissionError=alive), removing the subprocess that could misreport. _listener_lines opens a throwaway loopback listener and queries lsof about BOTH ports in ONE invocation; a reply omitting the control row raises. _probe_command also raises on exit-1-with-stderr and its stale found(0)/not-found(1) docstring is corrected. Demonstrated: with a stub lsof exiting 1 / empty stdout / empty stderr, the pre-fix helper returned [] for a port that WAS genuinely listening (vacuous pass); post-fix it raises 'lsof failed its positive control'. Guards: test_listener_probe_failure_raises_instead_of_reading_as_absence, test_probe_exit_one_with_diagnostics_is_an_error_not_a_no_match, test_pid_liveness_uses_signal_zero_rather_than_a_subprocess.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-08T03:57:04Z",
+          "resolution": "Probe discriminator rebuilt. _pid_is_gone now uses os.kill(pid,0) (ProcessLookupError=gone, PermissionError=alive), removing the subprocess that could misreport. _listener_lines opens a throwaway loopback listener and queries lsof about BOTH ports in ONE invocation; a reply omitting the control row raises. _probe_command also raises on exit-1-with-stderr and its stale found(0)/not-found(1) docstring is corrected. Demonstrated: with a stub lsof exiting 1 / empty stdout / empty stderr, the pre-fix helper returned [] for a port that WAS genuinely listening (vacuous pass); post-fix it raises 'lsof failed its positive control'. Guards: test_listener_probe_failure_raises_instead_of_reading_as_absence, test_probe_exit_one_with_diagnostics_is_an_error_not_a_no_match, test_pid_liveness_uses_signal_zero_rather_than_a_subprocess."
+        }
+      ]
     },
     "H5": {
       "id": "H5",
@@ -86,9 +116,15 @@
       "source_critic": "milestone-infra-safety-critic",
       "source_axis": "Axis 4 \u2014 Makefile / build script discipline",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "conftest._DESKTOP_GATE_ENV widened to the tuple (DESKTOP_SUPERVISOR_BIN, ARXMCP_FIXTURE_SIDECAR) so the contract-suite conformance line is zero-skip gated too; Makefile:157 gains -m 'requires_desktop_stack or not requires_desktop_stack'; _sidecar_binary now pytest.fail()s when ARXMCP_FIXTURE_SIDECAR is set but does not resolve, matching _supervisor_binary/_fixture_binary. Verified: ARXMCP_FIXTURE_SIDECAR=/nonexistent pytest tests/test_desktop_contract.py now exits 1 (was 0 with skips). Guards: test_every_conformance_pytest_line_arms_the_zero_skip_gate, test_explicit_but_missing_sidecar_path_fails_rather_than_skips, plus the marker-token test extended to every -m expression.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-08T03:57:04Z",
+          "resolution": "conftest._DESKTOP_GATE_ENV widened to the tuple (DESKTOP_SUPERVISOR_BIN, ARXMCP_FIXTURE_SIDECAR) so the contract-suite conformance line is zero-skip gated too; Makefile:157 gains -m 'requires_desktop_stack or not requires_desktop_stack'; _sidecar_binary now pytest.fail()s when ARXMCP_FIXTURE_SIDECAR is set but does not resolve, matching _supervisor_binary/_fixture_binary. Verified: ARXMCP_FIXTURE_SIDECAR=/nonexistent pytest tests/test_desktop_contract.py now exits 1 (was 0 with skips). Guards: test_every_conformance_pytest_line_arms_the_zero_skip_gate, test_explicit_but_missing_sidecar_path_fails_rather_than_skips, plus the marker-token test extended to every -m expression."
+        }
+      ]
     },
     "H6": {
       "id": "H6",
@@ -100,9 +136,15 @@
       "source_critic": "milestone-infra-safety-critic",
       "source_axis": "Axis 4 \u2014 Makefile / build script discipline",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "New _reaped_fault_supervisor context manager wraps every fault test: its finally stops the supervisor, SIGKILLs every child-spawn PID from the event log, and CONFIRMS each is gone within 5s. Backed by an eager _FAULT_CHILD_PIDS registry with a session-scoped autouse fixture and an atexit reaper for the Ctrl-C/interpreter-exit paths. Defense in depth (M3): the IgnoreShutdown arm now abort()s 60s after launch. Demonstrated: pre-fix teardown left the SIGTERM-immune fixture alive (measured, pid 42763); the M3 deadline fires at 60.1s with rc=-6 even with SIGTERM and stdin EOF both ignored. Guard: test_teardown_reaps_a_sigterm_immune_child_when_the_ladder_never_runs.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-08T03:57:04Z",
+          "resolution": "New _reaped_fault_supervisor context manager wraps every fault test: its finally stops the supervisor, SIGKILLs every child-spawn PID from the event log, and CONFIRMS each is gone within 5s. Backed by an eager _FAULT_CHILD_PIDS registry with a session-scoped autouse fixture and an atexit reaper for the Ctrl-C/interpreter-exit paths. Defense in depth (M3): the IgnoreShutdown arm now abort()s 60s after launch. Demonstrated: pre-fix teardown left the SIGTERM-immune fixture alive (measured, pid 42763); the M3 deadline fires at 60.1s with rc=-6 even with SIGTERM and stdin EOF both ignored. Guard: test_teardown_reaps_a_sigterm_immune_child_when_the_ladder_never_runs."
+        }
+      ]
     },
     "M1": {
       "id": "M1",
@@ -114,9 +156,15 @@
       "source_critic": "milestone-adversary-critic",
       "source_axis": "Acceptance coverage",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "redact.rs module doc restated to what is proven: coverage is CALL-SITE discipline at the single bound-frame-invalid site (Recorder::record does not scrub), child stderr is the Python RedactionFilter's responsibility, and any new child-derived event field MUST route through scrub. The 'two independent implementations' parity claim is replaced by the accurate one - a shared-vector LOCK requiring re-approval in Rust, in the Python reference semantic, and in fixtures.sha256 - since Python ships no production substring scrubber to compare against.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-08T03:57:55Z",
+          "resolution": "redact.rs module doc restated to what is proven: coverage is CALL-SITE discipline at the single bound-frame-invalid site (Recorder::record does not scrub), child stderr is the Python RedactionFilter's responsibility, and any new child-derived event field MUST route through scrub. The 'two independent implementations' parity claim is replaced by the accurate one - a shared-vector LOCK requiring re-approval in Rust, in the Python reference semantic, and in fixtures.sha256 - since Python ships no production substring scrubber to compare against."
+        }
+      ]
     },
     "M2": {
       "id": "M2",
@@ -128,9 +176,15 @@
       "source_critic": "milestone-adversary-critic",
       "source_axis": "Doc drift",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "pyproject requires_desktop_stack registration updated to m5/m6, naming the fault matrix, the 30-cycle stress and the loopback proof, declaring lsof+ps as hard binary prerequisites that raise rather than skip (with install hints), noting the model prerequisite is conservative not universal, and naming ARXMCP_FIXTURE_SIDECAR. CLAUDE.md 4.5 and apps/desktop/README.md carry the same two-tool prerequisite.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-08T03:57:55Z",
+          "resolution": "pyproject requires_desktop_stack registration updated to m5/m6, naming the fault matrix, the 30-cycle stress and the loopback proof, declaring lsof+ps as hard binary prerequisites that raise rather than skip (with install hints), noting the model prerequisite is conservative not universal, and naming ARXMCP_FIXTURE_SIDECAR. CLAUDE.md 4.5 and apps/desktop/README.md carry the same two-tool prerequisite."
+        }
+      ]
     },
     "M3": {
       "id": "M3",
@@ -142,9 +196,15 @@
       "source_critic": "milestone-adversary-critic",
       "source_axis": "Correctness",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "IGNORE_SHUTDOWN_DEADLINE (60s) added to fixture-sidecar: serve_until_stopped arms abort_at at entry under Fault::IgnoreShutdown, so the SIGTERM-immune arm is bounded even outside the harness. Two orders of magnitude above the shrunk ~800ms ladder so it cannot mask an escalation failure. Measured: self-destructs at 60.1s rc=-6 with SIGTERM and stdin EOF both ignored.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-08T03:57:55Z",
+          "resolution": "IGNORE_SHUTDOWN_DEADLINE (60s) added to fixture-sidecar: serve_until_stopped arms abort_at at entry under Fault::IgnoreShutdown, so the SIGTERM-immune arm is bounded even outside the harness. Two orders of magnitude above the shrunk ~800ms ladder so it cannot mask an escalation failure. Measured: self-destructs at 60.1s rc=-6 with SIGTERM and stdin EOF both ignored."
+        }
+      ]
     },
     "M4": {
       "id": "M4",
@@ -156,9 +216,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "test surface",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "Budgets reconciled. _SUPERVISOR_WAIT_TIMEOUT=300s now exceeds the supervisor's own ~198s worst case (health 60 + ready 120 + smoke 15 + ladder) plus tauri boot, so a loaded box no longer times out without a bug - the timeout that was itself the H3 trigger. Duration is asserted from the event log's monotonic elapsed_ms via _ladder_ms(), which brackets shutdown_child exactly (lifecycle-failed -> orphan-shutdown), replacing the wall-clock 'wall < 30.0' that measured tauri boot and readiness polling while naming the ladder.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-08T03:57:55Z",
+          "resolution": "Budgets reconciled. _SUPERVISOR_WAIT_TIMEOUT=300s now exceeds the supervisor's own ~198s worst case (health 60 + ready 120 + smoke 15 + ladder) plus tauri boot, so a loaded box no longer times out without a bug - the timeout that was itself the H3 trigger. Duration is asserted from the event log's monotonic elapsed_ms via _ladder_ms(), which brackets shutdown_child exactly (lifecycle-failed -> orphan-shutdown), replacing the wall-clock 'wall < 30.0' that measured tauri boot and readiness polling while naming the ladder."
+        }
+      ]
     },
     "M5": {
       "id": "M5",
@@ -170,9 +236,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "test surface",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "test_thirty_cycles_distinct_pids_no_orphans_no_listeners and test_live_listener_is_loopback_only_at_socket_level marked requires_desktop_stack, and Makefile:157 gains the matching -m tautology so the conformance gate still runs them with zero skips. Closes the issue-206 class: a Linux box with built binaries but no lsof no longer hard-fails a plain make test.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-08T03:57:55Z",
+          "resolution": "test_thirty_cycles_distinct_pids_no_orphans_no_listeners and test_live_listener_is_loopback_only_at_socket_level marked requires_desktop_stack, and Makefile:157 gains the matching -m tautology so the conformance gate still runs them with zero skips. Closes the issue-206 class: a Linux box with built binaries but no lsof no longer hard-fails a plain make test."
+        }
+      ]
     },
     "M6": {
       "id": "M6",
@@ -184,9 +256,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "MCP/wire contract compatibility",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "load_plan validation split into a testable validate_plan(); a plan carrying test_bound_timeout_ms / test_fault / test_shutdown_grace_ms / test_shutdown_force_after_ms with smoke:false is now refused, so the supervisor can never shrink its local grace while the wire frame it already sent promises MIN_GRACE_MS. Guard: supervisor::tests::test_only_knobs_are_refused_outside_smoke_mode.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-08T03:57:55Z",
+          "resolution": "load_plan validation split into a testable validate_plan(); a plan carrying test_bound_timeout_ms / test_fault / test_shutdown_grace_ms / test_shutdown_force_after_ms with smoke:false is now refused, so the supervisor can never shrink its local grace while the wire frame it already sent promises MIN_GRACE_MS. Guard: supervisor::tests::test_only_knobs_are_refused_outside_smoke_mode."
+        }
+      ]
     },
     "M7": {
       "id": "M7",
@@ -198,9 +276,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "cache byte-stability / contract-fixture discipline",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "redact.rs module doc restated to what is proven: coverage is CALL-SITE discipline at the single bound-frame-invalid site (Recorder::record does not scrub), child stderr is the Python RedactionFilter's responsibility, and any new child-derived event field MUST route through scrub. The 'two independent implementations' parity claim is replaced by the accurate one - a shared-vector LOCK requiring re-approval in Rust, in the Python reference semantic, and in fixtures.sha256 - since Python ships no production substring scrubber to compare against.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-08T03:57:55Z",
+          "resolution": "redact.rs module doc restated to what is proven: coverage is CALL-SITE discipline at the single bound-frame-invalid site (Recorder::record does not scrub), child stderr is the Python RedactionFilter's responsibility, and any new child-derived event field MUST route through scrub. The 'two independent implementations' parity claim is replaced by the accurate one - a shared-vector LOCK requiring re-approval in Rust, in the Python reference semantic, and in fixtures.sha256 - since Python ships no production substring scrubber to compare against."
+        }
+      ]
     },
     "M8": {
       "id": "M8",
@@ -212,9 +296,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "security threat-model coverage",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "deferred",
+      "resolution": "DEFERRED: exceeds the MEDIUM 30-LOC bar and is a design change, not a rectification. Recorder::new(&root) runs in main() before any StartupToken exists - the token is generated per-cycle inside lifecycle.rs - so scrubbing inside record() needs a mutable token slot on the shared Recorder plus its set/clear lifecycle. M1's doc narrowing removes the misleading universal-coverage claim in the meantime and states the call-site obligation explicitly.",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-08T03:58:12Z",
+          "resolution": "DEFERRED: exceeds the MEDIUM 30-LOC bar and is a design change, not a rectification. Recorder::new(&root) runs in main() before any StartupToken exists - the token is generated per-cycle inside lifecycle.rs - so scrubbing inside record() needs a mutable token slot on the shared Recorder plus its set/clear lifecycle. M1's doc narrowing removes the misleading universal-coverage claim in the meantime and states the call-site obligation explicitly."
+        }
+      ]
     },
     "M9": {
       "id": "M9",
@@ -226,9 +316,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "test surface",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "The dropped wildcard-v4/wildcard-v6 spike arms are now recorded as an explicit third non-claim in apps/desktop/README.md, with the reason: the supervisor performs no runtime bind probe, so such an arm would document a gap rather than close one, and wildcard-bound.jsonl proves only that a frame cannot ANNOUNCE a wildcard.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-08T03:57:55Z",
+          "resolution": "The dropped wildcard-v4/wildcard-v6 spike arms are now recorded as an explicit third non-claim in apps/desktop/README.md, with the reason: the supervisor performs no runtime bind probe, so such an arm would document a gap rather than close one, and wildcard-bound.jsonl proves only that a frame cannot ANNOUNCE a wildcard."
+        }
+      ]
     },
     "M10": {
       "id": "M10",
@@ -240,9 +336,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "cache byte-stability / contract-fixture discipline",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "test_contract_fixture_directory_has_no_unclaimed_files asserts the *.jsonl set equals POSITIVE + NEGATIVE + incompatible-major + redaction-vectors, so a new fixture forces a conscious consumer decision instead of only a digest bump. Rust-side twin deferred: contract.rs consumes fixtures via include_str! per file, so the equivalent needs a runtime inventory it does not currently build.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-08T03:57:55Z",
+          "resolution": "test_contract_fixture_directory_has_no_unclaimed_files asserts the *.jsonl set equals POSITIVE + NEGATIVE + incompatible-major + redaction-vectors, so a new fixture forces a conscious consumer decision instead of only a digest bump. Rust-side twin deferred: contract.rs consumes fixtures via include_str! per file, so the equivalent needs a runtime inventory it does not currently build."
+        }
+      ]
     },
     "M11": {
       "id": "M11",
@@ -254,9 +356,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "tier sequencing (m4 umbrella acceptance criteria)",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "AC3's 'zero orphan process groups' is now measured, not argued. The 30-cycle stress captures os.getpgid(child) while the child is live and requires it to equal the harness's own group (a setsid() escape would differ), then requires the group rooted at the child's pid to be empty after teardown. New _pgid_members() reads the full process table (ps -A -o pid=,pgid=) instead of ps -g, which exits 1 for an empty group and a denied one alike, and raises unless its own pid appears. Guard: test_process_group_probe_requires_seeing_its_own_pid.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-08T03:57:55Z",
+          "resolution": "AC3's 'zero orphan process groups' is now measured, not argued. The 30-cycle stress captures os.getpgid(child) while the child is live and requires it to equal the harness's own group (a setsid() escape would differ), then requires the group rooted at the child's pid to be empty after teardown. New _pgid_members() reads the full process table (ps -A -o pid=,pgid=) instead of ps -g, which exits 1 for an empty group and a denied one alike, and raises unless its own pid appears. Guard: test_process_group_probe_requires_seeing_its_own_pid."
+        }
+      ]
     },
     "M12": {
       "id": "M12",
@@ -268,9 +376,15 @@
       "source_critic": "milestone-infra-safety-critic",
       "source_axis": "Axis 4 \u2014 Makefile / build script discipline",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "Budgets reconciled. _SUPERVISOR_WAIT_TIMEOUT=300s now exceeds the supervisor's own ~198s worst case (health 60 + ready 120 + smoke 15 + ladder) plus tauri boot, so a loaded box no longer times out without a bug - the timeout that was itself the H3 trigger. Duration is asserted from the event log's monotonic elapsed_ms via _ladder_ms(), which brackets shutdown_child exactly (lifecycle-failed -> orphan-shutdown), replacing the wall-clock 'wall < 30.0' that measured tauri boot and readiness polling while naming the ladder.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-08T03:57:55Z",
+          "resolution": "Budgets reconciled. _SUPERVISOR_WAIT_TIMEOUT=300s now exceeds the supervisor's own ~198s worst case (health 60 + ready 120 + smoke 15 + ladder) plus tauri boot, so a loaded box no longer times out without a bug - the timeout that was itself the H3 trigger. Duration is asserted from the event log's monotonic elapsed_ms via _ladder_ms(), which brackets shutdown_child exactly (lifecycle-failed -> orphan-shutdown), replacing the wall-clock 'wall < 30.0' that measured tauri boot and readiness polling while naming the ladder."
+        }
+      ]
     },
     "M13": {
       "id": "M13",
@@ -282,9 +396,15 @@
       "source_critic": "milestone-infra-safety-critic",
       "source_axis": "Axis 4 \u2014 Makefile / build script discipline",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "pyproject requires_desktop_stack registration updated to m5/m6, naming the fault matrix, the 30-cycle stress and the loopback proof, declaring lsof+ps as hard binary prerequisites that raise rather than skip (with install hints), noting the model prerequisite is conservative not universal, and naming ARXMCP_FIXTURE_SIDECAR. CLAUDE.md 4.5 and apps/desktop/README.md carry the same two-tool prerequisite.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-08T03:57:55Z",
+          "resolution": "pyproject requires_desktop_stack registration updated to m5/m6, naming the fault matrix, the 30-cycle stress and the loopback proof, declaring lsof+ps as hard binary prerequisites that raise rather than skip (with install hints), noting the model prerequisite is conservative not universal, and naming ARXMCP_FIXTURE_SIDECAR. CLAUDE.md 4.5 and apps/desktop/README.md carry the same two-tool prerequisite."
+        }
+      ]
     },
     "L1": {
       "id": "L1",
@@ -296,9 +416,15 @@
       "source_critic": "milestone-adversary-critic",
       "source_axis": "Dead code / leftovers",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "Fixed as adjacent to the M3 edit in the same function region (three critics flagged the identical defect). park_on_lease's Err(_) arm now sleeps POLL_INTERVAL and returns SidecarError::Io after MAX_CONSECUTIVE_READ_ERRORS (3), so a persistent stdin I/O error ends the fixture instead of spinning a core forever; a successful read resets the counter.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-08T03:58:13Z",
+          "resolution": "Fixed as adjacent to the M3 edit in the same function region (three critics flagged the identical defect). park_on_lease's Err(_) arm now sleeps POLL_INTERVAL and returns SidecarError::Io after MAX_CONSECUTIVE_READ_ERRORS (3), so a persistent stdin I/O error ends the fixture instead of spinning a core forever; a successful read resets the counter."
+        }
+      ]
     },
     "L2": {
       "id": "L2",
@@ -310,9 +436,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "open scan (dead code)",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "Fixed as a one-line change inside the main.rs hunk already touched for M6: the redundant requested_exit binding is gone; exit_code_slot is constructed directly, leaving one strong reference in the one function a reader opens to understand the tauri 2.11 exit-code workaround.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-08T03:58:13Z",
+          "resolution": "Fixed as a one-line change inside the main.rs hunk already touched for M6: the redundant requested_exit binding is gone; exit_code_slot is constructed directly, leaving one strong reference in the one function a reader opens to understand the tauri 2.11 exit-code workaround."
+        }
+      ]
     },
     "L3": {
       "id": "L3",
@@ -324,9 +456,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "open scan (silently swallowed errors)",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "Fixed as adjacent to the M3 edit in the same function region (three critics flagged the identical defect). park_on_lease's Err(_) arm now sleeps POLL_INTERVAL and returns SidecarError::Io after MAX_CONSECUTIVE_READ_ERRORS (3), so a persistent stdin I/O error ends the fixture instead of spinning a core forever; a successful read resets the counter.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-08T03:58:13Z",
+          "resolution": "Fixed as adjacent to the M3 edit in the same function region (three critics flagged the identical defect). park_on_lease's Err(_) arm now sleeps POLL_INTERVAL and returns SidecarError::Io after MAX_CONSECUTIVE_READ_ERRORS (3), so a persistent stdin I/O error ends the fixture instead of spinning a core forever; a successful read resets the counter."
+        }
+      ]
     },
     "L4": {
       "id": "L4",
@@ -338,9 +476,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "local-first + Docker constraint",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "Fixed as adjacent to the H1/H4 rewrite of _probe_command: the single macOS-shaped /usr/sbin fallback is replaced by a candidate list (/usr/sbin, /usr/bin, /bin, /sbin), so a Linux box with a trimmed PATH no longer reports 'unavailable' for an installed tool - an evidence failure attributed to the wrong cause.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-08T03:58:13Z",
+          "resolution": "Fixed as adjacent to the H1/H4 rewrite of _probe_command: the single macOS-shaped /usr/sbin fallback is replaced by a candidate list (/usr/sbin, /usr/bin, /bin, /sbin), so a Linux box with a trimmed PATH no longer reports 'unavailable' for an installed tool - an evidence failure attributed to the wrong cause."
+        }
+      ]
     },
     "L5": {
       "id": "L5",
@@ -352,9 +496,15 @@
       "source_critic": "milestone-arxmcp-critic",
       "source_axis": "test surface",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "Fixed as a two-token change inside the redact hunks already touched for M1/M7: both the Rust guard and the Python guard now pin the vector count exactly (== 9) instead of >= 7, so deleting a vector is a deliberate two-language edit matching the discipline fixtures.sha256 already imposes.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-08T03:58:13Z",
+          "resolution": "Fixed as a two-token change inside the redact hunks already touched for M1/M7: both the Rust guard and the Python guard now pin the vector count exactly (== 9) instead of >= 7, so deleting a vector is a deliberate two-language edit matching the discipline fixtures.sha256 already imposes."
+        }
+      ]
     },
     "L6": {
       "id": "L6",
@@ -366,9 +516,15 @@
       "source_critic": "milestone-infra-safety-critic",
       "source_axis": "Axis 4 \u2014 Makefile / build script discipline",
       "source_file": "dedup.md",
-      "status": "open",
-      "resolution": null,
-      "history": []
+      "status": "fixed",
+      "resolution": "Fixed as adjacent to the M3 edit in the same function region (three critics flagged the identical defect). park_on_lease's Err(_) arm now sleeps POLL_INTERVAL and returns SidecarError::Io after MAX_CONSECUTIVE_READ_ERRORS (3), so a persistent stdin I/O error ends the fixture instead of spinning a core forever; a successful read resets the counter.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-08T03:58:13Z",
+          "resolution": "Fixed as adjacent to the M3 edit in the same function region (three critics flagged the identical defect). park_on_lease's Err(_) arm now sleeps POLL_INTERVAL and returns SidecarError::Io after MAX_CONSECUTIVE_READ_ERRORS (3), so a persistent stdin I/O error ends the fixture instead of spinning a core forever; a successful read resets the counter."
+        }
+      ]
     }
   }
 }

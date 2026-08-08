@@ -69,10 +69,31 @@ fn load_plan() -> Plan {
     let bytes = fs::read(PathBuf::from(path)).unwrap_or_else(|_| fail("launch plan unreadable"));
     let plan: Plan =
         serde_json::from_slice(&bytes).unwrap_or_else(|_| fail("launch plan malformed"));
-    if plan.child_argv.is_empty() {
-        fail("launch plan child_argv is empty");
+    if let Err(reason) = validate_plan(&plan) {
+        fail(reason);
     }
     plan
+}
+
+/// Split from `load_plan` so the rules are unit-testable — `fail()` exits.
+fn validate_plan(plan: &Plan) -> Result<(), &'static str> {
+    if plan.child_argv.is_empty() {
+        return Err("launch plan child_argv is empty");
+    }
+    // The knobs are honored unconditionally downstream, and the grace knob
+    // shrinks only the supervisor's LOCAL wait while the wire frame still
+    // promises MIN_GRACE_MS — so a non-smoke plan carrying one would
+    // force-kill a real server that believes it has 35s to close its LanceDB
+    // and Kuzu handles. Refuse rather than break that promise.
+    if !plan.smoke
+        && (plan.test_bound_timeout_ms.is_some()
+            || plan.test_fault.is_some()
+            || plan.test_shutdown_force_after_ms.is_some()
+            || plan.test_shutdown_grace_ms.is_some())
+    {
+        return Err("launch plan carries test-only knobs outside smoke mode");
+    }
+    Ok(())
 }
 
 /// Barrier path must live under the data root so a test cannot point the
@@ -241,8 +262,7 @@ fn main() {
     // the process exit status (measured by the m6 fault matrix: a failed
     // cycle exited 0). Capture the requested code and exit with it ourselves
     // once the RunEvent::Exit child shutdown has run.
-    let requested_exit: Arc<Mutex<i32>> = Arc::new(Mutex::new(0));
-    let exit_code_slot = requested_exit.clone();
+    let exit_code_slot: Arc<Mutex<i32>> = Arc::new(Mutex::new(0));
     app.run(move |_handle, event| {
         match event {
             tauri::RunEvent::ExitRequested {
@@ -289,6 +309,23 @@ mod tests {
         assert_eq!(plan.test_bound_timeout_ms, None);
         assert_eq!(plan.test_shutdown_grace_ms, None);
         assert_eq!(plan.test_shutdown_force_after_ms, None);
+    }
+
+    /// m6 critique M6: the wire frame the supervisor already sent declares
+    /// `grace_ms: MIN_GRACE_MS`, so honoring a shrunk grace outside smoke
+    /// mode would make that frame a promise it does not keep.
+    #[test]
+    fn test_only_knobs_are_refused_outside_smoke_mode() {
+        let production = br#"{"child_argv":["/usr/bin/true"],"component":"c","data_root":"/r","identity_file":"/f","smoke":false,"version":"1","test_shutdown_grace_ms":400}"#;
+        let plan: Plan = serde_json::from_slice(production).expect("parses");
+        assert_eq!(
+            validate_plan(&plan),
+            Err("launch plan carries test-only knobs outside smoke mode")
+        );
+
+        let smoke = br#"{"child_argv":["/usr/bin/true"],"component":"c","data_root":"/r","identity_file":"/f","smoke":true,"version":"1","test_shutdown_grace_ms":400,"test_fault":"ignore-shutdown"}"#;
+        let plan: Plan = serde_json::from_slice(smoke).expect("parses");
+        assert_eq!(validate_plan(&plan), Ok(()));
     }
 
     #[test]

@@ -40,10 +40,13 @@ os.environ.setdefault(_KMP_KEY, "TRUE")
 
 import pytest  # noqa: E402
 
-#: Set by ``make desktop-conformance`` only; its presence means this session IS
-#: the authoritative desktop boundary gate, whose contract is ALL-OR-NOTHING
-#: with zero skips.
-_DESKTOP_GATE_ENV = "DESKTOP_SUPERVISOR_BIN"
+#: Set by ``make desktop-conformance`` only; ANY of them present means this
+#: session IS the authoritative desktop boundary gate, whose contract is
+#: ALL-OR-NOTHING with zero skips. Both names are needed: keying on
+#: ``DESKTOP_SUPERVISOR_BIN`` alone left the recipe line running
+#: ``test_desktop_contract.py`` unguarded, so AC3's 30-cycle stress and AC5's
+#: loopback proof could skip while the gate still exited 0.
+_DESKTOP_GATE_ENV: tuple[str, ...] = ("DESKTOP_SUPERVISOR_BIN", "ARXMCP_FIXTURE_SIDECAR")
 
 #: nodeids that reported ``skipped`` while :data:`_DESKTOP_GATE_ENV` was set.
 #: The Makefile's ``-m "<token> or not <token>"`` expression is a tautology for
@@ -55,7 +58,7 @@ _DESKTOP_GATE_SKIPS: list[str] = []
 
 def pytest_runtest_logreport(report: pytest.TestReport) -> None:
     """Record skips seen while the desktop conformance gate is running."""
-    if not os.environ.get(_DESKTOP_GATE_ENV):
+    if not any(os.environ.get(name) for name in _DESKTOP_GATE_ENV):
         return
     if report.skipped and not hasattr(report, "wasxfail"):
         _DESKTOP_GATE_SKIPS.append(report.nodeid)
@@ -75,7 +78,7 @@ def pytest_sessionfinish(session, exitstatus) -> None:  # noqa: ARG001
     if _DESKTOP_GATE_SKIPS:
         skipped = sorted(set(_DESKTOP_GATE_SKIPS))
         sys.stderr.write(
-            f"\n{_DESKTOP_GATE_ENV} is set, so this run is the desktop "
+            f"\n{'/'.join(_DESKTOP_GATE_ENV)} is set, so this run is the desktop "
             f"conformance gate and must have ZERO skips; "
             f"{len(skipped)} test(s) skipped:\n"
             + "".join(f"  - {nodeid}\n" for nodeid in skipped)

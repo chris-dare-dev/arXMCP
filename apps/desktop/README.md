@@ -124,23 +124,63 @@ never by `server/desktop_child.py`. Covered: startup timeout, malformed
 `bound` (whose persisted diagnostic is scrubbed by `supervisor/src/redact.rs`
 before it is written), crash before bound, crash after ready, ignored shutdown
 with the full grace/TERM/KILL/reap escalation, and supervisor SIGKILL. A
-30-cycle stress run proves 30 distinct PIDs with zero residual processes or
-listeners, and loopback is asserted at socket level against the live port. All
-evidence probes assert their own success: a failed or partial `ps`/`lsof` is an
-evidence failure, never clean absence.
+30-cycle stress run proves 30 distinct PIDs with zero residual processes,
+listeners, or process groups, and loopback is asserted at socket level against
+the live port.
 
-Two spike-3 non-claims REMAIN non-claims — a passing fault matrix here is not
+Every evidence probe carries its own control, because a failed or partial
+probe is an evidence failure and never clean absence — and exit codes cannot
+establish that: `lsof --bogus` and `ps -p notanumber` both exit 1 with an
+empty stdout, exactly as a clean no-match does. PID liveness therefore uses
+`os.kill(pid, 0)` (no subprocess to misreport); every `lsof` absence query
+rides the same invocation as a control port the harness is holding open, and
+a reply omitting it raises; the process-group probe reads the whole table and
+requires its own PID in the listing. **`lsof` and `ps` are hard prerequisites
+of these tests** (present by default on macOS; `apt install lsof` /
+`procps` on Linux) — the marked tests are opt-in precisely so a box without
+them does not fail a plain `make test`.
+
+Three non-claims REMAIN non-claims — a passing fault matrix here is not
 universal cleanup:
 
 - **A parent that no longer exists cannot kill a wedged child.** Supervisor
   SIGKILL cleanup is proven only for a cooperating child that is alive and
   observing stdin EOF; a child parked in uninterruptible I/O (for example a
   stalled LanceDB/Kuzu read) would outlive its dead parent.
-- **Process-group escape is not applicable, not handled.** The supervisor
-  signals only the direct child PID — never a process group — and neither the
-  production child nor the fixture spawns descendants today, so a
-  `setsid()`-style escape cannot occur. A future milestone that adds a
-  subprocess-spawning child must re-open this design before shipping it.
+- **Descendants of the production child are NOT cleaned up on the forced
+  path.** The supervisor signals only the direct child PID, never a process
+  group. The *fixture* spawns no descendants, so a passing fault matrix
+  proves nothing about them either way. The *production* child does: it
+  installs `ingest_tracker` and `parse_tracker` (`server/main.py`), whose
+  helpers run `asyncio.create_subprocess_exec` and spawn LaTeXML/MinerU with
+  `start_new_session=True` — literally `setsid()`. So on the forced rung
+  (grace → TERM → KILL) the child dies without running the FastAPI lifespan,
+  `ingest_tracker.shutdown()` never fires, and a `tools.notebook_ingest`
+  grandchild is reparented to init still holding its notebook's LanceDB
+  staging directory.
+
+  The cooperative path is **not** a mitigation either, and must not be
+  described as one: both trackers' `shutdown()` cancel only the asyncio
+  wrappers, and their own docstrings state the case — the subprocess
+  "receives no signal from cancelling the asyncio wrapper" and "continues
+  running until the OS reaps it" (`server/ingest_tracker.py:345`,
+  `server/parse_tracker.py:301`). `os.killpg` exists in this tree only on the
+  per-call wall-TIMEOUT paths (`ingest/textbook_parser.py:479`,
+  `tools/arxiv_fetch.py`, `tools/cdm_eval.py:375`), never on shutdown. So a
+  descendant outlives BOTH shutdown paths, bounded only by its own wall
+  timeout; the next-boot `mark_orphaned_runs_failed` /
+  `mark_orphaned_parses_failed` sweeps repair the database row, not the
+  process. Descendant cleanup is an open item for a future
+  desktop-distribution milestone — it is not covered here and must not be
+  read as covered.
+
+- **The wildcard-bind arms were not ported.** The spike's `wildcard-v4` /
+  `wildcard-v6` faults are absent from this matrix, so nothing exercises a
+  child that binds `0.0.0.0` while announcing `127.0.0.1`. The supervisor
+  performs no runtime probe of the actual bind, so such an arm would document
+  a gap rather than close one. `wildcard-bound.jsonl` proves only that a
+  frame cannot *announce* a wildcard; AC5's socket-level check proves the
+  kernel state of a well-behaved child.
 
 ## Secret handling
 
