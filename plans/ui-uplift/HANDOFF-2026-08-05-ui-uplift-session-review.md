@@ -1,8 +1,4 @@
 ---
-project: ui-uplift
-type: handoff
-status: complete
-authorship: agent-generated
 handoff_kind: review
 date: 2026-08-05
 roadmap: plans/ui-uplift/roadmap.yaml
@@ -16,9 +12,6 @@ milestones_covered:
   - ui-uplift-m8
   - ui-uplift-m12
 tags:
-  - project/ui-uplift
-  - type/handoff
-  - authorship/agent-generated
   - handoff/review
   - review/requested
 aliases:
