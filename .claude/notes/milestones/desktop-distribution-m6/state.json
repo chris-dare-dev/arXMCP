@@ -1,8 +1,8 @@
 {
   "id": "desktop-distribution-m6",
   "created_at": "2026-08-08T02:30:59Z",
-  "updated_at": "2026-08-08T04:17:12Z",
-  "phase": "rectify-running",
+  "updated_at": "2026-08-08T13:51:47Z",
+  "phase": "complete",
   "phase_history": [
     {
       "phase": "init",
@@ -35,6 +35,10 @@
     {
       "phase": "rectify-running",
       "at": "2026-08-08T03:31:46Z"
+    },
+    {
+      "phase": "complete",
+      "at": "2026-08-08T13:51:47Z"
     }
   ],
   "milestone_brief": "### desktop-distribution-m6 \u2014 Desktop fault matrix and lifecycle stress\n\n**Description.** Extend the m5 skeleton with the bounded-cleanup fault\nmatrix and the stress evidence M4's remaining acceptance criteria name:\nstartup timeout, malformed bound frame, child crash, supervisor crash, and\nignored shutdown with force escalation, plus the 30-cycle orphan audit and\nsocket-level loopback regression.\n\n**Acceptance criteria.**\n- [ ] Startup timeout, child crash, supervisor crash, and ignored shutdown\n      each complete bounded cleanup leaving no process and no listener.\n- [ ] Every persisted diagnostic is scanned recursively and proven free of\n      the startup capability; the Rust-side diagnostics writer redacts to\n      the same standard as the Python `RedactionFilter`.\n- [ ] Thirty fixture-sidecar cycles run with 30 distinct PIDs, zero orphan\n      process groups, and zero residual listeners; a failed or partial\n      `ps`/`lsof` probe is an evidence failure, never clean absence.\n- [ ] At least one real-server fault case is covered so bounded cleanup is\n      not proven by the fixture alone.\n- [ ] Loopback-only binding is asserted at socket level against the live\n      port, not by comparing a parsed wire field.\n- [ ] `make test` and `make desktop-conformance` exit 0.\n\n**Dependencies.** desktop-distribution-m5\n\n**Complexity.** M\n\n**Specialist suggestion.** `security-reviewer`, `determinism-reviewer`\n\n---",
@@ -113,6 +117,10 @@
     "tests/test_desktop_contract.py",
     "tests/test_desktop_child.py"
   ],
-  "external_writes_authorized": [],
-  "external_writes_completed": []
+  "external_writes_authorized": [
+    "git push origin main"
+  ],
+  "external_writes_completed": [
+    "git push origin main"
+  ]
 }
