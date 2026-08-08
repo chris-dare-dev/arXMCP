@@ -1,13 +1,3 @@
----
-project: arxmcp
-type: doc
-tags:
-- project/arxmcp
-- type/doc
-- authorship/agent-generated
-authorship: agent-generated
----
-
 # Bulk ingest runbook (E11_S01)
 
 **Use when:** transitioning from the 50-paper math.AG seed corpus

@@ -1,13 +1,3 @@
----
-project: arxmcp
-type: doc
-tags:
-- project/arxmcp
-- type/doc
-- authorship/agent-generated
-authorship: agent-generated
----
-
 # Notebook deployment topology — per-daemon vs per-call filter
 
 This runbook covers the three operational modes for serving multiple

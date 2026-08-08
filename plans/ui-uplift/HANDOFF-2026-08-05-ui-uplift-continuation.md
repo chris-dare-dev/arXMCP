@@ -1,19 +1,11 @@
 ---
-project: ui-uplift
-type: handoff
-status: complete
-authorship: agent-generated
 handoff_kind: continuation
 date: 2026-08-05
 companion: HANDOFF-2026-08-05-ui-uplift-session-review.md
 roadmap: plans/ui-uplift/roadmap.yaml
 resume_target: any
 tags:
-- project/ui-uplift
-- type/handoff
-- authorship/agent-generated
 - handoff/continuation
-- project/arxmcp
 aliases:
 - ui-uplift — continuation handoff (2026-08-05)
 ---

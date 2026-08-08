@@ -1,8 +1,4 @@
 ---
-project: lean-verify-continuation
-type: handoff
-status: complete
-authorship: agent-generated
 handoff_kind: review
 date: 2026-07-25
 companion: HANDOFF-2026-07-25-lean-verify-continuation-continuation.md
@@ -12,12 +8,8 @@ review_status: requested
 milestones_covered:
 - lean-verify-continuation-m1
 tags:
-- project/lean-verify-continuation
-- type/handoff
-- authorship/agent-generated
 - handoff/review
 - review/requested
-- project/arxmcp
 aliases:
 - lean-verify-continuation — review handoff (2026-07-25)
 ---

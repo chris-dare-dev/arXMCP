@@ -1,8 +1,4 @@
 ---
-project: discovery-substrate
-type: handoff
-status: complete
-authorship: agent-generated
 handoff_kind: review
 date: 2026-07-29
 companion: HANDOFF-2026-07-29-discovery-substrate-continuation.md
@@ -16,12 +12,8 @@ milestones_covered:
 - discovery-substrate-e4
 - discovery-substrate-e5
 tags:
-- project/discovery-substrate
-- type/handoff
-- authorship/agent-generated
 - handoff/review
 - review/requested
-- project/arxmcp
 aliases:
 - discovery-substrate — review handoff (2026-07-29)
 ---

@@ -1,13 +1,3 @@
----
-project: arxmcp
-type: doc
-tags:
-- project/arxmcp
-- type/doc
-- authorship/agent-generated
-authorship: agent-generated
----
-
 # Drift watchdog runbook (E11_S04)
 
 **Use when:** the nightly delta loop (`make delta`) or a partial

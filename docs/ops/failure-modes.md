@@ -1,13 +1,3 @@
----
-project: arxmcp
-type: doc
-tags:
-- project/arxmcp
-- type/doc
-- authorship/agent-generated
-authorship: agent-generated
----
-
 # Failure modes and graceful degradation
 
 This runbook is the operator's reference for every documented

@@ -1,8 +1,4 @@
 ---
-project: source-truth
-type: handoff
-status: complete
-authorship: agent-generated
 handoff_kind: review
 date: 2026-07-13
 companion: HANDOFF-2026-07-13-source-truth-continuation.md
@@ -19,12 +15,8 @@ milestones_covered:
 - source-truth-m3
 - source-truth-m5
 tags:
-- project/source-truth
-- type/handoff
-- authorship/agent-generated
 - handoff/review
 - review/requested
-- project/arxmcp
 aliases:
 - source-truth — session review handoff (2026-07-13)
 ---

@@ -1,13 +1,3 @@
----
-project: arxmcp
-type: doc
-tags:
-- project/arxmcp
-- type/doc
-- authorship/agent-generated
-authorship: agent-generated
----
-
 # Daily ops cadence
 
 The arXMCP server runs a fixed UTC ops schedule. Everything below

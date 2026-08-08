@@ -1,8 +1,4 @@
 ---
-project: ui-uplift
-type: handoff
-status: complete
-authorship: agent-generated
 handoff_kind: review
 date: 2026-08-06
 companion: HANDOFF-2026-08-06-ui-uplift-continuation.md
@@ -18,12 +14,8 @@ milestones_covered:
 - ui-uplift-m12
 - ui-uplift-m13
 tags:
-- project/ui-uplift
-- type/handoff
-- authorship/agent-generated
 - handoff/review
 - review/requested
-- project/arxmcp
 aliases:
 - "ui-uplift — review handoff (2026-08-06)"
 ---

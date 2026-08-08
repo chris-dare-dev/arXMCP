@@ -1,19 +1,11 @@
 ---
-project: source-truth
-type: handoff
-status: complete
-authorship: agent-generated
 handoff_kind: continuation
 date: 2026-07-13
 companion: HANDOFF-2026-07-13-source-truth-session-review.md
 roadmap: plans/source-truth/roadmap.yaml
 resume_target: any
 tags:
-- project/source-truth
-- type/handoff
-- authorship/agent-generated
 - handoff/continuation
-- project/arxmcp
 aliases:
 - source-truth — continuation handoff (2026-07-13)
 ---
