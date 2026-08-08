@@ -139,15 +139,23 @@ Try: make test PYTHON=python3.$(MIN_PY_MINOR)'"
 	$(PYTHON) -m ruff check .
 	$(PYTHON) -m pytest
 
-# desktop-distribution-m3: the authoritative desktop boundary gate. The broad
-# Python suite keeps Rust optional, but this target must fail rather than skip
-# executable identity, loopback ownership, authentication, and lifecycle tests.
+# desktop-distribution-m3 (+m5): the authoritative desktop boundary gate. The
+# broad Python suite keeps Rust optional, but this target must fail rather than
+# skip executable identity, loopback ownership, authentication, and lifecycle
+# tests. m5 adds the supervisor build plus the real-child lifecycle suite: the
+# marker expression opts the requires_desktop_stack tests IN while still
+# running the file's fast tests, so the gate runs test_desktop_child.py with
+# zero skips. DESKTOP_SUPERVISOR_BIN is deliberately NOT ARXMCP_-prefixed —
+# tests in that file import server.main, whose unknown-ARXMCP_* scan would
+# FATAL on a harness-only variable.
 desktop-conformance:
 	cargo fmt --all --manifest-path apps/desktop/Cargo.toml -- --check
 	cargo test --locked --manifest-path apps/desktop/Cargo.toml --workspace
 	cargo clippy --locked --manifest-path apps/desktop/Cargo.toml --workspace --all-targets --all-features -- -D warnings
 	cargo build --locked --manifest-path apps/desktop/Cargo.toml --bin fixture-sidecar
+	cargo build --locked --manifest-path apps/desktop/Cargo.toml --bin supervisor
 	ARXMCP_FIXTURE_SIDECAR="$(CURDIR)/apps/desktop/target/debug/fixture-sidecar$(DESKTOP_EXE_SUFFIX)" $(PYTHON) -m pytest tests/test_desktop_contract.py
+	DESKTOP_SUPERVISOR_BIN="$(CURDIR)/apps/desktop/target/debug/supervisor$(DESKTOP_EXE_SUFFIX)" $(PYTHON) -m pytest tests/test_desktop_child.py -m "requires_desktop_stack or not requires_desktop_stack"
 
 # The Tier-0 → Tier-1 exit gate. See .claude/TIER-GATES.md for the full
 # behavior matrix (pass / fail / SKIP) and the operator's prerequisite

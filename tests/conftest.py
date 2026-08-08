@@ -82,6 +82,7 @@ _OPT_IN_MARKERS: frozenset[str] = frozenset(
         "requires_mineru",
         "requires_restic",
         "requires_wheel_build",
+        "requires_desktop_stack",
     }
 )
 
