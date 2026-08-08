@@ -1,7 +1,7 @@
 {
   "id": "desktop-distribution-m5",
   "created_at": "2026-08-07T22:49:47Z",
-  "updated_at": "2026-08-08T01:06:02Z",
+  "updated_at": "2026-08-08T02:00:31Z",
   "phase": "rectify-running",
   "phase_history": [
     {
@@ -78,13 +78,53 @@
     "low": 11
   },
   "findings_register": ".claude/notes/milestones/desktop-distribution-m5/findings.json",
-  "rectification_commit": null,
-  "fixed_findings": [],
-  "deferred_findings": [],
+  "rectification_commit": "7fbf6ba",
+  "fixed_findings": [
+    "C1",
+    "C2",
+    "H1",
+    "H2",
+    "H3",
+    "L1",
+    "L10",
+    "M1",
+    "M10",
+    "M11",
+    "M12",
+    "M14",
+    "M15",
+    "M16",
+    "M17",
+    "M2",
+    "M3",
+    "M4",
+    "M5",
+    "M6",
+    "M7",
+    "M8",
+    "M9"
+  ],
+  "deferred_findings": [
+    "L11",
+    "L2",
+    "L3",
+    "L4",
+    "L5",
+    "L6",
+    "L7",
+    "L8",
+    "L9",
+    "M13",
+    "M18"
+  ],
   "invalidated_findings": [],
   "regression_tests_added": [
-    "tests/test_desktop_child.py"
+    "tests/test_desktop_child.py",
+    "tests/test_desktop_contract.py",
+    "tests/test_marker_doc_consistency.py"
   ],
-  "external_writes_authorized": [],
+  "external_writes_authorized": [
+    "git push origin main"
+  ],
   "external_writes_completed": []
 }
