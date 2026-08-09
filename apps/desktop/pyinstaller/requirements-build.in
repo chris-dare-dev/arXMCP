@@ -1,0 +1,13 @@
+# PyInstaller build stack for `make desktop-package` (desktop-distribution-m7).
+# DELIBERATELY outside pyproject.toml/uv.lock (MinerU precedent): build-only
+# tooling must not enter the runtime wheel's resolvable dependency surface or
+# perturb wheel-check. Pins mirror spike-1's measured toolchain
+# (.claude/notes/spikes/desktop-distribution-spike-1.md:15). Regenerate the
+# hashed lockfile after ANY edit here:
+#   uv pip compile --generate-hashes --python-version 3.12 \
+#     apps/desktop/pyinstaller/requirements-build.in \
+#     -o apps/desktop/pyinstaller/requirements-build.txt
+# then verify the pyinstaller wheel hash still matches the spike pin
+# (327d1323...) before committing, and re-run `make desktop-package-check`.
+pyinstaller==6.21.0
+pyinstaller-hooks-contrib==2026.6

@@ -38,29 +38,45 @@ MINOR and must re-pin `EXPECTED_TOOL_SCHEMA_SHA256`.
    `ARXMCP_BOOTSTRAP_MODE=1` and polls `/healthz`. Budget ~4 min on a warm
    `uv` cache, ~15 min cold. `make wheel-check` is the ~10 s subset (file
    inventory + console scripts, no dependency resolve) for quick loops.
-3. **Pick the version** per the rules above.
-4. **Update [`CHANGES.md`](../CHANGES.md).** Move the relevant `Unreleased`
+3. **Desktop bundle (if the release ships one).** `make desktop-package`
+   builds the PyInstaller `onedir` sidecar into `var/desktop-package/dist/`
+   from the committed spec (`apps/desktop/pyinstaller/arxmcp_desktop.spec`)
+   and fails on any build-machine path string in the artifact.
+   `make desktop-package-check` is the full gate: two consecutive builds
+   proving a byte-identical manifest (closed, size-pinned exception set),
+   frozen `latex2mathml` byte-parity, the `freeze_support()` spawn guard,
+   and `direct_url.json` sanitization — budget ~150 s of builds after the
+   one-time build-venv provisioning.
+
+   PyInstaller is deliberately NOT in `pyproject.toml`/`uv.lock` (the MinerU
+   precedent): the driver provisions `var/desktop-package/build-venv` from
+   `uv.lock`'s runtime set plus the hash-pinned build stack in
+   `apps/desktop/pyinstaller/requirements-build.txt`. To bump PyInstaller,
+   edit `requirements-build.in`, regenerate the hashed lockfile per its
+   header comment, and re-run `make desktop-package-check`.
+4. **Pick the version** per the rules above.
+5. **Update [`CHANGES.md`](../CHANGES.md).** Move the relevant `Unreleased`
    entries into a new `## [x.y.z] — YYYY-MM-DD` section and add a compare
    link at the bottom.
-5. **Update `version`** in [`pyproject.toml`](../pyproject.toml).
-6. **Commit** the bump: `chore(repo): release vX.Y.Z`.
-7. **Tag** an annotated, GPG-signed tag (signing is enabled repo-wide):
+6. **Update `version`** in [`pyproject.toml`](../pyproject.toml).
+7. **Commit** the bump: `chore(repo): release vX.Y.Z`.
+8. **Tag** an annotated, GPG-signed tag (signing is enabled repo-wide):
 
    ```sh
    git tag -s vX.Y.Z -m "arXMCP vX.Y.Z"
    ```
 
-8. **Push** the commit and tag (push is per-event authorized):
+9. **Push** the commit and tag (push is per-event authorized):
 
    ```sh
    git push origin main --follow-tags
    ```
 
-9. **Cut the GitHub Release** from the tag. The repo's
+10. **Cut the GitHub Release** from the tag. The repo's
    [`.github/release.yml`](../.github/release.yml) categorizes
    auto-generated notes by conventional-commit prefix; paste the
    `CHANGES.md` section in as the human summary above the generated list.
-10. **Attach assets** if any (the GitHub release-downloads badge counts
+11. **Attach assets** if any (the GitHub release-downloads badge counts
    these).
 
 ## Conventions

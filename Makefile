@@ -14,6 +14,7 @@
 .PHONY: test eval status watchdog cutover notebook-cutover
 .PHONY: daily-report parser-failures-report sbom refresh-arxiv-ca
 .PHONY: wheel-check wheel-check-full desktop-conformance
+.PHONY: desktop-package desktop-package-check
 
 # NOTEBOOK CRUD (m2) — first-class Make verbs for the notebook
 # lifecycle (proposal §9; backed by tools/notebook_*.py + /ui/api/*).
@@ -96,6 +97,8 @@ help:
 	@echo "  make wheel-check            Build the wheel, install it into a throwaway venv, assert ops/ + server/frontend/ + console scripts (issue #206; ~10s)"
 	@echo "  make wheel-check-full       Same, but an isolated venv with the REAL deps + an ARXMCP_BOOTSTRAP_MODE=1 boot polled at /healthz. Pre-publish gate (~4 min warm)"
 	@echo "  make desktop-conformance    Build the locked fixture sidecar, then run its Rust/Python contract and lifecycle gate with zero skips"
+	@echo "  make desktop-package        Build the PyInstaller onedir desktop bundle from the committed spec into var/desktop-package/dist/ (provisions the pinned build venv on first run; fails on any build-machine path in the artifact)"
+	@echo "  make desktop-package-check  Packaging gate: two consecutive builds + determinism/hygiene proofs (AC1-AC5) with zero skips (~150s of builds after one-time venv provisioning)"
 	@echo ""
 	@echo "Override the python interpreter with: make test PYTHON=python3.13"
 	@echo ""
@@ -162,6 +165,27 @@ desktop-conformance:
 	ARXMCP_FIXTURE_SIDECAR="$(CURDIR)/apps/desktop/target/debug/fixture-sidecar$(DESKTOP_EXE_SUFFIX)" $(PYTHON) -m pytest tests/test_desktop_contract.py -m "requires_desktop_stack or not requires_desktop_stack"
 	DESKTOP_SUPERVISOR_BIN="$(CURDIR)/apps/desktop/target/debug/supervisor$(DESKTOP_EXE_SUFFIX)" $(PYTHON) -m pytest tests/test_desktop_child.py -m "requires_desktop_stack or not requires_desktop_stack"
 	ARXMCP_FIXTURE_SIDECAR="$(CURDIR)/apps/desktop/target/debug/fixture-sidecar$(DESKTOP_EXE_SUFFIX)" DESKTOP_SUPERVISOR_BIN="$(CURDIR)/apps/desktop/target/debug/supervisor$(DESKTOP_EXE_SUFFIX)" $(PYTHON) -m pytest tests/test_desktop_support_floor.py -m "requires_desktop_stack or not requires_desktop_stack"
+
+# desktop-distribution-m7 — build the PyInstaller onedir sidecar bundle. The
+# driver provisions a uv-locked build venv (PyInstaller hash-pinned in
+# apps/desktop/pyinstaller/requirements-build.txt, deliberately OUTSIDE
+# pyproject.toml/uv.lock), sanitizes direct_url.json BEFORE freezing, and
+# fails on any build-machine path string in the artifact — including .pyc
+# bytes inside the executables' embedded PYZ archives. Work/dist paths live
+# under gitignored var/desktop-package/, never PyInstaller's repo-root
+# build/ default.
+desktop-package:
+	$(PYTHON) apps/desktop/pyinstaller/desktop_package.py build
+
+# The m7 packaging gate. DESKTOP_PACKAGE_GATE arms conftest's zero-skip guard
+# (same mechanism as desktop-conformance) and the tautology -m expression
+# opts the requires_desktop_package tests IN while running the file's fast
+# tests too, so this session cannot exit 0 with the two-build determinism
+# evidence silently skipped. Budget ~150s of builds (plus one-time venv
+# provisioning); deliberately NOT part of `make test` (m6 findings.json:240
+# precedent against unmarked expensive desktop tests in the default gate).
+desktop-package-check:
+	DESKTOP_PACKAGE_GATE=1 $(PYTHON) -m pytest tests/test_desktop_package.py -m "requires_desktop_package or not requires_desktop_package"
 
 # The Tier-0 → Tier-1 exit gate. See .claude/TIER-GATES.md for the full
 # behavior matrix (pass / fail / SKIP) and the operator's prerequisite

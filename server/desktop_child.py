@@ -24,6 +24,7 @@ import asyncio
 import hashlib
 import hmac
 import logging
+import multiprocessing
 import os
 import socket
 import sys
@@ -383,6 +384,11 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    # MUST be the guard's first statement (desktop-distribution-m7 AC3): a
+    # frozen macOS/Windows `spawn` child re-executes this script from the top,
+    # and freeze_support() intercepts the --multiprocessing-fork re-exec BEFORE
+    # main() can read the parent's control stream as a fresh supervisor launch.
+    multiprocessing.freeze_support()
     sys.exit(main())
 
 

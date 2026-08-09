@@ -40,13 +40,20 @@ os.environ.setdefault(_KMP_KEY, "TRUE")
 
 import pytest  # noqa: E402
 
-#: Set by ``make desktop-conformance`` only; ANY of them present means this
-#: session IS the authoritative desktop boundary gate, whose contract is
-#: ALL-OR-NOTHING with zero skips. Both names are needed: keying on
-#: ``DESKTOP_SUPERVISOR_BIN`` alone left the recipe line running
-#: ``test_desktop_contract.py`` unguarded, so AC3's 30-cycle stress and AC5's
-#: loopback proof could skip while the gate still exited 0.
-_DESKTOP_GATE_ENV: tuple[str, ...] = ("DESKTOP_SUPERVISOR_BIN", "ARXMCP_FIXTURE_SIDECAR")
+#: Set by ``make desktop-conformance`` / ``make desktop-package-check`` only;
+#: ANY of them present means this session IS an authoritative desktop gate,
+#: whose contract is ALL-OR-NOTHING with zero skips. The first two names are
+#: both needed: keying on ``DESKTOP_SUPERVISOR_BIN`` alone left the recipe
+#: line running ``test_desktop_contract.py`` unguarded, so AC3's 30-cycle
+#: stress and AC5's loopback proof could skip while the gate still exited 0.
+#: ``DESKTOP_PACKAGE_GATE`` (m7) arms the same guard for the PyInstaller
+#: packaging gate so its two-build determinism evidence can never silently
+#: skip while ``make desktop-package-check`` exits 0.
+_DESKTOP_GATE_ENV: tuple[str, ...] = (
+    "DESKTOP_SUPERVISOR_BIN",
+    "ARXMCP_FIXTURE_SIDECAR",
+    "DESKTOP_PACKAGE_GATE",
+)
 
 #: nodeids that reported ``skipped`` while :data:`_DESKTOP_GATE_ENV` was set.
 #: The Makefile's ``-m "<token> or not <token>"`` expression is a tautology for
@@ -121,6 +128,7 @@ _OPT_IN_MARKERS: frozenset[str] = frozenset(
         "requires_restic",
         "requires_wheel_build",
         "requires_desktop_stack",
+        "requires_desktop_package",
     }
 )
 

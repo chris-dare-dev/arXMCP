@@ -255,10 +255,11 @@ change touches more than ~3 files or adds new tests, run the pipeline.
   as well as to `pyproject.toml`** — registering it alone is what created
   this bug. `eval` is deliberately excluded (it is opt-OUT: `make eval`
   needs it running by default).
-- **Ten test markers exist** (registered in `pyproject.toml`
-  `[tool.pytest.ini_options].markers`; the four added since this list was
+- **Eleven test markers exist** (registered in `pyproject.toml`
+  `[tool.pytest.ini_options].markers`; the five added since this list was
   written are `requires_mineru`, `requires_restic`,
-  `requires_wheel_build` and `requires_desktop_stack`).
+  `requires_wheel_build`, `requires_desktop_stack` and
+  `requires_desktop_package`).
   `tests/test_marker_doc_consistency.py` re-derives this count and the
   enumeration below from `pyproject.toml`, so a new marker cannot land
   without amending this section:
@@ -311,6 +312,16 @@ change touches more than ~3 files or adds new tests, run the pipeline.
     `ARXMCP_FIXTURE_SIDECAR`, and runs the suite with zero skips. A
     skip anywhere in a session where EITHER var is set fails that
     session.
+  - **`requires_desktop_package`** — desktop-distribution-m7
+    PyInstaller packaging gate: provisions the hash-pinned build venv
+    (`apps/desktop/pyinstaller/requirements-build.txt`; PyInstaller is
+    deliberately NOT in `pyproject.toml`/`uv.lock`) and runs two ~74 s
+    onedir builds to prove closed-set determinism, frozen latex2mathml
+    byte-parity, the `freeze_support()` spawn guard, `direct_url.json`
+    sanitization, and the build-root string scan. Skipped by default;
+    opt-in via `pytest -m requires_desktop_package`, or run
+    `make desktop-package-check` (sets `DESKTOP_PACKAGE_GATE=1` so any
+    skip fails the session).
   - (`requires_mineru` and `requires_restic` are registered too —
     see `pyproject.toml` for their env-var prerequisites.)
 
