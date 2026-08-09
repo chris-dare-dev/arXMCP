@@ -46,7 +46,24 @@ MINOR and must re-pin `EXPECTED_TOOL_SCHEMA_SHA256`.
    proving a byte-identical manifest (closed, size-pinned exception set),
    frozen `latex2mathml` byte-parity, the `freeze_support()` spawn guard,
    and `direct_url.json` sanitization — budget ~150 s of builds after the
-   one-time build-venv provisioning.
+   one-time build-venv provisioning. Each build runs against its own cold
+   `PYINSTALLER_CONFIG_DIR`, so the determinism claim covers the native
+   binaries rather than replaying the first build's bincache.
+
+   **Prerequisites and footprint.** macOS/Linux only —
+   `requirements-build.txt` is a macOS-resolved hash-pinned lock with no
+   environment markers, and `--require-hashes` forbids resolving the
+   Windows dependency it omits. The first run **requires network** to
+   provision the build venv. `var/desktop-package/` is **persistent**: ~1 GB
+   of deliberately-reused build venv plus ~0.75 GB per bundle (~2.5 GB at
+   the two-build peak). Reclaim it with `make desktop-package-clean`.
+
+   **Supervisor wiring.** The frozen child derives its identity digest from
+   its OWN executable bytes (`server/desktop_child.py::identity_source_path`),
+   matching what the supervisor hashes — so the supervisor plan's
+   `identity_file` must point at the frozen executable in the bundle, not at
+   `server/desktop_child.py`. Pointing it at the source module makes every
+   launch fail the identity check.
 
    PyInstaller is deliberately NOT in `pyproject.toml`/`uv.lock` (the MinerU
    precedent): the driver provisions `var/desktop-package/build-venv` from

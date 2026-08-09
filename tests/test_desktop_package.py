@@ -113,6 +113,76 @@ def test_exception_set_is_closed_and_size_pinned():
     assert dp.NONDETERMINISTIC_EXCEPTIONS == PINNED_EXCEPTIONS
 
 
+def test_default_needles_cover_raw_and_realpath_temp_root(tmp_path):
+    """H3 guard: on macOS ``TMPDIR`` (``/var/folders/...``) and its realpath
+    (``/private/var/...``) differ, and the toolchain embeds the RAW form the
+    build was handed. Searching only the realpath matched nothing at all."""
+    import os
+    import tempfile
+
+    dp = _driver()
+    raw = tempfile.gettempdir()
+    real = os.path.realpath(raw)
+    needles = dp.default_needles()
+    assert needles["tmp"] == raw.encode()
+    if real != raw:
+        assert needles["tmp_real"] == real.encode()
+    # The planted needle the pre-fix scanner could not see.
+    (tmp_path / "planted.pyc").write_bytes(b"\x00" * 16 + f"{raw}/x.py".encode())
+    assert dp.scan_tree(tmp_path, needles)["hits"] == {"planted.pyc": ["tmp"]}
+
+
+def test_default_needles_add_uncovered_build_paths(tmp_path):
+    """M9/L1 guard: a checkout outside ``$HOME`` leaves the build directory —
+    the most likely leaked prefix — unscanned unless it is its own needle."""
+    dp = _driver()
+    outside = Path("/opt/build/arxmcp-checkout")
+    needles = dp.default_needles(build_paths=(outside,))
+    added = [label for label in needles if label.startswith("build_path_")]
+    assert added, "an out-of-$HOME build root must contribute a needle"
+    (tmp_path / "leaky.bin").write_bytes(b"\x00" + str(outside).encode())
+    assert "leaky.bin" in dp.scan_tree(tmp_path, needles)["hits"]
+    # A path already covered by $HOME contributes nothing new.
+    assert dp.default_needles(build_paths=(Path.home() / "x",)) == dp.default_needles()
+
+
+def test_build_once_fails_closed_on_vacuous_scan_coverage():
+    """M5 guard: an archive reader yielding an empty TOC must be
+    distinguishable from a genuinely clean bundle."""
+    dp = _driver()
+    with pytest.raises(dp.BuildError, match="zero files"):
+        dp._require_scan_coverage({"files_scanned": 0, "embedded": {}})
+    with pytest.raises(dp.BuildError, match="no .pyc entries"):
+        dp._require_scan_coverage(
+            {
+                "files_scanned": 10,
+                "embedded": {"entries_scanned": 0, "pyc_entries": 0},
+            }
+        )
+    dp._require_scan_coverage(
+        {"files_scanned": 10, "embedded": {"entries_scanned": 5, "pyc_entries": 5}}
+    )
+
+
+def test_verify_cli_exit_codes(monkeypatch, tmp_path):
+    """M1 guard: the ``verify`` subcommand duplicates the gate's assertions in
+    code no make target runs; both failure exits must be real."""
+    dp = _driver()
+
+    def _report(differing, hits):
+        return {
+            "determinism": {"differing": differing},
+            "scan": {"hits": hits},
+        }
+
+    cases = [(([], {}), 0), ((["lib/x.so"], {}), 1), (([], {"lib/x.so": ["home"]}), 1)]
+    for (differing, hits), expected in cases:
+        monkeypatch.setattr(
+            dp, "verify_determinism", lambda root, d=differing, h=hits: _report(d, h)
+        )
+        assert dp.main(["verify", "--root", str(tmp_path)]) == expected
+
+
 def test_scanner_finds_needle_in_binary_and_extensionless_files(tmp_path):
     dp = _driver()
     needles = {"home": b"/Users/buildbot-home"}
@@ -164,8 +234,7 @@ def test_sanitizer_removes_direct_url_and_reports_leak(tmp_path):
     assert again["found"] is False
 
 
-def test_manifest_diff_catches_content_membership_and_mode(tmp_path):
-    dp = _driver()
+def _manifest_pair(tmp_path):
     a, b = tmp_path / "a", tmp_path / "b"
     for root in (a, b):
         (root / "sub").mkdir(parents=True)
@@ -173,6 +242,22 @@ def test_manifest_diff_catches_content_membership_and_mode(tmp_path):
         (root / "sub" / "content.bin").write_bytes(b"one")
     (b / "sub" / "content.bin").write_bytes(b"two")
     (b / "only-in-b").write_text("x", encoding="utf-8")
+    return a, b
+
+
+def test_manifest_diff_catches_content_and_membership(tmp_path):
+    dp = _driver()
+    a, b = _manifest_pair(tmp_path)
+    diff = dp.manifest_diff(dp.file_manifest(a), dp.file_manifest(b))
+    assert diff == ["only-in-b", "sub/content.bin"]
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="POSIX mode bits: chmod only toggles read-only"
+)
+def test_manifest_diff_catches_mode(tmp_path):
+    dp = _driver()
+    a, b = _manifest_pair(tmp_path)
     (a / "mode.sh").write_text("#!/bin/sh\n", encoding="utf-8")
     (b / "mode.sh").write_text("#!/bin/sh\n", encoding="utf-8")
     (b / "mode.sh").chmod(0o755)
@@ -205,6 +290,12 @@ def test_two_builds_are_byte_identical_within_pinned_exceptions(packaged):
     dp, report = packaged
     det = report["determinism"]
     assert det["manifest_entries"] >= 4000, "suspiciously small bundle manifest"
+    # H1: without distinct, cold PYINSTALLER_CONFIG_DIRs the second build
+    # copies its native binaries out of the first build's bincache, so an
+    # empty exception set would be a cache replay rather than a reproduction.
+    assert det["config_dirs_distinct"] is True
+    assert det["config_dirs"][0] != det["config_dirs"][1]
+    assert det["config_dir_b_cold"] is True
     unexpected = set(det["differing"]) - dp.NONDETERMINISTIC_EXCEPTIONS
     assert not unexpected, (
         f"NEW nondeterministic paths (grow the pinned set only with a per-entry "
@@ -246,18 +337,29 @@ def test_frozen_latex2mathml_output_matches_source_tree(packaged, tmp_path):
     assert frozen["symbol_table_bytes"] == source_table.stat().st_size
 
 
+#: Signals main() emits on ANY entry path, so the AC3 discriminator survives
+#: changes to how main() fails. Deliberately NOT a traceback frame alone: the
+#: pre-m7-rectify control arm asserted ``, in main`` only because the frozen
+#: child crashed in ``executable_identity()``, which coupled the strongest AC3
+#: evidence to a bug (M3). ``rejected launch`` is the clean-path marker; the
+#: traceback frame is kept so an unexpected crash inside main() still counts
+#: as having entered it.
+_ENTERED_MAIN_MARKERS = (b"desktop child rejected launch", b", in main")
+
+
+def _entered_main(stderr: bytes) -> bool:
+    return any(marker in stderr for marker in _ENTERED_MAIN_MARKERS)
+
+
 @pytest.mark.requires_desktop_package
 def test_frozen_spawn_reexec_never_reenters_main(packaged, tmp_path):
     """AC3 dynamic half, on the REAL frozen executable — never a mocked
     freeze_support. main() ignores argv entirely, so absent freeze_support()
     a ``--multiprocessing-fork`` re-exec would behave exactly like the control
     arm: enter main() as a duplicate top-level desktop child. The control arm
-    proves what entering main() looks like on this binary (a traceback frame
-    ``in main``; today it dies inside ``executable_identity`` because the
-    frozen entry has no on-disk source — a known, separately tracked frozen
-    gap). The fork-flagged arm must never reach main(): freeze_support
-    intercepts and multiprocessing's spawn_main dies on the unfed pipe with
-    EOFError instead."""
+    proves what entering main() looks like on this binary; the fork-flagged arm
+    must never reach main() — freeze_support intercepts and multiprocessing's
+    spawn_main dies on the unfed pipe with EOFError instead."""
     dp, report = packaged
     exe = str(Path(report["bundle"]) / dp.CHILD_EXE)
     env = _frozen_env(tmp_path)
@@ -270,9 +372,17 @@ def test_frozen_spawn_reexec_never_reenters_main(packaged, tmp_path):
         timeout=180,
     )
     assert control.returncode != 0
-    assert b", in main" in control.stderr, (
+    assert _entered_main(control.stderr), (
         f"control arm never entered main(); stderr: {control.stderr[-2000:]}"
     )
+    # H2: the frozen child must get PAST executable_identity() and reach the
+    # launch-frame contract check — it used to die hashing a PYZ-internal
+    # __file__, so the bundle could not complete a handshake at all.
+    assert control.returncode == 2, (
+        f"frozen child did not reach the launch-contract rejection (rc="
+        f"{control.returncode}); stderr: {control.stderr[-2000:]}"
+    )
+    assert b"desktop child rejected launch" in control.stderr
     assert b"EOFError" not in control.stderr
 
     read_fd, write_fd = os.pipe()
@@ -290,7 +400,7 @@ def test_frozen_spawn_reexec_never_reenters_main(packaged, tmp_path):
         os.close(read_fd)
     os.close(write_fd)  # child's pipe read hits EOF; spawn_main dies unfed
     _, stderr = proc.communicate(timeout=180)
-    assert b", in main" not in stderr, (
+    assert not _entered_main(stderr), (
         f"fork re-exec fell through to main() — duplicate top-level process; "
         f"stderr: {stderr[-2000:]}"
     )

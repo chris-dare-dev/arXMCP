@@ -95,15 +95,24 @@ def _component_version() -> str:
         return "0+unknown"
 
 
-def executable_identity() -> ExecutableIdentity:
-    """Self-measured identity the child compares against the launch frame.
+def identity_source_path() -> Path:
+    """The file whose bytes are the child's identity digest.
 
-    A Python child has no single compiled artifact, so the closest analogue
-    to the fixture sidecar's hash-your-own-binary rule is a digest of THIS
-    module's source. Known limitation: the digest does not cover imported
+    Frozen (PyInstaller): the executable itself — the exact analogue of the
+    fixture sidecar's ``current_executable_sha256`` and of what the supervisor
+    hashes for ``plan.identity_file``. ``__file__`` is a PYZ-internal path with
+    no on-disk bytes once frozen, so reading it raises before any handshake.
+    Source checkout: this module, whose digest does not cover imported
     dependencies the way a compiled binary's hash would.
     """
-    digest = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable)
+    return Path(__file__)
+
+
+def executable_identity() -> ExecutableIdentity:
+    """Self-measured identity the child compares against the launch frame."""
+    digest = hashlib.sha256(identity_source_path().read_bytes()).hexdigest()
     return ExecutableIdentity(
         component=COMPONENT, sha256=digest, version=_component_version()
     )

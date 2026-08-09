@@ -58,6 +58,7 @@ from server.desktop_child import (
     STARTUP_TOKEN_HEADER_BYTES,
     ReadyzStartupTokenMiddleware,
     executable_identity,
+    identity_source_path,
     read_frame,
 )
 from server.desktop_contract import (
@@ -685,6 +686,31 @@ def test_desktop_boot_path_calls_the_logging_configurator() -> None:
     identifiers = _code_identifiers(REPO_ROOT / "server" / "desktop_child.py")
     assert "_configure_child_logging" in identifiers, (
         "the helper must be CALLED from the boot path, not merely defined"
+    )
+
+
+def test_identity_digest_targets_the_executable_when_frozen(monkeypatch, tmp_path):
+    """m7 critique H2: under PyInstaller ``__file__`` is a PYZ-internal path
+    with no on-disk bytes, so hashing it raised inside ``executable_identity()``
+    before the child could read a single launch frame — the shipped bundle
+    could not complete a handshake at all. Frozen, the digest must be the
+    executable's own bytes, which is also what the supervisor hashes for
+    ``plan.identity_file``."""
+    source_module = REPO_ROOT / "server" / "desktop_child.py"
+    assert identity_source_path() == source_module
+    assert (
+        executable_identity().sha256
+        == hashlib.sha256(source_module.read_bytes()).hexdigest()
+    )
+
+    fake_exe = tmp_path / "arxmcp-desktop-child"
+    fake_exe.write_bytes(b"frozen-mach-o-bytes")
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(fake_exe))
+    assert identity_source_path() == fake_exe
+    assert (
+        executable_identity().sha256
+        == hashlib.sha256(b"frozen-mach-o-bytes").hexdigest()
     )
 
 

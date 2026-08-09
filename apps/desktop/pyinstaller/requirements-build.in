@@ -9,5 +9,11 @@
 #     -o apps/desktop/pyinstaller/requirements-build.txt
 # then verify the pyinstaller wheel hash still matches the spike pin
 # (327d1323...) before committing, and re-run `make desktop-package-check`.
+#
+# SCOPE: macOS/Linux only. Resolved on macOS with no environment markers, so
+# the lock pins darwin-only `macholib` and omits PyInstaller's Windows
+# requirement `pywin32-ctypes`; `--require-hashes` then forbids resolving it
+# at install time. Windows support means regenerating with `--universal` plus
+# `sys_platform` markers AND deriving `_tool_env()["PATH"]` per-platform.
 pyinstaller==6.21.0
 pyinstaller-hooks-contrib==2026.6

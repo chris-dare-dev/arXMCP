@@ -14,7 +14,7 @@
 .PHONY: test eval status watchdog cutover notebook-cutover
 .PHONY: daily-report parser-failures-report sbom refresh-arxiv-ca
 .PHONY: wheel-check wheel-check-full desktop-conformance
-.PHONY: desktop-package desktop-package-check
+.PHONY: desktop-package desktop-package-check desktop-package-clean
 
 # NOTEBOOK CRUD (m2) — first-class Make verbs for the notebook
 # lifecycle (proposal §9; backed by tools/notebook_*.py + /ui/api/*).
@@ -97,8 +97,9 @@ help:
 	@echo "  make wheel-check            Build the wheel, install it into a throwaway venv, assert ops/ + server/frontend/ + console scripts (issue #206; ~10s)"
 	@echo "  make wheel-check-full       Same, but an isolated venv with the REAL deps + an ARXMCP_BOOTSTRAP_MODE=1 boot polled at /healthz. Pre-publish gate (~4 min warm)"
 	@echo "  make desktop-conformance    Build the locked fixture sidecar, then run its Rust/Python contract and lifecycle gate with zero skips"
-	@echo "  make desktop-package        Build the PyInstaller onedir desktop bundle from the committed spec into var/desktop-package/dist/ (provisions the pinned build venv on first run; fails on any build-machine path in the artifact)"
-	@echo "  make desktop-package-check  Packaging gate: two consecutive builds + determinism/hygiene proofs (AC1-AC5) with zero skips (~150s of builds after one-time venv provisioning)"
+	@echo "  make desktop-package        Build the PyInstaller onedir desktop bundle from the committed spec into var/desktop-package/dist/ (macOS/Linux only; first run provisions the pinned build venv and NEEDS NETWORK; fails on any build-machine path in the artifact)"
+	@echo "  make desktop-package-check  Packaging gate: two consecutive cold-cache builds + determinism/hygiene proofs (AC1-AC5) with zero skips (macOS/Linux only; ~150s of builds after the one-time network provisioning)"
+	@echo "  make desktop-package-clean  Reclaim var/desktop-package/ (~1 GB persistent build venv plus ~0.75 GB per bundle)"
 	@echo ""
 	@echo "Override the python interpreter with: make test PYTHON=python3.13"
 	@echo ""
@@ -186,6 +187,12 @@ desktop-package:
 # precedent against unmarked expensive desktop tests in the default gate).
 desktop-package-check:
 	DESKTOP_PACKAGE_GATE=1 $(PYTHON) -m pytest tests/test_desktop_package.py -m "requires_desktop_package or not requires_desktop_package"
+
+# The build venv is intentionally REUSED across runs, so var/desktop-package/
+# is persistent (~1 GB venv + ~0.75 GB per bundle), not transient. This is the
+# documented way to reclaim it; the next build re-provisions from the network.
+desktop-package-clean:
+	rm -rf var/desktop-package
 
 # The Tier-0 → Tier-1 exit gate. See .claude/TIER-GATES.md for the full
 # behavior matrix (pass / fail / SKIP) and the operator's prerequisite

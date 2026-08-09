@@ -53,6 +53,27 @@ BUILD_VENV_ENV_VAR = "DESKTOP_BUILD_VENV"
 NONDETERMINISTIC_EXCEPTIONS: frozenset[str] = frozenset()
 EXPECTED_EXCEPTION_COUNT = 0
 
+if len(NONDETERMINISTIC_EXCEPTIONS) != EXPECTED_EXCEPTION_COUNT:
+    raise RuntimeError(
+        "NONDETERMINISTIC_EXCEPTIONS size drifted from EXPECTED_EXCEPTION_COUNT; "
+        "bump both here and in tests/test_desktop_package.py"
+    )
+
+#: Passed through to the build subprocesses when set. None perturbs
+#: determinism the way PYTHONPATH would, and dropping them silently breaks
+#: provisioning on a proxied or custom-CA box.
+_PASSTHROUGH_ENV = (
+    "HTTPS_PROXY",
+    "HTTP_PROXY",
+    "NO_PROXY",
+    "https_proxy",
+    "http_proxy",
+    "no_proxy",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+    "REQUESTS_CA_BUNDLE",
+)
+
 
 class BuildError(RuntimeError):
     """A packaging step failed; message is operator-facing."""
@@ -87,10 +108,17 @@ def _run(
     return proc
 
 
-def _tool_env() -> dict[str, str]:
+def _tool_env(*, config_dir: Path | None = None) -> dict[str, str]:
     """Minimal env for uv/PyInstaller: no PYTHONPATH so nothing resolves from
-    the checkout, fixed hash seed + SOURCE_DATE_EPOCH for reproducible pycs."""
-    return {
+    the checkout, fixed hash seed + SOURCE_DATE_EPOCH for reproducible pycs.
+
+    ``config_dir`` sets ``PYINSTALLER_CONFIG_DIR`` (PyInstaller's
+    ``compat.CONF_DIR``). Without it every build shares the user-level bincache
+    under ``$HOME``, so a second "independent" build REPLAYS the first build's
+    processed, ad-hoc-signed Mach-O binaries instead of reproducing them — the
+    file class most likely to carry nondeterminism.
+    """
+    env = {
         "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
         "HOME": str(Path.home()),
         "TMPDIR": tempfile.gettempdir(),
@@ -98,6 +126,13 @@ def _tool_env() -> dict[str, str]:
         "PYTHONHASHSEED": "0",
         "SOURCE_DATE_EPOCH": "315532800",
     }
+    for name in _PASSTHROUGH_ENV:
+        value = os.environ.get(name)
+        if value:
+            env[name] = value
+    if config_dir is not None:
+        env["PYINSTALLER_CONFIG_DIR"] = str(config_dir)
+    return env
 
 
 def _uv() -> str:
@@ -225,14 +260,23 @@ def sanitize_direct_url(site_packages: Path) -> dict[str, object]:
     return report
 
 
+def config_dir_for(workpath: Path) -> Path:
+    """Per-build PyInstaller ``CONF_DIR`` (bincache). Lives under the workpath,
+    which ``build_bundle`` rmtrees, so every build starts with a COLD cache."""
+    return workpath / "pyi-conf"
+
+
 def build_bundle(python: Path, workpath: Path, distpath: Path) -> Path:
-    """One PyInstaller invocation into fresh, explicit work/dist paths."""
+    """One PyInstaller invocation into fresh, explicit work/dist paths, with a
+    per-build config dir so no binary is copied out of another build's cache."""
     for path in (workpath, distpath / BUNDLE_NAME):
         if path.exists():
             shutil.rmtree(path)
     workpath.mkdir(parents=True, exist_ok=True)
     distpath.mkdir(parents=True, exist_ok=True)
-    _log(f"pyinstaller -> {distpath}")
+    config_dir = config_dir_for(workpath)
+    config_dir.mkdir(parents=True, exist_ok=True)
+    _log(f"pyinstaller -> {distpath} (config dir {config_dir})")
     _run(
         [
             str(python),
@@ -245,7 +289,7 @@ def build_bundle(python: Path, workpath: Path, distpath: Path) -> Path:
             str(distpath),
             str(SPEC_PATH),
         ],
-        env=_tool_env(),
+        env=_tool_env(config_dir=config_dir),
         cwd=workpath,
         timeout=1800,
     )
@@ -283,14 +327,39 @@ def manifest_diff(a: dict[str, str], b: dict[str, str]) -> list[str]:
     )
 
 
-def default_needles() -> dict[str, bytes]:
-    """Host-specific strings whose presence in the bundle is a build leak."""
+def default_needles(*, build_paths: tuple[Path, ...] = ()) -> dict[str, bytes]:
+    """Host-specific strings whose presence in the bundle is a build leak.
+
+    Both the raw and the ``realpath`` form of the temp root and ``$HOME`` are
+    emitted when they differ: on macOS ``TMPDIR`` is ``/var/folders/...`` while
+    its realpath is ``/private/var/folders/...``, and the toolchain embeds
+    whichever form it was handed — searching only one silently matches nothing.
+
+    ``build_paths`` (repo root, workpath, distpath) covers the build directory
+    itself, which is scanned only incidentally when the checkout happens to sit
+    under ``$HOME``. A path already covered by a broader needle is dropped:
+    anything containing it contains the prefix too.
+    """
     home = str(Path.home())
-    return {
+    tmp = tempfile.gettempdir()
+    needles = {
         "home": home.encode(),
         "user": Path.home().name.encode(),
-        "tmp": os.path.realpath(tempfile.gettempdir()).encode(),
+        "tmp": tmp.encode(),
     }
+    if os.path.realpath(home) != home:
+        needles["home_real"] = os.path.realpath(home).encode()
+    if os.path.realpath(tmp) != tmp:
+        needles["tmp_real"] = os.path.realpath(tmp).encode()
+    covered = list(needles.values())
+    for index, path in enumerate(build_paths):
+        for candidate in {str(path), os.path.realpath(path)}:
+            raw = candidate.encode()
+            if any(prefix in raw for prefix in covered):
+                continue
+            needles[f"build_path_{index}_{len(needles)}"] = raw
+            covered.append(raw)
+    return needles
 
 
 def _scan_bytes(data: bytes, needles: dict[str, bytes]) -> list[str]:
@@ -389,14 +458,41 @@ def scan_embedded_archives(
     return merged
 
 
+def _require_scan_coverage(scan: dict[str, object]) -> None:
+    """Fail closed on a vacuously clean scan: an archive reader that yields an
+    empty TOC, or a walk that opened nothing, is indistinguishable from a clean
+    result by ``hits`` alone. The tighter numeric floors stay in the gate test.
+    """
+    embedded = scan.get("embedded", {})
+    if not scan.get("files_scanned"):
+        raise BuildError("scan covered zero files; the walk found nothing to read")
+    if not embedded.get("entries_scanned") or not embedded.get("pyc_entries"):  # type: ignore[union-attr]
+        raise BuildError(f"embedded PYZ scan covered no .pyc entries: {embedded}")
+
+
+def _sweep_transient(root: Path) -> None:
+    """Remove work trees a previous failed or interrupted run stranded."""
+    for stale in sorted(root.glob("work*")) + [root / "dist-verify"]:
+        if stale.exists():
+            _log(f"sweeping stale transient tree {stale}")
+            shutil.rmtree(stale, ignore_errors=True)
+
+
 def build_once(root: Path = DEFAULT_ROOT) -> dict[str, object]:
     """``make desktop-package``: provision, sanitize, build, scan; raises on
     any build-machine path hit or an unsanitized install."""
     python, site_packages = provision(root)
     direct_url = sanitize_direct_url(site_packages)
-    bundle = build_bundle(python, root / "work", root / "dist")
-    shutil.rmtree(root / "work", ignore_errors=True)
-    scan = scan_tree(bundle, default_needles(), python)
+    _sweep_transient(root)
+    work, dist = root / "work", root / "dist"
+    try:
+        bundle = build_bundle(python, work, dist)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    scan = scan_tree(
+        bundle, default_needles(build_paths=(REPO_ROOT, work, dist)), python
+    )
+    _require_scan_coverage(scan)
     report: dict[str, object] = {
         "bundle": str(bundle),
         "direct_url": direct_url,
@@ -416,19 +512,41 @@ def verify_determinism(
 ) -> dict[str, object]:
     """Two independent spec builds from the same tree; returns the full
     evidence report (manifest diff, scans, sanitizer pre-state). The first
-    build stays at ``root/dist`` as the canonical artifact."""
+    build stays at ``root/dist`` as the canonical artifact.
+
+    Independent means COLD: each build gets its own ``PYINSTALLER_CONFIG_DIR``
+    under its own workpath, so build B re-processes every native binary rather
+    than copying A's bincache entries — the report records both dirs and
+    whether B's was cold, because the AC1 claim is otherwise unfalsifiable.
+    """
     python, site_packages = provision(root)
     direct_url = sanitize_direct_url(site_packages)
-    bundle_a = build_bundle(python, root / "work-a", root / "dist")
-    shutil.rmtree(root / "work-a", ignore_errors=True)
-    bundle_b = build_bundle(python, root / "work-b", root / "dist-verify")
-    shutil.rmtree(root / "work-b", ignore_errors=True)
+    _sweep_transient(root)
+    work_a, work_b = root / "work-a", root / "work-b"
+    dist_a, dist_b = root / "dist", root / "dist-verify"
+    config_a, config_b = config_dir_for(work_a), config_dir_for(work_b)
+    # Recorded, not assumed: AC1's "independent" claim rests on build B not
+    # inheriting build A's bincache, so the evidence must show B started cold.
+    config_b_cold = not config_b.exists()
+    try:
+        bundle_a = build_bundle(python, work_a, dist_a)
+    finally:
+        shutil.rmtree(work_a, ignore_errors=True)
+    try:
+        bundle_b = build_bundle(python, work_b, dist_b)
+    finally:
+        shutil.rmtree(work_b, ignore_errors=True)
     manifest_a = file_manifest(bundle_a)
     manifest_b = file_manifest(bundle_b)
     differing = manifest_diff(manifest_a, manifest_b)
-    scan = scan_tree(bundle_a, default_needles(), python)
+    scan = scan_tree(
+        bundle_a,
+        default_needles(build_paths=(REPO_ROOT, work_a, dist_a, work_b, dist_b)),
+        python,
+    )
+    _require_scan_coverage(scan)
     if not keep_second:
-        shutil.rmtree(root / "dist-verify", ignore_errors=True)
+        shutil.rmtree(dist_b, ignore_errors=True)
     report: dict[str, object] = {
         "bundle": str(bundle_a),
         "direct_url": direct_url,
@@ -437,6 +555,9 @@ def verify_determinism(
             "differing": differing,
             "identical": not differing,
             "exceptions_allowed": sorted(NONDETERMINISTIC_EXCEPTIONS),
+            "config_dirs": [str(config_a), str(config_b)],
+            "config_dirs_distinct": config_a != config_b,
+            "config_dir_b_cold": config_b_cold,
         },
         "scan": scan,
     }
