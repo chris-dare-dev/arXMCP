@@ -365,10 +365,18 @@ is gone — so this is greenfield and its estimate is the least reliable of the
 three.
 
 **Acceptance criteria.**
-- [ ] `make desktop-package` builds a deterministic `onedir` bundle from a
-      committed spec; two consecutive builds from the same commit produce
-      byte-identical manifests, excluding only files the build tool itself
-      declares non-deterministic, documented rather than silently ignored.
+- [ ] `make desktop-package` builds an `onedir` bundle from a committed spec.
+      Two consecutive builds from the same commit produce byte-identical
+      manifests except for a CLOSED, explicitly enumerated exception set whose
+      size is asserted; a regression FAILS if a new exception appears.
+      (Revised 2026-08-09. As originally written — "byte-identical, exceptions
+      documented" — this degrades into an open-ended list, because PyInstaller
+      embeds timestamps, build paths and archive ordering; an AC that ends as
+      "byte-identical except for the forty things that differ" proves nothing.
+      Pinning the exception set converts an unbounded escape hatch into a
+      tripwire. The exception set has never been measured — no spec exists to
+      build from — so its initial contents are Phase-2 discovery, and the
+      count must be established from observation, not guessed.)
 - [ ] The frozen bundle converts a fixed LaTeX fixture to MathML with output
       byte-identical to the source tree, proving the data hook ships the real
       symbol table rather than that an import did not crash.
