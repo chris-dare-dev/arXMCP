@@ -33,6 +33,26 @@ Thumbs.db
 *.log
 *.egg-info/
 
+# Wheel-build artifacts. setuptools drops build/ (bdist.<platform>/ + lib/ with
+# copied source trees) in the directory the build runs from, and `python -m
+# build` / `uv build` write dist/ there too -- both in the repo root, hence the
+# leading-slash anchor: a future SOURCE directory named build/ or dist/ deeper
+# in the tree must still be trackable.
+#
+# tools/wheel_install_check.py already rmtree's build/ after a successful
+# `make wheel-check`, but only when it did not pre-exist, and not at all when
+# the build fails -- so once build/ lands it is self-perpetuating. Any bare
+# `python -m build` leaves both behind unconditionally. That matters beyond
+# tidiness: .claude/commands/milestone-pipeline.md Phase 0 preflight requires
+# `git status --porcelain` to be empty, so a wheel build otherwise blocks the
+# next milestone until someone removes the directory by hand.
+#
+# arxmcp.egg-info/ is already covered by the *.egg-info/ pattern above.
+# .dockerignore has carried build/ + dist/ since E06_S01; this closes the
+# matching gap on the git side.
+/build/
+/dist/
+
 # E11_S05 — restic creds. The .template is committed; the filled
 # file with the operator's RESTIC_REPOSITORY / B2 creds is not.
 ops/restic-env.sh
