@@ -1,0 +1,130 @@
+{
+  "milestone_id": "desktop-distribution-m9",
+  "critique_format_version": "1.0",
+  "critique_files": [
+    "dedup.md"
+  ],
+  "generated_at": "2026-08-09T18:45:12Z",
+  "findings": {
+    "H1": {
+      "id": "H1",
+      "severity": "HIGH",
+      "title": "No test asserts a built binary declares minos 14.0",
+      "file": "tests/test_desktop_support_floor.py",
+      "line": 108,
+      "anchor": "class TestDeclaredFloorAgreement:",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Acceptance coverage",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Added TestBuiltArtifactDeclaresTheFloor::test_binaries_report_the_declared_minos: reads minos off LC_BUILD_VERSION via otool -l for both DESKTOP_SUPERVISOR_BIN and ARXMCP_FIXTURE_SIDECAR, raising (never skipping) on a missing env var, missing binary, missing otool, or an empty parse. Wired into make desktop-conformance as a third pytest line with both env vars set. Demonstrated failing against a deliberately 11.0-built fixture-sidecar (AssertionError: declares minos 11.0, not 14.0) and against the missing-otool and unset-env arms, then passing on the real binaries.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-09T18:45:02Z",
+          "resolution": "Added TestBuiltArtifactDeclaresTheFloor::test_binaries_report_the_declared_minos: reads minos off LC_BUILD_VERSION via otool -l for both DESKTOP_SUPERVISOR_BIN and ARXMCP_FIXTURE_SIDECAR, raising (never skipping) on a missing env var, missing binary, missing otool, or an empty parse. Wired into make desktop-conformance as a third pytest line with both env vars set. Demonstrated failing against a deliberately 11.0-built fixture-sidecar (AssertionError: declares minos 11.0, not 14.0) and against the missing-otool and unset-env arms, then passing on the real binaries."
+        }
+      ]
+    },
+    "H2": {
+      "id": "H2",
+      "severity": "HIGH",
+      "title": "The unearned-claim scanner misses the most natural claim phrasings",
+      "file": "tests/test_desktop_support_floor.py",
+      "line": 37,
+      "anchor": "_CLAIM_PATTERNS = tuple(",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Acceptance coverage",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Broadened the claim scanner (up-to-3 intervening tokens before the preposition, noun-form support/compatibility claims, markdown support-matrix cells, install/start verbs) and narrowed the negation exemption to the governing clause by cutting the lookback window at the nearest clause boundary. TestScannerControls now runs a 12-case positive corpus (the critic's measured bypasses) and a 10-case negative corpus taken from the README's real honest wording, asserting both directions; a further test pins the negative corpus to live README text. Demonstrated: the shipped 0b11bbc scanner misses 8 of the 12 positives and false-positives on 0 negatives; post-fix 12/12 and 0/10. Module docstring and README now state the scan is best-effort.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-09T18:45:02Z",
+          "resolution": "Broadened the claim scanner (up-to-3 intervening tokens before the preposition, noun-form support/compatibility claims, markdown support-matrix cells, install/start verbs) and narrowed the negation exemption to the governing clause by cutting the lookback window at the nearest clause boundary. TestScannerControls now runs a 12-case positive corpus (the critic's measured bypasses) and a 10-case negative corpus taken from the README's real honest wording, asserting both directions; a further test pins the negative corpus to live README text. Demonstrated: the shipped 0b11bbc scanner misses 8 of the 12 positives and false-positives on 0 negatives; post-fix 12/12 and 0/10. Module docstring and README now state the scan is best-effort."
+        }
+      ]
+    },
+    "M1": {
+      "id": "M1",
+      "severity": "MEDIUM",
+      "title": "AC4's \"or event\" half is unscanned and the doc set is hand-listed",
+      "file": "tests/test_desktop_support_floor.py",
+      "line": 76,
+      "anchor": "def _shipped_docs() -> list[Path]:",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Acceptance coverage",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "_shipped_docs() now derives its surface from the tree (root *.md minus CLAUDE.md/AGENTS.md, docs/**/*.md, apps/**/*.md = 35 files, up from 3 + docs/**), matching test_wheel_packaging / test_assert_ban / test_marker_doc_consistency. New _shipped_event_sources() covers AC4's or-event half over apps/desktop/crates/**/*.rs plus server/desktop_child.py (12 files), scanned by the same patterns. Both sets carry non-empty guards; the event set asserts lifecycle.rs is included. Zero offenders across all 47 files.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-09T18:45:02Z",
+          "resolution": "_shipped_docs() now derives its surface from the tree (root *.md minus CLAUDE.md/AGENTS.md, docs/**/*.md, apps/**/*.md = 35 files, up from 3 + docs/**), matching test_wheel_packaging / test_assert_ban / test_marker_doc_consistency. New _shipped_event_sources() covers AC4's or-event half over apps/desktop/crates/**/*.rs plus server/desktop_child.py (12 files), scanned by the same patterns. Both sets carry non-empty guards; the event set asserts lifecycle.rs is included. Zero offenders across all 47 files."
+        }
+      ]
+    },
+    "M2": {
+      "id": "M2",
+      "severity": "MEDIUM",
+      "title": "An inferred hardware fact is restated as measured",
+      "file": "apps/desktop/README.md",
+      "line": 38,
+      "anchor": "(Apple M4 Max) cannot boot macOS 14 at al",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Doc drift",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "apps/desktop/README.md now restores the spike's confidence marker on the M4-Max claim: cannot boot macOS 14 because, per Apple's documented platform policy, no macOS 14 build supports its SoC (inferred, corroborated by the hardware ID and this host's SDK inventory bottoming out at 15.2; NOT measured by attempting an install).",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-09T18:45:12Z",
+          "resolution": "apps/desktop/README.md now restores the spike's confidence marker on the M4-Max claim: cannot boot macOS 14 because, per Apple's documented platform policy, no macOS 14 build supports its SoC (inferred, corroborated by the hardware ID and this host's SDK inventory bottoming out at 15.2; NOT measured by attempting an install)."
+        }
+      ]
+    },
+    "M3": {
+      "id": "M3",
+      "severity": "MEDIUM",
+      "title": "The symbol-analysis result is stated more strongly than the method supports",
+      "file": "apps/desktop/README.md",
+      "line": 39,
+      "anchor": "macOS 14 build supports its SoC. Static a",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Doc drift",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "apps/desktop/README.md now describes the symbol scan as a deliberately lenient one (whole-.tbd tokenization, with negative and sensitivity controls) whose leniency is bounded but non-zero and directional: it can under-report a missing symbol and never over-report one. The categorical 'every imported dynamic symbol exists' phrasing is gone.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-09T18:45:12Z",
+          "resolution": "apps/desktop/README.md now describes the symbol scan as a deliberately lenient one (whole-.tbd tokenization, with negative and sensitivity controls) whose leniency is bounded but non-zero and directional: it can under-report a missing symbol and never over-report one. The categorical 'every imported dynamic symbol exists' phrasing is gone."
+        }
+      ]
+    },
+    "L1": {
+      "id": "L1",
+      "severity": "LOW",
+      "title": "A build instruction is now correctness-bearing but reads as convenience",
+      "file": "apps/desktop/README.md",
+      "line": 59,
+      "anchor": "Run these commands from the repository ro",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Doc drift",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "apps/desktop/README.md states running from the repository root as a correctness precondition, not a convenience, and names the consequence: cargo discovers the repo-root .cargo/config.toml pin by walking up from the CWD rather than from --manifest-path, so an invocation started elsewhere builds at rustc's 11.0 default instead of the 14.0 floor. H1's artifact check is the gate that now catches it.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-09T18:45:12Z",
+          "resolution": "apps/desktop/README.md states running from the repository root as a correctness precondition, not a convenience, and names the consequence: cargo discovers the repo-root .cargo/config.toml pin by walking up from the CWD rather than from --manifest-path, so an invocation started elsewhere builds at rustc's 11.0 default instead of the 14.0 floor. H1's artifact check is the gate that now catches it."
+        }
+      ]
+    }
+  }
+}
