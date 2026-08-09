@@ -25,9 +25,15 @@ must agree: `bundle.macOS.minimumSystemVersion` in
 advertise 10.13 — four majors below what the faiss wheel needs), the repo-root
 `.cargo/config.toml` pin `MACOSX_DEPLOYMENT_TARGET = "14.0"` that makes both
 Rust binaries report `minos 14.0`, and this section.
-`tests/test_desktop_support_floor.py` fails if the three drift apart, or if a
-macOS 14 compatibility claim lands in the shipped docs without a recorded
-macOS 14 test run.
+`tests/test_desktop_support_floor.py` fails if the three drift apart, if the
+BUILT binaries report a `minos` other than 14.0 (read off the artifacts under
+`make desktop-conformance`, because agreeing declarations are not an agreeing
+artifact), or if a macOS 14 compatibility claim in one of the known
+claim shapes lands in the shipped docs or in a user-visible string without a
+recorded macOS 14 test run. That last check is a best-effort regex calibrated
+against a corpus of claim and non-claim sentences, not a parser: it will miss a
+phrasing nobody has written down yet, so it is a backstop for the honesty
+discipline rather than a substitute for it.
 
 The floor is UNVERIFIED. `minos` is a build-time declaration by whoever
 compiled the object, not a runtime gate — dyld on the macOS 26.6 development
@@ -35,10 +41,16 @@ host loaded and ran an image declaring `minos 30.0`, so the declaration
 certifies nothing about execution, in either direction. No component of this
 workspace has ever been executed on macOS 14: no macOS 14 SDK exists on the
 development machine (the oldest present is 15.2), and the machine itself
-(Apple M4 Max) cannot boot macOS 14 at all, including in a VM, because no
-macOS 14 build supports its SoC. Static analysis found nothing that
-contradicts the floor — every imported dynamic symbol exists in the macOS 15.2
-SDK stubs — but "nothing contradicts it" is not "it works", and the
+(Apple M4 Max) cannot boot macOS 14 at all, including in a VM, because — per
+Apple's documented platform policy — no macOS 14 build supports its SoC
+(inferred, corroborated by the hardware ID and by this host's SDK inventory
+bottoming out at 15.2; NOT measured by attempting an install). Static analysis
+found nothing that contradicts the floor — a deliberately lenient symbol scan
+(whole-`.tbd` tokenization, with negative and sensitivity controls) found no
+imported dynamic symbol absent from the macOS 15.2 SDK stubs, and 15.2 is one
+major above the floor; the leniency is bounded but non-zero, so the scan can
+under-report a missing symbol and never over-report one — but "nothing
+contradicts it" is not "it works", and the
 ObjC/WebKit surface most likely to differ across macOS releases is resolved at
 runtime and invisible to symbol analysis. Discharging this requires a Mac
 still on macOS 14 or a hosted macOS 14 runner; until then, "macOS 14 or newer"
@@ -56,8 +68,12 @@ shell will continue to use the existing server-rendered operator console.
 
 ## Development and conformance commands
 
-Run these commands from the repository root. A temporary Cargo target keeps
-generated binaries out of the source tree.
+Run these commands from the repository root — that is a correctness
+precondition, not a convenience: cargo discovers the repo-root
+`.cargo/config.toml` deployment-target pin by walking up from the CWD, not from
+`--manifest-path`, so a cargo invocation started outside the repo root builds
+at rustc's 11.0 default instead of the 14.0 floor. A temporary Cargo target
+keeps generated binaries out of the source tree.
 
 ```bash
 make desktop-conformance PYTHON=.venv/bin/python

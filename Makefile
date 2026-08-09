@@ -150,7 +150,9 @@ Try: make test PYTHON=python3.$(MIN_PY_MINOR)'"
 # FATAL on a harness-only variable. BOTH env vars arm conftest's zero-skip
 # guard (m6 critique H2/H5): keying it on DESKTOP_SUPERVISOR_BIN alone left
 # the contract line — which runs AC3's stress and AC5's loopback proof —
-# able to skip both while this target still exited 0.
+# able to skip both while this target still exited 0. m9 adds the support-floor
+# line with BOTH vars set: its artifact check reads minos off the two binaries
+# built above, so it must run where they exist and must not be skippable.
 desktop-conformance:
 	cargo fmt --all --manifest-path apps/desktop/Cargo.toml -- --check
 	cargo test --locked --manifest-path apps/desktop/Cargo.toml --workspace
@@ -159,6 +161,7 @@ desktop-conformance:
 	cargo build --locked --manifest-path apps/desktop/Cargo.toml --bin supervisor
 	ARXMCP_FIXTURE_SIDECAR="$(CURDIR)/apps/desktop/target/debug/fixture-sidecar$(DESKTOP_EXE_SUFFIX)" $(PYTHON) -m pytest tests/test_desktop_contract.py -m "requires_desktop_stack or not requires_desktop_stack"
 	DESKTOP_SUPERVISOR_BIN="$(CURDIR)/apps/desktop/target/debug/supervisor$(DESKTOP_EXE_SUFFIX)" $(PYTHON) -m pytest tests/test_desktop_child.py -m "requires_desktop_stack or not requires_desktop_stack"
+	ARXMCP_FIXTURE_SIDECAR="$(CURDIR)/apps/desktop/target/debug/fixture-sidecar$(DESKTOP_EXE_SUFFIX)" DESKTOP_SUPERVISOR_BIN="$(CURDIR)/apps/desktop/target/debug/supervisor$(DESKTOP_EXE_SUFFIX)" $(PYTHON) -m pytest tests/test_desktop_support_floor.py -m "requires_desktop_stack or not requires_desktop_stack"
 
 # The Tier-0 → Tier-1 exit gate. See .claude/TIER-GATES.md for the full
 # behavior matrix (pass / fail / SKIP) and the operator's prerequisite
