@@ -1,7 +1,7 @@
 {
   "id": "adhoc-20260808-f62f387",
   "created_at": "2026-08-08T23:07:24Z",
-  "updated_at": "2026-08-09T01:27:20Z",
+  "updated_at": "2026-08-09T01:50:37Z",
   "phase": "rectify-running",
   "phase_history": [
     {
@@ -69,11 +69,20 @@
     "low": 1
   },
   "findings_register": ".claude/notes/milestones/adhoc-20260808-f62f387/findings.json",
-  "rectification_commit": null,
-  "fixed_findings": [],
+  "rectification_commit": "c289eaa",
+  "fixed_findings": [
+    "H1",
+    "L1",
+    "M1",
+    "M2",
+    "M3",
+    "M4"
+  ],
   "deferred_findings": [],
   "invalidated_findings": [],
-  "regression_tests_added": [],
+  "regression_tests_added": [
+    "tests/test_desktop_child.py"
+  ],
   "external_writes_authorized": [],
   "external_writes_completed": []
 }
