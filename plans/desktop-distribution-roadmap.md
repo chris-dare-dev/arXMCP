@@ -327,6 +327,139 @@ socket-level loopback regression.
 
 ---
 
+## desktop-distribution-e4 — release-blocker decomposition (2026-08-09)
+
+Spike-1 named five release blockers. Three are engineering work and are
+decomposed below as `m7`, `m8` and `m9`. Two are **externally gated and are
+NOT scheduled** — recording them here so no milestone implies a readiness it
+has not earned:
+
+- **Developer ID signing and notarization.** Requires paid Apple Developer
+  Program enrollment and a Developer ID Application certificate. This host
+  carries exactly one codesigning identity, `Apple Development`, which cannot
+  sign for direct distribution. `desktop-distribution-spike-4` (#387) has
+  never been run. The full procedure is drafted at
+  `.claude/notes/spikes/desktop-distribution-spike-4-runbook.md` and is
+  executable the moment a certificate exists; nothing before that unblocks it.
+- **macOS 14 support-floor verification.** Measured findings at
+  `.claude/notes/spikes/desktop-distribution-macos-floor.md`. macOS 14.0 is a
+  HARD INHERITED floor — `faiss_cpu 1.13.2` publishes exactly one arm64 macOS
+  wheel, `macosx_14_0_arm64`, with no lower-tagged fallback, and 132 of 200
+  Mach-O files under `.venv` declare minOS 14.0. **Nothing on this host can
+  verify it.** There is no macOS 14 SDK here (oldest is 15.2), `minos` was
+  proven NOT dyld-enforced (a `minos 30.0` dylib loaded and ran on 26.6), the
+  WebKit/AppKit surface is runtime-dispatched and statically invisible, and
+  this Apple M4 Max machine cannot run macOS 14 at all, including in a VM.
+  Verification requires different hardware or a hosted macOS 14 runner.
+
+### desktop-distribution-m7 — Reproducible bundle and packaging hygiene
+
+**Description.** Commit a PyInstaller `.spec` (or equivalent build script)
+building from the real desktop-child entry point, with a project-owned
+`hook-latex2mathml.py` that collects `unimathsymbols.txt`, a post-build step
+that sanitizes `direct_url.json`, and a recursive scanner that fails the build
+on any build-machine path string. Wire it into a new `make desktop-package`
+target producing the artifact later signing work will consume. No `.spec`
+exists anywhere in the tree today — spike-1's lived in a temp directory that
+is gone — so this is greenfield and its estimate is the least reliable of the
+three.
+
+**Acceptance criteria.**
+- [ ] `make desktop-package` builds a deterministic `onedir` bundle from a
+      committed spec; two consecutive builds from the same commit produce
+      byte-identical manifests, excluding only files the build tool itself
+      declares non-deterministic, documented rather than silently ignored.
+- [ ] The frozen bundle converts a fixed LaTeX fixture to MathML with output
+      byte-identical to the source tree, proving the data hook ships the real
+      symbol table rather than that an import did not crash.
+- [ ] `multiprocessing.freeze_support()` is the first statement in the
+      production entry point's main guard, verified by launching the frozen
+      executable and confirming no duplicate top-level process spawn.
+- [ ] No `direct_url.json` in the frozen bundle carries a `file://` URL
+      pointing at a build-machine path.
+- [ ] A recursive regular-file scan asserts zero occurrences of the build
+      host's temp root, `$HOME` prefix, or username across ALL regular files,
+      including compiled `.pyc` — assert this explicitly rather than assuming
+      `co_filename` is absent.
+- [ ] `make test` and `make desktop-conformance` exit 0.
+
+**Dependencies.** desktop-distribution-e4, desktop-distribution-m5,
+desktop-distribution-m6
+
+**Complexity.** M
+
+**Specialist suggestion.** `security-reviewer`, `determinism-reviewer`
+
+### desktop-distribution-m8 — Native-library consolidation and real-model exercise
+
+**Description.** Using m7's bundle, close the OpenMP FAISS/Torch collision
+with an intentional single-`libomp` consolidation, and add a real-model gate
+that boots the desktop child against an EXTERNAL HuggingFace cache and asserts
+vector-level correctness. The collision is confirmed live: exercising a real
+FAISS `IndexFlatL2` search followed by Torch inference in one process aborts
+with `OMP: Error #15`. It is invisible to every current gate because
+`tests/conftest.py` sets `KMP_DUPLICATE_LIB_OK=TRUE` suite-wide and
+`tools/wheel_install_check.py` never exercises FAISS and Torch together. Both
+pinned model revisions are already cached locally, so no download is needed.
+
+**Acceptance criteria.**
+- [ ] Exactly one `libomp.dylib`-family file exists anywhere in the frozen
+      bundle, asserted by an automated scan rather than manual inspection.
+- [ ] A real FAISS add+search followed by a real multi-threaded Torch
+      operation in the SAME process inside the frozen bundle exits 0. The
+      regression MUST reproduce the documented abort as its RED state before
+      the fix — a test that merely imports both does not discriminate.
+- [ ] `KMP_DUPLICATE_LIB_OK` is absent from every desktop launch environment,
+      re-asserted under the new compute path; the existing guard proves only
+      that the variable was unset, not that no collision exists.
+- [ ] Booting the real desktop child with an external HF cache and encoding a
+      fixed golden set through BGE-M3 and the reranker produces vectors
+      matching a committed fixture within a tight tolerance — loading weights
+      is not the same as producing correct output.
+- [ ] No model weight file or HF cache blob is present anywhere under the
+      read-only application bundle.
+- [ ] `make test` and `make desktop-conformance` exit 0.
+
+**Dependencies.** desktop-distribution-m7
+
+**Complexity.** M
+
+**Specialist suggestion.** `security-reviewer`, `determinism-reviewer`
+
+### desktop-distribution-m9 — Declare the support floor honestly
+
+**Description.** The declared floor and the real floor disagree.
+`apps/desktop/crates/supervisor/tauri.conf.json` omits
+`minimumSystemVersion`, so Tauri's 10.13 default applies — four major versions
+below the floor the dependency set actually imposes. Pin the declarations to
+14.0 and record precisely what is and is not verified. This milestone changes
+declarations and documentation only; it does NOT verify macOS 14, which this
+hardware cannot do.
+
+**Acceptance criteria.**
+- [ ] `tauri.conf.json` declares `minimumSystemVersion` 14.0; no shipped
+      artifact declares a floor below the one the dependency set imposes.
+- [ ] The supervisor and fixture-sidecar build with
+      `MACOSX_DEPLOYMENT_TARGET=14.0` and report `minos 14.0`, with the
+      desktop gates still green — measured as a 25 s build with 42 of 42
+      contract tests passing.
+- [ ] `apps/desktop/README.md` states the floor is INHERITED and HARD, citing
+      the single `macosx_14_0_arm64` faiss wheel, and states plainly that it
+      is UNVERIFIED, that `minos` is a build-time declaration and not a
+      runtime gate, and that verification requires hardware this project does
+      not have.
+- [ ] No document or event claims macOS 14 compatibility. A regression fails
+      if a compatibility claim appears without a macOS 14 test run.
+- [ ] `make test` and `make desktop-conformance` exit 0.
+
+**Dependencies.** desktop-distribution-e4
+
+**Complexity.** S
+
+**Specialist suggestion.** `determinism-reviewer`
+
+---
+
 ## Phase 4 — Materialize
 
 ### Validation
