@@ -1,0 +1,8 @@
+# macOS support floor (desktop-distribution-m9): the Python dependency closure
+# hard-requires macOS 14 (faiss_cpu ships only a macosx_14_0_arm64 arm64 wheel),
+# so the Rust binaries must declare minos 14.0 instead of rustc's 11.0 default.
+# force = true: an ambient MACOSX_DEPLOYMENT_TARGET would otherwise silently
+# desync the built artifact from tauri.conf.json's minimumSystemVersion.
+# tests/test_desktop_support_floor.py pins all three declarations together.
+[env]
+MACOSX_DEPLOYMENT_TARGET = { value = "14.0", force = true }

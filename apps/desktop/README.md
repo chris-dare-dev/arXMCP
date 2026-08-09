@@ -16,6 +16,34 @@ and signing gates land. The protocol uses platform-neutral grace/force/reap
 semantics; a later adapter maps those to Unix process groups or Windows process
 objects.
 
+The 14.0 floor is INHERITED and HARD, not chosen: `faiss_cpu 1.13.2` publishes
+exactly one arm64 macOS wheel, tagged `macosx_14_0_arm64`, with no lower-tagged
+arm64 fallback, and 132 of the 200 Mach-O files in the Python closure declare
+minOS 14.0 (measured 2026-08-09). The floor is declared in three places that
+must agree: `bundle.macOS.minimumSystemVersion` in
+`crates/supervisor/tauri.conf.json` (without it, Tauri's bundler default would
+advertise 10.13 — four majors below what the faiss wheel needs), the repo-root
+`.cargo/config.toml` pin `MACOSX_DEPLOYMENT_TARGET = "14.0"` that makes both
+Rust binaries report `minos 14.0`, and this section.
+`tests/test_desktop_support_floor.py` fails if the three drift apart, or if a
+macOS 14 compatibility claim lands in the shipped docs without a recorded
+macOS 14 test run.
+
+The floor is UNVERIFIED. `minos` is a build-time declaration by whoever
+compiled the object, not a runtime gate — dyld on the macOS 26.6 development
+host loaded and ran an image declaring `minos 30.0`, so the declaration
+certifies nothing about execution, in either direction. No component of this
+workspace has ever been executed on macOS 14: no macOS 14 SDK exists on the
+development machine (the oldest present is 15.2), and the machine itself
+(Apple M4 Max) cannot boot macOS 14 at all, including in a VM, because no
+macOS 14 build supports its SoC. Static analysis found nothing that
+contradicts the floor — every imported dynamic symbol exists in the macOS 15.2
+SDK stubs — but "nothing contradicts it" is not "it works", and the
+ObjC/WebKit surface most likely to differ across macOS releases is resolved at
+runtime and invisible to symbol analysis. Discharging this requires a Mac
+still on macOS 14 or a hosted macOS 14 runner; until then, "macOS 14 or newer"
+above means DECLARED, not exercised.
+
 macOS is a target, not a fork. All platforms share `desktop-contract`, the
 fixture bytes, sidecar identity rules, and lifecycle state machine. Platform
 code may implement process and packaging primitives, but it may not create a
