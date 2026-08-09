@@ -11,6 +11,17 @@ Two speed classes share this file:
   the ``requires_latexmlc`` precedent, they carry NO secondary skip guard:
   opting in with a missing prerequisite fails loudly.
 
+The single exception is
+``test_supervisor_owns_a_native_window_while_running``, and the reason is the
+convention's own logic rather than a hole in it: a probe that may conclude
+ABSENCE has to be positive-controllable, so where no such control exists —
+off macOS, or with the Automation/Accessibility grant denied — it must skip
+rather than assert into the dark, which is how issue #423 was mis-filed. The
+skip is not a silent pass: the zero-skip gate above (``tests/conftest.py``)
+turns any skip in a ``make desktop-conformance`` session into a session
+failure. That makes the child half of the gate macOS-only; see
+``apps/desktop/README.md`` § "Fault matrix and cleanup claims (m6)".
+
 The supervisor binary path env var is deliberately NOT ``ARXMCP_``-prefixed:
 the AC2 test imports ``server.main`` (module-level app construction), whose
 unknown-``ARXMCP_*`` scan would otherwise FATAL on the harness knob.
@@ -81,6 +92,12 @@ _MCP_HEADERS = {
     "Accept": "application/json, text/event-stream",
     "Mcp-Protocol-Version": "2025-06-18",
 }
+
+#: The exact `window-ready` payload the supervisor attests (issue #423). One
+#: axis, named for what `is_visible()` actually reads — NOT a bare "visible",
+#: which AppKit reports true for a fully occluded window. Pinned as data so
+#: the AC3 real-child assertion and the fixture pass arm cannot drift apart.
+_WINDOW_READY_FIELDS = {"window_ordered_in": True}
 
 
 def _golden_launch() -> Launch:
@@ -454,7 +471,11 @@ def test_ac3_zero_delay_race_single_spawn(tmp_path: Path) -> None:
     assert len(by_name("lock-contended")) == 1, events
     assert len(by_name("supervisor-started")) == 1, events
     assert by_name("mcp-smoke-ok"), events
-    assert by_name("window-ready"), events
+    # Payload, not just presence: `window-ready` names the one axis the
+    # supervisor attested, so a future refactor cannot quietly re-broaden it.
+    assert [event["fields"] for event in by_name("window-ready")] == [
+        _WINDOW_READY_FIELDS
+    ], events
     assert [event["fields"]["child_exit"] for event in by_name("shutdown-clean")] == [0]
 
     # The winner's capability is unknown to this test, so scan structurally:
@@ -1145,6 +1166,72 @@ def test_fault_crash_after_ready_bounded_cleanup(tmp_path: Path) -> None:
 
 
 @pytest.mark.requires_desktop_stack
+def test_fixture_cycle_attests_the_window_before_reporting_ready(
+    tmp_path: Path,
+) -> None:
+    """Issue #423 rectification, PASS arm: the fault-free fixture carries the
+    real supervisor through the whole cycle — including the MCP smoke the
+    fixture now answers — so `window-ready` is reached, and the event must
+    carry the single axis actually observed (`window_ordered_in`), never a
+    bare "visible". Pairs with the hidden-window arm below; together they are
+    the committed evidence for the `is_visible()` gate, replacing the
+    hand-run `.visible(false)` build that no later agent could reproduce."""
+    root = _fault_root(tmp_path, "attested-window")
+    with _reaped_fault_supervisor(root, None) as process:
+        assert process.wait(timeout=_SUPERVISOR_WAIT_TIMEOUT) == 0, _supervisor_events(
+            root
+        )
+    assert _events_by_name(root, "lifecycle-failed") == [], _supervisor_events(root)
+    assert [event["fields"] for event in _events_by_name(root, "window-ready")] == [
+        _WINDOW_READY_FIELDS
+    ], _supervisor_events(root)
+    assert [
+        event["fields"]["child_exit"] for event in _events_by_name(root, "shutdown-clean")
+    ] == [0], _supervisor_events(root)
+    spawns = _events_by_name(root, "child-spawn")
+    assert _pid_is_gone(spawns[0]["fields"]["child_pid"])
+    _sweep_fault_artifacts(root)
+
+
+@pytest.mark.requires_desktop_stack
+def test_fault_hidden_window_fails_the_cycle(tmp_path: Path) -> None:
+    """Issue #423 rectification, FAIL arm — the regression that makes the
+    `is_visible()` gate real rather than hand-demonstrated.
+
+    `test_hide_window` builds the main window ordered-out (`.visible(false)`),
+    the negative control the implementation measured by hand. Delete the
+    `match window.is_visible()` arm in `lifecycle.rs::navigate_window` and
+    this test fails: the supervisor emits `window-ready` and exits 0 on a
+    window no one can see, which is precisely the "the event asserts more
+    than it observed" defect #423 was filed about.
+
+    The knob is smoke-mode-only (`main.rs::validate_plan`), asserted by
+    `test_only_knobs_are_refused_outside_smoke_mode`."""
+    root = _fault_root(tmp_path, "hidden-window")
+    with _reaped_fault_supervisor(root, None, test_hide_window=True) as process:
+        assert process.wait(timeout=_SUPERVISOR_WAIT_TIMEOUT) == 1, _supervisor_events(
+            root
+        )
+    # The smoke exchange is reached, so this is the WINDOW step failing — not
+    # an earlier arm accidentally producing the same exit code.
+    assert _events_by_name(root, "mcp-smoke-ok"), _supervisor_events(root)
+    reasons = [
+        event["fields"]["reason"] for event in _events_by_name(root, "lifecycle-failed")
+    ]
+    assert reasons == ["window not visible after navigate"], _supervisor_events(root)
+    assert _events_by_name(root, "window-ready") == [], _supervisor_events(root)
+    # Same bounded-cleanup guarantee as every other Err arm: reaped child,
+    # released listener — the gate must not trade a lie for a leak.
+    orphan = _events_by_name(root, "orphan-shutdown")
+    assert [event["fields"]["child_exit"] for event in orphan] == [0]
+    port = _events_by_name(root, "child-bound")[0]["fields"]["port"]
+    spawns = _events_by_name(root, "child-spawn")
+    assert _pid_is_gone(spawns[0]["fields"]["child_pid"])
+    assert _listener_lines(port) == []
+    _sweep_fault_artifacts(root)
+
+
+@pytest.mark.requires_desktop_stack
 def test_fault_ignored_shutdown_force_escalates(tmp_path: Path) -> None:
     """m6 fault matrix: the child ignores the shutdown frame, stdin EOF, AND
     SIGTERM, forcing the full grace -> TERM -> force -> KILL -> reap ladder
@@ -1338,24 +1425,35 @@ def test_supervisor_owns_a_native_window_while_running(tmp_path: Path) -> None:
             "probe here with a same-run positive control); no equivalent is "
             "wired off macOS — the conformance gate fails on this skip by design"
         )
-    try:
-        control_pid = _any_windowed_pid()
-    except (RuntimeError, OSError, subprocess.TimeoutExpired) as exc:
-        pytest.skip(
-            f"System Events window probe unavailable — cannot distinguish "
-            f"window-absent from probe-blind (Automation/Accessibility "
-            f"permission for the test runner?): {exc}"
-        )
+    # L1: the sweep and the by-unix-id re-count are separate osascript round
+    # trips, so a swept process closing its last window in between is a race
+    # against an unrelated application, not evidence. Re-sweep before failing.
+    control_pid, control_count = None, 0
+    for _ in range(3):
+        try:
+            control_pid = _any_windowed_pid()
+            control_count = 0 if control_pid is None else _native_window_count(control_pid)
+        except (RuntimeError, OSError, subprocess.TimeoutExpired) as exc:
+            pytest.skip(
+                f"System Events window probe unavailable — cannot distinguish "
+                f"window-absent from probe-blind (Automation/Accessibility "
+                f"permission for the test runner?): {exc}"
+            )
+        if control_pid is None or control_count >= 1:
+            break
+        time.sleep(0.5)
     if control_pid is None:
         pytest.skip(
             "System Events observes zero windows on EVERY process, so absence "
-            "cannot be distinguished from a blind probe (headless session?)"
+            "cannot be distinguished from a blind probe. Two causes look "
+            "identical here: a genuinely headless session, and a denied "
+            "Accessibility grant surfacing as a per-process error swallowed "
+            "by the sweep's inner `try`"
         )
-    control_count = _native_window_count(control_pid)
     assert control_count >= 1, (
         f"probe self-check: the sweep said pid {control_pid} owns a window but "
-        f"the count probe read {control_count} — the probe is broken; this is "
-        f"NOT evidence about the supervisor"
+        f"the count probe read {control_count} three times — the probe is "
+        f"broken; this is NOT evidence about the supervisor"
     )
 
     root = _fault_root(tmp_path, "window-regression")
@@ -1363,18 +1461,47 @@ def test_supervisor_owns_a_native_window_while_running(tmp_path: Path) -> None:
         _wait_for_event(root, "child-bound", timeout=60.0, process=process)
         deadline = time.monotonic() + 15.0
         count = 0
+        # M2: the poll's suppressed errors are RETAINED. Discarding them made
+        # a probe that went blind mid-loop indistinguishable from a window
+        # that was never there — reading probe failure as verified absence is
+        # the exact mistake that produced #423.
+        last_probe_error: Exception | None = None
         while time.monotonic() < deadline:
             # The just-launched supervisor may not be an AX "application
             # process" yet; that transient raise is retried, not absence.
-            with contextlib.suppress(RuntimeError):
+            try:
                 count = _native_window_count(process.pid)
+            except RuntimeError as exc:
+                last_probe_error = exc
             if count >= 1:
                 break
             time.sleep(0.5)
+        if count < 1:
+            # Absence is only claimable against a probe proved live HERE, at
+            # the moment of the claim — the pre-spawn control is minutes old
+            # by now and cannot speak for it.
+            try:
+                recheck = _native_window_count(control_pid)
+            except (RuntimeError, OSError, subprocess.TimeoutExpired) as exc:
+                pytest.fail(
+                    f"the window probe went blind before absence could be "
+                    f"claimed: control pid {control_pid} now raises {exc!r} "
+                    f"(last supervisor-probe error: {last_probe_error!r}). "
+                    f"This is a PROBE failure, not evidence about the "
+                    f"supervisor."
+                )
+            assert recheck >= 1, (
+                f"the window probe went blind before absence could be claimed: "
+                f"control pid {control_pid} showed {control_count} window(s) "
+                f"pre-spawn and {recheck} now (last supervisor-probe error: "
+                f"{last_probe_error!r}). This is a PROBE failure, not evidence "
+                f"about the supervisor."
+            )
         assert count >= 1, (
             f"supervisor pid {process.pid} owns {count} native windows while "
-            f"running — issue #423 regressed. The probe is NOT blind: pid "
-            f"{control_pid} showed {control_count} window(s) this same run."
+            f"running — issue #423 regressed. The probe is NOT blind: control "
+            f"pid {control_pid} was re-counted at >=1 window AFTER this "
+            f"conclusion (last supervisor-probe error: {last_probe_error!r})."
         )
         title = _osascript(
             'tell application "System Events" to get name of window 1 of '

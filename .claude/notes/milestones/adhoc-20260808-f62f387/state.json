@@ -1,8 +1,8 @@
 {
   "id": "adhoc-20260808-f62f387",
   "created_at": "2026-08-08T23:07:24Z",
-  "updated_at": "2026-08-08T23:07:34Z",
-  "phase": "implement-running",
+  "updated_at": "2026-08-09T01:27:20Z",
+  "phase": "rectify-running",
   "phase_history": [
     {
       "phase": "init",
@@ -19,6 +19,22 @@
     {
       "phase": "implement-running",
       "at": "2026-08-08T23:07:34Z"
+    },
+    {
+      "phase": "implement-complete",
+      "at": "2026-08-09T01:27:20Z"
+    },
+    {
+      "phase": "critique-running",
+      "at": "2026-08-09T01:27:20Z"
+    },
+    {
+      "phase": "critique-complete",
+      "at": "2026-08-09T01:27:20Z"
+    },
+    {
+      "phase": "rectify-running",
+      "at": "2026-08-09T01:27:20Z"
     }
   ],
   "milestone_brief": "Fix the desktop supervisor's missing window and stop window-ready from claiming one that does not exist (issue #423).\n\nVERIFIED ROOT CAUSE. As committed, apps/desktop/crates/supervisor/src/main.rs builds the main window in setup() with WebviewWindowBuilder::new(app, \"main\", WebviewUrl::External(starting)).title(\"arXMCP\").build(). Tauri registers the window object -- get_webview_window(\"main\") returns Some, navigate() succeeds, and WebviewWindow::is_visible() returns Ok(true) -- but no native window is ever created. Measured with System Events window counts, positive-controlled in the same run against known-windowed apps (Ghostty 1, Google Chrome 2): the committed build owns 0 windows.\n\nVERIFIED FIX DIRECTION. Adding .visible(true) to the builder plus show() and set_focus() on the built window produces a real native macOS window titled arXMCP that renders the child's /ui/ console. This was measured, not theorised. The minimal sufficient subset of those three calls has NOT been determined -- determine it rather than applying all three by default.\n\nSECOND DEFECT, EQUALLY IMPORTANT. lifecycle.rs emits the window-ready event after navigate_window() succeeds. navigate_window only proves Tauri's window registry has an entry and navigation did not error; it proves nothing about a native window existing. window-ready therefore fired in every run where no window existed. Either make the event conditional on an observation that a window really exists, or rename/remove it so no event claims what it cannot establish.\n\nEVIDENCE DISCIPLINE, BINDING. Any test or probe that concludes a window is absent MUST first prove, in the same run, that it can observe a window that is present. Issue #423 was filed using CGWindowListCopyWindowInfo without that control; the call returned null for lack of Screen Recording permission and the loop produced an empty list for every application on the machine, which was misread as verified absence. A regression that cannot distinguish permission-denied from window-absent is worse than no regression, because it closes the issue while the defect remains.\n\nSCOPE. apps/desktop/crates/supervisor/src/main.rs, apps/desktop/crates/supervisor/src/lifecycle.rs, and a regression test. Update apps/desktop/README.md only if a claim there becomes false. Do not touch server/**, do not change the control contract, do not alter the MCP surface.",
@@ -33,17 +49,26 @@
   "implementation_path": "delegated",
   "implementation_plan": null,
   "implementation_base": "e28426f92a1e648d5db3eca0522d4e109a3700e3",
-  "implementation_commit_range": null,
+  "implementation_commit_range": "e28426f..7711f45",
   "implementation_commits": [],
   "implementation_branch": null,
   "external_writes_required": [
     "git push origin main"
   ],
-  "critique_path": null,
-  "critics_run": [],
-  "critique_files": [],
-  "critique_finding_counts": null,
-  "findings_register": null,
+  "critique_path": ".claude/notes/milestones/adhoc-20260808-f62f387/critique/dedup.md",
+  "critics_run": [
+    "milestone-adversary-critic"
+  ],
+  "critique_files": [
+    "critique/adversary.md"
+  ],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 1,
+    "medium": 4,
+    "low": 1
+  },
+  "findings_register": ".claude/notes/milestones/adhoc-20260808-f62f387/findings.json",
   "rectification_commit": null,
   "fixed_findings": [],
   "deferred_findings": [],

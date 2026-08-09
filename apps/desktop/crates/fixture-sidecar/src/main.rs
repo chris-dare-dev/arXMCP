@@ -374,13 +374,23 @@ fn serve_until_stopped(
     }
 }
 
+/// The three requests `supervisor::lifecycle::mcp_smoke` makes, matched on
+/// their exact serialized JSON-RPC method. `notifications/initialized`
+/// CONTAINS `initialize`, so the closing quote is load-bearing.
+const MCP_INITIALIZE: &str = r#""method":"initialize""#;
+const MCP_INITIALIZED: &str = r#""method":"notifications/initialized""#;
+const MCP_TOOLS_LIST: &str = r#""method":"tools/list""#;
+/// The supervisor requires a session id on the initialize response and only
+/// echoes the value back; nothing here is a real MCP session.
+const MCP_SESSION_HEADER: &str = "Mcp-Session-Id: fixture-session\r\n";
+
 /// Returns true when an AUTHORIZED `/readyz` 200 was served (the
 /// crash-after-ready trigger).
 fn respond(mut stream: TcpStream, token: &StartupToken, fault: Fault) -> bool {
     let _ = stream.set_read_timeout(Some(HTTP_READ_TIMEOUT));
     let mut request = Vec::new();
     let mut chunk = [0_u8; 512];
-    loop {
+    let head_end = loop {
         let Ok(count) = stream.read(&mut chunk) else {
             return false;
         };
@@ -388,27 +398,52 @@ fn respond(mut stream: TcpStream, token: &StartupToken, fault: Fault) -> bool {
             return false;
         }
         request.extend_from_slice(&chunk[..count]);
-        if request.windows(4).any(|window| window == b"\r\n\r\n") {
+        if let Some(index) = request.windows(4).position(|window| window == b"\r\n\r\n") {
+            break index;
+        }
+    };
+
+    // Owned before the body read below, which reborrows `request` mutably.
+    let (request_line, authorized, declared) = {
+        let Ok(text) = std::str::from_utf8(&request[..head_end]) else {
+            return false;
+        };
+        let mut lines = text.split("\r\n");
+        let request_line = lines.next().unwrap_or_default().to_owned();
+        let headers: Vec<(&str, &str)> = lines
+            .filter_map(|line| line.split_once(':'))
+            .map(|(name, value)| (name, value.trim()))
+            .collect();
+        let supplied_token = headers.iter().find_map(|(name, value)| {
+            name.eq_ignore_ascii_case(STARTUP_TOKEN_HEADER)
+                .then_some(*value)
+        });
+        let authorized = supplied_token.is_some_and(|supplied| {
+            constant_time_equal(supplied.as_bytes(), token.expose().as_bytes())
+        });
+        let declared = headers
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case("content-length"))
+            .and_then(|(_, value)| value.parse::<usize>().ok())
+            .unwrap_or(0);
+        (request_line, authorized, declared)
+    };
+    // The client writes headers and body as two syscalls, so the body is
+    // usually NOT in the buffer the header scan stopped on.
+    let want = head_end + 4 + declared.min(4_096);
+    while request.len() < want {
+        let Ok(count) = stream.read(&mut chunk) else {
+            break;
+        };
+        if count == 0 {
             break;
         }
+        request.extend_from_slice(&chunk[..count]);
     }
-
-    let Ok(text) = std::str::from_utf8(&request) else {
-        return false;
-    };
-    let mut lines = text.split("\r\n");
-    let request_line = lines.next().unwrap_or_default();
-    let supplied_token = lines
-        .filter_map(|line| line.split_once(':'))
-        .find_map(|(name, value)| {
-            name.eq_ignore_ascii_case(STARTUP_TOKEN_HEADER)
-                .then(|| value.trim())
-        });
-    let authorized = supplied_token.is_some_and(|supplied| {
-        constant_time_equal(supplied.as_bytes(), token.expose().as_bytes())
-    });
+    let body_text = String::from_utf8_lossy(&request[head_end + 4..]).into_owned();
 
     let mut ready_served = false;
+    let mut session_header = "";
     let (status, body) = if request_line == "GET /healthz HTTP/1.1" {
         ("200 OK", r#"{"status":"ok"}"#)
     } else if request_line == "GET /readyz HTTP/1.1" && authorized {
@@ -420,11 +455,31 @@ fn respond(mut stream: TcpStream, token: &StartupToken, fault: Fault) -> bool {
         }
     } else if request_line == "GET /readyz HTTP/1.1" {
         ("401 Unauthorized", r#"{"status":"unauthorized"}"#)
+    } else if request_line == "POST /mcp HTTP/1.1" && fault == Fault::None {
+        // Only the fault-free arm serves the smoke: every other arm asserts
+        // an outcome reached BEFORE the window step, and answering here
+        // would carry those cycles past it into a different code path.
+        if body_text.contains(MCP_INITIALIZED) {
+            ("202 Accepted", "")
+        } else if body_text.contains(MCP_INITIALIZE) {
+            session_header = MCP_SESSION_HEADER;
+            (
+                "200 OK",
+                r#"{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":"2025-06-18","capabilities":{}}}"#,
+            )
+        } else if body_text.contains(MCP_TOOLS_LIST) {
+            (
+                "200 OK",
+                r#"{"jsonrpc":"2.0","id":1,"result":{"tools":[{"name":"fixture_probe"}]}}"#,
+            )
+        } else {
+            ("400 Bad Request", r#"{"status":"unexpected-mcp-method"}"#)
+        }
     } else {
         ("404 Not Found", r#"{"status":"not-found"}"#)
     };
     let response = format!(
-        "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        "HTTP/1.1 {status}\r\nContent-Type: application/json\r\n{session_header}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
         body.len()
     );
     let _ = stream.write_all(response.as_bytes());

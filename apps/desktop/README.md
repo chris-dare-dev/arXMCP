@@ -182,6 +182,34 @@ universal cleanup:
   frame cannot *announce* a wildcard; AC5's socket-level check proves the
   kernel state of a well-behaved child.
 
+### `make desktop-conformance` is macOS-only today (issue #423)
+
+The gate's contract is zero skips, and two of its tests skip off macOS: the
+native-window regression (`tests/test_desktop_child.py`) has no
+positive-controllable window probe outside System Events, and
+`tests/test_desktop_contract.py`'s win32 `skipif` already tripped the same
+gate. So the gate is red on Linux and Windows with no way to make it green,
+and that is recorded here rather than papered over — the "Supported boundary"
+section above names both as portability, not release, targets. Weakening the
+zero-skip rule was rejected: a skip-tolerant gate is how lifecycle evidence
+silently degrades. Everything else in this workspace stays platform-neutral
+(`cargo test`, `cargo clippy`, the contract fixtures, `make test`); wiring a
+non-macOS window probe with its own same-run control is the work a future
+milestone owes before this claim can be dropped.
+
+### What `window-ready` does and does not attest (issue #423)
+
+The event carries one axis, `window_ordered_in`, and the name is the claim:
+the toolkit reported the native window ordered in — on macOS a bare
+`NSWindow.isVisible` via tao. AppKit reports that property true for a window
+that is fully obscured by another, positioned off every display, zero-sized,
+or on another Space, and nothing reads the WebView's render state. It is
+nonetheless a real observation, not a restatement of "navigate returned Ok":
+it was measured `false` for a `.visible(false)` build and `true` for the
+default one, and the `test_hide_window` plan knob commits that negative
+control as `test_fault_hidden_window_fails_the_cycle`. "A user can see the
+window" is NOT established by this event and must not be inferred from it.
+
 ## Secret handling
 
 A live startup token is 32 bytes from the operating-system CSPRNG, hex encoded

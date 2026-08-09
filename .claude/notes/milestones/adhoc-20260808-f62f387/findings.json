@@ -1,0 +1,130 @@
+{
+  "milestone_id": "adhoc-20260808-f62f387",
+  "critique_format_version": "1.0",
+  "critique_files": [
+    "dedup.md"
+  ],
+  "generated_at": "2026-08-09T01:46:43Z",
+  "findings": {
+    "H1": {
+      "id": "H1",
+      "severity": "HIGH",
+      "title": "The shipped visibility gate has no committed regression",
+      "file": "apps/desktop/crates/supervisor/src/lifecycle.rs",
+      "line": 411,
+      "anchor": "match window.is_visible() {",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Test discipline / acceptance coverage",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Committed the negative control: test_hide_window plan knob (smoke-mode-only) builds the window ordered-out, fixture sidecar now answers the MCP smoke so the cycle reaches the window step, and tests/test_desktop_child.py::test_fault_hidden_window_fails_the_cycle asserts exit 1 + lifecycle-failed 'window not visible after navigate' + orphan-shutdown + NO window-ready; paired pass arm pins the payload. Demonstrated: gate reverted -> FAILED (assert 0 == 1, window-ready emitted on an ordered-out window); gate restored -> 2 passed.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-09T01:46:24Z",
+          "resolution": "Committed the negative control: test_hide_window plan knob (smoke-mode-only) builds the window ordered-out, fixture sidecar now answers the MCP smoke so the cycle reaches the window step, and tests/test_desktop_child.py::test_fault_hidden_window_fails_the_cycle asserts exit 1 + lifecycle-failed 'window not visible after navigate' + orphan-shutdown + NO window-ready; paired pass arm pins the payload. Demonstrated: gate reverted -> FAILED (assert 0 == 1, window-ready emitted on an ordered-out window); gate restored -> 2 passed."
+        }
+      ]
+    },
+    "M1": {
+      "id": "M1",
+      "severity": "MEDIUM",
+      "title": "`{\"visible\": true}` claims more than `NSWindow.isVisible` measures",
+      "file": "apps/desktop/crates/supervisor/src/lifecycle.rs",
+      "line": 395,
+      "anchor": "/// Ok additionally attests the native window is observably visi",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Doc drift / trust language",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Renamed the event field {visible:true} -> {window_ordered_in:true} and rewrote navigate_window's doc comment to state the AppKit semantics exactly (NSWindow.isVisible via tao; true for an occluded/off-screen/zero-sized/other-Space window; no WebView render state), plus a README subsection recording what window-ready does and does not attest. The gate itself is unchanged; only the claim was narrowed. Err reason strings left alone - they are honest in the negative direction.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-09T01:46:35Z",
+          "resolution": "Renamed the event field {visible:true} -> {window_ordered_in:true} and rewrote navigate_window's doc comment to state the AppKit semantics exactly (NSWindow.isVisible via tao; true for an occluded/off-screen/zero-sized/other-Space window; no WebView render state), plus a README subsection recording what window-ready does and does not attest. The gate itself is unchanged; only the claim was narrowed. Err reason strings left alone - they are honest in the negative direction."
+        }
+      ]
+    },
+    "M2": {
+      "id": "M2",
+      "severity": "MEDIUM",
+      "title": "Absence is concluded with no live proof the probe still works",
+      "file": "tests/test_desktop_child.py",
+      "line": 1369,
+      "anchor": "with contextlib.suppress(RuntimeError):",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Correctness / evidence discipline",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "The 15s poll now binds the suppressed RuntimeError as last_probe_error instead of discarding it, and absence is no longer claimable on a stale liveness claim: on timeout the control pid is RE-PROBED, and a control that now raises or reads 0 fails the test naming the PROBE rather than the supervisor. Both blind-probe causes (headless vs denied Accessibility) are named in the sweep skip message.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-09T01:46:35Z",
+          "resolution": "The 15s poll now binds the suppressed RuntimeError as last_probe_error instead of discarding it, and absence is no longer claimable on a stale liveness claim: on timeout the control pid is RE-PROBED, and a control that now raises or reads 0 fails the test naming the PROBE rather than the supervisor. Both blind-probe causes (headless vs denied Accessibility) are named in the sweep skip message."
+        }
+      ]
+    },
+    "M3": {
+      "id": "M3",
+      "severity": "MEDIUM",
+      "title": "Module docstring contradicts the test the file just gained",
+      "file": "tests/test_desktop_child.py",
+      "line": 11,
+      "anchor": "precedent, they carry NO secondary skip guard:",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Doc drift",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Module docstring now records the single named exception to the no-secondary-skip-guard convention and why it is sound (a probe that may conclude ABSENCE must be positive-controllable, so it skips rather than asserting into the dark), and notes the conftest zero-skip gate converts that skip into a session failure.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-09T01:46:35Z",
+          "resolution": "Module docstring now records the single named exception to the no-secondary-skip-guard convention and why it is sound (a probe that may conclude ABSENCE must be positive-controllable, so it skips rather than asserting into the dark), and notes the conftest zero-skip gate converts that skip into a session failure."
+        }
+      ]
+    },
+    "M4": {
+      "id": "M4",
+      "severity": "MEDIUM",
+      "title": "`make desktop-conformance` can no longer pass on Linux",
+      "file": "tests/test_desktop_child.py",
+      "line": 1335,
+      "anchor": "if sys.platform != \"darwin\":",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Repo-gate compliance / doc drift",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Recorded rather than papered over: apps/desktop/README.md gains a 'make desktop-conformance is macOS-only today' subsection beside the existing m6 non-claims, naming both skipping tests (the native-window regression and test_desktop_contract.py's pre-existing win32 skipif), stating the gate is red off macOS with no way to make it green, why weakening the zero-skip rule was rejected, and what a future milestone owes. The module docstring cross-references it.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-09T01:46:43Z",
+          "resolution": "Recorded rather than papered over: apps/desktop/README.md gains a 'make desktop-conformance is macOS-only today' subsection beside the existing m6 non-claims, naming both skipping tests (the native-window regression and test_desktop_contract.py's pre-existing win32 skipif), stating the gate is red off macOS with no way to make it green, why weakening the zero-skip rule was rejected, and what a future milestone owes. The module docstring cross-references it."
+        }
+      ]
+    },
+    "L1": {
+      "id": "L1",
+      "severity": "LOW",
+      "title": "Positive control races across two osascript invocations",
+      "file": "tests/test_desktop_child.py",
+      "line": 1354,
+      "anchor": "control_count = _native_window_count(control_pid)",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Correctness",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Cheap and adjacent to the M2 edit in the same test: the sweep + re-count now retries up to 3 times before failing, so a swept process closing its last window between the two osascript round trips re-sweeps instead of reddening the run.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-09T01:46:43Z",
+          "resolution": "Cheap and adjacent to the M2 edit in the same test: the sweep + re-count now retries up to 3 times before failing, so a swept process closing its last window between the two osascript round trips re-sweeps instead of reddening the run."
+        }
+      ]
+    }
+  }
+}

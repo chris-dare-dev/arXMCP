@@ -220,7 +220,7 @@ fn cycle(
     let _ = recorder.record("mcp-smoke-ok", json!({"tools": tool_count}));
 
     navigate_window(handle, &bound)?;
-    let _ = recorder.record("window-ready", json!({"visible": true}));
+    let _ = recorder.record("window-ready", json!({"window_ordered_in": true}));
     Ok(())
 }
 
@@ -392,11 +392,17 @@ fn mcp_post(
 }
 
 /// Render state 2 of 2: point the existing window at the child's console.
-/// Ok additionally attests the native window is observably visible —
-/// `navigate` succeeding proves only that Tauri's registry has an entry
-/// (issue #423), while `is_visible()` reads the native window and was
-/// measured to report false for a hidden one. `window-ready` is emitted
-/// only on this attested path.
+///
+/// Ok attests ONE axis and no more: the toolkit reported the native window
+/// ORDERED IN — on macOS a bare `NSWindow.isVisible` (tao 0.35
+/// `platform_impl/macos/window.rs`). That is a real observation because it
+/// discriminates: measured `false` for a `.visible(false)` build and `true`
+/// for the default one, where `navigate` succeeding proves only that Tauri's
+/// registry has an entry (issue #423). It does NOT establish that the window
+/// is unoccluded, on-screen, non-zero-sized, on the active Space, or that the
+/// WebView rendered — AppKit reports `isVisible` true for a window fully
+/// covered by another. `window-ready` is emitted only on this path and names
+/// exactly that axis (`window_ordered_in`), never a bare "visible".
 fn navigate_window(handle: &tauri::AppHandle, bound: &Bound) -> Result<(), &'static str> {
     let url = tauri::Url::parse(&bound.ui_url).map_err(|_| "bound ui_url unparseable")?;
     let (sender, receiver) = mpsc::channel();

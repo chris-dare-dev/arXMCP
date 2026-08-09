@@ -47,6 +47,11 @@ pub struct Plan {
     /// never inspects extensions, so a production launch is unaffected.
     #[serde(default)]
     pub test_fault: Option<String>,
+    /// Test-only: build the main window ordered-out (`.visible(false)`), the
+    /// measured negative control for issue #423. The ONLY committed way to
+    /// reach the post-navigate visibility gate's failing arm.
+    #[serde(default)]
+    pub test_hide_window: Option<bool>,
     /// Test-only: shrinks the supervisor's LOCAL grace/force budgets so the
     /// escalation ladder runs at test speed. The wire frame keeps the
     /// contract-mandated MIN_GRACE_MS floor — these never change what the
@@ -84,10 +89,13 @@ fn validate_plan(plan: &Plan) -> Result<(), &'static str> {
     // shrinks only the supervisor's LOCAL wait while the wire frame still
     // promises MIN_GRACE_MS — so a non-smoke plan carrying one would
     // force-kill a real server that believes it has 35s to close its LanceDB
-    // and Kuzu handles. Refuse rather than break that promise.
+    // and Kuzu handles. Refuse rather than break that promise. `test_hide_window`
+    // is here for the same reason from the other direction: outside smoke mode
+    // it would ship an operator a permanently invisible application.
     if !plan.smoke
         && (plan.test_bound_timeout_ms.is_some()
             || plan.test_fault.is_some()
+            || plan.test_hide_window.is_some()
             || plan.test_shutdown_force_after_ms.is_some()
             || plan.test_shutdown_grace_ms.is_some())
     {
@@ -246,9 +254,18 @@ fn main() {
                 "data:text/html,%3Ctitle%3EarXMCP%3C%2Ftitle%3E%3Cp%3EarXMCP%20is%20starting%E2%80%A6%3C%2Fp%3E",
             )
             .expect("static starting-page URL parses");
-            tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::External(starting))
-                .title("arXMCP")
-                .build()?;
+            let builder =
+                tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::External(starting))
+                    .title("arXMCP");
+            // Smoke-mode-only injection (validate_plan refuses it elsewhere):
+            // reproduces the measured negative control so the lifecycle's
+            // visibility gate has a committed failing case.
+            let builder = if plan.test_hide_window == Some(true) {
+                builder.visible(false)
+            } else {
+                builder
+            };
+            builder.build()?;
             let handle = app.handle().clone();
             std::thread::spawn(move || {
                 let code =
@@ -311,6 +328,7 @@ mod tests {
         // Test-only knobs are absent from a production plan and default off.
         assert_eq!(plan.test_fault, None);
         assert_eq!(plan.test_bound_timeout_ms, None);
+        assert_eq!(plan.test_hide_window, None);
         assert_eq!(plan.test_shutdown_grace_ms, None);
         assert_eq!(plan.test_shutdown_force_after_ms, None);
     }
@@ -330,6 +348,15 @@ mod tests {
         let smoke = br#"{"child_argv":["/usr/bin/true"],"component":"c","data_root":"/r","identity_file":"/f","smoke":true,"version":"1","test_shutdown_grace_ms":400,"test_fault":"ignore-shutdown"}"#;
         let plan: Plan = serde_json::from_slice(smoke).expect("parses");
         assert_eq!(validate_plan(&plan), Ok(()));
+
+        // test_hide_window builds a permanently ordered-out window, so it is
+        // refused outside smoke mode for the same reason.
+        let hidden = br#"{"child_argv":["/usr/bin/true"],"component":"c","data_root":"/r","identity_file":"/f","smoke":false,"version":"1","test_hide_window":true}"#;
+        let plan: Plan = serde_json::from_slice(hidden).expect("parses");
+        assert_eq!(
+            validate_plan(&plan),
+            Err("launch plan carries test-only knobs outside smoke mode")
+        );
     }
 
     #[test]
