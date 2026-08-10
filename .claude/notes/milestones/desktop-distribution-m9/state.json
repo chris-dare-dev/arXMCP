@@ -1,8 +1,8 @@
 {
   "id": "desktop-distribution-m9",
   "created_at": "2026-08-09T16:51:57Z",
-  "updated_at": "2026-08-09T18:47:11Z",
-  "phase": "rectify-running",
+  "updated_at": "2026-08-10T00:24:26Z",
+  "phase": "complete",
   "phase_history": [
     {
       "phase": "init",
@@ -35,6 +35,10 @@
     {
       "phase": "rectify-running",
       "at": "2026-08-09T18:25:52Z"
+    },
+    {
+      "phase": "complete",
+      "at": "2026-08-10T00:24:26Z"
     }
   ],
   "milestone_brief": "### desktop-distribution-m9 \u2014 Declare the support floor honestly\n\n**Description.** The declared floor and the real floor disagree.\n`apps/desktop/crates/supervisor/tauri.conf.json` omits\n`minimumSystemVersion`, so Tauri's 10.13 default applies \u2014 four major versions\nbelow the floor the dependency set actually imposes. Pin the declarations to\n14.0 and record precisely what is and is not verified. This milestone changes\ndeclarations and documentation only; it does NOT verify macOS 14, which this\nhardware cannot do.\n\n**Acceptance criteria.**\n- [ ] `tauri.conf.json` declares `minimumSystemVersion` 14.0; no shipped\n      artifact declares a floor below the one the dependency set imposes.\n- [ ] The supervisor and fixture-sidecar build with\n      `MACOSX_DEPLOYMENT_TARGET=14.0` and report `minos 14.0`, with the\n      desktop gates still green \u2014 measured as a 25 s build with 42 of 42\n      contract tests passing.\n- [ ] `apps/desktop/README.md` states the floor is INHERITED and HARD, citing\n      the single `macosx_14_0_arm64` faiss wheel, and states plainly that it\n      is UNVERIFIED, that `minos` is a build-time declaration and not a\n      runtime gate, and that verification requires hardware this project does\n      not have.\n- [ ] No document or event claims macOS 14 compatibility. A regression fails\n      if a compatibility claim appears without a macOS 14 test run.\n- [ ] `make test` and `make desktop-conformance` exit 0.\n\n**Dependencies.** desktop-distribution-e4\n\n**Complexity.** S\n\n**Specialist suggestion.** `determinism-reviewer`\n\n---",
@@ -85,6 +89,10 @@
   "regression_tests_added": [
     "tests/test_desktop_support_floor.py"
   ],
-  "external_writes_authorized": [],
-  "external_writes_completed": []
+  "external_writes_authorized": [
+    "git push origin main"
+  ],
+  "external_writes_completed": [
+    "git push origin main"
+  ]
 }
