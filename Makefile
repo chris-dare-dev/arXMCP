@@ -14,7 +14,7 @@
 .PHONY: test eval status watchdog cutover notebook-cutover
 .PHONY: daily-report parser-failures-report sbom refresh-arxiv-ca
 .PHONY: wheel-check wheel-check-full desktop-conformance
-.PHONY: desktop-package desktop-package-check desktop-package-clean
+.PHONY: desktop-package desktop-package-check desktop-package-clean desktop-model-check
 
 # NOTEBOOK CRUD (m2) — first-class Make verbs for the notebook
 # lifecycle (proposal §9; backed by tools/notebook_*.py + /ui/api/*).
@@ -99,6 +99,7 @@ help:
 	@echo "  make desktop-conformance    Build the locked fixture sidecar, then run its Rust/Python contract and lifecycle gate with zero skips"
 	@echo "  make desktop-package        Build the PyInstaller onedir desktop bundle from the committed spec into var/desktop-package/dist/ (macOS/Linux only; first run provisions the pinned build venv and NEEDS NETWORK; fails on any build-machine path in the artifact)"
 	@echo "  make desktop-package-check  Packaging gate: two consecutive cold-cache builds + determinism/hygiene proofs (AC1-AC5) with zero skips (macOS/Linux only; ~150s of builds after the one-time network provisioning)"
+	@echo "  make desktop-model-check    Real-model gate: build the bundle, then load the REAL BGE-M3 + reranker weights from the EXTERNAL HuggingFace cache and check the production encode/rerank output against the committed golden fixture (both pinned revisions must already be cached)"
 	@echo "  make desktop-package-clean  Reclaim var/desktop-package/ (~1 GB persistent build venv plus ~0.75 GB per bundle)"
 	@echo ""
 	@echo "Override the python interpreter with: make test PYTHON=python3.13"
@@ -187,6 +188,15 @@ desktop-package:
 # precedent against unmarked expensive desktop tests in the default gate).
 desktop-package-check:
 	DESKTOP_PACKAGE_GATE=1 $(PYTHON) -m pytest tests/test_desktop_package.py -m "requires_desktop_package or not requires_desktop_package"
+
+# The m8 real-model gate. Separate target because it is a different concern
+# and a different cost class: it loads ~4.6 GB of REAL weights from the
+# operator's EXTERNAL HuggingFace cache (HF_HUB_OFFLINE, so an uncached pin
+# fails rather than downloading) and boots the frozen child. Depends on
+# desktop-package because the bundle assertions are made against a real
+# artifact; the tests RAISE rather than skip when it is missing.
+desktop-model-check: desktop-package
+	DESKTOP_BUNDLED_MODEL_GATE=1 $(PYTHON) -m pytest tests/test_desktop_bundled_model.py -m "requires_bundled_model or not requires_bundled_model"
 
 # The build venv is intentionally REUSED across runs, so var/desktop-package/
 # is persistent (~1 GB venv + ~0.75 GB per bundle), not transient. This is the

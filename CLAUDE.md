@@ -255,11 +255,11 @@ change touches more than ~3 files or adds new tests, run the pipeline.
   as well as to `pyproject.toml`** — registering it alone is what created
   this bug. `eval` is deliberately excluded (it is opt-OUT: `make eval`
   needs it running by default).
-- **Eleven test markers exist** (registered in `pyproject.toml`
-  `[tool.pytest.ini_options].markers`; the five added since this list was
+- **Twelve test markers exist** (registered in `pyproject.toml`
+  `[tool.pytest.ini_options].markers`; the six added since this list was
   written are `requires_mineru`, `requires_restic`,
-  `requires_wheel_build`, `requires_desktop_stack` and
-  `requires_desktop_package`).
+  `requires_wheel_build`, `requires_desktop_stack`,
+  `requires_desktop_package` and `requires_bundled_model`).
   `tests/test_marker_doc_consistency.py` re-derives this count and the
   enumeration below from `pyproject.toml`, so a new marker cannot land
   without amending this section:
@@ -330,6 +330,18 @@ change touches more than ~3 files or adds new tests, run the pipeline.
     build gets its own `PYINSTALLER_CONFIG_DIR`, so the second build
     reproduces the native binaries rather than replaying the first
     build's bincache.
+  - **`requires_bundled_model`** — desktop-distribution-m8 real-model
+    gate: loads the REAL BGE-M3 + BGE-reranker-v2-m3 weights (~4.6 GB)
+    from the operator's EXTERNAL HuggingFace cache, compares the
+    production encode/rerank output against
+    `tests/fixtures/desktop_model/golden_v1.json`, and boots the FROZEN
+    child for an all-true warm map. Prerequisites: both pinned
+    revisions already cached (the probe runs `HF_HUB_OFFLINE=1`, so a
+    missing snapshot fails rather than downloading) plus a bundle from
+    `make desktop-package` — an absent bundle RAISES, it does not skip.
+    Skipped by default; opt-in via `pytest -m requires_bundled_model`,
+    or run `make desktop-model-check` (builds the bundle and sets
+    `DESKTOP_BUNDLED_MODEL_GATE=1` so any skip fails the session).
   - (`requires_mineru` and `requires_restic` are registered too —
     see `pyproject.toml` for their env-var prerequisites.)
 

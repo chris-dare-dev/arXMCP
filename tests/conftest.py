@@ -49,10 +49,12 @@ import pytest  # noqa: E402
 #: ``DESKTOP_PACKAGE_GATE`` (m7) arms the same guard for the PyInstaller
 #: packaging gate so its two-build determinism evidence can never silently
 #: skip while ``make desktop-package-check`` exits 0.
+#: ``DESKTOP_BUNDLED_MODEL_GATE`` (m8) likewise for the real-model gate.
 _DESKTOP_GATE_ENV: tuple[str, ...] = (
     "DESKTOP_SUPERVISOR_BIN",
     "ARXMCP_FIXTURE_SIDECAR",
     "DESKTOP_PACKAGE_GATE",
+    "DESKTOP_BUNDLED_MODEL_GATE",
 )
 
 #: nodeids that reported ``skipped`` while :data:`_DESKTOP_GATE_ENV` was set.
@@ -129,6 +131,7 @@ _OPT_IN_MARKERS: frozenset[str] = frozenset(
         "requires_wheel_build",
         "requires_desktop_stack",
         "requires_desktop_package",
+        "requires_bundled_model",
     }
 )
 
