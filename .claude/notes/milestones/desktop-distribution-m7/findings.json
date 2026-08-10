@@ -1,0 +1,310 @@
+{
+  "milestone_id": "desktop-distribution-m7",
+  "critique_format_version": "1.0",
+  "critique_files": [
+    "dedup.md"
+  ],
+  "generated_at": "2026-08-09T23:16:12Z",
+  "findings": {
+    "H1": {
+      "id": "H1",
+      "severity": "HIGH",
+      "title": "Second build replays a shared PyInstaller bincache",
+      "file": "apps/desktop/pyinstaller/desktop_package.py",
+      "line": 424,
+      "anchor": "bundle_b = build_bundle(python, root / \"w",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "acceptance coverage",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Per-build PYINSTALLER_CONFIG_DIR under each workpath (config_dir_for); report records both dirs plus config_dir_b_cold. Re-measured with build B cold: 6326 manifest entries, 0 differing, exception set still EMPTY and now earned. Shared user bincache (180 files) untouched during the run.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-09T23:15:07Z",
+          "resolution": "Per-build PYINSTALLER_CONFIG_DIR under each workpath (config_dir_for); report records both dirs plus config_dir_b_cold. Re-measured with build B cold: 6326 manifest entries, 0 differing, exception set still EMPTY and now earned. Shared user bincache (180 files) untouched during the run."
+        }
+      ]
+    },
+    "H2": {
+      "id": "H2",
+      "severity": "HIGH",
+      "title": "Release procedure ships a sidecar that cannot launch",
+      "file": "docs/releasing.md",
+      "line": 41,
+      "anchor": "3. **Desktop bundle (if the release ships",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "doc drift",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Fixed the bug rather than documenting it: identity_source_path() hashes sys.executable when sys.frozen, matching what the supervisor hashes for plan.identity_file. Frozen child now reaches the launch-contract check (rc=2) instead of dying in executable_identity(). releasing.md gains the identity_file wiring note.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-09T23:15:07Z",
+          "resolution": "Fixed the bug rather than documenting it: identity_source_path() hashes sys.executable when sys.frozen, matching what the supervisor hashes for plan.identity_file. Frozen child now reaches the launch-contract check (rc=2) instead of dying in executable_identity(). releasing.md gains the identity_file wiring note."
+        }
+      ]
+    },
+    "H3": {
+      "id": "H3",
+      "severity": "HIGH",
+      "title": "AC5 temp-root needle is realpath'd but the build gets the raw path",
+      "file": "apps/desktop/pyinstaller/desktop_package.py",
+      "line": 292,
+      "anchor": "\"tmp\": os.path.realpath(tempfile.g",
+      "source_critic": "milestone-infra-safety-critic",
+      "source_axis": "Axis 4 \u2014 Makefile / build script discipline",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "default_needles emits raw AND realpath forms of tmp and $HOME when they differ. Demonstrated: a planted file containing the raw gettempdir was MISSED by the pre-fix needle set and is caught post-fix (hit label 'tmp').",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-09T23:15:07Z",
+          "resolution": "default_needles emits raw AND realpath forms of tmp and $HOME when they differ. Demonstrated: a planted file containing the raw gettempdir was MISSED by the pre-fix needle set and is caught post-fix (hit label 'tmp')."
+        }
+      ]
+    },
+    "M1": {
+      "id": "M1",
+      "severity": "MEDIUM",
+      "title": "`verify` subcommand is unreachable and untested",
+      "file": "apps/desktop/pyinstaller/desktop_package.py",
+      "line": 457,
+      "anchor": "report = verify_determinism(args.root)",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "dead code / leftovers",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "test_verify_cli_exit_codes covers all three main(['verify']) paths: clean=0, unexpected differing path=1, scan hit=1.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-09T23:16:11Z",
+          "resolution": "test_verify_cli_exit_codes covers all three main(['verify']) paths: clean=0, unexpected differing path=1, scan hit=1."
+        }
+      ]
+    },
+    "M2": {
+      "id": "M2",
+      "severity": "MEDIUM",
+      "title": "New manifest test hard-fails on Windows with no guard",
+      "file": "tests/test_desktop_package.py",
+      "line": 178,
+      "anchor": "(b / \"mode.sh\").chmod(0o755)",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "test discipline",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Split into test_manifest_diff_catches_content_and_membership (unguarded) and test_manifest_diff_catches_mode (skipif win32), per the 2026-07-12 portability convention.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-09T23:16:11Z",
+          "resolution": "Split into test_manifest_diff_catches_content_and_membership (unguarded) and test_manifest_diff_catches_mode (skipif win32), per the 2026-07-12 portability convention."
+        }
+      ]
+    },
+    "M3": {
+      "id": "M3",
+      "severity": "MEDIUM",
+      "title": "AC3 control arm is coupled to the deferred frozen bug",
+      "file": "tests/test_desktop_package.py",
+      "line": 273,
+      "anchor": "assert b\", in main\" in control.stderr, (",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "test discipline",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Discriminator is now _entered_main() over markers main() emits on ANY entry path (rejected-launch log line OR a traceback frame), used by both arms; decoupled from the H2 bug this commit also fixes.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-09T23:16:11Z",
+          "resolution": "Discriminator is now _entered_main() over markers main() emits on ANY entry path (rejected-launch log line OR a traceback frame), used by both arms; decoupled from the H2 bug this commit also fixes."
+        }
+      ]
+    },
+    "M4": {
+      "id": "M4",
+      "severity": "MEDIUM",
+      "title": "Disk-footprint claim is understated and mislabelled transient",
+      "file": "pyproject.toml",
+      "line": 375,
+      "anchor": "\"requires_desktop_package: desktop-distr",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "doc drift",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "pyproject marker + CLAUDE.md now state ~1 GB persistent build venv plus ~0.75 GB per bundle (~2.5 GB two-build peak), not '~1.5 GB transient'; new make desktop-package-clean target listed in make help.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-09T23:16:11Z",
+          "resolution": "pyproject marker + CLAUDE.md now state ~1 GB persistent build venv plus ~0.75 GB per bundle (~2.5 GB two-build peak), not '~1.5 GB transient'; new make desktop-package-clean target listed in make help."
+        }
+      ]
+    },
+    "M5": {
+      "id": "M5",
+      "severity": "MEDIUM",
+      "title": "Embedded-PYZ scan has no coverage floor in the build path",
+      "file": "apps/desktop/pyinstaller/desktop_package.py",
+      "line": 399,
+      "anchor": "scan = scan_tree(bundle, default_needl",
+      "source_critic": "milestone-infra-safety-critic",
+      "source_axis": "Axis 4 \u2014 Makefile / build script discipline",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "_require_scan_coverage raises BuildError on files_scanned==0 or embedded pyc_entries==0, called from build_once AND verify_determinism; unit-tested.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-09T23:16:11Z",
+          "resolution": "_require_scan_coverage raises BuildError on files_scanned==0 or embedded pyc_entries==0, called from build_once AND verify_determinism; unit-tested."
+        }
+      ]
+    },
+    "M6": {
+      "id": "M6",
+      "severity": "MEDIUM",
+      "title": "Transient work trees are not cleaned on failure or interrupt",
+      "file": "apps/desktop/pyinstaller/desktop_package.py",
+      "line": 398,
+      "anchor": "shutil.rmtree(root / \"work\", ignore_er",
+      "source_critic": "milestone-infra-safety-critic",
+      "source_axis": "Axis 4 \u2014 Makefile / build script discipline",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "try/finally rmtree around each build plus _sweep_transient() startup sweep of stale work-star/dist-verify trees.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-09T23:16:11Z",
+          "resolution": "try/finally rmtree around each build plus _sweep_transient() startup sweep of stale work-star/dist-verify trees."
+        }
+      ]
+    },
+    "M7": {
+      "id": "M7",
+      "severity": "MEDIUM",
+      "title": "Build stack is macOS/Linux-only while the code advertises Windows support",
+      "file": "apps/desktop/pyinstaller/requirements-build.txt",
+      "line": 2,
+      "anchor": "#    uv pip compile --generate-hashes --p",
+      "source_critic": "milestone-infra-safety-critic",
+      "source_axis": "Axis 4 \u2014 Makefile / build script discipline",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Scope stated explicitly (macOS/Linux only, with the reason) in requirements-build.in, make help, the pyproject marker, CLAUDE.md and docs/releasing.md step 3 - the documented option of the two the finding offered.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-09T23:16:11Z",
+          "resolution": "Scope stated explicitly (macOS/Linux only, with the reason) in requirements-build.in, make help, the pyproject marker, CLAUDE.md and docs/releasing.md step 3 - the documented option of the two the finding offered."
+        }
+      ]
+    },
+    "M8": {
+      "id": "M8",
+      "severity": "MEDIUM",
+      "title": "First-run network dependence is not named where an operator reads",
+      "file": "apps/desktop/pyinstaller/desktop_package.py",
+      "line": 94,
+      "anchor": "\"PATH\": \"/usr/bin:/bin:/usr/sbin:/",
+      "source_critic": "milestone-infra-safety-critic",
+      "source_axis": "Axis 4 \u2014 Makefile / build script discipline",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "_PASSTHROUGH_ENV forwards HTTPS_PROXY/HTTP_PROXY/NO_PROXY (plus lowercase), SSL_CERT_FILE/DIR and REQUESTS_CA_BUNDLE; 'requires network on first run' added to make help, the pyproject marker, CLAUDE.md and releasing.md.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-09T23:16:11Z",
+          "resolution": "_PASSTHROUGH_ENV forwards HTTPS_PROXY/HTTP_PROXY/NO_PROXY (plus lowercase), SSL_CERT_FILE/DIR and REQUESTS_CA_BUNDLE; 'requires network on first run' added to make help, the pyproject marker, CLAUDE.md and releasing.md."
+        }
+      ]
+    },
+    "M9": {
+      "id": "M9",
+      "severity": "MEDIUM",
+      "title": "Needle set omits the build root, workpath and distpath",
+      "file": "apps/desktop/pyinstaller/desktop_package.py",
+      "line": 288,
+      "anchor": "home = str(Path.home())",
+      "source_critic": "milestone-infra-safety-critic",
+      "source_axis": "Axis 4 \u2014 Makefile / build script discipline",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "default_needles(build_paths=...) adds repo root, workpaths and distpaths, dropping any already covered by a broader needle; build_once and verify_determinism thread them in.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-09T23:16:12Z",
+          "resolution": "default_needles(build_paths=...) adds repo root, workpaths and distpaths, dropping any already covered by a broader needle; build_once and verify_determinism thread them in."
+        }
+      ]
+    },
+    "L1": {
+      "id": "L1",
+      "severity": "LOW",
+      "title": "\"build-root string scan\" has no build-root needle",
+      "file": "apps/desktop/pyinstaller/desktop_package.py",
+      "line": 286,
+      "anchor": "def default_needles() -> dict[str, bytes",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "doc drift",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Closed by the same M9 needle change (agreement cluster with H3/M9); the doc strings now match the code.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-09T23:16:12Z",
+          "resolution": "Closed by the same M9 needle change (agreement cluster with H3/M9); the doc strings now match the code."
+        }
+      ]
+    },
+    "L2": {
+      "id": "L2",
+      "severity": "LOW",
+      "title": "`verify_determinism` reports scan hits without raising",
+      "file": "apps/desktop/pyinstaller/desktop_package.py",
+      "line": 429,
+      "anchor": "scan = scan_tree(bundle_a, default_nee",
+      "source_critic": "milestone-infra-safety-critic",
+      "source_axis": "Axis 4 \u2014 Makefile / build script discipline",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "LOW. Raising from verify_determinism would abort the module-scoped packaged fixture before any AC test could report its evidence, turning five itemised gate failures into one fixture error. Both callers check today; revisit if a third appears.",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-09T23:16:12Z",
+          "resolution": "LOW. Raising from verify_determinism would abort the module-scoped packaged fixture before any AC test could report its evidence, turning five itemised gate failures into one fixture error. Both callers check today; revisit if a third appears."
+        }
+      ]
+    },
+    "L3": {
+      "id": "L3",
+      "severity": "LOW",
+      "title": "`EXPECTED_EXCEPTION_COUNT` is unused inside the driver",
+      "file": "apps/desktop/pyinstaller/desktop_package.py",
+      "line": 54,
+      "anchor": "EXPECTED_EXCEPTION_COUNT = 0",
+      "source_critic": "milestone-infra-safety-critic",
+      "source_axis": "Axis 4 \u2014 Makefile / build script discipline",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Module-level raise binds len(NONDETERMINISTIC_EXCEPTIONS) to EXPECTED_EXCEPTION_COUNT at import (raise-not-assert per CLAUDE.md 4.7).",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-09T23:16:12Z",
+          "resolution": "Module-level raise binds len(NONDETERMINISTIC_EXCEPTIONS) to EXPECTED_EXCEPTION_COUNT at import (raise-not-assert per CLAUDE.md 4.7)."
+        }
+      ]
+    }
+  }
+}

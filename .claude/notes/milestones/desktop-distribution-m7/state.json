@@ -1,8 +1,8 @@
 {
   "id": "desktop-distribution-m7",
   "created_at": "2026-08-09T19:09:58Z",
-  "updated_at": "2026-08-09T19:17:39Z",
-  "phase": "research-complete",
+  "updated_at": "2026-08-09T23:25:58Z",
+  "phase": "rectify-running",
   "phase_history": [
     {
       "phase": "init",
@@ -15,6 +15,26 @@
     {
       "phase": "research-complete",
       "at": "2026-08-09T19:16:36Z"
+    },
+    {
+      "phase": "implement-running",
+      "at": "2026-08-09T19:17:48Z"
+    },
+    {
+      "phase": "implement-complete",
+      "at": "2026-08-09T22:30:25Z"
+    },
+    {
+      "phase": "critique-running",
+      "at": "2026-08-09T22:30:25Z"
+    },
+    {
+      "phase": "critique-complete",
+      "at": "2026-08-09T22:37:19Z"
+    },
+    {
+      "phase": "rectify-running",
+      "at": "2026-08-09T22:37:19Z"
     }
   ],
   "milestone_brief": "### desktop-distribution-m7 \u2014 Reproducible bundle and packaging hygiene\n\n**Description.** Commit a PyInstaller `.spec` (or equivalent build script)\nbuilding from the real desktop-child entry point, with a project-owned\n`hook-latex2mathml.py` that collects `unimathsymbols.txt`, a post-build step\nthat sanitizes `direct_url.json`, and a recursive scanner that fails the build\non any build-machine path string. Wire it into a new `make desktop-package`\ntarget producing the artifact later signing work will consume. No `.spec`\nexists anywhere in the tree today \u2014 spike-1's lived in a temp directory that\nis gone \u2014 so this is greenfield and its estimate is the least reliable of the\nthree.\n\n**Acceptance criteria.**\n- [ ] `make desktop-package` builds a deterministic `onedir` bundle from a\n      committed spec; two consecutive builds from the same commit produce\n      byte-identical manifests, excluding only files the build tool itself\n      declares non-deterministic, documented rather than silently ignored.\n- [ ] The frozen bundle converts a fixed LaTeX fixture to MathML with output\n      byte-identical to the source tree, proving the data hook ships the real\n      symbol table rather than that an import did not crash.\n- [ ] `multiprocessing.freeze_support()` is the first statement in the\n      production entry point's main guard, verified by launching the frozen\n      executable and confirming no duplicate top-level process spawn.\n- [ ] No `direct_url.json` in the frozen bundle carries a `file://` URL\n      pointing at a build-machine path.\n- [ ] A recursive regular-file scan asserts zero occurrences of the build\n      host's temp root, `$HOME` prefix, or username across ALL regular files,\n      including compiled `.pyc` \u2014 assert this explicitly rather than assuming\n      `co_filename` is absent.\n- [ ] `make test` and `make desktop-conformance` exit 0.\n\n**Dependencies.** desktop-distribution-e4, desktop-distribution-m5,\ndesktop-distribution-m6\n\n**Complexity.** M\n\n**Specialist suggestion.** `security-reviewer`, `determinism-reviewer`",
@@ -27,25 +47,57 @@
     ".claude/notes/milestones/desktop-distribution-m7/research/brief-3.md"
   ],
   "research_synthesis": ".claude/notes/milestones/desktop-distribution-m7/research/synthesis.md",
-  "implementation_path": null,
+  "implementation_path": "delegated",
   "implementation_plan": null,
-  "implementation_base": null,
-  "implementation_commit_range": null,
-  "implementation_commits": [],
+  "implementation_base": "81d04ec3be19ad64ce732cfe95b53e3f6d651e9b",
+  "implementation_commit_range": "81d04ec..2877e07",
+  "implementation_commits": [
+    "2877e07"
+  ],
   "implementation_branch": null,
   "external_writes_required": [
     "git push origin main"
   ],
-  "critique_path": null,
-  "critics_run": [],
-  "critique_files": [],
-  "critique_finding_counts": null,
-  "findings_register": null,
-  "rectification_commit": null,
-  "fixed_findings": [],
-  "deferred_findings": [],
+  "critique_path": ".claude/notes/milestones/desktop-distribution-m7/critique/dedup.md",
+  "critics_run": [
+    "milestone-adversary-critic",
+    "milestone-infra-safety-critic"
+  ],
+  "critique_files": [
+    "critique/adversary.md",
+    "critique/infra-safety.md"
+  ],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 3,
+    "medium": 9,
+    "low": 3
+  },
+  "findings_register": ".claude/notes/milestones/desktop-distribution-m7/findings.json",
+  "rectification_commit": "e7ecd74",
+  "fixed_findings": [
+    "H1",
+    "H2",
+    "H3",
+    "L1",
+    "L3",
+    "M1",
+    "M2",
+    "M3",
+    "M4",
+    "M5",
+    "M6",
+    "M7",
+    "M8",
+    "M9"
+  ],
+  "deferred_findings": [
+    "L2"
+  ],
   "invalidated_findings": [],
-  "regression_tests_added": [],
+  "regression_tests_added": [
+    "tests/test_desktop_package.py"
+  ],
   "external_writes_authorized": [],
   "external_writes_completed": []
 }
