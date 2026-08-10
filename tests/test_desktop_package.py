@@ -248,14 +248,76 @@ def test_sanitizer_removes_direct_url_and_reports_leak(tmp_path):
 def test_libomp_exclusion_predicate_targets_only_the_redundant_copy():
     """m8 AC1's sharpest failure mode: a string-match bug here drops the LIVE
     OpenMP runtime instead of the orphan and the bundle dies at first FAISS
-    import. The predicate must match faiss's private copy and nothing else."""
+    import. The predicate must match faiss's private copy and nothing else.
+    Pinned at ``platform="darwin"`` so the macOS contract is asserted from any
+    host — the exclusion is a macOS mechanism (see the H1 test below)."""
     dp = _driver()
-    assert dp.is_duplicate_libomp("faiss/.dylibs/libomp.dylib")
-    assert dp.is_duplicate_libomp("faiss\\.dylibs\\libomp.dylib")
-    for spared in ("torch/lib/libomp.dylib", "libomp.dylib", "faiss/_swigfaiss.abi3.so"):
-        assert not dp.is_duplicate_libomp(spared), spared
-    assert dp.is_canonical_libomp("torch/lib/libomp.dylib")
-    assert not dp.is_canonical_libomp("faiss/.dylibs/libomp.dylib")
+    assert dp.is_duplicate_libomp("faiss/.dylibs/libomp.dylib", platform="darwin")
+    assert dp.is_duplicate_libomp("faiss\\.dylibs\\libomp.dylib", platform="darwin")
+    for spared in (
+        "torch/lib/libomp.dylib",
+        "libomp.dylib",
+        "faiss/_swigfaiss.abi3.so",
+        "faiss/.dylibs/libcompression.dylib",
+        "faiss/.dylibs/nested/libomp.dylib",
+    ):
+        assert not dp.is_duplicate_libomp(spared, platform="darwin"), spared
+    assert dp.is_canonical_libomp("torch/lib/libomp.dylib", platform="darwin")
+    assert not dp.is_canonical_libomp("faiss/.dylibs/libomp.dylib", platform="darwin")
+
+
+def test_libomp_policy_resolves_on_every_supported_platform():
+    """m8 H1: the exclusion used to be a macOS literal, so the ``dropped
+    nothing`` guard raised at spec-eval time and ``make desktop-package`` could
+    not run on Linux at all. Every supported platform must resolve to a
+    non-empty canonical directory, and the drop must be EXPECTED only where the
+    duplicate is genuinely redundant: on Linux auditwheel gives each wheel's
+    libgomp a distinct mangled SONAME recorded in its own consumer's DT_NEEDED,
+    so dropping one would leave an unresolvable dependency."""
+    dp = _driver()
+    for platform in ("darwin", "linux", "linux2"):
+        policy = dp.libomp_policy(platform)
+        assert policy["canonical_dir"], platform
+    assert dp.expects_duplicate_libomp("darwin") is True
+    assert dp.expects_duplicate_libomp("linux") is False
+    # The Linux wheels' mangled names must still read as OpenMP, and must not
+    # be mistaken for a droppable duplicate.
+    linux_canonical = "torch/lib/libgomp-a34b3233.so.1"
+    assert dp.is_canonical_libomp(linux_canonical, platform="linux")
+    assert not dp.is_duplicate_libomp(linux_canonical, platform="linux")
+    assert not dp.is_duplicate_libomp(
+        "faiss_cpu.libs/libgomp-24e2ab16.so.1", platform="linux"
+    )
+    with pytest.raises(dp.BuildError, match="no OpenMP consolidation policy"):
+        dp.libomp_policy("win32")
+
+
+def test_libomp_inventory_policy_is_platform_specific(tmp_path):
+    """The Linux branch drops nothing, so its guard is the one that must still
+    catch the ELF shape of the macOS hazard: two OpenMP files under ONE
+    filename (distinct mangled SONAMEs are two live libraries, not a copy)."""
+    dp = _driver()
+    distinct = {
+        "regular": [
+            {"path": "_internal/torch/lib/libgomp-a34b3233.so.1"},
+            {"path": "_internal/faiss_cpu.libs/libgomp-24e2ab16.so.1"},
+        ],
+        "symlinks": {},
+    }
+    dp._require_single_libomp(distinct, platform="linux")
+    with pytest.raises(dp.BuildError, match="exactly one OpenMP runtime"):
+        dp._require_single_libomp(distinct, platform="darwin")
+    collided = {
+        "regular": [
+            {"path": "_internal/torch/lib/libgomp.so.1"},
+            {"path": "_internal/faiss_cpu.libs/libgomp.so.1"},
+        ],
+        "symlinks": {},
+    }
+    with pytest.raises(dp.BuildError, match="under the same name"):
+        dp._require_single_libomp(collided, platform="linux")
+    with pytest.raises(dp.BuildError, match="no OpenMP runtime file at all"):
+        dp._require_single_libomp({"regular": [], "symlinks": {}}, platform="linux")
 
 
 def test_libomp_inventory_counts_files_not_names(tmp_path):
@@ -268,24 +330,39 @@ def test_libomp_inventory_counts_files_not_names(tmp_path):
     inventory = dp.libomp_inventory(tmp_path)
     assert [entry["path"] for entry in inventory["regular"]] == ["torch/lib/libomp.dylib"]
     assert inventory["symlinks"] == {"libomp.dylib": "torch/lib/libomp.dylib"}
-    dp._require_single_libomp(inventory)
+    dp._require_single_libomp(inventory, platform="darwin")
 
     (tmp_path / "faiss" / ".dylibs").mkdir(parents=True)
     (tmp_path / "faiss" / ".dylibs" / "libomp.dylib").write_bytes(b"orphan")
     two = dp.libomp_inventory(tmp_path)
     assert len(two["regular"]) == 2
     with pytest.raises(dp.BuildError, match="exactly one OpenMP runtime"):
-        dp._require_single_libomp(two)
+        dp._require_single_libomp(two, platform="darwin")
 
 
 def test_libomp_pattern_covers_the_openmp_runtime_family():
     """A versioned or Intel-flavoured copy is the same hazard under a
     different filename; a literal ``libomp.dylib`` check would miss it."""
     dp = _driver()
-    for name in ("libomp.dylib", "libomp.5.dylib", "libiomp5.dylib", "libgomp.so.1"):
+    for name in (
+        "libomp.dylib",
+        "libomp.5.dylib",
+        "libiomp5.dylib",
+        "libgomp.so.1",
+        # auditwheel's per-wheel mangling on the Linux side (m8 H1).
+        "libgomp-a34b3233.so.1",
+        "libomp-b2c4d6e8.so",
+    ):
         assert dp.LIBOMP_PATTERN.match(name), name
     for name in ("libompressed.dylib", "libcompression.dylib", "omp.dylib"):
         assert not dp.LIBOMP_PATTERN.match(name), name
+
+
+def _load_module(name: str, path: Path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def test_probe_and_driver_agree_on_the_openmp_filename_pattern():
@@ -293,13 +370,104 @@ def test_probe_and_driver_agree_on_the_openmp_filename_pattern():
     the filesystem count are enforced by two copies of one regex. Pin them
     equal or the two halves of the m8 evidence can silently diverge."""
     dp = _driver()
-    spec = importlib.util.spec_from_file_location(
-        "arxmcp_probe_entry", DRIVER_PATH.parent / "probe_entry.py"
-    )
-    probe = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(probe)
+    probe = _load_module("arxmcp_probe_entry", DRIVER_PATH.parent / "probe_entry.py")
     assert probe.LIBOMP_NAME.pattern == dp.LIBOMP_PATTERN.pattern
     assert probe.FORBIDDEN_ENV[0] == "KMP_DUPLICATE_LIB_OK"
+
+
+def test_all_three_launch_validators_forbid_the_same_environment():
+    """Three near-copies of ONE launch contract (the frozen probe, the model
+    probe, the sidecar spike). The equality test used to pin the regex and
+    ``FORBIDDEN_ENV[0]`` only, so the loader-prefix halves drifted to three
+    different sets — and the two probes are the two halves of the same AC3
+    claim, so the narrower one could produce golden vectors under an override
+    the other refuses."""
+    modules = [
+        _load_module("arxmcp_probe_entry_env", DRIVER_PATH.parent / "probe_entry.py"),
+        _load_module("arxmcp_model_probe_env", REPO_ROOT / "tools" / "desktop_model_probe.py"),
+        _load_module(
+            "arxmcp_sidecar_spike_env", REPO_ROOT / "tools" / "desktop_sidecar_spike.py"
+        ),
+    ]
+    first = modules[0]
+    for module in modules[1:]:
+        assert module.FORBIDDEN_ENV == first.FORBIDDEN_ENV, module.__name__
+        assert module.FORBIDDEN_ENV_PREFIXES == first.FORBIDDEN_ENV_PREFIXES, module.__name__
+    for key in ("LD_PRELOAD", "LD_LIBRARY_PATH", "DYLD_INSERT_LIBRARIES"):
+        assert key.startswith(first.FORBIDDEN_ENV_PREFIXES), key
+
+
+def _top_level_returns(function: ast.FunctionDef) -> list[ast.Return]:
+    """``return`` statements belonging to ``function`` itself, not to a nested
+    def (a nested helper returning a value is normal)."""
+    found: list[ast.Return] = []
+
+    def visit(node: ast.AST) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda):
+                continue
+            if isinstance(child, ast.Return):
+                found.append(child)
+            visit(child)
+
+    visit(function)
+    return found
+
+
+def test_no_desktop_gate_test_short_circuits_with_a_bare_return():
+    """m8 M1/M5: the AC2-B BEFORE arm used a bare ``return`` off macOS, so on
+    Linux the only proof that the excluded OpenMP copy is DANGEROUS reported
+    ``passed`` having asserted nothing — routing around the very
+    ``DESKTOP_PACKAGE_GATE`` zero-skip detector that exists to make missing
+    evidence loud. A gate test must skip (visible, and a gate failure) or
+    assert; it must never exit its body early."""
+    for module_path in (
+        Path(__file__),
+        Path(__file__).with_name("test_desktop_bundled_model.py"),
+    ):
+        tree = ast.parse(module_path.read_text(encoding="utf-8"))
+        for node in tree.body:
+            if not isinstance(node, ast.FunctionDef) or not node.name.startswith("test_"):
+                continue
+            offenders = _top_level_returns(node)
+            assert offenders == [], (
+                f"{module_path.name}::{node.name} returns at line "
+                f"{[r.lineno for r in offenders]}; use pytest.skip() so the "
+                "gate's zero-skip detector can see the missing evidence"
+            )
+
+
+def test_driver_module_body_is_declaration_only():
+    """m8 M7: the spec ``exec_module``s the build driver to share ONE exclusion
+    predicate between build and test, so any future module-level STATEMENT in
+    the driver would execute inside the very PyInstaller build the driver
+    launched. Pin the top level to declarations plus the existing pinned-size
+    guard, so that regression fails a fast test instead of a build."""
+    tree = ast.parse(DRIVER_PATH.read_text(encoding="utf-8"))
+    allowed = (
+        ast.Import,
+        ast.ImportFrom,
+        ast.Assign,
+        ast.AnnAssign,
+        ast.FunctionDef,
+        ast.ClassDef,
+        ast.If,
+    )
+    for node in tree.body:
+        if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant):
+            continue  # module docstring
+        assert isinstance(node, allowed), f"line {node.lineno}: {type(node).__name__}"
+        if isinstance(node, ast.If):
+            test = node.test
+            is_main_guard = (
+                isinstance(test, ast.Compare)
+                and isinstance(test.left, ast.Name)
+                and test.left.id == "__name__"
+            )
+            if is_main_guard:
+                continue  # never runs under the spec's exec_module
+            kinds = {type(inner).__name__ for inner in node.body}
+            assert kinds == {"Raise"}, f"line {node.lineno}: {kinds}"
 
 
 def _manifest_pair(tmp_path):
@@ -506,24 +674,64 @@ def test_bundle_carries_no_build_machine_paths(packaged):
     assert scan["embedded"]["pyc_entries"] >= 5000
 
 
+def _package_data_top_level() -> set[str]:
+    """Top-level package names declaring wheel package-data, read from
+    ``pyproject.toml`` so the freeze-side guard cannot drift from the wheel's
+    own declaration."""
+    import tomllib
+
+    table = tomllib.loads(
+        (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    )["tool"]["setuptools"]["package-data"]
+    return {name.split(".")[0] for name in table}
+
+
+def test_package_data_declaration_is_readable_and_covers_server():
+    """The derived gate below is only as good as this list; a table that stops
+    parsing (or loses ``server``) would make it vacuously green."""
+    packages = _package_data_top_level()
+    assert "server" in packages
+    assert len(packages) >= 2, packages
+
+
 @pytest.mark.requires_desktop_package
-def test_bundle_ships_every_server_data_file_the_wheel_ships(packaged):
+def test_bundle_ships_every_wheel_data_file_of_every_frozen_package(packaged):
     """Derived, not enumerated: PyInstaller collects only ``.py``, so the
     wheel's ``server`` package-data was absent and ``create_app()`` died on the
-    missing static directory — the frozen child could not boot at all. Compared
-    against the build venv's installed tree so a new data file cannot drop out
-    of the bundle the way it once dropped out of the wheel (CLAUDE.md §4.5b)."""
+    missing static directory — the frozen child could not boot at all.
+
+    m8 M4: the guard covered ``server`` alone while ``ingest``, ``ops`` and
+    ``tools`` also declare package-data, so the same bug one package over was
+    invisible. The package list now comes from
+    ``[tool.setuptools.package-data]`` and every package the bundle actually
+    freezes is checked against the build venv's INSTALLED tree, so a new
+    packaged tree cannot be added to the wheel and silently miss the bundle
+    (CLAUDE.md §4.5b). A package the frozen child never imports has no bundle
+    tree to check and is reported, not silently passed."""
     dp, report = packaged
-    installed = dp._site_packages(dp.build_venv_dir(dp.DEFAULT_ROOT)) / "server"
-    expected = {
-        path.relative_to(installed).as_posix()
-        for path in installed.rglob("*")
-        if path.is_file() and path.suffix not in {".py", ".pyc"}
-    }
-    assert expected, f"no server data files found under {installed}"
-    frozen_root = Path(report["bundle"]) / "_internal" / "server"
-    missing = sorted(rel for rel in expected if not (frozen_root / rel).is_file())
-    assert missing == [], f"wheel data files absent from the bundle: {missing}"
+    installed_root = dp._site_packages(dp.build_venv_dir(dp.DEFAULT_ROOT))
+    frozen_root = Path(report["bundle"]) / "_internal"
+    checked: list[str] = []
+    not_frozen: list[str] = []
+    missing: dict[str, list[str]] = {}
+    for package in sorted(_package_data_top_level()):
+        installed = installed_root / package
+        frozen = frozen_root / package
+        if not frozen.is_dir():
+            not_frozen.append(package)
+            continue
+        expected = {
+            path.relative_to(installed).as_posix()
+            for path in installed.rglob("*")
+            if path.is_file() and path.suffix not in {".py", ".pyc"}
+        }
+        assert expected, f"no data files found under {installed}"
+        absent = sorted(rel for rel in expected if not (frozen / rel).is_file())
+        if absent:
+            missing[package] = absent
+        checked.append(package)
+    assert missing == {}, f"wheel data files absent from the bundle: {missing}"
+    assert "server" in checked, f"server was not frozen; not_frozen={not_frozen}"
 
 
 def _run_omp_probe(bundle_dir: Path, dp, tmp_path: Path) -> subprocess.CompletedProcess:
@@ -547,15 +755,25 @@ def _run_omp_probe(bundle_dir: Path, dp, tmp_path: Path) -> subprocess.Completed
 def test_bundle_ships_exactly_one_openmp_runtime(packaged):
     """m8 AC1/AC2-A: MEASURED RED before the fix — the same scan reported two
     regular files, torch's canonical ``cc166d…`` and faiss's orphaned
-    ``798920…``. The symlink is expected and is not a copy."""
+    ``798920…``. The symlink is expected and is not a copy. The expected paths
+    are DERIVED from the platform policy rather than spelled as macOS literals
+    (m8 H1), so the same assertion is meaningful wherever the bundle is built."""
     dp, report = packaged
     inventory = report["libomp"]
+    policy = dp.libomp_policy()
     dp._require_single_libomp(inventory)
-    assert [entry["path"] for entry in inventory["regular"]] == [
-        f"_internal/{dp.CANONICAL_LIBOMP}"
-    ]
-    assert inventory["symlinks"] == {"_internal/libomp.dylib": dp.CANONICAL_LIBOMP}
-    assert not (Path(report["bundle"]) / "_internal" / dp.DUPLICATE_LIBOMP).exists()
+    kept = [entry["path"] for entry in inventory["regular"]]
+    assert kept, "no OpenMP runtime file in the bundle at all"
+    for path in kept:
+        assert dp.is_canonical_libomp(
+            Path(path).relative_to("_internal").as_posix()
+        ), path
+    if dp.expects_duplicate_libomp():
+        assert len(kept) == 1
+        canonical = kept[0].removeprefix("_internal/")
+        assert inventory["symlinks"] == {"_internal/libomp.dylib": canonical}
+        duplicate_dir = Path(report["bundle"]) / "_internal" / str(policy["duplicate_dir"])
+        assert not duplicate_dir.exists(), f"{duplicate_dir} survived the exclusion"
 
 
 @pytest.mark.requires_desktop_package
@@ -575,7 +793,9 @@ def test_frozen_faiss_and_torch_share_one_openmp_image(packaged, tmp_path):
     assert result["torch_checksum_finite"] is True
     assert result["torch_threads"] > 1, "a single-threaded run would not contend"
     if sys.platform == "darwin":
-        assert result["openmp_images"] == [str(bundle / "_internal" / dp.CANONICAL_LIBOMP)]
+        mapped = [Path(image) for image in result["openmp_images"]]
+        assert len(mapped) == 1, result["openmp_images"]
+        assert mapped[0].parent == bundle / "_internal" / dp.libomp_policy()["canonical_dir"]
 
 
 @pytest.mark.requires_desktop_package
@@ -591,11 +811,18 @@ def test_a_second_openmp_copy_aborts_the_frozen_process(packaged, tmp_path):
     rewrites BOTH copies' IDs to the same ``@rpath/libomp.dylib``, which dyld
     dedupes onto one image. The consolidation removes the accident.
 
-    Mach-O only; the equivalent ELF injection is not the shipped artifact's
-    failure mode (the m7 codesign test's platform-branch precedent).
+    Mach-O only, and a REAL skip rather than a bare return: this is the
+    milestone's only proof that the excluded copy is dangerous, so its absence
+    must be visible. ``DESKTOP_PACKAGE_GATE=1`` turns the skip into a session
+    failure, which is the honest outcome on a platform that cannot produce the
+    evidence — a green Linux gate here would be a gate asserting nothing.
     """
     if sys.platform != "darwin":
-        return
+        pytest.skip(
+            "AC2-B needs macOS: the abort is a dyld/Mach-O install-name "
+            "mechanism (install_name_tool + OMP: Error #15) with no ELF "
+            "equivalent in the shipped artifact"
+        )
     dp, report = packaged
     bundle = Path(report["bundle"])
     upstream = (
@@ -615,7 +842,7 @@ def test_a_second_openmp_copy_aborts_the_frozen_process(packaged, tmp_path):
     swig.unlink()
     swig.write_bytes(payload)
     swig.chmod(0o755)
-    orphan = clone / "_internal" / dp.DUPLICATE_LIBOMP
+    orphan = clone / "_internal" / str(dp.libomp_policy()["duplicate_dir"]) / "libomp.dylib"
     orphan.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(upstream, orphan)
     for command in (
@@ -643,6 +870,79 @@ def test_a_second_openmp_copy_aborts_the_frozen_process(packaged, tmp_path):
     )
     assert "@rpath/libomp.dylib" in shipped.stdout
     assert "@loader_path/.dylibs/libomp.dylib" not in shipped.stdout
+
+
+@pytest.mark.requires_desktop_package
+def test_frozen_child_boots_without_any_model_weights(packaged, tmp_path):
+    """m8 M6: until now the ONLY test that launched the frozen child sat behind
+    ``requires_bundled_model``, so ``make desktop-package-check`` could pass on
+    a bundle that cannot start — precisely the gap ``11b93e1`` exposed, where a
+    missing package-data file killed ``create_app()``.
+
+    Weights-free by construction: an EMPTY data root plus
+    ``ARXMCP_BOOTSTRAP_MODE=1`` makes ``Resources.startup`` return its stub
+    before loading BGE-M3, LanceDB or the reranker, so this costs a process
+    launch and no HF cache. The child emits ``Bound`` only after the FastAPI
+    lifespan and the socket bind, so the handshake alone proves ``create_app()``
+    ran — the data-file class of failure AND a missing hidden import or broken
+    runtime hook. The real-weights warm map stays in ``desktop-model-check``.
+    """
+    from dataclasses import replace
+
+    from server.desktop_child import COMPONENT
+    from server.desktop_contract import (
+        Bound,
+        encode_frame,
+        generate_startup_token,
+        parse_frame,
+    )
+    from tests.test_desktop_bundled_model import _frozen_version
+    from tests.test_desktop_child import (
+        _golden_launch,
+        _readline_with_timeout,
+        _request,
+        _stop_process,
+    )
+
+    dp, report = packaged
+    bundle = Path(report["bundle"])
+    exe = bundle / dp.CHILD_EXE
+    root = tmp_path / "runtime"
+    (root / "logs").mkdir(parents=True)
+    token = generate_startup_token()
+    launch = replace(
+        _golden_launch(),
+        data_root=root.as_posix(),
+        executable=replace(
+            _golden_launch().executable,
+            component=COMPONENT,
+            sha256=hashlib.sha256(exe.read_bytes()).hexdigest(),
+            version=_frozen_version(bundle),
+        ),
+        log_location=(root / "logs" / "desktop-child.log").as_posix(),
+        startup_token=token,
+    )
+    env = _frozen_env(tmp_path)
+    env["ARXMCP_BOOTSTRAP_MODE"] = "1"
+    log_handle = (root / "logs" / "desktop-child.log").open("wb")
+    process = subprocess.Popen(
+        [str(exe)],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=log_handle,
+        env=env,
+    )
+    try:
+        process.stdin.write(encode_frame(launch))
+        process.stdin.flush()
+        bound = parse_frame(_readline_with_timeout(process.stdout, timeout=180.0))
+        assert isinstance(bound, Bound), bound
+        status, _, body = _request(bound.endpoint.port, "/healthz", token=token.expose())
+        assert status == 200, body[:400]
+        assert json.loads(body)["status"] == "ok"
+    finally:
+        _stop_process(process)
+        log_handle.close()
 
 
 @pytest.mark.requires_desktop_package

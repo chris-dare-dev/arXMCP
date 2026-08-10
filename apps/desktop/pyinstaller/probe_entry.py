@@ -34,15 +34,21 @@ import sys
 from pathlib import Path
 
 #: Mirrors ``tools/desktop_sidecar_spike.py``'s launch contract. Dynamic-loader
-#: overrides are rejected by prefix in :func:`_validate_environment`.
+#: overrides are rejected by prefix in :func:`_validate_environment`; both
+#: tuples are pinned equal across the three copies by
+#: ``tests/test_desktop_package.py``, which the frozen probe cannot share code
+#: with (it cannot import the driver).
 FORBIDDEN_ENV = ("KMP_DUPLICATE_LIB_OK", "PYTHONHOME", "PYTHONPATH")
+FORBIDDEN_ENV_PREFIXES = ("DYLD_", "LD_")
 
 #: OpenMP runtime filenames. Kept byte-identical to ``desktop_package.py``'s
 #: ``LIBOMP_PATTERN`` — the bundle cannot import the driver, and a filesystem
 #: count that disagrees with the loaded-image count would silently split the
 #: two halves of the m8 evidence. ``tests/test_desktop_package.py`` pins the
 #: two patterns equal.
-LIBOMP_NAME = re.compile(r"\Alib(omp|iomp5|gomp)[.0-9]*\.(dylib|so[.0-9]*)\Z")
+LIBOMP_NAME = re.compile(
+    r"\Alib(omp|iomp5|gomp)(-[0-9a-f]+)?[.0-9]*\.(dylib|so[.0-9]*)\Z"
+)
 
 
 def _validate_frozen_containment() -> Path:
@@ -60,7 +66,7 @@ def _validate_environment() -> None:
     bad = [
         key
         for key in os.environ
-        if key in FORBIDDEN_ENV or key.startswith(("DYLD_", "LD_"))
+        if key in FORBIDDEN_ENV or key.startswith(FORBIDDEN_ENV_PREFIXES)
     ]
     if bad:
         raise RuntimeError(f"forbidden environment keys: {sorted(bad)}")

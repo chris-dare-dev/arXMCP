@@ -15,6 +15,13 @@ from pathlib import Path
 ASSETS = ("app.css", "tokens.css", "htmx.min.js")
 FORBIDDEN_ENV = ("KMP_DUPLICATE_LIB_OK", "PYTHONHOME", "PYTHONPATH")
 
+#: Dynamic-loader override prefixes. Held byte-identical across the three
+#: copies of this launch contract (here, ``tools/desktop_model_probe.py``,
+#: ``apps/desktop/pyinstaller/probe_entry.py``) by
+#: ``tests/test_desktop_package.py``: a narrower set on one side would let the
+#: golden vectors be produced under an override the frozen probe would refuse.
+FORBIDDEN_ENV_PREFIXES = ("DYLD_", "LD_")
+
 
 def launch_environment(root: Path, port: int) -> dict[str, str]:
     """Create the probe's allowlisted, offline launch environment."""
@@ -46,7 +53,11 @@ def launch_environment(root: Path, port: int) -> dict[str, str]:
 
 def validate_launch_environment(env: dict[str, str]) -> None:
     """Reject ambient Python, dynamic-loader paths, or online model access."""
-    bad = [key for key in env if key in FORBIDDEN_ENV or key.startswith("DYLD_")]
+    bad = [
+        key
+        for key in env
+        if key in FORBIDDEN_ENV or key.startswith(FORBIDDEN_ENV_PREFIXES)
+    ]
     if bad:
         raise RuntimeError(f"forbidden environment keys: {sorted(bad)}")
     if env.get("HF_HUB_OFFLINE") != "1" or env.get("TRANSFORMERS_OFFLINE") != "1":

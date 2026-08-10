@@ -27,8 +27,12 @@ import json
 import os
 import sys
 
-#: Mirrors ``tools/desktop_sidecar_spike.py``'s launch contract.
+#: Mirrors ``tools/desktop_sidecar_spike.py``'s launch contract, prefixes
+#: included: a narrower set here would let the golden vectors be produced under
+#: a loader override the frozen probe refuses. Pinned equal by
+#: ``tests/test_desktop_package.py``.
 FORBIDDEN_ENV = ("KMP_DUPLICATE_LIB_OK", "PYTHONHOME", "PYTHONPATH")
+FORBIDDEN_ENV_PREFIXES = ("DYLD_", "LD_")
 
 
 def validate_environment(env: dict[str, str] | None = None) -> None:
@@ -37,7 +41,7 @@ def validate_environment(env: dict[str, str] | None = None) -> None:
     bad = [
         key
         for key in source
-        if key in FORBIDDEN_ENV or key.startswith(("DYLD_", "LD_PRELOAD", "LD_LIBRARY"))
+        if key in FORBIDDEN_ENV or key.startswith(FORBIDDEN_ENV_PREFIXES)
     ]
     if bad:
         raise RuntimeError(f"forbidden environment keys: {sorted(bad)}")

@@ -323,7 +323,16 @@ change touches more than ~3 files or adds new tests, run the pipeline.
     `make desktop-package-check` (sets `DESKTOP_PACKAGE_GATE=1` so any
     skip fails the session). **macOS/Linux only** (the build lock is
     macOS-resolved and marker-free, and `--require-hashes` forbids
-    resolving the absent Windows dependency), **needs network on the
+    resolving the absent Windows dependency). The m8 OpenMP consolidation
+    is **platform-aware** (`desktop_package.libomp_policy`): macOS drops
+    faiss's redundant copy; Linux has none to drop, because auditwheel
+    gives each wheel's `libgomp` a distinct mangled SONAME that its own
+    consumer's `DT_NEEDED` names. The **gate**, unlike the build, is
+    macOS-only in practice: AC2-B's fault injection needs Mach-O
+    install-name rewriting and `pytest.skip`s off macOS, which
+    `DESKTOP_PACKAGE_GATE=1` turns into a Linux gate FAILURE —
+    deliberately, so that evidence cannot go missing behind a green run.
+    It **needs network on the
     first provision**, and leaves **~1 GB of persistent build venv plus
     ~0.75 GB per bundle** under `var/desktop-package/` (~2.5 GB at the
     two-build peak) — reclaim with `make desktop-package-clean`. Each

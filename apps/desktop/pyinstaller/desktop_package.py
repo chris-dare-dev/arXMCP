@@ -61,24 +61,24 @@ if len(NONDETERMINISTIC_EXCEPTIONS) != EXPECTED_EXCEPTION_COUNT:
         "bump both here and in tests/test_desktop_package.py"
     )
 
-#: The single OpenMP runtime the bundle may carry, bundle-relative to
-#: ``_internal``. Both consumers (faiss's ``_swigfaiss.abi3.so`` and torch's
-#: ``libtorch_cpu.dylib``) reach it through ``@rpath/libomp.dylib``, which the
-#: top-level ``_internal/libomp.dylib`` symlink points at.
-CANONICAL_LIBOMP = "torch/lib/libomp.dylib"
-
-#: faiss-cpu's private copy, excluded from the collected TOC by the spec.
-#: Shipping it is not merely redundant: with its upstream install name
-#: (``/DLC/faiss/.dylibs/libomp.dylib``) restored, dyld maps a SECOND OpenMP
-#: image and the process aborts with ``OMP: Error #15``. Today's bundle
-#: survives only because PyInstaller rewrites both IDs to the same
-#: ``@rpath/libomp.dylib`` name, which dyld dedupes.
-DUPLICATE_LIBOMP = "faiss/.dylibs/libomp.dylib"
+#: Per-platform OpenMP consolidation policy keyed by ``sys.platform`` family;
+#: read it through :func:`libomp_policy`, which explains both branches.
+#: ``canonical_dir`` is the bundle-relative directory (under ``_internal``) of
+#: the runtime the bundle keeps; ``duplicate_dir`` is the directory whose copy
+#: the spec drops from the collected TOC, or ``None`` where none is redundant.
+LIBOMP_POLICY: dict[str, dict[str, str | None]] = {
+    "darwin": {"canonical_dir": "torch/lib", "duplicate_dir": "faiss/.dylibs"},
+    "linux": {"canonical_dir": "torch/lib", "duplicate_dir": None},
+}
 
 #: Matches every OpenMP runtime filename family the scan must count, so a
-#: renamed or versioned copy (``libomp.5.dylib``, ``libiomp5.dylib``) cannot
-#: slip past a literal-name check.
-LIBOMP_PATTERN = re.compile(r"\Alib(omp|iomp5|gomp)[.0-9]*\.(dylib|so[.0-9]*)\Z")
+#: renamed, versioned (``libomp.5.dylib``, ``libiomp5.dylib``) or
+#: auditwheel-mangled (``libgomp-a34b3233.so.1``) copy cannot slip past a
+#: literal-name check. Over-matching is the safe direction — it can only
+#: over-count copies, which fails a guard loudly.
+LIBOMP_PATTERN = re.compile(
+    r"\Alib(omp|iomp5|gomp)(-[0-9a-f]+)?[.0-9]*\.(dylib|so[.0-9]*)\Z"
+)
 
 #: Passed through to the build subprocesses when set. None perturbs
 #: determinism the way PYTHONPATH would, and dropping them silently breaks
@@ -325,14 +325,65 @@ def _normalize_dest(dest: str) -> str:
     return dest.replace("\\", "/")
 
 
-def is_duplicate_libomp(dest: str) -> bool:
-    """Whether a TOC destination is the redundant faiss OpenMP copy."""
-    return _normalize_dest(dest) == DUPLICATE_LIBOMP
+def libomp_policy(platform: str | None = None) -> dict[str, str | None]:
+    """The OpenMP policy for ``platform`` (default: the running one).
+
+    macOS drops faiss-cpu's private ``faiss/.dylibs`` copy: PyInstaller rewrites
+    both consumers' load commands AND both dylib IDs to ``@rpath/libomp.dylib``,
+    so dyld dedupes them onto torch's copy and faiss's is never mapped —
+    until its upstream install name is restored, when dyld maps a SECOND image
+    and the process aborts with ``OMP: Error #15``.
+
+    Linux has NO redundant copy: auditwheel gives each wheel's vendored libgomp
+    a distinct mangled SONAME (``libgomp-<hash>.so.1``) recorded in its OWN
+    consumer's DT_NEEDED, so torch's copy cannot satisfy faiss's and dropping
+    either leaves an unresolvable dependency; GNU libgomp also has no
+    duplicate-runtime abort. Raises on an unknown platform rather than guessing.
+    """
+    key = platform or sys.platform
+    if key.startswith("linux"):
+        key = "linux"
+    policy = LIBOMP_POLICY.get(key)
+    if policy is None:
+        raise BuildError(
+            f"no OpenMP consolidation policy for platform {key!r}; add one to "
+            "LIBOMP_POLICY (with the measurement behind it) before building here"
+        )
+    return policy
 
 
-def is_canonical_libomp(dest: str) -> bool:
+def expects_duplicate_libomp(platform: str | None = None) -> bool:
+    """Whether the spec's TOC exclusion must drop something on ``platform``."""
+    return libomp_policy(platform)["duplicate_dir"] is not None
+
+
+def _split_dest(dest: str) -> tuple[str, str]:
+    parent, _, name = _normalize_dest(dest).rpartition("/")
+    return parent, name
+
+
+def is_duplicate_libomp(dest: str, platform: str | None = None) -> bool:
+    """Whether a TOC destination is the redundant OpenMP copy on ``platform``.
+
+    Directory-exact rather than a substring glob: only a :data:`LIBOMP_PATTERN`
+    filename sitting DIRECTLY in the policy's ``duplicate_dir`` matches, so a
+    string-match bug cannot reach the canonical copy one directory over. The
+    filename is a pattern and not a literal because auditwheel mangles the
+    Linux name; ``canonical_dir``/``duplicate_dir`` carry the exactness.
+    """
+    duplicate_dir = libomp_policy(platform)["duplicate_dir"]
+    if duplicate_dir is None:
+        return False
+    parent, name = _split_dest(dest)
+    return parent == duplicate_dir and bool(LIBOMP_PATTERN.match(name))
+
+
+def is_canonical_libomp(dest: str, platform: str | None = None) -> bool:
     """Whether a TOC destination is the OpenMP runtime the bundle keeps."""
-    return _normalize_dest(dest) == CANONICAL_LIBOMP
+    parent, name = _split_dest(dest)
+    return parent == libomp_policy(platform)["canonical_dir"] and bool(
+        LIBOMP_PATTERN.match(name)
+    )
 
 
 def libomp_inventory(root: Path) -> dict[str, object]:
@@ -363,15 +414,37 @@ def libomp_inventory(root: Path) -> dict[str, object]:
     return {"regular": regular, "symlinks": symlinks}
 
 
-def _require_single_libomp(inventory: dict[str, object]) -> None:
-    """Fail the build when the bundle carries anything but exactly one OpenMP
-    runtime file. Two copies abort the process the moment their install names
-    differ; zero means the consolidation dropped the live copy."""
-    regular = inventory["regular"]  # type: ignore[index]
-    if len(regular) != 1:  # type: ignore[arg-type]
+def _require_single_libomp(
+    inventory: dict[str, object], platform: str | None = None
+) -> None:
+    """Fail the build when the bundle's OpenMP inventory breaks the platform
+    policy.
+
+    Where a duplicate is expected (macOS): exactly one runtime file. Two copies
+    abort the process the moment their install names differ; zero means the
+    consolidation dropped the live copy.
+
+    Where none is (Linux): at least one file, and no two sharing a FILENAME.
+    Distinct mangled SONAMEs are separate, individually-needed libraries, but
+    two files under one name is the ELF shape of the macOS hazard and must not
+    pass unnoticed just because nothing is dropped here.
+    """
+    regular: list[dict[str, object]] = inventory["regular"]  # type: ignore[assignment]
+    if expects_duplicate_libomp(platform):
+        if len(regular) != 1:
+            raise BuildError(
+                f"bundle must carry exactly one OpenMP runtime file, found "
+                f"{len(regular)}: {regular}"
+            )
+        return
+    if not regular:
+        raise BuildError("bundle carries no OpenMP runtime file at all")
+    names = [Path(str(entry["path"])).name for entry in regular]
+    collisions = sorted({name for name in names if names.count(name) > 1})
+    if collisions:
         raise BuildError(
-            f"bundle must carry exactly one OpenMP runtime file, found "
-            f"{len(regular)}: {regular}"  # type: ignore[arg-type]
+            f"bundle carries more than one OpenMP runtime file under the same "
+            f"name {collisions}: {regular}"
         )
 
 

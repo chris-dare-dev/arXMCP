@@ -9,7 +9,10 @@ because its only launch was a rejected one). ``server/router.py`` and
 ``server/tools.py`` raise on the other two.
 
 This is CLAUDE.md §4.5b's rule one layer down: declaring the package ships its
-modules and nothing else, at BOTH the wheel and the freeze boundary.
+modules and nothing else, at BOTH the wheel and the freeze boundary. One hook
+per top-level package named in ``[tool.setuptools.package-data]`` —
+``hook-ingest.py`` / ``hook-ops.py`` / ``hook-tools.py`` are the siblings, and
+the gate test derives the list from that table rather than repeating it.
 """
 
 from PyInstaller.utils.hooks import collect_data_files

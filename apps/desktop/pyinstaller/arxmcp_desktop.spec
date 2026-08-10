@@ -24,16 +24,6 @@ import PyInstaller.building.build_main as _build_main
 
 PLACEHOLDER_PREFIX = "/arxmcp-frozen-placeholder"
 
-#: faiss-cpu's private OpenMP copy, dropped from the collected TOC (m8 AC1).
-#: PyInstaller rewrites BOTH consumers' load commands to ``@rpath/libomp.dylib``
-#: and both dylib IDs to the same ``@rpath`` name, so dyld dedupes them onto
-#: :data:`CANONICAL_LIBOMP_DEST` and this copy is collected but never mapped.
-DUPLICATE_LIBOMP_DEST = "faiss/.dylibs/libomp.dylib"
-
-#: The one OpenMP image the bundle may ship; ``_internal/libomp.dylib`` is a
-#: symlink onto it and is what ``@rpath`` resolves to from both consumers.
-CANONICAL_LIBOMP_DEST = "torch/lib/libomp.dylib"
-
 _original_create_base_library_zip = _build_main.create_base_library_zip
 
 
@@ -106,8 +96,9 @@ def _load_driver_helpers(spec_dir: Path):
 
 
 def _drop_duplicate_libomp(analysis, helpers) -> int:
-    """Remove :data:`DUPLICATE_LIBOMP_DEST` from ``analysis.binaries``; returns
-    the number of TOC entries dropped.
+    """Remove the platform's redundant OpenMP copy from ``analysis.binaries``;
+    returns the number of TOC entries dropped (always 0 where the platform has
+    no redundant copy — see ``desktop_package.libomp_policy``).
 
     TOC-level, deliberately: an ``install_name_tool`` rewrite would edit Mach-O
     load commands after PyInstaller has ad-hoc-signed each collected binary,
@@ -115,12 +106,14 @@ def _drop_duplicate_libomp(analysis, helpers) -> int:
     rewrite and the signature gate. A dropped entry is simply never copied and
     never signed. Must run before ``COLLECT()`` consumes the binaries TOC.
     """
+    policy = helpers.libomp_policy()
     kept = [entry for entry in analysis.binaries if not helpers.is_duplicate_libomp(entry[0])]
     dropped = len(analysis.binaries) - len(kept)
     if dropped and not any(helpers.is_canonical_libomp(entry[0]) for entry in kept):
         raise SystemExit(
-            f"dropping {DUPLICATE_LIBOMP_DEST} would leave no OpenMP runtime "
-            f"collected; {CANONICAL_LIBOMP_DEST} is absent from the TOC"
+            f"dropping {policy['duplicate_dir']}'s OpenMP copy would leave no "
+            f"OpenMP runtime collected; nothing under {policy['canonical_dir']} "
+            "is in the TOC"
         )
     analysis.binaries[:] = kept
     return dropped
@@ -206,11 +199,11 @@ _dropped_libomp = sum(
     _drop_duplicate_libomp(analysis, _helpers)
     for analysis in (child_analysis, probe_analysis)
 )
-if not _dropped_libomp:
+if _helpers.expects_duplicate_libomp() and not _dropped_libomp:
     raise SystemExit(
-        f"no {DUPLICATE_LIBOMP_DEST} entry was collected, so the m8 "
-        "consolidation dropped nothing — re-measure the bundle's OpenMP "
-        "inventory before removing this guard"
+        f"no {_helpers.libomp_policy()['duplicate_dir']} OpenMP entry was "
+        "collected, so the m8 consolidation dropped nothing — re-measure the "
+        "bundle's OpenMP inventory before removing this guard"
     )
 
 COLLECT(  # noqa: F821
