@@ -414,16 +414,40 @@ pinned model revisions are already cached locally, so no download is needed.
 - [ ] Exactly one `libomp.dylib`-family file exists anywhere in the frozen
       bundle, asserted by an automated scan rather than manual inspection.
 - [ ] A real FAISS add+search followed by a real multi-threaded Torch
-      operation in the SAME process inside the frozen bundle exits 0. The
-      regression MUST reproduce the documented abort as its RED state before
-      the fix — a test that merely imports both does not discriminate.
+      operation in the SAME process inside the frozen bundle exits 0.
+      (Revised 2026-08-10 after measurement. The original wording required
+      the regression to reproduce the documented abort as its RED state
+      against the natural build. That is NOT achievable: the frozen bundle
+      does not crash — verified three independent ways — because FAISS's
+      `_swigfaiss.abi3.so` resolves `@rpath/libomp.dylib` to the
+      `_internal` symlink and thence to torch's copy, leaving
+      `faiss/.dylibs/libomp.dylib` orphaned and never loaded. The bundle is
+      therefore safe by accident of rpath ordering while still shipping a
+      redundant copy — which is precisely what spike-1 meant by "still a
+      release blocker until the library consolidation is intentional and
+      regression-tested". AC2 is replaced by the two parts below.)
+- [ ] Part A — a filesystem guard asserting exactly one `libomp.dylib`-family
+      regular file in the bundle. This is genuinely RED today (two files:
+      torch's canonical `cc166d…` and faiss's orphaned `798920…`) and GREEN
+      after the exclusion.
+- [ ] Part B — a process-level proof that the duplicate is genuinely
+      dangerous, by forcing the orphaned copy to be the one dyld resolves and
+      observing the abort. Detection must read the CHILD's exit status
+      (SIGABRT / 134), never a shell pipeline's. If a genuine crash cannot be
+      produced within a few attempts, STOP and report rather than contriving
+      a test that crashes for an unrelated reason — an unproven mechanism
+      honestly reported beats a manufactured RED state.
 - [ ] `KMP_DUPLICATE_LIB_OK` is absent from every desktop launch environment,
       re-asserted under the new compute path; the existing guard proves only
       that the variable was unset, not that no collision exists.
 - [ ] Booting the real desktop child with an external HF cache and encoding a
       fixed golden set through BGE-M3 and the reranker produces vectors
       matching a committed fixture within a tight tolerance — loading weights
-      is not the same as producing correct output.
+      is not the same as producing correct output. The fixture is GREENFIELD:
+      no committed golden data exists for either model anywhere in the repo,
+      so authoring it is new work rather than extending an existing pattern.
+      The tolerance must be justified against observed run-to-run variation,
+      not chosen to make the test pass.
 - [ ] No model weight file or HF cache blob is present anywhere under the
       read-only application bundle.
 - [ ] `make test` and `make desktop-conformance` exit 0.
