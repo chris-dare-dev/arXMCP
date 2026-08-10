@@ -24,6 +24,16 @@ import PyInstaller.building.build_main as _build_main
 
 PLACEHOLDER_PREFIX = "/arxmcp-frozen-placeholder"
 
+#: faiss-cpu's private OpenMP copy, dropped from the collected TOC (m8 AC1).
+#: PyInstaller rewrites BOTH consumers' load commands to ``@rpath/libomp.dylib``
+#: and both dylib IDs to the same ``@rpath`` name, so dyld dedupes them onto
+#: :data:`CANONICAL_LIBOMP_DEST` and this copy is collected but never mapped.
+DUPLICATE_LIBOMP_DEST = "faiss/.dylibs/libomp.dylib"
+
+#: The one OpenMP image the bundle may ship; ``_internal/libomp.dylib`` is a
+#: symlink onto it and is what ``@rpath`` resolves to from both consumers.
+CANONICAL_LIBOMP_DEST = "torch/lib/libomp.dylib"
+
 _original_create_base_library_zip = _build_main.create_base_library_zip
 
 
@@ -81,6 +91,43 @@ def _sanitize_sysconfigdata(analysis, work_dir: Path) -> None:
         )
 
 
+def _load_driver_helpers(spec_dir: Path):
+    """Load the build driver's pure helpers (stdlib-only) so the exclusion
+    predicate the BUILD applies is the same object the gate test asserts on."""
+    location = spec_dir / "desktop_package.py"
+    module_spec = importlib.util.spec_from_file_location(
+        "arxmcp_desktop_package_spec_helpers", location
+    )
+    if module_spec is None or module_spec.loader is None:
+        raise SystemExit(f"cannot load build driver helpers from {location}")
+    module = importlib.util.module_from_spec(module_spec)
+    module_spec.loader.exec_module(module)
+    return module
+
+
+def _drop_duplicate_libomp(analysis, helpers) -> int:
+    """Remove :data:`DUPLICATE_LIBOMP_DEST` from ``analysis.binaries``; returns
+    the number of TOC entries dropped.
+
+    TOC-level, deliberately: an ``install_name_tool`` rewrite would edit Mach-O
+    load commands after PyInstaller has ad-hoc-signed each collected binary,
+    invalidating those signatures and forcing a re-sign step between the
+    rewrite and the signature gate. A dropped entry is simply never copied and
+    never signed. Must run before ``COLLECT()`` consumes the binaries TOC.
+    """
+    kept = [entry for entry in analysis.binaries if not helpers.is_duplicate_libomp(entry[0])]
+    dropped = len(analysis.binaries) - len(kept)
+    if dropped and not any(helpers.is_canonical_libomp(entry[0]) for entry in kept):
+        raise SystemExit(
+            f"dropping {DUPLICATE_LIBOMP_DEST} would leave no OpenMP runtime "
+            f"collected; {CANONICAL_LIBOMP_DEST} is absent from the TOC"
+        )
+    analysis.binaries[:] = kept
+    return dropped
+
+
+_helpers = _load_driver_helpers(Path(SPECPATH))  # noqa: F821 - injected
+
 _child_spec = importlib.util.find_spec("server.desktop_child")
 if _child_spec is None or not _child_spec.origin:
     raise SystemExit("arxmcp wheel is not installed in this environment")
@@ -128,12 +175,18 @@ probe_analysis = Analysis(  # noqa: F821
     pathex=[],
     binaries=[],
     datas=[],
-    hiddenimports=[],
+    # The probe's OpenMP mode imports faiss, whose Python half lives in the
+    # PYZ (only the SWIG extension lands on disk) and is therefore invisible
+    # to the module graph. torch/transformers need no entry: their packages
+    # are collected as on-disk source under ``_internal`` and resolve through
+    # the normal path finder.
+    hiddenimports=["faiss"],
     hookspath=[HOOKS_DIR],
     runtime_hooks=[],
     excludes=[],
     noarchive=False,
 )
+_sanitize_sysconfigdata(probe_analysis, Path(workpath))  # noqa: F821 - injected
 probe_analysis.pure.sort()
 probe_pyz = PYZ(probe_analysis.pure)  # noqa: F821
 probe_exe = EXE(  # noqa: F821
@@ -148,6 +201,17 @@ probe_exe = EXE(  # noqa: F821
     upx=False,
     console=True,
 )
+
+_dropped_libomp = sum(
+    _drop_duplicate_libomp(analysis, _helpers)
+    for analysis in (child_analysis, probe_analysis)
+)
+if not _dropped_libomp:
+    raise SystemExit(
+        f"no {DUPLICATE_LIBOMP_DEST} entry was collected, so the m8 "
+        "consolidation dropped nothing — re-measure the bundle's OpenMP "
+        "inventory before removing this guard"
+    )
 
 COLLECT(  # noqa: F821
     child_exe,

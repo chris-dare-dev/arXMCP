@@ -1,4 +1,5 @@
-"""desktop-distribution-m7 packaging gate: PyInstaller bundle hygiene.
+"""desktop-distribution-m7 packaging gate: PyInstaller bundle hygiene, plus
+m8's OpenMP consolidation (exactly one runtime; a restored second copy aborts).
 
 Fast tests run in every ``make test``. The ``requires_desktop_package``-marked
 tests are the authoritative AC1-AC5 evidence: they provision the hash-pinned
@@ -18,6 +19,7 @@ import importlib.util
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -169,16 +171,25 @@ def test_verify_cli_exit_codes(monkeypatch, tmp_path):
     code no make target runs; both failure exits must be real."""
     dp = _driver()
 
-    def _report(differing, hits):
+    def _report(differing, hits, libomp):
         return {
             "determinism": {"differing": differing},
             "scan": {"hits": hits},
+            "libomp": {"regular": libomp, "symlinks": {}},
         }
 
-    cases = [(([], {}), 0), ((["lib/x.so"], {}), 1), (([], {"lib/x.so": ["home"]}), 1)]
-    for (differing, hits), expected in cases:
+    cases = [
+        (([], {}, [{"path": "torch/lib/libomp.dylib"}]), 0),
+        ((["lib/x.so"], {}, [{"path": "torch/lib/libomp.dylib"}]), 1),
+        (([], {"lib/x.so": ["home"]}, [{"path": "torch/lib/libomp.dylib"}]), 1),
+        # m8: a second OpenMP copy must exit non-zero on this path too.
+        (([], {}, [{"path": "a/libomp.dylib"}, {"path": "b/libomp.dylib"}]), 1),
+    ]
+    for (differing, hits, libomp), expected in cases:
         monkeypatch.setattr(
-            dp, "verify_determinism", lambda root, d=differing, h=hits: _report(d, h)
+            dp,
+            "verify_determinism",
+            lambda root, d=differing, h=hits, lo=libomp: _report(d, h, lo),
         )
         assert dp.main(["verify", "--root", str(tmp_path)]) == expected
 
@@ -232,6 +243,63 @@ def test_sanitizer_removes_direct_url_and_reports_leak(tmp_path):
     assert not (dist_info / "direct_url.json").exists()
     again = dp.sanitize_direct_url(tmp_path)
     assert again["found"] is False
+
+
+def test_libomp_exclusion_predicate_targets_only_the_redundant_copy():
+    """m8 AC1's sharpest failure mode: a string-match bug here drops the LIVE
+    OpenMP runtime instead of the orphan and the bundle dies at first FAISS
+    import. The predicate must match faiss's private copy and nothing else."""
+    dp = _driver()
+    assert dp.is_duplicate_libomp("faiss/.dylibs/libomp.dylib")
+    assert dp.is_duplicate_libomp("faiss\\.dylibs\\libomp.dylib")
+    for spared in ("torch/lib/libomp.dylib", "libomp.dylib", "faiss/_swigfaiss.abi3.so"):
+        assert not dp.is_duplicate_libomp(spared), spared
+    assert dp.is_canonical_libomp("torch/lib/libomp.dylib")
+    assert not dp.is_canonical_libomp("faiss/.dylibs/libomp.dylib")
+
+
+def test_libomp_inventory_counts_files_not_names(tmp_path):
+    """A symlink adds a NAME, not a mapped image, so it must not read as a
+    second copy — the shipped bundle deliberately carries one of each."""
+    dp = _driver()
+    (tmp_path / "torch" / "lib").mkdir(parents=True)
+    (tmp_path / "torch" / "lib" / "libomp.dylib").write_bytes(b"canonical")
+    os.symlink("torch/lib/libomp.dylib", tmp_path / "libomp.dylib")
+    inventory = dp.libomp_inventory(tmp_path)
+    assert [entry["path"] for entry in inventory["regular"]] == ["torch/lib/libomp.dylib"]
+    assert inventory["symlinks"] == {"libomp.dylib": "torch/lib/libomp.dylib"}
+    dp._require_single_libomp(inventory)
+
+    (tmp_path / "faiss" / ".dylibs").mkdir(parents=True)
+    (tmp_path / "faiss" / ".dylibs" / "libomp.dylib").write_bytes(b"orphan")
+    two = dp.libomp_inventory(tmp_path)
+    assert len(two["regular"]) == 2
+    with pytest.raises(dp.BuildError, match="exactly one OpenMP runtime"):
+        dp._require_single_libomp(two)
+
+
+def test_libomp_pattern_covers_the_openmp_runtime_family():
+    """A versioned or Intel-flavoured copy is the same hazard under a
+    different filename; a literal ``libomp.dylib`` check would miss it."""
+    dp = _driver()
+    for name in ("libomp.dylib", "libomp.5.dylib", "libiomp5.dylib", "libgomp.so.1"):
+        assert dp.LIBOMP_PATTERN.match(name), name
+    for name in ("libompressed.dylib", "libcompression.dylib", "omp.dylib"):
+        assert not dp.LIBOMP_PATTERN.match(name), name
+
+
+def test_probe_and_driver_agree_on_the_openmp_filename_pattern():
+    """The frozen probe cannot import the driver, so the loaded-image count and
+    the filesystem count are enforced by two copies of one regex. Pin them
+    equal or the two halves of the m8 evidence can silently diverge."""
+    dp = _driver()
+    spec = importlib.util.spec_from_file_location(
+        "arxmcp_probe_entry", DRIVER_PATH.parent / "probe_entry.py"
+    )
+    probe = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(probe)
+    assert probe.LIBOMP_NAME.pattern == dp.LIBOMP_PATTERN.pattern
+    assert probe.FORBIDDEN_ENV[0] == "KMP_DUPLICATE_LIB_OK"
 
 
 def _manifest_pair(tmp_path):
@@ -436,6 +504,145 @@ def test_bundle_carries_no_build_machine_paths(packaged):
     assert scan["native_files"] >= 100
     assert scan["zip_pyc_members"] >= 100
     assert scan["embedded"]["pyc_entries"] >= 5000
+
+
+@pytest.mark.requires_desktop_package
+def test_bundle_ships_every_server_data_file_the_wheel_ships(packaged):
+    """Derived, not enumerated: PyInstaller collects only ``.py``, so the
+    wheel's ``server`` package-data was absent and ``create_app()`` died on the
+    missing static directory — the frozen child could not boot at all. Compared
+    against the build venv's installed tree so a new data file cannot drop out
+    of the bundle the way it once dropped out of the wheel (CLAUDE.md §4.5b)."""
+    dp, report = packaged
+    installed = dp._site_packages(dp.build_venv_dir(dp.DEFAULT_ROOT)) / "server"
+    expected = {
+        path.relative_to(installed).as_posix()
+        for path in installed.rglob("*")
+        if path.is_file() and path.suffix not in {".py", ".pyc"}
+    }
+    assert expected, f"no server data files found under {installed}"
+    frozen_root = Path(report["bundle"]) / "_internal" / "server"
+    missing = sorted(rel for rel in expected if not (frozen_root / rel).is_file())
+    assert missing == [], f"wheel data files absent from the bundle: {missing}"
+
+
+def _run_omp_probe(bundle_dir: Path, dp, tmp_path: Path) -> subprocess.CompletedProcess:
+    """Launch the OpenMP probe and return the completed process UNCHECKED.
+
+    ``subprocess.run`` with no shell, so ``returncode`` is the CHILD's wait
+    status: a SIGABRT surfaces as -6 here, where a shell pipeline would report
+    its last stage instead and read as success.
+    """
+    return subprocess.run(
+        [str(bundle_dir / dp.PROBE_EXE)],
+        input=json.dumps({"mode": "omp"}),
+        capture_output=True,
+        text=True,
+        env=_frozen_env(tmp_path),
+        timeout=600,
+    )
+
+
+@pytest.mark.requires_desktop_package
+def test_bundle_ships_exactly_one_openmp_runtime(packaged):
+    """m8 AC1/AC2-A: MEASURED RED before the fix — the same scan reported two
+    regular files, torch's canonical ``cc166d…`` and faiss's orphaned
+    ``798920…``. The symlink is expected and is not a copy."""
+    dp, report = packaged
+    inventory = report["libomp"]
+    dp._require_single_libomp(inventory)
+    assert [entry["path"] for entry in inventory["regular"]] == [
+        f"_internal/{dp.CANONICAL_LIBOMP}"
+    ]
+    assert inventory["symlinks"] == {"_internal/libomp.dylib": dp.CANONICAL_LIBOMP}
+    assert not (Path(report["bundle"]) / "_internal" / dp.DUPLICATE_LIBOMP).exists()
+
+
+@pytest.mark.requires_desktop_package
+def test_frozen_faiss_and_torch_share_one_openmp_image(packaged, tmp_path):
+    """m8 AC2-B AFTER arm + AC3: a real FAISS add+search followed by real
+    multi-threaded Torch compute in ONE frozen process exits 0, with exactly
+    one OpenMP image MAPPED — dyld's live image list, not a directory listing,
+    because a copy that is present but never mapped is a different defect from
+    a copy that is loaded. The probe refuses to start with
+    KMP_DUPLICATE_LIB_OK set, so this cannot be a suppressed abort."""
+    dp, report = packaged
+    bundle = Path(report["bundle"])
+    proc = _run_omp_probe(bundle, dp, tmp_path)
+    assert proc.returncode == 0, f"omp probe failed: {proc.stderr[-3000:]}"
+    result = json.loads(proc.stdout)
+    assert result["faiss_neighbours"] == list(range(8))
+    assert result["torch_checksum_finite"] is True
+    assert result["torch_threads"] > 1, "a single-threaded run would not contend"
+    if sys.platform == "darwin":
+        assert result["openmp_images"] == [str(bundle / "_internal" / dp.CANONICAL_LIBOMP)]
+
+
+@pytest.mark.requires_desktop_package
+def test_a_second_openmp_copy_aborts_the_frozen_process(packaged, tmp_path):
+    """m8 AC2-B BEFORE arm: prove the excluded copy is DANGEROUS, not merely
+    redundant. Restoring faiss's upstream wheel state on a disposable clone —
+    its private ``libomp.dylib`` (install name ``/DLC/faiss/.dylibs/…``) plus
+    the fully-qualified load command PyInstaller rewrote to ``@rpath`` — makes
+    dyld map a SECOND image and the process dies on ``OMP: Error #15``.
+
+    That install name is the whole mechanism, and it is why merely re-adding
+    the file (or ``dlopen``-ing it alongside) does not reproduce: PyInstaller
+    rewrites BOTH copies' IDs to the same ``@rpath/libomp.dylib``, which dyld
+    dedupes onto one image. The consolidation removes the accident.
+
+    Mach-O only; the equivalent ELF injection is not the shipped artifact's
+    failure mode (the m7 codesign test's platform-branch precedent).
+    """
+    if sys.platform != "darwin":
+        return
+    dp, report = packaged
+    bundle = Path(report["bundle"])
+    upstream = (
+        dp._site_packages(dp.build_venv_dir(dp.DEFAULT_ROOT))
+        / "faiss"
+        / ".dylibs"
+        / "libomp.dylib"
+    )
+    assert upstream.is_file(), f"upstream faiss OpenMP copy missing at {upstream}"
+
+    clone = tmp_path / "fault-injected"
+    shutil.copytree(bundle, clone, copy_function=os.link, symlinks=True)
+    swig = clone / "_internal" / "faiss" / "_swigfaiss.abi3.so"
+    # Break the hardlink BEFORE mutating: install_name_tool edits in place and
+    # would otherwise rewrite the shipped artifact through the shared inode.
+    payload = swig.read_bytes()
+    swig.unlink()
+    swig.write_bytes(payload)
+    swig.chmod(0o755)
+    orphan = clone / "_internal" / dp.DUPLICATE_LIBOMP
+    orphan.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(upstream, orphan)
+    for command in (
+        ["/usr/bin/install_name_tool", "-change", "@rpath/libomp.dylib",
+         "@loader_path/.dylibs/libomp.dylib", str(swig)],
+        ["/usr/bin/codesign", "-f", "-s", "-", str(swig)],
+    ):
+        step = subprocess.run(command, capture_output=True, text=True, timeout=120)
+        assert step.returncode == 0, f"{command[0]} failed: {step.stderr[-1000:]}"
+
+    proc = _run_omp_probe(clone, dp, tmp_path / "faultenv")
+    assert proc.returncode in (-signal.SIGABRT, 134), (
+        f"the duplicate OpenMP copy did NOT abort the process (rc="
+        f"{proc.returncode}); stdout={proc.stdout[-1000:]} "
+        f"stderr={proc.stderr[-2000:]}"
+    )
+    assert "OMP: Error #15" in proc.stderr
+
+    # The shipped artifact must be untouched by the injection.
+    shipped = subprocess.run(
+        ["/usr/bin/otool", "-L", str(bundle / "_internal" / "faiss" / "_swigfaiss.abi3.so")],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert "@rpath/libomp.dylib" in shipped.stdout
+    assert "@loader_path/.dylibs/libomp.dylib" not in shipped.stdout
 
 
 @pytest.mark.requires_desktop_package

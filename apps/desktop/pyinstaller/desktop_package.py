@@ -9,8 +9,9 @@ per the MinerU precedent), installs the freshly built wheel, sanitizes the
 default collides with unrelated setuptools output), then scans every regular
 file — including nested zips and the executables' embedded PYZ archives, where
 compressed ``.pyc`` bytes hide from a raw grep — for build-machine path
-strings. ``verify`` additionally runs TWO independent builds and diffs their
-per-file manifests against the CLOSED exception set below.
+strings, and counts the bundle's OpenMP runtimes (m8: exactly one).
+``verify`` additionally runs TWO independent builds and diffs their per-file
+manifests against the CLOSED exception set below.
 
 Deliberately not shipped in the wheel: lives outside the packaged trees.
 Subprocess side effects only: ``uv`` invocations plus writes under
@@ -23,6 +24,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -58,6 +60,25 @@ if len(NONDETERMINISTIC_EXCEPTIONS) != EXPECTED_EXCEPTION_COUNT:
         "NONDETERMINISTIC_EXCEPTIONS size drifted from EXPECTED_EXCEPTION_COUNT; "
         "bump both here and in tests/test_desktop_package.py"
     )
+
+#: The single OpenMP runtime the bundle may carry, bundle-relative to
+#: ``_internal``. Both consumers (faiss's ``_swigfaiss.abi3.so`` and torch's
+#: ``libtorch_cpu.dylib``) reach it through ``@rpath/libomp.dylib``, which the
+#: top-level ``_internal/libomp.dylib`` symlink points at.
+CANONICAL_LIBOMP = "torch/lib/libomp.dylib"
+
+#: faiss-cpu's private copy, excluded from the collected TOC by the spec.
+#: Shipping it is not merely redundant: with its upstream install name
+#: (``/DLC/faiss/.dylibs/libomp.dylib``) restored, dyld maps a SECOND OpenMP
+#: image and the process aborts with ``OMP: Error #15``. Today's bundle
+#: survives only because PyInstaller rewrites both IDs to the same
+#: ``@rpath/libomp.dylib`` name, which dyld dedupes.
+DUPLICATE_LIBOMP = "faiss/.dylibs/libomp.dylib"
+
+#: Matches every OpenMP runtime filename family the scan must count, so a
+#: renamed or versioned copy (``libomp.5.dylib``, ``libiomp5.dylib``) cannot
+#: slip past a literal-name check.
+LIBOMP_PATTERN = re.compile(r"\Alib(omp|iomp5|gomp)[.0-9]*\.(dylib|so[.0-9]*)\Z")
 
 #: Passed through to the build subprocesses when set. None perturbs
 #: determinism the way PYTHONPATH would, and dropping them silently breaks
@@ -299,6 +320,61 @@ def build_bundle(python: Path, workpath: Path, distpath: Path) -> Path:
     return bundle
 
 
+def _normalize_dest(dest: str) -> str:
+    """PyInstaller TOC destinations use the host separator on Windows."""
+    return dest.replace("\\", "/")
+
+
+def is_duplicate_libomp(dest: str) -> bool:
+    """Whether a TOC destination is the redundant faiss OpenMP copy."""
+    return _normalize_dest(dest) == DUPLICATE_LIBOMP
+
+
+def is_canonical_libomp(dest: str) -> bool:
+    """Whether a TOC destination is the OpenMP runtime the bundle keeps."""
+    return _normalize_dest(dest) == CANONICAL_LIBOMP
+
+
+def libomp_inventory(root: Path) -> dict[str, object]:
+    """Every OpenMP-runtime entry in the bundle, split by kind.
+
+    Symlinks are reported separately and never counted as copies: a symlink
+    adds a name, not a mapped image. ``regular`` carries one
+    ``{"path", "size", "sha256"}`` record per real file, so a second copy is
+    visible with its identity rather than as a bare count.
+    """
+    regular: list[dict[str, object]] = []
+    symlinks: dict[str, str] = {}
+    for path in sorted(root.rglob("*")):
+        if not LIBOMP_PATTERN.match(path.name):
+            continue
+        meta = path.lstat()
+        rel = path.relative_to(root).as_posix()
+        if stat.S_ISLNK(meta.st_mode):
+            symlinks[rel] = os.readlink(path)
+        elif stat.S_ISREG(meta.st_mode):
+            regular.append(
+                {
+                    "path": rel,
+                    "size": meta.st_size,
+                    "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                }
+            )
+    return {"regular": regular, "symlinks": symlinks}
+
+
+def _require_single_libomp(inventory: dict[str, object]) -> None:
+    """Fail the build when the bundle carries anything but exactly one OpenMP
+    runtime file. Two copies abort the process the moment their install names
+    differ; zero means the consolidation dropped the live copy."""
+    regular = inventory["regular"]  # type: ignore[index]
+    if len(regular) != 1:  # type: ignore[arg-type]
+        raise BuildError(
+            f"bundle must carry exactly one OpenMP runtime file, found "
+            f"{len(regular)}: {regular}"  # type: ignore[arg-type]
+        )
+
+
 def file_manifest(root: Path) -> dict[str, str]:
     """Per-entry ``mode:size:sha256`` (symlinks hash their target), keyed by
     bundle-relative posix path. mtimes are deliberately excluded."""
@@ -493,9 +569,11 @@ def build_once(root: Path = DEFAULT_ROOT) -> dict[str, object]:
         bundle, default_needles(build_paths=(REPO_ROOT, work, dist)), python
     )
     _require_scan_coverage(scan)
+    libomp = libomp_inventory(bundle)
     report: dict[str, object] = {
         "bundle": str(bundle),
         "direct_url": direct_url,
+        "libomp": libomp,
         "scan": scan,
     }
     (root / "report.json").write_text(
@@ -503,6 +581,7 @@ def build_once(root: Path = DEFAULT_ROOT) -> dict[str, object]:
     )
     if scan["hits"]:
         raise BuildError(f"build-machine paths in bundle: {scan['hits']}")
+    _require_single_libomp(libomp)
     _log(f"bundle OK at {bundle} ({scan['files_scanned']} files scanned clean)")
     return report
 
@@ -545,11 +624,13 @@ def verify_determinism(
         python,
     )
     _require_scan_coverage(scan)
+    libomp = libomp_inventory(bundle_a)
     if not keep_second:
         shutil.rmtree(dist_b, ignore_errors=True)
     report: dict[str, object] = {
         "bundle": str(bundle_a),
         "direct_url": direct_url,
+        "libomp": libomp,
         "determinism": {
             "manifest_entries": len(manifest_a),
             "differing": differing,
@@ -583,6 +664,11 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     if report["scan"]["hits"]:  # type: ignore[index]
         _log(f"build-machine paths in bundle: {report['scan']['hits']}")  # type: ignore[index]
+        return 1
+    try:
+        _require_single_libomp(report["libomp"])  # type: ignore[arg-type]
+    except BuildError as exc:
+        _log(str(exc))
         return 1
     _log("verify OK: manifests identical within the pinned exception set")
     return 0
