@@ -538,23 +538,54 @@ this milestone adds the arm that runs when the variable is absent, deriving
 `validate_plan` rule — the `!smoke` refusal of the four test knobs included —
 must apply unchanged to a self-authored plan.
 
+> **Narrowed 2026-08-11, after Phase 1 research.** As first written, AC1 and
+> AC4 named an application bundle that does not exist:
+> `apps/desktop/crates/supervisor/tauri.conf.json` carries
+> `"bundle": {"active": false}` with no `resources` and no `externalBin` key,
+> and m7 produced a frozen *child*, never a `.app`. Both researchers returned
+> this independently. The bundle mechanism — `bundle.resources` vs
+> `bundle.externalBin` vs a sibling-directory convention resolved off
+> `current_exe()` — is a design decision that changes what "inside the
+> bundle" structurally means per OS, so it moved to `m15` and m10's proofs
+> are restated against m7's real frozen onedir layout. Scope evidence:
+> the self-authoring arm alone measures ~520 LOC across ~7 files; folding
+> bundle assembly in crosses the pipeline's 800-LOC abort.
+
 **Acceptance criteria.**
-- [ ] With `ARXMCP_DESKTOP_LAUNCH_PLAN` unset, launching the bundled
-      application reaches a ready server and a rendered window. The
-      regression MUST reproduce the documented `exit(2)` as its RED state;
-      a test that only asserts the new arm's success does not discriminate.
+- [ ] With `ARXMCP_DESKTOP_LAUNCH_PLAN` unset, the supervisor launched from
+      m7's frozen onedir layout reaches a ready server and a rendered
+      window. The regression MUST reproduce the documented `exit(2)` as its
+      RED state; a test that only asserts the new arm's success does not
+      discriminate. (The same proof against a real `.app` is `m15`'s.)
 - [ ] A self-authored plan is refused by `validate_plan` under every rule
       that refuses an externally supplied one, asserted by feeding the
       self-authored plan through the same validator rather than by
-      inspection.
+      inspection. Because a self-authored plan is never `smoke: true`, the
+      five `!smoke`-gated knobs are vacuously refused — so the
+      `child_argv.is_empty()` branch MUST be independently exercised on a
+      self-authored plan, or the criterion proves nothing.
 - [ ] The environment-supplied path is byte-identically preserved: the m5
       lifecycle, m6 fault matrix, and m8 frozen-child gates run unmodified.
-- [ ] `child_argv[0]` resolves inside the application bundle and is
-      rejected if it resolves outside it, so a relocated or tampered
-      sidecar cannot be launched.
-- [ ] The startup token is freshly generated per launch, never persisted,
-      and absent from every argv and every persisted diagnostic — proven
-      by the m6 redaction scan extended to this path.
+- [ ] `child_argv[0]` resolves inside m7's frozen onedir root and is
+      rejected if it resolves outside it, via canonicalize-then-contain
+      mirroring `server/application_paths.py:59-67` rather than a
+      string-prefix check. `std::env::current_exe()` is documented by the
+      Rust stdlib as NOT a security primitive; the PATH-search and hardlink
+      classes it names are recorded as accepted residual risk rather than
+      implied closed.
+- [ ] `data_root` derivation agrees byte-for-byte with
+      `_platform_data_root` (`server/application_paths.py:81-89`) across a
+      matrix of the platform env vars each branch reads. The supervisor is
+      Rust and that function is Python with no FFI bridge, so whichever way
+      Phase 2 resolves it, the agreement is asserted by running BOTH
+      implementations — never by inspection.
+- [ ] `identity_file` and `child_argv[0]` carry their FROZEN-case
+      relationship (they converge, per `identity_source_path()`), not the
+      source-checkout shape every existing test fixture uses.
+- [ ] The startup token is freshly generated per launch by the existing
+      `generate_startup_token()` — not a second generator — never
+      persisted, and absent from every argv and every persisted diagnostic,
+      proven by the m6 redaction scan extended to this path.
 - [ ] `make test` and `make desktop-conformance` exit 0.
 
 **Dependencies.** desktop-distribution-m7, desktop-distribution-m9
@@ -727,11 +758,62 @@ axis none of them currently carry.
 
 ---
 
+### desktop-distribution-m15 — Assemble a launchable application bundle
+
+**Description.** Added 2026-08-11 when m10's Phase 1 research found that no
+`.app` exists and nothing wires m7's frozen child into one:
+`tauri.conf.json` carries `"bundle": {"active": false}` with no `resources`
+and no `externalBin`. This milestone makes the double-clickable artifact real
+and is therefore the true prerequisite for every remaining first-run claim.
+Its central act is a DECISION with per-OS consequences — `bundle.resources`,
+`bundle.externalBin`, or a documented sibling-directory convention resolved
+off `current_exe()` — because that choice determines where `child_argv[0]`
+lives and what "inside the bundle" means structurally. Numbered `m15` because
+it was allocated last; it EXECUTES second, immediately after `m10`.
+
+**Acceptance criteria.**
+- [ ] The bundle mechanism is chosen in a recorded ADR naming the rejected
+      alternatives and the per-OS consequence of each, not settled inside an
+      implementation diff.
+- [ ] `make desktop-package` (or a successor target) emits an artifact that
+      launches by double-click on a clean supported Mac and reaches a ready
+      server and a rendered window, with `ARXMCP_DESKTOP_LAUNCH_PLAN` unset.
+- [ ] m10's containment check is RE-POINTED from the onedir root to the
+      bundle root and still refuses a `child_argv[0]` resolving outside it,
+      re-asserted rather than assumed to carry over.
+- [ ] The frozen child inside the artifact is the m7 build — byte-identical
+      to what `make desktop-package` produced, asserted by hash, so bundling
+      cannot silently substitute a stale or rebuilt child.
+- [ ] m7's determinism, `direct_url.json` sanitization, and build-root string
+      scan hold over the ASSEMBLED artifact, not only over the pre-bundle
+      onedir. m8's single-`libomp` guard and weights-free assertion likewise
+      re-run against it.
+- [ ] The declared `minimumSystemVersion` and both binaries' `minos` still
+      agree at 14.0 after assembly (m9's regression re-run over the artifact).
+- [ ] The artifact's layout is recorded in `apps/desktop/README.md` in enough
+      detail that e4's signing and notarization work can consume it without
+      re-deriving it.
+- [ ] `make test` and `make desktop-conformance` exit 0.
+
+**Dependencies.** desktop-distribution-m10
+
+**Complexity.** L
+
+**Specialist suggestion.** `security-reviewer`, `determinism-reviewer`
+
+---
+
 **Sequencing.** `m10` first and alone — it is a prerequisite for exercising
-any of the others against a real launch. Then `m11`, then `m12` (which needs
-a chosen root to download into). `m13` depends only on `m10` and can run
-concurrently with `m11`/`m12`. `m14` is last because it reports the states
-`m12` and `m13` introduce.
+any of the others against a real launch. Then `m15`, which turns m10's
+self-authoring arm into a genuinely double-clickable artifact and is the
+prerequisite for every first-run claim after it. Then `m11`, then `m12`
+(which needs a chosen root to download into). `m13` depends only on `m10` and
+can run concurrently with `m11`/`m12`. `m14` is last because it reports the
+states `m12` and `m13` introduce.
+
+**Execution order, since the numbering no longer reads left-to-right:**
+`m10` → `m15` → `m11` → `m12` → `m14`, with `m13` free to run any time after
+`m10`.
 
 **Out of scope, unchanged.** Full-corpus bundling, automatic background
 update, and Mac App Store distribution remain `Won't` for this cycle. Nothing
