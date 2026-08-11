@@ -492,6 +492,254 @@ hardware cannot do.
 
 ---
 
+## desktop-distribution-e3 — first-run decomposition (2026-08-11)
+
+Decomposed after e4's engineering milestones (`m7`–`m9`) closed. e3 is the
+only remaining unstarted epic not gated on an Apple credential or on hardware
+this project does not have, which is why it is decomposed now rather than e5
+or e6.
+
+**One finding reorders the epic.** The shipped application cannot start
+itself. `load_plan` (`apps/desktop/crates/supervisor/src/main.rs:70-73`)
+`exit(2)`s with `supervisor: ARXMCP_DESKTOP_LAUNCH_PLAN is required` when that
+variable is unset, and the only writers of it in the entire tree are two test
+call sites (`tests/test_desktop_child.py:429` and `:957`). There is no
+fallback arm. Every green desktop gate to date — the m5 lifecycle, the m6
+fault matrix, the m8 frozen-child boot — supplied a plan from the harness, so
+a double-clicked `.app` exiting immediately is invisible to all of them.
+`m10` closes that before any onboarding surface is worth building; `m11`–`m14`
+are the epic's actual outcome and depend on it.
+
+Two facts about the current first-run path that the milestones below are
+written against, both measured on 2026-08-11:
+
+- **The data root is received, never chosen.** `main.rs:193-195` takes
+  `plan.data_root` and requires it absolute; the Python side derives its
+  default from `_platform_data_root` (`server/application_paths.py:81-89`
+  → `~/Library/Application Support/arXMCP` on darwin). Nothing anywhere
+  asks the operator, and nothing detects an existing root to adopt.
+- **A cold first run downloads ~4.6 GB with no consent.** m8 established
+  that no model weight or HF cache blob ships under the bundle, and the
+  loaders call `from_pretrained(..., revision=<pinned SHA>)` with no
+  `local_files_only` (`ingest/embedder.py:293` and `:331`), so the first
+  boot silently fetches from the Hub —
+  `server/retrieval/rerank.py:199` even logs the case in as many words
+  ("model loaded fresh from the Hub"). This is a direct contradiction of
+  e3's "without ... silent network/model activity".
+
+### desktop-distribution-m10 — The application launches itself
+
+**Description.** Give the supervisor a production path to a launch plan it
+authors from its own bundle layout, so a double-clicked `.app` starts. The
+plan-from-environment path stays exactly as it is and remains the test seam;
+this milestone adds the arm that runs when the variable is absent, deriving
+`child_argv` from the bundled frozen child, `data_root` from
+`_platform_data_root`, and a fresh `startup_token` per launch. Every
+`validate_plan` rule — the `!smoke` refusal of the four test knobs included —
+must apply unchanged to a self-authored plan.
+
+**Acceptance criteria.**
+- [ ] With `ARXMCP_DESKTOP_LAUNCH_PLAN` unset, launching the bundled
+      application reaches a ready server and a rendered window. The
+      regression MUST reproduce the documented `exit(2)` as its RED state;
+      a test that only asserts the new arm's success does not discriminate.
+- [ ] A self-authored plan is refused by `validate_plan` under every rule
+      that refuses an externally supplied one, asserted by feeding the
+      self-authored plan through the same validator rather than by
+      inspection.
+- [ ] The environment-supplied path is byte-identically preserved: the m5
+      lifecycle, m6 fault matrix, and m8 frozen-child gates run unmodified.
+- [ ] `child_argv[0]` resolves inside the application bundle and is
+      rejected if it resolves outside it, so a relocated or tampered
+      sidecar cannot be launched.
+- [ ] The startup token is freshly generated per launch, never persisted,
+      and absent from every argv and every persisted diagnostic — proven
+      by the m6 redaction scan extended to this path.
+- [ ] `make test` and `make desktop-conformance` exit 0.
+
+**Dependencies.** desktop-distribution-m7, desktop-distribution-m9
+
+**Complexity.** M
+
+**Specialist suggestion.** `security-reviewer`
+
+---
+
+### desktop-distribution-m11 — Choose storage, adopt or initialize
+
+**Description.** Make the data root an operator decision with a safe default,
+and make an existing root adoptable rather than silently re-initialized. The
+first-run surface offers the platform default, accepts an alternative
+directory, and — when a root already carries arXMCP state — reports what it
+found and adopts it. Selection persists through `OperatorSettingsStore`
+(`server/operator_settings.py`), whose docstring already names wizard state as
+an intended key, so no new store is introduced.
+
+**Acceptance criteria.**
+- [ ] A first run with no prior state offers the platform default, accepts
+      an operator-chosen directory, and the chosen root is the one every
+      subsequent write lands under — asserted by the m2 write-containment
+      regression re-run against the chosen root, not against the default.
+- [ ] A root already carrying a notebooks registry or corpus marker is
+      DETECTED and adopted; its notebook count and corpus version are
+      reported back before adoption. Initialization over existing state
+      requires a distinct, explicit operator act.
+- [ ] Unwritable, non-existent-and-uncreatable, and full-disk roots each
+      produce a distinct, actionable message and leave no partial state.
+      A root failing selection never becomes the persisted choice.
+- [ ] Free space is measured against a stated requirement before adoption
+      and the shortfall is named in the refusal, rather than surfacing
+      later as an ingest failure.
+- [ ] Every path in `ApplicationPaths.resolve` continues to reject escape
+      via `..`, symlink traversal, and inconsistent resolution when the
+      root is operator-supplied — the m1 traversal suite re-run against
+      operator-chosen roots including Unicode and whitespace-bearing ones.
+- [ ] The selection survives restart, and a root that has disappeared
+      between launches is reported rather than silently re-defaulted.
+- [ ] `make test` and `make desktop-conformance` exit 0.
+
+**Dependencies.** desktop-distribution-m10
+
+**Complexity.** M
+
+**Specialist suggestion.** `security-reviewer`
+
+---
+
+### desktop-distribution-m12 — Model provisioning is consented, never silent
+
+**Description.** Close the silent-download contradiction. Before any weight
+is fetched, the operator is told which models, which pinned revisions, the
+download size, and the destination, and must accept. Declining leaves a
+usable degraded application rather than a failed launch. The pinned-revision
+and non-SHA-refusal discipline (E13_S06 Threat 6,
+`validate_model_revision`) is preserved exactly — this milestone gates *when*
+a fetch happens, never *what* is fetched.
+
+**Acceptance criteria.**
+- [ ] With an empty HF cache and no consent recorded, a launch performs
+      ZERO requests to any model host. Asserted at the socket or transport
+      layer, not by reading a consent flag — the existing gates would pass
+      a boot that fetched anyway.
+- [ ] The consent surface names both models, both pinned revision SHAs,
+      the measured download size, and the destination path before any
+      fetch. The stated size is derived, not a hard-coded literal that
+      can drift from the pins.
+- [ ] Declining yields a running application in a truthful degraded state
+      (per m14) with retrieval surfaces reporting unavailability rather
+      than erroring; consent remains offerable later without a
+      reinstall.
+- [ ] An interrupted or failed download leaves no partially-populated
+      cache that a later launch would treat as present, and the retry is
+      an operator act with the same disclosure.
+- [ ] A cache already populated at the pinned revisions is detected and
+      consumed with no fetch and no consent prompt — an operator who
+      provisioned out-of-band is not re-asked.
+- [ ] `validate_model_revision`'s non-SHA refusal is re-asserted on the
+      consented path; no consent flow can introduce a mutable ref.
+- [ ] No model weight or HF cache blob is written under the read-only
+      application bundle (m8's guard re-run after a consented download).
+- [ ] `make test` and `make desktop-conformance` exit 0.
+
+**Dependencies.** desktop-distribution-m11
+
+**Complexity.** L
+
+**Specialist suggestion.** `security-reviewer`, `determinism-reviewer`
+
+---
+
+### desktop-distribution-m13 — Register the MCP shim without a Terminal
+
+**Description.** Today registration is a hand-merge of a JSON block into
+`~/.claude.json` transcribed from `docs/install.md:191`. Offer it as an
+operator-confirmed action from the application: show the exact block, the
+exact target file, and what will change, then merge it on acceptance. This is
+a write to a file the application does not own, so it is confirm-gated,
+reversible, and never automatic.
+
+**Acceptance criteria.**
+- [ ] Registration is never performed without an explicit per-event
+      operator act. No launch, upgrade, or retry path registers
+      implicitly.
+- [ ] The exact block and exact target path are displayed before the
+      write, and the displayed block is the one written — asserted by
+      comparing rendered text to the written bytes, not by review.
+- [ ] Merging preserves every unrelated key, comment-free formatting
+      choice, and existing MCP server entry in the target file. A
+      malformed or unparseable target is refused with its content
+      untouched.
+- [ ] A pre-write backup is taken and an un-register action restores the
+      prior state exactly, proven round-trip on a file carrying unrelated
+      servers.
+- [ ] An existing arXMCP entry is detected and its replacement is a
+      distinct confirmed act reporting the difference.
+- [ ] No startup token, absolute build path, or operator identifier
+      enters the written block; the shim's loopback-only egress
+      constraint is unchanged.
+- [ ] The written registration is exercised end-to-end: a real MCP
+      session reaches the running desktop server through it.
+- [ ] `make test` and `make desktop-conformance` exit 0.
+
+**Dependencies.** desktop-distribution-m10
+
+**Complexity.** M
+
+**Specialist suggestion.** `security-reviewer`, `mcp-protocol-reviewer`
+
+---
+
+### desktop-distribution-m14 — A truthful ready / degraded surface
+
+**Description.** Give first run a state display that distinguishes ready from
+each way of being not-ready, under §4.9's discipline: no bare "ready" token
+collapsing distinct axes, and no axis inferred from another. The inputs exist
+— `/healthz`, `/readyz`, `/status`, the `bootstrap_mode` corpus-absent path
+(`server/config.py:245`), the operability badge — but nothing composes them
+into one honest first-run answer, and the m12 declined-models state adds an
+axis none of them currently carry.
+
+**Acceptance criteria.**
+- [ ] Server liveness, model availability, corpus presence, and shim
+      registration are reported as SEPARATE axes. No axis is inferred
+      from another, and no single token collapses them.
+- [ ] Each not-ready axis names its own cause and the operator act that
+      resolves it. "Starting" and "stuck" are distinguishable, with the
+      transition to stuck bounded and asserted.
+- [ ] Bootstrap mode (corpus absent) renders as a truthful degraded state
+      that is usable, distinct from an error, and distinct from
+      models-declined.
+- [ ] The display never claims readiness the server has not reported —
+      asserted by driving it against a server held at each state rather
+      than against a mocked status payload.
+- [ ] No claim of macOS 14 compatibility is introduced in any
+      user-visible string (m9's regression covers this surface too).
+- [ ] Nothing in the surface, its logs, or its persisted diagnostics
+      carries a startup token or an operator path (m6's redaction scan
+      extended to it).
+- [ ] `make test` and `make desktop-conformance` exit 0.
+
+**Dependencies.** desktop-distribution-m12, desktop-distribution-m13
+
+**Complexity.** M
+
+**Specialist suggestion.** `security-reviewer`, `mcp-protocol-reviewer`
+
+---
+
+**Sequencing.** `m10` first and alone — it is a prerequisite for exercising
+any of the others against a real launch. Then `m11`, then `m12` (which needs
+a chosen root to download into). `m13` depends only on `m10` and can run
+concurrently with `m11`/`m12`. `m14` is last because it reports the states
+`m12` and `m13` introduce.
+
+**Out of scope, unchanged.** Full-corpus bundling, automatic background
+update, and Mac App Store distribution remain `Won't` for this cycle. Nothing
+in `m10`–`m14` is gated on the Apple Developer certificate or on macOS 14
+hardware — those still block only e4's release gates.
+
+---
+
 ## Phase 4 — Materialize
 
 ### Validation
