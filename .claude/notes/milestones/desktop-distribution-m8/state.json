@@ -1,8 +1,8 @@
 {
   "id": "desktop-distribution-m8",
   "created_at": "2026-08-10T00:24:53Z",
-  "updated_at": "2026-08-10T00:43:51Z",
-  "phase": "research-complete",
+  "updated_at": "2026-08-11T22:00:51Z",
+  "phase": "complete",
   "phase_history": [
     {
       "phase": "init",
@@ -15,36 +15,97 @@
     {
       "phase": "research-complete",
       "at": "2026-08-10T00:43:51Z"
+    },
+    {
+      "phase": "implement-running",
+      "at": "2026-08-10T00:44:13Z"
+    },
+    {
+      "phase": "implement-complete",
+      "at": "2026-08-10T02:23:26Z"
+    },
+    {
+      "phase": "critique-running",
+      "at": "2026-08-10T02:23:26Z"
+    },
+    {
+      "phase": "critique-complete",
+      "at": "2026-08-10T02:32:08Z"
+    },
+    {
+      "phase": "rectify-running",
+      "at": "2026-08-10T02:43:16Z"
+    },
+    {
+      "phase": "complete",
+      "at": "2026-08-11T22:00:51Z"
     }
   ],
   "milestone_brief": "### desktop-distribution-m8 \u2014 Native-library consolidation and real-model exercise\n\n**Description.** Using m7's bundle, close the OpenMP FAISS/Torch collision\nwith an intentional single-`libomp` consolidation, and add a real-model gate\nthat boots the desktop child against an EXTERNAL HuggingFace cache and asserts\nvector-level correctness. The collision is confirmed live: exercising a real\nFAISS `IndexFlatL2` search followed by Torch inference in one process aborts\nwith `OMP: Error #15`. It is invisible to every current gate because\n`tests/conftest.py` sets `KMP_DUPLICATE_LIB_OK=TRUE` suite-wide and\n`tools/wheel_install_check.py` never exercises FAISS and Torch together. Both\npinned model revisions are already cached locally, so no download is needed.\n\n**Acceptance criteria.**\n- [ ] Exactly one `libomp.dylib`-family file exists anywhere in the frozen\n      bundle, asserted by an automated scan rather than manual inspection.\n- [ ] A real FAISS add+search followed by a real multi-threaded Torch\n      operation in the SAME process inside the frozen bundle exits 0. The\n      regression MUST reproduce the documented abort as its RED state before\n      the fix \u2014 a test that merely imports both does not discriminate.\n- [ ] `KMP_DUPLICATE_LIB_OK` is absent from every desktop launch environment,\n      re-asserted under the new compute path; the existing guard proves only\n      that the variable was unset, not that no collision exists.\n- [ ] Booting the real desktop child with an external HF cache and encoding a\n      fixed golden set through BGE-M3 and the reranker produces vectors\n      matching a committed fixture within a tight tolerance \u2014 loading weights\n      is not the same as producing correct output.\n- [ ] No model weight file or HF cache blob is present anywhere under the\n      read-only application bundle.\n- [ ] `make test` and `make desktop-conformance` exit 0.\n\n**Dependencies.** desktop-distribution-m7\n\n**Complexity.** M\n\n**Specialist suggestion.** `security-reviewer`, `determinism-reviewer`",
   "brief_source": "legacy-prose plans/desktop-distribution-roadmap.md",
   "research_mode": "single",
   "oss_scout_requested": false,
-  "allow_large_diff": false,
+  "allow_large_diff": true,
   "research_briefs": [
     ".claude/notes/milestones/desktop-distribution-m8/research/brief-1.md"
   ],
   "research_synthesis": ".claude/notes/milestones/desktop-distribution-m8/research/brief-1.md",
-  "implementation_path": null,
+  "implementation_path": "delegated",
   "implementation_plan": null,
-  "implementation_base": null,
-  "implementation_commit_range": null,
-  "implementation_commits": [],
+  "implementation_base": "b3a04fe8751e8922cc00a503a720624b256662e2",
+  "implementation_commit_range": "b3a04fe..954ae993f2a44ed7bccae700fe74e3312f9b3e63",
+  "implementation_commits": [
+    "954ae993f2a44ed7bccae700fe74e3312f9b3e63",
+    "cfedf6b4fecc338ba4165a7cb4229c140d4e751e",
+    "7bc7eb83930d1dbfa4300c62cef7ead0939115d5",
+    "11b93e1842a54e92e7ecd388c71d8e0d423ed83c"
+  ],
   "implementation_branch": null,
   "external_writes_required": [
     "git push origin main"
   ],
-  "critique_path": null,
-  "critics_run": [],
-  "critique_files": [],
-  "critique_finding_counts": null,
-  "findings_register": null,
-  "rectification_commit": null,
-  "fixed_findings": [],
-  "deferred_findings": [],
+  "critique_path": ".claude/notes/milestones/desktop-distribution-m8/critique/dedup.md",
+  "critics_run": [
+    "milestone-adversary-critic",
+    "milestone-infra-safety-critic"
+  ],
+  "critique_files": [
+    "critique/adversary.md",
+    "critique/infra-safety.md"
+  ],
+  "critique_finding_counts": {
+    "critical": 0,
+    "high": 2,
+    "medium": 7,
+    "low": 4
+  },
+  "findings_register": ".claude/notes/milestones/desktop-distribution-m8/findings.json",
+  "rectification_commit": "23b9acf",
+  "fixed_findings": [
+    "H1",
+    "H2",
+    "L1",
+    "L2",
+    "M1",
+    "M2",
+    "M4",
+    "M5",
+    "M6"
+  ],
+  "deferred_findings": [
+    "L3",
+    "L4",
+    "M3",
+    "M7"
+  ],
   "invalidated_findings": [],
-  "regression_tests_added": [],
-  "external_writes_authorized": [],
-  "external_writes_completed": []
+  "regression_tests_added": [
+    "tests/test_desktop_package.py"
+  ],
+  "external_writes_authorized": [
+    "git push origin main"
+  ],
+  "external_writes_completed": [
+    "git push origin main"
+  ]
 }

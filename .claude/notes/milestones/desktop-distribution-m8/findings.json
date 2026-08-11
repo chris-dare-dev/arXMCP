@@ -1,0 +1,270 @@
+{
+  "milestone_id": "desktop-distribution-m8",
+  "critique_format_version": "1.0",
+  "critique_files": [
+    "dedup.md"
+  ],
+  "generated_at": "2026-08-10T03:10:36Z",
+  "findings": {
+    "H1": {
+      "id": "H1",
+      "severity": "HIGH",
+      "title": "Linux desktop-package build breaks on the macOS-only TOC path",
+      "file": "apps/desktop/pyinstaller/arxmcp_desktop.spec",
+      "line": 209,
+      "anchor": "if not _dropped_libomp:",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "correctness / doc drift",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "libomp exclusion is now platform-aware (desktop_package.libomp_policy): macOS drops faiss/.dylibs, Linux drops nothing because auditwheel gives each wheel's libgomp a distinct mangled SONAME its own DT_NEEDED names, so the build no longer SystemExits at spec-eval off macOS; predicates stay directory-exact, all three guards preserved, marker doc and CLAUDE.md 4.5 amended",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-10T03:10:36Z",
+          "resolution": "libomp exclusion is now platform-aware (desktop_package.libomp_policy): macOS drops faiss/.dylibs, Linux drops nothing because auditwheel gives each wheel's libgomp a distinct mangled SONAME its own DT_NEEDED names, so the build no longer SystemExits at spec-eval off macOS; predicates stay directory-exact, all three guards preserved, marker doc and CLAUDE.md 4.5 amended"
+        }
+      ]
+    },
+    "H2": {
+      "id": "H2",
+      "severity": "HIGH",
+      "title": "Diff exceeds 400 LOC with allow_large_diff false",
+      "file": null,
+      "line": null,
+      "anchor": "b3a04fe..954ae99",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "diff size (auto-finding)",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Owner authorized allow_large_diff for m8 retroactively on 2026-08-10 and it is now recorded in state. The finding was correct: the orchestrator authorized the large diff for m7 only, never carried it forward, and omitted the scope gate from m8's dispatch prompt, so the implementer had no instruction to stop. Composition on the record: 3,132 of 4,059 insertions are the generated tests/fixtures/desktop_model/golden_v1.json; hand-written code and tests are approximately 927 lines.",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-10T02:43:16Z",
+          "resolution": "Owner authorized allow_large_diff for m8 retroactively on 2026-08-10 and it is now recorded in state. The finding was correct: the orchestrator authorized the large diff for m7 only, never carried it forward, and omitted the scope gate from m8's dispatch prompt, so the implementer had no instruction to stop. Composition on the record: 3,132 of 4,059 insertions are the generated tests/fixtures/desktop_model/golden_v1.json; hand-written code and tests are approximately 927 lines."
+        }
+      ]
+    },
+    "M1": {
+      "id": "M1",
+      "severity": "MEDIUM",
+      "title": "AC2-B's BEFORE arm reports PASSED off macOS having asserted nothing",
+      "file": "tests/test_desktop_package.py",
+      "line": 597,
+      "anchor": "if sys.platform != \"darwin\":",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "test discipline",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "AC2-B BEFORE arm now pytest.skip()s naming the Mach-O requirement instead of bare-returning, so DESKTOP_PACKAGE_GATE turns a Linux run into a loud failure; guarded by test_no_desktop_gate_test_short_circuits_with_a_bare_return (AST, both gate modules)",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-10T03:10:36Z",
+          "resolution": "AC2-B BEFORE arm now pytest.skip()s naming the Mach-O requirement instead of bare-returning, so DESKTOP_PACKAGE_GATE turns a Linux run into a loud failure; guarded by test_no_desktop_gate_test_short_circuits_with_a_bare_return (AST, both gate modules)"
+        }
+      ]
+    },
+    "M2": {
+      "id": "M2",
+      "severity": "MEDIUM",
+      "title": "Golden comparison ignores the torch version it was measured at",
+      "file": "tests/test_desktop_bundled_model.py",
+      "line": 219,
+      "anchor": "assert observed[\"embedder_revision\"] == golde",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "acceptance coverage",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "golden gate asserts observed torch_version against _provenance.torch_version BEFORE the vectors and names the toolchain in every drift message; fast test pins the fixture carries the toolchain record; module docstring now covers a toolchain bump",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-10T03:10:36Z",
+          "resolution": "golden gate asserts observed torch_version against _provenance.torch_version BEFORE the vectors and names the toolchain in every drift message; fast test pins the fixture carries the toolchain record; module docstring now covers a toolchain bump"
+        }
+      ]
+    },
+    "M3": {
+      "id": "M3",
+      "severity": "MEDIUM",
+      "title": "state.json's frozen brief is the superseded pre-revision AC set",
+      "file": ".claude/notes/milestones/desktop-distribution-m8/state.json",
+      "line": 32,
+      "anchor": "\"milestone_brief\": \"### desktop-distribu",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "acceptance coverage",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "state bookkeeping: findings/state writes belong to the main session via checkpoint.py, not the rectifier (one-writer rule); resolve-brief reads the roadmap live so no code consumer is affected",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-10T03:10:36Z",
+          "resolution": "state bookkeeping: findings/state writes belong to the main session via checkpoint.py, not the rectifier (one-writer rule); resolve-brief reads the roadmap live so no code consumer is affected"
+        }
+      ]
+    },
+    "M4": {
+      "id": "M4",
+      "severity": "MEDIUM",
+      "title": "Freeze-side data guard covers `server` only, not the other packaged trees",
+      "file": "apps/desktop/pyinstaller/hook-server.py",
+      "line": 17,
+      "anchor": "datas = collect_data_files(\"server\")",
+      "source_critic": "milestone-infra-safety-critic",
+      "source_axis": "Axis 4 \u2014 Makefile / build script discipline (build/packaging machinery)",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "package list derived from [tool.setuptools.package-data] and every frozen top-level package checked against the build venv's installed tree; sibling hook-ingest/hook-ops/hook-tools added so a newly frozen tree collects its data",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-10T03:10:36Z",
+          "resolution": "package list derived from [tool.setuptools.package-data] and every frozen top-level package checked against the build venv's installed tree; sibling hook-ingest/hook-ops/hook-tools added so a newly frozen tree collects its data"
+        }
+      ]
+    },
+    "M5": {
+      "id": "M5",
+      "severity": "MEDIUM",
+      "title": "AC2-B fault-injection arm reports PASS with zero evidence off macOS",
+      "file": "tests/test_desktop_package.py",
+      "line": 597,
+      "anchor": "if sys.platform != \"darwin\":",
+      "source_critic": "milestone-infra-safety-critic",
+      "source_axis": "Axis 4 \u2014 Makefile / build script discipline (gate evidence integrity)",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "AC2-B BEFORE arm now pytest.skip()s naming the Mach-O requirement instead of bare-returning, so DESKTOP_PACKAGE_GATE turns a Linux run into a loud failure; guarded by test_no_desktop_gate_test_short_circuits_with_a_bare_return (AST, both gate modules)",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-10T03:10:36Z",
+          "resolution": "AC2-B BEFORE arm now pytest.skip()s naming the Mach-O requirement instead of bare-returning, so DESKTOP_PACKAGE_GATE turns a Linux run into a loud failure; guarded by test_no_desktop_gate_test_short_circuits_with_a_bare_return (AST, both gate modules)"
+        }
+      ]
+    },
+    "M6": {
+      "id": "M6",
+      "severity": "MEDIUM",
+      "title": "The only boot-the-frozen-bundle proof sits behind the heaviest prerequisite",
+      "file": "Makefile",
+      "line": 198,
+      "anchor": "desktop-model-check: desktop-package",
+      "source_critic": "milestone-infra-safety-critic",
+      "source_axis": "Axis 4 \u2014 Makefile / build script discipline (gate stratification)",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "test_frozen_child_boots_without_any_model_weights added to the package gate: empty data root + ARXMCP_BOOTSTRAP_MODE=1 boots the frozen child weights-free and asserts the Bound handshake plus /healthz, so desktop-package-check now reaches create_app()",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-10T03:10:36Z",
+          "resolution": "test_frozen_child_boots_without_any_model_weights added to the package gate: empty data root + ARXMCP_BOOTSTRAP_MODE=1 boots the frozen child weights-free and asserts the Bound handshake plus /healthz, so desktop-package-check now reaches create_app()"
+        }
+      ]
+    },
+    "M7": {
+      "id": "M7",
+      "severity": "MEDIUM",
+      "title": "The spec exec's the build driver module at spec-eval time",
+      "file": "apps/desktop/pyinstaller/arxmcp_desktop.spec",
+      "line": 129,
+      "anchor": "_helpers = _load_driver_helpers(Path(SPECPATH))",
+      "source_critic": "milestone-infra-safety-critic",
+      "source_axis": "Open scan (build/packaging machinery)",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "extracting a side-effect-free libomp_policy module exceeds the MEDIUM budget and the proposed import-name guard is incompatible with the spec's own loader name; risk pinned instead by test_driver_module_body_is_declaration_only (AST), so a future module-level statement fails a fast test not a build",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-10T03:10:36Z",
+          "resolution": "extracting a side-effect-free libomp_policy module exceeds the MEDIUM budget and the proposed import-name guard is incompatible with the spec's own loader name; risk pinned instead by test_driver_module_body_is_declaration_only (AST), so a future module-level statement fails a fast test not a build"
+        }
+      ]
+    },
+    "L1": {
+      "id": "L1",
+      "severity": "LOW",
+      "title": "Three copies of one launch contract disagree on loader overrides",
+      "file": "apps/desktop/pyinstaller/probe_entry.py",
+      "line": 63,
+      "anchor": "if key in FORBIDDEN_ENV or key.startswith",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "dead code / leftovers",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "one FORBIDDEN_ENV_PREFIXES tuple (DYLD_, LD_) adopted in probe_entry, desktop_model_probe and desktop_sidecar_spike; test_all_three_launch_validators_forbid_the_same_environment pins both tuples equal across all three",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-10T03:10:36Z",
+          "resolution": "one FORBIDDEN_ENV_PREFIXES tuple (DYLD_, LD_) adopted in probe_entry, desktop_model_probe and desktop_sidecar_spike; test_all_three_launch_validators_forbid_the_same_environment pins both tuples equal across all three"
+        }
+      ]
+    },
+    "L2": {
+      "id": "L2",
+      "severity": "LOW",
+      "title": "The two FORBIDDEN_ENV validators diverge and the equality test does not pin them",
+      "file": "tools/desktop_model_probe.py",
+      "line": 40,
+      "anchor": "if key in FORBIDDEN_ENV or key.startswith(",
+      "source_critic": "milestone-infra-safety-critic",
+      "source_axis": "Open scan (build/packaging machinery)",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "one FORBIDDEN_ENV_PREFIXES tuple (DYLD_, LD_) adopted in probe_entry, desktop_model_probe and desktop_sidecar_spike; test_all_three_launch_validators_forbid_the_same_environment pins both tuples equal across all three",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-10T03:10:36Z",
+          "resolution": "one FORBIDDEN_ENV_PREFIXES tuple (DYLD_, LD_) adopted in probe_entry, desktop_model_probe and desktop_sidecar_spike; test_all_three_launch_validators_forbid_the_same_environment pins both tuples equal across all three"
+        }
+      ]
+    },
+    "L3": {
+      "id": "L3",
+      "severity": "LOW",
+      "title": "Frozen-child boot test has no process-group kill and no orphan assertion",
+      "file": "tests/test_desktop_bundled_model.py",
+      "line": 289,
+      "anchor": "_stop_process(process)",
+      "source_critic": "milestone-infra-safety-critic",
+      "source_axis": "Open scan (build/packaging machinery)",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "LOW: no process-group kill on the frozen-child boot test; leak evidence exists in m6's cleanup probes and no orphan was observed across the m8 gate runs",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-10T03:10:36Z",
+          "resolution": "LOW: no process-group kill on the frozen-child boot test; leak evidence exists in m6's cleanup probes and no orphan was observed across the m8 gate runs"
+        }
+      ]
+    },
+    "L4": {
+      "id": "L4",
+      "severity": "LOW",
+      "title": "The \"dropped nothing\" guard sums across both analyses",
+      "file": "apps/desktop/pyinstaller/arxmcp_desktop.spec",
+      "line": 205,
+      "anchor": "_dropped_libomp = sum(",
+      "source_critic": "milestone-infra-safety-critic",
+      "source_axis": "Open scan (build/packaging machinery)",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "LOW: the spec's dropped-nothing guard still sums across both analyses; _require_single_libomp inspects the merged bundle on disk and catches the dangerous direction",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-10T03:10:36Z",
+          "resolution": "LOW: the spec's dropped-nothing guard still sums across both analyses; _require_single_libomp inspects the merged bundle on disk and catches the dangerous direction"
+        }
+      ]
+    }
+  }
+}
