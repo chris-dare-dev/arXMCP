@@ -1,8 +1,28 @@
 //! Production desktop supervisor: single-instance arbitration, one real
 //! child lifecycle (launch -> bound -> ready -> MCP smoke -> window), and
-//! bounded normal shutdown. Configuration arrives as a launch-plan JSON file
-//! (`ARXMCP_DESKTOP_LAUNCH_PLAN`); the resolved data root is RECEIVED from
-//! that plan — this binary never reimplements `ApplicationPaths` defaults.
+//! bounded normal shutdown.
+//!
+//! A launch plan reaches this process by exactly one of two arms, and only
+//! the first is a test seam:
+//!
+//! - **Environment-supplied** (`ARXMCP_DESKTOP_LAUNCH_PLAN`) — unchanged
+//!   since m5. Every m5/m6/m8 gate drives this arm.
+//! - **Self-authored** (m10) — taken when that variable is ABSENT, which is
+//!   the shape a double-clicked application has. The supervisor derives the
+//!   plan from its own on-disk layout.
+//!
+//! Both arms then run through the SAME `validate_plan`.
+//!
+//! The self-authored arm is the one place this binary comes near
+//! reimplementing `ApplicationPaths`, and it deliberately ports exactly ONE
+//! function: `platform_data_root` mirrors
+//! `server/application_paths.py::_platform_data_root` (:81-89). The two are
+//! held together by RUNNING BOTH across an env-var matrix
+//! (`tests/test_desktop_self_authored_launch.py`), never by inspection —
+//! a hand-copied port with no executable pin is the silent-drift hazard both
+//! m10 research briefs named. The canonicalize-then-contain check on the
+//! derived `child_argv[0]` mirrors `server/application_paths.py::_inside`
+//! (:59-67); it is component-wise, not a string prefix test.
 
 mod events;
 mod http;
@@ -23,6 +43,21 @@ use tauri::Manager;
 /// for the named file to appear before contending for the supervisor lock.
 const BARRIER_ENV: &str = "ARXMCP_DESKTOP_LAUNCH_BARRIER";
 const PLAN_ENV: &str = "ARXMCP_DESKTOP_LAUNCH_PLAN";
+
+/// m7's PyInstaller onedir directory name AND the executable inside it —
+/// both are `arxmcp_desktop.spec`'s `name="arxmcp-desktop-child"` (the `EXE`
+/// at :153 and the `COLLECT` at :209 share it, which is what makes the
+/// onedir layout `<root>/arxmcp-desktop-child/arxmcp-desktop-child`).
+const CHILD_PAYLOAD_DIR: &str = "arxmcp-desktop-child";
+/// The component name the frozen child reports as its own identity
+/// (`server/desktop_child.py::COMPONENT`). A self-authored plan must name it
+/// exactly, or `lifecycle`'s bound-identity comparison refuses the child.
+const CHILD_COMPONENT: &str = "arxmcp-server-desktop-child";
+/// Diagnostic-only argv flag: prints the Rust-derived `_platform_data_root`
+/// equivalent and exits 0. It exists so the cross-language parity assertion
+/// can RUN both implementations rather than eyeball them; it authors no plan,
+/// spawns nothing, and touches no filesystem state.
+const DATA_ROOT_PROBE_ARG: &str = "--print-data-root";
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -67,9 +102,27 @@ fn fail(reason: &str) -> ! {
     std::process::exit(2);
 }
 
-fn load_plan() -> Plan {
+/// Returns the plan and the name of the arm that produced it. The arm name is
+/// recorded on `supervisor-started` so a triage session can tell a bug in the
+/// new self-authoring arm from a bug in the environment path — brief-2 risk 5:
+/// both arms terminate at the SAME `fail()` sites downstream.
+fn load_plan() -> (Plan, &'static str) {
     let Some(path) = std::env::var_os(PLAN_ENV) else {
-        fail("ARXMCP_DESKTOP_LAUNCH_PLAN is required");
+        // m10: absent variable is the PRODUCTION shape, not an error. Before
+        // this arm existed the next line was
+        // `fail("ARXMCP_DESKTOP_LAUNCH_PLAN is required")` -> exit(2), which
+        // is the RED state `test_red_state_*` in
+        // tests/test_desktop_self_authored_launch.py discriminates against.
+        let exe = std::env::current_exe()
+            .unwrap_or_else(|_| fail("self-authored plan: supervisor path unavailable"));
+        let plan = self_authored_plan(&exe, |key| std::env::var(key).ok())
+            .unwrap_or_else(|reason| fail(reason));
+        // The self-authored plan is NOT trusted more than an external one: it
+        // goes through the same validator, under the same rules (AC2).
+        if let Err(reason) = validate_plan(&plan) {
+            fail(reason);
+        }
+        return (plan, "self-authored");
     };
     let bytes = fs::read(PathBuf::from(path)).unwrap_or_else(|_| fail("launch plan unreadable"));
     let plan: Plan =
@@ -77,7 +130,140 @@ fn load_plan() -> Plan {
     if let Err(reason) = validate_plan(&plan) {
         fail(reason);
     }
-    plan
+    (plan, "environment")
+}
+
+/// Rust port of `server/application_paths.py::_platform_data_root` (:81-89).
+///
+/// ONE deliberate divergence, asserted rather than hidden: Python falls back
+/// to `Path.home()` (a passwd-database read) when neither `USERPROFILE` nor
+/// `HOME` is set; this refuses instead. Guessing a home directory for a
+/// process that is about to create a data root is the worse failure, and the
+/// parity matrix pins this exact row.
+fn platform_data_root(lookup: impl Fn(&str) -> Option<String>) -> Result<PathBuf, &'static str> {
+    // Python's `env.get(...) or ...` treats "" as absent; match that.
+    let value = |key: &str| lookup(key).filter(|raw| !raw.is_empty());
+    let home = PathBuf::from(
+        value("USERPROFILE")
+            .or_else(|| value("HOME"))
+            .ok_or("self-authored plan: no HOME or USERPROFILE in environment")?,
+    );
+    let base = if cfg!(target_os = "windows") {
+        value("LOCALAPPDATA").map_or_else(|| home.join("AppData").join("Local"), PathBuf::from)
+    } else if cfg!(target_os = "macos") {
+        home.join("Library").join("Application Support")
+    } else {
+        value("XDG_DATA_HOME").map_or_else(|| home.join(".local").join("share"), PathBuf::from)
+    };
+    Ok(base.join("arXMCP"))
+}
+
+/// `Plan.data_root` and `child_argv` are wire-style POSIX strings (the
+/// contract's `validate_paths`), so a Windows backslash path is normalized
+/// the same way the Python plan authors do it.
+fn wire_path(path: &Path) -> String {
+    let text = path.to_string_lossy().into_owned();
+    if cfg!(target_os = "windows") {
+        text.replace('\\', "/")
+    } else {
+        text
+    }
+}
+
+/// Canonicalize BOTH sides, then require component-wise containment —
+/// mirroring `server/application_paths.py::_inside` (:59-67) rather than a
+/// string-prefix test, so a `payload-root-evil` sibling cannot pass and a
+/// symlink out of the payload root cannot either.
+///
+/// RESIDUAL RISK, recorded not closed: the root here descends from
+/// `std::env::current_exe()`, which the Rust stdlib documents as **not a
+/// security primitive** — it names PATH-search and Linux-hardlink classes in
+/// which a lower-privileged process can make it return an attacker-chosen
+/// path. Canonicalize-then-contain closes the ordinary relocated- or
+/// tampered-sidecar case this milestone asks for; it does NOT close those.
+fn resolve_inside(root: &Path, candidate: &Path) -> Result<PathBuf, &'static str> {
+    let canonical_root =
+        fs::canonicalize(root).map_err(|_| "self-authored plan: child payload root missing")?;
+    let resolved = fs::canonicalize(candidate)
+        .map_err(|_| "self-authored plan: bundled child executable missing")?;
+    if !resolved.starts_with(&canonical_root) {
+        return Err("self-authored plan: child executable escapes the payload root");
+    }
+    Ok(resolved)
+}
+
+/// The single composer for a self-authored `Plan`. Tests call it directly to
+/// reach `validate_plan`'s OTHER branch (`child_argv.is_empty()`) on a plan
+/// this code actually authored — without it, AC2 is vacuous, because a
+/// self-authored plan is never `smoke: true` and the five `!smoke`-gated
+/// knobs are refused for free.
+fn compose_self_authored_plan(
+    child_argv: Vec<String>,
+    identity_file: String,
+    data_root: String,
+) -> Plan {
+    Plan {
+        child_argv,
+        component: CHILD_COMPONENT.to_owned(),
+        data_root,
+        identity_file,
+        // A double-clicked application must NOT exit after one cycle.
+        smoke: false,
+        version: env!("CARGO_PKG_VERSION").to_owned(),
+        test_bound_timeout_ms: None,
+        test_fault: None,
+        test_hide_window: None,
+        test_shutdown_force_after_ms: None,
+        test_shutdown_grace_ms: None,
+    }
+}
+
+/// m7's onedir stages as a SIBLING of the supervisor executable. That is the
+/// convention m10 commits to and m15 replaces: once `.app` assembly lands,
+/// this parent chain becomes `Contents/MacOS` -> `Contents/Resources/...`
+/// and only this function changes.
+fn child_payload_root(supervisor_exe: &Path) -> Result<PathBuf, &'static str> {
+    Ok(supervisor_exe
+        .parent()
+        .ok_or("self-authored plan: supervisor has no parent directory")?
+        .join(CHILD_PAYLOAD_DIR))
+}
+
+fn child_executable_name() -> String {
+    if cfg!(target_os = "windows") {
+        format!("{CHILD_PAYLOAD_DIR}.exe")
+    } else {
+        CHILD_PAYLOAD_DIR.to_owned()
+    }
+}
+
+/// Derive the whole plan from layout + environment.
+///
+/// `identity_file == child_argv[0]` here, which is NOT the shape any existing
+/// test fixture has: in a source checkout the child's identity is
+/// `server/desktop_child.py` while argv runs `python -m server.desktop_child`.
+/// Frozen, `identity_source_path()` returns `Path(sys.executable)`, so the two
+/// converge — copying the source-checkout shape would author a plan whose
+/// digest can never match the child's own report.
+fn self_authored_plan(
+    supervisor_exe: &Path,
+    lookup: impl Fn(&str) -> Option<String>,
+) -> Result<Plan, &'static str> {
+    let payload_root = child_payload_root(supervisor_exe)?;
+    let child_exe = resolve_inside(&payload_root, &payload_root.join(child_executable_name()))?;
+    let data_root = platform_data_root(lookup)?;
+    // The fixture and the Python child both require an ALREADY-canonical
+    // data_root on the wire, and canonicalize() needs the path to exist.
+    fs::create_dir_all(&data_root)
+        .map_err(|_| "self-authored plan: data root could not be created")?;
+    let data_root =
+        fs::canonicalize(&data_root).map_err(|_| "self-authored plan: data root unresolvable")?;
+    let child = wire_path(&child_exe);
+    Ok(compose_self_authored_plan(
+        vec![child.clone()],
+        child,
+        wire_path(&data_root),
+    ))
 }
 
 /// Split from `load_plan` so the rules are unit-testable — `fail()` exits.
@@ -189,7 +375,21 @@ fn notify_running_instance() -> std::io::Result<()> {
 }
 
 fn main() {
-    let plan = load_plan();
+    // Diagnostic probe, before any plan work: prints the Rust half of the
+    // cross-language `_platform_data_root` pair so the parity assertion can
+    // run both. Deliberately the PRE-canonical derivation, because that is
+    // what the Python function returns (canonicalization happens later, in
+    // `self_authored_plan` and in `ApplicationPaths.resolve`).
+    if std::env::args().nth(1).as_deref() == Some(DATA_ROOT_PROBE_ARG) {
+        match platform_data_root(|key| std::env::var(key).ok()) {
+            Ok(root) => {
+                println!("{}", wire_path(&root));
+                std::process::exit(0);
+            }
+            Err(reason) => fail(reason),
+        }
+    }
+    let (plan, plan_source) = load_plan();
     let root = PathBuf::from(&plan.data_root);
     if !root.is_absolute() {
         fail("launch plan data_root must be absolute");
@@ -221,7 +421,12 @@ fn main() {
         );
         std::process::exit(0);
     };
-    let _ = recorder.record("supervisor-started", serde_json::json!({"owns_lock": true}));
+    let _ = recorder.record(
+        "supervisor-started",
+        // `plan_source` is a static arm label, never a path and never a
+        // secret — the event log's token-free invariant is unchanged.
+        serde_json::json!({"owns_lock": true, "plan_source": plan_source}),
+    );
 
     // Shared child handle so a window-close exit can still run the bounded
     // normal-shutdown sequence (RunEvent::Exit below).
@@ -356,6 +561,148 @@ mod tests {
         assert_eq!(
             validate_plan(&plan),
             Err("launch plan carries test-only knobs outside smoke mode")
+        );
+    }
+
+    // --- m10: the self-authored arm ------------------------------------
+
+    fn fake_env(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> + 'static {
+        let owned: Vec<(String, String)> = pairs
+            .iter()
+            .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
+            .collect();
+        move |key: &str| {
+            owned
+                .iter()
+                .find(|(name, _)| name == key)
+                .map(|(_, value)| value.clone())
+        }
+    }
+
+    /// Stage m7's onedir shape: `<dir>/arxmcp-desktop-child/arxmcp-desktop-child`
+    /// beside a supervisor path, and return that supervisor path.
+    fn stage_payload(label: &str) -> (PathBuf, PathBuf) {
+        let base = std::env::temp_dir().join(format!(
+            "arxmcp-m10-{label}-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = fs::remove_dir_all(&base);
+        let payload = base.join(CHILD_PAYLOAD_DIR);
+        fs::create_dir_all(&payload).expect("stage payload dir");
+        fs::write(payload.join(child_executable_name()), b"#!/bin/false\n")
+            .expect("stage child executable");
+        (base.join("supervisor"), base)
+    }
+
+    /// The composed production plan passes the SAME validator an external
+    /// plan does, carries `smoke: false`, and carries no test knob.
+    #[test]
+    fn self_authored_plan_passes_the_shared_validator() {
+        let (supervisor, base) = stage_payload("valid");
+        let home = base.join("home");
+        fs::create_dir_all(&home).expect("stage home");
+        let plan = self_authored_plan(&supervisor, fake_env(&[("HOME", &home.to_string_lossy())]))
+            .expect("self-authored plan");
+        assert_eq!(validate_plan(&plan), Ok(()));
+        assert!(!plan.smoke, "a double-clicked app must not run one cycle");
+        assert_eq!(plan.component, CHILD_COMPONENT);
+        assert_eq!(plan.test_fault, None);
+        assert_eq!(plan.test_bound_timeout_ms, None);
+        assert_eq!(plan.test_hide_window, None);
+        assert_eq!(plan.test_shutdown_grace_ms, None);
+        assert_eq!(plan.test_shutdown_force_after_ms, None);
+        // FROZEN-case convergence: identity is the executable itself.
+        assert_eq!(plan.child_argv.len(), 1);
+        assert_eq!(plan.identity_file, plan.child_argv[0]);
+        assert!(PathBuf::from(&plan.child_argv[0]).is_absolute());
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    /// AC2's non-vacuous half. The five `!smoke` knobs are refused for free
+    /// on a self-authored plan (it is never `smoke: true`), so the OTHER
+    /// `validate_plan` branch must be shown reachable and refused on a plan
+    /// the self-authoring composer built.
+    #[test]
+    fn self_authored_plan_with_empty_argv_is_refused_by_the_same_validator() {
+        let plan = compose_self_authored_plan(
+            Vec::new(),
+            "/payload/arxmcp-desktop-child".to_owned(),
+            "/data".to_owned(),
+        );
+        assert!(!plan.smoke);
+        assert_eq!(validate_plan(&plan), Err("launch plan child_argv is empty"));
+    }
+
+    /// The containment check is component-wise on CANONICAL paths, so a
+    /// symlink pointing out of the payload root is refused even though its
+    /// literal path string sits under the root.
+    #[test]
+    fn child_executable_escaping_the_payload_root_is_rejected() {
+        let (supervisor, base) = stage_payload("escape");
+        let payload = base.join(CHILD_PAYLOAD_DIR);
+        let outside = base.join("outside");
+        fs::create_dir_all(&outside).expect("stage outside dir");
+        fs::write(outside.join("impostor"), b"#!/bin/false\n").expect("stage impostor");
+        let link = payload.join(child_executable_name());
+        fs::remove_file(&link).expect("clear staged child");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(outside.join("impostor"), &link).expect("symlink");
+        #[cfg(not(unix))]
+        fs::write(&link, b"#!/bin/false\n").expect("no symlink on this platform");
+        let result = self_authored_plan(&supervisor, fake_env(&[("HOME", "/nonexistent-home")]));
+        // `Plan` is not Debug/PartialEq, so compare the error side only.
+        #[cfg(unix)]
+        assert_eq!(
+            result.err(),
+            Some("self-authored plan: child executable escapes the payload root")
+        );
+        #[cfg(not(unix))]
+        let _ = result.err();
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    /// A missing payload directory is the RED state's Rust half: the arm
+    /// refuses rather than authoring a plan pointing at nothing.
+    #[test]
+    fn missing_child_payload_is_refused() {
+        let base = std::env::temp_dir().join(format!("arxmcp-m10-absent-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        fs::create_dir_all(&base).expect("stage empty dir");
+        assert_eq!(
+            self_authored_plan(&base.join("supervisor"), fake_env(&[("HOME", "/tmp")])).err(),
+            Some("self-authored plan: child payload root missing")
+        );
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    /// Branch coverage for the ported function. Byte-for-byte agreement with
+    /// the Python original is NOT claimed here — that is asserted by running
+    /// both, in `tests/test_desktop_self_authored_launch.py`.
+    #[test]
+    fn platform_data_root_reads_the_branch_its_platform_owns() {
+        let root = platform_data_root(fake_env(&[
+            ("HOME", "/home/u"),
+            ("XDG_DATA_HOME", "/xdg"),
+            ("LOCALAPPDATA", "C:\\local"),
+        ]))
+        .expect("derives");
+        let expected = if cfg!(target_os = "windows") {
+            PathBuf::from("C:\\local").join("arXMCP")
+        } else if cfg!(target_os = "macos") {
+            PathBuf::from("/home/u/Library/Application Support/arXMCP")
+        } else {
+            PathBuf::from("/xdg/arXMCP")
+        };
+        assert_eq!(root, expected);
+        // USERPROFILE wins over HOME, and "" counts as absent (Python `or`).
+        let root = platform_data_root(fake_env(&[("USERPROFILE", ""), ("HOME", "/home/u")]))
+            .expect("empty USERPROFILE falls through to HOME");
+        assert!(root.starts_with("/home/u") || cfg!(target_os = "windows"));
+        // The one documented divergence from Python: refuse, never guess.
+        assert_eq!(
+            platform_data_root(fake_env(&[])),
+            Err("self-authored plan: no HOME or USERPROFILE in environment")
         );
     }
 

@@ -167,6 +167,12 @@ desktop-conformance:
 	ARXMCP_FIXTURE_SIDECAR="$(CURDIR)/apps/desktop/target/debug/fixture-sidecar$(DESKTOP_EXE_SUFFIX)" $(PYTHON) -m pytest tests/test_desktop_contract.py -m "requires_desktop_stack or not requires_desktop_stack"
 	DESKTOP_SUPERVISOR_BIN="$(CURDIR)/apps/desktop/target/debug/supervisor$(DESKTOP_EXE_SUFFIX)" $(PYTHON) -m pytest tests/test_desktop_child.py -m "requires_desktop_stack or not requires_desktop_stack"
 	ARXMCP_FIXTURE_SIDECAR="$(CURDIR)/apps/desktop/target/debug/fixture-sidecar$(DESKTOP_EXE_SUFFIX)" DESKTOP_SUPERVISOR_BIN="$(CURDIR)/apps/desktop/target/debug/supervisor$(DESKTOP_EXE_SUFFIX)" $(PYTHON) -m pytest tests/test_desktop_support_floor.py -m "requires_desktop_stack or not requires_desktop_stack"
+	# m10 self-authored arm: the ONLY line here that runs with
+	# ARXMCP_DESKTOP_LAUNCH_PLAN deliberately ABSENT. Needs BOTH binaries —
+	# the supervisor under test and the fixture staged in m7's onedir shape —
+	# and both vars also arm conftest's zero-skip guard, so the unset-plan
+	# evidence cannot go missing behind a green run.
+	ARXMCP_FIXTURE_SIDECAR="$(CURDIR)/apps/desktop/target/debug/fixture-sidecar$(DESKTOP_EXE_SUFFIX)" DESKTOP_SUPERVISOR_BIN="$(CURDIR)/apps/desktop/target/debug/supervisor$(DESKTOP_EXE_SUFFIX)" $(PYTHON) -m pytest tests/test_desktop_self_authored_launch.py -m "requires_desktop_stack or not requires_desktop_stack"
 
 # desktop-distribution-m7 — build the PyInstaller onedir sidecar bundle. The
 # driver provisions a uv-locked build venv (PyInstaller hash-pinned in

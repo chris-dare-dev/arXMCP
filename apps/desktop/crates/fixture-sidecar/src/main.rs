@@ -12,6 +12,16 @@ use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::time::Duration;
 
 const COMPONENT: &str = "arxmcp-fixture-sidecar";
+/// Test-harness override for the component identity this fixture answers to.
+///
+/// m10's self-authoring arm derives a FIXED component from the frozen child
+/// (`arxmcp-server-desktop-child`), so without this the only way to drive
+/// that arm to `window-ready` would be a ~0.75 GB PyInstaller bundle, which
+/// no committed gate builds alongside the supervisor. Deliberately NOT
+/// `ARXMCP_`-prefixed: `lifecycle.rs` strips every `ARXMCP_*` variable from
+/// the child environment, so such a knob could never arrive here (same
+/// reasoning as `DESKTOP_SUPERVISOR_BIN`).
+const COMPONENT_OVERRIDE_ENV: &str = "DESKTOP_FIXTURE_COMPONENT";
 const POLL_INTERVAL: Duration = Duration::from_millis(5);
 const HTTP_READ_TIMEOUT: Duration = Duration::from_secs(2);
 /// Namespaced launch-extension key carrying an m6 fault-matrix arm. Test-only
@@ -214,8 +224,16 @@ fn ignore_sigterm() {
 #[cfg(not(unix))]
 fn ignore_sigterm() {}
 
+/// The component this run answers to: the fixture's own by default.
+fn expected_component() -> String {
+    std::env::var(COMPONENT_OVERRIDE_ENV)
+        .ok()
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| COMPONENT.to_owned())
+}
+
 fn validate_fixture_launch(launch: &Launch, executable_digest: &str) -> Result<(), SidecarError> {
-    if launch.executable.component != COMPONENT
+    if launch.executable.component != expected_component()
         || launch.executable.version != env!("CARGO_PKG_VERSION")
         || !constant_time_equal(
             launch.executable.sha256.as_bytes(),
@@ -262,7 +280,9 @@ fn make_bound(launch: &Launch, port: u16, executable_digest: &str) -> Bound {
             port,
         },
         executable: ExecutableIdentity {
-            component: COMPONENT.to_owned(),
+            // Echo the identity that was ACCEPTED, so the supervisor's
+            // bound-identity comparison stays an honest equality check.
+            component: expected_component(),
             sha256: executable_digest.to_owned(),
             version: env!("CARGO_PKG_VERSION").to_owned(),
         },
