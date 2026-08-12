@@ -13,6 +13,12 @@ Still NOT here: `.app` bundle assembly (`bundle.active` is `false` and no
 yet — that is `desktop-distribution-m15`) and release signing/notarization
 (blocked on an Apple Developer ID certificate this project does not have).
 
+The bundle-assembly decision itself is recorded, ahead of the assembly diff, in
+[`.claude/docs/adr-desktop-bundle-assembly.md`](../../.claude/docs/adr-desktop-bundle-assembly.md)
+(Proposed). It also records, with its sources, why the notarization question
+cannot be answered here and what a build-and-submit trial would have to submit
+to answer it.
+
 ## Child payload layout and its trust assumption
 
 The self-authoring arm looks for m7's onedir as a **sibling of the supervisor
@@ -35,9 +41,14 @@ hardlink classes it names carry no privilege gradient here (the supervisor is
 not setuid/setgid) but are recorded as accepted residual risk rather than
 closed.
 
-m15 replaces this convention with the bundle's own layout and must re-point
-the containment check at the bundle root — that is one of its acceptance
-criteria, and this section is the input it should not have to re-derive.
+m15 re-points the containment check at the bundle root — that is one of its
+acceptance criteria, and this section is the input it should not have to
+re-derive. Its ADR (linked above, Proposed) proposes placing the payload at
+`Contents/MacOS/arxmcp-desktop-child/`, i.e. keeping this sibling relation
+inside the bundle rather than replacing it; until the assembled artifact
+exists and that resolution is measured against it, treat the layout here as
+the pre-bundle one and the ADR as the decision record, not as a description of
+a built artifact.
 
 ## Supported boundary
 
