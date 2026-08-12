@@ -602,9 +602,23 @@ must apply unchanged to a self-authored plan.
 and make an existing root adoptable rather than silently re-initialized. The
 first-run surface offers the platform default, accepts an alternative
 directory, and — when a root already carries arXMCP state — reports what it
-found and adopts it. Selection persists through `OperatorSettingsStore`
-(`server/operator_settings.py`), whose docstring already names wizard state as
-an intended key, so no new store is introduced.
+found and adopts it.
+
+> **Premise corrected 2026-08-12 after Phase 1 research.** This description
+> originally said the selection "persists through `OperatorSettingsStore`
+> (`server/operator_settings.py`) … so no new store is introduced". Both
+> researchers independently established that this is impossible: that store's
+> database is `var/arxmcp/cache/notebooks.db`, **inside the data root**, so it
+> cannot record where the data root is. The sentence was written without
+> checking the store's location and is the decomposition's error, not a
+> constraint to design around.
+>
+> m11 therefore introduces a NEW pointer artifact that is not data-root-
+> relative, read by BOTH `ApplicationPaths.resolve` (Python) and
+> `self_authored_plan` (Rust) before either resolves anything. Today neither
+> reads any operator preference at all: `self_authored_plan` calls
+> `platform_data_root` unconditionally, so no operator-chosen root can reach
+> a double-clicked `.app` by any path that exists.
 
 **Acceptance criteria.**
 - [ ] A first run with no prior state offers the platform default, accepts
@@ -618,20 +632,58 @@ an intended key, so no new store is introduced.
 - [ ] Unwritable, non-existent-and-uncreatable, and full-disk roots each
       produce a distinct, actionable message and leave no partial state.
       A root failing selection never becomes the persisted choice.
-- [ ] Free space is measured against a stated requirement before adoption
-      and the shortfall is named in the refusal, rather than surfacing
-      later as an ingest failure.
+- [ ] Free space is measured before adoption and compared against a stated
+      requirement, and the refusal names the shortfall. The measurement must
+      be HONEST about its own accuracy: `shutil.disk_usage()` on APFS
+      over-reports available space (purgeable space and snapshots count as
+      free — ~30% in the source m11's research cites), so a refusal cannot
+      rest on it unqualified. Either use a platform call that excludes
+      purgeable space, or state the requirement with headroom and phrase the
+      result as a lower bound. A number that is optimistically wrong by a
+      third cannot support "you do not have room for this".
 - [ ] Every path in `ApplicationPaths.resolve` continues to reject escape
       via `..`, symlink traversal, and inconsistent resolution when the
       root is operator-supplied — the m1 traversal suite re-run against
       operator-chosen roots including Unicode and whitespace-bearing ones.
 - [ ] The selection survives restart, and a root that has disappeared
       between launches is reported rather than silently re-defaulted.
+- [ ] The pointer's resolution order is pinned ACROSS LANGUAGES the way m10
+      pinned the platform default: an override read inserted ahead of
+      `_platform_data_root` / `platform_data_root` changes the order both m10
+      parity tests assume, so the override gets its own parity row or m10's
+      guarantee silently narrows to "only the default path is proven to
+      agree".
+- [ ] The two mechanism decisions — where the pointer persists, and how the
+      picker is presented — are settled in a recorded ADR before the
+      implementation diff, naming the rejected alternatives. `main.rs`
+      resolves `data_root` BEFORE `tauri::Builder::default()` is
+      constructed, and every `tauri-plugin-dialog` call goes through an
+      `App`/`AppHandle`, so the plugin cannot be the first-run picker without
+      restructuring `main()`'s sequencing; restructure-versus-new-dependency
+      is the decision. The ADR also records that no sandbox entitlement
+      exists under `apps/desktop` today, so security-scoped bookmarks are
+      not the mechanism — and that adopting sandboxing later invalidates
+      that.
+- [ ] **Inherited from `m15`'s narrowed AC3:** the assembled `.app`,
+      double-clicked with no launch-plan variable, reaches a ready server and
+      a rendered window against the REAL frozen child — not the
+      `--print-child-plan` probe, and not a fixture. This is the proof m15
+      could not carry without making bundle assembly depend on model
+      weights; m11 is the first milestone that needs a launching application
+      for its own purpose, so it lands here. It brings the
+      `requires_bundled_model` prerequisites (~4.6 GB from the operator's
+      external HuggingFace cache) into m11's gate, which is the accepted
+      cost.
 - [ ] `make test` and `make desktop-conformance` exit 0.
 
-**Dependencies.** desktop-distribution-m10
+**Dependencies.** desktop-distribution-m10, desktop-distribution-m15
 
-**Complexity.** M
+**Complexity.** L
+      *(re-rated from M on 2026-08-12 after Phase 1 research. Measured at
+      ~1,200 LOC across ~14 files — including a first-run UI surface with no
+      precedent anywhere in the repo — plus two mechanism decisions and the
+      inherited launch proof. Session calibration: m10 estimated ~520 and
+      measured ~1,227; m15 estimated ~900 and measured 3,308.)*
 
 **Specialist suggestion.** `security-reviewer`
 
