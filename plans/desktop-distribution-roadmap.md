@@ -771,10 +771,38 @@ off `current_exe()` — because that choice determines where `child_argv[0]`
 lives and what "inside the bundle" means structurally. Numbered `m15` because
 it was allocated last; it EXECUTES second, immediately after `m10`.
 
+> **Amended 2026-08-12, after Phase 1 research.** AC1 originally posed the
+> mechanism as a choice among `bundle.resources`, `bundle.externalBin`, and a
+> sibling-directory convention. Sourced evidence says that is a false choice:
+> `externalBin` takes one executable per target triple, not a directory, and
+> Tauri issue #11992 (open, untriaged, v2) reports notarization rejecting the
+> MAIN app binary whenever `externalBin` sidecars are present; discussion
+> #12001 confirms `bundle.resources` embeds directories but does NOT sign
+> their contents, which then fail notarization; and PyInstaller issue #8927
+> records a `--onedir` app failing Apple's notary even when local
+> `codesign --deep --strict` reports valid. The sibling convention m10 built
+> is not a Tauri mechanism at all. A hybrid — Tauri builds the shell, a
+> post-build step owned by `desktop_package.py` places the pre-signed payload
+> and re-seals — is a first-class option, not a fallback.
+>
+> **Separately: this milestone cannot settle notarization.** Doing so needs a
+> build-and-submit trial against the Developer ID certificate
+> `desktop-distribution-spike-4` has never been able to run. m15 therefore
+> proves assembly and launch, and RECORDS the notarization question rather
+> than answering it — the discipline m9 applied to the macOS 14 floor.
+
 **Acceptance criteria.**
-- [ ] The bundle mechanism is chosen in a recorded ADR naming the rejected
-      alternatives and the per-OS consequence of each, not settled inside an
-      implementation diff.
+- [ ] The bundle mechanism is chosen in a recorded ADR that treats the hybrid
+      (Tauri shell + post-build placement and pre-signing) as a first-class
+      option alongside the stock config keys, names why each rejected
+      alternative was rejected with its evidence, and states the per-OS
+      consequence of the choice. Not settled inside an implementation diff.
+- [ ] The ADR records the notarization question as **OPEN**, citing the
+      evidence above, and states what would close it (a build-and-submit
+      trial under e4's certificate). No document, string, or acceptance
+      claim asserts the artifact is notarization-ready, Gatekeeper-ready, or
+      signable-as-is. A regression fails on such a claim, mirroring m9's
+      compatibility-claim guard.
 - [ ] `make desktop-package` (or a successor target) emits an artifact that
       launches by double-click on a clean supported Mac and reaches a ready
       server and a rendered window, with `ARXMCP_DESKTOP_LAUNCH_PLAN` unset.
@@ -793,6 +821,18 @@ it was allocated last; it EXECUTES second, immediately after `m10`.
 - [ ] The artifact's layout is recorded in `apps/desktop/README.md` in enough
       detail that e4's signing and notarization work can consume it without
       re-deriving it.
+- [ ] A single committed gate builds BOTH the Rust binaries and the frozen
+      child and exercises the assembled artifact. None exists today, which is
+      exactly why m10's AC1 had to prove its green arm against a fixture
+      staged in the onedir SHAPE rather than the real bundle; m10's fixture
+      substitution is retired by this criterion, not inherited.
+- [ ] The PyInstaller-produced executables' own `minos` is measured and
+      pinned. The Rust side is pinned by `.cargo/config.toml`'s
+      `MACOSX_DEPLOYMENT_TARGET` and read back by m9's regression, but
+      nothing does the equivalent for the CPython/PyInstaller build, so the
+      declared 14.0 floor currently rests on the Rust half plus a wheel-tag
+      inference. Surfaced by m15's research; closed here because the
+      assembled artifact is the first place both halves coexist.
 - [ ] `make test` and `make desktop-conformance` exit 0.
 
 **Dependencies.** desktop-distribution-m10
