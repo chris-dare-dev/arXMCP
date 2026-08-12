@@ -17,10 +17,28 @@ const COMPONENT: &str = "arxmcp-fixture-sidecar";
 /// m10's self-authoring arm derives a FIXED component from the frozen child
 /// (`arxmcp-server-desktop-child`), so without this the only way to drive
 /// that arm to `window-ready` would be a ~0.75 GB PyInstaller bundle, which
-/// no committed gate builds alongside the supervisor. Deliberately NOT
-/// `ARXMCP_`-prefixed: `lifecycle.rs` strips every `ARXMCP_*` variable from
-/// the child environment, so such a knob could never arrive here (same
-/// reasoning as `DESKTOP_SUPERVISOR_BIN`).
+/// no committed gate builds alongside the supervisor.
+///
+/// The name is NOT `ARXMCP_`-prefixed because `lifecycle.rs` strips every
+/// `ARXMCP_*` variable from the child environment — a prefixed knob would be
+/// stripped before it arrived and could never work. State it that way round:
+/// the un-prefixed name is what makes this knob REACHABLE, not what contains
+/// it (m10 critique M2 — the original comment claimed the opposite and read
+/// as a safety property).
+///
+/// What actually contains it: this binary is a TEST FIXTURE. It is built by
+/// `make desktop-conformance`, never bundled, never signed, and never
+/// installed — `apps/desktop/pyinstaller/arxmcp_desktop.spec` does not
+/// reference it. The knob cannot reach an operator because the binary
+/// carrying it cannot.
+///
+/// It does NOT weaken what the supervisor checks: the component is only half
+/// of the identity, and the sha256 digest half is unconditional. See
+/// `tests/test_desktop_self_authored_launch.py::
+/// test_bound_identity_still_refuses_a_component_mismatch`, which drives this
+/// override to a value the plan does NOT name and requires refusal — without
+/// it, echoing the accepted identity back would make the comparison
+/// tautological (critique M14).
 const COMPONENT_OVERRIDE_ENV: &str = "DESKTOP_FIXTURE_COMPONENT";
 const POLL_INTERVAL: Duration = Duration::from_millis(5);
 const HTTP_READ_TIMEOUT: Duration = Duration::from_secs(2);

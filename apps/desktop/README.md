@@ -2,10 +2,42 @@
 
 This directory is the production desktop boundary for arXMCP. It contains a
 platform-neutral Rust contract crate, a model-free fixture sidecar, the
-production Tauri shell (`crates/supervisor`), and the server lifecycle adapter
-that shell drives (`server/desktop_child.py`). The frozen Python runtime,
-release signing, and launch-plan authoring are not here yet; those belong to
-the next desktop milestones.
+production Tauri shell (`crates/supervisor`), the server lifecycle adapter
+that shell drives (`server/desktop_child.py`), the frozen Python runtime
+(`pyinstaller/`, m7), and launch-plan authoring (m10 — the supervisor derives
+its own plan when `ARXMCP_DESKTOP_LAUNCH_PLAN` is absent, which is the shape a
+double-clicked application has).
+
+Still NOT here: `.app` bundle assembly (`bundle.active` is `false` and no
+`resources`/`externalBin` is wired, so there is no double-clickable artifact
+yet — that is `desktop-distribution-m15`) and release signing/notarization
+(blocked on an Apple Developer ID certificate this project does not have).
+
+## Child payload layout and its trust assumption
+
+The self-authoring arm looks for m7's onedir as a **sibling of the supervisor
+executable**:
+
+    <supervisor dir>/arxmcp-desktop-child/arxmcp-desktop-child
+
+`child_argv[0]` is resolved inside that root by canonicalizing both sides and
+requiring component-wise containment, and the root itself is refused if it is
+a symlink. The child's bytes are then checked against the plan's
+`identity_file` digest before it is trusted.
+
+**The assumption an operator needs to know:** write access to that sibling
+directory is equivalent to arbitrary code execution as the operator. Nothing
+in the supervisor can close that — the defenses are install-location
+permissions and, when they land, m15's bundle layout plus e4's code signing.
+`std::env::current_exe()`, which anchors the whole resolution, is documented
+by the Rust stdlib as *not* a security primitive; the PATH-search and
+hardlink classes it names carry no privilege gradient here (the supervisor is
+not setuid/setgid) but are recorded as accepted residual risk rather than
+closed.
+
+m15 replaces this convention with the bundle's own layout and must re-point
+the containment check at the bundle root — that is one of its acceptance
+criteria, and this section is the input it should not have to re-derive.
 
 ## Supported boundary
 

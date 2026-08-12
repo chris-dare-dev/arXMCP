@@ -133,27 +133,77 @@ fn load_plan() -> (Plan, &'static str) {
     (plan, "environment")
 }
 
+/// Collapse a path string the way `pathlib.PurePath` parsing does, because
+/// the Python side of the parity pair stores every env value through
+/// `Path(...)` and compares the RESULT.
+///
+/// `PurePosixPath` drops empty and `.` components at construction and keeps
+/// `..` unresolved; POSIX's "exactly two leading slashes are
+/// implementation-defined" rule means `//a` survives as `//a` while `///a`
+/// collapses to `/a`. Rust's `PathBuf` preserves the raw text instead, so
+/// without this `HOME=/a//b` derives `/a//b/Library/...` against Python's
+/// `/a/b/Library/...` — a silent bifurcation of the operator's data root,
+/// not a cosmetic difference (m10 critique M1, measured live).
+fn pathlib_normalize(raw: &str) -> PathBuf {
+    let leading = raw.len() - raw.trim_start_matches('/').len();
+    let prefix = match leading {
+        0 => "",
+        2 => "//",
+        _ => "/",
+    };
+    let mut out = String::from(prefix);
+    let mut first = true;
+    for part in raw.split('/') {
+        if part.is_empty() || part == "." {
+            continue;
+        }
+        if !first {
+            out.push('/');
+        }
+        out.push_str(part);
+        first = false;
+    }
+    // An all-separator or empty input degrades to what pathlib returns: the
+    // root itself when absolute, `.` when not.
+    if first && prefix.is_empty() {
+        return PathBuf::from(".");
+    }
+    PathBuf::from(out)
+}
+
 /// Rust port of `server/application_paths.py::_platform_data_root` (:81-89).
 ///
 /// ONE deliberate divergence, asserted rather than hidden: Python falls back
-/// to `Path.home()` (a passwd-database read) when neither `USERPROFILE` nor
-/// `HOME` is set; this refuses instead. Guessing a home directory for a
-/// process that is about to create a data root is the worse failure, and the
-/// parity matrix pins this exact row.
+/// to `Path.home()` (a passwd-database read) when the platform branch needs a
+/// home directory and neither `USERPROFILE` nor `HOME` is set; this refuses
+/// instead. Guessing a home directory for a process that is about to create a
+/// data root is the worse failure, and the parity matrix pins this exact row.
+///
+/// The home lookup is LAZY for the same reason Python's is: with
+/// `XDG_DATA_HOME` set on Linux, or `LOCALAPPDATA` set on Windows, the base
+/// never consults `home`, so refusing early would have been a SECOND
+/// divergence — reachable on Linux, which the matrix does run (critique M7).
 fn platform_data_root(lookup: impl Fn(&str) -> Option<String>) -> Result<PathBuf, &'static str> {
     // Python's `env.get(...) or ...` treats "" as absent; match that.
     let value = |key: &str| lookup(key).filter(|raw| !raw.is_empty());
-    let home = PathBuf::from(
+    let home = || {
         value("USERPROFILE")
             .or_else(|| value("HOME"))
-            .ok_or("self-authored plan: no HOME or USERPROFILE in environment")?,
-    );
+            .map(|raw| pathlib_normalize(&raw))
+            .ok_or("self-authored plan: no HOME or USERPROFILE in environment")
+    };
     let base = if cfg!(target_os = "windows") {
-        value("LOCALAPPDATA").map_or_else(|| home.join("AppData").join("Local"), PathBuf::from)
+        match value("LOCALAPPDATA") {
+            Some(raw) => pathlib_normalize(&raw),
+            None => home()?.join("AppData").join("Local"),
+        }
     } else if cfg!(target_os = "macos") {
-        home.join("Library").join("Application Support")
+        home()?.join("Library").join("Application Support")
     } else {
-        value("XDG_DATA_HOME").map_or_else(|| home.join(".local").join("share"), PathBuf::from)
+        match value("XDG_DATA_HOME") {
+            Some(raw) => pathlib_normalize(&raw),
+            None => home()?.join(".local").join("share"),
+        }
     };
     Ok(base.join("arXMCP"))
 }
@@ -175,13 +225,38 @@ fn wire_path(path: &Path) -> String {
 /// string-prefix test, so a `payload-root-evil` sibling cannot pass and a
 /// symlink out of the payload root cannot either.
 ///
-/// RESIDUAL RISK, recorded not closed: the root here descends from
-/// `std::env::current_exe()`, which the Rust stdlib documents as **not a
-/// security primitive** — it names PATH-search and Linux-hardlink classes in
-/// which a lower-privileged process can make it return an attacker-chosen
-/// path. Canonicalize-then-contain closes the ordinary relocated- or
-/// tampered-sidecar case this milestone asks for; it does NOT close those.
+/// RESIDUAL RISK, recorded not closed, WORST FIRST:
+///
+/// 1. The payload is a SIBLING directory of the installed supervisor, so
+///    write access next to the supervisor binary is equivalent to arbitrary
+///    code execution as the operator. This needs no trick and is the class
+///    that an unpacked-in-Downloads copy or a group-writable install
+///    directory makes real. The defenses are install-location permissions
+///    and, later, m15/e4 code signing — not this function. Stated for
+///    operators in `apps/desktop/README.md`.
+/// 2. The root descends from `std::env::current_exe()`, which the Rust
+///    stdlib documents as **not a security primitive** — it names PATH-search
+///    and Linux-hardlink classes that can make it return an attacker-chosen
+///    path. These carry NO privilege gradient here (the supervisor is not
+///    setuid/setgid, so anyone who can steer them already executes as the
+///    invoking user), which is why they rank below (1) rather than above it.
+///
+/// What this function DOES close: a `payload-root-evil` sibling cannot pass,
+/// a symlinked CHILD cannot escape, and — since the m10 critique — a
+/// symlinked payload ROOT cannot silently relocate the whole payload.
 fn resolve_inside(root: &Path, candidate: &Path) -> Result<PathBuf, &'static str> {
+    // Refuse a symlinked root BEFORE canonicalizing it. Without this, a root
+    // entry pointing at /tmp/evil canonicalizes to /tmp/evil, the candidate
+    // resolves inside it, containment holds, and an arbitrary binary runs —
+    // the doc comment's "cannot escape" claim was false for exactly this
+    // shape (critique M13). `symlink_metadata` does not follow the link.
+    match fs::symlink_metadata(root) {
+        Ok(meta) if meta.file_type().is_symlink() => {
+            return Err("self-authored plan: child payload root is a symlink");
+        }
+        Ok(_) => {}
+        Err(_) => return Err("self-authored plan: child payload root missing"),
+    }
     let canonical_root =
         fs::canonicalize(root).map_err(|_| "self-authored plan: child payload root missing")?;
     let resolved = fs::canonicalize(candidate)
@@ -209,6 +284,17 @@ fn compose_self_authored_plan(
         identity_file,
         // A double-clicked application must NOT exit after one cycle.
         smoke: false,
+        // This is the CHILD's expected executable-identity version, not the
+        // supervisor's own: `lifecycle.rs` sends it as `ExecutableIdentity`
+        // and `server/desktop_child.py:182` refuses the launch on mismatch,
+        // where the child reports `importlib.metadata.version("arxmcp")`.
+        // Using the Rust crate version is only correct while the two version
+        // lines are held equal, which was true by accident until the m10
+        // critique (H1/H3) and is now ASSERTED on every `make test` by
+        // `tests/test_desktop_self_authored_launch.py::
+        // test_supervisor_crate_version_matches_the_python_package_version`.
+        // Whoever bumps one and not the other gets a red suite, not a
+        // double-click that dies at bound-identity.
         version: env!("CARGO_PKG_VERSION").to_owned(),
         test_bound_timeout_ms: None,
         test_fault: None,
@@ -380,7 +466,11 @@ fn main() {
     // run both. Deliberately the PRE-canonical derivation, because that is
     // what the Python function returns (canonicalization happens later, in
     // `self_authored_plan` and in `ApplicationPaths.resolve`).
-    if std::env::args().nth(1).as_deref() == Some(DATA_ROOT_PROBE_ARG) {
+    // `args_os`, not `args`: the latter PANICS on non-UTF-8 argv, and this
+    // call sits on the startup path of every launch, so a stray non-UTF-8
+    // argument would abort the application before any plan work (critique
+    // M10). Comparing as OsStr needs no lossy conversion.
+    if std::env::args_os().nth(1).as_deref() == Some(std::ffi::OsStr::new(DATA_ROOT_PROBE_ARG)) {
         match platform_data_root(|key| std::env::var(key).ok()) {
             Ok(root) => {
                 println!("{}", wire_path(&root));
@@ -660,6 +750,74 @@ mod tests {
         #[cfg(not(unix))]
         let _ = result.err();
         let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn symlinked_payload_root_is_rejected() {
+        // Critique M13: canonicalize-then-contain passes trivially when the
+        // ROOT itself is the symlink, because the canonical root MOVES with
+        // it. Stage exactly that shape and require refusal.
+        let (supervisor, base) = stage_payload("symlink-root");
+        let payload = base.join(CHILD_PAYLOAD_DIR);
+        let elsewhere = base.join("elsewhere");
+        fs::create_dir_all(&elsewhere).expect("stage elsewhere dir");
+        fs::write(elsewhere.join(child_executable_name()), b"#!/bin/false\n")
+            .expect("stage impostor child");
+        fs::remove_dir_all(&payload).expect("clear staged payload");
+        std::os::unix::fs::symlink(&elsewhere, &payload).expect("symlink payload root");
+        let result = self_authored_plan(&supervisor, fake_env(&[("HOME", "/nonexistent-home")]));
+        assert_eq!(
+            result.err(),
+            Some("self-authored plan: child payload root is a symlink")
+        );
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn pathlib_normalize_matches_purepath_parsing() {
+        // Pinned against real `pathlib` output (critique M1). The `//a`
+        // survival is POSIX's implementation-defined two-slash rule, which
+        // pathlib honors and a naive collapse would break.
+        for (raw, expected) in [
+            ("/a//b", "/a/b"),
+            ("/a/./b", "/a/b"),
+            ("//a/b", "//a/b"),
+            ("///a/b", "/a/b"),
+            ("/a/b/", "/a/b"),
+            ("/a/../b", "/a/../b"),
+            ("relative/x", "relative/x"),
+        ] {
+            assert_eq!(
+                pathlib_normalize(raw),
+                PathBuf::from(expected),
+                "normalizing {raw}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_home_lookup_is_lazy_like_pythons() {
+        // Critique M7: with the platform's own base variable set, Python
+        // never reads HOME, so neither may this. Only the branch this build
+        // owns is assertable, so assert that one.
+        let with_base: &[(&str, &str)] = if cfg!(target_os = "windows") {
+            &[("LOCALAPPDATA", "/base/local")]
+        } else if cfg!(target_os = "macos") {
+            &[("HOME", "/base/home")]
+        } else {
+            &[("XDG_DATA_HOME", "/base/xdg")]
+        };
+        assert!(
+            platform_data_root(fake_env(with_base)).is_ok(),
+            "the platform base variable alone must suffice"
+        );
+        if !cfg!(target_os = "macos") {
+            // macOS has no base variable of its own — it always needs home,
+            // so the no-home refusal there is the documented divergence, not
+            // laziness. Everywhere else, absence of home must NOT refuse.
+            assert!(platform_data_root(fake_env(with_base)).is_ok());
+        }
     }
 
     /// A missing payload directory is the RED state's Rust half: the arm

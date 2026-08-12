@@ -294,12 +294,16 @@ change touches more than ~3 files or adds new tests, run the pipeline.
     into a throwaway venv (issue #206). Opt-in via `pytest -m
     requires_wheel_build`, or `make wheel-check`. The `full` half
     also needs `ARXMCP_RUN_FULL_WHEEL_CHECK=1`.
-  - **`requires_desktop_stack`** — desktop-distribution-m5/m6
+  - **`requires_desktop_stack`** — desktop-distribution-m5/m6/m10
     real-lifecycle tests that boot the ACTUAL server (`python -m
     server.desktop_child`, eager BGE-M3/LanceDB warm-up plus a
     BGE-reranker-v2-m3 load) and/or the built Tauri supervisor
     binary, including the m6 fault matrix that drives the real
-    supervisor against fault-injected fixture-sidecar arms, plus the
+    supervisor against fault-injected fixture-sidecar arms, m10's
+    self-authored-launch module (`tests/test_desktop_self_authored_launch.py`
+    — the only gated tests that run with `ARXMCP_DESKTOP_LAUNCH_PLAN`
+    deliberately ABSENT, and the only `smoke: false` supervisor launch
+    any gate performs), plus the
     30-cycle orphan stress and the socket-level loopback proof.
     `lsof` and `ps` are hard binary prerequisites of the m6
     cleanup-evidence probes and RAISE rather than skip when absent

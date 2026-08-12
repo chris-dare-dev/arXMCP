@@ -1,0 +1,590 @@
+{
+  "milestone_id": "desktop-distribution-m10",
+  "critique_format_version": "1.0",
+  "critique_files": [
+    "dedup.md"
+  ],
+  "generated_at": "2026-08-12T00:14:24Z",
+  "findings": {
+    "C1": {
+      "id": "C1",
+      "severity": "CRITICAL",
+      "title": "Workspace README says launch-plan authoring is not here yet",
+      "file": "apps/desktop/README.md",
+      "line": 7,
+      "anchor": "release signing, and launch-plan authoring a",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Doc drift",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "apps/desktop/README.md rewritten: names m7's frozen runtime and m10's launch-plan authoring as landed, and states plainly what is still absent (.app assembly = m15; signing = blocked on an Apple Developer ID cert)",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-12T00:14:23Z",
+          "resolution": "apps/desktop/README.md rewritten: names m7's frozen runtime and m10's launch-plan authoring as landed, and states plainly what is still absent (.app assembly = m15; signing = blocked on an Apple Developer ID cert)"
+        }
+      ]
+    },
+    "H1": {
+      "id": "H1",
+      "severity": "HIGH",
+      "title": "Self-authored plan names the Rust crate version as the Python child's identity",
+      "file": "apps/desktop/crates/supervisor/src/main.rs",
+      "line": 212,
+      "anchor": "version: env!(\"CARGO_PKG_VERSION\").to_owne",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Correctness",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Documented at the call site that Plan.version is the CHILD's executable-identity version (lifecycle.rs sends it; desktop_child.py:182 refuses on mismatch), and pinned it: new UNMARKED test_supervisor_crate_version_matches_the_python_package_version asserts the supervisor crate version equals pyproject's arxmcp version, so bumping one alone goes red instead of shipping a double-click that dies at bound-identity",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-12T00:14:23Z",
+          "resolution": "Documented at the call site that Plan.version is the CHILD's executable-identity version (lifecycle.rs sends it; desktop_child.py:182 refuses on mismatch), and pinned it: new UNMARKED test_supervisor_crate_version_matches_the_python_package_version asserts the supervisor crate version equals pyproject's arxmcp version, so bumping one alone goes red instead of shipping a double-click that dies at bound-identity"
+        }
+      ]
+    },
+    "H2": {
+      "id": "H2",
+      "severity": "HIGH",
+      "title": "Diff exceeds the 400-LOC defect-detection cliff",
+      "file": null,
+      "line": null,
+      "anchor": "",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Diff size",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Owner authorized allow_large_diff for m10 on 2026-08-11, recorded in state. The finding was correct about the process gap: the orchestrator pre-authorized ~520 LOC in the dispatch prompt but never set the flag - the identical omission that produced m8's H2. Measured composition recorded in rectify/summary.md so m15's estimate re-bases off the real number",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-12T00:14:24Z",
+          "resolution": "Owner authorized allow_large_diff for m10 on 2026-08-11, recorded in state. The finding was correct about the process gap: the orchestrator pre-authorized ~520 LOC in the dispatch prompt but never set the flag - the identical omission that produced m8's H2. Measured composition recorded in rectify/summary.md so m15's estimate re-bases off the real number"
+        }
+      ]
+    },
+    "H3": {
+      "id": "H3",
+      "severity": "HIGH",
+      "title": "Self-authored plan pins child version to the supervisor crate",
+      "file": "apps/desktop/crates/supervisor/src/main.rs",
+      "line": 212,
+      "anchor": "version: env!(\"CARGO_PKG_VERSION\").to_",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "test surface",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Documented at the call site that Plan.version is the CHILD's executable-identity version (lifecycle.rs sends it; desktop_child.py:182 refuses on mismatch), and pinned it: new UNMARKED test_supervisor_crate_version_matches_the_python_package_version asserts the supervisor crate version equals pyproject's arxmcp version, so bumping one alone goes red instead of shipping a double-click that dies at bound-identity",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-12T00:14:23Z",
+          "resolution": "Documented at the call site that Plan.version is the CHILD's executable-identity version (lifecycle.rs sends it; desktop_child.py:182 refuses on mismatch), and pinned it: new UNMARKED test_supervisor_crate_version_matches_the_python_package_version asserts the supervisor crate version equals pyproject's arxmcp version, so bumping one alone goes red instead of shipping a double-click that dies at bound-identity"
+        }
+      ]
+    },
+    "H4": {
+      "id": "H4",
+      "severity": "HIGH",
+      "title": "Bundle-layout and component constants pinned by inspection only",
+      "file": "apps/desktop/crates/supervisor/src/main.rs",
+      "line": 55,
+      "anchor": "const CHILD_COMPONENT: &str = \"arxmcp-ser",
+      "source_critic": "milestone-infra-safety-critic",
+      "source_axis": "Axis 4 \u2014 build-script discipline (mapped: cross-artifact constant pinning in the conformance gate)",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "CHILD_PAYLOAD_DIR and CHILD_COMPONENT are now DERIVED in the test module from desktop_package.BUNDLE_NAME and server.desktop_child.COMPONENT instead of re-declared, plus UNMARKED test_rust_layout_constants_match_their_python_sources comparing the Rust const literals against those sources. Unmarked per M8 so a Python-side rename fails on every make test, not only under the desktop stack",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-12T00:14:24Z",
+          "resolution": "CHILD_PAYLOAD_DIR and CHILD_COMPONENT are now DERIVED in the test module from desktop_package.BUNDLE_NAME and server.desktop_child.COMPONENT instead of re-declared, plus UNMARKED test_rust_layout_constants_match_their_python_sources comparing the Rust const literals against those sources. Unmarked per M8 so a Python-side rename fails on every make test, not only under the desktop stack"
+        }
+      ]
+    },
+    "M1": {
+      "id": "M1",
+      "severity": "MEDIUM",
+      "title": "AC5's byte-for-byte parity fails on path-normalizing env values",
+      "file": "tests/test_desktop_self_authored_launch.py",
+      "line": 302,
+      "anchor": "_PARITY_MATRIX: tuple[dict[str, str], ...] =",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Acceptance coverage",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "pathlib_normalize() added to main.rs mirroring PurePosixPath parsing (drops empty and '.' components, keeps '..', honors POSIX's exactly-two-leading-slashes rule) and applied to every env value platform_data_root reads. Six matrix rows added that reproduced the divergence; all now pass against real Python. Rust unit test pathlib_normalize_matches_purepath_parsing pins the semantics",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-12T00:14:24Z",
+          "resolution": "pathlib_normalize() added to main.rs mirroring PurePosixPath parsing (drops empty and '.' components, keeps '..', honors POSIX's exactly-two-leading-slashes rule) and applied to every env value platform_data_root reads. Six matrix rows added that reproduced the divergence; all now pass against real Python. Rust unit test pathlib_normalize_matches_purepath_parsing pins the semantics"
+        }
+      ]
+    },
+    "M2": {
+      "id": "M2",
+      "severity": "MEDIUM",
+      "title": "The fixture-override residual risk argues its safety backwards",
+      "file": ".claude/notes/milestones/desktop-distribution-m10/implement/synthesis.md",
+      "line": 165,
+      "anchor": "5. **`DESKTOP_FIXTURE_COMPONENT` widens the",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Doc drift",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Fixture comment corrected: the un-prefixed name is what makes the knob REACHABLE (a prefixed one would be stripped by lifecycle.rs before arriving), not what contains it - the original wording argued the opposite. Real containment stated: the fixture is a test binary the spec never references. New test test_bound_identity_still_refuses_a_component_mismatch drives the override to a component the plan does NOT name and requires the launch to never reach child-bound, so the green arm's identity agreement is evidence rather than tautology",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-12T00:14:24Z",
+          "resolution": "Fixture comment corrected: the un-prefixed name is what makes the knob REACHABLE (a prefixed one would be stripped by lifecycle.rs before arriving), not what contains it - the original wording argued the opposite. Real containment stated: the fixture is a test binary the spec never references. New test test_bound_identity_still_refuses_a_component_mismatch drives the override to a component the plan does NOT name and requires the launch to never reach child-bound, so the green arm's identity agreement is evidence rather than tautology"
+        }
+      ]
+    },
+    "M3": {
+      "id": "M3",
+      "severity": "MEDIUM",
+      "title": "CLAUDE.md's requires_desktop_stack prose no longer describes the marker",
+      "file": "CLAUDE.md",
+      "line": 297,
+      "anchor": "- **`requires_desktop_stack`** \u2014 desktop-dis",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Doc drift",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "CLAUDE.md 4.5's requires_desktop_stack description amended to name m10, its module, and the two properties that make it distinct: the only gated tests running with ARXMCP_DESKTOP_LAUNCH_PLAN deliberately absent, and the only smoke:false supervisor launch any gate performs",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-12T00:14:24Z",
+          "resolution": "CLAUDE.md 4.5's requires_desktop_stack description amended to name m10, its module, and the two properties that make it distinct: the only gated tests running with ARXMCP_DESKTOP_LAUNCH_PLAN deliberately absent, and the only smoke:false supervisor launch any gate performs"
+        }
+      ]
+    },
+    "M4": {
+      "id": "M4",
+      "severity": "MEDIUM",
+      "title": "Component and payload-directory names are copied literals, not derived",
+      "file": "tests/test_desktop_self_authored_launch.py",
+      "line": 61,
+      "anchor": "CHILD_COMPONENT = \"arxmcp-server-desktop-chi",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Test discipline",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "CHILD_PAYLOAD_DIR and CHILD_COMPONENT are now DERIVED in the test module from desktop_package.BUNDLE_NAME and server.desktop_child.COMPONENT instead of re-declared, plus UNMARKED test_rust_layout_constants_match_their_python_sources comparing the Rust const literals against those sources. Unmarked per M8 so a Python-side rename fails on every make test, not only under the desktop stack",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-12T00:14:24Z",
+          "resolution": "CHILD_PAYLOAD_DIR and CHILD_COMPONENT are now DERIVED in the test module from desktop_package.BUNDLE_NAME and server.desktop_child.COMPONENT instead of re-declared, plus UNMARKED test_rust_layout_constants_match_their_python_sources comparing the Rust const literals against those sources. Unmarked per M8 so a Python-side rename fails on every make test, not only under the desktop stack"
+        }
+      ]
+    },
+    "M5": {
+      "id": "M5",
+      "severity": "MEDIUM",
+      "title": "CHILD_COMPONENT hand-copied, and the GREEN arm disarms the check",
+      "file": "apps/desktop/crates/supervisor/src/main.rs",
+      "line": 55,
+      "anchor": "const CHILD_COMPONENT: &str = \"arxmcp-serve",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "test surface",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "CHILD_PAYLOAD_DIR and CHILD_COMPONENT are now DERIVED in the test module from desktop_package.BUNDLE_NAME and server.desktop_child.COMPONENT instead of re-declared, plus UNMARKED test_rust_layout_constants_match_their_python_sources comparing the Rust const literals against those sources. Unmarked per M8 so a Python-side rename fails on every make test, not only under the desktop stack",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-12T00:14:24Z",
+          "resolution": "CHILD_PAYLOAD_DIR and CHILD_COMPONENT are now DERIVED in the test module from desktop_package.BUNDLE_NAME and server.desktop_child.COMPONENT instead of re-declared, plus UNMARKED test_rust_layout_constants_match_their_python_sources comparing the Rust const literals against those sources. Unmarked per M8 so a Python-side rename fails on every make test, not only under the desktop stack"
+        }
+      ]
+    },
+    "M6": {
+      "id": "M6",
+      "severity": "MEDIUM",
+      "title": "CHILD_PAYLOAD_DIR unpinned against the PyInstaller spec name",
+      "file": "apps/desktop/crates/supervisor/src/main.rs",
+      "line": 51,
+      "anchor": "const CHILD_PAYLOAD_DIR: &str = \"arxmcp-desk",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "test surface",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "CHILD_PAYLOAD_DIR and CHILD_COMPONENT are now DERIVED in the test module from desktop_package.BUNDLE_NAME and server.desktop_child.COMPONENT instead of re-declared, plus UNMARKED test_rust_layout_constants_match_their_python_sources comparing the Rust const literals against those sources. Unmarked per M8 so a Python-side rename fails on every make test, not only under the desktop stack",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-12T00:14:24Z",
+          "resolution": "CHILD_PAYLOAD_DIR and CHILD_COMPONENT are now DERIVED in the test module from desktop_package.BUNDLE_NAME and server.desktop_child.COMPONENT instead of re-declared, plus UNMARKED test_rust_layout_constants_match_their_python_sources comparing the Rust const literals against those sources. Unmarked per M8 so a Python-side rename fails on every make test, not only under the desktop stack"
+        }
+      ]
+    },
+    "M7": {
+      "id": "M7",
+      "severity": "MEDIUM",
+      "title": "A second, undocumented divergence from _platform_data_root",
+      "file": "apps/desktop/crates/supervisor/src/main.rs",
+      "line": 149,
+      "anchor": ".ok_or(\"self-authored plan: no HOM",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "local-first + Docker constraint",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "The home lookup is now LAZY, matching Python: with XDG_DATA_HOME (Linux) or LOCALAPPDATA (Windows) set, the base never consults home, so the port no longer refuses early. That removes the second divergence, making 'exactly one documented divergence' true again. Pinned per-platform in Rust by the_home_lookup_is_lazy_like_pythons; the matrix row is platform-conditional because 'base set, home absent' is structurally unreachable on macOS",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-12T00:14:24Z",
+          "resolution": "The home lookup is now LAZY, matching Python: with XDG_DATA_HOME (Linux) or LOCALAPPDATA (Windows) set, the base never consults home, so the port no longer refuses early. That removes the second divergence, making 'exactly one documented divergence' true again. Pinned per-platform in Rust by the_home_lookup_is_lazy_like_pythons; the matrix row is platform-conditional because 'base set, home absent' is structurally unreachable on macOS"
+        }
+      ]
+    },
+    "M8": {
+      "id": "M8",
+      "severity": "MEDIUM",
+      "title": "The cross-language pin never runs under `make test`",
+      "file": "server/application_paths.py",
+      "line": 81,
+      "anchor": "def _platform_data_root(env: Mapping[str,",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "test surface",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "CHILD_PAYLOAD_DIR and CHILD_COMPONENT are now DERIVED in the test module from desktop_package.BUNDLE_NAME and server.desktop_child.COMPONENT instead of re-declared, plus UNMARKED test_rust_layout_constants_match_their_python_sources comparing the Rust const literals against those sources. Unmarked per M8 so a Python-side rename fails on every make test, not only under the desktop stack",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-12T00:14:24Z",
+          "resolution": "CHILD_PAYLOAD_DIR and CHILD_COMPONENT are now DERIVED in the test module from desktop_package.BUNDLE_NAME and server.desktop_child.COMPONENT instead of re-declared, plus UNMARKED test_rust_layout_constants_match_their_python_sources comparing the Rust const literals against those sources. Unmarked per M8 so a Python-side rename fails on every make test, not only under the desktop stack"
+        }
+      ]
+    },
+    "M9": {
+      "id": "M9",
+      "severity": "MEDIUM",
+      "title": "Test comment claims provenance the assertion does not check",
+      "file": "tests/test_desktop_self_authored_launch.py",
+      "line": 284,
+      "anchor": "assert len(spawned) == 1, _events(ro",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "test surface",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Caption rewritten to claim only what the assertion checks (exactly one spawn cycle, no retry) and to cross-reference where containment is actually proven: the two Rust unit tests plus lifecycle.rs's digest comparison. child-spawn carries only child_pid and no path, so it could never have proven provenance",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-12T00:14:24Z",
+          "resolution": "Caption rewritten to claim only what the assertion checks (exactly one spawn cycle, no retry) and to cross-reference where containment is actually proven: the two Rust unit tests plus lifecycle.rs's digest comparison. child-spawn carries only child_pid and no path, so it could never have proven provenance"
+        }
+      ]
+    },
+    "M10": {
+      "id": "M10",
+      "severity": "MEDIUM",
+      "title": "`std::env::args()` panics on non-UTF-8 argv, now on every launch",
+      "file": "apps/desktop/crates/supervisor/src/main.rs",
+      "line": 383,
+      "anchor": "if std::env::args().nth(1).as_deref() ==",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "security threat-model coverage",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "std::env::args() -> std::env::args_os() with OsStr comparison. The call sits on the startup path of every launch, so non-UTF-8 argv aborted the application before any plan work",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-12T00:14:24Z",
+          "resolution": "std::env::args() -> std::env::args_os() with OsStr comparison. The call sits on the startup path of every launch, so non-UTF-8 argv aborted the application before any plan work"
+        }
+      ]
+    },
+    "M11": {
+      "id": "M11",
+      "severity": "MEDIUM",
+      "title": "Diff scope 770 code LOC against a ~520 pre-authorized budget",
+      "file": null,
+      "line": null,
+      "anchor": "",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "open scan",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Owner authorized allow_large_diff for m10 on 2026-08-11, recorded in state. The finding was correct about the process gap: the orchestrator pre-authorized ~520 LOC in the dispatch prompt but never set the flag - the identical omission that produced m8's H2. Measured composition recorded in rectify/summary.md so m15's estimate re-bases off the real number",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-12T00:14:24Z",
+          "resolution": "Owner authorized allow_large_diff for m10 on 2026-08-11, recorded in state. The finding was correct about the process gap: the orchestrator pre-authorized ~520 LOC in the dispatch prompt but never set the flag - the identical omission that produced m8's H2. Measured composition recorded in rectify/summary.md so m15's estimate re-bases off the real number"
+        }
+      ]
+    },
+    "M12": {
+      "id": "M12",
+      "severity": "MEDIUM",
+      "title": "Sibling-write execution risk recorded only in a per-milestone note",
+      "file": "apps/desktop/crates/supervisor/src/main.rs",
+      "line": 178,
+      "anchor": "/// RESIDUAL RISK, recorded not closed: the r",
+      "source_critic": "milestone-infra-safety-critic",
+      "source_axis": "Axis 1 \u2014 container/process hygiene (mapped: process-execution trust boundary)",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Residual risks reordered WORST FIRST in resolve_inside's doc comment - the sibling-write class (write access next to the supervisor = arbitrary code execution as the operator, no trick required) now leads, with the current_exe() PATH-search/hardlink classes explicitly ranked below it because they carry no privilege gradient on a non-setuid binary. Also written into apps/desktop/README.md as an operator-facing trust-assumption section, which is where m15's AC7 says the layout must be recorded",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-12T00:14:24Z",
+          "resolution": "Residual risks reordered WORST FIRST in resolve_inside's doc comment - the sibling-write class (write access next to the supervisor = arbitrary code execution as the operator, no trick required) now leads, with the current_exe() PATH-search/hardlink classes explicitly ranked below it because they carry no privilege gradient on a non-setuid binary. Also written into apps/desktop/README.md as an operator-facing trust-assumption section, which is where m15's AC7 says the layout must be recorded"
+        }
+      ]
+    },
+    "M13": {
+      "id": "M13",
+      "severity": "MEDIUM",
+      "title": "Containment never validates the payload root itself",
+      "file": "apps/desktop/crates/supervisor/src/main.rs",
+      "line": 185,
+      "anchor": "let canonical_root =",
+      "source_critic": "milestone-infra-safety-critic",
+      "source_axis": "Axis 1 \u2014 container/process hygiene (mapped: path-containment correctness)",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "resolve_inside now takes symlink_metadata on the payload root and refuses a symlinked root BEFORE canonicalizing, closing the case where the canonical root moves with the link and containment passes trivially. New unix unit test symlinked_payload_root_is_rejected stages exactly that shape. The doc comment's cannot-escape claim is now true as written",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-12T00:14:24Z",
+          "resolution": "resolve_inside now takes symlink_metadata on the payload root and refuses a symlinked root BEFORE canonicalizing, closing the case where the canonical root moves with the link and containment passes trivially. New unix unit test symlinked_payload_root_is_rejected stages exactly that shape. The doc comment's cannot-escape claim is now true as written"
+        }
+      ]
+    },
+    "M14": {
+      "id": "M14",
+      "severity": "MEDIUM",
+      "title": "Fixture echo makes the arm's bound-identity check tautological",
+      "file": "apps/desktop/crates/fixture-sidecar/src/main.rs",
+      "line": 285,
+      "anchor": "component: expected_component(),",
+      "source_critic": "milestone-infra-safety-critic",
+      "source_axis": "Axis 4 \u2014 build-script discipline (mapped: test-harness override scope)",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Fixture comment corrected: the un-prefixed name is what makes the knob REACHABLE (a prefixed one would be stripped by lifecycle.rs before arriving), not what contains it - the original wording argued the opposite. Real containment stated: the fixture is a test binary the spec never references. New test test_bound_identity_still_refuses_a_component_mismatch drives the override to a component the plan does NOT name and requires the launch to never reach child-bound, so the green arm's identity agreement is evidence rather than tautology",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-12T00:14:24Z",
+          "resolution": "Fixture comment corrected: the un-prefixed name is what makes the knob REACHABLE (a prefixed one would be stripped by lifecycle.rs before arriving), not what contains it - the original wording argued the opposite. Real containment stated: the fixture is a test binary the spec never references. New test test_bound_identity_still_refuses_a_component_mismatch drives the override to a component the plan does NOT name and requires the launch to never reach child-bound, so the green arm's identity agreement is evidence rather than tautology"
+        }
+      ]
+    },
+    "M15": {
+      "id": "M15",
+      "severity": "MEDIUM",
+      "title": "Windows data-root branch is reachable by neither gate and unpinned",
+      "file": "apps/desktop/crates/supervisor/src/main.rs",
+      "line": 151,
+      "anchor": "let base = if cfg!(target_os = \"windows\") {",
+      "source_critic": "milestone-infra-safety-critic",
+      "source_axis": "Axis 4 \u2014 build-script discipline (mapped: gate reachability of a ported function)",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "New UNMARKED test_windows_data_root_branch_is_pinned_on_both_sides monkeypatches sys.platform to win32 and asserts _platform_data_root's LOCALAPPDATA and USERPROFILE/AppData/Local outputs, then asserts the Rust Windows branch source still reads LOCALAPPDATA with the AppData/Local fallback. A one-sided edit now fails on every make test",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-12T00:14:24Z",
+          "resolution": "New UNMARKED test_windows_data_root_branch_is_pinned_on_both_sides monkeypatches sys.platform to win32 and asserts _platform_data_root's LOCALAPPDATA and USERPROFILE/AppData/Local outputs, then asserts the Rust Windows branch source still reads LOCALAPPDATA with the AppData/Local fallback. A one-sided edit now fails on every make test"
+        }
+      ]
+    },
+    "M16": {
+      "id": "M16",
+      "severity": "MEDIUM",
+      "title": "Bounded shutdown and no-orphan unasserted on the smoke:false arm",
+      "file": "tests/test_desktop_self_authored_launch.py",
+      "line": 212,
+      "anchor": "os.kill(pid, signal.SIGKILL)",
+      "source_critic": "milestone-infra-safety-critic",
+      "source_axis": "Axis 4 \u2014 build-script discipline (mapped: cleanup evidence on the new gate line)",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "_reap now records whether each spawned pid died from the supervisor's own shutdown BEFORE the unconditional SIGKILL safety net runs, and asserts none survived. Previously an orphan and a clean reap produced the same green result on the only smoke:false launch any gate performs. The safety net still runs, so a failing assertion never leaves a live child behind",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-12T00:14:24Z",
+          "resolution": "_reap now records whether each spawned pid died from the supervisor's own shutdown BEFORE the unconditional SIGKILL safety net runs, and asserts none survived. Previously an orphan and a clean reap produced the same green result on the only smoke:false launch any gate performs. The safety net still runs, so a failing assertion never leaves a live child behind"
+        }
+      ]
+    },
+    "L1": {
+      "id": "L1",
+      "severity": "LOW",
+      "title": "Ungated test seam in the production binary",
+      "file": "apps/desktop/crates/supervisor/src/main.rs",
+      "line": 383,
+      "anchor": "if std::env::args().nth(1).as_deref() == So",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Dead code / leftovers",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "LOW, deferred by owner decision 2026-08-11 (fix C1+HIGH+MEDIUM, defer LOW). None is a correctness defect: L1/L8 concern the --print-data-root seam and unknown-argv handling in a binary not yet shipped in any artifact (m15 assembles the first); L3 wants an assertion for that seam's side-effect-free claim; L2/L4 are source-scan sharpening; L5 is superseded in substance by M3's amendment; L6 records desktop-conformance's concurrency sensitivity, observed live this session when three runs raced one target dir; L7 is an undrained stderr pipe in a test helper. Carry forward as m15 input",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-12T00:14:24Z",
+          "resolution": "LOW, deferred by owner decision 2026-08-11 (fix C1+HIGH+MEDIUM, defer LOW). None is a correctness defect: L1/L8 concern the --print-data-root seam and unknown-argv handling in a binary not yet shipped in any artifact (m15 assembles the first); L3 wants an assertion for that seam's side-effect-free claim; L2/L4 are source-scan sharpening; L5 is superseded in substance by M3's amendment; L6 records desktop-conformance's concurrency sensitivity, observed live this session when three runs raced one target dir; L7 is an undrained stderr pipe in a test helper. Carry forward as m15 input"
+        }
+      ]
+    },
+    "L2": {
+      "id": "L2",
+      "severity": "LOW",
+      "title": "AC3's m8 clause is satisfied by non-reachability, not by evidence",
+      "file": ".claude/notes/milestones/desktop-distribution-m10/implement/synthesis.md",
+      "line": 33,
+      "anchor": "- **AC3 \u2014 the environment path is byte-ident",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Acceptance coverage",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "LOW, deferred by owner decision 2026-08-11 (fix C1+HIGH+MEDIUM, defer LOW). None is a correctness defect: L1/L8 concern the --print-data-root seam and unknown-argv handling in a binary not yet shipped in any artifact (m15 assembles the first); L3 wants an assertion for that seam's side-effect-free claim; L2/L4 are source-scan sharpening; L5 is superseded in substance by M3's amendment; L6 records desktop-conformance's concurrency sensitivity, observed live this session when three runs raced one target dir; L7 is an undrained stderr pipe in a test helper. Carry forward as m15 input",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-12T00:14:24Z",
+          "resolution": "LOW, deferred by owner decision 2026-08-11 (fix C1+HIGH+MEDIUM, defer LOW). None is a correctness defect: L1/L8 concern the --print-data-root seam and unknown-argv handling in a binary not yet shipped in any artifact (m15 assembles the first); L3 wants an assertion for that seam's side-effect-free claim; L2/L4 are source-scan sharpening; L5 is superseded in substance by M3's amendment; L6 records desktop-conformance's concurrency sensitivity, observed live this session when three runs raced one target dir; L7 is an undrained stderr pipe in a test helper. Carry forward as m15 input"
+        }
+      ]
+    },
+    "L3": {
+      "id": "L3",
+      "severity": "LOW",
+      "title": "`--print-data-root`'s side-effect-free claim is unasserted",
+      "file": "apps/desktop/crates/supervisor/src/main.rs",
+      "line": 60,
+      "anchor": "const DATA_ROOT_PROBE_ARG: &str = \"--print-",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "security threat-model coverage",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "LOW, deferred by owner decision 2026-08-11 (fix C1+HIGH+MEDIUM, defer LOW). None is a correctness defect: L1/L8 concern the --print-data-root seam and unknown-argv handling in a binary not yet shipped in any artifact (m15 assembles the first); L3 wants an assertion for that seam's side-effect-free claim; L2/L4 are source-scan sharpening; L5 is superseded in substance by M3's amendment; L6 records desktop-conformance's concurrency sensitivity, observed live this session when three runs raced one target dir; L7 is an undrained stderr pipe in a test helper. Carry forward as m15 input",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-12T00:14:24Z",
+          "resolution": "LOW, deferred by owner decision 2026-08-11 (fix C1+HIGH+MEDIUM, defer LOW). None is a correctness defect: L1/L8 concern the --print-data-root seam and unknown-argv handling in a binary not yet shipped in any artifact (m15 assembles the first); L3 wants an assertion for that seam's side-effect-free claim; L2/L4 are source-scan sharpening; L5 is superseded in substance by M3's amendment; L6 records desktop-conformance's concurrency sensitivity, observed live this session when three runs raced one target dir; L7 is an undrained stderr pipe in a test helper. Carry forward as m15 input"
+        }
+      ]
+    },
+    "L4": {
+      "id": "L4",
+      "severity": "LOW",
+      "title": "Source-guard test recognizes only `//`-prefixed comment lines",
+      "file": "tests/test_desktop_self_authored_launch.py",
+      "line": 83,
+      "anchor": "if PRE_M10_FAILURE in line and not line",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "test surface",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "LOW, deferred by owner decision 2026-08-11 (fix C1+HIGH+MEDIUM, defer LOW). None is a correctness defect: L1/L8 concern the --print-data-root seam and unknown-argv handling in a binary not yet shipped in any artifact (m15 assembles the first); L3 wants an assertion for that seam's side-effect-free claim; L2/L4 are source-scan sharpening; L5 is superseded in substance by M3's amendment; L6 records desktop-conformance's concurrency sensitivity, observed live this session when three runs raced one target dir; L7 is an undrained stderr pipe in a test helper. Carry forward as m15 input",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-12T00:14:24Z",
+          "resolution": "LOW, deferred by owner decision 2026-08-11 (fix C1+HIGH+MEDIUM, defer LOW). None is a correctness defect: L1/L8 concern the --print-data-root seam and unknown-argv handling in a binary not yet shipped in any artifact (m15 assembles the first); L3 wants an assertion for that seam's side-effect-free claim; L2/L4 are source-scan sharpening; L5 is superseded in substance by M3's amendment; L6 records desktop-conformance's concurrency sensitivity, observed live this session when three runs raced one target dir; L7 is an undrained stderr pipe in a test helper. Carry forward as m15 input"
+        }
+      ]
+    },
+    "L5": {
+      "id": "L5",
+      "severity": "LOW",
+      "title": "CLAUDE.md \u00a74.5's `requires_desktop_stack` description not amended",
+      "file": "CLAUDE.md",
+      "line": 1,
+      "anchor": "# CLAUDE.md \u2014 Context for Claude agents wor",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "open scan",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "LOW, deferred by owner decision 2026-08-11 (fix C1+HIGH+MEDIUM, defer LOW). None is a correctness defect: L1/L8 concern the --print-data-root seam and unknown-argv handling in a binary not yet shipped in any artifact (m15 assembles the first); L3 wants an assertion for that seam's side-effect-free claim; L2/L4 are source-scan sharpening; L5 is superseded in substance by M3's amendment; L6 records desktop-conformance's concurrency sensitivity, observed live this session when three runs raced one target dir; L7 is an undrained stderr pipe in a test helper. Carry forward as m15 input",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-12T00:14:24Z",
+          "resolution": "LOW, deferred by owner decision 2026-08-11 (fix C1+HIGH+MEDIUM, defer LOW). None is a correctness defect: L1/L8 concern the --print-data-root seam and unknown-argv handling in a binary not yet shipped in any artifact (m15 assembles the first); L3 wants an assertion for that seam's side-effect-free claim; L2/L4 are source-scan sharpening; L5 is superseded in substance by M3's amendment; L6 records desktop-conformance's concurrency sensitivity, observed live this session when three runs raced one target dir; L7 is an undrained stderr pipe in a test helper. Carry forward as m15 input"
+        }
+      ]
+    },
+    "L6": {
+      "id": "L6",
+      "severity": "LOW",
+      "title": "desktop-conformance is concurrency-sensitive and says nothing about it",
+      "file": "Makefile",
+      "line": 175,
+      "anchor": "ARXMCP_FIXTURE_SIDECAR=\"$(CURDIR)/apps/de",
+      "source_critic": "milestone-infra-safety-critic",
+      "source_axis": "Axis 4 \u2014 Makefile / build script discipline",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "LOW, deferred by owner decision 2026-08-11 (fix C1+HIGH+MEDIUM, defer LOW). None is a correctness defect: L1/L8 concern the --print-data-root seam and unknown-argv handling in a binary not yet shipped in any artifact (m15 assembles the first); L3 wants an assertion for that seam's side-effect-free claim; L2/L4 are source-scan sharpening; L5 is superseded in substance by M3's amendment; L6 records desktop-conformance's concurrency sensitivity, observed live this session when three runs raced one target dir; L7 is an undrained stderr pipe in a test helper. Carry forward as m15 input",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-12T00:14:24Z",
+          "resolution": "LOW, deferred by owner decision 2026-08-11 (fix C1+HIGH+MEDIUM, defer LOW). None is a correctness defect: L1/L8 concern the --print-data-root seam and unknown-argv handling in a binary not yet shipped in any artifact (m15 assembles the first); L3 wants an assertion for that seam's side-effect-free claim; L2/L4 are source-scan sharpening; L5 is superseded in substance by M3's amendment; L6 records desktop-conformance's concurrency sensitivity, observed live this session when three runs raced one target dir; L7 is an undrained stderr pipe in a test helper. Carry forward as m15 input"
+        }
+      ]
+    },
+    "L7": {
+      "id": "L7",
+      "severity": "LOW",
+      "title": "Supervisor stderr captured to an undrained pipe for the whole launch",
+      "file": "tests/test_desktop_self_authored_launch.py",
+      "line": 265,
+      "anchor": "stderr=subprocess.PIPE,",
+      "source_critic": "milestone-infra-safety-critic",
+      "source_axis": "Axis 4 \u2014 build-script discipline (mapped: harness robustness)",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "LOW, deferred by owner decision 2026-08-11 (fix C1+HIGH+MEDIUM, defer LOW). None is a correctness defect: L1/L8 concern the --print-data-root seam and unknown-argv handling in a binary not yet shipped in any artifact (m15 assembles the first); L3 wants an assertion for that seam's side-effect-free claim; L2/L4 are source-scan sharpening; L5 is superseded in substance by M3's amendment; L6 records desktop-conformance's concurrency sensitivity, observed live this session when three runs raced one target dir; L7 is an undrained stderr pipe in a test helper. Carry forward as m15 input",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-12T00:14:24Z",
+          "resolution": "LOW, deferred by owner decision 2026-08-11 (fix C1+HIGH+MEDIUM, defer LOW). None is a correctness defect: L1/L8 concern the --print-data-root seam and unknown-argv handling in a binary not yet shipped in any artifact (m15 assembles the first); L3 wants an assertion for that seam's side-effect-free claim; L2/L4 are source-scan sharpening; L5 is superseded in substance by M3's amendment; L6 records desktop-conformance's concurrency sensitivity, observed live this session when three runs raced one target dir; L7 is an undrained stderr pipe in a test helper. Carry forward as m15 input"
+        }
+      ]
+    },
+    "L8": {
+      "id": "L8",
+      "severity": "LOW",
+      "title": "Unknown argv is silently ignored by the production binary",
+      "file": "apps/desktop/crates/supervisor/src/main.rs",
+      "line": 383,
+      "anchor": "if std::env::args().nth(1).as_deref() == So",
+      "source_critic": "milestone-infra-safety-critic",
+      "source_axis": "Axis 1 \u2014 container/process hygiene (mapped: entrypoint argument discipline)",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "LOW, deferred by owner decision 2026-08-11 (fix C1+HIGH+MEDIUM, defer LOW). None is a correctness defect: L1/L8 concern the --print-data-root seam and unknown-argv handling in a binary not yet shipped in any artifact (m15 assembles the first); L3 wants an assertion for that seam's side-effect-free claim; L2/L4 are source-scan sharpening; L5 is superseded in substance by M3's amendment; L6 records desktop-conformance's concurrency sensitivity, observed live this session when three runs raced one target dir; L7 is an undrained stderr pipe in a test helper. Carry forward as m15 input",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-12T00:14:24Z",
+          "resolution": "LOW, deferred by owner decision 2026-08-11 (fix C1+HIGH+MEDIUM, defer LOW). None is a correctness defect: L1/L8 concern the --print-data-root seam and unknown-argv handling in a binary not yet shipped in any artifact (m15 assembles the first); L3 wants an assertion for that seam's side-effect-free claim; L2/L4 are source-scan sharpening; L5 is superseded in substance by M3's amendment; L6 records desktop-conformance's concurrency sensitivity, observed live this session when three runs raced one target dir; L7 is an undrained stderr pipe in a test helper. Carry forward as m15 input"
+        }
+      ]
+    }
+  }
+}
