@@ -1,8 +1,8 @@
 {
   "id": "desktop-distribution-m11",
   "created_at": "2026-08-12T03:36:41Z",
-  "updated_at": "2026-08-12T03:48:53Z",
-  "phase": "research-complete",
+  "updated_at": "2026-08-12T03:49:14Z",
+  "phase": "implement-running",
   "phase_history": [
     {
       "phase": "init",
@@ -15,6 +15,10 @@
     {
       "phase": "research-complete",
       "at": "2026-08-12T03:45:04Z"
+    },
+    {
+      "phase": "implement-running",
+      "at": "2026-08-12T03:49:14Z"
     }
   ],
   "milestone_brief": "### desktop-distribution-m11 \u2014 Choose storage, adopt or initialize\n\n**Description.** Make the data root an operator decision with a safe default,\nand make an existing root adoptable rather than silently re-initialized. The\nfirst-run surface offers the platform default, accepts an alternative\ndirectory, and \u2014 when a root already carries arXMCP state \u2014 reports what it\nfound and adopts it.\n\n> **Premise corrected 2026-08-12 after Phase 1 research.** This description\n> originally said the selection \"persists through `OperatorSettingsStore`\n> (`server/operator_settings.py`) \u2026 so no new store is introduced\". Both\n> researchers independently established that this is impossible: that store's\n> database is `var/arxmcp/cache/notebooks.db`, **inside the data root**, so it\n> cannot record where the data root is. The sentence was written without\n> checking the store's location and is the decomposition's error, not a\n> constraint to design around.\n>\n> m11 therefore introduces a NEW pointer artifact that is not data-root-\n> relative, read by BOTH `ApplicationPaths.resolve` (Python) and\n> `self_authored_plan` (Rust) before either resolves anything. Today neither\n> reads any operator preference at all: `self_authored_plan` calls\n> `platform_data_root` unconditionally, so no operator-chosen root can reach\n> a double-clicked `.app` by any path that exists.\n\n**Acceptance criteria.**\n- [ ] A first run with no prior state offers the platform default, accepts\n      an operator-chosen directory, and the chosen root is the one every\n      subsequent write lands under \u2014 asserted by the m2 write-containment\n      regression re-run against the chosen root, not against the default.\n- [ ] A root already carrying a notebooks registry or corpus marker is\n      DETECTED and adopted; its notebook count and corpus version are\n      reported back before adoption. Initialization over existing state\n      requires a distinct, explicit operator act.\n- [ ] Unwritable, non-existent-and-uncreatable, and full-disk roots each\n      produce a distinct, actionable message and leave no partial state.\n      A root failing selection never becomes the persisted choice.\n- [ ] Free space is measured before adoption and compared against a stated\n      requirement, and the refusal names the shortfall. The measurement must\n      be HONEST about its own accuracy: `shutil.disk_usage()` on APFS\n      over-reports available space (purgeable space and snapshots count as\n      free \u2014 ~30% in the source m11's research cites), so a refusal cannot\n      rest on it unqualified. Either use a platform call that excludes\n      purgeable space, or state the requirement with headroom and phrase the\n      result as a lower bound. A number that is optimistically wrong by a\n      third cannot support \"you do not have room for this\".\n- [ ] Every path in `ApplicationPaths.resolve` continues to reject escape\n      via `..`, symlink traversal, and inconsistent resolution when the\n      root is operator-supplied \u2014 the m1 traversal suite re-run against\n      operator-chosen roots including Unicode and whitespace-bearing ones.\n- [ ] The selection survives restart, and a root that has disappeared\n      between launches is reported rather than silently re-defaulted.\n- [ ] The pointer's resolution order is pinned ACROSS LANGUAGES the way m10\n      pinned the platform default: an override read inserted ahead of\n      `_platform_data_root` / `platform_data_root` changes the order both m10\n      parity tests assume, so the override gets its own parity row or m10's\n      guarantee silently narrows to \"only the default path is proven to\n      agree\".\n- [ ] The two mechanism decisions \u2014 where the pointer persists, and how the\n      picker is presented \u2014 are settled in a recorded ADR before the\n      implementation diff, naming the rejected alternatives. `main.rs`\n      resolves `data_root` BEFORE `tauri::Builder::default()` is\n      constructed, and every `tauri-plugin-dialog` call goes through an\n      `App`/`AppHandle`, so the plugin cannot be the first-run picker without\n      restructuring `main()`'s sequencing; restructure-versus-new-dependency\n      is the decision. The ADR also records that no sandbox entitlement\n      exists under `apps/desktop` today, so security-scoped bookmarks are\n      not the mechanism \u2014 and that adopting sandboxing later invalidates\n      that.\n- [ ] **Inherited from `m15`'s narrowed AC3:** the assembled `.app`,\n      double-clicked with no launch-plan variable, reaches a ready server and\n      a rendered window against the REAL frozen child \u2014 not the\n      `--print-child-plan` probe, and not a fixture. This is the proof m15\n      could not carry without making bundle assembly depend on model\n      weights; m11 is the first milestone that needs a launching application\n      for its own purpose, so it lands here. It brings the\n      `requires_bundled_model` prerequisites (~4.6 GB from the operator's\n      external HuggingFace cache) into m11's gate, which is the accepted\n      cost.\n- [ ] `make test` and `make desktop-conformance` exit 0.\n\n**Dependencies.** desktop-distribution-m10, desktop-distribution-m15\n\n**Complexity.** L\n      *(re-rated from M on 2026-08-12 after Phase 1 research. Measured at\n      ~1,200 LOC across ~14 files \u2014 including a first-run UI surface with no\n      precedent anywhere in the repo \u2014 plus two mechanism decisions and the\n      inherited launch proof. Session calibration: m10 estimated ~520 and\n      measured ~1,227; m15 estimated ~900 and measured 3,308.)*\n\n**Specialist suggestion.** `security-reviewer`\n\n---\n",
@@ -27,9 +31,9 @@
     ".claude/notes/milestones/desktop-distribution-m11/research/brief-2.md"
   ],
   "research_synthesis": ".claude/notes/milestones/desktop-distribution-m11/research/synthesis.md",
-  "implementation_path": null,
+  "implementation_path": "delegated",
   "implementation_plan": null,
-  "implementation_base": null,
+  "implementation_base": "ea0644966c3c941440f631c09d1a489c15c07871",
   "implementation_commit_range": null,
   "implementation_commits": [],
   "implementation_branch": null,
