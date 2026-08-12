@@ -15,6 +15,7 @@
 .PHONY: daily-report parser-failures-report sbom refresh-arxiv-ca
 .PHONY: wheel-check wheel-check-full desktop-conformance
 .PHONY: desktop-package desktop-package-check desktop-package-clean desktop-model-check
+.PHONY: desktop-bundle desktop-bundle-check
 
 # NOTEBOOK CRUD (m2) — first-class Make verbs for the notebook
 # lifecycle (proposal §9; backed by tools/notebook_*.py + /ui/api/*).
@@ -100,6 +101,8 @@ help:
 	@echo "  make desktop-package        Build the PyInstaller onedir desktop bundle from the committed spec into var/desktop-package/dist/ (macOS/Linux only; first run provisions the pinned build venv and NEEDS NETWORK; fails on any build-machine path in the artifact)"
 	@echo "  make desktop-package-check  Packaging gate: two consecutive cold-cache builds + determinism/hygiene proofs (AC1-AC5) with zero skips (macOS/Linux only; ~150s of builds after the one-time network provisioning)"
 	@echo "  make desktop-model-check    Real-model gate: build the bundle, then load the REAL BGE-M3 + reranker weights from the EXTERNAL HuggingFace cache and check the production encode/rerank output against the committed golden fixture (both pinned revisions must already be cached)"
+	@echo "  make desktop-bundle         Assemble the macOS .app: build the frozen child, pre-sign every nested Mach-O bottom-up, build the Tauri shell and place the payload at Contents/MacOS/arxmcp-desktop-child/ (macOS only; first run compiles the pinned tauri-cli and NEEDS NETWORK)"
+	@echo "  make desktop-bundle-check   Bundle gate: assemble, then measure the artifact — containment against the real bundle root, placed-child byte identity, m7/m8/m9 guards re-run over the assembled tree, and both minos declarations — with zero skips"
 	@echo "  make desktop-package-clean  Reclaim var/desktop-package/ (~1 GB persistent build venv plus ~0.75 GB per bundle)"
 	@echo ""
 	@echo "Override the python interpreter with: make test PYTHON=python3.13"
@@ -203,6 +206,27 @@ desktop-package-check:
 # artifact; the tests RAISE rather than skip when it is missing.
 desktop-model-check: desktop-package
 	DESKTOP_BUNDLED_MODEL_GATE=1 $(PYTHON) -m pytest tests/test_desktop_bundled_model.py -m "requires_bundled_model or not requires_bundled_model"
+
+# desktop-distribution-m15 — assemble the macOS .app. This is the FIRST
+# committed target that builds BOTH halves of the desktop artifact in one
+# session: the Rust binaries (via tauri build, inside the assemble step) and
+# the frozen PyInstaller child (via desktop-package). That combination is
+# roadmap AC9, and it is what retires m10's fixture-staged-in-the-onedir-shape
+# substitution — m10 had to fake the payload precisely because no gate built
+# both. Assembly deliberately does NOT rebuild the onedir: it consumes the
+# artifact desktop-package produced so the byte-identity assertion (AC5)
+# compares against that artifact rather than against a fresh look-alike.
+# First run compiles the pinned tauri-cli from source (NEEDS NETWORK, several
+# minutes); afterwards it is reused from var/desktop-package/tauri-cli.
+desktop-bundle: desktop-package
+	$(PYTHON) apps/desktop/pyinstaller/desktop_package.py assemble
+
+# The m15 bundle gate. Same zero-skip mechanism and tautology -m expression as
+# desktop-package-check. Runs AFTER desktop-bundle so every assertion is made
+# against a real assembled artifact; the tests RAISE rather than skip when it
+# is missing, so this session cannot exit 0 with the evidence absent.
+desktop-bundle-check: desktop-bundle
+	DESKTOP_BUNDLE_GATE=1 $(PYTHON) -m pytest tests/test_desktop_bundle.py tests/test_desktop_notarization_claims.py -m "requires_desktop_bundle or not requires_desktop_bundle"
 
 # The build venv is intentionally REUSED across runs, so var/desktop-package/
 # is persistent (~1 GB venv + ~0.75 GB per bundle), not transient. This is the

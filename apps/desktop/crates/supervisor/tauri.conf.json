@@ -7,7 +7,8 @@
     "windows": []
   },
   "bundle": {
-    "active": false,
+    "active": true,
+    "targets": ["app"],
     "icon": ["icons/icon.png"],
     "macOS": {
       "minimumSystemVersion": "14.0"

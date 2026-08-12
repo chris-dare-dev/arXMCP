@@ -721,13 +721,540 @@ def verify_determinism(
     return report
 
 
+# --------------------------------------------------------------------------
+# macOS application-bundle assembly (desktop-distribution-m15)
+#
+# Implements Decision 1 of `.claude/docs/adr-desktop-bundle-assembly.md`
+# (Accepted): Tauri's bundler builds the `.app` SHELL ONLY — no `resources`,
+# no `externalBin`, no `frameworks` entry for the payload — and this module
+# owns pre-signing the onedir bottom-up, placing it at
+# `Contents/MacOS/arxmcp-desktop-child/` (Decision 2) and re-sealing the
+# outer bundle.
+#
+# Read Decision 3 before writing anything into this section: whether the
+# resulting artifact survives Apple's notary service is OPEN and unanswerable
+# here. Nothing below may be described as notarization-ready, Gatekeeper-ready
+# or signable-as-is; `tests/test_desktop_notarization_claims.py` fails the
+# suite on such a claim.
+# --------------------------------------------------------------------------
+
+TAURI_CONF = REPO_ROOT / "apps" / "desktop" / "crates" / "supervisor" / "tauri.conf.json"
+DESKTOP_WORKSPACE = REPO_ROOT / "apps" / "desktop"
+SUPERVISOR_CRATE = DESKTOP_WORKSPACE / "crates" / "supervisor"
+
+#: Pinned like every other link in this chain. The Tauri *crates* are pinned
+#: with `=` in the workspace `Cargo.toml` and matched in `Cargo.lock`; the
+#: PyInstaller stack is pinned by hash. `cargo install tauri-cli` with no
+#: version and no `--locked` would be the only unpinned link, which the ADR's
+#: "Toolchain onboarding" section rules out. 2.11.4 is the newest published
+#: CLI as of 2026-08-12; the library crates this workspace pins are 2.11.5,
+#: and the two version lines are independent upstream — they are NOT expected
+#: to be equal, so do not "fix" the difference.
+TAURI_CLI_VERSION = "2.11.4"
+
+#: Signing identity. Default is ad-hoc (`-`), which is what this host can
+#: actually do: `security find-identity -p codesigning` offers an *Apple
+#: Development* certificate only, and no Developer ID Application certificate
+#: exists anywhere in this project (that is the certificate `e4` is blocked
+#: on). Ad-hoc is a real signature — it seals the code and makes tampering
+#: detectable locally — and it is NOT a distribution signature: it carries no
+#: identity, cannot be notarized, and says nothing about Gatekeeper. Override
+#: with a real identity string when one exists. Non-`ARXMCP_`-prefixed for the
+#: same reason as BUILD_VENV_ENV_VAR.
+CODESIGN_IDENTITY_ENV = "DESKTOP_CODESIGN_IDENTITY"
+AD_HOC_IDENTITY = "-"
+
+#: Hardened runtime is OFF by default and that is a decision, not an oversight.
+#: It is a notarization *prerequisite*, so it belongs with the trial that needs
+#: it (e4). Turning it on here would need entitlements this project has never
+#: authored for a CPython closure that JITs and maps writable-executable pages
+#: (`com.apple.security.cs.allow-jit`,
+#: `...allow-unsigned-executable-memory`), and shipping untested entitlements
+#: would trade a measured artifact for an unmeasured one. Opt in with
+#: `DESKTOP_CODESIGN_HARDENED=1` to measure the other arm.
+HARDENED_RUNTIME_ENV = "DESKTOP_CODESIGN_HARDENED"
+
+#: Mach-O and universal-binary magics, both endiannesses. Membership is
+#: decided by reading four bytes rather than by extension: the payload's
+#: executables are extensionless, and a `.so` that is really a linker script
+#: would be signed pointlessly rather than harmfully. Over-detection is the
+#: safe direction here — `codesign` refuses a non-Mach-O loudly.
+_MACHO_MAGICS = frozenset(
+    {
+        b"\xcf\xfa\xed\xfe",  # MH_MAGIC_64  (little-endian)
+        b"\xce\xfa\xed\xfe",  # MH_MAGIC     (little-endian)
+        b"\xfe\xed\xfa\xcf",  # MH_CIGAM_64  (big-endian)
+        b"\xfe\xed\xfa\xce",  # MH_CIGAM
+        b"\xca\xfe\xba\xbe",  # FAT_MAGIC
+        b"\xbe\xba\xfe\xca",  # FAT_CIGAM
+    }
+)
+
+
+def product_name() -> str:
+    """The bundle's product name, READ from `tauri.conf.json` rather than
+    duplicated, so a rename cannot desync the assembler from the bundler."""
+    conf = json.loads(TAURI_CONF.read_text(encoding="utf-8"))
+    name = conf.get("productName")
+    if not name:
+        raise BuildError(f"{TAURI_CONF} declares no productName")
+    return str(name)
+
+
+def app_bundle_path(target_dir: Path | None = None) -> Path:
+    """Where Tauri's bundler writes the `.app`."""
+    target = target_dir or (DESKTOP_WORKSPACE / "target")
+    return target / "release" / "bundle" / "macos" / f"{product_name()}.app"
+
+
+def bundle_executable(app: Path) -> Path:
+    """`Contents/MacOS/<CFBundleExecutable>`, READ from the built `Info.plist`.
+
+    Not derived from `productName`: Tauri names the bundle directory
+    `arXMCP.app` but leaves the executable at the cargo bin name
+    (`supervisor`), and hard-coding either would desync the assembler from the
+    bundler the first time one of them changes.
+    """
+    import plistlib
+
+    plist = plistlib.loads((app / "Contents" / "Info.plist").read_bytes())
+    name = plist.get("CFBundleExecutable")
+    if not name:
+        raise BuildError(f"{app}/Contents/Info.plist declares no CFBundleExecutable")
+    return app / "Contents" / "MacOS" / str(name)
+
+
+def tauri_cli_bin(root: Path = DEFAULT_ROOT) -> Path:
+    return root / "tauri-cli" / "bin" / "cargo-tauri"
+
+
+def ensure_tauri_cli(root: Path = DEFAULT_ROOT) -> Path:
+    """Install the pinned `tauri-cli` under the gitignored build root.
+
+    `--root` keeps it out of `~/.cargo/bin`, so the gate cannot silently use
+    whatever version a developer happened to install globally, and `--locked`
+    keeps its own dependency resolution reproducible. Idempotent: a present
+    binary whose `--version` matches the pin is reused.
+    """
+    binary = tauri_cli_bin(root)
+    if binary.is_file():
+        proc = subprocess.run(
+            [str(binary), "--version"], capture_output=True, text=True, timeout=120
+        )
+        if proc.returncode == 0 and TAURI_CLI_VERSION in proc.stdout:
+            return binary
+    cargo = shutil.which("cargo")
+    if cargo is None:
+        raise BuildError("cargo is required on PATH to provision the pinned tauri-cli")
+    _log(f"installing pinned tauri-cli {TAURI_CLI_VERSION} into {binary.parent.parent}")
+    _run(
+        [
+            cargo,
+            "install",
+            "--locked",
+            "--version",
+            TAURI_CLI_VERSION,
+            "--root",
+            str(binary.parent.parent),
+            "tauri-cli",
+        ],
+        env=dict(os.environ),
+        cwd=REPO_ROOT,
+        timeout=3600,
+    )
+    return binary
+
+
+def codesign_identity() -> str:
+    return os.environ.get(CODESIGN_IDENTITY_ENV) or AD_HOC_IDENTITY
+
+
+def hardened_runtime_enabled() -> bool:
+    return os.environ.get(HARDENED_RUNTIME_ENV) == "1"
+
+
+def is_macho(path: Path) -> bool:
+    """Whether ``path`` is a regular file whose first four bytes are a Mach-O
+    or universal-binary magic."""
+    if not path.is_file() or path.is_symlink():
+        return False
+    try:
+        with path.open("rb") as stream:
+            return stream.read(4) in _MACHO_MAGICS
+    except OSError:
+        return False
+
+
+def macho_inventory(root: Path) -> list[Path]:
+    """Every nested Mach-O under ``root``, DEEPEST FIRST.
+
+    The ordering is the whole point. `codesign` seals a Mach-O over its own
+    bytes, so signing a container before the code it contains invalidates the
+    container's seal — which is exactly the failure `codesign --deep` is known
+    for and which ADR evidence rows E4/E6 record surviving local verification
+    while failing the notary. Deepest-first, ties broken by path for
+    determinism, guarantees every dependency is sealed before anything that
+    embeds or loads it.
+    """
+    found = [p for p in root.rglob("*") if is_macho(p)]
+    return sorted(found, key=lambda p: (-len(p.relative_to(root).parts), p.as_posix()))
+
+
+def sign_file(path: Path, identity: str, *, hardened: bool = False) -> None:
+    """Sign one Mach-O with `codesign`, replacing any existing signature.
+
+    `--timestamp=none` for ad-hoc: Apple's timestamp server refuses an
+    identity-free signature, and a network round-trip per file across a
+    ~0.75 GB tree would dominate the build anyway. A real identity gets a
+    real timestamp.
+    """
+    codesign = shutil.which("codesign")
+    if codesign is None:
+        raise BuildError("codesign is required (Xcode command line tools)")
+    cmd = [codesign, "--force", "--sign", identity]
+    cmd += ["--timestamp=none"] if identity == AD_HOC_IDENTITY else ["--timestamp"]
+    if hardened:
+        cmd += ["--options", "runtime"]
+    cmd.append(str(path))
+    _run(cmd, env=dict(os.environ), timeout=300)
+
+
+def codesign_verify(path: Path, *, deep: bool = False) -> str:
+    """`codesign --verify --strict` output; raises via `_run` on a bad seal.
+
+    Deliberately NOT called "validate the artifact". It answers one question —
+    does this seal match these bytes on this machine — and says nothing about
+    Gatekeeper assessment or the notary (ADR Decision 3's four distinct
+    questions; this is (c), partially).
+    """
+    codesign = shutil.which("codesign")
+    if codesign is None:
+        raise BuildError("codesign is required (Xcode command line tools)")
+    cmd = [codesign, "--verify", "--strict"]
+    if deep:
+        cmd.append("--deep")
+    cmd += ["--verbose=2", str(path)]
+    proc = _run(cmd, env=dict(os.environ), timeout=900)
+    return proc.stderr + proc.stdout
+
+
+def presign_payload(payload_root: Path, identity: str | None = None) -> dict[str, object]:
+    """Bottom-up pre-signing of EVERY nested Mach-O in the onedir.
+
+    This is ADR Decision 1 step 2 and the owner's acceptance record names it
+    explicitly: `codesign --deep` is not a substitute and is not permitted as
+    one. `--deep` is a single invocation over a container; this walks the tree
+    and issues one `codesign` per file in dependency-safe order, which is both
+    what the evidence base recommends and what makes the count below a real
+    number rather than an assertion.
+    """
+    identity = identity or codesign_identity()
+    hardened = hardened_runtime_enabled()
+    targets = macho_inventory(payload_root)
+    if not targets:
+        raise BuildError(f"no Mach-O files found under {payload_root}; refusing a vacuous sign")
+    _log(f"pre-signing {len(targets)} Mach-O files bottom-up (identity {identity!r})")
+    for target in targets:
+        sign_file(target, identity, hardened=hardened)
+    # Spot-verify the two executables rather than the whole tree: a per-file
+    # --verify over hundreds of dylibs costs minutes and proves the same thing
+    # the placement re-verify proves. The executables are the files whose seal
+    # would break first if the ordering above were wrong.
+    verified = {exe: codesign_verify(payload_root / exe) for exe in (CHILD_EXE, PROBE_EXE)}
+    return {
+        "identity": identity,
+        "ad_hoc": identity == AD_HOC_IDENTITY,
+        "hardened_runtime": hardened,
+        "macho_signed": len(targets),
+        "deepest_first": [p.relative_to(payload_root).as_posix() for p in targets[:3]],
+        "executables_verified": sorted(verified),
+    }
+
+
+def build_app_shell(root: Path = DEFAULT_ROOT) -> Path:
+    """Run Tauri's bundler to produce the `.app` SHELL.
+
+    Run from the supervisor crate directory, which is where `tauri.conf.json`
+    lives; the repo-root `.cargo/config.toml` deployment-target pin is still
+    discovered, because cargo walks up from the CWD and the crate is inside
+    the repo. `tests/test_desktop_bundle.py` re-reads `minos` off the bundled
+    binary rather than trusting that sentence.
+    """
+    cli = ensure_tauri_cli(root)
+    app = app_bundle_path()
+    if app.exists():
+        shutil.rmtree(app)
+    _log("tauri build (shell only: no resources, no externalBin, no frameworks)")
+    _run(
+        [str(cli), "build"],
+        env=dict(os.environ),
+        cwd=SUPERVISOR_CRATE,
+        timeout=3600,
+    )
+    if not app.is_dir():
+        raise BuildError(f"tauri build produced no bundle at {app}")
+    return app
+
+
+def place_payload(app: Path, payload_root: Path) -> Path:
+    """Copy the pre-signed onedir to `Contents/MacOS/<CHILD_PAYLOAD_DIR>/`.
+
+    `copytree(symlinks=True)` preserves the payload's INTERNAL symlinks (the
+    framework-style `Python`/`Versions/Current` links PyInstaller emits) while
+    creating the destination root itself as a real directory. That distinction
+    is load-bearing: the supervisor's `resolve_inside()` refuses a symlinked
+    payload root outright, so an assembler that materialised the root as a
+    link would produce an `.app` that refuses to launch.
+    """
+    destination = app / "Contents" / "MacOS" / BUNDLE_NAME
+    if destination.exists():
+        shutil.rmtree(destination)
+    shutil.copytree(payload_root, destination, symlinks=True)
+    if destination.is_symlink():
+        raise BuildError(f"placed payload root {destination} is a symlink")
+    return destination
+
+
+def seal_app(app: Path, identity: str | None = None) -> dict[str, object]:
+    """ATTEMPT the outer re-seal after placement, and record what happened.
+
+    Ordering is ADR Decision 1's one hard constraint: the payload is signed
+    before the shell is sealed, so the shell's seal would cover the payload's
+    final bytes. Sealing first and copying afterwards produces a bundle whose
+    `_CodeSignature` describes a tree that no longer exists.
+
+    **Measured 2026-08-12, macOS 26.6 / Xcode `codesign`: this step does not
+    succeed at Decision 2's location, and the reason is structural.**
+    `Contents/MacOS` is a code-only location, so `codesign` treats every file
+    the payload puts there as a nested code object and refuses the whole
+    bundle at the first non-Mach-O one:
+
+        <app>: code object is not signed at all
+        In subcomponent: .../Contents/MacOS/arxmcp-desktop-child/_internal/tools/sbom.sh
+
+    It is not about scripts, executable bits or this payload's contents: a
+    six-byte `data.txt` reproduces it, and the SAME file under
+    `Contents/Resources/` seals and reports "valid on disk / satisfies its
+    Designated Requirement". `test_desktop_bundle.py` runs that A/B control,
+    so the claim is a re-measurement rather than a quotation.
+
+    This function therefore RECORDS the outcome instead of raising. Raising
+    would abort assembly over a step whose failure is a property of the
+    accepted layout, not of the build; silently succeeding would be worse.
+    Decision 2 is Accepted and is NOT relitigated here — this is the input the
+    owner and `e4` need in order to decide whether it should be, and it is
+    precisely the condition the ADR's rejected-alternative R3 names as the
+    trigger for revisiting the `frameworks` route ("unsigned or
+    improperly-sealed nested code").
+    """
+    identity = identity or codesign_identity()
+    codesign = shutil.which("codesign")
+    if codesign is None:
+        raise BuildError("codesign is required (Xcode command line tools)")
+    cmd = [codesign, "--force", "--sign", identity]
+    cmd += ["--timestamp=none"] if identity == AD_HOC_IDENTITY else ["--timestamp"]
+    if hardened_runtime_enabled():
+        cmd += ["--options", "runtime"]
+    cmd.append(str(app))
+    proc = subprocess.run(
+        cmd, env=dict(os.environ), capture_output=True, text=True, timeout=1800, check=False
+    )
+    record: dict[str, object] = {
+        "identity": identity,
+        "attempted": True,
+        "sealed": proc.returncode == 0,
+        "returncode": proc.returncode,
+        "error": (proc.stderr or proc.stdout).strip()[-2000:] or None,
+    }
+    if proc.returncode == 0:
+        verify = subprocess.run(
+            [codesign, "--verify", "--strict", "--verbose=2", str(app)],
+            env=dict(os.environ),
+            capture_output=True,
+            text=True,
+            timeout=1800,
+            check=False,
+        )
+        record["verified"] = verify.returncode == 0
+        record["verify_output"] = (verify.stderr or verify.stdout).strip()[-2000:]
+    else:
+        record["verified"] = False
+    return record
+
+
+def measure_macos_seal_location_control(app_executable: Path) -> dict[str, object]:
+    """The A/B control behind :func:`seal_app`'s recorded failure.
+
+    Builds two throwaway one-file `.app` trees that differ ONLY in where a
+    single plain `data.txt` sits — `Contents/MacOS/payload/` versus
+    `Contents/Resources/payload/` — and seals each. Nothing about arXMCP is
+    involved, which is the point: it separates "this payload is unusual" from
+    "this location cannot hold data", and the answer must be re-derivable on
+    whatever macOS the reader has rather than quoted from a log this milestone
+    happened to produce.
+    """
+    codesign = shutil.which("codesign")
+    if codesign is None:
+        raise BuildError("codesign is required (Xcode command line tools)")
+    plist = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
+        '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
+        '<plist version="1.0"><dict>'
+        "<key>CFBundleExecutable</key><string>host</string>"
+        "<key>CFBundleIdentifier</key><string>com.arxmcp.sealcontrol</string>"
+        "<key>CFBundleName</key><string>SealControl</string>"
+        "<key>CFBundlePackageType</key><string>APPL</string>"
+        "</dict></plist>\n"
+    )
+    results: dict[str, object] = {}
+    with tempfile.TemporaryDirectory() as tmp:
+        for arm, relative in (("macos", "Contents/MacOS"), ("resources", "Contents/Resources")):
+            app = Path(tmp) / f"{arm}.app"
+            (app / "Contents" / "MacOS").mkdir(parents=True)
+            (app / "Contents" / "Info.plist").write_text(plist, encoding="utf-8")
+            shutil.copy2(app_executable, app / "Contents" / "MacOS" / "host")
+            payload = app / relative / "payload"
+            payload.mkdir(parents=True, exist_ok=True)
+            (payload / "data.txt").write_text("hello\n", encoding="utf-8")
+            proc = subprocess.run(
+                [codesign, "--force", "--sign", AD_HOC_IDENTITY, "--timestamp=none", str(app)],
+                capture_output=True,
+                text=True,
+                timeout=600,
+                check=False,
+            )
+            results[arm] = {
+                "sealed": proc.returncode == 0,
+                "output": (proc.stderr or proc.stdout).strip()[-600:],
+            }
+    return results
+
+
+def measure_adhoc_signature_stability(payload_root: Path) -> dict[str, object]:
+    """Is an ad-hoc `codesign` byte-stable for the same input?
+
+    ADR open item 4 asks whether the ASSEMBLED artifact gets its own
+    determinism claim. m7's `verify_determinism` measures the UNSIGNED onedir;
+    assembly adds exactly one byte-changing step, so the honest way to extend
+    that claim is to measure whether that step is a function of its input.
+    One small file, signed twice into two copies, answers it in milliseconds
+    instead of re-running a ~75 s build. Reported, never assumed — and note
+    it measures THIS host's `codesign`, not a guarantee about all of them.
+    """
+    sample = payload_root / PROBE_EXE
+    identity = codesign_identity()
+    digests = []
+    with tempfile.TemporaryDirectory() as tmp:
+        for index in range(2):
+            # SAME basename, different directory. `codesign` derives the
+            # signing identifier from the filename when the Mach-O carries
+            # none, so signing `probe-0` and `probe-1` would differ for a
+            # reason that has nothing to do with determinism — the first
+            # revision of this measurement made exactly that mistake and
+            # reported a false negative.
+            copy_dir = Path(tmp) / str(index)
+            copy_dir.mkdir()
+            copy = copy_dir / sample.name
+            shutil.copy2(sample, copy)
+            sign_file(copy, identity, hardened=hardened_runtime_enabled())
+            digests.append(hashlib.sha256(copy.read_bytes()).hexdigest())
+    return {
+        "sample": sample.name,
+        "identity": identity,
+        "digests": digests,
+        "byte_stable": digests[0] == digests[1],
+    }
+
+
+def assemble(root: Path = DEFAULT_ROOT) -> dict[str, object]:
+    """Pre-sign, build the shell, place, re-seal — and record the evidence.
+
+    Consumes the onedir `build_once` already produced at ``root/dist``; it
+    does NOT rebuild it, so `make desktop-bundle` can prove the placed child
+    is byte-identical to the artifact `make desktop-package` emitted rather
+    than to a fresh build that merely resembles it (roadmap AC5).
+    """
+    if sys.platform != "darwin":
+        raise BuildError(f"`.app` assembly is macOS-only; this is {sys.platform!r}")
+    payload_root = root / "dist" / BUNDLE_NAME
+    if not (payload_root / CHILD_EXE).is_file():
+        raise BuildError(
+            f"no onedir at {payload_root}; run `make desktop-package` first "
+            "(assembly deliberately does not rebuild it — AC5 compares against "
+            "the artifact that gate produced)"
+        )
+    signing = presign_payload(payload_root)
+    stability = measure_adhoc_signature_stability(payload_root)
+    signed_manifest = file_manifest(payload_root)
+    app = build_app_shell(root)
+    placed = place_payload(app, payload_root)
+    placed_manifest = file_manifest(placed)
+    drift = manifest_diff(signed_manifest, placed_manifest)
+    if drift:
+        raise BuildError(
+            f"placed payload differs from the pre-signed onedir at {len(drift)} "
+            f"paths (first 10: {drift[:10]}); bundling must not substitute a "
+            "stale or rebuilt child"
+        )
+    seal = seal_app(app)
+    seal_control = measure_macos_seal_location_control(bundle_executable(app))
+    # AC6: m7's build-root string scan re-run over the ASSEMBLED payload, with
+    # the same embedded-PYZ depth the pre-bundle scan uses — a placement step
+    # that rewrote a path into a `.pyc` would otherwise hide from a raw walk.
+    scan = scan_tree(
+        placed,
+        default_needles(build_paths=(REPO_ROOT, root, app)),
+        _venv_python(build_venv_dir(root)),
+    )
+    _require_scan_coverage(scan)
+    libomp = libomp_inventory(placed)
+    _require_single_libomp(libomp)
+    if scan["hits"]:
+        raise BuildError(f"build-machine paths in the ASSEMBLED payload: {scan['hits']}")
+    report: dict[str, object] = {
+        "app": str(app),
+        "payload_placed": str(placed),
+        "payload_relative": str(placed.relative_to(app)),
+        "signing": signing,
+        "signature_stability": stability,
+        "seal": seal,
+        "seal_location_control": seal_control,
+        "manifest_entries": len(signed_manifest),
+        "payload_identical_to_onedir": not drift,
+        "scan": scan,
+        "libomp": libomp,
+        "tauri_cli_version": TAURI_CLI_VERSION,
+    }
+    (root / "assembly-report.json").write_text(
+        json.dumps(report, indent=2, sort_keys=True), encoding="utf-8"
+    )
+    _log(f"assembled {app} with the payload at {report['payload_relative']}")
+    if not seal["sealed"]:
+        # Loud, and phrased as the open question it is. Every nested Mach-O IS
+        # signed (see `signing` above); what failed is the OUTER bundle seal,
+        # and nothing here says anything about Gatekeeper or the notary.
+        _log(
+            "OUTER SEAL NOT APPLIED: codesign refuses to seal a bundle whose "
+            "Contents/MacOS carries non-Mach-O files. Nested Mach-O signing "
+            f"({signing['macho_signed']} files) succeeded. Location control: "
+            f"MacOS sealed={seal_control['macos']['sealed']}, "  # type: ignore[index]
+            f"Resources sealed={seal_control['resources']['sealed']}. "  # type: ignore[index]
+            "See adr-desktop-bundle-assembly.md Decision 2 and R3."
+        )
+    return report
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("build", "verify"))
+    parser.add_argument("command", choices=("build", "verify", "assemble"))
     parser.add_argument("--root", type=Path, default=DEFAULT_ROOT)
     args = parser.parse_args(argv)
     if args.command == "build":
         build_once(args.root)
+        return 0
+    if args.command == "assemble":
+        assemble(args.root)
         return 0
     report = verify_determinism(args.root)
     differing = set(report["determinism"]["differing"])  # type: ignore[index]

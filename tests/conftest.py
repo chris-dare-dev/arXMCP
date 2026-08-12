@@ -131,6 +131,7 @@ _OPT_IN_MARKERS: frozenset[str] = frozenset(
         "requires_wheel_build",
         "requires_desktop_stack",
         "requires_desktop_package",
+        "requires_desktop_bundle",
         "requires_bundled_model",
     }
 )

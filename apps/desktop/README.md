@@ -8,14 +8,21 @@ that shell drives (`server/desktop_child.py`), the frozen Python runtime
 its own plan when `ARXMCP_DESKTOP_LAUNCH_PLAN` is absent, which is the shape a
 double-clicked application has).
 
-Still NOT here: `.app` bundle assembly (`bundle.active` is `false` and no
-`resources`/`externalBin` is wired, so there is no double-clickable artifact
-yet — that is `desktop-distribution-m15`) and release signing/notarization
-(blocked on an Apple Developer ID certificate this project does not have).
+`.app` bundle assembly landed in `desktop-distribution-m15`: `bundle.active`
+is `true`, no `resources`/`externalBin`/`frameworks` is wired, and
+`make desktop-bundle` produces `arXMCP.app` with the frozen child placed
+inside it. See "Assembled artifact layout" below for what the artifact
+actually contains and for the two things about it that are recorded rather
+than claimed.
 
-The bundle-assembly decision itself is recorded, ahead of the assembly diff, in
+Still NOT here: release signing and notarization, blocked on an Apple
+Developer ID certificate this project does not have. The payload is signed
+ad-hoc, which is a real seal over each Mach-O and is **not** a distribution
+signature.
+
+The decision behind the layout is recorded in
 [`.claude/docs/adr-desktop-bundle-assembly.md`](../../.claude/docs/adr-desktop-bundle-assembly.md)
-(Proposed). It also records, with its sources, why the notarization question
+(Accepted). It also records, with its sources, why the notarization question
 cannot be answered here and what a build-and-submit trial would have to submit
 to answer it.
 
@@ -41,14 +48,90 @@ hardlink classes it names carry no privilege gradient here (the supervisor is
 not setuid/setgid) but are recorded as accepted residual risk rather than
 closed.
 
-m15 re-points the containment check at the bundle root — that is one of its
-acceptance criteria, and this section is the input it should not have to
-re-derive. Its ADR (linked above, Proposed) proposes placing the payload at
-`Contents/MacOS/arxmcp-desktop-child/`, i.e. keeping this sibling relation
-inside the bundle rather than replacing it; until the assembled artifact
-exists and that resolution is measured against it, treat the layout here as
-the pre-bundle one and the ADR as the decision record, not as a description of
-a built artifact.
+**This convention SURVIVED m15 rather than being replaced.** An earlier
+revision of this section, and of `child_payload_root()`'s doc comment,
+predicted that m15 would re-point the parent chain at
+`Contents/Resources/...`. Both were wrong. The ADR's Decision 2 places the
+payload at `Contents/MacOS/arxmcp-desktop-child/`, whose parent is the same
+directory the supervisor executable sits in, so the resolution above is the
+same expression in a source checkout and in an assembled bundle. The function
+body therefore did not change — which is a fact about the diff and not
+evidence about the artifact, so the resolution is measured against the real
+bundle instead (see below).
+
+## Assembled artifact layout
+
+Written from the artifact, not from the decision. Measured 2026-08-12 on
+macOS 26.6 / Apple Silicon, from `make desktop-bundle`:
+
+    arXMCP.app/
+      Contents/
+        Info.plist                       CFBundleExecutable=supervisor
+                                         CFBundleIdentifier=com.arxmcp.desktop
+                                         LSMinimumSystemVersion=14.0
+        MacOS/
+          supervisor                     the Tauri shell; minos 14.0
+          arxmcp-desktop-child/          m7's PyInstaller onedir, placed here
+            arxmcp-desktop-child         frozen server child; minos 11.0
+            arxmcp-desktop-probe         frozen verification probe; minos 11.0
+            _internal/                   ~5,300 files, 180 Mach-O, ~0.75 GB
+        Resources/                       icon only; NO payload
+        Frameworks/                      absent — not used by this layout
+
+Note the executable is `supervisor` (the cargo bin name), not `arXMCP`
+(`productName`, which names the bundle directory). Nothing should hard-code
+either: `desktop_package.bundle_executable()` reads `CFBundleExecutable`.
+
+**What the build does, in order** — `apps/desktop/pyinstaller/desktop_package.py
+assemble`: pre-sign every nested Mach-O bottom-up (deepest path first, one
+`codesign` per file, ad-hoc identity by default; **never** `codesign --deep`,
+which is the shortcut the ADR's evidence rows E4/E6 record surviving local
+verification and failing the notary) → `tauri build` for the shell → copy the
+payload into `Contents/MacOS/` → attempt the outer re-seal. `tauri-cli` is
+pinned (`cargo install --locked --version`) into `var/desktop-package/`.
+
+**Two results are recorded, not claimed. e4 inherits both.**
+
+1. **The outer bundle is not sealed.** `codesign` treats every file under
+   `Contents/MacOS` as a nested code object and refuses the bundle at the
+   first non-Mach-O one:
+
+       <app>: code object is not signed at all
+       In subcomponent: .../Contents/MacOS/arxmcp-desktop-child/_internal/tools/sbom.sh
+
+   This is a property of the location, not of this payload: a six-byte
+   `data.txt` reproduces it, and the same file under `Contents/Resources/`
+   seals and reports "valid on disk / satisfies its Designated Requirement".
+   `tests/test_desktop_bundle.py::TestOuterSeal` runs that A/B control on
+   every gate run. Every nested Mach-O IS signed; what is absent is the
+   bundle-level seal. This is exactly the condition the ADR's rejected
+   alternative R3 names as the trigger for revisiting the `frameworks` route,
+   and it reached that condition without a notary submission.
+
+2. **Gatekeeper path translocation is UNVERIFIED.** Setting
+   `com.apple.quarantine` on the bundle and launching it through `open(1)`
+   yields exit 0 and no process — LaunchServices refuses an ad-hoc-signed
+   bundle whose outer seal is invalid, so translocation never gets a chance
+   to occur. Reaching that path needs the Developer ID signature e4 is
+   blocked on. What IS measured: the bundle relocated whole to an arbitrary
+   path and launched through LaunchServices still resolves the payload as a
+   sibling of the executable. Translocation relocates the bundle as a unit
+   too, so that is evidence for the expectation — it is not the expectation
+   itself.
+
+**Two declared floors, and they disagree.** The Tauri shell reports
+`minos 14.0` (pinned by `.cargo/config.toml`); the two PyInstaller-produced
+executables report `minos 11.0`, because this project does not compile the
+CPython bootloader and inherits whatever the upstream wheel declared. Across
+the payload's 180 Mach-O files: 111 at 14.0, 36 at 12.0, 33 at 11.0. The
+frozen half therefore UNDER-declares the real floor, which the `faiss_cpu`
+`macosx_14_0_arm64` wheel fixes at 14.0. Nothing enforces `minos` at runtime
+(see "Supported boundary"), so this changes no behaviour — it removes an
+inference that the artifact agreed with itself. The values are pinned in
+`tests/test_desktop_bundle.py`.
+
+The `.app` is the only distribution target (`bundle.targets: ["app"]`). DMG
+versus zip is not decided here; only a notarization submission forces it.
 
 ## Supported boundary
 

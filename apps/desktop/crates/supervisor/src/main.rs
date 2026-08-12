@@ -58,6 +58,29 @@ const CHILD_COMPONENT: &str = "arxmcp-server-desktop-child";
 /// can RUN both implementations rather than eyeball them; it authors no plan,
 /// spawns nothing, and touches no filesystem state.
 const DATA_ROOT_PROBE_ARG: &str = "--print-data-root";
+/// Diagnostic-only argv flag (m15): prints, as JSON, the three values the
+/// self-authoring arm derives from this binary's own on-disk location —
+/// `std::env::current_exe()`, the payload root [`child_payload_root`] builds
+/// from it, and either the contained `child_argv[0]` or the exact refusal
+/// reason [`resolve_inside`] produced. It authors no plan, spawns nothing,
+/// creates no data root and touches no filesystem state beyond the optional
+/// output file below.
+///
+/// It exists because m15's AC4 must be MEASURED against a real assembled
+/// `.app` rather than inferred from the fact that `child_payload_root`'s body
+/// did not change. Without it the only way to observe the resolution is to
+/// launch the whole application, which loads models; with it the assertion is
+/// a subprocess that exits immediately.
+const CHILD_PLAN_PROBE_ARG: &str = "--print-child-plan";
+/// Where [`CHILD_PLAN_PROBE_ARG`] writes when stdout is not reachable — the
+/// Gatekeeper-path-translocation measurement launches the bundle through
+/// `open(1)`, which detaches stdout AND forwards no environment. So the
+/// destination is taken from `argv[2]` first and only then from this
+/// variable; `open -a App --args --print-child-plan /path/out.json` is the
+/// one shape that reaches a translocated launch at all. Deliberately NOT
+/// `ARXMCP_`-prefixed: the server FATALs on unknown `ARXMCP_*` vars in an
+/// operator shell (`DESKTOP_SUPERVISOR_BIN` precedent).
+const CHILD_PLAN_PROBE_OUT_ENV: &str = "DESKTOP_CHILD_PLAN_OUT";
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -304,10 +327,26 @@ fn compose_self_authored_plan(
     }
 }
 
-/// m7's onedir stages as a SIBLING of the supervisor executable. That is the
-/// convention m10 commits to and m15 replaces: once `.app` assembly lands,
-/// this parent chain becomes `Contents/MacOS` -> `Contents/Resources/...`
-/// and only this function changes.
+/// m7's onedir stages as a SIBLING of the supervisor executable. m15's
+/// bundle-assembly ADR (`.claude/docs/adr-desktop-bundle-assembly.md`,
+/// Decision 2, Accepted) KEEPS that convention inside the `.app` rather than
+/// replacing it: the payload is placed at
+/// `Contents/MacOS/arxmcp-desktop-child/`, whose parent is the same
+/// `Contents/MacOS` the supervisor executable sits in. So this function's
+/// body is the same expression in a source checkout and in an assembled
+/// bundle.
+///
+/// **An earlier revision of this comment predicted the opposite** — that m15
+/// would re-point this parent chain at `Contents/Resources/...` and that
+/// "only this function changes". Both halves were wrong, and the correction
+/// matters: `Contents/Resources` is where the one community-confirmed
+/// unsigned-nested-code notarization failure lives (ADR evidence row E4), so
+/// the executable directory was chosen deliberately, not by inertia.
+///
+/// A body that did not have to change is a fact about the diff, NOT evidence
+/// about the artifact. What the resolution actually does inside a real
+/// assembled bundle is MEASURED, not inferred, by
+/// `tests/test_desktop_bundle.py` through [`CHILD_PLAN_PROBE_ARG`].
 fn child_payload_root(supervisor_exe: &Path) -> Result<PathBuf, &'static str> {
     Ok(supervisor_exe
         .parent()
@@ -320,6 +359,78 @@ fn child_executable_name() -> String {
         format!("{CHILD_PAYLOAD_DIR}.exe")
     } else {
         CHILD_PAYLOAD_DIR.to_owned()
+    }
+}
+
+/// Build [`CHILD_PLAN_PROBE_ARG`]'s report. Split from the emitter so the
+/// unit tests can drive it against fabricated layouts without a subprocess.
+///
+/// `payload_root_is_symlink` is reported SEPARATELY from `error` even though
+/// [`resolve_inside`] already refuses a symlinked root, because m15's ADR
+/// requires the assembled artifact to be checked for a symlink introduced by
+/// the copy or the re-seal. Reading the refusal string would conflate "the
+/// assembler created a symlink" with "the payload is missing".
+fn child_plan_probe(supervisor_exe: &Path) -> serde_json::Value {
+    let root = match child_payload_root(supervisor_exe) {
+        Ok(root) => root,
+        Err(reason) => {
+            return serde_json::json!({
+                "supervisor_exe": wire_path(supervisor_exe),
+                "payload_root": serde_json::Value::Null,
+                "payload_root_is_symlink": serde_json::Value::Null,
+                "child_argv0": serde_json::Value::Null,
+                "error": reason,
+            });
+        }
+    };
+    let is_symlink = fs::symlink_metadata(&root)
+        .map(|meta| meta.file_type().is_symlink())
+        .ok();
+    let (child, error) = match resolve_inside(&root, &root.join(child_executable_name())) {
+        Ok(path) => (
+            serde_json::Value::String(wire_path(&path)),
+            serde_json::Value::Null,
+        ),
+        Err(reason) => (
+            serde_json::Value::Null,
+            serde_json::Value::String(reason.to_owned()),
+        ),
+    };
+    serde_json::json!({
+        "supervisor_exe": wire_path(supervisor_exe),
+        "payload_root": wire_path(&root),
+        "payload_root_is_symlink": is_symlink,
+        "child_argv0": child,
+        "error": error,
+    })
+}
+
+/// Write the probe report to `DESKTOP_CHILD_PLAN_OUT` when set, else stdout.
+///
+/// A `current_exe()` failure is reported as a report rather than as a
+/// `fail()`: under path translocation the interesting outcome is exactly what
+/// this call returns, so swallowing it into exit code 2 would discard the
+/// measurement this probe exists to make.
+fn emit_child_plan_probe() {
+    let report = match std::env::current_exe() {
+        Ok(exe) => child_plan_probe(&exe),
+        Err(err) => serde_json::json!({
+            "supervisor_exe": serde_json::Value::Null,
+            "payload_root": serde_json::Value::Null,
+            "payload_root_is_symlink": serde_json::Value::Null,
+            "child_argv0": serde_json::Value::Null,
+            "error": format!("current_exe unavailable: {err}"),
+        }),
+    };
+    let text = report.to_string();
+    let destination = std::env::args_os()
+        .nth(2)
+        .or_else(|| std::env::var_os(CHILD_PLAN_PROBE_OUT_ENV));
+    match destination {
+        Some(path) => {
+            let _ = fs::write(PathBuf::from(path), text.as_bytes());
+        }
+        None => println!("{text}"),
     }
 }
 
@@ -478,6 +589,13 @@ fn main() {
             }
             Err(reason) => fail(reason),
         }
+    }
+    // m15's AC4 probe. Same placement rationale as the data-root probe above:
+    // before any plan work, so nothing it reports can have been perturbed by
+    // lock acquisition, event recording or window setup.
+    if std::env::args_os().nth(1).as_deref() == Some(std::ffi::OsStr::new(CHILD_PLAN_PROBE_ARG)) {
+        emit_child_plan_probe();
+        std::process::exit(0);
     }
     let (plan, plan_source) = load_plan();
     let root = PathBuf::from(&plan.data_root);

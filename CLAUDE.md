@@ -255,11 +255,12 @@ change touches more than ~3 files or adds new tests, run the pipeline.
   as well as to `pyproject.toml`** — registering it alone is what created
   this bug. `eval` is deliberately excluded (it is opt-OUT: `make eval`
   needs it running by default).
-- **Twelve test markers exist** (registered in `pyproject.toml`
-  `[tool.pytest.ini_options].markers`; the six added since this list was
+- **Thirteen test markers exist** (registered in `pyproject.toml`
+  `[tool.pytest.ini_options].markers`; the seven added since this list was
   written are `requires_mineru`, `requires_restic`,
   `requires_wheel_build`, `requires_desktop_stack`,
-  `requires_desktop_package` and `requires_bundled_model`).
+  `requires_desktop_package`, `requires_desktop_bundle` and
+  `requires_bundled_model`).
   `tests/test_marker_doc_consistency.py` re-derives this count and the
   enumeration below from `pyproject.toml`, so a new marker cannot land
   without amending this section:
@@ -343,6 +344,35 @@ change touches more than ~3 files or adds new tests, run the pipeline.
     build gets its own `PYINSTALLER_CONFIG_DIR`, so the second build
     reproduces the native binaries rather than replaying the first
     build's bincache.
+  - **`requires_desktop_bundle`** — desktop-distribution-m15 macOS
+    application-bundle gate, and the **first committed gate that builds
+    BOTH the Rust binaries and the frozen child in one session** — which
+    is what retires m10's fixture-in-the-onedir-shape substitution rather
+    than inheriting it. `make desktop-bundle` provisions the pinned
+    `tauri-cli` (`cargo install --locked --version` into
+    `var/desktop-package/tauri-cli`; **network + several minutes on the
+    first run**), builds the m7 onedir, then assembles: bottom-up ad-hoc
+    `codesign` of every nested Mach-O (**never** `codesign --deep`),
+    `tauri build` for the shell, placement at
+    `Contents/MacOS/arxmcp-desktop-child/` per
+    [`adr-desktop-bundle-assembly.md`](.claude/docs/adr-desktop-bundle-assembly.md)
+    Decision 2, and an **attempted** outer re-seal. Two results are
+    recorded rather than asserted away: `codesign` **cannot seal** a
+    bundle whose `Contents/MacOS` carries non-Mach-O files (proved by an
+    A/B control — one plain `data.txt`, sealed under `Resources`, refused
+    under `MacOS`), and Gatekeeper **path translocation is UNVERIFIED**
+    because a quarantined ad-hoc-signed bundle does not launch at all.
+    The gate measures the artifact: `child_payload_root()` /
+    `resolve_inside()` through the supervisor's `--print-child-plan`
+    probe plus its symlinked-root negative arm, placed-child byte
+    identity against the onedir, m7's string scan and m8's single-`libomp`
+    guard re-run over the PLACED tree, m9's `minos` over the bundled
+    binary, and the PyInstaller executables' own `minos` — **11.0**,
+    three majors below the declared 14.0 floor, measured and pinned, not
+    reconciled. macOS only. Skipped by default; opt-in via `pytest -m
+    requires_desktop_bundle`, or run `make desktop-bundle-check` (sets
+    `DESKTOP_BUNDLE_GATE=1` so any skip fails the session). An absent
+    artifact RAISES, it does not skip.
   - **`requires_bundled_model`** — desktop-distribution-m8 real-model
     gate: loads the REAL BGE-M3 + BGE-reranker-v2-m3 weights (~4.6 GB)
     from the operator's EXTERNAL HuggingFace cache, compares the

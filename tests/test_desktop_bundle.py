@@ -1,0 +1,693 @@
+"""The assembled macOS `.app` — measured, not inferred (desktop-distribution-m15).
+
+Implements `.claude/docs/adr-desktop-bundle-assembly.md` (Accepted): Tauri
+builds the shell, `desktop_package.py` pre-signs the m7 onedir bottom-up,
+places it at `Contents/MacOS/arxmcp-desktop-child/` (Decision 2) and attempts
+the outer re-seal.
+
+**Why this module exists at all.** Decision 2 leaves
+`child_payload_root()`'s body already correct for the bundle, because
+`Contents/MacOS/supervisor`'s parent IS `Contents/MacOS`. The owner's
+acceptance record is explicit that this does not make AC4 free: *"A diff that
+changes nothing there is not evidence that nothing needed to change."* So the
+gated half of this file drives the REAL supervisor binary out of the REAL
+assembled bundle through `--print-child-plan` and reads what it resolved.
+
+Two things the milestone deliberately does NOT claim, both measured rather
+than assumed — see `TestOuterSeal` and `TestRelocation`:
+
+- The outer `.app` is **not sealed**. `codesign` treats every file under
+  `Contents/MacOS` as a nested code object and refuses the bundle at the
+  first non-Mach-O one. Every nested Mach-O IS signed, ad-hoc.
+- Gatekeeper **path translocation** could not be induced on this host, so the
+  `current_exe()` behaviour under translocation is UNVERIFIED. What IS
+  measured is the weaker, real property: relocation of the whole bundle to an
+  arbitrary path, launched through LaunchServices, keeps the sibling relation.
+
+Nothing here may describe the artifact as notarization-ready, Gatekeeper-ready
+or signable-as-is; `tests/test_desktop_notarization_claims.py` scans this file
+and fails on such a claim.
+
+The gated class needs an artifact from `make desktop-bundle`. Following the
+m8 `requires_bundled_model` precedent an ABSENT bundle RAISES rather than
+skips: a check that degrades to a silent skip is the failure mode the whole
+milestone exists to catch.
+"""
+
+from __future__ import annotations
+
+import importlib.util
+import json
+import os
+import plistlib
+import re
+import shutil
+import stat
+import struct
+import subprocess
+import time
+import zlib
+from pathlib import Path
+
+import pytest
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+PYINSTALLER_DIR = REPO_ROOT / "apps" / "desktop" / "pyinstaller"
+SUPERVISOR_SRC = REPO_ROOT / "apps" / "desktop" / "crates" / "supervisor" / "src" / "main.rs"
+TAURI_CONF = REPO_ROOT / "apps" / "desktop" / "crates" / "supervisor" / "tauri.conf.json"
+ICON = REPO_ROOT / "apps" / "desktop" / "crates" / "supervisor" / "icons" / "icon.png"
+FLOOR = "14.0"
+
+#: `make desktop-bundle-check` sets this so ANY skip fails the session
+#: (DESKTOP_PACKAGE_GATE / DESKTOP_BUNDLED_MODEL_GATE precedent).
+GATE_ENV = "DESKTOP_BUNDLE_GATE"
+
+#: AC10. The PyInstaller-produced executables' own `minos`, MEASURED
+#: 2026-08-12 against a real build (PyInstaller 6.21.0, CPython 3.12.13, macOS
+#: arm64) and pinned here because nothing in this repo had ever read it.
+#:
+#: **It is 11.0, not 14.0, and that is the finding — not a typo.** The Rust
+#: half is pinned to the floor by `.cargo/config.toml`'s
+#: `MACOSX_DEPLOYMENT_TARGET` and m9 reads it back; the CPython/PyInstaller
+#: half is whatever the upstream bootloader wheel was built against, and this
+#: project does not compile it. So the artifact carries TWO different declared
+#: floors, and the lower one is three majors below the 14.0 the `faiss_cpu`
+#: `macosx_14_0_arm64` wheel actually requires — i.e. the frozen executables
+#: UNDER-declare the real floor. Nothing enforces `minos` at runtime (the
+#: README records dyld loading a `minos 30.0` image on this host), so this
+#: changes no behaviour; it removes an inference. The declared 14.0 floor
+#: rests on the Rust binaries plus the wheel tag, and never rested on these.
+FROZEN_EXECUTABLE_MINOS = {
+    "arxmcp-desktop-child": "11.0",
+    "arxmcp-desktop-probe": "11.0",
+}
+
+#: The lowest `minos` anywhere in the payload's Mach-O closure, same build.
+#: 180 Mach-O files: 111 at 14.0, 36 at 12.0, 33 at 11.0.
+PAYLOAD_MINOS_FLOOR = "11.0"
+
+_MINOS = re.compile(r"^\s*minos\s+(\S+)\s*$", re.MULTILINE)
+
+
+def _load_desktop_package():
+    """Import the build driver by path — it lives outside every packaged tree
+    (`apps/desktop/pyinstaller/`), so there is no importable module name."""
+    spec = importlib.util.spec_from_file_location(
+        "_m15_desktop_package", PYINSTALLER_DIR / "desktop_package.py"
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load desktop_package.py from {PYINSTALLER_DIR}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+dp = _load_desktop_package()
+
+
+def _declared_minos(binary: Path) -> list[str]:
+    """Every `minos` a Mach-O's build-version load commands declare.
+
+    RAISES rather than returning empty, for m9's reason: an empty parse is
+    indistinguishable from a clean read of a binary with no build version.
+    """
+    otool = shutil.which("otool")
+    if otool is None:
+        raise RuntimeError("otool is required (xcode-select --install)")
+    result = subprocess.run(
+        [otool, "-l", str(binary)], capture_output=True, text=True, timeout=120
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"otool -l {binary} failed: {result.stderr.strip()!r}")
+    found = _MINOS.findall(result.stdout)
+    if not found:
+        raise RuntimeError(f"no minos in otool -l {binary}: an absent build version is a failure")
+    return found
+
+
+# ---------------------------------------------------------------------------
+# Fast half — runs on every `make test`, needs no artifact.
+# ---------------------------------------------------------------------------
+
+
+class TestBundlerConfiguration:
+    """Decision 1 step 3: the shell carries the payload through NO stock key."""
+
+    def test_bundler_is_active(self):
+        conf = json.loads(TAURI_CONF.read_text(encoding="utf-8"))
+        assert conf["bundle"]["active"] is True, (
+            "bundle.active must be true or nothing produces a .app at all"
+        )
+
+    def test_no_payload_bearing_bundle_key_is_configured(self):
+        """`resources` / `externalBin` / `frameworks` are the three rejected
+        mechanisms (ADR R1-R3). Their ABSENCE is the decision, so it is
+        asserted rather than left implicit — adding one later would silently
+        re-enter a rejected alternative through a config edit."""
+        bundle = json.loads(TAURI_CONF.read_text(encoding="utf-8"))["bundle"]
+        for key in ("resources", "externalBin"):
+            assert key not in bundle, f"bundle.{key} is a rejected mechanism (ADR R1/R2)"
+        assert "frameworks" not in bundle.get("macOS", {}), "frameworks is ADR R3, not chosen"
+
+    def test_distribution_container_is_the_app_only(self):
+        """ADR 'does NOT decide' item 3, resolved: `.app` only, no DMG. Only a
+        notarization submission forces the container question, and that is
+        e4's; building a DMG here would add an unexercised artifact."""
+        assert json.loads(TAURI_CONF.read_text(encoding="utf-8"))["bundle"]["targets"] == ["app"]
+
+    def test_minimum_system_version_still_declares_the_floor(self):
+        conf = json.loads(TAURI_CONF.read_text(encoding="utf-8"))
+        assert conf["bundle"]["macOS"]["minimumSystemVersion"] == FLOOR
+
+
+class TestIconIsDecodable:
+    """Regression for a real m15 finding.
+
+    The committed `icons/icon.png` was a 1x1 PNG whose IDAT chunk CRC did not
+    match its data. Nothing had ever decoded it, because `bundle.active` was
+    `false` for the whole life of the file — the first `tauri build` failed
+    outright on it. A corrupt icon is invisible to every other gate in this
+    repo, so it gets one here.
+    """
+
+    def test_every_png_chunk_crc_matches(self):
+        data = ICON.read_bytes()
+        assert data[:8] == b"\x89PNG\r\n\x1a\n"
+        offset, seen = 8, []
+        while offset < len(data):
+            (length,) = struct.unpack(">I", data[offset : offset + 4])
+            tag = data[offset + 4 : offset + 8]
+            body = data[offset + 4 : offset + 8 + length]
+            (stored,) = struct.unpack(">I", data[offset + 8 + length : offset + 12 + length])
+            assert stored == zlib.crc32(body) & 0xFFFFFFFF, f"{tag!r} chunk CRC mismatch"
+            seen.append(tag)
+            offset += length + 12
+        assert seen[0] == b"IHDR" and seen[-1] == b"IEND"
+
+    def test_icon_is_large_enough_to_be_an_app_icon(self):
+        width, height = struct.unpack(">II", ICON.read_bytes()[16:24])
+        assert (width, height) >= (256, 256), (
+            f"{width}x{height} icon: the bundler derives every icns size from this one"
+        )
+
+
+class TestToolchainPinning:
+    """ADR 'Toolchain onboarding': unpinned is ruled out, mechanism is open.
+
+    Resolved as `cargo install --locked --version <pin> --root <build root>`:
+    the pin lives next to the code that uses it, `--locked` fixes the CLI's
+    own dependency resolution, and `--root` keeps it out of `~/.cargo/bin` so
+    the gate cannot silently consume whatever a developer installed globally.
+    """
+
+    def test_tauri_cli_version_is_pinned_to_an_exact_version(self):
+        assert re.fullmatch(r"\d+\.\d+\.\d+", dp.TAURI_CLI_VERSION)
+
+    def test_the_install_is_locked_rooted_and_versioned(self):
+        source = (PYINSTALLER_DIR / "desktop_package.py").read_text(encoding="utf-8")
+        body = source.split("def ensure_tauri_cli")[1].split("\ndef ")[0]
+        for flag in ("--locked", "--version", "--root"):
+            assert f'"{flag}"' in body, f"ensure_tauri_cli must pass {flag}"
+
+    def test_the_cli_is_installed_under_the_gitignored_build_root(self):
+        assert dp.DEFAULT_ROOT in dp.tauri_cli_bin().parents
+
+
+class TestPreSigningIsBottomUpNotDeep:
+    """The owner's acceptance record: pre-signing is bottom-up over every
+    nested Mach-O, and `codesign --deep` is not a substitute and is not
+    permitted as one."""
+
+    def test_inventory_is_ordered_deepest_first(self, tmp_path: Path):
+        for relative in ("top", "a/mid", "a/b/deep", "a/b/c/deepest"):
+            path = tmp_path / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"\xcf\xfa\xed\xfe" + b"\0" * 32)
+        depths = [
+            len(p.relative_to(tmp_path).parts) for p in dp.macho_inventory(tmp_path)
+        ]
+        assert depths == sorted(depths, reverse=True), (
+            f"signing order {depths} is not deepest-first; a container sealed "
+            "before the code it embeds carries a seal over bytes that then change"
+        )
+
+    def test_deep_never_appears_in_a_signing_command(self):
+        """`--deep` is permitted in exactly one place — the read-only
+        `codesign_verify` helper — and nowhere that mutates a signature.
+
+        Checked over the AST's string CONSTANTS rather than over raw text,
+        minus each function's docstring. The prose in `presign_payload` names
+        `--deep` precisely in order to forbid it, and a substring scan cannot
+        tell a flag from an explanation of why that flag is banned.
+        """
+        import ast
+
+        tree = ast.parse((PYINSTALLER_DIR / "desktop_package.py").read_text(encoding="utf-8"))
+        signing = {"sign_file", "presign_payload", "seal_app"}
+        checked = set()
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.FunctionDef) or node.name not in signing:
+                continue
+            checked.add(node.name)
+            docstring = ast.get_docstring(node, clean=False)
+            literals = [
+                child.value
+                for child in ast.walk(node)
+                if isinstance(child, ast.Constant)
+                and isinstance(child.value, str)
+                and child.value != docstring
+            ]
+            assert not any("--deep" in text for text in literals), (
+                f"{node.name} passes --deep to codesign; the owner's acceptance "
+                "record forbids it as a substitute for bottom-up per-file signing"
+            )
+        assert checked == signing, f"functions not found: {signing - checked}"
+
+    def test_membership_is_decided_by_magic_bytes_not_extension(self, tmp_path: Path):
+        macho = tmp_path / "no-extension"
+        macho.write_bytes(b"\xcf\xfa\xed\xfe" + b"\0" * 16)
+        text = tmp_path / "looks_like.dylib"
+        text.write_text("not a mach-o", encoding="utf-8")
+        assert dp.is_macho(macho) is True
+        assert dp.is_macho(text) is False
+
+    def test_a_vacuous_signing_run_is_refused(self, tmp_path: Path):
+        """Zero Mach-O files means a broken walk, not a clean payload."""
+        (tmp_path / "data.txt").write_text("x", encoding="utf-8")
+        with pytest.raises(dp.BuildError, match="no Mach-O files"):
+            dp.presign_payload(tmp_path)
+
+
+class TestSigningIdentityDecision:
+    """ADR 'does NOT decide' item 2, resolved: ad-hoc by default.
+
+    No Developer ID Application certificate exists in this project — that is
+    the certificate e4 is blocked on — and the only codesigning identity on
+    the development host is an *Apple Development* certificate, which is not a
+    distribution identity either. Ad-hoc (`-`) is a real signature that seals
+    each Mach-O and makes local tampering detectable; it carries no identity,
+    cannot be notarized, and says nothing about Gatekeeper. Skipping signing
+    entirely was rejected because it would leave the pre-signing step itself
+    unexercised until e4.
+    """
+
+    def test_default_identity_is_ad_hoc(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.delenv(dp.CODESIGN_IDENTITY_ENV, raising=False)
+        assert dp.codesign_identity() == "-"
+
+    def test_identity_is_overridable_for_when_a_certificate_exists(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setenv(dp.CODESIGN_IDENTITY_ENV, "Developer ID Application: Someone (TEAM)")
+        assert dp.codesign_identity().startswith("Developer ID Application")
+
+    def test_hardened_runtime_is_off_by_default_and_opt_in(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Hardened runtime is a notarization prerequisite, so it belongs with
+        the trial that needs it. Enabling it here would require entitlements
+        this project has never authored for a CPython closure."""
+        monkeypatch.delenv(dp.HARDENED_RUNTIME_ENV, raising=False)
+        assert dp.hardened_runtime_enabled() is False
+        monkeypatch.setenv(dp.HARDENED_RUNTIME_ENV, "1")
+        assert dp.hardened_runtime_enabled() is True
+
+
+class TestLayoutConstantsAgreeAcrossLanguages:
+    def test_python_bundle_name_matches_the_rust_payload_dir(self):
+        """The Python assembler and the Rust resolver must name the same
+        directory or the assembled app refuses to launch. Read from source
+        rather than duplicated in a fixture."""
+        rust = SUPERVISOR_SRC.read_text(encoding="utf-8")
+        match = re.search(r'const CHILD_PAYLOAD_DIR: &str = "([^"]+)"', rust)
+        assert match, "CHILD_PAYLOAD_DIR not found in the supervisor source"
+        assert match.group(1) == dp.BUNDLE_NAME
+
+    def test_the_stale_replacement_prediction_is_gone(self):
+        """m10's doc comment predicted m15 would re-point this parent chain at
+        `Contents/Resources/...`. Decision 2 does the opposite. The stale
+        sentence is corrected in `main.rs`, and this pins the correction so it
+        cannot be reintroduced by a revert."""
+        rust = SUPERVISOR_SRC.read_text(encoding="utf-8")
+        body = rust.split("fn child_payload_root")[0].rsplit("///", 40)[0]
+        assert "Contents/MacOS/arxmcp-desktop-child" in rust
+        assert "-> `Contents/Resources/...`" not in body
+
+
+class TestPlacementDoesNotIntroduceASymlinkRoot:
+    """The second thing the owner's acceptance record requires proving.
+
+    `resolve_inside()` refuses a symlinked payload root outright (m10's M13
+    fix), so an assembler that materialised the root as a link would produce
+    an `.app` that cannot launch. Unit-level here; re-measured against the
+    real artifact in the gated class.
+    """
+
+    def test_placed_root_is_a_real_directory(self, tmp_path: Path):
+        payload = tmp_path / "src" / dp.BUNDLE_NAME
+        (payload / "_internal").mkdir(parents=True)
+        (payload / dp.CHILD_EXE).write_bytes(b"\xcf\xfa\xed\xfe")
+        (payload / "_internal" / "link").symlink_to("data")
+        app = tmp_path / "T.app"
+        (app / "Contents" / "MacOS").mkdir(parents=True)
+        placed = dp.place_payload(app, payload)
+        assert placed.is_dir() and not placed.is_symlink()
+        assert (placed / "_internal" / "link").is_symlink(), (
+            "INTERNAL symlinks must survive the copy — PyInstaller emits them"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Gated half — needs the real artifact from `make desktop-bundle`.
+# ---------------------------------------------------------------------------
+
+
+def _app() -> Path:
+    app = dp.app_bundle_path()
+    if not app.is_dir():
+        raise RuntimeError(
+            f"no assembled bundle at {app}; run `make desktop-bundle`. An absent "
+            "artifact RAISES rather than skips (m8 requires_bundled_model precedent) "
+            "so missing evidence cannot hide behind a green run."
+        )
+    return app
+
+
+def _report() -> dict:
+    path = dp.DEFAULT_ROOT / "assembly-report.json"
+    if not path.is_file():
+        raise RuntimeError(f"no assembly report at {path}; run `make desktop-bundle`")
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _probe(executable: Path, out: Path, *, use_open: bool = False) -> dict:
+    """Run `--print-child-plan` and return its report."""
+    if use_open:
+        subprocess.run(
+            ["open", "-a", str(executable), "--args", "--print-child-plan", str(out)],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+        for _ in range(40):
+            if out.is_file():
+                break
+            time.sleep(1)
+        if not out.is_file():
+            return {}
+        return json.loads(out.read_text(encoding="utf-8"))
+    proc = subprocess.run(
+        [str(executable), "--print-child-plan"], capture_output=True, text=True, timeout=120
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(f"probe failed ({proc.returncode}): {proc.stderr!r}")
+    return json.loads(proc.stdout)
+
+
+@pytest.mark.requires_desktop_bundle
+class TestAssembledArtifact:
+    def test_layout_places_the_payload_beside_the_supervisor(self):
+        """AC4's structural half, and Decision 2 read off the artifact."""
+        app = _app()
+        executable = dp.bundle_executable(app)
+        payload = app / "Contents" / "MacOS" / dp.BUNDLE_NAME
+        assert executable.is_file()
+        assert payload.is_dir()
+        assert payload.parent == executable.parent, (
+            "the ADR's portable invariant is 'the payload sits beside the "
+            "supervisor executable'; that is what makes child_payload_root() work"
+        )
+        assert (payload / dp.CHILD_EXE).is_file()
+
+    def test_payload_root_is_not_a_symlink(self):
+        """The owner's acceptance record, item (b): prove that assembly or
+        re-seal introduced no symlink at the payload root."""
+        payload = _app() / "Contents" / "MacOS" / dp.BUNDLE_NAME
+        assert not payload.is_symlink()
+        assert not stat.S_ISLNK(payload.lstat().st_mode)
+
+    def test_supervisor_resolves_the_child_inside_the_bundle(self, tmp_path: Path):
+        """AC4, MEASURED. Runs the real bundled binary; asserts on what its
+        own `child_payload_root()` + `resolve_inside()` returned."""
+        app = _app()
+        report = _probe(dp.bundle_executable(app), tmp_path / "plan.json")
+        assert report["error"] is None, report
+        assert report["payload_root_is_symlink"] is False
+        child = Path(report["child_argv0"])
+        assert child.is_file()
+        assert app.resolve() in child.parents, (
+            f"child_argv0 {child} resolved OUTSIDE the bundle {app}"
+        )
+        assert child.parent.name == dp.BUNDLE_NAME
+        assert Path(report["supervisor_exe"]).parent == app.resolve() / "Contents" / "MacOS"
+
+    def test_a_symlinked_payload_root_is_still_refused(self, tmp_path: Path):
+        """AC4's negative arm, against the BUNDLE root rather than the onedir
+        root m10 could only reach. Operates on a copy of the shell so the real
+        artifact is untouched; the payload is not copied (0.75 GB) because the
+        refusal happens before the root is ever read through."""
+        app = _app()
+        fake = tmp_path / "arXMCP.app"
+        (fake / "Contents" / "MacOS").mkdir(parents=True)
+        shutil.copy2(app / "Contents" / "Info.plist", fake / "Contents" / "Info.plist")
+        shutil.copy2(dp.bundle_executable(app), dp.bundle_executable(fake))
+        elsewhere = tmp_path / "evil"
+        (elsewhere / dp.CHILD_EXE).parent.mkdir(parents=True)
+        shutil.copy2(
+            app / "Contents" / "MacOS" / dp.BUNDLE_NAME / dp.CHILD_EXE,
+            elsewhere / dp.CHILD_EXE,
+        )
+        (fake / "Contents" / "MacOS" / dp.BUNDLE_NAME).symlink_to(elsewhere)
+        report = _probe(dp.bundle_executable(fake), tmp_path / "plan.json")
+        assert report["payload_root_is_symlink"] is True
+        assert report["child_argv0"] is None
+        assert "symlink" in report["error"], report
+
+    def test_placed_child_is_byte_identical_to_the_onedir(self):
+        """AC5. Re-derived here rather than trusting the build's own flag, so
+        the assertion survives a change to `assemble`."""
+        report = _report()
+        assert report["payload_identical_to_onedir"] is True
+        onedir = dp.DEFAULT_ROOT / "dist" / dp.BUNDLE_NAME
+        placed = _app() / "Contents" / "MacOS" / dp.BUNDLE_NAME
+        drift = dp.manifest_diff(dp.file_manifest(onedir), dp.file_manifest(placed))
+        assert drift == [], f"bundling substituted a different child at {drift[:10]}"
+
+    def test_m7_and_m8_guards_hold_over_the_assembled_payload(self):
+        """AC6: the build-root string scan (including embedded PYZ `.pyc`
+        bytes), the single-OpenMP inventory, and `direct_url.json`
+        sanitization, re-run against the PLACED tree rather than the pre-bundle
+        onedir."""
+        report = _report()
+        assert report["scan"]["hits"] == {}
+        assert report["scan"]["files_scanned"] > 1000
+        assert report["scan"]["embedded"]["pyc_entries"] > 0, (
+            "a vacuous embedded scan is not a clean one"
+        )
+        dp._require_single_libomp(report["libomp"])
+        placed = _app() / "Contents" / "MacOS" / dp.BUNDLE_NAME
+        assert list(placed.rglob("direct_url.json")) == []
+
+    def test_bundled_supervisor_declares_the_floor(self):
+        """AC7: m9's regression, re-run over the ARTIFACT's copy of the binary
+        rather than over `target/release/`."""
+        app = _app()
+        assert set(_declared_minos(dp.bundle_executable(app))) == {FLOOR}
+        plist = plistlib.loads((app / "Contents" / "Info.plist").read_bytes())
+        assert plist["LSMinimumSystemVersion"] == FLOOR
+
+    def test_frozen_executables_minos_is_measured_and_pinned(self):
+        """AC10 — the gap m15's research surfaced, closed by measurement.
+
+        A mismatch here is not automatically a regression: it means the
+        PyInstaller bootloader's own deployment target moved, and the pin plus
+        the reasoning in `FROZEN_EXECUTABLE_MINOS` must be re-recorded together.
+        """
+        payload = _app() / "Contents" / "MacOS" / dp.BUNDLE_NAME
+        measured = {
+            name: sorted(set(_declared_minos(payload / name)))
+            for name in FROZEN_EXECUTABLE_MINOS
+        }
+        assert measured == {k: [v] for k, v in FROZEN_EXECUTABLE_MINOS.items()}, (
+            f"the frozen executables now declare {measured}; re-record the pin AND "
+            f"the note above it, which explains why it differs from the {FLOOR} floor"
+        )
+
+    def test_the_two_declared_floors_disagree_and_that_is_recorded(self):
+        """The consequence of the pin above, asserted so it cannot be quietly
+        forgotten: the assembled artifact carries two different declared
+        minimums, and the frozen half is the lower one."""
+        app = _app()
+        rust = set(_declared_minos(dp.bundle_executable(app)))
+        frozen = set(FROZEN_EXECUTABLE_MINOS.values())
+        assert rust == {FLOOR}
+        assert frozen != rust, (
+            "if these now agree, the artifact improved — update this test and the "
+            "README's 'Assembled artifact layout' section in the same commit"
+        )
+        assert PAYLOAD_MINOS_FLOOR < FLOOR
+
+    def test_the_placed_payload_still_executes_after_signing(self, tmp_path: Path):
+        """The payload is signed in place and then copied. A signature applied
+        in the wrong order, or a copy that broke one, shows up as a killed
+        process — so run the frozen probe out of the ASSEMBLED bundle.
+
+        This is the strongest launch evidence m15 has that does not need the
+        external model cache; it is NOT the full double-click-to-ready-server
+        claim, which needs weights and is m8's / e4's surface.
+        """
+        payload = _app() / "Contents" / "MacOS" / dp.BUNDLE_NAME
+        proc = subprocess.run(
+            [str(payload / dp.PROBE_EXE)],
+            input=json.dumps({"latex": ["x^2"]}),
+            capture_output=True,
+            text=True,
+            timeout=600,
+            env={"PATH": "/usr/bin:/bin", "HOME": str(Path.home())},
+        )
+        assert proc.returncode == 0, (
+            f"the signed, placed frozen probe did not run: rc={proc.returncode} "
+            f"stderr={proc.stderr[-2000:]!r}"
+        )
+        assert json.loads(proc.stdout)
+
+
+@pytest.mark.requires_desktop_bundle
+class TestOuterSeal:
+    """What Decision 1 step 4 asks for, and what actually happens.
+
+    Recorded rather than asserted-away. Decision 2 is Accepted and is not
+    relitigated here; this class is the measurement the owner and e4 need in
+    order to decide whether it should be, and it is exactly the condition the
+    ADR's R3 names as the trigger for revisiting the `frameworks` route.
+    """
+
+    def test_every_nested_macho_was_signed(self):
+        signing = _report()["signing"]
+        assert signing["macho_signed"] >= 100
+        assert signing["ad_hoc"] is True
+        assert signing["executables_verified"] == sorted([dp.CHILD_EXE, dp.PROBE_EXE])
+
+    def test_the_outer_seal_was_attempted_and_its_outcome_recorded(self):
+        seal = _report()["seal"]
+        assert seal["attempted"] is True
+        assert seal["sealed"] is False, (
+            "the outer seal now SUCCEEDS at Contents/MacOS. That is a change in "
+            "macOS or in the payload's contents, not a bug — re-record it here, in "
+            "the assembly report's rationale, and in apps/desktop/README.md."
+        )
+        assert "not signed at all" in str(seal["error"])
+
+    def test_the_location_control_separates_layout_from_payload(self):
+        """The A/B that makes the claim above a measurement rather than a
+        guess: one plain `data.txt`, two locations, nothing arXMCP-specific."""
+        control = _report()["seal_location_control"]
+        assert control["macos"]["sealed"] is False
+        assert control["resources"]["sealed"] is True, (
+            "if a plain data file under Contents/Resources also fails to seal, the "
+            "finding is about this host's codesign, not about the layout"
+        )
+
+    def test_ad_hoc_signing_is_byte_stable(self):
+        """ADR 'does NOT decide' item 4, resolved.
+
+        m7's `verify_determinism` measures the UNSIGNED onedir. Assembly adds
+        exactly one byte-changing step, so extending the determinism claim to
+        the assembled artifact reduces to: is that step a function of its
+        input? Measured on this host, for this identity — not a guarantee
+        about all `codesign` implementations, which is why it is recorded as
+        its own axis rather than folded into m7's manifest claim.
+        """
+        stability = _report()["signature_stability"]
+        assert stability["byte_stable"] is True, stability
+
+
+@pytest.mark.requires_desktop_bundle
+class TestRelocation:
+    """Gatekeeper path translocation: attempted, NOT achieved, recorded.
+
+    The owner's acceptance record asks specifically whether
+    `std::env::current_exe()` still resolves to `Contents/MacOS/supervisor`
+    when a quarantined app runs from a randomized read-only mount. It also
+    says: if that cannot be measured on this host, say so explicitly and
+    record it as unverified rather than asserting it.
+
+    **It could not be measured here.** Setting `com.apple.quarantine` on the
+    assembled bundle and launching it through `open(1)` produces exit 0 and no
+    process: LaunchServices refuses an ad-hoc-signed bundle whose outer seal is
+    invalid (`TestOuterSeal`), so translocation never gets a chance to happen.
+    A Developer ID signature would be needed to reach that path — the same
+    certificate e4 is blocked on.
+
+    What IS measured is the weaker property the expectation rests on: the
+    bundle relocated WHOLE to an arbitrary path, launched through
+    LaunchServices rather than by direct exec, still resolves the payload as a
+    sibling. Translocation relocates the bundle as a unit too, so this is
+    evidence for the expectation — it is not the expectation itself, and the
+    difference is why this docstring exists.
+    """
+
+    def test_relocated_bundle_launched_via_launchservices_still_resolves(
+        self, tmp_path: Path
+    ):
+        staged = tmp_path / "arXMCP.app"
+        subprocess.run(["ditto", str(_app()), str(staged)], check=True, timeout=1800)
+        report = _probe(staged, tmp_path / "plan.json", use_open=True)
+        assert report, "LaunchServices did not start the relocated bundle at all"
+        assert report["error"] is None
+        assert Path(report["supervisor_exe"]).parent == staged.resolve() / "Contents" / "MacOS"
+        assert Path(report["child_argv0"]).parent.parent == (
+            staged.resolve() / "Contents" / "MacOS"
+        )
+
+    def test_quarantine_blocks_the_launch_so_translocation_is_unverified(
+        self, tmp_path: Path
+    ):
+        """The negative measurement, asserted so the gap is visible in a green
+        run instead of living only in prose.
+
+        If this test starts FAILING because the quarantined bundle does launch,
+        that is the moment translocation becomes measurable — replace it with
+        the real assertion about `current_exe()` under translocation.
+        """
+        staged = tmp_path / "arXMCP.app"
+        subprocess.run(["ditto", str(_app()), str(staged)], check=True, timeout=1800)
+        subprocess.run(
+            [
+                "xattr",
+                "-w",
+                "com.apple.quarantine",
+                "0081;00000000;pytest;00000000-0000-0000-0000-000000000000",
+                str(staged),
+            ],
+            check=True,
+            timeout=60,
+        )
+        out = tmp_path / "plan.json"
+        report = _probe(staged, out, use_open=True)
+        assert report == {}, (
+            "a quarantined ad-hoc-signed bundle LAUNCHED; Gatekeeper path "
+            "translocation is now measurable on this host and the m15 'unverified' "
+            f"record must be replaced with a real measurement. Probe said: {report}"
+        )
+
+
+class TestGateWiring:
+    """The zero-skip detector, following the m6/m7 precedent."""
+
+    def test_no_test_in_this_module_returns_instead_of_skipping(self):
+        """A bare `return` is invisible to `DESKTOP_BUNDLE_GATE`'s skip
+        detector, so a gate test must raise or skip, never quietly pass."""
+        source = Path(__file__).read_text(encoding="utf-8")
+        for name in ("_app", "_report"):
+            body = source.split(f"def {name}(")[1].split("\ndef ")[0]
+            assert "pytest.skip" not in body, (
+                f"{name} must RAISE on a missing artifact (m8 precedent), not skip"
+            )
+
+    @pytest.mark.skipif(
+        os.environ.get(GATE_ENV) != "1", reason="only meaningful inside the gate"
+    )
+    def test_the_gate_env_var_is_set_when_the_gate_runs(self):
+        assert os.environ[GATE_ENV] == "1"
