@@ -1,6 +1,8 @@
 # ADR — macOS application-bundle assembly for the desktop distribution (desktop-distribution-m15)
 
-**Status:** Accepted 2026-08-12 (see Owner approval record)
+**Status:** Accepted 2026-08-12 · **amended same day** — Decision 2 superseded by Decision 2a
+(payload location moved to `Contents/Resources/` after the assembled artifact proved `codesign`
+cannot seal at the original location). Decisions 1 and 3 stand unchanged.
 **Date:** 2026-08-11 · **Owner:** Chris Dare (per OWNERS.md)
 **Roadmap item:** `desktop-distribution-m15` (`plans/desktop-distribution-roadmap.md`,
 AC1 + AC2; AC text amended 2026-08-12 after Phase 1 research)
@@ -90,7 +92,34 @@ base with no unresolved *mechanism* risk. Its cost is a bespoke assembly script 
 must own and document; that cost is paid in implementation effort, which is recoverable,
 where the rejected options' cost is an unfixable dependency on someone else's open bug.
 
-## Decision 2 — the payload goes to `Contents/MacOS/arxmcp-desktop-child/`
+## Decision 2 — SUPERSEDED 2026-08-12 by Decision 2a
+
+> **Superseded by measurement, before anything else was built on it.** The
+> implementation dispatch assembled the artifact and found `codesign` **cannot seal**
+> a bundle at this location. It treats every file under `Contents/MacOS` as a nested
+> code object and refuses the whole bundle at the first non-Mach-O one:
+>
+>     <app>: code object is not signed at all
+>     In subcomponent: .../Contents/MacOS/arxmcp-desktop-child/_internal/tools/sbom.sh
+>
+> A PyInstaller onedir is ~5,300 files, most of them not Mach-O, so this is not
+> reachable by signing more thoroughly. It is a property of the LOCATION, proved by an
+> A/B control that builds two one-file `.app` trees differing only in where a six-byte
+> `data.txt` sits: `Contents/MacOS/` is refused, `Contents/Resources/` seals and
+> reports "valid on disk / satisfies its Designated Requirement".
+>
+> This is the condition **R3** names as the trigger for revisiting placement — reached
+> by measurement on this host rather than by a notary submission, and therefore reached
+> while m15 is still the only thing built on the layout. That is precisely what writing
+> this ADR before the diff was for.
+>
+> The reasoning below is retained unedited, because its first argument — that
+> `Contents/Resources` is where E4's unsigned-payload failure lives — is still true and
+> is what Decision 2a must answer.
+
+### Decision 2 as originally accepted (retained for the record)
+
+**The payload goes to `Contents/MacOS/arxmcp-desktop-child/`**
 
 The payload directory is placed **as a sibling of the supervisor executable inside
 `Contents/MacOS/`**, preserving m10's convention verbatim rather than replacing it.
@@ -126,6 +155,56 @@ things are unverified until a real bundle exists and MUST be proven, not assumed
 
 AC4's re-assertion therefore stays a real test against the real bundle root. "The body did
 not have to change" is a fact about the diff, not evidence about the artifact.
+
+## Decision 2a — the payload goes to `Contents/Resources/arxmcp-desktop-child/`
+
+**Accepted 2026-08-12, replacing Decision 2.** The payload tree is placed under
+`Contents/Resources/`, which the A/B control proves is sealable.
+
+**This does not re-open R2.** R2 rejected `bundle.resources` — the Tauri *config key*
+that copies a tree without signing it. Decision 1 is unchanged: `desktop_package.py`
+still pre-signs every nested Mach-O bottom-up before placement, and `codesign --deep`
+is still not permitted. What changes is only the destination directory. The
+"copies without signing" defect R2 names is a property of the mechanism, not of the
+directory, and this ADR does not adopt that mechanism.
+
+The retained argument under Decision 2 — that `Contents/Resources` is where E4's
+unsigned-payload failure lives — is answered exactly this way: E4's payloads were
+unsigned *because Tauri's resources mechanism placed them*. Ours are signed before they
+arrive, by us, and then the outer bundle seals over them.
+
+### Consequence: the payload is no longer a sibling, and TWO layouts must coexist
+
+This is the real cost, and it must not be minimized. Under Decision 2 the bundle
+preserved m10's sibling relation and `child_payload_root()` needed no change. Under 2a
+it does change, and the supervisor must resolve **two different layouts**:
+
+| context | supervisor at | payload at |
+|---|---|---|
+| dev / m7 onedir | `<dir>/supervisor` | `<dir>/arxmcp-desktop-child/` (sibling) |
+| assembled `.app` | `Contents/MacOS/supervisor` | `Contents/Resources/arxmcp-desktop-child/` |
+
+Both must work: the onedir shape is what every m10 gate and every developer run uses,
+and the bundle shape is what ships. The implementation must make this an explicit,
+tested disjunction — resolve the bundle-relative location, fall back to the sibling,
+and refuse when neither contains a valid payload — never an untested "try one, then the
+other" that silently succeeds off the wrong root.
+
+**`resolve_inside()` is unchanged and stays the gate.** Whichever root is selected, the
+same canonicalize-then-contain check with the same symlinked-root refusal applies. The
+m10 hardening is preserved by construction rather than by re-derivation.
+
+**AC4 must be re-measured against the new location.** The `--print-child-plan` probe
+already exists and reports the resolved root and any refusal reason; it is re-pointed,
+not re-invented. "The tests passed at the old location" is not evidence about the new
+one.
+
+### What this buys and what it does not
+
+Buys: a bundle that seals, which is the precondition for e4 attempting notarization at
+all. Does not buy: any claim that it notarizes. Decision 3 is unchanged in full force —
+sealing locally and passing Apple's notary are different questions, and E6 is the case
+where local `codesign --deep --strict` reported valid and the notary still refused.
 
 ## Decision 3 — the notarization question is recorded OPEN, not answered
 
@@ -313,3 +392,21 @@ being silently assumed away are called out for the record:
   A diff that changes nothing there is not evidence that nothing needed to change.
 - Decision 1's pre-signing step is bottom-up over every nested Mach-O file.
   `codesign --deep` is not a substitute and is not permitted as one.
+
+**Amendment accepted 2026-08-12, same day: Decision 2a replaces Decision 2.** The
+implementation dispatch assembled the artifact and measured that `codesign` cannot seal a
+bundle whose `Contents/MacOS` holds non-Mach-O files, proving it a property of the
+location with an A/B control rather than of this payload. The owner accepted moving the
+payload to `Contents/Resources/arxmcp-desktop-child/`.
+
+Worth recording about the process rather than the decision: the implementer did not
+relitigate an Accepted ADR. It signed all 180 nested Mach-O files bottom-up, attempted the
+seal, recorded the exact failure, pinned `sealed is False` in the gate so a future
+toolchain change turns it red rather than silently improving, and escalated. The first
+caveat above — that a diff changing nothing is not evidence that nothing needed to change
+— is exactly what the measurement disproved, in the opposite direction from the one
+expected: the body did not need to change, and the location was wrong anyway.
+
+The amendment's own cost is stated in Decision 2a and is not small: the payload stops
+being a sibling of the supervisor, so two layouts must coexist and be tested as an
+explicit disjunction.
