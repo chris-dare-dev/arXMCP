@@ -1,6 +1,6 @@
 # ADR — macOS application-bundle assembly for the desktop distribution (desktop-distribution-m15)
 
-**Status:** Proposed (see Owner approval record)
+**Status:** Accepted 2026-08-12 (see Owner approval record)
 **Date:** 2026-08-11 · **Owner:** Chris Dare (per OWNERS.md)
 **Roadmap item:** `desktop-distribution-m15` (`plans/desktop-distribution-roadmap.md`,
 AC1 + AC2; AC text amended 2026-08-12 after Phase 1 research)
@@ -298,5 +298,18 @@ So the implementation dispatch inherits a bounded problem:
 
 ## Owner approval record
 
-_Pending._ This ADR is `Proposed`. The implementation dispatch that assembles the bundle
-should not begin until the owner accepts or amends Decisions 1–3.
+**Accepted 2026-08-12 by Chris Dare (owner, per OWNERS.md).** Decisions 1, 2 and 3 were
+accepted as written, with no amendments, after review of this document in full. The
+implementation dispatch that assembles the bundle is unblocked as of that acceptance.
+
+The acceptance covers the decisions only. It does not pre-approve any of the eight items
+in "What this ADR deliberately does NOT decide" — those remain the implementation
+dispatch's to resolve within the bounds set here, and the two that carry the most risk of
+being silently assumed away are called out for the record:
+
+- Decision 2 makes `child_payload_root()`'s body already correct for the bundle. AC4's
+  re-assertion is still a real test against a real assembled bundle root — specifically
+  including Gatekeeper path translocation and a symlink check at the payload root.
+  A diff that changes nothing there is not evidence that nothing needed to change.
+- Decision 1's pre-signing step is bottom-up over every nested Mach-O file.
+  `codesign --deep` is not a substitute and is not permitted as one.
