@@ -94,3 +94,40 @@ def test_desktop_stack_marker_declares_its_reranker_prerequisite() -> None:
     the marker text used to name only as "BGE-M3/LanceDB warm-up"."""
     registration = _registered_markers()["requires_desktop_stack"]
     assert "reranker" in registration.lower()
+
+
+def test_every_desktop_gate_env_var_is_registered_in_conftest() -> None:
+    """Every ``DESKTOP_*_GATE`` variable the Makefile sets must appear in
+    ``tests/conftest.py``'s ``_DESKTOP_GATE_ENV``.
+
+    This is the third occurrence of one defect. m6's H3 found the zero-skip
+    guard unarmed; it was fixed. m15 added ``desktop-bundle-check`` with the
+    Makefile's ``-m "<token> or not <token>"`` expression wired and the
+    conftest tuple NOT updated, and all three m15 critics found it
+    independently (C1/H2/H3).
+
+    The reason it keeps recurring is that the two halves look independent: the
+    ``-m`` expression is a tautology for ANY token, so a gate appears to work
+    — its tests run, the session exits 0 — while the half that turns a skip
+    into a failure was never connected. Nothing in the Makefile references the
+    conftest tuple, so no reader of either file learns the other exists.
+
+    Derived rather than enumerated, so a fourth gate cannot be added without
+    either registering it or failing here."""
+    makefile = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+    conftest = (REPO_ROOT / "tests" / "conftest.py").read_text(encoding="utf-8")
+    declared = set(re.findall(r"\bDESKTOP_[A-Z_]*GATE\b", makefile))
+    assert declared, "no DESKTOP_*_GATE variables found in the Makefile"
+    registered = re.search(
+        r"_DESKTOP_GATE_ENV:\s*tuple\[str, \.\.\.\]\s*=\s*\((.*?)\)",
+        conftest,
+        re.DOTALL,
+    )
+    assert registered is not None, "_DESKTOP_GATE_ENV is no longer a plain tuple"
+    body = registered.group(1)
+    missing = sorted(name for name in declared if f'"{name}"' not in body)
+    assert not missing, (
+        f"{missing} set by the Makefile but absent from conftest's "
+        f"_DESKTOP_GATE_ENV, so a skip in that gate's session is silent. "
+        f"This is m6 H3 / m15 C1 recurring."
+    )

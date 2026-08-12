@@ -50,11 +50,21 @@ import pytest  # noqa: E402
 #: packaging gate so its two-build determinism evidence can never silently
 #: skip while ``make desktop-package-check`` exits 0.
 #: ``DESKTOP_BUNDLED_MODEL_GATE`` (m8) likewise for the real-model gate.
+#: Every variable that marks a session as a desktop gate. **Adding a new
+#: desktop gate means adding its variable HERE, in the same change.** Wiring
+#: the Makefile's `-m "<token> or not <token>"` expression is not enough and
+#: never has been: that expression is a tautology for any token, so the only
+#: thing standing between a drifted marker and a silently-green gate is this
+#: tuple. m6's H3 was exactly this omission; m15 reintroduced it for
+#: `DESKTOP_BUNDLE_GATE`, and all three m15 critics found it independently
+#: (C1/H2/H3) — which is why the rule is now stated here rather than only in
+#: the milestone notes.
 _DESKTOP_GATE_ENV: tuple[str, ...] = (
     "DESKTOP_SUPERVISOR_BIN",
     "ARXMCP_FIXTURE_SIDECAR",
     "DESKTOP_PACKAGE_GATE",
     "DESKTOP_BUNDLED_MODEL_GATE",
+    "DESKTOP_BUNDLE_GATE",
 )
 
 #: nodeids that reported ``skipped`` while :data:`_DESKTOP_GATE_ENV` was set.

@@ -103,7 +103,7 @@ help:
 	@echo "  make desktop-model-check    Real-model gate: build the bundle, then load the REAL BGE-M3 + reranker weights from the EXTERNAL HuggingFace cache and check the production encode/rerank output against the committed golden fixture (both pinned revisions must already be cached)"
 	@echo "  make desktop-bundle         Assemble the macOS .app: build the frozen child, pre-sign every nested Mach-O bottom-up, build the Tauri shell and place the payload at Contents/Resources/arxmcp-desktop-child/, then seal the outer bundle (macOS only; first run compiles the pinned tauri-cli and NEEDS NETWORK)"
 	@echo "  make desktop-bundle-check   Bundle gate: assemble, then measure the artifact — containment against the real bundle root, placed-child byte identity, m7/m8/m9 guards re-run over the assembled tree, and both minos declarations — with zero skips"
-	@echo "  make desktop-package-clean  Reclaim var/desktop-package/ (~1 GB persistent build venv plus ~0.75 GB per bundle)"
+	@echo "  make desktop-package-clean  Reclaim var/desktop-package/ AND apps/desktop/target/release (build venv ~1 GB, onedir ~0.75 GB, assembled .app ~0.75 GB, Rust release profile)"
 	@echo ""
 	@echo "Override the python interpreter with: make test PYTHON=python3.13"
 	@echo ""
@@ -231,8 +231,15 @@ desktop-bundle-check: desktop-bundle
 # The build venv is intentionally REUSED across runs, so var/desktop-package/
 # is persistent (~1 GB venv + ~0.75 GB per bundle), not transient. This is the
 # documented way to reclaim it; the next build re-provisions from the network.
+# m15 critique M14: `var/desktop-package` was the only thing reclaimed, but
+# assembly also writes the `.app` and a Rust RELEASE profile into
+# apps/desktop/target — together the larger half of the footprint, and neither
+# was reachable from any documented clean path. Both are gitignored build
+# output; nothing here touches a source tree.
 desktop-package-clean:
 	rm -rf var/desktop-package
+	rm -rf apps/desktop/target/release/bundle
+	rm -rf apps/desktop/target/release
 
 # The Tier-0 → Tier-1 exit gate. See .claude/TIER-GATES.md for the full
 # behavior matrix (pass / fail / SKIP) and the operator's prerequisite

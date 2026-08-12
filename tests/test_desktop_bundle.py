@@ -56,6 +56,7 @@ import shutil
 import stat
 import struct
 import subprocess
+import sys
 import time
 import zlib
 from pathlib import Path
@@ -379,6 +380,15 @@ class TestPlacementDoesNotIntroduceASymlinkRoot:
     real artifact in the gated class.
     """
 
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason=(
+            "creates a symlink; Windows needs Developer Mode or elevation and "
+            "raises OSError otherwise (critique M9). This test is UNGATED, so "
+            "without the guard it fails a plain `make test` on Windows — the "
+            "platform CLAUDE.md §3's win32-portability push made green"
+        ),
+    )
     def test_placed_root_is_a_real_directory(self, tmp_path: Path):
         payload = tmp_path / "src" / dp.BUNDLE_NAME
         (payload / "_internal").mkdir(parents=True)
@@ -537,6 +547,45 @@ class TestAssembledArtifact:
         drift = dp.manifest_diff(dp.file_manifest(onedir), dp.file_manifest(placed))
         assert drift == [], f"bundling substituted a different child at {drift[:10]}"
 
+    @pytest.mark.requires_desktop_bundle
+    def test_no_model_weights_reached_the_assembled_bundle(self):
+        """m8's weights-free guard, re-run over the ASSEMBLED artifact
+        (critique M4).
+
+        Every other m7/m8 guard was re-pointed at the placed tree; this one
+        was left measuring only the pre-bundle onedir, so a placement or
+        shell-build step that introduced weights would not have been seen by
+        anything. The suffix set and the HF-cache shape are m8's, deliberately
+        duplicated rather than imported: `tests/test_desktop_bundled_model.py`
+        is `requires_bundled_model`-gated and needs ~4.6 GB of real weights to
+        even collect, and this gate must not acquire that prerequisite.
+
+        The walk covers the WHOLE `.app`, not just the payload — the shell is
+        the half m8 never saw.
+        """
+        weight_suffixes = (".safetensors", ".ckpt", ".pt", ".pth", ".gguf", ".onnx", ".h5")
+        app = _app()
+        weights: list[str] = []
+        hf_cache: list[str] = []
+        walked = 0
+        for path in app.rglob("*"):
+            rel = path.relative_to(app).as_posix()
+            if path.is_dir():
+                if path.name in {"hub", "huggingface"} and "models--" in "".join(
+                    child.name for child in path.iterdir()
+                ):
+                    hf_cache.append(rel)
+                continue
+            if path.is_symlink():
+                continue
+            walked += 1
+            if path.suffix in weight_suffixes or path.name.startswith("pytorch_model"):
+                weights.append(rel)
+        assert weights == [], f"model weight files inside the assembled .app: {weights}"
+        assert hf_cache == [], f"HF cache tree inside the assembled .app: {hf_cache}"
+        # A walk that found nothing cannot distinguish clean from broken.
+        assert walked >= 4000, f"bundle walk covered only {walked} files"
+
     def test_m7_and_m8_guards_hold_over_the_assembled_payload(self):
         """AC6: the build-root string scan (including embedded PYZ `.pyc`
         bytes), the single-OpenMP inventory, and `direct_url.json`
@@ -583,13 +632,43 @@ class TestAssembledArtifact:
         minimums, and the frozen half is the lower one."""
         app = _app()
         rust = set(_declared_minos(dp.bundle_executable(app)))
-        frozen = set(FROZEN_EXECUTABLE_MINOS.values())
+        # Critique M5: this compared the measured Rust minos against the
+        # PINNED constant, so the "two floors disagree" claim rested on the
+        # pin agreeing with itself. Measure both halves off the artifact; the
+        # constants are then a separate, independently-asserted record (see
+        # the test above) rather than this test's own evidence.
+        payload = _payload()
+        frozen = {
+            value
+            for name in FROZEN_EXECUTABLE_MINOS
+            for value in _declared_minos(payload / name)
+        }
         assert rust == {FLOOR}
         assert frozen != rust, (
             "if these now agree, the artifact improved — update this test and the "
             "README's 'Assembled artifact layout' section in the same commit"
         )
-        assert PAYLOAD_MINOS_FLOOR < FLOOR
+        # Also measured, not compared constant-to-constant (critique M5): the
+        # LOWEST minos anywhere in the payload's Mach-O closure. A string
+        # comparison is enough only because every value here is a two-part
+        # version below 100; parse to tuples so "9.0" cannot sort above "14.0".
+        def _version(text: str) -> tuple[int, ...]:
+            return tuple(int(part) for part in text.split("."))
+
+        measured_floor = min(
+            (
+                _version(value)
+                for macho in dp.macho_inventory(payload)
+                for value in _declared_minos(macho)
+            ),
+            default=None,
+        )
+        assert measured_floor is not None, "no Mach-O in the payload declared a minos"
+        assert measured_floor == _version(PAYLOAD_MINOS_FLOOR), (
+            f"payload minos floor moved to {measured_floor}; re-record "
+            f"PAYLOAD_MINOS_FLOOR and the census note above it"
+        )
+        assert measured_floor < _version(FLOOR)
 
     def test_the_placed_payload_still_executes_after_signing(self, tmp_path: Path):
         """The payload is signed in place and then copied. A signature applied
@@ -688,6 +767,45 @@ class TestOuterSeal:
     notarized one, and ADR Decision 3 is answerable only with a certificate
     this project does not have.
     """
+
+    @pytest.mark.requires_desktop_bundle
+    def test_the_seal_actually_covers_the_payload_bytes(self, tmp_path: Path):
+        """The seal's COVERAGE, measured rather than asserted (critique M1).
+
+        `apps/desktop/README.md` calls `_CodeSignature/` "the outer seal, over
+        everything below", and `codesign --verify` passing on an intact bundle
+        does not establish that: a seal that covered only `Contents/MacOS`
+        would also pass. The discriminating experiment is to break a payload
+        byte and require the verdict to change.
+
+        Run against a COPY so the real artifact is never mutated -- a test
+        that corrupts the bundle it is verifying would hand every later test
+        in the session a damaged input.
+        """
+        app = _app()
+        copied = tmp_path / app.name
+        shutil.copytree(app, copied, symlinks=True)
+        before = subprocess.run(  # noqa: S603 - our own artifact
+            ["codesign", "--verify", "--strict", str(copied)],
+            capture_output=True, text=True, timeout=600,
+        )
+        assert before.returncode == 0, (
+            f"the copied bundle must verify before the mutation, else the "
+            f"experiment proves nothing: {before.stderr}"
+        )
+        victim = copied / "Contents" / "Resources" / dp.BUNDLE_NAME / dp.CHILD_EXE
+        assert victim.is_file(), victim
+        original = victim.read_bytes()
+        victim.write_bytes(original + b"\x00tamper")
+        after = subprocess.run(  # noqa: S603 - our own artifact
+            ["codesign", "--verify", "--strict", str(copied)],
+            capture_output=True, text=True, timeout=600,
+        )
+        assert after.returncode != 0, (
+            "mutating a payload executable inside Contents/Resources did NOT "
+            "invalidate the outer seal -- the seal does not cover the payload, "
+            "and the README's 'over everything below' is false"
+        )
 
     def test_every_nested_macho_was_signed(self):
         signing = _report()["signing"]
@@ -795,6 +913,26 @@ class TestRelocation:
         that is the moment translocation becomes measurable — replace it with
         the real assertion about `current_exe()` under translocation.
         """
+        # SAME-RUN POSITIVE CONTROL (critique M6/M10). Without it, "the
+        # quarantined bundle produced no report" is indistinguishable from
+        # "`open(1)` never delivers a report in this harness at all" — the
+        # permission-denied-as-verified-absence mistake that mis-filed issue
+        # #423, and the reason `test_supervisor_owns_a_native_window_while_
+        # running` demands a positive control before concluding absence.
+        # Stage the SAME bundle, unquarantined, and require it to report
+        # through the SAME `open(1)` path first.
+        control = tmp_path / "control" / "arXMCP.app"
+        control.parent.mkdir()
+        subprocess.run(["ditto", str(_app()), str(control)], check=True, timeout=1800)
+        control_out = tmp_path / "control-plan.json"
+        control_report = _probe(control, control_out, use_open=True)
+        assert control_report, (
+            "the UNQUARANTINED control did not report through open(1) either, "
+            "so this run cannot distinguish 'quarantine blocked the launch' "
+            "from 'the harness never observes a launch'. Fix the harness "
+            "before reading anything into the negative below."
+        )
+
         staged = tmp_path / "arXMCP.app"
         subprocess.run(["ditto", str(_app()), str(staged)], check=True, timeout=1800)
         subprocess.run(

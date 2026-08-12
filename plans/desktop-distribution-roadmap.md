@@ -803,9 +803,31 @@ it was allocated last; it EXECUTES second, immediately after `m10`.
       claim asserts the artifact is notarization-ready, Gatekeeper-ready, or
       signable-as-is. A regression fails on such a claim, mirroring m9's
       compatibility-claim guard.
-- [ ] `make desktop-package` (or a successor target) emits an artifact that
-      launches by double-click on a clean supported Mac and reaches a ready
-      server and a rendered window, with `ARXMCP_DESKTOP_LAUNCH_PLAN` unset.
+- [ ] `make desktop-bundle` emits an assembled, outer-sealed `.app` whose
+      supervisor, launched from inside it with `ARXMCP_DESKTOP_LAUNCH_PLAN`
+      unset, resolves its bundled payload — measured against the real
+      artifact, not a fixture.
+      > **Narrowed 2026-08-12 during rectification (critique H1).** This
+      > criterion previously claimed the artifact "launches by double-click on
+      > a clean supported Mac and reaches a ready server and a rendered
+      > window". m15's gate does not measure that: it drives the supervisor's
+      > `--print-child-plan` probe, which resolves the payload and exits
+      > without loading models or starting a server. The limitation was
+      > disclosed in an implementation note rather than in the criterion it
+      > failed to meet — the same shape as m10's AC1 fixture substitution that
+      > this milestone was written to retire, which is why the AC is corrected
+      > rather than the disclosure being considered sufficient.
+      >
+      > **What would prove the original claim:** launching the assembled
+      > `.app` and waiting for `child-ready`, `mcp-smoke-ok` and
+      > `window-ready`, which requires the real frozen child to load BGE-M3
+      > and the reranker (~4.6 GB from the operator's external HF cache, the
+      > `requires_bundled_model` prerequisites). Deliberately NOT added to
+      > m15's gate: it would make bundle assembly depend on model weights.
+      > It belongs to the first milestone that needs a launching application
+      > for its own purpose — `desktop-distribution-m11` — and is recorded
+      > here so that milestone inherits a stated obligation rather than an
+      > assumption.
 - [ ] m10's containment check is RE-POINTED from the onedir root to the
       bundle root and still refuses a `child_argv[0]` resolving outside it,
       re-asserted rather than assumed to carry over.

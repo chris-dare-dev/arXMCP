@@ -1,0 +1,550 @@
+{
+  "milestone_id": "desktop-distribution-m15",
+  "critique_format_version": "1.0",
+  "critique_files": [
+    "dedup.md"
+  ],
+  "generated_at": "2026-08-12T03:31:31Z",
+  "findings": {
+    "C1": {
+      "id": "C1",
+      "severity": "CRITICAL",
+      "title": "m15's zero-skip gate env var is never registered",
+      "file": "tests/conftest.py",
+      "line": 53,
+      "anchor": "_DESKTOP_GATE_ENV: tuple[str, ...] = (",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Repo-gate compliance / doc drift",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "DESKTOP_BUNDLE_GATE added to tests/conftest.py::_DESKTOP_GATE_ENV, arming the zero-skip guard for make desktop-bundle-check. Because this is the THIRD occurrence of one defect (m6 H3 found it unarmed and fixed it; m15 wired the Makefile half and not the conftest half), the fix is guarded rather than just applied: new UNMARKED test_every_desktop_gate_env_var_is_registered_in_conftest DERIVES the DESKTOP_*_GATE set from the Makefile and requires each to appear in the tuple. Verified against its RED state by simulating the pre-fix conftest, where it reports exactly DESKTOP_BUNDLE_GATE missing. The recurrence cause is now stated in the code: the Makefile's -m tautology makes a gate look wired while the skip-to-failure half is absent, and neither file referenced the other",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-12T03:31:30Z",
+          "resolution": "DESKTOP_BUNDLE_GATE added to tests/conftest.py::_DESKTOP_GATE_ENV, arming the zero-skip guard for make desktop-bundle-check. Because this is the THIRD occurrence of one defect (m6 H3 found it unarmed and fixed it; m15 wired the Makefile half and not the conftest half), the fix is guarded rather than just applied: new UNMARKED test_every_desktop_gate_env_var_is_registered_in_conftest DERIVES the DESKTOP_*_GATE set from the Makefile and requires each to appear in the tuple. Verified against its RED state by simulating the pre-fix conftest, where it reports exactly DESKTOP_BUNDLE_GATE missing. The recurrence cause is now stated in the code: the Makefile's -m tautology makes a gate look wired while the skip-to-failure half is absent, and neither file referenced the other"
+        }
+      ]
+    },
+    "H1": {
+      "id": "H1",
+      "severity": "HIGH",
+      "title": "AC3's launch claim is unproven at the artifact level",
+      "file": "tests/test_desktop_bundle.py",
+      "line": 594,
+      "anchor": "def test_the_placed_payload_still_executes_a",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Acceptance coverage",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Roadmap AC3 narrowed to what the gate measures: an assembled, outer-sealed .app whose supervisor resolves its bundled payload, measured against the real artifact. The prior text claimed double-click to a ready server and rendered window, which the --print-child-plan probe does not measure (it resolves and exits without loading models). Disclosing that in an implementation note rather than in the criterion was the same shape as m10's AC1 fixture substitution that m15 was written to retire. What would prove the original claim is recorded, with the reason it is NOT in m15's gate (it would make bundle assembly depend on ~4.6 GB of model weights) and assigned to m11 as a stated obligation",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-12T03:31:30Z",
+          "resolution": "Roadmap AC3 narrowed to what the gate measures: an assembled, outer-sealed .app whose supervisor resolves its bundled payload, measured against the real artifact. The prior text claimed double-click to a ready server and rendered window, which the --print-child-plan probe does not measure (it resolves and exits without loading models). Disclosing that in an implementation note rather than in the criterion was the same shape as m10's AC1 fixture substitution that m15 was written to retire. What would prove the original claim is recorded, with the reason it is NOT in m15's gate (it would make bundle assembly depend on ~4.6 GB of model weights) and assigned to m11 as a stated obligation"
+        }
+      ]
+    },
+    "H2": {
+      "id": "H2",
+      "severity": "HIGH",
+      "title": "m15 gate's zero-skip guard is documented but not wired",
+      "file": "tests/conftest.py",
+      "line": 53,
+      "anchor": "_DESKTOP_GATE_ENV: tuple[str, ...] = (",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "test surface",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "DESKTOP_BUNDLE_GATE added to tests/conftest.py::_DESKTOP_GATE_ENV, arming the zero-skip guard for make desktop-bundle-check. Because this is the THIRD occurrence of one defect (m6 H3 found it unarmed and fixed it; m15 wired the Makefile half and not the conftest half), the fix is guarded rather than just applied: new UNMARKED test_every_desktop_gate_env_var_is_registered_in_conftest DERIVES the DESKTOP_*_GATE set from the Makefile and requires each to appear in the tuple. Verified against its RED state by simulating the pre-fix conftest, where it reports exactly DESKTOP_BUNDLE_GATE missing. The recurrence cause is now stated in the code: the Makefile's -m tautology makes a gate look wired while the skip-to-failure half is absent, and neither file referenced the other",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-12T03:31:30Z",
+          "resolution": "DESKTOP_BUNDLE_GATE added to tests/conftest.py::_DESKTOP_GATE_ENV, arming the zero-skip guard for make desktop-bundle-check. Because this is the THIRD occurrence of one defect (m6 H3 found it unarmed and fixed it; m15 wired the Makefile half and not the conftest half), the fix is guarded rather than just applied: new UNMARKED test_every_desktop_gate_env_var_is_registered_in_conftest DERIVES the DESKTOP_*_GATE set from the Makefile and requires each to appear in the tuple. Verified against its RED state by simulating the pre-fix conftest, where it reports exactly DESKTOP_BUNDLE_GATE missing. The recurrence cause is now stated in the code: the Makefile's -m tautology makes a gate look wired while the skip-to-failure half is absent, and neither file referenced the other"
+        }
+      ]
+    },
+    "H3": {
+      "id": "H3",
+      "severity": "HIGH",
+      "title": "desktop-bundle-check's zero-skip guard is never armed",
+      "file": "tests/conftest.py",
+      "line": 53,
+      "anchor": "_DESKTOP_GATE_ENV: tuple[str, ...] = (",
+      "source_critic": "milestone-infra-safety-critic",
+      "source_axis": "Axis 4 \u2014 Makefile / build script discipline",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "DESKTOP_BUNDLE_GATE added to tests/conftest.py::_DESKTOP_GATE_ENV, arming the zero-skip guard for make desktop-bundle-check. Because this is the THIRD occurrence of one defect (m6 H3 found it unarmed and fixed it; m15 wired the Makefile half and not the conftest half), the fix is guarded rather than just applied: new UNMARKED test_every_desktop_gate_env_var_is_registered_in_conftest DERIVES the DESKTOP_*_GATE set from the Makefile and requires each to appear in the tuple. Verified against its RED state by simulating the pre-fix conftest, where it reports exactly DESKTOP_BUNDLE_GATE missing. The recurrence cause is now stated in the code: the Makefile's -m tautology makes a gate look wired while the skip-to-failure half is absent, and neither file referenced the other",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-12T03:31:30Z",
+          "resolution": "DESKTOP_BUNDLE_GATE added to tests/conftest.py::_DESKTOP_GATE_ENV, arming the zero-skip guard for make desktop-bundle-check. Because this is the THIRD occurrence of one defect (m6 H3 found it unarmed and fixed it; m15 wired the Makefile half and not the conftest half), the fix is guarded rather than just applied: new UNMARKED test_every_desktop_gate_env_var_is_registered_in_conftest DERIVES the DESKTOP_*_GATE set from the Makefile and requires each to appear in the tuple. Verified against its RED state by simulating the pre-fix conftest, where it reports exactly DESKTOP_BUNDLE_GATE missing. The recurrence cause is now stated in the code: the Makefile's -m tautology makes a gate look wired while the skip-to-failure half is absent, and neither file referenced the other"
+        }
+      ]
+    },
+    "M1": {
+      "id": "M1",
+      "severity": "MEDIUM",
+      "title": "the seal's coverage of the payload is claimed but never measured",
+      "file": "apps/desktop/README.md",
+      "line": 84,
+      "anchor": "_CodeSignature/                  the ou",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Correctness / evidence discipline",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "New requires_desktop_bundle test measures the seal's COVERAGE instead of asserting it: it copies the bundle, verifies the copy, mutates a byte in the payload executable under Contents/Resources, and requires codesign --verify --strict to change verdict. A seal covering only Contents/MacOS would have passed the previous assertion. Run against a copy so the real artifact is never damaged for later tests in the session",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-12T03:31:30Z",
+          "resolution": "New requires_desktop_bundle test measures the seal's COVERAGE instead of asserting it: it copies the bundle, verifies the copy, mutates a byte in the payload executable under Contents/Resources, and requires codesign --verify --strict to change verdict. A seal covering only Contents/MacOS would have passed the previous assertion. Run against a copy so the real artifact is never damaged for later tests in the session"
+        }
+      ]
+    },
+    "M2": {
+      "id": "M2",
+      "severity": "MEDIUM",
+      "title": "a failed assembly leaves the previous run's report readable as current",
+      "file": "apps/desktop/pyinstaller/desktop_package.py",
+      "line": 1251,
+      "anchor": "(root / \"assembly-report.json\").write_text(",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Correctness",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "assembly-report.json is unlinked at the START of assemble(), before anything can fail, so an aborted run leaves no report rather than the previous run's read as current. tests/test_desktop_bundle.py loads it by path and cannot distinguish one run's from another's",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-12T03:31:30Z",
+          "resolution": "assembly-report.json is unlinked at the START of assemble(), before anything can fail, so an aborted run leaves no report rather than the previous run's read as current. tests/test_desktop_bundle.py loads it by path and cannot distinguish one run's from another's"
+        }
+      ]
+    },
+    "M3": {
+      "id": "M3",
+      "severity": "MEDIUM",
+      "title": "one stray cue word disables the notarization-claim scanner",
+      "file": "tests/test_desktop_notarization_claims.py",
+      "line": 95,
+      "anchor": "_DISCLAIM_CUES = re.compile(",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Acceptance coverage / test discipline",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Notarization scanner tightened three ways: the weak cues (must, may, would, if, open, question) removed so only negations and verbs of forbidding exempt; the cue must now PRECEDE the claim it disclaims, so a trailing cue cannot launder a claim already made; and six phrasings the adversary reached the gate with (will notarize, should/would notarize, notarizable, ready to ship to notary, ready for distribution, satisfies notarization requirements) added to the patterns with eight sentences added to the must-flag corpus. Critique files excluded from the scan set, and only critique files: quoting a forbidden phrase is how a bypass gets reported, and gating that would make the finding unwriteable",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-12T03:31:30Z",
+          "resolution": "Notarization scanner tightened three ways: the weak cues (must, may, would, if, open, question) removed so only negations and verbs of forbidding exempt; the cue must now PRECEDE the claim it disclaims, so a trailing cue cannot launder a claim already made; and six phrasings the adversary reached the gate with (will notarize, should/would notarize, notarizable, ready to ship to notary, ready for distribution, satisfies notarization requirements) added to the patterns with eight sentences added to the must-flag corpus. Critique files excluded from the scan set, and only critique files: quoting a forbidden phrase is how a bypass gets reported, and gating that would make the finding unwriteable"
+        }
+      ]
+    },
+    "M4": {
+      "id": "M4",
+      "severity": "MEDIUM",
+      "title": "AC6's weights-free assertion is the one guard not re-run",
+      "file": "tests/test_desktop_bundle.py",
+      "line": 540,
+      "anchor": "def test_m7_and_m8_guards_hold_over_the_asse",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Acceptance coverage",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "m8's weights-free guard re-run over the ASSEMBLED .app - the one m7/m8 guard left measuring only the pre-bundle onedir. Walks the WHOLE bundle including the Tauri shell, which m8 never saw, with the same suffix set and HF-cache shape and a >=4000-file tripwire so an empty walk cannot read as clean. Suffixes duplicated rather than imported from test_desktop_bundled_model.py deliberately: that module is requires_bundled_model-gated and needs ~4.6 GB of weights to collect",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-12T03:31:30Z",
+          "resolution": "m8's weights-free guard re-run over the ASSEMBLED .app - the one m7/m8 guard left measuring only the pre-bundle onedir. Walks the WHOLE bundle including the Tauri shell, which m8 never saw, with the same suffix set and HF-cache shape and a >=4000-file tripwire so an empty walk cannot read as clean. Suffixes duplicated rather than imported from test_desktop_bundled_model.py deliberately: that module is requires_bundled_model-gated and needs ~4.6 GB of weights to collect"
+        }
+      ]
+    },
+    "M5": {
+      "id": "M5",
+      "severity": "MEDIUM",
+      "title": "the payload-wide minos census is asserted only against itself",
+      "file": "tests/test_desktop_bundle.py",
+      "line": 592,
+      "anchor": "assert PAYLOAD_MINOS_FLOOR < FLOOR",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Test discipline",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Both halves of the two-declared-floors claim now measured off the artifact via otool rather than compared against the pinned constants, and the payload-wide census floor is computed from dp.macho_inventory with version-tuple comparison so 9.0 cannot sort above 14.0. The constants remain as an independently-asserted record in the test above, not as this test's own evidence",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-12T03:31:31Z",
+          "resolution": "Both halves of the two-declared-floors claim now measured off the artifact via otool rather than compared against the pinned constants, and the payload-wide census floor is computed from dp.macho_inventory with version-tuple comparison so 9.0 cannot sort above 14.0. The constants remain as an independently-asserted record in the test above, not as this test's own evidence"
+        }
+      ]
+    },
+    "M6": {
+      "id": "M6",
+      "severity": "MEDIUM",
+      "title": "the quarantine negative has no in-invocation control and its attribution is inferred",
+      "file": "tests/test_desktop_bundle.py",
+      "line": 788,
+      "anchor": "def test_quarantine_blocks_the_launch_so_tra",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Correctness / evidence discipline",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "The quarantine negative now runs a SAME-RUN positive control: an unquarantined copy of the same bundle must report through the same open(1) path first, or the test fails naming the harness rather than concluding anything. Without it, no report was indistinguishable from the harness never observing a launch - the permission-denied-as-verified-absence mistake that mis-filed issue #423, which is the same discipline test_supervisor_owns_a_native_window_while_running enforces",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-12T03:31:31Z",
+          "resolution": "The quarantine negative now runs a SAME-RUN positive control: an unquarantined copy of the same bundle must report through the same open(1) path first, or the test fails naming the harness rather than concluding anything. Without it, no report was indistinguishable from the harness never observing a launch - the permission-denied-as-verified-absence mistake that mis-filed issue #423, which is the same discipline test_supervisor_owns_a_native_window_while_running enforces"
+        }
+      ]
+    },
+    "M7": {
+      "id": "M7",
+      "severity": "MEDIUM",
+      "title": "notarization scanner exempts ordinary claim sentences",
+      "file": "tests/test_desktop_notarization_claims.py",
+      "line": 95,
+      "anchor": "_DISCLAIM_CUES = re.compile(",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "test surface",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "Notarization scanner tightened three ways: the weak cues (must, may, would, if, open, question) removed so only negations and verbs of forbidding exempt; the cue must now PRECEDE the claim it disclaims, so a trailing cue cannot launder a claim already made; and six phrasings the adversary reached the gate with (will notarize, should/would notarize, notarizable, ready to ship to notary, ready for distribution, satisfies notarization requirements) added to the patterns with eight sentences added to the must-flag corpus. Critique files excluded from the scan set, and only critique files: quoting a forbidden phrase is how a bypass gets reported, and gating that would make the finding unwriteable",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-12T03:31:30Z",
+          "resolution": "Notarization scanner tightened three ways: the weak cues (must, may, would, if, open, question) removed so only negations and verbs of forbidding exempt; the cue must now PRECEDE the claim it disclaims, so a trailing cue cannot launder a claim already made; and six phrasings the adversary reached the gate with (will notarize, should/would notarize, notarizable, ready to ship to notary, ready for distribution, satisfies notarization requirements) added to the patterns with eight sentences added to the must-flag corpus. Critique files excluded from the scan set, and only critique files: quoting a forbidden phrase is how a bypass gets reported, and gating that would make the finding unwriteable"
+        }
+      ]
+    },
+    "M8": {
+      "id": "M8",
+      "severity": "MEDIUM",
+      "title": "a stale `assembly-report.json` can be read as this run's evidence",
+      "file": "apps/desktop/pyinstaller/desktop_package.py",
+      "line": 1251,
+      "anchor": "(root / \"assembly-report.json\").write_text(",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "test surface",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "assembly-report.json is unlinked at the START of assemble(), before anything can fail, so an aborted run leaves no report rather than the previous run's read as current. tests/test_desktop_bundle.py loads it by path and cannot distinguish one run's from another's",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-12T03:31:30Z",
+          "resolution": "assembly-report.json is unlinked at the START of assemble(), before anything can fail, so an aborted run leaves no report rather than the previous run's read as current. tests/test_desktop_bundle.py loads it by path and cannot distinguish one run's from another's"
+        }
+      ]
+    },
+    "M9": {
+      "id": "M9",
+      "severity": "MEDIUM",
+      "title": "ungated test creates a symlink with no win32 guard",
+      "file": "tests/test_desktop_bundle.py",
+      "line": 386,
+      "anchor": "(payload / \"_internal\" / \"link\").symlink_to(\"data\")",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "test surface",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "win32 skipif on the ungated symlink-creating test. Windows needs Developer Mode or elevation to create symlinks and raises OSError otherwise, so without the guard this failed a plain make test on the platform CLAUDE.md 3's win32-portability push made green",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-12T03:31:31Z",
+          "resolution": "win32 skipif on the ungated symlink-creating test. Windows needs Developer Mode or elevation to create symlinks and raises OSError otherwise, so without the guard this failed a plain make test on the platform CLAUDE.md 3's win32-portability push made green"
+        }
+      ]
+    },
+    "M10": {
+      "id": "M10",
+      "severity": "MEDIUM",
+      "title": "the quarantine negative measurement has no same-run control",
+      "file": "tests/test_desktop_bundle.py",
+      "line": 813,
+      "anchor": "assert report == {}, (",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "test surface",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "The quarantine negative now runs a SAME-RUN positive control: an unquarantined copy of the same bundle must report through the same open(1) path first, or the test fails naming the harness rather than concluding anything. Without it, no report was indistinguishable from the harness never observing a launch - the permission-denied-as-verified-absence mistake that mis-filed issue #423, which is the same discipline test_supervisor_owns_a_native_window_while_running enforces",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-12T03:31:31Z",
+          "resolution": "The quarantine negative now runs a SAME-RUN positive control: an unquarantined copy of the same bundle must report through the same open(1) path first, or the test fails naming the harness rather than concluding anything. Without it, no report was indistinguishable from the harness never observing a launch - the permission-denied-as-verified-absence mistake that mis-filed issue #423, which is the same discipline test_supervisor_owns_a_native_window_while_running enforces"
+        }
+      ]
+    },
+    "M11": {
+      "id": "M11",
+      "severity": "MEDIUM",
+      "title": "\"raises rather than leaving an unsealed `.app`\" is not what the code does",
+      "file": "apps/desktop/pyinstaller/desktop_package.py",
+      "line": 1261,
+      "anchor": "raise BuildError(",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "test surface",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "The unsealed .app is now REMOVED (shutil.rmtree) before the BuildError raises, and the error says so. Three documents claimed assembly raises rather than leaving an unsealed .app; the raise was real, the removal was not, and _app() accepts any directory at that path so the residue was readable as a product. Fixed the behavior rather than weakening the claim, because the claim is the one worth having",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-12T03:31:30Z",
+          "resolution": "The unsealed .app is now REMOVED (shutil.rmtree) before the BuildError raises, and the error says so. Three documents claimed assembly raises rather than leaving an unsealed .app; the raise was real, the removal was not, and _app() accepts any directory at that path so the residue was readable as a product. Fixed the behavior rather than weakening the claim, because the claim is the one worth having"
+        }
+      ]
+    },
+    "M12": {
+      "id": "M12",
+      "severity": "MEDIUM",
+      "title": "tauri build inherits an environment that can silently activate Tauri's own signing",
+      "file": "apps/desktop/pyinstaller/desktop_package.py",
+      "line": 996,
+      "anchor": "[str(cli), \"build\"],",
+      "source_critic": "milestone-infra-safety-critic",
+      "source_axis": "Axis 4 \u2014 Makefile / build script discipline",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "tauri build now runs under _tauri_build_env(), which strips the twelve APPLE_*/TAURI_SIGNING_* variables that make Tauri's bundler sign or notarize on its own. Decision 1 gives signing exclusively to presign_payload + seal_app; an ambient identity would have inserted a second, differently-configured signer between placement and the outer seal while the report still described ours as the only one. Scrubbed rather than asserted absent, so a developer whose shell exports an identity for unrelated work can still build",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-12T03:31:31Z",
+          "resolution": "tauri build now runs under _tauri_build_env(), which strips the twelve APPLE_*/TAURI_SIGNING_* variables that make Tauri's bundler sign or notarize on its own. Decision 1 gives signing exclusively to presign_payload + seal_app; an ambient identity would have inserted a second, differently-configured signer between placement and the outer seal while the report still described ours as the only one. Scrubbed rather than asserted absent, so a developer whose shell exports an identity for unrelated work can still build"
+        }
+      ]
+    },
+    "M13": {
+      "id": "M13",
+      "severity": "MEDIUM",
+      "title": "tauri-cli is version-pinned, not hash-pinned, and the difference is unstated",
+      "file": "apps/desktop/pyinstaller/desktop_package.py",
+      "line": 760,
+      "anchor": "TAURI_CLI_VERSION = \"2.11.4\"",
+      "source_critic": "milestone-infra-safety-critic",
+      "source_axis": "Axis 4 \u2014 Makefile / build script discipline",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "The version-pin-vs-hash-pin difference is now stated at TAURI_CLI_VERSION: requirements-build.txt provisions PyInstaller under --require-hashes (exact bytes), this is cargo install --locked --version (version plus dependency graph, trusting crates.io immutability). Recorded rather than closed - vendoring the crate or checksumming the built binary is outside m15 - so a reader comparing the two toolchains does not infer parity",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-12T03:31:31Z",
+          "resolution": "The version-pin-vs-hash-pin difference is now stated at TAURI_CLI_VERSION: requirements-build.txt provisions PyInstaller under --require-hashes (exact bytes), this is cargo install --locked --version (version plus dependency graph, trusting crates.io immutability). Recorded rather than closed - vendoring the crate or checksumming the built binary is outside m15 - so a reader comparing the two toolchains does not infer parity"
+        }
+      ]
+    },
+    "M14": {
+      "id": "M14",
+      "severity": "MEDIUM",
+      "title": "no clean path reclaims the assembled .app or the Rust release target",
+      "file": "Makefile",
+      "line": 234,
+      "anchor": "desktop-package-clean:",
+      "source_critic": "milestone-infra-safety-critic",
+      "source_axis": "Axis 4 \u2014 Makefile / build script discipline",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "make desktop-package-clean now also removes apps/desktop/target/release/bundle and the Rust release profile, together the larger half of the footprint and previously unreachable from any documented clean path; the help text names all four components and their sizes",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-12T03:31:31Z",
+          "resolution": "make desktop-package-clean now also removes apps/desktop/target/release/bundle and the Rust release profile, together the larger half of the footprint and previously unreachable from any documented clean path; the help text names all four components and their sizes"
+        }
+      ]
+    },
+    "M15": {
+      "id": "M15",
+      "severity": "MEDIUM",
+      "title": "a stale assembly-report.json can outlive the artifact it describes",
+      "file": "apps/desktop/pyinstaller/desktop_package.py",
+      "line": 1251,
+      "anchor": "(root / \"assembly-report.json\").write_text(",
+      "source_critic": "milestone-infra-safety-critic",
+      "source_axis": "Axis 4 \u2014 Makefile / build script discipline",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "assembly-report.json is unlinked at the START of assemble(), before anything can fail, so an aborted run leaves no report rather than the previous run's read as current. tests/test_desktop_bundle.py loads it by path and cannot distinguish one run's from another's",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-12T03:31:30Z",
+          "resolution": "assembly-report.json is unlinked at the START of assemble(), before anything can fail, so an aborted run leaves no report rather than the previous run's read as current. tests/test_desktop_bundle.py loads it by path and cannot distinguish one run's from another's"
+        }
+      ]
+    },
+    "M16": {
+      "id": "M16",
+      "severity": "MEDIUM",
+      "title": "AC5's byte-identity baseline is the post-signing onedir, not m7's artifact",
+      "file": "apps/desktop/pyinstaller/desktop_package.py",
+      "line": 1211,
+      "anchor": "signed_manifest = file_manifest(payload_root)",
+      "source_critic": "milestone-infra-safety-critic",
+      "source_axis": "Axis 4 \u2014 Makefile / build script discipline",
+      "source_file": "dedup.md",
+      "status": "fixed",
+      "resolution": "assemble() now captures m7's PRISTINE manifest before presign_payload touches anything, and asserts that pre-signing altered nothing but Mach-O files. The old baseline was taken AFTER signing rewrote every Mach-O in place, so the drift check proved placement copied faithfully but could no longer see a substituted child",
+      "history": [
+        {
+          "status": "fixed",
+          "at": "2026-08-12T03:31:31Z",
+          "resolution": "assemble() now captures m7's PRISTINE manifest before presign_payload touches anything, and asserts that pre-signing altered nothing but Mach-O files. The old baseline was taken AFTER signing rewrote every Mach-O in place, so the drift check proved placement copied faithfully but could no longer see a substituted child"
+        }
+      ]
+    },
+    "L1": {
+      "id": "L1",
+      "severity": "LOW",
+      "title": "CLAUDE.md is pinned OUT of the notarization-claim scan",
+      "file": "tests/test_desktop_notarization_claims.py",
+      "line": 207,
+      "anchor": "assert REPO_ROOT / \"CLAUDE.md\" not in fi",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Acceptance coverage",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "LOW, deferred by owner decision 2026-08-12 (fix C1+HIGH+MEDIUM, defer LOW). None is a correctness defect in shipped behavior: they concern the --print-child-plan probe's failure-reporting and env sensitivity, a substring match in the tauri-cli reuse check, a docstring overclaiming what path-depth ordering guarantees, and the shipped supervisor writing JSON to an argv-supplied path (diagnostic-only, no plan authored, nothing spawned). Carry forward as m11/e4 input",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-12T03:31:31Z",
+          "resolution": "LOW, deferred by owner decision 2026-08-12 (fix C1+HIGH+MEDIUM, defer LOW). None is a correctness defect in shipped behavior: they concern the --print-child-plan probe's failure-reporting and env sensitivity, a substring match in the tauri-cli reuse check, a docstring overclaiming what path-depth ordering guarantees, and the shipped supervisor writing JSON to an argv-supplied path (diagnostic-only, no plan authored, nothing spawned). Carry forward as m11/e4 input"
+        }
+      ]
+    },
+    "L2": {
+      "id": "L2",
+      "severity": "LOW",
+      "title": "inside a bundle the resolver still falls back to Decision 2's abandoned location",
+      "file": "apps/desktop/crates/supervisor/src/main.rs",
+      "line": 383,
+      "anchor": "candidates.push((LAYOUT_SUPERVISOR_SIBLING",
+      "source_critic": "milestone-adversary-critic",
+      "source_axis": "Correctness",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "LOW, deferred by owner decision 2026-08-12 (fix C1+HIGH+MEDIUM, defer LOW). None is a correctness defect in shipped behavior: they concern the --print-child-plan probe's failure-reporting and env sensitivity, a substring match in the tauri-cli reuse check, a docstring overclaiming what path-depth ordering guarantees, and the shipped supervisor writing JSON to an argv-supplied path (diagnostic-only, no plan authored, nothing spawned). Carry forward as m11/e4 input",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-12T03:31:31Z",
+          "resolution": "LOW, deferred by owner decision 2026-08-12 (fix C1+HIGH+MEDIUM, defer LOW). None is a correctness defect in shipped behavior: they concern the --print-child-plan probe's failure-reporting and env sensitivity, a substring match in the tauri-cli reuse check, a docstring overclaiming what path-depth ordering guarantees, and the shipped supervisor writing JSON to an argv-supplied path (diagnostic-only, no plan authored, nothing spawned). Carry forward as m11/e4 input"
+        }
+      ]
+    },
+    "L3": {
+      "id": "L3",
+      "severity": "LOW",
+      "title": "the probe's file write cannot fail loudly",
+      "file": "apps/desktop/crates/supervisor/src/main.rs",
+      "line": 498,
+      "anchor": "let _ = fs::write(PathBuf::from(path), t",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "test surface",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "LOW, deferred by owner decision 2026-08-12 (fix C1+HIGH+MEDIUM, defer LOW). None is a correctness defect in shipped behavior: they concern the --print-child-plan probe's failure-reporting and env sensitivity, a substring match in the tauri-cli reuse check, a docstring overclaiming what path-depth ordering guarantees, and the shipped supervisor writing JSON to an argv-supplied path (diagnostic-only, no plan authored, nothing spawned). Carry forward as m11/e4 input",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-12T03:31:31Z",
+          "resolution": "LOW, deferred by owner decision 2026-08-12 (fix C1+HIGH+MEDIUM, defer LOW). None is a correctness defect in shipped behavior: they concern the --print-child-plan probe's failure-reporting and env sensitivity, a substring match in the tauri-cli reuse check, a docstring overclaiming what path-depth ordering guarantees, and the shipped supervisor writing JSON to an argv-supplied path (diagnostic-only, no plan authored, nothing spawned). Carry forward as m11/e4 input"
+        }
+      ]
+    },
+    "L4": {
+      "id": "L4",
+      "severity": "LOW",
+      "title": "`_probe`'s stdout path is sensitive to an ambient env var",
+      "file": "tests/test_desktop_bundle.py",
+      "line": 459,
+      "anchor": "proc = subprocess.run(",
+      "source_critic": "milestone-arxmcp-critic",
+      "source_axis": "test surface",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "LOW, deferred by owner decision 2026-08-12 (fix C1+HIGH+MEDIUM, defer LOW). None is a correctness defect in shipped behavior: they concern the --print-child-plan probe's failure-reporting and env sensitivity, a substring match in the tauri-cli reuse check, a docstring overclaiming what path-depth ordering guarantees, and the shipped supervisor writing JSON to an argv-supplied path (diagnostic-only, no plan authored, nothing spawned). Carry forward as m11/e4 input",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-12T03:31:31Z",
+          "resolution": "LOW, deferred by owner decision 2026-08-12 (fix C1+HIGH+MEDIUM, defer LOW). None is a correctness defect in shipped behavior: they concern the --print-child-plan probe's failure-reporting and env sensitivity, a substring match in the tauri-cli reuse check, a docstring overclaiming what path-depth ordering guarantees, and the shipped supervisor writing JSON to an argv-supplied path (diagnostic-only, no plan authored, nothing spawned). Carry forward as m11/e4 input"
+        }
+      ]
+    },
+    "L5": {
+      "id": "L5",
+      "severity": "LOW",
+      "title": "the tauri-cli reuse check is a substring match",
+      "file": "apps/desktop/pyinstaller/desktop_package.py",
+      "line": 851,
+      "anchor": "if proc.returncode == 0 and TAURI_CLI_VER",
+      "source_critic": "milestone-infra-safety-critic",
+      "source_axis": "Axis 4 \u2014 Makefile / build script discipline",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "LOW, deferred by owner decision 2026-08-12 (fix C1+HIGH+MEDIUM, defer LOW). None is a correctness defect in shipped behavior: they concern the --print-child-plan probe's failure-reporting and env sensitivity, a substring match in the tauri-cli reuse check, a docstring overclaiming what path-depth ordering guarantees, and the shipped supervisor writing JSON to an argv-supplied path (diagnostic-only, no plan authored, nothing spawned). Carry forward as m11/e4 input",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-12T03:31:31Z",
+          "resolution": "LOW, deferred by owner decision 2026-08-12 (fix C1+HIGH+MEDIUM, defer LOW). None is a correctness defect in shipped behavior: they concern the --print-child-plan probe's failure-reporting and env sensitivity, a substring match in the tauri-cli reuse check, a docstring overclaiming what path-depth ordering guarantees, and the shipped supervisor writing JSON to an argv-supplied path (diagnostic-only, no plan authored, nothing spawned). Carry forward as m11/e4 input"
+        }
+      ]
+    },
+    "L6": {
+      "id": "L6",
+      "severity": "LOW",
+      "title": "the shipped supervisor writes JSON to an argv-supplied path",
+      "file": "apps/desktop/crates/supervisor/src/main.rs",
+      "line": 494,
+      "anchor": ".nth(2)",
+      "source_critic": "milestone-infra-safety-critic",
+      "source_axis": "Axis 4 \u2014 Makefile / build script discipline",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "LOW, deferred by owner decision 2026-08-12 (fix C1+HIGH+MEDIUM, defer LOW). None is a correctness defect in shipped behavior: they concern the --print-child-plan probe's failure-reporting and env sensitivity, a substring match in the tauri-cli reuse check, a docstring overclaiming what path-depth ordering guarantees, and the shipped supervisor writing JSON to an argv-supplied path (diagnostic-only, no plan authored, nothing spawned). Carry forward as m11/e4 input",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-12T03:31:31Z",
+          "resolution": "LOW, deferred by owner decision 2026-08-12 (fix C1+HIGH+MEDIUM, defer LOW). None is a correctness defect in shipped behavior: they concern the --print-child-plan probe's failure-reporting and env sensitivity, a substring match in the tauri-cli reuse check, a docstring overclaiming what path-depth ordering guarantees, and the shipped supervisor writing JSON to an argv-supplied path (diagnostic-only, no plan authored, nothing spawned). Carry forward as m11/e4 input"
+        }
+      ]
+    },
+    "L7": {
+      "id": "L7",
+      "severity": "LOW",
+      "title": "macho_inventory's docstring overclaims what path-depth ordering guarantees",
+      "file": "apps/desktop/pyinstaller/desktop_package.py",
+      "line": 895,
+      "anchor": "def macho_inventory(root: Path) -> list[Path]:",
+      "source_critic": "milestone-infra-safety-critic",
+      "source_axis": "Axis 4 \u2014 Makefile / build script discipline",
+      "source_file": "dedup.md",
+      "status": "deferred",
+      "resolution": "LOW, deferred by owner decision 2026-08-12 (fix C1+HIGH+MEDIUM, defer LOW). None is a correctness defect in shipped behavior: they concern the --print-child-plan probe's failure-reporting and env sensitivity, a substring match in the tauri-cli reuse check, a docstring overclaiming what path-depth ordering guarantees, and the shipped supervisor writing JSON to an argv-supplied path (diagnostic-only, no plan authored, nothing spawned). Carry forward as m11/e4 input",
+      "history": [
+        {
+          "status": "deferred",
+          "at": "2026-08-12T03:31:31Z",
+          "resolution": "LOW, deferred by owner decision 2026-08-12 (fix C1+HIGH+MEDIUM, defer LOW). None is a correctness defect in shipped behavior: they concern the --print-child-plan probe's failure-reporting and env sensitivity, a substring match in the tauri-cli reuse check, a docstring overclaiming what path-depth ordering guarantees, and the shipped supervisor writing JSON to an argv-supplied path (diagnostic-only, no plan authored, nothing spawned). Carry forward as m11/e4 input"
+        }
+      ]
+    }
+  }
+}

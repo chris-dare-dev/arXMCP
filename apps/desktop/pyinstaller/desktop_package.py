@@ -757,6 +757,21 @@ SUPERVISOR_CRATE = DESKTOP_WORKSPACE / "crates" / "supervisor"
 #: CLI as of 2026-08-12; the library crates this workspace pins are 2.11.5,
 #: and the two version lines are independent upstream — they are NOT expected
 #: to be equal, so do not "fix" the difference.
+#: Pinned `tauri-cli` version.
+#:
+#: **This is a VERSION pin, not a hash pin, and the difference is real**
+#: (critique M13). `requirements-build.txt` provisions PyInstaller under
+#: `--require-hashes`, so that toolchain is pinned to exact bytes; this is
+#: `cargo install --locked --version`, which pins the version number and the
+#: dependency graph but trusts crates.io to serve the same bytes for that
+#: version. crates.io is immutable-by-policy for published versions, which is
+#: why version-pinning is the normal Rust practice and why this is recorded
+#: rather than treated as a defect — but the two toolchains in this repo are
+#: NOT held to the same standard, and a reader comparing them should know
+#: that instead of inferring parity.
+#:
+#: Closing the gap would mean vendoring the crate or carrying a `Cargo.lock`
+#: for the CLI plus a checksum of the built binary; neither is in m15's scope.
 TAURI_CLI_VERSION = "2.11.4"
 
 #: Signing identity. Default is ad-hoc (`-`), which is what this host can
@@ -978,6 +993,39 @@ def presign_payload(payload_root: Path, identity: str | None = None) -> dict[str
     }
 
 
+#: Ambient variables that make Tauri's bundler sign the `.app` ITSELF.
+#: Decision 1 gives signing to `presign_payload` + `seal_app` exclusively; an
+#: operator shell carrying any of these would insert a second, differently-
+#: configured signer into the middle of the pipeline, between placement and
+#: the outer seal, and the assembly report would still describe our signing
+#: as if it were the only one (critique M12). Scrubbed rather than asserted
+#: absent: refusing to build on a developer's machine because their shell
+#: exports a signing identity for unrelated work would be a worse failure
+#: than ignoring it, and the scrub is what makes the report's claim true.
+_TAURI_SIGNING_ENV: tuple[str, ...] = (
+    "APPLE_CERTIFICATE",
+    "APPLE_CERTIFICATE_PASSWORD",
+    "APPLE_SIGNING_IDENTITY",
+    "APPLE_PROVIDER_SHORT_NAME",
+    "APPLE_API_ISSUER",
+    "APPLE_API_KEY",
+    "APPLE_API_KEY_PATH",
+    "APPLE_ID",
+    "APPLE_PASSWORD",
+    "APPLE_TEAM_ID",
+    "TAURI_SIGNING_PRIVATE_KEY",
+    "TAURI_SIGNING_PRIVATE_KEY_PASSWORD",
+)
+
+
+def _tauri_build_env() -> dict[str, str]:
+    """The environment `tauri build` runs under: ours, minus every knob that
+    would let it sign or notarize on its own (see :data:`_TAURI_SIGNING_ENV`).
+    """
+    env = {k: v for k, v in os.environ.items() if k not in _TAURI_SIGNING_ENV}
+    return env
+
+
 def build_app_shell(root: Path = DEFAULT_ROOT) -> Path:
     """Run Tauri's bundler to produce the `.app` SHELL.
 
@@ -994,7 +1042,7 @@ def build_app_shell(root: Path = DEFAULT_ROOT) -> Path:
     _log("tauri build (shell only: no resources, no externalBin, no frameworks)")
     _run(
         [str(cli), "build"],
-        env=dict(os.environ),
+        env=_tauri_build_env(),
         cwd=SUPERVISOR_CRATE,
         timeout=3600,
     )
@@ -1199,6 +1247,13 @@ def assemble(root: Path = DEFAULT_ROOT) -> dict[str, object]:
     """
     if sys.platform != "darwin":
         raise BuildError(f"`.app` assembly is macOS-only; this is {sys.platform!r}")
+    # Critique M2/M8/M15: the report is this run's evidence, so a previous
+    # run's copy must not survive into it. Removed BEFORE anything can fail,
+    # so an aborted assembly leaves no report at all rather than a stale one
+    # that reads as current — `tests/test_desktop_bundle.py` loads this file
+    # by path and cannot tell one run's from another's.
+    stale_report = root / "assembly-report.json"
+    stale_report.unlink(missing_ok=True)
     payload_root = root / "dist" / BUNDLE_NAME
     if not (payload_root / CHILD_EXE).is_file():
         raise BuildError(
@@ -1206,9 +1261,31 @@ def assemble(root: Path = DEFAULT_ROOT) -> dict[str, object]:
             "(assembly deliberately does not rebuild it — AC5 compares against "
             "the artifact that gate produced)"
         )
+    # Critique M16: the drift check below compares the PLACED tree against the
+    # post-signing onedir, which proves placement copied faithfully but says
+    # nothing about whether the payload is still m7's build — signing rewrites
+    # every Mach-O in place, so by the time the old baseline was taken the
+    # comparison could no longer see a substituted child. Capture m7's artifact
+    # BEFORE anything touches it, and carry both baselines in the report.
+    pristine_manifest = file_manifest(payload_root)
     signing = presign_payload(payload_root)
     stability = measure_adhoc_signature_stability(payload_root)
     signed_manifest = file_manifest(payload_root)
+    # Signing may only alter Mach-O files. Anything else changing between m7's
+    # artifact and the signed tree means the signing step did more than sign.
+    signed_targets = {
+        Path(rel).as_posix() for rel in signing.get("deepest_first", ())
+    }
+    non_macho_drift = [
+        rel
+        for rel in manifest_diff(pristine_manifest, signed_manifest)
+        if rel not in signed_targets and not is_macho(payload_root / rel)
+    ]
+    if non_macho_drift:
+        raise BuildError(
+            "pre-signing altered non-Mach-O files, which it must never do "
+            f"({len(non_macho_drift)} paths, first 10: {non_macho_drift[:10]})"
+        )
     app = build_app_shell(root)
     placed = place_payload(app, payload_root)
     placed_manifest = file_manifest(placed)
@@ -1258,16 +1335,25 @@ def assemble(root: Path = DEFAULT_ROOT) -> dict[str, object]:
         # exists because the seal must succeed at this location; an unsealed
         # bundle is not a product to keep quietly, and papering over it is the
         # failure mode the whole milestone exists to catch.
+        #
+        # Critique M11: the raise alone left the unsealed `.app` on disk while
+        # three documents claimed assembly "raises rather than leaving an
+        # unsealed .app". `_app()` in the bundle gate accepts any directory at
+        # this path, so the residue was readable as a product. Remove it and
+        # keep the report, which carries every measurement the bundle would
+        # have supplied — the claim and the behavior now agree.
+        shutil.rmtree(app, ignore_errors=True)
         raise BuildError(
             "OUTER SEAL FAILED at Contents/Resources. Nested Mach-O signing "
             f"({signing['macho_signed']} files) succeeded; the bundle-level "
             f"seal did not: {seal['error']!r}. Location control: "
             f"MacOS sealed={seal_control['macos']['sealed']}, "  # type: ignore[index]
             f"Resources sealed={seal_control['resources']['sealed']}. "  # type: ignore[index]
-            f"Evidence written to {root / 'assembly-report.json'}. See "
-            "adr-desktop-bundle-assembly.md Decision 2a and R3 — if a plain "
-            "file under Resources also fails to seal, the finding is about "
-            "this host's codesign, not about the layout."
+            f"Evidence written to {root / 'assembly-report.json'}; the "
+            "unsealed bundle itself was REMOVED so it cannot be mistaken for "
+            "a product. See adr-desktop-bundle-assembly.md Decision 2a and "
+            "R3 — if a plain file under Resources also fails to seal, the "
+            "finding is about this host's codesign, not about the layout."
         )
     return report
 
