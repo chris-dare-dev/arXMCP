@@ -1,8 +1,8 @@
 {
   "id": "desktop-distribution-m10",
   "created_at": "2026-08-11T22:08:35Z",
-  "updated_at": "2026-08-11T23:51:26Z",
-  "phase": "rectify-running",
+  "updated_at": "2026-08-12T00:50:06Z",
+  "phase": "complete",
   "phase_history": [
     {
       "phase": "init",
@@ -35,6 +35,10 @@
     {
       "phase": "rectify-running",
       "at": "2026-08-11T23:51:26Z"
+    },
+    {
+      "phase": "complete",
+      "at": "2026-08-12T00:50:06Z"
     }
   ],
   "milestone_brief": "### desktop-distribution-m10 \u2014 The application launches itself\n\n**Description.** Give the supervisor a production path to a launch plan it\nauthors from its own bundle layout, so a double-clicked `.app` starts. The\nplan-from-environment path stays exactly as it is and remains the test seam;\nthis milestone adds the arm that runs when the variable is absent, deriving\n`child_argv` from the bundled frozen child, `data_root` from\n`_platform_data_root`, and a fresh `startup_token` per launch. Every\n`validate_plan` rule \u2014 the `!smoke` refusal of the four test knobs included \u2014\nmust apply unchanged to a self-authored plan.\n\n> **Narrowed 2026-08-11, after Phase 1 research.** As first written, AC1 and\n> AC4 named an application bundle that does not exist:\n> `apps/desktop/crates/supervisor/tauri.conf.json` carries\n> `\"bundle\": {\"active\": false}` with no `resources` and no `externalBin` key,\n> and m7 produced a frozen *child*, never a `.app`. Both researchers returned\n> this independently. The bundle mechanism \u2014 `bundle.resources` vs\n> `bundle.externalBin` vs a sibling-directory convention resolved off\n> `current_exe()` \u2014 is a design decision that changes what \"inside the\n> bundle\" structurally means per OS, so it moved to `m15` and m10's proofs\n> are restated against m7's real frozen onedir layout. Scope evidence:\n> the self-authoring arm alone measures ~520 LOC across ~7 files; folding\n> bundle assembly in crosses the pipeline's 800-LOC abort.\n\n**Acceptance criteria.**\n- [ ] With `ARXMCP_DESKTOP_LAUNCH_PLAN` unset, the supervisor launched from\n      m7's frozen onedir layout reaches a ready server and a rendered\n      window. The regression MUST reproduce the documented `exit(2)` as its\n      RED state; a test that only asserts the new arm's success does not\n      discriminate. (The same proof against a real `.app` is `m15`'s.)\n- [ ] A self-authored plan is refused by `validate_plan` under every rule\n      that refuses an externally supplied one, asserted by feeding the\n      self-authored plan through the same validator rather than by\n      inspection. Because a self-authored plan is never `smoke: true`, the\n      five `!smoke`-gated knobs are vacuously refused \u2014 so the\n      `child_argv.is_empty()` branch MUST be independently exercised on a\n      self-authored plan, or the criterion proves nothing.\n- [ ] The environment-supplied path is byte-identically preserved: the m5\n      lifecycle, m6 fault matrix, and m8 frozen-child gates run unmodified.\n- [ ] `child_argv[0]` resolves inside m7's frozen onedir root and is\n      rejected if it resolves outside it, via canonicalize-then-contain\n      mirroring `server/application_paths.py:59-67` rather than a\n      string-prefix check. `std::env::current_exe()` is documented by the\n      Rust stdlib as NOT a security primitive; the PATH-search and hardlink\n      classes it names are recorded as accepted residual risk rather than\n      implied closed.\n- [ ] `data_root` derivation agrees byte-for-byte with\n      `_platform_data_root` (`server/application_paths.py:81-89`) across a\n      matrix of the platform env vars each branch reads. The supervisor is\n      Rust and that function is Python with no FFI bridge, so whichever way\n      Phase 2 resolves it, the agreement is asserted by running BOTH\n      implementations \u2014 never by inspection.\n- [ ] `identity_file` and `child_argv[0]` carry their FROZEN-case\n      relationship (they converge, per `identity_source_path()`), not the\n      source-checkout shape every existing test fixture uses.\n- [ ] The startup token is freshly generated per launch by the existing\n      `generate_startup_token()` \u2014 not a second generator \u2014 never\n      persisted, and absent from every argv and every persisted diagnostic,\n      proven by the m6 redaction scan extended to this path.\n- [ ] `make test` and `make desktop-conformance` exit 0.\n\n**Dependencies.** desktop-distribution-m7, desktop-distribution-m9\n\n**Complexity.** M\n\n**Specialist suggestion.** `security-reviewer`\n\n---\n",
@@ -77,11 +81,18 @@
     "low": 8
   },
   "findings_register": ".claude/notes/milestones/desktop-distribution-m10/findings.json",
-  "rectification_commit": null,
+  "rectification_commit": "48f5cc3",
   "fixed_findings": [],
   "deferred_findings": [],
   "invalidated_findings": [],
-  "regression_tests_added": [],
-  "external_writes_authorized": [],
-  "external_writes_completed": []
+  "regression_tests_added": [
+    "tests/test_desktop_self_authored_launch.py",
+    "apps/desktop/crates/supervisor/src/main.rs"
+  ],
+  "external_writes_authorized": [
+    "git push origin main"
+  ],
+  "external_writes_completed": [
+    "git push origin main"
+  ]
 }
