@@ -10,15 +10,15 @@ double-clicked application has).
 
 `.app` bundle assembly landed in `desktop-distribution-m15`: `bundle.active`
 is `true`, no `resources`/`externalBin`/`frameworks` is wired, and
-`make desktop-bundle` produces `arXMCP.app` with the frozen child placed
-inside it. See "Assembled artifact layout" below for what the artifact
-actually contains and for the two things about it that are recorded rather
-than claimed.
+`make desktop-bundle` produces `arXMCP.app` with the frozen child placed under
+`Contents/Resources/` and the outer bundle sealed ad-hoc. See "Assembled
+artifact layout" below for what the artifact actually contains and for what
+its seal does and does not establish.
 
 Still NOT here: release signing and notarization, blocked on an Apple
-Developer ID certificate this project does not have. The payload is signed
-ad-hoc, which is a real seal over each Mach-O and is **not** a distribution
-signature.
+Developer ID certificate this project does not have. Every signature in the
+artifact — each nested Mach-O and the outer bundle — is ad-hoc: a real seal,
+tamper-evident locally, and **not** a distribution signature.
 
 The decision behind the layout is recorded in
 [`.claude/docs/adr-desktop-bundle-assembly.md`](../../.claude/docs/adr-desktop-bundle-assembly.md)
@@ -28,36 +28,48 @@ to answer it.
 
 ## Child payload layout and its trust assumption
 
-The self-authoring arm looks for m7's onedir as a **sibling of the supervisor
-executable**:
+The self-authoring arm resolves the payload through **two layouts, in order**
+(`crates/supervisor/src/main.rs::child_payload_candidates`):
 
-    <supervisor dir>/arxmcp-desktop-child/arxmcp-desktop-child
+| context | supervisor at | payload at |
+|---|---|---|
+| dev / m7 onedir | `<dir>/supervisor` | `<dir>/arxmcp-desktop-child/` (sibling) |
+| assembled `.app` | `Contents/MacOS/supervisor` | `Contents/Resources/arxmcp-desktop-child/` |
 
-`child_argv[0]` is resolved inside that root by canonicalizing both sides and
-requiring component-wise containment, and the root itself is refused if it is
-a symlink. The child's bytes are then checked against the plan's
-`identity_file` digest before it is trusted.
+The bundle candidate is offered **only when the supervisor actually sits in
+`…/Contents/MacOS`**, so outside a bundle there is exactly one candidate. The
+first candidate that is PRESENT is selected; if neither is, the launch is
+refused by name (`child payload root missing (checked the bundle Resources and
+supervisor-sibling layouts)`) rather than proceeding against a root that does
+not exist.
 
-**The assumption an operator needs to know:** write access to that sibling
-directory is equivalent to arbitrary code execution as the operator. Nothing
-in the supervisor can close that — the defenses are install-location
-permissions and, when they land, m15's bundle layout plus e4's code signing.
+`child_argv[0]` is then resolved inside the selected root by canonicalizing
+both sides and requiring component-wise containment, and the root itself is
+refused if it is a symlink — unchanged by the layout split, and deliberately
+reached rather than skipped: a symlinked root counts as *present*, so it is
+selected and refused, never silently traded for the other layout. The child's
+bytes are then checked against the plan's `identity_file` digest before it is
+trusted.
+
+**The assumption an operator needs to know:** write access to the payload
+directory — whichever layout is in force — is equivalent to arbitrary code
+execution as the operator. Nothing in the supervisor can close that; the
+defenses are install-location permissions and e4's release signing.
 `std::env::current_exe()`, which anchors the whole resolution, is documented
 by the Rust stdlib as *not* a security primitive; the PATH-search and
 hardlink classes it names carry no privilege gradient here (the supervisor is
 not setuid/setgid) but are recorded as accepted residual risk rather than
 closed.
 
-**This convention SURVIVED m15 rather than being replaced.** An earlier
-revision of this section, and of `child_payload_root()`'s doc comment,
-predicted that m15 would re-point the parent chain at
-`Contents/Resources/...`. Both were wrong. The ADR's Decision 2 places the
-payload at `Contents/MacOS/arxmcp-desktop-child/`, whose parent is the same
-directory the supervisor executable sits in, so the resolution above is the
-same expression in a source checkout and in an assembled bundle. The function
-body therefore did not change — which is a fact about the diff and not
-evidence about the artifact, so the resolution is measured against the real
-bundle instead (see below).
+**Why two layouts instead of one.** m15 first assembled the bundle with the
+payload beside the supervisor in `Contents/MacOS/`, per the ADR's Decision 2,
+and measured that `codesign` cannot seal such a bundle at all. The ADR was
+amended: **Decision 2a** moves the payload to `Contents/Resources/`, which
+seals — so the bundled payload stops being a sibling, while the onedir shape
+every developer run and every m10 gate uses stays exactly as it was. Both arms
+and the refusal are tested, in `main.rs`'s unit tests and again against the
+real bundled binary in
+`tests/test_desktop_bundle.py::TestDualLayoutResolution`.
 
 ## Assembled artifact layout
 
@@ -69,13 +81,15 @@ macOS 26.6 / Apple Silicon, from `make desktop-bundle`:
         Info.plist                       CFBundleExecutable=supervisor
                                          CFBundleIdentifier=com.arxmcp.desktop
                                          LSMinimumSystemVersion=14.0
+        _CodeSignature/                  the outer seal, over everything below
         MacOS/
           supervisor                     the Tauri shell; minos 14.0
+        Resources/
+          icon.icns                      the app icon
           arxmcp-desktop-child/          m7's PyInstaller onedir, placed here
             arxmcp-desktop-child         frozen server child; minos 11.0
             arxmcp-desktop-probe         frozen verification probe; minos 11.0
             _internal/                   ~5,300 files, 180 Mach-O, ~0.75 GB
-        Resources/                       icon only; NO payload
         Frameworks/                      absent — not used by this layout
 
 Note the executable is `supervisor` (the cargo bin name), not `arXMCP`
@@ -87,37 +101,45 @@ assemble`: pre-sign every nested Mach-O bottom-up (deepest path first, one
 `codesign` per file, ad-hoc identity by default; **never** `codesign --deep`,
 which is the shortcut the ADR's evidence rows E4/E6 record surviving local
 verification and failing the notary) → `tauri build` for the shell → copy the
-payload into `Contents/MacOS/` → attempt the outer re-seal. `tauri-cli` is
-pinned (`cargo install --locked --version`) into `var/desktop-package/`.
+payload into `Contents/Resources/` → re-seal the outer bundle. The seal must
+succeed: assembly RAISES rather than leaving an unsealed `.app` on disk.
+`tauri-cli` is pinned (`cargo install --locked --version`) into
+`var/desktop-package/`.
 
-**Two results are recorded, not claimed. e4 inherits both.**
+**What the seal does and does not say. e4 inherits this.**
 
-1. **The outer bundle is not sealed.** `codesign` treats every file under
-   `Contents/MacOS` as a nested code object and refuses the bundle at the
+1. **The outer bundle seals, and that is all it means.** `codesign
+   --verify --strict` reports "valid on disk / satisfies its Designated
+   Requirement" over the whole bundle, and every nested Mach-O carries its own
+   ad-hoc signature underneath. It is an ad-hoc seal: no identity, no
+   certificate, and it settles nothing about Apple's notary — E6 in the ADR is
+   the recorded case where local verification passed and the notary refused.
+
+   The location is load-bearing and was learned the hard way. With the payload
+   at `Contents/MacOS/` (the ADR's original Decision 2), `codesign` treats
+   every file there as a nested code object and refuses the bundle at the
    first non-Mach-O one:
 
        <app>: code object is not signed at all
        In subcomponent: .../Contents/MacOS/arxmcp-desktop-child/_internal/tools/sbom.sh
 
-   This is a property of the location, not of this payload: a six-byte
+   That is a property of the location, not of this payload: a six-byte
    `data.txt` reproduces it, and the same file under `Contents/Resources/`
-   seals and reports "valid on disk / satisfies its Designated Requirement".
-   `tests/test_desktop_bundle.py::TestOuterSeal` runs that A/B control on
-   every gate run. Every nested Mach-O IS signed; what is absent is the
-   bundle-level seal. This is exactly the condition the ADR's rejected
-   alternative R3 names as the trigger for revisiting the `frameworks` route,
-   and it reached that condition without a notary submission.
+   seals. `tests/test_desktop_bundle.py::TestOuterSeal` re-runs that A/B
+   control on every gate run, so any future seal failure can be attributed to
+   the layout or to the host rather than guessed at.
 
 2. **Gatekeeper path translocation is UNVERIFIED.** Setting
    `com.apple.quarantine` on the bundle and launching it through `open(1)`
-   yields exit 0 and no process — LaunchServices refuses an ad-hoc-signed
-   bundle whose outer seal is invalid, so translocation never gets a chance
-   to occur. Reaching that path needs the Developer ID signature e4 is
-   blocked on. What IS measured: the bundle relocated whole to an arbitrary
-   path and launched through LaunchServices still resolves the payload as a
-   sibling of the executable. Translocation relocates the bundle as a unit
-   too, so that is evidence for the expectation — it is not the expectation
-   itself.
+   yields exit 0 and no process, so translocation never gets a chance to
+   occur. The reason narrowed when the payload moved: the bundle now has a
+   valid outer seal and the quarantined launch is still refused, so what
+   remains is the ad-hoc identity — reaching that path needs the Developer ID
+   signature e4 is blocked on. What IS measured: the bundle relocated whole to
+   an arbitrary path and launched through LaunchServices resolves the payload
+   inside the relocated bundle, off its own `current_exe()`. Translocation
+   relocates the bundle as a unit too, so that is evidence for the
+   expectation — it is not the expectation itself.
 
 **Two declared floors, and they disagree.** The Tauri shell reports
 `minos 14.0` (pinned by `.cargo/config.toml`); the two PyInstaller-produced

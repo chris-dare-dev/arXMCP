@@ -221,7 +221,8 @@ notary service, and this milestone does not claim it does.**
   and that epic e4 is blocked on. No further documentation research moves this.
 - What would be submitted, so e4 inherits a specification and not a puzzle: the assembled
   `arXMCP.app` containing the bottom-up-pre-signed onedir under
-  `Contents/MacOS/arxmcp-desktop-child/`, hardened-runtime enabled, in whichever container
+  `Contents/Resources/arxmcp-desktop-child/` (Decision 2a; the sealed layout),
+  hardened-runtime enabled, in whichever container
   the size demands; plus, as a cheaper control, a fixture-sized onedir built the same way,
   so a rejection can be attributed to the *mechanism* rather than to scale.
 
@@ -290,14 +291,22 @@ The hybrid already avoids both open Tauri bugs without paying that.
 
 ## Per-OS consequence of the choice
 
-The portable invariant this ADR commits to is **not** a Tauri config key. It is:
+The portable invariant this ADR commits to is **not** a Tauri config key. Decision 2a
+weakened it, and the weaker form is the true one:
 
-> The payload is a directory named `CHILD_PAYLOAD_DIR` sitting beside the supervisor
-> executable, whatever "beside" means in that OS's package format.
+> The payload is a directory named `CHILD_PAYLOAD_DIR` at a location the supervisor can
+> derive from its OWN on-disk location, in that OS's package format — one enumerated
+> candidate per package shape, resolved as an explicit disjunction, never a search.
+
+Under Decision 2 that location was always "beside the supervisor executable". It no
+longer is on macOS, which is why the invariant is stated as derivability rather than
+adjacency.
 
 - **macOS (`.app`, this milestone's only exercised target):**
-  `Contents/MacOS/arxmcp-desktop-child/`. `child_payload_root()` unchanged in body;
-  `bundle.active` flips to `true`; `minimumSystemVersion: "14.0"` becomes live rather than
+  `Contents/Resources/arxmcp-desktop-child/`, derived from
+  `Contents/MacOS/supervisor` (Decision 2a). `child_payload_root()` gains the
+  two-candidate disjunction; `bundle.active` flips to `true`;
+  `minimumSystemVersion: "14.0"` becomes live rather than
   inert. Distribution container (DMG vs zip) is not decided here — see below.
 - **Linux (AppImage/deb, portability target, not release-supported):** the invariant is
   satisfiable — an AppImage runs from a mounted image where the payload can sit beside the

@@ -58,11 +58,12 @@ const CHILD_COMPONENT: &str = "arxmcp-server-desktop-child";
 /// can RUN both implementations rather than eyeball them; it authors no plan,
 /// spawns nothing, and touches no filesystem state.
 const DATA_ROOT_PROBE_ARG: &str = "--print-data-root";
-/// Diagnostic-only argv flag (m15): prints, as JSON, the three values the
+/// Diagnostic-only argv flag (m15): prints, as JSON, the values the
 /// self-authoring arm derives from this binary's own on-disk location —
-/// `std::env::current_exe()`, the payload root [`child_payload_root`] builds
-/// from it, and either the contained `child_argv[0]` or the exact refusal
-/// reason [`resolve_inside`] produced. It authors no plan, spawns nothing,
+/// `std::env::current_exe()`, WHICH of the two layouts
+/// [`child_payload_layout`] selected, the payload root it selected, and
+/// either the contained `child_argv[0]` or the exact refusal reason
+/// [`resolve_inside`] produced. It authors no plan, spawns nothing,
 /// creates no data root and touches no filesystem state beyond the optional
 /// output file below.
 ///
@@ -250,13 +251,14 @@ fn wire_path(path: &Path) -> String {
 ///
 /// RESIDUAL RISK, recorded not closed, WORST FIRST:
 ///
-/// 1. The payload is a SIBLING directory of the installed supervisor, so
-///    write access next to the supervisor binary is equivalent to arbitrary
-///    code execution as the operator. This needs no trick and is the class
-///    that an unpacked-in-Downloads copy or a group-writable install
-///    directory makes real. The defenses are install-location permissions
-///    and, later, m15/e4 code signing — not this function. Stated for
-///    operators in `apps/desktop/README.md`.
+/// 1. Write access to the payload directory is equivalent to arbitrary code
+///    execution as the operator — whichever of [`child_payload_candidates`]'
+///    two layouts is in force (the onedir sibling, or the assembled bundle's
+///    `Contents/Resources/`). This needs no trick and is the class that an
+///    unpacked-in-Downloads copy or a group-writable install directory makes
+///    real. The defenses are install-location permissions and, later, e4
+///    code signing — not this function. Stated for operators in
+///    `apps/desktop/README.md`.
 /// 2. The root descends from `std::env::current_exe()`, which the Rust
 ///    stdlib documents as **not a security primitive** — it names PATH-search
 ///    and Linux-hardlink classes that can make it return an attacker-chosen
@@ -327,31 +329,93 @@ fn compose_self_authored_plan(
     }
 }
 
-/// m7's onedir stages as a SIBLING of the supervisor executable. m15's
-/// bundle-assembly ADR (`.claude/docs/adr-desktop-bundle-assembly.md`,
-/// Decision 2, Accepted) KEEPS that convention inside the `.app` rather than
-/// replacing it: the payload is placed at
-/// `Contents/MacOS/arxmcp-desktop-child/`, whose parent is the same
-/// `Contents/MacOS` the supervisor executable sits in. So this function's
-/// body is the same expression in a source checkout and in an assembled
-/// bundle.
+/// Layout labels for the payload root that was selected. Reported by
+/// [`CHILD_PLAN_PROBE_ARG`] so the chosen arm is OBSERVABLE against a real
+/// artifact instead of being inferred from the resolved path string.
+const LAYOUT_BUNDLE_RESOURCES: &str = "bundle-resources";
+const LAYOUT_SUPERVISOR_SIBLING: &str = "supervisor-sibling";
+
+/// The payload layouts, in resolution order, for a given supervisor path.
 ///
-/// **An earlier revision of this comment predicted the opposite** — that m15
-/// would re-point this parent chain at `Contents/Resources/...` and that
-/// "only this function changes". Both halves were wrong, and the correction
-/// matters: `Contents/Resources` is where the one community-confirmed
-/// unsigned-nested-code notarization failure lives (ADR evidence row E4), so
-/// the executable directory was chosen deliberately, not by inertia.
+/// m7's onedir stages the payload as a SIBLING of the supervisor executable.
+/// m15's bundle-assembly ADR (`.claude/docs/adr-desktop-bundle-assembly.md`)
+/// **Decision 2a, Accepted 2026-08-12** — which SUPERSEDED Decision 2 after
+/// the assembled artifact proved `codesign` cannot seal a bundle whose
+/// `Contents/MacOS` holds non-Mach-O files — places the bundled payload under
+/// `Contents/Resources/` instead. It is a property of the LOCATION, shown by
+/// an A/B control on a six-byte data file, not of this payload.
 ///
-/// A body that did not have to change is a fact about the diff, NOT evidence
-/// about the artifact. What the resolution actually does inside a real
-/// assembled bundle is MEASURED, not inferred, by
-/// `tests/test_desktop_bundle.py` through [`CHILD_PLAN_PROBE_ARG`].
-fn child_payload_root(supervisor_exe: &Path) -> Result<PathBuf, &'static str> {
-    Ok(supervisor_exe
+/// So the payload is no longer a sibling inside a bundle, and TWO layouts
+/// must coexist — the onedir shape every m10 gate and developer run uses, and
+/// the bundle shape that ships:
+///
+/// | context | supervisor at | payload at |
+/// |---|---|---|
+/// | dev / m7 onedir | `<dir>/supervisor` | `<dir>/arxmcp-desktop-child/` |
+/// | assembled `.app` | `Contents/MacOS/supervisor` | `Contents/Resources/arxmcp-desktop-child/` |
+///
+/// The bundle candidate is offered **only when the supervisor actually sits
+/// in `…/Contents/MacOS`**, which is what makes this an explicit disjunction
+/// rather than a speculative `../Resources` probe from every directory:
+/// outside a bundle there is exactly one candidate, so there is nothing to
+/// fall through to and no second root that a planted directory could steer a
+/// launch onto.
+fn child_payload_candidates(
+    supervisor_exe: &Path,
+) -> Result<Vec<(&'static str, PathBuf)>, &'static str> {
+    let dir = supervisor_exe
         .parent()
-        .ok_or("self-authored plan: supervisor has no parent directory")?
-        .join(CHILD_PAYLOAD_DIR))
+        .ok_or("self-authored plan: supervisor has no parent directory")?;
+    let mut candidates: Vec<(&'static str, PathBuf)> = Vec::with_capacity(2);
+    let contents = dir.parent();
+    let in_bundle_macos = dir.file_name().is_some_and(|name| name == "MacOS")
+        && contents
+            .and_then(Path::file_name)
+            .is_some_and(|name| name == "Contents");
+    if in_bundle_macos {
+        if let Some(contents) = contents {
+            candidates.push((
+                LAYOUT_BUNDLE_RESOURCES,
+                contents.join("Resources").join(CHILD_PAYLOAD_DIR),
+            ));
+        }
+    }
+    candidates.push((LAYOUT_SUPERVISOR_SIBLING, dir.join(CHILD_PAYLOAD_DIR)));
+    Ok(candidates)
+}
+
+/// Select the payload root: the first PRESENT candidate wins, and refuse when
+/// neither is present.
+///
+/// "Present" is `symlink_metadata`, deliberately: a SYMLINKED root counts as
+/// present, so it is selected and then REFUSED by [`resolve_inside`] (m10's
+/// M13 fix) rather than skipped in favour of the next candidate. Skipping it
+/// would let a planted symlink decide WHICH root a launch runs from, so the
+/// m10 hardening is preserved here by construction — pinned by
+/// `symlinked_bundle_payload_root_does_not_fall_through`.
+///
+/// Validity beyond presence stays [`resolve_inside`]'s job, unchanged: it is
+/// still the containment gate for whichever root this returns, and its
+/// refusal strings are still the ones callers see.
+fn child_payload_root(supervisor_exe: &Path) -> Result<PathBuf, &'static str> {
+    Ok(child_payload_layout(supervisor_exe)?.1)
+}
+
+/// [`child_payload_root`] with the selected arm's label attached, for the
+/// probe. Split out so the probe can report WHICH layout resolved without
+/// the caller re-deriving it from the path.
+fn child_payload_layout(supervisor_exe: &Path) -> Result<(&'static str, PathBuf), &'static str> {
+    for (layout, root) in child_payload_candidates(supervisor_exe)? {
+        if fs::symlink_metadata(&root).is_ok() {
+            return Ok((layout, root));
+        }
+    }
+    // Deliberately a SUPERSET of `resolve_inside`'s own "child payload root
+    // missing" wording: the two refusals are the same fact reached at
+    // different depths (selection found no candidate; containment found the
+    // selected one gone), and m10's runtime RED-state gate matches on that
+    // substring.
+    Err("self-authored plan: child payload root missing (checked the bundle Resources and supervisor-sibling layouts)")
 }
 
 fn child_executable_name() -> String {
@@ -371,11 +435,12 @@ fn child_executable_name() -> String {
 /// the copy or the re-seal. Reading the refusal string would conflate "the
 /// assembler created a symlink" with "the payload is missing".
 fn child_plan_probe(supervisor_exe: &Path) -> serde_json::Value {
-    let root = match child_payload_root(supervisor_exe) {
-        Ok(root) => root,
+    let (layout, root) = match child_payload_layout(supervisor_exe) {
+        Ok(selected) => selected,
         Err(reason) => {
             return serde_json::json!({
                 "supervisor_exe": wire_path(supervisor_exe),
+                "layout": serde_json::Value::Null,
                 "payload_root": serde_json::Value::Null,
                 "payload_root_is_symlink": serde_json::Value::Null,
                 "child_argv0": serde_json::Value::Null,
@@ -398,6 +463,7 @@ fn child_plan_probe(supervisor_exe: &Path) -> serde_json::Value {
     };
     serde_json::json!({
         "supervisor_exe": wire_path(supervisor_exe),
+        "layout": layout,
         "payload_root": wire_path(&root),
         "payload_root_is_symlink": is_symlink,
         "child_argv0": child,
@@ -416,6 +482,7 @@ fn emit_child_plan_probe() {
         Ok(exe) => child_plan_probe(&exe),
         Err(err) => serde_json::json!({
             "supervisor_exe": serde_json::Value::Null,
+            "layout": serde_json::Value::Null,
             "payload_root": serde_json::Value::Null,
             "payload_root_is_symlink": serde_json::Value::Null,
             "child_argv0": serde_json::Value::Null,
@@ -870,6 +937,161 @@ mod tests {
         let _ = fs::remove_dir_all(&base);
     }
 
+    // --- m15 Decision 2a: the two layouts, as an explicit disjunction ----
+
+    /// Stage a `.app`-shaped tree and return `(supervisor_exe, app_root)`.
+    /// Nothing is placed; each test creates the payload root(s) it needs.
+    fn stage_bundle(label: &str) -> (PathBuf, PathBuf) {
+        let app = std::env::temp_dir().join(format!(
+            "arxmcp-m15-{label}-{}-{:?}.app",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = fs::remove_dir_all(&app);
+        fs::create_dir_all(app.join("Contents").join("MacOS")).expect("stage Contents/MacOS");
+        fs::create_dir_all(app.join("Contents").join("Resources"))
+            .expect("stage Contents/Resources");
+        (app.join("Contents").join("MacOS").join("supervisor"), app)
+    }
+
+    fn stage_child_in(root: &Path) {
+        fs::create_dir_all(root).expect("stage payload root");
+        fs::write(root.join(child_executable_name()), b"#!/bin/false\n")
+            .expect("stage child executable");
+    }
+
+    /// ARM 1 — the assembled `.app`. The payload is NOT a sibling of the
+    /// supervisor any more (ADR Decision 2a), so this arm is the one the
+    /// shipped artifact takes and it must resolve on its own evidence.
+    #[test]
+    fn bundle_layout_resolves_the_payload_under_contents_resources() {
+        let (supervisor, app) = stage_bundle("bundle-arm");
+        let resources = app
+            .join("Contents")
+            .join("Resources")
+            .join(CHILD_PAYLOAD_DIR);
+        stage_child_in(&resources);
+        let (layout, root) = child_payload_layout(&supervisor).expect("bundle layout resolves");
+        assert_eq!(layout, LAYOUT_BUNDLE_RESOURCES);
+        assert_eq!(root, resources);
+        assert_eq!(
+            resolve_inside(&root, &root.join(child_executable_name())),
+            Ok(fs::canonicalize(resources.join(child_executable_name())).expect("canonicalize")),
+            "resolve_inside is unchanged and stays the gate for the selected root"
+        );
+        let _ = fs::remove_dir_all(&app);
+    }
+
+    /// ARM 2 — m7's onedir / every developer run. Unchanged behaviour, and
+    /// asserted rather than inherited: this is the shape every m10 gate uses.
+    #[test]
+    fn sibling_layout_still_resolves_outside_a_bundle() {
+        let (supervisor, base) = stage_payload("sibling-arm");
+        let (layout, root) = child_payload_layout(&supervisor).expect("sibling layout resolves");
+        assert_eq!(layout, LAYOUT_SUPERVISOR_SIBLING);
+        assert_eq!(root, base.join(CHILD_PAYLOAD_DIR));
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    /// A supervisor that merely LOOKS bundled gets no bundle candidate: the
+    /// `../Resources` location is offered only from `…/Contents/MacOS`, so a
+    /// `Resources` directory beside an ordinary install cannot become a
+    /// launch root.
+    #[test]
+    fn a_non_bundle_layout_offers_only_the_sibling_candidate() {
+        let (supervisor, base) = stage_payload("no-bundle-candidate");
+        let candidates = child_payload_candidates(&supervisor).expect("candidates");
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].0, LAYOUT_SUPERVISOR_SIBLING);
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    /// THE REFUSAL. Neither layout holds a payload, so the resolution fails
+    /// explicitly instead of returning a root that does not exist and letting
+    /// a later step guess what went wrong.
+    #[test]
+    fn neither_layout_present_is_refused() {
+        let (supervisor, app) = stage_bundle("neither");
+        let candidates = child_payload_candidates(&supervisor).expect("candidates");
+        assert_eq!(candidates.len(), 2, "a bundled supervisor has both arms");
+        assert_eq!(candidates[0].0, LAYOUT_BUNDLE_RESOURCES);
+        assert_eq!(candidates[1].0, LAYOUT_SUPERVISOR_SIBLING);
+        let err = child_payload_root(&supervisor).expect_err("no payload anywhere");
+        assert!(err.contains("child payload root missing"), "{err}");
+        assert!(err.contains("supervisor-sibling"), "{err}");
+        let plan = self_authored_plan(&supervisor, fake_env(&[("HOME", "/nonexistent-home")]));
+        assert_eq!(plan.err(), Some(err));
+        let _ = fs::remove_dir_all(&app);
+    }
+
+    /// Ordering, asserted on a tree where BOTH roots exist: the bundle arm
+    /// wins. A stray `Contents/MacOS/arxmcp-desktop-child/` — which is where
+    /// Decision 2 used to put it — must not shadow the sealed location.
+    #[test]
+    fn the_bundle_arm_wins_when_both_roots_exist() {
+        let (supervisor, app) = stage_bundle("precedence");
+        let resources = app
+            .join("Contents")
+            .join("Resources")
+            .join(CHILD_PAYLOAD_DIR);
+        stage_child_in(&resources);
+        stage_child_in(&app.join("Contents").join("MacOS").join(CHILD_PAYLOAD_DIR));
+        let (layout, root) = child_payload_layout(&supervisor).expect("resolves");
+        assert_eq!(layout, LAYOUT_BUNDLE_RESOURCES);
+        assert_eq!(root, resources);
+        let _ = fs::remove_dir_all(&app);
+    }
+
+    /// m10's M13 hardening, preserved BY CONSTRUCTION across the new
+    /// disjunction: a symlinked bundle payload root is REFUSED, never skipped
+    /// in favour of the sibling arm. Skipping would let whoever plants the
+    /// symlink choose which root the supervisor launches from.
+    #[test]
+    #[cfg(unix)]
+    fn symlinked_bundle_payload_root_does_not_fall_through() {
+        let (supervisor, app) = stage_bundle("symlink-no-fallthrough");
+        let elsewhere = app.join("elsewhere");
+        stage_child_in(&elsewhere);
+        // A perfectly good sibling payload exists; the symlinked bundle root
+        // must still win selection and then be refused.
+        stage_child_in(&app.join("Contents").join("MacOS").join(CHILD_PAYLOAD_DIR));
+        std::os::unix::fs::symlink(
+            &elsewhere,
+            app.join("Contents")
+                .join("Resources")
+                .join(CHILD_PAYLOAD_DIR),
+        )
+        .expect("symlink bundle payload root");
+        let (layout, _) = child_payload_layout(&supervisor).expect("symlinked root is PRESENT");
+        assert_eq!(layout, LAYOUT_BUNDLE_RESOURCES);
+        let result = self_authored_plan(&supervisor, fake_env(&[("HOME", "/nonexistent-home")]));
+        assert_eq!(
+            result.err(),
+            Some("self-authored plan: child payload root is a symlink")
+        );
+        let _ = fs::remove_dir_all(&app);
+    }
+
+    /// The probe reports the arm, so the assembled artifact can be checked
+    /// for WHICH layout it resolved rather than only for a path string.
+    #[test]
+    fn the_probe_reports_the_selected_layout() {
+        let (supervisor, app) = stage_bundle("probe-layout");
+        stage_child_in(
+            &app.join("Contents")
+                .join("Resources")
+                .join(CHILD_PAYLOAD_DIR),
+        );
+        let report = child_plan_probe(&supervisor);
+        assert_eq!(report["layout"], LAYOUT_BUNDLE_RESOURCES);
+        assert_eq!(report["error"], serde_json::Value::Null);
+        let (sibling_supervisor, base) = stage_payload("probe-layout-sibling");
+        let sibling = child_plan_probe(&sibling_supervisor);
+        assert_eq!(sibling["layout"], LAYOUT_SUPERVISOR_SIBLING);
+        let _ = fs::remove_dir_all(&app);
+        let _ = fs::remove_dir_all(&base);
+    }
+
     #[test]
     #[cfg(unix)]
     fn symlinked_payload_root_is_rejected() {
@@ -945,9 +1167,14 @@ mod tests {
         let base = std::env::temp_dir().join(format!("arxmcp-m10-absent-{}", std::process::id()));
         let _ = fs::remove_dir_all(&base);
         fs::create_dir_all(&base).expect("stage empty dir");
+        // m15 Decision 2a moved the refusal one layer earlier — selection now
+        // reports that NEITHER layout held a root — so the message names both
+        // layouts while keeping m10's "child payload root missing" wording.
         assert_eq!(
             self_authored_plan(&base.join("supervisor"), fake_env(&[("HOME", "/tmp")])).err(),
-            Some("self-authored plan: child payload root missing")
+            Some(
+                "self-authored plan: child payload root missing (checked the bundle Resources and supervisor-sibling layouts)"
+            )
         );
         let _ = fs::remove_dir_all(&base);
     }

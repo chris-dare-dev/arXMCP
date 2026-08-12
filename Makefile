@@ -101,7 +101,7 @@ help:
 	@echo "  make desktop-package        Build the PyInstaller onedir desktop bundle from the committed spec into var/desktop-package/dist/ (macOS/Linux only; first run provisions the pinned build venv and NEEDS NETWORK; fails on any build-machine path in the artifact)"
 	@echo "  make desktop-package-check  Packaging gate: two consecutive cold-cache builds + determinism/hygiene proofs (AC1-AC5) with zero skips (macOS/Linux only; ~150s of builds after the one-time network provisioning)"
 	@echo "  make desktop-model-check    Real-model gate: build the bundle, then load the REAL BGE-M3 + reranker weights from the EXTERNAL HuggingFace cache and check the production encode/rerank output against the committed golden fixture (both pinned revisions must already be cached)"
-	@echo "  make desktop-bundle         Assemble the macOS .app: build the frozen child, pre-sign every nested Mach-O bottom-up, build the Tauri shell and place the payload at Contents/MacOS/arxmcp-desktop-child/ (macOS only; first run compiles the pinned tauri-cli and NEEDS NETWORK)"
+	@echo "  make desktop-bundle         Assemble the macOS .app: build the frozen child, pre-sign every nested Mach-O bottom-up, build the Tauri shell and place the payload at Contents/Resources/arxmcp-desktop-child/, then seal the outer bundle (macOS only; first run compiles the pinned tauri-cli and NEEDS NETWORK)"
 	@echo "  make desktop-bundle-check   Bundle gate: assemble, then measure the artifact — containment against the real bundle root, placed-child byte identity, m7/m8/m9 guards re-run over the assembled tree, and both minos declarations — with zero skips"
 	@echo "  make desktop-package-clean  Reclaim var/desktop-package/ (~1 GB persistent build venv plus ~0.75 GB per bundle)"
 	@echo ""

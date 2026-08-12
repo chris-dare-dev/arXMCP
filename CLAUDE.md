@@ -354,17 +354,28 @@ change touches more than ~3 files or adds new tests, run the pipeline.
     first run**), builds the m7 onedir, then assembles: bottom-up ad-hoc
     `codesign` of every nested Mach-O (**never** `codesign --deep`),
     `tauri build` for the shell, placement at
-    `Contents/MacOS/arxmcp-desktop-child/` per
+    `Contents/Resources/arxmcp-desktop-child/` per
     [`adr-desktop-bundle-assembly.md`](.claude/docs/adr-desktop-bundle-assembly.md)
-    Decision 2, and an **attempted** outer re-seal. Two results are
-    recorded rather than asserted away: `codesign` **cannot seal** a
-    bundle whose `Contents/MacOS` carries non-Mach-O files (proved by an
-    A/B control — one plain `data.txt`, sealed under `Resources`, refused
-    under `MacOS`), and Gatekeeper **path translocation is UNVERIFIED**
-    because a quarantined ad-hoc-signed bundle does not launch at all.
-    The gate measures the artifact: `child_payload_root()` /
-    `resolve_inside()` through the supervisor's `--print-child-plan`
-    probe plus its symlinked-root negative arm, placed-child byte
+    **Decision 2a** — which superseded Decision 2's `Contents/MacOS/`
+    location on 2026-08-12, after the assembled artifact proved
+    `codesign` **cannot seal** a bundle whose `Contents/MacOS` carries
+    non-Mach-O files (an A/B control on one plain `data.txt` seals under
+    `Resources` and is refused under `MacOS`) — and an outer re-seal
+    that must **succeed**: assembly raises rather than leaving an
+    unsealed `.app`, and the gate reads back `codesign --verify`'s own
+    "valid on disk" over the artifact. A sealed ad-hoc bundle still says
+    nothing about Apple's notary (ADR Decision 3, open), and Gatekeeper
+    **path translocation stays UNVERIFIED** — a quarantined bundle still
+    does not launch, now because of the ad-hoc identity rather than the
+    missing seal. Because the
+    payload is no longer a sibling of the supervisor, the resolver
+    carries an explicit **two-layout disjunction** — bundle
+    `Contents/Resources` first, m7's onedir sibling second, refuse when
+    neither is present — and both arms plus the refusal are tested in
+    `main.rs` and again against the real bundled binary. The gate
+    measures the artifact: that resolution through the supervisor's
+    `--print-child-plan` probe (which reports the selected arm) plus its
+    symlinked-root negative arm, placed-child byte
     identity against the onedir, m7's string scan and m8's single-`libomp`
     guard re-run over the PLACED tree, m9's `minos` over the bundled
     binary, and the PyInstaller executables' own `minos` — **11.0**,

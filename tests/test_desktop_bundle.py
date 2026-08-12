@@ -2,27 +2,38 @@
 
 Implements `.claude/docs/adr-desktop-bundle-assembly.md` (Accepted): Tauri
 builds the shell, `desktop_package.py` pre-signs the m7 onedir bottom-up,
-places it at `Contents/MacOS/arxmcp-desktop-child/` (Decision 2) and attempts
-the outer re-seal.
+places it at `Contents/Resources/arxmcp-desktop-child/` (**Decision 2a**,
+which superseded Decision 2's `Contents/MacOS/` location) and re-seals the
+outer bundle.
 
-**Why this module exists at all.** Decision 2 leaves
-`child_payload_root()`'s body already correct for the bundle, because
-`Contents/MacOS/supervisor`'s parent IS `Contents/MacOS`. The owner's
-acceptance record is explicit that this does not make AC4 free: *"A diff that
-changes nothing there is not evidence that nothing needed to change."* So the
-gated half of this file drives the REAL supervisor binary out of the REAL
-assembled bundle through `--print-child-plan` and reads what it resolved.
+**Why this module exists at all.** The owner's acceptance record is explicit
+that a resolver diff is not evidence about the artifact: *"A diff that changes
+nothing there is not evidence that nothing needed to change."* So the gated
+half of this file drives the REAL supervisor binary out of the REAL assembled
+bundle through `--print-child-plan` and reads what it resolved — now including
+WHICH of the two layouts it selected.
 
-Two things the milestone deliberately does NOT claim, both measured rather
-than assumed — see `TestOuterSeal` and `TestRelocation`:
+Under 2a the payload is no longer a sibling of the supervisor, so the resolver
+carries an explicit disjunction (bundle `Contents/Resources` first, m7's
+onedir sibling second, refuse when neither is present). Both arms and the
+refusal are tested: the arms and the refusal as Rust unit tests in
+`main.rs` (`bundle_layout_resolves_the_payload_under_contents_resources`,
+`sibling_layout_still_resolves_outside_a_bundle`,
+`neither_layout_present_is_refused`,
+`symlinked_bundle_payload_root_does_not_fall_through`), and all three again
+here against the REAL bundled binary in `TestDualLayoutResolution`.
 
-- The outer `.app` is **not sealed**. `codesign` treats every file under
-  `Contents/MacOS` as a nested code object and refuses the bundle at the
-  first non-Mach-O one. Every nested Mach-O IS signed, ad-hoc.
+What the milestone deliberately does NOT claim, measured rather than assumed
+— see `TestOuterSeal` and `TestRelocation`:
+
+- The outer `.app` **seals** at the new location, and that is asserted rather
+  than assumed. Sealing locally says NOTHING about Apple's notary; ADR
+  Decision 3 is unchanged and unanswerable here.
 - Gatekeeper **path translocation** could not be induced on this host, so the
   `current_exe()` behaviour under translocation is UNVERIFIED. What IS
   measured is the weaker, real property: relocation of the whole bundle to an
-  arbitrary path, launched through LaunchServices, keeps the sibling relation.
+  arbitrary path, launched through LaunchServices, still resolves the payload
+  inside the relocated bundle.
 
 Nothing here may describe the artifact as notarization-ready, Gatekeeper-ready
 or signable-as-is; `tests/test_desktop_notarization_claims.py` scans this file
@@ -323,15 +334,40 @@ class TestLayoutConstantsAgreeAcrossLanguages:
         assert match, "CHILD_PAYLOAD_DIR not found in the supervisor source"
         assert match.group(1) == dp.BUNDLE_NAME
 
-    def test_the_stale_replacement_prediction_is_gone(self):
-        """m10's doc comment predicted m15 would re-point this parent chain at
-        `Contents/Resources/...`. Decision 2 does the opposite. The stale
-        sentence is corrected in `main.rs`, and this pins the correction so it
-        cannot be reintroduced by a revert."""
+    def test_the_resolver_documents_both_layouts(self):
+        """Decision 2a's cost is that two layouts coexist. The resolver's doc
+        comment must say so — a comment naming only one is how a future reader
+        concludes the other arm is dead code and deletes it."""
         rust = SUPERVISOR_SRC.read_text(encoding="utf-8")
-        body = rust.split("fn child_payload_root")[0].rsplit("///", 40)[0]
-        assert "Contents/MacOS/arxmcp-desktop-child" in rust
-        assert "-> `Contents/Resources/...`" not in body
+        comment = rust.split("fn child_payload_candidates")[0].rsplit("/// The payload layouts", 1)
+        assert len(comment) == 2, "the layout table's doc comment is gone"
+        doc = comment[1]
+        assert "Contents/Resources/arxmcp-desktop-child/" in doc
+        assert "<dir>/arxmcp-desktop-child/" in doc
+        assert "Decision 2a" in doc
+
+    def test_the_disjunction_is_explicit_not_a_blind_probe(self):
+        """The ADR forbids an untested 'try one, then the other'. The bundle
+        candidate is offered ONLY from `…/Contents/MacOS`, which is what makes
+        the disjunction decidable from the supervisor's own location."""
+        rust = SUPERVISOR_SRC.read_text(encoding="utf-8")
+        body = rust.split("fn child_payload_candidates")[1].split("\nfn ")[0]
+        assert '== "MacOS"' in body and '== "Contents"' in body
+        assert '"Resources"' in body
+
+    def test_resolve_inside_is_untouched_and_still_the_gate(self):
+        """Decision 2a leaves `resolve_inside()` unchanged — m10's symlinked-
+        root refusal is preserved by construction. Two halves: the refusal is
+        still IN it, and the selection layer still routes through it."""
+        rust = SUPERVISOR_SRC.read_text(encoding="utf-8")
+        body = rust.split("fn resolve_inside")[1].split("\nfn ")[0]
+        assert "child payload root is a symlink" in body
+        assert "symlink_metadata(root)" in body
+        for caller in ("fn self_authored_plan", "fn child_plan_probe"):
+            call_site = rust.split(caller)[1].split("\nfn ")[0]
+            assert "resolve_inside(" in call_site, (
+                f"{caller} must still route the selected root through resolve_inside"
+            )
 
 
 class TestPlacementDoesNotIntroduceASymlinkRoot:
@@ -351,6 +387,10 @@ class TestPlacementDoesNotIntroduceASymlinkRoot:
         app = tmp_path / "T.app"
         (app / "Contents" / "MacOS").mkdir(parents=True)
         placed = dp.place_payload(app, payload)
+        assert placed == app / "Contents" / "Resources" / dp.BUNDLE_NAME, (
+            "Decision 2a: the payload goes under Contents/Resources, which is "
+            "the location the seal control proves is sealable"
+        )
         assert placed.is_dir() and not placed.is_symlink()
         assert (placed / "_internal" / "link").is_symlink(), (
             "INTERNAL symlinks must survive the copy — PyInstaller emits them"
@@ -371,6 +411,25 @@ def _app() -> Path:
             "so missing evidence cannot hide behind a green run."
         )
     return app
+
+
+def _payload(app: Path | None = None) -> Path:
+    """The placed payload root — `Contents/Resources/<BUNDLE_NAME>/` under
+    Decision 2a. Derived in one place so the location cannot drift between
+    the assertions that read it."""
+    return (app or _app()) / "Contents" / "Resources" / dp.BUNDLE_NAME
+
+
+def _fake_shell(tmp_path: Path) -> Path:
+    """A copy of the real bundle's SHELL (plist + supervisor binary), with no
+    payload. 0.75 GB is not copied: every test built on this drives the
+    resolver, which refuses or selects before reading the payload through."""
+    app = _app()
+    fake = tmp_path / "arXMCP.app"
+    (fake / "Contents" / "MacOS").mkdir(parents=True)
+    shutil.copy2(app / "Contents" / "Info.plist", fake / "Contents" / "Info.plist")
+    shutil.copy2(dp.bundle_executable(app), dp.bundle_executable(fake))
+    return fake
 
 
 def _report() -> dict:
@@ -407,32 +466,40 @@ def _probe(executable: Path, out: Path, *, use_open: bool = False) -> dict:
 
 @pytest.mark.requires_desktop_bundle
 class TestAssembledArtifact:
-    def test_layout_places_the_payload_beside_the_supervisor(self):
-        """AC4's structural half, and Decision 2 read off the artifact."""
+    def test_layout_places_the_payload_under_contents_resources(self):
+        """AC4's structural half, and Decision 2a read off the artifact."""
         app = _app()
         executable = dp.bundle_executable(app)
-        payload = app / "Contents" / "MacOS" / dp.BUNDLE_NAME
+        payload = _payload()
         assert executable.is_file()
         assert payload.is_dir()
-        assert payload.parent == executable.parent, (
-            "the ADR's portable invariant is 'the payload sits beside the "
-            "supervisor executable'; that is what makes child_payload_root() work"
+        assert payload.parent == app / "Contents" / "Resources"
+        assert executable.parent == app / "Contents" / "MacOS"
+        assert payload.parent != executable.parent, (
+            "Decision 2a's cost, asserted rather than assumed: the payload is "
+            "NOT a sibling of the supervisor, which is why the resolver needs "
+            "an explicit two-layout disjunction"
+        )
+        assert not (app / "Contents" / "MacOS" / dp.BUNDLE_NAME).exists(), (
+            "a leftover payload at Decision 2's location would both break the "
+            "seal and shadow nothing — it must not be there at all"
         )
         assert (payload / dp.CHILD_EXE).is_file()
 
     def test_payload_root_is_not_a_symlink(self):
         """The owner's acceptance record, item (b): prove that assembly or
         re-seal introduced no symlink at the payload root."""
-        payload = _app() / "Contents" / "MacOS" / dp.BUNDLE_NAME
+        payload = _payload()
         assert not payload.is_symlink()
         assert not stat.S_ISLNK(payload.lstat().st_mode)
 
     def test_supervisor_resolves_the_child_inside_the_bundle(self, tmp_path: Path):
-        """AC4, MEASURED. Runs the real bundled binary; asserts on what its
-        own `child_payload_root()` + `resolve_inside()` returned."""
+        """AC4, RE-MEASURED at the new location. Runs the real bundled binary;
+        asserts on what its own resolver returned — including which arm."""
         app = _app()
         report = _probe(dp.bundle_executable(app), tmp_path / "plan.json")
         assert report["error"] is None, report
+        assert report["layout"] == "bundle-resources", report
         assert report["payload_root_is_symlink"] is False
         child = Path(report["child_argv0"])
         assert child.is_file()
@@ -440,6 +507,7 @@ class TestAssembledArtifact:
             f"child_argv0 {child} resolved OUTSIDE the bundle {app}"
         )
         assert child.parent.name == dp.BUNDLE_NAME
+        assert child.parent.parent == app.resolve() / "Contents" / "Resources"
         assert Path(report["supervisor_exe"]).parent == app.resolve() / "Contents" / "MacOS"
 
     def test_a_symlinked_payload_root_is_still_refused(self, tmp_path: Path):
@@ -447,19 +515,14 @@ class TestAssembledArtifact:
         root m10 could only reach. Operates on a copy of the shell so the real
         artifact is untouched; the payload is not copied (0.75 GB) because the
         refusal happens before the root is ever read through."""
-        app = _app()
-        fake = tmp_path / "arXMCP.app"
-        (fake / "Contents" / "MacOS").mkdir(parents=True)
-        shutil.copy2(app / "Contents" / "Info.plist", fake / "Contents" / "Info.plist")
-        shutil.copy2(dp.bundle_executable(app), dp.bundle_executable(fake))
+        fake = _fake_shell(tmp_path)
         elsewhere = tmp_path / "evil"
         (elsewhere / dp.CHILD_EXE).parent.mkdir(parents=True)
-        shutil.copy2(
-            app / "Contents" / "MacOS" / dp.BUNDLE_NAME / dp.CHILD_EXE,
-            elsewhere / dp.CHILD_EXE,
-        )
-        (fake / "Contents" / "MacOS" / dp.BUNDLE_NAME).symlink_to(elsewhere)
+        shutil.copy2(_payload() / dp.CHILD_EXE, elsewhere / dp.CHILD_EXE)
+        (fake / "Contents" / "Resources").mkdir(parents=True, exist_ok=True)
+        (fake / "Contents" / "Resources" / dp.BUNDLE_NAME).symlink_to(elsewhere)
         report = _probe(dp.bundle_executable(fake), tmp_path / "plan.json")
+        assert report["layout"] == "bundle-resources"
         assert report["payload_root_is_symlink"] is True
         assert report["child_argv0"] is None
         assert "symlink" in report["error"], report
@@ -470,7 +533,7 @@ class TestAssembledArtifact:
         report = _report()
         assert report["payload_identical_to_onedir"] is True
         onedir = dp.DEFAULT_ROOT / "dist" / dp.BUNDLE_NAME
-        placed = _app() / "Contents" / "MacOS" / dp.BUNDLE_NAME
+        placed = _payload()
         drift = dp.manifest_diff(dp.file_manifest(onedir), dp.file_manifest(placed))
         assert drift == [], f"bundling substituted a different child at {drift[:10]}"
 
@@ -486,7 +549,7 @@ class TestAssembledArtifact:
             "a vacuous embedded scan is not a clean one"
         )
         dp._require_single_libomp(report["libomp"])
-        placed = _app() / "Contents" / "MacOS" / dp.BUNDLE_NAME
+        placed = _payload()
         assert list(placed.rglob("direct_url.json")) == []
 
     def test_bundled_supervisor_declares_the_floor(self):
@@ -504,7 +567,7 @@ class TestAssembledArtifact:
         PyInstaller bootloader's own deployment target moved, and the pin plus
         the reasoning in `FROZEN_EXECUTABLE_MINOS` must be re-recorded together.
         """
-        payload = _app() / "Contents" / "MacOS" / dp.BUNDLE_NAME
+        payload = _payload()
         measured = {
             name: sorted(set(_declared_minos(payload / name)))
             for name in FROZEN_EXECUTABLE_MINOS
@@ -537,7 +600,7 @@ class TestAssembledArtifact:
         external model cache; it is NOT the full double-click-to-ready-server
         claim, which needs weights and is m8's / e4's surface.
         """
-        payload = _app() / "Contents" / "MacOS" / dp.BUNDLE_NAME
+        payload = _payload()
         proc = subprocess.run(
             [str(payload / dp.PROBE_EXE)],
             input=json.dumps({"latex": ["x^2"]}),
@@ -554,13 +617,76 @@ class TestAssembledArtifact:
 
 
 @pytest.mark.requires_desktop_bundle
-class TestOuterSeal:
-    """What Decision 1 step 4 asks for, and what actually happens.
+class TestDualLayoutResolution:
+    """Decision 2a's disjunction, driven through the REAL bundled binary.
 
-    Recorded rather than asserted-away. Decision 2 is Accepted and is not
-    relitigated here; this class is the measurement the owner and e4 need in
-    order to decide whether it should be, and it is exactly the condition the
-    ADR's R3 names as the trigger for revisiting the `frameworks` route.
+    The Rust unit tests cover the same three outcomes against fabricated
+    layouts; these run the shipped executable, because the arms exist to be
+    correct in the artifact and a unit test cannot say which one a compiled,
+    signed, bundle-resident binary takes. The bundle arm is asserted in
+    `TestAssembledArtifact::test_supervisor_resolves_the_child_inside_the_bundle`;
+    the other two are here.
+    """
+
+    def test_the_sibling_arm_still_resolves_for_the_onedir_shape(self, tmp_path: Path):
+        """ARM 2. The same binary, taken OUT of the bundle and given m7's
+        onedir shape, resolves the sibling payload — this is what every m10
+        gate and every developer run depends on, and Decision 2a must not
+        have traded it away for the bundle arm."""
+        staged = tmp_path / "onedir"
+        (staged / dp.BUNDLE_NAME).mkdir(parents=True)
+        shutil.copy2(dp.bundle_executable(_app()), staged / "supervisor")
+        shutil.copy2(_payload() / dp.CHILD_EXE, staged / dp.BUNDLE_NAME / dp.CHILD_EXE)
+        report = _probe(staged / "supervisor", tmp_path / "plan.json")
+        assert report["error"] is None, report
+        assert report["layout"] == "supervisor-sibling", report
+        assert Path(report["child_argv0"]) == (
+            (staged / dp.BUNDLE_NAME / dp.CHILD_EXE).resolve()
+        )
+
+    def test_neither_layout_present_is_refused_not_guessed(self, tmp_path: Path):
+        """THE REFUSAL. A bundle shell with no payload in either location
+        refuses by name instead of returning a root that does not exist."""
+        fake = _fake_shell(tmp_path)
+        report = _probe(dp.bundle_executable(fake), tmp_path / "plan.json")
+        assert report["child_argv0"] is None
+        assert report["layout"] is None, report
+        assert report["payload_root"] is None, report
+        assert "child payload root missing" in report["error"], report
+        assert "supervisor-sibling" in report["error"], (
+            "the refusal must name BOTH layouts it checked, or a reader cannot "
+            "tell a wrong-location bug from an absent payload"
+        )
+
+    def test_the_bundle_arm_wins_over_a_stray_macos_payload(self, tmp_path: Path):
+        """Precedence, against the real binary: a payload left at Decision 2's
+        old `Contents/MacOS/` location must NOT shadow the sealed one."""
+        fake = _fake_shell(tmp_path)
+        for relative in ("Resources", "MacOS"):
+            root = fake / "Contents" / relative / dp.BUNDLE_NAME
+            root.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(_payload() / dp.CHILD_EXE, root / dp.CHILD_EXE)
+        report = _probe(dp.bundle_executable(fake), tmp_path / "plan.json")
+        assert report["layout"] == "bundle-resources", report
+        assert Path(report["child_argv0"]).parent.parent.name == "Resources"
+
+
+@pytest.mark.requires_desktop_bundle
+class TestOuterSeal:
+    """Decision 1 step 4, at Decision 2a's location — and it now SUCCEEDS.
+
+    The previous dispatch measured the seal failing at `Contents/MacOS` and
+    pinned `sealed is False` so the finding could not evaporate. Decision 2a
+    moved the payload, so that pin INVERTS here: the seal is asserted to
+    succeed, and `codesign --verify --strict`'s own output is read back rather
+    than the return code alone.
+
+    The A/B location control stays in the build. It is what makes any future
+    failure attributable — layout, or this host's `codesign`.
+
+    What this class does NOT establish is unchanged: a sealed bundle is not a
+    notarized one, and ADR Decision 3 is answerable only with a certificate
+    this project does not have.
     """
 
     def test_every_nested_macho_was_signed(self):
@@ -569,25 +695,40 @@ class TestOuterSeal:
         assert signing["ad_hoc"] is True
         assert signing["executables_verified"] == sorted([dp.CHILD_EXE, dp.PROBE_EXE])
 
-    def test_the_outer_seal_was_attempted_and_its_outcome_recorded(self):
+    def test_the_outer_seal_succeeded_and_verifies(self):
+        """The inverted pin. `assemble` raises when the seal fails, so this
+        also documents that a sealed bundle is the only artifact that ships."""
         seal = _report()["seal"]
         assert seal["attempted"] is True
-        assert seal["sealed"] is False, (
-            "the outer seal now SUCCEEDS at Contents/MacOS. That is a change in "
-            "macOS or in the payload's contents, not a bug — re-record it here, in "
-            "the assembly report's rationale, and in apps/desktop/README.md."
+        assert seal["sealed"] is True, (
+            f"the outer seal FAILED at Contents/Resources: {seal.get('error')!r}. "
+            "Decision 2a moved the payload here precisely because this location "
+            "seals; a failure is a real finding — read the location control below "
+            "to attribute it to the layout or to this host's codesign."
         )
-        assert "not signed at all" in str(seal["error"])
+        assert seal["returncode"] == 0
+        assert seal["verified"] is True, seal
+        assert "valid on disk" in str(seal["verify_output"]), seal
+
+    def test_the_seal_is_verified_against_the_artifact_not_the_report(self):
+        """`codesign --verify --strict` re-run HERE, against the bundle on
+        disk. The report records what the build saw; this records what the
+        artifact is now."""
+        output = dp.codesign_verify(_app())
+        assert "valid on disk" in output, output
+        assert "satisfies its Designated Requirement" in output, output
 
     def test_the_location_control_separates_layout_from_payload(self):
-        """The A/B that makes the claim above a measurement rather than a
-        guess: one plain `data.txt`, two locations, nothing arXMCP-specific."""
+        """The A/B that decided the location, kept live: one plain `data.txt`,
+        two locations, nothing arXMCP-specific. It is the standing explanation
+        for why the payload is where it is."""
         control = _report()["seal_location_control"]
-        assert control["macos"]["sealed"] is False
-        assert control["resources"]["sealed"] is True, (
-            "if a plain data file under Contents/Resources also fails to seal, the "
-            "finding is about this host's codesign, not about the layout"
+        assert control["macos"]["sealed"] is False, (
+            "Contents/MacOS now seals a plain data file. That would retire the "
+            "reason Decision 2a exists — re-record the ADR before changing the "
+            "layout back"
         )
+        assert control["resources"]["sealed"] is True
 
     def test_ad_hoc_signing_is_byte_stable(self):
         """ADR 'does NOT decide' item 4, resolved.
@@ -613,19 +754,21 @@ class TestRelocation:
     says: if that cannot be measured on this host, say so explicitly and
     record it as unverified rather than asserting it.
 
-    **It could not be measured here.** Setting `com.apple.quarantine` on the
-    assembled bundle and launching it through `open(1)` produces exit 0 and no
-    process: LaunchServices refuses an ad-hoc-signed bundle whose outer seal is
-    invalid (`TestOuterSeal`), so translocation never gets a chance to happen.
-    A Developer ID signature would be needed to reach that path — the same
-    certificate e4 is blocked on.
+    **It still could not be measured here, and the reason narrowed.** Setting
+    `com.apple.quarantine` on the assembled bundle and launching it through
+    `open(1)` produces exit 0 and no process. Under Decision 2 the bundle had
+    no valid outer seal at all, which was reason enough; the bundle now seals
+    (`TestOuterSeal`) and the quarantined launch is STILL refused, so what
+    remains is the ad-hoc signature itself — Gatekeeper wants a Developer ID,
+    the certificate e4 is blocked on. Re-measured 2026-08-12, not inherited.
 
     What IS measured is the weaker property the expectation rests on: the
     bundle relocated WHOLE to an arbitrary path, launched through
-    LaunchServices rather than by direct exec, still resolves the payload as a
-    sibling. Translocation relocates the bundle as a unit too, so this is
-    evidence for the expectation — it is not the expectation itself, and the
-    difference is why this docstring exists.
+    LaunchServices rather than by direct exec, still resolves the payload
+    inside the RELOCATED bundle — via the bundle arm, off the relocated
+    `current_exe()`. Translocation relocates the bundle as a unit too, so this
+    is evidence for the expectation — it is not the expectation itself, and
+    the difference is why this docstring exists.
     """
 
     def test_relocated_bundle_launched_via_launchservices_still_resolves(
@@ -636,10 +779,11 @@ class TestRelocation:
         report = _probe(staged, tmp_path / "plan.json", use_open=True)
         assert report, "LaunchServices did not start the relocated bundle at all"
         assert report["error"] is None
+        assert report["layout"] == "bundle-resources", report
         assert Path(report["supervisor_exe"]).parent == staged.resolve() / "Contents" / "MacOS"
         assert Path(report["child_argv0"]).parent.parent == (
-            staged.resolve() / "Contents" / "MacOS"
-        )
+            staged.resolve() / "Contents" / "Resources"
+        ), "the resolution must follow the RELOCATED bundle, not the built one"
 
     def test_quarantine_blocks_the_launch_so_translocation_is_unverified(
         self, tmp_path: Path
@@ -667,7 +811,9 @@ class TestRelocation:
         out = tmp_path / "plan.json"
         report = _probe(staged, out, use_open=True)
         assert report == {}, (
-            "a quarantined ad-hoc-signed bundle LAUNCHED; Gatekeeper path "
+            "a quarantined ad-hoc-signed bundle LAUNCHED — note the outer seal "
+            "is now valid, so the remaining refusal is about the ad-hoc "
+            "identity. Gatekeeper path "
             "translocation is now measurable on this host and the m15 'unverified' "
             f"record must be replaced with a real measurement. Probe said: {report}"
         )
@@ -680,7 +826,7 @@ class TestGateWiring:
         """A bare `return` is invisible to `DESKTOP_BUNDLE_GATE`'s skip
         detector, so a gate test must raise or skip, never quietly pass."""
         source = Path(__file__).read_text(encoding="utf-8")
-        for name in ("_app", "_report"):
+        for name in ("_app", "_report", "_payload", "_fake_shell"):
             body = source.split(f"def {name}(")[1].split("\ndef ")[0]
             assert "pytest.skip" not in body, (
                 f"{name} must RAISE on a missing artifact (m8 precedent), not skip"

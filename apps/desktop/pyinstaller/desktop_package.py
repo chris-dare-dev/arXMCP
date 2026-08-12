@@ -728,8 +728,15 @@ def verify_determinism(
 # (Accepted): Tauri's bundler builds the `.app` SHELL ONLY — no `resources`,
 # no `externalBin`, no `frameworks` entry for the payload — and this module
 # owns pre-signing the onedir bottom-up, placing it at
-# `Contents/MacOS/arxmcp-desktop-child/` (Decision 2) and re-sealing the
+# `Contents/Resources/arxmcp-desktop-child/` (**Decision 2a**, which superseded
+# Decision 2's `Contents/MacOS/` location on 2026-08-12) and re-sealing the
 # outer bundle.
+#
+# Decision 2a is NOT a re-opening of rejected alternative R2. R2 rejected the
+# Tauri `bundle.resources` CONFIG KEY, which copies a tree without signing it;
+# that mechanism is still not used here. Only the destination directory
+# changed, and every nested Mach-O is still pre-signed bottom-up by this
+# module before the outer seal — `codesign --deep` remains forbidden.
 #
 # Read Decision 3 before writing anything into this section: whether the
 # resulting artifact survives Apple's notary service is OPEN and unanswerable
@@ -997,7 +1004,19 @@ def build_app_shell(root: Path = DEFAULT_ROOT) -> Path:
 
 
 def place_payload(app: Path, payload_root: Path) -> Path:
-    """Copy the pre-signed onedir to `Contents/MacOS/<CHILD_PAYLOAD_DIR>/`.
+    """Copy the pre-signed onedir to `Contents/Resources/<CHILD_PAYLOAD_DIR>/`.
+
+    **ADR Decision 2a.** The original location — `Contents/MacOS/`, beside the
+    supervisor executable — cannot be sealed: `codesign` treats everything
+    under `Contents/MacOS` as nested code and refuses the bundle at the first
+    non-Mach-O file, which a ~5,300-file PyInstaller onedir has thousands of.
+    That is a property of the location (see
+    :func:`measure_macos_seal_location_control`), so the payload moved rather
+    than the payload's contents.
+
+    The cost, stated where the move happens: the payload is no longer a
+    sibling of the supervisor, so the Rust resolver carries an explicit
+    two-layout disjunction (`main.rs::child_payload_candidates`).
 
     `copytree(symlinks=True)` preserves the payload's INTERNAL symlinks (the
     framework-style `Python`/`Versions/Current` links PyInstaller emits) while
@@ -1006,7 +1025,8 @@ def place_payload(app: Path, payload_root: Path) -> Path:
     payload root outright, so an assembler that materialised the root as a
     link would produce an `.app` that refuses to launch.
     """
-    destination = app / "Contents" / "MacOS" / BUNDLE_NAME
+    destination = app / "Contents" / "Resources" / BUNDLE_NAME
+    destination.parent.mkdir(parents=True, exist_ok=True)
     if destination.exists():
         shutil.rmtree(destination)
     shutil.copytree(payload_root, destination, symlinks=True)
@@ -1016,36 +1036,34 @@ def place_payload(app: Path, payload_root: Path) -> Path:
 
 
 def seal_app(app: Path, identity: str | None = None) -> dict[str, object]:
-    """ATTEMPT the outer re-seal after placement, and record what happened.
+    """Re-seal the outer bundle after placement, and record what happened.
 
     Ordering is ADR Decision 1's one hard constraint: the payload is signed
-    before the shell is sealed, so the shell's seal would cover the payload's
-    final bytes. Sealing first and copying afterwards produces a bundle whose
+    before the shell is sealed, so the shell's seal covers the payload's final
+    bytes. Sealing first and copying afterwards produces a bundle whose
     `_CodeSignature` describes a tree that no longer exists.
 
-    **Measured 2026-08-12, macOS 26.6 / Xcode `codesign`: this step does not
-    succeed at Decision 2's location, and the reason is structural.**
-    `Contents/MacOS` is a code-only location, so `codesign` treats every file
-    the payload puts there as a nested code object and refuses the whole
-    bundle at the first non-Mach-O one:
+    **History, because the inversion matters.** At Decision 2's location
+    (`Contents/MacOS/arxmcp-desktop-child/`) this step could not succeed:
+    `Contents/MacOS` is a code-only location, so `codesign` treated every file
+    the payload put there as a nested code object and refused the whole bundle
+    at the first non-Mach-O one::
 
         <app>: code object is not signed at all
         In subcomponent: .../Contents/MacOS/arxmcp-desktop-child/_internal/tools/sbom.sh
 
-    It is not about scripts, executable bits or this payload's contents: a
-    six-byte `data.txt` reproduces it, and the SAME file under
-    `Contents/Resources/` seals and reports "valid on disk / satisfies its
-    Designated Requirement". `test_desktop_bundle.py` runs that A/B control,
-    so the claim is a re-measurement rather than a quotation.
+    It was never about scripts, executable bits or this payload's contents: a
+    six-byte `data.txt` reproduced it, and the SAME file under
+    `Contents/Resources/` sealed. Decision 2a moved the payload there, so the
+    seal is now expected to SUCCEED, and :func:`assemble` raises when it does
+    not rather than shipping an unsealed bundle.
 
-    This function therefore RECORDS the outcome instead of raising. Raising
-    would abort assembly over a step whose failure is a property of the
-    accepted layout, not of the build; silently succeeding would be worse.
-    Decision 2 is Accepted and is NOT relitigated here — this is the input the
-    owner and `e4` need in order to decide whether it should be, and it is
-    precisely the condition the ADR's rejected-alternative R3 names as the
-    trigger for revisiting the `frameworks` route ("unsigned or
-    improperly-sealed nested code").
+    The record is still returned in full — `sealed`, the return code, the
+    error text and, on success, `codesign --verify --strict --verbose=2`'s own
+    output — because "it sealed" is a measurement this build makes, not a
+    property anyone should infer. Sealing locally says nothing about Apple's
+    notary (ADR Decision 3, unchanged): E6 is the recorded case where local
+    verification reported valid and the notary still refused.
     """
     identity = identity or codesign_identity()
     codesign = shutil.which("codesign")
@@ -1083,7 +1101,7 @@ def seal_app(app: Path, identity: str | None = None) -> dict[str, object]:
 
 
 def measure_macos_seal_location_control(app_executable: Path) -> dict[str, object]:
-    """The A/B control behind :func:`seal_app`'s recorded failure.
+    """The A/B control that decided Decision 2a's location, kept live.
 
     Builds two throwaway one-file `.app` trees that differ ONLY in where a
     single plain `data.txt` sits — `Contents/MacOS/payload/` versus
@@ -1092,6 +1110,10 @@ def measure_macos_seal_location_control(app_executable: Path) -> dict[str, objec
     "this location cannot hold data", and the answer must be re-derivable on
     whatever macOS the reader has rather than quoted from a log this milestone
     happened to produce.
+
+    It stays in the build after the move because it is what makes the real
+    seal's outcome attributable: if the assembled bundle ever fails to seal,
+    this says immediately whether the layout or the host changed.
     """
     codesign = shutil.which("codesign")
     if codesign is None:
@@ -1231,16 +1253,21 @@ def assemble(root: Path = DEFAULT_ROOT) -> dict[str, object]:
     )
     _log(f"assembled {app} with the payload at {report['payload_relative']}")
     if not seal["sealed"]:
-        # Loud, and phrased as the open question it is. Every nested Mach-O IS
-        # signed (see `signing` above); what failed is the OUTER bundle seal,
-        # and nothing here says anything about Gatekeeper or the notary.
-        _log(
-            "OUTER SEAL NOT APPLIED: codesign refuses to seal a bundle whose "
-            "Contents/MacOS carries non-Mach-O files. Nested Mach-O signing "
-            f"({signing['macho_signed']} files) succeeded. Location control: "
+        # The report is on disk BEFORE this raises, so the failure is
+        # inspectable rather than merely reported in a traceback. Decision 2a
+        # exists because the seal must succeed at this location; an unsealed
+        # bundle is not a product to keep quietly, and papering over it is the
+        # failure mode the whole milestone exists to catch.
+        raise BuildError(
+            "OUTER SEAL FAILED at Contents/Resources. Nested Mach-O signing "
+            f"({signing['macho_signed']} files) succeeded; the bundle-level "
+            f"seal did not: {seal['error']!r}. Location control: "
             f"MacOS sealed={seal_control['macos']['sealed']}, "  # type: ignore[index]
             f"Resources sealed={seal_control['resources']['sealed']}. "  # type: ignore[index]
-            "See adr-desktop-bundle-assembly.md Decision 2 and R3."
+            f"Evidence written to {root / 'assembly-report.json'}. See "
+            "adr-desktop-bundle-assembly.md Decision 2a and R3 — if a plain "
+            "file under Resources also fails to seal, the finding is about "
+            "this host's codesign, not about the layout."
         )
     return report
 
