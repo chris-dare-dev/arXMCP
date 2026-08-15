@@ -33,7 +33,13 @@ Usage::
 Exit codes:
     0 — every requested paper produced (or already had) parsed/<flat>/index.html
     1 — slug invalid, a paper_id malformed, a staged PDF missing, or a parse failed
-    2 — no --paper-id given
+    2 — no --paper-id given, or --timeout-s outside [60, 3600] (argparse error)
+
+The exit code is the ONLY safe signal for a shell pipeline (``&&`` with
+``tools/notebook_textbook_ingest.py``): any non-zero fail count is exit 1, so a
+failed parse can never look like success. Note that piping this tool's output
+(``... | tail``) makes the shell report the PIPE's exit status, not the tool's —
+use ``set -o pipefail`` or drop the pipe when chaining on the result.
 """
 
 from __future__ import annotations
@@ -44,11 +50,36 @@ import subprocess
 import sys
 
 from ingest.identifiers import is_valid_paper_id
-from ingest.textbook_parser import run_mineru_sandboxed
+from ingest.textbook_parser import (
+    _TIMEOUT_MAX_S,
+    _TIMEOUT_MIN_S,
+    run_mineru_sandboxed,
+)
 from ingest.textbook_renderer import _flat_paper_id, render_mineru_to_html
 from tools._notebook_common import NotebookError, notebook_dir, validate_slug
 
 logger = logging.getLogger("notebook_pdf_parse")
+
+
+def _timeout_arg(raw: str) -> int:
+    """argparse ``type=`` for ``--timeout-s``: reject out-of-range up front.
+
+    ``run_mineru_sandboxed`` raises ``RuntimeError`` on an out-of-range
+    ``timeout_s``, which ``_parse_one`` would aggregate as a per-paper *parse
+    failure* (exit 1) — indistinguishable from a genuinely unparseable PDF.
+    An operator typo is a USAGE error, so it becomes a clean argparse error
+    (exit 2) instead. The bounds are imported from ``ingest.textbook_parser``
+    rather than restated, so the two checks cannot drift.
+    """
+    try:
+        value = int(raw)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{raw!r} is not an integer") from None
+    if value < _TIMEOUT_MIN_S or value > _TIMEOUT_MAX_S:
+        raise argparse.ArgumentTypeError(
+            f"{value} is out of range [{_TIMEOUT_MIN_S}, {_TIMEOUT_MAX_S}]"
+        )
+    return value
 
 
 def _parse_one(
@@ -170,11 +201,13 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--timeout-s",
-        type=int,
+        type=_timeout_arg,
         default=None,
+        metavar=f"[{_TIMEOUT_MIN_S}-{_TIMEOUT_MAX_S}]",
         help=(
-            "Per-PDF MinerU wall-clock cap in seconds. Default: "
-            "ARXMCP_MINERU_TIMEOUT_S or 1800."
+            f"Per-PDF MinerU wall-clock cap in seconds, in "
+            f"[{_TIMEOUT_MIN_S}, {_TIMEOUT_MAX_S}]. Out-of-range is an "
+            f"argparse error (exit 2). Default: ARXMCP_MINERU_TIMEOUT_S or 1800."
         ),
     )
     parser.add_argument(

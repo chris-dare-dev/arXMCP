@@ -150,6 +150,11 @@ uv run python tools/notebook_pdf_parse.py <slug> --paper-id <id>
 uv run python tools/notebook_textbook_ingest.py <slug> --paper-id <id>
 ```
 
+Both stages exit non-zero on failure (`1` for a failed parse, `2` for a usage
+error such as an out-of-range `--timeout-s`), so the two are safe to chain with
+`&&`. Do not pipe stage 1's output when you do — the shell then reports the
+pipe's status, not the tool's, unless `set -o pipefail` is in effect.
+
 The chunks land in the notebook's own LanceDB with `source_kind="textbook"`;
 query them with `ARXMCP_NOTEBOOK=<slug>` (or `filters.notebook=<slug>`).
 
