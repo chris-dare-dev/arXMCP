@@ -1,0 +1,5 @@
+{"elapsed_ms":1,"event":"supervisor-started","fields":{"owns_lock":true,"plan_source":"environment"},"pid":40334,"seq":1}
+{"elapsed_ms":409,"event":"child-spawn","fields":{"child_pid":40379},"pid":40334,"seq":2}
+{"elapsed_ms":756,"event":"bound-frame-invalid","fields":{"frame_prefix":"{TOKEN=[REDACTED]} and again [REDACTED] and UPPER REDACTED-STARTUP-TOKEN-C-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX and partial redacted-startup-token-c-xxxxxxx\n"},"pid":40334,"seq":3}
+{"elapsed_ms":757,"event":"lifecycle-failed","fields":{"reason":"bound frame invalid"},"pid":40334,"seq":4}
+{"elapsed_ms":1097,"event":"orphan-shutdown","fields":{"child_exit":-1},"pid":40334,"seq":5}

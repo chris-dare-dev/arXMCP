@@ -1,0 +1,4 @@
+# GET /ui/api/notebooks (unauthenticated) — abbreviated capture 2026-08-22
+[{"slug":"browser-pass-check","display_name":"","lancedb_path":"/Users/chris.dare/Personal/SourceCode/arXMCP/var/arxmcp/notebooks/browser-pass-check/lancedb","created_at":"2026-08-06T13:30:27+00:00","notebook_kind":"arxiv","parse_status":"skipped",...},
+ {"slug":"my-notebook","display_name":"","lancedb_path":"/private/tmp/claude-501/pytest-of-chris.dare/pytest-49/test_init_happy_path0/notebooks/my-notebook/lancedb", ...}]
+# -> leaks home dir, source-tree layout, and a STALE pytest-tmp path (dead notebook row).

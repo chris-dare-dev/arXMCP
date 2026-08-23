@@ -1,0 +1,22 @@
+=== Visual states rendered and inspected in the in-app browser (Chromium) ===
+The browser tool returns screenshots inline to the agent transcript and cannot write
+image files to disk, so each visual state is recorded here with the measurements that
+back the corresponding finding. All measurements taken via javascript_tool on the live page.
+
+1. /ui/  desktop 1280x900, dark   - create form + 5-notebook table, no overflow (docScrollW == clientW == 1280)
+2. /ui/  desktop 1280x900, light  - identical layout, tokens.css light palette applied correctly
+3. /ui/notebooks/bridgeland-stability desktop dark  - metadata <dl>, papers table, manage disclosure; no page overflow
+4. /ui/notebooks/bridgeland-stability desktop light - correct light palette incl. red destructive buttons
+5. /ui/notebooks/bridgeland-stability MOBILE 375x812 - LanceDB path and the "PDF parse" hint run off the
+   right edge; papers-table Remove button clipped; page scrollWidth 721 vs clientWidth 375  -> CHAOS-FE-08
+6. /ui/ first-run empty state (ARXMCP_DATA_DIR=<empty>) - "Existing notebooks (0)" +
+   "No notebooks yet. Create one above." + amber footer badge "WARN | awaiting first ingest" -> CHAOS-FE-23
+7. /ui/ after a successful create - table shows the "No notebooks yet." row AND the new notebook row at
+   once, under a heading still reading "Existing notebooks (0)", with the create form still populated
+   -> CHAOS-FE-04 / CHAOS-FE-05
+8. /ui/notebooks/chaos-fe-xss - XSS payload rendered as visible literal text in the display name, the
+   rename input and the <title>; no script executed -> CHAOS-FE-18. "Papers in this notebook (0)" shows
+   the empty-state sentence with a bare table header row beneath it -> CHAOS-FE-14
+9. /ui/notebooks/chaos-fe-xss after kill -9 of the server - page renders unchanged, footer badge still
+   amber "WARN | awaiting first ingest", clicking Rename produces no visible change -> CHAOS-FE-03
+10. / (app root) in the browser - bare text "{"detail":"Not Found"}" on an unstyled page -> CHAOS-FE-12

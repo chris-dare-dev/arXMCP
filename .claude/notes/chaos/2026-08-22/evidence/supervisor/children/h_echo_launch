@@ -1,0 +1,10 @@
+#!/bin/sh
+exec /usr/bin/python3 -c '
+import sys,time
+line=sys.stdin.buffer.readline()
+sys.stdout.buffer.write(b"ECHO:"+line)
+sys.stdout.buffer.flush()
+sys.stderr.buffer.write(b"STDERR-ECHO:"+line)
+sys.stderr.buffer.flush()
+time.sleep(300)
+'

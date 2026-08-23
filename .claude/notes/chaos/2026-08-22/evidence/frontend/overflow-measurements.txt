@@ -1,0 +1,21 @@
+=== Horizontal-overflow probes (document.documentElement.scrollWidth vs clientWidth) ===
+
+[A] MOBILE 375x812, /ui/notebooks/bridgeland-stability
+{"w":721,"docScrollW":721,"docClientW":375,"bodyScrollW":721,"horizScroll":true,
+ "overflowers":["DD right=721 w=603","CODE right=721 w=603","DD right=721 w=603","DD right=721 w=603",
+                "SPAN.hint right=681 w=466","DD right=721 w=603", ...]}
+Culprit: <dd><code>/Users/chris.dare/Personal/SourceCode/arXMCP/var/arxmcp/notebooks/bridgeland-stability/lancedb</code></dd>
+  computed: white-space:normal  overflow-wrap:normal  word-break:normal  overflow-x:visible
+  -> unbreakable path sizes the <dl> column to 603px, every sibling <dd> inherits 603px,
+     page scrollWidth becomes 721px = whole page scrolls sideways on a phone.
+
+[B] DESKTOP 1280x900, /ui/notebooks/chaos-fe-xss (topic contains a 145-char unbroken "AAAA..." token)
+{"horiz":true,"sw":1318,"cw":1280}
+Overflow chain (scrollWidth > clientWidth):
+  HTML                          sw=1318 cw=1280
+  BODY                          sw=1266 cw=1178
+  MAIN#main                     sw=1250 cw=1146
+  DETAILS#manage                sw=1250 cw=1146
+  DIV#topic-block.topic-block   sw=1250 cw=1146
+  P.topic-description           sw=1250 cw=1146   overflow-wrap:normal   <-- root cause
+The topic textarea allows maxlength=512, so a 512-char unbroken token is reachable.

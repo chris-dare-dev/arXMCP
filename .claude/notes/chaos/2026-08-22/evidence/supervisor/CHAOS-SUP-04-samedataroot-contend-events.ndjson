@@ -1,0 +1,2 @@
+{"elapsed_ms":0,"event":"supervisor-started","fields":{"owns_lock":true,"plan_source":"environment"},"pid":47738,"seq":1}
+{"elapsed_ms":0,"event":"lock-contended","fields":{"activated":false},"pid":47737,"seq":1}

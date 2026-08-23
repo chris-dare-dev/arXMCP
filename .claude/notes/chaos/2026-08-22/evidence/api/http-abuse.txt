@@ -1,0 +1,8 @@
+# HTTP-layer abuse — 2026-08-22, server on 7803
+# 60 KB URL path -> 405 (routed, no 414 URI-too-long)
+# 90 KB single header value (X-Junk) -> 200 (no 431 header-too-large)
+# duplicate Host headers (127.0.0.1 + evil.com) -> 200 OK (first wins)
+# Content-Length: 1000 but 7 bytes sent then close -> no response, connection closed, no crash
+# CRLF in query param (x=1%0d%0aX-Injected:%20yes) -> 200, encoded, not injected
+# chunked Transfer-Encoding body ~1.3 MB -> 413 {"error":"payload_too_large","max_bytes":1048576,
+#   "message":"request body exceeds the 1048576-byte cap; ... defend against memory-exhaustion requests"}

@@ -1,0 +1,6 @@
+#!/bin/sh
+exec /usr/bin/python3 -c '
+import sys,os,time
+sys.stderr.write("PID=%d\n"%os.getpid()); sys.stderr.flush()
+time.sleep(600)
+'

@@ -1,0 +1,5 @@
+{"elapsed_ms":2,"event":"supervisor-started","fields":{"owns_lock":true,"plan_source":"environment"},"pid":37670,"seq":1}
+{"elapsed_ms":423,"event":"child-spawn","fields":{"child_pid":37695},"pid":37670,"seq":2}
+{"elapsed_ms":732,"event":"bound-frame-invalid","fields":{"frame_prefix":"this is not json at all\n"},"pid":37670,"seq":3}
+{"elapsed_ms":732,"event":"lifecycle-failed","fields":{"reason":"bound frame invalid"},"pid":37670,"seq":4}
+{"elapsed_ms":1277,"event":"orphan-shutdown","fields":{"child_exit":-1},"pid":37670,"seq":5}

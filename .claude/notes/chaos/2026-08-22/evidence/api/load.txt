@@ -1,0 +1,8 @@
+# Concurrency / load / lifecycle — 2026-08-22, server on 7803
+# 200 concurrent GET /healthz -> {'200': 200}  wall=0.69s  maxlat=0.31s
+# 100 concurrent full MCP handshake+search_papers -> {'200': 100}  wall=2.11s ; health after: 200
+# slowloris: 80 partial-header sockets held open; normal /healthz served in 0.06s (NOT blocked)
+# two servers same port 7803: second exits "bind on address ('127.0.0.1', 7803): address already in use",
+#   graceful shutdown; original stays 200.
+# SIGTERM (PID 33870) under a 200-request curl loop: "Shutting down" -> drain -> "Application shutdown complete"
+#   -> "Finished server process [33870]"; exited ~2s; port 7803 freed; NO orphan process.

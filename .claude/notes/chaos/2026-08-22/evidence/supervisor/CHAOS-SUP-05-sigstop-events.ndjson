@@ -1,0 +1,3 @@
+{"elapsed_ms":2,"event":"supervisor-started","fields":{"owns_lock":true,"plan_source":"environment"},"pid":42520,"seq":1}
+{"elapsed_ms":757,"event":"child-spawn","fields":{"child_pid":42548},"pid":42520,"seq":2}
+{"elapsed_ms":85942,"event":"duplicate-activation","fields":{},"pid":42520,"seq":3}

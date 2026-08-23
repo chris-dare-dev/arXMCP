@@ -1,0 +1,12 @@
+200 37905  /ui/static/app.css
+200 19451  /ui/static/tokens.css
+200 51439  /ui/static/htmx.min.js
+200 2587  /ui/static/json-enc.js
+200 755  /ui/static/favicon.svg
+404 22  /ui/static/../../../etc/passwd
+404 22  /ui/static/..%2F..%2F..%2Fetc%2Fpasswd
+404 22  /ui/static/%2e%2e/%2e%2e/%2e%2e/etc/passwd
+404 22  /ui/static/%252e%252e%252fetc%252fpasswd
+404 22  /ui/static/....//....//etc/passwd
+404 22  /ui/notebooks/../../etc/passwd
+404 22  /ui/notebooks/%2e%2e%2f%2e%2e%2fetc%2fpasswd

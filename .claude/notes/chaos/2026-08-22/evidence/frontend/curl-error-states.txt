@@ -1,0 +1,35 @@
+=== GET /ui/notebooks/does-not-exist ===
+HTTP/1.1 404 Not Found
+date: Sat, 22 Aug 2026 23:22:59 GMT
+server: uvicorn
+content-length: 48
+content-type: application/json
+x-content-type-options: nosniff
+x-frame-options: DENY
+content-security-policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'
+
+{"detail":"notebook 'does-not-exist' not found"}
+=== GET /ui/notebooks/<xss slug> ===
+HTTP/1.1 422 Unprocessable Entity
+date: Sat, 22 Aug 2026 23:22:59 GMT
+server: uvicorn
+content-length: 244
+content-type: application/json
+x-content-type-options: nosniff
+x-frame-options: DENY
+content-security-policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'
+
+{"detail":"invalid notebook slug '<img src=x onerror=alert(1)>': must match '^[a-z][a-z0-9-]{2,30}$' (lowercase letter start, then 3-30 chars of [a-z0-9-]). This rule rejects path traversal (../, slashes), uppercase, and shell metacharacters."}
+=== GET /ui/notebooks/BAD_SLUG ===
+HTTP/1.1 422 Unprocessable Entity
+date: Sat, 22 Aug 2026 23:22:59 GMT
+server: uvicorn
+content-length: 217
+content-type: application/json
+x-content-type-options: nosniff
+x-frame-options: DENY
+content-security-policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'
+
+{"detail":"invalid notebook slug 'A': must match '^[a-z][a-z0-9-]{2,30}$' (lowercase letter start, then 3-30 chars of [a-z0-9-]). This rule rejects path traversal (../, slashes), uppercase, and shell metacharacters."}
+=== GET /ui/?q=<script> ===
+200

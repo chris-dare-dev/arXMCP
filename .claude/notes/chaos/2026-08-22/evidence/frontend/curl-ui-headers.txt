@@ -1,0 +1,9 @@
+HTTP/1.1 200 OK
+date: Sat, 22 Aug 2026 23:22:00 GMT
+server: uvicorn
+content-length: 10726
+content-type: text/html; charset=utf-8
+x-content-type-options: nosniff
+x-frame-options: DENY
+content-security-policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'
+

@@ -1,0 +1,5 @@
+{"elapsed_ms":0,"event":"supervisor-started","fields":{"owns_lock":true,"plan_source":"environment"},"pid":37747,"seq":1}
+{"elapsed_ms":393,"event":"child-spawn","fields":{"child_pid":37762},"pid":37747,"seq":2}
+{"elapsed_ms":837,"event":"lifecycle-failed","fields":{"reason":"bound frame read failed"},"pid":37747,"seq":3}
+{"elapsed_ms":1360,"event":"unexpected-stdout","fields":{"bytes":4995912},"pid":37747,"seq":4}
+{"elapsed_ms":1386,"event":"orphan-shutdown","fields":{"child_exit":-1},"pid":37747,"seq":5}

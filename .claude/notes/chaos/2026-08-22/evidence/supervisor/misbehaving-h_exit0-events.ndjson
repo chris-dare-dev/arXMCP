@@ -1,0 +1,4 @@
+{"elapsed_ms":2,"event":"supervisor-started","fields":{"owns_lock":true,"plan_source":"environment"},"pid":37493,"seq":1}
+{"elapsed_ms":1428,"event":"child-spawn","fields":{"child_pid":37571},"pid":37493,"seq":2}
+{"elapsed_ms":1811,"event":"lifecycle-failed","fields":{"reason":"child stdout closed before bound"},"pid":37493,"seq":3}
+{"elapsed_ms":1812,"event":"orphan-shutdown","fields":{"child_exit":0},"pid":37493,"seq":4}

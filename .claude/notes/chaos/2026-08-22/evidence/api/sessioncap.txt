@@ -1,0 +1,29 @@
+=== search_papers cap boundary (single session) ===
+SID bc834298f84f4627a56c74ddb1d09ab7
+call#1 http=200 {"jsonrpc":"2.0","id":101,"result":{"content":[{"type":"text","text":"No corpus ingested yet. Open the operator console at http://127.0.0.1:7803/ui/ t
+call#2 http=200 {"jsonrpc":"2.0","id":102,"result":{"content":[{"type":"text","text":"No corpus ingested yet. Open the operator console at http://127.0.0.1:7803/ui/ t
+call#3 http=200 {"jsonrpc":"2.0","id":103,"result":{"content":[{"type":"text","text":"No corpus ingested yet. Open the operator console at http://127.0.0.1:7803/ui/ t
+call#29 http=200 {"jsonrpc":"2.0","id":129,"result":{"content":[{"type":"text","text":"No corpus ingested yet. Open the operator console at http://127.0.0.1:7803/ui/ t
+call#30 http=200 {"jsonrpc":"2.0","id":130,"result":{"content":[{"type":"text","text":"No corpus ingested yet. Open the operator console at http://127.0.0.1:7803/ui/ t
+call#31 http=200 {"id": 131, "jsonrpc": "2.0", "result": {"content": [{"text": "{\"code\": \"RETRIEVAL_CAP_REACHED\", \"limit\": 30, \"message\": \"search_papers cap o
+call#32 http=200 {"id": 132, "jsonrpc": "2.0", "result": {"content": [{"text": "{\"code\": \"RETRIEVAL_CAP_REACHED\", \"limit\": 30, \"message\": \"search_papers cap o
+call#33 http=200 {"id": 133, "jsonrpc": "2.0", "result": {"content": [{"text": "{\"code\": \"RETRIEVAL_CAP_REACHED\", \"limit\": 30, \"message\": \"search_papers cap o
+call#34 http=200 {"id": 134, "jsonrpc": "2.0", "result": {"content": [{"text": "{\"code\": \"RETRIEVAL_CAP_REACHED\", \"limit\": 30, \"message\": \"search_papers cap o
+call#35 http=200 {"id": 135, "jsonrpc": "2.0", "result": {"content": [{"text": "{\"code\": \"RETRIEVAL_CAP_REACHED\", \"limit\": 30, \"message\": \"search_papers cap o
+
+=== get_chunk cap boundary (fresh session) ===
+get_chunk#1 http=200 {"jsonrpc":"2.0","id":201,"result":{"content":[{"type":"text","text":"No corpus ingested yet. Open the operator console at http://127.0.0.1:7803/ui/ t
+get_chunk#2 http=200 {"jsonrpc":"2.0","id":202,"result":{"content":[{"type":"text","text":"No corpus ingested yet. Open the operator console at http://127.0.0.1:7803/ui/ t
+get_chunk#3 http=200 {"jsonrpc":"2.0","id":203,"result":{"content":[{"type":"text","text":"No corpus ingested yet. Open the operator console at http://127.0.0.1:7803/ui/ t
+get_chunk#4 http=200 {"jsonrpc":"2.0","id":204,"result":{"content":[{"type":"text","text":"No corpus ingested yet. Open the operator console at http://127.0.0.1:7803/ui/ t
+get_chunk#5 http=200 {"jsonrpc":"2.0","id":205,"result":{"content":[{"type":"text","text":"No corpus ingested yet. Open the operator console at http://127.0.0.1:7803/ui/ t
+
+=== BYPASS A: new session per call (5x search) ===
+fresh#0 http=200 {"jsonrpc":"2.0","id":300,"result":{"content":[{"type":"text","text":"No corpus ingested yet. Open the operator console at http://127.0.0.1:7803/ui/ t
+fresh#1 http=200 {"jsonrpc":"2.0","id":301,"result":{"content":[{"type":"text","text":"No corpus ingested yet. Open the operator console at http://127.0.0.1:7803/ui/ t
+fresh#2 http=200 {"jsonrpc":"2.0","id":302,"result":{"content":[{"type":"text","text":"No corpus ingested yet. Open the operator console at http://127.0.0.1:7803/ui/ t
+fresh#3 http=200 {"jsonrpc":"2.0","id":303,"result":{"content":[{"type":"text","text":"No corpus ingested yet. Open the operator console at http://127.0.0.1:7803/ui/ t
+fresh#4 http=200 {"jsonrpc":"2.0","id":304,"result":{"content":[{"type":"text","text":"No corpus ingested yet. Open the operator console at http://127.0.0.1:7803/ui/ t
+
+=== BYPASS B: omit Mcp-Session-Id on tools/call (does cap skip?) ===
+no-sid http=400 {"jsonrpc":"2.0","id":"server-error","error":{"code":-32600,"message":"Bad Request: Missing session ID"}}

@@ -1,0 +1,16 @@
+=== Server hard-killed (kill -9) while /ui/notebooks/chaos-fe-xss was open; then clicked "Rename" ===
+Console (errors only):
+[error] htmx:afterRequest, [object HTMLParagraphElement]
+[error] htmx:sendError, [object HTMLParagraphElement]
+[error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[error] htmx:afterRequest, [object HTMLDivElement]
+[error] htmx:sendError, [object HTMLDivElement]
+[error] Failed to load resource: net::ERR_CONNECTION_REFUSED
+[error] Uncaught (in promise) {code: 11, name: InvalidStateError, message: Transition was aborted because of invalid state}
+
+DOM state after the failed Rename (JS probe):
+  statusBadge          : "WARN | awaiting first ingeststatus non-pass - see docs/install.md troubleshooting"  (STALE - pre-kill value)
+  statusBadgeClass     : "status-badge status-badge--ops-warn"                (unchanged; no 'down' state)
+  errorBlocksNonEmpty  : []            <-- every .error / <output> block is EMPTY
+  anyOfflineBanner     : false         <-- no "offline"/"cannot reach"/"connection" text anywhere in <body>
+  displayName          : unchanged (rename silently did nothing)

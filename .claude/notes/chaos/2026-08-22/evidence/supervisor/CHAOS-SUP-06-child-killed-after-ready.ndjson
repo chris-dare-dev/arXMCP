@@ -1,0 +1,6 @@
+{"elapsed_ms":5,"event":"supervisor-started","fields":{"owns_lock":true,"plan_source":"environment"},"pid":56775,"seq":1}
+{"elapsed_ms":2515,"event":"child-spawn","fields":{"child_pid":56782},"pid":56775,"seq":2}
+{"elapsed_ms":2602,"event":"child-bound","fields":{"port":61035},"pid":56775,"seq":3}
+{"elapsed_ms":2619,"event":"child-ready","fields":{},"pid":56775,"seq":4}
+{"elapsed_ms":2635,"event":"mcp-smoke-ok","fields":{"tools":1},"pid":56775,"seq":5}
+{"elapsed_ms":2683,"event":"window-ready","fields":{"window_ordered_in":true},"pid":56775,"seq":6}

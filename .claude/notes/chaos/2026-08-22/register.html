@@ -1,0 +1,489 @@
+<title>arXMCP Chaos Register</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+
+<style>
+:root{
+  --ground:#F5F7F7; --surface:#FFFFFF; --sunken:#EDF1F1;
+  --ink:#16211F; --ink-2:#3A4A4A; --muted:#55656A; --line:#DCE4E4; --line-2:#C3D0D0;
+  --accent:#0F766E; --accent-soft:rgba(15,118,110,.09);
+  --crit:#B42318; --crit-bg:#FEF3F2; --crit-line:#F2C1BC;
+  --high:#C4320A; --high-bg:#FFF6ED; --high-line:#F8CFAE;
+  --med:#A16207;  --med-bg:#FDFAEB;  --med-line:#EDDCA4;
+  --low:#3F6B7D;  --low-bg:#F0F6F8;  --low-line:#C3D9E1;
+  --info:#667085; --info-bg:#F2F4F5; --info-line:#D6DDDF;
+  --shadow:0 1px 2px rgba(22,33,31,.05), 0 8px 24px -16px rgba(22,33,31,.22);
+  --measure:68ch;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --ground:#0F1516; --surface:#161E20; --sunken:#121A1B;
+    --ink:#E0E8E8; --ink-2:#BFCECE; --muted:#8B9E9F; --line:#26312F; --line-2:#33403E;
+    --accent:#14B8A6; --accent-soft:rgba(20,184,166,.12);
+    --crit:#FDA29B; --crit-bg:rgba(180,35,24,.15); --crit-line:rgba(253,162,155,.28);
+    --high:#FEB273; --high-bg:rgba(196,50,10,.15); --high-line:rgba(254,178,115,.26);
+    --med:#F0C963;  --med-bg:rgba(161,98,7,.16);   --med-line:rgba(240,201,99,.24);
+    --low:#8FC4D8;  --low-bg:rgba(63,107,125,.18); --low-line:rgba(143,196,216,.24);
+    --info:#98A6A8; --info-bg:rgba(102,112,133,.14);--info-line:rgba(152,166,168,.2);
+    --shadow:0 1px 2px rgba(0,0,0,.3), 0 8px 24px -16px rgba(0,0,0,.6);
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#0F1516; --surface:#161E20; --sunken:#121A1B;
+  --ink:#E0E8E8; --ink-2:#BFCECE; --muted:#8B9E9F; --line:#26312F; --line-2:#33403E;
+  --accent:#14B8A6; --accent-soft:rgba(20,184,166,.12);
+  --crit:#FDA29B; --crit-bg:rgba(180,35,24,.15); --crit-line:rgba(253,162,155,.28);
+  --high:#FEB273; --high-bg:rgba(196,50,10,.15); --high-line:rgba(254,178,115,.26);
+  --med:#F0C963;  --med-bg:rgba(161,98,7,.16);   --med-line:rgba(240,201,99,.24);
+  --low:#8FC4D8;  --low-bg:rgba(63,107,125,.18); --low-line:rgba(143,196,216,.24);
+  --info:#98A6A8; --info-bg:rgba(102,112,133,.14);--info-line:rgba(152,166,168,.2);
+  --shadow:0 1px 2px rgba(0,0,0,.3), 0 8px 24px -16px rgba(0,0,0,.6);
+}
+
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--ground); color:var(--ink);
+  font-family:"IBM Plex Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  font-size:16px; line-height:1.62; -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1080px; margin:0 auto; padding:0 28px 96px}
+.col{max-width:var(--measure)}
+
+/* ---------- masthead ---------- */
+.mast{padding:64px 0 34px; border-bottom:1px solid var(--line)}
+.eyebrow{
+  font-family:"IBM Plex Mono",ui-monospace,monospace; font-size:11.5px; font-weight:500;
+  letter-spacing:.16em; text-transform:uppercase; color:var(--accent); margin:0 0 18px;
+}
+h1{
+  font-family:Newsreader,Georgia,serif; font-weight:500; font-size:clamp(2.3rem,5.2vw,3.5rem);
+  line-height:1.08; letter-spacing:-.018em; margin:0 0 20px; text-wrap:balance;
+}
+.standfirst{font-size:1.09rem; color:var(--ink-2); margin:0; max-width:60ch}
+.meta{
+  display:flex; flex-wrap:wrap; gap:4px 26px; margin-top:26px;
+  font-family:"IBM Plex Mono",ui-monospace,monospace; font-size:12.5px; color:var(--muted);
+}
+.meta b{color:var(--ink-2); font-weight:500}
+
+/* ---------- severity strip ---------- */
+.strip{display:flex; flex-wrap:wrap; gap:10px; margin:34px 0 0}
+.chip{
+  display:flex; align-items:baseline; gap:9px; padding:11px 16px 10px;
+  border:1px solid var(--line); border-radius:3px; background:var(--surface);
+  border-left-width:3px;
+}
+.chip .n{font-family:"IBM Plex Mono",monospace; font-size:1.45rem; font-weight:500; font-variant-numeric:tabular-nums; line-height:1}
+.chip .l{font-size:11.5px; letter-spacing:.11em; text-transform:uppercase; color:var(--muted)}
+.chip.s-critical{border-left-color:var(--crit)} .chip.s-critical .n{color:var(--crit)}
+.chip.s-high{border-left-color:var(--high)}     .chip.s-high .n{color:var(--high)}
+.chip.s-medium{border-left-color:var(--med)}    .chip.s-medium .n{color:var(--med)}
+.chip.s-low{border-left-color:var(--low)}       .chip.s-low .n{color:var(--low)}
+.chip.s-info{border-left-color:var(--info)}     .chip.s-info .n{color:var(--info)}
+
+.lanes{display:flex; flex-wrap:wrap; gap:0 24px; margin-top:20px;
+  font-family:"IBM Plex Mono",monospace; font-size:12.5px; color:var(--muted)}
+.lane{display:flex; gap:7px; align-items:baseline}
+.lane .lv{color:var(--ink-2); font-variant-numeric:tabular-nums}
+
+/* ---------- sections ---------- */
+section{padding-top:56px}
+h2{
+  font-family:Newsreader,Georgia,serif; font-weight:600; font-size:1.72rem;
+  letter-spacing:-.012em; line-height:1.2; margin:0 0 6px; text-wrap:balance;
+}
+.kicker{
+  font-family:"IBM Plex Mono",monospace; font-size:11px; letter-spacing:.15em;
+  text-transform:uppercase; color:var(--muted); margin:0 0 10px;
+}
+h3{font-family:"IBM Plex Sans",sans-serif; font-weight:600; font-size:1.02rem; margin:32px 0 8px; letter-spacing:-.005em}
+p{margin:0 0 15px}
+.col p{max-width:var(--measure)}
+em{font-style:italic}
+strong{font-weight:600}
+a{color:var(--accent); text-underline-offset:3px}
+a:focus-visible,summary:focus-visible{outline:2px solid var(--accent); outline-offset:3px; border-radius:2px}
+
+code,.mono{font-family:"IBM Plex Mono",ui-monospace,monospace}
+p code,li code,td code{
+  font-size:.86em; background:var(--sunken); border:1px solid var(--line);
+  padding:.08em .34em; border-radius:3px; word-break:break-word;
+}
+pre{
+  background:var(--sunken); border:1px solid var(--line); border-left:3px solid var(--accent);
+  border-radius:3px; padding:14px 16px; overflow-x:auto; margin:0 0 16px;
+  font-family:"IBM Plex Mono",monospace; font-size:12.5px; line-height:1.6; color:var(--ink-2);
+}
+
+/* ---------- finding callouts ---------- */
+.card{
+  background:var(--surface); border:1px solid var(--line); border-left:3px solid var(--line-2);
+  border-radius:3px; padding:18px 20px; margin:0 0 14px; box-shadow:var(--shadow);
+}
+.card.c-critical{border-left-color:var(--crit)}
+.card.c-high{border-left-color:var(--high)}
+.card > :last-child{margin-bottom:0}
+.tag{
+  display:inline-block; font-family:"IBM Plex Mono",monospace; font-size:11px; font-weight:500;
+  letter-spacing:.06em; padding:2px 7px; border-radius:3px; border:1px solid; margin-right:8px;
+  vertical-align:1px;
+}
+.tag.t-critical{color:var(--crit); background:var(--crit-bg); border-color:var(--crit-line)}
+.tag.t-high{color:var(--high); background:var(--high-bg); border-color:var(--high-line)}
+.card h3{margin:0 0 8px; font-size:1.02rem}
+
+ol.steps{margin:0 0 16px; padding-left:0; list-style:none; counter-reset:s}
+ol.steps li{
+  counter-increment:s; position:relative; padding-left:38px; margin-bottom:14px; max-width:var(--measure);
+}
+ol.steps li::before{
+  content:counter(s,decimal-leading-zero); position:absolute; left:0; top:.16em;
+  font-family:"IBM Plex Mono",monospace; font-size:11.5px; font-weight:500; color:var(--accent);
+  border:1px solid var(--accent-soft); background:var(--accent-soft); border-radius:3px; padding:1px 5px;
+}
+ul.plain{margin:0 0 16px; padding-left:20px}
+ul.plain li{margin-bottom:9px; max-width:var(--measure)}
+
+/* ---------- tables ---------- */
+.scroll{overflow-x:auto; border:1px solid var(--line); border-radius:3px; background:var(--surface); margin:0 0 30px}
+table{border-collapse:collapse; width:100%; font-size:13.5px; line-height:1.5}
+thead th{
+  text-align:left; font-family:"IBM Plex Mono",monospace; font-weight:500; font-size:10.5px;
+  letter-spacing:.13em; text-transform:uppercase; color:var(--muted);
+  padding:11px 14px; border-bottom:1px solid var(--line); background:var(--sunken); white-space:nowrap;
+}
+tbody td{padding:11px 14px; border-bottom:1px solid var(--line); vertical-align:top}
+tbody tr:last-child td{border-bottom:0}
+td.id{font-size:12px; font-weight:500; white-space:nowrap}
+td.area{font-size:12px; color:var(--muted); white-space:nowrap}
+td.ref{font-size:11.5px; color:var(--muted); min-width:230px}
+.unfiled{color:var(--muted); font-style:italic}
+.s-critical-b{color:var(--crit)} .s-high-b{color:var(--high)} .s-medium-b{color:var(--med)}
+.s-low-b{color:var(--low)} .s-info-b{color:var(--info)}
+
+.sev-h{display:flex; align-items:center; gap:10px; margin:34px 0 12px; font-size:1.06rem}
+.dot{width:9px; height:9px; border-radius:50%; flex:none}
+.dot.s-critical{background:var(--crit)} .dot.s-high{background:var(--high)}
+.dot.s-medium{background:var(--med)} .dot.s-low{background:var(--low)} .dot.s-info{background:var(--info)}
+.sev-h .ct{
+  font-family:"IBM Plex Mono",monospace; font-size:12px; font-weight:400; color:var(--muted);
+  font-variant-numeric:tabular-nums; border:1px solid var(--line); padding:1px 7px; border-radius:3px;
+}
+.note{font-size:14px; color:var(--muted); max-width:var(--measure); margin:0 0 14px}
+
+hr{border:0; border-top:1px solid var(--line); margin:56px 0 0}
+footer{padding-top:34px; font-size:13.5px; color:var(--muted)}
+footer p{max-width:var(--measure)}
+footer b{color:var(--ink-2); font-weight:500}
+
+@media (max-width:640px){
+  .wrap{padding:0 18px 64px}
+  .mast{padding-top:44px}
+  .chip{padding:9px 13px 8px}
+  .chip .n{font-size:1.25rem}
+}
+</style>
+
+<div class="wrap">
+
+<header class="mast">
+  <p class="eyebrow">Adversarial run · 5 parallel lanes · 2026-08-22</p>
+  <h1>arXMCP Chaos Register</h1>
+  <p class="standfirst">One hundred findings against the macOS desktop application — the Tauri supervisor, the frozen Python child, the packaged bundle, and the htmx UI it serves. Read-only reconnaissance; nothing was fixed.</p>
+  <div class="meta">
+    <span><b>Target</b> arXMCP.app</span>
+    <span><b>Commit</b> 3ba2d9a · main</span>
+    <span><b>Host</b> macOS 26.6 · Apple Silicon</span>
+    <span><b>Corpus</b> untouched</span>
+    <span><b>Tracked</b> <a href="https://github.com/chris-dare-dev/arXMCP/issues/424">epic #424</a> · #425–#490</span>
+  </div>
+  <div class="strip"><div class="chip s-critical"><span class="n">3</span><span class="l">critical</span></div>
+<div class="chip s-high"><span class="n">18</span><span class="l">high</span></div>
+<div class="chip s-medium"><span class="n">23</span><span class="l">medium</span></div>
+<div class="chip s-low"><span class="n">22</span><span class="l">low</span></div>
+<div class="chip s-info"><span class="n">34</span><span class="l">info</span></div></div>
+  <div class="lanes"><div class="lane"><span class="ln">supervisor</span><span class="lv mono">25</span></div>
+<div class="lane"><span class="ln">frontend</span><span class="lv mono">23</span></div>
+<div class="lane"><span class="ln">packaging</span><span class="lv mono">20</span></div>
+<div class="lane"><span class="ln">api</span><span class="lv mono">18</span></div>
+<div class="lane"><span class="ln">data</span><span class="lv mono">14</span></div></div>
+</header>
+
+<section>
+  <p class="kicker">Theme 01 · the shipped artifact</p>
+  <h2>The app cannot succeed on first run, and cannot say so</h2>
+  <div class="col">
+    <p>Three findings compose into a single fact. A user who double-clicks <code>arXMCP.app</code> today gets <strong>nothing at all</strong> — and no way to find out why.</p>
+  </div>
+
+  <div class="card c-critical">
+    <h3><span class="tag t-critical">CHAOS-PKG-02</span>There is no first-run state that can succeed</h3>
+    <p>The self-authored launch plan points the data root at an empty <code>~/Library/Application Support/arXMCP</code>, and the bundle ships no ingest path. The child always raises <code>CorpusNotIngestedError: corpus-version.json not found</code>. The remedy its own error names — <code>make up-wizard</code> — does not exist inside a bundle.</p>
+  </div>
+
+  <div class="card c-critical">
+    <h3><span class="tag t-critical">CHAOS-PKG-01</span>The failure is completely invisible</h3>
+    <p><code>tauri.conf.json</code> declares <code>app.windows: []</code>, and every <code>fail()</code> path is <code>eprintln!</code> followed by <code>exit</code>. No window, no dialog, no Dock icon; <code>open</code> itself exits 0. The process dies in five to seven seconds. The only trace is an NDJSON file under <code>~/Library/Application Support/arXMCP/logs/</code>. Corroborated independently by the supervisor lane as <code>CHAOS-SUP-07</code> and <code>CHAOS-SUP-11</code>.</p>
+  </div>
+
+  <div class="card c-high">
+    <h3><span class="tag t-high">CHAOS-SUP-10</span>The one diagnostic destroys itself</h3>
+    <p><code>logs/desktop-child.log</code> is truncated on every launch. The second double-click erases the evidence from the first.</p>
+  </div>
+
+  <div class="col">
+    <p>These are not independent bugs to be ranked against each other. Fixing the corpus bootstrap without fixing the silence leaves the next failure equally undiagnosable; fixing the silence alone produces a well-reported permanent failure. Both halves are load-bearing.</p>
+  </div>
+</section>
+
+<section>
+  <p class="kicker">Theme 02 · the interface</p>
+  <h2>The UI's entire error layer is dead code</h2>
+  <div class="col">
+    <p>This is the highest-leverage frontend fix on the board, and it is one line. The application's own Content-Security-Policy at <code>server/middleware.py:172</code> sets <code>script-src 'self' 'unsafe-inline'</code> — with no <code>'unsafe-eval'</code>. htmx implements <code>hx-on::</code> through <code>new Function()</code>, which requires it. Every page load throws:</p>
+  </div>
+<pre>EvalError: Evaluating a string as JavaScript violates the following
+Content Security Policy directive        htmx.min.js:2:44684</pre>
+  <div class="col">
+    <p>That kills all twelve <code>hx-on::</code> handlers — seven <code>hx-on::response-error</code> and five <code>hx-on::after-request</code>, counted across <code>index.html</code> (3) and <code>notebook_detail.html</code> (9). The UI detects its errors correctly and then silently drops them on the floor. <code>CHAOS-FE-02</code> (a 422 or 409 on notebook create displays nothing whatsoever) is a direct consequence.</p>
+  </div>
+
+  <div class="card c-high">
+    <h3><span class="tag t-high">CHAOS-FE-03</span>The CSP fix does not cover backend death</h3>
+    <p>After <code>kill -9</code> on the server, the status badge holds its stale pre-kill value, no offline banner appears, and every control silently no-ops. Restoring the CSP will not repair this: htmx emits <code>htmx:sendError</code> for connection failures, and <em>no handler listens for that event at all</em>. It needs to be written.</p>
+  </div>
+</section>
+
+<section>
+  <p class="kicker">Theme 03 · the trust boundary</p>
+  <h2>The containment story is inverted</h2>
+  <div class="col">
+    <p><code>apps/desktop/README.md</code> documents a careful payload-containment model: <code>resolve_inside</code>, symlink refusal, component-wise containment, a digest check before the child is trusted. All of it is real, and all of it is reachable <em>only</em> from the self-authored arm.</p>
+  </div>
+
+  <div class="card c-critical">
+    <h3><span class="tag t-critical">CHAOS-PKG-06</span>The environment launch-plan arm applies no containment</h3>
+    <p>When <code>ARXMCP_DESKTOP_LAUNCH_PLAN</code> is set, <code>load_plan</code> at <code>main.rs:143-158</code> performs <code>fs::read</code> → <code>serde_json</code> → <code>validate_plan</code> → return. It never calls <code>child_payload_candidates</code> or <code>resolve_inside</code>. Demonstrated by executing <code>/usr/bin/touch</code> with attacker-chosen arguments against the signed release bundle. Found independently by the supervisor lane as <code>CHAOS-SUP-03</code>, which also confirms the seam ships <em>enabled</em> in the signed <code>.app</code>.</p>
+    <p>The comment at <code>main.rs:145</code> reads: <em>“The self-authored plan is NOT trusted more than an external one.”</em> True, and backwards. The external plan is trusted <strong>more</strong> — it skips the containment the self-authored arm submits to.</p>
+  </div>
+
+  <div class="card c-high">
+    <h3><span class="tag t-high">CHAOS-PKG-07</span>The identity digest is not a tamper check</h3>
+    <p><code>lifecycle.rs:109</code> hashes <code>plan.identity_file</code>, and the crate's own unit test at <code>main.rs:892</code> asserts <code>identity_file == child_argv[0]</code>. It hashes the file it is about to execute — self-consistency, not integrity.</p>
+  </div>
+
+  <div class="card c-high">
+    <h3><span class="tag t-high">CHAOS-PKG-08</span>Nothing verifies the seal at launch</h3>
+    <p>A one-byte flip in the signed child Mach-O still executes. <code>codesign</code> catches every tamper tested; nothing runs <code>codesign</code> at runtime. The 5,300-file payload has no launch-time integrity check.</p>
+  </div>
+</section>
+
+<section>
+  <p class="kicker">Theme 04 · the data layer</p>
+  <h2>Failures a user cannot distinguish from working software</h2>
+  <div class="card c-high">
+    <h3><span class="tag t-high">CHAOS-DATA-01</span>A destroyed corpus still boots READY</h3>
+    <p>Zero or truncate every LanceDB data fragment and the table still opens, <code>count_rows()</code> still returns the full 4,279 (fragment metadata only), and the health path reports <code>DegradedState=None</code>. The server comes up healthy on a corpus that cannot answer a single query; only the first real search raises. A one-row smoke read at startup catches every case tested.</p>
+  </div>
+  <div class="card c-high">
+    <h3><span class="tag t-high">CHAOS-DATA-02</span>The divergence alarm is permanently ringing</h3>
+    <p>The shipped <code>var/arxmcp/index/lancedb-staging</code> marker claims <code>chunk_count: 105 / paper_count: 1</code> against a table holding 4,279 rows. At the 5% tolerance that corpus reports <code>degraded(chunk_count_diverged)</code> on every single boot — desensitising the one signal that would surface a real divergence.</p>
+  </div>
+  <div class="card c-high">
+    <h3><span class="tag t-high">CHAOS-DATA-03</span>A damaged cache file is fatal to startup</h3>
+    <p>A corrupt, truncated, read-only, directory-shaped or externally-locked Tier-1 cache DB kills both startup and the post-ingest corpus rebind. <code>RetrievalCache.open</code> is called bare at <code>server/resources.py:868</code> and <code>:1142</code>, directly contradicting the contract written at <code>server/cache_sqlite.py:28-31</code> — “fall through to recompute; log; alert”.</p>
+  </div>
+  <div class="col">
+    <p>One quieter sibling deserves attention: <code>CHAOS-DATA-05</code> — the marker's <code>embedder_version</code> is never compared against the loaded model, so swapping the embedder yields silent wrong-vector-space retrieval with no warning anywhere.</p>
+  </div>
+</section>
+
+<section>
+  <p class="kicker">Verified clean</p>
+  <h2>What held up under attack</h2>
+  <div class="col">
+    <p>Recorded deliberately, so a later run can tell <em>tested-and-clean</em> from <em>never-looked-at</em>. The server itself is genuinely well hardened; the defects cluster in the desktop shell, the packaging, and the data layer.</p>
+    <ul class="plain">
+      <li><strong>XSS and template injection — clean.</strong> Jinja autoescape verified empirically <em>and</em> statically. Zero <code>|safe</code>, zero <code>Markup(</code>, every f-string fragment <code>html.escape</code>d.</li>
+      <li><strong>Path traversal — clean.</strong> 404 on all seven encodings, against <code>/static/</code> and against slugs that become paths.</li>
+      <li><strong>Server robustness — clean.</strong> 200-concurrent load, slowloris, chunked overflow, malformed JSON, config hostility and SIGTERM drain produced no crashes, hangs, 500s or orphans. CSRF and DNS-rebind are properly defended (Origin 403 / Host 421 / Sec-Fetch-Site 403). The startup token is compared with <code>hmac.compare_digest</code>.</li>
+      <li><strong>Contract-frame fuzzing — clean.</strong> All 17 mutations rejected within bounds, including a depth bomb, a missing terminal LF, and concatenated frames.</li>
+      <li><strong>Restart storm — clean.</strong> Ten rapid start/quit cycles leaked no file descriptors, temp directories, ports or processes.</li>
+      <li><strong>Identifier collisions — clean.</strong> No reachable <code>paper_id</code> flatten collision; old-style slashed ids resolve distinctly.</li>
+      <li><strong>Bundle determinism — clean.</strong> Both <code>assembly-report.json</code> claims verified against the artifact with no drift, and a symlinked payload root is refused rather than silently traded for the other layout.</li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <p class="kicker">Known unknowns</p>
+  <h2>Coverage gaps — untested, not clean</h2>
+  <div class="col">
+    <ul class="plain">
+      <li><strong>MCP handler-level input validation.</strong> Bootstrap mode short-circuits every tool to a stub envelope <em>before</em> the handler runs, so traversal, NUL and injection tests in <code>paper_id</code> and <code>chunk_id</code> never reached real code. Validation there is handler-level rather than schema-level, so hostile ids do pass the JSON-schema gate. Logged as <code>CHAOS-API-11</code>; closing it needs a re-run against a live corpus.</li>
+      <li><strong>The populated-corpus UI.</strong> Notebook LanceDB directories are empty on this checkout, so every populated search path in the frontend went unexercised.</li>
+      <li><strong>Dry-run write honesty.</strong> <code>NOTEBOOKS_BASE</code> resolves at import from <code>ApplicationPaths</code>, so redirecting it required either writing under <code>var/arxmcp/</code> or editing <code>tools/</code> — both forbidden by the run's safety rules. Separately: <code>notebook_ingest.py</code> and <code>notebook_pdf_parse.py</code> have no <code>--dry-run</code> at all.</li>
+      <li><strong>BM25/dense skew, disk pressure, model failure modes, freshness mtimes.</strong> Timeboxed out of the data lane. BM25 skew is the highest-value next target — the index is 18 MB and trivially cloneable.</li>
+      <li><strong>Read-only volume launch and the <code>Info.plist</code> arms.</strong> LaunchServices caching confounded both; recorded as info lines rather than implied clean.</li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <p class="kicker">Corrections</p>
+  <h2>Two pieces of prior project knowledge were wrong</h2>
+  <div class="col">
+    <ul class="plain">
+      <li><strong>The “3-calls-per-session limit” does not exist.</strong> The real caps are <strong>30</strong> for <code>search_papers</code> and <strong>100</strong> for <code>get_chunk</code>. The boundary is exact — the 30th passes, the 31st returns a clean <code>RETRIEVAL_CAP_REACHED</code> envelope with no stack trace. The new-session-per-call bypass is real and marked deliberately non-security in <code>server/session.py</code>.</li>
+      <li><strong>A second documented bypass is unreachable.</strong> The docstring at <code>server/session.py:24-31</code> claims that omitting <code>Mcp-Session-Id</code> skips cap enforcement. The MCP layer returns 400 first. Logged as <code>CHAOS-API-07</code>.</li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <p class="kicker">Recommended sequence</p>
+  <h2>Fix order</h2>
+  <div class="col">
+    <p>Ordered by what unblocks the most downstream work, not strictly by severity.</p>
+    <ol class="steps">
+      <li><strong>Make the bundle able to start, and able to complain.</strong> <code>CHAOS-PKG-02</code> plus <code>CHAOS-PKG-01</code> — a first-run path that can succeed, and a window or <code>NSAlert</code> that can report when it does not. Everything else is undiagnosable until this lands.</li>
+      <li><strong>Restore the UI error layer.</strong> <code>CHAOS-FE-01</code> — one CSP line brings back twelve handlers. Then add the <code>htmx:sendError</code> listener that <code>CHAOS-FE-03</code> needs, since the CSP fix alone will not cover it.</li>
+      <li><strong>Close the containment inversion.</strong> <code>CHAOS-PKG-06</code> — either apply <code>resolve_inside</code> and the payload-root check to the environment arm, or compile that arm out of release builds entirely.</li>
+      <li><strong>Make READY mean answerable.</strong> <code>CHAOS-DATA-01</code> — a one-row smoke read at startup, and reconcile the shipped marker in <code>CHAOS-DATA-02</code> so the divergence alarm stops crying wolf.</li>
+      <li><strong>Add lifecycle watchdogs.</strong> <code>CHAOS-SUP-06</code> (no child-death detection in production mode) and <code>CHAOS-SUP-05</code> (a SIGSTOP'd child hangs the supervisor for 281 seconds with zero events).</li>
+    </ol>
+  </div>
+</section>
+
+<section>
+  <p class="kicker">Complete inventory · 100 findings</p>
+  <h2>Every finding, ranked</h2>
+  <div class="col">
+    <p>Raw records live in <code>findings-&lt;lane&gt;.jsonl</code>, one JSON object per line, against <code>SCHEMA.md</code>. Each carries a copy-pasteable <code>repro</code> and verbatim <code>observed</code> output; evidence sits under <code>evidence/&lt;lane&gt;/</code>. All 66 non-info findings are filed as GitHub issues <a href="https://github.com/chris-dare-dev/arXMCP/issues/424">#425–#490 under epic #424</a>; the 34 info lines are not.</p>
+  </div>
+  <h3 class="sev-h"><span class="dot s-critical"></span>Critical <span class="ct">3</span></h3>
+<div class="scroll"><table><thead><tr><th>Issue</th><th>ID</th><th>Area</th><th>Finding</th><th>Code reference</th></tr></thead><tbody>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/425">#425</a></td><td class="mono id s-critical-b">CHAOS-PKG-01</td><td class="area">packaging</td><td>Double-clicked .app dies in ~5-7s with zero user-visible feedback</td><td class="mono ref">apps/desktop/crates/supervisor/src/main.rs:122 (fail: eprintln!+exit(2)); apps/desktop/crates/supervisor/tauri.conf.json (app.windows: [])</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/426">#426</a></td><td class="mono id s-critical-b">CHAOS-PKG-02</td><td class="area">server</td><td>First run on a clean machine always fails: cold-start corpus refusal</td><td class="mono ref">apps/desktop/crates/supervisor/src/main.rs:508-527 (self_authored_plan); server/resources.py:508</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/427">#427</a></td><td class="mono id s-critical-b">CHAOS-PKG-06</td><td class="area">supervisor</td><td>ARXMCP_DESKTOP_LAUNCH_PLAN arm spawns any absolute binary, no containment</td><td class="mono ref">apps/desktop/crates/supervisor/src/main.rs:151-157 (load_plan environment arm), :527-552 (validate_plan)</td></tr>
+</tbody></table></div>
+<h3 class="sev-h"><span class="dot s-high"></span>High <span class="ct">18</span></h3>
+<div class="scroll"><table><thead><tr><th>Issue</th><th>ID</th><th>Area</th><th>Finding</th><th>Code reference</th></tr></thead><tbody>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/428">#428</a></td><td class="mono id s-high-b">CHAOS-DATA-01</td><td class="area">data</td><td>Corrupt LanceDB fragments: table opens clean, count_rows lies, queries die</td><td class="mono ref">server/resources.py:592</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/429">#429</a></td><td class="mono id s-high-b">CHAOS-DATA-02</td><td class="area">data</td><td>Shipped lancedb-staging marker says 105 chunks; table actually holds 4279</td><td class="mono ref">server/resources.py:626</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/430">#430</a></td><td class="mono id s-high-b">CHAOS-DATA-03</td><td class="area">server</td><td>Corrupt/locked/read-only Tier-1 cache DB is FATAL to startup and to corpus rebind</td><td class="mono ref">server/resources.py:868</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/431">#431</a></td><td class="mono id s-high-b">CHAOS-FE-01</td><td class="area">frontend</td><td>All 12 hx-on:: handlers are dead: app CSP blocks htmx&#x27;s eval</td><td class="mono ref">server/middleware.py:170-173 (CONTENT_SECURITY_POLICY_UI) vs server/frontend/templates/index.html:38</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/432">#432</a></td><td class="mono id s-high-b">CHAOS-FE-02</td><td class="area">frontend</td><td>Server 4xx on create notebook shows nothing at all to the user</td><td class="mono ref">server/frontend/templates/index.html:39,83</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/433">#433</a></td><td class="mono id s-high-b">CHAOS-FE-03</td><td class="area">frontend</td><td>Backend death is invisible: stale status badge, silent no-op controls</td><td class="mono ref">server/frontend/templates/base.html:133</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/434">#434</a></td><td class="mono id s-high-b">CHAOS-PKG-04</td><td class="area">packaging</td><td>Quarantined bundle shows a &#x27;Move to Trash&#x27; Gatekeeper dialog, undocumented</td><td class="mono ref">—</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/435">#435</a></td><td class="mono id s-high-b">CHAOS-PKG-07</td><td class="area">supervisor</td><td>Identity digest check cannot detect payload tampering: it hashes the file it launches</td><td class="mono ref">apps/desktop/crates/supervisor/src/lifecycle.rs:109-113, :485-489; apps/desktop/crates/supervisor/src/main.rs:517-527</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/436">#436</a></td><td class="mono id s-high-b">CHAOS-PKG-08</td><td class="area">packaging</td><td>One-byte flip in the signed child Mach-O still executes; no runtime seal check</td><td class="mono ref">apps/desktop/crates/supervisor/src/main.rs (no codesign/verification call anywhere)</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/437">#437</a></td><td class="mono id s-high-b">CHAOS-PKG-09</td><td class="area">supervisor</td><td>Machine-global single-instance socket silently kills launches from other data roots</td><td class="mono ref">apps/desktop/crates/supervisor/src/main.rs:606-612 (SINGLE_INSTANCE_SOCKET), :632-644 (lock-contended path)</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/438">#438</a></td><td class="mono id s-high-b">CHAOS-SUP-01</td><td class="area">supervisor</td><td>Live startup token persisted verbatim to logs/desktop-child.log (no scrub)</td><td class="mono ref">apps/desktop/crates/supervisor/src/lifecycle.rs:150-162</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/439">#439</a></td><td class="mono id s-high-b">CHAOS-SUP-02</td><td class="area">supervisor</td><td>redact.rs scrub defeated by case shift: full live token in the event log</td><td class="mono ref">apps/desktop/crates/supervisor/src/redact.rs:29-34 (sole caller lifecycle.rs:254-258)</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/440">#440</a></td><td class="mono id s-high-b">CHAOS-SUP-03</td><td class="area">supervisor</td><td>Launch-plan env test seam ships enabled in the signed .app: arbitrary child exec</td><td class="mono ref">apps/desktop/crates/supervisor/src/main.rs:145-160 (load_plan) and :521-543 (validate_plan)</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/441">#441</a></td><td class="mono id s-high-b">CHAOS-SUP-04</td><td class="area">supervisor</td><td>2nd supervisor on a DIFFERENT data root exits 0 after logging owns_lock:true</td><td class="mono ref">apps/desktop/crates/supervisor/src/main.rs:578-593 (fs2 lock), :597 (socket path), :676-706 (loser path)</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/442">#442</a></td><td class="mono id s-high-b">CHAOS-SUP-05</td><td class="area">supervisor</td><td>SIGSTOP&#x27;d child hangs the supervisor 281s with zero events and no user feedback</td><td class="mono ref">apps/desktop/crates/supervisor/src/lifecycle.rs:29 (BOUND_TIMEOUT), :415-436 (shutdown_child ladder)</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/443">#443</a></td><td class="mono id s-high-b">CHAOS-SUP-06</td><td class="area">supervisor</td><td>No child-death watchdog in production mode: dead server, live window, no error</td><td class="mono ref">apps/desktop/crates/supervisor/src/lifecycle.rs:78-85</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/444">#444</a></td><td class="mono id s-high-b">CHAOS-SUP-07</td><td class="area">packaging</td><td>Assembled .app cold-start fails invisibly: exit 1, no window, no dialog</td><td class="mono ref">apps/desktop/crates/supervisor/src/main.rs:129-132 (fail); lifecycle.rs:246-249</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/445">#445</a></td><td class="mono id s-high-b">CHAOS-SUP-08</td><td class="area">supervisor</td><td>SIGTERM to supervisor skips RunEvent::Exit: no shutdown frame, grace or reap</td><td class="mono ref">apps/desktop/crates/supervisor/src/main.rs:757-766 (RunEvent::Exit)</td></tr>
+</tbody></table></div>
+<h3 class="sev-h"><span class="dot s-medium"></span>Medium <span class="ct">23</span></h3>
+<div class="scroll"><table><thead><tr><th>Issue</th><th>ID</th><th>Area</th><th>Finding</th><th>Code reference</th></tr></thead><tbody>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/446">#446</a></td><td class="mono id s-medium-b">CHAOS-API-01</td><td class="area">server</td><td>No HTTP auth on any route in standalone/make-up/Docker boot; startup token gates only GET /readyz and only under desktop-child</td><td class="mono ref">server/desktop_child.py:121 (ReadyzStartupTokenMiddleware); server/main.py:842-900 (route mounts, no auth dependency)</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/447">#447</a></td><td class="mono id s-medium-b">CHAOS-DATA-04</td><td class="area">data</td><td>Marker paper_count is never reconciled against the table (9999 accepted silently)</td><td class="mono ref">server/corpus_manifest.py:203</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/448">#448</a></td><td class="mono id s-medium-b">CHAOS-DATA-05</td><td class="area">server</td><td>Marker embedder_version/chunker_version never checked against the loaded model</td><td class="mono ref">server/resources.py:557</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/449">#449</a></td><td class="mono id s-medium-b">CHAOS-DATA-06</td><td class="area">data</td><td>Marker version has no upper bound: version 999999 over a 181-version dataset accepted</td><td class="mono ref">server/corpus.py:473</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/450">#450</a></td><td class="mono id s-medium-b">CHAOS-FE-04</td><td class="area">frontend</td><td>After a successful create the empty-state row stays and the count is stale</td><td class="mono ref">server/frontend/templates/index.html:38, index.html:86 (h2 count)</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/451">#451</a></td><td class="mono id s-medium-b">CHAOS-FE-05</td><td class="area">frontend</td><td>Create form is never reset; a second click silently 409s</td><td class="mono ref">server/frontend/templates/index.html:38</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/452">#452</a></td><td class="mono id s-medium-b">CHAOS-FE-06</td><td class="area">frontend</td><td>slug pattern attribute is an invalid regex; client-side validation is off</td><td class="mono ref">server/frontend/templates/index.html:44</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/453">#453</a></td><td class="mono id s-medium-b">CHAOS-FE-07</td><td class="area">frontend</td><td>View-transition InvalidStateError fires on every htmx swap, forever</td><td class="mono ref">server/frontend/templates/base.html:66-75</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/454">#454</a></td><td class="mono id s-medium-b">CHAOS-FE-08</td><td class="area">frontend</td><td>Whole page scrolls horizontally on mobile (375px) from the LanceDB path</td><td class="mono ref">server/frontend/templates/notebook_detail.html (LanceDB path &lt;dd&gt;) + server/frontend/static/app.css</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/455">#455</a></td><td class="mono id s-medium-b">CHAOS-FE-09</td><td class="area">frontend</td><td>Long unbroken token in a topic breaks desktop layout (1280px h-scroll)</td><td class="mono ref">server/frontend/templates/notebook_detail.html:361 (#topic-block) + app.css .topic-description</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/456">#456</a></td><td class="mono id s-medium-b">CHAOS-FE-10</td><td class="area">frontend</td><td>404 / 422 for a notebook URL renders raw JSON, not an HTML page</td><td class="mono ref">server/routes/ui.py:424-496 (ui_notebook_detail raises HTTPException)</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/457">#457</a></td><td class="mono id s-medium-b">CHAOS-FE-11</td><td class="area">frontend</td><td>Unbounded 2s polling forever on a never-ingested notebook</td><td class="mono ref">server/frontend/templates/notebook_detail.html:298,544 + base.html:133</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/458">#458</a></td><td class="mono id s-medium-b">CHAOS-PKG-03</td><td class="area">packaging</td><td>Frozen child dies with a Fatal Python error on the startup-failure path</td><td class="mono ref">server/desktop_child.py (stdin reader teardown)</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/459">#459</a></td><td class="mono id s-medium-b">CHAOS-PKG-10</td><td class="area">supervisor</td><td>Hardlinked child_argv[0] escapes payload containment; symlink is refused</td><td class="mono ref">apps/desktop/crates/supervisor/src/main.rs:272-293 (resolve_inside)</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/460">#460</a></td><td class="mono id s-medium-b">CHAOS-PKG-11</td><td class="area">supervisor</td><td>chmod 000 on the payload dir reports &#x27;bundled child executable missing&#x27;</td><td class="mono ref">apps/desktop/crates/supervisor/src/main.rs:286-288</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/461">#461</a></td><td class="mono id s-medium-b">CHAOS-PKG-12</td><td class="area">supervisor</td><td>Exec bit stripped from child: plan validates, launch fails silently at spawn</td><td class="mono ref">apps/desktop/crates/supervisor/src/main.rs:272-293; lifecycle.rs (child spawn failed)</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/462">#462</a></td><td class="mono id s-medium-b">CHAOS-PKG-14</td><td class="area">supervisor</td><td>&#x27;launch plan malformed&#x27; is the single message for 13+ distinct failure shapes</td><td class="mono ref">apps/desktop/crates/supervisor/src/main.rs:151-157</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/463">#463</a></td><td class="mono id s-medium-b">CHAOS-SUP-09</td><td class="area">supervisor</td><td>Child that dies outside shutdown_child is never reaped: permanent zombie</td><td class="mono ref">apps/desktop/crates/supervisor/src/lifecycle.rs:415-436</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/464">#464</a></td><td class="mono id s-medium-b">CHAOS-SUP-10</td><td class="area">supervisor</td><td>logs/desktop-child.log truncated every launch, destroying the crash diagnostic</td><td class="mono ref">apps/desktop/crates/supervisor/src/lifecycle.rs:150-153 vs events.rs:52-56</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/465">#465</a></td><td class="mono id s-medium-b">CHAOS-SUP-11</td><td class="area">supervisor</td><td>Every fail() path is stderr-only on a windowless app: refusals are invisible</td><td class="mono ref">apps/desktop/crates/supervisor/src/main.rs:129-132; apps/desktop/crates/supervisor/tauri.conf.json (app.windows: [])</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/466">#466</a></td><td class="mono id s-medium-b">CHAOS-SUP-12</td><td class="area">supervisor</td><td>--print-child-plan writes any path given: unvalidated arbitrary file overwrite</td><td class="mono ref">apps/desktop/crates/supervisor/src/main.rs:466-489 (emit_child_plan_probe)</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/467">#467</a></td><td class="mono id s-medium-b">CHAOS-SUP-13</td><td class="area">supervisor</td><td>Grandchild survives the full grace/TERM/KILL/reap ladder, reparented to PID 1</td><td class="mono ref">apps/desktop/crates/supervisor/src/process_control.rs:11-18</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/468">#468</a></td><td class="mono id s-medium-b">CHAOS-SUP-14</td><td class="area">server</td><td>Frozen child aborts at interpreter shutdown instead of exiting cleanly</td><td class="mono ref">server/desktop_child.py:254-258 (_watch_stdin), started at :325</td></tr>
+</tbody></table></div>
+<h3 class="sev-h"><span class="dot s-low"></span>Low <span class="ct">22</span></h3>
+<div class="scroll"><table><thead><tr><th>Issue</th><th>ID</th><th>Area</th><th>Finding</th><th>Code reference</th></tr></thead><tbody>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/469">#469</a></td><td class="mono id s-low-b">CHAOS-API-02</td><td class="area">server</td><td>GET /ui/api/notebooks leaks absolute filesystem paths unauthenticated (home dir, source tree, stale pytest tmp path)</td><td class="mono ref">server/routes/notebooks.py:313 (GET /notebooks handler)</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/470">#470</a></td><td class="mono id s-low-b">CHAOS-API-03</td><td class="area">server</td><td>/metrics/ ASGI app answers 200 to every HTTP verb incl TRACE/DELETE/PATCH/PUT/HEAD/OPTIONS</td><td class="mono ref">server/main.py:900 (app.mount(&#x27;/metrics&#x27;, metrics_wrapper))</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/471">#471</a></td><td class="mono id s-low-b">CHAOS-API-04</td><td class="area">server</td><td>No inbound URL-length or header-size cap: 60 KB URL and 90 KB header value both accepted</td><td class="mono ref">server/middleware.py:821 (RequestBodySizeLimitMiddleware — body only)</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/472">#472</a></td><td class="mono id s-low-b">CHAOS-API-05</td><td class="area">server</td><td>MCP validation/error responses leak internal pydantic + handler class names</td><td class="mono ref">server/tools.py (FastMCP tool wrappers); mcp streamable_http layer</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/473">#473</a></td><td class="mono id s-low-b">CHAOS-API-06</td><td class="area">server</td><td>MCP initialize accepts garbage/wrong-type protocolVersion (int 12345, &#x27;9999-99-99&#x27;) with HTTP 200</td><td class="mono ref">mcp streamable_http initialize handler (library)</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/474">#474</a></td><td class="mono id s-low-b">CHAOS-API-07</td><td class="area">server</td><td>session.py docstring claims omitting Mcp-Session-Id skips cap enforcement (&#x27;known bypass&#x27;); MCP layer 400s first, making the comment stale/misleading</td><td class="mono ref">server/session.py:24-31 (docstring); server/middleware.py:1069 (SessionCapMiddleware)</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/475">#475</a></td><td class="mono id s-low-b">CHAOS-API-08</td><td class="area">server</td><td>Startup config errors dump full Python traceback; 0.0.0.0 rejection leaks entire Config dict incl. data_dir path</td><td class="mono ref">server/main.py:449 (_scan raise ValueError); server/config.py bind_host validator</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/476">#476</a></td><td class="mono id s-low-b">CHAOS-DATA-07</td><td class="area">server</td><td>LanceDB errors leak the upstream CI build machine&#x27;s Rust source paths to operators</td><td class="mono ref">server/corpus.py:175</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/477">#477</a></td><td class="mono id s-low-b">CHAOS-DATA-08</td><td class="area">ingest</td><td>notebook_pdf_parse leaves an empty parsed/&lt;flat&gt;/_mineru/ dir behind on every failure</td><td class="mono ref">tools/notebook_pdf_parse.py:120</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/478">#478</a></td><td class="mono id s-low-b">CHAOS-FE-12</td><td class="area">frontend</td><td>App root / returns raw JSON 404 instead of redirecting to /ui/</td><td class="mono ref">server/main.py:865 (ui_router mounted at /ui with no root redirect)</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/479">#479</a></td><td class="mono id s-low-b">CHAOS-FE-13</td><td class="area">frontend</td><td>Absolute host filesystem path (incl. user home) shown in the notebook UI</td><td class="mono ref">server/frontend/templates/notebook_detail.html (LanceDB path &lt;dd&gt;)</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/480">#480</a></td><td class="mono id s-low-b">CHAOS-FE-14</td><td class="area">frontend</td><td>Empty papers table renders a header row under the &#x27;no papers&#x27; message</td><td class="mono ref">server/frontend/templates/notebook_detail.html:196-211</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/481">#481</a></td><td class="mono id s-low-b">CHAOS-FE-15</td><td class="area">frontend</td><td>Slug input has pattern but no title, so the browser hint is generic</td><td class="mono ref">server/frontend/templates/index.html:43-44</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/482">#482</a></td><td class="mono id s-low-b">CHAOS-FE-16</td><td class="area">frontend</td><td>No hx-push-url anywhere: htmx swaps never change the URL</td><td class="mono ref">server/frontend/templates/index.html, notebook_detail.html</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/483">#483</a></td><td class="mono id s-low-b">CHAOS-FE-17</td><td class="area">frontend</td><td>UI CSP allows script-src &#x27;unsafe-inline&#x27;</td><td class="mono ref">server/middleware.py:170-176</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/484">#484</a></td><td class="mono id s-low-b">CHAOS-PKG-13</td><td class="area">supervisor</td><td>Deleting arxmcp-desktop-probe, _internal Mach-O, or _CodeSignature is undetected at plan time</td><td class="mono ref">apps/desktop/crates/supervisor/src/main.rs:436-472 (child_plan_probe)</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/485">#485</a></td><td class="mono id s-low-b">CHAOS-PKG-15</td><td class="area">supervisor</td><td>Data-root derivation accepts a regular file or a nonexistent path as $HOME</td><td class="mono ref">apps/desktop/crates/supervisor/src/main.rs:210-233, :645-667</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/486">#486</a></td><td class="mono id s-low-b">CHAOS-SUP-15</td><td class="area">supervisor</td><td>Post-bound stdout drain is unbounded: a spewing child is read forever</td><td class="mono ref">apps/desktop/crates/supervisor/src/lifecycle.rs:231-244</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/487">#487</a></td><td class="mono id s-low-b">CHAOS-SUP-16</td><td class="area">supervisor</td><td>Raw child-controlled bytes, incl. NUL, persisted into the event log</td><td class="mono ref">apps/desktop/crates/supervisor/src/lifecycle.rs:254-258</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/488">#488</a></td><td class="mono id s-low-b">CHAOS-SUP-17</td><td class="area">supervisor</td><td>Supervisor log files are created world-readable (0644)</td><td class="mono ref">apps/desktop/crates/supervisor/src/lifecycle.rs:152; apps/desktop/crates/supervisor/src/events.rs:52-56</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/489">#489</a></td><td class="mono id s-low-b">CHAOS-SUP-18</td><td class="area">supervisor</td><td>Spurious duplicate-activation recorded during strictly sequential restarts</td><td class="mono ref">apps/desktop/crates/supervisor/src/main.rs:597, :700-706</td></tr>
+<tr><td class="mono id"><a href="https://github.com/chris-dare-dev/arXMCP/issues/490">#490</a></td><td class="mono id s-low-b">CHAOS-SUP-19</td><td class="area">supervisor</td><td>await_bound leaks its blocked reader thread on every timeout path</td><td class="mono ref">apps/desktop/crates/supervisor/src/lifecycle.rs:225-250</td></tr>
+</tbody></table></div>
+<h3 class="sev-h"><span class="dot s-info"></span>Info <span class="ct">34</span></h3>
+<p class="note">Verified-clean passes, deliberately untested classes, and recorded behaviour. Not filed as issues — they are the record of what was looked at, so a future run can tell <em>tested-and-clean</em> from <em>never-looked-at</em>.</p>
+<div class="scroll"><table><thead><tr><th>ID</th><th>Observation</th></tr></thead><tbody>
+<tr><td class="mono id s-info-b">CHAOS-API-09</td><td>3-calls-per-session limit is STALE: real caps are 30 (search_papers) / 100 (get_chunk); boundary exact, error shape clean</td></tr>
+<tr><td class="mono id s-info-b">CHAOS-API-10</td><td>Session retrieval cap trivially bypassed by new-session-per-call (counter resets to zero)</td></tr>
+<tr><td class="mono id s-info-b">CHAOS-API-11</td><td>Bootstrap mode masks handler-level input validation — traversal/injection/NUL in paper_id/chunk_id all short-circuit to the stub envelope</td></tr>
+<tr><td class="mono id s-info-b">CHAOS-API-12</td><td>Duplicate initialize on an already-initialized MCP session returns 200 (re-init allowed)</td></tr>
+<tr><td class="mono id s-info-b">CHAOS-API-13</td><td>no-repro: HTTP-layer abuse</td></tr>
+<tr><td class="mono id s-info-b">CHAOS-API-14</td><td>no-repro: Concurrency / load / lifecycle</td></tr>
+<tr><td class="mono id s-info-b">CHAOS-API-15</td><td>no-repro: Degraded-state / health honesty</td></tr>
+<tr><td class="mono id s-info-b">CHAOS-API-16</td><td>no-repro: Config hostility</td></tr>
+<tr><td class="mono id s-info-b">CHAOS-API-17</td><td>no-repro: Information disclosure via schema / OpenAPI</td></tr>
+<tr><td class="mono id s-info-b">CHAOS-API-18</td><td>no-repro: Auth timing + CSRF/DNS-rebind defenses</td></tr>
+<tr><td class="mono id s-info-b">CHAOS-DATA-09</td><td>verified-fixed: notebook_pdf_parse.py exit-code contract now returns 1 on parse failure</td></tr>
+<tr><td class="mono id s-info-b">CHAOS-DATA-10</td><td>no-repro: path hostility on identifiers — no reachable paper_id path collision</td></tr>
+<tr><td class="mono id s-info-b">CHAOS-DATA-11</td><td>no-repro: absent / empty / invalid-JSON corpus-version.json all handled cleanly</td></tr>
+<tr><td class="mono id s-info-b">CHAOS-DATA-12</td><td>no-repro: deleted LanceDB tip manifest fails with a precise, actionable message</td></tr>
+<tr><td class="mono id s-info-b">CHAOS-DATA-13</td><td>untested: --dry-run honesty — only notebook_textbook_ingest.py has the flag at all</td></tr>
+<tr><td class="mono id s-info-b">CHAOS-DATA-14</td><td>untested: BM25/dense skew, concurrency, disk pressure, model failure, freshness mtimes</td></tr>
+<tr><td class="mono id s-info-b">CHAOS-FE-18</td><td>no-repro: XSS / template injection</td></tr>
+<tr><td class="mono id s-info-b">CHAOS-FE-19</td><td>no-repro: path traversal via /ui/static and via slug</td></tr>
+<tr><td class="mono id s-info-b">CHAOS-FE-20</td><td>no-repro: asset integrity (all static assets 200, htmx 2.0.10)</td></tr>
+<tr><td class="mono id s-info-b">CHAOS-FE-21</td><td>no-repro: accessibility basics (labels, alt, headings, focus, landmarks)</td></tr>
+<tr><td class="mono id s-info-b">CHAOS-FE-22</td><td>no-repro: light/dark theming and desktop/tablet layout</td></tr>
+<tr><td class="mono id s-info-b">CHAOS-FE-23</td><td>First-run experience in bootstrap mode is reasonable but the badge is alarming</td></tr>
+<tr><td class="mono id s-info-b">CHAOS-PKG-05</td><td>Confirmed: ad-hoc seal verifies locally and is rejected by spctl</td></tr>
+<tr><td class="mono id s-info-b">CHAOS-PKG-16</td><td>Determinism claims in assembly-report.json VERIFIED against the artifact on disk</td></tr>
+<tr><td class="mono id s-info-b">CHAOS-PKG-17</td><td>no-repro: path hostility (spaces, unicode, emoji, 250-char, trailing dot, #/?)</td></tr>
+<tr><td class="mono id s-info-b">CHAOS-PKG-18</td><td>no-repro: Info.plist damage is caught by LaunchServices, but results are cache-confounded</td></tr>
+<tr><td class="mono id s-info-b">CHAOS-PKG-19</td><td>no-repro: symlinked payload root refusal behaves exactly as the README documents</td></tr>
+<tr><td class="mono id s-info-b">CHAOS-PKG-20</td><td>no-repro: read-only Contents/Resources and read-only-volume launch</td></tr>
+<tr><td class="mono id s-info-b">CHAOS-SUP-20</td><td>no-repro: startup-token leakage via child argv, environment, or ps</td></tr>
+<tr><td class="mono id s-info-b">CHAOS-SUP-21</td><td>no-repro: supervisor SIGKILL with a cooperating child - no orphan, no port leak</td></tr>
+<tr><td class="mono id s-info-b">CHAOS-SUP-22</td><td>no-repro: 10x restart storm - no leaked processes, ports, sockets or temp dirs</td></tr>
+<tr><td class="mono id s-info-b">CHAOS-SUP-23</td><td>no-repro: contract fuzzing - 17 malformed bound frames all rejected bounded</td></tr>
+<tr><td class="mono id s-info-b">CHAOS-SUP-24</td><td>no-repro: port squatting / bind TOCTOU is not reachable in this design</td></tr>
+<tr><td class="mono id s-info-b">CHAOS-SUP-25</td><td>no-repro: misbehaving-child exit paths are detected and reaped correctly</td></tr>
+</tbody></table></div>
+  </section>
+
+<hr>
+<footer>
+  <p><b>Safety posture.</b> Every lane ran read-only against source — no edits, no commits, no pushes. <code>var/arxmcp/</code> was never mutated; lanes worked on <code>cp -Rc</code> APFS clones and its mtimes are unchanged. No processes were left running and ports 7801–7805 and 7733 are free.</p>
+  <p><b>One side effect remains on disk:</b> <code>~/Library/Application Support/arXMCP/</code>, containing a log file and a lock — created by the application's own first run during testing.</p>
+</footer>
+
+</div>

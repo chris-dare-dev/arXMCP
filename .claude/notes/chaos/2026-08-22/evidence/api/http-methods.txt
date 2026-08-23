@@ -1,0 +1,9 @@
+# HTTP method matrix + Origin/Host/Sec-Fetch-Site — 2026-08-22, server on 7803
+# OPTIONS/TRACE/PATCH/HEAD/DELETE/PUT on /healthz /debug/cache-stats /ui/api/notebooks /mcp/ -> 405 (DELETE /mcp/ -> 400)
+# ALL SIX verbs on /metrics/ -> 200  (prometheus ASGI app method-agnostic)
+OPTIONS  /metrics/ -> 200 ; TRACE /metrics/ -> 200 ; PATCH /metrics/ -> 200 ; HEAD/DELETE/PUT /metrics/ -> 200
+# Origin: http://evil.example.com on /ui/api/notebooks GET -> 403
+# Origin: http://evil.example.com on /mcp/ POST -> 403 {"error":"origin_forbidden","message":"...MCP 2025-06-18 spec MUST..."}
+# Host: evil.example.com on /ui/api/notebooks -> 421 (Misdirected Request)
+# Sec-Fetch-Site: cross-site on /mcp/ POST -> 403 {"error":"sec_fetch_site_forbidden",...}
+# Startup token compared via hmac.compare_digest (server/desktop_contract.py:85) — constant time.

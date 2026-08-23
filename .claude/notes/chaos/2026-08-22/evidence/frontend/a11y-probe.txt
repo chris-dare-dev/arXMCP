@@ -1,0 +1,11 @@
+=== Accessibility basics probe, /ui/notebooks/chaos-fe-xss (1280x900) ===
+{"imgsNoAlt":0,"imgCount":0,
+ "headings":["H1:arXMCP notebooks","H2:chaos-fe-xss","H2:Papers in this notebook (0) Manage this ",
+             "H2:Topic & discovery","H2:Discover papers","H2:Add paper by URL","H2:Upload ar5iv HTML","H2:Ingest"],
+ "unlabelled":[],
+ "landmarks":["HEADER","MAIN","NAV","FOOTER"]}
+Keyboard: Tab x3 from page load -> activeElement = A "<- All notebooks",
+ :focus-visible = true, outline = "solid 2px oklch(0.47863 0.115 250)".
+Skip-link present and first in tab order.
+CAVEAT: aria-live regions exist on every error block, but they are only ever populated by
+hx-on::response-error handlers, which never execute (see CHAOS-FE-01) -> nothing is announced.

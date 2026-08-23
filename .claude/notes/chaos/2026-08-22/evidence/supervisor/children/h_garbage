@@ -1,0 +1,3 @@
+#!/bin/sh
+printf 'this is not json at all\n'
+sleep 300

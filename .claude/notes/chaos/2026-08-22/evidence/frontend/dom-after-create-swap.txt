@@ -1,0 +1,20 @@
+=== POST /ui/api/notebooks -> 201 Created, htmx beforeend swap into #notebooks-tbody ===
+JS probe immediately after the swap:
+{
+ "xssFired": false, "xss2": false,               <-- no XSS: payload rendered escaped
+ "rows": 2,
+ "emptyRowStillThere": true,                     <-- BUG: "No notebooks yet" row NOT removed
+ "formSlugValueAfter": "chaos-fe-xss",           <-- BUG: this.reset() never ran
+ "formDisplayAfter": "<img src=x onerror=\"window.__XSS=1\"><script>window.__XSS2=1</script>{{7*7}}",
+ "tbodyHTML":
+   "<tr id=\"notebooks-empty\"><td colspan=\"4\" class=\"empty\">No notebooks yet. Create one above.</td></tr>
+    <tr data-slug=\"chaos-fe-xss\"><td><code>chaos-fe-xss</code></td>
+      <td>&lt;img src=x onerror=\"window.__XSS=1\"&gt;&lt;script&gt;window.__XSS2=1&lt;/script&gt;{{7*7}}</td>
+      <td><time>2026-08-22T23:28:13+00:00</time></td>
+      <td><a href=\"/ui/notebooks/chaos-fe-xss\" class=\"button\">Open</a></td></tr>"
+}
+Header still reads "Existing notebooks (0)" while a notebook row is visible below "No notebooks yet."
+
+=== Second click on Create (same values still in the form) ===
+POST http://127.0.0.1:7804/ui/api/notebooks -> 409 Conflict
+document.getElementById('create-error').textContent === ""     <-- no feedback at all

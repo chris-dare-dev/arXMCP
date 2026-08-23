@@ -1,0 +1,14 @@
+404 22  /
+307 0  /ui
+200 10726  /ui/
+404 22  /notebooks
+404 48  /ui/notebooks/does-not-exist
+404 22  /static/app.css
+404 22  /static/tokens.css
+404 22  /static/htmx.min.js
+404 22  /static/json-enc.js
+404 22  /static/favicon.svg
+404 22  /static/../../etc/passwd
+404 22  /static/..%2f..%2fetc%2fpasswd
+404 22  /static/%252e%252e%252f%252e%252e%252fetc%252fpasswd
+200 313  /ui/status-badge
