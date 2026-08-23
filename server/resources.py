@@ -628,12 +628,21 @@ class Resources:
                 tolerance=config.corpus_chunk_count_tolerance,
             )
             if direction is not None:
+                # issue #429: the remedy used to read "Re-run ingest to
+                # reconcile the marker" — hours of work for a counter fix, when
+                # `make reconcile` recounts from the committed table in
+                # seconds and has existed since onboarding-uplift-m3. Advice
+                # that expensive is advice an operator learns to ignore, and an
+                # ignored degrade signal cannot report a REAL divergence. Name
+                # the cheap remedy instead.
                 logger.warning(
                     "Resources.startup: corpus chunk_count DIVERGED — "
                     "marker=%d actual=%d direction=%s tolerance=%.3f. "
                     "Serving anyway (retrieval unaffected); /readyz will "
-                    "report degraded(reason=chunk_count_diverged). Re-run "
-                    "ingest to reconcile the marker.",
+                    "report degraded(reason=chunk_count_diverged). Heal it "
+                    "with `make reconcile` (shared corpus) or "
+                    "`make reconcile NOTEBOOK=<slug>`; a full re-ingest is "
+                    "NOT required to fix a marker.",
                     corpus_info.chunk_count,
                     startup_chunk_count,
                     direction,
@@ -865,11 +874,32 @@ class Resources:
         # mirror.
         from server.cache import RetrievalCache, set_cache
 
-        retrieval_cache = await RetrievalCache.open(
-            cache_db_path=config.cache_db_path,
-            corpus_version=corpus_info.version,
-        )
-        set_cache(retrieval_cache)
+        # issue #430: the cache is a PURE PERFORMANCE artifact and must never
+        # be able to stop the server. ``server/cache_sqlite.py`` states the
+        # contract verbatim — "a cache failure mode is 'stale read' not 'data
+        # loss'", citing the design constitution's "Cache layer crash / OOM ->
+        # Fall through to recompute; log; alert." This call was bare, so a
+        # corrupt, truncated, read-only, directory-shaped or externally-locked
+        # SQLite file turned that into a hard boot blocker.
+        #
+        # Broad except on purpose: the failure surface is sqlite3 errors, OSError
+        # on permissions and shape, and whatever a future backend raises. Any of
+        # them means the same thing here — run cacheless.
+        try:
+            retrieval_cache = await RetrievalCache.open(
+                cache_db_path=config.cache_db_path,
+                corpus_version=corpus_info.version,
+            )
+        except Exception:  # noqa: BLE001 — see above; a cache must not gate boot
+            logger.exception(
+                "Resources.startup: retrieval cache unavailable at %s; "
+                "continuing WITHOUT a cache. Retrieval is correct but slower; "
+                "remove or repair that file to restore it.",
+                config.cache_db_path,
+            )
+            retrieval_cache = None
+        if retrieval_cache is not None:
+            set_cache(retrieval_cache)
         logger.info(
             "Resources.startup: RetrievalCache warm "
             "(corpus_version=%d, sqlite=%s)",
@@ -1068,11 +1098,14 @@ class Resources:
                     tolerance=config.corpus_chunk_count_tolerance,
                 )
                 if direction is not None:
+                    # issue #429: same remedy as the startup site above.
                     logger.warning(
                         "%s: corpus chunk_count DIVERGED — marker=%d "
                         "actual=%d direction=%s tolerance=%.3f. Serving "
                         "anyway (retrieval unaffected); /readyz will report "
-                        "degraded(reason=chunk_count_diverged).",
+                        "degraded(reason=chunk_count_diverged). Heal it with "
+                        "`make reconcile` (shared corpus) or "
+                        "`make reconcile NOTEBOOK=<slug>`.",
                         caller,
                         corpus_info.chunk_count,
                         startup_chunk_count,
@@ -1139,11 +1172,26 @@ class Resources:
             #    otherwise serve pre-bump results.
             from server.cache import RetrievalCache, set_cache  # noqa: PLC0415
 
-            retrieval_cache = await RetrievalCache.open(
-                cache_db_path=config.cache_db_path,
-                corpus_version=corpus_info.version,
-                purge_other_versions=True,
-            )
+            # issue #430, and the worse of the two sites: this runs inside an
+            # ALREADY-RUNNING server. A second instance holding the cache lock
+            # made a post-ingest rebind throw, taking down a server that was
+            # serving fine. Same contract as the startup site — log and carry
+            # on cacheless.
+            try:
+                retrieval_cache = await RetrievalCache.open(
+                    cache_db_path=config.cache_db_path,
+                    corpus_version=corpus_info.version,
+                    purge_other_versions=True,
+                )
+            except Exception:  # noqa: BLE001 — a cache must not break a rebind
+                logger.exception(
+                    "_bind_corpus: retrieval cache unavailable at %s; rebinding "
+                    "WITHOUT a cache. Retrieval stays correct; the previous "
+                    "version's entries are NOT purged and remain unreachable by "
+                    "hash construction.",
+                    config.cache_db_path,
+                )
+                retrieval_cache = None
 
             # 6. Rerank phase. onboarding-uplift-m4 F5: the bootstrap
             #    stub skips the reranker eager-load, so load it here

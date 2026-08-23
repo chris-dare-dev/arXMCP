@@ -172,6 +172,31 @@ class DegradedState:
     original_version: int
 
 
+def _smoke_read(tbl: lancedb.table.Table) -> None:
+    """Prove the table can be READ, not merely opened (issue #428).
+
+    ``open_chunks_table`` succeeds on a dataset whose every fragment is
+    zeroed or truncated, because opening reads only the manifest.
+    ``count_rows()`` is no better: it reads FRAGMENT METADATA, so it
+    cheerfully reports the full row count for a corpus that cannot return a
+    single row. The measured consequence was a server booting **READY** —
+    ``DegradedState=None`` — on a corpus where the first real query raised.
+
+    So the reconciliation at startup was comparing two numbers that both
+    survive the corruption it was meant to detect. One row of actual data is
+    what distinguishes "the manifest parses" from "the bytes are there".
+
+    Cheap by construction: one Arrow scan, one column, ``limit(1)`` — the
+    same shape ``server/retrieval/ann.py`` already uses for its startup
+    column probe. Fires once per open, never per query.
+
+    An EMPTY table is not a failure: zero rows read cleanly is a real and
+    valid state (bootstrap mode, a freshly created corpus). Only an
+    exception means the data cannot be reached.
+    """
+    tbl.search().select(["chunk_id"]).limit(1).to_arrow()
+
+
 def open_chunks_table_with_fallback(
     lancedb_path: str | Path | None = None,
     *,
@@ -226,6 +251,10 @@ def open_chunks_table_with_fallback(
 
     try:
         tbl = open_chunks_table(lancedb_path, version=version)
+        # #428: inside the try ON PURPOSE. The fallback machinery below was
+        # already correct and simply never fired, because nothing in the open
+        # path touched the data. Reading one row is what arms it.
+        _smoke_read(tbl)
         return tbl, None
     except corrupt_exc as primary_exc:
         if version < 2:
@@ -246,6 +275,9 @@ def open_chunks_table_with_fallback(
         )
         try:
             tbl = open_chunks_table(lancedb_path, version=version - 1)
+            # The fallback target gets the same proof. Falling back to a
+            # second unreadable version would just relocate the lie.
+            _smoke_read(tbl)
         except corrupt_exc as fallback_exc:
             raise RuntimeError(
                 f"corpus_corruption_unrecoverable: both live tip "

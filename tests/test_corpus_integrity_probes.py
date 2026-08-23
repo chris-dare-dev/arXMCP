@@ -1,0 +1,233 @@
+"""READY must mean answerable, and a cache must never gate the server.
+
+Three data-layer findings from the 2026-08-22 chaos run, fixed together
+because they share one shape: something that reports health without checking
+the thing it claims to be reporting on.
+
+**#428 — a destroyed corpus booted READY.** ``open_chunks_table`` reads only
+the manifest, and ``count_rows()`` reads only fragment METADATA. Zero every
+byte of every fragment and both still succeed, so the startup reconciliation
+compared two numbers that each survive the corruption they were meant to
+detect. ``DegradedState`` came back ``None`` and only the first real query
+raised. Measured: 90 zeroed fragments, ``count_rows()`` still 4279.
+
+**#429 — the divergence alarm was permanently ringing.** The bulk-ingest
+"last paper wins" marker bug under-reported by ~40x, so a good corpus sat at
+``degraded(chunk_count_diverged)`` on every boot and the one signal that
+would catch a REAL divergence was noise. The writer itself was already fixed
+by ``corpus-integrity-observability-m1`` (``ingest/store.py`` now counts off
+the committed table); what remained was the remediation advice, which told
+operators to re-run ingest — hours — when ``make reconcile`` does it in
+seconds.
+
+**#430 — a cache file could stop the server.** ``server/cache_sqlite.py``
+states the contract verbatim: *"a cache failure mode is 'stale read' not
+'data loss'"*, citing the constitution's *"Cache layer crash / OOM → Fall
+through to recompute; log; alert."* Both ``RetrievalCache.open`` call sites
+were bare, so a corrupt or locked SQLite file was a hard boot blocker — and
+at the rebind site it threw inside an already-running server.
+"""
+
+from __future__ import annotations
+
+import inspect
+from pathlib import Path
+
+import pytest
+
+REPO_ROOT: Path = Path(__file__).resolve().parents[1]
+CORPUS_PY: str = (REPO_ROOT / "server" / "corpus.py").read_text(encoding="utf-8")
+RESOURCES_PY: str = (REPO_ROOT / "server" / "resources.py").read_text(encoding="utf-8")
+
+
+STORE_PY: str = (REPO_ROOT / "ingest" / "store.py").read_text(encoding="utf-8")
+
+
+def _function_body(func: object) -> str:
+    """Source with the docstring removed.
+
+    These functions DOCUMENT the constructs they must not use, so a scan over
+    the whole source flags the explanation as the offence — the same trap
+    ui.js and lifecycle.rs hit earlier in this run.
+    """
+    source = inspect.getsource(func)  # type: ignore[arg-type]
+    marker = '"""'
+    first = source.find(marker)
+    if first == -1:
+        return source
+    second = source.find(marker, first + len(marker))
+    return source if second == -1 else source[second + len(marker) :]
+
+
+# ---------------------------------------------------------------------------
+# #428 — READY means answerable
+# ---------------------------------------------------------------------------
+def test_the_table_open_path_reads_a_row() -> None:
+    """A manifest that parses is not a corpus that answers."""
+    assert "def _smoke_read(" in CORPUS_PY, (
+        "server/corpus.py must prove the table is READABLE, not merely "
+        "openable (#428)"
+    )
+    from server.corpus import _smoke_read
+
+    body = _function_body(_smoke_read)
+    assert ".limit(1)" in body, "the probe must stay bounded to one row"
+    assert "count_rows" not in body, (
+        "count_rows reads fragment metadata and survives the corruption this "
+        "probe exists to catch — it cannot be the probe. (Checked against the "
+        "BODY: the docstring names count_rows to explain exactly this.)"
+    )
+
+
+def test_the_smoke_read_arms_the_existing_fallback() -> None:
+    """Placement is the whole fix.
+
+    The N-1 fallback machinery was already correct and simply never fired,
+    because nothing in the open path touched the data. The probe has to sit
+    INSIDE the try for the corruption handler to see it.
+    """
+    from server.corpus import open_chunks_table_with_fallback
+
+    source = inspect.getsource(open_chunks_table_with_fallback)
+    primary = source.index("tbl = open_chunks_table(lancedb_path, version=version)")
+    handler = source.index("except corrupt_exc as primary_exc:")
+    smoke = source.index("_smoke_read(tbl)")
+    assert primary < smoke < handler, (
+        "the smoke read must run inside the try, between the open and the "
+        "corruption handler, or the fallback still cannot fire (#428)"
+    )
+
+
+def test_the_fallback_target_is_proved_too() -> None:
+    """Falling back to a second unreadable version relocates the lie."""
+    from server.corpus import open_chunks_table_with_fallback
+
+    source = inspect.getsource(open_chunks_table_with_fallback)
+    assert source.count("_smoke_read(") == 2, (
+        "both the live tip and the N-1 fallback must be proved readable"
+    )
+
+
+def test_an_empty_table_is_not_treated_as_corruption() -> None:
+    """Zero rows read cleanly is a real state — bootstrap, or a fresh corpus.
+
+    Conflating "no rows" with "cannot read rows" would refuse to start on
+    exactly the first-run corpus #426 exists to make bootable.
+    """
+    from server.corpus import _smoke_read
+
+    doc = _smoke_read.__doc__ or ""
+    assert "EMPTY table is not a failure" in doc, (
+        "the empty-vs-unreadable distinction must be stated where the next "
+        "reader will see it"
+    )
+
+
+# ---------------------------------------------------------------------------
+# #429 — the alarm has to be worth acting on
+# ---------------------------------------------------------------------------
+def test_the_marker_is_written_from_the_committed_table() -> None:
+    """The writer half, fixed earlier by corpus-integrity-observability-m1.
+
+    Asserted here so #429 cannot silently regress through the writer while
+    the remediation advice stays correct.
+    """
+    assert "chunk_count = tbl.count_rows()" in STORE_PY, (
+        "the marker must count off the COMMITTED TABLE, not the in-flight "
+        "batch — per-paper callers overwrite it, so len(chunks) records only "
+        "the last paper (#429)"
+    )
+    assert 'select(["paper_id"])' in STORE_PY, (
+        "paper_count must likewise be the distinct set across the table"
+    )
+
+
+@pytest.mark.parametrize("occurrence", [0, 1])
+def test_divergence_advice_names_the_cheap_remedy(occurrence: int) -> None:
+    """Advice that costs hours is advice an operator learns to ignore.
+
+    And an ignored degrade signal cannot report a real divergence — which is
+    the actual harm in #429, not the wrong number itself.
+    """
+    # Anchor on the warning itself. Both call sites emit it — the startup
+    # bind and the post-ingest rebind — and an anchor like "Resources.startup"
+    # matches the module docstring first.
+    anchor = "corpus chunk_count DIVERGED"
+    assert RESOURCES_PY.count(anchor) == 2, (
+        f"expected two divergence warnings, found {RESOURCES_PY.count(anchor)}"
+    )
+    start = -1
+    for _ in range(occurrence + 1):
+        start = RESOURCES_PY.index(anchor, start + 1)
+    block = RESOURCES_PY[start : start + 700]
+    assert "make reconcile" in block, (
+        f"divergence warning #{occurrence} must name `make reconcile`, which "
+        "recounts from the committed table in seconds"
+    )
+
+
+def test_divergence_advice_no_longer_demands_a_reingest() -> None:
+    assert "Re-run ingest to reconcile the marker" not in RESOURCES_PY, (
+        "a full re-ingest is not required to fix a counter, and telling "
+        "operators otherwise is why the signal got ignored (#429)"
+    )
+
+
+def test_the_reconcile_remedy_actually_exists() -> None:
+    """The advice must point at something real."""
+    tool = REPO_ROOT / "tools" / "notebook_reconcile_marker.py"
+    assert tool.is_file(), "the advice names a tool that must exist"
+    text = tool.read_text(encoding="utf-8")
+    assert "--shared" in text, (
+        "the shared-corpus form is what `make reconcile` with no NOTEBOOK= "
+        "uses, and the warning points operators at it"
+    )
+
+
+# ---------------------------------------------------------------------------
+# #430 — a cache is a performance artifact, never a gate
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize(
+    ("anchor", "what"),
+    [
+        ("Resources.startup: retrieval cache unavailable", "startup"),
+        ("_bind_corpus: retrieval cache unavailable", "post-ingest rebind"),
+    ],
+)
+def test_cache_open_cannot_block(anchor: str, what: str) -> None:
+    """Both call sites were bare. The rebind one is the worse of the two —
+    it throws inside an ALREADY-RUNNING server."""
+    assert anchor in RESOURCES_PY, (
+        f"the {what} cache open must degrade to cacheless, not raise (#430)"
+    )
+
+
+def test_a_cacheless_server_is_a_supported_state() -> None:
+    """Not a new state — bootstrap mode already runs this way.
+
+    If any consumer assumed a cache were present, #430's fix would trade a
+    boot failure for a later crash.
+    """
+    from server.cache import set_cache
+    from server.resources import Resources
+
+    signature = inspect.signature(set_cache)
+    annotation = str(signature.parameters["cache"].annotation)
+    assert "None" in annotation, "set_cache must accept None"
+
+    fields = getattr(Resources, "__dataclass_fields__", {})
+    assert "cache" in fields
+    assert fields["cache"].default is None, (
+        "Resources.cache defaults to None, which is what makes cacheless a "
+        "supported state rather than a new one"
+    )
+
+
+def test_the_cache_contract_is_still_documented_where_it_is_implemented() -> None:
+    cache_sqlite = (REPO_ROOT / "server" / "cache_sqlite.py").read_text(
+        encoding="utf-8"
+    )
+    assert "Fall through to recompute" in cache_sqlite, (
+        "the contract #430 restores must stay stated next to the code that "
+        "implements it"
+    )

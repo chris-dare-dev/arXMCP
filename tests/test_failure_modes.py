@@ -203,6 +203,26 @@ class TestDiskFullSentinelLogic:
 # ---------------------------------------------------------------------------
 
 
+def _readable_table(version: int) -> SimpleNamespace:
+    """A fake table that can be OPENED **and READ**.
+
+    Issue #428: these doubles used to be ``SimpleNamespace(version=N)`` with
+    no read surface at all — a table that opens and can never answer a query,
+    which is exactly the corpus state the production code was failing to
+    detect. The blind spot was encoded in the fixture as well as in the code,
+    so the happy-path assertion "degraded is None" held for a table that
+    could not have served a single row.
+
+    ``open_chunks_table_with_fallback`` now proves readability with a
+    one-row scan, so the happy-path double has to model one.
+    """
+    scan = SimpleNamespace(to_arrow=lambda: [])
+    scan.limit = lambda _n: scan
+    scan.select = lambda _cols: scan
+    scan.where = lambda _pred: scan
+    return SimpleNamespace(version=version, search=lambda *a, **k: scan)
+
+
 class TestLanceDBCorruptionFallback:
     """The fallback decision tree lives in
     ``server.corpus.open_chunks_table_with_fallback``. The tests
@@ -216,7 +236,7 @@ class TestLanceDBCorruptionFallback:
     def test_happy_path_returns_none_for_degraded(self, monkeypatch):
         from server import corpus as corpus_mod  # noqa: PLC0415
 
-        fake_table = SimpleNamespace(version=5)
+        fake_table = _readable_table(5)
         calls: list[int] = []
 
         def fake_open(lancedb_path=None, version=None):
@@ -234,7 +254,7 @@ class TestLanceDBCorruptionFallback:
     def test_falls_back_to_n_minus_1_on_lance_error(self, monkeypatch):
         from server import corpus as corpus_mod  # noqa: PLC0415
 
-        fallback_table = SimpleNamespace(version=4)
+        fallback_table = _readable_table(4)
         calls: list[int] = []
 
         def fake_open(lancedb_path=None, version=None):
