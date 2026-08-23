@@ -47,9 +47,26 @@ not exist.
 both sides and requiring component-wise containment, and the root itself is
 refused if it is a symlink — unchanged by the layout split, and deliberately
 reached rather than skipped: a symlinked root counts as *present*, so it is
-selected and refused, never silently traded for the other layout. The child's
-bytes are then checked against the plan's `identity_file` digest before it is
-trusted.
+selected and refused, never silently traded for the other layout. The child's bytes are then checked in two independent ways before it is
+trusted, and the difference between them matters (issues #435 / #436):
+
+1. **The `identity_file` digest is a self-consistency check, not a tamper
+   check.** It hashes the file and compares against the identity the child
+   reports about itself — but `identity_file == child_argv[0]`, so both sides
+   read the same bytes and a tampered child matches itself. It establishes
+   that the process which answered the handshake is the file the supervisor
+   launched, and that it agrees about its own component and version. Nothing
+   more. An earlier version of this section implied otherwise.
+2. **The code signature is the integrity check** (`lifecycle::verify_signature`,
+   release builds only, macOS). Its reference lives in the signature blob
+   rather than in the bytes under test, so it catches what the digest cannot:
+   a flipped byte in the signed child now refuses to launch instead of
+   executing normally. **Measured limit:** the payload is ad-hoc signed, so
+   `codesign --force --sign -` re-signs a tampered or swapped binary and
+   verification passes again. Anyone who can write to the payload can defeat
+   it — which is the same residual risk the next paragraph already states,
+   and what e4's release signing closes by giving the check an identity to
+   pin. Scope today: corruption, failed updates, and casual tampering.
 
 **The assumption an operator needs to know:** write access to the payload
 directory — whichever layout is in force — is equivalent to arbitrary code

@@ -115,6 +115,20 @@ fn cycle(
     control: &mut Option<ChildControl>,
     _smoke: bool,
 ) -> Result<(), &'static str> {
+    // #435: this digest is a SELF-CONSISTENCY check, and calling it anything
+    // stronger was the defect. It hashes `plan.identity_file` and later
+    // compares against the identity the child REPORTS about itself — but in
+    // the self-authored plan `identity_file == child_argv[0]`, so both sides
+    // read the same bytes. Tamper with the child and the hash and the report
+    // move together and it still matches. It cannot detect tampering and
+    // never could; what it DOES establish is that the process which answered
+    // the handshake is the file this supervisor launched, and that the child
+    // agrees about which component and version it is — a real property, and a
+    // smaller one than the name suggested.
+    //
+    // The integrity check with an independent reference is the code-signature
+    // verification below (#436), whose reference lives in the signature blob
+    // rather than in the bytes being checked.
     let digest = file_sha256(&plan.identity_file)?;
     let token = generate_startup_token().map_err(|_| "startup token generation failed")?;
     let expected_identity = ExecutableIdentity {
@@ -164,6 +178,20 @@ fn cycle(
         .join("logs")
         .join("desktop-child.log");
     let log_file = std::fs::File::create(&log_path).map_err(|_| "child log unwritable")?;
+
+    // #436: consult the seal before exec, in SHIPPED builds only. A debug
+    // build drives the unsigned fixture sidecar through the m6 fault matrix,
+    // and #427 already established that release has exactly one arm — the
+    // self-authored one, which always resolves the frozen, signed child. So
+    // gating on the profile means the artifact an operator runs always
+    // verifies, and the harness keeps working. `verify_signature` itself is
+    // compiled in both profiles and unit-tested directly.
+    #[cfg(not(debug_assertions))]
+    if let Err(detail) = verify_signature(std::path::Path::new(&plan.child_argv[0])) {
+        let _ = recorder.record("child-signature-invalid", json!({"detail": detail}));
+        return Err("child code signature invalid");
+    }
+
     let mut command = Command::new(&plan.child_argv[0]);
     command
         .args(&plan.child_argv[1..])
@@ -437,6 +465,69 @@ fn navigate_window(handle: &tauri::AppHandle, bound: &Bound) -> Result<(), &'sta
         .map_err(|_| "window navigate timeout")?
 }
 
+/// Verify a Mach-O's own code signature (#436). macOS only.
+///
+/// **What this catches, measured 2026-08-22:** flipping one byte in the signed
+/// child makes `codesign --verify --strict` exit 1 with
+/// `invalid signature (code or signature have been modified)`. Before this,
+/// nothing ran `codesign` at launch, so that tampered binary executed
+/// normally — the seal was real and simply never consulted.
+///
+/// **What it does NOT catch, also measured:** the payload is ad-hoc signed,
+/// so `codesign --force --sign -` re-signs a tampered binary and verification
+/// passes again (exit 0). An attacker who can WRITE to the payload can
+/// therefore defeat this. That is not a gap this function can close: with no
+/// Developer ID there is no identity to pin, and
+/// `apps/desktop/README.md` already records that write access to the payload
+/// directory is equivalent to arbitrary code execution as the operator.
+/// Closing it is e4's release-signing work, after which this call can pin a
+/// Designated Requirement instead of accepting any signature.
+///
+/// So the honest scope is: **corruption and casual tampering** — a truncated
+/// copy, a failed update, a bad disk, an edited binary — none of which
+/// re-sign themselves. That is worth catching before exec, and it is exactly
+/// the case #436 reproduced.
+/// `#[allow(dead_code)]`: the only call site is release-gated, so a debug
+/// build sees this as unused. It stays compiled in BOTH profiles on purpose —
+/// the unit tests below exercise the real verifier against a real signed
+/// binary, which they could not do if the release-only shape were the only
+/// one that existed.
+/// Absolute on purpose: a PATH lookup would let a planted `codesign` earlier
+/// on PATH answer this question. Verified present at this path on macOS 26.6;
+/// it is NOT `/usr/sbin/codesign`, which is where the first draft looked.
+#[cfg(target_os = "macos")]
+const CODESIGN: &str = "/usr/bin/codesign";
+
+#[allow(dead_code)]
+#[cfg(target_os = "macos")]
+pub fn verify_signature(path: &std::path::Path) -> Result<(), String> {
+    let output = Command::new(CODESIGN)
+        .arg("--verify")
+        .arg("--strict")
+        .arg(path)
+        .output()
+        .map_err(|err| format!("codesign could not be run: {err}"))?;
+    if output.status.success() {
+        return Ok(());
+    }
+    // codesign writes its reason to stderr; keep the first line, which names
+    // the failure ("invalid signature (code or signature have been
+    // modified)") without the architecture trailer.
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let reason = stderr.lines().next().unwrap_or("unspecified").trim();
+    Err(reason.to_owned())
+}
+
+/// Non-macOS builds have no equivalent seal to consult. Returning Ok is the
+/// honest answer — "not checked here" — and `verify_signature`'s only caller
+/// is macOS-shaped anyway. The Windows track (#419-#422) owns its own
+/// integrity story.
+#[allow(dead_code)]
+#[cfg(not(target_os = "macos"))]
+pub fn verify_signature(_path: &std::path::Path) -> Result<(), String> {
+    Ok(())
+}
+
 /// Percent-encode for a `data:` URL body. Conservative on purpose: everything
 /// outside the unreserved set is escaped, so no operator-controlled byte in a
 /// filesystem path can terminate the URL or introduce a new attribute.
@@ -572,6 +663,122 @@ fn file_sha256(path: &str) -> Result<String, &'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ---- issue #436: the seal is actually consulted ----------------------
+
+    /// Ad-hoc sign a copy of a small system binary into `dir`, returning it.
+    /// Uses a REAL Mach-O and a REAL codesign invocation — a hand-built fake
+    /// would prove only that the fake matches its own expectations.
+    #[cfg(target_os = "macos")]
+    fn signed_fixture(dir: &std::path::Path, name: &str) -> std::path::PathBuf {
+        let target = dir.join(name);
+        // /bin/sh, not /usr/bin/true: the latter is small enough that a
+        // mid-file flip lands outside __TEXT and leaves a structurally broken
+        // Mach-O ("main executable failed strict validation"), which is a
+        // DIFFERENT failure from the tamper this is meant to model, and one
+        // codesign then cannot re-sign. Measured both, 2026-08-22.
+        std::fs::copy("/bin/sh", &target).expect("copy /bin/sh");
+        let status = Command::new(CODESIGN)
+            .args(["--force", "--sign", "-"])
+            .arg(&target)
+            .status()
+            .expect("codesign runs");
+        assert!(status.success(), "ad-hoc signing the fixture failed");
+        target
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn verify_signature_accepts_an_untouched_binary() {
+        let dir = std::env::temp_dir().join("arxmcp-sig-ok");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("scratch dir");
+        let binary = signed_fixture(&dir, "child");
+        assert_eq!(verify_signature(&binary), Ok(()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn verify_signature_rejects_a_single_flipped_byte() {
+        // This is #436's exact repro: one byte, in a signed Mach-O, which
+        // used to execute anyway because nothing consulted the seal.
+        let dir = std::env::temp_dir().join("arxmcp-sig-tamper");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("scratch dir");
+        let binary = signed_fixture(&dir, "child");
+
+        let mut bytes = std::fs::read(&binary).expect("read fixture");
+        let offset = bytes.len() / 2;
+        bytes[offset] ^= 0xFF;
+        std::fs::write(&binary, &bytes).expect("write tampered fixture");
+
+        let result = verify_signature(&binary);
+        assert!(
+            result.is_err(),
+            "a flipped byte must not verify: {result:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn an_adhoc_resign_defeats_verification_and_that_is_the_known_limit() {
+        // Pinned deliberately. Without a Developer ID there is no identity to
+        // require, so anyone who can WRITE the payload can re-sign it and
+        // pass. Documented in verify_signature and in apps/desktop/README.md;
+        // asserted here so the limitation cannot be quietly forgotten, and so
+        // e4's release signing has a test that will START FAILING when the
+        // guarantee actually improves.
+        //
+        // Modelled as a binary SWAP rather than a byte flip: it is the more
+        // realistic attack, and every codesign call then operates on a
+        // well-formed Mach-O instead of one a flip may have mangled.
+        let dir = std::env::temp_dir().join("arxmcp-sig-resign");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("scratch dir");
+        let binary = signed_fixture(&dir, "child");
+        assert_eq!(
+            verify_signature(&binary),
+            Ok(()),
+            "fixture must start valid"
+        );
+
+        // The attacker swaps in a different program and strips its signature.
+        std::fs::copy("/usr/bin/true", &binary).expect("swap the payload");
+        let stripped = Command::new(CODESIGN)
+            .args(["--remove-signature"])
+            .arg(&binary)
+            .status()
+            .expect("codesign runs");
+        assert!(stripped.success());
+        assert!(
+            verify_signature(&binary).is_err(),
+            "an unsigned swapped-in binary must be refused"
+        );
+
+        // ...and then ad-hoc signs it. This is the hole.
+        let status = Command::new(CODESIGN)
+            .args(["--force", "--sign", "-"])
+            .arg(&binary)
+            .status()
+            .expect("codesign runs");
+        assert!(status.success());
+        assert_eq!(
+            verify_signature(&binary),
+            Ok(()),
+            "if this now FAILS, ad-hoc re-signing no longer defeats the check \
+             — the guarantee improved and this test should be rewritten, not deleted"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn verify_signature_reports_a_missing_file_rather_than_passing_it() {
+        let missing = std::path::Path::new("/nonexistent/arxmcp-desktop-child");
+        assert!(verify_signature(missing).is_err());
+    }
 
     // ---- issue #425: the failure page's encoders -------------------------
 

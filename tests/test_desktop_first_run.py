@@ -46,6 +46,20 @@ REPO_ROOT: Path = Path(__file__).resolve().parents[1]
 DESKTOP_CHILD: Path = REPO_ROOT / "server" / "desktop_child.py"
 SUPERVISOR_SRC: Path = REPO_ROOT / "apps" / "desktop" / "crates" / "supervisor" / "src"
 LIFECYCLE_RS: str = (SUPERVISOR_SRC / "lifecycle.rs").read_text(encoding="utf-8")
+
+
+def _strip_rust_comments(text: str) -> str:
+    """Drop ``//``/``///`` and ``/* */`` comments.
+
+    The source DOCUMENTS the wrong path it used to look at
+    (``/usr/sbin/codesign``), so a raw negative scan flags the explanation as
+    the offence — the same trap as ui.js documenting ``new Function()``.
+    """
+    text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
+    return re.sub(r"^\s*//.*$", "", text, flags=re.M)
+
+
+LIFECYCLE_CODE: str = _strip_rust_comments(LIFECYCLE_RS)
 MAIN_RS: str = (SUPERVISOR_SRC / "main.rs").read_text(encoding="utf-8")
 
 
@@ -248,4 +262,74 @@ def test_the_inverted_containment_comment_is_gone() -> None:
     assert "resolve_inside" in load_plan, (
         "load_plan's comment must name what the two arms do NOT share, so the "
         "next reader is not misled the way #427 was"
+    )
+
+
+# ---------------------------------------------------------------------------
+# #436 / #435 — the seal is consulted, and the digest stops overclaiming
+# ---------------------------------------------------------------------------
+README: str = (
+    REPO_ROOT / "apps" / "desktop" / "README.md"
+).read_text(encoding="utf-8")
+
+
+def test_the_signature_is_verified_before_exec() -> None:
+    """#436. `codesign` catches a flipped byte; nothing used to run it."""
+    assert "pub fn verify_signature(" in LIFECYCLE_RS
+    cycle = LIFECYCLE_RS[LIFECYCLE_RS.index("fn cycle(") :]
+    cycle = cycle[: cycle.index("\n}\n")]
+    spawn_at = cycle.index("command.spawn()")
+    verify_at = cycle.index("verify_signature(")
+    assert verify_at < spawn_at, (
+        "the signature must be verified BEFORE spawn — checking a binary "
+        "after starting it is not a check (#436)"
+    )
+    assert 'record("child-signature-invalid"' in cycle, (
+        "a refused launch must record why, or the operator sees only the "
+        "generic failure page"
+    )
+
+
+def test_codesign_is_invoked_by_absolute_path() -> None:
+    """A PATH lookup would let a planted `codesign` answer for itself."""
+    assert '"/usr/bin/codesign"' in LIFECYCLE_RS, (
+        "codesign must be absolute, and it is /usr/bin/codesign — NOT "
+        "/usr/sbin/codesign, which does not exist on macOS 26.6"
+    )
+    assert "/usr/sbin/codesign" not in LIFECYCLE_CODE, (
+        "the wrong path is back in the CODE (it is fine in a comment that "
+        "explains the mistake)"
+    )
+
+
+def test_the_digest_no_longer_claims_to_detect_tampering() -> None:
+    """#435. The defect was the claim, not only the code.
+
+    `identity_file == child_argv[0]`, so the digest and the child's
+    self-report read the same bytes and move together under tampering. The
+    check has a real, smaller purpose; the code and the README must say which
+    one, because a guarantee people believe in is worse than none.
+    """
+    assert "SELF-CONSISTENCY check" in LIFECYCLE_RS, (
+        "lifecycle.rs must state what the identity digest actually is (#435)"
+    )
+    assert "self-consistency check, not a tamper\n   check" in README, (
+        "apps/desktop/README.md must not imply the digest detects tampering"
+    )
+
+
+def test_the_resign_limitation_is_documented_not_buried() -> None:
+    """The check is honest about what it cannot do.
+
+    An ad-hoc signature has no identity to pin, so `codesign --force --sign -`
+    restores validity to a tampered or swapped binary. Measured, and asserted
+    in the Rust suite by
+    `an_adhoc_resign_defeats_verification_and_that_is_the_known_limit`.
+    """
+    assert "ad-hoc" in README and "re-sign" in README.replace("re-signs", "re-sign"), (
+        "the README must record the ad-hoc re-sign limit alongside the claim"
+    )
+    assert "an_adhoc_resign_defeats_verification" in LIFECYCLE_RS, (
+        "the limitation must be pinned by a test that starts failing when the "
+        "guarantee improves, not left as prose"
     )
