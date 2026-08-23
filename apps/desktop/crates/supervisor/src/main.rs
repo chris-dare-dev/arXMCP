@@ -808,6 +808,81 @@ fn current_uid() -> u32 {
     0
 }
 
+/// #445: run the bounded shutdown when the OS asks us to stop.
+///
+/// The whole documented grace/force/reap contract — the README's "Shutdown
+/// reserves at least 35,000 ms for cooperative server drain", and m5's
+/// FastAPI lifespan that closes the LanceDB and Kuzu handles — is reachable
+/// ONLY through Tauri's `RunEvent::Exit`. Tauri installs no signal handler,
+/// so `killall`, Activity Monitor's Quit, launchd logout/restart/shutdown and
+/// any supervising process manager bypassed it entirely: no shutdown frame,
+/// no grace, no reap, and no `shutdown-on-exit` record for a post-mortem to
+/// read. Measured: the event log simply ended at `window-ready`.
+///
+/// The handler itself does the minimum an async-signal context permits — set
+/// a flag — and a watcher thread performs the actual shutdown. Doing the
+/// shutdown inside the handler would call malloc, take a mutex and run
+/// `waitpid` from a signal context, which is exactly the class of bug that
+/// turns a clean stop into a hang.
+#[cfg(unix)]
+static TERMINATION_REQUESTED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+#[cfg(unix)]
+extern "C" fn on_termination_signal(_signum: libc::c_int) {
+    // Async-signal-safe: a relaxed atomic store and nothing else.
+    TERMINATION_REQUESTED.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Install the handlers and start the watcher.
+///
+/// Returns without doing anything off Unix; the Windows track (#419-#422)
+/// owns its own console-control story.
+#[cfg(unix)]
+fn install_termination_handler(
+    slot: Arc<Mutex<Option<lifecycle::ChildControl>>>,
+    recorder: Recorder,
+) {
+    // SAFETY: `signal` with a plain extern "C" fn is the documented C API;
+    // the handler touches only an AtomicBool.
+    // Cast via a fn POINTER, not the fn item: clippy rejects the direct
+    // item->integer cast, and the pointer form is what `sighandler_t` means.
+    let handler = on_termination_signal as extern "C" fn(libc::c_int);
+    unsafe {
+        libc::signal(libc::SIGTERM, handler as libc::sighandler_t);
+        libc::signal(libc::SIGINT, handler as libc::sighandler_t);
+    }
+    std::thread::spawn(move || {
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            if !TERMINATION_REQUESTED.load(std::sync::atomic::Ordering::Relaxed) {
+                continue;
+            }
+            // Same take-from-the-slot discipline as RunEvent::Exit, so the two
+            // paths can never both run the ladder against one child.
+            if let Some(control) = slot.lock().ok().and_then(|mut guard| guard.take()) {
+                let code = lifecycle::shutdown_child(control);
+                let _ = recorder.record(
+                    "shutdown-on-signal",
+                    serde_json::json!({"child_exit": code}),
+                );
+            } else {
+                // Nothing to drain — still leave the evidence, so a
+                // post-mortem can tell this path from a clean quit.
+                let _ = recorder.record("shutdown-on-signal", serde_json::json!({}));
+            }
+            std::process::exit(0);
+        }
+    });
+}
+
+#[cfg(not(unix))]
+fn install_termination_handler(
+    _slot: Arc<Mutex<Option<lifecycle::ChildControl>>>,
+    _recorder: Recorder,
+) {
+}
+
 fn main() {
     // Diagnostic probe, before any plan work: prints the Rust half of the
     // cross-language `_platform_data_root` pair so the parity assertion can
@@ -890,6 +965,9 @@ fn main() {
     // Shared child handle so a window-close exit can still run the bounded
     // normal-shutdown sequence (RunEvent::Exit below).
     let child_slot: Arc<Mutex<Option<lifecycle::ChildControl>>> = Arc::new(Mutex::new(None));
+    // #445: armed BEFORE the child can exist, so a signal arriving mid-boot
+    // still finds the slot and drains whatever is in it.
+    install_termination_handler(child_slot.clone(), recorder.clone());
     let smoke = plan.smoke;
     let activation_recorder = recorder.clone();
     let setup_recorder = recorder.clone();

@@ -626,3 +626,68 @@ def test_a_squatted_socket_does_not_stop_the_app() -> None:
     assert "fn single_instance_socket_owner(" in MAIN_RS, (
         "the socket's owner must be checked before registering (#437)"
     )
+
+
+# ---------------------------------------------------------------------------
+# #445 / #434 — the OS asks us to stop; the OS warns the user about us
+# ---------------------------------------------------------------------------
+def test_a_termination_signal_runs_the_bounded_shutdown() -> None:
+    """#445. The grace/force/reap contract was reachable only via Tauri.
+
+    Tauri installs no signal handler, so `killall`, Activity Monitor's Quit,
+    launchd logout/restart/shutdown and any process manager bypassed the
+    shutdown frame, the 35s cooperative grace, the escalation and the reap —
+    and left no record for a post-mortem to read.
+    """
+    assert "fn install_termination_handler(" in MAIN_RS
+    assert "libc::SIGTERM" in MAIN_RS and "libc::SIGINT" in MAIN_RS
+    assert '"shutdown-on-signal"' in MAIN_RS, (
+        "the signal path must leave evidence, or a post-mortem cannot tell it "
+        "from a clean quit (#445)"
+    )
+    assert "shutdown_child(control)" in MAIN_RS
+
+
+def test_the_signal_handler_itself_stays_async_signal_safe() -> None:
+    """Doing the shutdown IN the handler would malloc, lock and waitpid from a
+    signal context — the class of bug that turns a clean stop into a hang."""
+    handler = MAIN_RS[MAIN_RS.index("extern \"C\" fn on_termination_signal") :][:600]
+    assert "store(true" in handler, "the handler must only set a flag"
+    for forbidden in ("shutdown_child", "record(", "lock()"):
+        assert forbidden not in handler, (
+            f"{forbidden!r} is not async-signal-safe and must live in the "
+            "watcher thread, not the handler"
+        )
+
+
+def test_both_shutdown_paths_share_the_slot_discipline() -> None:
+    """Take-from-the-slot, so RunEvent::Exit and the signal path can never
+    both run the ladder against one child."""
+    code = _strip_rust_comments(MAIN_RS)
+    assert code.count("guard.take()") + code.count("slot.take()") >= 2, (
+        "both exit paths must TAKE the control out of the shared slot"
+    )
+
+
+def test_the_quarantine_experience_is_documented() -> None:
+    """#434. "exit 0 and no process" is true about the process table and
+
+    says nothing about what the person sees: a modal malware warning whose
+    most prominent button deletes the app. Any network distribution sets the
+    quarantine bit, so this is the default first experience for every
+    non-developer.
+    """
+    readme = (
+        REPO_ROOT / "apps" / "desktop" / "README.md"
+    ).read_text(encoding="utf-8")
+    assert "Not Opened" in readme and "Move to Trash" in readme, (
+        "the README must record the dialog the operator actually sees (#434)"
+    )
+    assert "no \"Open Anyway\" button" in readme, (
+        "the absence of an escape hatch is the point — without it the user's "
+        "only offered action is deletion"
+    )
+    assert "xattr -d com.apple.quarantine" in readme, (
+        "document the deliberate workaround, or every recipient discovers it "
+        "while staring at a malware warning"
+    )

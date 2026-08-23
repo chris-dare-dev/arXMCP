@@ -146,10 +146,41 @@ succeed: assembly RAISES rather than leaving an unsealed `.app` on disk.
    control on every gate run, so any future seal failure can be attributed to
    the layout or to the host rather than guessed at.
 
-2. **Gatekeeper path translocation is UNVERIFIED.** Setting
-   `com.apple.quarantine` on the bundle and launching it through `open(1)`
-   yields exit 0 and no process, so translocation never gets a chance to
-   occur. The reason narrowed when the payload moved: the bundle now has a
+2. **Gatekeeper path translocation is UNVERIFIED, and a quarantined launch
+   is hostile to the operator.** Setting `com.apple.quarantine` on the bundle
+   and launching it through `open(1)` yields exit 0 and no process, so
+   translocation never gets a chance to occur.
+
+   That sentence used to be the whole of this bullet, and issue #434 is what
+   it left out: the USER-VISIBLE outcome. macOS 26.6 puts a modal alert on
+   screen, verbatim:
+
+   > **"arXMCP" Not Opened**
+   > Apple could not verify "arXMCP" is free of malware that may harm your
+   > Mac or compromise your privacy.
+   > `[ Move to Trash ]`  `[ Done ]`
+
+   There is **no "Open Anyway" button**, and the first and most prominent
+   action offered is to delete the application. `spctl -a -vvv -t exec` and
+   `spctl --assess --type open --context context:primary-signature -vvv` both
+   report `rejected` (exit 3).
+
+   Any distribution over a network — download, DMG, zip, AirDrop — sets the
+   quarantine bit, so **this is the default first experience for every
+   non-developer**, not an edge case. "exit 0 and no process" is accurate
+   about the process table and says nothing about what the person sees.
+
+   The real fix is e4's Developer ID signature plus notarization; nothing in
+   this repo can shortcut it. Until then an operator can clear the bit
+   deliberately:
+
+   ```bash
+   xattr -d com.apple.quarantine /path/to/arXMCP.app
+   ```
+
+   That is a conscious "I trust this build" action and should be documented
+   as such wherever the app is handed to anyone — not discovered by someone
+   staring at a malware warning. The reason narrowed when the payload moved: the bundle now has a
    valid outer seal and the quarantined launch is still refused, so what
    remains is the ad-hoc identity — reaching that path needs the Developer ID
    signature e4 is blocked on. What IS measured: the bundle relocated whole to
