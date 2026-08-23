@@ -164,8 +164,9 @@ class TestPreviewHappyPath:
         r = client.get("/ui/notebooks/demo-nb/papers/2604.26204/preview")
         assert r.status_code == 200
         csp = r.headers["content-security-policy"]
-        # The broad m8 UI CSP contains ``script-src 'self' 'unsafe-inline'``.
-        # The preview CSP MUST NOT contain ``'unsafe-inline'`` for scripts.
+        # The broad UI CSP is ``script-src 'self'`` since #483 (it used to
+        # carry ``'unsafe-inline'``). This preview policy is tighter still —
+        # ``script-src 'none'`` — and its ``'unsafe-inline'`` is style-only.
         assert "'unsafe-inline'" in csp  # only for style-src
         assert "script-src 'none'" in csp
         # The preview CSP does NOT include ``connect-src`` (the m8 UI

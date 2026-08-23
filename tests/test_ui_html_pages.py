@@ -434,6 +434,16 @@ class TestCSPHeaderOnUiSurface:
             csp = r.headers.get("content-security-policy", "")
             assert "default-src 'self'" in csp
             assert "script-src 'self'" in csp
+            # issue #483: script-src must carry NO 'unsafe-inline'. The
+            # substring check above passes either way, which is exactly how
+            # the loose token survived this test for so long.
+            script_src = next(
+                d.strip() for d in csp.split(";")
+                if d.strip().startswith("script-src")
+            )
+            assert script_src == "script-src 'self'", (
+                f"script-src regressed to {script_src!r} (#483)"
+            )
             assert "frame-ancestors 'none'" in csp
 
     def test_csp_header_on_ui_api(

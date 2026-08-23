@@ -132,6 +132,30 @@ def test_the_console_ships_no_inline_script() -> None:
             )
 
 
+def test_script_src_has_no_unsafe_inline() -> None:
+    """#483. The other end of the same policy #431 pulled on.
+
+    #431 could have been "fixed" by ADDING ``'unsafe-eval'`` so htmx's
+    ``hx-on::`` attributes would run. That would have loosened this header in
+    the same edit that should tighten it. The delegated listener was chosen so
+    both moves point the same way, and this guard is what stops a future
+    convenience edit from re-adding either token.
+
+    Hashes were never needed: ``'sha256-...'`` is for INLINE scripts, and
+    ``test_the_console_ships_no_inline_script`` above proves there are none.
+    """
+    from server.middleware import CONTENT_SECURITY_POLICY_UI
+
+    policy = CONTENT_SECURITY_POLICY_UI.decode()
+    script_src = next(
+        d.strip() for d in policy.split(";") if d.strip().startswith("script-src")
+    )
+    assert script_src == "script-src 'self'", (
+        f"script-src must stay exactly \"script-src 'self'\"; got {script_src!r}. "
+        "'unsafe-inline' re-opens #483; 'unsafe-eval' re-opens #431."
+    )
+
+
 # ---------------------------------------------------------------------------
 # #431 / #432 — failures reach the operator
 # ---------------------------------------------------------------------------

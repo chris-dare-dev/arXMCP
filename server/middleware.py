@@ -143,33 +143,45 @@ X_FRAME_OPTIONS = b"DENY"
 #: explicit autoescape.
 #:
 #: - ``default-src 'self'`` — all resources from the same origin only.
-#: - ``script-src 'self' 'unsafe-inline'`` — vendored htmx.min.js
-#:   from /ui/static/ AND the inline JSON-encoding shim in
-#:   base.html (m8 rect F1). The ``'unsafe-inline'`` allowance is a
-#:   known trade-off: htmx's ``hx-on::*`` attributes use inline
-#:   event handlers which CSP would otherwise block, and the F1
-#:   shim is an inline ``<script>`` block. The defense remaining
-#:   after this allowance is third-party-origin blocking (no
-#:   external JS/CDN can run; only same-origin assets). To tighten
-#:   further to ``script-src 'self'`` only, a future milestone
-#:   would need to:
-#:     (a) move the F1 shim to ``server/frontend/static/json-shim.js``,
-#:     (b) replace every ``hx-on::*`` attribute with a vanilla JS
-#:         event-listener block in another vendored file, AND
-#:     (c) add per-script hashes ``'sha256-...'`` to the policy.
-#:   That's m10+ scope; m8 takes the loopback-only / same-origin-
-#:   only protection of m7's middleware stack as the primary
-#:   defense and the CSP as defense-in-depth against a future
-#:   template change that loads a CDN script directly.
-#: - ``style-src 'self' 'unsafe-inline'`` — same rationale; minimal
-#:   inline ``style=`` would otherwise break.
+#: - ``script-src 'self'`` — same-origin scripts only, with NO
+#:   ``'unsafe-inline'``. Tightened for issue #483 on 2026-08-22.
+#:   m8 wrote the allowance in with three named prerequisites for
+#:   removing it: (a) move the inline JSON-encoding shim out to a
+#:   static file, (b) replace every ``hx-on::*`` attribute with a
+#:   vanilla event-listener block, and (c) add per-script
+#:   ``'sha256-...'`` hashes. (a) and (b) are both DONE — the shim
+#:   is ``/ui/static/json-enc.js`` and #431 moved every handler
+#:   into ``/ui/static/ui.js``. (c) turned out to be unnecessary
+#:   rather than outstanding: hashes are only needed for INLINE
+#:   scripts, and the console now has none, so plain ``'self'``
+#:   covers all three of its external files.
+#:
+#:   The ordering matters and is the point of #483. #431 could have
+#:   been "fixed" by ADDING ``'unsafe-eval'`` so htmx's ``hx-on::``
+#:   attributes (compiled with ``new Function()``) would run. That
+#:   would have loosened this policy in the same edit this line
+#:   tightens it. The delegated listener was chosen precisely so
+#:   both moves point the same way.
+#:
+#:   Guarded by ``tests/test_ui_delegated_listeners.py`` (no inline
+#:   ``<script>`` survives in any template) and by the header
+#:   assertions in ``tests/test_ui_html_pages.py``.
+#: - ``style-src 'self' 'unsafe-inline'`` — RETAINED, and its stated
+#:   rationale is now stale: the templates carry ZERO inline
+#:   ``style=`` attributes (measured 2026-08-22, all three templates
+#:   and every Python-rendered fragment). It is left in place because
+#:   #483 scoped itself to ``script-src`` and tightening styles wants
+#:   its own browser verification — htmx mutates element styles at
+#:   runtime during swaps, and while CSSOM writes are not governed by
+#:   ``style-src``, that deserves proving rather than assuming.
+#:   Tracked separately; do not remove this token untested.
 #: - ``img-src 'self' data:`` — same-origin + ``data:`` URIs.
 #: - ``connect-src 'self'`` — only same-origin fetch/XHR.
 #: - ``frame-ancestors 'none'`` — no one may frame us (parity
 #:   with X-Frame-Options: DENY but enforced via CSP).
 CONTENT_SECURITY_POLICY_UI: bytes = (
     b"default-src 'self'; "
-    b"script-src 'self' 'unsafe-inline'; "
+    b"script-src 'self'; "
     b"style-src 'self' 'unsafe-inline'; "
     b"img-src 'self' data:; "
     b"connect-src 'self'; "
