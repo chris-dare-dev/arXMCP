@@ -498,3 +498,80 @@ def test_both_logs_are_created_private() -> None:
             f"{name} must also chmod an EXISTING log — mode() applies only at "
             "creation, so a 0644 file from an earlier version would keep it"
         )
+
+
+# ---------------------------------------------------------------------------
+# #444 / #465 — refusals reach the operator, before AND after the window exists
+# ---------------------------------------------------------------------------
+def test_pre_window_refusals_show_a_native_alert() -> None:
+    """#465. `fail()` runs BEFORE the Tauri app exists.
+
+    #425's failure page is unreachable this early — there is no window to
+    render into — so a native alert is the only surface available. Every
+    refusal in the self-authoring arm reaches `fail()`: missing payload,
+    symlinked payload root, escaping child executable, uncreatable or
+    unresolvable data root, no HOME.
+    """
+    assert "fn show_native_alert(" in MAIN_RS
+    fail_fn = MAIN_RS[MAIN_RS.index("fn fail(reason: &str) -> ! {") :][:400]
+    assert "show_native_alert(reason)" in fail_fn, (
+        "fail() must show the alert, not merely have one available (#465)"
+    )
+    assert "eprintln!" in fail_fn, (
+        "stderr must stay — it is what a terminal-launched developer sees"
+    )
+
+
+def test_the_alert_cannot_block_the_exit() -> None:
+    """`display alert` blocks until dismissed; fail() must still exit."""
+    alert = MAIN_RS[MAIN_RS.index("fn show_native_alert(reason: &str)") :][:1400]
+    assert ".spawn()" in alert and ".status()" not in alert and ".output()" not in alert, (
+        "the alert must be spawned and never waited on, or a refusal hangs "
+        "instead of exiting"
+    )
+    assert "giving up after" in alert, (
+        "an undismissed alert must not linger forever"
+    )
+    assert '"/usr/bin/osascript"' in alert, "absolute path"
+
+
+def test_the_alert_is_release_only() -> None:
+    """The gates drive the debug binary through these refusals deliberately."""
+    assert '#[cfg(all(target_os = "macos", not(debug_assertions)))]' in MAIN_RS, (
+        "a dialog per refusal would be noise in the conformance gate, which "
+        "exercises the refusal paths on purpose"
+    )
+
+
+def test_the_failure_page_carries_the_childs_own_error() -> None:
+    """#444. The supervisor's reason names the symptom, not the cause.
+
+    "child stdout closed before bound" is structural and says nothing about
+    why. The child's message is specific and actionable — the measured case
+    was a cold-start corpus refusal that named its own remedy — and it was
+    sitting in a log the operator would never open.
+    """
+    assert "fn child_log_tail(" in LIFECYCLE_RS
+    show = LIFECYCLE_RS[LIFECYCLE_RS.index("pub fn show_failure(") :][:1400]
+    assert "child_log_tail(" in show, (
+        "show_failure must pull the child's last lines into the page (#444)"
+    )
+    assert "The server reported:" in show
+
+
+def test_the_tail_read_is_bounded_and_scrubbed() -> None:
+    tail = LIFECYCLE_RS[LIFECYCLE_RS.index("fn child_log_tail(") :][:1800]
+    assert "WINDOW" in tail and "seek" in tail.lower(), (
+        "a child that spewed megabytes must not be read into memory to show "
+        "its last line"
+    )
+    assert "scrub_child_text" in tail, (
+        "defence in depth — this display path must not depend on the #438 "
+        "relay having scrubbed correctly"
+    )
+    for required in (
+        "child_log_tail_is_bounded_and_drops_a_cut_first_line",
+        "child_log_tail_redacts_hex_even_though_the_relay_already_did",
+        "child_log_tail_is_none_when_there_is_nothing_to_show",
+    ):
+        assert required in LIFECYCLE_RS, f"{required} must pin this"

@@ -121,8 +121,49 @@ pub struct Plan {
     pub test_shutdown_grace_ms: Option<u64>,
 }
 
+/// #465: put a PRE-WINDOW refusal on screen.
+///
+/// Every refusal in the self-authoring arm — missing payload, symlinked
+/// payload root, escaping child executable, uncreatable or unresolvable data
+/// root, no HOME — reaches `fail()`, which was `eprintln!` plus exit. On a
+/// LaunchServices-started bundle stderr goes nowhere a person will look and
+/// `tauri.conf.json` declares `app.windows: []`, so all of it presented as
+/// "the icon bounced and nothing happened". These strings are carefully
+/// worded and named by cause; none of them reached anyone.
+///
+/// `fail()` runs BEFORE the Tauri app exists, so there is no window to render
+/// into — #425's failure page is unreachable this early. A native alert is
+/// the only surface available at that point.
+///
+/// Release builds only, for the same reason as #427 and #436: the gates drive
+/// the debug binary through these refusal paths deliberately, and a dialog
+/// per refusal would be noise at best. Spawned and NEVER waited on —
+/// `display alert` blocks until dismissed, and `fail()` must still exit
+/// promptly; osascript outlives this process, so the alert stays up after the
+/// supervisor is gone. `giving up after` keeps a stray one from lingering.
+#[cfg(all(target_os = "macos", not(debug_assertions)))]
+fn show_native_alert(reason: &str) {
+    // AppleScript string literals escape exactly backslash and double quote.
+    let escaped = reason.replace('\\', "\\\\").replace('"', "\\\"");
+    let script = format!(
+        "display alert \"arXMCP could not start\" message \"{escaped}\" \
+         as critical giving up after 120"
+    );
+    let _ = std::process::Command::new("/usr/bin/osascript")
+        .arg("-e")
+        .arg(script)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+}
+
+#[cfg(not(all(target_os = "macos", not(debug_assertions))))]
+fn show_native_alert(_reason: &str) {}
+
 fn fail(reason: &str) -> ! {
     eprintln!("supervisor: {reason}");
+    show_native_alert(reason);
     std::process::exit(2);
 }
 

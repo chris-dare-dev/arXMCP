@@ -18,7 +18,7 @@ use arxmcp_desktop_contract::{
 };
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufRead, BufReader, Read, Seek, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
@@ -702,6 +702,41 @@ fn html_escape(input: &str) -> String {
         .replace('"', "&quot;")
 }
 
+/// #444: the last few lines the child wrote before it died.
+///
+/// The supervisor's own reason for a pre-bound failure is structural — "child
+/// stdout closed before bound" — and says nothing about WHY. The child's own
+/// message is specific, actionable and already well worded, and it was
+/// sitting in a log file the operator would never find. The measured case was
+/// a cold-start corpus refusal that named its own remedy.
+///
+/// Bounded read from the END of the file: a child that spewed megabytes must
+/// not be read into memory to show the last line of it. The bytes have
+/// already passed through the #438 stderr relay, so they are scrubbed; the
+/// extra `redact_hex_runs` pass here costs nothing and means this display
+/// path does not depend on that being true elsewhere.
+fn child_log_tail(path: &std::path::Path, max_lines: usize) -> Option<String> {
+    const WINDOW: u64 = 8 * 1024;
+    let mut file = std::fs::File::open(path).ok()?;
+    let len = file.metadata().ok()?.len();
+    let start = len.saturating_sub(WINDOW);
+    file.seek(std::io::SeekFrom::Start(start)).ok()?;
+    let mut bytes = Vec::new();
+    file.take(WINDOW).read_to_end(&mut bytes).ok()?;
+    let text = String::from_utf8_lossy(&bytes);
+    let tail: Vec<&str> = text
+        .lines()
+        // A partial first line when the window cut mid-line.
+        .skip(usize::from(start > 0))
+        .filter(|line| !line.trim().is_empty())
+        .collect();
+    if tail.is_empty() {
+        return None;
+    }
+    let from = tail.len().saturating_sub(max_lines);
+    Some(redact::scrub_child_text(&tail[from..].join("\n"), ""))
+}
+
 /// Issue #442: replace "starting…" with an explanation once the wait is long
 /// enough to look like a hang.
 ///
@@ -748,19 +783,34 @@ pub fn show_slow_start(handle: &tauri::AppHandle) {
 /// a failure to SHOW the failure must never mask the original one, so every
 /// step here discards its error and the caller's return value is unchanged.
 pub fn show_failure(handle: &tauri::AppHandle, reason: &str, log_path: &str) {
+    // #444: the child's own last words, when it left any. Without this the
+    // page shows only the supervisor's structural reason, which names the
+    // symptom and never the cause.
+    let tail = child_log_tail(std::path::Path::new(log_path), 12);
+    let detail = match &tail {
+        Some(text) => format!(
+            "<p>The server reported:</p><pre>{}</pre>",
+            html_escape(text)
+        ),
+        None => String::new(),
+    };
     let body = format!(
         "<!doctype html><meta charset=\"utf-8\"><title>arXMCP could not start</title>\
          <style>body{{font:14px/1.6 -apple-system,BlinkMacSystemFont,sans-serif;\
          margin:0;padding:2.5rem;background:#161e20;color:#e0e8e8}}\
          h1{{font-size:1.3rem;margin:0 0 .75rem}}code{{font:12px/1.5 ui-monospace,monospace;\
          background:#0f1516;padding:.15rem .35rem;border-radius:3px;word-break:break-all}}\
-         p{{margin:0 0 1rem;max-width:64ch}}.r{{color:#fda29b}}</style>\
+         p{{margin:0 0 1rem;max-width:64ch}}.r{{color:#fda29b}}\
+         pre{{background:#0f1516;padding:.75rem;border-radius:3px;overflow-x:auto;\
+         font:12px/1.5 ui-monospace,monospace;white-space:pre-wrap;max-width:80ch}}</style>\
          <h1>arXMCP could not start</h1>\
          <p class=\"r\">{reason}</p>\
+         {detail}\
          <p>The full log for this launch is at:</p><p><code>{log}</code></p>\
          <p>That file is rewritten on every launch, so copy it before starting \
          arXMCP again if you need to report this.</p>",
         reason = html_escape(reason),
+        detail = detail,
         log = html_escape(log_path),
     );
     let Ok(url) = tauri::Url::parse(&format!(
@@ -945,6 +995,85 @@ fn file_sha256(path: &str) -> Result<String, &'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ---- issue #444: the child's own error reaches the operator ----------
+
+    fn scratch(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(name);
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("scratch dir");
+        dir
+    }
+
+    #[test]
+    fn child_log_tail_returns_the_last_lines() {
+        let dir = scratch("arxmcp-tail-basic");
+        let path = dir.join("desktop-child.log");
+        std::fs::write(&path, "one\ntwo\nthree\nfour\n").expect("write log");
+        let tail = child_log_tail(&path, 2).expect("tail");
+        assert_eq!(tail, "three\nfour");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn child_log_tail_surfaces_the_measured_cold_start_error() {
+        // The line #444 found sitting in a file nobody would look at.
+        let dir = scratch("arxmcp-tail-fatal");
+        let path = dir.join("desktop-child.log");
+        std::fs::write(
+            &path,
+            "boot\nFATAL: Resources.startup failed: corpus-version.json not found\n",
+        )
+        .expect("write log");
+        let tail = child_log_tail(&path, 12).expect("tail");
+        assert!(tail.contains("corpus-version.json not found"), "{tail}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn child_log_tail_is_bounded_and_drops_a_cut_first_line() {
+        // A child that spewed megabytes must not be read into memory, and the
+        // window will land mid-line — that fragment must not be shown as if
+        // it were a whole message.
+        let dir = scratch("arxmcp-tail-big");
+        let path = dir.join("desktop-child.log");
+        let mut body = "x".repeat(40_000);
+        body.push_str("\nlast-line\n");
+        std::fs::write(&path, &body).expect("write log");
+        let tail = child_log_tail(&path, 3).expect("tail");
+        assert!(tail.len() < 9_000, "tail must stay bounded: {}", tail.len());
+        assert!(tail.contains("last-line"), "{tail}");
+        assert!(!tail.starts_with('x'), "the cut first line must be dropped");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn child_log_tail_is_none_when_there_is_nothing_to_show() {
+        let dir = scratch("arxmcp-tail-empty");
+        let missing = dir.join("absent.log");
+        assert!(child_log_tail(&missing, 5).is_none());
+        let empty = dir.join("empty.log");
+        std::fs::write(&empty, "").expect("write log");
+        assert!(child_log_tail(&empty, 5).is_none());
+        let blank = dir.join("blank.log");
+        std::fs::write(&blank, "\n\n   \n").expect("write log");
+        assert!(child_log_tail(&blank, 5).is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn child_log_tail_redacts_hex_even_though_the_relay_already_did() {
+        // Defence in depth: this display path must not depend on the #438
+        // relay having scrubbed correctly.
+        let dir = scratch("arxmcp-tail-hex");
+        let path = dir.join("desktop-child.log");
+        let token = "13f7e5bc3420046bd0d28be56d0e24a5eae57989d91bbf6e6470bff75b08fd4d";
+        std::fs::write(&path, format!("leaked {token}\n")).expect("write log");
+        let tail = child_log_tail(&path, 5).expect("tail");
+        assert!(!tail.contains(token), "{tail}");
+        assert!(tail.contains("[REDACTED-HEX]"), "{tail}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     // ---- issue #442: a never-bound child does not get the grace ----------
 
