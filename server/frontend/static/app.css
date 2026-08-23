@@ -258,6 +258,11 @@ tbody tr:hover { background: color-mix(in oklab, var(--card-bg) 95%, var(--fg));
    the challenger's UPL-19 v0/v1 split (the wider clamp ships in v1). */
 .table-wrap { overflow-x: auto; }
 
+/* #454/#455: a filesystem path or an unbroken topic token must WRAP, not push
+   the whole page sideways. overflow-wrap:anywhere breaks mid-token only when
+   there is no other break opportunity, so ordinary prose is unaffected. */
+dl.meta dd, dl.meta dd code, .topic-description { overflow-wrap: anywhere; }
+
 /* ui-uplift-m10 (UPL-9): the Discover panel — the one surface presenting
    externally-sourced content for an operator decision. Anatomy is discovery
    H3's five authored rules (current-state-critic-brief.md:130-136) carried

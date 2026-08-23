@@ -2516,11 +2516,23 @@ def _ingest_status_fragment(
     # Run #42") and the whole region should be re-read when it does change.
     safe_slug = html.escape(slug)
     if status == "none":
+        # #457: `none` polled every 2s FOREVER — ~43,000 requests/day from a
+        # desktop window left open on a notebook nobody has ingested, each one
+        # re-rendering this fragment. The in-app path does not need it at all:
+        # clicking Ingest swaps this element straight to `running`, which does
+        # poll. What a slow poll still buys is discovery of a run started
+        # OUTSIDE the UI (`make ingest`, tools/notebook_ingest.py) while the
+        # page is open — so this is 60s rather than nothing: ~1,440/day, a 97%
+        # reduction, and an externally-started run still appears within a
+        # minute instead of never.
+        #
+        # #453: transition:false, same reason as the status badge — a poll
+        # must not start a view transition that can collide with another.
         return (
             f'<div id="ingest-status" data-status="none" '
             f'hx-get="/ui/api/notebooks/{safe_slug}/ingest/latest" '
-            f'hx-trigger="every 2s" hx-target="#ingest-status" '
-            f'hx-swap="outerHTML">'
+            f'hx-trigger="every 60s" hx-target="#ingest-status" '
+            f'hx-swap="outerHTML transition:false">'
             f"No ingest runs yet."
             f"</div>" + _state_cue_oob("none")
         )
@@ -2529,7 +2541,9 @@ def _ingest_status_fragment(
             f'<div id="ingest-status" data-status="running" '
             f'hx-get="/ui/api/notebooks/{safe_slug}/ingest/latest" '
             f'hx-trigger="every 2s" hx-target="#ingest-status" '
-            f'hx-swap="outerHTML">'
+            # #453: a running ingest genuinely wants a 2s poll; it just must
+            # not crossfade on every tick.
+            f'hx-swap="outerHTML transition:false">'
             f"Status: <code>running</code>"
             f" · Started <time>{html.escape(started_at or '')}</time>"
             f" · Run #<code>{run_id}</code>"

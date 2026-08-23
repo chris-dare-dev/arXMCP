@@ -245,8 +245,15 @@ class TestThePolledRegionPersists:
         client, db_path = detail_client
         root = _dom(_render(client, db_path, "running"))
         polled = next(n for n in root.walk() if n.attrs.get("id") == POLLED_ID)
-        assert polled.attrs.get("hx-swap") == "outerHTML"
+        # The swap STRATEGY is what this guards; modifiers may be appended.
+        # #453 added `transition:false` so a poll cannot start a view
+        # transition that collides with another and logs an InvalidStateError
+        # every tick — an exact-match assertion here would have blocked that
+        # while claiming to protect the update.
+        swap = polled.attrs.get("hx-swap") or ""
+        assert swap.split()[0] == "outerHTML", swap
         assert polled.attrs.get("hx-target") == f"#{POLLED_ID}"
+        assert polled.attrs.get("hx-trigger"), "the poll trigger must survive"
 
 
 # --- AC#2 — the six empty-at-first-paint error blocks

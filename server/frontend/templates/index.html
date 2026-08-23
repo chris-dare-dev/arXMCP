@@ -35,13 +35,19 @@
     hx-disabled-elt="find button"
     hx-target="#notebooks-tbody"
     hx-swap="beforeend"
-    data-on-success="remove:#notebooks-empty reset"
+    data-on-success="remove:#notebooks-empty reset recount:#notebooks-count"
     data-error-target="create-error"
   >
     <label>
       Slug
       <input type="text" name="slug" required minlength="3" maxlength="64"
-             pattern="[a-z][a-z0-9-]{2,30}" placeholder="bridgeland-stability">
+             {# #452: the hyphen MUST be backslash-escaped. HTML compiles
+                `pattern` with the `v` (unicodeSets) flag, where a bare `-` is
+                "Invalid character in character class" — and a pattern that
+                does not compile is IGNORED, so validation silently does
+                nothing. Measured: both `[a-z0-9-]` and `[-a-z0-9]` fail; only
+                `[a-z0-9\-]` compiles. #}
+             pattern="[a-z][a-z0-9\-]{2,30}" placeholder="bridgeland-stability">
     </label>
     <label>
       Display name (optional)
@@ -86,7 +92,10 @@
 
 {# SECTION — the page's focal content region: the notebook inventory. #}
 <section>
-  <h2>Existing notebooks ({{ notebooks|length }})</h2>
+  {# #450: the count is recomputed from the tbody by ui.js after a
+     successful create (data-on-success="recount:..."). Wrapped in a
+     span so the number can be replaced without touching the label. #}
+  <h2>Existing notebooks (<span id="notebooks-count">{{ notebooks|length }}</span>)</h2>
   {# ui-attractive-polish-m5 (UPL-12 v1): the table+tbody are now
      ALWAYS rendered (no {% if not notebooks %} wrap) so the htmx
      hx-target="#notebooks-tbody" swap target is always present —

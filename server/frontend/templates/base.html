@@ -124,7 +124,14 @@
       <span id="status-live" aria-live="polite" aria-atomic="true">
         <span id="status-badge" class="status-badge"
               hx-get="/ui/status-badge" hx-trigger="load, every 10s"
-              hx-swap="outerHTML">checking…</span>
+              {# #453: transition:false. globalViewTransitions is on for
+                 user-initiated swaps, but a POLL that fires forever will
+                 eventually start a transition while another is still in
+                 flight; startViewTransition then rejects with
+                 InvalidStateError and htmx does not catch it, so a shipped
+                 app logged a console error every few seconds. Polls get no
+                 crossfade — nobody asked for one on a background refresh. #}
+              hx-swap="outerHTML transition:false">checking…</span>
       </span>
     </small>
   </footer>

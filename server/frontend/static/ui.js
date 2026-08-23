@@ -30,6 +30,8 @@
  *       remove:<selector>         -- remove the first document match
  *       remove-closest:<selector> -- remove the nearest matching ancestor
  *       navigate:<url>            -- window.location.href = url
+ *       recount:<selector>        -- write the live row count of the swap
+ *                                    target into that element (#450)
  *
  * Everything is registered once, on <body>, because htmx events bubble.
  * That keeps the handlers alive across swaps: an element htmx injects later
@@ -106,6 +108,9 @@
   /* -------------------------------------------------- success token runner */
 
   function runSuccessTokens(elt) {
+    if (!elt || !elt.getAttribute) {
+      return;
+    }
     var spec = elt.getAttribute("data-on-success");
     if (!spec) {
       return;
@@ -132,8 +137,52 @@
         }
       } else if (name === "navigate" && arg) {
         window.location.href = arg;
+      } else if (name === "recount" && arg) {
+        recount(elt, arg);
       }
     });
+  }
+
+  /* Which element MADE the request.
+   *
+   * This differs by event, and getting it wrong is silent: `htmx:afterRequest`
+   * fires on the requesting element, while `htmx:afterSwap` and
+   * `htmx:afterSettle` fire on the SWAP TARGET. Measured on the create form —
+   * afterSettle arrived with `detail.elt` = TBODY, which carries no
+   * `data-on-success`, so every token silently did nothing.
+   * `detail.requestConfig.elt` is the form in both cases.
+   */
+  function requestingElement(detail) {
+    if (detail && detail.requestConfig && detail.requestConfig.elt) {
+      return detail.requestConfig.elt;
+    }
+    return detail ? detail.elt : null;
+  }
+
+  /* #450: keep a server-rendered count honest after a client-side insert.
+   *
+   * The heading was rendered once with the row count and had no OOB swap, so
+   * it stayed stale until a manual reload while the table below it grew.
+   *
+   * Counted from the DOM rather than incremented: an increment drifts the
+   * moment anything else changes the table (a delete, a failed insert that
+   * still swapped), whereas the rendered rows ARE what the heading claims to
+   * be counting. The empty-state placeholder is excluded because it is a
+   * message, not a notebook.
+   */
+  function recount(elt, targetSelector) {
+    var target = document.querySelector(targetSelector);
+    if (!target) {
+      return;
+    }
+    var container =
+      document.querySelector(elt.getAttribute("hx-target") || "") ||
+      document.getElementById("notebooks-tbody");
+    if (!container) {
+      return;
+    }
+    var rows = container.querySelectorAll("tr:not(#notebooks-empty)");
+    target.textContent = String(rows.length);
   }
 
   /* ------------------------------------------------------------ listeners */
@@ -163,9 +212,31 @@
     if (!evt.detail.successful) {
       return;
     }
-    /* Any successful exchange proves the server is back. */
+    /* Any successful exchange proves the server is back. This half stays on
+     * afterRequest because it depends on the RESPONSE, not on the DOM. */
     setOffline(false);
-    runSuccessTokens(evt.detail.elt);
+  });
+
+  /* #450: the success tokens run on afterSettle, NOT afterRequest.
+   *
+   * afterRequest fires when the response arrives, which can be BEFORE htmx has
+   * inserted the new content. `remove:` and `reset` did not care — they touch
+   * elements that already exist — but `recount:` read the table before the new
+   * row was in it and wrote a count one short. Measured: created a notebook,
+   * heading stayed at 0 while the row was visibly there.
+   *
+   * afterSettle fires after the swap AND the settle delay, so the DOM the
+   * tokens act on is the DOM the user is looking at. It also only fires when a
+   * swap actually happened, which for htmx means a non-error response — so
+   * reaching this handler is itself the success condition. The xhr status is
+   * still checked, because `hx-swap-error` or a future config could swap on a
+   * 4xx and these tokens must never run on a failure.
+   */
+  document.body.addEventListener("htmx:afterSettle", function (evt) {
+    if (evt.detail && evt.detail.successful === false) {
+      return;
+    }
+    runSuccessTokens(requestingElement(evt.detail));
   });
 
   /* ------------------------------------------------ view-transition toggle */

@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{# issue #456: an HTML route must fail as HTML.
+
+   /ui/notebooks/{slug} is reached by CLICKING A LINK, so a stale bookmark or
+   a deleted notebook used to drop the operator onto a raw JSON body —
+   {"detail":"notebook 'x' not found"} — with no styling, no navigation, and
+   no way back except the browser's Back button.
+
+   The 422 case additionally leaked the internal slug regex to an end user.
+   `message` is written for a person; the regex stays in the API's JSON
+   response, where a caller can actually use it. #}
+{% block content %}
+<section>
+  <h2>{{ title }}</h2>
+  <p class="error">{{ message }}</p>
+  <p><a href="/ui/">← Back to notebooks</a></p>
+</section>
+{% endblock %}

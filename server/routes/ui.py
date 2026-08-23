@@ -280,7 +280,7 @@ async def ui_status_badge(request: Request) -> HTMLResponse:
     safe = _html.escape(summary)
     # ui-attractive-polish-m1 (UPL-3): aria-live="polite" + aria-atomic="true"
     # MUST be on the SWAP RESULT (this fragment), not only on the initial
-    # render in base.html. htmx hx-swap="outerHTML" replaces the <span>
+    # render in base.html. htmx hx-swap="outerHTML transition:false" replaces the <span>
     # entirely every 10s — if the new element omits these attributes, screen
     # readers stop announcing badge state changes after the first poll
     # (research-synthesis.md §2 — both Phase-1 researchers flagged this
@@ -289,7 +289,7 @@ async def ui_status_badge(request: Request) -> HTMLResponse:
     # static <small> remediation block with operator-actionable hints
     # naming the failing check + the Make command to heal it. m3
     # synthesis §3 D2 EXPLICITLY rejected <details>/<summary> because
-    # hx-swap="outerHTML" replaces the entire <span> every 10s and
+    # hx-swap="outerHTML transition:false" replaces the entire <span> every 10s and
     # would snap any <details> closed on each poll. A static <small>
     # block visible-when-degraded has no open-state to lose.
     remediation = _build_remediation_block(report, css)
@@ -303,7 +303,7 @@ async def ui_status_badge(request: Request) -> HTMLResponse:
     fragment = (
         f'<span id="status-badge" class="status-badge status-badge--{css}" '
         f'hx-get="/ui/status-badge" hx-trigger="every 10s" '
-        f'hx-swap="outerHTML" title="{safe}">{safe}{remediation}</span>'
+        f'hx-swap="outerHTML transition:false" title="{safe}">{safe}{remediation}</span>'
     )
     return HTMLResponse(content=fragment)
 
@@ -407,6 +407,32 @@ def _remediation_lines_for_checks(checks: object) -> Iterable[str]:
                 break  # one line per check (not per entry)
 
 
+def _html_error(
+    request: Request,
+    *,
+    status_code: int,
+    title: str,
+    message: str,
+) -> HTMLResponse:
+    """Render a styled error page for an HTML route (issue #456).
+
+    Deliberately NOT a global exception handler: the ``/ui/api/*`` routes must
+    keep answering JSON, and a handler keyed on the path prefix or on Accept
+    would be a second place to get that distinction wrong. The two HTML routes
+    are few enough to be explicit.
+
+    ``message`` is written for a person. The internal detail an
+    ``HTTPException`` would have carried — the slug regex, the repr'd slug —
+    stays on the JSON API where a caller can act on it.
+    """
+    return templates.TemplateResponse(
+        request=request,
+        name="error.html",
+        context={"title": title, "message": message},
+        status_code=status_code,
+    )
+
+
 @router.get("/", response_class=HTMLResponse, include_in_schema=False)
 async def ui_index(
     request: Request,
@@ -435,20 +461,39 @@ async def ui_notebook_detail(
     """Per-notebook detail page — paper list + paste form + upload
     card (the "open" link from the landing page).
 
-    404 if the slug doesn't exist; 422 on a malformed slug.
+    404 if the slug doesn't exist; 422 on a malformed slug — both rendered as
+    HTML (issue #456), not as the raw JSON body an ``HTTPException`` produces.
+
+    This is an HTML route reached by CLICKING A LINK, so a stale bookmark or a
+    deleted notebook used to land the operator on
+    ``{"detail":"notebook 'x' not found"}`` with no styling and no way back.
+    The sibling ``/ui/api/*`` routes still raise ``HTTPException`` and still
+    answer JSON — a caller there wants the machine-readable body.
     """
     try:
         validate_slug(slug)
-    except NotebookError as e:
-        raise HTTPException(
+    except NotebookError:
+        # The exception text names the internal slug regex, which is useful to
+        # an API caller and meaningless to someone who mistyped a URL.
+        return _html_error(
+            request,
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=str(e),
-        ) from e
+            title="That is not a valid notebook name",
+            message=(
+                "Notebook names are lowercase letters, digits and hyphens, "
+                "start with a letter, and are 3–31 characters long."
+            ),
+        )
     notebook = await store.get_notebook(slug)
     if notebook is None:
-        raise HTTPException(
+        return _html_error(
+            request,
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"notebook {slug!r} not found",
+            title="Notebook not found",
+            message=(
+                f"There is no notebook called “{slug}”. It may have been "
+                "renamed or deleted."
+            ),
         )
     papers = await store.list_papers(slug)
     # m10 AC #2 — annotate each paper row with on-disk preview existence

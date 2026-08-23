@@ -259,8 +259,16 @@ class TestLatestEndpoint:
         assert r.status_code == 200
         body = r.text
         assert 'data-status="none"' in body
-        # No runs yet — polling should continue (hx-trigger present).
-        assert 'hx-trigger="every 2s"' in body
+        # No runs yet — polling should CONTINUE, which is this test's point
+        # and is unchanged. #457 slowed the idle interval from 2s to 60s:
+        # ~43,000 requests/day from a window left open on a notebook nobody
+        # has ingested, versus ~1,440 that still discover a run started
+        # outside the UI within a minute. The in-app path never needed it —
+        # clicking Ingest swaps this element straight to `running`.
+        assert 'hx-trigger="every 60s"' in body
+        assert 'hx-trigger="every 2s"' not in body, (
+            "the idle state must not poll at the running-state interval"
+        )
 
     def test_latest_404_on_missing_notebook(
         self, client: TestClient,

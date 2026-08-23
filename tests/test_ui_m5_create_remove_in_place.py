@@ -393,7 +393,13 @@ class TestUPL12V1CreateTemplateChanges:
         # (dead under the console's CSP — htmx compiles it with new Function)
         # to a declarative token ui.js acts on. Same two behaviours, asserted
         # by name; tests/test_ui_delegated_listeners.py pins the token set.
-        assert 'data-on-success="remove:#notebooks-empty reset"' in form_attrs
+        # Assert the BEHAVIOURS, not the literal token list — #450 appended
+        # `recount:` and an exact-match assertion would have blocked it.
+        tokens = _re.search(r'data-on-success="([^"]*)"', form_attrs)
+        assert tokens is not None, form_attrs
+        declared = tokens.group(1).split()
+        assert "remove:#notebooks-empty" in declared, declared
+        assert "reset" in declared, declared
         assert "hx-on::" not in form_attrs, (
             "hx-on:: is dead under this CSP (no 'unsafe-eval') — see #431"
         )

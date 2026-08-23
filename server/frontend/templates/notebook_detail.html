@@ -592,7 +592,11 @@
          hx-get="/ui/api/notebooks/{{ notebook.slug }}/ingest/latest"
          hx-trigger="load"
          hx-target="#ingest-status"
-         hx-swap="outerHTML">
+         {# #453: transition:false here too. This fires on `load`, at the same
+            moment the footer status badge does, and two startViewTransition
+            calls overlapping is exactly the InvalidStateError. Silencing the
+            polls alone left one error per page load. #}
+         hx-swap="outerHTML transition:false">
       Loading ingest status…
     </div>
   </div>
