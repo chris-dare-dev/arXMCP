@@ -640,9 +640,11 @@ class Resources:
                     "marker=%d actual=%d direction=%s tolerance=%.3f. "
                     "Serving anyway (retrieval unaffected); /readyz will "
                     "report degraded(reason=chunk_count_diverged). Heal it "
-                    "with `make reconcile` (shared corpus) or "
-                    "`make reconcile NOTEBOOK=<slug>`; a full re-ingest is "
-                    "NOT required to fix a marker.",
+                    "with `make reconcile NOTEBOOK=<slug>`, or for a corpus "
+                    "at a non-default index path (lancedb-staging, "
+                    "lancedb-mathag): `uv run python -m "
+                    "tools.notebook_reconcile_marker --lancedb-path <dir>`. "
+                    "A full re-ingest is NOT required to fix a marker.",
                     corpus_info.chunk_count,
                     startup_chunk_count,
                     direction,
@@ -1104,8 +1106,9 @@ class Resources:
                         "actual=%d direction=%s tolerance=%.3f. Serving "
                         "anyway (retrieval unaffected); /readyz will report "
                         "degraded(reason=chunk_count_diverged). Heal it with "
-                        "`make reconcile` (shared corpus) or "
-                        "`make reconcile NOTEBOOK=<slug>`.",
+                        "`make reconcile NOTEBOOK=<slug>`, or "
+                        "`tools.notebook_reconcile_marker --lancedb-path "
+                        "<dir>` for a non-default index path.",
                         caller,
                         corpus_info.chunk_count,
                         startup_chunk_count,

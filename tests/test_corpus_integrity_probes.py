@@ -174,14 +174,39 @@ def test_divergence_advice_no_longer_demands_a_reingest() -> None:
 
 
 def test_the_reconcile_remedy_actually_exists() -> None:
-    """The advice must point at something real."""
+    """The advice must point at something real, AND reachable.
+
+    First cut of this fix named `make reconcile` (shared) — which turned out
+    to be unreachable for the corpus that actually drifts. Its `--shared`
+    path is hardcoded to ``var/arxmcp/index/lancedb``, an empty directory on
+    this machine, while the stale marker lived at ``index/lancedb-staging``,
+    which neither a slug nor --shared can address. Advice that names a
+    command which cannot run is no better than advice that costs hours.
+    """
     tool = REPO_ROOT / "tools" / "notebook_reconcile_marker.py"
     assert tool.is_file(), "the advice names a tool that must exist"
     text = tool.read_text(encoding="utf-8")
-    assert "--shared" in text, (
-        "the shared-corpus form is what `make reconcile` with no NOTEBOOK= "
-        "uses, and the warning points operators at it"
+    assert "--lancedb-path" in text, (
+        "a corpus at a non-default index path (lancedb-staging, "
+        "lancedb-mathag) must be reachable, or the remedy is unreachable "
+        "for exactly the corpora that drift (#429)"
     )
+
+
+def test_the_divergence_advice_names_the_reachable_form() -> None:
+    """Both warnings must offer the path form, not only the slug form."""
+    assert RESOURCES_PY.count("--lancedb-path") >= 2, (
+        "both divergence sites must name the form that reaches a "
+        "non-default index path"
+    )
+
+
+def test_reconcile_selectors_are_mutually_exclusive() -> None:
+    """Three ways to name a corpus; exactly one at a time."""
+    from tools.notebook_reconcile_marker import main
+
+    assert main(["--shared", "--lancedb-path", "/tmp/nope"]) == 1
+    assert main([]) == 1
 
 
 # ---------------------------------------------------------------------------

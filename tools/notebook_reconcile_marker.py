@@ -17,6 +17,11 @@ Usage:
 
     uv run python -m tools.notebook_reconcile_marker <slug>
     uv run python -m tools.notebook_reconcile_marker --shared
+    uv run python -m tools.notebook_reconcile_marker --lancedb-path <dir>
+
+The third form (issue #429) reaches a corpus at a non-default index path —
+``var/arxmcp/index/lancedb-staging``, ``index/lancedb-mathag`` — which
+neither a slug nor ``--shared`` can address.
 
 Exit codes:
     0 — recount completed (drift may be zero on idempotent re-run)
@@ -165,26 +170,44 @@ def _build_arg_parser() -> argparse.ArgumentParser:
             "a per-notebook one. Mutually exclusive with a slug arg."
         ),
     )
+    parser.add_argument(
+        "--lancedb-path",
+        default=None,
+        metavar="PATH",
+        help=(
+            "Reconcile the corpus at an ARBITRARY LanceDB path (issue #429). "
+            "Neither a notebook slug nor --shared can reach a corpus at a "
+            "non-default index path such as var/arxmcp/index/lancedb-staging "
+            "or index/lancedb-mathag, so the divergence warning's remedy was "
+            "unreachable for exactly those. Mutually exclusive with both."
+        ),
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _build_arg_parser().parse_args(argv)
 
-    if args.shared and args.slug:
+    selectors = [bool(args.slug), bool(args.shared), bool(args.lancedb_path)]
+    if sum(selectors) > 1:
         print(
-            "ERROR: --shared is mutually exclusive with a slug argument",
+            "ERROR: pass exactly one of a slug, --shared, or --lancedb-path",
             file=sys.stderr,
         )
         return 1
-    if not args.shared and not args.slug:
+    if not any(selectors):
         print(
             "ERROR: pass a slug (e.g. "
-            "`python -m tools.notebook_reconcile_marker shimura-varieties`) "
-            "or --shared for the global corpus",
+            "`python -m tools.notebook_reconcile_marker shimura-varieties`), "
+            "--shared for the global corpus, or --lancedb-path <dir> for a "
+            "corpus at a non-default index path",
             file=sys.stderr,
         )
         return 1
+
+    if args.lancedb_path:
+        path = Path(args.lancedb_path)
+        return _reconcile_one(path, label=path.name)
 
     if args.shared:
         return _reconcile_one(_SHARED_LANCEDB_PATH, label="shared")
