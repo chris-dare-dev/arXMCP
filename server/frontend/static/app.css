@@ -405,6 +405,10 @@ input[name="slug"], input[name="paper_id"], input[name="arxiv_url"] {
   padding: 0; margin: 0; min-height: 0; background: none;
 }
 
+/* issue #433: server-unreachable banner — reuses .error's themed surface. */
+.connection-lost { margin: 0 0 1rem 0; }
+.connection-lost[hidden] { display: none; }
+
 /* notebook-ops-hardening-m4: live operability badge in the footer.
    Polls /ui/status-badge every 10s; the fragment sets the modifier class. */
 /* ui-uplift-m7 rectify (critique M3/M12): ui.py:336 nests a <small> in the

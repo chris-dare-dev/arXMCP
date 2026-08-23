@@ -44,6 +44,8 @@ STATIC: Path = FRONTEND / "static"
 
 BASE_HTML: str = (TEMPLATES / "base.html").read_text(encoding="utf-8")
 INDEX_HTML: str = (TEMPLATES / "index.html").read_text(encoding="utf-8")
+#: #431: the console's behaviour moved out of base.html into this file.
+UI_JS: str = (STATIC / "ui.js").read_text(encoding="utf-8")
 DETAIL_HTML: str = (TEMPLATES / "notebook_detail.html").read_text(encoding="utf-8")
 
 
@@ -245,29 +247,41 @@ class TestPerFormHxExt:
 
 class TestViewTransitionsOrdering:
     def test_assignment_present(self) -> None:
-        assert "htmx.config.globalViewTransitions =" in BASE_CODE
+        # MOVED 2026-08-22 (#431): this code left base.html's inline
+        # <script> for server/frontend/static/ui.js. The property this
+        # guard protects is unchanged and still asserted — only its
+        # home moved, because the console now ships NO inline script
+        # (htmx's hx-on:: needs 'unsafe-eval', which the CSP withholds).
+        assert "htmx.config.globalViewTransitions =" in UI_JS
 
     def test_reduced_motion_preference_is_re_read_on_change(self) -> None:
         # 2026q3-ui-uplift UPL-22: the preference must be re-read on `change`,
         # not sampled once at DOMContentLoaded. See the twin guard in
         # tests/test_ui_m4_in_place_add_paper.py.
-        assert "addEventListener('change'" in BASE_CODE.replace('"', "'")
+        # MOVED 2026-08-22 (#431): this code left base.html's inline
+        # <script> for server/frontend/static/ui.js. The property this
+        # guard protects is unchanged and still asserted — only its
+        # home moved, because the console now ships NO inline script
+        # (htmx's hx-on:: needs 'unsafe-eval', which the CSP withholds).
+        assert "addEventListener('change'" in UI_JS.replace('"', "'")
 
     def test_assignment_in_domcontentloaded_not_inline_defer(self) -> None:
-        # Run against comment-stripped code so the explanatory comment (which
-        # quotes the assignment to describe the OLD bug) does not shift the
-        # located index into a comment region.
-        idx = BASE_CODE.index("htmx.config.globalViewTransitions =")
-        script_open = BASE_CODE.rfind("<script", 0, idx)
-        assert script_open != -1
-        opener = BASE_CODE[script_open : BASE_CODE.index(">", script_open) + 1]
-        assert "defer" not in opener, (
-            "globalViewTransitions must not be in an inline <script defer> "
-            "block — defer is a no-op on inline scripts (Bug 2)"
+        # MOVED 2026-08-22 (#431): this code left base.html's inline
+        # <script> for server/frontend/static/ui.js. The property this
+        # guard protects is unchanged and still asserted — only its
+        # home moved, because the console now ships NO inline script
+        # (htmx's hx-on:: needs 'unsafe-eval', which the CSP withholds).
+        # Bug 2 was an INLINE <script defer>, where `defer` does nothing.
+        # ui.js is EXTERNAL, where it works. So the guard is now: the flag is
+        # NOT in base.html, and it IS inside a DOMContentLoaded handler.
+        assert "htmx.config.globalViewTransitions =" not in BASE_CODE, (
+            "an inline copy in base.html re-introduces the Bug-2 ordering "
+            "hazard; the flag belongs in ui.js"
         )
-        body = BASE_CODE[script_open : BASE_CODE.index("</script>", idx)]
-        assert "DOMContentLoaded" in body
-        assert "prefers-reduced-motion" in body
+        assert "DOMContentLoaded" in UI_JS, (
+            "globalViewTransitions must be set inside a DOMContentLoaded "
+            "handler so htmx is defined when it runs (Bug 2)"
+        )
 
 
 # ---------------------------------------------------------------------------

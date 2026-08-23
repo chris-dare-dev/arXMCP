@@ -389,7 +389,14 @@ class TestUPL12V1CreateTemplateChanges:
         form_attrs = m.group(0)
         assert 'hx-target="#notebooks-tbody"' in form_attrs
         assert 'hx-swap="beforeend"' in form_attrs
-        assert "this.reset()" in form_attrs
+        # #431: the success hook moved from an inline hx-on::after-request
+        # (dead under the console's CSP — htmx compiles it with new Function)
+        # to a declarative token ui.js acts on. Same two behaviours, asserted
+        # by name; tests/test_ui_delegated_listeners.py pins the token set.
+        assert 'data-on-success="remove:#notebooks-empty reset"' in form_attrs
+        assert "hx-on::" not in form_attrs, (
+            "hx-on:: is dead under this CSP (no 'unsafe-eval') — see #431"
+        )
         # m1 UPL-3 / Spike-2 #8: m3-era hx-disabled-elt preserved.
         assert 'hx-disabled-elt="find button"' in form_attrs
         # No location.reload on the create form.
@@ -508,9 +515,14 @@ class TestUPL12V1DeleteTemplateChanges:
         # closest-tr would silently no-op.
         idx = NOTEBOOK_DETAIL_HTML.index('class="notebook-actions"')
         block = NOTEBOOK_DETAIL_HTML[idx : idx + 800]
-        assert "window.location.href" in block
+        # #431: the navigation moved from an inline hx-on::after-request to
+        # the declarative `navigate:` token. The Spike-2 C6 property this
+        # guards is unchanged — this button navigates and must NOT use the
+        # closest-tr removal that the in-<tr> buttons use.
+        assert 'data-on-success="navigate:/ui/"' in block
         # Critical negative regression: must NOT have closest tr.
         assert "closest tr" not in block
+        assert "remove-closest:tr" not in block
 
     def test_index_no_legacy_location_reload_on_remove_button(self) -> None:
         # Belt-and-braces: zero `location.reload` calls survive in
@@ -771,8 +783,9 @@ class TestM4F3FormReset:
         )
         assert m is not None
         form_attrs = m.group(0)
-        # The this.reset() hook is present.
-        assert "this.reset()" in form_attrs
+        # The reset hook is present. #431 moved it from an inline
+        # hx-on::after-request to the declarative token ui.js acts on.
+        assert 'data-on-success="reset"' in form_attrs
         # m4 negative regression: location.reload still absent.
         assert "location.reload" not in form_attrs
 
@@ -858,6 +871,11 @@ class TestCrossMilestoneSafety:
         # `main >`'s direct-child combinator no longer reaches. Merits argued
         # on the m3 cap test. No absolute line count here (m12 M3/L3) —
         # this read "file lands at 635" while it was 627.
-        assert line_count <= 680, (
-            f"app.css is {line_count} lines — over the 680-line cap"
+        # issues #431/#433 (2026-08-22): 680 -> 690, in lockstep. The
+        # server-unreachable banner is a genuinely new component, and it
+        # was already minimised to three lines by reusing .error's surface
+        # rather than defining a second themed box (m8's rule ladder
+        # forbids the border + radius a standalone banner would want).
+        assert line_count <= 690, (
+            f"app.css is {line_count} lines — over the 690-line cap"
         )

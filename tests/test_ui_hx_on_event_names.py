@@ -34,8 +34,6 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-import pytest
-
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
 FRONTEND: Path = REPO_ROOT / "server" / "frontend"
 HTMX_JS: str = (FRONTEND / "static" / "htmx.min.js").read_text(encoding="utf-8")
@@ -140,36 +138,57 @@ def test_the_vocabulary_is_derived_and_non_trivial() -> None:
         assert expected in vocab, f"{expected!r} missing from the derived vocabulary"
 
 
-def test_there_are_hx_on_attributes_to_check() -> None:
-    """Vacuity guard: this whole module passes trivially on zero attributes."""
-    assert authored_hx_on_attributes(), "no hx-on attributes found — regex broke"
+def test_no_hx_on_attributes_remain() -> None:
+    """The console must author ZERO ``hx-on`` attributes. Inverted 2026-08-22.
 
+    This guard used to assert the opposite — that attributes existed to check —
+    because #383 had left eleven of them in place and the module's whole job was
+    keeping their event names honest.
 
-@pytest.mark.parametrize(
-    ("path", "attr"),
-    authored_hx_on_attributes(),
-    ids=lambda v: v.name if isinstance(v, Path) else v,
-)
-def test_every_hx_on_binds_a_real_htmx_event(path: Path, attr: str) -> None:
-    """arXMCP#383's regression.
+    Then the chaos run (#431) measured what #383 could not: htmx compiles an
+    ``hx-on`` body with ``new Function()``, and this console's own CSP
+    (``CONTENT_SECURITY_POLICY_UI``, ``server/middleware.py``) grants
+    ``script-src 'self' 'unsafe-inline'`` and withholds ``'unsafe-eval'``. So
+    every one of those attributes threw ``EvalError`` at parse time and did
+    nothing — a SECOND, independent reason they never fired, still live after
+    #383 fixed the first one.
 
-    An ``hx-on`` naming an htmx event must name one htmx dispatches. Plain DOM
-    events (``hx-on:click``) are out of scope — they are not ``htmx:``-prefixed
-    and the browser owns that vocabulary.
+    An ``hx-on`` attribute in this console is therefore dead on arrival by
+    construction, not by mistake. Behaviour belongs in
+    ``server/frontend/static/ui.js``, which ``script-src 'self'`` already
+    admits; templates declare intent via ``data-error-target`` /
+    ``data-on-success`` and ``tests/test_ui_delegated_listeners.py`` pins that
+    contract. The normaliser guards below stay: they still protect anyone who
+    reaches for ``hx-on`` again, and they document why it cannot work.
     """
-    event = normalise(attr)
-    assert event is not None, f"{path.name}: {attr!r} is not a valid hx-on form"
-    if not event.startswith("htmx:"):
-        return  # a plain DOM event; the browser's vocabulary, not htmx's
-    vocab = htmx_event_vocabulary()
-    assert event in vocab, (
-        f"{path.name}: {attr!r} binds {event!r}, which the vendored htmx never "
-        f"dispatches.\n"
-        f"`::` ALREADY expands to `htmx:` — writing `hx-on::htmx:X` doubles the "
-        f"prefix and yields `htmx:htmx:X`. Use `hx-on::X`.\n"
-        f"This is arXMCP#383: twelve attributes shipped this way and every "
-        f"error surface in /ui/ stayed silent for months."
+    offenders = authored_hx_on_attributes()
+    assert not offenders, (
+        "hx-on attributes are dead under this console's CSP (no 'unsafe-eval'); "
+        "htmx compiles them with new Function(). Put the behaviour in "
+        "server/frontend/static/ui.js and declare intent with "
+        "data-error-target / data-on-success instead. Offenders:\n"
+        + "\n".join(f"  {path.name}: {attr}" for path, attr in offenders)
     )
+
+
+def test_every_hx_on_binds_a_real_htmx_event() -> None:
+    """Kept as a re-addition guard. Vacuous while the console authors none.
+
+    Was parametrized over the authored attributes; at zero attributes that
+    collects an EMPTY parameter set, which pytest reports as a skip. A skip
+    reads as "not checked" and would be counted against the zero-skip gates,
+    so this is a loop: it passes honestly at zero and still fails loudly if
+    someone re-adds an attribute bound to an event htmx never dispatches.
+    """
+    vocab = htmx_event_vocabulary()
+    bad: list[str] = []
+    for path, attr in authored_hx_on_attributes():
+        event = normalise(attr)
+        if event is None:
+            bad.append(f"{path.name}: {attr!r} is not a valid hx-on form")
+        elif event not in vocab:
+            bad.append(f"{path.name}: {attr!r} -> {event!r}, which htmx never fires")
+    assert not bad, "\n".join(bad)
 
 
 def test_no_attribute_uses_the_doubled_prefix() -> None:

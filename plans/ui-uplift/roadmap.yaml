@@ -208,7 +208,7 @@ items:
       - "Given an operator flips the OS reduced-motion setting mid-session, when the next htmx swap occurs, then View Transitions state matches the new preference without a page reload"
       - "Given the guard test suite, when it runs, then it asserts a 'change' listener exists so the fix cannot silently regress"
     links:
-      code: ['server/frontend/templates/base.html#matchMedia']
+      code: ['server/frontend/static/ui.js#matchMedia']
 
   - id: ui-uplift-m3
     kind: milestone
@@ -609,6 +609,10 @@ items:
       call each: zero vendored bytes, zero upstream-provenance questions, keeps textContent
       semantics and therefore the no-new-XSS-surface claim, and requires no server response
       contract change.
+      LANDED EARLY, 2026-08-22, as a side effect of the #431 CSP fix: the seven sites became
+      ZERO inline attributes (not one call each), all handled by one delegated listener in
+      server/frontend/static/ui.js. All three acceptance criteria are met and pinned by
+      tests/test_ui_delegated_listeners.py. Left open for an owner to verify and close.
     parent: ui-uplift-e4
     lane: later
     priority: could
@@ -620,7 +624,7 @@ items:
       - "Given the helper, then it writes via textContent, not innerHTML"
       - "Given the /ui/api endpoints, then their 4xx/5xx response contract is UNCHANGED"
     links:
-      code: ['server/frontend/static/json-enc.js', 'server/frontend/templates/notebook_detail.html#JSON.parse']
+      code: ['server/frontend/static/json-enc.js', 'server/frontend/static/ui.js#JSON.parse']
 
   - id: ui-uplift-m19
     kind: milestone

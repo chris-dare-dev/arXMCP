@@ -50,6 +50,8 @@ FRONTEND_TEMPLATES: Path = REPO_ROOT / "server" / "frontend" / "templates"
 APP_CSS: str = (FRONTEND_STATIC / "app.css").read_text(encoding="utf-8")
 APP_CSS_NO_COMMENTS: str = _re.sub(r"/\*.*?\*/", "", APP_CSS, flags=_re.S)
 BASE_HTML: str = (FRONTEND_TEMPLATES / "base.html").read_text(encoding="utf-8")
+#: #431: the console's behaviour moved out of base.html into this file.
+UI_JS: str = (FRONTEND_STATIC / "ui.js").read_text(encoding="utf-8")
 NOTEBOOK_DETAIL_HTML: str = (
     FRONTEND_TEMPLATES / "notebook_detail.html"
 ).read_text(encoding="utf-8")
@@ -456,8 +458,12 @@ class TestUPL13GlobalViewTransitions:
         # base.html's explanatory comment QUOTES the old assignment to describe
         # the original bug, so an un-stripped `in BASE_HTML` check would pass
         # on the prose even if the real code were deleted.
-        base_code = _re.sub(r"<!--.*?-->", "", BASE_HTML, flags=_re.S)
-        assert "htmx.config.globalViewTransitions =" in base_code
+        # MOVED 2026-08-22 (#431): this code left base.html's inline
+        # <script> for server/frontend/static/ui.js. The property this
+        # guard protects is unchanged and still asserted — only its home
+        # moved, because the console now ships NO inline script (htmx's
+        # hx-on:: needs 'unsafe-eval', which this CSP withholds).
+        assert "htmx.config.globalViewTransitions =" in UI_JS
 
     def test_global_view_transitions_runs_after_load_not_in_inline_defer(
         self,
@@ -470,22 +476,20 @@ class TestUPL13GlobalViewTransitions:
         # assignment to describe the old bug and would otherwise shift `idx`
         # into a comment region (whose nearest preceding <script ...> is the
         # external deferred json-enc tag).
+        # MOVED 2026-08-22 (#431): this code left base.html's inline
+        # <script> for server/frontend/static/ui.js. The property this
+        # guard protects is unchanged and still asserted — only its home
+        # moved, because the console now ships NO inline script (htmx's
+        # hx-on:: needs 'unsafe-eval', which this CSP withholds).
+        # Bug 2 was an INLINE <script defer>, where `defer` is a no-op.
+        # ui.js is EXTERNAL, where `defer` works — so the inline check becomes
+        # "no inline copy exists", and the load-order property is unchanged.
         base_code = _re.sub(r"<!--.*?-->", "", BASE_HTML, flags=_re.S)
-        idx = base_code.index("htmx.config.globalViewTransitions =")
-        # Walk back to the enclosing <script ...> opener.
-        script_open = base_code.rfind("<script", 0, idx)
-        assert script_open != -1, "expected an enclosing <script> block"
-        opener = base_code[script_open : base_code.index(">", script_open) + 1]
-        # The enclosing script must NOT be an inline `defer` block, and must
-        # NOT be an external src= script (the flag is real inline JS).
-        assert "defer" not in opener, (
-            "ui-htmx-json-fix-m1 regression: globalViewTransitions is back "
-            "inside an inline <script defer> — `defer` is ignored on inline "
-            "scripts so htmx is undefined at parse time. Use DOMContentLoaded."
+        assert "htmx.config.globalViewTransitions =" not in base_code, (
+            "an inline copy in base.html re-introduces the Bug-2 ordering "
+            "hazard; the flag belongs in ui.js"
         )
-        # The assignment must sit inside a DOMContentLoaded listener so it
-        # runs after the deferred htmx.min.js has executed.
-        script_body = base_code[script_open : base_code.index("</script>", idx)]
+        script_body = UI_JS
         assert "DOMContentLoaded" in script_body, (
             "ui-htmx-json-fix-m1: globalViewTransitions must be set inside a "
             "DOMContentLoaded handler so htmx is defined when it runs."
@@ -503,10 +507,12 @@ class TestUPL13GlobalViewTransitions:
         # their OS reduced-motion setting mid-session kept View Transitions
         # until a full page reload. The MediaQueryList must carry a
         # `change` listener, not just be sampled once at DOMContentLoaded.
-        base_code = _re.sub(r"<!--.*?-->", "", BASE_HTML, flags=_re.S)
-        idx = base_code.index("htmx.config.globalViewTransitions =")
-        script_open = base_code.rfind("<script", 0, idx)
-        script_body = base_code[script_open : base_code.index("</script>", idx)]
+        # MOVED 2026-08-22 (#431): this code left base.html's inline
+        # <script> for server/frontend/static/ui.js. The property this
+        # guard protects is unchanged and still asserted — only its home
+        # moved, because the console now ships NO inline script (htmx's
+        # hx-on:: needs 'unsafe-eval', which this CSP withholds).
+        script_body = UI_JS
         assert "addEventListener('change'" in script_body.replace('"', "'"), (
             "UPL-22 regression: the prefers-reduced-motion MediaQueryList is "
             "sampled once and never re-read. Register a 'change' listener so "
@@ -744,10 +750,15 @@ class TestCrossMilestoneSafety:
         # merits are argued at length on the m3 cap test. NO absolute line
         # count is recorded here (m12 M3/L3): this said "the file lands at
         # 635 of 680" while it was 627, and `line_count` above is live.
-        assert line_count <= 680, (
-            f"app.css is {line_count} lines — over the 680-line cap (revised "
+        # issues #431/#433 (2026-08-22): 680 -> 690, in lockstep. The
+        # server-unreachable banner is a genuinely new component, already
+        # minimised to three lines by reusing .error's surface rather than
+        # defining a second themed box (m8's rule ladder forbids the
+        # border + radius a standalone banner would want).
+        assert line_count <= 690, (
+            f"app.css is {line_count} lines — over the 690-line cap (revised "
             f"by m6 400->480, then m7 480->520, then m10 520->600, then m12 "
-            f"600->680 — see the "
+            f"600->680, then #431/#433: 680->690 — see the "
             f"raise history above). "
             f"Consider stripping documentation comments, splitting the file "
             f"(e.g. tokens.css + app.css), or arguing for another revision. "

@@ -48,38 +48,31 @@
        so multipart uploads (hx-encoding) and bodyless DELETE controls are left
        untouched. Loaded deferred AFTER htmx so htmx.defineExtension exists. -->
   <script src="/ui/static/json-enc.js" defer></script>
-  <!-- ui-htmx-json-fix-m1: enable htmx's native View Transitions AFTER htmx is
-       loaded. The previous code set htmx.config.globalViewTransitions = true in
-       an inline <script defer> — but `defer` is IGNORED on inline scripts
-       (it applies only to external scripts), so that line ran at parse time,
-       before the deferred htmx.min.js had loaded; htmx was undefined and the
-       assignment threw and never took effect. A DOMContentLoaded handler fires
-       AFTER deferred scripts execute, so htmx is defined here. Gated on
-       prefers-reduced-motion so motion-averse operators keep instant swaps
-       (the crossfade is suppressed, not just shortened).
-
-       2026q3-ui-uplift UPL-22: the preference is now re-read on `change`, not
-       only once at DOMContentLoaded. The three CSS gates (app.css:314, :418,
-       :445 — the reduce block plus the two no-preference blocks; ui-uplift-m7
-       re-derived these line numbers, which had been stale since the m6 token
-       family landed) re-evaluate continuously because @media does; this single
-       JS read did not, so an operator who flipped their OS reduced-motion
-       setting mid-session kept view transitions until a full page reload. -->
-  <script>
-    document.addEventListener('DOMContentLoaded', function () {
-      if (typeof htmx === 'undefined') { return; }
-      var mq = window.matchMedia('(prefers-reduced-motion: reduce)');
-      var apply = function () { htmx.config.globalViewTransitions = !mq.matches; };
-      apply();
-      mq.addEventListener('change', apply);
-    });
-  </script>
+  <!-- issues #431/#432/#433: the console's behaviour lives in ONE external
+       script. It cannot be inline and it cannot use hx-on:: attributes, because
+       CONTENT_SECURITY_POLICY_UI (server/middleware.py) withholds
+       'unsafe-eval' and htmx compiles hx-on:: bodies with new Function().
+       script-src 'self' already admits this file. It also absorbs the former
+       inline view-transition toggle, so the console now ships no inline
+       script at all -- the precondition #483 needs to drop 'unsafe-inline'.
+       Loaded with defer AFTER htmx so htmx is defined when it runs. -->
+  <script src="/ui/static/ui.js" defer></script>
 </head>
 <body>
   {# ui-attractive-polish-m1 (UPL-4): skip-to-main-content link.
      WCAG SC 2.4.1 (Level A) — keyboard users bypass the header on first Tab.
      Visually hidden until :focus-visible (see .skip-link in app.css);
      activation moves keyboard focus into <main id="main" tabindex="-1">. #}
+  {# issue #433: the backend can die while this page is open. htmx fires
+     htmx:sendError (NOT htmx:responseError) when the connection is refused,
+     so no response-error handler could ever have caught it. ui.js unhides
+     this on sendError and re-hides it on the next successful request.
+     role="alert" announces it on unhide; `hidden` keeps it out of the
+     accessibility tree and the layout until it matters. Carries .error so it
+     reuses that surface rather than adding a second themed box (m8's rule
+     ladder forbids the border/radius a standalone banner would want). ONE
+     LINE of text on purpose: .error is `white-space: pre-wrap`. #}
+  <div id="connection-lost" class="error connection-lost" role="alert" hidden>Cannot reach the arXMCP server. It may have stopped &mdash; check that it is still running, then reload this page.</div>
   <a class="skip-link" href="#main">Skip to main content</a>
   <header>
     <h1><a href="/ui/">arXMCP notebooks</a></h1>

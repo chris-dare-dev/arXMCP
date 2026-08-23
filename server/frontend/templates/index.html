@@ -35,8 +35,8 @@
     hx-disabled-elt="find button"
     hx-target="#notebooks-tbody"
     hx-swap="beforeend"
-    hx-on::after-request="if(event.detail.successful){document.getElementById('notebooks-empty')?.remove();this.reset();}"
-    hx-on::response-error="document.getElementById('create-error').textContent = (function(t){try{return JSON.parse(t).detail||t;}catch(e){return t;}})(event.detail.xhr.responseText)"
+    data-on-success="remove:#notebooks-empty reset"
+    data-error-target="create-error"
   >
     <label>
       Slug

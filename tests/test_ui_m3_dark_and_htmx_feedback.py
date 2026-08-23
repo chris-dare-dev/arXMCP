@@ -660,11 +660,18 @@ class TestCrossMilestoneSafety:
         # is the live count and the failure message reports it. A guard below
         # asserts these three comments carry no absolute count at all, so the
         # recurrence cannot start again.
-        assert line_count <= 680, (
-            f"app.css is {line_count} lines — over the 680-line cap "
+        # issues #431/#433 (2026-08-22): 680 -> 690, in lockstep. The
+        # server-unreachable banner is a genuinely new component, and it
+        # was already minimised to three lines by reusing .error's surface
+        # rather than defining a second themed box (m8's rule ladder
+        # forbids the border + radius a standalone banner would want).
+        assert line_count <= 690, (
+            f"app.css is {line_count} lines — over the 690-line cap "
             f"(m6: 400->480 for the OKLCH family; m7: 480->520 for the two-voice "
             f"type scale; m10: 520->600 for the Discover "
-            f"bibliography rules; m12: 600->680 for the Manage disclosure and the "
+            f"bibliography rules; m12: 600->680 for the Manage disclosure and "
+            f"the nested rule ladder; #431/#433: 680->690 for the "
+            f"server-unreachable banner "
             f"nested rule ladder — see the raise history above). Consider stripping "
             f"documentation comments, splitting the file (e.g. tokens.css + "
             f"app.css per the escape-hatch noted in KR5), or arguing for "
