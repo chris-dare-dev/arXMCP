@@ -660,6 +660,94 @@ class Resources:
                     original_version=corpus_info.version,
                 )
 
+        # 2b-ii. Marker fields the chunk_count check never looked at
+        # (issues #447, #448). Ordered by severity, and only the FIRST match
+        # sets `degraded` — a single DegradedState can carry one reason, so the
+        # one that changes ANSWERS must win over the one that changes a number.
+
+        # #448: the embedder pin. A corpus stamped with a different embedder is
+        # served against this model's query vectors with no warning at all —
+        # the classic silently-wrong-results shape. It is silent precisely
+        # because it looks fine: score is (1 + cos) / 2, so a mismatched vector
+        # space still returns a FULL ranked list, clustered around the 0.5
+        # neutral midpoint rather than empty. Config already carries this
+        # discipline for the RERANKER (`rerank_model_sha`, "the startup drift
+        # check + the audit trail"); the embedder simply never got it.
+        from ingest.embedder import EMBEDDER_VERSION  # noqa: PLC0415
+
+        if corpus_info.embedder_version != EMBEDDER_VERSION:
+            logger.warning(
+                "Resources.startup: corpus EMBEDDER MISMATCH — marker=%s "
+                "loaded=%s. Retrieval will return a full ranked list built "
+                "from an INCOMPATIBLE vector space; scores cluster near the "
+                "0.5 neutral midpoint rather than failing, so this does not "
+                "look broken. Re-embed the corpus (`make re-embed-all`) or "
+                "serve it with the embedder it was built with. /readyz will "
+                "report degraded(reason=embedder_version_mismatch).",
+                corpus_info.embedder_version,
+                EMBEDDER_VERSION,
+            )
+            degraded = DegradedState(
+                reason="embedder_version_mismatch",
+                fallback_version=corpus_info.version,
+                original_version=corpus_info.version,
+            )
+
+        # #447: paper_count, the symmetric check chunk_count always had.
+        # Non-fatal and best-effort for the same reason count_rows() is
+        # (FM-2): a marker cross-check must never be the thing that stops a
+        # server from serving. Unlike count_rows this is an O(N) scan of ONE
+        # column, so it is skipped when the table is large enough for that to
+        # matter at boot — an unchecked count is better than a slow start, and
+        # `make reconcile` computes the same number on demand.
+        _PAPER_COUNT_SCAN_LIMIT = 250_000
+        if startup_chunk_count == -1:
+            startup_paper_count = -1
+        elif startup_chunk_count > _PAPER_COUNT_SCAN_LIMIT:
+            startup_paper_count = -1
+            logger.info(
+                "Resources.startup: skipping paper_count reconciliation "
+                "(%d rows > %d scan limit); run `make reconcile` to check it.",
+                startup_chunk_count,
+                _PAPER_COUNT_SCAN_LIMIT,
+            )
+        else:
+            try:
+                startup_paper_count = await loop.run_in_executor(
+                    None,
+                    lambda: len(
+                        set(
+                            chunks_table.to_arrow()
+                            .select(["paper_id"])["paper_id"]
+                            .to_pylist()
+                        )
+                    ),
+                )
+            except Exception:  # noqa: BLE001 — never fatal; see FM-2 above
+                logger.warning(
+                    "Resources.startup: paper_count scan failed; skipping "
+                    "the reconciliation.",
+                    exc_info=True,
+                )
+                startup_paper_count = -1
+
+        if startup_paper_count >= 0 and startup_paper_count != corpus_info.paper_count:
+            logger.warning(
+                "Resources.startup: corpus paper_count DIVERGED — marker=%d "
+                "actual=%d. Served verbatim into the corpus-manifest resource, "
+                "so an agent reading it is told the wrong corpus size. Heal it "
+                "with `make reconcile` (see the chunk_count note above for the "
+                "non-default-index-path form).",
+                corpus_info.paper_count,
+                startup_paper_count,
+            )
+            if degraded is None:
+                degraded = DegradedState(
+                    reason="paper_count_diverged",
+                    fallback_version=corpus_info.version,
+                    original_version=corpus_info.version,
+                )
+
         # 2c. HNSW unindexed-rows tripwire (corpus-integrity-observability-m3 /
         # scout CAND-10). _create_indices (ingest/store.py) runs SYNCHRONOUSLY
         # inside write_chunks, so on the normal post-ingest path every ANN index

@@ -1290,6 +1290,11 @@ def refresh_degraded_mode_metric(resources: Resources) -> None:
             "corpus_corruption",
             "hosted_embedder_outage",
             "chunk_count_diverged",
+            # issues #447 / #448 — the label space stays bounded by the
+            # DegradedState.reason enum, so a new reason MUST be listed here
+            # or its gauge never resets to 0 after the condition clears.
+            "embedder_version_mismatch",
+            "paper_count_diverged",
         ):
             DEGRADED_MODE_ACTIVE.labels(reason=reason).set(0.0)
         return

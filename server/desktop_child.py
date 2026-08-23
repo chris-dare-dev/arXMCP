@@ -21,6 +21,7 @@ environment per ``server/cli.py``; this module adds only the wire protocol.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import hmac
 import logging
@@ -415,13 +416,49 @@ def main() -> int:
         sock.close()
 
 
+def _exit_without_finalizing(code: int) -> None:
+    """Exit with ``code`` without running interpreter finalization.
+
+    Issues #458 / #468. ``_watch_stdin`` is a daemon thread doing BLOCKING
+    reads on the control stream. On the startup-failure path the interpreter
+    finalizes while that thread is parked inside the ``BufferedReader`` lock,
+    and CPython aborts — producing a raw ``Fatal Python error:`` block on
+    fd 2 and destroying the exit status.
+
+    Both consequences matter to the supervisor, not just to tidiness:
+
+    * the exit code becomes ``-1``, which in the ``shutdown_child`` contract
+      is indistinguishable from "the supervisor had to SIGKILL it" — so a
+      clean startup refusal reads as a hung child;
+    * the abort block bypasses ``logging`` entirely, which is the one sink
+      the Python-side ``RedactionFilter`` cannot defend (#438 now scrubs it
+      on the Rust side, but a child that never reaches its own logger is
+      exactly the case that motivated doing it there).
+
+    ``os._exit`` skips finalization, so a parked thread cannot abort. Handlers
+    are flushed first, because ``os._exit`` also skips that — losing the last
+    log lines of a failed startup would trade one diagnostic problem for
+    another. Everything the child owns (the socket, the LanceDB and Kuzu
+    handles) is already released by this point: uvicorn's shutdown has run, or
+    startup never completed and there was nothing to release.
+    """
+    try:
+        logging.shutdown()
+    finally:
+        with contextlib.suppress(Exception):
+            sys.stdout.flush()
+        with contextlib.suppress(Exception):
+            sys.stderr.flush()
+    os._exit(code)
+
+
 if __name__ == "__main__":
     # MUST be the guard's first statement (desktop-distribution-m7 AC3): a
     # frozen macOS/Windows `spawn` child re-executes this script from the top,
     # and freeze_support() intercepts the --multiprocessing-fork re-exec BEFORE
     # main() can read the parent's control stream as a fresh supervisor launch.
     multiprocessing.freeze_support()
-    sys.exit(main())
+    _exit_without_finalizing(main())
 
 
 __all__ = [

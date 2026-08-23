@@ -172,6 +172,21 @@ class DegradedState:
     original_version: int
 
 
+def _dataset_tip_version(lancedb_path: str | Path | None) -> int | None:
+    """Newest version this dataset actually has, or ``None`` if unknowable.
+
+    Used ONLY on the failure path (issue #449), so its cost never lands on a
+    healthy boot. ``None`` on any error keeps the previous behaviour: an
+    unreadable dataset is a corruption question, not a marker question, and
+    guessing here would swap one wrong diagnosis for another.
+    """
+    try:
+        table = open_chunks_table(lancedb_path, version=None)
+        return int(table.version)
+    except Exception:  # noqa: BLE001 — diagnosis only; never raise from here
+        return None
+
+
 def _smoke_read(tbl: lancedb.table.Table) -> None:
     """Prove the table can be READ, not merely opened (issue #428).
 
@@ -257,6 +272,23 @@ def open_chunks_table_with_fallback(
         _smoke_read(tbl)
         return tbl, None
     except corrupt_exc as primary_exc:
+        # #449: before blaming corruption, check the simpler explanation. The
+        # marker's `version` is validated as >= 1 and nothing else, so a
+        # marker naming 999999 over a 181-version dataset surfaces here as an
+        # open failure, then degrades into "try 999998" — also absent — and
+        # finally reports corpus_corruption_unrecoverable. The data is fine;
+        # the marker names a version that never existed, and the operator was
+        # being sent to restore from backup for a one-line JSON error.
+        tip = _dataset_tip_version(lancedb_path)
+        if tip is not None and version > tip:
+            raise RuntimeError(
+                f"corpus_marker_version_absent: corpus-version.json names "
+                f"version {version}, but this dataset's newest version is "
+                f"{tip}. The data is NOT corrupt — the marker is wrong. Heal "
+                f"it with `make reconcile`, or "
+                f"`tools.notebook_reconcile_marker --lancedb-path <dir>` for "
+                f"a non-default index path."
+            ) from primary_exc
         if version < 2:
             # Floor case — no version below 1 exists.
             raise RuntimeError(

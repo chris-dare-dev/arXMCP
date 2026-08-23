@@ -245,8 +245,18 @@ fn load_plan() -> (Plan, &'static str) {
         );
     };
     let bytes = fs::read(PathBuf::from(path)).unwrap_or_else(|_| fail("launch plan unreadable"));
-    let plan: Plan =
-        serde_json::from_slice(&bytes).unwrap_or_else(|_| fail("launch plan malformed"));
+    // #462: serde already knows the field name, the line, the column and the
+    // expected type. Collapsing all of that into one static string made a
+    // typo'd field, a schema mismatch and a zero-byte file indistinguishable
+    // to whoever has to repair the plan. `fail` takes &str, so the message is
+    // built here and borrowed.
+    let plan: Plan = match serde_json::from_slice(&bytes) {
+        Ok(plan) => plan,
+        Err(err) => {
+            let detail = format!("launch plan malformed: {err}");
+            fail(&detail);
+        }
+    };
     if let Err(reason) = validate_plan(&plan) {
         fail(reason);
     }
@@ -378,14 +388,70 @@ fn resolve_inside(root: &Path, candidate: &Path) -> Result<PathBuf, &'static str
         Ok(_) => {}
         Err(_) => return Err("self-authored plan: child payload root missing"),
     }
-    let canonical_root =
-        fs::canonicalize(root).map_err(|_| "self-authored plan: child payload root missing")?;
-    let resolved = fs::canonicalize(candidate)
-        .map_err(|_| "self-authored plan: bundled child executable missing")?;
+    let canonical_root = fs::canonicalize(root).map_err(canonicalize_reason)?;
+    // #460: the SAME error for every canonicalize failure told an operator
+    // whose install directory is mode 000 to go looking for a missing file.
+    // EACCES, ELOOP, ENAMETOOLONG and ENOENT are four different repairs.
+    let resolved = fs::canonicalize(candidate).map_err(canonicalize_reason)?;
     if !resolved.starts_with(&canonical_root) {
         return Err("self-authored plan: child executable escapes the payload root");
     }
+    check_child_file(&resolved)?;
     Ok(resolved)
+}
+
+/// #460: name the ACTUAL filesystem failure.
+///
+/// `resolve_inside` mapped every `canonicalize` error to "missing", so a
+/// permissions problem, a symlink loop, an over-long path and a genuinely
+/// absent file were indistinguishable — and each wants a different fix.
+fn canonicalize_reason(err: std::io::Error) -> &'static str {
+    use std::io::ErrorKind;
+    match err.kind() {
+        ErrorKind::NotFound => "self-authored plan: child payload path missing",
+        ErrorKind::PermissionDenied => {
+            "self-authored plan: child payload path unreadable (permissions)"
+        }
+        _ => "self-authored plan: child payload path unresolvable",
+    }
+}
+
+/// Checks that containment alone does not make (issues #459, #461).
+#[cfg(unix)]
+fn check_child_file(path: &Path) -> Result<(), &'static str> {
+    use std::os::unix::fs::MetadataExt;
+    use std::os::unix::fs::PermissionsExt;
+
+    let meta = fs::metadata(path).map_err(canonicalize_reason)?;
+
+    // #461: containment proved the file is INSIDE the root and never that it
+    // can run. A ditto/zip round trip or a restrictive umask is enough to
+    // strip the exec bit, and `--print-child-plan` — the probe m15's AC4 uses
+    // to attest the artifact — then reported a payload it cannot execute as
+    // healthy. The real failure surfaced ~2s later as an unqualified "child
+    // spawn failed" with no errno.
+    if meta.permissions().mode() & 0o111 == 0 {
+        return Err("self-authored plan: child executable is not executable");
+    }
+
+    // #459: `canonicalize` resolves SYMLINKS. A hardlink has no link to
+    // resolve, so content from outside the payload root passes containment
+    // while presenting an in-root path — measured reproducible on APFS, not
+    // the Linux-specific class the residual-risk note describes.
+    //
+    // A payload file placed by the assembler has exactly one link. More than
+    // one means the same inode is reachable by another name, which is the
+    // property containment is trying to deny. Refusing is conservative: a
+    // deliberately hardlinked payload is not a shape this project produces.
+    if meta.nlink() > 1 {
+        return Err("self-authored plan: child executable is hardlinked");
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn check_child_file(_path: &Path) -> Result<(), &'static str> {
+    Ok(())
 }
 
 /// The single composer for a self-authored `Plan`. Tests call it directly to
@@ -591,7 +657,24 @@ fn emit_child_plan_probe() {
         .or_else(|| std::env::var_os(CHILD_PLAN_PROBE_OUT_ENV));
     match destination {
         Some(path) => {
-            let _ = fs::write(PathBuf::from(path), text.as_bytes());
+            // #466: create-new, never truncate. This diagnostic ships enabled
+            // in the signed bundle and took its destination from argv with no
+            // constraint, so "ask the trusted app to overwrite a file for me"
+            // was a real primitive — and becomes a privilege step under e4,
+            // when this binary carries a Developer ID and TCC grants.
+            //
+            // create_new rather than a path constraint because the m15 AC4
+            // gate legitimately probes into a pytest tmp_path OUTSIDE any data
+            // root; constraining the directory would break the attestation
+            // this probe exists for. Residual: a new file can still be created
+            // somewhere writable. That is a far smaller step than clobbering
+            // an existing one, and it is the part a path rule would have to
+            // solve without breaking the gate.
+            let _ = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(PathBuf::from(path))
+                .and_then(|mut file| std::io::Write::write_all(&mut file, text.as_bytes()));
         }
         None => println!("{text}"),
     }
@@ -1148,6 +1231,22 @@ mod tests {
 
     /// Stage m7's onedir shape: `<dir>/arxmcp-desktop-child/arxmcp-desktop-child`
     /// beside a supervisor path, and return that supervisor path.
+    /// Write a stub child that is actually EXECUTABLE.
+    ///
+    /// The fixtures used to `fs::write` a plain file, i.e. model a payload
+    /// that could never run — which is exactly what #461 added a check for,
+    /// so three of them started failing against the fix. The blind spot was
+    /// in the fixture as much as in the code.
+    fn stage_child_executable(path: &Path) {
+        fs::write(path, b"#!/bin/false\n").expect("stage child executable");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(path, fs::Permissions::from_mode(0o755))
+                .expect("chmod the staged child");
+        }
+    }
+
     fn stage_payload(label: &str) -> (PathBuf, PathBuf) {
         let base = std::env::temp_dir().join(format!(
             "arxmcp-m10-{label}-{}-{:?}",
@@ -1157,8 +1256,7 @@ mod tests {
         let _ = fs::remove_dir_all(&base);
         let payload = base.join(CHILD_PAYLOAD_DIR);
         fs::create_dir_all(&payload).expect("stage payload dir");
-        fs::write(payload.join(child_executable_name()), b"#!/bin/false\n")
-            .expect("stage child executable");
+        stage_child_executable(&payload.join(child_executable_name()));
         (base.join("supervisor"), base)
     }
 
@@ -1248,8 +1346,7 @@ mod tests {
 
     fn stage_child_in(root: &Path) {
         fs::create_dir_all(root).expect("stage payload root");
-        fs::write(root.join(child_executable_name()), b"#!/bin/false\n")
-            .expect("stage child executable");
+        stage_child_executable(&root.join(child_executable_name()));
     }
 
     /// ARM 1 — the assembled `.app`. The payload is NOT a sibling of the

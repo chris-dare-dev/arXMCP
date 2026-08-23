@@ -908,8 +908,14 @@ fn is_stopped(_pid: u32) -> bool {
 /// umask is not an acceptable answer even though $HOME's 0700 usually hides
 /// them.
 pub fn open_private_log(path: &std::path::Path) -> Result<std::fs::File, &'static str> {
+    // #464: APPEND, not truncate. The event log beside it is already
+    // append-only (`events.rs`), so this was an inconsistency rather than a
+    // considered choice — and a costly one: `desktop-child.log` is the ONLY
+    // place a cold-start failure's real reason exists (#444), so a user who
+    // double-clicks a second time destroyed the evidence before anyone could
+    // ask them for it.
     let mut options = std::fs::OpenOptions::new();
-    options.create(true).write(true).truncate(true);
+    options.create(true).append(true);
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;

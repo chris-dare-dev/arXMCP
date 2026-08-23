@@ -261,6 +261,19 @@ class TestLanceDBCorruptionFallback:
             calls.append(version)
             if version == 5:
                 raise OSError("manifest truncated")
+            if version is None:
+                # #449: `version=None` means THE LIVE TIP, which in this
+                # scenario is 5 — a version that exists and is corrupt. The
+                # fake used to return the version-4 table here too, which said
+                # "the newest version is 4" and made the absent-marker-version
+                # check fire on what is really a corruption case. Modelling
+                # the tip honestly keeps the two diagnoses apart.
+                #
+                # Note the real dataset cannot answer this at all when the tip
+                # is corrupt: the un-pinned open raises, _dataset_tip_version
+                # returns None, and the check is skipped. Either way the
+                # fallback runs.
+                return _readable_table(5)
             return fallback_table
 
         monkeypatch.setattr(corpus_mod, "open_chunks_table", fake_open)
@@ -272,7 +285,12 @@ class TestLanceDBCorruptionFallback:
         assert degraded.reason == "corpus_corruption"
         assert degraded.fallback_version == 4
         assert degraded.original_version == 5
-        assert calls == [5, 4]
+        # [tip-request, tip-lookup, fallback]. The middle `None` is #449's
+        # diagnostic: before blaming corruption, ask whether the marker simply
+        # names a version this dataset never had. It is on the FAILURE path
+        # only — a healthy open never reaches it, which the happy-path test
+        # above pins by asserting a single call.
+        assert calls == [5, None, 4]
 
     def test_raises_at_floor_when_version_is_1(self, monkeypatch):
         from server import corpus as corpus_mod  # noqa: PLC0415
