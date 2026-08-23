@@ -126,12 +126,53 @@ fn fail(reason: &str) -> ! {
     std::process::exit(2);
 }
 
+/// The environment launch-plan arm, present ONLY in a debug build (#427).
+///
+/// It is a TEST SEAM. `test_desktop_child.py`'s fault matrix points
+/// `child_argv` at the fixture sidecar, which lives in `target/debug/` and
+/// therefore OUTSIDE the payload root on purpose — so the arm cannot apply
+/// `resolve_inside`, and it never did. What it also cannot do is exist in a
+/// shipped binary, which is what #427 measured: one environment variable made
+/// the signed `.app` deserialize an attacker-chosen plan and exec whatever
+/// `child_argv[0]` named, proven with `/usr/bin/touch`.
+///
+/// Applying containment here instead was considered and rejected: it would
+/// break every fault-matrix arm, and it would still leave a
+/// deserialize-and-exec path compiled into the artifact for someone to find a
+/// way around. Removing the arm from the shipped binary is the smaller and
+/// more complete change.
+#[cfg(debug_assertions)]
+fn env_plan_path() -> Option<std::ffi::OsString> {
+    std::env::var_os(PLAN_ENV)
+}
+
+/// Release builds have NO environment arm. Not a runtime check that could be
+/// bypassed — the deserialize-and-exec path is not compiled in at all.
+#[cfg(not(debug_assertions))]
+fn env_plan_path() -> Option<std::ffi::OsString> {
+    None
+}
+
+#[cfg(debug_assertions)]
+fn env_plan_was_ignored() -> bool {
+    false
+}
+
+/// True when a release build saw the variable set and disregarded it. Ignoring
+/// rather than refusing is deliberate: a stray exported variable must not stop
+/// an operator's application from starting, and the event log records that it
+/// happened either way.
+#[cfg(not(debug_assertions))]
+fn env_plan_was_ignored() -> bool {
+    std::env::var_os(PLAN_ENV).is_some()
+}
+
 /// Returns the plan and the name of the arm that produced it. The arm name is
 /// recorded on `supervisor-started` so a triage session can tell a bug in the
 /// new self-authoring arm from a bug in the environment path — brief-2 risk 5:
 /// both arms terminate at the SAME `fail()` sites downstream.
 fn load_plan() -> (Plan, &'static str) {
-    let Some(path) = std::env::var_os(PLAN_ENV) else {
+    let Some(path) = env_plan_path() else {
         // m10: absent variable is the PRODUCTION shape, not an error. Before
         // this arm existed the next line was
         // `fail("ARXMCP_DESKTOP_LAUNCH_PLAN is required")` -> exit(2), which
@@ -141,12 +182,26 @@ fn load_plan() -> (Plan, &'static str) {
             .unwrap_or_else(|_| fail("self-authored plan: supervisor path unavailable"));
         let plan = self_authored_plan(&exe, |key| std::env::var(key).ok())
             .unwrap_or_else(|reason| fail(reason));
-        // The self-authored plan is NOT trusted more than an external one: it
-        // goes through the same validator, under the same rules (AC2).
+        // Both arms run this validator. That is where the parity between them
+        // ENDS, and #427 is the correction to a comment here that used to
+        // claim otherwise. `validate_plan` checks argv is non-empty and the
+        // smoke-knob rule; the containment story documented in
+        // apps/desktop/README.md — `child_payload_root`, `resolve_inside`, the
+        // symlink refusal and the identity digest — is reachable ONLY from
+        // `self_authored_plan` above. So the environment arm was trusted MORE
+        // than this one, not less, for as long as it existed in a release
+        // build. It no longer does.
         if let Err(reason) = validate_plan(&plan) {
             fail(reason);
         }
-        return (plan, "self-authored");
+        return (
+            plan,
+            if env_plan_was_ignored() {
+                "self-authored (env plan ignored: release build)"
+            } else {
+                "self-authored"
+            },
+        );
     };
     let bytes = fs::read(PathBuf::from(path)).unwrap_or_else(|_| fail("launch plan unreadable"));
     let plan: Plan =

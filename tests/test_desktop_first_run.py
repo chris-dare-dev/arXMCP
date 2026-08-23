@@ -1,4 +1,4 @@
-"""The shipped application must be able to start, and must say when it cannot.
+"""The shipped application must start, say when it cannot, and trust nothing.
 
 Two criticals from the 2026-08-22 chaos run, fixed together because neither
 half stands alone.
@@ -16,9 +16,19 @@ nowhere an operator will look. Measured: no dialog, no message, ``open`` exits
 0, process gone in five to seven seconds, and the only trace an NDJSON file the
 next launch truncates (#464).
 
-Fixing either one alone leaves the product broken: a bootstrap that works but
-cannot report its next failure, or a clear report of a failure that always
-happens.
+**#427 — the environment launch-plan arm applied no containment.** With
+``ARXMCP_DESKTOP_LAUNCH_PLAN`` set, ``load_plan`` deserialized the JSON and
+exec'd whatever ``child_argv[0]`` named — proven against the SIGNED release
+bundle with ``/usr/bin/touch``. The containment the README documents
+(``child_payload_root``, ``resolve_inside``, the symlink refusal, the identity
+digest) is reachable only from ``self_authored_plan``, so the external plan was
+trusted MORE than the self-authored one, and ``main.rs``'s own comment claimed
+the reverse.
+
+Fixing any one alone leaves the product broken: a bootstrap that works but
+cannot report its next failure, a clear report of a failure that always
+happens, or either of those in a binary that will exec whatever an environment
+variable points at.
 
 Everything here is static analysis: the runtime behaviour these fixes rely on
 is already covered by ``tests/test_bootstrap_mode.py``, and this module asserts
@@ -166,4 +176,76 @@ def test_the_failure_page_names_the_log_and_its_volatility() -> None:
     assert "rewritten on every launch" in body, (
         "the page must warn that the log is truncated on the next launch "
         "(#464), or it sends the operator to a file that will be gone"
+    )
+
+
+# ---------------------------------------------------------------------------
+# #427 — the environment arm does not exist in a shipped binary
+# ---------------------------------------------------------------------------
+def test_the_env_plan_arm_is_debug_only() -> None:
+    """#427. Not a runtime check — the path is not compiled into a release.
+
+    A runtime guard (`if cfg!(debug_assertions) { ... }`) would leave the
+    deserialize-and-exec code in the artifact for someone to find a way back
+    into. Two ``#[cfg]``-gated definitions mean the release binary genuinely
+    has no environment arm.
+    """
+    assert "#[cfg(debug_assertions)]\nfn env_plan_path()" in MAIN_RS, (
+        "the debug definition of env_plan_path must be #[cfg]-gated"
+    )
+    assert "#[cfg(not(debug_assertions))]\nfn env_plan_path()" in MAIN_RS, (
+        "release builds need an env_plan_path that returns None, so the "
+        "deserialize-and-exec path is absent rather than merely unreached"
+    )
+    assert "let Some(path) = env_plan_path() else {" in MAIN_RS, (
+        "load_plan must read the plan through env_plan_path(), not by calling "
+        "std::env::var_os(PLAN_ENV) directly (#427)"
+    )
+
+
+def test_load_plan_does_not_read_the_env_var_directly() -> None:
+    """The gate is worthless if the old call survives beside it."""
+    load_plan = MAIN_RS[MAIN_RS.index("fn load_plan()") :]
+    load_plan = load_plan[: load_plan.index("\n}\n")]
+    assert "var_os(PLAN_ENV)" not in load_plan, (
+        "load_plan reads PLAN_ENV directly again, which reinstates the "
+        "environment arm in release builds (#427)"
+    )
+
+
+def test_an_ignored_env_plan_is_recorded_not_silently_dropped() -> None:
+    """A release build that disregards the variable must say so.
+
+    Ignoring rather than refusing is deliberate — a stray exported variable
+    must not stop an operator's application from starting — but an ignored
+    injection attempt that leaves no trace is indistinguishable from one that
+    never happened.
+    """
+    assert "fn env_plan_was_ignored()" in MAIN_RS
+    assert "self-authored (env plan ignored: release build)" in MAIN_RS, (
+        "the plan_source recorded on supervisor-started must name the ignored "
+        "environment plan, so the event log shows the attempt"
+    )
+
+
+def test_the_inverted_containment_comment_is_gone() -> None:
+    """#427's sharpest point was a comment asserting the opposite of the code.
+
+    ``main.rs`` used to read *"The self-authored plan is NOT trusted more than
+    an external one: it goes through the same validator, under the same rules"*.
+    True about the validator, and backwards about everything else — the
+    external arm skipped the containment the self-authored arm submits to.
+    """
+    assert (
+        "The self-authored plan is NOT trusted more than an external one"
+        not in MAIN_RS
+    ), (
+        "the inverted comment is back; the two arms do NOT share the "
+        "containment story, only validate_plan (#427)"
+    )
+    load_plan = MAIN_RS[MAIN_RS.index("fn load_plan()") :]
+    load_plan = load_plan[: load_plan.index("\n}\n")]
+    assert "resolve_inside" in load_plan, (
+        "load_plan's comment must name what the two arms do NOT share, so the "
+        "next reader is not misled the way #427 was"
     )
