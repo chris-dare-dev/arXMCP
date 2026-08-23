@@ -436,3 +436,65 @@ def test_the_watchdog_does_not_silently_restart() -> None:
         "record the decision; a future reader will otherwise assume restart "
         "was forgotten rather than chosen"
     )
+
+
+# ---------------------------------------------------------------------------
+# #438 / #439 / #488 — the token cannot reach disk, and the logs are private
+# ---------------------------------------------------------------------------
+REDACT_RS: str = (SUPERVISOR_SRC / "redact.rs").read_text(encoding="utf-8")
+EVENTS_RS: str = (SUPERVISOR_SRC / "events.rs").read_text(encoding="utf-8")
+
+
+def test_child_stderr_is_relayed_not_handed_over() -> None:
+    """#438. A file descriptor handed to the child cannot be scrubbed.
+
+    The bytes never entered this process, so no scrubber could exist in the
+    path — which is why the defence had to change shape, not just get better.
+    """
+    assert "Stdio::from(log_file)" not in _strip_rust_comments(LIFECYCLE_RS), (
+        "child stderr must NOT be wired straight to the log file (#438)"
+    )
+    assert "fn spawn_stderr_relay(" in LIFECYCLE_RS
+    relay = LIFECYCLE_RS[LIFECYCLE_RS.index("fn spawn_stderr_relay(") :][:1600]
+    assert "scrub_child_text" in relay, "the relay must scrub before writing"
+    assert "read_until" in relay, (
+        "read_line would abort the relay on non-UTF-8 child stderr; the bytes "
+        "must be split first and decoded lossily after"
+    )
+
+
+def test_child_controlled_text_uses_the_strong_scrubber() -> None:
+    """#439. Exact matching cannot see a copy the child chose the casing of."""
+    assert "pub fn scrub_child_text(" in REDACT_RS
+    assert "HEX_RUN_MIN" in REDACT_RS
+    invalid = LIFECYCLE_RS[LIFECYCLE_RS.index('record("bound-frame-invalid"') - 900 :][:1400]
+    assert "scrub_child_text" in invalid, (
+        "the bound-frame-invalid diagnostic persists child-chosen bytes and "
+        "must use the hex-aware scrubber, not bare scrub (#439)"
+    )
+
+
+def test_the_shared_scrub_primitive_is_left_alone() -> None:
+    """The exact-match vectors stay pinned, on purpose.
+
+    `scrub` is shared with a Python reference semantic and locked by
+    `fixtures.sha256`. Its exact-match behaviour is still correct for scrubbing
+    OUR OWN strings, where over-eager stripping would corrupt legitimate
+    digests. The fix was to stop using it ALONE on text the child chose — the
+    distinction is who picked the bytes.
+    """
+    assert 'input.replace(secret, "[REDACTED]")' in REDACT_RS, (
+        "scrub's exact-match semantics are pinned across two languages; "
+        "changing them requires re-approving the vectors and fixtures.sha256"
+    )
+
+
+def test_both_logs_are_created_private() -> None:
+    """#488. 0600, and enforced on files an earlier version already made."""
+    assert "fn open_private_log(" in LIFECYCLE_RS
+    for source, name in ((LIFECYCLE_RS, "lifecycle.rs"), (EVENTS_RS, "events.rs")):
+        assert "0o600" in source, f"{name} must create its log 0600"
+        assert "set_permissions" in source, (
+            f"{name} must also chmod an EXISTING log — mode() applies only at "
+            "creation, so a 0644 file from an earlier version would keep it"
+        )

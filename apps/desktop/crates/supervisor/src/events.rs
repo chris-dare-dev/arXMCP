@@ -45,11 +45,25 @@ impl Recorder {
             "pid": std::process::id(),
             "seq": state.sequence,
         });
-        let mut output = OpenOptions::new()
-            .create(true)
-            .append(true)
+        // #488: 0600. mode() applies at CREATE only, so the explicit
+        // set_permissions below is what fixes an event log an earlier version
+        // already left at 0644 — and this file is exactly the one #439
+        // measured a recoverable token in.
+        let mut open_options = OpenOptions::new();
+        open_options.create(true).append(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            open_options.mode(0o600);
+        }
+        let mut output = open_options
             .open(&state.path)
             .map_err(|_| "event log open failed")?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&state.path, std::fs::Permissions::from_mode(0o600));
+        }
         output
             .lock_exclusive()
             .map_err(|_| "event log lock failed")?;

@@ -423,10 +423,38 @@ window" is NOT established by this event and must not be inferred from it.
 
 A live startup token is 32 bytes from the operating-system CSPRNG, hex encoded
 in memory. It is accepted only in the bounded stdin `launch` and `shutdown`
-frames and in the `X-ArXMCP-Startup-Token` readiness header. It is never an
-argument, environment variable, URL/query value, `bound` field, object
-representation, exception detail, stdout/stderr diagnostic, or persisted
-manifest/log artifact. The fixture sidecar accepts no command-line arguments.
+frames and in the `X-ArXMCP-Startup-Token` readiness header. **The supervisor**
+never puts it in an argument, environment variable, URL/query value, `bound`
+field, object representation, exception detail, or diagnostic. The fixture
+sidecar accepts no command-line arguments.
+
+That sentence used to end "…or persisted manifest/log artifact", stated
+unconditionally, and issue #438 measured it false: the child's stderr fd was
+wired straight to `logs/desktop-child.log` and a live token was sitting in
+that file at 0644. The claim was about what the SUPERVISOR writes; the log is
+whatever the CHILD writes, and nothing was interposed.
+
+What defends those two sinks now, stated as mechanism rather than as a promise:
+
+- **`logs/desktop-child.log`** — child stderr is piped, not handed over as a
+  file descriptor, and relayed line by line through
+  `redact::scrub_child_text` before it reaches disk (#438). This covers writes
+  that bypass Python's own `RedactionFilter` entirely, such as the interpreter's
+  raw `Fatal Python error:` block (#468).
+- **`logs/supervisor-events.ndjson`** — the `bound-frame-invalid` diagnostic,
+  the only place child-chosen bytes are persisted, uses the same function.
+- **Both files are created 0600** (#488), and existing ones are chmod'd on
+  open, because a file created by an earlier version keeps its mode otherwise.
+
+`scrub_child_text` removes the exact token AND any run of 32+ hex digits in
+either case. The case-insensitive half is #439: the casing of an echoed copy is
+chosen by the child, so exact matching missed an UPPERCASE copy and a 32-char
+prefix, from which `tr A-F a-f` recovered the capability. **Trade-off:** this
+also redacts legitimate long digests, so an executable `sha256` reads as
+`[REDACTED-HEX]` in the child log. Accepted deliberately — distinguishing a
+digest from a secret inside arbitrary child-controlled text is exactly the kind
+of cleverness that fails, and `events.rs` already promises the event log carries
+"never any 64-hex digest".
 
 The all-zero token committed in `contract-fixtures/` is conspicuously nonsecret
 test data. It must never be generated for, or accepted as evidence of, a live

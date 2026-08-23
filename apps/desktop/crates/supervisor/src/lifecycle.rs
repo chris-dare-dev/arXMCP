@@ -18,7 +18,7 @@ use arxmcp_desktop_contract::{
 };
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::io::{BufReader, Read, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
@@ -262,7 +262,11 @@ fn cycle(
     let log_path = std::path::PathBuf::from(&plan.data_root)
         .join("logs")
         .join("desktop-child.log");
-    let log_file = std::fs::File::create(&log_path).map_err(|_| "child log unwritable")?;
+    // #488: 0600, not whatever the umask says. Both the mode-at-create and
+    // the explicit set_permissions matter — mode() applies only when the file
+    // is CREATED, so a log left at 0644 by an earlier version would otherwise
+    // keep its permissions forever.
+    let log_file = open_private_log(&log_path)?;
 
     // #436: consult the seal before exec, in SHIPPED builds only. A debug
     // build drives the unsigned fixture sidecar through the m6 fault matrix,
@@ -282,7 +286,18 @@ fn cycle(
         .args(&plan.child_argv[1..])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::from(log_file));
+        // #438: the child's stderr fd used to be wired STRAIGHT to the file,
+        // so nothing in this process ever saw those bytes and no scrubber
+        // could run on them. apps/desktop/README.md claimed unconditionally
+        // that the startup token is never a "stdout/stderr diagnostic, or
+        // persisted manifest/log artifact"; it was measured in the log
+        // verbatim. redact.rs conceded the sink was "defended independently
+        // by the Python RedactionFilter" — which defends nothing against a
+        // child that is not the cooperating Python one, and nothing against
+        // the real child's non-logging writes either (a raw "Fatal Python
+        // error:" block goes to fd 2 with logging bypassed entirely, #468).
+        // Pipe it instead and relay through the scrubber.
+        .stderr(Stdio::piped());
     // The child's entire configuration is the launch frame; scrub ambient
     // ARXMCP_* so stray operator env can neither configure the child nor
     // trip its unknown-env-var startup FATAL.
@@ -294,6 +309,11 @@ fn cycle(
     let mut child = command.spawn().map_err(|_| "child spawn failed")?;
     let child_pid = child.id();
     let _ = recorder.record("child-spawn", json!({"child_pid": child_pid}));
+    // #438: relay stderr -> scrubber -> log. Started immediately so nothing
+    // the child writes during startup can bypass it.
+    if let Some(stderr) = child.stderr.take() {
+        spawn_stderr_relay(stderr, log_file, token.clone());
+    }
 
     let mut stdin = child.stdin.take().ok_or("child stdin unavailable")?;
     let stdout = child.stdout.take().ok_or("child stdout unavailable")?;
@@ -422,7 +442,12 @@ fn await_bound(
         Ok(Frame::Bound(bound)) => Ok(bound),
         Ok(_) => Err("first control frame was not bound"),
         Err(_) => {
-            let scrubbed = redact::scrub(&String::from_utf8_lossy(&frame), token.expose());
+            // #439: scrub_child_text, NOT scrub. The frame is bytes the CHILD
+            // chose, so exact matching misses an uppercase copy or a
+            // truncated prefix — both measured surviving into this very
+            // diagnostic, from which `tr A-F a-f` recovered the capability.
+            let scrubbed =
+                redact::scrub_child_text(&String::from_utf8_lossy(&frame), token.expose());
             let prefix: String = scrubbed.chars().take(256).collect();
             let _ = recorder.record("bound-frame-invalid", json!({"frame_prefix": prefix}));
             Err("bound frame invalid")
@@ -822,6 +847,64 @@ fn is_stopped(pid: u32) -> bool {
 #[cfg(not(unix))]
 fn is_stopped(_pid: u32) -> bool {
     false
+}
+
+/// #488: open a log file readable only by its owner.
+///
+/// `mode()` covers creation; `set_permissions` covers a file that already
+/// exists — which is the case that matters, since a log written by an earlier
+/// version is sitting there at 0644 right now. Both files are documented to
+/// be able to contain a live startup token (#438 / #439), so the default
+/// umask is not an acceptable answer even though $HOME's 0700 usually hides
+/// them.
+pub fn open_private_log(path: &std::path::Path) -> Result<std::fs::File, &'static str> {
+    let mut options = std::fs::OpenOptions::new();
+    options.create(true).write(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let file = options.open(path).map_err(|_| "child log unwritable")?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+    }
+    Ok(file)
+}
+
+/// #438: copy child stderr into the log, scrubbing every line first.
+///
+/// Line-oriented via `read_until` rather than `read_line`: child stderr is
+/// arbitrary bytes and a UTF-8 error must not silently end the relay, so the
+/// bytes are lossily decoded AFTER the split. Scrubbing happens before the
+/// write, never after, so a boundary can never leave half a secret on disk.
+///
+/// Unbounded, matching the previous direct-fd behaviour — a spewing child
+/// could still grow this file. That is #486's concern, unchanged here.
+fn spawn_stderr_relay(
+    stderr: std::process::ChildStderr,
+    mut log_file: std::fs::File,
+    token: StartupToken,
+) {
+    std::thread::spawn(move || {
+        let mut reader = BufReader::new(stderr);
+        let mut line: Vec<u8> = Vec::new();
+        loop {
+            line.clear();
+            match reader.read_until(b'\n', &mut line) {
+                Ok(0) | Err(_) => break,
+                Ok(_) => {}
+            }
+            let text = String::from_utf8_lossy(&line);
+            let scrubbed = redact::scrub_child_text(&text, token.expose());
+            if log_file.write_all(scrubbed.as_bytes()).is_err() {
+                break;
+            }
+            let _ = log_file.flush();
+        }
+    });
 }
 
 fn wait_exit(child: &mut Child, budget_ms: u64) -> Option<i64> {
