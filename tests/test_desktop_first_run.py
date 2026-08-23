@@ -575,3 +575,54 @@ def test_the_tail_read_is_bounded_and_scrubbed() -> None:
         "child_log_tail_is_none_when_there_is_nothing_to_show",
     ):
         assert required in LIFECYCLE_RS, f"{required} must pin this"
+
+
+# ---------------------------------------------------------------------------
+# #437 / #441 — the machine-global single-instance socket
+# ---------------------------------------------------------------------------
+def test_single_instance_registration_is_conditional() -> None:
+    """#441. A supervisor on its own data root must not be exited by another.
+
+    The fs2 lock on ``<data_root>/supervisor.lock`` is already the primary
+    single-instance defence and is correctly per-data-root. The plugin's
+    socket is machine-global, so registering it unconditionally let an
+    unrelated instance exit this one — 0, no event, no stderr. A developer's
+    debug run could kill the operator's shipped app, and vice versa.
+    """
+    assert "fn single_instance_decision(" in MAIN_RS
+    assert "enum SingleInstance" in MAIN_RS
+    code = _strip_rust_comments(MAIN_RS)
+    assert "if single_instance == SingleInstance::Register {" in code, (
+        "the plugin must be registered conditionally (#441)"
+    )
+    assert 'record(\n            "single-instance-skipped"' in MAIN_RS or (
+        '"single-instance-skipped"' in MAIN_RS
+    ), "a skip must be recorded, or it is another silent behaviour change"
+
+
+def test_the_loser_path_is_gated_the_same_way() -> None:
+    """The mirror image: notifying a socket owned by an unrelated root.
+
+    If we would not REGISTER for this data root, we must not NOTIFY on it
+    either — the process on the other end is somebody else's instance.
+    """
+    code = _strip_rust_comments(MAIN_RS)
+    loser = code[code.index("let Some(supervisor_lock) = supervisor_lock else {") :][:1600]
+    assert "may_notify" in loser and "single_instance_decision(" in loser, (
+        "the lock-loser path must consult the same decision, or the two "
+        "halves disagree about who owns the socket (#437/#441)"
+    )
+
+
+def test_a_squatted_socket_does_not_stop_the_app() -> None:
+    """#437. /tmp is world-writable, so anything can pre-create that path."""
+    for required in (
+        "a_squatted_socket_degrades_activation_instead_of_exiting",
+        "a_non_default_data_root_never_touches_the_shared_socket",
+        "the_default_data_root_still_registers",
+        "an_underivable_default_is_not_assumed_to_be_the_shipped_shape",
+    ):
+        assert required in MAIN_RS, f"{required} must pin this behaviour"
+    assert "fn single_instance_socket_owner(" in MAIN_RS, (
+        "the socket's owner must be checked before registering (#437)"
+    )

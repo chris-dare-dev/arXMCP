@@ -734,6 +734,80 @@ fn notify_running_instance() -> std::io::Result<()> {
     ))
 }
 
+/// Why the single-instance plugin was or was not registered (#437 / #441).
+#[derive(Debug, PartialEq, Eq)]
+pub enum SingleInstance {
+    /// Register it: this is the shipped shape and the socket is ours.
+    Register,
+    /// Skip it, for the named reason. Activation is degraded; nothing else is.
+    Skip(&'static str),
+}
+
+/// Decide whether to register `tauri-plugin-single-instance`.
+///
+/// The plugin's macOS socket is MACHINE-GLOBAL, keyed on the bundle
+/// identifier and living in world-writable `/tmp`. The fs2 lock on
+/// `<data_root>/supervisor.lock` is already the primary single-instance
+/// defense and is correctly per-data-root, so the plugin adds only activation
+/// — and adds two failure modes with it:
+///
+/// * **#441** — a supervisor on a DIFFERENT data root wins its own lock,
+///   records `owns_lock: true`, then registers the plugin, whose socket is
+///   already held by an unrelated instance. The plugin exits this process,
+///   0, with no event and no stderr. A developer's debug run could kill the
+///   operator's shipped application, and vice versa.
+/// * **#437** — `/tmp` is world-writable, so anything can pre-create that
+///   path and make every launch of the shipped app exit at startup.
+///
+/// So: register only when this IS the default data root (the shipped shape,
+/// where activation is meaningful and two instances genuinely collide), and
+/// only when nothing else already owns the socket path. Skipping degrades
+/// re-activation focus and nothing else — strictly better than exiting.
+pub fn single_instance_decision(
+    data_root: &Path,
+    default_root: Option<&Path>,
+    socket_owner_uid: Option<u32>,
+    our_uid: u32,
+) -> SingleInstance {
+    match default_root {
+        Some(default) if default == data_root => {}
+        Some(_) => return SingleInstance::Skip("data root is not the platform default"),
+        // The default is underivable (no HOME); nothing to compare against,
+        // so do not claim this is the shipped shape.
+        None => return SingleInstance::Skip("platform data root underivable"),
+    }
+    match socket_owner_uid {
+        None => SingleInstance::Register,
+        Some(uid) if uid == our_uid => SingleInstance::Register,
+        Some(_) => SingleInstance::Skip("single-instance socket is not owned by this user"),
+    }
+}
+
+/// uid owning the plugin's socket path, or `None` when it does not exist.
+#[cfg(target_os = "macos")]
+fn single_instance_socket_owner() -> Option<u32> {
+    use std::os::unix::fs::MetadataExt;
+    fs::metadata(SINGLE_INSTANCE_SOCKET)
+        .ok()
+        .map(|meta| meta.uid())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn single_instance_socket_owner() -> Option<u32> {
+    None
+}
+
+#[cfg(unix)]
+fn current_uid() -> u32 {
+    // SAFETY: getuid() is always successful and takes no arguments.
+    unsafe { libc::getuid() }
+}
+
+#[cfg(not(unix))]
+fn current_uid() -> u32 {
+    0
+}
+
 fn main() {
     // Diagnostic probe, before any plan work: prints the Rust half of the
     // cross-language `_platform_data_root` pair so the parity assertion can
@@ -785,7 +859,21 @@ fn main() {
         // developer's installed app must not absorb a test's cwd and argv.
         // `activated` makes the loser's real outcome observable — off macOS it
         // is always false, which the event log now says rather than implying.
-        let activated = !plan.smoke && notify_running_instance().is_ok();
+        // #437 / #441, mirror image: the socket this would poke is
+        // machine-global, so on a NON-default data root the process it
+        // activates is an unrelated instance — the winner of THIS lock is
+        // some other supervisor entirely, which never registered a listener.
+        // Gate on the same decision that governs registration, so the two
+        // halves cannot disagree about who owns that path.
+        let may_notify = single_instance_decision(
+            &root,
+            platform_data_root(|key| std::env::var(key).ok())
+                .ok()
+                .as_deref(),
+            single_instance_socket_owner(),
+            current_uid(),
+        ) == SingleInstance::Register;
+        let activated = !plan.smoke && may_notify && notify_running_instance().is_ok();
         let _ = recorder.record(
             "lock-contended",
             serde_json::json!({"activated": activated}),
@@ -809,16 +897,38 @@ fn main() {
     let exit_slot = child_slot.clone();
     let exit_recorder = recorder.clone();
 
-    let app = tauri::Builder::default()
-        // Only the lock WINNER registers the activation listener; later
-        // OS-level launches reach it through the loser's client notify or
-        // the plugin's own notify path.
-        .plugin(tauri_plugin_single_instance::init(move |app, _argv, _cwd| {
-            let _ = activation_recorder.record("duplicate-activation", serde_json::json!({}));
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.set_focus();
-            }
-        }))
+    // #437 / #441: the plugin's socket is machine-global and lives in
+    // world-writable /tmp, so registering it unconditionally lets an
+    // unrelated instance — or a squatter — exit this process at startup.
+    let single_instance = single_instance_decision(
+        &root,
+        platform_data_root(|key| std::env::var(key).ok())
+            .ok()
+            .as_deref(),
+        single_instance_socket_owner(),
+        current_uid(),
+    );
+    if let SingleInstance::Skip(reason) = single_instance {
+        let _ = recorder.record(
+            "single-instance-skipped",
+            serde_json::json!({"reason": reason}),
+        );
+    }
+
+    let mut builder = tauri::Builder::default();
+    if single_instance == SingleInstance::Register {
+        // Only the lock WINNER gets here; later OS-level launches reach it
+        // through the loser's client notify or the plugin's own notify path.
+        builder = builder.plugin(tauri_plugin_single_instance::init(
+            move |app, _argv, _cwd| {
+                let _ = activation_recorder.record("duplicate-activation", serde_json::json!({}));
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.set_focus();
+                }
+            },
+        ));
+    }
+    let app = builder
         .setup(move |app| {
             // Render state 1 of 2 ("starting"); lifecycle navigates the same
             // window to the child's `/ui/` console once ready. build() with
@@ -1327,6 +1437,60 @@ mod tests {
     /// the plugin actually derives from so an identifier change cannot orphan
     /// activation with only the exact-pin bump as a signal.
     #[cfg(target_os = "macos")]
+    // ---- issues #437 / #441: the machine-global socket ------------------
+    #[test]
+    fn a_non_default_data_root_never_touches_the_shared_socket() {
+        // #441's measured shape: a supervisor on its OWN data root wins its
+        // OWN lock, then the plugin exits it because an unrelated instance
+        // holds the machine-global socket. A developer's debug run could kill
+        // the operator's shipped app, and vice versa.
+        let mine = PathBuf::from("/tmp/some-scratch-root");
+        let default = PathBuf::from("/Users/x/Library/Application Support/arXMCP");
+        assert_eq!(
+            single_instance_decision(&mine, Some(&default), None, 501),
+            SingleInstance::Skip("data root is not the platform default")
+        );
+    }
+
+    #[test]
+    fn the_default_data_root_still_registers() {
+        let default = PathBuf::from("/Users/x/Library/Application Support/arXMCP");
+        assert_eq!(
+            single_instance_decision(&default, Some(&default), None, 501),
+            SingleInstance::Register,
+            "the shipped shape must keep its activation behaviour"
+        );
+        // Our own socket from a previous run of ourselves is fine.
+        assert_eq!(
+            single_instance_decision(&default, Some(&default), Some(501), 501),
+            SingleInstance::Register
+        );
+    }
+
+    #[test]
+    fn a_squatted_socket_degrades_activation_instead_of_exiting() {
+        // #437: /tmp is world-writable, so anything can pre-create that path.
+        // Registering anyway makes every launch of the shipped app exit at
+        // startup — a trivial local DoS. Skipping loses focus-on-reactivate
+        // and nothing else.
+        let default = PathBuf::from("/Users/x/Library/Application Support/arXMCP");
+        assert_eq!(
+            single_instance_decision(&default, Some(&default), Some(0), 501),
+            SingleInstance::Skip("single-instance socket is not owned by this user")
+        );
+    }
+
+    #[test]
+    fn an_underivable_default_is_not_assumed_to_be_the_shipped_shape() {
+        // No HOME: there is nothing to compare against, so claiming this is
+        // the default root would re-open exactly the cross-talk above.
+        let mine = PathBuf::from("/tmp/some-scratch-root");
+        assert_eq!(
+            single_instance_decision(&mine, None, None, 501),
+            SingleInstance::Skip("platform data root underivable")
+        );
+    }
+
     #[test]
     fn single_instance_socket_matches_the_configured_identifier() {
         let conf: serde_json::Value =
