@@ -28,6 +28,21 @@ use tauri::Manager;
 /// Bound arrives only after the child's eager BGE-M3/LanceDB lifespan
 /// warm-up (server/main.py documents 5-30s); generous headroom for load.
 const BOUND_TIMEOUT: Duration = Duration::from_secs(240);
+
+/// #442: how often the bound wait reports that it is still waiting. The
+/// timeout above is NOT the bug — a cold BGE-M3 load is genuinely slow, and
+/// shortening it would turn slow first runs into failures. The bug was 241
+/// seconds of total silence, in which a wedged child and a warm-up are
+/// indistinguishable to both the operator and a triage session.
+const BOUND_PROGRESS_INTERVAL: Duration = Duration::from_secs(15);
+
+/// #442: when to stop showing "starting…" and say why it is taking so long.
+/// Past this the window explains the first-run model load rather than leaving
+/// the operator to guess whether the application is wedged.
+const FIRST_RUN_NOTICE: Duration = Duration::from_secs(30);
+
+/// #443: how often the watchdog asks whether the child is still alive.
+const WATCHDOG_INTERVAL: Duration = Duration::from_secs(2);
 const PROBE_TIMEOUT: Duration = Duration::from_secs(2);
 /// The MCP smoke has no `poll_until` retry, unlike the health (60s) and
 /// readiness (120s) probes, and it runs on a machine that has just finished
@@ -83,6 +98,17 @@ pub fn run_cycle(
                 if let Ok(mut slot) = shared_slot.lock() {
                     *slot = control.take();
                 }
+                // #443: from this point nothing used to wait on, poll or
+                // re-probe the child EVER AGAIN. Kill the server and the
+                // supervisor stayed up, logged nothing, left a zombie, and
+                // pointed its WebView at a dead port — a connection-refused
+                // page inside the application with no explanation anywhere.
+                spawn_child_watchdog(
+                    handle.clone(),
+                    recorder.clone(),
+                    shared_slot.clone(),
+                    format!("{}/logs/desktop-child.log", plan.data_root),
+                );
                 0
             }
         }
@@ -106,6 +132,65 @@ pub fn run_cycle(
             1
         }
     }
+}
+
+/// #443: notice when the server dies, and say so.
+///
+/// The non-smoke path hands the child to `RunEvent::Exit` and returns, so
+/// without this nothing observes the child for the rest of the process
+/// lifetime. `try_wait` both detects the exit and reaps it, which also clears
+/// the zombie the chaos run measured.
+///
+/// Deliberately does NOT restart the child. A crash loop that silently
+/// re-launches is harder to diagnose than one that stops and explains itself,
+/// and #425 gave this process somewhere to put the explanation. Restart, if
+/// it is ever wanted, should be an operator-visible action rather than a
+/// hidden one.
+fn spawn_child_watchdog(
+    handle: tauri::AppHandle,
+    recorder: Recorder,
+    slot: Arc<Mutex<Option<ChildControl>>>,
+    log_path: String,
+) {
+    std::thread::spawn(move || {
+        loop {
+            std::thread::sleep(WATCHDOG_INTERVAL);
+            let exited = {
+                let Ok(mut guard) = slot.lock() else {
+                    return;
+                };
+                // Taken by the shutdown path: a normal quit is in progress and
+                // this thread has nothing left to watch.
+                let Some(control) = guard.as_mut() else {
+                    return;
+                };
+                match control.child.try_wait() {
+                    Ok(Some(status)) => {
+                        // Drop the reaped control so RunEvent::Exit does not
+                        // later run the ladder against a dead pid.
+                        let _ = guard.take();
+                        Some(status.code().map_or(-1, i64::from))
+                    }
+                    Ok(None) => None,
+                    // try_wait failing means the handle is unusable; there is
+                    // nothing further this thread can observe.
+                    Err(_) => return,
+                }
+            };
+            // The lock is released before touching the UI: `show_failure`
+            // hops to the main thread, and holding the child mutex across
+            // that would put this thread in the way of a concurrent quit.
+            if let Some(code) = exited {
+                let _ = recorder.record("child-exited", json!({"code": code}));
+                show_failure(
+                    &handle,
+                    "The arXMCP server stopped unexpectedly.",
+                    &log_path,
+                );
+                return;
+            }
+        }
+    });
 }
 
 fn cycle(
@@ -231,7 +316,7 @@ fn cycle(
     let bound_timeout = plan
         .test_bound_timeout_ms
         .map_or(BOUND_TIMEOUT, Duration::from_millis);
-    let bound = await_bound(stdout, recorder, &token, bound_timeout)?;
+    let bound = await_bound(stdout, recorder, &token, bound_timeout, Some(handle))?;
     if bound.executable != expected_identity {
         return Err("bound identity mismatch");
     }
@@ -272,6 +357,7 @@ fn await_bound(
     recorder: &Recorder,
     token: &StartupToken,
     timeout: Duration,
+    handle: Option<&tauri::AppHandle>,
 ) -> Result<Bound, &'static str> {
     let (sender, receiver) = mpsc::channel();
     let drain_recorder = recorder.clone();
@@ -291,9 +377,45 @@ fn await_bound(
             let _ = drain_recorder.record("unexpected-stdout", json!({"bytes": extra}));
         }
     });
-    let frame = receiver
-        .recv_timeout(timeout)
-        .map_err(|_| "bound frame timeout")?
+    // #442: wait in slices instead of one opaque block. Same deadline, same
+    // outcome — but the event log now shows progress, and past
+    // FIRST_RUN_NOTICE the window stops claiming "starting…" and says why it
+    // is slow. Before this the operator saw a frozen static page for up to
+    // four minutes with no way to tell a warm-up from a wedge.
+    let started = Instant::now();
+    let deadline = started + timeout;
+    let mut explained = false;
+    let received = loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err("bound frame timeout");
+        }
+        match receiver.recv_timeout(remaining.min(BOUND_PROGRESS_INTERVAL)) {
+            Ok(result) => break result,
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                // Don't announce progress at the instant the deadline expires:
+                // the next loop turn returns the timeout error, and a
+                // "still waiting" line stamped the same millisecond as
+                // `lifecycle-failed` reads like a contradiction in the log.
+                if Instant::now() >= deadline {
+                    return Err("bound frame timeout");
+                }
+                let waited = started.elapsed();
+                let _ =
+                    recorder.record("waiting-for-bound", json!({"elapsed_s": waited.as_secs()}));
+                if !explained && waited >= FIRST_RUN_NOTICE {
+                    explained = true;
+                    if let Some(handle) = handle {
+                        show_slow_start(handle);
+                    }
+                }
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                return Err("child stdout closed before bound")
+            }
+        }
+    };
+    let frame = received
         .map_err(|_| "bound frame read failed")?
         .ok_or("child stdout closed before bound")?;
     match parse_frame(&frame) {
@@ -555,6 +677,38 @@ fn html_escape(input: &str) -> String {
         .replace('"', "&quot;")
 }
 
+/// Issue #442: replace "starting…" with an explanation once the wait is long
+/// enough to look like a hang.
+///
+/// The first run loads BGE-M3 from a cold cache, which is genuinely slow, and
+/// the measured failure was not the duration — it was that a warm-up and a
+/// wedged child looked identical for up to four minutes. Same best-effort
+/// contract as `show_failure`: every step discards its error.
+pub fn show_slow_start(handle: &tauri::AppHandle) {
+    let body = "<!doctype html><meta charset=\"utf-8\"><title>arXMCP is starting</title>\
+        <style>body{font:14px/1.6 -apple-system,BlinkMacSystemFont,sans-serif;\
+        margin:0;padding:2.5rem;background:#161e20;color:#e0e8e8}\
+        h1{font-size:1.3rem;margin:0 0 .75rem}p{margin:0 0 1rem;max-width:64ch}\
+        .m{color:#8b9e9f}</style>\
+        <h1>arXMCP is still starting</h1>\
+        <p>The first launch loads the retrieval model, which can take several \
+        minutes on a cold cache. Later launches are much faster.</p>\
+        <p class=\"m\">If this window does not change within a few more minutes, \
+        arXMCP will stop on its own and tell you why.</p>";
+    let Ok(url) = tauri::Url::parse(&format!(
+        "data:text/html;charset=utf-8,{}",
+        percent_encode(body)
+    )) else {
+        return;
+    };
+    let main_handle = handle.clone();
+    let _ = handle.run_on_main_thread(move || {
+        if let Some(window) = main_handle.get_webview_window("main") {
+            let _ = window.navigate(url);
+        }
+    });
+}
+
 /// Issue #425: put a launch failure on screen.
 ///
 /// Before this, every failure path was `eprintln!` plus an exit. Under
@@ -614,6 +768,23 @@ pub fn shutdown_child(mut control: ChildControl) -> i64 {
         let _ = control.stdin.flush();
     }
     drop(control.stdin);
+    // #442: a STOPPED child cannot be shut down cooperatively, and the
+    // measured cost of pretending otherwise was 35.8s on top of a 240s bound
+    // timeout — 281s of a frozen window.
+    //
+    // The discriminator is deliberately "stopped", NOT "never bound". A first
+    // attempt used the latter and the m6 fault matrix rejected it, correctly:
+    // its startup-timeout arm is a *parked but cooperating* child that never
+    // emits `bound` and still honours the shutdown frame with a clean exit 0,
+    // and its malformed-bound arm is alive enough to have spoken badly. Both
+    // deserve the grace. A SIGSTOP'd process is the one that provably cannot
+    // use it: it cannot observe stdin EOF, cannot act on the shutdown frame,
+    // and does not even receive SIGTERM until it continues. SIGKILL is the
+    // only signal that lands, so go straight to it.
+    if is_stopped(control.child.id()) {
+        let _ = control.child.kill();
+        return wait_exit(&mut control.child, REAP_BUDGET_MS).unwrap_or(-1);
+    }
     if let Some(code) = wait_exit(&mut control.child, control.grace_ms) {
         return code;
     }
@@ -623,6 +794,34 @@ pub fn shutdown_child(mut control: ChildControl) -> i64 {
     }
     let _ = control.child.kill();
     wait_exit(&mut control.child, REAP_BUDGET_MS).unwrap_or(-1)
+}
+
+/// #442: is this pid stopped (SIGSTOP'd)?
+///
+/// `ps` rather than a syscall because this crate has no `libc` dependency,
+/// and because `ps` is already a hard binary prerequisite of the m6
+/// cleanup-evidence probes. Absolute path: a planted `ps` earlier on PATH
+/// must not be able to answer this. Any failure to determine the state
+/// returns false — the SAFE default, which keeps the full cooperative ladder
+/// rather than force-killing a healthy server on a bad reading.
+#[cfg(unix)]
+fn is_stopped(pid: u32) -> bool {
+    let Ok(output) = Command::new("/bin/ps")
+        .args(["-o", "state=", "-p", &pid.to_string()])
+        .output()
+    else {
+        return false;
+    };
+    // BSD/macOS state codes: T = stopped by a signal, plus optional
+    // modifier characters after the first.
+    String::from_utf8_lossy(&output.stdout)
+        .trim()
+        .starts_with('T')
+}
+
+#[cfg(not(unix))]
+fn is_stopped(_pid: u32) -> bool {
+    false
 }
 
 fn wait_exit(child: &mut Child, budget_ms: u64) -> Option<i64> {
@@ -663,6 +862,99 @@ fn file_sha256(path: &str) -> Result<String, &'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ---- issue #442: a never-bound child does not get the grace ----------
+
+    /// A child that ignores TERM, so the ladder must escalate to KILL.
+    fn stubborn_control(grace_ms: u64) -> ChildControl {
+        let mut child = Command::new("/bin/sh")
+            .args(["-c", "trap '' TERM; sleep 30"])
+            .stdin(Stdio::piped())
+            .spawn()
+            .expect("spawn stubborn child");
+        let stdin = child.stdin.take().expect("stubborn child stdin");
+        ChildControl {
+            child,
+            stdin,
+            token: generate_startup_token().expect("startup token"),
+            contract: ContractVersion { major: 1, minor: 0 },
+            grace_ms,
+            force_after_ms: 200,
+        }
+    }
+
+    #[test]
+    fn a_stopped_child_skips_straight_to_kill() {
+        // #442's measured pathology. A SIGSTOP'd child cannot observe stdin
+        // EOF, cannot act on the shutdown frame, and does not receive SIGTERM
+        // until it continues — so grace and TERM are both dead time. A 3s
+        // grace makes the difference unambiguous.
+        let control = stubborn_control(3_000);
+        let pid = control.child.id();
+        // SIGSTOP delivery is ASYNCHRONOUS, and under parallel-test load the
+        // first one has been observed not to take at all (measured: ~2 in 5
+        // runs never reached state T within 5s, while the same shape outside
+        // the harness stopped 6/6). Re-send until `ps` confirms rather than
+        // asserting once — this is establishing the test's PRECONDITION, so a
+        // flake here would report a product failure that is not one.
+        let settle = Instant::now() + Duration::from_secs(10);
+        while Instant::now() < settle {
+            if is_stopped(pid) {
+                break;
+            }
+            let _ = Command::new("/bin/kill")
+                .args(["-STOP", &pid.to_string()])
+                .status();
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        let observed = Command::new("/bin/ps")
+            .args(["-o", "state=,command=", "-p", &pid.to_string()])
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned())
+            .unwrap_or_default();
+        assert!(
+            is_stopped(pid),
+            "could not stop the fixture, so the shortcut is untestable here; \
+             ps said {observed:?}"
+        );
+
+        let started = Instant::now();
+        let code = shutdown_child(control);
+        let elapsed = started.elapsed();
+        assert_eq!(code, -1, "a force-killed child reports no exit code");
+        assert!(
+            elapsed < Duration::from_secs(3),
+            "a stopped child must not be waited on for the cooperative grace \
+             — took {elapsed:?} (#442)"
+        );
+    }
+
+    #[test]
+    fn a_running_child_still_gets_its_full_grace() {
+        // The negative control, and the reason the shortcut is narrow. The m6
+        // fault matrix has TWO arms that never emit `bound` and still exit 0
+        // cooperatively — parked-but-cooperating, and malformed-bound. An
+        // earlier draft keyed the shortcut on "never bound" and broke both.
+        // A running server also holds LanceDB and Kuzu handles, which is what
+        // MIN_GRACE_MS exists to let it close.
+        let control = stubborn_control(3_000);
+        assert!(!is_stopped(control.child.id()));
+        let started = Instant::now();
+        let code = shutdown_child(control);
+        let elapsed = started.elapsed();
+        assert_eq!(code, -1);
+        assert!(
+            elapsed >= Duration::from_secs(3),
+            "a running child must still get its full grace — took {elapsed:?}"
+        );
+    }
+
+    #[test]
+    fn is_stopped_is_false_for_an_unknown_pid() {
+        // The safe default: an unreadable state must keep the full ladder,
+        // never force-kill a healthy server on a bad reading.
+        assert!(!is_stopped(u32::MAX));
+    }
 
     // ---- issue #436: the seal is actually consulted ----------------------
 

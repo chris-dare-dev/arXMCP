@@ -333,3 +333,106 @@ def test_the_resign_limitation_is_documented_not_buried() -> None:
         "the limitation must be pinned by a test that starts failing when the "
         "guarantee improves, not left as prose"
     )
+
+
+# ---------------------------------------------------------------------------
+# #442 / #443 — the supervisor keeps watching, and stops waiting on the dead
+# ---------------------------------------------------------------------------
+def test_the_bound_wait_reports_progress() -> None:
+    """#442. The 240s timeout is not the bug; 241s of silence is.
+
+    A cold BGE-M3 load is genuinely slow, so shortening the timeout would turn
+    slow first runs into failures. What has to change is that a warm-up and a
+    wedged child were indistinguishable — to the operator AND to a triage
+    session reading the event log afterwards.
+    """
+    assert "BOUND_PROGRESS_INTERVAL" in LIFECYCLE_RS
+    assert 'record(\n                    "waiting-for-bound"' in LIFECYCLE_RS or (
+        '"waiting-for-bound"' in LIFECYCLE_RS
+    ), "the bound wait must emit progress events"
+    assert "BOUND_TIMEOUT: Duration = Duration::from_secs(240)" in LIFECYCLE_RS, (
+        "the timeout itself should NOT have been shortened — that would fail "
+        "slow-but-healthy first runs (#442)"
+    )
+
+
+def test_a_long_start_explains_itself_on_screen() -> None:
+    assert "pub fn show_slow_start(" in LIFECYCLE_RS
+    assert "FIRST_RUN_NOTICE" in LIFECYCLE_RS
+    body = LIFECYCLE_RS[LIFECYCLE_RS.index("pub fn show_slow_start(") :][:1800]
+    assert "retrieval model" in body, (
+        "the notice must say WHY it is slow, not just that it is"
+    )
+
+
+def test_the_cooperative_grace_is_skipped_only_for_a_stopped_child() -> None:
+    """#442's other half — and the discriminator matters.
+
+    A first draft keyed this on "never bound" and the m6 fault matrix rejected
+    it, correctly: its startup-timeout arm is a *parked but cooperating* child
+    that never emits ``bound`` and still honours the shutdown frame with a
+    clean exit 0, and its malformed-bound arm is alive enough to have spoken
+    badly. Both deserve the grace. Only a SIGSTOP'd process provably cannot
+    use it.
+    """
+    assert "fn is_stopped(" in LIFECYCLE_RS, (
+        "the shortcut must key on the process being STOPPED, not on whether "
+        "it bound (#442)"
+    )
+    shutdown = LIFECYCLE_RS[LIFECYCLE_RS.index("pub fn shutdown_child(") :][:2200]
+    assert "is_stopped(control.child.id())" in shutdown
+    assert "control.bound" not in LIFECYCLE_RS, (
+        "the never-bound discriminator was wrong and must not come back"
+    )
+    for required in (
+        "a_stopped_child_skips_straight_to_kill",
+        "a_running_child_still_gets_its_full_grace",
+        "is_stopped_is_false_for_an_unknown_pid",
+    ):
+        assert required in LIFECYCLE_RS, f"{required} must pin this behaviour"
+
+
+def test_is_stopped_fails_safe() -> None:
+    """An unreadable process state must keep the FULL ladder.
+
+    Guessing "stopped" on a bad reading would force-kill a healthy server
+    mid-flush of its LanceDB and Kuzu handles — strictly worse than the bug
+    being fixed.
+    """
+    probe = LIFECYCLE_RS[LIFECYCLE_RS.index("fn is_stopped(pid: u32)") :][:900]
+    assert "return false;" in probe, "a failed probe must return false"
+    assert '"/bin/ps"' in probe, (
+        "absolute path — a planted ps earlier on PATH must not answer this"
+    )
+
+
+def test_a_watchdog_watches_the_child() -> None:
+    """#443. Nothing observed the child after the cycle returned."""
+    assert "fn spawn_child_watchdog(" in LIFECYCLE_RS
+    run_cycle = LIFECYCLE_RS[LIFECYCLE_RS.index("pub fn run_cycle(") :]
+    run_cycle = run_cycle[: run_cycle.index("\n}\n")]
+    assert "spawn_child_watchdog(" in run_cycle, (
+        "the watchdog must be started on the non-smoke path, where the cycle "
+        "hands the child off and returns (#443)"
+    )
+    watchdog = LIFECYCLE_RS[LIFECYCLE_RS.index("fn spawn_child_watchdog(") :][:2600]
+    assert 'record("child-exited"' in watchdog, (
+        "a dead server must leave a line in the event log"
+    )
+    assert "show_failure(" in watchdog, (
+        "and must reach the operator, not only the log"
+    )
+    assert "try_wait()" in watchdog, (
+        "try_wait both detects the exit and reaps it — the measured bug left "
+        "a zombie behind"
+    )
+
+
+def test_the_watchdog_does_not_silently_restart() -> None:
+    """A hidden crash loop is harder to diagnose than a stop that explains."""
+    # Whole-file: the rationale lives in the doc comment ABOVE the fn, which
+    # a slice starting at the signature necessarily misses.
+    assert "Deliberately does NOT restart" in LIFECYCLE_RS, (
+        "record the decision; a future reader will otherwise assume restart "
+        "was forgotten rather than chosen"
+    )
