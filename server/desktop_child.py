@@ -376,7 +376,30 @@ def main() -> int:
         from server.main import create_app
 
         try:
-            cfg = Config(data_dir=Path(frame.data_root))
+            # issue #426: ALWAYS bootstrap_mode. A double-clicked application
+            # must be able to start on a machine that has never run an ingest.
+            # Without this the child hits `Resources.startup`'s cold-start
+            # refusal (`server/resources.py`, CorpusNotIngestedError) and exits
+            # before emitting `bound`, so the shipped .app had NO first-run
+            # state that could succeed — and the remedy that error names
+            # (`make up-wizard`) does not exist inside a bundle.
+            #
+            # Unconditional is correct, not a shortcut. Per FM-7 in
+            # `Resources.startup`, bootstrap_mode with a PRESENT corpus marker
+            # logs an INFO and proceeds with a completely normal boot; it only
+            # changes behaviour when the marker is absent, which is exactly the
+            # cold-start case. So an operator with a real corpus is unaffected,
+            # and a fresh install lands in `/ui/` where it can create a
+            # notebook, add papers and ingest — the first-run path the console
+            # already implements. `late_bind()` promotes the stub instance once
+            # that first ingest completes.
+            #
+            # This is set HERE rather than passed down the launch frame because
+            # the frame is the desktop wire contract, and the supervisor
+            # deliberately scrubs ambient ARXMCP_* before spawning
+            # (`lifecycle.rs`) — the child owns its own configuration, and the
+            # child is the side that knows whether a corpus exists.
+            cfg = Config(data_dir=Path(frame.data_root), bootstrap_mode=True)
             _configure_child_logging(cfg)
             app = create_app(cfg)
         except Exception as exc:

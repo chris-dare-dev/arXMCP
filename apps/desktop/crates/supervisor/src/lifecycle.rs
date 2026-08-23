@@ -88,6 +88,15 @@ pub fn run_cycle(
         }
         Err(reason) => {
             let _ = recorder.record("lifecycle-failed", json!({"reason": reason}));
+            // #425: tell the operator, on screen, before anything else. Smoke
+            // runs are headless conformance gates with no one watching, and
+            // they exit immediately after this — showing a page there would be
+            // dead code that the m6 fault matrix would have to tolerate.
+            if !smoke {
+                let log_path = format!("{}/logs/desktop-child.log", plan.data_root);
+                show_failure(handle, reason, &log_path);
+                let _ = recorder.record("failure-shown", json!({"reason": reason}));
+            }
             if let Some(orphan) = control.take() {
                 // The fault-cleanup arm: record the outcome so the m6 fault
                 // matrix can assert bounded reaping, not just failure.
@@ -428,6 +437,77 @@ fn navigate_window(handle: &tauri::AppHandle, bound: &Bound) -> Result<(), &'sta
         .map_err(|_| "window navigate timeout")?
 }
 
+/// Percent-encode for a `data:` URL body. Conservative on purpose: everything
+/// outside the unreserved set is escaped, so no operator-controlled byte in a
+/// filesystem path can terminate the URL or introduce a new attribute.
+fn percent_encode(input: &str) -> String {
+    let mut out = String::with_capacity(input.len() * 3);
+    for byte in input.as_bytes() {
+        let c = *byte as char;
+        if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '~') {
+            out.push(c);
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    out
+}
+
+/// Escape for HTML text content. The reason is one of this crate's own
+/// `&'static str`s, but the log path is derived from the plan's `data_root`
+/// and is therefore operator-controlled.
+fn html_escape(input: &str) -> String {
+    input
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+/// Issue #425: put a launch failure on screen.
+///
+/// Before this, every failure path was `eprintln!` plus an exit. Under
+/// LaunchServices a double-clicked application's stderr goes nowhere the
+/// operator will ever look, so the measured experience was: no dialog, no
+/// message, `open` exits 0, and the process gone in five to seven seconds.
+/// The only trace was an NDJSON file the next launch truncated (#464).
+///
+/// The window already exists — `main.rs`'s setup builds it showing
+/// "arXMCP is starting…" — so the fix is to navigate that same window to an
+/// explanation rather than to invent a dialog. Best effort by construction:
+/// a failure to SHOW the failure must never mask the original one, so every
+/// step here discards its error and the caller's return value is unchanged.
+pub fn show_failure(handle: &tauri::AppHandle, reason: &str, log_path: &str) {
+    let body = format!(
+        "<!doctype html><meta charset=\"utf-8\"><title>arXMCP could not start</title>\
+         <style>body{{font:14px/1.6 -apple-system,BlinkMacSystemFont,sans-serif;\
+         margin:0;padding:2.5rem;background:#161e20;color:#e0e8e8}}\
+         h1{{font-size:1.3rem;margin:0 0 .75rem}}code{{font:12px/1.5 ui-monospace,monospace;\
+         background:#0f1516;padding:.15rem .35rem;border-radius:3px;word-break:break-all}}\
+         p{{margin:0 0 1rem;max-width:64ch}}.r{{color:#fda29b}}</style>\
+         <h1>arXMCP could not start</h1>\
+         <p class=\"r\">{reason}</p>\
+         <p>The full log for this launch is at:</p><p><code>{log}</code></p>\
+         <p>That file is rewritten on every launch, so copy it before starting \
+         arXMCP again if you need to report this.</p>",
+        reason = html_escape(reason),
+        log = html_escape(log_path),
+    );
+    let Ok(url) = tauri::Url::parse(&format!(
+        "data:text/html;charset=utf-8,{}",
+        percent_encode(&body)
+    )) else {
+        return;
+    };
+    let main_handle = handle.clone();
+    let _ = handle.run_on_main_thread(move || {
+        if let Some(window) = main_handle.get_webview_window("main") {
+            let _ = window.navigate(url);
+            let _ = window.set_focus();
+        }
+    });
+}
+
 /// Bounded normal shutdown: authenticated frame + stdin-EOF lease, then
 /// grace wait -> cooperative terminate -> forced kill; always reaps.
 /// Returns the child exit code (-1 when it had to be force-killed).
@@ -492,6 +572,53 @@ fn file_sha256(path: &str) -> Result<String, &'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ---- issue #425: the failure page's encoders -------------------------
+
+    #[test]
+    fn percent_encode_escapes_everything_outside_the_unreserved_set() {
+        assert_eq!(percent_encode("abcXYZ019-_.~"), "abcXYZ019-_.~");
+        // The bytes that would end the data: URL or start a new attribute.
+        assert_eq!(percent_encode("<>\"'"), "%3C%3E%22%27");
+        assert_eq!(percent_encode(" "), "%20");
+        assert_eq!(percent_encode("#?&="), "%23%3F%26%3D");
+        assert_eq!(percent_encode("/a/b"), "%2Fa%2Fb");
+    }
+
+    #[test]
+    fn percent_encode_is_byte_wise_over_multibyte_utf8() {
+        // A data root can contain any UTF-8. Encoding per-char rather than
+        // per-byte would emit a lone codepoint the URL parser rejects.
+        assert_eq!(percent_encode("é"), "%C3%A9");
+        assert_eq!(percent_encode("🧨"), "%F0%9F%A7%A8");
+    }
+
+    #[test]
+    fn html_escape_neutralises_markup_in_an_operator_path() {
+        assert_eq!(
+            html_escape("/Users/x/<img src=y onerror=z>/logs"),
+            "/Users/x/&lt;img src=y onerror=z&gt;/logs"
+        );
+        // Ampersand first, or the other replacements get double-escaped.
+        assert_eq!(html_escape("a&b<c"), "a&amp;b&lt;c");
+        assert_eq!(html_escape("\"q\""), "&quot;q&quot;");
+    }
+
+    #[test]
+    fn a_hostile_data_root_cannot_break_out_of_the_failure_page() {
+        // The composed body is HTML-escaped and then percent-encoded, so
+        // neither layer can be terminated by a path an operator chose.
+        let hostile = "/tmp/</style><script>alert(1)</script>";
+        let escaped = html_escape(hostile);
+        assert!(!escaped.contains('<'), "{escaped}");
+        let encoded = percent_encode(&escaped);
+        for forbidden in ['<', '>', '"', '\''] {
+            assert!(
+                !encoded.contains(forbidden),
+                "{encoded} contains {forbidden}"
+            );
+        }
+    }
 
     #[test]
     fn redirect_location_resolves_to_mount_relative_path() {

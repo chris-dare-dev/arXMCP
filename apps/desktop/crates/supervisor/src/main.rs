@@ -750,7 +750,15 @@ fn main() {
             std::thread::spawn(move || {
                 let code =
                     lifecycle::run_cycle(&handle, &plan, &setup_recorder, &setup_slot, smoke);
-                if smoke || code != 0 {
+                // #425: a smoke run is a headless conformance gate — it must
+                // still self-exit with the cycle's code, and the fault matrix
+                // asserts exactly that. A NON-smoke failure now leaves the
+                // application alive instead, because `lifecycle::show_failure`
+                // has just put the reason in the window and exiting would take
+                // it off screen again — which was the whole of #425. The
+                // operator closes the window when done, and that runs the same
+                // bounded `RunEvent::Exit` shutdown as any normal quit.
+                if smoke {
                     handle.exit(code);
                 }
             });
