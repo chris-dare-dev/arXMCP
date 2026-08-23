@@ -400,6 +400,43 @@ fn resolve_inside(root: &Path, candidate: &Path) -> Result<PathBuf, &'static str
     Ok(resolved)
 }
 
+/// #484: the v1 launch frame declares FIXED probe paths, so
+/// `arxmcp-desktop-probe` is a dependency of the plan — but nothing checked it
+/// existed before the frame was authored. Deleting it changed no supervisor
+/// behaviour at plan time; the failure surfaced later, somewhere else.
+///
+/// Checked at plan authoring, where the answer is cheap and the message can
+/// name the missing file. Strictly weaker than the write-access-equals-code-
+/// execution risk the README already concedes — this catches an INCOMPLETE
+/// payload, not a hostile one, which is the ditto/unzip/partial-copy case.
+/// #485: is this derivation usable as a data root?
+///
+/// `--print-data-root` emitted a path for a `$HOME` that is a regular FILE and
+/// for a RELATIVE `$HOME`, so the probe's own output was not by itself a
+/// usable data root — and `main()` catches the relative case only later, while
+/// the probe never did. A diagnostic that reports something the program would
+/// refuse is worse than one that reports nothing.
+fn check_data_root_shape(root: &Path, home: &Path) -> Result<(), &'static str> {
+    if !home.is_absolute() {
+        return Err("data root: HOME is not an absolute path");
+    }
+    if home.exists() && !home.is_dir() {
+        return Err("data root: HOME is not a directory");
+    }
+    if !root.is_absolute() {
+        return Err("data root: derived path is not absolute");
+    }
+    Ok(())
+}
+
+fn check_payload_completeness(root: &Path) -> Result<(), &'static str> {
+    let probe = root.join(PROBE_EXECUTABLE_NAME);
+    if !probe.is_file() {
+        return Err("self-authored plan: payload is incomplete (probe missing)");
+    }
+    Ok(())
+}
+
 /// #460: name the ACTUAL filesystem failure.
 ///
 /// `resolve_inside` mapped every `canonicalize` error to "missing", so a
@@ -565,6 +602,10 @@ fn child_payload_root(supervisor_exe: &Path) -> Result<PathBuf, &'static str> {
 
 /// [`child_payload_root`] with the selected arm's label attached, for the
 /// probe. Split out so the probe can report WHICH layout resolved without
+/// Sibling of [`child_executable_name`]; declared by the v1 launch frame's
+/// fixed probe paths and therefore part of a complete payload (#484).
+const PROBE_EXECUTABLE_NAME: &str = "arxmcp-desktop-probe";
+
 /// the caller re-deriving it from the path.
 fn child_payload_layout(supervisor_exe: &Path) -> Result<(&'static str, PathBuf), &'static str> {
     for (layout, root) in child_payload_candidates(supervisor_exe)? {
@@ -694,6 +735,7 @@ fn self_authored_plan(
 ) -> Result<Plan, &'static str> {
     let payload_root = child_payload_root(supervisor_exe)?;
     let child_exe = resolve_inside(&payload_root, &payload_root.join(child_executable_name()))?;
+    check_payload_completeness(&payload_root)?;
     let data_root = platform_data_root(lookup)?;
     // The fixture and the Python child both require an ALREADY-canonical
     // data_root on the wire, and canonicalize() needs the path to exist.
@@ -979,6 +1021,19 @@ fn main() {
     if std::env::args_os().nth(1).as_deref() == Some(std::ffi::OsStr::new(DATA_ROOT_PROBE_ARG)) {
         match platform_data_root(|key| std::env::var(key).ok()) {
             Ok(root) => {
+                // #485: refuse to print a path the program itself would
+                // reject. The probe emitted a data root for a $HOME that is a
+                // regular file and for a RELATIVE $HOME; main() caught the
+                // relative case only later, and the probe never did — so its
+                // output was not by itself a usable data root, which is the
+                // one thing a data-root probe is for.
+                let home = std::env::var_os("HOME")
+                    .or_else(|| std::env::var_os("USERPROFILE"))
+                    .map(PathBuf::from)
+                    .unwrap_or_default();
+                if let Err(reason) = check_data_root_shape(&root, &home) {
+                    fail(reason);
+                }
                 println!("{}", wire_path(&root));
                 std::process::exit(0);
             }
@@ -1257,6 +1312,10 @@ mod tests {
         let payload = base.join(CHILD_PAYLOAD_DIR);
         fs::create_dir_all(&payload).expect("stage payload dir");
         stage_child_executable(&payload.join(child_executable_name()));
+        // #484: a COMPLETE payload includes the probe the launch frame
+        // declares. The fixture staged only the child, i.e. modelled a
+        // payload the completeness check correctly refuses.
+        stage_child_executable(&payload.join(PROBE_EXECUTABLE_NAME));
         (base.join("supervisor"), base)
     }
 
@@ -1347,6 +1406,7 @@ mod tests {
     fn stage_child_in(root: &Path) {
         fs::create_dir_all(root).expect("stage payload root");
         stage_child_executable(&root.join(child_executable_name()));
+        stage_child_executable(&root.join(PROBE_EXECUTABLE_NAME));
     }
 
     /// ARM 1 — the assembled `.app`. The payload is NOT a sibling of the

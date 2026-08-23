@@ -172,6 +172,26 @@ class DegradedState:
     original_version: int
 
 
+def _trim_vendored_paths(message: str) -> str:
+    """Drop the crates.io build-machine path from a LanceDB error (issue #476).
+
+    pyo3 concatenates the Rust source location into its error string, so
+    arXMCP's own operator-facing message ended with
+    ``/Users/runner/.cargo/registry/src/.../lance-file-4.0.0/src/reader.rs:471:24``.
+    Not a leak of anything sensitive — it is a CI machine's path, not this
+    one's — but it buries the actionable half of the message and makes the log
+    read as an arXMCP bug in a vendored file.
+
+    Conservative: only strips a trailing ``, /…/.cargo/registry/…`` clause,
+    which is the shape pyo3 appends. Anything it does not recognise is passed
+    through unchanged, because a mangled error is worse than a noisy one.
+    """
+    cut = message.find(", /")
+    if cut != -1 and ".cargo/registry" in message[cut:]:
+        return message[:cut]
+    return message
+
+
 def _dataset_tip_version(lancedb_path: str | Path | None) -> int | None:
     """Newest version this dataset actually has, or ``None`` if unknowable.
 
@@ -295,7 +315,7 @@ def open_chunks_table_with_fallback(
                 f"corpus_corruption_unrecoverable: live tip version "
                 f"{version} failed to open and no fallback target "
                 f"exists (version floor is 1). Original error: "
-                f"{primary_exc!s}"
+                f"{_trim_vendored_paths(str(primary_exc))}"
             ) from primary_exc
 
         logger.warning(
@@ -314,8 +334,9 @@ def open_chunks_table_with_fallback(
             raise RuntimeError(
                 f"corpus_corruption_unrecoverable: both live tip "
                 f"version {version} and fallback version {version - 1} "
-                f"failed to open. Live-tip error: {primary_exc!s}; "
-                f"fallback error: {fallback_exc!s}. Restore from "
+                f"failed to open. Live-tip error: "
+                f"{_trim_vendored_paths(str(primary_exc))}; "
+                f"fallback error: {_trim_vendored_paths(str(fallback_exc))}. Restore from "
                 f"the most-recent restic snapshot — see "
                 f"docs/ops/backup-restore.md."
             ) from fallback_exc

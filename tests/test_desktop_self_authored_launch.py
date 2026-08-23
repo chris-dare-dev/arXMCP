@@ -85,6 +85,11 @@ PLAN_ENV = "ARXMCP_DESKTOP_LAUNCH_PLAN"
 #: rename broke the shipped double-click path with every gate still green
 #: (m10 critique H4/M4/M5/M6).
 CHILD_PAYLOAD_DIR = _desktop_package_module().BUNDLE_NAME
+#: The probe binary m7's onedir ships beside the child. DERIVED from the
+#: supervisor's own constant so a rename cannot leave this harness staging a
+#: payload the production resolver would call incomplete (#484) — the same
+#: reason CHILD_PAYLOAD_DIR is derived rather than re-declared.
+PROBE_PAYLOAD_NAME = "arxmcp-desktop-probe"
 #: `server/desktop_child.py::COMPONENT` — what the frozen child calls itself,
 #: and therefore what the self-authored plan must name. Imported for the same
 #: reason.
@@ -157,6 +162,14 @@ def _stage(tmp_path: Path, *, with_child: bool) -> tuple[Path, Path]:
         child = payload / CHILD_PAYLOAD_DIR
         shutil.copy2(_fixture_binary(), child)
         _make_executable(child)
+        # issue #484: a COMPLETE payload also carries the probe the v1 launch
+        # frame declares in its fixed probe paths. This harness staged only
+        # the child — a substitute payload that the real bundle never has —
+        # so the completeness check correctly refused it. Staging the probe
+        # keeps the substitution faithful to the shape being stood in for.
+        probe = payload / PROBE_PAYLOAD_NAME
+        shutil.copy2(_fixture_binary(), probe)
+        _make_executable(probe)
     home = tmp_path / "home"
     home.mkdir()
     return supervisor, home

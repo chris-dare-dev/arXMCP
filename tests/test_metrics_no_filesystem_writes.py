@@ -87,8 +87,12 @@ class TestScrapePathIsPure:
         the code back, and the body-level test above would still pass.
         """
         source = (REPO_ROOT / "server" / "main.py").read_text(encoding="utf-8")
+        # Extract the WHOLE function rather than a fixed window: #470 added a
+        # method gate to this wrapper and a 600-char slice stopped before the
+        # refresh call, failing on a correct change. Cut at the mount that
+        # follows the definition.
         start = source.index("async def metrics_wrapper")
-        wrapper = source[start : start + 600]
+        wrapper = source[start : source.index('app.mount("/metrics"', start)]
         assert "refresh_metrics_from_singleton_state" in wrapper
         assert "refresh_filesystem_metrics" not in wrapper, (
             "the /metrics wrapper must not run the filesystem half — it does "

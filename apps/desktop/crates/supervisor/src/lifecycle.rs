@@ -385,16 +385,31 @@ fn await_bound(
         let mut reader = BufReader::new(stdout);
         let first = read_frame(&mut reader);
         let _ = sender.send(first);
+        // #486: the drain had no byte cap and no deadline — it exited only on
+        // EOF or a read error, so a child that streams indefinitely kept this
+        // thread and the pipe alive for the life of the supervisor, burning
+        // CPU on entirely child-controlled input. Child stdout is CONTROL-ONLY
+        // after `bound`; anything arriving here is already a contract
+        // violation, and counting it past a point proves nothing more.
+        const DRAIN_CAP_BYTES: usize = 64 * 1024;
         let mut remainder = [0_u8; 1_024];
         let mut extra = 0_usize;
+        let mut capped = false;
         while let Ok(count) = reader.read(&mut remainder) {
             if count == 0 {
                 break;
             }
             extra += count;
+            if extra >= DRAIN_CAP_BYTES {
+                capped = true;
+                break;
+            }
         }
         if extra > 0 {
-            let _ = drain_recorder.record("unexpected-stdout", json!({"bytes": extra}));
+            let _ = drain_recorder.record(
+                "unexpected-stdout",
+                json!({"bytes": extra, "capped": capped}),
+            );
         }
     });
     // #442: wait in slices instead of one opaque block. Same deadline, same
@@ -448,11 +463,40 @@ fn await_bound(
             // diagnostic, from which `tr A-F a-f` recovered the capability.
             let scrubbed =
                 redact::scrub_child_text(&String::from_utf8_lossy(&frame), token.expose());
-            let prefix: String = scrubbed.chars().take(256).collect();
+            // #487: `frame_prefix` is the ONE event field carrying raw
+            // child-chosen bytes, and NUL and control characters were landing
+            // in the log verbatim. JSON encoding keeps the file parseable, so
+            // this is log-injection hygiene rather than corruption — but
+            // redact.rs's own module doc concedes the surrounding discipline
+            // is call-site-only with "nothing structural enforces that yet",
+            // and #439 is the case where relying on one scrub call
+            // demonstrably failed on this exact field. Restrict the charset
+            // rather than add a second thing to remember.
+            let prefix: String = printable_ascii(&scrubbed).chars().take(256).collect();
             let _ = recorder.record("bound-frame-invalid", json!({"frame_prefix": prefix}));
             Err("bound frame invalid")
         }
     }
+}
+
+/// Restrict child-chosen text to printable ASCII (issue #487).
+///
+/// Anything outside `0x20..=0x7E` (plus tab) becomes `\xNN`, so a NUL, an
+/// escape sequence or a stray newline cannot alter how the persisted event
+/// line reads. Lossy on purpose: this is a diagnostic prefix, and being able
+/// to trust what it says matters more than reproducing every byte.
+fn printable_ascii(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    for ch in input.chars() {
+        if ch == '\t' || (' '..='~').contains(&ch) {
+            out.push(ch);
+        } else {
+            for byte in ch.to_string().as_bytes() {
+                out.push_str(&format!("\\x{byte:02X}"));
+            }
+        }
+    }
+    out
 }
 
 fn ready_status(port: u16, token: &str) -> bool {

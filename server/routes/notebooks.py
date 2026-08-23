@@ -314,8 +314,24 @@ class PaperAdd(BaseModel):
 async def list_notebooks(
     store: NotebooksStore = Depends(get_notebooks_store),  # noqa: B008  (FastAPI DI pattern)
 ) -> list[dict[str, str]]:
-    """Return all notebooks ordered by ``created_at DESC``."""
-    return await store.list_notebooks()
+    """Return all notebooks ordered by ``created_at DESC``.
+
+    Issue #469: ``lancedb_path`` is projected OUT. A list endpoint for a
+    desktop UI does not need absolute host paths, and emitting them put the
+    operator's home directory and source-tree layout in reach of any local
+    process or webview request.
+
+    Scoped to the LIST deliberately. ``create_notebook``'s JSON branch still
+    returns the field, because that one carries a documented
+    backwards-compatibility commitment to scripted callers
+    (``06-mcp-server-design.md``'s lancedb_path info-leak note); a caller that
+    needs the path knows the slug and can derive or request it. Removing it
+    from a bulk listing costs nobody anything.
+    """
+    return [
+        {key: value for key, value in notebook.items() if key != "lancedb_path"}
+        for notebook in await store.list_notebooks()
+    ]
 
 
 @router.post(

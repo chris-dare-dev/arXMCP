@@ -40,7 +40,12 @@
   >
     <label>
       Slug
-      <input type="text" name="slug" required minlength="3" maxlength="64"
+      {# #481: `title` is what the browser shows on a pattern mismatch —
+         without it the message is the generic "Please match the requested
+         format." maxlength was 64 against a 31-char server rule, so the
+         field accepted 33 characters the server always rejects. #}
+      <input type="text" name="slug" required minlength="3" maxlength="31"
+             title="Lowercase letters, digits and hyphens; start with a letter; 3–31 characters."
              {# #452: the hyphen MUST be backslash-escaped. HTML compiles
                 `pattern` with the `v` (unicodeSets) flag, where a bare `-` is
                 "Invalid character in character class" — and a pattern that

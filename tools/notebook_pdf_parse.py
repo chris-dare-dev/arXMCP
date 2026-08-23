@@ -48,6 +48,7 @@ import argparse
 import logging
 import subprocess
 import sys
+from pathlib import Path
 
 from ingest.identifiers import is_valid_paper_id
 from ingest.textbook_parser import (
@@ -128,15 +129,40 @@ def _parse_one(
         # OSError), so it must be caught explicitly or one slow PDF aborts the
         # whole batch instead of being aggregated as a per-paper failure.
         logger.error("[%s] parse failed: %s", paper_id, exc)
+        _discard_empty_parse_dirs(output_dir, parsed_dir / flat)
         return False
 
     if not index_html.is_file():
         logger.error(
             "[%s] parse completed but %s was not produced", paper_id, index_html,
         )
+        _discard_empty_parse_dirs(output_dir, parsed_dir / flat)
         return False
     logger.info("[%s] parsed -> %s", paper_id, index_html)
     return True
+
+
+def _discard_empty_parse_dirs(*candidates: Path) -> None:
+    """Remove parse scaffolding this run created and left empty (issue #477).
+
+    A failed or timed-out MinerU run left ``parsed/<flat>/_mineru/`` and its
+    parent behind. ``_parse_one``'s idempotency gate keys on ``index.html``,
+    so this is not a re-run hazard for THIS tool — but it is for anything that
+    treats the presence of ``parsed/<flat>/`` as "parsed", and a tree full of
+    empty directories after a bad batch is its own diagnostic noise.
+
+    Only removes a directory that is EMPTY. A partial MinerU output is
+    evidence: it is what an operator or a bug report needs to see, and
+    deleting it to tidy up would destroy the more useful artefact. Order
+    matters — the child is tried before its parent, so a now-empty parent is
+    reclaimed in the same pass.
+    """
+    for candidate in candidates:
+        try:
+            if candidate.is_dir() and not any(candidate.iterdir()):
+                candidate.rmdir()
+        except OSError:  # never let cleanup mask the real failure
+            logger.debug("could not remove %s", candidate, exc_info=True)
 
 
 def run(

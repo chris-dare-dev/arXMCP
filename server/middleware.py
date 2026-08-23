@@ -830,6 +830,75 @@ class SecurityHeadersMiddleware:
 _BODY_NOT_EXPECTED_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "DELETE", "TRACE"})
 
 
+class RequestLineSizeLimitMiddleware:
+    """Cap the request TARGET and header block (issue #471).
+
+    ``RequestBodySizeLimitMiddleware`` below caps bodies at 1 MB, but nothing
+    bounded the other two attacker-controlled inputs: a 60 KB URL and a 90 KB
+    header value were both accepted. On loopback the memory pressure is minor,
+    but a local process could force large per-request allocations that bypass
+    the documented body cap entirely — the cap was on the one input that had a
+    limit.
+
+    Pure ASGI, like every middleware in this file: ``BaseHTTPMiddleware`` is
+    project-banned (E06_S01 F1 — it silently no-ops response interception for
+    SSE paths).
+
+    Status codes are the specified ones — 414 for the target, 431 for the
+    header block — so a client can tell which limit it hit. Both are generous
+    by design: they exist to bound allocation, not to police callers, and a
+    limit that trips on legitimate traffic would be worse than none.
+    """
+
+    #: 8 KiB. Comfortably above any URL this server generates (the longest is
+    #: a preview route with a slug and a paper id) and far below the point
+    #: where per-request allocation matters.
+    MAX_TARGET_BYTES = 8 * 1024
+
+    #: 32 KiB total across all header names and values, roughly nginx's
+    #: default posture. The MCP layer sends a session id and a token; nothing
+    #: here approaches it.
+    MAX_HEADER_BYTES = 32 * 1024
+
+    def __init__(self, app: object) -> None:
+        self.app = app
+
+    async def __call__(self, scope: dict, receive: object, send: object) -> None:
+        if scope.get("type") != "http":
+            await self.app(scope, receive, send)  # type: ignore[operator]
+            return
+
+        target = scope.get("raw_path") or scope.get("path", "").encode("utf-8")
+        query = scope.get("query_string", b"")
+        if len(target) + len(query) > self.MAX_TARGET_BYTES:
+            await _send_plain(send, 414, b"request target too long")
+            return
+
+        header_bytes = sum(
+            len(name) + len(value) for name, value in scope.get("headers", ())
+        )
+        if header_bytes > self.MAX_HEADER_BYTES:
+            await _send_plain(send, 431, b"request header fields too large")
+            return
+
+        await self.app(scope, receive, send)  # type: ignore[operator]
+
+
+async def _send_plain(send: object, status: int, body: bytes) -> None:
+    """Minimal ASGI response for a middleware-level refusal."""
+    await send(  # type: ignore[operator]
+        {
+            "type": "http.response.start",
+            "status": status,
+            "headers": [
+                (b"content-type", b"text/plain; charset=utf-8"),
+                (b"content-length", str(len(body)).encode("ascii")),
+            ],
+        }
+    )
+    await send({"type": "http.response.body", "body": body})  # type: ignore[operator]
+
+
 class RequestBodySizeLimitMiddleware:
     """Cap incoming request bodies at ``max_bytes``.
 

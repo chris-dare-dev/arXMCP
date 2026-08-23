@@ -446,6 +446,11 @@ def _scan_unknown_arxmcp_env_vars(config: Config) -> None:
     hints = "\n".join(
         _format_unknown_arxmcp_env_var(name, declared) for name in unknown
     )
+    # issue #475 is fixed at the ENTRYPOINT, not here. This function is a
+    # library-level scan and must keep RAISING: `create_app` propagating a
+    # ValueError is the contract two tests pin, and swallowing it into an exit
+    # would make the failure untestable and uncomposable. `server/cli.py`
+    # catches it and presents the clean one-line FATAL an operator sees.
     raise ValueError(
         "unknown ARXMCP_* environment variables — each would silently "
         "bypass the documented config; fix or remove:\n" + hints
@@ -742,6 +747,7 @@ def create_app(config: Config | None = None) -> FastAPI:
         HostValidationMiddleware,
         OriginValidationMiddleware,
         RequestBodySizeLimitMiddleware,
+    RequestLineSizeLimitMiddleware,
         SecFetchSiteMiddleware,
         SecurityHeadersMiddleware,
         SessionCapMiddleware,
@@ -755,6 +761,9 @@ def create_app(config: Config | None = None) -> FastAPI:
     # the ContextVars are populated when ``_wrap_with_observability``
     # opens the parent span. Pure-ASGI; the project bans
     # ``BaseHTTPMiddleware`` (E06_S01 F1).
+    # issue #471: bound the request target and header block, the two
+    # attacker-controlled inputs the 1 MB body cap did not cover.
+    app.add_middleware(RequestLineSizeLimitMiddleware)
     app.add_middleware(TracingContextMiddleware)
     # Universal response body-size cap (pure ASGI — closes F1).
     app.add_middleware(BodySizeCapMiddleware, byte_cap=cfg.result_byte_cap)
@@ -870,6 +879,7 @@ def create_app(config: Config | None = None) -> FastAPI:
     # separate exemption. StaticFiles uses Starlette's built-in
     # path-traversal protection (`os.path.commonpath` check after
     # `realpath` resolution — see starlette/staticfiles.py:163).
+    from fastapi.responses import RedirectResponse
     from fastapi.staticfiles import StaticFiles
 
     # Resolved relative to the ``server`` package (``parent`` from
@@ -885,11 +895,42 @@ def create_app(config: Config | None = None) -> FastAPI:
         name="ui-static",
     )
 
+    # issue #478: the bind URL this server prints at startup ("Uvicorn running
+    # on http://127.0.0.1:7733") is the one an operator will type, and it
+    # answered a raw JSON 404. `/ui` already redirects to `/ui/`; the root
+    # should reach the only human surface this app has, the same way.
+    #
+    # 307 preserves the method, matching the redirect FastAPI already issues
+    # for a missing trailing slash.
+    @app.get("/", include_in_schema=False)
+    async def _root_to_ui() -> RedirectResponse:  # noqa: RUF029
+        return RedirectResponse(url="/ui/", status_code=307)
+
     # Metrics ASGI sub-app. We wrap with a tiny middleware that
     # refreshes the gauges from the resources state at scrape time.
     metrics_app = make_asgi_app()
 
     async def metrics_wrapper(scope, receive, send):
+        # issue #470: prometheus_client's make_asgi_app does not method-gate,
+        # so /metrics answered 200 to TRACE, DELETE, PATCH and PUT — out of
+        # step with the 405 discipline every other route follows. A scrape is
+        # GET or HEAD; nothing else has a meaning here.
+        if scope.get("type") == "http" and scope.get("method") not in {
+            "GET",
+            "HEAD",
+        }:
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 405,
+                    "headers": [
+                        (b"allow", b"GET, HEAD"),
+                        (b"content-type", b"text/plain; charset=utf-8"),
+                    ],
+                }
+            )
+            await send({"type": "http.response.body", "body": b"method not allowed"})
+            return
         resources: Resources | None = getattr(
             app.state, "resources", None
         )
@@ -961,8 +1002,16 @@ def _build_module_app() -> FastAPI:
     try:
         return create_app()
     except Exception as exc:
-        logger.error("FATAL during app construction: %s", exc)
-        sys.stderr.write(f"FATAL: {exc}\n")
+        # issue #475: same compact formatting as the CLI path. pydantic's
+        # ValidationError stringifies its whole input, so this handler echoed
+        # the config dict into stderr — and it fires on the uvicorn-CLI path,
+        # which is the one an operator reaches when the CLI's own guard has
+        # already been bypassed. Two entry points must fail identically.
+        from server.cli import _format_config_error  # noqa: PLC0415
+
+        message = _format_config_error(exc)
+        logger.error("FATAL during app construction: %s", message)
+        sys.stderr.write(f"FATAL: {message}\n")
         raise
 
 

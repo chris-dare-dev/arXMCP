@@ -20,12 +20,21 @@ by the original framing:
 
 - A client cannot spoof *another* session's counter, but it does not
   need to. Two bypasses, both **known, admitted, and unpatched**:
-  **(a)** omitting `Mcp-Session-Id` skips cap enforcement outright
-  (`SessionCapMiddleware` — see `server/middleware.py`, "if absent,
-  skip cap enforcement"); **(b)** rotating to a fresh server-issued
-  id resets both counters to zero at no cost. Both are inherent to
-  per-session accounting without client identity; closing them needs
-  an authentication axis this loopback-only server does not have.
+  **(b)** rotating to a fresh server-issued id resets both counters
+  to zero at no cost. That one is inherent to per-session accounting
+  without client identity; closing it needs an authentication axis
+  this loopback-only server does not have.
+
+  A previous **(a)** claimed that omitting `Mcp-Session-Id` skips
+  cap enforcement outright. **That is not reachable** (issue #474):
+  the MCP layer rejects a session-less `tools/*` call with HTTP 400
+  ("Missing session ID") before `SessionCapMiddleware` is consulted,
+  so the middleware's own "if absent, skip" branch is dead for the
+  paths the cap protects. Measured, not argued. The claim is removed
+  rather than softened because a security comment that overstates an
+  attack path sends the next maintainer to defend something that is
+  already closed, and lends false weight to the one bypass that IS
+  real.
 - The actual anti-abuse control is the per-session hourly ceiling
   (:data:`MAX_CALLS_PER_HOUR`, E13_S04 Threat 4), which covers ALL
   tools rather than the two tracked here. It shares the same

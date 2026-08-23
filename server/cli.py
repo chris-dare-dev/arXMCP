@@ -109,6 +109,31 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _format_config_error(exc: BaseException) -> str:
+    """One actionable line per bad field, without echoing the input.
+
+    Issue #475. ``str(ValidationError)`` includes an ``input_value`` dump of
+    everything pydantic was given, which for ``Config`` is every path the
+    server knows about. Callers want to know WHICH field is wrong and WHY.
+
+    Falls back to ``str(exc)`` for anything that is not a pydantic error —
+    including ``_scan_unknown_arxmcp_env_vars``'s ValueError, whose message is
+    already written for an operator and must pass through intact.
+    """
+    errors = getattr(exc, "errors", None)
+    if not callable(errors):
+        return str(exc)
+    try:
+        details = errors()
+    except Exception:  # noqa: BLE001 — never let formatting mask the error
+        return str(exc)
+    lines = []
+    for detail in details:
+        location = ".".join(str(part) for part in detail.get("loc", ())) or "config"
+        lines.append(f"{location}: {detail.get('msg', 'invalid value')}")
+    return "; ".join(lines) if lines else str(exc)
+
+
 def main(argv: list[str] | None = None) -> int:
     """Entry point for the ``arxmcp-server`` console script.
 
@@ -135,18 +160,30 @@ def main(argv: list[str] | None = None) -> int:
     # a log message."
     import uvicorn
 
-    from server.config import Config
-    from server.main import _scan_unknown_arxmcp_env_vars
-
     # Configure logging BEFORE Config() so the FATAL log lands on stderr
     # even when the failure is in Config() itself.
     logging.basicConfig(level=os.environ.get("ARXMCP_LOG_LEVEL", "INFO"))
     try:
+        # issue #475: `from server.main import ...` MUST be inside the try.
+        # Importing server.main executes create_app() at module scope, which
+        # constructs Config() — so a bad ARXMCP_BIND_HOST raised during the
+        # IMPORT, before the guarded Config() below was ever reached, and the
+        # pydantic traceback escaped this handler entirely. The guard looked
+        # correct and covered nothing.
+        from server.config import Config
+        from server.main import _scan_unknown_arxmcp_env_vars
+
         cfg = Config()
         _scan_unknown_arxmcp_env_vars(cfg)
     except Exception as exc:
-        logger.error("FATAL during config load: %s", exc)
-        sys.stderr.write(f"FATAL: {exc}\n")
+        # issue #475: pydantic's ValidationError stringifies the WHOLE input,
+        # so the 0.0.0.0 rejection printed the entire Config dict — data_dir
+        # and every other path included — to stderr. The field errors are the
+        # actionable part; the input echo is noise that buries them and puts
+        # the operator's filesystem layout in any pasted error report.
+        message = _format_config_error(exc)
+        logger.error("FATAL during config load: %s", message)
+        sys.stderr.write(f"FATAL: {message}\n")
         return 1
 
     # E13_S08 Threat 8 — install the RedactionFilter on the root logger AND

@@ -35,6 +35,7 @@ to exercise the actual rendering path.
 from __future__ import annotations
 
 import asyncio
+import re
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -311,8 +312,13 @@ class TestUPL3StaticTemplateAriaLive:
     def test_papers_tbody_template_has_aria_live(self) -> None:
         # notebook_detail.html — beforeend swap target; the tbody itself is
         # never replaced so the static attribute is enough.
-        idx = NOTEBOOK_DETAIL_HTML.index('id="papers-tbody"')
-        attrs = NOTEBOOK_DETAIL_HTML[idx : idx + 300]
+        # Search the MARKUP, not the comments: a Jinja comment above the
+        # table also names id="papers-tbody", so `.index` found the prose and
+        # a 300-char window then depended on how long the surrounding comments
+        # happened to be. #480 added one and pushed the real attribute out.
+        markup = re.sub(r"\{#.*?#\}", "", NOTEBOOK_DETAIL_HTML, flags=re.S)
+        idx = markup.index('id="papers-tbody"')
+        attrs = markup[idx : idx + 300]
         assert 'aria-live="polite"' in attrs
 
 

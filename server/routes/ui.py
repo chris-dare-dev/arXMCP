@@ -105,6 +105,32 @@ _env: jinja2.Environment = jinja2.Environment(
 )
 templates: Jinja2Templates = Jinja2Templates(env=_env)
 
+
+def _display_path(value: object) -> str:
+    """Shorten an absolute path for display (issue #479).
+
+    The notebook detail page rendered the LanceDB path verbatim, including the
+    OS username. Two costs: it puts the operator's home directory into every
+    screenshot they share, and it was the direct cause of the mobile
+    horizontal-scroll bug (#454 — since fixed with `overflow-wrap`, but the
+    path is still the longest string on the page).
+
+    Replaces the home prefix with `~`. Deliberately NOT a redaction: the full
+    value stays available in a `title` attribute, because an operator
+    genuinely needs the real path to run `make reconcile` or find the files.
+    """
+    text = str(value or "")
+    try:
+        home = str(Path.home())
+    except (RuntimeError, OSError):
+        return text
+    if home and text.startswith(home):
+        return "~" + text[len(home) :]
+    return text
+
+
+_env.filters["display_path"] = _display_path
+
 #: notebook-surface-expansion-m1 — map a notebook's ``parse_status`` enum
 #: (server/notebooks_store.py: skipped/pending/running/complete/failed) to the
 #: shared ``.status-badge--{ok,warn,down}`` CSS classes (frontend/static/app.css,

@@ -101,7 +101,11 @@
     <output id="rename-error" class="error"></output>
   </form>
   <dl class="meta">
-    <dt>LanceDB path</dt><dd><code>{{ notebook.lancedb_path }}</code></dd>
+    {# #479: `~`-shortened for display; the full value stays reachable on
+       hover because an operator needs the real path to run `make reconcile`
+       or find the files. Shortening is not redaction — it keeps the username
+       out of casual screenshots without hiding anything. #}
+    <dt>LanceDB path</dt><dd><code title="{{ notebook.lancedb_path }}">{{ notebook.lancedb_path | display_path }}</code></dd>
     <dt>Created</dt><dd><time>{{ notebook.created_at }}</time></dd>
     {# notebook-surface-expansion-m1: notebook-scoped parse status + a
        last-indexed freshness signal, server-rendered on page open.
@@ -199,9 +203,18 @@
      aria-live="polite" on <tbody id="papers-tbody"> below is untouched. #}
   <div class="table-wrap">
   <table class="papers">
+    {# #480: the <table>/<tbody> are ALWAYS rendered because the tbody is the
+       htmx swap target, but a header row above an empty-state message reads
+       as a rendering glitch. The head is conditional; the swap target is not.
+       A row added by a swap into an empty table therefore arrives without a
+       header — acceptable because the create/upload paths reload rather than
+       leaving the page in that state, and a stale header is the worse of the
+       two artefacts. #}
+    {% if papers %}
     <thead>
       <tr><th>Paper ID</th><th>Added</th><th>Preview</th><th></th></tr>
     </thead>
+    {% endif %}
     {# ui-attractive-polish-m1 (UPL-3): aria-live="polite" on the tbody so
        a successfully uploaded paper-row (hx-swap="beforeend" from the
        Upload card) is announced to screen readers. Note this is a
