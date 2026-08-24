@@ -36,6 +36,10 @@ from pathlib import Path
 
 import pytest
 
+# #495: brace-balanced, comment- and string-aware. The fixed 200-char
+# window this replaces could not see the end of the rule it was checking.
+from tests._source_blocks import css_block
+
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
 FRONTEND: Path = REPO_ROOT / "server" / "frontend"
 STATIC: Path = FRONTEND / "static"
@@ -333,7 +337,7 @@ def test_the_banner_reuses_the_themed_error_surface() -> None:
         "[hidden] must be forced to display:none, or .error's display:block "
         "wins the cascade and the banner never hides"
     )
-    block = css[css.index(".connection-lost {") :][:200]
+    block = css_block(css, ".connection-lost {")
     for forbidden in ("border:", "border-radius"):
         assert forbidden not in block, (
             f".connection-lost sets {forbidden!r}; ui-uplift-m8's rule ladder "

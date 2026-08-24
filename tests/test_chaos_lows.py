@@ -9,59 +9,23 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+# #495: source-block extraction lives in one lexer-aware module. This file
+# used to carry its own `_rust_fn`, which counted braces inside string
+# literals and comments, plus a `_class_block` that cut at the next
+# top-level `class` and so swallowed any module-level `def` after it.
+from tests._source_blocks import python_block, rust_fn
+
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
 SUP: Path = REPO_ROOT / "apps" / "desktop" / "crates" / "supervisor" / "src"
 MAIN_RS: str = (SUP / "main.rs").read_text(encoding="utf-8")
 LIFECYCLE_RS: str = (SUP / "lifecycle.rs").read_text(encoding="utf-8")
 
 
-def _rust_fn(source: str, signature: str) -> str:
-    """The whole body of a top-level Rust fn, brace-balanced.
-
-    Replaces the `source[source.index(sig):][:900]` shape that this file used
-    throughout. A fixed window is wrong in both directions and fails silently
-    each way: it OVERRUNS into the next function when a block shrinks (so an
-    assertion passes against a neighbour's code) and TRUNCATES when a block
-    grows (so an assertion fails against code that is still correct). The
-    latter happened four separate times in this session's work -- most
-    recently when #464's rotation block pushed `.append(true)` past character
-    900 of `open_private_log`.
-
-    rustfmt puts a top-level fn's closing brace at column 0, but braces are
-    counted rather than trusted so a nested item cannot end the slice early.
-    """
-    start = source.index(signature)
-    depth = 0
-    seen_open = False
-    for pos in range(start, len(source)):
-        char = source[pos]
-        if char == "{":
-            depth += 1
-            seen_open = True
-        elif char == "}":
-            depth -= 1
-            if seen_open and depth == 0:
-                return source[start : pos + 1]
-    raise AssertionError(f"unbalanced braces after {signature!r}")
 MAIN_PY: str = (REPO_ROOT / "server" / "main.py").read_text(encoding="utf-8")
 CLI_PY: str = (REPO_ROOT / "server" / "cli.py").read_text(encoding="utf-8")
 SESSION_PY: str = (REPO_ROOT / "server" / "session.py").read_text(encoding="utf-8")
 CORPUS_PY: str = (REPO_ROOT / "server" / "corpus.py").read_text(encoding="utf-8")
 MIDDLEWARE_PY: str = (REPO_ROOT / "server" / "middleware.py").read_text(encoding="utf-8")
-def _class_block(source: str, name: str) -> str:
-    """One class body, cut at the next top-level `class`.
-
-    A fixed-size window overran into the NEXT class's docstring — which
-    mentions the very thing the assertion forbids — so the guard failed on
-    prose belonging to a different class. Third time this pattern has bitten
-    in this run; extract the block instead of guessing a length.
-    """
-    start = source.index(f"class {name}:")
-    rest = source[start + 1 :]
-    end = rest.find("\nclass ")
-    return rest if end == -1 else rest[:end]
-
-
 NOTEBOOKS_PY: str = (
     REPO_ROOT / "server" / "routes" / "notebooks.py"
 ).read_text(encoding="utf-8")
@@ -85,7 +49,7 @@ def test_root_redirects_to_the_console() -> None:
 def test_metrics_is_method_gated() -> None:
     """#470. prometheus_client's ASGI app does not method-gate, so /metrics
     answered 200 to TRACE and DELETE — out of step with every other route."""
-    block = MAIN_PY[MAIN_PY.index("async def metrics_wrapper") :][:1200]
+    block = python_block(MAIN_PY, "async def metrics_wrapper")
     assert '"GET"' in block and '"HEAD"' in block
     assert "405" in block
 
@@ -95,7 +59,7 @@ def test_the_request_line_is_bounded() -> None:
     cap was on the one input that already had a limit."""
     assert "class RequestLineSizeLimitMiddleware:" in MIDDLEWARE_PY
     assert "RequestLineSizeLimitMiddleware" in MAIN_PY, "must be registered"
-    block = _class_block(MIDDLEWARE_PY, "RequestLineSizeLimitMiddleware")
+    block = python_block(MIDDLEWARE_PY, "class RequestLineSizeLimitMiddleware:")
     assert "414" in block, "the specified status for an over-long target"
     assert "431" in block, "the specified status for an over-large header block"
 
@@ -110,13 +74,13 @@ def test_the_size_cap_is_pure_asgi() -> None:
     assert "class RequestLineSizeLimitMiddleware:" in MIDDLEWARE_PY, (
         "no base class — a pure-ASGI callable, not a Starlette subclass"
     )
-    block = _class_block(MIDDLEWARE_PY, "RequestLineSizeLimitMiddleware")
+    block = python_block(MIDDLEWARE_PY, "class RequestLineSizeLimitMiddleware:")
     assert "async def __call__(self, scope" in block
 
 
 def test_the_notebook_list_does_not_emit_host_paths() -> None:
     """#469. A list endpoint for a desktop UI does not need absolute paths."""
-    block = NOTEBOOKS_PY[NOTEBOOKS_PY.index("async def list_notebooks(") :][:1800]
+    block = python_block(NOTEBOOKS_PY, "async def list_notebooks(")
     assert 'key != "lancedb_path"' in block
 
 
@@ -286,7 +250,7 @@ def test_payload_completeness_is_checked_at_plan_time() -> None:
         "the PyInstaller runtime directory is part of a complete payload too "
         "(#484 round 2)"
     )
-    plan = _rust_fn(MAIN_RS, "fn self_authored_plan(")
+    plan = rust_fn(MAIN_RS, "fn self_authored_plan(")
     assert "check_payload_completeness(" in plan
 
 
@@ -310,6 +274,6 @@ def test_the_data_root_probe_refuses_an_unusable_derivation() -> None:
     """#485. It emitted a path for a $HOME that is a file and for a RELATIVE
     $HOME — output the program itself would reject."""
     assert "fn check_data_root_shape(" in MAIN_RS
-    fn = _rust_fn(MAIN_RS, "fn check_data_root_shape(")
+    fn = rust_fn(MAIN_RS, "fn check_data_root_shape(")
     assert "is_absolute()" in fn
     assert "is_dir()" in fn

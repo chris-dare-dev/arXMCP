@@ -42,24 +42,25 @@ import ast
 import re
 from pathlib import Path
 
+# #495: one lexer-aware extractor module, shared by every structural test.
+# The local `_rust_fn` this replaces counted braces inside string literals
+# and comments; the local `_strip_rust_comments` used two regexes that
+# gutted strings containing `/*` and left every TRAILING `//` comment in
+# place, so a negative scan still matched prose on a code line.
+from tests._source_blocks import (
+    rust_block,
+    rust_enclosing_fn,
+    rust_fn,
+    strip_rust_comments,
+)
+
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
 DESKTOP_CHILD: Path = REPO_ROOT / "server" / "desktop_child.py"
 SUPERVISOR_SRC: Path = REPO_ROOT / "apps" / "desktop" / "crates" / "supervisor" / "src"
 LIFECYCLE_RS: str = (SUPERVISOR_SRC / "lifecycle.rs").read_text(encoding="utf-8")
 
 
-def _strip_rust_comments(text: str) -> str:
-    """Drop ``//``/``///`` and ``/* */`` comments.
-
-    The source DOCUMENTS the wrong path it used to look at
-    (``/usr/sbin/codesign``), so a raw negative scan flags the explanation as
-    the offence — the same trap as ui.js documenting ``new Function()``.
-    """
-    text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
-    return re.sub(r"^\s*//.*$", "", text, flags=re.M)
-
-
-LIFECYCLE_CODE: str = _strip_rust_comments(LIFECYCLE_RS)
+LIFECYCLE_CODE: str = strip_rust_comments(LIFECYCLE_RS)
 MAIN_RS: str = (SUPERVISOR_SRC / "main.rs").read_text(encoding="utf-8")
 
 
@@ -198,7 +199,7 @@ def test_the_failure_page_names_the_log_and_its_retention() -> None:
     the previous launch survives a second double-click and growth stops at
     2 x LOG_ROTATE_BYTES.
     """
-    body = _rust_fn(LIFECYCLE_RS, "pub fn show_failure(")
+    body = rust_fn(LIFECYCLE_RS, "pub fn show_failure(")
     assert "desktop-child.log" in LIFECYCLE_RS, "the page must name the log path"
     assert "rewritten on every launch" not in body, (
         "the log has been APPEND since #464; this sentence is false and "
@@ -217,7 +218,7 @@ def test_the_log_retention_the_page_promises_is_the_one_implemented() -> None:
     `.log.1` when the live file passes `LOG_ROTATE_BYTES`.
     """
     assert "LOG_ROTATE_BYTES" in LIFECYCLE_RS
-    body = _rust_fn(LIFECYCLE_RS, "pub fn open_private_log(")
+    body = rust_fn(LIFECYCLE_RS, "pub fn open_private_log(")
     assert ".append(true)" in body, "append is what preserves the last launch"
     assert 'with_extension("log.1")' in body, (
         "one rotated generation is what bounds growth while keeping the "
@@ -232,7 +233,7 @@ def test_the_failure_tail_is_scoped_to_this_launch() -> None:
     placement those tests cannot see from outside.
     """
     assert "LAUNCH_BANNER" in LIFECYCLE_RS
-    opener = _rust_fn(LIFECYCLE_RS, "pub fn open_private_log(")
+    opener = rust_fn(LIFECYCLE_RS, "pub fn open_private_log(")
     assert "LAUNCH_BANNER" in opener, (
         "the boundary must be written when the log is OPENED — before the "
         "child can produce anything — or a pre-spawn failure still has no "
@@ -406,7 +407,7 @@ def test_the_bound_wait_reports_progress() -> None:
 def test_a_long_start_explains_itself_on_screen() -> None:
     assert "pub fn show_slow_start(" in LIFECYCLE_RS
     assert "FIRST_RUN_NOTICE" in LIFECYCLE_RS
-    body = _rust_fn(LIFECYCLE_RS, "pub fn show_slow_start(")
+    body = rust_fn(LIFECYCLE_RS, "pub fn show_slow_start(")
     assert "retrieval model" in body, (
         "the notice must say WHY it is slow, not just that it is"
     )
@@ -426,7 +427,7 @@ def test_the_cooperative_grace_is_skipped_only_for_a_stopped_child() -> None:
         "the shortcut must key on the process being STOPPED, not on whether "
         "it bound (#442)"
     )
-    shutdown = _rust_fn(LIFECYCLE_RS, "pub fn shutdown_child(")
+    shutdown = rust_fn(LIFECYCLE_RS, "pub fn shutdown_child(")
     assert "is_stopped(control.child.id())" in shutdown
     assert "control.bound" not in LIFECYCLE_RS, (
         "the never-bound discriminator was wrong and must not come back"
@@ -446,7 +447,7 @@ def test_is_stopped_fails_safe() -> None:
     mid-flush of its LanceDB and Kuzu handles — strictly worse than the bug
     being fixed.
     """
-    probe = _rust_fn(LIFECYCLE_RS, "fn is_stopped(pid: u32)")
+    probe = rust_fn(LIFECYCLE_RS, "fn is_stopped(pid: u32)")
     assert "return false;" in probe, "a failed probe must return false"
     assert '"/bin/ps"' in probe, (
         "absolute path — a planted ps earlier on PATH must not answer this"
@@ -462,7 +463,7 @@ def test_a_watchdog_watches_the_child() -> None:
         "the watchdog must be started on the non-smoke path, where the cycle "
         "hands the child off and returns (#443)"
     )
-    watchdog = _rust_fn(LIFECYCLE_RS, "fn spawn_child_watchdog(")
+    watchdog = rust_fn(LIFECYCLE_RS, "fn spawn_child_watchdog(")
     assert 'record("child-exited"' in watchdog, (
         "a dead server must leave a line in the event log"
     )
@@ -492,47 +493,17 @@ REDACT_RS: str = (SUPERVISOR_SRC / "redact.rs").read_text(encoding="utf-8")
 EVENTS_RS: str = (SUPERVISOR_SRC / "events.rs").read_text(encoding="utf-8")
 
 
-def _rust_fn(source: str, signature: str) -> str:
-    """The whole body of a top-level Rust fn, brace-balanced.
-
-    Replaces the `source[source.index(sig):][:900]` shape that this file used
-    throughout. A fixed window is wrong in both directions and fails silently
-    each way: it OVERRUNS into the next function when a block shrinks (so an
-    assertion passes against a neighbour's code) and TRUNCATES when a block
-    grows (so an assertion fails against code that is still correct). The
-    latter happened four separate times in this session's work -- most
-    recently when #464's rotation block pushed `.append(true)` past character
-    900 of `open_private_log`.
-
-    rustfmt puts a top-level fn's closing brace at column 0, but braces are
-    counted rather than trusted so a nested item cannot end the slice early.
-    """
-    start = source.index(signature)
-    depth = 0
-    seen_open = False
-    for pos in range(start, len(source)):
-        char = source[pos]
-        if char == "{":
-            depth += 1
-            seen_open = True
-        elif char == "}":
-            depth -= 1
-            if seen_open and depth == 0:
-                return source[start : pos + 1]
-    raise AssertionError(f"unbalanced braces after {signature!r}")
-
-
 def test_child_stderr_is_relayed_not_handed_over() -> None:
     """#438. A file descriptor handed to the child cannot be scrubbed.
 
     The bytes never entered this process, so no scrubber could exist in the
     path — which is why the defence had to change shape, not just get better.
     """
-    assert "Stdio::from(log_file)" not in _strip_rust_comments(LIFECYCLE_RS), (
+    assert "Stdio::from(log_file)" not in strip_rust_comments(LIFECYCLE_RS), (
         "child stderr must NOT be wired straight to the log file (#438)"
     )
     assert "fn spawn_stderr_relay(" in LIFECYCLE_RS
-    relay = _rust_fn(LIFECYCLE_RS, "fn spawn_stderr_relay(")
+    relay = rust_fn(LIFECYCLE_RS, "fn spawn_stderr_relay(")
     assert "scrub_child_text" in relay, "the relay must scrub before writing"
     assert "read_until" in relay, (
         "read_line would abort the relay on non-UTF-8 child stderr; the bytes "
@@ -544,7 +515,7 @@ def test_child_controlled_text_uses_the_strong_scrubber() -> None:
     """#439. Exact matching cannot see a copy the child chose the casing of."""
     assert "pub fn scrub_child_text(" in REDACT_RS
     assert "HEX_RUN_MIN" in REDACT_RS
-    invalid = LIFECYCLE_RS[LIFECYCLE_RS.index('record("bound-frame-invalid"') - 900 :][:1400]
+    invalid = rust_enclosing_fn(LIFECYCLE_RS, 'record("bound-frame-invalid"')
     assert "scrub_child_text" in invalid, (
         "the bound-frame-invalid diagnostic persists child-chosen bytes and "
         "must use the hex-aware scrubber, not bare scrub (#439)"
@@ -590,7 +561,7 @@ def test_pre_window_refusals_show_a_native_alert() -> None:
     unresolvable data root, no HOME.
     """
     assert "fn show_native_alert(" in MAIN_RS
-    fail_fn = _rust_fn(MAIN_RS, "fn fail(reason: &str) -> ! {")
+    fail_fn = rust_fn(MAIN_RS, "fn fail(reason: &str) -> ! {")
     assert "show_native_alert(reason)" in fail_fn, (
         "fail() must show the alert, not merely have one available (#465)"
     )
@@ -601,7 +572,7 @@ def test_pre_window_refusals_show_a_native_alert() -> None:
 
 def test_the_alert_cannot_block_the_exit() -> None:
     """`display alert` blocks until dismissed; fail() must still exit."""
-    alert = _rust_fn(MAIN_RS, "fn show_native_alert(reason: &str)")
+    alert = rust_fn(MAIN_RS, "fn show_native_alert(reason: &str)")
     assert ".spawn()" in alert and ".status()" not in alert and ".output()" not in alert, (
         "the alert must be spawned and never waited on, or a refusal hangs "
         "instead of exiting"
@@ -629,7 +600,7 @@ def test_the_failure_page_carries_the_childs_own_error() -> None:
     sitting in a log the operator would never open.
     """
     assert "fn child_log_tail(" in LIFECYCLE_RS
-    show = _rust_fn(LIFECYCLE_RS, "pub fn show_failure(")
+    show = rust_fn(LIFECYCLE_RS, "pub fn show_failure(")
     assert "child_log_tail(" in show, (
         "show_failure must pull the child's last lines into the page (#444)"
     )
@@ -637,7 +608,7 @@ def test_the_failure_page_carries_the_childs_own_error() -> None:
 
 
 def test_the_tail_read_is_bounded_and_scrubbed() -> None:
-    tail = _rust_fn(LIFECYCLE_RS, "fn child_log_tail(")
+    tail = rust_fn(LIFECYCLE_RS, "fn child_log_tail(")
     assert "WINDOW" in tail and "seek" in tail.lower(), (
         "a child that spewed megabytes must not be read into memory to show "
         "its last line"
@@ -668,7 +639,7 @@ def test_single_instance_registration_is_conditional() -> None:
     """
     assert "fn single_instance_decision(" in MAIN_RS
     assert "enum SingleInstance" in MAIN_RS
-    code = _strip_rust_comments(MAIN_RS)
+    code = strip_rust_comments(MAIN_RS)
     assert "if single_instance == SingleInstance::Register {" in code, (
         "the plugin must be registered conditionally (#441)"
     )
@@ -683,8 +654,8 @@ def test_the_loser_path_is_gated_the_same_way() -> None:
     If we would not REGISTER for this data root, we must not NOTIFY on it
     either — the process on the other end is somebody else's instance.
     """
-    code = _strip_rust_comments(MAIN_RS)
-    loser = code[code.index("let Some(supervisor_lock) = supervisor_lock else {") :][:1600]
+    code = strip_rust_comments(MAIN_RS)
+    loser = rust_block(code, "let Some(supervisor_lock) = supervisor_lock else {")
     assert "may_notify" in loser and "single_instance_decision(" in loser, (
         "the lock-loser path must consult the same decision, or the two "
         "halves disagree about who owns the socket (#437/#441)"
@@ -728,7 +699,7 @@ def test_a_termination_signal_runs_the_bounded_shutdown() -> None:
 def test_the_signal_handler_itself_stays_async_signal_safe() -> None:
     """Doing the shutdown IN the handler would malloc, lock and waitpid from a
     signal context — the class of bug that turns a clean stop into a hang."""
-    handler = MAIN_RS[MAIN_RS.index("extern \"C\" fn on_termination_signal") :][:600]
+    handler = rust_fn(MAIN_RS, 'extern "C" fn on_termination_signal')
     assert "store(true" in handler, "the handler must only set a flag"
     for forbidden in ("shutdown_child", "record(", "lock()"):
         assert forbidden not in handler, (
@@ -740,7 +711,7 @@ def test_the_signal_handler_itself_stays_async_signal_safe() -> None:
 def test_both_shutdown_paths_share_the_slot_discipline() -> None:
     """Take-from-the-slot, so RunEvent::Exit and the signal path can never
     both run the ladder against one child."""
-    code = _strip_rust_comments(MAIN_RS)
+    code = strip_rust_comments(MAIN_RS)
     assert code.count("guard.take()") + code.count("slot.take()") >= 2, (
         "both exit paths must TAKE the control out of the shared slot"
     )

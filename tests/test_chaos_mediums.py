@@ -13,40 +13,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
+# #495: one lexer-aware extractor, shared. The local `_rust_fn` this
+# replaces counted braces inside string literals and comments.
+from tests._source_blocks import python_block, rust_fn
+
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
 SUP: Path = REPO_ROOT / "apps" / "desktop" / "crates" / "supervisor" / "src"
 MAIN_RS: str = (SUP / "main.rs").read_text(encoding="utf-8")
 LIFECYCLE_RS: str = (SUP / "lifecycle.rs").read_text(encoding="utf-8")
 
 
-def _rust_fn(source: str, signature: str) -> str:
-    """The whole body of a top-level Rust fn, brace-balanced.
-
-    Replaces the `source[source.index(sig):][:900]` shape that this file used
-    throughout. A fixed window is wrong in both directions and fails silently
-    each way: it OVERRUNS into the next function when a block shrinks (so an
-    assertion passes against a neighbour's code) and TRUNCATES when a block
-    grows (so an assertion fails against code that is still correct). The
-    latter happened four separate times in this session's work -- most
-    recently when #464's rotation block pushed `.append(true)` past character
-    900 of `open_private_log`.
-
-    rustfmt puts a top-level fn's closing brace at column 0, but braces are
-    counted rather than trusted so a nested item cannot end the slice early.
-    """
-    start = source.index(signature)
-    depth = 0
-    seen_open = False
-    for pos in range(start, len(source)):
-        char = source[pos]
-        if char == "{":
-            depth += 1
-            seen_open = True
-        elif char == "}":
-            depth -= 1
-            if seen_open and depth == 0:
-                return source[start : pos + 1]
-    raise AssertionError(f"unbalanced braces after {signature!r}")
 RESOURCES_PY: str = (REPO_ROOT / "server" / "resources.py").read_text(encoding="utf-8")
 CORPUS_PY: str = (REPO_ROOT / "server" / "corpus.py").read_text(encoding="utf-8")
 HEALTH_PY: str = (REPO_ROOT / "server" / "health.py").read_text(encoding="utf-8")
@@ -96,7 +72,7 @@ def test_canonicalize_failures_are_distinguished() -> None:
     """EACCES, ENOENT and the rest are different repairs; one string sent an
     operator with a mode-000 directory looking for a missing file."""
     assert "fn canonicalize_reason(" in MAIN_RS
-    fn = _rust_fn(MAIN_RS, "fn canonicalize_reason(")
+    fn = rust_fn(MAIN_RS, "fn canonicalize_reason(")
     assert "ErrorKind::NotFound" in fn
     assert "ErrorKind::PermissionDenied" in fn
 
@@ -121,7 +97,7 @@ def test_a_hardlinked_child_is_refused() -> None:
 
 
 def test_the_containment_checks_run_after_the_prefix_test() -> None:
-    fn = _rust_fn(MAIN_RS, "fn resolve_inside(")
+    fn = rust_fn(MAIN_RS, "fn resolve_inside(")
     assert fn.index("starts_with") < fn.index("check_child_file("), (
         "escape is the cheaper and more serious refusal; keep it first"
     )
@@ -143,7 +119,7 @@ def test_the_child_log_appends() -> None:
     """It is the ONLY place a cold-start failure's reason exists (#444), so
     truncating destroyed the evidence on the second double-click. The event
     log beside it was already append-only."""
-    fn = _rust_fn(LIFECYCLE_RS, "pub fn open_private_log(")
+    fn = rust_fn(LIFECYCLE_RS, "pub fn open_private_log(")
     assert ".append(true)" in fn
     assert ".truncate(true)" not in fn
 
@@ -154,7 +130,7 @@ def test_the_child_log_appends() -> None:
 def test_the_plan_probe_cannot_overwrite_an_existing_file() -> None:
     """It ships enabled in the signed bundle and took its destination from
     argv unconstrained."""
-    fn = _rust_fn(MAIN_RS, "fn emit_child_plan_probe(")
+    fn = rust_fn(MAIN_RS, "fn emit_child_plan_probe(")
     assert "create_new(true)" in fn
     assert "fs::write(" not in fn, "fs::write truncates; create_new does not"
 
@@ -168,13 +144,13 @@ def test_the_child_exits_without_interpreter_finalization() -> None:
     supervisor had to SIGKILL it", and the abort block bypasses logging."""
     assert "def _exit_without_finalizing(" in CHILD_PY
     assert "_exit_without_finalizing(main())" in CHILD_PY
-    fn = CHILD_PY[CHILD_PY.index("def _exit_without_finalizing(") :][:2200]
+    fn = python_block(CHILD_PY, "def _exit_without_finalizing(")
     assert "os._exit(code)" in fn
 
 
 def test_the_child_flushes_before_exiting() -> None:
     """os._exit skips flushing too — losing the last log lines of a failed
     startup would trade one diagnostic problem for another."""
-    fn = CHILD_PY[CHILD_PY.index("def _exit_without_finalizing(") :][:2200]
+    fn = python_block(CHILD_PY, "def _exit_without_finalizing(")
     assert "logging.shutdown()" in fn
     assert fn.index("logging.shutdown()") < fn.index("os._exit(code)")
