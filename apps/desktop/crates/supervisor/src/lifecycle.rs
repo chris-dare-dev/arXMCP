@@ -816,6 +816,7 @@ fn enclosing_app_bundle(child_exe: &std::path::Path) -> Option<std::path::PathBu
 /// open. It is also unavailable in the onedir layout, which has no bundle;
 /// there the caller falls back to the executable check alone.
 #[allow(dead_code)]
+#[cfg(target_os = "macos")]
 pub fn verify_bundle_seal(app: &std::path::Path) -> Result<(), String> {
     let output = Command::new(CODESIGN)
         .arg("--verify")
@@ -828,6 +829,22 @@ pub fn verify_bundle_seal(app: &std::path::Path) -> Result<(), String> {
     let stderr = String::from_utf8_lossy(&output.stderr);
     let reason = stderr.lines().next().unwrap_or("unspecified").trim();
     Err(reason.to_owned())
+}
+
+/// Non-macOS builds have no bundle seal to consult: `codesign` is a macOS
+/// tool and `CODESIGN` is `#[cfg(target_os = "macos")]`, so the real verifier
+/// above cannot compile elsewhere. This stub keeps the SHARED supervisor
+/// buildable on Linux/Windows; it deliberately mirrors the non-macOS
+/// [`verify_signature`] and returns Ok — "not checked here". The Windows
+/// track (#419-#422) owns its own integrity story.
+///
+/// The launch-path caller is gated on `not(debug_assertions)`, not on OS, so
+/// this arm IS reachable in a non-macOS release build. It must therefore be a
+/// real function rather than a `compile_error!`.
+#[allow(dead_code)]
+#[cfg(not(target_os = "macos"))]
+pub fn verify_bundle_seal(_app: &std::path::Path) -> Result<(), String> {
+    Ok(())
 }
 
 /// Percent-encode for a `data:` URL body. Conservative on purpose: everything
@@ -1278,6 +1295,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn an_unsealed_directory_fails_the_seal_check() {
         // The refusal must carry codesign's own first line, not a generic
         // string: "code object is not signed at all" and "a sealed resource
