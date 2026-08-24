@@ -84,6 +84,12 @@ const CODESIGN_BUDGET: Duration = Duration::from_secs(15);
 /// milliseconds or it is not going to.
 const PS_BUDGET: Duration = Duration::from_millis(500);
 
+/// #467: how long descendants get to honour the sweep's SIGTERM before it
+/// escalates. Short on purpose — anything still in the group at this point has
+/// already outlived the child's ENTIRE grace/TERM/KILL ladder, so this is a
+/// courtesy for a process that was merely slow to notice, not a second grace.
+const DESCENDANT_SWEEP_GRACE: Duration = Duration::from_millis(500);
+
 /// Poll granularity for [`output_within`]. Matches `wait_exit`'s.
 const SUBPROCESS_POLL_INTERVAL: Duration = Duration::from_millis(25);
 
@@ -95,6 +101,14 @@ pub struct ChildControl {
     contract: ContractVersion,
     grace_ms: u64,
     force_after_ms: u64,
+    /// #467: the child's own process group, which equals its PID because it
+    /// was spawned with `process_group(0)`. Held explicitly rather than read
+    /// back off `child.id()` at shutdown, so the value the sweep signals is
+    /// unambiguously the one the spawn established.
+    pgid: u32,
+    /// #467: so the descendant sweep can leave evidence. The chaos run found
+    /// the leak by running `ps` by hand; a post-mortem should not have to.
+    recorder: Recorder,
 }
 
 pub fn run_cycle(
@@ -369,6 +383,17 @@ fn cycle(
         // error:" block goes to fd 2 with logging bypassed entirely, #468).
         // Pipe it instead and relay through the scrubber.
         .stderr(Stdio::piped());
+    // #467: the child leads its OWN process group, so shutdown can signal the
+    // whole tree instead of one PID. The chaos run measured the alternative: a
+    // complete grace/TERM/KILL/reap ladder reported success while a grandchild
+    // was reparented to launchd and left holding a LanceDB staging directory.
+    // It also stops the child receiving terminal signals aimed at the
+    // supervisor, which the bounded shutdown wants to deliver on its own terms.
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
     // The child's entire configuration is the launch frame; scrub ambient
     // ARXMCP_* so stray operator env can neither configure the child nor
     // trip its unknown-env-var startup FATAL.
@@ -393,6 +418,10 @@ fn cycle(
         .and_then(|_| stdin.flush())
         .map_err(|_| "launch frame write failed")?;
     *control = Some(ChildControl {
+        // #467: equals the PID, because the spawn above used
+        // `process_group(0)`. Captured before the struct takes `child`.
+        pgid: child.id(),
+        recorder: recorder.clone(),
         child,
         stdin,
         token: token.clone(),
@@ -1264,19 +1293,79 @@ pub fn shutdown_child(mut control: ChildControl) -> i64 {
     // use it: it cannot observe stdin EOF, cannot act on the shutdown frame,
     // and does not even receive SIGTERM until it continues. SIGKILL is the
     // only signal that lands, so go straight to it.
-    if is_stopped(control.child.id()) {
-        let _ = control.child.kill();
-        return wait_exit(&mut control.child, REAP_BUDGET_MS).unwrap_or(-1);
+    // #467: every rung below signals the GROUP, not the PID. The direct child
+    // leads that group, so each rung still does exactly what it did before —
+    // plus the descendants that used to be left behind.
+    let pgid = control.pgid;
+    let recorder = control.recorder.clone();
+    // Fields, not `&mut control`: `control.stdin` was moved out by the drop
+    // above, so the struct is partially moved and cannot be reborrowed whole.
+    let code = ladder(
+        &mut control.child,
+        pgid,
+        control.grace_ms,
+        control.force_after_ms,
+    );
+    // The ladder ends when the DIRECT child is reaped, which says nothing
+    // about its descendants: a child that exits cleanly at the grace rung
+    // never signals them at all. Sweep whatever is left.
+    sweep_descendants(pgid, &recorder);
+    code
+}
+
+/// The grace -> TERM -> KILL -> reap escalation, unchanged in shape by #467.
+fn ladder(child: &mut Child, pgid: u32, grace_ms: u64, force_after_ms: u64) -> i64 {
+    if is_stopped(child.id()) {
+        process_control::force_kill_group(pgid);
+        let _ = child.kill();
+        return wait_exit(child, REAP_BUDGET_MS).unwrap_or(-1);
     }
-    if let Some(code) = wait_exit(&mut control.child, control.grace_ms) {
+    if let Some(code) = wait_exit(child, grace_ms) {
         return code;
     }
-    let _ = process_control::request_terminate(control.child.id());
-    if let Some(code) = wait_exit(&mut control.child, control.force_after_ms) {
+    let _ = process_control::request_terminate_group(pgid);
+    if let Some(code) = wait_exit(child, force_after_ms) {
         return code;
     }
-    let _ = control.child.kill();
-    wait_exit(&mut control.child, REAP_BUDGET_MS).unwrap_or(-1)
+    process_control::force_kill_group(pgid);
+    let _ = child.kill();
+    wait_exit(child, REAP_BUDGET_MS).unwrap_or(-1)
+}
+
+/// #467: take anything still in the child's process group after the ladder.
+///
+/// The chaos run's measured failure: the supervisor reported a complete
+/// `orphan-shutdown` ladder and exited, and `sleep 300` was still alive 30 s
+/// later with PPID 1, having to be `pkill`ed by hand. `request_terminate` was
+/// `libc::kill(pid, SIGTERM)` on the direct child and `Child::kill()` is
+/// equally per-PID, so nothing ever addressed the tree.
+///
+/// Safe after the direct child is reaped: a process group outlives its leader
+/// as long as it has members, and a PID cannot be recycled while it is still
+/// in use as a PGID — so a non-empty group here is still OUR group. See
+/// [`process_control::group_has_members`].
+///
+/// TERM before KILL because a descendant may be a cooperating process that
+/// simply never got asked (the clean-exit path signals nothing), and
+/// `tools.notebook_ingest` has a LanceDB staging directory to put down.
+fn sweep_descendants(pgid: u32, recorder: &Recorder) {
+    if !process_control::group_has_members(pgid) {
+        return;
+    }
+    let _ = process_control::request_terminate_group(pgid);
+    let cleared = poll_until(DESCENDANT_SWEEP_GRACE, || {
+        !process_control::group_has_members(pgid)
+    })
+    .is_ok();
+    if !cleared {
+        process_control::force_kill_group(pgid);
+    }
+    // Recorded either way: "the tree was already clean" and "we had to take
+    // three survivors down" must not read alike in a post-mortem.
+    let _ = recorder.record(
+        "descendants-swept",
+        json!({"pgid": pgid, "needed_kill": !cleared}),
+    );
 }
 
 /// #442: is this pid stopped (SIGSTOP'd)?
@@ -1854,13 +1943,26 @@ mod tests {
 
     /// A child that ignores TERM, so the ladder must escalate to KILL.
     fn stubborn_control(grace_ms: u64) -> ChildControl {
-        let mut child = Command::new("/bin/sh")
-            .args(["-c", "trap '' TERM; sleep 30"])
-            .stdin(Stdio::piped())
-            .spawn()
-            .expect("spawn stubborn child");
+        stubborn_control_running("trap '' TERM; sleep 30", grace_ms)
+    }
+
+    /// #467: the same helper, but the child's script is a parameter so a test
+    /// can give it DESCENDANTS. Its own process group, exactly as `cycle`
+    /// spawns the production child — a test that skipped that would prove
+    /// nothing about the ladder it is exercising.
+    fn stubborn_control_running(script: &str, grace_ms: u64) -> ChildControl {
+        let mut command = Command::new("/bin/sh");
+        command.args(["-c", script]).stdin(Stdio::piped());
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            command.process_group(0);
+        }
+        let mut child = command.spawn().expect("spawn stubborn child");
         let stdin = child.stdin.take().expect("stubborn child stdin");
         ChildControl {
+            pgid: child.id(),
+            recorder: test_recorder(),
             child,
             stdin,
             token: generate_startup_token().expect("startup token"),
@@ -1868,6 +1970,17 @@ mod tests {
             grace_ms,
             force_after_ms: 200,
         }
+    }
+
+    /// A Recorder writing into a scratch root. The shutdown path records
+    /// `descendants-swept`, so the tests need a real one.
+    fn test_recorder() -> Recorder {
+        let root = std::env::temp_dir().join(format!(
+            "arxmcp-test-events-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        Recorder::new(&root).expect("test recorder")
     }
 
     #[test]
@@ -2070,6 +2183,97 @@ mod tests {
             elapsed * 3 < CODESIGN_BUDGET,
             "healthy verification took {elapsed:?}, uncomfortably close to the \
              {CODESIGN_BUDGET:?} budget that refuses a launch",
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ---- issue #467: the ladder closes the TREE, not one PID ------------
+
+    /// Is this pid alive? Direct `/bin/ps`, deliberately not `is_stopped`:
+    /// the assertion must not depend on the code under test.
+    fn pid_alive(pid: u32) -> bool {
+        Command::new("/bin/ps")
+            .args(["-o", "pid=", "-p", &pid.to_string()])
+            .output()
+            .is_ok_and(|out| !out.stdout.trim_ascii().is_empty())
+    }
+
+    #[test]
+    fn the_ladder_does_not_leave_a_grandchild_behind() {
+        // #467's measured pathology, reproduced. The chaos run drove a child
+        // that printed garbage and then held a `sleep 300`; the supervisor
+        // reported a COMPLETE ladder -- {"event":"orphan-shutdown"} -- exited,
+        // and the grandchild was still alive 30s later with PPID 1, having to
+        // be pkill'd by hand.
+        //
+        // The child here forks a descendant and records its pid, then traps
+        // TERM and sleeps, so the full grace -> TERM -> KILL ladder runs. The
+        // descendant does NOT trap, so if anything ever addresses it, it dies.
+        let dir = scratch("arxmcp-descendant-sweep");
+        let pid_file = dir.join("grandchild");
+        let control = stubborn_control_running(
+            &format!(
+                "sleep 300 & echo $! > {}; trap '' TERM; sleep 30",
+                pid_file.display()
+            ),
+            200,
+        );
+        let child_pid = control.child.id();
+        // Let the fork land before shutting down, or the test races the shell.
+        let recorded = poll_until(Duration::from_secs(5), || pid_file.exists());
+        assert!(recorded.is_ok(), "the child never recorded its descendant");
+        let grandchild: u32 = std::fs::read_to_string(&pid_file)
+            .expect("grandchild pid")
+            .trim()
+            .parse()
+            .expect("pid parses");
+        assert!(
+            pid_alive(grandchild),
+            "fixture broken: descendant not running"
+        );
+
+        let started = Instant::now();
+        let code = shutdown_child(control);
+        let elapsed = started.elapsed();
+
+        assert_eq!(code, -1, "a force-killed child reports no exit code");
+        assert!(
+            elapsed < Duration::from_secs(10),
+            "the sweep must stay inside the bounded shutdown — took {elapsed:?}",
+        );
+        assert!(!pid_alive(child_pid), "the direct child must be reaped");
+        // The assertion #467 is actually about.
+        assert!(
+            !pid_alive(grandchild),
+            "grandchild {grandchild} outlived the full ladder — this is #467",
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_clean_exit_still_sweeps_its_descendants() {
+        // The rung that matters most and is easiest to miss: a child that
+        // exits COOPERATIVELY at the grace rung never signals anything. The
+        // ladder returns 0 and, before #467, the descendant simply stayed.
+        let dir = scratch("arxmcp-descendant-clean");
+        let pid_file = dir.join("grandchild");
+        let control = stubborn_control_running(
+            &format!("sleep 300 & echo $! > {}; exit 0", pid_file.display()),
+            5_000,
+        );
+        let recorded = poll_until(Duration::from_secs(5), || pid_file.exists());
+        assert!(recorded.is_ok(), "the child never recorded its descendant");
+        let grandchild: u32 = std::fs::read_to_string(&pid_file)
+            .expect("grandchild pid")
+            .trim()
+            .parse()
+            .expect("pid parses");
+
+        let code = shutdown_child(control);
+        assert_eq!(code, 0, "the child exits cleanly on this path");
+        assert!(
+            !pid_alive(grandchild),
+            "a clean child exit must not leave {grandchild} running (#467)",
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -2292,6 +2496,8 @@ mod tests {
         let stdin = child.stdin.take().expect("stubborn child stdin");
         let pid = child.id();
         let control = ChildControl {
+            pgid: child.id(),
+            recorder: test_recorder(),
             child,
             stdin,
             token: generate_startup_token().expect("startup token"),

@@ -426,32 +426,37 @@ universal cleanup:
   SIGKILL cleanup is proven only for a cooperating child that is alive and
   observing stdin EOF; a child parked in uninterruptible I/O (for example a
   stalled LanceDB/Kuzu read) would outlive its dead parent.
-- **Descendants of the production child are NOT cleaned up on the forced
-  path.** The supervisor signals only the direct child PID, never a process
-  group. The *fixture* spawns no descendants, so a passing fault matrix
-  proves nothing about them either way. The *production* child does: it
-  installs `ingest_tracker` and `parse_tracker` (`server/main.py`), whose
-  helpers run `asyncio.create_subprocess_exec` and spawn LaTeXML/MinerU with
-  `start_new_session=True` — literally `setsid()`. So on the forced rung
-  (grace → TERM → KILL) the child dies without running the FastAPI lifespan,
-  `ingest_tracker.shutdown()` never fires, and a `tools.notebook_ingest`
-  grandchild is reparented to init still holding its notebook's LanceDB
-  staging directory.
+- **The child's process group is closed; anything that calls `setsid()`
+  escapes it (#467, partially).** The supervisor spawns the child with
+  `process_group(0)`, signals the GROUP at every rung of the ladder, and
+  sweeps whatever remains after the direct child is reaped — recording
+  `descendants-swept`. Before this it signalled only the direct child PID,
+  and a complete grace → TERM → KILL → reap sequence could report success
+  while a grandchild reparented to launchd, still holding a notebook's
+  LanceDB staging directory. The cooperative path is covered too, which is
+  the rung easiest to miss: a child that exits cleanly never signals its
+  descendants at all.
 
-  The cooperative path is **not** a mitigation either, and must not be
-  described as one: both trackers' `shutdown()` cancel only the asyncio
-  wrappers, and their own docstrings state the case — the subprocess
-  "receives no signal from cancelling the asyncio wrapper" and "continues
-  running until the OS reaps it" (`server/ingest_tracker.py:345`,
-  `server/parse_tracker.py:301`). `os.killpg` exists in this tree only on the
-  per-call wall-TIMEOUT paths (`ingest/textbook_parser.py:479`,
-  `tools/arxiv_fetch.py`, `tools/cdm_eval.py:375`), never on shutdown. So a
-  descendant outlives BOTH shutdown paths, bounded only by its own wall
-  timeout; the next-boot `mark_orphaned_runs_failed` /
+  **The line is `start_new_session`, not depth.** `ingest_tracker` spawns
+  `tools.notebook_ingest` with a plain `asyncio.create_subprocess_exec` and
+  **no** `start_new_session`, so it stays in the group and the sweep reaches
+  it — that is the case #467 measured, and it is closed. But `parse_tracker`
+  reaches MinerU through `ingest.textbook_parser.run_mineru_sandboxed`,
+  which uses `subprocess.Popen(..., start_new_session=True)` — literally
+  `setsid()`. That process is only ONE level down, exactly like
+  `notebook_ingest`, and the sweep still cannot reach it, because it left
+  the process group by design. The same is true of LaTeXML
+  (`tools/arxiv_fetch.py`) and `tools/cdm_eval.py` further down.
+
+  So the honest boundary is: **in-group descendants at any depth are swept;
+  any descendant that starts its own session is not**, regardless of how
+  close to the child it sits. Each `setsid` spawner carries its own
+  wall-timeout `os.killpg` for its own tree, but nothing addresses them at
+  supervisor shutdown, and the next-boot `mark_orphaned_runs_failed` /
   `mark_orphaned_parses_failed` sweeps repair the database row, not the
-  process. Descendant cleanup is an open item for a future
-  desktop-distribution milestone — it is not covered here and must not be
-  read as covered.
+  process. Closing that needs process-tree walking or a per-run session
+  registry rather than a group signal. Tracked separately; not covered here
+  and must not be read as covered.
 
 - **The wildcard-bind arms were not ported.** The spike's `wildcard-v4` /
   `wildcard-v6` faults are absent from this matrix, so nothing exercises a

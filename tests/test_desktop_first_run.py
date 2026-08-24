@@ -409,6 +409,72 @@ def test_the_ps_read_keeps_its_safe_default_on_timeout() -> None:
     )
 
 
+def test_the_shutdown_ladder_signals_the_group_not_one_pid() -> None:
+    """#467. A complete grace/TERM/KILL/reap ladder reported success while a
+    grandchild reparented to launchd, still holding a LanceDB staging dir."""
+    ladder = rust_fn(LIFECYCLE_RS, "fn ladder(child: &mut Child")
+    assert "request_terminate_group(pgid)" in ladder, (
+        "the cooperative rung must address the group; per-PID SIGTERM is "
+        "exactly what left the grandchild behind (#467)"
+    )
+    assert "force_kill_group(pgid)" in ladder, (
+        "the forced rung must address the group too (#467)"
+    )
+    assert "request_terminate(child.id())" not in ladder, (
+        "the per-PID terminate must not come back to this ladder (#467)"
+    )
+    cycle = rust_fn(LIFECYCLE_RS, "fn cycle(")
+    assert "process_group(0)" in cycle, (
+        "the child must LEAD its own group, or there is no group to signal"
+    )
+
+
+def test_a_clean_child_exit_still_sweeps_the_group() -> None:
+    """The rung easiest to miss: a child that exits cooperatively never
+    signals its descendants, so the ladder alone cannot be the whole fix."""
+    shutdown = rust_fn(LIFECYCLE_RS, "pub fn shutdown_child(")
+    assert "sweep_descendants(pgid" in shutdown, (
+        "the sweep must run after the ladder on EVERY path, including the "
+        "clean exit that signalled nothing (#467)"
+    )
+    sweep = rust_fn(LIFECYCLE_RS, "fn sweep_descendants(")
+    assert "group_has_members(pgid)" in sweep, (
+        "check before signalling -- that check is also what makes the "
+        "post-reap sweep safe from PID reuse (#467)"
+    )
+    assert '"descendants-swept"' in sweep, (
+        "a sweep must leave evidence; the chaos run found this leak by "
+        "running ps by hand and a post-mortem should not have to"
+    )
+
+
+def test_the_setsid_gap_is_documented_not_claimed_closed() -> None:
+    """#467 closes IN-GROUP descendants at any depth; anything that calls
+    `setsid()` still escapes, however shallow it sits.
+
+    The distinction is not depth and the README must not imply it is:
+    `parse_tracker` reaches MinerU through `subprocess.Popen(...,
+    start_new_session=True)`, which is the SAME distance from the child as
+    the `notebook_ingest` grandchild the sweep does catch — and it escapes
+    anyway, because it left the process group by design.
+    """
+    readme = (REPO_ROOT / "apps" / "desktop" / "README.md").read_text(encoding="utf-8")
+    # Whitespace-normalised: the phrases below are line-wrapped in the source,
+    # so a raw substring scan reports a missing non-claim that is right there.
+    flat = " ".join(readme.split())
+    assert "start_new_session" in flat, "the residual setsid gap must stay written down"
+    assert "must not be read as covered" in flat, (
+        "the non-claim must survive the #467 rewrite"
+    )
+    # And the claim must be true: nothing in the tree may spawn the direct
+    # supervisor child's notebook_ingest with start_new_session.
+    tracker = (REPO_ROOT / "server" / "ingest_tracker.py").read_text(encoding="utf-8")
+    assert "start_new_session" not in tracker, (
+        "if ingest_tracker ever adds start_new_session, the sweep stops "
+        "reaching notebook_ingest and #467 silently reopens"
+    )
+
+
 def test_codesign_is_invoked_by_absolute_path() -> None:
     """A PATH lookup would let a planted `codesign` answer for itself."""
     assert '"/usr/bin/codesign"' in LIFECYCLE_RS, (
@@ -498,8 +564,10 @@ def test_the_cooperative_grace_is_skipped_only_for_a_stopped_child() -> None:
         "the shortcut must key on the process being STOPPED, not on whether "
         "it bound (#442)"
     )
-    shutdown = rust_fn(LIFECYCLE_RS, "pub fn shutdown_child(")
-    assert "is_stopped(control.child.id())" in shutdown
+    # #467 split the escalation out of `shutdown_child` into `ladder` so the
+    # descendant sweep could wrap it. The discriminator moved with it.
+    ladder = rust_fn(LIFECYCLE_RS, "fn ladder(child: &mut Child")
+    assert "is_stopped(child.id())" in ladder
     assert "control.bound" not in LIFECYCLE_RS, (
         "the never-bound discriminator was wrong and must not come back"
     )
